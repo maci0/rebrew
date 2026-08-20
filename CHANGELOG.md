@@ -1,4 +1,63 @@
 ## [Unreleased]
+### Changed
+- **Docker-only toolchain execution** (ADR-008): the host never calls
+  CL.EXE / DCC.EXE / TCC.EXE / bcc32.exe directly anymore — every
+  Windows/DOS toolchain (all 20 MSVC 1.0-10.0 profiles, Borland, Watcom,
+  the 16-bit DOS compilers) compiles ONLY through its docker image, with
+  the runtime (wine / DOSBox) encapsulated in the image.  The vendored
+  trees remain as the byte-identical build source for the images but are
+  never exec'd; `run_toolchain`, `compile_to_obj`, the GA/flag-sweep path
+  and doctor all route through the image and error clearly when it is
+  missing (`rebrew toolchain build <name>`).  Host wine/wibo/Xvfb glue
+  (`vendored_msvc_env`, `vendored_compiler_command`) is removed;
+  native-Linux compilers (gcc-pe, watcom16 wcc) still exec directly.
+  `compile_to_obj` bind-mounts project include dirs into the container
+  (`-v dir:/incN`) so /I flags keep working.
+
+### Added
+- **Complete MSVC 1.0–10.0 toolchain matrix** (docs/TOOLCHAIN.md): 20 wine/
+  DOSBox profiles — every version and every preserved service pack — each
+  packaged as a sha256-pinned docker image `rebrew/msvc:<version>-<arch>`
+  plus a vendored host tree, config/init/detect profile, tools/ compat link
+  and a smoke-gate golden.  Sources pinned from **archaic-msvc** wherever the
+  compiler exists (2.0, 4.1, 5.0+SP1-3, 6.0 base+SP5/SP6, 7.0 RTM+SP1, 7.1+
+  SP1, 8.0+SP1, 9.0, 10.0+SP1 — re-pinned 6.0/6.0-SP6/legacy-7.0 from
+  decomp.me to archaic-msvc, codegen-verified byte-identical); the 16-bit
+  line comes from the original Microsoft media (archive.org `en_vc152` for
+  1.5, the WinWorld 3.5" floppy set for 1.0 — both committed in-repo as
+  tar.xz; the existing 1.52 stays).  Provenance + per-source checksums
+  documented; official-release-only policy.
+- **MSVC 6.0 SP5/SP6 mspdb60.dll relocation**: the archaic full-product
+  trees stash the PDB server DLL under `Common/MSDev98/Bin` while CL
+  12.00.8804 imports it in-dir — both the Dockerfiles and
+  `rebrew toolchain vendor` relocate it, so /c compiles work.
+- **VC 1.5 (msvc15) + VC 1.0 (msvc10) profiles**: 16-bit DOSBox compilers
+  via the generalized `rebrew.msvc16` (version=1.5-win16 / 1.0-win16);
+  both produce parseable 16-bit OMF (verified end-to-end; the 1.0 tree was
+  assembled from the WinWorld 3.5" floppy set — SZDD payload, Phar Lap TNT
+  driver).
+- **Smoke-gate goldens** for all 19 new image-backed toolchains (28/29
+  image toolchains verified byte-reproducible; tc20's mismatch is a
+  pre-existing path-embedding artifact of non-smoke workdirs).
+- **`--sweep-toolchain`** now enumerates the full vendored 2.0–10.0 line
+  (was 4.0–7.0).
+- `_vendored_binary` resolves nested product layouts (VC98/Bin, Vc7/bin,
+  VC/bin) — the wrapped MSVC 6 master's host binary now resolves too.
+
+### Added
+- **Toolchain source sync** (`rebrew toolchain check-updates` /
+  `rebrew toolchain update <name> [--apply]`): every GitHub-codeload pin
+  (archaic-msvc, archaic-toolchains, itsmattkc) now records the branch commit
+  it was pinned from; the checker compares the live commit sha via the GitHub
+  API (no download) and reports upstream drift before a build fails.
+  `update --apply` re-pins (sha256 + commit in `_SOURCES` and the
+  Dockerfile), re-vendors the host tree, rebuilds the docker image and
+  regenerates the smoke golden (verified stable across two compiles).  The
+  Open Watcom `Last-CI-build` snapshot (a moving release tag) is
+  re-downloaded + re-hashed; decomp.me/archive.org assets and in-repo
+  tarballs are immutable.  First catch: watcom's snapshot had drifted and is
+  re-pinned (99e494d9; codegen unchanged — golden stays 44a6354f).
+  Nightly drift check added as `.github/workflows/toolchain-sync.yml`.
 
 ## [0.2.0] - 2026-08-18
 ### Fixed

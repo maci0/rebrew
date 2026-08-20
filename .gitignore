@@ -142,3 +142,6 @@ rebrew-function.toml.lock
 /tools/msvc7.0
 /tools/TC
 /tools/watcom-win32
+
+# Toolchain download cache (pinned-source tarballs, re-fetched by rebrew toolchain vendor).
+/.cache/

@@ -158,15 +158,17 @@ class TestCompileToObj:
         assert "Failed to copy source into workdir" in err
 
     def test_base_cflags_uses_shlex_split(self, tmp_path: Path, monkeypatch) -> None:
+        """base_cflags like '/FI"my forced.h" /nologo' are shlex-split so the
+        quoted include reaches the docker invocation as one flag."""
         captured: dict[str, list[str]] = {}
 
-        def _fake_run(cmd: list[str], **_kwargs: object) -> SimpleNamespace:
-            captured["cmd"] = cmd
-            (tmp_path / "work" / "f.obj").write_bytes(b"\x00")
-            return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+            captured["args"] = args
+            (workdir / "f.obj").write_bytes(b"\x00")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.subprocess.run", _fake_run)
-        monkeypatch.setattr("rebrew.compile.resolve_cl_command", lambda _cfg: ["CL.EXE"])
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
 
         cfg: Any = SimpleNamespace(
             root=tmp_path,
@@ -176,6 +178,8 @@ class TestCompileToObj:
             compiler_command="CL.EXE",
             compiler_runner="",
             compiler_libs=tmp_path,
+            compiler_profile="msvc6",
+            posix_style=False,
             msvc_env=lambda: {},
         )
         src_dir = tmp_path / "src"
@@ -188,7 +192,7 @@ class TestCompileToObj:
         obj_path, err = compile_to_obj(cast(ProjectConfig, cfg), source, ["/O2"], workdir)
         assert err == ""
         assert obj_path is not None
-        assert "/FImy forced.h" in captured["cmd"]
+        assert any("/FImy forced.h" in a for a in captured["args"])
 
 
 class TestCompileToObjPosix:
@@ -248,16 +252,18 @@ class TestCompileToObjPosix:
         # cflags passed through unchanged
         assert "-fno-builtin" in cmd
 
-    def test_msvc_profile_unaffected(self, tmp_path: Path, monkeypatch) -> None:
+    def test_msvc_profile_routes_through_docker(self, tmp_path: Path, monkeypatch) -> None:
+        """msvc6 is docker-backed: compile_to_obj routes through run_toolchain
+        with MSVC-style flags (/Fo), not a host wine subprocess."""
         captured: dict[str, list[str]] = {}
 
-        def _fake_run(cmd: list[str], **_kwargs: object) -> SimpleNamespace:
-            captured["cmd"] = cmd
-            (tmp_path / "work" / "f.obj").write_bytes(b"\x00")
-            return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+            captured["args"] = args
+            (workdir / "f.obj").write_bytes(b"\x00")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.subprocess.run", _fake_run)
-        monkeypatch.setattr("rebrew.compile.resolve_cl_command", lambda _cfg: ["wine", "CL.EXE"])
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
 
         cfg: Any = SimpleNamespace(
             root=tmp_path,
@@ -268,6 +274,7 @@ class TestCompileToObjPosix:
             compiler_runner="wine",
             compiler_libs=tmp_path,
             compiler_profile="msvc6",
+            posix_style=False,
             msvc_env=lambda: {},
         )
         src_dir = tmp_path / "src"
@@ -280,8 +287,8 @@ class TestCompileToObjPosix:
         obj_path, err = compile_to_obj(cast(ProjectConfig, cfg), source, ["/O2"], workdir)
         assert err == ""
         assert obj_path is not None
-        assert any(a.startswith("/Fo") for a in captured["cmd"])
-        assert "-o" not in captured["cmd"]
+        assert any(a.startswith("/Fo") for a in captured["args"])
+        assert "-o" not in captured["args"]
 
 
 class TestFilterWineStderr:
@@ -325,7 +332,7 @@ class TestCompileToObjToolchainProfiles:
 
         captured: dict = {}
 
-        def _fake_run(spec, args, *, workdir, timeout):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
             captured["args"] = args
             obj = workdir / "t.obj"
             obj.write_bytes(b"OMF")
@@ -354,7 +361,7 @@ class TestCompileToObjToolchainProfiles:
 
         captured: dict = {}
 
-        def _fake_run(spec, args, *, workdir, timeout):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
             captured["args"] = args
             obj = workdir / "t.obj"
             obj.write_bytes(b"OMF")
@@ -381,7 +388,7 @@ class TestCompileToObjToolchainProfiles:
         from rebrew.compile import compile_to_obj
         from rebrew.toolchain import RunResult
 
-        def _fake_run(spec, args, *, workdir, timeout):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
             return RunResult(1, "", "Error! E1139", backend="host")
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
@@ -417,7 +424,7 @@ class TestCompileToObjMsvc152Image:
         captured: dict = {}
         monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
 
-        def _fake_run(spec, args, *, workdir, timeout):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
             captured["args"] = args
             # DOSBox FAT-uppercases the object
             (workdir / "T.OBJ").write_bytes(b"OMF")
@@ -445,7 +452,7 @@ class TestCompileToObjMsvc152Image:
         captured: dict = {}
         monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
 
-        def _fake_run(spec, args, *, workdir, timeout):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
             captured["args"] = args
             (workdir / "T.OBJ").write_bytes(b"OMF")
             return RunResult(0, "", "", backend="docker")
@@ -464,18 +471,13 @@ class TestCompileToObjMsvc152Image:
         # source first (wrapper convention), then the cflags verbatim
         assert captured["args"] == ["t.c", "/O1", "/Gs"]
 
-    def test_host_fallback_when_no_image(self, tmp_path: Path, monkeypatch) -> None:
+    def test_no_image_raises_clear_error(self, tmp_path: Path, monkeypatch) -> None:
+        """Docker-only: a missing image is a hard error — there is no host
+        DOSBox fallback anymore."""
         from rebrew.compile import compile_to_obj
 
         monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
-        captured: dict = {}
-
-        def _fake_msvc16_compile(local_src, workdir, cflags, timeout):  # noqa: ARG001
-            captured["host"] = True
-            (workdir / "T.OBJ").write_bytes(b"OMF")
-            return type("R", (), {"obj_path": workdir / "T.OBJ"})()
-
-        monkeypatch.setattr("rebrew.msvc16.compile_c", _fake_msvc16_compile)
+        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
         monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
 
         src = tmp_path / "t.c"
@@ -483,37 +485,8 @@ class TestCompileToObjMsvc152Image:
         workdir = tmp_path / "work"
         workdir.mkdir()
         obj, err = compile_to_obj(self._cfg(tmp_path), src, [], workdir, use_cache=False)
-        assert obj is not None
-        assert captured.get("host") is True
-
-
-def test_resolve_compiler_env_falls_back_to_install(tmp_path: Path, monkeypatch) -> None:
-    """resolve_compiler_env (the GA/flag-sweep path) must resolve the CL path
-    with the install-tools fallback — previously it kept the relative path,
-    and `rebrew match` failed with wine rc 53 on projects without a local
-    tools/ symlink while `rebrew test` worked."""
-    from rebrew import utils as rebrew_utils
-    from rebrew.compile import resolve_compiler_env
-    from rebrew.config import ProjectConfig
-
-    fake = tmp_path / "toolchain" / "msvc" / "5.0-win32" / "bin" / "cl.exe"
-    fake.parent.mkdir(parents=True)
-    fake.write_bytes(b"MZ")
-    (tmp_path / "toolchain" / "msvc" / "5.0-win32" / "include").mkdir(parents=True)
-    monkeypatch.setattr(rebrew_utils, "_REPO_ROOT", tmp_path)
-
-    cfg = ProjectConfig(
-        root=tmp_path / "project",
-        compiler_command="wine toolchain/msvc/5.0-win32/bin/cl.exe",
-        compiler_includes="toolchain/msvc/5.0-win32/include",
-    )
-    cl_cmd, _inc_dir, _env, _cc = resolve_compiler_env(cfg)
-    assert cl_cmd == f"wine {fake}"  # inc_dir fallback is a load_config concern
-
-
-# ---------------------------------------------------------------------------
-# maybe_headless_wine
-# ---------------------------------------------------------------------------
+        assert obj is None
+        assert "not built" in err
 
 
 class TestMaybeHeadlessWine:
@@ -649,7 +622,7 @@ class TestCompileToObjBorlandc55:
 
         captured: dict = {}
 
-        def _fake_run(spec, args, *, workdir, timeout):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
             captured["args"] = args
             obj = workdir / "t.obj"
             obj.write_bytes(b"OMF")

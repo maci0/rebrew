@@ -1521,8 +1521,9 @@ class TestToolchainRoutedBuildCandidate:
         assert seen.get("profile") == "watcom"
         assert "boom" in (res.error_msg or "")
 
-    def test_msvc6_profile_uses_raw_subprocess(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Default MSVC profiles keep the existing raw-subprocess path."""
+    def test_msvc6_profile_delegates_to_runner(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """msvc6 is docker-backed — GA compiles route through compile_to_obj
+        (the shared docker runner), never a host wine subprocess."""
         from rebrew.matcher.compiler import build_candidate_obj_only
 
         called: list[str] = []
@@ -1540,5 +1541,5 @@ class TestToolchainRoutedBuildCandidate:
             "_f",
             profile="msvc6",
         )
-        assert not called  # raw path, not the runner
-        assert res.ok is False  # compiler absent — no delegation happened
+        assert called == ["compile_to_obj"]  # docker runner delegation
+        assert res.ok is False  # fake compile failed — routing is what matters

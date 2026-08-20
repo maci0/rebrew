@@ -294,10 +294,24 @@ def _resolve_string_symbols_in_target(
             probes.append(stripped)
         for sec_va, scan_end, file_off in candidate_secs:
             for probe in probes:
-                pos = target_bytes.find(probe, file_off, scan_end)
-                if pos >= 0:
-                    # Convert file offset to VA.
-                    found[sym_name] = sec_va + (pos - file_off)
+                pos = file_off
+                while True:
+                    pos = target_bytes.find(probe, pos, scan_end)
+                    if pos < 0:
+                        break
+                    # Only accept a match at a string boundary: the section
+                    # start, a NUL (the previous string's terminator), a control
+                    # byte, or a 0xff sentinel (MSVC string pools are often
+                    # delimited by 0xffffffff).  Printable ASCII (0x20-0x7e) and
+                    # high-ASCII (0x80-0xfe) are string content, so a probe
+                    # matching there is a substring of a longer string — e.g.
+                    # "at\x00" inside "Sat\x00" (the day-name table).
+                    prev = target_bytes[pos - 1]
+                    if pos == file_off or prev < 0x20 or prev == 0xFF:
+                        found[sym_name] = sec_va + (pos - file_off)
+                        break
+                    pos += 1
+                if sym_name in found:
                     break
             if sym_name in found:
                 break

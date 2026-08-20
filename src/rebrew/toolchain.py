@@ -1,15 +1,20 @@
-"""toolchain.py — standardized toolchain invocation (docker-first, host fallback).
+"""toolchain.py — standardized toolchain invocation (docker-only for Windows/DOS).
 
 Modeled on Godbolt / Compiler Explorer's convention: **one container image
 per toolchain-version**, with the compiler behind a wrapper inside the image
 so the host invocation is uniform — ``docker run <image> <compiler> <args>``.
-The image encapsulates the runtime quirks (MSVC under wine, DCC under
+The image encapsulates the runtime quirks (MSVC under wine, DCC/TCC under
 DOSBox), so the host-side code never needs per-toolchain runner glue.
 
-Rebrew adds a **host-path fallback**: a spec may resolve to a vendored
-directory (``toolchain/msvc/6.0-win32`` etc.) or a PATH binary instead of an image, so
-the same profile works whether or not docker is available.  The runner picks
-the backend in order: docker image → host path → PATH.
+Execution is **docker-only for every Windows/DOS toolchain** (all wine- and
+dosbox-runtime specs): the host never calls CL.EXE / DCC.EXE / TCC.EXE /
+bcc32.exe directly, and there is no wine/wibo host fallback.  The vendored
+``toolchain/<family>/<version>-<arch>`` trees remain — they are the
+byte-identical source the images build from (``rebrew toolchain build``)
+and the smoke gate verifies the image output against them — but nothing
+executes from them.  Native-Linux toolchains without an image (gcc-pe, the
+wcc 16-bit binary) exec their vendored/PATH binary directly; they are not
+Windows binaries, so no wine is involved.
 
 A :class:`ToolchainSpec` describes how to invoke one compiler version:
 its image tag, the compiler executable (and any wrapper), and the flag
@@ -18,6 +23,7 @@ style/object-format conventions the rest of rebrew needs to drive it.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import subprocess
@@ -73,7 +79,7 @@ class RunResult:
     returncode: int
     stdout: str
     stderr: str
-    backend: str  # "docker" | "host"
+    backend: str  # "docker" | "native" (host wine/dosbox execution removed)
 
     @property
     def ok(self) -> bool:
@@ -110,6 +116,9 @@ class ToolchainSource:
     vc98_wrap: bool = False  # wrap the extracted tree in a VC98/ subdir (MSVC 6
     # classic master layout — Bin/Include/Lib/CRT live under VC98, matching the
     # canonical config paths and every legacy tools/MSVC600/VC98/... reference)
+    commit: str = ""  # GitHub default-branch commit sha the pin was taken from
+    # (codeload URLs).  `rebrew toolchain check-updates` compares the live
+    # branch sha against this to detect upstream drift cheaply (no download).
 
     def is_in_repo(self) -> bool:
         return bool(self.in_repo)
@@ -120,11 +129,196 @@ class ToolchainSource:
 #: download, so host trees and containers are byte-identical.
 _SOURCES: dict[str, ToolchainSource] = {
     "msvc6": ToolchainSource(
-        url="https://github.com/OmniBlade/decomp.me/releases/download/msvcwin9x/msvc6.0.tar.gz",
-        sha256="5c81e9c2ab0ac5545022c1418a23392cb514db950cf6dcb1f48327270403fcd3",
-        layout="tar",
+        # archaic-msvc/msvc600 — the flagship MSVC 6.0 base (VC98/Bin/CL.EXE,
+        # 12.00.8168).  Byte-reproducible with the old decomp.me msvc6.0
+        # source (masked-object sha256 identical), now pinned to the
+        # archaic-msvc org per the "get everything from archaic-msvc" rule.
+        url="https://codeload.github.com/archaic-msvc/msvc600/tar.gz/refs/heads/master",
+        sha256="19b72020c8225f91d7345b16aa0acf1b31a4608ae1299693021491e7338d0ee8",
+        commit="34d4fc4004e880b8d5c44ae5babd7229eeaad993",
+        layout="tar-strip1",
         host_dir="msvc/6.0-win32",
-        vc98_wrap=True,
+    ),
+    "msvc200": ToolchainSource(
+        # archaic-msvc/msvc200 — VC 2.0 (1994), the first 32-bit compiler; bin/cl.exe.
+        url="https://codeload.github.com/archaic-msvc/msvc200/tar.gz/refs/heads/master",
+        sha256="0b058f103fe6b615987a85d518d7fd23389fab67c9df3cadfae22f5a70d5d000",
+        commit="6bf022c590fdea0526dc94975f3d91add444ac1a",
+        layout="tar-strip1",
+        host_dir="msvc/2.0-win32",
+    ),
+    "msvc410": ToolchainSource(
+        # archaic-msvc/msvc410 — VC 4.1 (1996); bin/CL.EXE (10.10.6038).
+        url="https://codeload.github.com/archaic-msvc/msvc410/tar.gz/refs/heads/master",
+        sha256="21486aecd108397bdced6e2cf6a5170a3cc30280a3eba97a4a8f92985a9cc5c4",
+        commit="373f5e621ac8fb7b219873b37334ef1d0a2149e6",
+        layout="tar-strip1",
+        host_dir="msvc/4.1-win32",
+    ),
+    "msvc500sp1": ToolchainSource(
+        # archaic-msvc/msvc500sp1 — VC 5.0 SP1 (CL.EXE identical to base 11.00.7022).
+        url="https://codeload.github.com/archaic-msvc/msvc500sp1/tar.gz/refs/heads/master",
+        sha256="f41e9e5a05bd7a4da97fdcc9d168aaac7898e5bfec11791c630735a7da13d303",
+        commit="401174749393c9991a6b91425a795e04e8bdeedb",
+        layout="tar-strip1",
+        host_dir="msvc/5.0-sp1-win32",
+    ),
+    "msvc500sp2": ToolchainSource(
+        # archaic-msvc/msvc500sp2 — VC 5.0 SP2.
+        url="https://codeload.github.com/archaic-msvc/msvc500sp2/tar.gz/refs/heads/master",
+        sha256="551137506a6a98ca890bfe20df7d5833bc475cf7e2279d959eccce0485525c8e",
+        commit="4ebf02022705b4c9e9108d3ed3f286ed80ba2ed9",
+        layout="tar-strip1",
+        host_dir="msvc/5.0-sp2-win32",
+    ),
+    "msvc500sp3": ToolchainSource(
+        # archaic-msvc/msvc500sp3 — VC 5.0 SP3.
+        url="https://codeload.github.com/archaic-msvc/msvc500sp3/tar.gz/refs/heads/master",
+        sha256="cdba2878eaacd07cb289b73f08250e2c39596fc9b31a2ad7a4fd887879be1e38",
+        commit="259a03f0bc863de5baf657ec064cb60cb20a2cdc",
+        layout="tar-strip1",
+        host_dir="msvc/5.0-sp3-win32",
+    ),
+    "msvc600sp3": ToolchainSource(
+        # OmniBlade decomp.me msvc6.3 — VC 6.0 SP3 (CL.EXE 12.00.8168, the
+        # RTM..SP3 build; identical to the flagship msvc6 compiler).  The
+        # archaic-msvc msvc600_sp3 repo carries no Bin/, so the decomp.me
+        # mirror (which matches the vendored tree byte-for-byte) is pinned.
+        url="https://github.com/OmniBlade/decomp.me/releases/download/msvcwin9x/msvc6.3.tar.gz",
+        sha256="84f73e718b3671bfd5de3b7764622b07633b572ee826ca3b77602d224c128608",
+        layout="tar",
+        host_dir="msvc/6.0-sp3-win32",
+    ),
+    "msvc600sp5": ToolchainSource(
+        # archaic-msvc/msvc600_sp5 — VC 6.0 SP5 full product tree (VC98/Bin,
+        # CL.EXE 12.00.8804).  The archaic sp3/sp4 repos carry no Bin/, and
+        # decomp.me's msvc6.4/6.5 mislabel the SP6 compiler, so SP5 is the
+        # earliest real SP with its own preserved compiler binary.
+        url="https://codeload.github.com/archaic-msvc/msvc600_sp5/tar.gz/refs/heads/master",
+        sha256="a95a9c17cbcbe0d97a3e80ef9596f12404eb28f36bab24e89aabcbe37acbbef6",
+        commit="b0b07e29108e2695eb0274c2a377a7b7d7326150",
+        layout="tar-strip1",
+        host_dir="msvc/6.0-sp5-win32",
+    ),
+    "msvc600sp6": ToolchainSource(
+        # archaic-msvc/msvc600_sp6 — VC 6.0 SP6 full product tree
+        # (VC98/Bin/CL.EXE, 12.00.8804 — the same compiler the SP4 CD and
+        # SP5 carry).  The repo stashes mspdb60.dll under Common/MSDev98/Bin
+        # (the vendor + Dockerfile relocate it — CL imports it in-dir).
+        url="https://codeload.github.com/archaic-msvc/msvc600_sp6/tar.gz/refs/heads/master",
+        sha256="7c2aa3dd4c56b8054cc1ae0e00cd976005dd5b9b43ea8c33b22798a15c9c15c3",
+        commit="1f4223a77122220d28e8670788b3f9fd6bb2c4d1",
+        layout="tar-strip1",
+        host_dir="msvc/6.0-sp6-win32",
+    ),
+    "msvc7": ToolchainSource(
+        # archaic-msvc/msvc710 — the legacy "msvc7" profile's compiler is
+        # cl.exe 13.10.3077 (the .NET 2003 build); archaic-msvc carries it
+        # in msvc710 (Vc7/bin layout).  The vendored 7.0-win32 host tree
+        # keeps its flat Bin/ layout (established config); the image builds
+        # from the archaic source.
+        url="https://codeload.github.com/archaic-msvc/msvc710/tar.gz/refs/heads/master",
+        sha256="618e876bc06431498fa98e71a408d822a5fad979219ce3253318d099a6917b27",
+        commit="2932d76fe417b0bc49010b26d4be2e5b743cc4be",
+        layout="tar-strip1",
+        host_dir="msvc/7.0-win32",
+    ),
+    "msvc700": ToolchainSource(
+        # archaic-msvc/msvc700 — the true VC 7.0 (2002) compiler (13.00.9466;
+        # 7.0-SP1 shipped the identical binary).  Vc7/bin/cl.exe layout; the
+        # canonical 7.0-win32 dir stays with the established msvc7 profile.
+        url="https://codeload.github.com/archaic-msvc/msvc700/tar.gz/refs/heads/master",
+        sha256="5f75462fb6134ad56c3ae28cf8b1e3b2869578d4171568b7a1fcdfb0bf97830b",
+        commit="97fe4cdeaeb0bb934591d4b05eb52c2e8ab3e34b",
+        layout="tar-strip1",
+        host_dir="msvc/7.0-rtm-win32",
+    ),
+    "msvc700sp1": ToolchainSource(
+        # archaic-msvc/msvc700_sp1 — VC 7.0 SP1 (same 13.00.9466 compiler,
+        # updated headers/libs).
+        url="https://codeload.github.com/archaic-msvc/msvc700_sp1/tar.gz/refs/heads/master",
+        sha256="bc1300625c89e855e1c0160b43c6fe2576ad68426483bd73c3cde2682165ba8a",
+        commit="8bd9502d74274667de198247a459d63dbd431068",
+        layout="tar-strip1",
+        host_dir="msvc/7.0-sp1-win32",
+    ),
+    "msvc710": ToolchainSource(
+        # archaic-msvc/msvc710 — VC 7.1 (.NET 2003; cl.exe 13.10.3077, the
+        # same build the legacy msvc7 profile carries).  Vc7/bin/cl.exe.
+        url="https://codeload.github.com/archaic-msvc/msvc710/tar.gz/refs/heads/master",
+        sha256="618e876bc06431498fa98e71a408d822a5fad979219ce3253318d099a6917b27",
+        commit="2932d76fe417b0bc49010b26d4be2e5b743cc4be",
+        layout="tar-strip1",
+        host_dir="msvc/7.1-win32",
+    ),
+    "msvc710sp1": ToolchainSource(
+        # archaic-msvc/msvc710_sp1 — VC 7.1 SP1 (cl.exe 13.10.6030).
+        url="https://codeload.github.com/archaic-msvc/msvc710_sp1/tar.gz/refs/heads/master",
+        sha256="44246ff2980d715c2d05eaed505344a0b87850a04606482c13ba4832ddf5ec70",
+        commit="cf62606064633dd8441aa2feffe34792099cc366",
+        layout="tar-strip1",
+        host_dir="msvc/7.1-sp1-win32",
+    ),
+    "msvc800": ToolchainSource(
+        # archaic-msvc/msvc800 — VC 8.0 (2005; cl.exe 14.00.50727).  VC/bin.
+        url="https://codeload.github.com/archaic-msvc/msvc800/tar.gz/refs/heads/master",
+        sha256="ab819164ebd9e9d367c1178a86eb9c3337b1a8d85d1357322a3252b63ad64453",
+        commit="00ddaf58d09788f0b12e475dae5fb5674dd32578",
+        layout="tar-strip1",
+        host_dir="msvc/8.0-win32",
+    ),
+    "msvc800sp1": ToolchainSource(
+        # archaic-msvc/msvc800_sp1 — VC 8.0 SP1 (cl.exe 14.00.50727.762).
+        url="https://codeload.github.com/archaic-msvc/msvc800_sp1/tar.gz/refs/heads/master",
+        sha256="9b53b515d79839c7404944c29cdae862d3a8c1ff0d0a27a202bfc37a31f587c5",
+        commit="4b1bafba636f67eb76f548f0f0e7f38864091a4a",
+        layout="tar-strip1",
+        host_dir="msvc/8.0-sp1-win32",
+    ),
+    "msvc900": ToolchainSource(
+        # archaic-msvc/msvc900 — VC 9.0 (2008; cl.exe 15.00.21022).  VC/bin;
+        # the repo carries no SP1 tarball (VC 2008 SP1's 15.00.30729 compiler
+        # is not preserved publicly) — the base 9.0 profile is the matchable
+        # target for VS2008-era binaries.
+        url="https://codeload.github.com/archaic-msvc/msvc900/tar.gz/refs/heads/master",
+        sha256="9121d184d9cb88c13b95d3d2e770c8d8ae9d2531a5d8ea90c53a14f765e3f904",
+        commit="c9d710cef9a3dec08d7d2dca78a3b494335a5baa",
+        layout="tar-strip1",
+        host_dir="msvc/9.0-win32",
+    ),
+    "msvc1000": ToolchainSource(
+        # archaic-msvc/msvc1000 — VC 10.0 (2010; cl.exe 16.00.30319).  VC/bin.
+        url="https://codeload.github.com/archaic-msvc/msvc1000/tar.gz/refs/heads/master",
+        sha256="5f0b4486eb68e0069bb11506bcc8834710ac92ac1e7f311b3e4400a9d5d9409f",
+        commit="f8977e2cacbe6cab4f9e73eb2c05695a88519bfe",
+        layout="tar-strip1",
+        host_dir="msvc/10.0-win32",
+    ),
+    "msvc1000sp1": ToolchainSource(
+        # archaic-msvc/msvc1000_sp1 — VC 10.0 SP1 (cl.exe 16.00.40219).
+        url="https://codeload.github.com/archaic-msvc/msvc1000_sp1/tar.gz/refs/heads/master",
+        sha256="2e5fbb9b71ed8cb2673594484d6a8fad7484c809ecefffaf3319e0164af6f89b",
+        commit="09a53c11f781ec9ab5e66772ba720b9d85e4c2a4",
+        layout="tar-strip1",
+        host_dir="msvc/10.0-sp1-win32",
+    ),
+    "msvc15": ToolchainSource(
+        # Committed tree extracted from the archive.org en_vc152 item
+        # (VC 1.5, 1993, 16-bit) — RAR SFX extracts cleanly for 1.5 (the
+        # 1.52 SFX corrupts), so the verified tree is vendored in-repo.
+        in_repo="toolchain/msvc/1.5-win16/msvc15.tar.xz",
+        layout="tar",
+        host_dir="msvc/1.5-win16",
+    ),
+    "msvc10": ToolchainSource(
+        # Assembled from the WinWorldPC "Microsoft Visual C++ 1.0
+        # Professional" 3.5" floppy set (20×1.44MB, SZDD-compressed payload;
+        # 7z-extracted + renamed), then vendored in-repo as msvc10.tar.xz.
+        # CL.EXE is a Phar Lap TNT DOS-extender (PE32) like 1.5/1.52 — runs
+        # headless under DOSBox and produces 16-bit OMF (verified).
+        in_repo="toolchain/msvc/1.0-win16/msvc10.tar.xz",
+        layout="tar",
+        host_dir="msvc/1.0-win16",
     ),
     "msvc1.52": ToolchainSource(
         in_repo="toolchain/msvc/1.52-win16/msvc152.tar.xz",
@@ -160,7 +354,8 @@ _SOURCES: dict[str, ToolchainSource] = {
     ),
     "watcom": ToolchainSource(
         url="https://github.com/open-watcom/open-watcom-v2/releases/download/Last-CI-build/ow-snapshot.tar.xz",
-        sha256="984ff0d9a3f36bdb7596d8751299b3630cc259560c8386fb3337caa0037f3b4c",
+        sha256="99e494d9a3871f58a6398268e8f04003affa73421ca5fb49e3815a8ef1bb7b1f",
+        commit="",
         layout="tar-strip1",
         host_dir="watcom/2.0-win32",
     ),
@@ -171,6 +366,7 @@ _SOURCES: dict[str, ToolchainSource] = {
         # fresh clone could not reproduce it via `rebrew toolchain vendor`.
         url="https://codeload.github.com/archaic-msvc/msvc420/tar.gz/refs/heads/master",
         sha256="651db241202416be7e870ff8d98928179b94515068e7895008b8a82cb0b7001c",
+        commit="b42c244f0a83ba15ba2ffb62b0dc240d7b2dea50",
         layout="tar-strip1",
         host_dir="msvc/4.2-win32",
     ),
@@ -180,6 +376,7 @@ _SOURCES: dict[str, ToolchainSource] = {
         # for the 5.0 layout already pointed at (codeload archaic-msvc/msvc500).
         url="https://codeload.github.com/archaic-msvc/msvc500/tar.gz/refs/heads/master",
         sha256="46745771c0805310212415450f097134f3871d1786434e86c080e0b8cb9a38fb",
+        commit="8abf95ce980161ad87b0b02402269cce76988953",
         layout="tar-strip1",
         host_dir="msvc/5.0-win32",
     ),
@@ -190,6 +387,7 @@ _SOURCES: dict[str, ToolchainSource] = {
         # registry lacked it).
         url="https://codeload.github.com/itsmattkc/MSVC400/tar.gz/refs/heads/master",
         sha256="c076ab51bb5a52c805c85603d565ac406beec1a0accf3829127369294f1aff11",
+        commit="821e942fd95bd16d01649401de7943ef87ae9f54",
         layout="tar-strip1",
         host_dir="msvc/4.0-win32",
     ),
@@ -205,7 +403,7 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
         flags_style="msvc",
         obj_ext=".obj",
         host_path=_vendored("msvc/4.0-win32") if _vendored("msvc/4.0-win32").exists() else None,
-        description="MSVC 4.0 (32-bit PE, C89) — wine or wibo",
+        description="MSVC 4.0 (32-bit PE, C89) — docker image (wine inside)",
     ),
     "msvc420": ToolchainSpec(
         name="msvc420",
@@ -215,7 +413,7 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
         flags_style="msvc",
         obj_ext=".obj",
         host_path=_vendored("msvc/4.2-win32") if _vendored("msvc/4.2-win32").exists() else None,
-        description="MSVC 4.2 (32-bit PE, C89) — wine or wibo",
+        description="MSVC 4.2 (32-bit PE, C89) — docker image (wine inside)",
     ),
     "msvc5": ToolchainSpec(
         name="msvc5",
@@ -225,7 +423,7 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
         flags_style="msvc",
         obj_ext=".obj",
         host_path=_vendored("msvc/5.0-win32") if _vendored("msvc/5.0-win32").exists() else None,
-        description="MSVC 5.0 (32-bit PE, C89) — wine or wibo",
+        description="MSVC 5.0 (32-bit PE, C89) — docker image (wine inside)",
     ),
     "msvc6": ToolchainSpec(
         name="msvc6",
@@ -235,7 +433,7 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
         flags_style="msvc",
         obj_ext=".obj",
         host_path=_vendored("msvc/6.0-win32") if _vendored("msvc/6.0-win32").exists() else None,
-        description="MSVC 6.0 (32-bit PE, C89) — wine or wibo",
+        description="MSVC 6.0 (32-bit PE, C89) — docker image (wine inside)",
     ),
     "delphi16": ToolchainSpec(
         name="delphi16",
@@ -280,6 +478,250 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_path=_vendored("msvc/1.52-win16") if _vendored("msvc/1.52-win16").exists() else None,
         description="MSVC 1.52 (16-bit, Windows 3.x) — DOSBox via rebrew.msvc16",
     ),
+    "msvc200": ToolchainSpec(
+        name="msvc200",
+        image="rebrew/msvc:2.0-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/2.0-win32") if _vendored("msvc/2.0-win32").exists() else None,
+        host_bin="bin",
+        description="MSVC 2.0 (32-bit PE, C89) — docker image (wine inside)",
+    ),
+    "msvc410": ToolchainSpec(
+        name="msvc410",
+        image="rebrew/msvc:4.1-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/4.1-win32") if _vendored("msvc/4.1-win32").exists() else None,
+        host_bin="bin",
+        description="MSVC 4.1 (32-bit PE, C89) — docker image (wine inside)",
+    ),
+    "msvc500sp1": ToolchainSpec(
+        name="msvc500sp1",
+        image="rebrew/msvc:5.0-sp1-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/5.0-sp1-win32")
+        if _vendored("msvc/5.0-sp1-win32").exists()
+        else None,
+        host_bin="bin",
+        description="MSVC 5.0 SP1 (32-bit PE, C89) — docker image (wine inside)",
+    ),
+    "msvc500sp2": ToolchainSpec(
+        name="msvc500sp2",
+        image="rebrew/msvc:5.0-sp2-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/5.0-sp2-win32")
+        if _vendored("msvc/5.0-sp2-win32").exists()
+        else None,
+        host_bin="bin",
+        description="MSVC 5.0 SP2 (32-bit PE, C89) — docker image (wine inside)",
+    ),
+    "msvc500sp3": ToolchainSpec(
+        name="msvc500sp3",
+        image="rebrew/msvc:5.0-sp3-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/5.0-sp3-win32")
+        if _vendored("msvc/5.0-sp3-win32").exists()
+        else None,
+        host_bin="bin",
+        description="MSVC 5.0 SP3 (32-bit PE, C89) — docker image (wine inside)",
+    ),
+    "msvc600sp3": ToolchainSpec(
+        name="msvc600sp3",
+        image="rebrew/msvc:6.0-sp3-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/6.0-sp3-win32")
+        if _vendored("msvc/6.0-sp3-win32").exists()
+        else None,
+        host_bin="Bin",
+        description="MSVC 6.0 SP3 (32-bit PE, C89) — docker image (wine inside)",
+    ),
+    "msvc600sp5": ToolchainSpec(
+        name="msvc600sp5",
+        image="rebrew/msvc:6.0-sp5-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/6.0-sp5-win32")
+        if _vendored("msvc/6.0-sp5-win32").exists()
+        else None,
+        host_bin="Bin",
+        description="MSVC 6.0 SP5 (32-bit PE, C89) — docker image (wine inside)",
+    ),
+    "msvc600sp6": ToolchainSpec(
+        name="msvc600sp6",
+        image="rebrew/msvc:6.0-sp6-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/6.0-sp6-win32")
+        if _vendored("msvc/6.0-sp6-win32").exists()
+        else None,
+        host_bin="Bin",
+        description="MSVC 6.0 SP6 (32-bit PE, C89) — docker image (wine inside)",
+    ),
+    "msvc7": ToolchainSpec(
+        name="msvc7",
+        image="rebrew/msvc:7.0-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/7.0-win32") if _vendored("msvc/7.0-win32").exists() else None,
+        host_bin="Bin",
+        description="MSVC 7.0 (32-bit PE, C89) — docker image (wine inside) (13.10.3077 build)",
+    ),
+    "msvc700": ToolchainSpec(
+        name="msvc700",
+        image="rebrew/msvc:7.0-rtm-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/7.0-rtm-win32")
+        if _vendored("msvc/7.0-rtm-win32").exists()
+        else None,
+        host_bin="bin",
+        description="MSVC 7.0 RTM (32-bit PE, C89, 13.00.9466) — docker image (wine inside)",
+    ),
+    "msvc700sp1": ToolchainSpec(
+        name="msvc700sp1",
+        image="rebrew/msvc:7.0-sp1-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/7.0-sp1-win32")
+        if _vendored("msvc/7.0-sp1-win32").exists()
+        else None,
+        host_bin="bin",
+        description="MSVC 7.0 SP1 (32-bit PE, C89, 13.00.9466) — docker image (wine inside)",
+    ),
+    "msvc710": ToolchainSpec(
+        name="msvc710",
+        image="rebrew/msvc:7.1-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/7.1-win32") if _vendored("msvc/7.1-win32").exists() else None,
+        host_bin="bin",
+        description="MSVC 7.1 (32-bit PE, C89, 13.10.3077) — docker image (wine inside)",
+    ),
+    "msvc710sp1": ToolchainSpec(
+        name="msvc710sp1",
+        image="rebrew/msvc:7.1-sp1-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/7.1-sp1-win32")
+        if _vendored("msvc/7.1-sp1-win32").exists()
+        else None,
+        host_bin="bin",
+        description="MSVC 7.1 SP1 (32-bit PE, C89, 13.10.6030) — docker image (wine inside)",
+    ),
+    "msvc800": ToolchainSpec(
+        name="msvc800",
+        image="rebrew/msvc:8.0-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/8.0-win32") if _vendored("msvc/8.0-win32").exists() else None,
+        host_bin="bin",
+        description="MSVC 8.0 (32-bit PE, C89, 14.00.50727) — docker image (wine inside)",
+    ),
+    "msvc800sp1": ToolchainSpec(
+        name="msvc800sp1",
+        image="rebrew/msvc:8.0-sp1-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/8.0-sp1-win32")
+        if _vendored("msvc/8.0-sp1-win32").exists()
+        else None,
+        host_bin="bin",
+        description="MSVC 8.0 SP1 (32-bit PE, C89, 14.00.50727.762) — docker image (wine inside)",
+    ),
+    "msvc900": ToolchainSpec(
+        name="msvc900",
+        image="rebrew/msvc:9.0-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/9.0-win32") if _vendored("msvc/9.0-win32").exists() else None,
+        host_bin="bin",
+        description="MSVC 9.0 (32-bit PE, C89, 15.00.21022) — docker image (wine inside)",
+    ),
+    "msvc1000": ToolchainSpec(
+        name="msvc1000",
+        image="rebrew/msvc:10.0-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/10.0-win32") if _vendored("msvc/10.0-win32").exists() else None,
+        host_bin="bin",
+        description="MSVC 10.0 (32-bit PE, C89, 16.00.30319) — docker image (wine inside)",
+    ),
+    "msvc1000sp1": ToolchainSpec(
+        name="msvc1000sp1",
+        image="rebrew/msvc:10.0-sp1-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/10.0-sp1-win32")
+        if _vendored("msvc/10.0-sp1-win32").exists()
+        else None,
+        host_bin="bin",
+        description="MSVC 10.0 SP1 (32-bit PE, C89, 16.00.40219) — docker image (wine inside)",
+    ),
+    "msvc15": ToolchainSpec(
+        name="msvc15",
+        image="rebrew/msvc:1.5-win16",
+        binary="CL.EXE",
+        image_binary=None,  # the image ENTRYPOINT is the cl15 wrapper
+        runtime="dosbox",
+        flags_style="msvc",
+        obj_ext=".obj",  # 16-bit OMF — parses via rebrew.matcher.omf16
+        host_path=_vendored("msvc/1.5-win16") if _vendored("msvc/1.5-win16").exists() else None,
+        host_bin="BIN",
+        description="MSVC 1.5 (16-bit, Windows 3.x) — DOSBox via rebrew.msvc16 (version=1.5-win16)",
+    ),
+    "msvc10": ToolchainSpec(
+        name="msvc10",
+        image="rebrew/msvc:1.0-win16",
+        binary="CL.EXE",
+        image_binary=None,  # the image ENTRYPOINT is the cl10 wrapper
+        runtime="dosbox",
+        flags_style="msvc",
+        obj_ext=".obj",  # 16-bit OMF — parses via rebrew.matcher.omf16
+        host_path=_vendored("msvc/1.0-win16") if _vendored("msvc/1.0-win16").exists() else None,
+        host_bin="BIN",
+        description="MSVC 1.0 (16-bit, Windows 3.x) — DOSBox via rebrew.msvc16 (version=1.0-win16)",
+    ),
     "tc20": ToolchainSpec(
         name="tc20",
         image="rebrew/borland:2.0-win16",
@@ -316,7 +758,7 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_path=_vendored("borland/5.5-win32")
         if _vendored("borland/5.5-win32").exists()
         else None,
-        description="Borland C++ 5.5 (32-bit PE, C89) — wine or wibo (free command-line tools)",
+        description="Borland C++ 5.5 (32-bit PE, C89) — docker image (wine inside) (free command-line tools)",
     ),
     "watcom16": ToolchainSpec(
         name="watcom16",
@@ -417,14 +859,77 @@ def _vendored_binary(spec: ToolchainSpec) -> Path | None:
                     hit = _match_binary(entry, spec.binary)
                     if hit is not None:
                         return hit
+            # Product trees nest the compiler one level deeper (VC98/Bin for
+            # the MSVC 6 master and SP5, Vc7/bin for 7.0/7.1, VC/bin for
+            # 8.0+): look for <top>/<wrapper>/<host_bin>/<binary> so those
+            # resolve too (msvc6's wrapped layout previously never did).
+            for wrapper in host.iterdir():
+                if not wrapper.is_dir():
+                    continue
+                for entry in wrapper.iterdir():
+                    if entry.is_dir() and entry.name.lower() == spec.host_bin.lower():
+                        hit = _match_binary(entry, spec.binary)
+                        if hit is not None:
+                            return hit
         except OSError:
             pass
     return None
 
 
+def _vendored_include(spec: ToolchainSpec) -> Path | None:
+    """Locate the spec's include dir inside its vendored host tree.
+
+    Case-insensitive on the subdir name because MSVC trees differ across
+    versions (5.0: include/, 6.0 master/SP5: VC98/Include, 4.0: INCLUDE).
+    Checks the host root, then one wrapper level deep (VC98/Include etc).
+    Returns None when nothing matches.
+    """
+    if spec.host_path is None:
+        return None
+    host = Path(spec.host_path)
+    candidates = []
+    try:
+        candidates = [e for e in host.iterdir() if e.is_dir()]
+    except OSError:
+        return None
+    # Direct hit at host root first (5.0/4.2/4.0 layouts).
+    for entry in candidates:
+        if entry.name.lower() == "include":
+            return entry
+    # Wrapped product trees (VC98/Include, VC/include) nest one level deep.
+    for wrapper in candidates:
+        try:
+            for entry in wrapper.iterdir():
+                if entry.is_dir() and entry.name.lower() == "include":
+                    return entry
+        except OSError:
+            continue
+    return None
+
+
+def _vendored_libdir(spec: ToolchainSpec) -> Path | None:
+    """Locate the spec lib dir inside its vendored host tree (case-insensitive)."""
+    if spec.host_path is None:
+        return None
+    host = Path(spec.host_path)
+    roots = [host]
+    with contextlib.suppress(OSError):
+        roots.extend(e for e in host.iterdir() if e.is_dir())
+    for base in roots:
+        try:
+            for entry in base.iterdir():
+                if entry.is_dir() and entry.name.lower() == "lib":
+                    return entry
+        except OSError:
+            continue
+    return None
+
+
 def _resolve_binary(spec: ToolchainSpec) -> str:
-    """The host-side compiler path for a spec (host fallback): vendored dir /
-    PATH binary.  Raises ToolchainError when nothing resolvable exists."""
+    """The host-side compiler path for a native-runtime spec (no image):
+    vendored dir / PATH binary.  Raises ToolchainError when nothing
+    resolvable exists.  Only native-Linux toolchains (gcc-pe, watcom16
+    wcc) reach this — wine/dosbox toolchains are docker-only."""
     hit = _vendored_binary(spec)
     if hit is not None:
         return str(hit)
@@ -432,9 +937,8 @@ def _resolve_binary(spec: ToolchainSpec) -> str:
     if found:
         return found
     raise ToolchainError(
-        f"toolchain {spec.name!r}: no docker image ({spec.image or 'n/a'}) pulled and no "
-        f"host binary ({spec.binary}) found — run `rebrew toolchain pull {spec.name}` "
-        "or vendor the toolchain under tools/"
+        f"toolchain {spec.name!r}: no native binary ({spec.binary}) found — "
+        "vendor the toolchain under toolchain/ or install it on PATH"
     )
 
 
@@ -444,29 +948,45 @@ def run_toolchain(
     *,
     workdir: str | Path | None = None,
     timeout: int = _RUN_TIMEOUT,
+    mounts: list[tuple[str, str]] | None = None,
 ) -> RunResult:
-    """Invoke a toolchain's compiler uniformly.
+    """Invoke a toolchain's compiler through its docker image (uniform backend).
 
-    Backends, in order:
-    1. **docker** — ``docker run --rm -v <workdir>:/work -w /work <image> <binary> <args>``
-       when the spec has an image and docker is available.
-    2. **host** — the vendored / PATH binary with runner env (wine for
-       MSVC-style, dosbox handled by the caller via the delphi16 module).
+    Execution is docker-only for every Windows/DOS toolchain: the images
+    encapsulate the runtime (MSVC under wine, DCC/TCC under DOSBox) and the
+    host never calls CL.EXE / DCC.EXE / TCC.EXE / bcc32.exe directly.  A
+    missing image is a hard error (run `rebrew toolchain build <name>`) —
+    there is deliberately no wine/wibo/dosbox host fallback anymore.
+
+    Native-Linux toolchains without an image (gcc-pe, watcom16 wcc) exec the
+    vendored/PATH binary directly — they are not Windows binaries, so no
+    wine glue is involved.
 
     Args:
         spec: The toolchain to run.
         args: Compiler arguments (flags, source, output).
         workdir: Host directory mounted into the container (docker) or the
-            process cwd (host).  Required for docker.
+            process cwd (native).  Required for docker.
+        mounts: Extra ``(host_dir, container_dir)`` bind mounts, used to
+            expose project include trees to the container (each host dir is
+            mounted read-write at the container path).
         timeout: Subprocess timeout.
 
     Raises:
-        ToolchainError: no usable backend (no image pulled, no host binary).
+        ToolchainError: no docker daemon/image for a docker toolchain, or no
+            native binary for a native-runtime toolchain.
     """
     workdir = Path(workdir) if workdir is not None else Path.cwd()
     workdir.mkdir(parents=True, exist_ok=True)
 
-    if spec.image is not None and _image_present(spec.image):
+    if spec.image is not None:
+        if not docker_available():
+            raise ToolchainError("docker is not available — cannot run toolchain images")
+        if not _image_present(spec.image):
+            raise ToolchainError(
+                f"toolchain {spec.name!r}: docker image {spec.image} not built — "
+                f"run `rebrew toolchain build {spec.name}`"
+            )
         cmd = [
             "docker",
             "run",
@@ -475,8 +995,10 @@ def run_toolchain(
             f"{workdir.resolve()}:/work",
             "-w",
             "/work",
-            spec.image,
         ]
+        for host_dir, container_dir in mounts or []:
+            cmd += ["-v", f"{Path(host_dir).resolve()}:{container_dir}"]
+        cmd.append(spec.image)
         if spec.image_binary is not None:
             cmd.append(spec.image_binary)
         cmd.extend(args)
@@ -486,41 +1008,29 @@ def run_toolchain(
             raise ToolchainError(f"docker invocation failed: {exc}") from exc
         return RunResult(r.returncode, r.stdout, r.stderr, backend="docker")
 
-    # Host fallback.
-    if spec.runtime == "dosbox":
-        # A DOS binary cannot be exec'd natively; the DOSBox sandbox lives
-        # in the toolchain modules (rebrew.msvc16.compile_c for msvc1.52,
-        # rebrew.delphi16.compile_ne for delphi16) — compile_to_obj routes
-        # there already.  A direct run_toolchain call has no DOSBox glue,
-        # so fail clearly instead of exec'ing a DOS executable.
-        raise ToolchainError(
-            f"toolchain {spec.name!r} is dosbox-runtime: no host fallback in run_toolchain "
-            f"(image {spec.image or 'n/a'} not pulled). Use rebrew.msvc16.compile_c / "
-            f"rebrew.delphi16.compile_ne for host-side compilation."
-        )
-    binary = _resolve_binary(spec)
-    env = dict(os.environ)
-    if spec.runtime == "wine":
-        env.setdefault("WINEDEBUG", "-all")
-    cmd = [binary, *args]
-    if spec.runtime == "wine":
-        # Wine-runtime binaries (CL.EXE, bcc32.exe) are Windows PEs — exec'ing
-        # the vendored file directly on Linux fails with EACCES/EINVAL.  Prefix
-        # the wine loader (the host fallback previously could never run a
-        # wine spec without an image, e.g. msvc420/msvc5).
-        cmd = ["wine", *cmd]
-    try:
-        r = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env=env,
-            cwd=str(workdir),
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise ToolchainError(f"toolchain invocation failed: {exc}") from exc
-    return RunResult(r.returncode, r.stdout, r.stderr, backend="host")
+    if spec.runtime == "native":
+        # Native-Linux compiler (gcc-pe, watcom16 wcc) — vendored/PATH binary
+        # executed directly.  These are NOT Windows binaries; no wine glue.
+        binary = _resolve_binary(spec)
+        env = dict(os.environ)
+        try:
+            r = subprocess.run(
+                [binary, *args],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env=env,
+                cwd=str(workdir),
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise ToolchainError(f"toolchain invocation failed: {exc}") from exc
+        return RunResult(r.returncode, r.stdout, r.stderr, backend="native")
+
+    raise ToolchainError(
+        f"toolchain {spec.name!r} ({spec.runtime}) has no docker image — every "
+        "Windows/DOS toolchain runs only through its docker image; "
+        f"run `rebrew toolchain build {spec.name}`"
+    )
 
 
 def list_toolchains() -> list[dict[str, Any]]:

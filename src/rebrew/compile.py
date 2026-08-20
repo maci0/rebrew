@@ -521,6 +521,52 @@ def _resolve_include_flags(flags: list[str], src_parent: Path, cfg_root: Path) -
     return resolved
 
 
+def _is_vendored_toolchain_tree(p: Path) -> bool:
+    """True when *p* lives under the repo's vendored ``toolchain/`` dir.
+
+    Those trees are baked into the docker images byte-identical, so the
+    container needs no bind mount for them — CL/wcc resolve their own
+    includes inside the image."""
+    root = Path(__file__).resolve().parents[2] / "toolchain"
+    try:
+        p.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _docker_include_rewrite(
+    flags: list[str],
+    workdir: Path,
+    mount_offset: int = 0,
+) -> tuple[list[str], list[tuple[str, str]]]:
+    """Rewrite /I and -I flags for a docker container invocation.
+
+    The container only sees the workdir (mounted at /work) plus explicit
+    bind mounts.  Include dirs under the workdir become relative paths
+    (they resolve inside /work); absolute host dirs are bind-mounted at
+    ``/inc<N>`` and the flag is rewritten to that container path.
+    *mount_offset* continues the numbering across calls (each extra dir is
+    rewritten separately, so targets must not restart at /inc0).
+    Returns ``(rewritten_flags, mounts)``."""
+    mounts: list[tuple[str, str]] = []
+    out: list[str] = []
+    for flag in flags:
+        if flag.startswith(("/I", "-I")) and len(flag) > 2:
+            d = flag[2:].strip('"').strip("'")
+            p = Path(d)
+            try:
+                rel = p.resolve().relative_to(workdir.resolve())
+                out.append(flag[:2] + str(rel))
+            except ValueError:
+                target = f"/inc{len(mounts) + mount_offset}"
+                mounts.append((str(p.resolve()), target))
+                out.append(flag[:2] + target)
+        else:
+            out.append(flag)
+    return out, mounts
+
+
 def compile_to_obj(
     cfg: ProjectConfig,
     source_path: str | Path,
@@ -530,73 +576,73 @@ def compile_to_obj(
     cache: CompileCache | None = None,
     use_cache: bool = True,
     obj_name: str | None = None,
+    toolchain: str | None = None,
 ) -> tuple[str | None, str]:
-    """Compile a .c file to .obj using the project compiler.
+    """Compile a .c file to .obj through the toolchain's docker image.
 
-    The source file is copied into ``workdir`` before compilation so that
-    Wine's path mapping works correctly (Wine cannot see paths outside of
-    its configured drives).
+    Execution is docker-only for every Windows/DOS toolchain (all MSVC
+    versions, Borland, Watcom, the 16-bit DOS compilers): the image
+    encapsulates the runtime (wine / DOSBox) and the host never calls
+    CL.EXE / DCC.EXE / TCC.EXE / bcc32.exe directly — there is no host
+    wine/wibo/dosbox fallback.  Native-Linux toolchains without an image
+    (gcc-pe, watcom16 wcc) run through the standardized native backend.
 
-    The timeout is taken from ``cfg.compile_timeout``.
+    The source file is copied into ``workdir`` (mounted at /work in the
+    container).  Relative /I flags are rewritten to container paths;
+    absolute host include dirs are bind-mounted at /inc<N>.
 
     When *use_cache* is ``True`` (the default), a persistent disk cache is
     consulted before invoking the compiler subprocess.  On cache hit the
-    ``.obj`` bytes are written directly to *workdir*, skipping the 200-500 ms
-    Wine/wibo startup overhead entirely.
+    ``.obj`` bytes are written directly to *workdir*, skipping the docker
+    startup overhead entirely.
 
     Args:
         cfg: ProjectConfig with compiler settings.
         source_path: Path to the .c source file.
         cflags: List of compiler flag strings (e.g. ["/O2", "/Gd"]).
-        workdir: Working directory for compilation.
+        workdir: Working directory for compilation (mounted at /work).
         cache: Explicit ``CompileCache`` instance to use.  When ``None``
             and *use_cache* is True, a shared instance is obtained
             automatically from the project root.
         use_cache: Set to ``False`` to bypass the cache entirely.
+        toolchain: Per-function toolchain override (metadata TOOLCHAIN) —
+            compile with THAT toolchain's docker image.
 
     Returns:
         (obj_path, error_msg) — obj_path is ``None`` on failure;
-        error_msg is an empty string on success.
-
-    """
+        error_msg is an empty string on success."""
     source_path = Path(source_path)
     workdir = Path(workdir)
 
-    # Workdir source name for Wine compatibility (a copy of the source is
-    # only needed when the compiler subprocess actually runs — a cache hit
-    # skips the copy entirely, saving one write + one read-back per warm
-    # compile; the cache key is computed from the original file, whose
-    # bytes are identical to the copy).
     src_name = source_path.name
     if src_name.startswith(("@", "-")):
-        # MSVC interprets a leading '@' as a response file and a leading '-'
-        # as an option — a source named e.g. "@x.c" would have its contents
-        # parsed as compiler directives.  Prefix './' to make it a plain
-        # filename.
         src_name = "./" + src_name
     local_src = workdir / src_name
 
     obj_name = obj_name or (source_path.stem + ".obj")
     inc_path = str(cfg.compiler_includes)
+    profile = getattr(cfg, "compiler_profile", "")
+    # Per-function toolchain override (metadata TOOLCHAIN, e.g. "msvc5"):
+    # compile with THAT toolchain's image.  Every compile runs through the
+    # standardized runner — there is no host wine path.
+    tc_spec = None
+    if toolchain:
+        tc_spec = TOOLCHAINS.get(toolchain)
+        if tc_spec is None or (tc_spec.image is None and tc_spec.runtime != "native"):
+            return None, (
+                f"per-function toolchain {toolchain!r} has no docker image — "
+                "all compiles run through their docker images; "
+                f"run `rebrew toolchain build {toolchain}` first"
+            )
+    spec = tc_spec if tc_spec is not None else (TOOLCHAINS.get(profile) if profile else None)
 
-    # Prepend base_cflags from config (e.g. /nologo /c /MT).
-    # This ensures every compile invocation has consistent core flags
-    # without requiring callers to remember them.
     base_flags = safe_shlex_split(cfg.base_cflags)
     use_timeout = cfg.compile_timeout
 
-    # Resolve relative /I paths in BOTH base_cflags and user cflags.
-    # The source file is copied into a temp workdir for Wine, so any
-    # relative /I paths (e.g. -Isrc/NP) would resolve against the wrong
-    # directory.  Try the source file's parent first, then the project root.
     src_parent = source_path.resolve().parent
 
     base_flags = _resolve_include_flags(base_flags, src_parent, cfg.root)
     resolved_cflags = _resolve_include_flags(cflags, src_parent, cfg.root)
-
-    # Dedupe identical flags (base + per-function cflags often repeat e.g.
-    # /O2 /Gd).  Identical flags are interchangeable, so keeping the first
-    # occurrence is semantics-preserving and keeps compile lines readable.
     all_flags = _dedupe_flags(base_flags + resolved_cflags)
 
     # --- Compile cache lookup ---
@@ -609,17 +655,13 @@ def compile_to_obj(
 
     cache_key: str | None = None
     if cc is not None:
-        # Hash the raw bytes (via surrogateescape, which is lossless) — a
-        # plain utf-8/errors=replace decode would give two sources differing
-        # only in legacy-encoded bytes the same cache key.  Read from the
-        # ORIGINAL source (not the workdir copy): on a cache hit no copy has
-        # been made, and copy2 is byte-identical anyway.
         source_content = source_path.read_bytes().decode("utf-8", errors="surrogateescape")
-        cl_parts = resolve_cl_command(cfg)
-        toolchain_id = " ".join(cl_parts)
+        if spec is not None and spec.image is not None:
+            toolchain_id = spec.image  # the image tag is the canonical identity
+        else:
+            toolchain_id = " ".join(resolve_cl_command(cfg))
         include_dirs = [inc_path, str(src_parent)]
         source_ext = source_path.suffix or ".c"
-
         cache_key = compile_cache_key(
             source_content=source_content,
             source_filename=src_name,
@@ -634,7 +676,6 @@ def compile_to_obj(
             obj_file.write_bytes(cached_obj)
             return str(obj_file), ""
 
-    # --- Cache miss: compile via subprocess ---
     # The compiler is the only consumer of the workdir source copy, so it
     # is made here (miss path only) — a cache hit above never needs it.
     try:
@@ -642,87 +683,53 @@ def compile_to_obj(
     except OSError as e:
         return None, f"Failed to copy source into workdir: {e}"
 
-    # Build full command: [wine, cl.exe] + base + user flags + includes + output + source file
-    # Include the source file's original parent dir so that relative
-    # #include "../../..." paths still resolve after the copy.
-    # POSIX-style compilers (gcc-pe/mingw, clang) use -I/-o/-c; MSVC uses /I//Fo;
-    # toolchain-backed profiles (watcom, msvc1.52) go through rebrew.toolchain's
-    # standardized runner (docker image or vendored host binary).
-    profile = getattr(cfg, "compiler_profile", "")
-    # Use the config's single source of truth (ProjectConfig.posix_style) —
-    # the old local profile tuple duplicated it, so adding a POSIX profile to
-    # one list but not the other silently switched flag routing and broke
-    # compiles (config-review F6).
-    is_posix_style = bool(getattr(cfg, "posix_style", False))
-
-    # The toolchain-runner profiles.  gcc-pe/msvc6 stay on their
-    # specialized posix/msvc paths (well-tested); the abstraction serves
-    # them via `rebrew toolchain`.
-    if profile in ("watcom", "watcom16", "msvc1.52", "tc16", "tc20", "borlandc55"):
-        spec = TOOLCHAINS[profile]
-        if profile in ("watcom", "watcom16"):
-            inc_flags = [f"-I{inc_path}"] if inc_path else []
-            args = (
-                all_flags + inc_flags + [f"-I{str(src_parent)}", f"-fo={obj_name}", "-zq", src_name]
-            )
+    if spec is not None and (spec.image is not None or spec.runtime == "native"):
+        """The standardized runner: docker images for every Windows/DOS
+        toolchain, native execution for Linux compilers without an image
+        (gcc-pe, watcom16 wcc).  There is no host wine/dosbox path."""
+        mounts: list[tuple[str, str]] = []
+        if spec.image is not None:
+            # --- docker: rewrite include flags for the container ---
+            all_flags, mounts = _docker_include_rewrite(all_flags, workdir)
+            # The source's own dir (../../ includes) and any custom include dir
+            # outside the vendored toolchain trees are bind-mounted; the
+            # toolchain's own include tree ships inside the image (byte-identical
+            # to the vendored tree it was built from) and needs no mount.  The
+            # 16-bit DOSBox wrappers stage their own include tree.
+            if profile not in ("msvc1.52", "msvc15", "msvc10", "tc16", "tc20"):
+                extra_inc: list[str] = []
+                if src_parent.resolve() != workdir.resolve():
+                    extra_inc.append(str(src_parent))
+                if inc_path and not _is_vendored_toolchain_tree(Path(inc_path)):
+                    extra_inc.append(str(inc_path))
+                prefix = "/I" if spec.flags_style == "msvc" else "-I"
+                for d in extra_inc:
+                    rewritten, extra_mounts = _docker_include_rewrite(
+                        [f"{prefix}{d}"], workdir, mount_offset=len(mounts)
+                    )
+                    mounts += extra_mounts
+                    all_flags += rewritten
+        if profile in ("msvc1.52", "msvc15", "msvc10", "tc16", "tc20"):
+            # 16-bit DOSBox wrappers stage their own include tree.
+            args = [src_name, *all_flags]
         elif profile == "borlandc55":
             # bcc32: `-c` compiles only; the object name follows the source
-            # stem (add.c → add.obj), which matches obj_name.  `-o` alone is
-            # compile-only in Borland's flag dialect, so the generic posix
-            # `-o obj` invocation would misparse obj as an input file.
+            # stem (add.c → add.obj), which matches obj_name.
+            args = all_flags + ["-c", src_name]
+        elif profile in ("watcom", "watcom16"):
+            args = all_flags + [f"-fo={obj_name}", "-zq", src_name]
+        elif spec.flags_style == "posix":
+            # Native posix compilers (gcc-pe): -I/-c/-o, no MSVC /Fo.
             inc_flags = [f"-I{inc_path}"] if inc_path else []
-            args = all_flags + inc_flags + [f"-I{str(src_parent)}", "-c", src_name]
-        elif profile in ("msvc1.52", "tc16", "tc20"):
-            # Prefer the docker image (cl16/tcc wrapper) when pulled; fall
-            # back to the host DOSBox sandbox.  The 16-bit compilers stage
-            # the source under a short 8.3-safe name, so source-name length
-            # is not our problem here.
-            from rebrew.toolchain import _image_present
-
-            if spec.image is not None and _image_present(spec.image):
-                args = [src_name, *all_flags]
-            else:
-                if profile == "msvc1.52":
-                    from rebrew.msvc16 import Msvc16Error
-                    from rebrew.msvc16 import compile_c as msvc_compile_c
-
-                    try:
-                        res16 = msvc_compile_c(
-                            local_src,
-                            workdir,
-                            # /IC:\INCLUDE — the vendored include tree is
-                            # staged as C:\INCLUDE inside the DOSBox sandbox;
-                            # the host inc_path would not resolve there.
-                            cflags=[*all_flags, "/IC:\\INCLUDE"],
-                            timeout=use_timeout,
-                        )
-                    except Msvc16Error as exc:
-                        return None, str(exc)
-                else:
-                    from rebrew.tc16 import Tc16Error
-                    from rebrew.tc16 import compile_c as tc_compile_c
-
-                    try:
-                        res_tc = tc_compile_c(
-                            local_src,
-                            workdir,
-                            cflags=all_flags,
-                            timeout=use_timeout,
-                            version="2.0" if profile == "tc20" else "3.1",
-                        )
-                    except Tc16Error as exc:
-                        return None, str(exc)
-                obj_file = (res16 if profile == "msvc1.52" else res_tc).obj_path
-                if cc is not None and cache_key is not None:
-                    with contextlib.suppress(OSError):
-                        cc.put(cache_key, obj_file.read_bytes())
-                return str(obj_file), ""
+            args = all_flags + inc_flags + [f"-I{str(src_parent)}", "-c", "-o", obj_name, src_name]
+        else:
+            args = all_flags + [f"/Fo{obj_name}", src_name]
         try:
-            tr = run_toolchain(spec, args, workdir=workdir, timeout=use_timeout)
+            tr = run_toolchain(spec, args, workdir=workdir, timeout=use_timeout, mounts=mounts)
         except ToolchainError as exc:
             return None, str(exc)
         obj_file = workdir / obj_name
-        if profile in ("msvc1.52", "tc16", "tc20") and not obj_file.exists():
+        if profile in ("msvc1.52", "msvc15", "msvc10", "tc16", "tc20") and not obj_file.exists():
             # The DOSBox wrappers FAT-uppercase the object (T.OBJ).
             stem = Path(obj_name).stem
             obj_file = next(
@@ -741,59 +748,13 @@ def compile_to_obj(
                 cc.put(cache_key, obj_file.read_bytes())
         return str(obj_file), ""
 
-    if is_posix_style:
-        inc_flags = [f"-I{inc_path}"] if inc_path else []
-        cmd = (
-            resolve_cl_command(cfg)
-            + all_flags
-            + inc_flags
-            + [f"-I{str(src_parent)}", "-c", "-o", obj_name, src_name]
-        )
-    else:
-        cmd = (
-            resolve_cl_command(cfg)
-            + all_flags
-            + [
-                f"/I{inc_path}",
-                f"/I{str(src_parent)}",
-                f"/Fo{obj_name}",
-                src_name,
-            ]
-        )
-
-    env: dict[str, str] | None = msvc_env_from_config(cfg)
-    cmd, env = maybe_headless_wine(cmd, env)
-
-    try:
-        r = subprocess.run(
-            cmd,
-            capture_output=True,
-            cwd=str(workdir),
-            env=env,
-            timeout=use_timeout,
-        )
-    except subprocess.TimeoutExpired:
-        return None, f"Compile timed out after {use_timeout}s"
-    except FileNotFoundError as e:
-        return None, f"Compiler not found: {e}"
-    except OSError as e:
-        return None, f"Failed to run compiler: {e}"
-
-    obj_file = workdir / obj_name
-    if r.returncode != 0 or not obj_file.exists():
-        err = filter_wine_stderr((r.stdout + b"\n" + r.stderr).decode("utf-8", errors="replace"))
-        return None, err
-
-    if cc is not None and cache_key is not None:
-        with contextlib.suppress(OSError):
-            cc.put(cache_key, obj_file.read_bytes())
-
-    return str(obj_file), ""
-
-
-# ---------------------------------------------------------------------------
-# Compile-and-compare convenience wrapper
-# ---------------------------------------------------------------------------
+    # Unknown/unregistered profile: nothing to run.  Execution is docker-
+    # (or native-runner-)only; a plain command string cannot be exec'd.
+    return None, (
+        f"profile {profile!r} is not a docker/native toolchain — every compile "
+        "runs through the standardized runner; "
+        "run `rebrew toolchain list` for the available profiles"
+    )
 
 
 def _extract_and_compare(
@@ -887,6 +848,7 @@ def compile_and_compare(
     use_cache: bool = True,
     name_to_va: dict[str, int] | None = None,
     section_va: int | None = None,
+    toolchain: str | None = None,
 ) -> CompareResult:
     """Compile source, extract COFF symbol, compare against target bytes with reloc masking.
 
@@ -923,6 +885,7 @@ def compile_and_compare(
                 workdir,
                 cache=cache,
                 use_cache=use_cache,
+                toolchain=toolchain,
             )
             if obj_path is None:
                 return classify_compare_result(

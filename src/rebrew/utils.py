@@ -59,6 +59,138 @@ _MSVC_LAYOUTS: dict[str, tuple[tuple[str, str, str], ...]] = {
         ),
         ("toolchain/msvc/7.0-win32/Bin/cl.exe", "toolchain/msvc/7.0-win32/Include", ""),
     ),
+    "msvc700": (
+        (
+            "toolchain/msvc/7.0-rtm-win32/Vc7/bin/cl.exe",
+            "toolchain/msvc/7.0-rtm-win32/Vc7/include",
+            "toolchain/msvc/7.0-rtm-win32/Vc7/lib",
+        ),
+    ),
+    "msvc700sp1": (
+        (
+            "toolchain/msvc/7.0-sp1-win32/Vc7/bin/cl.exe",
+            "toolchain/msvc/7.0-sp1-win32/Vc7/include",
+            "toolchain/msvc/7.0-sp1-win32/Vc7/lib",
+        ),
+    ),
+    "msvc710": (
+        (
+            "toolchain/msvc/7.1-win32/Vc7/bin/cl.exe",
+            "toolchain/msvc/7.1-win32/Vc7/include",
+            "toolchain/msvc/7.1-win32/Vc7/lib",
+        ),
+    ),
+    "msvc710sp1": (
+        (
+            "toolchain/msvc/7.1-sp1-win32/Vc7/bin/cl.exe",
+            "toolchain/msvc/7.1-sp1-win32/Vc7/include",
+            "toolchain/msvc/7.1-sp1-win32/Vc7/lib",
+        ),
+    ),
+    "msvc800": (
+        (
+            "toolchain/msvc/8.0-win32/VC/bin/cl.exe",
+            "toolchain/msvc/8.0-win32/VC/include",
+            "toolchain/msvc/8.0-win32/VC/lib",
+        ),
+    ),
+    "msvc800sp1": (
+        (
+            "toolchain/msvc/8.0-sp1-win32/VC/bin/cl.exe",
+            "toolchain/msvc/8.0-sp1-win32/VC/include",
+            "toolchain/msvc/8.0-sp1-win32/VC/lib",
+        ),
+    ),
+    "msvc900": (
+        (
+            "toolchain/msvc/9.0-win32/VC/bin/cl.exe",
+            "toolchain/msvc/9.0-win32/VC/include",
+            "toolchain/msvc/9.0-win32/VC/lib",
+        ),
+    ),
+    "msvc1000": (
+        (
+            "toolchain/msvc/10.0-win32/VC/bin/cl.exe",
+            "toolchain/msvc/10.0-win32/VC/include",
+            "toolchain/msvc/10.0-win32/VC/lib",
+        ),
+    ),
+    "msvc1000sp1": (
+        (
+            "toolchain/msvc/10.0-sp1-win32/VC/bin/cl.exe",
+            "toolchain/msvc/10.0-sp1-win32/VC/include",
+            "toolchain/msvc/10.0-sp1-win32/VC/lib",
+        ),
+    ),
+    "msvc200": (
+        (
+            "toolchain/msvc/2.0-win32/bin/cl.exe",
+            "toolchain/msvc/2.0-win32/include",
+            "toolchain/msvc/2.0-win32/lib",
+        ),
+    ),
+    "msvc410": (
+        (
+            "toolchain/msvc/4.1-win32/bin/CL.EXE",
+            "toolchain/msvc/4.1-win32/include",
+            "toolchain/msvc/4.1-win32/lib",
+        ),
+    ),
+    "msvc500sp1": (
+        (
+            "toolchain/msvc/5.0-sp1-win32/bin/cl.exe",
+            "toolchain/msvc/5.0-sp1-win32/include",
+            "toolchain/msvc/5.0-sp1-win32/lib",
+        ),
+    ),
+    "msvc500sp2": (
+        (
+            "toolchain/msvc/5.0-sp2-win32/bin/cl.exe",
+            "toolchain/msvc/5.0-sp2-win32/include",
+            "toolchain/msvc/5.0-sp2-win32/lib",
+        ),
+    ),
+    "msvc500sp3": (
+        (
+            "toolchain/msvc/5.0-sp3-win32/bin/cl.exe",
+            "toolchain/msvc/5.0-sp3-win32/include",
+            "toolchain/msvc/5.0-sp3-win32/lib",
+        ),
+    ),
+    "msvc600sp3": (
+        ("toolchain/msvc/6.0-sp3-win32/Bin/CL.EXE", "toolchain/msvc/6.0-sp3-win32/Include", ""),
+    ),
+    "msvc600sp5": (
+        (
+            "toolchain/msvc/6.0-sp5-win32/VC98/Bin/CL.EXE",
+            "toolchain/msvc/6.0-sp5-win32/VC98/Include",
+            "toolchain/msvc/6.0-sp5-win32/VC98/Lib",
+        ),
+    ),
+    "msvc600sp6": (
+        ("toolchain/msvc/6.0-sp6-win32/Bin/CL.EXE", "toolchain/msvc/6.0-sp6-win32/Include", ""),
+    ),
+    "msvc1.52": (
+        (
+            "toolchain/msvc/1.52-win16/BIN/CL.EXE",
+            "toolchain/msvc/1.52-win16/INCLUDE",
+            "toolchain/msvc/1.52-win16/LIB",
+        ),
+    ),
+    "msvc15": (
+        (
+            "toolchain/msvc/1.5-win16/BIN/CL.EXE",
+            "toolchain/msvc/1.5-win16/INCLUDE",
+            "toolchain/msvc/1.5-win16/LIB",
+        ),
+    ),
+    "msvc10": (
+        (
+            "toolchain/msvc/1.0-win16/BIN/CL.EXE",
+            "toolchain/msvc/1.0-win16/INCLUDE",
+            "toolchain/msvc/1.0-win16/LIB",
+        ),
+    ),
 }
 
 

@@ -6,7 +6,9 @@ External tools that rebrew integrates with or builds on top of.
 
 ## MSVC6 Toolchain (Compile Backend)
 
-All run under Wine from `toolchain/msvc/6.0-win32/VC98/Bin/`:
+Executed only through the docker image `rebrew/msvc:6.0-win32` (the image
+wraps wine; the host never calls CL.EXE directly — execution is docker-only
+for every Windows/DOS toolchain).  The tools inside the image:
 
 | Tool | Purpose |
 |------|---------|
@@ -73,11 +75,16 @@ below for the analysis-side support matrix.
 through a uniform abstraction (`rebrew.toolchain`), modeled on Godbolt's
 Compiler Explorer convention: **one container image per toolchain-version**,
 with the compiler behind a wrapper inside the image, so the host invocation
-is always `docker run <image> <compiler> <args>`.  The runner falls back to
-a vendored host path (`tools/…`) or PATH binary when docker or the image is
-unavailable — the same profile works either way.
+is always `docker run <image> <compiler> <args>`.  Execution is
+**docker-only for every Windows/DOS toolchain** — the images encapsulate the
+runtime (wine / DOSBox) and there is no host wine/wibo/dosbox fallback; a
+missing image is a hard error (run `rebrew toolchain build <name>`).
+Native-Linux toolchains without an image (gcc-pe, watcom16 `wcc`) exec
+their vendored/PATH binary directly.  The vendored
+`toolchain/<family>/<version>-<arch>` trees remain as the byte-identical
+build source for the images, but nothing executes from them.
 
-Current toolchains (`rebrew toolchain list`): `msvc6` (wine; image
+Current toolchains (`rebrew toolchain list`): `msvc6` (image
 `rebrew/msvc:6.0-win32` built+verified — MSVC 6.0 under wine in a
 container, from the OmniBlade decomp.me msvcwin9x tarball), `delphi16`
 (DOSBox; image `rebrew/delphi:1.0-win16` built+verified — a
@@ -104,41 +111,40 @@ module with `version="2.0"`; tree `toolchain/borland/2.0-win16` assembled
 from the archive.org `turboc20` floppies; image
 `rebrew/borland:2.0-win16`, in the smoke gate — the 1988/89 compiler that
 diec reports as "Borland C/C++ 1991"; C89-strict: rejects `//` comments,
-so skeletons use `/* */` markers), plus the old-MSV C line
-(`rebrew/msvc:4.0-win32`, `rebrew/msvc:4.2-win32`, `rebrew/msvc:5.0-win32`
-— win2k-era binaries were built with MSVC 5.0, so that is the profile for
-byte-matching them; the 4.0/4.2/5.0 trees are archaic-msvc / itsmattkc
-snapshots, pinned sha256 sources shared with `rebrew toolchain vendor`).
+so skeletons use `/* */` markers), and the **complete MSVC 1.0–10.0
+line** (below: 20 docker profiles from `msvc10` to `msvc1000sp1`,
+every version and every preserved service pack, each packaged as a
+sha256-pinned docker image `rebrew/msvc:<version>-<arch>` plus a
+vendored host tree used as the byte-identical build source; the
+4.0/4.2/5.0 trees are archaic-msvc / itsmattkc snapshots, pinned
+sha256 sources shared with `rebrew toolchain vendor`).
 
 **Every registry toolchain with a pinned source has a verified
 containerized path** (the images above + gcc-pe native) — the
-docker-first standardization is complete for the whole matrix; host
-fallback (vendored `tools/` trees under wine) remains for image-less
-environments.
+docker-only standardization is complete for the whole matrix; there is
+no host wine/dosbox execution path anymore.  `rebrew toolchain smoke`
+gates byte-reproducibility for every image-backed MSVC profile with a
+golden object hash.
 
-> **Headless wine:** rebrew runs the host wine runner against a persistent
-> `Xvfb` virtual display whenever the `Xvfb` binary is on PATH — compiles
-> run invisibly, so no desktop window pops (and bare wine works under CI
-> with no `DISPLAY` at all).  The server is spawned once per process and
-> reused across the whole verify/GA batch; a live Xvfb left by an earlier
-> run is reused rather than re-spawned.  Set `REBREW_WINE_HEADLESS=0` to
-> force bare wine (e.g. if you genuinely want the window); if `Xvfb` is
-> missing, rebrew falls back to a per-invocation `xvfb-run` wrapper
-> (slower — ~3 s overhead each) and then to bare wine.  The only remaining
-> annoyance is the Wine *virtual desktop* configured per prefix, which pops
-> a window on every compile when neither `Xvfb` nor `xvfb-run` is
-> installed — disable it once per prefix (it re-enables if you run
-> `winecfg` and check "Emulate a virtual desktop"):
->
-> ```bash
-> wine reg delete "HKCU\\Software\\Wine\\Explorer" /v Desktop /f
-> wine reg delete "HKCU\\Software\\Wine\\Explorer\\Desktops" /f
-> ```
->
-> For the fastest and fully headless path, use **wibo** instead
-> (`rebrew init --install-wibo`, or set `runner = "wibo"` + a command
-> without the `wine ` prefix): a lightweight PE loader with no X
-> dependency at all.
+**Source drift is tracked** (`rebrew toolchain check-updates`): every
+GitHub-codeload pin (archaic-msvc, archaic-toolchains, itsmattkc)
+records the branch commit it was taken from, and the checker compares
+the live commit sha via the GitHub API (no download) — a changed
+upstream repo (e.g. a preservation fix) is reported as `DRIFTED`
+before any build fails.  `rebrew toolchain update <name> --apply`
+re-pins (sha256 + commit), re-vendors the host tree, rebuilds the
+docker image and regenerates the smoke golden (verified stable across
+two compiles).  The Open Watcom `Last-CI-build` release tag is a
+moving target, so it is re-downloaded and re-hashed; decomp.me /
+archive.org assets and in-repo tarballs are immutable and reported as
+static.  Runs on a schedule (or ad-hoc) with `GH_TOKEN` set for
+generous API limits.
+
+> **Headless by construction:** every Windows/DOS compile runs inside a
+> docker container — wine runs headless inside the image (no desktop
+> window, no `DISPLAY` needed on the host), so the old host-side Xvfb /
+> xvfb-run / wibo dance is gone.  The images set `WINEDEBUG=-all` and a
+> fixed wine prefix; nothing wine-related runs on the host.
 
 **Image layout convention** (Godbolt-style): Dockerfiles live at
 `toolchain/<family>/<version>-<arch>/Dockerfile` and produce
@@ -303,6 +309,59 @@ best-first:
    doctor` "Optimization level" check that warns on mismatch and points
    mixed builds at per-function flag sweeps.
 
+   **Pre-6.0 constant-caching fingerprint** — a second codegen signal separates
+   the MSVC compiler era.  MSVC 4.x/5.0 hoist a small loop-invariant constant
+   into a callee-saved register and store it via that register (mov ebx,imm32
+   then mov [mem],ebx); MSVC 6.0 folds the constant and emits mov [mem],imm32
+   immediates instead.  `toolchain_detect.py` counts store-via-reg sites and
+   appends "(pre-6.0 constant-caching codegen; compiler may be MSVC 4.x/5.0)"
+   to the version hint when the signal is strong — even when DIE names the
+   era 12.00 (MSVC 6.0), because the compiler and the CRT/linker eras are
+   independent fingerprints.  This was the missing signal for the Europa 1400
+   server (guild-rebrew): its player-init loop caches 1000 in ebx, which
+   neither vendored 6.0 compiler (SP0 12.00.8168 or SP6 12.00.8804) produces
+   — only MSVC 4.2/5.0 codegen does, so per-function matching of such loops
+   needs the pre-6.0 toolchain (msvc5/msvc420), not msvc6.
+
+
+### Per-Function Toolchain Override
+
+A target built with a **mix** of MSVC versions (e.g. the Europa 1400 server:
+mostly 6.0 code, with scattered 4.2/5.0-compiled files) cannot be byte-
+matched by any single compiler.  `rebrew test`/`verify`/`diff`/`match` all
+honor a per-function toolchain:
+
+- `rebrew test <va> --toolchain msvc5` compiles that one function with the
+  vendored MSVC 5.0 and **persists** the choice to `rebrew-function.toml`
+  (the `toolchain` field, same lifecycle as `cflags`), so `verify` and
+  batch `test --all` recompile with the same compiler that produced the
+  match.
+- The metadata value is read through the normal annotation pipeline
+  (`merge_into_annotation` overlays it onto the parsed function), so any
+  tool that compiles a function — test, verify, diff, prove, match, the
+  GA, flag sweeps — transparently uses the overridden compiler.
+- CLI `--toolchain`/`--compiler`/`--inc` still take precedence over the
+  metadata value; the override only fills in the config default.
+- The compile cache keys on the resolved `cl` command + include dir, so
+  functions compiled under different toolchains never share cache
+  entries.
+- **The toolchain own C1.DLL/C2.DLL must be used.**  cl.exe alone is not
+  enough: MSVC compiler components are loaded at runtime, and Wine finds
+  them through `WINEPATH`.  If the project-default compiler bin dir stays
+  in the search path, the vendored cl.exe silently loads the DEFAULT
+  compiler C1.DLL/C2.DLL and the codegen comes from the wrong compiler —
+  a per-function msvc5 override then quietly produces msvc6 code.
+  `vendored_msvc_env` REPLACES `WINEPATH` (and retargets `INCLUDE`/`LIB`/
+  `PATH`) with the overridden toolchain own dirs whenever a per-function
+  toolchain is active.
+
+Pick the toolchain with `rebrew test --toolchain <name> --json` on each
+function and compare match counts; the vendored names are the registry
+ids (`msvc5`, `msvc420`, `msvc6`, …) from `rebrew toolchain list`.  The
+pre-6.0 constant-caching fingerprint above is the quick triage signal: a
+function whose loop hoists a small constant into ebx/esi/edi was built
+with MSVC 4.x/5.0, not 6.0.
+
 The check fails when the detected family has no compatible profile
 (Delphi: document blockers) and passes with a warning for families that may
 only match structurally (Zig under `gcc-pe`).  The check is **arch-aware**:
@@ -326,7 +385,112 @@ for r in msvc-4.2-win32 msvc-5.0-win32; do   # repo names are lowercase: msvc420
   mkdir -p $r && tar xzf $r.tar.gz --strip-components=1 -C $r
 done
 ```
+### The MSVC 1.0–10.0 matrix (complete, docker-packaged)
 
+Rebrew now vendors and containerizes the **entire classic MSVC line**, every
+version and every service pack whose compiler binary is preserved publicly.
+Each row is a first-class toolchain: a `ToolchainSpec` + pinned sha256 source
+(`rebrew toolchain vendor <name>` assembles the host tree; `rebrew toolchain
+build <name>` builds `rebrew/msvc:<version>-<arch>` from the same tarball), a
+config/init/detect profile, a tools/ compat link, and a smoke-gate golden.
+
+| Profile | Version | CL.EXE | Compiler | Source | Runtime |
+|---|---|---|---|---|---|
+| `msvc10` | 1.0 (1992, 16-bit) | — | 16-bit Phar Lap | WinWorld floppies, in-repo | DOSBox |
+| `msvc15` | 1.5 (1993, 16-bit) | — | 16-bit Phar Lap | archive.org `en_vc152`, in-repo | DOSBox |
+| `msvc1.52` | 1.52 (1995, 16-bit) | — | 16-bit Phar Lap | archive.org `en_vc152_202512`, in-repo | DOSBox |
+| `msvc200` | 2.0 (1994) | 9.00 | first 32-bit | archaic-msvc `msvc200` | docker |
+| `msvc400` | 4.0 (1995) | 10.00.5270 | | itsmattkc `MSVC400` | docker |
+| `msvc410` | 4.1 (1996) | 10.10.6038 | | archaic-msvc `msvc410` | docker |
+| `msvc420` | 4.2 (1996) | 10.20 | | archaic-msvc `msvc420` | docker |
+| `msvc5` | 5.0 (1997) | 11.00.7022 | | archaic-msvc `msvc500` | docker |
+| `msvc500sp1` | 5.0 SP1 | 11.00.7022 | (same CL) | archaic-msvc `msvc500sp1` | docker |
+| `msvc500sp2` | 5.0 SP2 | 11.00.7022 | (same CL) | archaic-msvc `msvc500sp2` | docker |
+| `msvc500sp3` | 5.0 SP3 | 11.00.7022 | (same CL) | archaic-msvc `msvc500sp3` | docker |
+| `msvc6` | 6.0 (1998) | 12.00.8168 | RTM..SP3 | archaic-msvc `msvc600` | docker |
+| `msvc600sp3` | 6.0 SP3 | 12.00.8168 | (same CL) | decomp.me `msvc6.3` (archaic sp3 repo has no Bin/) | docker |
+| `msvc600sp5` | 6.0 SP5 | 12.00.8804 | | archaic-msvc `msvc600_sp5` | docker |
+| `msvc600sp6` | 6.0 SP6 | 12.00.8804 | (same CL) | archaic-msvc `msvc600_sp6` | docker |
+| `msvc7` | 7.0 (2002) | 13.10.3077 | .NET 2003 build | archaic-msvc `msvc710` | docker |
+| `msvc700` | 7.0 RTM | 13.00.9466 | true 7.0 | archaic-msvc `msvc700` | docker |
+| `msvc700sp1` | 7.0 SP1 | 13.00.9466 | (same CL) | archaic-msvc `msvc700_sp1` | docker |
+| `msvc710` | 7.1 (2003) | 13.10.3077 | | archaic-msvc `msvc710` | docker |
+| `msvc710sp1` | 7.1 SP1 | 13.10.6030 | | archaic-msvc `msvc710_sp1` | docker |
+| `msvc800` | 8.0 (2005) | 14.00.50727 | | archaic-msvc `msvc800` | docker |
+| `msvc800sp1` | 8.0 SP1 | 14.00.50727.762 | | archaic-msvc `msvc800_sp1` | docker |
+| `msvc900` | 9.0 (2008) | 15.00.21022 | | archaic-msvc `msvc900` | docker |
+| `msvc1000` | 10.0 (2010) | 16.00.30319 | | archaic-msvc `msvc1000` | docker |
+| `msvc1000sp1` | 10.0 SP1 | 16.00.40219 | | archaic-msvc `msvc1000_sp1` | docker |
+
+Notes:
+
+- **`msvc15`/`msvc1.52` (16-bit)** compile through their `cl15`/`cl16`
+  image wrappers (DOSBox inside the image); objects are 16-bit
+  OMF decoded by `rebrew.matcher.omf16` — verified end-to-end (VC 1.5
+  produces a parseable `push bp`-style function object).
+- **`msvc10` (VC 1.0)** compiles end-to-end: the tree was assembled from
+  the WinWorld 3.5" floppy set (SZDD payload decompressed, in-repo tarball);
+  CL.EXE is a Phar Lap TNT DOS-extender (PE32) that runs headless under
+  DOSBox in the image (`cl10` wrapper), producing 16-bit OMF decoded
+  by `rebrew.matcher.omf16` — smoke-gated and verified (the object for the
+  smoke source is byte-identical to 1.5/1.52's, the shared 16-bit codegen).
+- **Service packs share compiler binaries**: the real VC 6.0 compiler line is
+  **12.00.8168 through SP3** (the RTM..SP3 driver is byte-identical, sha
+  `91ca0dde`) and **12.00.8804 from SP4 on** — verified against the official
+  Microsoft **Visual Studio 6 SP4 CD** (archive.org item
+  `microsoft-visual-studio-6-sp4-...-2000-microsoft-cd`, part numbers
+  X05-78387 / X05-78367D1): its `vc98/bin/cl.exe` is exactly 12.00.8804, the
+  same binary SP5/SP6 carry.  So SP1–SP4 are covered by `msvc6`/`msvc600sp3`
+  (8168) and `msvc600sp5`/`msvc600sp6` (8804); the only real gap is **VC 2008
+  SP1's compiler (15.00.30729)**, which has no public tarball (`archaic-msvc`
+  publishes only base `msvc900`).
+- **Legacy aliases**: the old `msvc6.3` / `msvc6.6` profile names map to the
+  `6.0-sp3` / `6.0-sp6` layouts; `msvc7` keeps its historical 13.10.3077
+  compiler (the canonical `7.0-win32` dir), while `msvc700` is the true VC 7.0
+  build in `7.0-rtm-win32`.
+
+### Provenance & checksums (official releases only)
+
+Every pinned source is an **unmodified official Microsoft release** — the
+`archaic-msvc` preservation repos carry the original compiler binaries (not
+repacks), and the 16-bit trees come from the original Microsoft media.  The
+policy: prefer `archaic-msvc` (GitHub org) for everything it publishes; use
+archive.org / WinWorld items only for media archaic-msvc does not carry
+(16-bit 1.0/1.5/1.52, and decomp.me `msvc6.3` — the sole public SP3 tarball
+with a `Bin/`; the archaic `msvc600_sp3` repo has headers/libs only).
+
+| Source | Original Microsoft release | sha256 (pinned tarball) |
+|---|---|---|
+| `archaic-msvc/msvc200` | VC 2.0 compiler | `0b058f10…` |
+| `archaic-msvc/msvc410` | VC 4.1 compiler | `21486aec…` |
+| `archaic-msvc/msvc420` | VC 4.2 compiler | `651db241…` |
+| itsmattkc `MSVC400` | VC 4.0 compiler | `c076ab51…` |
+| `archaic-msvc/msvc500` | VC 5.0 compiler | `46745771…` |
+| `archaic-msvc/msvc500sp1/2/3` | VC 5.0 SP1/SP2/SP3 | `f41e9e5a…` / `55113750…` / `cdba2878…` |
+| `archaic-msvc/msvc600` | VC 6.0 compiler (8168) | `19b72020…` |
+| decomp.me `msvc6.3` | VC 6.0 SP3 payload w/ Bin (only source) | `84f73e71…` |
+| `archaic-msvc/msvc600_sp5` | VC 6.0 SP5 full product tree | `a95a9c17…` |
+| `archaic-msvc/msvc600_sp6` | VC 6.0 SP6 full product tree | `7c2aa3dd…` |
+| `archaic-msvc/msvc700` | VC 7.0 (2002) compiler (13.00.9466) | `5f75462f…` |
+| `archaic-msvc/msvc700_sp1` | VC 7.0 SP1 | `bc130062…` |
+| `archaic-msvc/msvc710` | VC 7.1 (.NET 2003) compiler (13.10.3077) | `618e876b…` |
+| `archaic-msvc/msvc710_sp1` | VC 7.1 SP1 | `44246ff2…` |
+| `archaic-msvc/msvc800` | VC 8.0 (2005) compiler | `ab819164…` |
+| `archaic-msvc/msvc800_sp1` | VC 8.0 SP1 | `9b53b515…` |
+| `archaic-msvc/msvc900` | VC 9.0 (2008) compiler | `9121d184…` |
+| `archaic-msvc/msvc1000` | VC 10.0 (2010) compiler | `5f0b4486…` |
+| `archaic-msvc/msvc1000_sp1` | VC 10.0 SP1 | `2e5fbb9b…` |
+| archive.org `en_vc152` | VC 1.5 (1993) 16-bit media | in-repo `msvc15.tar.xz` |
+| archive.org `en_vc152_202512` | VC 1.52 (1995) 16-bit media | in-repo `msvc152.tar.xz` |
+| WinWorld `visual-c/1x` (3.5\" floppy set) | VC 1.0 Professional (1992) 16-bit media | in-repo `msvc10.tar.xz` |
+|
+| **Gap preservation repos** | the toolchains archaic-msvc does not carry — VC 1.0/1.5/1.52/4.0, 6.0-SP3 with its Bin, plus the non-MSV C line (Borland C++ 5.5, Turbo C 2.0/3.1, Open Watcom 2.0, Delphi 1.0) — are published one-per-repo at **`github.com/archaic-toolchains`** — same tree format, READMEs with provenance + checksums | — |
+
+Full sha256 values live in `_SOURCES` (`src/rebrew/toolchain.py`) — the
+Dockerfiles verify them at build time and `rebrew toolchain vendor` refuses a
+mismatch, so a changed source fails loudly.  `rebrew toolchain smoke` then
+gates byte-reproducibility: every image-backed MSVC profile (1.0 excluded —
+Win16-NE, experimental) has a golden object hash.
 ### 16-bit Windows NE Binaries (native parsing + disassembly + byte matching)
 
 `rebrew` primarily targets 32-bit PE/ELF/Mach-O with MSVC6/MinGW, but
@@ -488,10 +652,12 @@ Not integrated into the pipeline. Potential uses:
 Part of the MSVC6 toolchain. Run via Wine:
 
 ```bash
-wine toolchain/msvc/6.0-win32/VC98/Bin/DUMPBIN.EXE /EXPORTS target.dll
-wine toolchain/msvc/6.0-win32/VC98/Bin/DUMPBIN.EXE /IMPORTS target.dll
-wine toolchain/msvc/6.0-win32/VC98/Bin/DUMPBIN.EXE /HEADERS target.dll
-wine toolchain/msvc/6.0-win32/VC98/Bin/DUMPBIN.EXE /DISASM /RAWDATA:1 some_file.obj
+docker run --rm -v "$PWD":/work -w /work rebrew/msvc:6.0-win32 /c t.c
+# ... or reach the image's own tools via the wine entrypoint:
+docker run --rm -v "$PWD":/work -w /work --entrypoint wine rebrew/msvc:6.0-win32 /opt/msvc6.0/VC98/Bin/DUMPBIN.EXE /EXPORTS target.dll
+docker run --rm -v "$PWD":/work -w /work --entrypoint wine rebrew/msvc:6.0-win32 /opt/msvc6.0/VC98/Bin/DUMPBIN.EXE /IMPORTS target.dll
+docker run --rm -v "$PWD":/work -w /work --entrypoint wine rebrew/msvc:6.0-win32 /opt/msvc6.0/VC98/Bin/DUMPBIN.EXE /HEADERS target.dll
+docker run --rm -v "$PWD":/work -w /work --entrypoint wine rebrew/msvc:6.0-win32 /opt/msvc6.0/VC98/Bin/DUMPBIN.EXE /DISASM /RAWDATA:1 some_file.obj
 ```
 
 ### objconv

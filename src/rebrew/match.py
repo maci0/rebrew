@@ -410,6 +410,18 @@ class BinaryMatchingGA:
         else:
             if not self.lib_dir or not self.ldflags:
                 raise ValueError("lib dir and ldflags must be set when compare_obj is False")
+            # The linked-exe GA path uses a host subprocess (wine) — execution
+            # is docker-only for Windows/DOS toolchains, so this mode is only
+            # available for native Linux compilers (gcc-pe).
+            if self.profile:
+                from rebrew.toolchain import TOOLCHAINS
+
+                _spec = TOOLCHAINS.get(self.profile)
+                if _spec is not None and _spec.image is not None:
+                    raise ValueError(
+                        f"linked-exe GA ({self.profile}) needs host wine — execution is "
+                        "docker-only; use object comparison (default) instead"
+                    )
             res = build_candidate(
                 src,
                 self.cl_cmd,
@@ -1846,6 +1858,29 @@ def resolve_build_params(
     # IS msvc_env_from_config(cfg) (the old code computed it a second time
     # and discarded the helper's copy).
     cl_resolved, inc_resolved, msvc_env, cc = resolve_compiler_env(cfg)
+    # Per-function toolchain override (metadata TOOLCHAIN, e.g. "msvc5"):
+    # compile THIS function with THAT toolchain's docker image.  Every
+    # compile runs through docker images — there is no host wine/wibo path.
+    toolchain_name = (meta.get("TOOLCHAIN") or "").strip()
+    if toolchain_name:
+        from rebrew.toolchain import TOOLCHAINS
+
+        tc_spec = TOOLCHAINS.get(toolchain_name)
+        if tc_spec is None or tc_spec.image is None:
+            error_exit(
+                f"metadata TOOLCHAIN {toolchain_name!r} has no docker image — "
+                "every compile runs through its docker image; "
+                f"run `rebrew toolchain build {toolchain_name}` first",
+                json_mode=json_output,
+            )
+        # Route the GA compile through the overridden toolchain by pointing
+        # the compile config at its profile (compile_to_obj resolves the
+        # image from the profile).  The cl/inc/env fields stay as resolved
+        # for the default profile; image-backed compiles ignore them.
+        from types import SimpleNamespace
+
+        compile_cfg = SimpleNamespace(**vars(compile_cfg))
+        compile_cfg.compiler_profile = toolchain_name
     if cl is not None:
         # Caller override: resolve paths relative to root
         try:
@@ -1917,7 +1952,7 @@ def resolve_build_params(
     seed_src, _ = read_source_text(seed_c_path)
 
     return _BuildParams(
-        cfg=cfg,
+        cfg=compile_cfg,
         seed_c=seed_c_path,
         seed_src=seed_src,
         cl=cl_resolved,
@@ -2092,16 +2127,31 @@ def run_flag_sweep(
 # ---------------------------------------------------------------------------
 
 
-#: Vendored MSVC toolchains in the rebrew repo's tools/ (SP point versions +
-#: the archaic-msvc VC4/5/7 line).  Used by ``--sweep-toolchain`` to answer
-#: "which MSVC version built this function?".
+#: Vendored MSVC toolchains in the rebrew repo's toolchain/ (the full
+#: 2.0-10.0 matrix incl. SP lines — archaic-msvc + decomp.me mirrors).  Used
+#: by ``--sweep-toolchain`` to answer "which MSVC version built this function?".
 _MSVC_TOOLCHAIN_PATHS: list[tuple[str, str, str]] = [
-    ("msvc6.3", "msvc/6.0-sp3-win32/Bin/CL.EXE", "msvc/6.0-sp3-win32/Include"),
-    ("msvc6.6", "msvc/6.0-sp6-win32/Bin/CL.EXE", "msvc/6.0-sp6-win32/Include"),
-    ("msvc-7.0-win32", "msvc/7.0-win32/Bin/cl.exe", "msvc/7.0-win32/Include"),
+    ("msvc2.0", "msvc/2.0-win32/bin/cl.exe", "msvc/2.0-win32/include"),
+    ("msvc-4.0-win32", "msvc/4.0-win32/BIN/CL.EXE", "msvc/4.0-win32/INCLUDE"),
+    ("msvc-4.1-win32", "msvc/4.1-win32/bin/CL.EXE", "msvc/4.1-win32/include"),
     ("msvc-4.2-win32", "msvc/4.2-win32/bin/CL.EXE", "msvc/4.2-win32/include"),
     ("msvc-5.0-win32", "msvc/5.0-win32/bin/cl.exe", "msvc/5.0-win32/include"),
-    ("msvc-4.0-win32", "msvc/4.0-win32/BIN/CL.EXE", "msvc/4.0-win32/INCLUDE"),
+    ("msvc-5.0-sp1-win32", "msvc/5.0-sp1-win32/bin/cl.exe", "msvc/5.0-sp1-win32/include"),
+    ("msvc-5.0-sp2-win32", "msvc/5.0-sp2-win32/bin/cl.exe", "msvc/5.0-sp2-win32/include"),
+    ("msvc-5.0-sp3-win32", "msvc/5.0-sp3-win32/bin/cl.exe", "msvc/5.0-sp3-win32/include"),
+    ("msvc6.3", "msvc/6.0-sp3-win32/Bin/CL.EXE", "msvc/6.0-sp3-win32/Include"),
+    ("msvc-6.0-sp5-win32", "msvc/6.0-sp5-win32/VC98/Bin/CL.EXE", "msvc/6.0-sp5-win32/VC98/Include"),
+    ("msvc6.6", "msvc/6.0-sp6-win32/Bin/CL.EXE", "msvc/6.0-sp6-win32/Include"),
+    ("msvc-7.0-rtm-win32", "msvc/7.0-rtm-win32/Vc7/bin/cl.exe", "msvc/7.0-rtm-win32/Vc7/include"),
+    ("msvc-7.0-sp1-win32", "msvc/7.0-sp1-win32/Vc7/bin/cl.exe", "msvc/7.0-sp1-win32/Vc7/include"),
+    ("msvc-7.0-win32", "msvc/7.0-win32/Bin/cl.exe", "msvc/7.0-win32/Include"),
+    ("msvc-7.1-win32", "msvc/7.1-win32/Vc7/bin/cl.exe", "msvc/7.1-win32/Vc7/include"),
+    ("msvc-7.1-sp1-win32", "msvc/7.1-sp1-win32/Vc7/bin/cl.exe", "msvc/7.1-sp1-win32/Vc7/include"),
+    ("msvc-8.0-win32", "msvc/8.0-win32/VC/bin/cl.exe", "msvc/8.0-win32/VC/include"),
+    ("msvc-8.0-sp1-win32", "msvc/8.0-sp1-win32/VC/bin/cl.exe", "msvc/8.0-sp1-win32/VC/include"),
+    ("msvc-9.0-win32", "msvc/9.0-win32/VC/bin/cl.exe", "msvc/9.0-win32/VC/include"),
+    ("msvc-10.0-win32", "msvc/10.0-win32/VC/bin/cl.exe", "msvc/10.0-win32/VC/include"),
+    ("msvc-10.0-sp1-win32", "msvc/10.0-sp1-win32/VC/bin/cl.exe", "msvc/10.0-sp1-win32/VC/include"),
 ]
 
 

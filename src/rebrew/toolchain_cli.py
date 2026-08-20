@@ -64,36 +64,31 @@ def status_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. msvc6, delphi16)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
-    """Show how one toolchain resolves (image pulled? host binary present?)."""
+    """Show how one toolchain resolves (image built? vendored tree present?).
+
+    Execution is docker-only for every Windows/DOS toolchain, so the image
+    state is the primary signal; the vendored tree is informational (it is
+    the byte-identical source the image builds from)."""
     import shutil
 
-    from rebrew.toolchain import ToolchainError, _resolve_binary, get_toolchain
+    from rebrew.toolchain import _vendored_binary, get_toolchain
 
     spec = get_toolchain(name)
     host_ok: bool | None = None
     resolved_cmd: str | None = None
     if spec.host_path is not None:
-        # Use the shared resolver (case-insensitive host_bin subdir — the
-        # vendored DOS-era trees are BIN, not Bin) so status agrees with
-        # run_toolchain's host fallback.
+        # Informational: the vendored tree (source for image builds) —
+        # nothing executes from it anymore.
         try:
-            _resolve_binary(spec)
-            host_ok = True
-        except ToolchainError:
+            hit = _vendored_binary(spec)
+            host_ok = hit is not None
+            if hit is not None:
+                resolved_cmd = str(hit)
+        except Exception:
             host_ok = False
-            # The master layout may be absent (machines with only the
-            # compile-only mirrors) — resolve the best present layout and
-            # report it instead of a bare "absent".
-            try:
-                from rebrew.utils import resolve_msvc_toolchain
-
-                root = Path(__file__).resolve().parents[2]
-                layout = resolve_msvc_toolchain(root, name)
-                if layout is not None:
-                    resolved_cmd = layout[0]
-            except Exception:
-                pass
     elif spec.image is None:
+        # Native-Linux toolchains (gcc-pe, watcom16 wcc) exec their binary
+        # directly — that IS the execution path.
         host_ok = shutil.which(spec.binary) is not None
     image_ok: bool | None = None
     if spec.image is not None and docker_available():
@@ -277,6 +272,28 @@ _COMPAT_LINK_ALIASES: dict[str, str] = {
     "WATCOM": "watcom/2.0-win32",
     "watcom-win32": "watcom/2.0-win32",
     "TC": "borland/3.1-win16",
+    "MSVC200": "msvc/2.0-win32",
+    "msvc-2.0-win32": "msvc/2.0-win32",
+    "MSVC410": "msvc/4.1-win32",
+    "msvc-4.1-win32": "msvc/4.1-win32",
+    "msvc-5.0-sp1-win32": "msvc/5.0-sp1-win32",
+    "msvc-5.0-sp2-win32": "msvc/5.0-sp2-win32",
+    "msvc-5.0-sp3-win32": "msvc/5.0-sp3-win32",
+    "msvc-6.0-sp5-win32": "msvc/6.0-sp5-win32",
+    "MSVC7RTM": "msvc/7.0-rtm-win32",
+    "msvc-7.0-rtm-win32": "msvc/7.0-rtm-win32",
+    "msvc-7.0-sp1-win32": "msvc/7.0-sp1-win32",
+    "msvc-7.1-win32": "msvc/7.1-win32",
+    "msvc-7.1-sp1-win32": "msvc/7.1-sp1-win32",
+    "msvc-8.0-win32": "msvc/8.0-win32",
+    "msvc-8.0-sp1-win32": "msvc/8.0-sp1-win32",
+    "msvc-9.0-win32": "msvc/9.0-win32",
+    "msvc-10.0-win32": "msvc/10.0-win32",
+    "msvc-10.0-sp1-win32": "msvc/10.0-sp1-win32",
+    "MSVC15": "msvc/1.5-win16",
+    "msvc-1.5-win16": "msvc/1.5-win16",
+    "MSVC10": "msvc/1.0-win16",
+    "msvc-1.0-win16": "msvc/1.0-win16",
 }
 
 
@@ -443,6 +460,16 @@ def vendor_cmd(
                 continue
             child.rename(vc98 / child.name)
 
+    # The archaic MSVC 6.0 SP5 repo stashes mspdb60.dll in the IDE dir
+    # (Common/MSDev98/Bin) while CL.EXE 12.00.8804 statically imports it and
+    # only searches its own directory — relocate the official file so host
+    # compiles work (the sp5 Dockerfile does the same relocation).
+    ide_dll = host / "Common" / "MSDev98" / "Bin" / "MSPDB60.DLL"
+    bin_dll = host / "VC98" / "Bin" / "MSPDB60.DLL"
+    if ide_dll.exists() and not bin_dll.exists():
+        bin_dll.write_bytes(ide_dll.read_bytes())
+        console.print("[dim]relocated MSPDB60.DLL -> VC98/Bin (CL requires it in-dir)[/dim]")
+
     # Guard: a bad extraction must fail loudly (the images do the same).
     # Probe the ACTUAL extracted dir (src.host_dir) — the spec's host_path
     # is captured at import time and may predate the extraction.
@@ -511,6 +538,146 @@ _SMOKE_GOLDEN: dict[
         "t.c",
         (4, 8),
     ),  # COFF TimeDateStamp
+    "msvc200": (
+        ["/c", "t.c"],
+        "t.obj",
+        "3df39750075ba99bba6f9418a9cb399eedfe48149132bb6a49f2045239cad25f",
+        "t.c",
+        (4, 8),
+    ),  # COFF TimeDateStamp
+    "msvc410": (
+        ["/c", "t.c"],
+        "t.obj",
+        "d420f2d9626c270866ba1d1d718a19cd39a59d07c8fe9d2999bde3ffd4bd9f4a",
+        "t.c",
+        (4, 8),
+    ),  # COFF TimeDateStamp — identical masked object to msvc400/msvc420
+    "msvc500sp1": (
+        ["/c", "t.c"],
+        "t.obj",
+        "3fdf875c176b0abc8614f7208053d0b53193e73466f0c52c3cabc80a065dc897",
+        "t.c",
+        (4, 8),
+    ),  # COFF TimeDateStamp — identical masked object to msvc5 (same CL)
+    "msvc500sp2": (
+        ["/c", "t.c"],
+        "t.obj",
+        "3fdf875c176b0abc8614f7208053d0b53193e73466f0c52c3cabc80a065dc897",
+        "t.c",
+        (4, 8),
+    ),
+    "msvc500sp3": (
+        ["/c", "t.c"],
+        "t.obj",
+        "3fdf875c176b0abc8614f7208053d0b53193e73466f0c52c3cabc80a065dc897",
+        "t.c",
+        (4, 8),
+    ),
+    "msvc600sp3": (
+        ["/c", "t.c"],
+        "t.obj",
+        "7e4ff03b2845d2268b2c0d27d35e63cea41d2e44320e821f6f6438da41873774",
+        "t.c",
+        (4, 8),
+    ),  # COFF TimeDateStamp — comp.id differs from msvc6 (SP3 passes)
+    "msvc600sp5": (
+        ["/c", "t.c"],
+        "t.obj",
+        "547b88f827c13e9273f46b1a72415002289fac62d0f65dc0ef9289dbc5a3e546",
+        "t.c",
+        (4, 8),
+    ),
+    "msvc600sp6": (
+        ["/c", "t.c"],
+        "t.obj",
+        "7ec66aebd67075b5e1482d9ee05f4a53134925a4e6a79101446e9a7b31eb3994",
+        "t.c",
+        (4, 8),
+    ),
+    "msvc7": (
+        ["/c", "t.c"],
+        "t.obj",
+        "77c906d5556114c01e11cb6d6afa1beed3e0b0dea6f9f04351ce6775f9303071",
+        "t.c",
+        (4, 8),
+    ),  # COFF TimeDateStamp — identical masked object to msvc710 (same CL)
+    "msvc700": (
+        ["/c", "t.c"],
+        "t.obj",
+        "9e42bfe45c02ff046d13ce6c32b7fc1d422b30bf225ff4b64f659a16cadd9f4b",
+        "t.c",
+        (4, 8),
+    ),
+    "msvc700sp1": (
+        ["/c", "t.c"],
+        "t.obj",
+        "138377065cf5e3ac2f7afd6252f9f39e18996cbb5f0e8cf2956ab20fb42d0af7",
+        "t.c",
+        (4, 8),
+    ),
+    "msvc710": (
+        ["/c", "t.c"],
+        "t.obj",
+        "77c906d5556114c01e11cb6d6afa1beed3e0b0dea6f9f04351ce6775f9303071",
+        "t.c",
+        (4, 8),
+    ),
+    "msvc710sp1": (
+        ["/c", "t.c"],
+        "t.obj",
+        "edf732bc642630021456f567636c08dac2ee2ef5a5cc6f69b646fcc0dc3377bf",
+        "t.c",
+        (4, 8),
+    ),
+    "msvc800": (
+        ["/c", "t.c"],
+        "t.obj",
+        "c6d82406d884675a4be4910786da9350baa8b9e4ad1fb60de94abaa4e2e5bee2",
+        "t.c",
+        (4, 8),
+    ),  # identical masked object to msvc800sp1 (same CL)
+    "msvc800sp1": (
+        ["/c", "t.c"],
+        "t.obj",
+        "c6d82406d884675a4be4910786da9350baa8b9e4ad1fb60de94abaa4e2e5bee2",
+        "t.c",
+        (4, 8),
+    ),
+    "msvc900": (
+        ["/c", "t.c"],
+        "t.obj",
+        "8fed9b3cbb029773d2a5ec6aeb7a9643cee319005554a127a814c2862f1a80d4",
+        "t.c",
+        (4, 8),
+    ),
+    "msvc1000": (
+        ["/c", "t.c"],
+        "t.obj",
+        "df2bfe3ec2234bb4525ae45136b7fe47b0e7f3af353662e13e8ae156b984ea0e",
+        "t.c",
+        (4, 8),
+    ),
+    "msvc1000sp1": (
+        ["/c", "t.c"],
+        "t.obj",
+        "778fe81a9d24c919e7f19026f5ff4ef5f08435cbda4e33659435fd0ca96351be",
+        "t.c",
+        (4, 8),
+    ),
+    "msvc15": (
+        ["/c", "t.c"],
+        "t.OBJ",
+        "d3bf67158b4d52bd24cb7b137e803491080cf221ffcd6b5dc9dafb885ab36dc2",
+        "t.c",
+        None,
+    ),  # identical OMF to msvc1.52 (same 16-bit codegen)
+    "msvc10": (
+        ["/c", "t.c"],
+        "t.OBJ",
+        "d3bf67158b4d52bd24cb7b137e803491080cf221ffcd6b5dc9dafb885ab36dc2",
+        "t.c",
+        None,
+    ),  # identical OMF to msvc1.52/msvc15 (same 16-bit codegen)
     "msvc1.52": (
         ["/c", "t.c"],
         "t.OBJ",
@@ -772,6 +939,391 @@ def build_cmd(
         json_print({"built": spec.image})
     else:
         console.print(f"[green]Built[/green] {spec.image}")
+
+
+_SDE = 1767225600  # 2026-01-01 00:00:00 UTC — fixed source mtime so the
+# object metadata is deterministic across runs.
+
+
+def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
+    """Masked smoke-object sha256 for an image-backed toolchain (docker run).
+
+    Image-backed goldens are workdir-independent (the container always sees
+    the source at /work), so any host workdir gives the same hash — this is
+    the helper 'rebrew toolchain update' uses to regenerate _SMOKE_GOLDEN
+    after re-pinning and rebuilding an image.  Returns None when the
+    compile produced no object."""
+    import hashlib
+    import os
+    import subprocess
+
+    from rebrew.toolchain import get_toolchain
+
+    spec = get_toolchain(tool)
+    if spec.image is None:
+        return None
+    flags, out_name, _golden, src_name, mask = _SMOKE_GOLDEN[tool]
+    src = _SMOKE_SOURCE if src_name == "t.c" else _SMOKE_DPR
+    src_path = workdir / src_name
+    src_path.write_text(src, encoding="utf-8")
+    os.utime(src_path, (int(_SDE), int(_SDE)))
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{workdir}:/work",
+            "-w",
+            "/work",
+            spec.image,
+            *flags,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    obj = workdir / out_name
+    if not obj.exists():
+        return None
+    raw = obj.read_bytes()
+    if mask is not None:
+        ranges = mask if isinstance(mask, list) else [mask]
+        masked = bytearray(raw)
+        for start, end in ranges:
+            masked[start:end] = b"\x00" * (end - start)
+        raw = bytes(masked)
+    obj.unlink(missing_ok=True)
+    return hashlib.sha256(raw).hexdigest()
+
+
+_CODELOAD_RE = r"https://codeload\.github\.com/([^/]+)/([^/]+)/tar\.gz/refs/heads/([A-Za-z0-9._-]+)"
+_MOVING_RELEASE = "Last-CI-build"
+
+
+def _github_auth_headers() -> dict[str, str]:
+    """GitHub API headers (auth when GH_TOKEN/GITHUB_TOKEN is set)."""
+    import os
+
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+    base = {"User-Agent": "rebrew-toolchain"}
+    if token:
+        base["Authorization"] = f"Bearer {token}"
+    return base
+
+
+def _live_commit_sha(owner: str, repo: str, branch: str) -> str:
+    """Current default-branch commit sha for a GitHub repo (GitHub API —
+    cheap: no tarball download)."""
+    import json
+    import urllib.request
+
+    url = f"https://api.github.com/repos/{owner}/{repo}/commits/{branch}"
+    req = urllib.request.Request(url, headers=_github_auth_headers())
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        return str(json.load(resp)["sha"])
+
+
+@app.command("check-updates")
+def check_updates_cmd(
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+) -> None:
+    """Detect upstream drift in pinned toolchain sources.
+
+    GitHub-codeload sources (archaic-msvc, archaic-toolchains, itsmattkc,
+    open-watcom): compares the live default-branch commit sha (GitHub API —
+    no download) against the commit the pin was taken from.  The Open
+    Watcom snapshot (a moving 'Last-CI-build' release tag) is re-downloaded
+    and re-hashed.  Immutable release assets (decomp.me, archive.org) and
+    in-repo tarballs are reported as static."""
+    import hashlib
+    import re
+    import tempfile
+    import urllib.request
+
+    from rebrew.toolchain import _SOURCES
+
+    rows: dict[str, str] = {}
+    drifted: list[str] = []
+    for name, src in sorted(_SOURCES.items()):
+        if src.in_repo:
+            rows[name] = "static (in-repo tarball)"
+            continue
+        url = src.url or ""
+        m = re.match(_CODELOAD_RE, url)
+        if m:
+            owner, repo, branch = m.group(1), m.group(2), m.group(3)
+            try:
+                live = _live_commit_sha(owner, repo, branch)
+            except Exception as exc:  # noqa: BLE001
+                rows[name] = f"check failed ({exc.__class__.__name__})"
+                continue
+            if not src.commit:
+                rows[name] = f"unpinned (live {live[:12]})"
+                continue
+            if live == src.commit:
+                rows[name] = "current"
+            else:
+                rows[name] = f"DRIFTED {src.commit[:12]} -> {live[:12]}"
+                drifted.append(name)
+            continue
+        if _MOVING_RELEASE in url:
+            try:
+                with tempfile.TemporaryDirectory() as td:
+                    path = Path(td) / "src.bin"
+                    urllib.request.urlretrieve(url, path)
+                    actual = hashlib.sha256(path.read_bytes()).hexdigest()
+                if actual == src.sha256:
+                    rows[name] = "current"
+                else:
+                    rows[name] = f"DRIFTED sha256 {src.sha256[:12]} -> {actual[:12]}"
+                    drifted.append(name)
+            except Exception as exc:  # noqa: BLE001
+                rows[name] = f"check failed ({exc.__class__.__name__})"
+            continue
+        rows[name] = "static (immutable release asset)"
+    if json_output:
+        json_print({"toolchains": rows, "drifted": drifted})
+        return
+    for name, status in rows.items():
+        color = (
+            "green"
+            if status == "current"
+            else ("red" if status.startswith("DRIFTED") else "yellow")
+        )
+        console.print(f"  [{color}]{name:14s}[/] {status}")
+    if drifted:
+        console.print(
+            "[red]drifted: "
+            + ", ".join(drifted)
+            + " — run 'rebrew toolchain update <name> --apply'[/red]"
+        )
+
+
+def _rewrite_source_pin(name: str, sha256: str, commit: str) -> None:
+    """Rewrite the _SOURCES entry for *name* in toolchain.py (sha256 + commit).
+
+    The entry block is located by the unique '"name": ToolchainSource('
+    header; only the pinned sha256/commit lines inside it are touched, so a
+    shared checksum across entries never mutates a neighbour."""
+    import re
+
+    path = Path(__file__).resolve().parent / "toolchain.py"
+    text = path.read_text(encoding="utf-8")
+    esc = re.escape(name)
+    block = re.search('"' + esc + '": ToolchainSource\\((.*?)\\n\\s*\\),', text, re.S)
+    if block is None:
+        raise ToolchainError(f"could not locate _SOURCES entry for {name!r}")
+    body = block.group(1)
+    m = re.search(r'sha256="[0-9a-f]{64}"', body)
+    if m is None:
+        raise ToolchainError(f"no sha256 pin found for {name!r}")
+    body = body[: m.start()] + f'sha256="{sha256}"' + body[m.end() :]
+    if re.search(r'commit="[0-9a-f]{40}"', body):
+        body = re.sub(r'commit="[0-9a-f]{40}"', f'commit="{commit}"', body, count=1)
+    else:
+        body = re.sub(
+            r'(sha256="[0-9a-f]{64}",)(\n\s*)',
+            r'\1\2commit="' + commit + r'",\2',
+            body,
+            count=1,
+        )
+    text = (
+        text[: block.start()]
+        + text[block.start() : block.end()].replace(block.group(1), body)
+        + text[block.end() :]
+    )
+    path.write_text(text, encoding="utf-8")
+
+
+def _rewrite_golden(name: str, golden: str) -> None:
+    """Rewrite the _SMOKE_GOLDEN entry for *name* (the golden hex line)."""
+    import re
+
+    path = Path(__file__).resolve().parents[0] / "toolchain_cli.py"
+    text = path.read_text(encoding="utf-8")
+    esc = re.escape(name)
+    block = re.search('"' + esc + '": \\(\\n(.*?)\\n\\s*\\),', text, re.S)
+    if block is None:
+        raise ToolchainError(f"no _SMOKE_GOLDEN entry for {name!r}")
+    body = block.group(1)
+    m = re.search(r'\n\s*"[0-9a-f]{64}",', body)
+    if m is None:
+        raise ToolchainError(f"no golden hex found for {name!r}")
+    body = body[: m.start()] + '\n        "' + golden + '",' + body[m.end() :]
+    text = (
+        text[: block.start()]
+        + text[block.start() : block.end()].replace(block.group(1), body)
+        + text[block.end() :]
+    )
+    path.write_text(text, encoding="utf-8")
+
+
+def _rewrite_dockerfile_sha(name: str, sha256: str) -> None:
+    """Rewrite the sha256 pin embedded in the toolchain's Dockerfile.
+
+    The Dockerfiles hardcode the sha256 (verified at build time with
+    `sha256sum -c`), mirroring _SOURCES — a re-pin must update both or the
+    image rebuild fails."""
+    import re
+
+    from rebrew.toolchain import get_toolchain
+
+    spec = get_toolchain(name)
+    if spec.image is None or ":" not in spec.image:
+        return
+    tag, verarch = spec.image.rsplit(":", 1)
+    df = Path(__file__).resolve().parents[2] / "toolchain" / spec.family / verarch / "Dockerfile"
+    if not df.exists():
+        return
+    text = df.read_text(encoding="utf-8")
+    m = re.search(r"[0-9a-f]{64}", text)
+    if m is None:
+        return
+    text = text[: m.start()] + sha256 + text[m.end() :]
+    df.write_text(text, encoding="utf-8")
+
+
+@app.command("update")
+def update_cmd(
+    name: str = typer.Argument(..., help="Toolchain name (e.g. msvc6, watcom)"),
+    apply: bool = typer.Option(
+        False, "--apply", help="Apply the re-pin, re-vendor, rebuild and re-golden"
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+) -> None:
+    """Re-pin a toolchain source to the current upstream and rebuild.
+
+    Dry-run (default): downloads the current source and reports the
+    old -> new pin (sha256 + commit).  --apply additionally rewrites
+    _SOURCES, clears + re-vendors the host tree, rebuilds the docker
+    image, regenerates the smoke golden (verified stable across two
+    compiles) and runs the smoke gate for that toolchain."""
+    import hashlib
+    import re
+    import shutil
+    import subprocess
+    import tempfile
+    from dataclasses import replace
+
+    from rebrew.toolchain import _REPO_TOOLS, _SOURCES, get_toolchain
+
+    src = _SOURCES.get(name)
+    if src is None:
+        msg = f"no pinned source for toolchain {name!r} (known: {sorted(_SOURCES)})"
+        if json_output:
+            json_print({"error": msg, "code": 2})
+        else:
+            console.print(f"[red]Error:[/red] {msg}")
+        raise typer.Exit(code=2)
+    if src.in_repo:
+        msg = f"toolchain {name!r} is an in-repo tarball (static) — nothing to update"
+        if json_output:
+            json_print({"error": msg, "code": 2})
+        else:
+            console.print(f"[yellow]{msg}[/yellow]")
+        raise typer.Exit(code=2)
+    url = src.url
+    with tempfile.TemporaryDirectory(prefix="rebrew_update_") as td:
+        archive = Path(td) / "src.bin"
+        subprocess.run(
+            ["curl", "-sL", "-o", str(archive), url], check=True, timeout=1800, capture_output=True
+        )
+        actual_sha = hashlib.sha256(archive.read_bytes()).hexdigest()
+        if actual_sha == src.sha256:
+            msg = f"toolchain {name!r} is already current (sha256 {src.sha256[:16]}…)"
+            if json_output:
+                json_print({"toolchain": name, "status": "current", "sha256": src.sha256})
+            else:
+                console.print(f"[green]{msg}[/green]")
+            return
+        m = re.match(_CODELOAD_RE, url)
+        live_commit = ""
+        if m:
+            try:
+                live_commit = _live_commit_sha(m.group(1), m.group(2), m.group(3))
+            except Exception:  # noqa: BLE001
+                live_commit = ""
+        old_pin = f"sha256={src.sha256[:12]}…" + (
+            f" commit={src.commit[:12]}" if src.commit else ""
+        )
+        new_pin = f"sha256={actual_sha[:12]}…" + (
+            f" commit={live_commit[:12]}" if live_commit else ""
+        )
+        if json_output:
+            json_print({"toolchain": name, "old": old_pin, "new": new_pin, "applied": False})
+        else:
+            console.print(f"[yellow]{name}:[/yellow] {old_pin} -> {new_pin}")
+        if not apply:
+            console.print(
+                "[dim]dry-run — pass --apply to re-pin, re-vendor, rebuild and re-golden[/dim]"
+            )
+            return
+        # 1. rewrite the pin in _SOURCES (file) + the in-memory dict so
+        #    vendor_cmd below verifies against the new sha256.
+        _rewrite_source_pin(name, actual_sha, live_commit)
+        _rewrite_dockerfile_sha(name, actual_sha)
+        _SOURCES[name] = replace(src, sha256=actual_sha, commit=live_commit)
+        # 2. clear the vendored host tree (keep Dockerfile/wrappers) + re-vendor.
+        host = _REPO_TOOLS / src.host_dir
+        _META_PATTERNS = ("Dockerfile", "pak_extract.py", "wrapper-common.sh", "*.sh", "*.tar.xz")
+        if host.exists():
+            for child in list(host.iterdir()):
+                if any(child.match(p) for p in _META_PATTERNS):
+                    continue
+                if child.is_dir():
+                    shutil.rmtree(child, ignore_errors=True)
+                else:
+                    child.unlink(missing_ok=True)
+        vendor_cmd(name, json_output=False)
+        # 3. rebuild the docker image.
+        build_cmd(name, json_output=False)
+        # 4. regenerate the smoke golden (stable across two compiles) + write it.
+        workdir = Path("/tmp/rebrew-smoke")
+        shutil.rmtree(workdir, ignore_errors=True)
+        workdir.mkdir(parents=True)
+        h1 = _image_smoke_hash(name, workdir)
+        h2 = _image_smoke_hash(name, workdir)
+        if h1 is None or h2 is None:
+            msg = f"update {name}: smoke compile failed after rebuild — golden not updated"
+            if json_output:
+                json_print({"error": msg, "code": 2})
+            else:
+                console.print(f"[red]Error:[/red] {msg}")
+            raise typer.Exit(code=2)
+        if h1 != h2:
+            msg = (
+                f"update {name}: smoke hash unstable ({h1[:12]} vs {h2[:12]}) — golden not updated"
+            )
+            if json_output:
+                json_print({"error": msg, "code": 2})
+            else:
+                console.print(f"[red]Error:[/red] {msg}")
+            raise typer.Exit(code=2)
+        golden_changed = name in _SMOKE_GOLDEN and _SMOKE_GOLDEN[name][2] != h1
+        if name in _SMOKE_GOLDEN:
+            _rewrite_golden(name, h1)
+        if json_output:
+            json_print(
+                {
+                    "toolchain": name,
+                    "sha256": actual_sha,
+                    "commit": live_commit,
+                    "golden": h1,
+                    "golden_changed": golden_changed,
+                    "applied": True,
+                }
+            )
+        else:
+            console.print(f"[green]{name} re-pinned:[/green] {new_pin}")
+            console.print(f"  host tree re-vendored, image rebuilt ({get_toolchain(name).image})")
+            if name in _SMOKE_GOLDEN:
+                if golden_changed:
+                    console.print(f"  smoke golden updated: {h1[:16]}…")
+                else:
+                    console.print(f"  smoke golden unchanged ({h1[:16]}…)")
+            else:
+                console.print("[dim]  no smoke golden for this toolchain[/dim]")
 
 
 def main_entry() -> None:

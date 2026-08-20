@@ -13,6 +13,14 @@ Families:
   ``Microsoft Visual C++ Runtime Library`` / ``Runtime Error!`` strings,
   MSVC-style ``8d 74 26 00`` alignment nops, ``cc cc`` padding, msvcrt.dll
   imports, no ``.buildid`` section.
+  Within the msvc family, a constant-caching fingerprint separates the
+  classic compiler eras.  MSVC 4.x/5.0 hoist a loop-invariant constant into
+  a callee-saved register and store it via that register (e.g. mov ebx,0x3e8
+  then mov [eax],ebx / mov [eax+8],ebx).  MSVC 6.0 folds the constant and
+  emits immediate stores instead (mov [eax],0x3e8 / mov [eax+8],0x3e8).  A
+  strong mov ebx/ebp/esi/edi,small-imm32 signal therefore marks pre-6.0
+  codegen even when DIE names the era as 12.00 (MSVC 6.0) - the compiler
+  and the CRT/linker era are independent fingerprints.
 - ``mingw`` — MinGW GCC (GNU ld).  Evidence: ``.buildid`` section, GNU
   multi-byte ``0f 1f`` nops, call-based ``___chkstk_ms`` stack probe, few or
   no imports.
@@ -365,6 +373,42 @@ def _gcc_era_hint(count_modern: int, count_old: int) -> str:
     if count_modern >= total * 0.6:
         return "modern GCC style (accumulate-outgoing-args)"
     return "mixed GCC codegen styles"
+
+
+# pre-6.0 MSVC (4.x/5.0) hoists a loop-invariant constant into a
+# callee-saved register and stores it via that register; MSVC 6.0 folds the
+# constant into immediate stores.  A strong mov ebx/ebp/esi/edi, small-imm32
+# signal marks pre-6.0 codegen even when the CRT/linker era is 6.0.
+_HOIST_REGS = (0xBB, 0xBD, 0xBE, 0xBF)  # mov ebx/ebp/esi/edi, imm32
+
+
+def _count_const_hoists(text: bytes) -> int:
+    """Count pre-6.0 constant-caching fingerprints in raw code bytes.
+
+    Pattern: ``mov ebx/ebp/esi/edi, imm32`` with a small (16-bit) immediate,
+    followed within a short window by ``mov [mem], same-reg`` (89 /r with a
+    memory destination).  That is how MSVC 4.x/5.0 cache a loop-invariant
+    constant in a callee-saved register before storing it multiple times;
+    MSVC 6.0 folds the constant and emits ``mov [mem], imm32`` (c7) instead.
+    The window + same-reg + small-immediate tests keep loop counters and
+    address loads out of the count (Win32 pointers have non-zero high bytes).
+    """
+    n = 0
+    reg_field = {0xBB: 3, 0xBD: 5, 0xBE: 6, 0xBF: 7}  # opcode -> 89 /r reg field
+    for i in range(len(text) - 5):
+        op = text[i]
+        reg = reg_field.get(op)
+        if reg is None or text[i + 3] != 0 or text[i + 4] != 0:
+            continue
+        # look ahead for a `mov [mem], reg` (89) using this same register
+        window = min(i + 5 + 32, len(text) - 1)
+        for j in range(i + 5, window):
+            if text[j] == 0x89:
+                rm = text[j + 1]
+                if (rm >> 6) != 3 and ((rm >> 3) & 7) == reg:
+                    n += 1
+                    break
+    return n
 
 
 def _pdb_compile_record(path: Path) -> dict[str, str] | None:
@@ -750,6 +794,7 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
     # function instead of trusting one project-wide setting.
     o2_wrappers = 0
     o1_wrappers = 0
+    const_hoists = 0
     try:
         from rebrew.binary_loader import extract_bytes_at_va
 
@@ -779,6 +824,7 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
         # push-[mem] wrapper call signatures (1- and 2-arg).
         o1_wrappers += text_bytes.count(bytes.fromhex("ff 74 24 04 e8"))
         o1_wrappers += text_bytes.count(bytes.fromhex("ff 74 24 08 ff 74 24 04"))
+        const_hoists = _count_const_hoists(text_bytes)
     except Exception:
         pass
 
@@ -807,6 +853,21 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
                 f"both wrapper styles present ({o1_wrappers} push-[mem], "
                 f"{o2_wrappers} load-first) — per-file mixed optimization; "
                 f"use per-function flag sweeps instead of one project-wide level"
+            )
+
+    # --- pre-6.0 constant-caching fingerprint ---
+    # MSVC 4.x/5.0 hoist small loop-invariant constants into callee-saved
+    # registers and store them via those registers; MSVC 6.0 folds them into
+    # mov [mem],imm32 immediates.  Only asserted for the MSVC family.
+    if info.family == "msvc" and const_hoists:
+        info.add(
+            f"{const_hoists} pre-6.0 constant-hoist sites "
+            f"(mov ebx/ebp/esi/edi, small-imm32 -> store-via-reg)"
+        )
+        if const_hoists >= 5 and info.version_hint.startswith("MSVC 6.0"):
+            info.version_hint = (
+                f"{info.version_hint} (pre-6.0 constant-caching codegen; "
+                "compiler may be MSVC 4.x/5.0)"
             )
 
     # --- decide the family (only if a better backend hasn't) ---
@@ -886,7 +947,7 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
 
 #: 16-bit-capable profiles for byte-matching DOS/NE targets (used by
 #: profile_matches_detection's arch alignment check).
-_BITNESS_16_PROFILES = frozenset({"msvc1.52", "tc16", "tc20", "watcom16"})
+_BITNESS_16_PROFILES = frozenset({"msvc1.52", "msvc15", "msvc10", "tc16", "tc20", "watcom16"})
 
 
 #: Compiler profiles that can byte-match each detected family.
@@ -894,7 +955,35 @@ _BITNESS_16_PROFILES = frozenset({"msvc1.52", "tc16", "tc20", "watcom16"})
 _PROFILE_COMPAT: dict[str, set[str] | None] = {
     # msvc1.52 is the 16-bit profile — the detection hint distinguishes
     # "16-bit MSVC-style NE" from 32-bit targets.
-    "msvc": {"msvc400", "msvc420", "msvc5", "msvc6", "msvc6.3", "msvc6.6", "msvc7", "msvc1.52"},
+    "msvc": {
+        "msvc400",
+        "msvc420",
+        "msvc410",
+        "msvc200",
+        "msvc5",
+        "msvc500sp1",
+        "msvc500sp2",
+        "msvc500sp3",
+        "msvc6",
+        "msvc6.3",
+        "msvc6.6",
+        "msvc600sp3",
+        "msvc600sp5",
+        "msvc600sp6",
+        "msvc7",
+        "msvc700",
+        "msvc700sp1",
+        "msvc710",
+        "msvc710sp1",
+        "msvc800",
+        "msvc800sp1",
+        "msvc900",
+        "msvc1000",
+        "msvc1000sp1",
+        "msvc1.52",
+        "msvc15",
+        "msvc10",
+    },
     "mingw": {"gcc-pe"},
     "zig": {"gcc-pe"},  # may match structurally only (LLVM vs GCC codegen)
     "watcom": {"watcom", "watcom16"},  # wcc386 (32-bit) + wcc (16-bit DOS)

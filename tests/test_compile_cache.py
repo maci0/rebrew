@@ -196,15 +196,12 @@ class TestCompileToObjCacheIntegration:
 
         subprocess_called = {"count": 0}
 
-        def _fake_run(cmd: list[str], **_kwargs: object) -> SimpleNamespace:
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
             subprocess_called["count"] += 1
-            cwd = Path(str(_kwargs.get("cwd", tmp_path)))
-            fo_flag = [c for c in cmd if c.startswith("/Fo")][0]
-            (cwd / fo_flag[3:]).write_bytes(b"\x00COFF_OBJ")
-            return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+            (workdir / "f.obj").write_bytes(b"\x00COFF_OBJ")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.subprocess.run", _fake_run)
-        monkeypatch.setattr("rebrew.compile.resolve_cl_command", lambda _cfg: ["CL.EXE"])
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
 
         cfg: Any = SimpleNamespace(
             compiler_includes=tmp_path,
@@ -215,6 +212,8 @@ class TestCompileToObjCacheIntegration:
             compiler_libs=tmp_path,
             compiler_runner="",
             root=tmp_path,
+            compiler_profile="msvc6",
+            posix_style=False,
         )
         src_dir = tmp_path / "src"
         src_dir.mkdir()
@@ -262,15 +261,12 @@ class TestCompileToObjCacheIntegration:
 
         call_count = {"n": 0}
 
-        def _fake_run(cmd, **_kwargs: object) -> SimpleNamespace:
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
             call_count["n"] += 1
-            obj_name = [c for c in cmd if c.endswith(".obj")][0]
-            obj_path = Path(_kwargs.get("cwd", tmp_path)) / obj_name.split("/")[-1]
-            obj_path.write_bytes(b"\x00OBJ")
-            return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+            (workdir / "f.obj").write_bytes(b"\x00OBJ")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.subprocess.run", _fake_run)
-        monkeypatch.setattr("rebrew.compile.resolve_cl_command", lambda _cfg: ["CL.EXE"])
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
 
         cfg: Any = SimpleNamespace(
             compiler_includes=tmp_path,
@@ -281,6 +277,8 @@ class TestCompileToObjCacheIntegration:
             compiler_libs=tmp_path,
             compiler_runner="",
             root=tmp_path,
+            compiler_profile="msvc6",
+            posix_style=False,
         )
         src_dir = tmp_path / "src"
         src_dir.mkdir()
@@ -304,15 +302,12 @@ class TestCompileToObjCacheIntegration:
 
         call_count = {"n": 0}
 
-        def _fake_run(cmd, **_kwargs: object) -> SimpleNamespace:
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
             call_count["n"] += 1
-            obj_name = [c for c in cmd if c.endswith(".obj")][0]
-            obj_path = Path(_kwargs.get("cwd", tmp_path)) / obj_name.split("/")[-1]
-            obj_path.write_bytes(b"\x00OBJ")
-            return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+            (workdir / "f.obj").write_bytes(b"\x00OBJ")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.subprocess.run", _fake_run)
-        monkeypatch.setattr("rebrew.compile.resolve_cl_command", lambda _cfg: ["CL.EXE"])
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
 
         cfg: Any = SimpleNamespace(
             compiler_includes=tmp_path,
@@ -323,6 +318,8 @@ class TestCompileToObjCacheIntegration:
             compiler_libs=tmp_path,
             compiler_runner="",
             root=tmp_path,
+            compiler_profile="msvc6",
+            posix_style=False,
         )
         src_dir = tmp_path / "src"
         src_dir.mkdir()
@@ -350,12 +347,11 @@ class TestCompileToObjCacheIntegration:
 
         call_count = {"n": 0}
 
-        def _fake_run(cmd, **_kwargs: object) -> SimpleNamespace:
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
             call_count["n"] += 1
-            return SimpleNamespace(returncode=1, stdout=b"error", stderr=b"")
+            return SimpleNamespace(returncode=1, stdout="error", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.subprocess.run", _fake_run)
-        monkeypatch.setattr("rebrew.compile.resolve_cl_command", lambda _cfg: ["CL.EXE"])
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
 
         cfg: Any = SimpleNamespace(
             compiler_includes=tmp_path,
@@ -366,6 +362,8 @@ class TestCompileToObjCacheIntegration:
             compiler_libs=tmp_path,
             compiler_runner="",
             root=tmp_path,
+            compiler_profile="msvc6",
+            posix_style=False,
         )
         src_dir = tmp_path / "src"
         src_dir.mkdir()
@@ -388,11 +386,6 @@ class TestCompileToObjCacheIntegration:
         assert call_count["n"] == 2  # failures not cached, so both hit subprocess
 
         cache.close()
-
-
-# ---------------------------------------------------------------------------
-# N12 — Per-session hit/miss counters
-# ---------------------------------------------------------------------------
 
 
 class TestHitMissCounters:
