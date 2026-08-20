@@ -461,7 +461,7 @@ class TestAllBatch:
             ),
         )
         result = CliRunner().invoke(app, ["--all", "somefile.c"])
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         assert "cannot be combined with --all" in result.output
 
     def test_all_with_va_errors(self, monkeypatch, tmp_path: Path) -> None:
@@ -484,7 +484,7 @@ class TestAllBatch:
             ),
         )
         result = CliRunner().invoke(app, ["--all", "--va", "0x1000"])
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         assert "--va cannot be combined with --all" in result.output
 
     def test_batch_writes_blockers_for_each(self, monkeypatch, tmp_path: Path) -> None:

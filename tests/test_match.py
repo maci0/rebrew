@@ -138,6 +138,16 @@ class TestBinaryMatchingGAInit:
         ga = _make_ga(tmp_path)
         assert ga.compare_obj is True
 
+    def test_link_cmd_default_none(self, tmp_path: Path) -> None:
+        """link_cmd defaults to None (no linker-command override)."""
+        ga = _make_ga(tmp_path)
+        assert ga.link_cmd is None
+
+    def test_link_cmd_stored(self, tmp_path: Path) -> None:
+        """Custom link_cmd is stored for the linked-exe build path."""
+        ga = _make_ga(tmp_path, link_cmd="link /SUBSYSTEM:WINDOWS")
+        assert ga.link_cmd == "link /SUBSYSTEM:WINDOWS"
+
     def test_elitism_default(self, tmp_path: Path) -> None:
         """Default elitism is 4."""
         ga = _make_ga(tmp_path)
@@ -839,7 +849,7 @@ class TestResolveBuildParamsVATargeting:
                 False,
                 False,
             )
-        assert exc.value.exit_code == 1
+        assert exc.value.exit_code == 2
 
     def test_va_no_match_allowed_with_symbol(self, tmp_path: Path, monkeypatch: Any) -> None:
         """An explicit --symbol is a deliberate override — VA mismatch is allowed."""

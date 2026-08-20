@@ -180,15 +180,15 @@ class TestErrors:
     def test_missing_binary(self, tmp_path: Path) -> None:
         missing = tmp_path / "missing.exe"
         result = runner.invoke(app, [str(missing)])
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         assert "binary not found" in result.output
 
     def test_missing_binary_json(self, tmp_path: Path) -> None:
         missing = tmp_path / "missing.exe"
         result = runner.invoke(app, ["--json", str(missing)])
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         data = json.loads(result.stdout)
-        assert data["code"] == 1
+        assert data["code"] == 2
         assert "binary not found" in data["error"]
 
     def test_invalid_filter_regex(self, tmp_path: Path) -> None:

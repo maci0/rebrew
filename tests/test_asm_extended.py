@@ -62,7 +62,7 @@ class TestHexMode:
         monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"")
         with pytest.raises(typer.Exit) as exc:
             _run_hex_mode(0x99999999, 16, cfg, False, False)
-        assert exc.value.exit_code == 1
+        assert exc.value.exit_code == 2
 
 
 class TestCapstoneToNasm:

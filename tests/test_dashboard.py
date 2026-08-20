@@ -288,7 +288,7 @@ class TestCli:
         from rebrew.dashboard import app
 
         result = CliRunner().invoke(app, ["--root", str(tmp_path)])
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         assert "coverage.db" in result.output
 
     def test_registered_in_umbrella(self) -> None:

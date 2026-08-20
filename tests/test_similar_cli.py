@@ -62,6 +62,6 @@ class TestSimilarCli:
         )
         monkeypatch.setattr(similar_mod, "find_similar", _raise)
         r = runner.invoke(rebrew.main.app, ["similar", "0x99999999", "--json"])
-        assert r.exit_code == 1
+        assert r.exit_code == 2
         payload = json.loads(r.stdout)
         assert "No function found" in payload["error"]

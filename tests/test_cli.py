@@ -26,7 +26,7 @@ class TestErrorExit:
     def test_plain_stderr_and_exit(self, capsys: pytest.CaptureFixture[str]) -> None:
         with pytest.raises(typer.Exit) as exc_info:
             error_exit("something broke")
-        assert exc_info.value.exit_code == 1
+        assert exc_info.value.exit_code == 2  # default = infrastructure error
         captured = capsys.readouterr()
         assert "something broke" in captured.err
         assert captured.out == ""
@@ -41,7 +41,7 @@ class TestErrorExit:
             error_exit("bad input", json_mode=True)
         captured = capsys.readouterr()
         data = json.loads(captured.out)
-        assert data == {"error": "bad input", "code": 1}
+        assert data == {"error": "bad input", "code": 2}
         assert captured.err == ""
 
     def test_json_mode_exit_code(self, capsys: pytest.CaptureFixture[str]) -> None:
