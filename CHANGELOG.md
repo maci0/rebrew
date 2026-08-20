@@ -124,6 +124,26 @@
   re-pinned (99e494d9; codegen unchanged — golden stays 44a6354f).
   Nightly drift check added as `.github/workflows/toolchain-sync.yml`.
 
+### Fixed
+- **Rich-header build is the MODE, not the max**: a binary compiled with
+  VC6 RTM but linked with a newer linker carried Rich entries
+  [8168, 8168, 9782]; the max picked 9782 (msvc600sp6) instead of the
+  C1/C2 pair's 8168 (msvc6).  `_rich_compiler_build` now takes the most
+  common build across entries.
+- **`/I ../Units` (space-separated) compiled the wrong dir**: shlex split
+  it into `["/I", "../Units"]` and the bare `/I` alone was rewritten to
+  `/I<src_parent>` while `../Units` became a stray positional.  The two
+  tokens now merge and resolve as one include flag; a bare `/I` with no
+  path (trailing or flag-adjacent) passes through untouched.
+- **compile_to_obj distinguished unknown vs imageless toolchains** in the
+  per-function TOOLCHAIN error; **`rebrew library set` fails fast on an
+  unknown toolchain** (like --preset already did) instead of writing an
+  override that only errors at compile time; **init template comments**
+  updated to the docker-only reality (no stale wine command example /
+  '--profile (future)' note); test_msvc6_resolves_available_toolchain now
+  asserts the docker-native contract instead of matching the stale
+  comment.
+
 ## [0.2.0] - 2026-08-18
 ### Fixed
 - **MZ code offset ignored the reloc-table position** (functionality-review
