@@ -8,13 +8,15 @@ DOSBox), so the host-side code never needs per-toolchain runner glue.
 
 Execution is **docker-only for every Windows/DOS toolchain** (all wine- and
 dosbox-runtime specs): the host never calls CL.EXE / DCC.EXE / TCC.EXE /
-bcc32.exe directly, and there is no wine/wibo host fallback.  The vendored
-``toolchain/<family>/<version>-<arch>`` trees remain — they are the
-byte-identical source the images build from (``rebrew toolchain build``)
-and the smoke gate verifies the image output against them — but nothing
-executes from them.  Native-Linux toolchains without an image (gcc-pe, the
-wcc 16-bit binary) exec their vendored/PATH binary directly; they are not
-Windows binaries, so no wine is involved.
+bcc32.exe directly, and there is no wine/wibo host fallback.  The docker
+build source (Dockerfiles, wrapper scripts, the shared ``base``) lives in
+the standalone **rebrew-toolchains** checkout — the sibling repo
+(overridable via ``REBREW_TOOLCHAINS_DIR``) — so rebrew no longer vendors
+build files in-repo; ``rebrew toolchain build``/``vendor`` read them from
+there, and the smoke gate verifies the image output is byte-reproducible.
+Native-Linux toolchains without an image (gcc-pe, the wcc 16-bit binary)
+exec their vendored/PATH binary directly; they are not Windows binaries, so
+no wine is involved.
 
 A :class:`ToolchainSpec` describes how to invoke one compiler version:
 its image tag, the compiler executable (and any wrapper), and the flag
@@ -91,7 +93,41 @@ class RunResult:
 # these by name; `rebrew toolchain list` shows them.
 # ---------------------------------------------------------------------------
 
-_REPO_TOOLS = Path(__file__).resolve().parents[2] / "toolchain"
+_TOOLCHAINS_REPO_URL = "https://github.com/maci0/rebrew-toolchains"
+
+
+def _toolchains_repo() -> Path:
+    """Root of the standalone rebrew-toolchains docker build source.
+
+    Defaults to the sibling checkout (same workspace as this repo),
+    overridable via REBREW_TOOLCHAINS_DIR for other layouts.  The external
+    repo is the canonical source of the docker-image build files
+    (Dockerfiles, the shared base, wrapper scripts); the 16-bit media
+    tarballs are expected next to their Dockerfile there.  rebrew no
+    longer vendors any of it in-repo."""
+    env = os.environ.get("REBREW_TOOLCHAINS_DIR")
+    if env:
+        return Path(env)
+    return Path(__file__).resolve().parents[2].parent / "rebrew-toolchains"
+
+
+_REPO_TOOLS = _toolchains_repo()
+
+
+def _require_toolchains_repo() -> Path:
+    """The rebrew-toolchains checkout, or an actionable error when missing.
+
+    Only commands that actually consume the build source (``rebrew
+    toolchain build``/``vendor``/``update``) call this — plain
+    registry/status commands never touch the checkout."""
+    repo = _toolchains_repo()
+    if not repo.is_dir():
+        raise ToolchainError(
+            f"rebrew-toolchains checkout not found at {repo} — the docker "
+            f"build source lives there now (clone {_TOOLCHAINS_REPO_URL} "
+            "next to this repo, or set REBREW_TOOLCHAINS_DIR=<path>)"
+        )
+    return repo
 
 
 def _vendored(sub: str) -> Path:
@@ -102,17 +138,20 @@ def _vendored(sub: str) -> Path:
 class ToolchainSource:
     """Pinned assembly source for one toolchain.
 
-    Either an in-repo tarball (``in_repo`` — the deterministic option, no
-    network) or a remote download verified by ``sha256``.  ``host_dir`` is
-    the ``toolchain/<family>/<version>-<arch>`` directory the vendored host
-    tree is assembled into; ``layout`` drives the extraction.
+    Either a pinned tarball in the rebrew-toolchains checkout (``in_repo``
+    — the deterministic option, no network) or a remote download verified
+    by ``sha256``.  ``host_dir`` is the ``<family>/<version>-<arch>`` dir
+    in that checkout that the vendored host tree is assembled into;
+    ``layout`` drives the extraction.
     """
 
     url: str = ""
     sha256: str = ""
-    in_repo: str = ""  # repo-relative path to a committed tarball
+    in_repo: str = ""  # path relative to the rebrew-toolchains checkout
+    # (the 16-bit media tarballs — user-supplied next to the Dockerfile,
+    # not committed to git)
     layout: str = "tar"  # tar | tar-strip1 | zip-installshield
-    host_dir: str = ""  # toolchain/<family>/<version>-<arch> (host tree target)
+    host_dir: str = ""  # <family>/<version>-<arch> (host tree target)
     vc98_wrap: bool = False  # wrap the extracted tree in a VC98/ subdir (MSVC 6
     # classic master layout — Bin/Include/Lib/CRT live under VC98, matching the
     # canonical config paths and every legacy tools/MSVC600/VC98/... reference)
@@ -364,28 +403,30 @@ _SOURCES: dict[str, ToolchainSource] = {
     "msvc15": ToolchainSource(
         # Committed tree extracted from the archive.org en_vc152 item
         # (VC 1.5, 1993, 16-bit) — RAR SFX extracts cleanly for 1.5 (the
-        # 1.52 SFX corrupts), so the verified tree is vendored in-repo.
-        in_repo="toolchain/msvc/1.5-win16/msvc15.tar.xz",
+        # 1.52 SFX corrupts), so the verified tree is vendored under the
+        # rebrew-toolchains checkout (msvc15.tar.xz next to its Dockerfile).
+        in_repo="msvc/1.5-win16/msvc15.tar.xz",
         layout="tar",
         host_dir="msvc/1.5-win16",
     ),
     "msvc10": ToolchainSource(
         # Assembled from the WinWorldPC "Microsoft Visual C++ 1.0
         # Professional" 3.5" floppy set (20×1.44MB, SZDD-compressed payload;
-        # 7z-extracted + renamed), then vendored in-repo as msvc10.tar.xz.
-        # CL.EXE is a Phar Lap TNT DOS-extender (PE32) like 1.5/1.52 — runs
-        # headless under DOSBox and produces 16-bit OMF (verified).
-        in_repo="toolchain/msvc/1.0-win16/msvc10.tar.xz",
+        # 7z-extracted + renamed), then vendored under the rebrew-toolchains
+        # checkout as msvc10.tar.xz.  CL.EXE is a Phar Lap TNT DOS-extender
+        # (PE32) like 1.5/1.52 — runs headless under DOSBox and produces
+        # 16-bit OMF (verified).
+        in_repo="msvc/1.0-win16/msvc10.tar.xz",
         layout="tar",
         host_dir="msvc/1.0-win16",
     ),
     "msvc1.52": ToolchainSource(
-        in_repo="toolchain/msvc/1.52-win16/msvc152.tar.xz",
+        in_repo="msvc/1.52-win16/msvc152.tar.xz",
         layout="tar",
         host_dir="msvc/1.52-win16",
     ),
     "delphi16": ToolchainSource(
-        in_repo="toolchain/delphi/1.0-win16/delphi10.tar.xz",
+        in_repo="delphi/1.0-win16/delphi10.tar.xz",
         layout="tar",
         host_dir="delphi/1.0-win16",
     ),
@@ -396,18 +437,20 @@ _SOURCES: dict[str, ToolchainSource] = {
         host_dir="borland/5.5-win32",
     ),
     "tc20": ToolchainSource(
-        in_repo="toolchain/borland/2.0-win16/tc20.tar.xz",
+        in_repo="borland/2.0-win16/tc20.tar.xz",
         # Assembled from the archive.org turboc20 item (floppy disk images:
         # TCC.EXE 2.0/TLINK.EXE/CPP.EXE + runtime libs + headers), then
-        # vendored in-repo for deterministic builds.
+        # vendored under the rebrew-toolchains checkout for deterministic
+        # builds.
         layout="tar",
         host_dir="borland/2.0-win16",
     ),
     "tc16": ToolchainSource(
-        in_repo="toolchain/borland/3.1-win16/tc31.tar.xz",
-        # Original download (sha256-verified once, then vendored in-repo for
-        # deterministic builds): archive.org item turboc3.1_202112 (TC.zip),
-        # sha256 9cf53cd5d229633c2cf60c6fe2b24dba43b40a0ff2ca71e90279fa8649b622e4.
+        in_repo="borland/3.1-win16/tc31.tar.xz",
+        # Original download (sha256-verified once, then vendored under the
+        # rebrew-toolchains checkout for deterministic builds): archive.org
+        # item turboc3.1_202112 (TC.zip), sha256
+        # 9cf53cd5d229633c2cf60c6fe2b24dba43b40a0ff2ca71e90279fa8649b622e4.
         layout="tar",
         host_dir="borland/3.1-win16",
     ),
@@ -969,8 +1012,8 @@ def _vendored_binary(spec: ToolchainSpec) -> Path | None:
         return None
     host = Path(spec.host_path)
     # Canonical layout: the actual toolchain lives one level deep under
-    # ``source/`` (toolchain/<family>/<ver>-<arch>/source/...) so every
-    # vendored tree has the same shape.
+    # ``source/`` (<family>/<ver>-<arch>/source/... — vendored into the
+    # rebrew-toolchains checkout) so every vendored tree has the same shape.
     if (host / "source").is_dir():
         host = host / "source"
     hit = _match_binary(host, spec.binary)
@@ -1069,7 +1112,8 @@ def _resolve_binary(spec: ToolchainSpec) -> str:
         return found
     raise ToolchainError(
         f"toolchain {spec.name!r}: no native binary ({spec.binary}) found — "
-        "vendor the toolchain under toolchain/ or install it on PATH"
+        "run `rebrew toolchain vendor <name>` into the rebrew-toolchains "
+        "checkout or install it on PATH"
     )
 
 

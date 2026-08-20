@@ -548,12 +548,14 @@ def _resolve_include_flags(flags: list[str], src_parent: Path, cfg_root: Path) -
 
 
 def _is_vendored_toolchain_tree(p: Path) -> bool:
-    """True when *p* lives under the repo's vendored ``toolchain/`` dir.
+    """True when *p* lives under the rebrew-toolchains checkout.
 
     Those trees are baked into the docker images byte-identical, so the
     container needs no bind mount for them — CL/wcc resolve their own
     includes inside the image."""
-    root = Path(__file__).resolve().parents[2] / "toolchain"
+    from rebrew.toolchain import _toolchains_repo
+
+    root = _toolchains_repo()
     try:
         p.resolve().relative_to(root.resolve())
         return True

@@ -1,4 +1,17 @@
 ## [Unreleased]
+### Changed
+- **Toolchain docker build source moved to the standalone
+  `rebrew-toolchains` repo** (github.com/maci0/rebrew-toolchains): rebrew no
+  longer vendors Dockerfiles, wrappers, the shared `base` image, or the
+  16-bit media tarballs in-repo.  `rebrew toolchain build`/`vendor`/`update`
+  and the 16-bit host paths (`rebrew.tc16`/`msvc16`/`delphi16`) now resolve
+  the build source via `rebrew.toolchain._toolchains_repo()` — the sibling
+  `../rebrew-toolchains` checkout by default, overridable via
+  `REBREW_TOOLCHAINS_DIR` (a missing checkout is an actionable error
+  pointing at `git clone https://github.com/maci0/rebrew-toolchains
+  ../rebrew-toolchains`).  `_SOURCES` `in_repo` tarball paths are now
+  relative to that checkout; the legacy `tools/<name>` toolchain symlinks
+  and their `ensure_compat_links` recreator were removed.
 ### Added
 - **Code similarity score in `rebrew verify`** ("Sim %"): each verified
   function now carries a 0–100 structural similarity score between its

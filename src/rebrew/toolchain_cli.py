@@ -248,85 +248,6 @@ def pull_cmd(
             console.print(f"[green]Pulled[/green] {tag}")
 
 
-#: Legacy ``tools/<name>`` aliases → ``toolchain/<family>/<version>-<arch>``
-#: dir, so projects whose rebrew-project.toml predates the restructure keep
-#: resolving ``tools/<name>/...`` through the rebrew install
-#: (find_install_tool fallback in config/compile).  Classic MSVC names
-#: (MSVC600/VC98, MSVC7) and the dash-versioned aliases both map here; the
-#: links are gitignored and recreated by ``ensure_compat_links`` on every
-#: vendor, so fresh clones get them automatically.
-_COMPAT_LINK_ALIASES: dict[str, str] = {
-    "MSVC600": "msvc/6.0-win32",
-    "msvc-6.0-win32": "msvc/6.0-win32",
-    "MSVC500": "msvc/5.0-win32",
-    "msvc-5.0-win32": "msvc/5.0-win32",
-    "MSVC420": "msvc/4.2-win32",
-    "msvc-4.2-win32": "msvc/4.2-win32",
-    "MSVC400": "msvc/4.0-win32",
-    "msvc-4.0-win32": "msvc/4.0-win32",
-    "MSVC7": "msvc/7.0-win32",
-    "msvc7.0": "msvc/7.0-win32",
-    "msvc-7.0-win32": "msvc/7.0-win32",
-    "msvc-6.0-sp3-win32": "msvc/6.0-sp3-win32",
-    "msvc-6.0-sp6-win32": "msvc/6.0-sp6-win32",
-    "MSVC152": "msvc/1.52-win16",
-    "msvc-1.52-win16": "msvc/1.52-win16",
-    "DELPHI10": "delphi/1.0-win16",
-    "delphi-1.0-win16": "delphi/1.0-win16",
-    "WATCOM": "watcom/2.0-win32",
-    "watcom-win32": "watcom/2.0-win32",
-    "TC": "borland/3.1-win16",
-    "MSVC200": "msvc/2.0-win32",
-    "msvc-2.0-win32": "msvc/2.0-win32",
-    "MSVC410": "msvc/4.1-win32",
-    "msvc-4.1-win32": "msvc/4.1-win32",
-    "msvc-5.0-sp1-win32": "msvc/5.0-sp1-win32",
-    "msvc-5.0-sp2-win32": "msvc/5.0-sp2-win32",
-    "msvc-5.0-sp3-win32": "msvc/5.0-sp3-win32",
-    "msvc-6.0-sp1-win32": "msvc/6.0-sp1-win32",
-    "msvc-6.0-sp2-win32": "msvc/6.0-sp2-win32",
-    "msvc-6.0-sp4-win32": "msvc/6.0-sp4-win32",
-    "msvc-6.0-sp5-win32": "msvc/6.0-sp5-win32",
-    "MSVC7RTM": "msvc/7.0-rtm-win32",
-    "msvc-7.0-rtm-win32": "msvc/7.0-rtm-win32",
-    "msvc-7.0-sp1-win32": "msvc/7.0-sp1-win32",
-    "msvc-7.1-win32": "msvc/7.1-win32",
-    "msvc-7.1-sp1-win32": "msvc/7.1-sp1-win32",
-    "msvc-8.0-win32": "msvc/8.0-win32",
-    "msvc-8.0-sp1-win32": "msvc/8.0-sp1-win32",
-    "msvc-9.0-win32": "msvc/9.0-win32",
-    "msvc-9.0-sp1-win32": "msvc/9.0-sp1-win32",
-    "msvc-10.0-win32": "msvc/10.0-win32",
-    "msvc-11.0-win32": "msvc/11.0-win32",
-    "msvc-10.0-sp1-win32": "msvc/10.0-sp1-win32",
-    "MSVC15": "msvc/1.5-win16",
-    "msvc-1.5-win16": "msvc/1.5-win16",
-    "MSVC10": "msvc/1.0-win16",
-    "msvc-1.0-win16": "msvc/1.0-win16",
-}
-
-
-def ensure_compat_links(root: Path) -> list[Path]:
-    """Create missing ``tools/<alias> → ../toolchain/<dir>`` compat symlinks.
-
-    Only aliases whose vendored tree exists are linked (a fresh clone with no
-    trees gets nothing dangling).  Returns the links created.
-    """
-    created: list[Path] = []
-    tools_dir = root / "tools"
-    tools_dir.mkdir(parents=True, exist_ok=True)
-    for alias, rel in sorted(_COMPAT_LINK_ALIASES.items()):
-        target = root / "toolchain" / rel
-        if not target.is_dir():
-            continue
-        dest = tools_dir / alias
-        if dest.is_symlink() or dest.exists():
-            continue
-        dest.symlink_to(f"../toolchain/{rel}", target_is_directory=True)
-        created.append(dest)
-    return created
-
-
 @app.command("vendor")
 def vendor_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. msvc1.52, borlandc55)"),
@@ -334,17 +255,19 @@ def vendor_cmd(
 ) -> None:
     """Assemble the host toolchain tree from the pinned source.
 
-    Downloads (sha256-verified) or extracts the committed in-repo tarball
-    into ``toolchain/<family>/<version>-<arch>`` — the same source the
-    docker image builds from, so host trees and containers are
-    byte-identical.  Refuses to clobber an existing tree unless empty.
+    Downloads (sha256-verified) or extracts the pinned tarball into
+    ``<family>/<version>-<arch>/source`` under the rebrew-toolchains
+    checkout — the same source the docker image builds from, so host trees
+    and containers are byte-identical.  Refuses to clobber an existing tree
+    unless empty.
     """
     import hashlib
     import subprocess
     import tempfile
 
-    from rebrew.toolchain import _REPO_TOOLS, _SOURCES
+    from rebrew.toolchain import _REPO_TOOLS, _SOURCES, _require_toolchains_repo
 
+    _require_toolchains_repo()
     src = _SOURCES.get(name)
     if src is None:
         msg = f"no pinned source for toolchain {name!r} (known: {sorted(_SOURCES)})"
@@ -356,11 +279,11 @@ def vendor_cmd(
 
     host = _REPO_TOOLS / src.host_dir
     # Canonical layout: every vendored tree nests the actual toolchain one
-    # level under ``source/`` (toolchain/<family>/<ver>-<arch>/source/...),
-    # so all toolchain folders share the same shape.  Tracked metadata
-    # (Dockerfile, wrapper scripts, the in-repo tarball, pak_extract.py)
-    # lives beside it and is not vendored content, so a dir holding only
-    # those is empty for clobber purposes.
+    # level under ``source/`` (<family>/<ver>-<arch>/source/...), so all
+    # toolchain folders share the same shape.  Tracked metadata (Dockerfile,
+    # wrapper scripts, the pinned tarball, pak_extract.py) lives beside it
+    # and is not vendored content, so a dir holding only those is empty for
+    # clobber purposes.
     _META = {
         "Dockerfile",
         "pak_extract.py",
@@ -384,7 +307,7 @@ def vendor_cmd(
 
     try:
         if src.is_in_repo():
-            tarball = Path(__file__).resolve().parents[2] / src.in_repo
+            tarball = _REPO_TOOLS / src.in_repo
             subprocess.run(
                 # No explicit -z/-J: GNU tar auto-detects gzip/xz compression,
                 # so in-repo .tar.xz and remote codeload .tar.gz both extract.
@@ -503,16 +426,8 @@ def vendor_cmd(
             console.print(f"[red]Error:[/red] {msg}")
         raise typer.Exit(code=2)
 
-    # Existing projects resolve legacy tools/<name> paths through the
-    # gitignored compat links — recreate any that are missing now that the
-    # tree exists.
-    root = Path(__file__).resolve().parents[2]
-    created = ensure_compat_links(root)
-    for link in created:
-        console.print(f"[dim]linked tools/{link.name} -> {link.readlink()}[/dim]")
-
     if json_output:
-        json_print({"vendored": src.host_dir, "binary": str(probe), "compat_links": len(created)})
+        json_print({"vendored": src.host_dir, "binary": str(probe)})
 
 
 #: Golden object hashes — the byte-exact output each toolchain image must
@@ -917,11 +832,12 @@ def build_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. watcom, msvc6)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
-    """Build a toolchain's docker image from toolchain/<name>/<ver>-<arch>/Dockerfile."""
+    """Build a toolchain's docker image from the rebrew-toolchains checkout."""
     import subprocess
 
-    from rebrew.toolchain import get_toolchain
+    from rebrew.toolchain import _REPO_TOOLS, _require_toolchains_repo, get_toolchain
 
+    _require_toolchains_repo()
     spec = get_toolchain(name)
     if spec.image is None:
         msg = f"toolchain {name!r} is host-only (no image to build)"
@@ -938,7 +854,7 @@ def build_cmd(
             console.print(f"[red]Error:[/red] {msg}")
         raise typer.Exit(code=2)
     tag, verarch = spec.image.rsplit(":", 1)
-    build_dir = Path(__file__).resolve().parents[2] / "toolchain" / spec.family / verarch
+    build_dir = _REPO_TOOLS / spec.family / verarch
     if not (build_dir / "Dockerfile").exists():
         msg = f"no Dockerfile at {build_dir}"
         if json_output:
@@ -949,7 +865,7 @@ def build_cmd(
 
     # Every toolchain image inherits FROM rebrew/base — build it first so a
     # fresh docker daemon resolves the dependency.
-    base_dir = Path(__file__).resolve().parents[2] / "toolchain" / "base"
+    base_dir = _REPO_TOOLS / "base"
     base_from = None
     for line in (build_dir / "Dockerfile").read_text(encoding="utf-8").splitlines():
         if line.upper().startswith("FROM "):
@@ -1086,7 +1002,8 @@ def check_updates_cmd(
     no download) against the commit the pin was taken from.  The Open
     Watcom snapshot (a moving 'Last-CI-build' release tag) is re-downloaded
     and re-hashed.  Immutable release assets (decomp.me, archive.org) and
-    in-repo tarballs are reported as static."""
+    pinned tarballs (16-bit media in the rebrew-toolchains checkout) are
+    reported as static."""
     import hashlib
     import re
     import tempfile
@@ -1098,7 +1015,7 @@ def check_updates_cmd(
     drifted: list[str] = []
     for name, src in sorted(_SOURCES.items()):
         if src.in_repo:
-            rows[name] = "static (in-repo tarball)"
+            rows[name] = "static (pinned tarball in rebrew-toolchains)"
             continue
         url = src.url or ""
         m = re.match(_CODELOAD_RE, url)
@@ -1218,13 +1135,13 @@ def _rewrite_dockerfile_sha(name: str, sha256: str) -> None:
     image rebuild fails."""
     import re
 
-    from rebrew.toolchain import get_toolchain
+    from rebrew.toolchain import _REPO_TOOLS, get_toolchain
 
     spec = get_toolchain(name)
     if spec.image is None or ":" not in spec.image:
         return
     tag, verarch = spec.image.rsplit(":", 1)
-    df = Path(__file__).resolve().parents[2] / "toolchain" / spec.family / verarch / "Dockerfile"
+    df = _REPO_TOOLS / spec.family / verarch / "Dockerfile"
     if not df.exists():
         return
     text = df.read_text(encoding="utf-8")
@@ -1257,8 +1174,9 @@ def update_cmd(
     import tempfile
     from dataclasses import replace
 
-    from rebrew.toolchain import _REPO_TOOLS, _SOURCES, get_toolchain
+    from rebrew.toolchain import _REPO_TOOLS, _SOURCES, _require_toolchains_repo, get_toolchain
 
+    _require_toolchains_repo()
     src = _SOURCES.get(name)
     if src is None:
         msg = f"no pinned source for toolchain {name!r} (known: {sorted(_SOURCES)})"
@@ -1268,7 +1186,9 @@ def update_cmd(
             console.print(f"[red]Error:[/red] {msg}")
         raise typer.Exit(code=2)
     if src.in_repo:
-        msg = f"toolchain {name!r} is an in-repo tarball (static) — nothing to update"
+        msg = (
+            f"toolchain {name!r} is a pinned tarball (static) — nothing to update"
+        )
         if json_output:
             json_print({"error": msg, "code": 2})
         else:

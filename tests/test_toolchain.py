@@ -512,47 +512,73 @@ class TestVc98Wrap:
             assert src.layout == "tar-strip1", name
 
 
-class TestCompatLinks:
-    """ensure_compat_links recreates the gitignored tools/<alias> symlinks
-    that legacy projects resolve tool paths through."""
+class TestCompatLinksRemoved:
+    """The legacy `tools/<name> → toolchain/<dir>` compat symlinks are gone:
+    the vendored trees now live in the rebrew-toolchains checkout, so there
+    is nothing to alias and vendor must not recreate them."""
 
-    def _make_tree(self, tmp_path: Path, family: str = "msvc", version: str = "6.0-win32") -> Path:
-        tree = tmp_path / "toolchain" / family / version
-        (tree / "VC98" / "Bin").mkdir(parents=True)
-        (tree / "VC98" / "Bin" / "CL.EXE").write_bytes(b"MZ")
-        return tree
+    def test_ensure_compat_links_no_longer_exists(self) -> None:
+        import rebrew.toolchain_cli as cli
 
-    def test_creates_legacy_alias(self, tmp_path: Path) -> None:
-        from rebrew.toolchain_cli import ensure_compat_links
+        assert not hasattr(cli, "ensure_compat_links")
+        assert not hasattr(cli, "_COMPAT_LINK_ALIASES")
 
-        self._make_tree(tmp_path)
-        created = ensure_compat_links(tmp_path)
-        names = {c.name for c in created}
-        assert "MSVC600" in names
-        link = tmp_path / "tools" / "MSVC600"
-        assert link.is_symlink()
-        assert (link / "VC98" / "Bin" / "CL.EXE").exists()
+    def test_toolchain_dir_is_gitignored(self) -> None:
+        """A stray/accidentally-recreated repo `toolchain/` must never stage
+        (the build source lives in the rebrew-toolchains checkout).  Docker
+        bind-mount tests may recreate the empty dir as a side effect — the
+        guarantee is that git ignores it."""
+        import subprocess
 
-    def test_skips_missing_trees(self, tmp_path: Path) -> None:
-        from rebrew.toolchain_cli import ensure_compat_links
+        repo = Path(__file__).resolve().parents[1]
+        r = subprocess.run(
+            ["git", "check-ignore", "toolchain/"],
+            capture_output=True,
+            text=True,
+            cwd=repo,
+        )
+        assert r.returncode == 0, (
+            "toolchain/ must be gitignored — rebrew no longer vendors "
+            "toolchain build source in-repo"
+        )
 
-        # No toolchain tree at all — nothing dangling should be created.
-        created = ensure_compat_links(tmp_path)
-        assert created == []
-        assert not (tmp_path / "tools").exists() or not list((tmp_path / "tools").iterdir())
 
-    def test_does_not_clobber_existing_link(self, tmp_path: Path) -> None:
-        from rebrew.toolchain_cli import ensure_compat_links
+class TestToolchainsRepoResolver:
+    """_toolchains_repo() resolves the rebrew-toolchains build source: the
+    sibling checkout by default, REBREW_TOOLCHAINS_DIR otherwise."""
 
-        self._make_tree(tmp_path)
-        tools = tmp_path / "tools"
-        tools.mkdir()
-        other = tmp_path / "somewhere-else"
-        other.mkdir()
-        (tools / "MSVC600").symlink_to(other, target_is_directory=True)
-        created = ensure_compat_links(tmp_path)
-        assert (tools / "MSVC600").readlink() == other
-        assert not any(c.name == "MSVC600" for c in created)
+    def test_default_is_sibling(self) -> None:
+        from rebrew.toolchain import _toolchains_repo
+
+        repo = Path(__file__).resolve().parents[1]
+        assert _toolchains_repo() == repo.parent / "rebrew-toolchains"
+
+    def test_env_override(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.toolchain import _toolchains_repo
+
+        override = tmp_path / "my-toolchains"
+        monkeypatch.setenv("REBREW_TOOLCHAINS_DIR", str(override))
+        assert _toolchains_repo() == override
+
+    def test_require_missing_raises_actionable(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.toolchain import ToolchainError, _require_toolchains_repo
+
+        monkeypatch.setenv("REBREW_TOOLCHAINS_DIR", str(tmp_path / "nope"))
+        with pytest.raises(ToolchainError, match="rebrew-toolchains"):
+            _require_toolchains_repo()
+
+    def test_in_repo_tarballs_rebased_to_checkout(self) -> None:
+        """The 16-bit _SOURCES in_repo paths are now relative to the
+        rebrew-toolchains checkout root (no toolchain/ prefix), sitting in
+        the same <family>/<ver>-<arch> dir as the Dockerfile they feed."""
+        from rebrew.toolchain import _SOURCES, _toolchains_repo
+
+        repo = _toolchains_repo()
+        for name in ("msvc15", "msvc10", "msvc1.52", "delphi16", "tc20", "tc16"):
+            src = _SOURCES[name]
+            assert src.in_repo, name
+            assert not src.in_repo.startswith("toolchain/"), name
+            assert (repo / src.in_repo).parent == repo / src.host_dir, name
 
 
 class TestDockerfileSanity:
@@ -561,15 +587,24 @@ class TestDockerfileSanity:
     leading `RUN dpkg --add-architecture i386` line, leaving a lone
     `&& apt-get update` that broke `rebrew toolchain build` for EVERY
     image (build_cmd rebuilds base first).  Static, CI-safe checks (no
-    docker required) pin the structure."""
+    docker required) pin the structure.  The Dockerfiles live in the
+    sibling rebrew-toolchains checkout now."""
 
-    _REPO = Path(__file__).resolve().parents[1]
+    _REPO: Path | None = None
+
+    @classmethod
+    def _repo(cls) -> Path:
+        if cls._REPO is None:
+            from rebrew.toolchain import _toolchains_repo
+
+            cls._REPO = _toolchains_repo()
+        return cls._REPO
 
     def _read(self, rel: str) -> str:
-        return (self._REPO / rel).read_text(encoding="utf-8")
+        return (self._repo() / rel).read_text(encoding="utf-8")
 
     def test_base_apt_block_has_run(self) -> None:
-        text = self._read("toolchain/base/Dockerfile")
+        text = self._read("base/Dockerfile")
         # The apt block must be a single RUN continuation — a lone
         # `&& apt-get` (missing RUN) is a parse error.
         idx = text.index("&& apt-get update")
@@ -582,7 +617,9 @@ class TestDockerfileSanity:
         """Every tracked Dockerfile: any `&& ` line must be preceded (within
         the same block) by a `RUN ` line — the OCI-label insertion pattern
         dropped RUN prefixes in some files."""
-        for f in sorted(Path(self._REPO / "toolchain").rglob("Dockerfile")):
+        dockerfiles = sorted((self._repo()).rglob("Dockerfile"))
+        assert dockerfiles, "no Dockerfiles found in the rebrew-toolchains checkout"
+        for f in dockerfiles:
             if "linux-x64" in str(f):
                 continue
             lines = f.read_text(encoding="utf-8").splitlines()
@@ -592,37 +629,30 @@ class TestDockerfileSanity:
                     in_run = True
                     continue
                 if ln.strip().startswith("&& ") and not in_run:
-                    raise AssertionError(f"{f.relative_to(self._REPO)}: '&&' without RUN: {ln!r}")
+                    raise AssertionError(f"{f.relative_to(self._repo())}: '&&' without RUN: {ln!r}")
                 if ln.strip() and not ln.startswith((" ", "\t")) and not ln.startswith("#"):
                     in_run = False  # new instruction (RUN/LABEL/ENV/COPY/...)
 
-    def test_every_image_spec_dockerfile_is_tracked(self) -> None:
-        """Every image-backed toolchain must have its Dockerfile in git — a
-        fresh clone must be able to rebuild the image (tc16/tc20 images
-        were built from UNTRACKED Dockerfiles, silently unreproducible)."""
-        import subprocess
-
+    def test_every_image_spec_has_dockerfile_in_checkout(self) -> None:
+        """Every image-backed toolchain must have its Dockerfile in the
+        rebrew-toolchains checkout — a fresh clone must be able to rebuild
+        the image (tc16/tc20 images were built from UNTRACKED Dockerfiles,
+        silently unreproducible)."""
         from rebrew.toolchain import TOOLCHAINS
 
-        tracked = set(
-            subprocess.run(
-                ["git", "ls-files", "toolchain/"],
-                capture_output=True,
-                text=True,
-                check=True,
-            ).stdout.splitlines()
-        )
+        repo = self._repo()
         missing = []
         for name, spec in TOOLCHAINS.items():
             if spec.image is None:
                 continue
             tag, verarch = spec.image.rsplit(":", 1)
-            df = f"toolchain/{spec.family}/{verarch}/Dockerfile"
-            if df not in tracked:
-                missing.append(f"{name} ({df})")
+            df = repo / spec.family / verarch / "Dockerfile"
+            if not df.is_file():
+                missing.append(f"{name} ({df.relative_to(repo)})")
         assert not missing, (
-            "image-backed toolchains with untracked Dockerfiles (a fresh "
-            "clone cannot rebuild them): " + ", ".join(missing)
+            "image-backed toolchains without a Dockerfile in the "
+            "rebrew-toolchains checkout (a fresh clone cannot rebuild "
+            "them): " + ", ".join(missing)
         )
 
 

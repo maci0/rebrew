@@ -56,16 +56,17 @@ headless gives correct boundaries but is slow on loaded machines.
 
 ## Delphi 1.0 (16-bit NE compile backend — research; Borland ABI unmatchable)
 
-The vendored `toolchain/delphi/1.0-win16` toolchain (DCC.EXE, DOS DPMI app run under
-DOSBox headless) compiles 16-bit Windows 3.x NE executables; the
-`rebrew.delphi16.compile_ne` wrapper makes it invocable from Python and
-parses the output with the native NE loader.  Note: 16-bit *matching* is
-implemented in rebrew via the `msvc1.52` profile (DOSBox CL.EXE → OMF
-objects) — but **Delphi's Borland ABI has no matchable rebrew profile**,
-so Delphi functions are documented as blockers and this toolchain is for
-research (compile + NE parse).  See `toolchain/delphi/1.0-win16/source/README.md` for the
-recipe and the RTM.EXE / non-tmpfs requirements, and the NE section
-below for the analysis-side support matrix.
+The vendored `rebrew-toolchains/delphi/1.0-win16` toolchain (DCC.EXE, DOS
+DPMI app run under DOSBox headless) compiles 16-bit Windows 3.x NE
+executables; the `rebrew.delphi16.compile_ne` wrapper makes it invocable
+from Python and parses the output with the native NE loader.  Note: 16-bit
+*matching* is implemented in rebrew via the `msvc1.52` profile (DOSBox
+CL.EXE → OMF objects) — but **Delphi's Borland ABI has no matchable rebrew
+profile**, so Delphi functions are documented as blockers and this
+toolchain is for research (compile + NE parse).  See
+`rebrew-toolchains/delphi/1.0-win16/source/README.md` for the recipe and
+the RTM.EXE / non-tmpfs requirements, and the NE section below for the
+analysis-side support matrix.
 
 ---
 
@@ -114,9 +115,11 @@ is always `docker run <image> <compiler> <args>`.  Execution is
 runtime (wine / DOSBox) and there is no host wine/wibo/dosbox fallback; a
 missing image is a hard error (run `rebrew toolchain build <name>`).
 Native-Linux toolchains without an image (gcc-pe, watcom16 `wcc`) exec
-their vendored/PATH binary directly.  The vendored
-`toolchain/<family>/<version>-<arch>` trees remain as the byte-identical
-build source for the images, but nothing executes from them.
+their vendored/PATH binary directly.  The docker build source (Dockerfiles,
+wrappers, the shared `base`) lives in the standalone **rebrew-toolchains**
+checkout — the sibling repo (overridable via `REBREW_TOOLCHAINS_DIR`) —
+and `rebrew toolchain build`/`vendor` read it from there; rebrew no
+longer vendors build files in-repo.
 
 Current toolchains (`rebrew toolchain list`): `msvc6` (image
 `rebrew/msvc:6.0-win32` built+verified — MSVC 6.0 under wine in a
@@ -124,7 +127,7 @@ container, from the OmniBlade decomp.me msvcwin9x tarball), `delphi16`
 (DOSBox; image `rebrew/delphi:1.0-win16` built+verified — a
 containerized Delphi 1.0 compile produces a genuine NE 6.01 executable),
 `gcc-pe` (native MinGW), `watcom` (native Open Watcom 2.0 — installed at
-`toolchain/watcom/2.0-win32`; image `rebrew/watcom:2.0-win32` built and verified —
+`rebrew-toolchains/watcom/2.0-win32`; image `rebrew/watcom:2.0-win32` built and verified —
 the docker-first compile produces the same object + relocs as the host
 path), `msvc1.52` (16-bit, DOSBox via `rebrew.msvc16`; image
 `rebrew/msvc:1.52-win16` built+verified — containerized CL.EXE
@@ -137,11 +140,11 @@ parse via objconv; vendored from the archive.org `BorlandC55` item),
 `watcom`), `tc16` (Turbo C++ 3.1, 16-bit DOS under DOSBox via
 `rebrew.tc16`; image `rebrew/borland:3.1-win16` — TCC.EXE produces
 Borland 16-bit OMF that parses via `rebrew.matcher.omf16`; vendored
-in-repo from the archive.org `turboc3.1_202112` item — the classic
+from the archive.org `turboc3.1_202112` item — the classic
 DOS-game compiler, e.g. id Software's early titles; verified:
 `compile_and_compare` returns EXACT against a TCC-built object),
 `tc20` (Turbo C 2.0, 16-bit DOS under DOSBox via the same `rebrew.tc16`
-module with `version="2.0"`; tree `toolchain/borland/2.0-win16` assembled
+module with `version="2.0"`; tree `rebrew-toolchains/borland/2.0-win16` assembled
 from the archive.org `turboc20` floppies; image
 `rebrew/borland:2.0-win16`, in the smoke gate — the 1988/89 compiler that
 diec reports as "Borland C/C++ 1991"; C89-strict: rejects `//` comments,
@@ -149,9 +152,9 @@ so skeletons use `/* */` markers), and the **complete MSVC 1.0–10.0
 line** (below: 20 docker profiles from `msvc10` to `msvc1000sp1`,
 every version and every preserved service pack, each packaged as a
 sha256-pinned docker image `rebrew/msvc:<version>-<arch>` plus a
-vendored host tree used as the byte-identical build source; the
-4.0/4.2/5.0 trees are archaic-msvc / itsmattkc snapshots, pinned
-sha256 sources shared with `rebrew toolchain vendor`).
+host tree vendored into the rebrew-toolchains checkout as the
+byte-identical build source; the 4.0/4.2/5.0 trees are archaic-msvc /
+itsmattkc snapshots, pinned sha256 sources shared with `rebrew toolchain vendor`).
 
 **Every registry toolchain with a pinned source has a verified
 containerized path** (the images above + gcc-pe native) — the
@@ -170,7 +173,8 @@ re-pins (sha256 + commit), re-vendors the host tree, rebuilds the
 docker image and regenerates the smoke golden (verified stable across
 two compiles).  The Open Watcom `Last-CI-build` release tag is a
 moving target, so it is re-downloaded and re-hashed; decomp.me /
-archive.org assets and in-repo tarballs are immutable and reported as
+archive.org assets and pinned tarballs (16-bit media in the
+rebrew-toolchains checkout) are immutable and reported as
 static.  Runs on a schedule (or ad-hoc) with `GH_TOKEN` set for
 generous API limits.
 
@@ -181,32 +185,33 @@ generous API limits.
 > fixed wine prefix; nothing wine-related runs on the host.
 
 **Image layout convention** (Godbolt-style): Dockerfiles live at
-`toolchain/<family>/<version>-<arch>/Dockerfile` and produce
-`rebrew/<family>:<version>-<arch>` — the top-level directory is the
-**unversioned compiler family** (`msvc/`, `delphi/`, `watcom/`) and the
-version + target architecture live in the subdirectory and image tag, so
-`msvc/6.0-win32/`, `msvc/1.52-win16/`, or a future
-`msvc/6.0-windows-x86/` coexist without ambiguity.  (The old
+`<family>/<version>-<arch>/Dockerfile` under the rebrew-toolchains
+checkout and produce `rebrew/<family>:<version>-<arch>` — the
+top-level directory is the **unversioned compiler family** (`msvc/`,
+`delphi/`, `watcom/`) and the version + target architecture live in the
+subdirectory and image tag, so `msvc/6.0-win32/`,
+`msvc/1.52-win16/`, or a future `msvc/6.0-windows-x86/` coexist
+without ambiguity.  (The old
 `msvc6/6.0-linux-x64` / `msvc152/1.52-linux-x64` / `delphi16/1.0-linux-x64`
 names were ambiguous — `msvc152` read as "MSVC 152" and `delphi16` as
 "Delphi 16" — and are retired.)
 
 **Shared base image**: every toolchain Dockerfile inherits
-`FROM rebrew/base:1.0` (`toolchain/base/`), which carries the OS + wine +
-wine32 + dosbox + download tooling and the common env
-(`WINEDEBUG=-all`, `WINEPREFIX=/opt/wineprefix`,
+`FROM rebrew/base:1.0` (`base/` in the rebrew-toolchains checkout), which
+carries the OS + wine + wine32 + dosbox + download tooling and the common
+env (`WINEDEBUG=-all`, `WINEPREFIX=/opt/wineprefix`,
 `SDL_VIDEODRIVER=dummy`).  `rebrew toolchain build` builds the base
 automatically when the toolchain's Dockerfile references it.  Each
 toolchain image only adds its compiler + an entrypoint wrapper; the
 vendored tree lives at the top level of the version dir (so the host and
 the image share one layout).
 
-**Common wrapper helpers**: `toolchain/base/wrapper-common.sh` provides the
-shared entrypoint machinery — `rebrew_pick_source` (locates the readable
-source among MSVC-style flags-first argv), `rebrew_dosbox_run` (headless
-DOSBox sandbox), `rebrew_copy_back` (artifact copy-back) — and each
-wrapper (`cl`, `cl16`, `dcc`) sources it instead of re-implementing the
-sandbox logic.
+**Common wrapper helpers**: `base/wrapper-common.sh` (rebrew-toolchains
+checkout) provides the shared entrypoint machinery — `rebrew_pick_source`
+(locates the readable source among MSVC-style flags-first argv),
+`rebrew_dosbox_run` (headless DOSBox sandbox), `rebrew_copy_back`
+(artifact copy-back) — and each wrapper (`cl`, `cl16`, `dcc`) sources it
+instead of re-implementing the sandbox logic.
 
 **Image entry convention:** an image whose `ENTRYPOINT` *is* the compiler
 wrapper (e.g. wcc386) is invoked without an explicit command
@@ -238,12 +243,12 @@ Notes:
   decoder too, so 16-bit DOS/Watcom targets get compile+compare support
   (verified: `compile_and_compare` returns RELOC 100% against a wcc-built
   object — the chkstk call reloc slot masks correctly).
-- **MSVC 1.52** (`toolchain/msvc/1.52-win16`, from archive.org `en_vc152_202512`) is a
+- **MSVC 1.52** (`rebrew-toolchains/msvc/1.52-win16`, from archive.org `en_vc152_202512`) is a
   Phar Lap TNT DOS-extender binary — runs headless under DOSBox via the
   shared `rebrew.dosbox` runner; produces 16-bit OMF objects.
 - **Borland C++ (bcc32)**: the `turbo-c-v-4.5` CD was fully surveyed —
   its 207 `.PAK` files are **Quantum** archives (extractable with
-  `toolchain/delphi/1.0-win16/source/pak_extract.py`), the `.CA1`/`.CA2` containers hold an
+  `rebrew-toolchains/delphi/1.0-win16/source/pak_extract.py`), the `.CA1`/`.CA2` containers hold an
   embedded Quantum stream at offset 5 (`[count u32][DS\0Z …]`; TCW.CA1 =
   the TCW IDE + DLLs), but **the CD carries no compiler binary** (no
   BCC32/BCC/TLINK anywhere — it is the Windows-IDE-only release).  The
@@ -257,15 +262,17 @@ Notes:
 Every toolchain image builds **reproducibly from a clean checkout with only
 docker** — no host files:
 
-- **Base** (`toolchain/base/`, `rebrew/base:1.0`) pins the debian digest,
-  so apt resolves the same snapshot on every build.
+- **Base** (`base/` in the rebrew-toolchains checkout, `rebrew/base:1.0`)
+  pins the debian digest, so apt resolves the same snapshot on every build.
 - **Downloads are sha256-verified** (msvc6 tarball, watcom snapshot — the
   moving `Last-CI-build` tag is pinned by the checksum — and the Borland
   InstallShield payload).  A changed source fails the build loudly.
-- **In-repo tarballs** (`msvc152.tar.xz`, `delphi10.tar.xz`) are used for
-  msvc1.52 + delphi — the archive.org en_vc152 RAR SFX extracts corrupt
-  files under both 7z and unar, and the Delphi RTL units have no public
-  tarball.  The verified trees are committed instead.
+- **Pinned 16-bit tarballs** (`msvc152.tar.xz`, `delphi10.tar.xz`, …) are
+  used for msvc1.52/15/10, tc16/tc20 and delphi — the archive.org en_vc152
+  RAR SFX extracts corrupt files under both 7z and unar, and the Delphi
+  RTL units have no public tarball.  The verified trees sit next to their
+  Dockerfile in the rebrew-toolchains checkout (user-supplied media,
+  gitignored there — see its README); rebrew no longer commits them.
 - Extraction tolerates 7z's warning exits but **verifies the compiler
   binary exists**, so a bad extraction fails loudly.
 - All images carry **OCI provenance labels** (source/license/title).
@@ -286,9 +293,10 @@ regenerates the masked hashes WITHOUT comparing — run it twice, confirm
 the hashes are stable, then paste them into `_SMOKE_GOLDEN`.
 
 `rebrew toolchain vendor <name>` assembles the **host tree** from the same
-pinned source the image builds from (in-repo tarball or sha256-verified
-download), so host trees and containers are byte-identical.  Two layout
-rules apply during assembly:
+pinned source the image builds from (16-bit media tarball or sha256-verified
+download), extracting into `<family>/<version>-<arch>/source` under the
+rebrew-toolchains checkout, so host trees and containers are
+byte-identical.  Two layout rules apply during assembly:
 
 - **MSVC 6.0 wraps in `VC98/`** — the decomp.me tarball is flat
   (Bin/Include/MFC/ATL at top level), but the canonical master layout and
@@ -297,13 +305,10 @@ rules apply during assembly:
   container and host trees stay identical.  Note the mirror ships no `Lib`
   tree (compile-only) — `rebrew doctor` warns about the missing lib path,
   which is expected and harmless for `/c` object builds.
-- **`tools/` compat symlinks** — after a successful vendor, the gitignored
-  legacy aliases (`tools/MSVC600 → toolchain/msvc/6.0-win32`,
-  `tools/MSVC7 → toolchain/msvc/7.0-win32`, `tools/msvc6.3`, …) are
-  (re)created so projects whose `rebrew-project.toml` predates the
-  restructure keep resolving `tools/<name>/...` through the rebrew install
-  (`find_install_tool` fallback).  A fresh clone that runs
-  `rebrew toolchain vendor` gets them automatically.
+- **The vendored tree backs the host-side 16-bit path** — outside the
+  docker flow, `rebrew.tc16`/`rebrew.msvc16`/`rebrew.delphi16` symlink
+  `source/BIN|INCLUDE|LIB` into a DOSBox sandbox (research/tests; the
+  docker images build from the same tarball, byte-identical).
 
 ### Toolchain Detection (doctor alignment check)
 
@@ -440,21 +445,26 @@ version and every service pack whose compiler binary is preserved publicly.
 Each row is a first-class toolchain: a `ToolchainSpec` + pinned sha256 source
 (`rebrew toolchain vendor <name>` assembles the host tree; `rebrew toolchain
 build <name>` builds `rebrew/msvc:<version>-<arch>` from the same tarball), a
-config/init/detect profile, a tools/ compat link, and a smoke-gate golden.
+config/init/detect profile, and a smoke-gate golden.
 
-**Standalone use**: the same images are published as a self-contained build
-source in [`maci0/rebrew-toolchains`](https://github.com/maci0/rebrew-toolchains)
-— Dockerfiles, wrappers, the shared `base` image and the pinned-source manifest
-(`sources.json`), with **no compiler binaries in the repo** (every 32-bit image
-curls its sha256-verified source at build time; the six 16-bit images document
-their reconstructed-media tarball prerequisite).  Any tool — e.g. the
-`recompile`-style compiler-as-a-service can build or pull these images without rebrew itself.
+**Standalone use**: the docker build source lives in
+[`maci0/rebrew-toolchains`](https://github.com/maci0/rebrew-toolchains)
+— Dockerfiles, wrappers, the shared `base` image and the pinned-source
+manifest (`sources.json`), with **no compiler binaries in the repo** (every
+32-bit image curls its sha256-verified source at build time; the six 16-bit
+images document their reconstructed-media tarball prerequisite).  rebrew
+sources its `toolchain build`/`vendor` from a checkout of that repo — the
+sibling directory by default, overridable via `REBREW_TOOLCHAINS_DIR` (a
+missing checkout is an actionable error pointing at
+`git clone https://github.com/maci0/rebrew-toolchains ../rebrew-toolchains`).
+Any tool — e.g. a `recompile`-style compiler-as-a-service — can build or
+pull these images without rebrew itself.
 
 | Profile | Version | CL.EXE | Compiler | Source | Runtime |
 |---|---|---|---|---|---|
-| `msvc10` | 1.0 (1992, 16-bit) | — | 16-bit Phar Lap | WinWorld floppies, in-repo | DOSBox |
-| `msvc15` | 1.5 (1993, 16-bit) | — | 16-bit Phar Lap | archive.org `en_vc152`, in-repo | DOSBox |
-| `msvc1.52` | 1.52 (1995, 16-bit) | — | 16-bit Phar Lap | archive.org `en_vc152_202512`, in-repo | DOSBox |
+| `msvc10` | 1.0 (1992, 16-bit) | — | 16-bit Phar Lap | WinWorld floppies, pinned tarball | DOSBox |
+| `msvc15` | 1.5 (1993, 16-bit) | — | 16-bit Phar Lap | archive.org `en_vc152`, pinned tarball | DOSBox |
+| `msvc1.52` | 1.52 (1995, 16-bit) | — | 16-bit Phar Lap | archive.org `en_vc152_202512`, pinned tarball | DOSBox |
 | `msvc200` | 2.0 (1994) | 9.00 | first 32-bit | archaic-msvc `msvc200` | docker |
 | `msvc400` | 4.0 (1995) | 10.00.5270 | | itsmattkc `MSVC400` | docker |
 | `msvc410` | 4.1 (1996) | 10.10.6038 | | archaic-msvc `msvc410` | docker |
@@ -490,7 +500,7 @@ Notes:
   OMF decoded by `rebrew.matcher.omf16` — verified end-to-end (VC 1.5
   produces a parseable `push bp`-style function object).
 - **`msvc10` (VC 1.0)** compiles end-to-end: the tree was assembled from
-  the WinWorld 3.5" floppy set (SZDD payload decompressed, in-repo tarball);
+  the WinWorld 3.5" floppy set (SZDD payload decompressed, pinned tarball);
   CL.EXE is a Phar Lap TNT DOS-extender (PE32) that runs headless under
   DOSBox in the image (`cl10` wrapper), producing 16-bit OMF decoded
   by `rebrew.matcher.omf16` — smoke-gated and verified (the object for the
@@ -560,9 +570,9 @@ with a `Bin/`; the archaic `msvc600_sp3` repo has headers/libs only).
 | `archaic-msvc/msvc900` | VC 9.0 (2008) compiler | `9121d184…` |
 | `archaic-msvc/msvc1000` | VC 10.0 (2010) compiler | `5f0b4486…` |
 | `archaic-msvc/msvc1000_sp1` | VC 10.0 SP1 | `2e5fbb9b…` |
-| archive.org `en_vc152` | VC 1.5 (1993) 16-bit media | in-repo `msvc15.tar.xz` |
-| archive.org `en_vc152_202512` | VC 1.52 (1995) 16-bit media | in-repo `msvc152.tar.xz` |
-| WinWorld `visual-c/1x` (3.5\" floppy set) | VC 1.0 Professional (1992) 16-bit media | in-repo `msvc10.tar.xz` |
+| archive.org `en_vc152` | VC 1.5 (1993) 16-bit media | pinned `msvc15.tar.xz` |
+| archive.org `en_vc152_202512` | VC 1.52 (1995) 16-bit media | pinned `msvc152.tar.xz` |
+| WinWorld `visual-c/1x` (3.5\" floppy set) | VC 1.0 Professional (1992) 16-bit media | pinned `msvc10.tar.xz` |
 |
 | **Gap preservation repos** | the toolchains archaic-msvc does not carry — VC 1.0/1.5/1.52/4.0, 6.0-SP1/SP2/SP4 with their Bin (SP1/SP2 reconstructed from the official SP payloads, SP1 documented as not preserved standalone), 9.0-SP1's 15.00.30729 compiler, plus the non-MSV C line (Borland C++ 5.5, Turbo C 2.0/3.1, Open Watcom 2.0, Delphi 1.0) — are published one-per-repo at **`github.com/archaic-toolchains`** — same tree format, READMEs with provenance + checksums | — |
 
@@ -606,15 +616,16 @@ DOS/Windows games and Borland Delphi 1.0 apps) are now parsed natively:
    back to RTL string evidence when segments are absent.
 6. **16-bit compile profile / byte matching — DONE**: the `msvc1.52`
    profile (Microsoft C 1.52, 16-bit, via the `rebrew/msvc:1.52-win16`
-   DOSBox image or the vendored `toolchain/msvc/1.52-win16` host path) compiles C89 to
-   16-bit OMF objects, decoded by the built-in `omf16` parser (objconv
-   crashes on both the unoptimized 0xA0 and /O-optimized 0xC2 dialects;
-   reloc slots: e8/e9 rel16, absolute disp16, and far-call 9a/ea via
-   capstone).  `rebrew test`, `verify`, and `match --flag-sweep-only`
-   (memory-model axis `/AS /AM /AC /AL`) all work on 16-bit NE targets.
+   DOSBox image or the vendored `rebrew-toolchains/msvc/1.52-win16` host
+   path) compiles C89 to 16-bit OMF objects, decoded by the built-in
+   `omf16` parser (objconv crashes on both the unoptimized 0xA0 and
+   /O-optimized 0xC2 dialects; reloc slots: e8/e9 rel16, absolute disp16,
+   and far-call 9a/ea via capstone).  `rebrew test`, `verify`, and
+   `match --flag-sweep-only` (memory-model axis `/AS /AM /AC /AL`) all work
+   on 16-bit NE targets.
    The GA sweep for msvc1.52 covers 75 targeted combos through the image.
-   NOTE: the vendored `toolchain/msvc/4.2-win32` is the *32-bit* VC 4.2 compiler
-   (i386 COFF output) — NOT suitable for 16-bit matching.
+   NOTE: the vendored `rebrew-toolchains/msvc/4.2-win32` is the *32-bit* VC
+   4.2 compiler (i386 COFF output) — NOT suitable for 16-bit matching.
 
 The workflow for a 16-bit target is: `rebrew intake <ne.exe>` (enumerates +
 documents every function as a STUB blocker — Delphi functions are marked
@@ -626,15 +637,18 @@ the full compile/compare loop (137 functions on ski16.exe compile through
 DOSBox with 0 COMPILE_ERROR).
 
 **Delphi 1.0 toolchain (vendored, verified working):** for 16-bit *Delphi*
-targets (e.g. `holiday.exe`, a Delphi 1.0 VCL app), `toolchain/delphi/1.0-win16/source/` now
-ships the exact command-line toolchain — `DCC.EXE` (Delphi Compiler 8.0,
+targets (e.g. `holiday.exe`, a Delphi 1.0 VCL app),
+`rebrew-toolchains/delphi/1.0-win16/source/` now ships the exact
+command-line toolchain — `DCC.EXE` (Delphi Compiler 8.0,
 Sep 1995), `DELPHI.DSL` (compiler symbol table), the `CMDLINE.PAK` tools,
 and the RTL/VCL units (`UNITS.PAK` + `LIB.PAK`).  It compiles real 16-bit
 NE 6.01 GUI executables; the working recipe and the reverse-engineered
-**Quantum archive format** (`toolchain/delphi/1.0-win16/source/pak_extract.py`) are documented
-in `toolchain/delphi/1.0-win16/source/README.md`.  Delphi's Borland ABI has no matchable
-rebrew compiler profile — functions are documented as blockers, but the
-toolchain is used for verification-style research (compile + NE parse).
+**Quantum archive format**
+(`rebrew-toolchains/delphi/1.0-win16/source/pak_extract.py`) are documented
+in `rebrew-toolchains/delphi/1.0-win16/source/README.md`.  Delphi's
+Borland ABI has no matchable rebrew compiler profile — functions are
+documented as blockers, but the toolchain is used for verification-style
+research (compile + NE parse).
 
 Layout: `bin/cl.exe` + `include/` + `lib/` (case varies by version).  The
 `msvc420` profile is backed by this source; `msvc5` (VC 5.0, 11.00.7022) is
@@ -653,13 +667,14 @@ msvc6.0/6.3/6.4/6.5/6.5pp/6.6/7.0 only, no Lib dir):
 | msvc-7.0-win32 | `msvc-7.0-win32.tar.gz` (33 MB) | 13.10.3077 | **VC7 — enables the `msvc7` profile** |
 | msvc4.x/7.1/8.0 | not published | — | document + skip |
 
-Layout notes (differ from the local `toolchain/msvc/6.0-win32/source/VC98/...`):
+Layout notes (differ from the local `rebrew-toolchains/msvc/6.0-win32/source/VC98/...`):
 
 - msvc-6.0-sp3-win32/6.6: `Bin/CL.EXE`, `Include/`, **no `Lib/`** (compile-only; link with
   a full toolchain's Lib, e.g. the master's).
 - msvc-7.0-win32: `Bin/cl.exe` (lowercase!), `Include/`, `MFC/`, **no `Lib/`**.
 
-When the master (`toolchain/msvc/6.0-win32`, `toolchain/msvc/7.0-win32`) is absent, `rebrew init
+When the master (`rebrew-toolchains/msvc/6.0-win32`,
+`rebrew-toolchains/msvc/7.0-win32`) is absent, `rebrew init
 --compiler msvc6|msvc7` and the config layer resolve the best present layout
 instead (newest mirror first) so a fresh project compiles out of the box
 rather than pointing at a master path that does not exist.

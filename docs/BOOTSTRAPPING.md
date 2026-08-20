@@ -114,8 +114,9 @@ if pe.has_rich_header:
 | CRT strings like `MSVCRT.dll` in imports | Microsoft runtime |
 | Presence of `__libc_start_main` | GCC/Linux |
 
-Once identified, ensure the matching toolchain is available (e.g., `toolchain/msvc/6.0-win32/`
-for MSVC6, or a system GCC for ELF targets).
+Once identified, ensure the matching toolchain is available (e.g. `rebrew
+toolchain build msvc6`, or vendor its tree from the rebrew-toolchains
+checkout, for MSVC6; a system GCC for ELF targets).
 
 ## 5. Scan with FLIRT signatures
 
