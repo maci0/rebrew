@@ -11,6 +11,23 @@
   the failure-detail lines, the JSON report, cached results, and persisted to
   `coverage.db`'s `verify_results.similarity` so the `recoverage` dashboard
   can display it.
+### Fixed
+- **`rebrew rename` rejected the documented source-path forms**: entries
+  store filepath relative to `reversed_dir` while `require_config` resolves
+  `reversed_dir` absolute, so only the basename/VA/symbol matched.  All four
+  forms now resolve (project-relative, reversed-dir-relative, absolute, VA).
+- **`error_exit` defaulted to exit 1 (`EXIT_MISMATCH`) instead of 2
+  (`EXIT_ERROR`)**: every generic error (missing binary, bad VA, missing
+  state dir, config errors) reported as a "mismatch", so a CI script could
+  read a broken environment as an unmatched function.  The default is now
+  `EXIT_ERROR`; mismatch exits stay explicit (`code=1`).
+- **`rebrew match --sweep-toolchain` ran the raw subprocess path with an
+  empty `cl_cmd`** (docker-native configs) — it tried to exec the flags as a
+  command and ignored the swept profile.  It now routes through each
+  profile's docker image (`toolchain=profile`) and enumerates the registry
+  profiles; new `--sweep-only` / `--sweep-exclude` filters narrow the sweep
+  (e.g. `--sweep-exclude 2.0,4.0` for a Y2K binary).
+
 - **VC 6.0 SP1/SP2/SP4 toolchains** (`msvc600sp1`, `msvc600sp2`,
   `msvc600sp4`): SP1/SP2 share the byte-identical 12.00.8168 driver with
   `msvc6` (SP1-3 changed no compiler/headers); SP4 carries the 12.00.8804
