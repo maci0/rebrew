@@ -56,10 +56,24 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import lief
 
 from rebrew.binary_loader import load_binary
+
+
+def _rich_compiler_build(entries: list[Any]) -> int:
+    """The compiler build from Rich-header entries: the most common build.
+
+    The C1/C2 (front/back end) pair shares one build; the linker entry can
+    carry a different (newer) one.  The mode picks the pair over a single
+    differing linker entry."""
+    from collections import Counter
+
+    counts = Counter(e.build_id for e in entries)
+    return counts.most_common(1)[0][0]
+
 
 # ---------------------------------------------------------------------------
 # Evidence markers
@@ -590,10 +604,8 @@ def detect_with_pdb(path: Path) -> ToolchainInfo | None:
     return info
 
 
-
-
 def _msvc_version_hint(version: str, profiles: tuple[str, ...] | None) -> str:
-    """"MSVC 12.00.8168" (+ the rebrew profiles carrying that build)."""
+    """ "MSVC 12.00.8168" (+ the rebrew profiles carrying that build)."""
     hint = f"MSVC {version}"
     if profiles:
         hint += f" — matches {', '.join(profiles)}"
@@ -656,7 +668,7 @@ def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
         # Rich header present = the MSVC linker wrote it — family is proven.
         info.family = "msvc"
         info.confidence = "high"
-        build = rich_builds[-1]  # front/back-end pair share one build
+        build = _rich_compiler_build(rich.entries)  # the C1/C2 pair (mode)
         profiles = _RICH_BUILD_PROFILES.get(build) or _LINKER_ERA_PROFILES.get(linker_mm or ())
         mm = linker_mm or (12, 0)  # unknown linker -> VC6-era fallback
         version = f"{mm[0]}.{mm[1]:02d}.{build}"
