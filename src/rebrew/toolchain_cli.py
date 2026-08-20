@@ -267,13 +267,7 @@ _COMPAT_LINK_ALIASES: dict[str, str] = {
     "MSVC7": "msvc/7.0-win32",
     "msvc7.0": "msvc/7.0-win32",
     "msvc-7.0-win32": "msvc/7.0-win32",
-    "msvc6.3": "msvc/6.0-sp3-win32",
     "msvc-6.0-sp3-win32": "msvc/6.0-sp3-win32",
-    "msvc6.4": "msvc/6.0-sp4-win32",
-    "msvc-6.0-sp4-win32": "msvc/6.0-sp4-win32",
-    "msvc6.5": "msvc/6.0-sp5-win32",
-    "msvc-6.0-sp5-win32": "msvc/6.0-sp5-win32",
-    "msvc6.6": "msvc/6.0-sp6-win32",
     "msvc-6.0-sp6-win32": "msvc/6.0-sp6-win32",
     "MSVC152": "msvc/1.52-win16",
     "msvc-1.52-win16": "msvc/1.52-win16",
@@ -361,15 +355,18 @@ def vendor_cmd(
         raise typer.Exit(code=2)
 
     host = _REPO_TOOLS / src.host_dir
-    # Tracked metadata lives beside the vendored tree (Dockerfile, wrapper
-    # scripts, the in-repo tarball the tree is extracted from, pak_extract.py)
-    # — those are not vendored content, so a dir holding only them is empty
-    # for clobber purposes.
+    # Canonical layout: every vendored tree nests the actual toolchain one
+    # level under ``source/`` (toolchain/<family>/<ver>-<arch>/source/...),
+    # so all toolchain folders share the same shape.  Tracked metadata
+    # (Dockerfile, wrapper scripts, the in-repo tarball, pak_extract.py)
+    # lives beside it and is not vendored content, so a dir holding only
+    # those is empty for clobber purposes.
     _META = {
         "Dockerfile",
         "pak_extract.py",
         "wrapper-common.sh",
-        *("*.sh", "*.tar.xz"),
+        ".dockerignore",
+        *("*.sh", "*.tar.xz", "*.md"),
     }
     content = (
         [p for p in host.iterdir() if not any(p.match(m) for m in _META)] if host.exists() else []
@@ -382,6 +379,8 @@ def vendor_cmd(
             console.print(f"[yellow]{msg}[/yellow]")
         raise typer.Exit(code=2)
     host.mkdir(parents=True, exist_ok=True)
+    extract_dir = host / "source"
+    extract_dir.mkdir()
 
     try:
         if src.is_in_repo():
@@ -389,7 +388,7 @@ def vendor_cmd(
             subprocess.run(
                 # No explicit -z/-J: GNU tar auto-detects gzip/xz compression,
                 # so in-repo .tar.xz and remote codeload .tar.gz both extract.
-                ["tar", "xf", str(tarball), "-C", str(host)],
+                ["tar", "xf", str(tarball), "-C", str(extract_dir)],
                 check=True,
                 capture_output=True,
             )
@@ -424,7 +423,7 @@ def vendor_cmd(
                     )  # warning exits tolerated — the final check below guards
                     payload = Path(td + "/pay")
                     for sub in ("Bin", "Include", "Lib"):
-                        (payload / sub).rename(host / sub)
+                        (payload / sub).rename(extract_dir / sub)
                 elif src.layout == "zip-strip1":
                     # A zip with a single top-level wrapper dir (e.g. TC/) —
                     # strip the wrapper so BIN/INCLUDE/LIB sit at the top of
@@ -439,19 +438,19 @@ def vendor_cmd(
                     if len(contents) == 1 and not any(p.is_file() for p in payload.iterdir()):
                         payload = contents[0]
                     for child in payload.iterdir():
-                        child.rename(host / child.name)
+                        child.rename(extract_dir / child.name)
                 elif src.layout == "tar-strip1":
                     subprocess.run(
                         # Auto-detect compression (no -z/-J): the pinned
                         # sources are gzip codeload tarballs (msvc400/420/5)
                         # and xz snapshots (watcom) alike.
-                        ["tar", "xf", str(archive), "-C", str(host), "--strip-components=1"],
+                        ["tar", "xf", str(archive), "-C", str(extract_dir), "--strip-components=1"],
                         check=True,
                         capture_output=True,
                     )
                 else:
                     subprocess.run(
-                        ["tar", "xzf", str(archive), "-C", str(host)],
+                        ["tar", "xzf", str(archive), "-C", str(extract_dir)],
                         check=True,
                         capture_output=True,
                     )
@@ -467,10 +466,10 @@ def vendor_cmd(
     # MSVC 6.0's classic master layout wraps the tree in VC98/ (the decomp.me
     # tarball is flat) — canonical config paths and every legacy
     # tools/MSVC600/VC98/... reference expect the wrapper.
-    if src.vc98_wrap and not (host / "VC98").exists():
-        vc98 = host / "VC98"
+    if src.vc98_wrap and not (extract_dir / "VC98").exists():
+        vc98 = extract_dir / "VC98"
         vc98.mkdir()
-        for child in list(host.iterdir()):
+        for child in list(extract_dir.iterdir()):
             if child == vc98 or any(child.match(m) for m in _META):
                 continue
             child.rename(vc98 / child.name)
@@ -479,8 +478,8 @@ def vendor_cmd(
     # (Common/MSDev98/Bin) while CL.EXE 12.00.8804 statically imports it and
     # only searches its own directory — relocate the official file so host
     # compiles work (the sp5 Dockerfile does the same relocation).
-    ide_dll = host / "Common" / "MSDev98" / "Bin" / "MSPDB60.DLL"
-    bin_dll = host / "VC98" / "Bin" / "MSPDB60.DLL"
+    ide_dll = extract_dir / "Common" / "MSDev98" / "Bin" / "MSPDB60.DLL"
+    bin_dll = extract_dir / "VC98" / "Bin" / "MSPDB60.DLL"
     if ide_dll.exists() and not bin_dll.exists():
         bin_dll.write_bytes(ide_dll.read_bytes())
         console.print("[dim]relocated MSPDB60.DLL -> VC98/Bin (CL requires it in-dir)[/dim]")
@@ -493,8 +492,9 @@ def vendor_cmd(
     spec = get_toolchain(name)
     probe = _vendored_binary(replace(spec, host_path=host))
     if probe is None:
-        # Legacy VC98-wrapped layout (MSVC 6 master tree).
-        probe = _vendored_binary(replace(spec, host_path=host / "VC98"))
+        # Pre-source/ flat layout (trees vendored before the canonical
+        # nesting) — still resolve so re-vendoring is not blocked.
+        probe = _vendored_binary(replace(spec, host_path=host / "source"))
     if probe is None:
         msg = f"vendor {name} produced no {spec.binary} under {host}"
         if json_output:

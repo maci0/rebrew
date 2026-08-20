@@ -127,7 +127,7 @@ def test_flag_combos_msvc_line_share_msvc6_flags() -> None:
     from rebrew.matcher.compiler import generate_flag_combinations
 
     base = generate_flag_combinations(tier="quick", profile="msvc6")
-    for prof in ("msvc400", "msvc420", "msvc5", "msvc6.3", "msvc6.6", "msvc7"):
+    for prof in ("msvc400", "msvc420", "msvc5", "msvc600sp3", "msvc600sp6", "msvc7"):
         combos = generate_flag_combinations(tier="quick", profile=prof)
         assert combos == base, prof
         nonempty = [c for c in combos if c]

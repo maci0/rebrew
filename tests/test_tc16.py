@@ -12,7 +12,9 @@ from rebrew.tc16 import Tc16Error, compile_c
 # The compile_c path symlinks the read-only vendored toolchain into the DOSBox
 # sandbox; without the tree present (CI: toolchains are gitignored) the class
 # can only fail at staging, so skip rather than red.
-_REPO_TC16 = Path(__file__).resolve().parents[1] / "toolchain" / "borland" / "3.1-win16"
+_REPO_TC16 = (
+    Path(__file__).resolve().parents[1] / "toolchain" / "borland" / "3.1-win16" / "source"
+)
 
 
 def _fake_tcc(monkeypatch, sandbox: Path) -> None:
@@ -280,7 +282,9 @@ def test_mz_fixture_main_matches_with_reloc() -> None:
     assert res.match_percent == 100.0
 
 
-_REPO_TC20 = Path(__file__).resolve().parents[1] / "toolchain" / "borland" / "2.0-win16"
+_REPO_TC20 = (
+    Path(__file__).resolve().parents[1] / "toolchain" / "borland" / "2.0-win16" / "source"
+)
 
 
 @pytest.mark.skipif(

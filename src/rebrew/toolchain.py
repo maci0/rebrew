@@ -968,6 +968,11 @@ def _vendored_binary(spec: ToolchainSpec) -> Path | None:
     if spec.host_path is None:
         return None
     host = Path(spec.host_path)
+    # Canonical layout: the actual toolchain lives one level deep under
+    # ``source/`` (toolchain/<family>/<ver>-<arch>/source/...) so every
+    # vendored tree has the same shape.
+    if (host / "source").is_dir():
+        host = host / "source"
     hit = _match_binary(host, spec.binary)
     if hit is not None:
         return hit
@@ -1011,6 +1016,8 @@ def _vendored_include(spec: ToolchainSpec) -> Path | None:
     if spec.host_path is None:
         return None
     host = Path(spec.host_path)
+    if (host / "source").is_dir():
+        host = host / "source"
     candidates = []
     try:
         candidates = [e for e in host.iterdir() if e.is_dir()]

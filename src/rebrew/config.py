@@ -982,7 +982,7 @@ def load_config(
     if _explicit_empty("includes"):
         compiler_includes = Path("")
     else:
-        default_inc = "toolchain/msvc/6.0-win32/VC98/Include"
+        default_inc = "toolchain/msvc/6.0-win32/source/VC98/Include"
         # The master layouts may be absent (machines with only the vendored
         # msvc-6.0-sp3-win32/6.6/7.0 mirrors) — resolve the best present layout so a
         # fresh project with no explicit paths still compiles out of the box.
@@ -1008,7 +1008,7 @@ def load_config(
     if _explicit_empty("libs"):
         compiler_libs = Path("")
     else:
-        default_lib = "toolchain/msvc/6.0-win32/VC98/Lib"
+        default_lib = "toolchain/msvc/6.0-win32/source/VC98/Lib"
         if msvc_layout is not None and msvc_layout[2]:
             default_lib = msvc_layout[2]
         compiler_libs = _required_path(root, compiler.get("libs"), default_lib, "compiler.libs")

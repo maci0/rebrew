@@ -26,7 +26,7 @@ class TestCompilerDefaults:
     """Tests for the COMPILER_DEFAULTS constant."""
 
     def test_has_expected_profiles(self) -> None:
-        assert len(COMPILER_DEFAULTS) == 40  # 16 legacy + 24 MSVC 1.0-11.0 matrix profiles
+        assert len(COMPILER_DEFAULTS) == 38  # 14 legacy + 24 MSVC 1.0-11.0 matrix profiles
 
     def test_known_profiles(self) -> None:
         assert set(COMPILER_DEFAULTS.keys()) == {
@@ -39,8 +39,6 @@ class TestCompilerDefaults:
             "msvc500sp2",
             "msvc500sp3",
             "msvc6",
-            "msvc6.3",
-            "msvc6.6",
             "msvc600sp1",
             "msvc600sp2",
             "msvc600sp3",
@@ -79,8 +77,8 @@ class TestCompilerDefaults:
             "msvc420",
             "msvc5",
             "msvc6",
-            "msvc6.3",
-            "msvc6.6",
+            "msvc600sp3",
+            "msvc600sp6",
             "msvc7",
             "clang",
             "gcc",
@@ -400,7 +398,8 @@ class TestInit:
         """--link-tools-from must accept a master dir that only has the
         compile-only mirror (no msvc-6.0-win32 master) — link toolchain/msvc/6.0-sp6-win32."""
         master = tmp_path / "master"
-        (master / "msvc" / "6.0-sp6-win32").mkdir(parents=True)
+        # Canonical layout: the actual toolchain nests under source/.
+        (master / "msvc" / "6.0-sp6-win32" / "source").mkdir(parents=True)
         monkeypatch.chdir(tmp_path)
         init(
             target_name="t",
@@ -416,7 +415,7 @@ class TestInit:
         assert link.resolve() == (master / "msvc" / "6.0-sp6-win32").resolve()
         # The generated command must reference the linked mirror.
         content = (tmp_path / "rebrew-project.toml").read_text()
-        assert "wine toolchain/msvc/6.0-sp6-win32/Bin/CL.EXE" in content
+        assert "wine toolchain/msvc/6.0-sp6-win32/source/Bin/CL.EXE" in content
 
     def test_link_tools_from_missing_toolchain_fails(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

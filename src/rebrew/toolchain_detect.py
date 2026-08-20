@@ -1207,8 +1207,6 @@ _PROFILE_COMPAT: dict[str, set[str] | None] = {
         "msvc500sp2",
         "msvc500sp3",
         "msvc6",
-        "msvc6.3",
-        "msvc6.6",
         "msvc600sp1",
         "msvc600sp2",
         "msvc600sp3",
