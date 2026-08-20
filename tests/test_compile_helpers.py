@@ -70,6 +70,35 @@ class TestResolveIncludeFlags:
         assert out == [f"-I{inc.resolve()}"]
 
 
+
+    def test_two_token_space_separated(self, tmp_path: Path) -> None:
+        """"/I ../Units" (split by shlex into two tokens) must merge into
+        one resolved include flag instead of corrupting the bare /I.
+        The next token may carry a trailing comma separator (/I,<dir>)."""
+        src_parent = tmp_path / "src"
+        inc = tmp_path / "Units"
+        inc.mkdir(parents=True)
+        out = _resolve_include_flags(["/I", "../Units"], src_parent, tmp_path)
+        assert out == [f"/I{inc.resolve()}"]
+
+    def test_two_token_dash_i(self, tmp_path: Path) -> None:
+        src_parent = tmp_path / "src"
+        inc = src_parent / "inc"
+        inc.mkdir(parents=True)
+        out = _resolve_include_flags(["-I", "inc"], src_parent, tmp_path)
+        assert out == [f"-I{inc.resolve()}"]
+
+    def test_trailing_bare_i_left_alone(self, tmp_path: Path) -> None:
+        """A lone trailing /I with no following token stays untouched."""
+        out = _resolve_include_flags(["/O2", "/I"], tmp_path, tmp_path)
+        assert out == ["/O2", "/I"]
+
+    def test_bare_i_before_flag_does_not_merge(self, tmp_path: Path) -> None:
+        """/I followed by another flag (/I /O2) is not a path merge."""
+        out = _resolve_include_flags(["/I", "/O2"], tmp_path, tmp_path)
+        assert out == ["/I", "/O2"]
+
+
 class TestResolveCompilerEnv:
     def test_resolves_paths(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.compile import resolve_compiler_env
