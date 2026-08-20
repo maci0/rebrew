@@ -857,7 +857,9 @@ class TestPrepareProveInputsDir32:
         monkeypatch.setattr(pm, "build_name_to_va", lambda cfg: {"g_counter": 0x2000})
         monkeypatch.setattr(pm, "build_iat_region", lambda cfg: {0x24178})
         monkeypatch.setattr(pm, "extract_raw_bytes", lambda b, va, size: b"\x00" * 16)
-        monkeypatch.setattr(pm, "compile_to_obj", lambda cfg, src, cflags, wd, **kw: ("obj.obj", ""))
+        monkeypatch.setattr(
+            pm, "compile_to_obj", lambda cfg, src, cflags, wd, **kw: ("obj.obj", "")
+        )
         monkeypatch.setattr(pm, "parse_obj_symbol_bytes", lambda obj, sym: (b"\x00" * 16, {}))
         monkeypatch.setattr(pm, "_resolve_watched_dir32", lambda obj, sym, cfg, ws: {})
         monkeypatch.setattr(pm, "resolve_symbol", lambda ann, src: "_f")
@@ -915,7 +917,9 @@ class TestPrepareProveInputsDir32:
         )
         monkeypatch.setattr(pm, "build_name_to_va", lambda cfg: {})
         monkeypatch.setattr(pm, "extract_raw_bytes", lambda b, va, size: b"\x00" * 16)
-        monkeypatch.setattr(pm, "compile_to_obj", lambda cfg, src, cflags, wd, **kw: ("obj.obj", ""))
+        monkeypatch.setattr(
+            pm, "compile_to_obj", lambda cfg, src, cflags, wd, **kw: ("obj.obj", "")
+        )
         monkeypatch.setattr(pm, "parse_obj_symbol_bytes", lambda obj, sym: (b"\x00" * 16, {}))
         monkeypatch.setattr(pm, "_resolve_watched_dir32", lambda obj, sym, cfg, ws: {})
         monkeypatch.setattr(pm, "resolve_symbol", lambda ann, src: "_f")
@@ -1111,7 +1115,9 @@ class TestProveInputsWatchedVasMetadata:
         )
         monkeypatch.setattr(pm, "build_name_to_va", lambda cfg: {})
         monkeypatch.setattr(pm, "extract_raw_bytes", lambda b, va, size: b"\x00" * 16)
-        monkeypatch.setattr(pm, "compile_to_obj", lambda cfg, src, cflags, wd, **kw: ("obj.obj", ""))
+        monkeypatch.setattr(
+            pm, "compile_to_obj", lambda cfg, src, cflags, wd, **kw: ("obj.obj", "")
+        )
         monkeypatch.setattr(pm, "parse_obj_symbol_bytes", lambda obj, sym: (b"\x00" * 16, {}))
         monkeypatch.setattr(pm, "_resolve_watched_dir32", lambda obj, sym, cfg, ws: {})
         monkeypatch.setattr(pm, "resolve_symbol", lambda ann, src: "_f")

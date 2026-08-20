@@ -37,8 +37,7 @@ def _project(name: str) -> tuple[Path, Path, Path]:
     (errdir / "error.h").write_text("int error_code(void);\n", encoding="utf-8")
     src = server_c / "f.c"
     src.write_text(
-        "#include \"../../Units/Error/error.h\"\n"
-        + "int exit_code(void){ return error_code(); }\n",
+        '#include "../../Units/Error/error.h"\n' + "int exit_code(void){ return error_code(); }\n",
         encoding="utf-8",
     )
     return root, src, errdir / "error.h"
@@ -88,8 +87,7 @@ def test_relative_include_deep_nesting() -> None:
     (errdir / "error.h").write_text("int error_code(void);\n", encoding="utf-8")
     src = deep / "f.c"
     src.write_text(
-        "#include \"../../../Units/Error/error.h\"\n"
-        + "int g(void){ return error_code(); }\n",
+        '#include "../../../Units/Error/error.h"\n' + "int g(void){ return error_code(); }\n",
         encoding="utf-8",
     )
     cfg = SimpleNamespace(

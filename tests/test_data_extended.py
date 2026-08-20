@@ -18,6 +18,7 @@ from rebrew.data import (
     _render_bss,
     _render_globals,
     _render_summary,
+    _section_summary,
     scan_data_annotations,
     scan_globals,
 )
@@ -241,6 +242,21 @@ class TestDataCli:
         result = self._invoke(tmp_path, monkeypatch, ["--summary"])
         assert result.exit_code == 0
         assert "Global" in result.output
+        # PRD 06 --summary: section-level counts, bytes annotated, % coverage.
+        assert "% Coverage" in result.output
+
+    def test_summary_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """--summary --json emits a structured section-progress summary."""
+        cfg = _cfg(tmp_path)
+        self._write_global(cfg)
+        result = self._invoke(tmp_path, monkeypatch, ["--summary", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert "summary" in data
+        row = next(r for r in data["summary"]["sections"] if r["name"] == "unknown")
+        # one annotated g_counter → 1 annotated global, 4-byte int.
+        assert row["annotated"] >= 1
+        assert row["annotated_bytes"] >= 4
 
     def test_conflicts_flag(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _cfg(tmp_path)
@@ -346,6 +362,39 @@ class TestDataCli:
         result = self._invoke(tmp_path, monkeypatch, ["--dispatch", "--json"])
         assert result.exit_code == 0
         assert calls["n"] == 1
+
+
+class TestSectionSummary:
+    def test_coverage_pct_computed_from_type_size(self, tmp_path: Path) -> None:
+        """Annotated bytes and % coverage derive from the global's type size."""
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "a.c").write_text(
+            "// GLOBAL: SERVER 0x1000\nextern char g_buf[24];\n",
+            encoding="utf-8",
+        )
+        scan = scan_globals(cfg.reversed_dir, cfg)
+        sections = {".data": {"va": 0x1000, "size": 0x100}}
+        from rebrew.data import enrich_with_sections
+
+        enrich_with_sections(scan, sections)
+        rows = _section_summary(scan, sections)
+        data_row = next(r for r in rows if r["name"] == ".data")
+        # char[24] → 24 annotated bytes; section size 0x100 → 9.375 → 9.4%.
+        assert data_row["annotated_bytes"] == 24
+        assert data_row["coverage_pct"] == 9.4
+
+    def test_no_section_size_reports_dash(self, tmp_path: Path) -> None:
+        """Without a binary section size, coverage is not computed (no crash)."""
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "a.c").write_text(
+            "// GLOBAL: SERVER 0x1000\n// SYMBOL: g_x\nextern int g_x;\n",
+            encoding="utf-8",
+        )
+        scan = scan_globals(cfg.reversed_dir, cfg)
+        rows = _section_summary(scan, {})
+        unknown_row = next(r for r in rows if r["name"] == "unknown")
+        assert unknown_row["section_size"] == 0
+        assert unknown_row["coverage_pct"] == 0.0
 
 
 class TestRenderDispatchAndBss:

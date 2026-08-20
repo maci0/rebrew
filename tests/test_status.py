@@ -201,6 +201,56 @@ class TestCollectStatus:
         assert report.status_counts.get("EXACT") == 1
         assert report.status_counts.get("NEAR_MATCHING") == 1
         assert report.source_files == 2
+        assert report.unresolved_blockers == 0
+        assert report.to_dict()["unresolved_blockers"] == 0
+
+    def test_unresolved_blockers_counted(self, tmp_path: Path) -> None:
+        """Functions with a non-empty BLOCKER in rebrew-function.toml are counted."""
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+
+        (src / "function_structure.json").write_text(
+            json.dumps([{"va": 0x1000, "size": 100, "ghidra_name": "func_a"}]),
+            encoding="utf-8",
+        )
+        (src / "func_a.c").write_text(
+            "// FUNCTION: TEST 0x1000\n// STATUS: STUB\nvoid func_a(void) {}\n",
+            encoding="utf-8",
+        )
+
+        # metadata_dir points at tmp_path (parent of reversed_dir); the metadata
+        # file lives there with a per-module table keyed "MODULE.0xVA".
+        (tmp_path / "rebrew-function.toml").write_text(
+            '["TEST.0x1000"]\nblocker = "register allocation (eax/ecx swap)"\n',
+            encoding="utf-8",
+        )
+
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.unresolved_blockers == 1
+        assert report.to_dict()["unresolved_blockers"] == 1
+
+    def test_empty_blocker_not_counted(self, tmp_path: Path) -> None:
+        """An empty BLOCKER metadata entry is not an unresolved blocker."""
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+
+        (src / "function_structure.json").write_text(
+            json.dumps([{"va": 0x1000, "size": 100, "ghidra_name": "func_a"}]),
+            encoding="utf-8",
+        )
+        (src / "func_a.c").write_text(
+            "// FUNCTION: TEST 0x1000\n// STATUS: STUB\nvoid func_a(void) {}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "rebrew-function.toml").write_text(
+            '["TEST.0x1000"]\nblocker = ""\n',
+            encoding="utf-8",
+        )
+
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.unresolved_blockers == 0
 
     def test_verify_cache_loaded(self, tmp_path: Path) -> None:
         """Verify cache present → verify_info populated."""
