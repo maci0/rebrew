@@ -119,7 +119,7 @@ class TestRecoverageContract:
         # verify_results has the diff columns the detail API reads.
         c.execute("PRAGMA table_info(verify_results)")
         vr_cols = {r[1] for r in c.fetchall()}
-        for col in ("verified_at", "byte_delta", "diff_lines"):
+        for col in ("verified_at", "byte_delta", "diff_lines", "similarity"):
             assert col in vr_cols, f"verify_results missing column {col}"
 
         # The target is registered in metadata (recoverage lists targets from it).

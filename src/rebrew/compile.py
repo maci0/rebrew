@@ -119,6 +119,12 @@ class CompareResult:
     #: unmatched functions so the recoverage-consumed ``verify_results``
     #: ``diff_lines`` column carries real data instead of NULL (db-review F2).
     diff_lines: int | None = None
+    #: Structural code-similarity score (0–100) between the compiled and
+    #: target bytes, computed via the optional ``resembl`` scoring core
+    #: (``None`` when not computed, e.g. the extra is not installed).  Populated
+    #: best-effort by ``rebrew verify`` for every verified function so the
+    #: ``verify_results`` ``similarity`` column carries real data.
+    similarity: float | None = None
 
 
 def classify_compare_result(
@@ -587,9 +593,6 @@ def _docker_include_rewrite(
     return out, mounts
 
 
-
-
-
 _toolchain_digest_cache: dict[str, str] = {}
 
 
@@ -692,8 +695,7 @@ def compile_to_obj(
         tc_spec = TOOLCHAINS.get(toolchain)
         if tc_spec is None:
             return None, (
-                f"per-function toolchain {toolchain!r} is unknown "
-                f"(known: {sorted(TOOLCHAINS)})"
+                f"per-function toolchain {toolchain!r} is unknown (known: {sorted(TOOLCHAINS)})"
             )
         if tc_spec.image is None and tc_spec.runtime != "native":
             return None, (

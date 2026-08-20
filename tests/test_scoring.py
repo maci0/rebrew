@@ -555,3 +555,61 @@ class TestScoreFastPaths:
         c = b"\x55\x8b\xec\x33\xc0\x5d\xc3"  # xor eax, eax (shorter)
         s = score_candidate(a, c, {})
         assert s.mnemonic_score > 0.0  # real diff still penalized
+
+
+# -------------------------------------------------------------------------
+# code_similarity (optional `resembl` scoring core)
+# -------------------------------------------------------------------------
+
+
+class TestCodeSimilarity:
+    """code_similarity delegates to refinements of the `resembl` scoring core.
+
+    Skipped when the optional ``resembl`` dependency (the ``[similarity]``
+    extra) is not installed — plain rebrew installs must stay green.
+    """
+
+    # mov eax,[ebp+8]; add eax,1 (the base function under test).
+    FUNC_A = bytes.fromhex("55 8b ec 8b 45 08 83 c0 01 5d c3")
+    # Same logic, registers renamed: mov ecx,[ebp+8]; add ecx,1.
+    FUNC_REG = bytes.fromhex("55 8b ec 8b 4d 08 83 c1 01 5d c3")
+    # Same logic, immediate changed: add eax,100 (0x64) instead of add eax,1.
+    FUNC_IMM = bytes.fromhex("55 8b ec 8b 45 08 83 c0 64 5d c3")
+    # Genuinely different function body (no shared prologue/epilogue shape).
+    FUNC_UNRELATED = bytes.fromhex("8b 45 08 3d 78 56 34 12 0f 85 05 00 00 00 c3")
+
+    @pytest.fixture(autouse=True)
+    def _skip_if_no_resembl(self) -> None:
+        import importlib.util
+
+        if importlib.util.find_spec("resembl") is None:
+            pytest.skip("optional `resembl` dependency not installed")
+
+    def test_identical_is_100(self) -> None:
+        from rebrew.matcher.scoring import code_similarity
+
+        assert code_similarity(TestCodeSimilarity.FUNC_A, TestCodeSimilarity.FUNC_A) == 100.0
+
+    def test_register_insensitive(self) -> None:
+        """Register allocation differences must not tank the score."""
+        from rebrew.matcher.scoring import code_similarity
+
+        s = code_similarity(TestCodeSimilarity.FUNC_A, TestCodeSimilarity.FUNC_REG)
+        assert s >= 85.0
+
+    def test_immediate_insensitive(self) -> None:
+        """Immediate-value differences (e.g. different constants) stay high."""
+        from rebrew.matcher.scoring import code_similarity
+
+        s = code_similarity(TestCodeSimilarity.FUNC_A, TestCodeSimilarity.FUNC_IMM)
+        assert s >= 85.0
+
+    def test_unrelated_is_clearly_lower(self) -> None:
+        """Two genuinely different functions score meaningfully below the
+        near-identical register/immediate variants."""
+        from rebrew.matcher.scoring import code_similarity
+
+        close = code_similarity(TestCodeSimilarity.FUNC_A, TestCodeSimilarity.FUNC_REG)
+        far = code_similarity(TestCodeSimilarity.FUNC_A, TestCodeSimilarity.FUNC_UNRELATED)
+        assert far < close - 30.0
+        assert far < 90.0

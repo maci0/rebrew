@@ -297,7 +297,7 @@ def _missing_required_objects(db_path: Path) -> set[str]:
             "similarity",
         },
         "globals": {"target", "va", "name", "decl", "files", "module", "size"},
-        "verify_results": {"target", "va", "verified_at", "byte_delta", "diff_lines"},
+        "verify_results": {"target", "va", "verified_at", "byte_delta", "diff_lines", "similarity"},
         "history": {"id", "target", "va", "old_status", "new_status", "changed_at"},
         "section_cell_stats": {
             "target",
@@ -544,6 +544,7 @@ def build_db(
                 verified_at TEXT NOT NULL,
                 byte_delta INTEGER,
                 diff_lines INTEGER,
+                similarity REAL,
                 PRIMARY KEY (target, va)
             )
         """)
@@ -916,13 +917,14 @@ def build_db(
                                 vr_time,
                                 item.get("delta"),
                                 item.get("diff_lines"),
+                                item.get("similarity"),
                             )
                         )
                     if vr_rows:
                         c.executemany(
                             "INSERT OR REPLACE INTO verify_results "
-                            "(target, va, verified_at, byte_delta, diff_lines) "
-                            "VALUES (?, ?, ?, ?, ?)",
+                            "(target, va, verified_at, byte_delta, diff_lines, similarity) "
+                            "VALUES (?, ?, ?, ?, ?, ?)",
                             vr_rows,
                         )
                     # Prune rows for functions absent from the latest report
