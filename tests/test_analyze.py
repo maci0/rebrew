@@ -221,7 +221,7 @@ timeout = 60
         )
         monkeypatch.chdir(root)
         result = CliRunner().invoke(app, ["analyze", "--json"])
-        assert result.exit_code == 1  # error_exit convention
+        assert result.exit_code == 2  # error_exit convention
         assert json.loads(result.stdout)["error"]
 
     def test_standalone_mode_without_project(
@@ -265,7 +265,7 @@ timeout = 60
         """No project + no binary -> a clear error, not a crash."""
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, ["analyze", "--json"])
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         assert "no binary given" in json.loads(result.stdout)["error"]
 
 
@@ -334,7 +334,7 @@ timeout = 60
     def test_output_conflicts_with_json(self, tmp_path: Path, monkeypatch) -> None:
         root = self._project(tmp_path, monkeypatch)
         result = CliRunner().invoke(app, ["analyze", "--json", "--output", str(root / "r.md")])
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         assert "cannot be combined" in result.output
 
 

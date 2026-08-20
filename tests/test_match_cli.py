@@ -36,7 +36,7 @@ class TestMatchCliWatch:
         )
         monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--watch", "--all"])
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         assert "--watch cannot be combined with --all" in result.output
 
     def test_watch_enters_watch_mode_and_retests(
@@ -140,7 +140,7 @@ class TestMatchAllTargets:
         cfg = self._cfg(tmp_path)
         monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--all-targets", "--all"])
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         assert "--all-targets cannot be combined with --all" in result.output
 
     def test_all_targets_watch_errors(
@@ -151,7 +151,7 @@ class TestMatchAllTargets:
         cfg = self._cfg(tmp_path)
         monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--all-targets", "--watch"])
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         assert "--watch cannot be combined with --all-targets" in result.output
 
 
@@ -427,3 +427,52 @@ class TestAllTargetsParallel:
         result = CliRunner().invoke(app, ["--all-targets", "--json"])
         assert result.exit_code == 0
         assert job_args == [4]  # no split needed
+
+
+class TestMatchCliLink:
+    """PRD 04: rebrew match --link threads a linker command into the linked GA."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            metadata_dir=tmp_path,
+            reversed_dir=tmp_path / "src",
+            marker="SERVER",
+            source_ext=".c",
+            default_jobs=2,
+            compile_timeout=30,
+            compiler_profile="gcc-pe",
+            posix_style=True,
+        )
+
+    def test_link_reaches_linked_build_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.match import app
+
+        cfg = self._cfg(tmp_path)
+        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr(
+            "rebrew.match.resolve_build_params",
+            lambda *a, **k: _params(),
+        )
+        captured: dict = {}
+        monkeypatch.setattr(
+            "rebrew.match._run_single_ga",
+            lambda *a, **k: captured.update(args=a, kwargs=k),
+        )
+        result = CliRunner().invoke(
+            app, ["--no-compare-obj", "--link", "link /SUBSYSTEM:WINDOWS", "f.c"]
+        )
+        assert result.exit_code == 0, result.output
+        # The linked build path (compare_obj=False) receives --link by keyword.
+        assert captured["args"][5] is False  # compare_obj=False
+        assert captured["kwargs"]["link"] == "link /SUBSYSTEM:WINDOWS"
+
+    def test_help_exposes_link(self) -> None:
+        from rebrew.match import app
+
+        result = CliRunner().invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "Linker command" in result.output
+        assert "--link" in result.output
+

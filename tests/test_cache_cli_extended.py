@@ -124,8 +124,8 @@ class TestCacheCli:
 
         result = CliRunner().invoke(app, ["clear", "--json"])
 
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         assert json.loads(result.stdout) == {
             "error": "--json cannot prompt for confirmation; pass --force to clear the cache",
-            "code": 1,
+            "code": 2,
         }

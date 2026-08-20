@@ -44,7 +44,7 @@ _JSON_COMMANDS: list[tuple[str, set[int]]] = [
     ),  # 1 = a check fails (e.g. compiler absent in CI); stdout stays pure JSON
     ("cache stats --json", {0}),
     ("cfg show --json", {0}),
-    ("flirt --exe original/mini_pe.exe --json", {1}),  # 1 = no signatures loaded
+    ("flirt --exe original/mini_pe.exe --json", {2}),  # 2 = no signatures loaded
     # Session-era commands — must keep stdout JSON-pure even on error paths.
     ("pdb-info original/mini_pe.exe --json", {2}),  # 2 = no sibling .pdb
     ("analyze --function 0x401000 --json", {0}),
@@ -52,8 +52,8 @@ _JSON_COMMANDS: list[tuple[str, set[int]]] = [
     ("identify-library --dry-run --json", {0}),
     ("discover-functions original/mini_pe.exe --json", {0, 2}),  # 2 = rizin absent
     ("binsync-export bsx --dry-run --json", {0}),
-    ("binsync-import bsx --dry-run --json", {1}),  # 1 = no state dir yet
-    ("binsync-diff bsx --json", {1}),  # 1 = no state dir / diverge yet
+    ("binsync-import bsx --dry-run --json", {2}),  # 2 = no state dir yet
+    ("binsync-diff bsx --json", {2}),  # 2 = no state dir yet
     ("report --json", {0}),
     (f"gen-flirt-pat {FIXTURES}/mini.lib --json", {0}),
     ("document-unmatched --json", {0}),

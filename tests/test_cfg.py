@@ -498,7 +498,7 @@ class TestCLIShow:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["show", "nonexistent.key"])
-        assert result.exit_code == 1
+        assert result.exit_code == 2
 
 
 class TestCLIAddRemoveTarget:
@@ -841,6 +841,35 @@ class TestCLIDetectCrt:
             doc["targets"]["server.dll"]["crt_sources"]["MSVCRT"]
             == "toolchain/msvc/6.0-win32/VC98/CRT/SRC"
         )
+
+    def test_detect_crt_json_empty(self, tmp_path: Path, monkeypatch) -> None:
+        """--json emits a structured empty result when nothing is found."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["detect-crt", "--json"])
+        assert result.exit_code == 0
+        import json as _json
+
+        payload = _json.loads(result.output)
+        assert payload == {"crt_sources": []}
+
+    def test_detect_crt_json_found(self, tmp_path: Path, monkeypatch) -> None:
+        """--json lists detected CRT sources with their configured paths."""
+        _make_project(tmp_path)
+        crt_dir = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "CRT" / "SRC"
+        crt_dir.mkdir(parents=True)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["detect-crt", "--json"])
+        assert result.exit_code == 0
+        import json as _json
+
+        payload = _json.loads(result.output)
+        assert payload["crt_sources"] == [
+            {
+                "origin": "MSVCRT",
+                "path": "toolchain/msvc/6.0-win32/VC98/CRT/SRC",
+            }
+        ]
 
 
 # ---------------------------------------------------------------------------

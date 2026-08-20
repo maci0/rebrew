@@ -198,10 +198,10 @@ class TestCatalogCli:
 
         result = runner.invoke(catalog_cli.app, ["--fix-sizes", "--json"])
 
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         assert json.loads(result.stdout) == {
             "error": "--fix-sizes modifies metadata; pass --force to use it in --json mode",
-            "code": 1,
+            "code": 2,
         }
 
 

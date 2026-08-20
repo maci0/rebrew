@@ -200,7 +200,7 @@ def require_config(
 _err_console = Console(stderr=True)
 
 
-def error_exit(msg: str, *, json_mode: bool = False, code: int = 1) -> NoReturn:
+def error_exit(msg: str, *, json_mode: bool = False, code: int = EXIT_ERROR) -> NoReturn:
     """Print *msg* as an error and ``raise typer.Exit(code)``.
 
     In JSON mode the envelope is ``{"error": <msg>, "code": <exit_code>}`` so
