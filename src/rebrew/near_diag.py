@@ -386,7 +386,7 @@ def _diagnose_one(
     source does not compile — single mode turns that into an error_exit,
     batch mode records it per-function and keeps going.
     """
-    import tempfile
+    import shutil
 
     from rebrew.binary_loader import extract_raw_bytes
     from rebrew.cli import resolve_compile_overrides
@@ -405,7 +405,10 @@ def _diagnose_one(
         getattr(ann, "cflags", ""),
         getattr(ann, "module", ""),
     )
-    with tempfile.TemporaryDirectory(prefix="rebrew_near_diag_") as workdir:
+    from rebrew.utils import writable_temp_dir
+
+    workdir = writable_temp_dir("rebrew_near_diag_")
+    try:
         obj_path, err = compile_to_obj(
             cfg,
             source_path,
@@ -419,6 +422,8 @@ def _diagnose_one(
         compiled_bytes, reloc_dict, full_relocs = parse_obj_symbol_and_relocs(obj_path, symbol)
         if compiled_bytes is None:
             raise _DiagnoseError(f"Symbol '{symbol or '(none)'}' not found in compiled .obj")
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
 
     # Mask ONLY the relocation sites that survive the same DIR32/REL32 address
     # validation as `rebrew test` / `rebrew verify` — an invalid reloc (wrong
