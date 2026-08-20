@@ -317,3 +317,36 @@ class TestDiffFunctionsEdges:
         diff_functions(b"\x55\xc3", b"\x90\xc3", mismatches_only=True)
         out = capsys.readouterr().out
         assert "structural differences only" in out
+
+
+class TestDockerPathForwardsExtraIncludes:
+    def test_build_candidate_obj_only_passes_extra_include_dirs(self, monkeypatch) -> None:
+        """The GA/diff docker path must forward the original source's parent
+        dir so relative #includes resolve in the container (rebrew diff on
+        relative-include functions was COMPILE_ERROR without it)."""
+        from rebrew.matcher.compiler import build_candidate_obj_only
+
+        seen: dict[str, object] = {}
+
+        def _fake_compile_to_obj(cfg, src, cflags, workdir, **kwargs):  # noqa: ARG001
+            seen["extra"] = kwargs.get("extra_include_dirs")
+            (workdir / "cand.obj").write_bytes(b"\x00" * 8)
+            return str(workdir / "cand.obj"), ""
+
+        monkeypatch.setattr("rebrew.compile.compile_to_obj", _fake_compile_to_obj)
+        monkeypatch.setattr(
+            "rebrew.matcher.compiler.parse_obj_symbol_bytes",
+            lambda obj, sym: (b"\x00" * 8, {}),
+        )
+        res = build_candidate_obj_only(
+            "int f(void){return 1;}",
+            "cl.exe",
+            "",
+            "/O2",
+            "_f",
+            profile="msvc6",
+            extra_include_dirs=["/proj/src/server_c"],
+        )
+        assert res.ok is True
+        assert seen.get("extra") == ["/proj/src/server_c"]
+

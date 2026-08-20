@@ -321,6 +321,10 @@ def build_candidate_obj_only(
                 use_cache=cache is not None,
                 cache=cache,
                 obj_name="cand.obj",
+                # The source is compiled from a temp copy; the original
+                # source's parent dir must reach the container for relative
+                # #include resolution (rebrew diff / flag sweep).
+                extra_include_dirs=extra_include_dirs,
             )
             if obj_file is None:
                 return BuildResult(ok=False, error_msg=f"Compile failed: {err}")

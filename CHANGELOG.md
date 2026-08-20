@@ -7,6 +7,14 @@
   host path (`-v <dir>:<dir>`), so relative includes resolve exactly as
   under the old host-wine Z: mapping.
 
+### Fixed
+- **`rebrew diff` / GA flag-sweep on relative-include functions**
+  (COMPILE_ERROR C1083): `build_candidate_obj_only` dropped
+  `extra_include_dirs` on the docker path — the temp source copy lost the
+  original source's parent, so `#include ../..` could not resolve.
+  `compile_to_obj` now accepts `extra_include_dirs` and same-path mounts
+  them into the container (verified: guild-rebrew ServerMainThread diffs).
+
 ### Added
 - **Per-version toolchain detection** (`rebrew toolchain detect`): the
   detector now pins the exact MSVC version from PE metadata — the Rich
