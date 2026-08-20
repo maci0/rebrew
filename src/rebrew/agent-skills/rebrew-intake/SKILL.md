@@ -145,7 +145,7 @@ Common failures and fixes:
 - FLIRT signatures missing → generate from a `.lib` or drop `.sig` files into `flirt_sigs/`:
 
 ```bash
-rebrew gen-flirt-pat toolchain/msvc/6.0-win32/VC98/Lib/msvcrt.lib --output flirt_sigs/msvcrt_vc6.pat
+rebrew gen-flirt-pat toolchain/msvc/6.0-win32/source/VC98/Lib/msvcrt.lib --output flirt_sigs/msvcrt_vc6.pat
 ```
 
 If the target is missing, add it (the binary must already exist, or pass `--force`):
@@ -256,7 +256,7 @@ rebrew skeleton 0x<VA> --xrefs          # with caller context from Ghidra
 decompiler (`--decomp-backend`: `auto`, `r2ghidra`, `r2dec`, `ghidra`; default `auto`).
 
 For library functions identified by FLIRT, check if reference source is available
-(e.g. `toolchain/msvc/6.0-win32/VC98/CRT/SRC/` for MSVCRT, `references/zlib-1.1.3/` for zlib).
+(e.g. `toolchain/msvc/6.0-win32/source/VC98/CRT/SRC/` for MSVCRT, `references/zlib-1.1.3/` for zlib).
 
 ### 9. Sync to Ghidra (Optional)
 

@@ -63,7 +63,7 @@ parses the output with the native NE loader.  Note: 16-bit *matching* is
 implemented in rebrew via the `msvc1.52` profile (DOSBox CL.EXE → OMF
 objects) — but **Delphi's Borland ABI has no matchable rebrew profile**,
 so Delphi functions are documented as blockers and this toolchain is for
-research (compile + NE parse).  See `toolchain/delphi/1.0-win16/README.md` for the
+research (compile + NE parse).  See `toolchain/delphi/1.0-win16/source/README.md` for the
 recipe and the RTM.EXE / non-tmpfs requirements, and the NE section
 below for the analysis-side support matrix.
 
@@ -243,7 +243,7 @@ Notes:
   shared `rebrew.dosbox` runner; produces 16-bit OMF objects.
 - **Borland C++ (bcc32)**: the `turbo-c-v-4.5` CD was fully surveyed —
   its 207 `.PAK` files are **Quantum** archives (extractable with
-  `toolchain/delphi/1.0-win16/pak_extract.py`), the `.CA1`/`.CA2` containers hold an
+  `toolchain/delphi/1.0-win16/source/pak_extract.py`), the `.CA1`/`.CA2` containers hold an
   embedded Quantum stream at offset 5 (`[count u32][DS\0Z …]`; TCW.CA1 =
   the TCW IDE + DLLs), but **the CD carries no compiler binary** (no
   BCC32/BCC/TLINK anywhere — it is the Windows-IDE-only release).  The
@@ -618,13 +618,13 @@ the full compile/compare loop (137 functions on ski16.exe compile through
 DOSBox with 0 COMPILE_ERROR).
 
 **Delphi 1.0 toolchain (vendored, verified working):** for 16-bit *Delphi*
-targets (e.g. `holiday.exe`, a Delphi 1.0 VCL app), `toolchain/delphi/1.0-win16/` now
+targets (e.g. `holiday.exe`, a Delphi 1.0 VCL app), `toolchain/delphi/1.0-win16/source/` now
 ships the exact command-line toolchain — `DCC.EXE` (Delphi Compiler 8.0,
 Sep 1995), `DELPHI.DSL` (compiler symbol table), the `CMDLINE.PAK` tools,
 and the RTL/VCL units (`UNITS.PAK` + `LIB.PAK`).  It compiles real 16-bit
 NE 6.01 GUI executables; the working recipe and the reverse-engineered
-**Quantum archive format** (`toolchain/delphi/1.0-win16/pak_extract.py`) are documented
-in `toolchain/delphi/1.0-win16/README.md`.  Delphi's Borland ABI has no matchable
+**Quantum archive format** (`toolchain/delphi/1.0-win16/source/pak_extract.py`) are documented
+in `toolchain/delphi/1.0-win16/source/README.md`.  Delphi's Borland ABI has no matchable
 rebrew compiler profile — functions are documented as blockers, but the
 toolchain is used for verification-style research (compile + NE parse).
 
@@ -645,7 +645,7 @@ msvc6.0/6.3/6.4/6.5/6.5pp/6.6/7.0 only, no Lib dir):
 | msvc-7.0-win32 | `msvc-7.0-win32.tar.gz` (33 MB) | 13.10.3077 | **VC7 — enables the `msvc7` profile** |
 | msvc4.x/7.1/8.0 | not published | — | document + skip |
 
-Layout notes (differ from the local `toolchain/msvc/6.0-win32/VC98/...`):
+Layout notes (differ from the local `toolchain/msvc/6.0-win32/source/VC98/...`):
 
 - msvc-6.0-sp3-win32/6.6: `Bin/CL.EXE`, `Include/`, **no `Lib/`** (compile-only; link with
   a full toolchain's Lib, e.g. the master's).

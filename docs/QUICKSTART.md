@@ -24,7 +24,7 @@ graph TD
 
 ## Prerequisites
 
-- MSVC6 toolchain at `toolchain/msvc/6.0-win32/VC98/` (already in repo)
+- MSVC6 toolchain at `toolchain/msvc/6.0-win32/source/VC98/` (already in repo)
 - Wine installed and working
 - Python dependencies: `uv sync`
 - Ghidra with ReVa MCP (optional but strongly recommended)

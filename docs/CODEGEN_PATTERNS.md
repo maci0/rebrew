@@ -182,7 +182,7 @@ expressed in C.
 
 | Source | Location | Use for |
 |--------|----------|---------|
-| MSVC6 CRT source | `toolchain/msvc/6.0-win32/VC98/CRT/SRC/` | Heap, I/O, startup functions |
+| MSVC6 CRT source | `toolchain/msvc/6.0-win32/source/VC98/CRT/SRC/` | Heap, I/O, startup functions |
 | CRT source (extended) | github.com/shihyu/learn_c/tree/master/vc_lib_src/src | Missing CRT files |
 | zlib 1.1.3 | `references/zlib-1.1.3/` | All zlib functions |
 
