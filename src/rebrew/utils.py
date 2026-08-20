@@ -157,8 +157,21 @@ _MSVC_LAYOUTS: dict[str, tuple[tuple[str, str, str], ...]] = {
             "toolchain/msvc/5.0-sp3-win32/lib",
         ),
     ),
+    "msvc600sp1": (
+        ("toolchain/msvc/6.0-sp1-win32/VC98/bin/CL.EXE", "toolchain/msvc/6.0-sp1-win32/VC98/include", "toolchain/msvc/6.0-sp1-win32/VC98/lib"),
+    ),
+    "msvc600sp2": (
+        ("toolchain/msvc/6.0-sp2-win32/VC98/bin/CL.EXE", "toolchain/msvc/6.0-sp2-win32/VC98/include", "toolchain/msvc/6.0-sp2-win32/VC98/lib"),
+    ),
     "msvc600sp3": (
         ("toolchain/msvc/6.0-sp3-win32/Bin/CL.EXE", "toolchain/msvc/6.0-sp3-win32/Include", ""),
+    ),
+    "msvc600sp4": (
+        (
+            "toolchain/msvc/6.0-sp4-win32/VC98/bin/CL.EXE",
+            "toolchain/msvc/6.0-sp4-win32/VC98/include",
+            "toolchain/msvc/6.0-sp4-win32/VC98/lib",
+        ),
     ),
     "msvc600sp5": (
         (
@@ -169,6 +182,20 @@ _MSVC_LAYOUTS: dict[str, tuple[tuple[str, str, str], ...]] = {
     ),
     "msvc600sp6": (
         ("toolchain/msvc/6.0-sp6-win32/Bin/CL.EXE", "toolchain/msvc/6.0-sp6-win32/Include", ""),
+    ),
+    "msvc900sp1": (
+        (
+            "toolchain/msvc/9.0-sp1-win32/VC/bin/cl.exe",
+            "toolchain/msvc/9.0-sp1-win32/VC/include",
+            "toolchain/msvc/9.0-sp1-win32/VC/lib",
+        ),
+    ),
+    "msvc1100": (
+        (
+            "toolchain/msvc/11.0-win32/VC/bin/cl.exe",
+            "toolchain/msvc/11.0-win32/VC/include",
+            "toolchain/msvc/11.0-win32/VC/lib",
+        ),
     ),
     "msvc1.52": (
         (

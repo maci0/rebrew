@@ -179,6 +179,43 @@ _SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/5.0-sp3-win32",
     ),
+    "msvc600sp1": ToolchainSource(
+        # archaic-toolchains/msvc600_sp1 — VC 6.0 SP1 (1998).  The full RTM
+        # product tree (archaic-msvc msvc600 + VS6 Enterprise CD1 CRT/debug/
+        # redist) plus the files SP1 is documented to have fixed (strftime.c,
+        # MFC sources) taken in cumulative state from the official SP2 payload
+        # — the standalone SP1 payload (VSE600SP1.EXE) is not preserved in any
+        # public archive.  CL.EXE 12.00.8168 (the RTM..SP3 driver, byte-identical
+        # to the base 6.0 compiler).
+        url="https://codeload.github.com/archaic-toolchains/msvc600_sp1/tar.gz/refs/heads/main",
+        sha256="2c3d1a6d2e7d6248f1bcb5e46a54cd2bea94704df032056abef53828b0b79888",
+        commit="6d9787482473ca46a1e6fb70be020755951eb16a",
+        layout="tar-strip1",
+        host_dir="msvc/6.0-sp1-win32",
+    ),
+    "msvc600sp2": ToolchainSource(
+        # archaic-toolchains/msvc600_sp2 — VC 6.0 SP2 (1999).  The full RTM
+        # tree plus the entire official SP2 payload (crt/src, debug, lib,
+        # mfc/src, mfc/lib from the MSDN Disc 18 VS6SP2 CABs) and the SP2
+        # redistributable runtimes.  SP2 changed no compiler binaries and no
+        # headers — CL.EXE stays 12.00.8168 (byte-identical to the base).
+        url="https://codeload.github.com/archaic-toolchains/msvc600_sp2/tar.gz/refs/heads/main",
+        sha256="088cd189ce0ae3c7ff96a71bb3f364a397b2fe6c19e6a8f252cc575be3783574",
+        commit="79157a87dec5e5ff014178f817f27a70098fd862",
+        layout="tar-strip1",
+        host_dir="msvc/6.0-sp2-win32",
+    ),
+    "msvc600sp4": ToolchainSource(
+        # archaic-toolchains/msvc600_sp4 — VC 6.0 SP4 (2000) full tree with
+        # Bin: the archaic-msvc msvc600_sp4 headers/libs plus the decomp.me
+        # msvc6.4 Bin (CL.EXE 12.00.8804 — the SP4+ driver; sha-verified
+        # byte-identical to the official SP4 CD's cl/c1/c1xx/link/cvtres).
+        url="https://codeload.github.com/archaic-toolchains/msvc600_sp4/tar.gz/refs/heads/main",
+        sha256="7aeb03f65858000bb6988a64cc066a4a2aec9fc591400db400ffe6fc99ae2dbc",
+        commit="0ca69bae9e3ca739c5ce38c8cf39ffc51582080d",
+        layout="tar-strip1",
+        host_dir="msvc/6.0-sp4-win32",
+    ),
     "msvc600sp3": ToolchainSource(
         # OmniBlade decomp.me msvc6.3 — VC 6.0 SP3 (CL.EXE 12.00.8168, the
         # RTM..SP3 build; identical to the flagship msvc6 compiler).  The
@@ -285,6 +322,28 @@ _SOURCES: dict[str, ToolchainSource] = {
         commit="c9d710cef9a3dec08d7d2dca78a3b494335a5baa",
         layout="tar-strip1",
         host_dir="msvc/9.0-win32",
+    ),
+    "msvc900sp1": ToolchainSource(
+        # archaic-toolchains/msvc900_sp1 — VC 9.0 SP1 (2008): the msvc900 base
+        # plus the 15.00.30729.01 compiler (cl/c1/c1xx/c2/link/mspdb80,
+        # Professional-edition series) and 122 SP1 headers/libs, extracted
+        # from the official VS2008 SP1 DVD (VS90sp1-KB945140-X86-ENU.msp).
+        # Closes the "VC 2008 SP1 compiler has no public tarball" gap.
+        url="https://codeload.github.com/archaic-toolchains/msvc900_sp1/tar.gz/refs/heads/main",
+        sha256="33a66c779da39ab40518f24b75656f1f93cb1837a3d65a9b79188f41c2f2bd97",
+        commit="cebb3c9740c92de36937a401a3a3141358c8ac29",
+        layout="tar-strip1",
+        host_dir="msvc/9.0-sp1-win32",
+    ),
+    "msvc1100": ToolchainSource(
+        # archaic-msvc/msvc1100 — VC 11.0 / VS 2012 (cl.exe 17.00.50522.1).
+        # VC/bin + Windows Kits + a wine/ runner dir; the newest compiler the
+        # archaic-msvc org carries.
+        url="https://codeload.github.com/archaic-msvc/msvc1100/tar.gz/refs/heads/master",
+        sha256="adba1882eb076cb774b7a5d0f2b1067544da7cd2f0bf0b12f284361516cbc825",
+        commit="89087a636aea5e6f9450ee7e840ea71e08740ee1",
+        layout="tar-strip1",
+        host_dir="msvc/11.0-win32",
     ),
     "msvc1000": ToolchainSource(
         # archaic-msvc/msvc1000 — VC 10.0 (2010; cl.exe 16.00.30319).  VC/bin.
@@ -552,6 +611,45 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="Bin",
         description="MSVC 6.0 SP3 (32-bit PE, C89) — docker image (wine inside)",
     ),
+    "msvc600sp1": ToolchainSpec(
+        name="msvc600sp1",
+        image="rebrew/msvc:6.0-sp1-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/6.0-sp1-win32")
+        if _vendored("msvc/6.0-sp1-win32").exists()
+        else None,
+        host_bin="Bin",
+        description="MSVC 6.0 SP1 (32-bit PE, C89) — docker image (wine inside)",
+    ),
+    "msvc600sp2": ToolchainSpec(
+        name="msvc600sp2",
+        image="rebrew/msvc:6.0-sp2-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/6.0-sp2-win32")
+        if _vendored("msvc/6.0-sp2-win32").exists()
+        else None,
+        host_bin="Bin",
+        description="MSVC 6.0 SP2 (32-bit PE, C89) — docker image (wine inside)",
+    ),
+    "msvc600sp4": ToolchainSpec(
+        name="msvc600sp4",
+        image="rebrew/msvc:6.0-sp4-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/6.0-sp4-win32")
+        if _vendored("msvc/6.0-sp4-win32").exists()
+        else None,
+        host_bin="Bin",
+        description="MSVC 6.0 SP4 (32-bit PE, C89) — docker image (wine inside)",
+    ),
     "msvc600sp5": ToolchainSpec(
         name="msvc600sp5",
         image="rebrew/msvc:6.0-sp5-win32",
@@ -673,6 +771,32 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_path=_vendored("msvc/9.0-win32") if _vendored("msvc/9.0-win32").exists() else None,
         host_bin="bin",
         description="MSVC 9.0 (32-bit PE, C89, 15.00.21022) — docker image (wine inside)",
+    ),
+    "msvc900sp1": ToolchainSpec(
+        name="msvc900sp1",
+        image="rebrew/msvc:9.0-sp1-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/9.0-sp1-win32")
+        if _vendored("msvc/9.0-sp1-win32").exists()
+        else None,
+        host_bin="bin",
+        description="MSVC 9.0 SP1 (32-bit PE, C89, 15.00.30729) — docker image (wine inside)",
+    ),
+    "msvc1100": ToolchainSpec(
+        name="msvc1100",
+        image="rebrew/msvc:11.0-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        host_path=_vendored("msvc/11.0-win32")
+        if _vendored("msvc/11.0-win32").exists()
+        else None,
+        host_bin="bin",
+        description="MSVC 11.0 (32-bit PE, C++, 17.00.50522) — docker image (wine inside)",
     ),
     "msvc1000": ToolchainSpec(
         name="msvc1000",

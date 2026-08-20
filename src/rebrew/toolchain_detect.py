@@ -135,6 +135,9 @@ _MSVC_VERSION_HINTS = {
     "13.10": "MSVC 7.1",
     "13.00": "MSVC 7.0",
     "14.00": "MSVC 8.0",
+    "15.00": "MSVC 9.0",
+    "16.00": "MSVC 10.0",
+    "17.00": "MSVC 11.0",
 }
 
 #: PE optional-header linker version ("major.minor") -> MSVC compiler
@@ -161,6 +164,7 @@ _MSVC_LINKER_VERSIONS: dict[str, tuple[int, int]] = {
     "8.0": (14, 0),  # VC 8.0 (2005)
     "9.0": (15, 0),  # VC 9.0 (2008)
     "10.0": (16, 0),  # VC 10.0 (2010)
+    "11.0": (17, 0),  # VC 11.0 (2012)
 }
 
 
@@ -172,9 +176,9 @@ _MSVC_LINKER_VERSIONS: dict[str, tuple[int, int]] = {
 #: the same build; the linker version further narrows it
 #: (13.10.3077 -> msvc7 vs msvc710).
 _RICH_BUILD_PROFILES: dict[int, tuple[str, ...]] = {
-    8168: ("msvc6",),  # 12.00.8168 (VC6 RTM)
+    8168: ("msvc6", "msvc600sp1", "msvc600sp2"),  # 12.00.8168 (VC6 RTM..SP3 driver)
     8447: ("msvc600sp3",),  # 12.00.8447
-    8966: ("msvc600sp5",),  # 12.00.8966
+    8966: ("msvc600sp4", "msvc600sp5"),  # 12.00.8966 (SP4 = SP5 C1)
     9782: ("msvc600sp6",),  # 12.00.9782
     9466: ("msvc700", "msvc700sp1"),  # 13.00.9466
     9955: ("msvc700sp1",),  # 13.00.9955 (7.0 SP1 C1)
@@ -182,8 +186,10 @@ _RICH_BUILD_PROFILES: dict[int, tuple[str, ...]] = {
     6030: ("msvc710sp1",),  # 13.10.6030
     50727: ("msvc800", "msvc800sp1"),  # 14.00.50727 (+.762 for SP1)
     21022: ("msvc900",),  # 15.00.21022
+    30729: ("msvc900sp1",),  # 15.00.30729 (VC9 SP1 — the compiler the msvc900 repo lacks)
     30319: ("msvc1000",),  # 16.00.30319
     40219: ("msvc1000sp1",),  # 16.00.40219
+    50522: ("msvc1100",),  # 17.00.50522 (VC11 / VS 2012)
 }
 
 
@@ -198,12 +204,13 @@ _LINKER_ERA_PROFILES: dict[tuple[int, int], tuple[str, ...]] = {
     (10, 10): ("msvc410",),
     (10, 20): ("msvc420",),
     (11, 0): ("msvc5", "msvc500sp1", "msvc500sp2", "msvc500sp3"),
-    (12, 0): ("msvc6", "msvc600sp3", "msvc600sp5", "msvc600sp6"),
+    (12, 0): ("msvc6", "msvc600sp1", "msvc600sp2", "msvc600sp3", "msvc600sp4", "msvc600sp5", "msvc600sp6"),
     (13, 0): ("msvc700", "msvc700sp1"),
     (13, 10): ("msvc7", "msvc710", "msvc710sp1"),
     (14, 0): ("msvc800", "msvc800sp1"),
-    (15, 0): ("msvc900",),
+    (15, 0): ("msvc900", "msvc900sp1"),
     (16, 0): ("msvc1000", "msvc1000sp1"),
+    (17, 0): ("msvc1100",),
 }
 
 #: CRT import names -> MSVC version binder (msvcp60.dll = VC 6.0, etc.).
@@ -1202,7 +1209,10 @@ _PROFILE_COMPAT: dict[str, set[str] | None] = {
         "msvc6",
         "msvc6.3",
         "msvc6.6",
+        "msvc600sp1",
+        "msvc600sp2",
         "msvc600sp3",
+        "msvc600sp4",
         "msvc600sp5",
         "msvc600sp6",
         "msvc7",
@@ -1213,8 +1223,10 @@ _PROFILE_COMPAT: dict[str, set[str] | None] = {
         "msvc800",
         "msvc800sp1",
         "msvc900",
+        "msvc900sp1",
         "msvc1000",
         "msvc1000sp1",
+        "msvc1100",
         "msvc1.52",
         "msvc15",
         "msvc10",

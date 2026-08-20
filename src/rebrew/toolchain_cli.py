@@ -285,6 +285,9 @@ _COMPAT_LINK_ALIASES: dict[str, str] = {
     "msvc-5.0-sp1-win32": "msvc/5.0-sp1-win32",
     "msvc-5.0-sp2-win32": "msvc/5.0-sp2-win32",
     "msvc-5.0-sp3-win32": "msvc/5.0-sp3-win32",
+    "msvc-6.0-sp1-win32": "msvc/6.0-sp1-win32",
+    "msvc-6.0-sp2-win32": "msvc/6.0-sp2-win32",
+    "msvc-6.0-sp4-win32": "msvc/6.0-sp4-win32",
     "msvc-6.0-sp5-win32": "msvc/6.0-sp5-win32",
     "MSVC7RTM": "msvc/7.0-rtm-win32",
     "msvc-7.0-rtm-win32": "msvc/7.0-rtm-win32",
@@ -294,7 +297,9 @@ _COMPAT_LINK_ALIASES: dict[str, str] = {
     "msvc-8.0-win32": "msvc/8.0-win32",
     "msvc-8.0-sp1-win32": "msvc/8.0-sp1-win32",
     "msvc-9.0-win32": "msvc/9.0-win32",
+    "msvc-9.0-sp1-win32": "msvc/9.0-sp1-win32",
     "msvc-10.0-win32": "msvc/10.0-win32",
+    "msvc-11.0-win32": "msvc/11.0-win32",
     "msvc-10.0-sp1-win32": "msvc/10.0-sp1-win32",
     "MSVC15": "msvc/1.5-win16",
     "msvc-1.5-win16": "msvc/1.5-win16",
@@ -579,6 +584,20 @@ _SMOKE_GOLDEN: dict[
         "t.c",
         (4, 8),
     ),
+    "msvc600sp1": (
+        ["/c", "t.c"],
+        "t.obj",
+        "4b50f0dbba945a5bc80f9e40ed05bcfb06505fff2204a4b567192c7e5fb1e224",
+        "t.c",
+        (4, 8),
+    ),  # COFF TimeDateStamp — identical masked object to msvc6 (same CL+C1)
+    "msvc600sp2": (
+        ["/c", "t.c"],
+        "t.obj",
+        "4b50f0dbba945a5bc80f9e40ed05bcfb06505fff2204a4b567192c7e5fb1e224",
+        "t.c",
+        (4, 8),
+    ),
     "msvc600sp3": (
         ["/c", "t.c"],
         "t.obj",
@@ -586,6 +605,13 @@ _SMOKE_GOLDEN: dict[
         "t.c",
         (4, 8),
     ),  # COFF TimeDateStamp — comp.id differs from msvc6 (SP3 passes)
+    "msvc600sp4": (
+        ["/c", "t.c"],
+        "t.obj",
+        "e9427fee0356ef5f8f569e2450a75b753e5fc28070b5d31916516992bbb20687",
+        "t.c",
+        (4, 8),
+    ),  # COFF TimeDateStamp — same C1 as sp5 but distinct comp.id (image path)
     "msvc600sp5": (
         ["/c", "t.c"],
         "t.obj",
@@ -649,6 +675,20 @@ _SMOKE_GOLDEN: dict[
         "t.c",
         (4, 8),
     ),
+    "msvc900sp1": (
+        ["/c", "t.c"],
+        "t.obj",
+        "c11006fdd4ae42814472be29f400b8147bd3d42e4f976de9248727bb7459b8d8",
+        "t.c",
+        (4, 8),
+    ),  # COFF TimeDateStamp — 15.00.30729 SP1 compiler
+    "msvc1100": (
+        ["/c", "t.c"],
+        "t.obj",
+        "90f064ea1bd8f8b76e7df38a8d3bfc0905b68f9b523d219e575bf3bda9e20bd5",
+        "t.c",
+        (4, 8),
+    ),  # COFF TimeDateStamp — 17.00.50522 VS2012 compiler
     "msvc900": (
         ["/c", "t.c"],
         "t.obj",
