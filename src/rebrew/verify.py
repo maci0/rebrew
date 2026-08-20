@@ -171,6 +171,19 @@ def verify_entry(
                 result.diff_lines = int(d["summary"]["structural"])
         except Exception:  # noqa: BLE001 — diff_lines is best-effort
             result.diff_lines = None
+    # Structural code-similarity score (0–100), computed for EVERY verified
+    # function with compiled bytes — matched (short-circuit ~100) and
+    # unmatched alike — so the recoverage-consumed verify_results.similarity
+    # column carries a per-function value.  Reuses the optional `resembl`
+    # scoring core; best-effort like diff_lines (a missing extra or a scoring
+    # failure leaves it None rather than failing the run).
+    if result.obj_bytes:
+        try:
+            from rebrew.matcher.scoring import code_similarity
+
+            result.similarity = code_similarity(target_bytes, result.obj_bytes)
+        except Exception:  # noqa: BLE001 — similarity is best-effort
+            result.similarity = None
     return result
 
 
@@ -431,6 +444,7 @@ class VerifyResult:
     match_percent: float | None = None
     passed: bool = False
     message: str = ""
+    similarity: float | None = None
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "VerifyResult":
@@ -446,6 +460,7 @@ class VerifyResult:
             match_percent=d.get("match_percent"),
             passed=bool(d.get("passed", False)),
             message=str(d.get("message", "")),
+            similarity=d.get("similarity"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -751,6 +766,7 @@ def _save_verify_cache(
             "match_percent": result.get("match_percent", None),
             "passed": result.get("passed", False),
             "message": result.get("message", ""),
+            "similarity": result.get("similarity", None),
         }
         # Overlaid PROVEN entries store their pre-overlay byte result so a
         # later metadata STATUS demotion is not masked by a stale cache hit.
@@ -1654,6 +1670,7 @@ def run_verification(
                             "match_percent": result.match_percent,
                             "delta": result.delta,
                             "diff_lines": result.diff_lines,
+                            "similarity": result.similarity,
                         }
                     )
 
@@ -1804,6 +1821,7 @@ def _print_results(
         table.add_column("Status", style="bold")
         table.add_column("Match %", justify="right")
         table.add_column("Delta", justify="right")
+        table.add_column("Sim %", justify="right")
 
         for r in results:
             st = r["status"]
@@ -1812,7 +1830,9 @@ def _print_results(
 
             pct = f"{r['match_percent']:.1f}%" if st in ("STUB", "NEAR_MATCHING") else "-"
             dt = f"{r.get('delta', 0)}B" if st in ("STUB", "NEAR_MATCHING") else "-"
-            table.add_row(r["va"], r["name"], f"{r['size']}B", st_str, pct, dt)
+            sim = r.get("similarity")
+            sim_str = f"{sim:.1f}%" if isinstance(sim, (int, float)) else "-"
+            table.add_row(r["va"], r["name"], f"{r['size']}B", st_str, pct, dt, sim_str)
 
         console.print(table)
 
@@ -1856,8 +1876,10 @@ def _print_results(
             fp_suffix = f" [dim]({fp}:{ln})[/]" if fp and ln else f" [dim]({fp})[/]" if fp else ""
             if st in ("STUB", "NEAR_MATCHING"):
                 match_pct = float(res_dict.get("match_percent", 0.0)) if res_dict else 0.0
+                sim = res_dict.get("similarity") if res_dict else None
+                sim_str = f" / sim {sim:.1f}" if isinstance(sim, (int, float)) else ""
                 console.print(
-                    rf"  [red bold]\[{match_pct:.1f}%][/] 0x{entry.va:08X} {entry.name}{fp_suffix}: {msg}"
+                    rf"  [red bold]\[{match_pct:.1f}%{sim_str}][/] 0x{entry.va:08X} {entry.name}{fp_suffix}: {msg}"
                 )
             elif st in (
                 "COMPILE_ERROR",

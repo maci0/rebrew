@@ -46,6 +46,14 @@ prove = [
     "claripy",  # direct import in prove.py / doctor.py (angr hard-depends on it, but the extra must declare its own imports)
     "gitpython>=3.1.58",  # angr→gitpython transitively; 3.1.58 fixes the RCE-class advisories
 ]
+# Optional code-similarity scoring (rebrew verify "Sim %"): the similarity
+# score reuses the sibling `resembl` project's dependency-light scoring core
+# (resembl/scoring.py — importable without its sqlmodel/sqlalchemy DB stack).
+# resembl pulls pygments/rapidfuzz/datasketch/numpy transitively.  Plain
+# `uv pip install -e .` keeps working (the column stays NULL); install this
+# extra to enable the score.  Path is environment-coupled to the sibling
+# checkout (same parent dir layout on this machine).
+similarity = ["resembl @ file:///home/maci/Desktop/Projects/relumea/resembl"]
 
 [project.scripts]
 rebrew = "rebrew.main:main"

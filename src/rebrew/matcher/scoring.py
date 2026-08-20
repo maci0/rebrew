@@ -726,3 +726,78 @@ def structural_similarity(
         structural_ratio=round(structural_ratio, 4),
         flag_sensitive=flag_sensitive,
     )
+
+
+def _nasm_text(code: bytes, md: capstone.Cs) -> str:
+    """Render *code* as NASM-ish assembly text, one instruction per line.
+
+    Resembl's scoring core tokenizes *assembly text* (via a Pygments NASM
+    lexer), so rebrew's byte buffers are rendered to text before scoring.
+    Each capstone instruction becomes ``<mnemonic> <op_str>`` on its own
+    line — the operand grammar capstone emits is close enough to NASM for
+    the lexer to classify registers/immediates/labels correctly.
+    """
+    lines: list[str] = []
+    for insn in md.disasm(code, 0):
+        op = insn.op_str
+        lines.append(f"{insn.mnemonic} {op}".rstrip())
+    return "\n".join(lines)
+
+
+def code_similarity(
+    target_bytes: bytes,
+    candidate_bytes: bytes,
+    cs_arch: int = _DEFAULT_CS_ARCH,
+    cs_mode: int = _DEFAULT_CS_MODE,
+) -> float:
+    """Structural similarity (0–100) between two function byte buffers.
+
+    Delegates to the ``resembl`` scoring core: both buffers are disassembled
+    and rendered to assembly text, whose tokens are normalized (registers →
+    ``REG``, immediates → ``IMM``, memory sizes → ``MEM_SIZE``), shingled,
+    and compared as a hybrid of weighted Jaccard (over shingles) and a
+    text-level ratio — exactly this project's customary
+    ``score_hybrid(jaccard, ratio)`` blend.  The result is robust to register
+    allocation and immediate-value differences that raw byte comparison (and
+    ``match_percent``) are blind to.
+
+    100.0 means the normalized structure is identical.  Returns
+    ``None``-eligible via the caller only if the lazier path is unavailable:
+    this function returns a plain float and is ``try/except``-wrapped by
+    callers for best-effort use (import of ``resembl`` is optional).
+
+    Raises ``RuntimeError`` when the optional ``resembl`` dependency is not
+    installed (guarded import, mirroring ``prove.py``'s optional ``angr``).
+    """
+    if target_bytes == candidate_bytes:
+        return 100.0
+    try:
+        # Lazy import: the heavy_db surface of resembl stays unloaded unless
+        # this scoring path actually runs, so plain rebrew uses (and tests
+        # that don't exercise similarity) never pay for it.
+        from rapidfuzz import fuzz
+        from resembl.scoring import (
+            _minhash_from_tokens,
+            code_tokenize,
+            minhash_jaccard,
+            minhash_pack,
+            score_hybrid,
+        )
+    except ImportError as exc:
+        raise RuntimeError(
+            "code_similarity requires the optional 'resembl' dependency "
+            "(uv pip install -e .[similarity])"
+        ) from exc
+
+    md = _get_cs(cs_arch, cs_mode)
+    text_a = _nasm_text(target_bytes, md)
+    text_b = _nasm_text(candidate_bytes, md)
+    if not text_a or not text_b:
+        # One side has no instructions (empty/undecodable) — nothing to
+        # compare structurally beyond the byte-equality fast path above.
+        return 0.0 if text_a or text_b else 100.0
+    ma = _minhash_from_tokens(code_tokenize(text_a))
+    mb = _minhash_from_tokens(code_tokenize(text_b))
+    jaccard = minhash_jaccard(minhash_pack(ma), minhash_pack(mb))
+    ratio = float(fuzz.ratio(text_a, text_b))
+    return float(round(score_hybrid(float(jaccard), ratio, 0.4), 1))

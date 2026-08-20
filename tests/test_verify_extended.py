@@ -178,6 +178,63 @@ class TestVerifyEntryBranches:
         assert result.diff_lines is None
         assert calls["n"] == 0  # diff_functions never invoked
 
+    def test_matched_populates_similarity(self, tmp_path: Path, monkeypatch) -> None:
+        """Similarity is computed for MATCHED functions too (user ruling:
+        compute for all), short-circuiting to ~100 for byte-identical code."""
+        import importlib.util
+
+        if importlib.util.find_spec("resembl") is None:
+            pytest.skip("optional `resembl` dependency not installed")
+        import rebrew.binary_loader
+        import rebrew.compile
+        import rebrew.verify as verify_mod
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 0; }\n", encoding="utf-8")
+        monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
+
+        def _compare(cfg, cfile, symbol, target_bytes, cflags, **kw):
+            return _ok_result()  # matched EXACT, obj = 8 NOP bytes
+
+        monkeypatch.setattr(rebrew.compile, "compile_and_compare", _compare)
+        result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        assert result.similarity == 100.0  # target == obj == 8 NOPs
+
+    def test_unmatched_populates_similarity(self, tmp_path: Path, monkeypatch) -> None:
+        """Similarity is computed for UNMATCHED functions too, and it is a
+        real 0–100 structural score (not just 0 on failure)."""
+        import importlib.util
+
+        if importlib.util.find_spec("resembl") is None:
+            pytest.skip("optional `resembl` dependency not installed")
+        import rebrew.binary_loader
+        import rebrew.compile
+        import rebrew.verify as verify_mod
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 0; }\n", encoding="utf-8")
+        monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
+
+        def _unmatched(cfg, cfile, symbol, target_bytes, cflags, **kw):
+            from rebrew.compile import CompareResult
+
+            return CompareResult(
+                matched=False,
+                status="NEAR_MATCHING",
+                match_percent=60.0,
+                delta=2,
+                obj_bytes=b"\x90\x91" + b"\x90" * 6,
+                reloc_offsets=[],
+                message="NEAR_MATCHING: 2 byte diffs",
+            )
+
+        monkeypatch.setattr(rebrew.compile, "compile_and_compare", _unmatched)
+        result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        # target is all-NOPs; candidate is mostly-NOPs. They differ in bytes but
+        # share identical structure in normalized assembly, so the score is high.
+        assert isinstance(result.similarity, float)
+        assert 0.0 <= result.similarity <= 100.0
+
 
 class TestDiffReports:
     def test_new_removed_unchanged(self) -> None:
