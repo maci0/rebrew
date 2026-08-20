@@ -13,7 +13,7 @@ Usage:
 
 import hashlib
 import logging
-import tempfile
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -888,7 +888,10 @@ def _test_multi(
     # a CI script must not read them as "fix your code" (exit 1).
     any_extract_error = False
 
-    with tempfile.TemporaryDirectory(prefix="test_multi_") as workdir:
+    from rebrew.utils import writable_temp_dir
+
+    workdir = writable_temp_dir("test_multi_")
+    try:
         objs: dict[str, Any] = {}
         for cf in {_effective_cflags(a) for a in annotations}:
             # Distinct obj name per cflags group — compile_to_obj derives the
@@ -1157,6 +1160,8 @@ def _test_multi(
 
         if json_output:
             json_print({"source": source, "results": results_list})
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
 
     if not dry_run:
         # Honor the documented exit-code contract (help: "0 EXACT or RELOC

@@ -25,8 +25,8 @@ from __future__ import annotations
 
 import hashlib
 import re
+import shutil
 import struct
-import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -457,8 +457,10 @@ def _run_round_trip(
     spliced_vas: set[str] = set()
     spliced_actual_bytes = 0
     extra_string_syms: dict[str, int] = {}
-    with tempfile.TemporaryDirectory(prefix="rebrew-rt-") as td:
-        work_dir = Path(td)
+    from rebrew.utils import writable_temp_dir
+
+    work_dir = writable_temp_dir("rebrew-rt-")
+    try:
         for fn in splice_set:
             text, relocs, str_syms, local_labels, ok, detail = _compile_and_extract(
                 cfg, fn, work_dir
@@ -570,6 +572,8 @@ def _run_round_trip(
             reasm[offset : offset + trimmed_size] = patched[:trimmed_size]
             spliced_vas.add(f"0x{fn.va:08x}")
             spliced_actual_bytes += trimmed_size
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
 
     # --fix-headers: patch the reasm PE header (linker/OS/subsystem versions,
     # TSAWARE, stack/heap, timestamp, checksum) so the byte-identical goal is
