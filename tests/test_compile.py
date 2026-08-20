@@ -79,14 +79,14 @@ class TestResolveClCommand:
         result = resolve_cl_command(cfg)
         assert result == ["/usr/bin/cl"]
 
-    def test_empty_command_fallback(self, tmp_path: Path) -> None:
-        """Empty compiler_command falls back to CL.EXE."""
+    def test_empty_command_returns_empty(self, tmp_path: Path) -> None:
+        """Docker-only configs have an empty compiler_command (the image is
+        the compiler) — nothing to resolve, no phantom CL.EXE path."""
         cfg = ProjectConfig(
             root=tmp_path,
             compiler_command="",
         )
-        result = resolve_cl_command(cfg)
-        assert result == [str(tmp_path / "CL.EXE")]
+        assert resolve_cl_command(cfg) == []
 
     def test_quoted_wine_path(self, tmp_path: Path) -> None:
         """Quoted path with spaces is handled by shlex.split."""

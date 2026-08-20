@@ -400,6 +400,10 @@ def resolve_cl_command(cfg: ProjectConfig) -> list[str]:
 
     """
     cmd_parts = safe_shlex_split(cfg.compiler_command)
+    if not cmd_parts:
+        # Docker-only configs (empty host command; the image is the
+        # compiler) — nothing to resolve.
+        return []
 
     runner = str(getattr(cfg, "compiler_runner", "")).strip()
     if runner and cmd_parts and cmd_parts[0].lower() == runner.lower() and len(cmd_parts) > 1:
