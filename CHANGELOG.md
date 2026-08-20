@@ -1,5 +1,24 @@
-## [0.3.0] - 2026-08-21
+## [0.4.0] - 2026-08-21
 ### Changed
+- **Docs/housekeeping release — no user-facing code changes.**  The audit
+  work below is recorded with per-item references in the dated
+  `docs/GOAL_PROGRESS.md` entries (2026-08-21).
+- **Gap-inventory re-audit**: all 35 gaps in `docs/prd/00-source-gap-report.md`
+  and the GOAL_PROGRESS open list verified fixed against current code; a
+  fresh per-module review sweep (all 44 CLI commands `--help`, JSON error
+  paths, error patterns, idempotency contract, adversarially probed
+  `canonicalize_cflags`) found no new defects.
+- **Stale docs corrected**: `docs/IDEAS.md` — shipped ideas #23 (LLM seed),
+  #24 (ghidra-cli backend), #25 (prove memory watch) moved from "Open
+  Ideas" to Completed; JSON-purity contract 16 → 17 commands.
+  `matcher/AGENTS.md` + `docs/GA_MUTATIONS.md` — mutation operator count
+  121 → 114.  `AGENTS.md` — test count ~3460 → ~4620.
+- **Format normalization**: 8 files reflowed by `ruff format` (mechanical;
+  no behavior change).
+### Fixed
+- **Stale "Open Ideas" in `docs/IDEAS.md`** — three shipped features were
+  still listed as open, which misled readers hunting for work items.
+
 - **Compile-cache key v5: per-source header dependencies instead of
   whole-directory fingerprints** (`compile_cache.py`).  The key now resolves
   each translation unit's transitive `#include` closure against the source
