@@ -81,6 +81,7 @@ METADATA_KEYS: frozenset[str] = frozenset(
         "SIZE",
         "ANALYSIS",
         "PROVE_CONSTRAINTS",
+        "TOOLCHAIN",
     }
 )
 ALL_KNOWN_KEYS = OPTIONAL_KEYS | METADATA_KEYS | {"MARKER", "VA"}
@@ -336,6 +337,7 @@ class Annotation:
     module: str = ""
     status: str = ""
     cflags: str = ""
+    toolchain: str = ""  # per-function toolchain override (e.g. "msvc5")
     marker_type: str = ""
     filepath: str = ""
     source: str = ""
@@ -754,6 +756,7 @@ def _kv_to_annotation(
         module=module,
         status=kv.get("STATUS", "STUB"),
         cflags=kv.get("CFLAGS", ""),
+        toolchain=kv.get("TOOLCHAIN", ""),
         marker_type=marker_type,
         filepath="",
         source=kv.get("SOURCE", ""),
@@ -1142,6 +1145,8 @@ def parse_source_metadata(
         meta["SIZE"] = str(anno.size)
     if anno.cflags:
         meta["CFLAGS"] = anno.cflags
+    if anno.toolchain:
+        meta["TOOLCHAIN"] = anno.toolchain
     # SYMBOL is derived from function name — don't emit as annotation
     if anno.blocker:
         meta["BLOCKER"] = anno.blocker
@@ -1363,6 +1368,7 @@ def parse_library_header(
                     module=module,
                     status=kv.get("STATUS", "EXACT"),
                     cflags=kv.get("CFLAGS", ""),
+                    toolchain=kv.get("TOOLCHAIN", ""),
                     marker_type="LIBRARY",
                     filepath=filepath.name,
                     source=kv.get("SOURCE", ""),

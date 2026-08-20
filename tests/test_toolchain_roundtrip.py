@@ -1,20 +1,18 @@
-"""Round-trip integration tests for the decomp.me MSVC toolchains.
+"""Round-trip integration tests for the rebrew docker toolchain images.
 
-Each test compiles a snippet with one of the vendored decomp.me toolchains
-(msvc-6.0-sp3-win32, msvc-6.0-sp6-win32, msvc-7.0-win32 under tools/), extracts the function bytes from
-the produced COFF object, and re-runs the compile+compare pipeline — the
+Each test compiles a snippet with one of the docker toolchain images
+(rebrew/msvc:<ver>-win32 — the byte-identical containerization of the
+archaic-msvc / decomp.me sources), extracts the function bytes from the
+produced COFF object, and re-runs the compile+compare pipeline — the
 profile is proven when the result classifies EXACT (compile → parse →
 byte-compare all agree).
 
-These tests SKIP when neither wine nor wibo (or the toolchain tarballs) is
-present — they are gitignored; fetch from the OmniBlade decomp.me release
-mirror (see docs/TOOLCHAIN.md).  wibo is preferred when available (headless,
-~14x faster than wine for these compiles); CI installs it best-effort.
+These tests SKIP when docker is unavailable or the image is not built
+locally (run `rebrew toolchain build <name>` first).
 """
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -23,7 +21,6 @@ import pytest
 from rebrew.compile import _extract_and_compare, compile_to_obj
 
 _REPO = Path(__file__).resolve().parents[1]
-_TOOLS = _REPO / "tools"
 
 SNIPPET = """
 int f(int n)
@@ -36,76 +33,42 @@ int f(int n)
 """
 
 
-def _find_wibo() -> Path | None:
-    """wibo binary for the repo (PATH or tools/wibo), if any."""
-    from rebrew.wibo import find_wibo
-
-    return find_wibo(_REPO)
+#: Legacy vendored toolchain dir -> rebrew profile (docker image).
+_TOOLCHAIN_PROFILES = {
+    "msvc6.3": "msvc600sp3",
+    "msvc6.6": "msvc600sp6",
+    "msvc-7.0-win32": "msvc7",
+    "msvc-4.2-win32": "msvc420",
+    "msvc-5.0-win32": "msvc5",
+    "msvc-4.0-win32": "msvc400",
+}
 
 
 def _cfg(root: Path, toolchain: str) -> SimpleNamespace:
-    """Build a compile config for a vendored toolchain, tolerating the
-    decomp.me (msvc-6.0-sp3-win32/6.6/7.0, lowercase, Bin) and archaic-msvc
-    (msvc-4.2-win32/msvc-5.0-win32, lowercase bin; msvc-4.0-win32,
-    all-caps BIN/INCLUDE) layouts."""
-    candidates = [
-        ("Bin", "CL.EXE"),
-        ("Bin", "cl.exe"),
-        ("bin", "CL.EXE"),
-        ("bin", "cl.exe"),
-        ("BIN", "CL.EXE"),
-        ("BIN", "cl.exe"),
-    ]
-    cl = next(
-        (
-            _TOOLS / toolchain / d / n
-            for d, n in candidates
-            if (_TOOLS / toolchain / d / n).exists()
-        ),
-        _TOOLS / toolchain / "Bin" / "CL.EXE",
-    )
-    inc = next(
-        (
-            _TOOLS / toolchain / d
-            for d in ("Include", "include", "INCLUDE")
-            if (_TOOLS / toolchain / d).is_dir()
-        ),
-        _TOOLS / toolchain / "Include",
-    )
-    # Prefer wibo (the recommended runner — headless, no wine boot) when it
-    # is around; fall back to wine.  wibo executes CL.EXE directly, so the
-    # command has no runner prefix.
-    wibo = _find_wibo()
-    if wibo is not None:
-        compiler_command = str(cl)
-        compiler_runner = str(wibo)
-    else:
-        compiler_command = f"wine {cl}"
-        compiler_runner = "wine"
+    """Build a compile config that routes through the toolchain's docker
+    image (execution is docker-only; the vendored tree is never exec'd)."""
+    profile = _TOOLCHAIN_PROFILES.get(toolchain, "msvc6")
     return SimpleNamespace(
         root=root,
-        compiler_command=compiler_command,
-        compiler_runner=compiler_runner,
-        compiler_includes=inc,
+        compiler_command="",
+        compiler_runner="",
+        compiler_includes=root,
         compiler_libs=Path(""),
-        compiler_profile="msvc6",
+        compiler_profile=profile,
         base_cflags="/nologo /c /MT",
-        compile_timeout=90,
+        compile_timeout=180,
         msvc_env=lambda: {},
+        posix_style=False,
     )
 
 
 def _toolchain_available(toolchain: str) -> bool:
-    candidates = [
-        _TOOLS / toolchain / "Bin" / "CL.EXE",
-        _TOOLS / toolchain / "bin" / "CL.EXE",
-        _TOOLS / toolchain / "Bin" / "cl.exe",
-        _TOOLS / toolchain / "bin" / "cl.exe",
-        _TOOLS / toolchain / "BIN" / "CL.EXE",
-        _TOOLS / toolchain / "BIN" / "cl.exe",
-    ]
-    runner_ok = shutil.which("wine") is not None or _find_wibo() is not None
-    return any(c.exists() for c in candidates) and runner_ok
+    """True when the toolchain's docker image is built locally."""
+    from rebrew.toolchain import TOOLCHAINS, _image_present
+
+    profile = _TOOLCHAIN_PROFILES.get(toolchain, "msvc6")
+    spec = TOOLCHAINS[profile]
+    return spec.image is not None and _image_present(spec.image)
 
 
 def _compile_extract_compare(tmp_path: Path, toolchain: str, cflags: list[str]) -> str:
@@ -113,8 +76,12 @@ def _compile_extract_compare(tmp_path: Path, toolchain: str, cflags: list[str]) 
     src = tmp_path / "rt.c"
     src.write_text(SNIPPET, encoding="utf-8")
     cfg = _cfg(tmp_path, toolchain)
-    workdir = tmp_path / "work"
-    workdir.mkdir(exist_ok=True)
+    # The compile workdir must be docker-visible (mounted at /work), so it
+    # lives under the repo's .cache/ instead of pytest's tmp dir.
+    workdir = _REPO / ".cache" / "rt" / toolchain
+    workdir.mkdir(parents=True, exist_ok=True)
+    for stale in workdir.iterdir():
+        stale.unlink(missing_ok=True)
 
     obj_path, err = compile_to_obj(cfg, src, cflags, workdir, use_cache=False)
     assert obj_path is not None, f"compile failed: {err}"
@@ -142,6 +109,8 @@ def _compile_extract_compare(tmp_path: Path, toolchain: str, cflags: list[str]) 
 )
 def test_toolchain_roundtrip_exact(tmp_path: Path, toolchain: str, cflags: list[str]) -> None:
     if not _toolchain_available(toolchain):
-        pytest.skip(f"{toolchain} toolchain not vendored (see docs/TOOLCHAIN.md)")
+        pytest.skip(
+            f"{toolchain} docker image not built (run `rebrew toolchain build <name>` first)"
+        )
     status = _compile_extract_compare(tmp_path, toolchain, cflags)
     assert status == "EXACT", f"{toolchain} round-trip expected EXACT, got {status}"

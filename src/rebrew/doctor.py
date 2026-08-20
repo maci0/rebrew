@@ -289,13 +289,41 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
             fix=f'Set compiler.profile = "{hint}"; analysis/docs work either way.',
         )
 
+    # Docker-only execution: every Windows/DOS profile compiles through its
+    # docker image — the image IS the compiler.  Only native-Linux profiles
+    # (gcc-pe and friends) fall through to the legacy executable check.
+    from rebrew.toolchain import TOOLCHAINS, _image_present
+
+    _profile = str(getattr(cfg, "compiler_profile", ""))
+    _spec = TOOLCHAINS.get(_profile) if _profile else None
+    if _spec is not None and _spec.image is not None:
+        if _image_present(_spec.image):
+            return CheckResult(
+                name="Compiler",
+                status=_PASS,
+                message=f"{_profile} docker image {_spec.image} ready",
+            )
+        return CheckResult(
+            name="Compiler",
+            status=_FAIL,
+            message=f"{_profile} docker image {_spec.image} not built",
+            fix=f"Run `rebrew toolchain build {_profile}` (docker-only execution).",
+        )
+    if _spec is not None and _spec.runtime != "native":
+        return CheckResult(
+            name="Compiler",
+            status=_FAIL,
+            message=f"{_profile} has no docker image — execution is docker-only",
+            fix=f"Run `rebrew toolchain build {_profile}` first.",
+        )
+
     cmd_str = cfg.compiler_command
     if not cmd_str:
         return CheckResult(
             name="Compiler",
             status=_FAIL,
             message="No compiler command configured",
-            fix="Set [compiler] command in rebrew-project.toml (e.g. 'wine CL.EXE').",
+            fix="Set [compiler] profile to a docker-backed toolchain, or command for a native compiler.",
         )
 
     try:
@@ -575,49 +603,57 @@ def check_delphi16_toolchain(cfg: ProjectConfig) -> CheckResult:
 
 
 def check_toolchain_backed(cfg: ProjectConfig) -> CheckResult:
-    """For profiles backed by the toolchain abstraction (watcom, watcom16,
-    msvc1.52, tc16, borlandc55), report how the toolchain resolves:
-    vendored host binary present, or the docker image pulled.  Replaces the
-    misleading "binary not in PATH" the generic compiler check would give
-    (vendored compilers live under tools/, not PATH).  Skipped for other
-    profiles."""
+    """For docker-backed profiles, report the execution state: the docker
+    image must be built (execution is docker-only — no host wine/dosbox
+    fallback); the vendored tree is informational (it is the byte-identical
+    source the image builds from).  Native-Linux profiles (gcc-pe, watcom16)
+    skip (their binary is checked by the generic compiler check)."""
     profile = str(getattr(cfg, "compiler_profile", ""))
-    if profile not in ("watcom", "watcom16", "msvc1.52", "tc16", "tc20", "borlandc55"):
-        return CheckResult(name="Toolchain", status=_SKIP, message="not a toolchain-backed profile")
-
     from rebrew.toolchain import ToolchainError, _image_present, get_toolchain
 
     try:
         spec = get_toolchain(profile)
-    except ToolchainError as exc:
-        return CheckResult(name="Toolchain", status=_FAIL, message=str(exc))
+    except ToolchainError:
+        return CheckResult(name="Toolchain", status=_SKIP, message="not a toolchain-backed profile")
+    if spec.image is None:
+        return CheckResult(
+            name="Toolchain", status=_SKIP, message="not a docker-backed profile (native binary)"
+        )
 
-    host_ok = None
-    if spec.host_path is not None:
-        host = Path(spec.host_path)
-        host_ok = (host / spec.binary).exists() or (host / spec.host_bin / spec.binary).exists()
-    image_ok = _image_present(spec.image) if spec.image is not None else None
-
-    ready = bool(host_ok) or bool(image_ok)
-    bits = []
-    if host_ok:
-        bits.append(f"vendored {spec.host_path}")
-    if image_ok:
-        bits.append(f"image {spec.image} pulled")
-    status = _PASS if ready else _WARN
-    if not ready:
-        status = _FAIL
-    message = f"{profile}: {' + '.join(bits) if bits else 'no vendored binary and no image pulled'}"
-    fix = (
-        ""
-        if ready
-        else f"Run `rebrew toolchain pull {profile}` or vendor the toolchain under tools/."
-    )
+    image_ok = _image_present(spec.image)
+    host_present = spec.host_path is not None and Path(spec.host_path).exists()
+    bits = [f"image {spec.image} pulled"] if image_ok else []
+    if host_present:
+        bits.append(f"vendored tree {spec.host_path} present (build source)")
+    ready = image_ok
+    status = _PASS if ready else _FAIL
+    message = f"{profile}: {' + '.join(bits) if bits else 'docker image not built'}"
+    fix = "" if ready else f"Run `rebrew toolchain build {profile}` (docker-only execution)."
     return CheckResult(name="Toolchain", status=status, message=message, fix=fix)
 
 
 def check_runner(cfg: ProjectConfig) -> CheckResult:
-    """Check that the configured runner (wine/wibo) is available."""
+    """Check the execution runner.  Docker-backed profiles run through
+    their docker image (wine/wibo config is obsolete for them); native-Linux
+    profiles need no runner."""
+    from rebrew.toolchain import TOOLCHAINS
+
+    _profile = str(getattr(cfg, "compiler_profile", ""))
+    _spec = TOOLCHAINS.get(_profile) if _profile else None
+    if _spec is not None and _spec.image is not None:
+        from rebrew.toolchain import _image_present
+
+        if _image_present(_spec.image):
+            return CheckResult(
+                name="Runner", status=_PASS, message=f"docker image {_spec.image} ready"
+            )
+        return CheckResult(
+            name="Runner",
+            status=_WARN,
+            message=f"docker image {_spec.image} not built",
+            fix=f"Run `rebrew toolchain build {_profile}`.",
+        )
+
     runner = str(getattr(cfg, "compiler_runner", "")).strip()
     if not runner:
         return CheckResult(

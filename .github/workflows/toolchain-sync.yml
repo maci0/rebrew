@@ -1,0 +1,29 @@
+name: toolchain-sync
+
+on:
+  schedule:
+    - cron: '0 4 * * *'   # nightly upstream-drift check
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  check-updates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install rebrew
+        run: pip install -e . --quiet
+      - name: Check toolchain source drift
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          rebrew toolchain check-updates
+          rebrew toolchain check-updates --json | python3 -c "import json,sys; d=json.load(sys.stdin); print('drifted:', d['drifted']); sys.exit(1 if d['drifted'] else 0)"

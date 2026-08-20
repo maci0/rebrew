@@ -91,32 +91,9 @@ class TestRunToolchain:
         run_toolchain(spec, ["hello.dpr"], workdir=tmp_path)
         assert calls[0][8] == "dcc"
 
-    def test_host_fallback_uses_vendored_path(self, tmp_path: Path, monkeypatch) -> None:
-        dcc = tmp_path / "delphi-1.0-win16" / "DCC.EXE"
-        dcc.parent.mkdir(parents=True)
-        dcc.write_bytes(b"MZ")
-        spec = ToolchainSpec(
-            name="t", image=None, binary="DCC.EXE", host_path=tmp_path / "delphi-1.0-win16"
-        )
-        calls: list[list[str]] = []
-
-        def _run(cmd, **kwargs):
-            calls.append(cmd)
-            return _FakeProc(1, "", "err")
-
-        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
-        r = run_toolchain(spec, ["x.dpr"], workdir=tmp_path)
-        assert r.backend == "host"
-        assert not r.ok
-        assert calls[0][0] == str(dcc)
-
-    def test_host_fallback_wine_runtime_prefixes_wine(self, tmp_path: Path, monkeypatch) -> None:
-        """A wine-runtime spec without an image (msvc420/msvc5) must invoke
-        the vendored PE through the wine loader — the old host fallback
-        exec'd CL.EXE directly, which can never run on Linux (EACCES)."""
-        cl = tmp_path / "vc" / "bin" / "CL.EXE"
-        cl.parent.mkdir(parents=True)
-        cl.write_bytes(b"MZ")
+    def test_wine_runtime_without_image_raises(self, tmp_path: Path, monkeypatch) -> None:
+        """A wine-runtime spec without an image is not runnable — execution
+        is docker-only for every Windows toolchain (no host wine path)."""
         spec = ToolchainSpec(
             name="t",
             image=None,
@@ -132,18 +109,53 @@ class TestRunToolchain:
             return _FakeProc(0, "", "")
 
         monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
-        monkeypatch.setattr("rebrew.toolchain.os.environ", {"HOME": str(tmp_path)})
-        r = run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path)
-        assert r.backend == "host"
-        assert r.ok
-        assert calls[0] == ["wine", str(cl), "/c", "t.c"]
+        with pytest.raises(ToolchainError, match="no docker image"):
+            run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path)
+        assert calls == [], "no subprocess may run for a wine spec without an image"
 
-    def test_no_backend_raises(self, tmp_path: Path, monkeypatch) -> None:
-        _monkey_docker(monkeypatch, available=False, image=False)
-        monkeypatch.setattr("rebrew.toolchain.shutil.which", lambda *a, **k: None)
-        spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="nope")
-        with pytest.raises(ToolchainError, match="no host binary"):
-            run_toolchain(spec, [], workdir=tmp_path)
+    def test_native_runtime_without_image_uses_vendored_path(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Native-Linux toolchains without an image (gcc-pe, watcom16 wcc)
+        exec their vendored/PATH binary directly — they are not Windows
+        binaries, so no wine glue is involved."""
+        cl = tmp_path / "vc" / "bin" / "cl.exe"
+        cl.parent.mkdir(parents=True)
+        cl.write_bytes(b"MZ")
+        spec = ToolchainSpec(
+            name="t",
+            image=None,
+            binary="cl",
+            runtime="native",
+            host_path=tmp_path / "vc",
+            host_bin="Bin",
+        )
+        calls: list[list[str]] = []
+
+        def _run(cmd, **kwargs):
+            calls.append(cmd)
+            return _FakeProc(0, "", "")
+
+        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
+        r = run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path)
+        assert r.backend == "native"
+        assert calls[0] == [str(cl), "/c", "t.c"]
+
+    def test_missing_image_raises_with_build_hint(self, tmp_path: Path, monkeypatch) -> None:
+        """A docker toolchain whose image is not built is a hard error that
+        tells the user to build it — there is no host fallback anymore."""
+        spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="cl")
+        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        with pytest.raises(ToolchainError, match="not built"):
+            run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path)
+
+    def test_docker_unavailable_raises(self, tmp_path: Path, monkeypatch) -> None:
+        """No docker daemon -> clear error before any invocation attempt."""
+        spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="cl")
+        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: False)
+        with pytest.raises(ToolchainError, match="docker is not available"):
+            run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path)
 
 
 class TestCli:
@@ -423,51 +435,56 @@ class TestResolveBinaryCaseInsensitive:
         assert data["host_binary_present"] is True
 
 
-class TestDosboxHostFallbackGuard:
-    """run_toolchain must not exec a DOS binary natively when the image is
-    absent — dosbox-runtime specs fail with a clear routing error instead
-    of a cryptic Permission denied / Exec format error."""
+class TestDockerOnlyGuard:
+    """run_toolchain is docker-only: every Windows/DOS toolchain (wine- and
+    dosbox-runtime) must fail with a clear build hint when its image is
+    absent — never exec the vendored binary directly (EACCES / Exec format
+    error).  Native-Linux specs without an image (gcc-pe, watcom16 wcc)
+    keep the direct vendored-host path: they are not Windows binaries."""
 
-    def test_msvc152_dosbox_guard(self, tmp_path: Path, monkeypatch) -> None:
+    def test_msvc152_image_missing_raises(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
 
+        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
         monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
-        with pytest.raises(ToolchainError, match="dosbox-runtime"):
+        with pytest.raises(ToolchainError, match="not built"):
             run_toolchain(TOOLCHAINS["msvc1.52"], ["t.c", "/O1"], workdir=tmp_path)
 
-    def test_delphi16_dosbox_guard(self, tmp_path: Path, monkeypatch) -> None:
+    def test_delphi16_image_missing_raises(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
 
+        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
         monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
-        with pytest.raises(ToolchainError, match="dosbox-runtime"):
+        with pytest.raises(ToolchainError, match="not built"):
             run_toolchain(TOOLCHAINS["delphi16"], ["hello.dpr"], workdir=tmp_path)
 
-    def test_watcom_host_fallback_unaffected(self, tmp_path: Path, monkeypatch) -> None:
-        """native-runtime toolchains keep the plain vendored-host fallback."""
+    def test_watcom16_native_path_unaffected(self, tmp_path: Path, monkeypatch) -> None:
+        """watcom16 has no image (native Linux wcc) — the direct vendored
+        binary path still applies; only image-less wine/dosbox specs are
+        blocked by the docker-only guard."""
         from rebrew.toolchain import TOOLCHAINS, run_toolchain
 
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
-        spec = TOOLCHAINS["watcom"]
-        # watcom has no vendored host on this box in CI — force resolution to fail
-        # with the resolver error, NOT the dosbox guard (proves the guard doesn't
-        # fire for native-runtime specs).
+        spec = TOOLCHAINS["watcom16"]
         monkeypatch.setattr(
             "rebrew.toolchain._resolve_binary",
-            lambda spec: (_ for _ in ()).throw(ToolchainError("no host binary")),
+            lambda spec: (_ for _ in ()).throw(ToolchainError("no native binary")),
         )
-        with pytest.raises(ToolchainError, match="no host binary"):
+        with pytest.raises(ToolchainError, match="no native binary"):
             run_toolchain(spec, ["-zq", "f.c"], workdir=tmp_path)
 
 
 class TestVc98Wrap:
-    """MSVC 6.0's master layout wraps the tree in VC98/ (classic install
-    layout — every legacy tools/MSVC600/VC98/... reference expects it); the
-    decomp.me tarball is flat, so vendor and the docker image re-wrap."""
+    """MSVC 6.0's classic master layout is the VC98/ tree (every legacy
+    tools/MSVC600/VC98/... reference expects it).  The old decomp.me
+    tarball was flat, so vendor wrapped it via vc98_wrap; the current
+    archaic-msvc source (msvc600) already carries VC98/ at the top."""
 
-    def test_msvc6_source_wraps(self) -> None:
+    def test_msvc6_source_needs_no_wrap(self) -> None:
         from rebrew.toolchain import _SOURCES
 
-        assert _SOURCES["msvc6"].vc98_wrap is True
+        # archaic-msvc/msvc600 ships VC98/ at the top level already, so no
+        # wrap step is needed (the old decomp.me tarball was flat).
+        assert _SOURCES["msvc6"].vc98_wrap is False
 
     def test_other_sources_do_not_wrap(self) -> None:
         from rebrew.toolchain import _SOURCES

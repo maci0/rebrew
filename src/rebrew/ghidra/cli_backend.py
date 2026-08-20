@@ -45,15 +45,15 @@ def _op_to_args(op: dict[str, Any]) -> list[str] | None:
             cmd += ["--comment-type", str(ctype)]
         return cmd
     if tool == "set-bookmark":
-        cmd = ["bookmark", "add", _addr()]
-        btype = args.get("type") or "Note"
-        if btype:
-            cmd += ["--bookmark-type", str(btype)]
-        if args.get("category"):
-            cmd += ["--category", str(args["category"])]
+        # ghidra-cli 0.2.1 has no `bookmark` subcommand; represent the status
+        # category as a plate comment instead (same visual marker at the
+        # address — e.g. `rebrew/exact`).
+        addr = _addr()
+        category = str(args.get("category") or "rebrew")
+        text = category
         if args.get("comment"):
-            cmd += ["--comment", str(args["comment"])]
-        return cmd
+            text = f"{category}: {args['comment']}"
+        return ["comment", "set", addr, text, "--comment-type", "PLATE"]
     if tool == "parse-c-structure":
         # Note: ghidra-cli `type create` has no --category; the producer's
         # "/rebrew" category is intentionally dropped for the cli backend.

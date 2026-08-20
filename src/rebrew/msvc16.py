@@ -1,10 +1,11 @@
-"""msvc16.py — MSVC 1.52 (16-bit) compilation support.
+"""msvc16.py — 16-bit MSVC (1.5 / 1.52) compilation support.
 
-Wraps the vendored 16-bit Microsoft Visual C++ 1.52 command-line compiler
-(``toolchain/msvc/1.52-win16``): the CL.EXE driver is a Phar Lap TNT DOS-extender PE
-that runs headless under DOSBox (wine's DOS-memory allocation fails for
-it).  Produces 16-bit OMF objects — the OMF parser (docs/OMF_NOTES.md) is
-the enabling piece for byte matching.
+Wraps the vendored 16-bit Microsoft Visual C++ command-line compilers
+(``toolchain/msvc/1.52-win16``, ``toolchain/msvc/1.5-win16``): the CL.EXE
+drivers are Phar Lap TNT DOS-extender PEs that run headless under DOSBox
+(wine's DOS-memory allocation fails for them).  Produces 16-bit OMF
+objects — the OMF parser (docs/OMF_NOTES.md) is the enabling piece for
+byte matching.
 """
 
 from __future__ import annotations
@@ -27,14 +28,14 @@ class Msvc16Result:
     log: str = ""
 
 
-def _find_vc152() -> Path:
+def _find_vc152(version: str = "1.52-win16") -> Path:
     repo_tools = Path(__file__).resolve().parents[2] / "toolchain"
-    vc = repo_tools / "msvc" / "1.52-win16"
+    vc = repo_tools / "msvc" / version
     if (vc / "BIN" / "CL.EXE").exists():
         return vc
     raise Msvc16Error(
-        "vendored MSVC 1.52 not found under toolchain/msvc/1.52-win16 (BIN/INCLUDE/LIB "
-        "required — extract from archive.org item en_vc152_202512)"
+        f"vendored MSVC {version} not found under toolchain/msvc/{version} (BIN/INCLUDE/LIB "
+        "required — rebrew toolchain vendor msvc1.52/msvc15)"
     )
 
 
@@ -44,8 +45,9 @@ def compile_c(
     *,
     cflags: list[str] | None = None,
     timeout: int = 240,
+    version: str = "1.52-win16",
 ) -> Msvc16Result:
-    """Compile a C file to a 16-bit OMF object with MSVC 1.52.
+    """Compile a C file to a 16-bit OMF object with the vendored 16-bit MSVC.
 
     Stages a DOSBox sandbox (on a non-tmpfs filesystem) with the vendored
     BIN/INCLUDE/LIB symlinked in, runs ``CL /nologo /c`` headless, and
@@ -61,7 +63,7 @@ def compile_c(
     Raises:
         Msvc16Error: toolchain/DOSBox missing, compile failure, or no object.
     """
-    vc = _find_vc152()
+    vc = _find_vc152(version)
 
     src_path = Path(c_source) if Path(c_source).exists() else None
     if src_path is not None:

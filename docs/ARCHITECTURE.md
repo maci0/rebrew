@@ -63,7 +63,7 @@ flowchart LR
 | `rebrew/delphi16.py` | Delphi 1.0 (16-bit) compile support — headless DOSBox sandbox + NE parse (ADR-001 foundation) |
 | `rebrew/msvc16.py` | MSVC 1.52 (16-bit) compile support — DOSBox + 16-bit OMF objects |
 | `rebrew/dosbox.py` | Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads) |
-| `rebrew/toolchain.py` | Toolchain abstraction: spec registry, docker-first runner with host fallback |
+| `rebrew/toolchain.py` | Toolchain abstraction: spec registry, docker-only runner (images for Windows/DOS, native for Linux compilers) |
 | `rebrew/toolchain_cli.py` | `rebrew toolchain` CLI (`list`/`status`/`pull`) |
 | `rebrew/round_trip.py` | Splice matched functions back into the target PE, verify byte equality |
 | `rebrew/similar.py` | Structural clone detection (mnemonic-histogram similarity) |

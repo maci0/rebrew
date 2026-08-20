@@ -43,6 +43,7 @@ _JSON_FIELDS = frozenset({"prove_constraints"})
 _FIELD_TO_ATTR: dict[str, str] = {
     "size": "size",
     "cflags": "cflags",
+    "toolchain": "toolchain",
     "status": "status",
     "blocker": "blocker",
     "blocker_delta": "blocker_delta",
@@ -83,6 +84,7 @@ class MetadataEntry:
     va: int
     size: int | None = None
     cflags: str | None = None
+    toolchain: str | None = None
     status: str | None = None
     blocker: str | None = None
     blocker_delta: int | None = None

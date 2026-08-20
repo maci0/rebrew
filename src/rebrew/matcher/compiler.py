@@ -117,7 +117,23 @@ def _ensure_wine_env(env: dict[str, str] | None, cmd: list[str]) -> dict[str, st
     return env
 
 
+#: Profiles whose compiler runs ONLY through its docker image.  Derived from
+#: the toolchain registry at import time (all specs with an image); the raw
+#: subprocess path is reserved for native Linux compilers (gcc-pe).
+def _docker_backed_profiles() -> frozenset[str]:
+    try:
+        from rebrew.toolchain import TOOLCHAINS
+
+        return frozenset(n for n, s in TOOLCHAINS.items() if s.image is not None)
+    except Exception:
+        return frozenset()
+
+
+_DOCKER_BACKED_PROFILES = _docker_backed_profiles()
+
+
 def _compiler_cmd_parts(cl_cmd: str, env: dict[str, str] | None) -> list[str]:
+
     parts = safe_shlex_split(cl_cmd)
     runner = ""
     if env is not None:
@@ -266,13 +282,13 @@ def build_candidate_obj_only(
     toolchain_id, source_ext)``.  On cache hit only the fast LIEF symbol
     extraction runs, skipping the 200-500 ms Wine/wibo subprocess entirely.
 
-    Toolchain-backed profiles (``watcom``, ``watcom16``, ``msvc1.52``,
-    ``tc16``, ``tc20``, ``borlandc55``) route through the shared
-    ``compile_to_obj`` runner (docker image or vendored host binary)
-    instead of the raw subprocess path — this is how the 16-bit / Watcom
-    flag sweeps actually reach the compiler.
+    Every image-backed profile (all MSVC versions, Watcom, Borland, the
+    16-bit DOS compilers) routes through the shared ``compile_to_obj``
+    runner (docker image — there is no host wine/dosbox fallback) instead
+    of the raw subprocess path.  The raw subprocess path below serves only
+    native Linux compilers without an image (gcc-pe and friends).
     """
-    if profile in ("watcom", "watcom16", "msvc1.52", "tc16", "tc20", "borlandc55"):
+    if profile in _DOCKER_BACKED_PROFILES:
         if cfg is None:
             from types import SimpleNamespace
 
@@ -316,6 +332,18 @@ def build_candidate_obj_only(
     src_name = f"cand{source_ext}"
     all_flags = shlex.split(cflags)
     extra_inc = extra_include_dirs or []
+
+    # Resolve relative /I paths in the flags (base_cflags often carry e.g.
+    # /Ireferences/zlib-1.1.3). The raw subprocess path compiles from a temp
+    # workdir, so a relative include path would resolve against the wrong
+    # directory and fail on functions that #include those headers. Mirror the
+    # resolution compile_to_obj performs for toolchain-backed profiles.
+    if extra_inc and any(f.startswith(("/I", "-I")) for f in all_flags):
+        from rebrew.compile import _resolve_include_flags
+
+        src_parent = Path(extra_inc[0])
+        cfg_root = getattr(cfg, "root", Path.cwd()) if cfg is not None else Path.cwd()
+        all_flags = _resolve_include_flags(all_flags, src_parent, cfg_root)
 
     cache_key: str | None = None
     if cache is not None:

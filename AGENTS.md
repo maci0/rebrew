@@ -2,25 +2,24 @@
 
 ## Overview
 
-**Rebrew** is a compiler-in-the-loop decompilation workbench for binary-matching game reversing. Python package (`src/rebrew/`) with CLI tools to compile, compare, and match C source against target binary functions (MSVC6 under Wine, or MinGW GCC via `gcc-pe` for non-MSVC PE/x86_32 targets).
+**Rebrew** is a compiler-in-the-loop decompilation workbench for binary-matching game reversing. Python package (`src/rebrew/`) with CLI tools to compile, compare, and match C source against target binary functions (every Windows/DOS toolchain runs through its docker image; MinGW GCC via `gcc-pe` for non-MSVC PE/x86_32 targets).
 
 Install editable (`uv pip install -e .`) inside a workspace containing binaries, sources, and toolchains.
 
 ## Compiler Profiles
 
-- **`msvc6`** (default): `wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE` — MSVC flags (`/I`, `/Fo`, `/c`), Wine/wibo runner, `toolchain/msvc/6.0-win32` toolchain. C89.
-  If the master layout is missing, `rebrew init` and the config layer fall back to `toolchain/msvc/6.0-sp6-win32` (SP6, compile-only) then `toolchain/msvc/6.0-sp3-win32` — fresh projects never get a broken `toolchain/msvc/6.0-win32` path.
-  Wine runner is auto-headless via persistent `Xvfb` when available (`REBREW_WINE_HEADLESS=0` to disable); prefer wibo for the fastest fully-headless path.
-  Legacy `tools/<name>` paths (e.g. `tools/MSVC600/VC98/...` in pre-restructure projects) resolve via gitignored compat symlinks recreated by `rebrew toolchain vendor`; `rebrew/tools/MSVC600` → `toolchain/msvc/6.0-win32` (mirror ships no `Lib` tree — expected, compile-only).
-- **`gcc-pe`**: `i686-w64-mingw32-gcc` — POSIX flags (`-I`, `-o`, `-c`), no runner, PATH-resolved toolchain, empty `includes`/`libs` allowed. For MinGW GCC / Zig-built PE/x86_32 targets (`.buildid` section, `0f 1f` GNU nops, call-based `___chkstk_ms` probe, few/no CRT imports).
+- **`msvc6`** (default): MSVC 6.0 — runs ONLY through its docker image `rebrew/msvc:6.0-win32` (the image wraps wine; the host never calls CL.EXE directly). MSVC flags (`/I`, `/Fo`, `/c`). C89.
+  Execution is **docker-only for every Windows/DOS toolchain** (all `msvc*`, `borlandc55`, `watcom`, `tc16`/20, `msvc1.52`/15/10, `delphi16`): the image encapsulates the runtime (wine / DOSBox) and there is no host wine/wibo/dosbox fallback.  A missing image is a hard error — run `rebrew toolchain build <name>` (or `rebrew toolchain pull <name>`).  The vendored `toolchain/<family>/<version>-<arch>` trees remain as the byte-identical build source for the images, but nothing executes from them.
+  Legacy `tools/<name>` paths resolve via gitignored compat symlinks recreated by `rebrew toolchain vendor` (build-source only).
+- **`gcc-pe`**: `i686-w64-mingw32-gcc` — POSIX flags (`-I`, `-o`, `-c`), a native Linux binary (no wine), PATH-resolved toolchain, empty `includes`/`libs` allowed. For MinGW GCC / Zig-built PE/x86_32 targets (`.buildid` section, `0f 1f` GNU nops, call-based `___chkstk_ms` probe, few/no CRT imports).
   See `docs/TOOLCHAIN.md` for the codegen-version caveat: byte-exact matching requires the author's exact GCC version; old builds usually match only structurally (document semantic decomp + blocker).
 - **`gcc` / `clang`**: ELF/x86_64 targets.
-- **`borlandc55`**: Borland C++ 5.5 free tools (bcc32 under Wine; OMF via objconv) — image `rebrew/borland:5.5-win32` or `toolchain/borland/5.5-win32`. For Borland-built PE/x86_32 targets (family `borlandc`).
-- **`watcom16`**: Open Watcom 2.0 `wcc` (16-bit DOS, native Linux) — same snapshot as `watcom`. For 16-bit DOS/Watcom targets (family `watcom`).
-- **`tc16`**: Turbo C++ 3.1 `TCC.EXE` (16-bit DOS via DOSBox, `toolchain/borland/3.1-win16`) — classic DOS-game compiler. 16-bit OMF via `rebrew.matcher.omf16`.
-- **`msvc1.52` / `delphi16`**: 16-bit targets via DOSBox (`toolchain/msvc/1.52-win16`, `toolchain/delphi/1.0-win16`).
+- **`borlandc55`**: Borland C++ 5.5 free tools (bcc32) — image `rebrew/borland:5.5-win32` (wine inside the image). For Borland-built PE/x86_32 targets (family `borlandc`).
+- **`watcom16`**: Open Watcom 2.0 `wcc` (16-bit DOS, native Linux binary — no image, runs directly). Same snapshot as `watcom`. For 16-bit DOS/Watcom targets (family `watcom`).
+- **`tc16`**: Turbo C++ 3.1 `TCC.EXE` (16-bit DOS) — image `rebrew/borland:3.1-win16` (DOSBox inside the image). Classic DOS-game compiler. 16-bit OMF via `rebrew.matcher.omf16`.
+- **`msvc1.52` / `delphi16`**: 16-bit targets — images `rebrew/msvc:1.52-win16`, `rebrew/delphi:1.0-win16` (DOSBox inside the image).
 
-All images build reproducibly (pinned sources, sha256-verified downloads or committed tarballs; shared `rebrew/base` with pinned Debian digest) and `rebrew toolchain smoke` gates byte-reproducible objects for both image-backed and vendored trees — see `docs/TOOLCHAIN.md`.
+All images build reproducibly (pinned sources, sha256-verified downloads or committed tarballs; shared `rebrew/base` with pinned Debian digest) and `rebrew toolchain smoke` gates byte-reproducible objects for every image-backed toolchain — see `docs/TOOLCHAIN.md`.
 
 ## Build & Test Commands
 
@@ -161,7 +160,7 @@ src/rebrew/
 ├── delphi16.py          # Delphi 1.0 (16-bit) compile support — DOSBox sandbox + NE parse
 ├── msvc16.py            # MSVC 1.52 (16-bit) compile support — DOSBox + OMF object
 ├── dosbox.py            # Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads)
-├── toolchain.py         # Toolchain abstraction: spec registry, docker-first runner, host fallback
+├── toolchain.py         # Toolchain abstraction: spec registry, docker-only runner (images for Windows/DOS, native for Linux compilers)
 ├── toolchain_cli.py     # `rebrew toolchain` CLI (list/status/detect/pull/build)
 ├── toolchain/           # Vendored toolchains + Dockerfiles per family (toolchain/<family>/<version>-<arch>/, shared rebrew/base)
 ├── cu_map.py            # Compilation-unit boundary inference (contiguity + call graph)
@@ -217,7 +216,7 @@ src/rebrew/
 ├── matcher/             # Core GA engine (see matcher/AGENTS.md)
 │   ├── __init__.py      # Re-exports: build_candidate, score_candidate, mutate_code, ...
 │   ├── core.py          # Types: Score, BuildResult, BuildCache, GACheckpoint
-│   ├── compiler.py      # MSVC6 compilation + flag sweep (Wine/wibo)
+│   ├── compiler.py      # MSVC6 compilation + flag sweep (docker images)
 │   ├── scoring.py       # Byte scoring, structural similarity (capstone + numpy)
 │   ├── mutator.py       # 114 C mutation operators for GA
 │   ├── ast_engine.py    # tree-sitter AST mutation helpers

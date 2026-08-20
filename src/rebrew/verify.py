@@ -141,6 +141,7 @@ def verify_entry(
         cache=cache,
         name_to_va=name_to_va,
         section_va=entry.va,
+        toolchain=(entry.toolchain or "").strip() or None,
     )
     if not result.matched and result.obj_bytes:
         # Populate diff_lines (number of differing disassembly lines) for

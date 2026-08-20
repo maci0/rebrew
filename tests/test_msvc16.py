@@ -74,7 +74,8 @@ class TestCompileC:
 
     def test_missing_toolchain_raises(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.setattr(
-            "rebrew.msvc16._find_vc152", lambda: (_ for _ in ()).throw(Msvc16Error("not found"))
+            "rebrew.msvc16._find_vc152",
+            lambda version: (_ for _ in ()).throw(Msvc16Error("not found")),
         )
         src = tmp_path / "test.c"
         src.write_text("int f(void) { return 1; }\n", encoding="utf-8")

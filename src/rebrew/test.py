@@ -441,6 +441,9 @@ def main(
         )
 
     # Shared compile→extract→compare path (same as rebrew verify).
+    # Per-function toolchain override (metadata TOOLCHAIN, e.g. "msvc5"):
+    # compile this function with a different vendored compiler.
+    toolchain_name = (meta.get("TOOLCHAIN") or "").strip() or None
     cmp = compile_and_compare(
         cfg,
         source,
@@ -449,6 +452,7 @@ def main(
         cflags_str,
         name_to_va=name_to_va,
         section_va=section_va,
+        toolchain=toolchain_name,
     )
     matched = cmp.matched
     relocs = cmp.reloc_offsets or []

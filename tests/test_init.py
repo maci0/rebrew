@@ -26,22 +26,41 @@ class TestCompilerDefaults:
     """Tests for the COMPILER_DEFAULTS constant."""
 
     def test_has_expected_profiles(self) -> None:
-        assert len(COMPILER_DEFAULTS) == 16
+        assert len(COMPILER_DEFAULTS) == 35  # 16 legacy + 19 MSVC 1.0-10.0 matrix profiles
 
     def test_known_profiles(self) -> None:
         assert set(COMPILER_DEFAULTS.keys()) == {
             "msvc400",
             "msvc420",
+            "msvc410",
+            "msvc200",
+            "msvc5",
+            "msvc500sp1",
+            "msvc500sp2",
+            "msvc500sp3",
             "msvc6",
+            "msvc6.3",
+            "msvc6.6",
+            "msvc600sp3",
+            "msvc600sp5",
+            "msvc600sp6",
             "msvc7",
+            "msvc700",
+            "msvc700sp1",
+            "msvc710",
+            "msvc710sp1",
+            "msvc800",
+            "msvc800sp1",
+            "msvc900",
+            "msvc1000",
+            "msvc1000sp1",
+            "msvc1.52",
+            "msvc15",
+            "msvc10",
             "clang",
             "gcc",
             "gcc-pe",
-            "msvc5",
-            "msvc6.3",
-            "msvc6.6",
             "watcom",
-            "msvc1.52",
             "borlandc55",
             "watcom16",
             "tc20",
