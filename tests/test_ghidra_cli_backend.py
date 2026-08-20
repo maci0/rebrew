@@ -36,6 +36,9 @@ class TestOpToArgs:
         ) == ["comment", "set", "0x10001000", "hi", "--comment-type", "plate"]
 
     def test_set_bookmark(self) -> None:
+        """ghidra-cli 0.2.1 has no `bookmark` subcommand — the status
+        category is represented as a plate comment at the address (the same
+        visual marker, e.g. `/rebrew: EXACT`)."""
         assert _op_to_args(
             {
                 "tool": "set-bookmark",
@@ -46,15 +49,26 @@ class TestOpToArgs:
                 },
             }
         ) == [
-            "bookmark",
-            "add",
+            "comment",
+            "set",
             "0x10001000",
-            "--bookmark-type",
-            "Note",
-            "--category",
+            "/rebrew: EXACT",
+            "--comment-type",
+            "PLATE",
+        ]
+        # without a comment the category alone is the marker
+        assert _op_to_args(
+            {
+                "tool": "set-bookmark",
+                "args": {"addressOrSymbol": "0x10001000", "category": "/rebrew"},
+            }
+        ) == [
+            "comment",
+            "set",
+            "0x10001000",
             "/rebrew",
-            "--comment",
-            "EXACT",
+            "--comment-type",
+            "PLATE",
         ]
 
     def test_parse_c_structure(self) -> None:

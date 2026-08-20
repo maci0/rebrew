@@ -106,8 +106,25 @@ def _extract_commands(skill_md: Path) -> list[tuple[str, list[str]]]:
 # ---------------------------------------------------------------------------
 
 
+def _rebrew_help_command() -> list[str]:
+    """The rebrew CLI invocation for --help runs.
+
+    Prefers the repo venv's console script (``.venv/bin/rebrew``) over
+    ``uv run rebrew``: uv needs a writable cache dir under the user home,
+    which is read-only in sandboxed environments (the help output would be
+    an error instead of the flags).  Falls back to ``uv run rebrew`` when
+    the venv script is not found (non-venv installs)."""
+    # NOTE: no .resolve() on sys.executable — in venvs it is a symlink to
+    # the uv-managed interpreter, and resolving would look next to the real
+    # python (no rebrew script there).
+    script = Path(sys.executable).parent / "rebrew"
+    if script.exists():
+        return [str(script)]
+    return ["uv", "run", "rebrew"]
+
+
 def _run_help(subcommand: str) -> tuple[bool, str]:
-    """Run ``uv run rebrew <subcommand> --help`` and return (ok, output).
+    """Run ``rebrew <subcommand> --help`` and return (ok, output).
 
     Runs with a wide terminal (COLUMNS=200) so Rich does not truncate flag names.
     *subcommand* may be a space-separated multi-word string like ``cfg add-target``.
@@ -118,7 +135,7 @@ def _run_help(subcommand: str) -> tuple[bool, str]:
     sub_tokens = subcommand.split()
     try:
         result = subprocess.run(
-            ["uv", "run", "rebrew"] + sub_tokens + ["--help"],
+            _rebrew_help_command() + sub_tokens + ["--help"],
             capture_output=True,
             text=True,
             timeout=30,

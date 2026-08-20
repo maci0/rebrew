@@ -59,9 +59,9 @@ def _find_tc16(version: str = "3.1") -> Path:
 
 
 def _default_workdir() -> Path:
-    import tempfile
+    from rebrew.dosbox import make_sandbox_dir
 
-    return Path(tempfile.mkdtemp(prefix="tc16-", dir=Path.home()))
+    return make_sandbox_dir("tc16-")
 
 
 def compile_c(
