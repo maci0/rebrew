@@ -143,6 +143,30 @@ rebrew-function.toml.lock
 /tools/msvc7.0
 /tools/TC
 /tools/watcom-win32
+# Additional msvc/legacy toolchain compat symlinks (same transient aliases,
+# recreated by `rebrew toolchain vendor`).
+/tools/MSVC10
+/tools/MSVC15
+/tools/MSVC200
+/tools/MSVC410
+/tools/MSVC7RTM
+/tools/msvc-1.0-win16
+/tools/msvc-1.5-win16
+/tools/msvc-10.0-sp1-win32
+/tools/msvc-10.0-win32
+/tools/msvc-2.0-win32
+/tools/msvc-4.1-win32
+/tools/msvc-5.0-sp1-win32
+/tools/msvc-5.0-sp2-win32
+/tools/msvc-5.0-sp3-win32
+/tools/msvc-6.0-sp5-win32
+/tools/msvc-7.0-rtm-win32
+/tools/msvc-7.0-sp1-win32
+/tools/msvc-7.1-sp1-win32
+/tools/msvc-7.1-win32
+/tools/msvc-8.0-sp1-win32
+/tools/msvc-8.0-win32
+/tools/msvc-9.0-win32
 
 # Toolchain download cache (pinned-source tarballs, re-fetched by rebrew toolchain vendor).
 /.cache/

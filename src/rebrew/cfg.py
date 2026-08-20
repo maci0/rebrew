@@ -752,12 +752,47 @@ def detect_crt(
         False, "--write", "-w", help="Write detected paths into rebrew-project.toml."
     ),
     target: str | None = TargetOption,
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Auto-detect CRT source directories from MSVC tools in the project tree."""
     from rebrew.config import detect_crt_sources
 
-    root = _find_root()
+    root = _find_root(json_mode=json_output)
     detected = detect_crt_sources(root)
+
+    # --json emits the same data the text path prints, plus what --write
+    # persisted, so AI agents can script CRT detection end-to-end.
+    if json_output:
+        result: dict[str, Any] = {
+            "crt_sources": [
+                {"origin": origin, "path": rel_path}
+                for origin, rel_path in sorted(detected.items())
+            ]
+        }
+        if not detected:
+            json_print(result)
+            return
+        if write:
+            doc, toml_path = _load_toml(root, json_mode=True)
+            target_name = _resolve_target(doc, target)
+            targets_table: Any = doc["targets"]
+            tgt: Any = targets_table[target_name]
+            crt_sources = tgt.get("crt_sources")
+            if crt_sources is None:
+                crt_sources = tomlkit.table()
+                tgt["crt_sources"] = crt_sources
+            written = 0
+            for origin, rel_path in sorted(detected.items()):
+                if origin not in crt_sources:
+                    crt_sources[origin] = rel_path
+                    written += 1
+            if written:
+                _save_toml(doc, toml_path)
+            result["target"] = target_name
+            result["written"] = written
+        json_print(result)
+        return
+
     if not detected:
         console.print("[yellow]No CRT source directories found under toolchain/.[/yellow]")
         return

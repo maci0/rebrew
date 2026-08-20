@@ -92,6 +92,10 @@ class StatusReport:
     # 0 means no issues found (or scan not yet run).
     inline_metadata_warning: int = 0
 
+    # Number of functions with a non-empty BLOCKER in rebrew-function.toml —
+    # i.e. work that is currently understood-blocked and needs attention.
+    unresolved_blockers: int = 0
+
     # Derived percentages
     @property
     def coverage_pct(self) -> float:
@@ -132,6 +136,7 @@ class StatusReport:
             "coverage_pct": self.coverage_pct,
             "matched_pct": self.matched_pct,
             "source_files": self.source_files,
+            "unresolved_blockers": self.unresolved_blockers,
         }
         if self.total_text_bytes > 0:
             d["matched_bytes"] = self.matched_bytes
@@ -324,7 +329,10 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     matched_bytes = 0
     verify_overrides = 0
     verify_missing_size = 0
+    unresolved_blockers = 0
     for va, info in existing.items():
+        if info.get("blocker"):
+            unresolved_blockers += 1
         ann_status = info.get("status", "STUB")
         # Metadata is authoritative for STUB (a stub's size mismatch is
         # expected); only more actionable cache states (COMPILE_ERROR,
@@ -364,6 +372,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     report.total_text_bytes = _compute_text_size(cfg)
     report.verify_overrides = verify_overrides
     report.verify_missing_size = verify_missing_size
+    report.unresolved_blockers = unresolved_blockers
 
     # Verify info
     report.verify_info = _load_verify_info(cfg)
@@ -490,6 +499,18 @@ def _render_terminal(report: StatusReport) -> None:
 
     # Source file count
     summary_lines.append(f"  [dim]{report.source_files} source files[/dim]")
+
+    # Unresolved BLOCKERs (understood-blocked work needing attention)
+    if report.unresolved_blockers:
+        summary_lines.append(
+            f"  [yellow]{report.unresolved_blockers} unresolved BLOCKER(s)[/yellow]"
+            " — see rebrew todo / BLOCKER metadata"
+        )
+
+    # Pointer to the prioritized next-action list (PRD 05 status requirement)
+    summary_lines.append(
+        "  [bold]Next:[/bold] rebrew todo" if report.total_functions > 0 else "  [dim]No functions yet[/dim]"
+    )
 
     # Verify info
     if report.verify_info is not None:

@@ -349,4 +349,3 @@ class TestDockerPathForwardsExtraIncludes:
         )
         assert res.ok is True
         assert seen.get("extra") == ["/proj/src/server_c"]
-

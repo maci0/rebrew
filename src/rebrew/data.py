@@ -16,7 +16,7 @@ import logging
 import re
 import struct
 import warnings
-from collections import Counter, defaultdict
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -964,26 +964,73 @@ def _render_globals(console: Console, scan: ScanResult, conflicts_only: bool = F
     console.print(Panel(tbl, title=title, border_style="blue"))
 
 
+def _section_summary(
+    scan: ScanResult, sections: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Per-section progress: globals, annotated bytes, and % byte coverage.
+
+    Annotated bytes are estimated from each annotated global's declared type
+    (via the same type-size heuristic as BSS coverage).  A section with no
+    annotatable contribution reports coverage 0.0%.
+    """
+    per_section: dict[str, dict[str, Any]] = {}
+    for entry in scan.globals.values():
+        sec_name = entry.section or "unknown"
+        s = per_section.setdefault(
+            sec_name, {"name": sec_name, "globals": 0, "annotated": 0, "annotated_bytes": 0}
+        )
+        s["globals"] += 1
+        if entry.annotated:
+            s["annotated"] += 1
+            s["annotated_bytes"] += _estimate_type_size(entry.type_str) if entry.type_str else 4
+
+    out: list[dict[str, Any]] = []
+    for sec_name in [".data", ".rdata", ".bss", "unknown"]:
+        s = per_section.get(sec_name)
+        if s is None:
+            continue
+        sec = sections.get(sec_name)
+        size = int(sec.get("size", 0)) if sec else 0
+        coverage = (s["annotated_bytes"] / size * 100.0) if size else 0.0
+        out.append(
+            {
+                "name": sec_name,
+                "globals": s["globals"],
+                "annotated": s["annotated"],
+                "annotated_bytes": s["annotated_bytes"],
+                "section_size": size,
+                "coverage_pct": round(coverage, 1),
+            }
+        )
+    return out
+
+
 def _render_summary(
     console: Console, scan: ScanResult, sections: dict[str, dict[str, Any]]
 ) -> None:
     """Print section-level summary."""
-    section_counts: Counter[str] = Counter()
-    for entry in scan.globals.values():
-        section_counts[entry.section or "unknown"] += 1
+    rows = _section_summary(scan, sections)
 
     tbl = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
     tbl.add_column("Section")
     tbl.add_column("Globals", justify="right")
-    tbl.add_column("Section Size", justify="right")
+    tbl.add_column("Annotated", justify="right")
+    tbl.add_column("Bytes", justify="right")
+    tbl.add_column("% Coverage", justify="right")
 
-    for sec_name in [".data", ".rdata", ".bss", "unknown"]:
-        count = section_counts.get(sec_name, 0)
-        sec = sections.get(sec_name)
-        if count == 0 and sec_name != "unknown" and not sec:
-            continue
-        size_str = f"{sec.get('size', 0):,}B" if sec else "—"
-        tbl.add_row(sec_name, str(count), size_str)
+    for row in rows:
+        sec_name = row["name"]
+        size_str = f"{row['section_size']:,}B" if row["section_size"] else "—"
+        coverage_str = (
+            f"{row['coverage_pct']}%" if row["section_size"] else "—"
+        )
+        tbl.add_row(
+            sec_name,
+            str(row["globals"]),
+            str(row["annotated"]),
+            f"{row['annotated_bytes']:,}B / {size_str}",
+            coverage_str,
+        )
 
     annotated = sum(1 for g in scan.globals.values() if g.annotated)
     total = len(scan.globals)
@@ -1378,6 +1425,12 @@ def main(
         data["sections"] = {
             name: {"va": f"0x{s['va']:08x}", "size": s["size"]} for name, s in sections.items()
         }
+        if summary:
+            # --summary composes with --json: emit a structured section progress view.
+            data["summary"] = {
+                "sections": _section_summary(scan, sections),
+                "conflicts": len(scan.type_conflicts),
+            }
         json_print(data)
         return
 
