@@ -8,6 +8,20 @@
   under the old host-wine Z: mapping.
 
 ### Added
+- **Per-version toolchain detection** (`rebrew toolchain detect`): the
+  detector now pins the exact MSVC version from PE metadata — the Rich
+  header (compiler front/back-end build) + optional-header linker version
+  -> e.g. 12.00.9782 = msvc600sp6 (the VC 6.0 SP builds are distinct C1
+  builds: 8168 RTM / 8447 SP3 / 8966 SP5 / 9782 SP6; VC 2.0-4.2 have no
+  Rich header and are named by the linker version 2.50/3.0/3.10/4.20),
+  with the msvcpX.dll import as a secondary binder.  `suggested_profiles`
+  picks the version-exact rebrew profile (init --guess-compiler / intake
+  / doctor now suggest e.g. msvc600sp6 instead of msvc6 for an SP6
+  binary), and `profile_matches_detection` flags a configured profile that
+  is a different compiler build before the first compile.  Fixed a
+  pre-existing `_is_16bit_target` bug that classified every PE as 16-bit.
+
+### Added
 - **Per-library toolchain/flags overrides** (`rebrew-library.toml` at a
   library root, managed by `rebrew library set/show/rm`): the right
   abstraction for "some parts of the codebase were built with other

@@ -159,6 +159,8 @@ def detect_cmd(
         "crt_linkage": info.crt_linkage or None,
         "base_cflags_hint": info.base_cflags or None,
         "packed": info.packed or None,
+        "msvc_version": info.msvc_version or None,
+        "suggested_profiles": info.suggested_profiles or None,
         "compatible_profiles": sorted(compat) if compat else None,
     }
 
@@ -195,6 +197,10 @@ def detect_cmd(
     )
     if info.arch:
         console.print(f"  arch:      {info.arch}")
+    if info.msvc_version:
+        console.print(f"  msvc:      {info.msvc_version}")
+    if info.suggested_profiles:
+        console.print(f"  suggest:   {', '.join(info.suggested_profiles)}")
     if info.packed:
         console.print(f"  packed:    [yellow]{info.packed}[/yellow] (unpack before analysis)")
     if info.flags:
