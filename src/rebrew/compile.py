@@ -61,7 +61,7 @@ from rebrew.core import (
 )
 from rebrew.headless import ensure_xvfb
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
-from rebrew.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
+from rebrew.toolchain import TOOLCHAINS, ToolchainError, ToolchainSpec, run_toolchain
 from rebrew.utils import safe_shlex_split
 
 # ---------------------------------------------------------------------------
@@ -570,6 +570,38 @@ def _docker_include_rewrite(
     return out, mounts
 
 
+
+
+
+_toolchain_digest_cache: dict[str, str] = {}
+
+
+def _toolchain_cache_id(spec: "ToolchainSpec") -> str:
+    """The compile-cache toolchain id: the image tag, extended with the
+    image's content id when docker can report it cheaply (cached per
+    process).  Rebuilding an image under a stable tag (`rebrew toolchain
+    update --apply`) changes the content id, so objects compiled with the
+    OLD image are never served as if they came from the new one.  Falls
+    back to the bare tag when docker is unavailable or the inspect fails.
+    """
+    digest = _toolchain_digest_cache.get(spec.image)
+    if digest is None:
+        digest = ""
+        try:
+            r = subprocess.run(
+                ["docker", "image", "inspect", "--format", "{{.Id}}", spec.image],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                digest = r.stdout.strip().removeprefix("sha256:")[:12]
+        except (OSError, subprocess.TimeoutExpired):
+            digest = ""
+        _toolchain_digest_cache[spec.image] = digest
+    return f"{spec.image}@{digest}" if digest else spec.image
+
+
 def compile_to_obj(
     cfg: ProjectConfig,
     source_path: str | Path,
@@ -664,7 +696,7 @@ def compile_to_obj(
     if cc is not None:
         source_content = source_path.read_bytes().decode("utf-8", errors="surrogateescape")
         if spec is not None and spec.image is not None:
-            toolchain_id = spec.image  # the image tag is the canonical identity
+            toolchain_id = _toolchain_cache_id(spec)
         else:
             toolchain_id = " ".join(resolve_cl_command(cfg))
         include_dirs = [inc_path, str(src_parent)]

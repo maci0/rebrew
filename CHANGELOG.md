@@ -24,6 +24,17 @@
   (native profiles like gcc-pe still require one) and
   `resolve_cl_command` returns [] instead of a phantom CL.EXE path.
 
+### Fixed
+- **Compile cache served stale objects after `rebrew toolchain update`**:
+  the cache keyed on the image tag, but `update --apply` rebuilds the
+  image under the same tag.  The key now includes the image content id
+  (docker image inspect, cached per process), so a re-pinned/rebuild
+  invalidates cached objects.
+- **`rebrew toolchain smoke` / `update` used /tmp/rebrew-smoke**: the
+  system temp dir can be docker-invisible (sandboxed environments), so
+  the smoke gate failed there.  Both now use the real-disk
+  writable_temp_dir fallback; smoke passes under sandboxed homes.
+
 ### Added
 - **Per-version toolchain detection** (`rebrew toolchain detect`): the
   detector now pins the exact MSVC version from PE metadata — the Rich

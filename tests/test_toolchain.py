@@ -644,11 +644,12 @@ class TestSmokePrintGoldens:
         obj = b"OBJ" + b"\x01\x02\x03\x04" + b"TAIL"
 
         def _fake_run(cmd, **kwargs):  # noqa: ARG001
-            # docker run ... image /c t.c → writes the object into /work (the
-            # mounted host workdir /tmp/rebrew-smoke).
+            # docker run ... -v <host>:/work ... image /c t.c → writes the
+            # object into /work (the mounted host workdir).
             from pathlib import Path
 
-            (Path("/tmp/rebrew-smoke") / "t.obj").write_bytes(obj)
+            v = cmd[cmd.index("-v") + 1]
+            (Path(v.split(":")[0]) / "t.obj").write_bytes(obj)
             return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
 
         monkeypatch.setattr(subprocess, "run", _fake_run)
