@@ -546,6 +546,18 @@ def _install_tool_alt(path: Path, root: Path) -> Path | None:
 def _split_compiler_runner(compiler: dict[str, Any]) -> tuple[str, str]:
     command_raw = _as_str(compiler.get("command"), "wine CL.EXE", "compiler.command")
     if not command_raw.strip():
+        # Docker-only: an image-backed profile legitimately has no host
+        # command (the image IS the compiler); native profiles still need
+        # one and are rejected below.
+        profile = str(compiler.get("profile") or "").strip()
+        try:
+            from rebrew.toolchain import TOOLCHAINS
+
+            spec = TOOLCHAINS.get(profile)
+        except Exception:  # noqa: BLE001 — toolchain import is best-effort
+            spec = None
+        if spec is not None and spec.image is not None:
+            return "", ""
         raise ValueError("rebrew-project.toml compiler.command must not be empty")
     if "runner" in compiler:
         return _as_str(compiler.get("runner"), "", "compiler.runner"), command_raw

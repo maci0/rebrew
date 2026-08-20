@@ -892,6 +892,16 @@ def main(
         if layout is not None:
             cmd, inc, lib = layout
             profile = {**profile, "command": cmd, "includes": inc, "libs": lib}
+    # Docker-only execution: every Windows/DOS toolchain compiles through
+    # its docker image, so the legacy host wine command/runner are inert —
+    # write an empty command so fresh projects are docker-native (no stale
+    # "wine toolchain/..." line that doctor/verify might misread).  Native
+    # profiles without an image (gcc-pe, watcom16 wcc) keep their command.
+    from rebrew.toolchain import TOOLCHAINS
+
+    _spec = TOOLCHAINS.get(compiler_profile)
+    if _spec is not None and _spec.image is not None:
+        profile = {**profile, "command": "", "runner": ""}
     runner = "tools/wibo" if install_wibo else profile["runner"]
     compiler_command = profile["command"]
     if install_wibo and compiler_command.startswith("wine "):

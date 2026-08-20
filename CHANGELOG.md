@@ -15,6 +15,15 @@
   `compile_to_obj` now accepts `extra_include_dirs` and same-path mounts
   them into the container (verified: guild-rebrew ServerMainThread diffs).
 
+### Changed
+- **`rebrew init` writes docker-native configs**: image-backed profiles
+  (all MSVC/Borland/Watcom/16-bit) now get an empty `compiler.command` /
+  `runner` — the docker image is the compiler, and the stale
+  `command = "wine toolchain/..."` line confused doctor/verify.  The
+  config loader accepts an empty command for image-backed profiles
+  (native profiles like gcc-pe still require one) and
+  `resolve_cl_command` returns [] instead of a phantom CL.EXE path.
+
 ### Added
 - **Per-version toolchain detection** (`rebrew toolchain detect`): the
   detector now pins the exact MSVC version from PE metadata — the Rich

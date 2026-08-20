@@ -275,8 +275,8 @@ class TestInit:
     def test_msvc7_resolves_available_toolchain(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Same guarantee for msvc7: the profile default points at
-        toolchain/msvc/7.0-win32, the vendored mirror is toolchain/msvc/7.0-win32."""
+        """msvc7 is docker-backed — init writes a docker-native config (empty
+        host command; the image is the compiler), no stale wine path."""
         monkeypatch.chdir(tmp_path)
         init(
             target_name="server",
@@ -287,14 +287,14 @@ class TestInit:
             install_completions=False,
         )
         content = (tmp_path / "rebrew-project.toml").read_text()
-
-        from rebrew.utils import resolve_msvc_toolchain
-
-        layout = resolve_msvc_toolchain(tmp_path, "msvc7")
-        if layout is not None:
-            assert layout[0] in content, f"expected {layout[0]!r} in generated config"
-        else:
-            assert "toolchain/msvc/7.0-win32/Bin/cl.exe" in content
+        assert 'profile = "msvc7"' in content
+        assert 'command = ""' in content
+        assert 'runner = ""' in content
+        # no host wine invocation in the active [compiler] block
+        assert not any(
+            line.strip().startswith(("command", "runner")) and "wine" in line
+            for line in content.splitlines()
+        )
 
     def test_creates_agents_md(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """init() creates AGENTS.md."""
@@ -864,7 +864,9 @@ class TestInitTc16:
         )
         content = (tmp_path / "rebrew-project.toml").read_text()
         assert 'profile = "tc16"' in content
-        assert "TCC.EXE" in content
+        # docker-backed: no host TCC.EXE command, empty docker-native command
+        assert 'command = ""' in content
+        assert "TCC.EXE" not in content
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             cfg = load_config(tmp_path, "main")
