@@ -41,9 +41,12 @@ Execution is **docker-only for every Windows/DOS toolchain**:
   binary directly — they are not Windows binaries, no wine involved.
 - `compile_to_obj` routes every registered profile through the runner;
   the direct-wine branch is gone.  Project include dirs are
-  **bind-mounted** into the container (`-v <dir>:/inc<N>` with the flag
-  rewritten to `/inc<N>`), preserving `/I` semantics; the toolchain's own
-  include tree is not mounted (the image carries its byte-identical
+  **same-path bind-mounted** into the container (`-v <dir>:<dir>` at the
+  absolute host path) so `/I` flags work unchanged AND relative
+  `#include "../../x.h"` paths resolve exactly as on the host (the old
+  host-wine path relied on wine's Z: whole-filesystem mapping; a
+  container-root mount would let `../..` escape to `/`).  The toolchain's
+  own include tree is not mounted (the image carries its byte-identical
   copy).
 - The per-function toolchain override (metadata `TOOLCHAIN`) selects the
   override's image instead of patching a wine env.
@@ -71,8 +74,9 @@ Negative / accepted:
   `doctor` reports this with the exact command.
 - Docker adds per-invocation overhead vs a warm host wine; amortized by
   the compile cache (cache hits skip the subprocess entirely).
-- Include trees outside the repo's `toolchain/` need bind-mounting, so
-  compile-time only; the smoke gate covers the toolchain's own includes.
+- Include trees are bind-mounted at their host paths, so compiles see
+  the project's full include structure (relative `../..` includes work);
+  the smoke gate covers the toolchain's own includes.
 - The vendored trees are still required as the image build source (and
   for `rebrew toolchain vendor` reproducibility), so disk usage is
   unchanged.

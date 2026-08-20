@@ -535,18 +535,17 @@ def _is_vendored_toolchain_tree(p: Path) -> bool:
 
 
 def _docker_include_rewrite(
-    flags: list[str],
-    workdir: Path,
-    mount_offset: int = 0,
+    flags: list[str], workdir: Path
 ) -> tuple[list[str], list[tuple[str, str]]]:
     """Rewrite /I and -I flags for a docker container invocation.
 
     The container only sees the workdir (mounted at /work) plus explicit
     bind mounts.  Include dirs under the workdir become relative paths
-    (they resolve inside /work); absolute host dirs are bind-mounted at
-    ``/inc<N>`` and the flag is rewritten to that container path.
-    *mount_offset* continues the numbering across calls (each extra dir is
-    rewritten separately, so targets must not restart at /inc0).
+    (they resolve inside /work).  Absolute host dirs are bind-mounted at
+    their **absolute host path** (same-path mount) and the flag is left
+    untouched: a relative ``#include "../../x.h"`` then resolves exactly
+    as it does on the host (wine's Z: mapping did this implicitly) — a
+    container-root mount (``/incN``) would let ``../..`` escape to ``/``.
     Returns ``(rewritten_flags, mounts)``."""
     mounts: list[tuple[str, str]] = []
     out: list[str] = []
@@ -558,9 +557,10 @@ def _docker_include_rewrite(
                 rel = p.resolve().relative_to(workdir.resolve())
                 out.append(flag[:2] + str(rel))
             except ValueError:
-                target = f"/inc{len(mounts) + mount_offset}"
-                mounts.append((str(p.resolve()), target))
-                out.append(flag[:2] + target)
+                host = str(p.resolve())
+                if host not in [m[0] for m in mounts]:
+                    mounts.append((host, host))
+                out.append(flag)
         else:
             out.append(flag)
     return out, mounts
@@ -693,7 +693,17 @@ def compile_to_obj(
         mounts: list[tuple[str, str]] = []
         if spec.image is not None:
             # --- docker: rewrite include flags for the container ---
-            all_flags, mounts = _docker_include_rewrite(all_flags, workdir)
+            # The project root is same-path mounted: relative
+            # `#include "../.."` paths in a project tree resolve exactly as
+            # on the host (the source copy in /work is flat, so only /I
+            # flags + the root mount can reach the original tree).
+            root_dir = getattr(cfg, "root", None)
+            if root_dir is not None:
+                root_p = Path(root_dir).resolve()
+                if root_p.exists():
+                    mounts.append((str(root_p), str(root_p)))
+            all_flags, extra_mounts = _docker_include_rewrite(all_flags, workdir)
+            mounts += extra_mounts
             # The source's own dir (../../ includes) and any custom include dir
             # outside the vendored toolchain trees are bind-mounted; the
             # toolchain's own include tree ships inside the image (byte-identical
@@ -707,11 +717,12 @@ def compile_to_obj(
                     extra_inc.append(str(inc_path))
                 prefix = "/I" if spec.flags_style == "msvc" else "-I"
                 for d in extra_inc:
-                    rewritten, extra_mounts = _docker_include_rewrite(
-                        [f"{prefix}{d}"], workdir, mount_offset=len(mounts)
-                    )
+                    rewritten, extra_mounts = _docker_include_rewrite([f"{prefix}{d}"], workdir)
                     mounts += extra_mounts
                     all_flags += rewritten
+                # Same-path mounts may repeat across dirs — docker rejects
+                # duplicate -v targets.
+                mounts = list(dict.fromkeys(mounts))
         if profile in ("msvc1.52", "msvc15", "msvc10", "tc16", "tc20"):
             # 16-bit DOSBox wrappers stage their own include tree.
             args = [src_name, *all_flags]
