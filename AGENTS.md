@@ -9,8 +9,8 @@ Install editable (`uv pip install -e .`) inside a workspace containing binaries,
 ## Compiler Profiles
 
 - **`msvc6`** (default): MSVC 6.0 — runs ONLY through its docker image `rebrew/msvc:6.0-win32` (the image wraps wine; the host never calls CL.EXE directly). MSVC flags (`/I`, `/Fo`, `/c`). C89.
-  Execution is **docker-only for every Windows/DOS toolchain** (all `msvc*`, `borlandc55`, `watcom`, `tc16`/20, `msvc1.52`/15/10, `delphi16`): the image encapsulates the runtime (wine / DOSBox) and there is no host wine/wibo/dosbox fallback.  A missing image is a hard error — run `rebrew toolchain build <name>` (or `rebrew toolchain pull <name>`).  The vendored `toolchain/<family>/<version>-<arch>` trees remain as the byte-identical build source for the images, but nothing executes from them.
-  Legacy `tools/<name>` paths resolve via gitignored compat symlinks recreated by `rebrew toolchain vendor` (build-source only).
+  Execution is **docker-only for every Windows/DOS toolchain** (all `msvc*`, `borlandc55`, `watcom`, `tc16`/20, `msvc1.52`/15/10, `delphi16`): the image encapsulates the runtime (wine / DOSBox) and there is no host wine/wibo/dosbox fallback.  A missing image is a hard error — run `rebrew toolchain build <name>` (or `rebrew toolchain pull <name>`).  The docker build source (Dockerfiles, wrappers, the shared `base`) lives in the sibling **rebrew-toolchains** checkout (overridable via `REBREW_TOOLCHAINS_DIR`); `rebrew toolchain build`/`vendor` read it from there — rebrew no longer vendors build files in-repo.
+  The 16-bit media tarballs are user-supplied next to their Dockerfile in that checkout; the vendored host trees (assemble via `rebrew toolchain vendor`) land in `<family>/<version>-<arch>/source` there too.
 - **`gcc-pe`**: `i686-w64-mingw32-gcc` — POSIX flags (`-I`, `-o`, `-c`), a native Linux binary (no wine), PATH-resolved toolchain, empty `includes`/`libs` allowed. For MinGW GCC / Zig-built PE/x86_32 targets (`.buildid` section, `0f 1f` GNU nops, call-based `___chkstk_ms` probe, few/no CRT imports).
   See `docs/TOOLCHAIN.md` for the codegen-version caveat: byte-exact matching requires the author's exact GCC version; old builds usually match only structurally (document semantic decomp + blocker).
 - **`gcc` / `clang`**: ELF/x86_64 targets.
@@ -19,7 +19,7 @@ Install editable (`uv pip install -e .`) inside a workspace containing binaries,
 - **`tc16`**: Turbo C++ 3.1 `TCC.EXE` (16-bit DOS) — image `rebrew/borland:3.1-win16` (DOSBox inside the image). Classic DOS-game compiler. 16-bit OMF via `rebrew.matcher.omf16`.
 - **`msvc1.52` / `delphi16`**: 16-bit targets — images `rebrew/msvc:1.52-win16`, `rebrew/delphi:1.0-win16` (DOSBox inside the image).
 
-All images build reproducibly (pinned sources, sha256-verified downloads or committed tarballs; shared `rebrew/base` with pinned Debian digest) and `rebrew toolchain smoke` gates byte-reproducible objects for every image-backed toolchain — see `docs/TOOLCHAIN.md`.
+All images build reproducibly (pinned sources, sha256-verified downloads or 16-bit media tarballs in the rebrew-toolchains checkout; shared `rebrew/base` with pinned Debian digest) and `rebrew toolchain smoke` gates byte-reproducible objects for every image-backed toolchain — see `docs/TOOLCHAIN.md`.
 
 **Per-library toolchain/flags overrides** (`rebrew-library.toml` at a library
 root, managed by `rebrew library set/show/rm`): a source subtree whose
@@ -172,7 +172,6 @@ src/rebrew/
 ├── dosbox.py            # Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads)
 ├── toolchain.py         # Toolchain abstraction: spec registry, docker-only runner (images for Windows/DOS, native for Linux compilers)
 ├── toolchain_cli.py     # `rebrew toolchain` CLI (list/status/detect/pull/build)
-├── toolchain/           # Vendored toolchains + Dockerfiles per family (toolchain/<family>/<version>-<arch>/, shared rebrew/base)
 ├── cu_map.py            # Compilation-unit boundary inference (contiguity + call graph)
 ├── todo.py              # Prioritized action list
 ├── similar.py           # Find structurally similar functions
@@ -253,6 +252,13 @@ src/rebrew/
 tests/
 ├── test_[module].py     # Unit tests, one per module
 ```
+
+The docker-image build source (Dockerfiles, wrappers, `base/`, the 16-bit
+media tarballs) is **not in this repo** — it lives in the sibling
+**`rebrew-toolchains`** checkout (github.com/maci0/rebrew-toolchains,
+overridable via `REBREW_TOOLCHAINS_DIR`).  `rebrew toolchain build`/
+`vendor`/`update` read it from there; `rebrew.toolchain._toolchains_repo()`
+resolves it (a missing checkout is an actionable error).
 
 ### CLI Tool Pattern
 

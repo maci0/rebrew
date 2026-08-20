@@ -1,9 +1,9 @@
 """delphi16.py — Delphi 1.0 (16-bit NE) compilation support.
 
 Wraps the vendored 16-bit Borland Delphi 1.0 compiler (``DCC.EXE``, a DOS
-DPMI app, run headless under DOSBox per the proven recipe in
-``toolchain/delphi/1.0-win16/README.md``) and parses the resulting 16-bit NE
-executable with the native NE loader.
+DPMI app, run headless under DOSBox per the proven recipe in the
+``rebrew-toolchains/delphi/1.0-win16`` tree) and parses the resulting 16-bit
+NE executable with the native NE loader.
 
 Used for research (compile + NE parse) on Delphi targets.  Note: 16-bit
 matching in rebrew is implemented via the separate ``msvc1.52`` profile
@@ -38,14 +38,18 @@ class Delphi16Result:
 
 
 def _find_dcc() -> Path:
-    """Locate the vendored DCC.EXE (repo toolchain/delphi/1.0-win16)."""
-    repo_tools = Path(__file__).resolve().parents[2] / "toolchain"
-    dcc = repo_tools / "delphi" / "1.0-win16" / "source" / "DCC.EXE"
+    """Locate the vendored DCC.EXE (rebrew-toolchains/delphi/1.0-win16)."""
+    from rebrew.toolchain import _toolchains_repo
+
+    dcc = _toolchains_repo() / "delphi" / "1.0-win16" / "source" / "DCC.EXE"
     if dcc.exists():
         return dcc
     raise Delphi16Error(
-        "vendored Delphi 1.0 toolchain not found under toolchain/delphi/1.0-win16 "
-        "(DCC.EXE + DELPHI.DSL + DPMI16BI.OVL are required)"
+        "vendored Delphi 1.0 toolchain not found under "
+        "rebrew-toolchains/delphi/1.0-win16/source (DCC.EXE + DELPHI.DSL + "
+        "DPMI16BI.OVL are required) — run `rebrew toolchain vendor "
+        "delphi16` with the delphi10.tar.xz media tarball next to the "
+        "Dockerfile in the rebrew-toolchains checkout"
     )
 
 
@@ -124,9 +128,9 @@ def compile_ne(
     (sandbox / staged_name).write_text(src_text, encoding="utf-8")
 
     # Stage the RTL/VCL units + a DCC.CFG that points at them, when found.
-    # The mission (toolchain/delphi/1.0-win16/README.md) established DCC.CFG's unit path
-    # is required for unit-using programs; DELPHI.DSL alone suffices for the
-    # built-in units (System, WinTypes, WinProcs).
+    # The mission (rebrew-toolchains/delphi/1.0-win16 tree) established
+    # DCC.CFG's unit path is required for unit-using programs; DELPHI.DSL
+    # alone suffices for the built-in units (System, WinTypes, WinProcs).
     lib_dir: Path | None = None
     if units_dir is not None:
         lib_dir = Path(units_dir)

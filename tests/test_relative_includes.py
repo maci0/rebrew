@@ -13,8 +13,15 @@ from types import SimpleNamespace
 import pytest
 
 from rebrew.compile import compile_and_compare, compile_to_obj
+from rebrew.toolchain import _toolchains_repo
 
 _REPO = Path(__file__).resolve().parents[1]
+
+#: A vendored-tree include path under the rebrew-toolchains checkout — the
+#: docker layer skips bind-mounting these (the image bakes its own), so the
+#: relative-include machinery gets exercised without docker recreating
+#: stray host dirs.
+_INSTALL_INCLUDES = str(_toolchains_repo() / "msvc" / "6.0-win32" / "VC98" / "Include")
 
 
 def _image_available(profile: str) -> bool:
@@ -56,7 +63,7 @@ def test_relative_include_resolves_through_image() -> None:
         compiler_profile="msvc6",
         compiler_command="",
         compiler_runner="",
-        compiler_includes="toolchain/msvc/6.0-win32/VC98/Include",  # skipped (image has its own)
+        compiler_includes=_INSTALL_INCLUDES,  # skipped (image has its own)
         base_cflags="/nologo /c",
         compile_timeout=180,
         posix_style=False,
@@ -95,7 +102,7 @@ def test_relative_include_deep_nesting() -> None:
         compiler_profile="msvc6",
         compiler_command="",
         compiler_runner="",
-        compiler_includes="toolchain/msvc/6.0-win32/VC98/Include",
+        compiler_includes=_INSTALL_INCLUDES,
         base_cflags="/nologo /c",
         compile_timeout=180,
         posix_style=False,
@@ -122,7 +129,7 @@ def test_compile_and_compare_resolves_relative_include() -> None:
         compiler_profile="msvc6",
         compiler_command="",
         compiler_runner="",
-        compiler_includes="toolchain/msvc/6.0-win32/VC98/Include",
+        compiler_includes=_INSTALL_INCLUDES,
         base_cflags="/nologo /c",
         compile_timeout=180,
         posix_style=False,

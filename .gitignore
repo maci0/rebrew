@@ -106,67 +106,16 @@ rebrew-function.toml.lock
 /toolchain-images/**/delphi-lib/
 /toolchain-images/msvc/**/msvc152/
 
-# Vendored toolchain trees under toolchain/ stay out of git — only the build
-# source is tracked: Dockerfiles, wrapper scripts, the shared base image, and
-# the Quantum-archive decoder the tests import.
-/toolchain/**
-!/toolchain/
-!/toolchain/base/
-!/toolchain/*/
-!/toolchain/*/*/
-!/toolchain/**/Dockerfile
-!/toolchain/**/.dockerignore
-!/toolchain/**/*.sh
-!/toolchain/**/pak_extract.py
-!/toolchain/**/*.tar.xz
+# Vendored toolchain trees under toolchain/ stay out of git — the docker
+# build source (Dockerfiles, wrappers, the shared base) is no longer
+# vendored in-repo at all: it lives in the sibling rebrew-toolchains repo
+# (see docs/TOOLCHAIN.md).  A stray dir here is never build source.
+/toolchain/
 
-# tools/ symlinks back to the vendored toolchain/ trees (existing projects
-# keep resolving tools/<name> → toolchain/<family>/<version>-<arch>; the
-# aliases are recreated by `rebrew toolchain vendor` via ensure_compat_links).
-/tools/DELPHI10
-/tools/MSVC152
-/tools/MSVC420
-/tools/MSVC500
-/tools/MSVC600
-/tools/MSVC7
-/tools/WATCOM
-/tools/delphi-1.0-win16
-/tools/msvc-1.52-win16
-/tools/msvc-4.2-win32
-/tools/msvc-5.0-win32
-/tools/msvc-6.0-sp3-win32
-/tools/msvc-6.0-sp6-win32
-/tools/msvc-6.0-win32
-/tools/msvc-7.0-win32
-/tools/msvc6.3
-/tools/msvc6.6
-/tools/msvc7.0
-/tools/TC
-/tools/watcom-win32
-# Additional msvc/legacy toolchain compat symlinks (same transient aliases,
-# recreated by `rebrew toolchain vendor`).
-/tools/MSVC10
-/tools/MSVC15
-/tools/MSVC200
-/tools/MSVC410
-/tools/MSVC7RTM
-/tools/msvc-1.0-win16
-/tools/msvc-1.5-win16
-/tools/msvc-10.0-sp1-win32
-/tools/msvc-10.0-win32
-/tools/msvc-2.0-win32
-/tools/msvc-4.1-win32
-/tools/msvc-5.0-sp1-win32
-/tools/msvc-5.0-sp2-win32
-/tools/msvc-5.0-sp3-win32
-/tools/msvc-6.0-sp5-win32
-/tools/msvc-7.0-rtm-win32
-/tools/msvc-7.0-sp1-win32
-/tools/msvc-7.1-sp1-win32
-/tools/msvc-7.1-win32
-/tools/msvc-8.0-sp1-win32
-/tools/msvc-8.0-win32
-/tools/msvc-9.0-win32
+# tools/ symlinks back to the vendored toolchain/ trees are gone — the
+# toolchain trees now live in the rebrew-toolchains checkout, so there is
+# nothing to alias (legacy projects repoint rebrew-project.toml paths at
+# the vendored trees in that checkout).
 
 # Toolchain download cache (pinned-source tarballs, re-fetched by rebrew toolchain vendor).
 /.cache/

@@ -3,8 +3,8 @@
 The command-line compilers ``TCC.EXE`` (Turbo C 2.0, 1988) and ``TCC.EXE``
 (Turbo C++ 3.1, 1992) are 16-bit DOS programs — they run headless under
 DOSBox via the shared :mod:`rebrew.dosbox` runner, mirroring the MSVC 1.52
-path (:mod:`rebrew.msvc16`).  The vendored trees
-(``toolchain/borland/2.0-win16``, ``toolchain/borland/3.1-win16``) have
+path (:mod:`rebrew.msvc16`).  The vendored trees (``borland/2.0-win16``,
+``borland/3.1-win16`` under the rebrew-toolchains checkout) have
 BIN/INCLUDE/LIB at the top after the floppy/``TC/`` wrapper is stripped by
 ``rebrew toolchain vendor``.
 
@@ -46,14 +46,17 @@ class Tc16Result:
 
 def _find_tc16(version: str = "3.1") -> Path:
     """Locate the vendored Borland 16-bit TCC tree (BIN/TCC.EXE present)."""
+    from rebrew.toolchain import _toolchains_repo
+
     tree = _TREES.get(version)
     if tree is None:
         raise Tc16Error(f"unknown Borland TCC version {version!r} (known: {sorted(_TREES)})")
-    root = Path(__file__).resolve().parents[2] / "toolchain" / tree / "source"
+    root = _toolchains_repo() / tree / "source"
     tcc = root / "BIN" / "TCC.EXE"
     if not tcc.exists():
         raise Tc16Error(
-            f"{_DISPLAY[version]} not vendored — run `rebrew toolchain vendor` (expected {tcc})"
+            f"{_DISPLAY[version]} not vendored — run `rebrew toolchain vendor` "
+            f"(expected {tcc} under the rebrew-toolchains checkout)"
         )
     return root
 

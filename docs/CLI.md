@@ -509,10 +509,12 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 | `--json` | Output results as JSON |
 
 - `--link-tools-from PATH` — symlink `toolchain/<family>/<version>-<arch>` from a master toolchain
-  directory (e.g. the rebrew repo's `toolchain/`).  Optional: compiler
-  command/includes/libs that are missing under the project's `toolchain/` resolve
-  against the rebrew install's own vendored `toolchain/` automatically, so a
-  fresh project compiles out of the box without the symlink.
+  directory (e.g. a checkout holding vendored trees; the vendored trees
+  themselves assemble via `rebrew toolchain vendor` into the
+  rebrew-toolchains checkout).  Optional: compiler
+  command/includes/libs that are missing under the project's `toolchain/`
+  resolve against that master automatically, so a fresh project compiles
+  out of the box without the symlink.
 - `--install-completions` — write bash/zsh/fish completion scripts into `completions/`
 
 ### `rebrew asm`
@@ -662,8 +664,8 @@ Standardized toolchain management — the docker-first abstraction
 | `status NAME` | How one toolchain resolves (image pulled? host binary present? resolved-mirror layout reported when the master is absent) |
 | `detect BINARY` | Detect which compiler/toolchain built a binary (diec → PE metadata: Rich header/linker version → PDB → heuristics) — pins the exact MSVC version (e.g. 12.00.9782) and suggests the version-exact rebrew profile; with a project present, also reports whether the configured profile can byte-match it (`--json`) |
 | `pull NAME` | Pull a toolchain's docker image (locally-built images are reported as already present, not re-pulled; a failed pull on an absent image points at `toolchain build`, since rebrew images are built from pinned sources, not hosted on a registry) |
-| `build NAME` | Build a toolchain's docker image from its `toolchain/<family>/<ver>-<arch>/Dockerfile` (builds the shared `rebrew/base` dependency first) |
-| `vendor NAME` | Assemble the host tree from the pinned source — a committed in-repo tarball (msvc1.52, delphi, tc16, tc20) or a sha256-verified download (borland 5.5, watcom, msvc6, msvc400/4.2/5.0 via the archaic-msvc / itsmattkc codeload snapshots).  MSVC 6.0 is wrapped into the classic `VC98/` layout; after a successful vendor the gitignored `tools/<name>` compat symlinks (`MSVC600`, `MSVC7`, `MSVC400`, `msvc-4.0-win32`, `msvc6.3`, …) are recreated for legacy projects.  Refuses to clobber an existing tree; fails loudly if the compiler binary is missing |
+| `build NAME` | Build a toolchain's docker image from its `<family>/<ver>-<arch>/Dockerfile` in the rebrew-toolchains checkout (builds the shared `rebrew/base` dependency first) |
+| `vendor NAME` | Assemble the host tree from the pinned source — a 16-bit media tarball (msvc1.52/15/10, delphi, tc16, tc20) next to its Dockerfile in the rebrew-toolchains checkout, or a sha256-verified download (borland 5.5, watcom, msvc6, msvc400/4.2/5.0 via the archaic-msvc / itsmattkc codeload snapshots).  MSVC 6.0 is wrapped into the classic `VC98/` layout; the tree lands in `<family>/<ver>-<arch>/source` under that checkout.  Refuses to clobber an existing tree; fails loudly if the compiler binary is missing |
 | `smoke [NAME]` | Compile the fixed smoke source in each image and verify the object sha256 against the golden bytes — the byte-reproducibility gate (all toolchains pass: msvc6/5/4.2/4.0/1.52, borlandc55, watcom/watcom16, tc16/tc20, delphi16 — image-only; MSVC's COFF and Turbo C's COMENT build-time stamps are masked).  `--print-goldens` recomputes the masked hashes WITHOUT comparing, so bumping a pinned source is a mechanical two-step (run twice, verify stable, paste into `_SMOKE_GOLDEN`) |
 
 ### `rebrew binsync-export`

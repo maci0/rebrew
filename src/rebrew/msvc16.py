@@ -1,7 +1,7 @@
 """msvc16.py — 16-bit MSVC (1.5 / 1.52) compilation support.
 
 Wraps the vendored 16-bit Microsoft Visual C++ command-line compilers
-(``toolchain/msvc/1.52-win16``, ``toolchain/msvc/1.5-win16``): the CL.EXE
+(``rebrew-toolchains/msvc/1.52-win16``, ``rebrew-toolchains/msvc/1.5-win16``): the CL.EXE
 drivers are Phar Lap TNT DOS-extender PEs that run headless under DOSBox
 (wine's DOS-memory allocation fails for them).  Produces 16-bit OMF
 objects — the OMF parser (docs/OMF_NOTES.md) is the enabling piece for
@@ -29,13 +29,16 @@ class Msvc16Result:
 
 
 def _find_vc152(version: str = "1.52-win16") -> Path:
-    repo_tools = Path(__file__).resolve().parents[2] / "toolchain"
-    vc = repo_tools / "msvc" / version / "source"
+    from rebrew.toolchain import _toolchains_repo
+
+    vc = _toolchains_repo() / "msvc" / version / "source"
     if (vc / "BIN" / "CL.EXE").exists():
         return vc
     raise Msvc16Error(
-        f"vendored MSVC {version} not found under toolchain/msvc/{version}/source (BIN/INCLUDE/LIB "
-        "required — rebrew toolchain vendor msvc1.52/msvc15)"
+        f"vendored MSVC {version} not found under "
+        f"rebrew-toolchains/msvc/{version}/source (BIN/INCLUDE/LIB "
+        "required — run `rebrew toolchain vendor msvc1.52`/`msvc15` with "
+        "the media tarball next to the Dockerfile)"
     )
 
 
