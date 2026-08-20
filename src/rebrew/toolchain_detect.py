@@ -173,6 +173,25 @@ _RICH_BUILD_PROFILES: dict[int, tuple[str, ...]] = {
 }
 
 
+#: Linker-era default profiles (used when the Rich-header build is unknown):
+#: the linker version pins the compiler generation, so an unrecognized build
+#: (e.g. a hotfix) still suggests the right family instead of the generic
+#: default.  The Rich build table (_RICH_BUILD_PROFILES) overrides this when
+#: the exact build is known.
+_LINKER_ERA_PROFILES: dict[tuple[int, int], tuple[str, ...]] = {
+    (9, 0): ("msvc200",),
+    (10, 0): ("msvc400",),
+    (10, 10): ("msvc410",),
+    (10, 20): ("msvc420",),
+    (11, 0): ("msvc5", "msvc500sp1", "msvc500sp2", "msvc500sp3"),
+    (12, 0): ("msvc6", "msvc600sp3", "msvc600sp5", "msvc600sp6"),
+    (13, 0): ("msvc700", "msvc700sp1"),
+    (13, 10): ("msvc7", "msvc710", "msvc710sp1"),
+    (14, 0): ("msvc800", "msvc800sp1"),
+    (15, 0): ("msvc900",),
+    (16, 0): ("msvc1000", "msvc1000sp1"),
+}
+
 #: CRT import names -> MSVC version binder (msvcp60.dll = VC 6.0, etc.).
 #: The msvcpX.dll import is written by the /MD CRT of that toolchain; a
 #: strong secondary signal when the Rich header is absent (some linkers
@@ -638,7 +657,7 @@ def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
         info.family = "msvc"
         info.confidence = "high"
         build = rich_builds[-1]  # front/back-end pair share one build
-        profiles = _RICH_BUILD_PROFILES.get(build)
+        profiles = _RICH_BUILD_PROFILES.get(build) or _LINKER_ERA_PROFILES.get(linker_mm or ())
         mm = linker_mm or (12, 0)  # unknown linker -> VC6-era fallback
         version = f"{mm[0]}.{mm[1]:02d}.{build}"
         info.msvc_version = version
@@ -657,16 +676,7 @@ def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
     if linker_mm is not None:
         version = f"{linker_mm[0]}.{linker_mm[1]:02d}"
         info.msvc_version = version
-        if linker_mm == (9, 0):
-            info.suggested_profiles = ["msvc200"]
-        elif linker_mm == (10, 0):
-            info.suggested_profiles = ["msvc400"]
-        elif linker_mm == (10, 10):
-            info.suggested_profiles = ["msvc410"]
-        elif linker_mm == (10, 20):
-            info.suggested_profiles = ["msvc420"]
-        elif linker_mm == (11, 0):
-            info.suggested_profiles = ["msvc5", "msvc500sp1", "msvc500sp2", "msvc500sp3"]
+        info.suggested_profiles = list(_LINKER_ERA_PROFILES.get(linker_mm, ()))
         if linker_mm == (9, 0):
             info.add(f"linker {linker_ver} (MSVC 2.0 or MinGW GNU ld)")
             if msvcp_version:
