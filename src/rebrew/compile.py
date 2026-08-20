@@ -727,7 +727,11 @@ def compile_to_obj(
             toolchain_id = _toolchain_cache_id(spec)
         else:
             toolchain_id = " ".join(resolve_cl_command(cfg))
-        include_dirs = [inc_path, str(src_parent)]
+        # extra_include_dirs feed the /I flags and bind mounts — they are
+        # compile inputs and must shape the key (two functions whose
+        # relative #include resolves differently would otherwise share
+        # a cache entry and one would get the other's object).
+        include_dirs = [inc_path, str(src_parent), *(extra_include_dirs or [])]
         source_ext = source_path.suffix or ".c"
         cache_key = compile_cache_key(
             source_content=source_content,
