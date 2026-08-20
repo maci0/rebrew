@@ -75,6 +75,38 @@ def show_cmd(
         console.print(f"  presets:   {', '.join(ovr.presets)}")
 
 
+@app.command("list")
+def list_cmd(
+    root: str = typer.Argument(".", help="Project root (recursively finds rebrew-library.toml)"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+) -> None:
+    """List every rebrew-library.toml under *root* (all library overrides)."""
+    base = Path(root).resolve()
+    found = []
+    for p in sorted(base.rglob(LIBRARY_METADATA_FILE)):
+        meta = parse_library_metadata(p)
+        merged, presets = apply_library_presets(meta)
+        found.append(
+            {
+                "file": str(p),
+                "library": str(merged.get("library", "")),
+                "toolchain": str(merged.get("toolchain", "")),
+                "cflags": str(merged.get("cflags", "")),
+                "presets": list(presets),
+            }
+        )
+    if json_output:
+        json_print({"libraries": found})
+        return
+    if not found:
+        console.print(f"[yellow]no {LIBRARY_METADATA_FILE} found under {base}[/yellow]")
+        return
+    for lib in found:
+        tc = lib["toolchain"] or "(inherit)"
+        cf = lib["cflags"] or "(inherit)"
+        console.print(f"{lib['file']}  toolchain={tc}  cflags={cf}")
+
+
 @app.command("set")
 def set_cmd(
     directory: str = typer.Argument(

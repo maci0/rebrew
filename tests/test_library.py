@@ -123,6 +123,15 @@ class TestLibraryCli:
         from typer.testing import CliRunner
 
         return CliRunner().invoke(app, list(args))
+    def test_list_finds_all_overrides(self, tmp_path: Path) -> None:
+        proj, lib, _ = _tree(tmp_path)
+        (lib / LIBRARY_METADATA_FILE).write_text('toolchain = "msvc6"\n', encoding="utf-8")
+        res = self._invoke("list", str(proj), "--json")
+        assert res.exit_code == 0, res.output
+        import json
+        payload = json.loads(res.output)
+        assert len(payload["libraries"]) == 1
+        assert payload["libraries"][0]["toolchain"] == "msvc6"
 
     def test_set_show_rm_roundtrip(self, tmp_path: Path) -> None:
         lib = tmp_path / "lib"

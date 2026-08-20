@@ -901,7 +901,10 @@ def main(
 
     _spec = TOOLCHAINS.get(compiler_profile)
     if _spec is not None and _spec.image is not None:
+        # wibo is a host-wine alternative — obsolete under docker-only
+        # execution; ignore --install-wibo for image-backed profiles.
         profile = {**profile, "command": "", "runner": ""}
+        install_wibo = False
     runner = "tools/wibo" if install_wibo else profile["runner"]
     compiler_command = profile["command"]
     if install_wibo and compiler_command.startswith("wine "):
