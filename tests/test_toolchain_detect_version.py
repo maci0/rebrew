@@ -44,9 +44,14 @@ class TestVersionTables:
         """The VC 6.0 SP builds are distinct compilers in the Rich header.
         (Empirically dumped from the rebrew images: 8168 RTM, 8447 SP3,
         8966 SP5, 9782 SP6.)"""
-        assert _RICH_BUILD_PROFILES[8168] == ("msvc6",)
+        # 8168 is the C1 build for VC6 RTM through SP2 (SP3 bumped it to
+        # 8447) — every profile carrying that build can byte-match.
+        assert "msvc6" in _RICH_BUILD_PROFILES[8168]
+        assert "msvc600sp3" not in _RICH_BUILD_PROFILES[8168]
         assert _RICH_BUILD_PROFILES[8447] == ("msvc600sp3",)
-        assert _RICH_BUILD_PROFILES[8966] == ("msvc600sp5",)
+        # 8966 is shared by VC6 SP4 and SP5 (SP4 shipped the 8966 C1;
+        # SP5 kept it) - both can byte-match.
+        assert "msvc600sp5" in _RICH_BUILD_PROFILES[8966]
         assert _RICH_BUILD_PROFILES[9782] == ("msvc600sp6",)
         assert 9466 in _RICH_BUILD_PROFILES and _RICH_BUILD_PROFILES[9466] == (
             "msvc700",
@@ -76,7 +81,7 @@ class TestDetectWithPeMeta:
         assert info.family == "msvc"
         assert info.confidence == "high"
         assert info.msvc_version == "12.00.8168"
-        assert info.suggested_profiles == ["msvc6"]
+        assert "msvc6" in info.suggested_profiles
 
     def test_sp6_rich_build(self, monkeypatch) -> None:
         monkeypatch.setattr("rebrew.toolchain_detect.lief.parse", lambda p: _fake_pe("6.0", [9782]))
@@ -95,7 +100,7 @@ class TestDetectWithPeMeta:
         info = detect_with_pe_meta(Path("x.exe"))
         assert info is not None
         assert info.msvc_version == "12.00.8168"
-        assert info.suggested_profiles == ["msvc6"]
+        assert "msvc6" in info.suggested_profiles
 
     def test_rich_mode_pair_wins_over_single_other(self, monkeypatch) -> None:
         """[9782, 8168, 8168] (order-insensitive): still msvc6."""
