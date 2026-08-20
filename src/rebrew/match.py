@@ -258,6 +258,7 @@ class BinaryMatchingGA:
         rng_seed: int | None = None,
         compare_obj: bool = True,
         lib_dir: str | None = None,
+        link_cmd: str | None = None,
         ldflags: str | None = None,
         env: dict[str, str] | None = None,
         compile_cache: CompileCache | None = None,
@@ -305,6 +306,7 @@ class BinaryMatchingGA:
         self.rng_seed = rng_seed
         self.compare_obj = compare_obj
         self.lib_dir = lib_dir
+        self.link_cmd = link_cmd
         self.ldflags = ldflags
         self.env = env
         self.compile_timeout = compile_timeout
@@ -430,6 +432,7 @@ class BinaryMatchingGA:
                 self.cflags,
                 self.ldflags,
                 self.symbol,
+                link_cmd=self.link_cmd,
                 env=self.env,
                 timeout=self.compile_timeout * 2,
             )
@@ -1211,6 +1214,12 @@ def main(
     lib: str | None = typer.Option(
         None, "--lib", help="Lib dir", rich_help_panel="Single-Function"
     ),
+    link: str | None = typer.Option(
+        None,
+        "--link",
+        help="Linker command (auto from rebrew-project.toml)",
+        rich_help_panel="Single-Function",
+    ),
     ldflags: str | None = typer.Option(
         None, help="Linker flags", rich_help_panel="Single-Function"
     ),
@@ -1287,6 +1296,18 @@ def main(
         False,
         "--sweep-toolchain",
         help="Try each vendored MSVC toolchain (SP versions) instead of GA and report the best; combine with --flag-sweep-only to flag-sweep with each toolchain",
+        rich_help_panel="Single-Function",
+    ),
+    sweep_only: str = typer.Option(
+        "",
+        "--sweep-only",
+        help="Sweep only these toolchains (comma-separated profile names or version prefixes, e.g. msvc6,6.0,win16; a Y2K binary likely rules out 2.0/4.x — exclude them with --sweep-exclude 2.0,4.0)",
+        rich_help_panel="Single-Function",
+    ),
+    sweep_exclude: str = typer.Option(
+        "",
+        "--sweep-exclude",
+        help="Skip these toolchains in the sweep (comma-separated profile names or version prefixes, e.g. 2.0,4.0,win16)",
         rich_help_panel="Single-Function",
     ),
     sweep_then_ga: bool = typer.Option(
@@ -1678,6 +1699,7 @@ def main(
                 out_dir=out_dir,
                 compare_obj=compare_obj,
                 lib=lib,
+                link=link,
                 ldflags=ldflags,
                 flag_sweep_only=flag_sweep_only,
                 tier=tier,
@@ -1721,7 +1743,7 @@ def main(
 
     if flag_sweep_only and sweep_toolchain:
         # Both dimensions at once: flag-sweep with each vendored MSVC version.
-        _run_single_toolchain_flag_sweep(params, tier, jobs, json_output)
+        _run_single_toolchain_flag_sweep(params, tier, jobs, json_output, sweep_only, sweep_exclude)
         return
 
     if flag_sweep_only:
@@ -1729,7 +1751,7 @@ def main(
         return
 
     if sweep_toolchain:
-        _run_single_toolchain_sweep(params, json_output)
+        _run_single_toolchain_sweep(params, json_output, sweep_only, sweep_exclude)
         return
 
     _run_single_ga(
@@ -1749,6 +1771,7 @@ def main(
         llm_seed=llm_seed,
         dry_run=dry_run,
         mutation_weights=mutation_weights,
+        link=link,
     )
 
 
@@ -2134,53 +2157,67 @@ def run_flag_sweep(
 # ---------------------------------------------------------------------------
 
 
-#: Vendored MSVC toolchains in the rebrew repo's toolchain/ (the full
-#: 2.0-10.0 matrix incl. SP lines — archaic-msvc + decomp.me mirrors).  Used
-#: by ``--sweep-toolchain`` to answer "which MSVC version built this function?".
-_MSVC_TOOLCHAIN_PATHS: list[tuple[str, str, str]] = [
-    ("msvc2.0", "msvc/2.0-win32/bin/cl.exe", "msvc/2.0-win32/include"),
-    ("msvc-4.0-win32", "msvc/4.0-win32/BIN/CL.EXE", "msvc/4.0-win32/INCLUDE"),
-    ("msvc-4.1-win32", "msvc/4.1-win32/bin/CL.EXE", "msvc/4.1-win32/include"),
-    ("msvc-4.2-win32", "msvc/4.2-win32/bin/CL.EXE", "msvc/4.2-win32/include"),
-    ("msvc-5.0-win32", "msvc/5.0-win32/bin/cl.exe", "msvc/5.0-win32/include"),
-    ("msvc-5.0-sp1-win32", "msvc/5.0-sp1-win32/bin/cl.exe", "msvc/5.0-sp1-win32/include"),
-    ("msvc-5.0-sp2-win32", "msvc/5.0-sp2-win32/bin/cl.exe", "msvc/5.0-sp2-win32/include"),
-    ("msvc-5.0-sp3-win32", "msvc/5.0-sp3-win32/bin/cl.exe", "msvc/5.0-sp3-win32/include"),
-    ("msvc6.3", "msvc/6.0-sp3-win32/Bin/CL.EXE", "msvc/6.0-sp3-win32/Include"),
-    ("msvc-6.0-sp5-win32", "msvc/6.0-sp5-win32/VC98/Bin/CL.EXE", "msvc/6.0-sp5-win32/VC98/Include"),
-    ("msvc6.6", "msvc/6.0-sp6-win32/Bin/CL.EXE", "msvc/6.0-sp6-win32/Include"),
-    ("msvc-7.0-rtm-win32", "msvc/7.0-rtm-win32/Vc7/bin/cl.exe", "msvc/7.0-rtm-win32/Vc7/include"),
-    ("msvc-7.0-sp1-win32", "msvc/7.0-sp1-win32/Vc7/bin/cl.exe", "msvc/7.0-sp1-win32/Vc7/include"),
-    ("msvc-7.0-win32", "msvc/7.0-win32/Bin/cl.exe", "msvc/7.0-win32/Include"),
-    ("msvc-7.1-win32", "msvc/7.1-win32/Vc7/bin/cl.exe", "msvc/7.1-win32/Vc7/include"),
-    ("msvc-7.1-sp1-win32", "msvc/7.1-sp1-win32/Vc7/bin/cl.exe", "msvc/7.1-sp1-win32/Vc7/include"),
-    ("msvc-8.0-win32", "msvc/8.0-win32/VC/bin/cl.exe", "msvc/8.0-win32/VC/include"),
-    ("msvc-8.0-sp1-win32", "msvc/8.0-sp1-win32/VC/bin/cl.exe", "msvc/8.0-sp1-win32/VC/include"),
-    ("msvc-9.0-win32", "msvc/9.0-win32/VC/bin/cl.exe", "msvc/9.0-win32/VC/include"),
-    ("msvc-10.0-win32", "msvc/10.0-win32/VC/bin/cl.exe", "msvc/10.0-win32/VC/include"),
-    ("msvc-10.0-sp1-win32", "msvc/10.0-sp1-win32/VC/bin/cl.exe", "msvc/10.0-sp1-win32/VC/include"),
-]
+
+
+def _sweep_filter_matches(name: str, verarch: str, filters: list[str]) -> bool:
+    """True when *name* (profile id, e.g. msvc600sp6) matches a sweep filter.
+
+    A filter matches when it is the profile name itself ("msvc6"), a prefix
+    of the profile id ("msvc2" -> msvc200), or a substring of the version-arch
+    ("6.0" -> every 6.0 line incl. SPs; "win16" -> all 16-bit DOSBox
+    toolchains).  This is what lets a Y2K binary exclude the pre-5.0 line
+    with --sweep-exclude 2.0,4.0."""
+    n = name.lower()
+    va = verarch.lower()
+    for f in filters:
+        f = f.strip().lower()
+        if not f:
+            continue
+        if f == n or n.startswith(f) or f in va:
+            return True
+    return False
 
 
 def _vendored_msvc_toolchains(
-    cfg: Any, baseline_cl: str, baseline_inc: str
+    cfg: Any,
+    baseline_cl: str,
+    baseline_inc: str,
+    only: str = "",
+    exclude: str = "",
 ) -> list[tuple[str, str, str]]:
-    """Return (profile, cl_cmd, inc_dir) for vendored toolchains with a CL present."""
-    tools = Path(__file__).resolve().parents[2] / "toolchain"
+    """Return (profile, cl_cmd, inc_dir) for every image-backed MSVC toolchain.
+
+    Execution is docker-only: the cl_cmd/inc_dir are inert for image-backed
+    profiles (the image bakes the compiler + includes), so they are returned
+    empty and only the profile names matter — the sweep routes each compile
+    through that profile's image.  *only* / *exclude* are comma-separated
+    profile-name or version-prefix filters (see :func:`_sweep_filter_matches`);
+    the configured profile's own compiler is always included as a baseline.
+    """
+    from rebrew.toolchain import TOOLCHAINS
+
+    only_f = [f for f in (only or "").split(",") if f.strip()]
+    excl_f = [f for f in (exclude or "").split(",") if f.strip()]
+
     out: list[tuple[str, str, str]] = []
-    for profile, cl_sub, inc_sub in _MSVC_TOOLCHAIN_PATHS:
-        cl = tools / cl_sub
-        inc = tools / inc_sub
-        if cl.exists() and inc.is_dir():
-            out.append((profile, f"wine {cl}", str(inc)))
+    for name, spec in sorted(TOOLCHAINS.items()):
+        if spec.image is not None and spec.family == "msvc" and spec.binary == "cl":
+            verarch = spec.image.rsplit(":", 1)[-1] if spec.image else ""
+            if only_f and not _sweep_filter_matches(name, verarch, only_f):
+                continue
+            if _sweep_filter_matches(name, verarch, excl_f):
+                continue
+            out.append((name, "", ""))
     # Always include the configured profile's own compiler as a baseline.
-    out.insert(0, ("<current>", baseline_cl, baseline_inc))
+    out.insert(0, (getattr(cfg, "compiler_profile", "") or "msvc6", "", ""))
     return out
 
 
-def _run_single_toolchain_sweep(p: _BuildParams, json_output: bool) -> None:
+def _run_single_toolchain_sweep(
+    p: _BuildParams, json_output: bool, only: str = "", exclude: str = ""
+) -> None:
     """Compile the seed with each vendored MSVC toolchain and report the best."""
-    toolchains = _vendored_msvc_toolchains(p.cfg, p.cl, p.inc)
+    toolchains = _vendored_msvc_toolchains(p.cfg, p.cl, p.inc, only, exclude)
     # Catalog + IAT region are constant across toolchains — computed once,
     # not per iteration (the old code called build_iat_region inside the
     # loop and passed name_to_va via a getattr that never existed, so reloc
@@ -2201,6 +2238,8 @@ def _run_single_toolchain_sweep(p: _BuildParams, json_output: bool) -> None:
             cache=p.cc,
             timeout=p.cfg.compile_timeout,
             extra_include_dirs=[str(p.seed_c.parent.resolve())],
+            profile=profile,
+            cfg=p.cfg,
         )
         if not (res.ok and res.obj_bytes):
             results.append((float("inf"), False, 0, 0, profile))
@@ -2255,6 +2294,8 @@ def _run_single_toolchain_flag_sweep(
     tier: str,
     jobs: int,
     json_output: bool,
+    only: str = "",
+    exclude: str = "",
 ) -> None:
     """Flag-sweep with each vendored MSVC toolchain; report per-toolchain best.
 
@@ -2264,7 +2305,7 @@ def _run_single_toolchain_flag_sweep(
     project's cflags; ``--flag-sweep`` alone only tries the project's
     compiler).
     """
-    toolchains = _vendored_msvc_toolchains(p.cfg, p.cl, p.inc)
+    toolchains = _vendored_msvc_toolchains(p.cfg, p.cl, p.inc, only, exclude)
     rows: list[dict[str, Any]] = []
     for profile, cl_cmd, inc_dir in toolchains:
         results = flag_sweep(
@@ -2340,6 +2381,7 @@ def _run_single_ga(
     llm_seed: bool = False,
     dry_run: bool = False,
     mutation_weights: dict[str, float] | None = None,
+    link: str | None = None,
 ) -> None:
     """Run the full GA matching engine for a single source file."""
     out_dir_path = Path(out_dir)
@@ -2409,6 +2451,7 @@ def _run_single_ga(
         num_jobs=jobs,
         compare_obj=compare_obj,
         lib_dir=lib,
+        link_cmd=link,
         ldflags=ldflags,
         env=p.msvc_env,
         rng_seed=seed,

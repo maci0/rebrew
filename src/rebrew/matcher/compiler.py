@@ -332,6 +332,9 @@ def build_candidate_obj_only(
                 # source's parent dir must reach the container for relative
                 # #include resolution (rebrew diff / flag sweep).
                 extra_include_dirs=extra_include_dirs,
+                # A --sweep-toolchain run swaps the compiler per iteration —
+                # the profile must drive the image, not the project default.
+                toolchain=profile,
             )
             if obj_file is None:
                 return BuildResult(ok=False, error_msg=f"Compile failed: {err}")
@@ -435,11 +438,17 @@ def build_candidate(
     ldflags: str,
     symbol: str,
     extra_sources: list[str] | None = None,
+    link_cmd: str | None = None,
     env: dict[str, str] | None = None,
     source_ext: str = ".c",
     timeout: int = 120,
 ) -> BuildResult:
-    """Compile and link source to .exe, then extract symbol bytes."""
+    """Compile and link source to .exe, then extract symbol bytes.
+
+    *link_cmd* (when provided) overrides the MSVC linker invocation — e.g.
+    ``"link /SUBSYSTEM:WINDOWS"`` — replacing the default ``/link`` switch;
+    the base *ldflags* and ``/LIBPATH``/``/OUT``/``/MAP`` still follow.
+    """
     with tempfile.TemporaryDirectory(prefix="matcher_") as _td:
         workdir = Path(_td)
         src_name = f"cand{source_ext}"
@@ -453,8 +462,9 @@ def build_candidate(
                 shutil.copy2(es, workdir)
                 cmd.append(Path(es).name)
 
+        link_head = shlex.split(link_cmd) if link_cmd else ["/link"]
         cmd += (
-            ["/link"]
+            link_head
             + shlex.split(ldflags)
             + [f"/LIBPATH:{lib_dir}", f"/OUT:{exe_name}", f"/MAP:{map_name}"]
         )

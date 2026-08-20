@@ -34,21 +34,58 @@ def _make_params() -> SimpleNamespace:
 
 
 def test_vendored_enumeration_includes_msvc400() -> None:
-    """The sweep's MSVC version list covers the full vendored 4.0→7.0 line,
-    including the now-vendored 4.0 (uppercase BIN/INCLUDE layout) — the
-    detector can suggest any of these profiles, so the sweep must be able
-    to try each."""
-    from rebrew.match import _MSVC_TOOLCHAIN_PATHS
+    """The sweep's MSVC list covers the full image-backed registry line
+    (every msvc profile with a cl image) — the detector can suggest any of
+    these profiles, so the sweep must be able to try each."""
+    from rebrew.match import _vendored_msvc_toolchains
 
-    profiles = [p for p, _cl, _inc in _MSVC_TOOLCHAIN_PATHS]
-    assert "msvc-4.0-win32" in profiles
-    assert "msvc-4.2-win32" in profiles
-    assert "msvc-5.0-win32" in profiles
-    # 4.0's tree is all-caps (BIN/INCLUDE) — the sweep path must match it.
-    cl = next(cl for p, cl, _i in _MSVC_TOOLCHAIN_PATHS if p == "msvc-4.0-win32")
-    assert "4.0-win32/BIN/CL.EXE" in cl
-    inc = next(i for p, _c, i in _MSVC_TOOLCHAIN_PATHS if p == "msvc-4.0-win32")
-    assert "4.0-win32/INCLUDE" in inc
+    toolchains = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc6"), "", "")
+    profiles = [p for p, _cl, _inc in toolchains]
+    assert "msvc400" in profiles
+    assert "msvc420" in profiles
+    assert "msvc6" in profiles
+    assert "msvc600sp6" in profiles
+    assert "msvc1.52" not in profiles  # 16-bit DOSBox, not a cl sweep target
+    assert profiles[0] == "msvc6"  # configured profile first
+    # docker-only: the cl_cmd/inc_dir are inert for image-backed profiles
+    assert all(cl == "" and inc == "" for _p, cl, inc in toolchains[1:])
+
+
+
+def test_sweep_filter_matches() -> None:
+    """Filter semantics: exact profile, profile prefix, version substring,
+    arch substring."""
+    from rebrew.match import _sweep_filter_matches
+
+    assert _sweep_filter_matches("msvc600sp6", "6.0-sp6-win32", ["msvc600sp6"])
+    assert _sweep_filter_matches("msvc200", "2.0-win32", ["msvc2"])  # prefix
+    assert _sweep_filter_matches("msvc600sp1", "6.0-sp1-win32", ["6.0"])
+    assert _sweep_filter_matches("msvc1.52", "1.52-win16", ["win16"])
+    assert _sweep_filter_matches("msvc6", "6.0-win32", ["6.0"])
+    assert not _sweep_filter_matches("msvc1000", "10.0-win32", ["msvc2"])
+    assert not _sweep_filter_matches("msvc400", "4.0-win32", ["5.0"])
+
+def test_vendored_enumeration_respects_only_exclude() -> None:
+    """--sweep-only / --sweep-exclude narrow the registry enumeration."""
+    from rebrew.match import _vendored_msvc_toolchains
+
+    all_ = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc6"), "", "")
+    profiles = [p for p, _cl, _inc in all_]
+    assert "msvc200" in profiles and "msvc1000" in profiles
+
+    only = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc6"), "", "", only="6.0")
+    only_p = [p for p, _cl, _inc in only]
+    assert "msvc6" in only_p and "msvc600sp6" in only_p
+    assert "msvc200" not in only_p and "msvc1000" not in only_p
+
+    excl = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc6"), "", "", exclude="2.0,4.0")
+    excl_p = [p for p, _cl, _inc in excl]
+    assert "msvc200" not in excl_p and "msvc400" not in excl_p
+    assert "msvc6" in excl_p
+
+    # the configured profile is always the baseline even when filtered out
+    only_sp6 = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc600sp6"), "", "", only="6.0-sp6")
+    assert only_sp6[0][0] == "msvc600sp6"
 
 
 def test_toolchain_sweep_orders_best_first(monkeypatch, capsys) -> None:
@@ -57,7 +94,7 @@ def test_toolchain_sweep_orders_best_first(monkeypatch, capsys) -> None:
     bad = b"\x90\x90\x90\x90\x90"
     monkeypatch.setattr(
         "rebrew.match._vendored_msvc_toolchains",
-        lambda cfg, cl, inc: [("good", "wine good", "/good"), ("bad", "wine bad", "/bad")],
+        lambda cfg, cl, inc, *a, **k: [("good", "wine good", "/good"), ("bad", "wine bad", "/bad")],
     )
     calls: dict[str, bytes] = {}
 
@@ -99,7 +136,7 @@ def test_toolchain_flag_sweep_reports_per_toolchain(monkeypatch, capsys) -> None
 
     monkeypatch.setattr(
         "rebrew.match._vendored_msvc_toolchains",
-        lambda cfg, cl, inc: [("good", "wine good", "/good"), ("bad", "wine bad", "/bad")],
+        lambda cfg, cl, inc, *a, **k: [("good", "wine good", "/good"), ("bad", "wine bad", "/bad")],
     )
 
     def _fake_flag_sweep(src, target, cl_cmd, inc_dir, cflags, symbol, jobs, tier=None, **kw):  # noqa: ARG001
