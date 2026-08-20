@@ -247,11 +247,31 @@ def main(
 
         va_str = f"0x{va:x}"
         va_str_upper = f"0x{va:X}"
+        # filepath is stored relative to reversed_dir ("add3.c"); also accept
+        # the project-root-relative form the help documents
+        # ("src/game/old.c") and the absolute path.
+        proj_rel = ""
+        abs_path = ""
+        if fp:
+            # reversed_dir may be absolute (require_config) or project-
+            # relative (load_config) — normalize to the root-relative form
+            # the help documents ("src/game/old.c").
+            try:
+                rev_rel = Path(cfg.reversed_dir).relative_to(cfg.root)
+            except (ValueError, TypeError):
+                rev_rel = Path(cfg.reversed_dir)
+            proj_rel = str(rev_rel / fp)
+            try:
+                abs_path = str((cfg.root / rev_rel / fp).resolve())
+            except (OSError, TypeError):
+                abs_path = ""
         if target_ident in (
             name,
             sym,
             str(fp),
             Path(str(fp)).name,
+            proj_rel,
+            abs_path,
             va_str,
             va_str_upper,
             str(va),
