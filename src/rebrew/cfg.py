@@ -803,13 +803,13 @@ def detect_crt(
     if write:
         doc, toml_path = _load_toml(root)
         target_name = _resolve_target(doc, target)
-        targets_table: Any = doc["targets"]
-        tgt: Any = targets_table[target_name]
+        cfg_targets_table: Any = doc["targets"]
+        cfg_tgt: Any = cfg_targets_table[target_name]
 
-        crt_sources = tgt.get("crt_sources")
+        crt_sources = cfg_tgt.get("crt_sources")
         if crt_sources is None:
             crt_sources = tomlkit.table()
-            tgt["crt_sources"] = crt_sources
+            cfg_tgt["crt_sources"] = crt_sources
 
         written = 0
         for origin, rel_path in sorted(detected.items()):

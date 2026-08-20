@@ -56,7 +56,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import lief
 
@@ -72,7 +72,7 @@ def _rich_compiler_build(entries: list[Any]) -> int:
     from collections import Counter
 
     counts = Counter(e.build_id for e in entries)
-    return counts.most_common(1)[0][0]
+    return int(counts.most_common(1)[0][0])
 
 
 # ---------------------------------------------------------------------------
@@ -649,13 +649,19 @@ def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
         return None
 
     info = ToolchainInfo(detected_by="pe-meta")
+    # Only PE binaries reach here (guarded by the hasattr above); cast so
+    # mypy knows pe exposes the PE-only attributes (imports, optional_header)
+    # while preserving the duck-typing that keeps mock-based tests working.
+    pe = cast(lief.PE.Binary, pe)
     major = pe.optional_header.major_linker_version
     minor = pe.optional_header.minor_linker_version
     linker_ver = f"{major}.{minor}"
     rich_builds: list[int] = []
+    rich_entries: list[Any] = []
     rich = getattr(pe, "rich_header", None)
     if rich is not None:
-        rich_builds = sorted({e.build_id for e in rich.entries})
+        rich_entries = list(rich.entries)
+        rich_builds = sorted({e.build_id for e in rich_entries})
 
     # CRT import binder: msvcp60.dll -> VC 6.0 etc.
     msvcp_version = ""
@@ -675,8 +681,8 @@ def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
         # Rich header present = the MSVC linker wrote it — family is proven.
         info.family = "msvc"
         info.confidence = "high"
-        build = _rich_compiler_build(rich.entries)  # the C1/C2 pair (mode)
-        profiles = _RICH_BUILD_PROFILES.get(build) or _LINKER_ERA_PROFILES.get(linker_mm or ())
+        build = _rich_compiler_build(rich_entries)  # the C1/C2 pair (mode)
+        profiles = _RICH_BUILD_PROFILES.get(build) or _LINKER_ERA_PROFILES.get(linker_mm or (12, 0))
         mm = linker_mm or (12, 0)  # unknown linker -> VC6-era fallback
         version = f"{mm[0]}.{mm[1]:02d}.{build}"
         info.msvc_version = version

@@ -986,18 +986,18 @@ def _section_summary(
 
     out: list[dict[str, Any]] = []
     for sec_name in [".data", ".rdata", ".bss", "unknown"]:
-        s = per_section.get(sec_name)
-        if s is None:
+        sec_data = per_section.get(sec_name)
+        if sec_data is None:
             continue
         sec = sections.get(sec_name)
         size = int(sec.get("size", 0)) if sec else 0
-        coverage = (s["annotated_bytes"] / size * 100.0) if size else 0.0
+        coverage = (sec_data["annotated_bytes"] / size * 100.0) if size else 0.0
         out.append(
             {
                 "name": sec_name,
-                "globals": s["globals"],
-                "annotated": s["annotated"],
-                "annotated_bytes": s["annotated_bytes"],
+                "globals": sec_data["globals"],
+                "annotated": sec_data["annotated"],
+                "annotated_bytes": sec_data["annotated_bytes"],
                 "section_size": size,
                 "coverage_pct": round(coverage, 1),
             }
