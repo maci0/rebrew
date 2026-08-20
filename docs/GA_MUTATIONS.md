@@ -386,3 +386,32 @@ deltas.
 | Mutation | Transform | MSVC6 Rationale |
 |----------|-----------|-----------------|
 | `mut_tweak_integer_literal` | `+ 0x70` → `+ 0x6c` (small ±deltas) | The GA could previously never FIX a wrong constant — structural mutations leave an off-by-N offset stuck at the seed score forever (a broken field offset plateaued at 5000 for 960 evals).  Small-biased deltas (±1/±2/±4/±8/±0x10) cover the off-by-N mistakes decompilation actually makes; hex vs decimal radix is preserved.  With it, the same search converges to `exact: True`. |
+
+---
+
+### Revertible-effect tracking (inverse machinery)
+
+Beyond the operators, `mutator.py` exposes framework-level inverse support
+(`MutationLog`, `mutate_chain`) implementing the revertible-effects model of
+the Cordis paper ("A Programming Paradigm for Spatiotemporal Composability",
+§3.1): every applied mutation records its inverse (the pre-mutation source,
+captured at the point of application), inverses accumulate in reverse order
+(LIFO), and each inverse fires at most once — so `mutate_chain(src, rng)`
+followed by `log.undo_all()` restores the source **byte-identically**.
+
+- `MutationLog.apply(src, rng, mutation_weights=...)` — mutate and record
+  the inverse; returns `(mutated, name)`.
+- `MutationLog.undo()` / `undo_all()` — revert the last / all mutations
+  (LIFO); returns the restored source, `None` when the log is empty.
+- `mutate_chain(src, rng, max_steps=..., guard=...)` — apply up to
+  `max_steps` mutations; an optional `guard(current_src) -> bool` checked
+  before each step stops the chain at a step boundary (the paper's
+  step-boundary interruption, §4.3.2).
+
+The inverse is generic (framework-level) rather than per-operator: it
+restores the exact pre-mutation text, which satisfies the witness condition
+of the paper's Definition 8 for every operator without touching the 120+
+`mut_*` signatures.  The GA's evolution loop derives each child from an
+immutable base (`best_source`), so rollback there is equivalent to keeping
+the previous base; the log machinery is for code that chains mutations on a
+live buffer and needs to unwind them.

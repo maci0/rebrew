@@ -321,10 +321,19 @@ class TestPullToolchain:
 
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
         monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
-        monkeypatch.setattr(
-            "rebrew.toolchain.subprocess.run",
-            lambda *a, **k: type("R", (), {"returncode": 0})(),
-        )
+        # Model the swap's inspect calls: backup inspect fails (absent),
+        # then the pull succeeds and the verify inspect resolves a new id.
+        calls = {"n": 0}
+
+        def _run(cmd, **kwargs):  # noqa: ARG001
+            if cmd[:2] == ["docker", "image"]:
+                calls["n"] += 1
+                if calls["n"] == 1:
+                    return type("R", (), {"returncode": 1, "stdout": "", "stderr": ""})()
+                return type("R", (), {"returncode": 0, "stdout": "sha256:NEW\n", "stderr": ""})()
+            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
         tag, was_present = pull_toolchain("msvc6")
         assert tag == "rebrew/msvc:6.0-win32"
         assert was_present is False
@@ -340,6 +349,116 @@ class TestPullToolchain:
         assert result.exit_code == 0
         assert '"already_present": true' in result.output
         assert '"pulled": "rebrew/msvc:6.0-win32"' in result.output
+
+
+class TestSwapToolchainImage:
+    """swap_toolchain_image: backup→swap→rollback for toolchain images.
+
+    A failed build/pull must leave the previously registered image under the
+    tag (or restore it if the tag was left dangling) — never a half-registered
+    state.
+    """
+
+    TAG = "rebrew/msvc:6.0-win32"
+
+    def _fake_docker(self, monkeypatch, initial_id: str | None):
+        """Fake docker with a mutable tag→id mapping; returns (state, calls)."""
+        from types import SimpleNamespace
+
+        state: dict[str, str | None] = {"id": initial_id}
+        calls: list[list[str]] = []
+
+        def _run(cmd, **kwargs):  # noqa: ARG001
+            calls.append(cmd)
+            if cmd[:2] == ["docker", "image"]:
+                if state["id"] is None:
+                    return SimpleNamespace(returncode=1, stdout="", stderr="")
+                return SimpleNamespace(returncode=0, stdout=state["id"] + "\n", stderr="")
+            if cmd[:2] == ["docker", "tag"]:
+                state["id"] = cmd[2]
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
+        return state, calls
+
+    def test_failed_op_leaves_previous_image(self, monkeypatch) -> None:
+        """A normal failure (docker keeps the old tag) needs no restore."""
+        from rebrew.toolchain import ToolchainError, swap_toolchain_image
+
+        state, calls = self._fake_docker(monkeypatch, "sha256:OLD")
+
+        def _failing_op() -> None:
+            raise ToolchainError("build exploded")
+
+        with pytest.raises(ToolchainError, match="build exploded"):
+            swap_toolchain_image(self.TAG, _failing_op)
+        assert state["id"] == "sha256:OLD"
+        assert not any(c[:2] == ["docker", "tag"] for c in calls)
+
+    def test_failed_op_rolls_back_dangling_tag(self, monkeypatch) -> None:
+        """A failure that left the tag dangling restores the backup image."""
+        from rebrew.toolchain import ToolchainError, swap_toolchain_image
+
+        state, calls = self._fake_docker(monkeypatch, "sha256:OLD")
+
+        def _bad_pull() -> None:
+            state["id"] = None  # the failed pull left the tag dangling
+            raise ToolchainError("pull died mid-way")
+
+        with pytest.raises(ToolchainError, match="pull died mid-way"):
+            swap_toolchain_image(self.TAG, _bad_pull)
+        assert state["id"] == "sha256:OLD"  # rollback re-tagged the backup
+        assert any(c[:2] == ["docker", "tag"] for c in calls)
+
+    def test_success_returns_new_id(self, monkeypatch) -> None:
+        from rebrew.toolchain import swap_toolchain_image
+
+        state, calls = self._fake_docker(monkeypatch, "sha256:OLD")
+
+        def _ok_op() -> None:
+            state["id"] = "sha256:NEW"  # docker's tag-on-success is the swap
+
+        new_id = swap_toolchain_image(self.TAG, _ok_op)
+        assert new_id == "sha256:NEW"
+        assert not any(c[:2] == ["docker", "tag"] for c in calls)
+
+    def test_success_but_tag_unresolvable_raises_and_restores(self, monkeypatch) -> None:
+        from rebrew.toolchain import ToolchainError, swap_toolchain_image
+
+        state, calls = self._fake_docker(monkeypatch, "sha256:OLD")
+
+        def _ok_but_dangling() -> None:
+            state["id"] = None
+
+        with pytest.raises(ToolchainError, match="does not resolve"):
+            swap_toolchain_image(self.TAG, _ok_but_dangling)
+        assert state["id"] == "sha256:OLD"
+        assert any(c[:2] == ["docker", "tag"] for c in calls)
+
+    def test_no_backup_failure_propagates_without_retag(self, monkeypatch) -> None:
+        from rebrew.toolchain import ToolchainError, swap_toolchain_image
+
+        state, calls = self._fake_docker(monkeypatch, None)
+
+        def _failing_op() -> None:
+            raise ToolchainError("nope")
+
+        with pytest.raises(ToolchainError, match="nope"):
+            swap_toolchain_image(self.TAG, _failing_op)
+        assert state["id"] is None
+        assert not any(c[:2] == ["docker", "tag"] for c in calls)
+
+    def test_no_backup_success_returns_id(self, monkeypatch) -> None:
+        from rebrew.toolchain import swap_toolchain_image
+
+        state, _calls = self._fake_docker(monkeypatch, None)
+
+        def _ok_op() -> None:
+            state["id"] = "sha256:FRESH"
+
+        assert swap_toolchain_image(self.TAG, _ok_op) == "sha256:FRESH"
 
 
 class TestResolveBinaryCaseInsensitive:

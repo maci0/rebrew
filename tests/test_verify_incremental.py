@@ -15,6 +15,7 @@ from rebrew.compile import CompareResult
 from rebrew.config import ProjectConfig
 from rebrew.verify import (
     _compiler_config_hash,
+    _entry_headers_fp,
     _headers_hash,
     _load_verify_cache,
     _save_verify_cache,
@@ -665,7 +666,10 @@ class TestHeadersHash:
 
 
 class TestHeadersHashCacheInvalidation:
-    def test_cache_miss_on_headers_hash_mismatch(self, tmp_path: Path) -> None:
+    def test_load_ignores_headers_hash(self, tmp_path: Path) -> None:
+        """The global headers_hash is informational now — per-entry
+        ``headers_fp`` is the authoritative header invalidation, so a stale
+        global hash must NOT reject the whole cache."""
         cfg = _make_cfg(tmp_path)
         cache_path = tmp_path / ".rebrew" / "verify_cache.json"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -680,8 +684,7 @@ class TestHeadersHashCacheInvalidation:
         }
         cache_path.write_text(json.dumps(data), encoding="utf-8")
 
-        # Should return None because headers_hash doesn't match
-        assert _load_verify_cache(cache_path, cfg) is None
+        assert _load_verify_cache(cache_path, cfg) is not None
 
     def test_cache_hit_when_headers_hash_matches(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
@@ -700,44 +703,6 @@ class TestHeadersHashCacheInvalidation:
 
         loaded = _load_verify_cache(cache_path, cfg)
         assert loaded is not None
-
-    def test_cache_busted_after_header_edit(self, tmp_path: Path) -> None:
-        cfg = _make_cfg(tmp_path)
-        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
-
-        # Build and save a valid cache (no headers yet)
-        source_path = cfg.reversed_dir / "func.c"
-        source_path.write_text("int func(void) { return 0; }\n", encoding="utf-8")
-        results = [
-            {
-                "va": "0x10001000",
-                "name": "func",
-                "filepath": "func.c",
-                "size": 16,
-                "status": "EXACT",
-                "message": "EXACT MATCH",
-                "passed": True,
-                "match_percent": 100.0,
-                "delta": 0,
-            }
-        ]
-        entries = [
-            SimpleNamespace(
-                va=0x10001000,
-                name="func",
-                filepath="func.c",
-                size=16,
-                origin="GAME",
-                cflags="",
-                symbol="",
-            )
-        ]
-        _save_verify_cache(cache_path, cfg, results, entries)
-        assert _load_verify_cache(cache_path, cfg) is not None
-
-        # Now add a header file — headers_hash should change
-        (cfg.reversed_dir / "types.h").write_text("typedef int BOOL;\n", encoding="utf-8")
-        assert _load_verify_cache(cache_path, cfg) is None
 
     def test_save_persists_headers_hash(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
@@ -775,6 +740,77 @@ class TestHeadersHashCacheInvalidation:
         raw = json.loads(cache_path.read_text(encoding="utf-8"))
         assert raw["headers_hash"] == _headers_hash(cfg)
         assert raw["headers_hash"] != ""
+
+
+class TestEntryHeadersFp:
+    def test_reached_header_edit_changes_fp(self, tmp_path: Path) -> None:
+        """A header the source reaches shapes the entry fingerprint."""
+        cfg = _make_cfg(tmp_path)
+        src = cfg.reversed_dir / "func.c"
+        src.write_text('#include "types.h"\nint func(void){return 0;}\n', encoding="utf-8")
+        header = cfg.reversed_dir / "types.h"
+        header.write_text("typedef int BOOL;\n", encoding="utf-8")
+
+        fp1 = _entry_headers_fp(cfg, src, "")
+        header.write_text("typedef long BOOL;\n", encoding="utf-8")
+        fp2 = _entry_headers_fp(cfg, src, "")
+        assert fp1 != fp2
+
+    def test_unreached_header_edit_keeps_fp(self, tmp_path: Path) -> None:
+        """A header the source never reaches must not invalidate the entry."""
+        cfg = _make_cfg(tmp_path)
+        src = cfg.reversed_dir / "func.c"
+        src.write_text("int func(void){return 0;}\n", encoding="utf-8")
+        header = cfg.reversed_dir / "types.h"
+        header.write_text("typedef int BOOL;\n", encoding="utf-8")
+
+        fp1 = _entry_headers_fp(cfg, src, "")
+        header.write_text("typedef long BOOL;\n", encoding="utf-8")
+        fp2 = _entry_headers_fp(cfg, src, "")
+        assert fp1 == fp2
+        assert fp1 != ""
+
+    def test_save_persists_entry_headers_fp(self, tmp_path: Path) -> None:
+        """The saved cache carries a per-entry reached-header fingerprint."""
+        cfg = _make_cfg(tmp_path)
+        src = cfg.reversed_dir / "func.c"
+        src.write_text('#include "types.h"\nint func(void){return 0;}\n', encoding="utf-8")
+        (cfg.reversed_dir / "types.h").write_text("typedef int BOOL;\n", encoding="utf-8")
+        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+
+        results = [
+            {
+                "va": "0x10001000",
+                "name": "func",
+                "filepath": "func.c",
+                "size": 16,
+                "status": "EXACT",
+                "message": "EXACT MATCH",
+                "passed": True,
+                "match_percent": 100.0,
+                "delta": 0,
+            }
+        ]
+        entries = [
+            SimpleNamespace(
+                va=0x10001000,
+                name="func",
+                filepath="func.c",
+                size=16,
+                origin="GAME",
+                cflags="",
+                symbol="",
+            )
+        ]
+        _save_verify_cache(cache_path, cfg, results, entries)
+
+        raw = json.loads(cache_path.read_text(encoding="utf-8"))
+        saved = raw["entries"]["0x10001000"]["headers_fp"]
+        from rebrew.cli import resolve_compile_overrides
+
+        _tc, _cf = resolve_compile_overrides(cfg, cfg.reversed_dir, "", "", "")
+        assert saved == _entry_headers_fp(cfg, src, _cf)
+        assert saved != ""
 
 
 class TestCompareLogicHashMembership:

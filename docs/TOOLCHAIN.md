@@ -171,7 +171,10 @@ upstream repo (e.g. a preservation fix) is reported as `DRIFTED`
 before any build fails.  `rebrew toolchain update <name> --apply`
 re-pins (sha256 + commit), re-vendors the host tree, rebuilds the
 docker image and regenerates the smoke golden (verified stable across
-two compiles).  The Open Watcom `Last-CI-build` release tag is a
+two compiles).  The image swap is transactional: a failed build/pull
+restores the previously registered image under the tag, and a failed
+`update --apply` restores the previous source pin — the pin never stays
+ahead of the image.  The Open Watcom `Last-CI-build` release tag is a
 moving target, so it is re-downloaded and re-hashed; decomp.me /
 archive.org assets and pinned tarballs (16-bit media in the
 rebrew-toolchains checkout) are immutable and reported as

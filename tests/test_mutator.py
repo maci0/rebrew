@@ -5,6 +5,7 @@ import random
 import pytest
 
 from rebrew.matcher.mutator import (
+    MutationLog,
     _split_preamble_body,
     compute_population_diversity,
     crossover,
@@ -96,6 +97,7 @@ from rebrew.matcher.mutator import (
     mut_while_to_goto_loop,
     mut_wrap_in_else,
     mut_xor_zero_toggle,
+    mutate_chain,
     quick_validate,
 )
 
@@ -105,6 +107,97 @@ _RNG_SEED = 42
 def _rng() -> random.Random:
     """Return a fresh RNG with a fixed seed for deterministic, order-independent tests."""
     return random.Random(_RNG_SEED)
+
+
+class TestMutationLog:
+    """Revertible-effect tracking for mutations (paper §3.1).
+
+    Every applied mutation records its inverse (the pre-mutation source);
+    inverses compose LIFO, so undo_all restores the original source
+    byte-identically, and each inverse fires at most once.
+    """
+
+    def test_round_trip_restores_original(self) -> None:
+        """mutate -> undo_all must restore the source byte-identically."""
+        for seed in range(5):
+            rng = random.Random(seed)
+            mutated, log = mutate_chain(SAMPLE_SOURCE, rng, max_steps=5)
+            assert log.depth > 0
+            assert mutated != SAMPLE_SOURCE
+            restored = log.undo_all()
+            assert restored == SAMPLE_SOURCE  # str equality == byte-identical
+
+    def test_lifo_undo_steps(self) -> None:
+        """undo() reverts one step at a time, back to the original."""
+        rng = random.Random(7)
+        log = MutationLog()
+        current = SAMPLE_SOURCE
+        states = [current]
+        for _ in range(3):
+            current, _name = log.apply(current, rng)
+            assert current != states[-1]
+            states.append(current)
+        assert log.depth == 3
+        assert log.undo() == states[2]
+        assert log.undo() == states[1]
+        assert log.undo() == states[0]
+        assert log.undo() is None  # nothing left to fire
+
+    def test_undo_fires_at_most_once(self) -> None:
+        """An inverse is consumed by undo — a second undo_all is a no-op."""
+        rng = random.Random(3)
+        _mutated, log = mutate_chain(SAMPLE_SOURCE, rng, max_steps=4)
+        assert log.undo_all() == SAMPLE_SOURCE
+        assert log.undo_all() is None  # stack already empty
+        assert log.undo() is None
+
+    def test_apply_after_undo_continues_from_restored(self) -> None:
+        """Undoing mid-chain then applying again works from the restored state
+        (a no-op apply records no inverse, so undo reverts the last recorded
+        one regardless)."""
+        rng = random.Random(11)
+        log = MutationLog()
+        current = SAMPLE_SOURCE
+        current, _ = log.apply(current, rng)
+        current, _ = log.apply(current, rng)
+        restored = log.undo()
+        assert restored is not None
+        # Continue from the restored state; the log still reverts everything
+        # back to the original, LIFO.
+        _again, _name = log.apply(restored, rng)
+        assert log.undo_all() == SAMPLE_SOURCE
+
+    def test_guard_stops_at_step_boundary(self) -> None:
+        """A guard that trips stops the chain; accumulated inverses remain."""
+        calls = {"n": 0}
+
+        def guard(_current: str) -> bool:
+            calls["n"] += 1
+            return calls["n"] <= 2
+
+        rng = random.Random(5)
+        mutated, log = mutate_chain(SAMPLE_SOURCE, rng, max_steps=10, guard=guard)
+        assert calls["n"] == 3  # checked before step 3, trips there
+        assert log.depth == 2
+        assert mutated != SAMPLE_SOURCE
+        assert log.undo_all() == SAMPLE_SOURCE
+
+    def test_noop_mutation_records_no_inverse(self) -> None:
+        """A mutation that leaves the source unchanged adds nothing to the log."""
+        log = MutationLog()
+        # A source with no preamble/body matches nothing to mutate: the
+        # operator set always returns it unchanged after _MUTATION_ATTEMPTS.
+        log.apply("", random.Random(1))
+        assert log.depth == 0
+        assert log.undo() is None
+
+    def test_chain_zero_steps_noop(self) -> None:
+        """max_steps caps the chain: zero steps apply no mutation."""
+        rng = random.Random(9)
+        mutated, log = mutate_chain(SAMPLE_SOURCE, rng, max_steps=0)
+        assert mutated == SAMPLE_SOURCE
+        assert log.depth == 0
+        assert log.undo_all() is None
 
 
 SAMPLE_SOURCE = """\

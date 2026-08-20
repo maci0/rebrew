@@ -1,5 +1,50 @@
 ## [Unreleased]
 ### Changed
+- **Compile-cache key v5: per-source header dependencies instead of
+  whole-directory fingerprints** (`compile_cache.py`).  The key now resolves
+  each translation unit's transitive `#include` closure against the source
+  dir + `/I` dirs and fingerprints each *reached* header individually, so
+  editing a header invalidates exactly the entries that reach it — an edit
+  to an unrelated header in the same include dir is now a cache hit.  CRTs
+  inside the immutable toolchain image are untracked (pinned by the image
+  digest in the key); non-literal `#include MACRO` / `/FI` force-includes
+  fall back to conservative directory fingerprints.  The verify cache
+  applies the same per-source dependency fingerprint per entry, replacing
+  the global `headers_hash` gate that re-verified the whole project on any
+  header change.
+- **Flag canonicalization in the cache key** (observational equivalence):
+  `canonicalize_cflags()` reduces a flag list to its compilation-equivalent
+  canonical form using the synced decomp.me flag definitions — identical
+  flags are deduped, last-wins option groups collapse to their final value
+  (`/O1 /O2` ≡ `/O2`), and flags across distinct options commute
+  (`/O2 /Gd` ≡ `/Gd /O2`).  Order-sensitive input (`/I` search order, `/D`
+  redefinitions, unknown flags) keeps its order, so genuinely different
+  compilations still get distinct keys.
+- **`rebrew toolchain` image swap is transactional** (backup→swap→rollback):
+  `build` and `pull` run through `swap_toolchain_image()`, which records the
+  current image id, verifies the tag resolves after the operation, and
+  re-tags the previous image on failure — a failed build/pull never leaves a
+  half-registered toolchain.  `toolchain update --apply` restores the
+  previous source pin if the re-vendor/rebuild fails, so the pin never stays
+  ahead of the image.
+- **Verify cache classifies resolved-config changes** (per-entry
+  `(toolchain, cflags)`): entries now store the resolved toolchain override
+  (previously only cflags, so a `rebrew-library.toml` `TOOLCHAIN` edit
+  served stale results), and the cflags comparison uses the canonicalized
+  equivalence class — an order-only flag change is a hit, a material change
+  invalidates exactly the affected functions.
+### Added
+- **`MutationLog` / `mutate_chain` in `matcher/mutator.py`**: revertible-
+  effect tracking for GA mutations (Cordis-paper §3.1) — every applied
+  mutation records its inverse, `undo_all()` restores the original source
+  byte-identically LIFO, each inverse fires at most once, and `mutate_chain`
+  supports a step-boundary guard.
+- **`tests/test_property_library.py`**: order-independence properties of the
+  library-config merge (preset merge is a fixed point, TOML field-order
+  permutations resolve identically, nearest-ancestor-wins is independent of
+  file creation order, and interleaved reconfiguration converges to the same
+  resolution).
+### Fixed
 - **Toolchain docker build source moved to the standalone
   `rebrew-toolchains` repo** (github.com/maci0/rebrew-toolchains): rebrew no
   longer vendors Dockerfiles, wrappers, the shared `base` image, or the

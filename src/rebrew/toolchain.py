@@ -29,6 +29,7 @@ import contextlib
 import os
 import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -835,9 +836,7 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
-        host_path=_vendored("msvc/11.0-win32")
-        if _vendored("msvc/11.0-win32").exists()
-        else None,
+        host_path=_vendored("msvc/11.0-win32") if _vendored("msvc/11.0-win32").exists() else None,
         host_bin="bin",
         description="MSVC 11.0 (32-bit PE, C++, 17.00.50522) — docker image (wine inside)",
     ),
@@ -983,6 +982,67 @@ def _image_present(tag: str) -> bool:
     )
     _image_presence[tag] = r.returncode == 0
     return _image_presence[tag]
+
+
+def _image_id(tag: str) -> str | None:
+    """Full docker image id for *tag* (``sha256:...``), or ``None`` when the
+    tag does not resolve or docker is unavailable.  Uncached — the swap
+    primitive calls it around image changes where freshness matters."""
+    if not docker_available():
+        return None
+    r = subprocess.run(
+        ["docker", "image", "inspect", "--format", "{{.Id}}", tag],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    return r.stdout.strip()
+
+
+def _retag_image(src: str, dst: str) -> None:
+    """Point the *dst* tag at *src* (an image id or tag)."""
+    r = subprocess.run(["docker", "tag", src, dst], capture_output=True, text=True, timeout=60)
+    if r.returncode != 0:
+        raise ToolchainError(f"docker tag {src} -> {dst} failed: {r.stderr[-300:]}")
+
+
+def swap_toolchain_image(tag: str, op: Callable[[], None]) -> str:
+    """Transactionally replace the docker image under *tag* (backup→swap→rollback).
+
+    Records the current image id under *tag* (the backup), runs *op* — which
+    must build or pull the replacement; docker's tag-on-success is the swap —
+    then verifies *tag* still resolves.  If *op* raises, or the tag ends up
+    unresolvable, the previous image is re-tagged under *tag* (rollback), so a
+    failed build/pull never leaves the toolchain half-registered (a pin or
+    cache entry pointing at a dangling tag).
+
+    Returns the image id *tag* resolves to after a successful swap.
+    """
+    backup = _image_id(tag)
+    try:
+        op()
+    except Exception:
+        # Rollback: restore the previous image under the tag.  A normal
+        # build/pull failure leaves the old tag in place (docker only re-tags
+        # on success), so the restore is a no-op check in that case; it only
+        # acts when the tag was left dangling or repointed at something else.
+        if backup is not None:
+            with contextlib.suppress(ToolchainError):
+                if _image_id(tag) != backup:
+                    _retag_image(backup, tag)
+        raise
+    current = _image_id(tag)
+    if current is None:
+        if backup is not None:
+            with contextlib.suppress(ToolchainError):
+                _retag_image(backup, tag)
+        raise ToolchainError(
+            f"image tag {tag!r} does not resolve after the swap"
+            + (" — previous image restored" if backup is not None else " (no previous image)")
+        )
+    return current
 
 
 def _match_binary(dir: Path, binary: str) -> Path | None:
@@ -1238,28 +1298,36 @@ def pull_toolchain(name: str, timeout: int = 1200) -> tuple[str, bool]:
     present and have no registry to pull from — treat that as a successful
     no-op instead of a confusing "pull access denied" failure.
 
+    The pull runs through :func:`swap_toolchain_image` (backup→swap→rollback):
+    a failed pull leaves the previously registered image under the tag.
+
     Returns ``(image_tag, was_already_present)``.
     """
     spec = get_toolchain(name)
     if spec.image is None:
         raise ToolchainError(f"toolchain {name!r} has no docker image (host-only)")
+    image = spec.image  # narrowed local — mypy does not narrow into the closure
     if not docker_available():
         raise ToolchainError("docker is not available — cannot pull images")
-    if _image_present(spec.image):
-        return spec.image, True
-    r = subprocess.run(
-        ["docker", "pull", spec.image],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-    if r.returncode != 0:
-        raise ToolchainError(
-            f"docker pull {spec.image} failed: {r.stderr[-400:]}.  "
-            f"rebrew images are BUILT from pinned sources, not pushed to a "
-            f"registry — run `rebrew toolchain build {name}` instead"
+    if _image_present(image):
+        return image, True
+
+    def _pull() -> None:
+        r = subprocess.run(
+            ["docker", "pull", image],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
         )
-    return spec.image, False
+        if r.returncode != 0:
+            raise ToolchainError(
+                f"docker pull {spec.image} failed: {r.stderr[-400:]}.  "
+                f"rebrew images are BUILT from pinned sources, not pushed to a "
+                f"registry — run `rebrew toolchain build {name}` instead"
+            )
+
+    swap_toolchain_image(image, _pull)
+    return image, False
 
 
 __all__ = [
@@ -1272,4 +1340,5 @@ __all__ = [
     "list_toolchains",
     "pull_toolchain",
     "run_toolchain",
+    "swap_toolchain_image",
 ]

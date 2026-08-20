@@ -835,7 +835,13 @@ def build_cmd(
     """Build a toolchain's docker image from the rebrew-toolchains checkout."""
     import subprocess
 
-    from rebrew.toolchain import _REPO_TOOLS, _require_toolchains_repo, get_toolchain
+    from rebrew.toolchain import (
+        _REPO_TOOLS,
+        ToolchainError,
+        _require_toolchains_repo,
+        get_toolchain,
+        swap_toolchain_image,
+    )
 
     _require_toolchains_repo()
     spec = get_toolchain(name)
@@ -854,6 +860,7 @@ def build_cmd(
             console.print(f"[red]Error:[/red] {msg}")
         raise typer.Exit(code=2)
     tag, verarch = spec.image.rsplit(":", 1)
+    image = spec.image  # narrowed local — mypy does not narrow into the closure
     build_dir = _REPO_TOOLS / spec.family / verarch
     if not (build_dir / "Dockerfile").exists():
         msg = f"no Dockerfile at {build_dir}"
@@ -889,14 +896,23 @@ def build_cmd(
                     console.print(f"[red]Error:[/red] {msg}")
                 raise typer.Exit(code=2)
 
-    r = subprocess.run(
-        ["docker", "build", "-t", spec.image, str(build_dir)],
-        capture_output=True,
-        text=True,
-        timeout=3600,
-    )
-    if r.returncode != 0:
-        msg = f"docker build {spec.image} failed: {r.stderr[-300:]}"
+    # Build through swap_toolchain_image (backup→swap→rollback): docker tags
+    # on success, and a failed build leaves the previous image under the tag —
+    # the swap verifies that and restores it if the tag was ever left dangling.
+    def _build_image() -> None:
+        r = subprocess.run(
+            ["docker", "build", "-t", image, str(build_dir)],
+            capture_output=True,
+            text=True,
+            timeout=3600,
+        )
+        if r.returncode != 0:
+            raise ToolchainError(f"docker build {image} failed: {r.stderr[-300:]}")
+
+    try:
+        swap_toolchain_image(image, _build_image)
+    except ToolchainError as exc:
+        msg = str(exc)
         if json_output:
             json_print({"error": msg, "code": 2})
         else:
@@ -1167,6 +1183,7 @@ def update_cmd(
     _SOURCES, clears + re-vendors the host tree, rebuilds the docker
     image, regenerates the smoke golden (verified stable across two
     compiles) and runs the smoke gate for that toolchain."""
+    import contextlib
     import hashlib
     import re
     import shutil
@@ -1186,9 +1203,7 @@ def update_cmd(
             console.print(f"[red]Error:[/red] {msg}")
         raise typer.Exit(code=2)
     if src.in_repo:
-        msg = (
-            f"toolchain {name!r} is a pinned tarball (static) — nothing to update"
-        )
+        msg = f"toolchain {name!r} is a pinned tarball (static) — nothing to update"
         if json_output:
             json_print({"error": msg, "code": 2})
         else:
@@ -1230,25 +1245,44 @@ def update_cmd(
                 "[dim]dry-run — pass --apply to re-pin, re-vendor, rebuild and re-golden[/dim]"
             )
             return
-        # 1. rewrite the pin in _SOURCES (file) + the in-memory dict so
-        #    vendor_cmd below verifies against the new sha256.
-        _rewrite_source_pin(name, actual_sha, live_commit)
-        _rewrite_dockerfile_sha(name, actual_sha)
-        _SOURCES[name] = replace(src, sha256=actual_sha, commit=live_commit)
-        # 2. clear the vendored host tree (keep Dockerfile/wrappers) + re-vendor.
-        host = _REPO_TOOLS / src.host_dir
-        _META_PATTERNS = ("Dockerfile", "pak_extract.py", "wrapper-common.sh", "*.sh", "*.tar.xz")
-        if host.exists():
-            for child in list(host.iterdir()):
-                if any(child.match(p) for p in _META_PATTERNS):
-                    continue
-                if child.is_dir():
-                    shutil.rmtree(child, ignore_errors=True)
-                else:
-                    child.unlink(missing_ok=True)
-        vendor_cmd(name, json_output=False)
-        # 3. rebuild the docker image.
-        build_cmd(name, json_output=False)
+        # 1-3. Rewrite pin → clear + re-vendor → rebuild, transactionally:
+        #      a failure at any step must not leave the source pin ahead of
+        #      the image (a half-registered state) — restore the previous pin
+        #      before propagating.  The vendored host tree is a reproducible
+        #      artifact; the pin (the registration) is what the rollback
+        #      restores, so the repo state matches the unchanged image.
+        try:
+            # 1. rewrite the pin in _SOURCES (file) + the in-memory dict so
+            #    vendor_cmd below verifies against the new sha256.
+            _rewrite_source_pin(name, actual_sha, live_commit)
+            _rewrite_dockerfile_sha(name, actual_sha)
+            _SOURCES[name] = replace(src, sha256=actual_sha, commit=live_commit)
+            # 2. clear the vendored host tree (keep Dockerfile/wrappers) + re-vendor.
+            host = _REPO_TOOLS / src.host_dir
+            _META_PATTERNS = (
+                "Dockerfile",
+                "pak_extract.py",
+                "wrapper-common.sh",
+                "*.sh",
+                "*.tar.xz",
+            )
+            if host.exists():
+                for child in list(host.iterdir()):
+                    if any(child.match(p) for p in _META_PATTERNS):
+                        continue
+                    if child.is_dir():
+                        shutil.rmtree(child, ignore_errors=True)
+                    else:
+                        child.unlink(missing_ok=True)
+            vendor_cmd(name, json_output=False)
+            # 3. rebuild the docker image.
+            build_cmd(name, json_output=False)
+        except Exception:
+            # Rollback the pin (file + Dockerfile) to the pre-update values.
+            with contextlib.suppress(ToolchainError):
+                _rewrite_source_pin(name, src.sha256, src.commit)
+                _rewrite_dockerfile_sha(name, src.sha256)
+            raise
         # 4. regenerate the smoke golden (stable across two compiles) + write it.
         from rebrew.utils import writable_temp_dir
 

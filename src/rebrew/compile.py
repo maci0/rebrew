@@ -547,6 +547,32 @@ def _resolve_include_flags(flags: list[str], src_parent: Path, cfg_root: Path) -
     return resolved
 
 
+def _extract_include_dirs(flags: list[str]) -> list[str]:
+    """Return the include dirs named by ``/I``/``-I`` flags, in order.
+
+    Handles the attached (``/Ipath``) and two-token (``/I path``) forms.
+    *flags* must already be include-resolved (see :func:`_resolve_include_flags`)
+    so relative paths are absolute.  These dirs participate in the compile
+    cache key's header-dependency resolution: a dir only reachable through a
+    flag's ``/I`` would otherwise have its headers untracked.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(flags):
+        flag = flags[i]
+        if flag in ("/I", "-I"):
+            nxt = flags[i + 1] if i + 1 < len(flags) else None
+            if nxt is not None and not nxt.startswith("/") and not nxt.startswith("-"):
+                flag = flag + nxt
+                i += 1
+        if flag.startswith(("/I", "-I")) and len(flag) > 2:
+            d = flag[2:].strip('"').strip("'")
+            if d:
+                out.append(d)
+        i += 1
+    return out
+
+
 def _is_vendored_toolchain_tree(p: Path) -> bool:
     """True when *p* lives under the rebrew-toolchains checkout.
 
@@ -738,8 +764,22 @@ def compile_to_obj(
         # extra_include_dirs feed the /I flags and bind mounts — they are
         # compile inputs and must shape the key (two functions whose
         # relative #include resolves differently would otherwise share
-        # a cache entry and one would get the other's object).
-        include_dirs = [inc_path, str(src_parent), *(extra_include_dirs or [])]
+        # a cache entry and one would get the other's object).  The /I dirs
+        # carried by the flags themselves join the search set too, so their
+        # headers participate in the per-source dependency fingerprints
+        # (a dir only reachable via a flag's /I would otherwise be untracked).
+        include_dirs = [
+            d
+            for d in dict.fromkeys(
+                [
+                    inc_path,
+                    str(src_parent),
+                    *(extra_include_dirs or []),
+                    *_extract_include_dirs(all_flags),
+                ]
+            )
+            if d
+        ]
         source_ext = source_path.suffix or ".c"
         cache_key = compile_cache_key(
             source_content=source_content,
@@ -748,6 +788,7 @@ def compile_to_obj(
             include_dirs=include_dirs,
             toolchain_id=toolchain_id,
             source_ext=source_ext,
+            source_dir=str(src_parent),
         )
         cached_obj = cc.get(cache_key)
         if cached_obj is not None:

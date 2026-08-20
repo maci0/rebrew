@@ -5573,8 +5573,10 @@ ALL_MUTATIONS = [
 
 __all__ = [
     "ALL_MUTATIONS",
+    "MutationLog",
     "compute_population_diversity",
     "crossover",
+    "mutate_chain",
     "mutate_code",
     "quick_validate",
     *[m.__name__ for m in ALL_MUTATIONS],
@@ -5655,3 +5657,92 @@ def mutate_code(
     if track_mutation:
         return source, "none"
     return source
+
+
+class MutationLog:
+    """Tracks applied mutations as revertible effects (paper §3.1).
+
+    Each :meth:`apply` records the pre-mutation source — the inverse,
+    captured at the point of application (the witness of Definition 8: the
+    inverse reverts the effect where it was applied).  Inverses accumulate
+    in reverse order (the paper's twisted composition), so :meth:`undo_all`
+    restores the original source byte-identically, LIFO.  An inverse fires
+    at most once — :meth:`undo` pops it off the stack, so a second undo can
+    never re-apply it (the ``armed`` flag of the paper's Algorithm 1).
+    """
+
+    def __init__(self) -> None:
+        self._stack: list[tuple[str, Callable[[], str]]] = []
+
+    @property
+    def depth(self) -> int:
+        """Number of applied (not yet undone) mutations."""
+        return len(self._stack)
+
+    def apply(
+        self,
+        source: str,
+        rng: random.Random,
+        mutation_weights: dict[str, float] | None = None,
+    ) -> tuple[str, str]:
+        """Mutate *source*, record the inverse, return ``(mutated, name)``.
+
+        A mutation that left the source unchanged (``"none"``) records no
+        inverse — its inverse would be the identity, which changes nothing.
+        """
+        mutated, name = mutate_code(
+            source, rng, track_mutation=True, mutation_weights=mutation_weights
+        )
+        if mutated != source:
+            self._stack.append((source, lambda: source))
+        return mutated, name
+
+    def undo(self) -> str | None:
+        """Revert the most recent mutation; returns the restored source.
+
+        Returns ``None`` when the log is empty (nothing to revert — the
+        inverse is never fired twice, it is consumed by this call).
+        """
+        if not self._stack:
+            return None
+        _original, inverse = self._stack.pop()
+        return inverse()
+
+    def undo_all(self) -> str | None:
+        """Revert every mutation in LIFO order; returns the original source.
+
+        Returns ``None`` when the log is empty.
+        """
+        if not self._stack:
+            return None
+        result: str | None = None
+        while self._stack:
+            result = self.undo()
+        return result
+
+
+def mutate_chain(
+    source: str,
+    rng: random.Random,
+    max_steps: int = 4,
+    mutation_weights: dict[str, float] | None = None,
+    *,
+    guard: Callable[[str], bool] | None = None,
+) -> tuple[str, MutationLog]:
+    """Apply up to *max_steps* mutations to *source*, recording inverses.
+
+    Each step mutates the current source; a *guard* (checked before each
+    step) can stop the chain at a step boundary — the step-boundary
+    interruption of the paper's Section 4.3.2: once the guard trips,
+    iteration stops and only the inverses accumulated so far remain.
+
+    Returns ``(final_source, log)``; ``log.undo_all()`` restores *source*
+    byte-identically (LIFO).  ``max_steps`` caps the chain, not the log.
+    """
+    log = MutationLog()
+    current = source
+    for _ in range(max_steps):
+        if guard is not None and not guard(current):
+            break
+        current, _name = log.apply(current, rng, mutation_weights=mutation_weights)
+    return current, log
