@@ -2,9 +2,9 @@
 
 DOSBox 0.74-3 breaks when the mounted drive sits on tmpfs (e.g. ``/tmp``):
 the autoexec shell starts treating commands as ``cd`` and nothing runs.
-Sandboxes must therefore live on a non-tmpfs filesystem (the user home on
-this box); callers stage their toolchain there before invoking
-:func:`run_dosbox`.
+Sandboxes must therefore live on a non-tmpfs filesystem (the user home when
+writable, else a real-disk fallback — see :func:`make_sandbox_dir`); callers
+stage their toolchain there before invoking :func:`run_dosbox`.
 """
 
 from __future__ import annotations
@@ -40,6 +40,23 @@ def _build_dosbox_conf(sandbox: Path, autoexec: list[str]) -> str:
 
 class DosboxError(RuntimeError):
     """DOSBox is missing or the run failed."""
+
+
+def make_sandbox_dir(prefix: str) -> Path:
+    """Create a writable DOSBox sandbox dir, preferring a real-disk,
+    container-visible location (see :func:`rebrew.utils.writable_temp_dir`).
+
+    DOSBox breaks on tmpfs mounts and the docker runner mounts the workdir at
+    /work, so the user's home is preferred when writable; read-only homes
+    (sandboxed / CI) fall back to the workspace ``.cache`` and TMPDIR.
+
+    Raises :class:`DosboxError` when no candidate is writable."""
+    from rebrew.utils import writable_temp_dir
+
+    try:
+        return writable_temp_dir(prefix)
+    except OSError as exc:
+        raise DosboxError(str(exc)) from exc
 
 
 def run_dosbox(
@@ -90,4 +107,4 @@ def read_uppercase(sandbox: Path, name: str) -> str:
     return ""
 
 
-__all__ = ["DosboxError", "read_uppercase", "run_dosbox"]
+__all__ = ["DosboxError", "make_sandbox_dir", "read_uppercase", "run_dosbox"]

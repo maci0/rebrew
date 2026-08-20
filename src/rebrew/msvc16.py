@@ -118,9 +118,9 @@ def compile_c(
 
 
 def _default_workdir() -> Path:
-    import tempfile
+    from rebrew.dosbox import make_sandbox_dir
 
-    return Path(tempfile.mkdtemp(prefix="msvc16-", dir=Path.home()))
+    return make_sandbox_dir("msvc16-")
 
 
 __all__ = ["Msvc16Error", "Msvc16Result", "compile_c"]

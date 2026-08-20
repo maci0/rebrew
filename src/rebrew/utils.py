@@ -603,3 +603,30 @@ def strip_comment_blocks(text: str) -> str:
     while result and not result[-1].strip():
         result.pop()
     return "\n".join(result)
+
+
+def writable_temp_dir(prefix: str) -> Path:
+    """Create a writable temp dir on a real-disk, container-visible location.
+
+    Compile sandboxes must live on a real disk: DOSBox breaks on tmpfs
+    mounts, and the docker runner mounts the workdir at /work, so a
+    sandbox under the system temp dir (often tmpfs, and invisible to
+    docker in sandboxed environments) silently breaks the compile.  The
+    user's home is preferred when writable; when it is read-only
+    (sandboxed homes / CI) fall back to the rebrew workspace ``.cache``
+    (a real disk, visible to docker) and then the system temp dir.
+
+    Raises :class:`OSError` when no candidate is writable."""
+    import tempfile
+
+    workspace = Path(__file__).resolve().parents[2] / ".cache"
+    candidates = [Path.home(), workspace]
+    with contextlib.suppress(Exception):
+        candidates.append(Path(tempfile.gettempdir()))
+    for base in candidates:
+        try:
+            base.mkdir(parents=True, exist_ok=True)
+            return Path(tempfile.mkdtemp(prefix=prefix, dir=base))
+        except OSError:
+            continue
+    raise OSError(f"no writable directory for temp dir {prefix!r}")

@@ -14,7 +14,6 @@ rebrew profile, so its functions are documented as blockers.
 from __future__ import annotations
 
 import shutil
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -62,13 +61,9 @@ def _is_83_safe(name: str) -> bool:
 
 
 def _default_workdir() -> Path:
-    """A fresh sandbox dir on a NON-tmpfs filesystem.
+    from rebrew.dosbox import make_sandbox_dir
 
-    DOSBox 0.74-3 misbehaves when the mounted drive sits on tmpfs (e.g.
-    ``/tmp``): the shell treats autoexec commands as ``cd`` and DCC never
-    runs.  The user home is used instead (btrfs/ext4 here).
-    """
-    return Path(tempfile.mkdtemp(prefix="delphi16-", dir=Path.home()))
+    return make_sandbox_dir("delphi16-")
 
 
 def compile_ne(

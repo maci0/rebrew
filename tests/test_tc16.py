@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from rebrew.dosbox import make_sandbox_dir
 from rebrew.tc16 import Tc16Error, compile_c
 
 # The compile_c path symlinks the read-only vendored toolchain into the DOSBox
@@ -128,12 +129,11 @@ class TestDosboxDriverSync:
 def test_tc16_compile_parse_match_roundtrip() -> None:
     """End-to-end: TCC → Borland OMF → parse → compile_and_compare against
     the object's own bytes yields EXACT (the full matching loop)."""
-    import tempfile
     from types import SimpleNamespace
 
     from rebrew.compile import compile_and_compare, compile_to_obj
 
-    work = Path(tempfile.mkdtemp(prefix="tc16-match-", dir=Path.home()))
+    work = make_sandbox_dir("tc16-match-")
     src_dir = work / "src"
     src_dir.mkdir()
     src = src_dir / "add.c"
@@ -170,12 +170,11 @@ def test_tc16_object_no_trailing_checksum_byte() -> None:
     """TCC/wcc16 LEDATA records end with an OMF checksum byte (whole-record
     sum ≡ 0 mod 256); the omf16 parser must drop it or the code slice
     carries a spurious trailing byte that breaks byte-matching."""
-    import tempfile
 
     from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
     from rebrew.tc16 import compile_c
 
-    wd = Path(tempfile.mkdtemp(prefix="tc16-chk-", dir=Path.home()))
+    wd = make_sandbox_dir("tc16-chk-")
     src = wd / "add.c"
     src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
     r = compile_c(src, wd, timeout=120)
@@ -191,7 +190,6 @@ def test_tc16_object_no_trailing_checksum_byte() -> None:
 def test_mz_fixture_add_matches() -> None:
     """End-to-end DOS match: the `add` function extracted from the MZ
     fixture at its discovered VA (0x291) equals the tc16-compiled code."""
-    import tempfile
     from types import SimpleNamespace
 
     from rebrew.binary_loader import extract_raw_bytes
@@ -204,7 +202,7 @@ def test_mz_fixture_add_matches() -> None:
     target = extract_raw_bytes(fixture, 0x291, 13)
     assert target == bytes.fromhex("55 8b ec 8b 46 04 03 46 06 eb 00 5d c3")
 
-    wd = Path(tempfile.mkdtemp(prefix="tc16-mz-", dir=Path.home()))
+    wd = make_sandbox_dir("tc16-mz-")
     src = wd / "add.c"
     src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
     r = compile_c(src, wd, timeout=120)
@@ -239,7 +237,6 @@ def test_mz_fixture_add_matches() -> None:
 def test_mz_fixture_main_matches_with_reloc() -> None:
     """`main` from the MZ fixture calls `add` (e8 rel16) — the intra-binary
     call slot must be relocation-masked for the match (RELOC, 20/20)."""
-    import tempfile
     from types import SimpleNamespace
 
     from rebrew.binary_loader import extract_raw_bytes
@@ -251,7 +248,7 @@ def test_mz_fixture_main_matches_with_reloc() -> None:
     target = extract_raw_bytes(fixture, 0x29E, 20)
     assert target[:2] == bytes.fromhex("55 8b")  # push bp; mov bp,sp
 
-    wd = Path(tempfile.mkdtemp(prefix="tc16-mz-main-", dir=Path.home()))
+    wd = make_sandbox_dir("tc16-mz-main-")
     src = wd / "main.c"
     src.write_text(
         "int add(int a, int b);\nint main(void) { return add(2, 3); }\n", encoding="utf-8"
@@ -294,11 +291,10 @@ def test_tc20_compiles_and_parses() -> None:
     """Turbo C 2.0 (the 1988/89 compiler — Keen-era DOS games) compiles to
     the same Borland 16-bit OMF and parses through omf16 with the classic
     cdecl prologue (identical simple-function codegen to TCC 3.1)."""
-    import tempfile
 
     from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 
-    wd = Path(tempfile.mkdtemp(prefix="tc20-", dir=Path.home()))
+    wd = make_sandbox_dir("tc20-")
     src = wd / "add.c"
     src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
     r = compile_c(src, wd, timeout=120, version="2.0")
@@ -315,11 +311,10 @@ def test_tc20_compiles_and_parses() -> None:
 def test_tc16_pascal_symbol_matches_via_cdecl_name() -> None:
     """A `pascal` function compiles to an UPPERCASE no-underscore OMF symbol
     (FCN_042E); looking it up by the C-level name (_fcn_042e) must resolve."""
-    import tempfile
 
     from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 
-    wd = Path(tempfile.mkdtemp(prefix="tc16-pascal-", dir=Path.home()))
+    wd = make_sandbox_dir("tc16-pascal-")
     src = wd / "f.c"
     src.write_text("int pascal fcn_042e(int a, int b) { return a + b; }\n", encoding="utf-8")
     r = compile_c(src, wd, timeout=120, version="3.1")

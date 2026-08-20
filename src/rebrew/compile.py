@@ -45,7 +45,6 @@ import os
 import re
 import shutil
 import subprocess
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -678,8 +677,12 @@ def compile_to_obj(
 
     # The compiler is the only consumer of the workdir source copy, so it
     # is made here (miss path only) — a cache hit above never needs it.
+    # A source already inside the workdir (compile in place) is not copied:
+    # copy2 would fail with "same file".  The docker mount / workdir then
+    # serves the source directly.
     try:
-        shutil.copy2(source_path, local_src)
+        if local_src.resolve() != source_path.resolve():
+            shutil.copy2(source_path, local_src)
     except OSError as e:
         return None, f"Failed to copy source into workdir: {e}"
 
@@ -876,38 +879,47 @@ def compile_and_compare(
     """
     cflags_list = safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
 
+    workdir: Path | None = None
     try:
-        with tempfile.TemporaryDirectory(prefix="rebrew_cmp_") as workdir:
-            obj_path, err = compile_to_obj(
-                cfg,
-                source_path,
-                cflags_list,
-                workdir,
-                cache=cache,
-                use_cache=use_cache,
-                toolchain=toolchain,
-            )
-            if obj_path is None:
-                return classify_compare_result(
-                    False, f"COMPILE_ERROR: {err[:200]}", target_bytes, None, None
-                )
+        # A real-disk, container-visible workdir (writable_temp_dir) — the
+        # docker runner mounts it at /work, so a system-temp sandbox
+        # (tmpfs / docker-invisible under sandboxed environments) would
+        # compile an empty dir.  Cleaned up in finally.
+        from rebrew.utils import writable_temp_dir
 
-            try:
-                return _extract_and_compare(
-                    obj_path,
-                    symbol,
-                    target_bytes,
-                    name_to_va=name_to_va,
-                    section_va=section_va,
-                    iat_region=build_iat_region(cfg),
-                )
-            except (ValueError, OSError) as exc:
-                # Post-compile object extraction/compare failure — the source
-                # compiled fine, so this is NOT a COMPILE_ERROR.  Label the
-                # stage so downstream (todo, verify, GA) does not blame the
-                # .c file for a malformed .obj / toolchain issue.
-                return classify_compare_result(
-                    False, f"EXTRACT_ERROR: {exc}", target_bytes, None, None
-                )
+        workdir = writable_temp_dir("rebrew_cmp_")
+        obj_path, err = compile_to_obj(
+            cfg,
+            source_path,
+            cflags_list,
+            workdir,
+            cache=cache,
+            use_cache=use_cache,
+            toolchain=toolchain,
+        )
+        if obj_path is None:
+            return classify_compare_result(
+                False, f"COMPILE_ERROR: {err[:200]}", target_bytes, None, None
+            )
+
+        try:
+            return _extract_and_compare(
+                obj_path,
+                symbol,
+                target_bytes,
+                name_to_va=name_to_va,
+                section_va=section_va,
+                iat_region=build_iat_region(cfg),
+            )
+        except (ValueError, OSError) as exc:
+            # Post-compile object extraction/compare failure — the source
+            # compiled fine, so this is NOT a COMPILE_ERROR.  Label the
+            # stage so downstream (todo, verify, GA) does not blame the
+            # .c file for a malformed .obj / toolchain issue.
+            return classify_compare_result(False, f"EXTRACT_ERROR: {exc}", target_bytes, None, None)
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError, ValueError) as exc:
         return classify_compare_result(False, f"COMPILE_ERROR: {exc}", target_bytes, None, None)
+    finally:
+        if workdir is not None:
+            with contextlib.suppress(OSError):
+                shutil.rmtree(workdir)

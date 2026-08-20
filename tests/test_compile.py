@@ -150,7 +150,11 @@ class TestCompileToObj:
             compiler_runner="",
             root=tmp_path,
         )
-        source = tmp_path / "f.c"
+        # Source OUTSIDE the workdir so the copy actually runs (a source
+        # already inside the workdir is served in place, not copied).
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        source = src_dir / "f.c"
         source.write_text("int f(void){return 1;}\n", encoding="utf-8")
 
         obj_path, err = compile_to_obj(cast(ProjectConfig, cfg), source, ["/O2"], tmp_path)
