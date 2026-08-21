@@ -11,6 +11,8 @@ from rebrew.matcher.mutator import (
     crossover,
     mut_accum_to_early_return,
     mut_add_cast,
+    mut_add_intrinsic_pragma,
+    mut_add_optimize_pragma,
     mut_add_redundant_parens,
     mut_add_register_keyword,
     mut_add_volatile_intermediate,
@@ -60,6 +62,8 @@ from rebrew.matcher.mutator import (
     mut_ptr_arith_to_array,
     mut_reassociate_add,
     mut_remove_cast,
+    mut_remove_intrinsic_pragma,
+    mut_remove_optimize_pragma,
     mut_remove_register_keyword,
     mut_remove_temp_var,
     mut_reorder_declarations,
@@ -90,6 +94,7 @@ from rebrew.matcher.mutator import (
     mut_toggle_bool_not,
     mut_toggle_calling_convention,
     mut_toggle_char_signedness,
+    mut_toggle_check_stack_pragma,
     mut_toggle_signedness,
     mut_toggle_volatile,
     mut_unfold_constant_add,
@@ -98,6 +103,7 @@ from rebrew.matcher.mutator import (
     mut_wrap_in_else,
     mut_xor_zero_toggle,
     mutate_chain,
+    mutate_code,
     quick_validate,
 )
 
@@ -107,6 +113,86 @@ _RNG_SEED = 42
 def _rng() -> random.Random:
     """Return a fresh RNG with a fixed seed for deterministic, order-independent tests."""
     return random.Random(_RNG_SEED)
+
+
+class TestPragmaMutations:
+    """#pragma optimize / intrinsic / check_stack — codegen levers that
+    compiler flags cannot reach (researched MSVC6 pragma set)."""
+
+    SRC = "int f(void){\n    int x = 1;\n    return x;\n}\n"
+
+    def test_add_optimize_wraps_function(self) -> None:
+        out = mut_add_optimize_pragma(self.SRC, _rng())
+        assert out is not None
+        lines = out.splitlines()
+        assert lines[0].startswith('#pragma optimize("')
+        assert lines[-1] == '#pragma optimize("", on)'  # reset to /O baseline
+        assert "int f(void)" in out
+        assert quick_validate(out)
+
+    def test_add_optimize_letters_and_modes(self) -> None:
+        """'' / 'y' / 'g' turn OFF; 's' / 't' turn ON (favor size/speed)."""
+        for seed in range(50):
+            out = mut_add_optimize_pragma(self.SRC, random.Random(seed))
+            assert out is not None
+            opening = out.splitlines()[0]
+            assert (
+                '"", off' in opening
+                or '"y", off' in opening
+                or '"g", off' in opening
+                or '"s", on' in opening
+                or '"t", on' in opening
+            ), opening
+
+    def test_add_optimize_noop_when_present(self) -> None:
+        wrapped = f'#pragma optimize("", off)\n{self.SRC}\n#pragma optimize("", on)\n'
+        assert mut_add_optimize_pragma(wrapped, _rng()) is None
+
+    def test_remove_optimize_roundtrip(self) -> None:
+        added = mut_add_optimize_pragma(self.SRC, _rng())
+        assert added is not None
+        removed = mut_remove_optimize_pragma(added, _rng())
+        assert removed is not None
+        # pragma lines gone; the function body is intact (blank lines may remain)
+        assert "pragma" not in removed
+        assert "int f(void)" in removed
+        assert mut_remove_optimize_pragma(self.SRC, _rng()) is None  # no-op when absent
+
+    def test_add_intrinsic_roundtrip(self) -> None:
+        added = mut_add_intrinsic_pragma(self.SRC, _rng())
+        assert added is not None
+        assert added.startswith("#pragma intrinsic(")
+        assert "memcpy" in added and "memset" in added
+        assert mut_add_intrinsic_pragma(added, _rng()) is None  # no-op when present
+        removed = mut_remove_intrinsic_pragma(added, _rng())
+        assert removed is not None and "pragma" not in removed
+        assert mut_remove_intrinsic_pragma(self.SRC, _rng()) is None
+
+    def test_toggle_check_stack(self) -> None:
+        added = mut_toggle_check_stack_pragma(self.SRC, _rng())
+        assert added is not None and added.startswith("#pragma check_stack(off)")
+        removed = mut_toggle_check_stack_pragma(added, _rng())
+        assert removed is not None and "pragma" not in removed
+
+    def test_pragma_stays_with_body_across_split(self) -> None:
+        """Function-level pragmas must survive the preamble/body split in the
+        BODY (so mutations can see and remove them), not the preamble."""
+        src = f'#include <windows.h>\n#pragma optimize("", off)\n{self.SRC}\n#pragma optimize("", on)\n'
+        p, b = _split_preamble_body(src)
+        assert "#include" in p
+        assert "#pragma optimize" in b
+
+    def test_mutate_code_places_pragma_between_preamble_and_function(self) -> None:
+        src = "#include <windows.h>\n" + self.SRC
+        for seed in range(400):
+            out, name = mutate_code(src, random.Random(seed), track_mutation=True)
+            if "pragma" in out:
+                p, b = _split_preamble_body(out)
+                assert "#include" in p, name
+                assert "pragma" in b, name
+                assert quick_validate(out), name
+                return
+        pytest.fail("pragma mutation never selected in 400 runs")
 
 
 class TestMutationLog:

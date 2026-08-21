@@ -720,7 +720,15 @@ class TestConventionStub:
         code = bytes.fromhex("8b f1 8b 06 ff 50 40 c2 08 00")
         monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code)
         sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "f")
-        assert sig == "__declspec(naked) int f(void *self, int a1, int a2)"
+        # MSVC 5.0 has no __thiscall → fenced naked signature (round-trip
+        # builds define REBREW_ALLOW_NAKED; comparison builds get plain C).
+        assert sig == (
+            "#ifdef REBREW_ALLOW_NAKED\n"
+            "__declspec(naked) int f(void *self, int a1, int a2)\n"
+            "#else\n"
+            "int f(void *self, int a1, int a2)\n"
+            "#endif"
+        )
         assert note is not None and "ret 8" in note
 
     def test_stdcall_args(self, tmp_path: Path, monkeypatch: Any) -> None:
@@ -767,7 +775,13 @@ class TestConventionStub:
         )
         monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code[:n])
         sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "f")
-        assert sig == "__declspec(naked) int f(void *self, int a1, int a2, int a3, int a4)"
+        assert sig == (
+            "#ifdef REBREW_ALLOW_NAKED\n"
+            "__declspec(naked) int f(void *self, int a1, int a2, int a3, int a4)\n"
+            "#else\n"
+            "int f(void *self, int a1, int a2, int a3, int a4)\n"
+            "#endif"
+        )
         assert note is not None and "ret 16" in note
 
     def test_tail_call_arg_count_resolves_decorated_callee(

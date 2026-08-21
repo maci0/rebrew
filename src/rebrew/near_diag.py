@@ -191,6 +191,21 @@ def _verdict(counts: dict[str, int], raw_total: int) -> tuple[str, str]:
     non_match = raw_total - counts["match"]
     if non_match <= 0:
         return "MATCH", "Bytes are identical."
+    # Effective match (reccmp parity): every real delta byte is a register
+    # allocation difference — no structural churn, no instruction-selection
+    # swaps, no invalid relocs (reloc bytes are masked before classification).
+    # reccmp counts this as a 100% effective match; rebrew keeps it a real
+    # (non-byte-identical) NEAR_MATCHING with a named cause.
+    if counts["structural"] == 0 and counts["equivalent"] == 0 and counts["register"] > 0:
+        return (
+            "EFFECTIVE (matches modulo register allocation)",
+            "Every differing byte is a register-allocation difference — the "
+            "same instructions, different registers.  reccmp counts this as a "
+            "100% effective match, but it is NOT byte-identical: 'rebrew "
+            "prove' can establish semantic equivalence (PROVEN), or try "
+            "register-nudging C tweaks (reorder expressions, swap loop "
+            "counters) if byte-identity is required.",
+        )
     dominant = max(("register", "equivalent", "reloc", "structural"), key=lambda k: counts[k])
     share = counts[dominant] / non_match
     suggestions = {
@@ -337,6 +352,11 @@ def analyze(
     label, suggestion = _verdict(counts, raw_total)
     total = raw_total or 1
     dominant = label.split(" (")[0].lower() if label != "MATCH" else "match"
+    if dominant == "effective":
+        # The EFFECTIVE verdict IS register allocation — reuse the register
+        # category's mutation list (reordering expressions, swapping loop
+        # counters) as the actionable next step.
+        dominant = "register"
     mutations = mutation_suggestions(dominant)
     # A significant secondary category (>=15% of the delta, e.g. a register
     # component under a STRUCTURAL verdict) deserves its operators too — the
@@ -363,7 +383,38 @@ def analyze(
         "verdict": label,
         "suggestion": suggestion,
         "mutations": mutations,
+        "frame": _frame_comparison(target_bytes, compiled_bytes, va, cs_arch, cs_mode),
     }
+
+
+def _frame_comparison(
+    target_bytes: bytes,
+    compiled_bytes: bytes,
+    va: int,
+    cs_arch: str | int,
+    cs_mode: str | int,
+) -> dict[str, Any] | None:
+    """Stack-frame comparison (stack-cmp) for the pair — best-effort.
+
+    Derived from disassembly on both sides (no PDB).  A frame delta is a
+    per-function flag symptom (/Oy, /O1 vs /O2, /Gs, calling convention) and
+    complements the register/structural byte classification.  ``None`` for
+    non-x86 modes or when disassembly fails — never raises.
+    """
+    import capstone
+
+    try:
+        mode = int(getattr(capstone, cs_mode)) if isinstance(cs_mode, str) else int(cs_mode)
+        if mode not in (capstone.CS_MODE_16, capstone.CS_MODE_32):
+            return None
+        from rebrew.stack_cmp import analyze_frame, compare_frames
+
+        return compare_frames(
+            analyze_frame(target_bytes, va, mode),
+            analyze_frame(compiled_bytes, va, mode),
+        )
+    except Exception:  # noqa: BLE001 — frame info is best-effort
+        return None
 
 
 class _DiagnoseError(RuntimeError):

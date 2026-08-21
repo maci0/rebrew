@@ -330,12 +330,38 @@ def iter_sources(directory: Path, cfg: ProjectConfig | None = None) -> list[Path
     ``pathlib`` globs do not support brace alternation.  This is the single
     entry point for discovering reversed source files — using it everywhere
     ensures consistent support for both flat and nested directory layouts.
+
+    When *cfg* is provided and *directory* is the target's ``reversed_dir``,
+    the project's shared-sources root (``cfg.shared_dir``, e.g.
+    ``src/shared``) is appended: files there serve **every** target, with
+    one ``// FUNCTION: <target> <va>`` marker per target and ``#ifdef``
+    deltas driven by the per-target ``defines``.
     """
     exts = source_exts(cfg) or [".c"]
     if len(exts) == 1:
-        return sorted(directory.rglob(f"*{exts[0]}"))
-    suffixes = {ext.lower() for ext in exts}
-    return sorted(p for p in directory.rglob("*") if p.is_file() and p.suffix.lower() in suffixes)
+        base = sorted(directory.rglob(f"*{exts[0]}"))
+    else:
+        suffixes = {ext.lower() for ext in exts}
+        base = sorted(
+            p for p in directory.rglob("*") if p.is_file() and p.suffix.lower() in suffixes
+        )
+
+    if cfg is None:
+        return base
+    shared = getattr(cfg, "shared_dir", None)
+    reversed_dir = getattr(cfg, "reversed_dir", None)
+    if (
+        shared is not None
+        and reversed_dir is not None
+        # Shared sources belong to the target's reversed_dir scan ONLY —
+        # a scan of any other directory with cfg must not pull them in.
+        and Path(directory).resolve() == Path(reversed_dir).resolve()
+        and shared.is_dir()
+        and Path(shared).resolve() != Path(directory).resolve()
+    ):
+        shared_files = iter_sources(shared, None)  # cfg=None: no recursion
+        return sorted(set(base) | set(shared_files))
+    return base
 
 
 def iter_annotations(

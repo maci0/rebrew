@@ -163,6 +163,13 @@ Format: `// MARKER: MODULE 0xVA`
 | `PROVEN` | Semantically equivalent, proven via symbolic execution (angr + Z3) |
 | `STUB` | Placeholder, doesn't match yet |
 
+A `NEAR_MATCHING` whose **entire** byte delta is register allocation is
+labeled an *effective match* (reccmp's 100% effective-match case): `rebrew
+verify` appends the note to the function's message, and `rebrew near-diag`
+returns the `EFFECTIVE` verdict.  Same instructions, different registers —
+**not byte-identical**; `rebrew prove` establishes PROVEN, or register-nudging
+C tweaks (reorder expressions, swap loop counters) chase byte-identity.
+
 ### Effective Status (verify cache vs metadata)
 
 `rebrew status` reports each function's **effective** status, not just the
@@ -387,6 +394,12 @@ Errors indicate broken annotations that will cause `rebrew test`, `rebrew verify
 |------|-------------|--------------|
 | E013 | Duplicate VA | Two files annotate the same virtual address |
 
+#### Decomp Quality Errors
+
+| Code | Description | Triggered by |
+|------|-------------|--------------|
+| E023 | Whole-function naked asm | `__declspec(naked)` + `__asm`/`__emit` body beyond 1-2 padding bytes (`nop` / `0x90` / `0xCC`). Only 1-2 alignment nops are allowed as minor padding; a whole-function naked dump must be decompiled to C |
+
 ---
 
 ### Warnings (advisory, zero exit)
@@ -419,7 +432,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | W019 | Inline metadata annotation | `// STATUS:`, `// ORIGIN:`, `// SIZE:`, `// CFLAGS:`, `// BLOCKER:`, `// NOTE:`, `// GHIDRA:`, etc. inline — run `--fix` to move to `rebrew-function.toml` |
 | W010 | Unknown annotation key | `// FOOBAR: value` — key not in the known set |
 | W015 | Mixed-case VA hex digits | `0x10003Da0` — prefer consistent `0x10003da0` or `0x10003DA0` |
-| W020 | Asm-dump placeholder | Body uses `__asm`/`__emit` — pasted disassembly, not real C.  **Escalates** when the file's `STATUS` claims a non-stub match (`EXACT`/`RELOC`/...): an asm dump cannot be a byte-match, so the metadata status is wrong (fix it or mark `BLOCKER`).  `STATUS: STUB` + asm dump is an expected documented placeholder and gets the base message only |
+| W020 | Asm-dump placeholder | Body uses `__asm`/`__emit` — pasted disassembly, not real C.  Does **not** fire for whole-function `__declspec(naked)` + asm (that is **E023** — error).  **Escalates** when the file's `STATUS` claims a non-stub match (`EXACT`/`RELOC`/...): an asm dump cannot be a byte-match, so the metadata status is wrong (fix it or mark `BLOCKER`).  `STATUS: STUB` + asm dump is an expected documented placeholder and gets the base message only |
 | W021 | Duplicate global | Same global defined in more than one file |
 | W022 | Zero-init `.bss` global | File-scope `= 0` initializer on a `.bss`-style global |
 

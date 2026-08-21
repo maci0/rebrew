@@ -163,6 +163,11 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("lint", "rebrew.lint", "Lint C annotations."),
     ("match", "rebrew.match", "GA matching engine — single file or batch (--all)."),
     ("diff", "rebrew.diff", "Compile and diff a reversed function against the target binary."),
+    (
+        "stack-cmp",
+        "rebrew.stack_cmp",
+        "Compare the compiled function's stack frame against the target binary.",
+    ),
     ("asm", "rebrew.asm", "Disassemble a function (hex dump or NASM source)."),
     (
         "switch",
@@ -205,6 +210,11 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ),
     ("crt-match", "rebrew.crt_match", "CRT source cross-reference matcher."),
     ("imports", "rebrew.imports", "List PE import-table symbols and detect import stubs."),
+    (
+        "verify-exports",
+        "rebrew.exports",
+        "Verify the recompiled binary's export table matches the original target.",
+    ),
     (
         "strings",
         "rebrew.strings",
@@ -281,6 +291,16 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "similar",
         "rebrew.similar",
         "Find structurally similar functions in the target binary.",
+    ),
+    (
+        "binary-similarity",
+        "rebrew.binary_similarity",
+        "Whole-binary structural similarity vs another binary (versions/DLL+EXE).",
+    ),
+    (
+        "cross-import",
+        "rebrew.cross_import",
+        "Import matched functions from another target (same code, different VAs).",
     ),
     (
         "near-diag",

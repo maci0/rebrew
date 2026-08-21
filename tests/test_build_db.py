@@ -294,8 +294,10 @@ binary = "test.exe"
         c.execute("SELECT value FROM metadata WHERE target = 'testbin' AND key = 'db_version'")
         row = c.fetchone()
         assert row is not None
+        from rebrew.build_db import _CURRENT_DB_VERSION
+
         version = json.loads(row[0])
-        assert version == "4"
+        assert version == _CURRENT_DB_VERSION
         conn.close()
 
     def test_new_columns(self, project_root: Path) -> None:
@@ -902,7 +904,9 @@ class TestBuildDbForceFlag:
         row = c.fetchone()
         conn.close()
         assert row is not None
-        assert json.loads(row[0]) == "4"
+        from rebrew.build_db import _CURRENT_DB_VERSION
+
+        assert json.loads(row[0]) == _CURRENT_DB_VERSION
 
     def test_no_mismatch_force_not_needed(self, project_root: Path) -> None:
         """When schema matches, build proceeds without --force (no error)."""

@@ -6739,3 +6739,324 @@ the August review passes (test/cli/doc/error/perf/concurrency/sec/deps)
 plus this fresh sweep leave no known open bug or feature gap in the
 reviewed scope.  Working tree still carries the previous audit's
 uncommitted docs/format changes.
+
+---
+
+## 2026-08-21 — Cross-target function import (`rebrew cross-import`)
+
+New command for multi-binary-per-project workflows: import functions already
+matched in one target into another (binary versions with the same code at
+different VAs; DLL+EXE pairs sharing code).
+
+- **Matching** (`cross_import.cross_match`): structural signatures from
+  target bytes (reuses `rebrew.similar`), source side restricted to
+  EXACT/RELOC/PROVEN functions.  No compile needed to match.  Default
+  `--min-score 95` + `--min-gap 5` — measured on the two-PE fixture that a
+  genuinely different function with a shared prologue scores 92.9 (below
+  the threshold) while identical code scores 100; the verify step is the
+  final arbiter for anything that slips through.
+- **Import**: `.c` marker remapped to destination module + VA, `SIZE` set
+  to the destination's canonical size, file written to the destination
+  `reversed_dir`, then `verify_entry` + `apply_status_updates` (a wrong
+  match fails verification and stays unpromoted).  `--dry-run`/`--json`/
+  `--va`/`--limit`.
+- **Tests** (`tests/test_cross_import.py`, 16): pure matching core;
+  two-PE fixture via `bin_util.make_pe` (shared pair at different VAs
+  matched, differing function skipped at 92.9, absent function untouched);
+  marker rewrite (both comment styles, SIZE insert/replace); import writes
+  file + verifies + promotes; dry-run writes nothing; CLI guard + JSON
+  flow; real gcc-pe end-to-end round-trip (native toolchain installed).
+- **Docs**: ADR-009, `docs/CLI.md` section, registered in the umbrella CLI.
+- Gates: full suite green, ruff check/format + pre-commit clean.
+
+---
+
+## 2026-08-21 — Shared multi-version sources (`src/shared` + per-target defines)
+
+isledecomp-style "same .c for multiple versions": one source file serves
+every target — one `// FUNCTION: <target> <va>` marker per target (same
+function at a different VA per version) plus `#ifdef` deltas driven by
+per-target defines.
+
+- **`[project] shared_dir`** (default `src/shared`, empty disables): scanned
+  for every target via the single `iter_sources` choke point (verify/
+  status/todo/catalog pick it up with no per-tool changes).  Shared files
+  get `filepath` `../shared/...` relative to each target's `reversed_dir`
+  (via `_relative_filepath`'s relpath fallback), which resolves back to the
+  shared file for compile/verify.  Metadata stays per-target: the shared
+  `rebrew-function.toml` keys by `module.va`.
+- **`[targets.<name>] defines = ["V2"]`**: per-target compile-time defines,
+  `/DV2` (MSVC) or `-DV2` (posix), appended in `compile_to_obj` — they
+  shape the compile-cache key and the verify cache stores them per entry
+  (a defines edit invalidates cached results).
+- **Tests** (`tests/test_shared_sources.py`, 11): config parsing
+  (shared_dir/defines/disable), `iter_sources` inclusion, multi-marker
+  scan per target with `../shared/` filepaths, defines reaching the
+  compiler with the right flag style, real gcc-pe verify of a shared
+  function; plus verify-cache defines guards (2).
+- **Docs**: ADR-010, `docs/CLI.md` section, CHANGELOG entry.
+- Gates: full suite green, ruff check/format + pre-commit clean.
+
+---
+
+## 2026-08-21 — GA hardening + pragma levers (no-docker native path, MSVC6 pragma mutations)
+
+Three work streams after the shared-sources feature:
+
+**1. Adversarial review of the new code (7 bugs fixed, each with a regression test):**
+- `iter_sources` leaked shared sources into scans of unrelated directories
+  (now scoped to the target's `reversed_dir`).
+- The GA's raw subprocess path (native gcc-pe) dropped per-target `defines`;
+  `_ga_cache_key` now covers them too.
+- The stacked-marker name fallback misnamed bodyless LIBRARY/STUB blocks
+  (restricted to FUNCTION).
+- `_parse_defines([None])` produced a garbage `-DNone` flag (non-string
+  entries now rejected).
+- `cross-import` silently clobbered an unrelated destination file
+  (now `TARGET_CONFLICT` refusal) and imported copies kept stale stacked
+  markers (collapsed to the destination marker only); `--va garbage` now
+  errors as JSON.
+
+**2. GA verified without docker (native toolchains):**
+- `base_cflags` defaults per profile — posix profiles (gcc-pe, watcom,
+  tc16/20, borland) get `""` instead of the MSVC `/nologo /c /MT` glue
+  that broke hand-written tomls; the matcher raw path guards empty
+  include dirs (no bare `-I`).
+- `--flag-sweep-only` / batch `--flag-sweep` refuse loudly on posix
+  profiles (the sweep explores MSVC flag combos — previously every combo
+  failed silently under gcc).
+- Real end-to-end: `rebrew match` (gcc-pe, no docker) finds EXACT; test/
+  verify pass 1/1; new tests include a full `BinaryMatchingGA` run with
+  real gcc-pe (skip-gated).
+
+**3. Pragma levers for the GA (research + 5 new operators, 114 → 119):**
+- Research (MSVC 6.0 docs + community usage — `#pragma optimize("", off)`
+  in ~24k repos): the `optimize` letters `""`/`g`/`s`/`t`/`y` and the
+  all-off special form, `#pragma intrinsic`/`function` (CRT inlining under
+  /Oi: memcpy→rep movs, memset→rep stos, strlen→repne scasb),
+  `#pragma check_stack(off)` (/Gs probes).  Deliberately not mutated:
+  pack, auto_inline/inline_depth, code_seg/data_seg, function.
+- Operators: `mut_add/remove_optimize_pragma` (wrapper + `("", on)` reset),
+  `mut_add/remove_intrinsic_pragma`, `mut_toggle_check_stack_pragma`.
+  `_split_preamble_body` keeps function-level pragmas with the body so
+  removals are complete; gcc-pe ignores the pragmas harmlessly.
+- Docs: `docs/GA_MUTATIONS.md` §20 (research table + not-mutated list),
+  operator counts 114 → 119 in GA_MUTATIONS.md/matcher-AGENTS.md/AGENTS.md.
+- Tests: 9 new (optimize letters/modes, round-trips, no-op guards,
+  body-stickiness, real mutate_code placement).
+
+Gates: full suite 4681 passed / 34 skipped; ruff + mypy clean; pre-commit
+all 13 hooks passed.
+
+## 2026-08-21 — Fenced naked reconstruction (round-trip-only, REBREW_ALLOW_NAKED)
+
+User design: naked functions must live behind an `#ifdef` fence — they are
+only for round-trip byte verification, never for the comparison build.
+
+- `asm.py generate_inline_c` now emits the raw-asm function behind
+  `#ifdef REBREW_ALLOW_NAKED` (with the `// FUNCTION:` marker outside the
+  fence): `__declspec(naked)` (MSVC) / `__attribute__((naked))`
+  (gcc/clang) + the existing inline-asm body in the `#ifdef` branch, an
+  idiomatic-C stub in the `#else` branch (comment points at `rebrew prove`
+  for PROVEN status), and `#endif`.
+- `rebrew round-trip --allow-naked` is the ONLY switch that defines the
+  macro (`/DREBREW_ALLOW_NAKED` MSVC-style, `-DREBREW_ALLOW_NAKED` posix),
+  appended to every splice-set function's cflags — `test`/`verify`/`match`
+  never define it, so the comparison build always compiles the fallback.
+- `skeleton.py` thiscall stubs on compilers without a native `__thiscall`
+  (MSVC 5.0) get the same fence: `__declspec(naked)` + `ret N`-comment
+  body in the naked branch, `int f(void *self, ...)` + `return 0;` in the
+  fallback; `_render_annotation_block` renders both branch bodies.
+- Naked stays a non-mutation: never generated by the GA, round-trip-only
+  capability by construction.
+- Tests: 3 new (`test_naked_fenced_for_round_trip`, `test_naked_gcc_attribute`
+  in test_asm_extended.py, `test_fenced_naked_stub_two_branches` in
+  test_skeleton_extended.py, `test_allow_naked_appends_define` in
+  test_round_trip.py covering /D and -D forms + no-flag absence).
+- Docs: CLI.md round-trip section (`--allow-naked`), CHANGELOG.
+
+## 2026-08-21 — Stale-annotation audit (doctor check + verify EXTRACT_ERROR hint)
+
+User report: "there is often problems with stale annotations".  After a
+binary update or re-discovery, `// FUNCTION:` markers keep their old VAs —
+`rebrew test`/`verify` compile against the wrong bytes (confusing
+EXTRACT_ERROR / byte mismatches) and status/todo report phantom functions.
+Nothing cross-referenced annotations against the current function list.
+
+- `doctor.py` new `Annotation staleness` check (registered in `run_doctor`):
+  loads `functions.txt` via `cached_function_list` (same ground truth
+  `intake`/`discover` write), walks every annotated source via
+  `iter_annotations` (per-target marker filter so shared multi-version
+  sources only contribute their own target's markers), and classifies each
+  FUNCTION/STUB marker: valid (VA is a function start), inside-another
+  (moved/merged — bisect over sorted spans), or dangling (no function).
+  Reports counts + first 5 samples with file:line, and the fix (re-run
+  `rebrew intake`, re-annotate).  LIBRARY markers excluded (may point at
+  import stubs the parser filters out), DATA/GLOBAL excluded (not code),
+  missing/empty function list → SKIP.  Warn-level by design.
+- `verify.py` EXTRACT_ERROR path: when extraction fails and the annotation
+  VA is not a function in the current function list, the message names the
+  stale annotation instead of blaming binary tooling (best-effort, cached
+  list lookup on the failure path only).
+- Tests: 7 new in `test_doctor.py` (all-match pass, dangling warn, inside
+  warn, missing-list skip, DATA/LIBRARY ignored, other-target filter,
+  sample cap) + 2 in `test_verify_extended.py` (hint present when VA not
+  in list, absent when it is).
+
+## 2026-08-21 — reccmp gate alignment (verify --nolib, fenced-naked diagnosis, round-trip fenced report)
+
+User's reccmp numbers vs rebrew verify: 259/259 SERVER via REBREW_ALLOW_NAKED,
+but reccmp showed 18 naked+_emit functions at 0% ("type 1 diff 2 empty"),
+21 LIBRARY (static CRT + vendored zlib) at <50%, and 70-90% "reloc noise" on
+the rest.  Verified the claims against isledecomp/reccmp source:
+- reccmp scores per-function `SequenceMatcher.ratio()` over *sanitized asm
+  text*; direct call targets are always name-replaced, but `push`/immediates/
+  displacements are only replaced when `is_addr` (reloc-table hit OR known
+  entity) — asymmetric name resolution (orig sparse db + often no .reloc vs
+  recomp full PDB) is the "reloc noise" mechanism, concentrated in references
+  to unannotated code.  `--nolib` = drop `is_library` (LIBRARY-marker) entities.
+- The 18 "0%" are a build-matrix artifact: a recomp binary built WITHOUT
+  REBREW_ALLOW_NAKED compiles the empty `#else` fallback for fenced functions
+  → reccmp diffs a full orig function against a 2-byte stub → ~0%, "empty".
+
+Fixes (rebrew side):
+- `rebrew verify --nolib` — LIBRARY-marked functions excluded from the work
+  list, cached counts, and the CI gate (`summary.library_excluded`), mirroring
+  reccmp `--nolib`.  Filter lives in `main()` after `prepare_entries`
+  (no signature churn); cached counts recomputed from the filtered results.
+- Fenced-naked diagnosis: `verify_entry` appends an explanatory note when an
+  unmatched source contains `#ifdef REBREW_ALLOW_NAKED` — "comparison build
+  compiles the #else fallback; byte-identity needs a REBREW_ALLOW_NAKED build
+  (`round-trip --allow-naked`, or -DREBREW_ALLOW_NAKED=1 for reccmp)".
+- `round-trip --allow-naked` reports `fenced_naked {count, vas}` in the JSON
+  report (rich stats line shows "naked fenced: N") — the checklist for the
+  reccmp build matrix.
+- Tests: 7 new (2 verify CLI --nolib incl. gate behavior, 2 fenced-note
+  verify_entry, 1 round-trip fenced report, 1 `_source_is_naked_fenced`
+  unit, plus the earlier 2 stale-annotation hint tests).
+
+## 2026-08-21 — reccmp feature adoption: effective match + export verification
+
+User: "is there any functionality in reccmp that we could adopt and that we
+don't have yet?"  Grounded feature diff against isledecomp/reccmp source
+(fetched to /tmp/reccmp-src); adopted the two cheap, testable wins:
+
+- **`EFFECTIVE` verdict in near-diag** (`near_diag.py` `_verdict`): when the
+  ENTIRE delta is register allocation (structural==0, equivalent==0,
+  register>0 — reloc bytes are masked before classification), the verdict
+  becomes "EFFECTIVE (matches modulo register allocation)" with the honest
+  framing (NOT byte-identical; `rebrew prove` for PROVEN, or register-nudging
+  C tweaks) and the register-oriented GA mutation list (dominant maps to
+  "register").  Register-dominant with structural churn stays REGISTER;
+  equivalent-only stays EQUIVALENT.
+- **`rebrew verify` effective-match note**: the per-unmatched-function diff
+  now passes `register_aware=True` (x86-32 only) so `diff_functions`
+  classifies register-encoding diffs separately (RR); a NEAR_MATCHING with
+  structural==0 and reg>0 gets an "effective match … register allocation"
+  note appended to its message (and `diff_lines` stays 0 — it counts
+  structural only).
+- **`rebrew verify-exports`** (new `exports.py`, reccmp `verexp`): compares
+  the export NAME sets of the project target vs a recompiled binary via LIEF
+  (`exported_functions`), reports missing/added counts, exits EXIT_MISMATCH
+  on divergence.  Registered in main.py `_SINGLE_COMMANDS`.  (Noted: the
+  Typer callback-with-positional quirk — `[arg, --json]` fails, `[--json,
+  arg]` works — is shared with `imports.py`; options-first is the codebase
+  convention.)
+- Tests: 4 near-diag verdict tests (effective, register-dominant mixed,
+  equivalent-only, secondary-hint updated), 2 verify note tests, 10 exports
+  tests (parse/compare/CLI).  One existing near-diag test updated for the new
+  verdict; `test_register_verdict_mentions_register` now uses a mixed pair.
+
+## 2026-08-21 — reccmp stackcmp adopted as `rebrew stack-cmp` (no PDB needed)
+
+User: "3. Stack-frame comparison build this too."  reccmp's stackcmp reads
+local-variable records from the recomp PDB via cvdump (VC7+ PDBs).  rebrew
+has no recomp PDB in its pipeline, and the user's MSVC 6.0 workflow produces
+classic-format PDBs llvm-pdbutil cannot read — so the frame is derived from
+DISASSEMBLY on both sides (target bytes vs compiled .obj), which works for
+every toolchain.
+
+- `stack_cmp.py` (new tool `rebrew stack-cmp <source|VA|symbol>`):
+  - `analyze_frame(code, va, cs_mode)` — ESP tracking across push/pop/
+    pushad/sub/add/`lea esp`/enter (call deliberately untracked — net zero),
+    16-bit aware (`sp`/`bp`, word=2), ebp-frame detection (push ebp; mov
+    ebp,esp / enter N,0), `ret N` popping, `[ebp±N]`/`[bp±N]` slot set.
+    Garbage-robust (empty result, never raises).
+  - `compare_frames` — frame size / frame pointer / ret-popping always
+    compared; slot layout only when BOTH sides use a frame pointer; flag-
+    focused hints (/Oy, /O1 vs /O2, /Gs, calling convention).
+  - CLI mirrors diff.py: resolve_build_params + build_candidate_obj_only;
+    exits 0 frames match / 1 frames differ / 2 build failure.
+- `near_diag.analyze()` now carries a best-effort `frame` comparison field
+  (JSON-visible; None for non-x86 modes) — the byte classification and the
+  frame signal travel together.
+- Registered in main.py `_SINGLE_COMMANDS` as `stack-cmp`.
+- Tests: 16 new in `test_stack_cmp.py` (frame variants incl. 16-bit/enter/
+  stdcall/push-pop-net-zero/garbage, compare cases, CLI exit codes + JSON)
+  + 1 near-diag frame-field test.
+- Note: two test-authoring traps hit — class-body scoping (use type()
+  factories in monkeypatch closures) and CliRunner needing the Typer `app`,
+  not the callback `main`; the codebase convention `[--json, arg]` ordering
+  (Typer positional quirk, shared with imports.py) also applies here.
+
+## 2026-08-21 — recoverage integration for the effective-match signal
+
+User: "update docs and recoverage".  Recoverage (sibling dashboard,
+github.com/maci0/recoverage) consumes `db/coverage.db` built by
+`rebrew build-db` from `db/data_*.json` + `db/verify_results.json`; the
+contract is pinned by `tests/test_recoverage_contract.py`.
+
+The earlier register-aware diff change (verify now classifies RR register
+diffs separately) altered `diff_lines` semantics — it counts STRUCTURAL
+diffs only.  Surfaced the new signal end-to-end so recoverage can consume it:
+
+- `CompareResult` + `VerifyResult` gain `reg_delta` (RR-class instruction
+  count) and `effective_match` (bool — entire delta is register allocation);
+  `verify_entry` populates them from the register-aware diff summary;
+  `run_verification` result rows and the verify-cache `to_dict` carry them
+  (VerifyResult.from_dict defaults for legacy cache entries).
+- `build_db` `verify_results` table gains `reg_delta INTEGER` and
+  `effective_match INTEGER` columns; the ingest reads them from the report;
+  the recoverage-expected column set includes them.
+- Contract test now requires `reg_delta` + `effective_match` in
+  `verify_results`; `test_unmatched_populates_diff_lines` updated (fake
+  summary needs `reg`), effective-match test asserts the new fields.
+- Docs: DB_FORMAT.md `verify_results` section (new columns + clarified
+  `diff_lines` structural-only semantics), CLI.md verify report fields,
+  CHANGELOG.
+
+## 2026-08-21 — recoverage schema v5 + per-binary similarity (`rebrew binary-similarity`)
+
+User: "update docs and recoverage" then "we have per-func levensthein etc —
+do we have per binary also?" → build it.
+
+**Recoverage schema v4 → v5:** the register-aware diff change (verify classifies
+RR register diffs separately) shifted `diff_lines` to structural-only; the
+effective-match signal now flows end-to-end:
+- `CompareResult`/`VerifyResult` gain `reg_delta` + `effective_match`;
+  `verify_entry` populates them; `run_verification` rows and the cache
+  `from_dict` carry them (legacy cache entries default).
+- `build_db` `verify_results` gains `reg_delta INTEGER` + `effective_match
+  INTEGER`; ingest reads them; `_CURRENT_DB_VERSION` 4 → 5 (the version gate
+  caught the shape change — a hand-rolled-schema test needed the new columns
+  too); DB_FORMAT.md version history row added; contract test pins the new
+  columns.
+
+**`rebrew binary-similarity`** (new `binary_similarity.py`): the per-binary
+analog of per-function diff metrics.  Every function of the current target
+is best-matched against another binary's function list via the shared
+structural signature (`similar.py`'s histogram-cosine + call/branch, the
+same engine `cross-import` uses), scored pairwise with vectorised numpy
+(single matrix product over a shared mnemonic vocabulary), then aggregated:
+byte-weighted `overall`, mean/median, threshold buckets with byte shares,
+and the lowest-scoring functions ("version deltas").  `--other-list`
+(functions.txt) or `--other-target` for a configured target.  Matches the
+multi-version / DLL+EXE use case.  Note: one-to-many best-per-A matching
+(a similarity metric, not an alignment).
+
+- Tests: 13 in `test_binary_similarity.py` (score matrix incl. weighting +
+  empty side, aggregate: byte-weighting, buckets, low list, undecodable
+  skip; CLI exit codes + JSON).  One bug found by tests: the `>=95` bucket
+  used `[lo, hi)` and excluded exactly 100.0 (fixed with `inf` bound).
+- Gates: full suite 4732+ passed, mypy 113 files clean, ruff clean,
+  pre-commit all stages passed.

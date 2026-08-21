@@ -103,7 +103,26 @@ def _render_annotation_block(
         lines.append(f"{decomp_code}\n")
         lines.append("/* === End decompilation === */\n")
     else:
-        if convention_stub is not None:
+        if convention_stub is not None and convention_stub.startswith("#ifdef REBREW_ALLOW_NAKED"):
+            # Fenced naked/fallback stub: each branch needs its own body —
+            # a naked function cannot contain C statements.
+            _parts = convention_stub.split("\n")
+            _naked_sig, _fallback_sig = _parts[1], _parts[3]
+            lines.append("#ifdef REBREW_ALLOW_NAKED\n")
+            lines.append(f"{_naked_sig}\n{{\n")
+            lines.append("    /* TODO: naked body — inline asm (this in ecx),")
+            if convention_note:
+                lines.append(f"       {convention_note} */")
+            else:
+                lines.append("       end with `ret N` */")
+            lines.append("}\n")
+            lines.append("#else\n")
+            lines.append(f"{_fallback_sig}\n{{\n")
+            lines.append("    /* TODO: idiomatic C89 fallback for the comparison build */\n")
+            lines.append("    return 0;\n")
+            lines.append("}\n")
+            lines.append("#endif\n")
+        elif convention_stub is not None:
             signature = convention_stub
         elif profile in (
             "tc20",
@@ -121,17 +140,18 @@ def _render_annotation_block(
         else:
             # MSVC profiles and the historical default: __cdecl.
             signature = f"int __cdecl {func_name}(void)"
-        lines.append(f"{signature}\n")
-        lines.append("{\n")
-        if todo_text:
-            lines.append(f"    /* TODO: {todo_text} */\n")
-            if convention_note:
-                lines.append(f"    /* {convention_note} */\n")
-            lines.append(f"    /* Ghidra name: {ghidra_name} */\n")
-        else:
-            lines.append(f"    /* TODO: Implement — Ghidra name: {ghidra_name} */\n")
-        lines.append("    return 0;\n")
-        lines.append("}\n")
+        if not convention_stub or not convention_stub.startswith("#ifdef REBREW_ALLOW_NAKED"):
+            lines.append(f"{signature}\n")
+            lines.append("{\n")
+            if todo_text:
+                lines.append(f"    /* TODO: {todo_text} */\n")
+                if convention_note:
+                    lines.append(f"    /* {convention_note} */\n")
+                lines.append(f"    /* Ghidra name: {ghidra_name} */\n")
+            else:
+                lines.append(f"    /* TODO: Implement — Ghidra name: {ghidra_name} */\n")
+            lines.append("    return 0;\n")
+            lines.append("}\n")
     return "".join(lines)
 
 
@@ -274,8 +294,13 @@ def _convention_stub(cfg: ProjectConfig, va: int, func_name: str) -> tuple[str |
         n = _ret_arg_count(insns)
         args = ", ".join(f"int a{i}" for i in range(1, n + 1))
         retn = n * 4
+        # MSVC 5.0 has no __thiscall — the ONLY way to express thiscall is
+        # __declspec(naked) + inline asm (this in ecx).  Fence it: the naked
+        # branch is used by round-trip verification builds (REBREW_ALLOW_NAKED),
+        # the fallback keeps the comparison build compiling.
+        sig = f"int {func_name}(void *self{', ' + args if args else ''})"
         return (
-            f"__declspec(naked) int {func_name}(void *self{', ' + args if args else ''})",
+            f"#ifdef REBREW_ALLOW_NAKED\n__declspec(naked) {sig}\n#else\n{sig}\n#endif",
             f"thiscall + {n} stack arg(s) — MSVC 5.0 has no __thiscall; "
             f"write the body as inline asm (this in ecx) and end with `ret {retn}`",
         )

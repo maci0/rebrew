@@ -132,6 +132,7 @@ class TestPrepareEntriesCache:
             "cflags": cflags,
             "headers_fp": headers_fp,
             "toolchain": toolchain,
+            "defines": "(none)",
             "result": {
                 "status": "EXACT" if passed else "STUB",
                 "va": "0x1000",
@@ -350,6 +351,50 @@ class TestPrepareEntriesCache:
                 self._cache_entry("f.c", cflags="/Gd /O2")
             )
         }
+        monkeypatch.setattr(
+            verify_mod,
+            "_load_verify_cache",
+            lambda *a, **k: verify_mod.VerifyCache(
+                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+            ),
+        )
+        _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        assert cached == 1
+
+    def test_defines_change_invalidates_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A per-target defines edit (a version switch in a shared
+        multi-version source) must re-verify the entry — defines are compile
+        inputs invisible to the source hash and cflags string."""
+        entry = _ann(0x1000)
+        cfg = self._setup(tmp_path, monkeypatch, entry)
+        cache = {
+            "0x00001000": verify_mod.VerifyCacheEntry.from_dict(
+                self._cache_entry("f.c", cflags="/O2 /Gd")
+            )
+        }
+        cache["0x00001000"].defines = "V1"  # cached under an older version switch
+        monkeypatch.setattr(
+            verify_mod,
+            "_load_verify_cache",
+            lambda *a, **k: verify_mod.VerifyCache(
+                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+            ),
+        )
+        _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        assert cached == 0
+
+    def test_defines_match_served(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The entry's stored defines match the freshly-resolved ones."""
+        entry = _ann(0x1000)
+        cfg = self._setup(tmp_path, monkeypatch, entry)
+        cache = {
+            "0x00001000": verify_mod.VerifyCacheEntry.from_dict(
+                self._cache_entry("f.c", cflags="/O2 /Gd")
+            )
+        }
+        cache["0x00001000"].defines = "(none)"
         monkeypatch.setattr(
             verify_mod,
             "_load_verify_cache",

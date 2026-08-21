@@ -11,6 +11,7 @@ Usage::
     rebrew doctor --json
 """
 
+import bisect
 import os
 import shlex
 import shutil
@@ -789,6 +790,115 @@ def check_function_list(cfg: ProjectConfig) -> CheckResult:
         )
 
 
+def _function_containing_va(
+    spans: list[tuple[int, int, str]], va: int
+) -> tuple[int, int, str] | None:
+    """Return the ``(start, end, name)`` span containing *va*, or None.
+
+    ``spans`` is a list sorted by start.  A span whose *start* equals *va*
+    is NOT a "contains" — the caller already established that *va* is not a
+    function start, so only strictly-inside hits qualify (a moved/merged
+    annotation now points into the body of a different function).
+    """
+    if not spans or va < spans[0][0]:
+        return None
+    starts = [s[0] for s in spans]
+    idx = bisect.bisect_right(starts, va) - 1
+    if idx < 0:
+        return None
+    start, end, name = spans[idx]
+    if start < va < end:
+        return (start, end, name)
+    return None
+
+
+def check_annotation_staleness(cfg: ProjectConfig) -> CheckResult:
+    """Cross-reference FUNCTION/STUB annotations against the current function list.
+
+    A "stale annotation" is a ``// FUNCTION:``/``// STUB:`` marker whose VA no
+    longer corresponds to a function in the current binary.  After a binary
+    update or a re-discovery the function either moved — the annotation now
+    points *inside* another function's span — or was removed (no function at
+    that VA).  Either way ``rebrew test``/``verify`` compile against the wrong
+    bytes (a confusing EXTRACT_ERROR or byte mismatch) and status/todo keep
+    reporting phantom functions.
+
+    Uses the target's ``functions.txt`` (the same list ``rebrew intake`` /
+    ``discover`` write) as ground truth.  ``LIBRARY`` markers are deliberately
+    excluded: they may legitimately point at import stubs, which
+    ``parse_function_list`` filters out — a false "no function" alarm would
+    drown the real signal.  ``GLOBAL``/``DATA`` markers are data, not code.
+
+    Skips when the function list is missing or empty (nothing to check
+    against).  Reports a WARN when any annotation is stale — a changed binary
+    is a workflow state (re-annotate), not a broken environment, so it must
+    not hard-fail ``rebrew doctor``.
+    """
+    from rebrew.catalog.loaders import cached_function_list
+    from rebrew.cli import iter_annotations, iter_sources, rel_display_path, target_marker
+
+    funcs = cached_function_list(cfg)
+    if not funcs:
+        return CheckResult(
+            name="Annotation staleness",
+            status=_SKIP,
+            message="function list missing/empty — cannot cross-check annotations",
+        )
+
+    starts: set[int] = set()
+    spans: list[tuple[int, int, str]] = []
+    for f in funcs:
+        va = int(f.get("va", 0))
+        if va <= 0:
+            continue
+        starts.add(va)
+        spans.append((va, va + max(int(f.get("size", 0) or 0), 1), str(f.get("name", ""))))
+    spans.sort()
+
+    sources = iter_sources(cfg.reversed_dir, cfg)
+    annotated = iter_annotations(sources, target=target_marker(cfg), metadata_dir=cfg.metadata_dir)
+
+    dangling: list[str] = []  # VA with no function at all (removed / shifted out)
+    inside: list[str] = []  # VA inside another function's span (moved / merged)
+    total = 0
+    for src_path, anns in annotated:
+        for ann in anns:
+            if ann.marker_type not in ("FUNCTION", "STUB"):
+                continue
+            total += 1
+            va = ann.va
+            if va in starts:
+                continue
+            loc = f"{rel_display_path(src_path, cfg.reversed_dir)}:{ann.line}"
+            host = _function_containing_va(spans, va)
+            if host is not None:
+                inside.append(f"{loc} → 0x{va:x} now inside {host[2] or 'a function'}")
+            else:
+                dangling.append(f"{loc} → 0x{va:x} has no function")
+
+    stale = dangling + inside
+    if not stale:
+        return CheckResult(
+            name="Annotation staleness",
+            status=_PASS,
+            message=f"{total} FUNCTION/STUB annotation(s) match the current function list",
+        )
+
+    samples = "; ".join(stale[:5])
+    suffix = f" (showing {len(stale[:5])} of {len(stale)})" if len(stale) > 5 else ""
+    return CheckResult(
+        name="Annotation staleness",
+        status=_WARN,
+        message=(f"{len(stale)} of {total} FUNCTION/STUB annotation(s) stale{suffix}: {samples}"),
+        fix=(
+            "The binary changed since the annotation was written: re-run "
+            "`rebrew intake` / `rebrew discover` to refresh functions.txt, "
+            "then re-annotate the moved functions (`rebrew skeleton <new_va>` "
+            "or edit the marker VA)"
+        ),
+    )
+
+
 def check_source_files(cfg: ProjectConfig) -> CheckResult:
     """Check that at least one source file exists in reversed_dir."""
     reversed_dir: Path = cfg.reversed_dir
@@ -890,6 +1000,7 @@ def run_doctor(target: str | None = None) -> DoctorReport:
     report.checks.append(check_includes(cfg))
     report.checks.append(check_libs(cfg))
     report.checks.append(check_function_list(cfg))
+    report.checks.append(check_annotation_staleness(cfg))
     report.checks.append(check_source_files(cfg))
     report.checks.append(check_bin_dir(cfg))
     report.checks.append(check_metadata_files(cfg))

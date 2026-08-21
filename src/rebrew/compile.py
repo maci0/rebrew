@@ -125,6 +125,16 @@ class CompareResult:
     #: best-effort by ``rebrew verify`` for every verified function so the
     #: ``verify_results`` ``similarity`` column carries real data.
     similarity: float | None = None
+    #: Number of register-encoding-only differing instructions (the ``RR``
+    #: class of the register-aware diff) — the delta size of an *effective
+    #: match*.  ``None`` when the register-aware diff was not computed
+    #: (non-x86-32 targets).
+    reg_delta: int | None = None
+    #: True when the function is an *effective match* (reccmp's 100% class):
+    #: the byte delta is ENTIRELY register allocation — same instructions,
+    #: different registers.  Not byte-identical; PROVEN or register-nudging C
+    #: tweaks are the paths forward.
+    effective_match: bool = False
 
 
 def classify_compare_result(
@@ -745,6 +755,15 @@ def compile_to_obj(
     base_flags = _resolve_include_flags(base_flags, src_parent, cfg.root)
     resolved_cflags = _resolve_include_flags(cflags, src_parent, cfg.root)
     all_flags = _dedupe_flags(base_flags + resolved_cflags)
+
+    # Per-target version defines (targets.<name>.defines → /DV2 or -DV2):
+    # the compile-time switch that lets one shared multi-version .c compile
+    # differently per target (#ifdef V2 blocks).  They join all_flags, so
+    # they shape the compile-cache key automatically.
+    for define in getattr(cfg, "defines", None) or []:
+        prefix = "-D" if (spec is not None and spec.flags_style == "posix") else "/D"
+        all_flags.append(f"{prefix}{define}")
+    all_flags = _dedupe_flags(all_flags)
 
     # --- Compile cache lookup ---
     cc = cache

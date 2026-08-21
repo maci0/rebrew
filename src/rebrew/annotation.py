@@ -13,6 +13,7 @@ from __future__ import annotations
 import contextlib
 import functools
 import logging
+import os
 import re
 import warnings
 from dataclasses import dataclass, field, fields
@@ -684,6 +685,26 @@ def _calc_stdcall_param_size(proto: str) -> int | None:
     return total
 
 
+def _derive_c_symbol(name: str, c_func_proto: str) -> str:
+    """MSVC symbol decoration for *name* from its prototype.
+
+    ``"_" + name`` for __cdecl (default), ``"_" + name + "@N"`` for
+    __stdcall/WINAPI, ``"@" + name + "@N"`` for __fastcall (ecx/edx args
+    are still counted in the decoration's N on MSVC).
+    """
+    symbol = "_" + name if name else ""
+    if name and c_func_proto and _FASTCALL_RE.search(c_func_proto):
+        param_size = _calc_stdcall_param_size(c_func_proto)
+        if param_size is not None:
+            symbol = f"@{name}@{param_size}"
+    elif name and c_func_proto and _STDCALL_RE.search(c_func_proto):
+        # Calculate parameter stack size from prototype for decorated name
+        param_size = _calc_stdcall_param_size(c_func_proto)
+        if param_size is not None:
+            symbol = f"_{name}@{param_size}"
+    return symbol
+
+
 def _kv_to_annotation(
     kv: dict[str, str],
     marker_type: str,
@@ -721,16 +742,7 @@ def _kv_to_annotation(
     # Derive symbol: "_" + name for __cdecl (default), "_" + name + "@N" for
     # __stdcall/WINAPI, "@" + name + "@N" for __fastcall (ecx/edx args are
     # still counted in the decoration's N on MSVC).
-    symbol = "_" + name if name else ""
-    if name and c_func_proto and _FASTCALL_RE.search(c_func_proto):
-        param_size = _calc_stdcall_param_size(c_func_proto)
-        if param_size is not None:
-            symbol = f"@{name}@{param_size}"
-    elif name and c_func_proto and _STDCALL_RE.search(c_func_proto):
-        # Calculate parameter stack size from prototype for decorated name
-        param_size = _calc_stdcall_param_size(c_func_proto)
-        if param_size is not None:
-            symbol = f"_{name}@{param_size}"
+    symbol = _derive_c_symbol(name, c_func_proto)
 
     # Derive prototype from C definition
     prototype = c_func_proto
@@ -862,12 +874,20 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
 
 
 def _relative_filepath(filepath: Path, base_dir: Path | None) -> str:
-    """Return the filepath relative to *base_dir*, or just the filename."""
+    """Return the filepath relative to *base_dir*, or just the filename.
+
+    A file outside *base_dir* (e.g. a shared source at ``src/shared/`` while
+    *base_dir* is ``src/<TARGET>``) gets a ``..``-relative path — the bare
+    filename would resolve to the wrong location from the base dir.
+    """
     if base_dir is not None:
         try:
             return str(filepath.relative_to(base_dir))
         except ValueError:
-            pass
+            try:
+                return str(os.path.relpath(filepath, base_dir))
+            except ValueError:  # cross-drive on Windows
+                return filepath.name
     return filepath.name
 
 
@@ -1019,6 +1039,25 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
     _flush()
     if pending_kv:
         logger.debug("Discarding orphaned KV annotations: %s", pending_kv)
+
+    # Shared-source fallback: a file with stacked markers (one per target,
+    # e.g. ``// FUNCTION: V1 0x...`` then ``// FUNCTION: V2 0x...`` above one
+    # implementation) annotates ONE function — only the LAST marker's block
+    # sees the C definition, so earlier blocks parse without a name.  When
+    # the file has exactly one distinct C-definition name, apply it to every
+    # nameless FUNCTION block and re-derive its symbol, so each target's
+    # verify can extract the object symbol.  Restricted to FUNCTION blocks:
+    # a bodyless LIBRARY/STUB entry (CRT import, asm stub) must not inherit
+    # the file's function name.
+    named = [(r.name, r.prototype) for r in results if r.name and r.marker_type == "FUNCTION"]
+    if named and len({n for n, _ in named}) == 1:
+        name, proto = named[0]
+        for r in results:
+            if not r.name and r.marker_type == "FUNCTION":
+                r.name = name
+                r.prototype = proto
+                r.symbol = _derive_c_symbol(name, proto)
+
     return results
 
 

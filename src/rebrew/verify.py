@@ -85,6 +85,34 @@ def _failed_result(status: str, message: str = "") -> "CompareResult":
     )
 
 
+def _fenced_naked_note(cfile: Path) -> str:
+    """Return an explanatory note when *cfile* guards its body behind the
+    ``REBREW_ALLOW_NAKED`` fence.
+
+    A fenced naked source compiles its ``#else`` fallback in the comparison
+    build — for byte-identity the ``#ifdef`` branch must be active.  When
+    such a function fails to byte-match, the bare mismatch hides the real
+    cause (the build lacks the define), so name it: the caller can then use
+    ``rebrew round-trip --allow-naked`` (or build the reccmp recomp binary
+    with ``-DREBREW_ALLOW_NAKED=1``) instead of chasing a phantom source bug.
+    """
+    try:
+        from rebrew.utils import read_source_text
+
+        text, _ = read_source_text(cfile)
+    except OSError:
+        return ""
+    if "#ifdef REBREW_ALLOW_NAKED" not in text:
+        return ""
+    return (
+        "source is fenced naked (#ifdef REBREW_ALLOW_NAKED): the comparison "
+        "build compiles the #else fallback, which cannot byte-match — "
+        "byte-identity requires a REBREW_ALLOW_NAKED build "
+        "(`rebrew round-trip --allow-naked`; for reccmp, build the recomp "
+        "binary with -DREBREW_ALLOW_NAKED=1)"
+    )
+
+
 def verify_entry(
     entry: Annotation,
     cfg: ProjectConfig,
@@ -141,8 +169,24 @@ def verify_entry(
         # Extraction failure is a binary/tooling problem, not a source
         # compile problem — EXTRACT_ERROR (same stage label compile.py uses
         # for post-compile extraction failures), so the summary and CI gate
-        # don't blame the .c file.
-        return _failed_result("EXTRACT_ERROR", "Cannot extract DLL bytes")
+        # don't blame the .c file.  When the function list is available and
+        # the annotation VA is not a function in it, the likeliest cause is a
+        # stale annotation (binary updated since the marker was written) —
+        # say so instead of a bare tooling error.
+        hint = ""
+        try:
+            from rebrew.catalog.loaders import cached_function_list
+
+            funcs = cached_function_list(cfg)
+            if funcs and entry.va not in {f["va"] for f in funcs}:
+                hint = (
+                    f" (annotation VA 0x{entry.va:x} is not a function in the "
+                    "current function list — stale annotation? re-run "
+                    "`rebrew intake` or edit the marker VA)"
+                )
+        except Exception:  # noqa: BLE001 — best-effort hint only
+            pass
+        return _failed_result("EXTRACT_ERROR", "Cannot extract DLL bytes" + hint)
 
     result = compile_and_compare(
         cfg,
@@ -155,6 +199,13 @@ def verify_entry(
         section_va=entry.va,
         toolchain=toolchain,
     )
+    if not result.matched:
+        # A fenced naked source compiled without REBREW_ALLOW_NAKED produces
+        # its empty #else fallback — the mismatch is the build matrix, not
+        # the decompilation.  Name it instead of leaving a bare byte diff.
+        note = _fenced_naked_note(cfile)
+        if note:
+            result.message = f"{result.message} {note}".strip()
     if not result.matched and result.obj_bytes:
         # Populate diff_lines (number of differing disassembly lines) for
         # UNMATCHED functions only — matched functions are 0 trivially, and
@@ -171,9 +222,30 @@ def verify_entry(
                 result.obj_bytes,
                 result.reloc_offsets,
                 as_dict=True,
+                # Register-encoding diffs are classified separately (RR) so a
+                # register-only delta is distinguishable from real structural
+                # churn.  Register masking is x86-32 specific; other arches
+                # fall back to the plain structural diff.
+                register_aware=getattr(cfg, "arch", "") == "x86_32",
             )
             if d is not None:
                 result.diff_lines = int(d["summary"]["structural"])
+                result.reg_delta = int(d["summary"]["reg"])
+                # Effective match (reccmp parity): every real delta byte is a
+                # register-allocation difference — same instructions, same
+                # operands, different registers.  Not byte-identical, but the
+                # cause is compiler register allocation, not source logic —
+                # name it so the user does not chase a phantom source bug.
+                # Exposed to recoverage via the result row (effective_match).
+                if d["summary"]["structural"] == 0 and d["summary"]["reg"] > 0:
+                    result.effective_match = True
+                    note = (
+                        "effective match: differs only in register allocation — "
+                        "not byte-identical; reccmp counts this as 100% (run "
+                        "'rebrew prove' for PROVEN, or register-nudging C "
+                        "tweaks for byte-identity)"
+                    )
+                    result.message = f"{result.message} {note}".strip()
         except Exception:  # noqa: BLE001 — diff_lines is best-effort
             result.diff_lines = None
     # Structural code-similarity score (0–100), computed for EVERY verified
@@ -479,6 +551,8 @@ class VerifyResult:
     passed: bool = False
     message: str = ""
     similarity: float | None = None
+    reg_delta: int | None = None
+    effective_match: bool = False
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "VerifyResult":
@@ -495,6 +569,8 @@ class VerifyResult:
             passed=bool(d.get("passed", False)),
             message=str(d.get("message", "")),
             similarity=d.get("similarity"),
+            reg_delta=d.get("reg_delta"),
+            effective_match=bool(d.get("effective_match", False)),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -548,6 +624,14 @@ class VerifyCacheEntry:
     → project default).  ``"(default)"`` records "no override — project
     profile applies"; ``""`` marks a legacy entry, re-verified once."""
 
+    defines: str = ""
+    """Per-target compile-time defines at cache time (sorted, comma-joined).
+
+    ``targets.<name>.defines`` feed ``#ifdef`` deltas in shared multi-version
+    sources — they are compile inputs invisible to the source hash and the
+    resolved cflags string, so a defines edit must invalidate the entry.
+    ``""`` marks a legacy entry, re-verified once."""
+
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "VerifyCacheEntry":
         """Reconstruct a VerifyCacheEntry from a JSON dictionary."""
@@ -560,6 +644,7 @@ class VerifyCacheEntry:
             size=int(d.get("size", -1)),
             headers_fp=str(d.get("headers_fp", "")),
             toolchain=str(d.get("toolchain", "")),
+            defines=str(d.get("defines", "")),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -780,6 +865,7 @@ def _save_verify_cache(
     size_by_va: dict[str, int] = {}
     headers_fp_by_va: dict[str, str] = {}
     toolchain_by_va: dict[str, str] = {}
+    defines_norm = ",".join(sorted(getattr(cfg, "defines", None) or [])) or "(none)"
     for entry in entries:
         va_key = f"0x{entry.va:08x}"
         # Store the RESOLVED effective flags (per-function metadata → module
@@ -845,6 +931,7 @@ def _save_verify_cache(
             "size": size_by_va.get(str(va_key), 0),
             "headers_fp": headers_fp_by_va.get(str(va_key), ""),
             "toolchain": toolchain_by_va.get(str(va_key), ""),
+            "defines": defines_norm,
         }
 
     cache_data = VerifyCache(
@@ -1052,6 +1139,13 @@ def main(
     watch: bool = typer.Option(
         False, "--watch", help="Re-verify all sources whenever any .c file changes"
     ),
+    nolib: bool = typer.Option(
+        False,
+        "--nolib",
+        help="Exclude LIBRARY-marked functions from verification — the reccmp "
+        "--nolib equivalent (gate on game code only; CRT/zlib sources are not "
+        "counted or compiled)",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -1105,6 +1199,7 @@ def main(
                 json_output=json_output,
                 dry_run=dry_run,
                 fix_sizes=fix_sizes,
+                nolib=nolib,
                 watch=False,  # never nest watch loops
                 target=target,
             )
@@ -1131,6 +1226,31 @@ def main(
     )
 
     total = len(unique_entries)
+
+    # --nolib (reccmp equivalent): drop LIBRARY-marked functions entirely —
+    # from the work list, the cached results already counted, and the size
+    # audit — so the gate reflects game code only.  Excluded functions are
+    # neither compiled nor counted, exactly like reccmp's --nolib filter.
+    library_excluded = 0
+    if nolib:
+        lib_vas = {e.va for e in unique_entries if getattr(e, "marker_type", "") == "LIBRARY"}
+        if lib_vas:
+            lib_keys = {f"0x{v:08x}" for v in lib_vas}
+            unique_entries = [e for e in unique_entries if e.va not in lib_vas]
+            results = [r for r in results if r.get("va") not in lib_keys]
+            fail_details = [(e, m) for e, m in fail_details if e.va not in lib_vas]
+            size_divergences = [d for d in size_divergences if d.get("va") not in lib_keys]
+            missing_sizes = [d for d in missing_sizes if d.get("va") not in lib_keys]
+            # Recompute the pre-compile counts from the filtered structures —
+            # the cached rows that were dropped are no longer "results".
+            passed = sum(1 for r in results if r.get("passed", False))
+            failed = len(fail_details)
+            library_excluded = len(lib_vas)
+            total = len(unique_entries)
+    if library_excluded and not json_output:
+        console.print(
+            f"[dim]--nolib: excluded {library_excluded} LIBRARY function(s) from verification[/dim]"
+        )
 
     cached_vas = {r["va"] for r in results}
     v_passed, v_failed, v_fail_details, v_results, deferred = run_verification(
@@ -1214,6 +1334,7 @@ def main(
             # Byte-identical accounting: PROVEN is semantic equivalence, not a
             # byte match — for a byte-identical goal only exact+reloc count.
             "byte_matched": _status_counts.get("EXACT", 0) + _status_counts.get("RELOC", 0),
+            "library_excluded": library_excluded,
         },
         "size_divergences": size_divergences,
         "missing_sizes": missing_sizes,
@@ -1524,6 +1645,16 @@ def prepare_entries(
         if cached_entry.toolchain != (_tc or _DEFAULT_TOOLCHAIN):
             continue
 
+        # Per-target defines are compile inputs invisible to the source hash
+        # and cflags string — a defines edit (a version switch in a shared
+        # multi-version source) must invalidate the entry.
+        if not cached_entry.defines:
+            continue  # legacy entry
+        if cached_entry.defines != (
+            ",".join(sorted(getattr(cfg, "defines", None) or [])) or "(none)"
+        ):
+            continue
+
         if cached_entry.cflags != _cf2:
             # Raw strings differ — but only a change that could alter the
             # compiled object is material.  A rebrew-library.toml edit that
@@ -1772,6 +1903,8 @@ def run_verification(
                             "delta": result.delta,
                             "diff_lines": result.diff_lines,
                             "similarity": result.similarity,
+                            "reg_delta": result.reg_delta,
+                            "effective_match": result.effective_match,
                         }
                     )
 

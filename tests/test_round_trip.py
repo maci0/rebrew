@@ -87,6 +87,126 @@ class TestSplicePipeline:
         code = _run_round_trip(cfg, out=None, no_write=True, symbol_filter=None, json_output=False)
         assert code == EXIT_MISMATCH
 
+    def test_allow_naked_appends_define(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--allow-naked must add the REBREW_ALLOW_NAKED define (style-correct
+        for the toolchain) to every splice compile — the round-trip-only switch
+        that selects the fenced __declspec(naked) branch of naked sources."""
+        cfg = _make_fake_cfg(tmp_path)
+        cfg.posix_style = False
+        fn = SimpleNamespace(
+            symbol="_myfunc",
+            va=0x10000100,
+            size=5,
+            status="EXACT",
+            path=cfg.reversed_dir / "myfunc.c",
+            module="FAKE",
+            cflags=["/O2"],
+        )
+        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0))
+        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        seen: dict = {}
+
+        def _fake_compile(cfg, fn, work_dir):  # noqa: ARG001
+            seen["cflags"] = list(fn.cflags)
+            # ok=False avoids the post-compile binary parse (fake.dll is not a
+            # real PE) — the cflags capture is what this test asserts.
+            return (b"", [], {}, {}, False, "skip")
+
+        monkeypatch.setattr("rebrew.round_trip._compile_and_extract", _fake_compile)
+
+        _run_round_trip(
+            cfg, out=None, no_write=True, symbol_filter=None, json_output=False, allow_naked=True
+        )
+        assert "/DREBREW_ALLOW_NAKED" in seen["cflags"]
+
+        # posix style uses -D (reset the shared fn between calls)
+        cfg.posix_style = True
+        fn.cflags = ["/O2"]
+        _run_round_trip(
+            cfg, out=None, no_write=True, symbol_filter=None, json_output=False, allow_naked=True
+        )
+        assert "-DREBREW_ALLOW_NAKED" in seen["cflags"]
+
+        # without the flag, no define is added
+        fn.cflags = ["/O2"]
+        seen.clear()
+        _run_round_trip(cfg, out=None, no_write=True, symbol_filter=None, json_output=False)
+        assert all("ALLOW_NAKED" not in f for f in seen["cflags"])
+
+    def test_allow_naked_reports_fenced_functions(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--allow-naked must report the fenced naked functions (the exact set
+        that requires REBREW_ALLOW_NAKED for byte-identity) so the reccmp
+        recomp build matrix can be checked against it."""
+        cfg = _make_fake_cfg(tmp_path)
+        cfg.posix_style = True
+        fenced_src = cfg.reversed_dir / "naked.c"
+        fenced_src.write_text(
+            "#ifdef REBREW_ALLOW_NAKED\n"
+            "__declspec(naked) void naked(void) { __asm { ret } }\n"
+            "#else\n"
+            "void naked(void) { /* fallback */ }\n"
+            "#endif\n",
+            encoding="utf-8",
+        )
+        plain_src = cfg.reversed_dir / "plain.c"
+        plain_src.write_text("int plain(void) { return 0; }\n", encoding="utf-8")
+        fn_naked = SimpleNamespace(
+            symbol="_naked",
+            va=0x10000100,
+            size=5,
+            status="EXACT",
+            path=fenced_src,
+            module="FAKE",
+            cflags=["/O2"],
+        )
+        fn_plain = SimpleNamespace(
+            symbol="_plain",
+            va=0x10000200,
+            size=5,
+            status="EXACT",
+            path=plain_src,
+            module="FAKE",
+            cflags=["/O2"],
+        )
+        monkeypatch.setattr(
+            "rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn_naked, fn_plain], [], 0)
+        )
+        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+
+        def _fake_compile(cfg, fn, work_dir):  # noqa: ARG001
+            return (b"", [], {}, {}, False, "skip")
+
+        monkeypatch.setattr("rebrew.round_trip._compile_and_extract", _fake_compile)
+        captured: dict = {}
+        monkeypatch.setattr("rebrew.round_trip.json_print", lambda d: captured.update(d))
+
+        _run_round_trip(
+            cfg, out=None, no_write=True, symbol_filter=None, json_output=True, allow_naked=True
+        )
+        fenced = captured["fenced_naked"]
+        assert fenced["count"] == 1
+        assert fenced["vas"] == ["0x10000100"]
+
+    def test_source_is_naked_fenced(self, tmp_path: Path) -> None:
+        from rebrew.round_trip import _source_is_naked_fenced
+
+        fenced = tmp_path / "fenced.c"
+        fenced.write_text(
+            "#ifdef REBREW_ALLOW_NAKED\n__declspec(naked) void f(void) {}\n#endif\n",
+            encoding="utf-8",
+        )
+        assert _source_is_naked_fenced(fenced) is True
+
+        plain = tmp_path / "plain.c"
+        plain.write_text("int f(void) { return 0; }\n", encoding="utf-8")
+        assert _source_is_naked_fenced(plain) is False
+
+        assert _source_is_naked_fenced(tmp_path / "missing.c") is False
+
     def test_clean_round_trip_writes_reasm(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -767,12 +767,16 @@ class TestW020AsmDump:
         return lint_file(f)
 
     def test_emit_byte_dump_warns(self, tmp_path: Path) -> None:
+        # Whole-function __declspec(naked) + __asm/__emit is now E023 (error),
+        # not W020. Only 1-2 nop/0x90/0xCC padding bytes are allowed as naked.
         body = "__declspec(naked) int f(void) {\n    __asm {\n        _emit 0x55\n        _emit 0x8b\n    }\n}\n"
         result = self._lint(tmp_path, body)
-        codes = [c for _, c, _ in result.warnings]
-        assert "W020" in codes
-        msg = next(m for _, c, m in result.warnings if c == "W020")
-        assert "asm" in msg.lower()  # the __asm { line fires first
+        assert any(c == "E023" for _, c, _ in result.errors), (
+            f"expected E023, got errors={result.errors} warnings={result.warnings}"
+        )
+        assert not any(c == "W020" for _, c, _ in result.warnings)  # naked dumps are E023, not W020
+        msg = next(m for _, c, m in result.errors if c == "E023")
+        assert "naked" in msg.lower()
 
     def test_inline_asm_block_warns(self, tmp_path: Path) -> None:
         body = "int f(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
@@ -813,6 +817,52 @@ class TestW020AsmDump:
         msg = next(m for _, c, m in result.warnings if c == "W020")
         assert "EXACT" in msg
         assert "cannot be a byte-match" in msg
+
+
+class TestE023NakedAsm:
+    """E023: whole-function __declspec(naked)+__asm is an error; minor padding (1-2 nops) is allowed."""
+
+    def _lint(self, tmp_path: Path, body: str) -> LintResult:
+        content = (
+            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// SIZE: 31\n// CFLAGS: /O2 /Gd\n"
+            + body
+        )
+        f = _write_c(tmp_path, "foo.c", content)
+        return lint_file(f)
+
+    def test_whole_function_naked_asm_is_error(self, tmp_path: Path) -> None:
+        body = "__declspec(naked) int f(void) {\n    __asm { push ebp }\n    __asm { mov eax, 1 }\n    __asm { ret }\n}\n"
+        result = self._lint(tmp_path, body)
+        assert any(c == "E023" for _, c, _ in result.errors)
+        assert not result.passed
+        msg = next(m for _, c, m in result.errors if c == "E023")
+        assert "naked" in msg.lower()
+
+    def test_whole_function_naked_emit_is_error(self, tmp_path: Path) -> None:
+        body = "__declspec(naked) int f(void) {\n    __asm {\n        _emit 0x55\n        _emit 0x8b\n        _emit 0xc3\n    }\n}\n"
+        result = self._lint(tmp_path, body)
+        assert any(c == "E023" for _, c, _ in result.errors)
+
+    def test_naked_minor_padding_one_nop_allowed(self, tmp_path: Path) -> None:
+        body = "__declspec(naked) int f(void) {\n    __asm nop\n}\n"
+        result = self._lint(tmp_path, body)
+        assert not any(c == "E023" for _, c, _ in result.errors)
+
+    def test_naked_minor_padding_two_emit_padding_allowed(self, tmp_path: Path) -> None:
+        body = "__declspec(naked) int f(void) {\n    __asm { _emit 0x90 }\n    __asm { _emit 0x90 }\n}\n"
+        result = self._lint(tmp_path, body)
+        assert not any(c == "E023" for _, c, _ in result.errors)
+
+    def test_non_naked_asm_still_W020_not_E023(self, tmp_path: Path) -> None:
+        body = "int f(void) {\n    __asm { mov eax, 1 }\n    __asm { mov ebx, 2 }\n    __asm { ret }\n}\n"
+        result = self._lint(tmp_path, body)
+        assert not any(c == "E023" for _, c, _ in result.errors)
+        assert any(c == "W020" for _, c, _ in result.warnings)
+
+    def test_naked_without_asm_no_error(self, tmp_path: Path) -> None:
+        body = "__declspec(naked) int f(void) { return 0; }\n"
+        result = self._lint(tmp_path, body)
+        assert not any(c == "E023" for _, c, _ in result.errors)
 
 
 class TestW021W022:

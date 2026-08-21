@@ -1,0 +1,118 @@
+# Delphi 1.0 — codegen patterns
+
+Borland Delphi 1.0 (1995, `DCC.EXE`) — 16-bit Windows 3.x Pascal
+compiler producing genuine NE 6.01 executables.  The toolchain has no
+matchable profile (Delphi codegen cannot be reproduced from C for byte
+matching — documented blocker), but the codegen itself is now **probe-
+verified**: a Pascal probe (`probe.dpr`: `add`, `div3`, `fmul`, `fadd1`,
+`loopy`, referenced from the program body so the linker retains them)
+compiled with `DCC.EXE` through `rebrew/delphi:1.0-win16` and the NE
+output disassembled.  Findings below are from that object unless marked.
+
+**Profiles:** `delphi16` — image `rebrew/delphi:1.0-win16` (DCC
+wrapper, DOSBox).
+
+## Prologue & frame pointer — the stack-check call
+
+Every function opens `push bp; mov bp,sp` (`55 89 e5`), then emits a
+**stack-check far call**: `mov ax,<frame size>` (`b8 08 00`) + `lcall
+<rtl>` (`9a ff ff 00 00`) — the Borland 16-bit stack-probe idiom via the
+RTL (the size is the local frame the check must cover).  Locals then
+allocate with `sub sp,N` (`83 ec 08`).  Args sit at `[bp+4]`/`[bp+6]`
+(Integer is 16-bit in Delphi 1.0) — same frame shape as the 16-bit C
+compilers.
+
+## Epilogue — `leave; ret N`
+
+Functions end **`leave` (`c9`) + `ret N` with callee stack cleanup**
+(`c2 04 00` for two Integer args, `c2 02 00` for one, `c2 08 00` for a
+Double).  Verified in every probe function — the near `ret N` callee-
+cleanup is the distinctive Delphi trait (Watcom also cleans in the
+callee, but with `ret N` *near* only for FP args; Delphi does it for
+plain Integer args too).  RTL functions use far `retf`/`retf N` (`ca`).
+
+## Integer division
+
+- Real 16-bit `idiv`: `div3` → `mov ax,[bp+4]` · `cdq` (`99`) ·
+  `mov cx,3` · `idiv cx` (`f7 f9`) — divisor in CX, real division,
+  no magic constants (16-bit).
+
+## FPU
+
+- x87 with **`wait` (`9b`) before each FPU op** (`wait; fld qword
+  [bp+0xc]; wait; fmul qword [bp+4]; wait; fstp qword [bp-8]`) — the
+  same fwait-interspersed style as the 16-bit C compilers.
+- Double args at `[bp+4]`/`[bp+0xc]`; results round-trip through a
+  local temp slot (`fstp [bp-8]` then reload) — the Pascal result
+  idiom.
+
+## Result passing
+
+- Function results go through a local temp slot: `add` does
+  `mov [bp-2],ax; mov ax,[bp-2]` before `leave; ret 4` — the compiler
+  materializes the result variable, reloads it, and returns in AX.
+  `LongInt` (32-bit) results return in `dx:ax`.
+
+## case / set / for / LongInt (probe2.dpr)
+
+- **`case` = a linear compare chain, NOT a jump table** — `casesel`
+  compiles to `cmp ax,N; jne next; mov [bp-2],result; jmp end` per
+  case (verified for a 4-case statement).  Delphi 1.0 does not emit
+  jump tables for `case` in the probe.
+- **set membership `x in s`** — `setop` compiles to the classic
+  Pascal set test: `mov cl,[bp+4]` (the element) · `cmp cl,0x10`
+  (bound check vs the set range) · `jae` (out of range → false) ·
+  `mov ax,1; rol ax,cl` (`d3 c0` — **the 16-bit `rol`**) · `test
+  [bp+6],ax` (the set bitmask word) · `jne` → true.  The
+  `rol`-based set bit is verified; TC/MSVC16 never emitted `rol` in
+  any probe.
+- **`for` loop** — `loopy2` (`for i := n downto 1`) keeps the
+  counter in memory (`mov [bp-4],ax; dec word ptr [bp-4]; cmp word
+  ptr [bp-4],1; jne`) — no register-held induction.
+- **`LongInt` arithmetic** — `longadd` loads `ax:[bp+8]`/`dx:[bp+0xa]`
+  and does `add ax,[bp+4]; adc dx,[bp+6]` — the 32-bit-in-16-bit
+  `adc` idiom, result in `dx:ax`, `ret 8` (callee cleanup).
+
+## RTL / startup (segment 1)
+
+- The RTL contains the classic Borland 16-bit library code: memory
+  manager walks, `int 0x21` DOS calls, string helpers using real
+  **`loop`/`loope`** instructions (`e2 f4` at 0x5c9, `e1 f7` at 0x654)
+  and `lodsb`/`scasb` string ops — `loop`-family usage is verified in
+  Delphi RTL (and was NOT found in the TC probe bodies at -O1).
+
+## Stack probes
+
+- The **stack-check far call in the prologue** IS Delphi's stack
+  mechanism: every function opens `mov ax,<frame size>` (`b8 08 00`)
+  + `lcall <rtl>` (`9a ff ff 00 00`) — the Borland 16-bit probe via
+  the RTL, sized to the local frame.  Distinct from Watcom's
+  `push N; call __CHK`, MSVC 1.5x's `mov ax,N; call __aNchkstk`
+  (near call) and MinGW's `___chkstk_ms`.
+
+## 100% unique to this version
+
+- **Stack-check far call in the prologue** — `b8 <size>; 9a` (`mov ax,
+  N; lcall`) in EVERY user function — verified in all five probe
+  functions.  Distinct from Watcom's `push N; call __CHK` and MSVC
+  1.5x's `mov ax,N; call __aNchkstk` (near call, no lcall).
+- **`leave; ret N` callee cleanup for Integer args** — verified
+  (`c9 c2 04 00` / `c9 c2 02 00`).  Among the 16-bit compilers here,
+  only Delphi cleans Integer-arg stacks in the callee with `ret N`
+  (TC 2.0/3.1 and MSVC 1.5x use plain `ret` for cdecl-like calls;
+  MSVC 1.5x uses `leave` but plain `ret`).
+- `fwait` FPU style is shared with TC/MSVC16 — NOT a marker.
+
+## Version deltas
+
+- Not applicable (single preserved version; Delphi 2+ is 32-bit and
+  out of scope).
+
+## Verification
+
+Pascal probe `probe.dpr` compiled via `rebrew/delphi:1.0-win16`
+(`probe.EXE`, NE 6.01, 3 segments: 330B code + 1740B RTL + 168B data),
+disassembled with capstone (16-bit) through `rebrew.binary_loader`.
+The five user functions were located by their `push bp; mov bp,sp`
+prologues without the RTL's `push ds`; `begin..end` references retain
+them (unreferenced functions are dead-stripped by the linker).

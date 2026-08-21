@@ -174,6 +174,16 @@ class LinkConfig:
         return fields
 
 
+#: Compiler profiles that take POSIX-style flags (``-I``/``-o``/``-c``)
+#: instead of MSVC's ``/I``/``/Fo``/``/c``.  Single source of truth for
+#: flag routing (``ProjectConfig.posix_style``) and the ``base_cflags``
+#: config default — a posix profile's always-on flags must not default to
+#: the MSVC glue (``/nologo /c /MT``) or every compile breaks.
+_POSIX_PROFILES = frozenset(
+    {"gcc", "gcc-pe", "clang", "watcom", "watcom16", "borlandc55", "tc20", "tc16"}
+)
+
+
 @dataclass
 class ProjectConfig:
     """Parsed project configuration with computed paths."""
@@ -191,6 +201,15 @@ class ProjectConfig:
 
     # --- per-target sources ---
     reversed_dir: Path = field(default_factory=lambda: Path())
+    shared_dir: Path | None = None
+    """Project-level shared-sources root (``src/shared`` by default).
+
+    Sources here are scanned for EVERY target and may carry one
+    ``// FUNCTION: <target> <va>`` marker per target (the same function at
+    a different VA in each version) plus ``#ifdef`` deltas driven by the
+    per-target ``defines``.  ``None`` (or an empty ``[project] shared_dir``)
+    disables shared sources.
+    """
     function_list: Path = field(default_factory=lambda: Path())
     bin_dir: Path = field(default_factory=lambda: Path())
     marker: str = ""  # Prefix used in annotations, e.g. // FUNCTION: SERVER 0x... (default: target_name.upper())
@@ -224,6 +243,15 @@ class ProjectConfig:
     base_cflags: str = "/nologo /c /MT"  # Always-on flags prepended to every compile
     compile_timeout: int = 60  # Seconds before a compile subprocess is killed
 
+    # --- per-target version defines ---
+    defines: list[str] = field(default_factory=list)
+    """Per-target compile-time defines (``targets.<name>.defines``).
+
+    Each entry becomes ``-D<name>`` (posix) or ``/D<name>`` (MSVC) on every
+    compile for this target — the version switch that makes shared
+    multi-version sources work (``#ifdef V2`` blocks in a shared .c).
+    """
+
     # --- [llm] section: optional LLM-assisted GA seeding ---
     # ``[llm] endpoint``/``api_key`` in rebrew-project.toml; env vars
     # REBREW_LLM_ENDPOINT/REBREW_LLM_API_KEY are the fallback.
@@ -243,16 +271,7 @@ class ProjectConfig:
         Single source of truth for compile/flag routing across compile.py,
         diff.py, match.py, and matcher/compiler.py.
         """
-        return self.compiler_profile in (
-            "gcc",
-            "gcc-pe",
-            "clang",
-            "watcom",
-            "watcom16",
-            "borlandc55",
-            "tc20",
-            "tc16",
-        )
+        return self.compiler_profile in _POSIX_PROFILES
 
     # --- Computed from arch ---
     pointer_size: int = 4
@@ -340,6 +359,29 @@ def _parse_int_list(values: list[Any] | None, field_name: str) -> list[int]:
         else:
             _config_warn(f"Unexpected type {type(v).__name__} in {field_name}; ignoring")
     return parsed
+
+
+def _parse_defines(values: Any, field_name: str) -> list[str]:
+    """Parse a list of compile-time define names from a toml array.
+
+    Entries are trimmed; empty and non-string entries are dropped (with a
+    warning for the latter — ``str(None)`` would otherwise become a garbage
+    ``-DNone`` flag).
+    """
+    if not isinstance(values, list):
+        if values is not None:
+            _config_warn(
+                f"Expected list for {field_name}, got {type(values).__name__}; ignoring",
+            )
+        return []
+    out: list[str] = []
+    for v in values:
+        if not isinstance(v, str):
+            _config_warn(f"{field_name}: non-string define {v!r} ignored")
+            continue
+        if v.strip():
+            out.append(v.strip())
+    return out
 
 
 def _parse_hex_dict(mapping: dict[str, Any] | None) -> dict[int, str]:
@@ -958,6 +1000,14 @@ def load_config(
     reversed_dir = _required_path(
         root, sources.get("reversed_dir"), f"src/{target}", f"[targets.{target}].reversed_dir"
     )
+    # Shared sources: one project-level root scanned for every target (the
+    # same .c serving multiple binaries with per-version markers / #ifdefs).
+    # An explicitly empty value disables shared sources (None).
+    shared_dir_raw = project_raw.get("shared_dir", "src/shared")
+    if shared_dir_raw is None or not str(shared_dir_raw).strip():
+        shared_dir = None
+    else:
+        shared_dir = _required_path(root, shared_dir_raw, "src/shared", "[project].shared_dir")
     function_list = _required_path(
         root,
         sources.get("function_list"),
@@ -1019,6 +1069,8 @@ def load_config(
 
     source_ext = _parse_source_ext(tgt.get("source_ext", ".c"))
 
+    defines = _parse_defines(tgt.get("defines"), f"targets.{target}.defines")
+
     # ghidra_backend must be one of the known transports; a typo silently
     # switching to the wrong backend would be confusing, so validate.
     ghidra_backend_raw = tgt.get("ghidra_backend", "reva")
@@ -1039,6 +1091,7 @@ def load_config(
         arch=arch_name,
         # sources
         reversed_dir=reversed_dir,
+        shared_dir=shared_dir,
         function_list=function_list,
         bin_dir=bin_dir,
         # marker defaults to the target name upper-cased with non-identifier
@@ -1067,7 +1120,16 @@ def load_config(
         cflags=_as_str(compiler.get("cflags"), "", "compiler.cflags"),
         cflags_explicit="cflags" in compiler,
         cflags_presets=_merge_cflags_presets(global_compiler, target_compiler),
-        base_cflags=_as_str(compiler.get("base_cflags"), "/nologo /c /MT", "compiler.base_cflags"),
+        defines=defines,
+        base_cflags=_as_str(
+            compiler.get("base_cflags"),
+            # The MSVC glue default is wrong for posix-style profiles
+            # (gcc-pe/mingw, watcom, tc16/20, borland): /nologo /c /MT breaks
+            # gcc.  init writes base_cflags = "" for those profiles; the
+            # loader default must match so hand-written tomls work too.
+            "" if profile_val in _POSIX_PROFILES else "/nologo /c /MT",
+            "compiler.base_cflags",
+        ),
         compile_timeout=_positive_int(compiler.get("timeout", 60), 60, "compiler.timeout"),
         # arch-derived
         pointer_size=arch_preset["pointer_size"],
