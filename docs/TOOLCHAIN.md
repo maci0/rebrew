@@ -353,7 +353,7 @@ best-first:
 4. **Structural heuristics** — `.buildid` section, GNU `0f 1f` nops vs
    MSVC alignment nops / int3 padding, imports, Delphi RTL strings, and
    GCC-arg-passing era (pre-8 push style vs modern accumulate style).
-4. **MSVC optimization fingerprint** — wrapper-call codegen in `.text`
+5. **MSVC optimization fingerprint** — wrapper-call codegen in `.text`
    identifies the optimization level the binary was built with: `/O2`
    (load-first `mov eax,[esp+4]; push eax` + `add esp,N`) vs `/O1`
    (push-[mem] `push dword [esp+4]` + `pop ecx`), or `mixed` when both
@@ -378,6 +378,16 @@ best-first:
    neither vendored 6.0 compiler (SP0 12.00.8168 or SP6 12.00.8804) produces
    — only MSVC 4.2/5.0 codegen does, so per-function matching of such loops
    needs the pre-6.0 toolchain (msvc5/msvc420), not msvc6.
+
+   **Codegen fingerprint catalog** — the full set of byte-level fingerprints
+   the detector uses (VC 7.0+ `lea esp,[esp]` loop-alignment nops, rep
+   movs/stos string-op inlining, magic-number division, SSE2 vs x87 FPU,
+   `rep ret` GCC idiom, stack-probe symbol names `__chkstk` /
+   `___chkstk_ms` / `__aNchkstk` / `__CHK`, 16-bit MZ entry-code scan) is
+   documented per compiler version — with verified byte patterns,
+   cross-version deltas and "100% unique" markers — in
+   [codegen/](codegen/README.md).  Add new fingerprints to the per-version
+   file there first, then wire them into `toolchain_detect.py`.
 
 
 ### Per-Function Toolchain Override

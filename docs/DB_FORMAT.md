@@ -161,6 +161,7 @@ whenever the schema changes.
 
 | Version | Change |
 |---|---|
+| `"5"` | `verify_results` gained `reg_delta` and `effective_match` (the effective-match signal — register-only delta; see the table below). |
 | `"4"` | Cell rows normalized and range-checked on insert (`start >= 0`, `end >= start`, `span > 0`); `cells` gained a `FOREIGN KEY (target, section_name)` to `sections` with `ON DELETE CASCADE`; `section_cell_stats` gained `other_count`; `verify_results` no longer dropped on full rebuild. |
 | `"3"` | Baseline documented schema. |
 
@@ -175,7 +176,10 @@ written directly by `rebrew verify`.
 | `va` | `INTEGER` | Function VA. Part of primary key. |
 | `verified_at` | `TEXT` | ISO 8601 timestamp of verification. |
 | `byte_delta` | `INTEGER` | Number of differing bytes. |
-| `diff_lines` | `INTEGER` | Number of differing disassembly lines (emitted by `rebrew verify`). |
+| `diff_lines` | `INTEGER` | Number of **structural** differing disassembly lines (the register-aware diff's `structural` class; register-encoding-only diffs are *not* counted here — see `reg_delta`). `NULL` for cached rows and non-x86-32 targets. |
+| `similarity` | `REAL` | Structural code-similarity score (0.0–1.0), when computable. |
+| `reg_delta` | `INTEGER` | Number of register-encoding-only differing instructions (`RR` class). `NULL` when the register-aware diff was not computed (non-x86-32 targets / cached rows). |
+| `effective_match` | `INTEGER` | `1` when the function is an effective match — the entire byte delta is register allocation (reccmp's 100% effective-match class; same instructions, different registers, not byte-identical). |
 
 **Primary Key**: `(target, va)`
 

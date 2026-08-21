@@ -21,7 +21,7 @@ from rebrew.config import load_config
 console = Console(stderr=True)
 
 
-_CURRENT_DB_VERSION = "4"
+_CURRENT_DB_VERSION = "5"
 
 #: Per-target retention cap for the history table: only the newest N status-
 #: change rows per target are kept after each rebuild.  The dashboard pages
@@ -297,7 +297,16 @@ def _missing_required_objects(db_path: Path) -> set[str]:
             "similarity",
         },
         "globals": {"target", "va", "name", "decl", "files", "module", "size"},
-        "verify_results": {"target", "va", "verified_at", "byte_delta", "diff_lines", "similarity"},
+        "verify_results": {
+            "target",
+            "va",
+            "verified_at",
+            "byte_delta",
+            "diff_lines",
+            "similarity",
+            "reg_delta",
+            "effective_match",
+        },
         "history": {"id", "target", "va", "old_status", "new_status", "changed_at"},
         "section_cell_stats": {
             "target",
@@ -545,6 +554,8 @@ def build_db(
                 byte_delta INTEGER,
                 diff_lines INTEGER,
                 similarity REAL,
+                reg_delta INTEGER,
+                effective_match INTEGER,
                 PRIMARY KEY (target, va)
             )
         """)
@@ -918,13 +929,16 @@ def build_db(
                                 item.get("delta"),
                                 item.get("diff_lines"),
                                 item.get("similarity"),
+                                item.get("reg_delta"),
+                                item.get("effective_match"),
                             )
                         )
                     if vr_rows:
                         c.executemany(
                             "INSERT OR REPLACE INTO verify_results "
-                            "(target, va, verified_at, byte_delta, diff_lines, similarity) "
-                            "VALUES (?, ?, ?, ?, ?, ?)",
+                            "(target, va, verified_at, byte_delta, diff_lines, "
+                            "similarity, reg_delta, effective_match) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                             vr_rows,
                         )
                     # Prune rows for functions absent from the latest report

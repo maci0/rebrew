@@ -93,9 +93,36 @@ class TestAnalyzeVerdict:
         assert result["categories"]["match"]["bytes"] == 3
 
     def test_register_verdict_mentions_register(self) -> None:
-        result = nd.analyze(MOV_EAX_EBX + RET, MOV_EAX_ECX + RET, None, 0x1000)
+        # Register-dominant WITH structural churn → REGISTER verdict (the
+        # register-only case is the EFFECTIVE verdict, tested separately).
+        result = nd.analyze(MOV_EAX_EBX + RET, MOV_EAX_ECX + XOR_EAX_EAX + RET, None, 0x1000)
         assert "REGISTER" in result["verdict"]
         assert "register" in result["suggestion"].lower()
+
+    def test_register_only_is_effective(self) -> None:
+        """A delta that is ENTIRELY register allocation is reccmp's 100%
+        effective match — the verdict must name it (not byte-identical, but
+        the cause is register allocation, and the register mutations are the
+        actionable list)."""
+        result = nd.analyze(MOV_EAX_EBX + RET, MOV_EAX_ECX + RET, None, 0x1000)
+        assert result["verdict"].startswith("EFFECTIVE")
+        assert "register-allocation" in result["suggestion"]
+        assert "not byte-identical" in result["suggestion"].lower()
+        assert "mut_reorder_register_vars" in result["mutations"]
+
+    def test_register_dominant_mixed_is_not_effective(self) -> None:
+        """Register-dominant with structural churn is a REGISTER verdict, not
+        EFFECTIVE — real bytes differ structurally."""
+        # mov eax,ebx; ret  vs  mov eax,ecx; xor eax,eax; ret  (extra xor)
+        result = nd.analyze(MOV_EAX_EBX + RET, MOV_EAX_ECX + XOR_EAX_EAX + RET, None, 0x1000)
+        assert result["verdict"].startswith("REGISTER")
+        assert not result["verdict"].startswith("EFFECTIVE")
+
+    def test_equivalent_only_is_not_effective(self) -> None:
+        """Instruction-selection swaps (lea vs mov) are equivalent, not
+        register allocation — no EFFECTIVE verdict."""
+        result = nd.analyze(LEA_EAX_ECX + RET, MOV_EAX_ECX + RET, None, 0x1000)
+        assert not result["verdict"].startswith("EFFECTIVE")
 
     def test_json_shape(self) -> None:
         result = nd.analyze(MOV_EAX_EBX + RET, MOV_EAX_EBX + RET, None, 0x1000)
@@ -105,6 +132,15 @@ class TestAnalyzeVerdict:
         )
         assert result["target_insns"] == 2
         assert result["compiled_insns"] == 2
+
+    def test_frame_field_present(self) -> None:
+        """analyze() must carry the stack-frame comparison (stack-cmp) as a
+        best-effort frame dict — no stack ops → frames match."""
+        result = nd.analyze(MOV_EAX_EBX + RET, MOV_EAX_ECX + RET, None, 0x1000)
+        frame = result["frame"]
+        assert isinstance(frame, dict)
+        assert frame["frame_match"] is True
+        assert frame["slots"]["target"] == []
 
 
 class TestAnalyzeDegenerate:
@@ -161,8 +197,14 @@ class TestSecondarySuggestion:
     the suggestion alongside the dominant one."""
 
     def test_secondary_category_adds_hint(self) -> None:
-        # Register-only pair → dominant register, no secondary.
-        result = nd.analyze(MOV_EAX_EBX + RET, MOV_EAX_ECX + RET, None, 0x1000)
+        # Register-dominant with a negligible structural component (1 nop) →
+        # dominant register, secondary below the 25% threshold → no hint.
+        result = nd.analyze(
+            MOV_EAX_EBX + MOV_EAX_EBX + RET,
+            MOV_EAX_ECX + MOV_EAX_ECX + b"\x90" + RET,
+            None,
+            0x1000,
+        )
         assert "REGISTER" in result["verdict"]
         assert "Also:" not in result["suggestion"]
 

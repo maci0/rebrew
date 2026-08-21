@@ -98,6 +98,184 @@ class TestVerifyEntryBranches:
         assert result.status == "EXTRACT_ERROR"
         assert "Cannot extract" in (result.message or "")
 
+    def test_extract_failure_stale_annotation_hint(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Extraction failing at a VA that is not a function in the current
+        function list is a stale annotation (binary updated since the marker
+        was written) — the error must say so, not blame binary tooling."""
+        import rebrew.binary_loader
+        import rebrew.verify as verify_mod
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
+        (cfg.reversed_dir / "functions.txt").write_text("0x2000 16 other\n", encoding="utf-8")
+        monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: None)
+        result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        assert result.status == "EXTRACT_ERROR"
+        assert "stale annotation" in (result.message or "")
+        assert "0x1000" in (result.message or "")
+
+    def test_extract_failure_no_hint_when_va_is_function(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A VA that IS in the current function list gets the plain tooling
+        error — no stale-annotation hint."""
+        import rebrew.binary_loader
+        import rebrew.verify as verify_mod
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
+        (cfg.reversed_dir / "functions.txt").write_text("0x1000 64 my_func\n", encoding="utf-8")
+        monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: None)
+        result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        assert result.status == "EXTRACT_ERROR"
+        assert "stale annotation" not in (result.message or "")
+
+    def test_fenced_naked_note_on_mismatch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A fenced naked source compiled without REBREW_ALLOW_NAKED compiles
+        its #else fallback — the mismatch must name the fence instead of
+        leaving a bare byte diff (the '18 at 0%' reccmp confusion)."""
+        import rebrew.binary_loader
+        import rebrew.compile
+        import rebrew.verify as verify_mod
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "f.c").write_text(
+            "#ifdef REBREW_ALLOW_NAKED\n"
+            "__declspec(naked) void my_func(void) { __asm { ret } }\n"
+            "#else\n"
+            "void my_func(void) { /* fallback */ }\n"
+            "#endif\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
+        from rebrew.compile import CompareResult
+
+        def _unmatched(*a, **k):
+            return CompareResult(
+                matched=False,
+                status="NEAR_MATCHING",
+                match_percent=50.0,
+                delta=4,
+                obj_bytes=None,
+                reloc_offsets=None,
+                message="NEAR_MATCHING: 50.0%",
+            )
+
+        monkeypatch.setattr(rebrew.compile, "compile_and_compare", _unmatched)
+        result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        assert result.status == "NEAR_MATCHING"
+        assert "fenced naked" in (result.message or "")
+        assert "REBREW_ALLOW_NAKED" in (result.message or "")
+
+    def test_no_fence_no_note(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A plain (unfenced) source gets no naked-fence note on mismatch."""
+        import rebrew.binary_loader
+        import rebrew.compile
+        import rebrew.verify as verify_mod
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
+        monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
+        from rebrew.compile import CompareResult
+
+        def _unmatched(*a, **k):
+            return CompareResult(
+                matched=False,
+                status="NEAR_MATCHING",
+                match_percent=50.0,
+                delta=4,
+                obj_bytes=None,
+                reloc_offsets=None,
+                message="NEAR_MATCHING: 50.0%",
+            )
+
+        monkeypatch.setattr(rebrew.compile, "compile_and_compare", _unmatched)
+        result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        assert "fenced naked" not in (result.message or "")
+
+    def test_effective_match_note(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A NEAR_MATCHING whose ENTIRE delta is register allocation is a
+        reccmp-style effective match — the message must name it (not
+        byte-identical, but the cause is register allocation)."""
+        import rebrew.binary_loader
+        import rebrew.compile
+        import rebrew.matcher.scoring
+        import rebrew.verify as verify_mod
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
+        monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
+        from rebrew.compile import CompareResult
+
+        def _unmatched(*a, **k):
+            return CompareResult(
+                matched=False,
+                status="NEAR_MATCHING",
+                match_percent=50.0,
+                delta=4,
+                obj_bytes=b"\x90" * 8,
+                reloc_offsets=[],
+                message="NEAR_MATCHING: 50.0%",
+            )
+
+        monkeypatch.setattr(rebrew.compile, "compile_and_compare", _unmatched)
+        monkeypatch.setattr(
+            rebrew.matcher.scoring,
+            "diff_functions",
+            lambda *a, **k: {
+                "summary": {"exact": 2, "reloc": 0, "reg": 2, "structural": 0, "total": 4},
+                "instructions": [],
+            },
+        )
+        result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        assert result.diff_lines == 0
+        assert result.reg_delta == 2
+        assert result.effective_match is True
+        assert "effective match" in (result.message or "")
+        assert "register allocation" in (result.message or "")
+
+    def test_no_effective_note_when_structural(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Structural deltas must NOT get the effective-match note."""
+        import rebrew.binary_loader
+        import rebrew.compile
+        import rebrew.matcher.scoring
+        import rebrew.verify as verify_mod
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
+        monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
+        from rebrew.compile import CompareResult
+
+        def _unmatched(*a, **k):
+            return CompareResult(
+                matched=False,
+                status="NEAR_MATCHING",
+                match_percent=50.0,
+                delta=4,
+                obj_bytes=b"\x90" * 8,
+                reloc_offsets=[],
+                message="NEAR_MATCHING: 50.0%",
+            )
+
+        monkeypatch.setattr(rebrew.compile, "compile_and_compare", _unmatched)
+        monkeypatch.setattr(
+            rebrew.matcher.scoring,
+            "diff_functions",
+            lambda *a, **k: {
+                "summary": {"exact": 1, "reloc": 0, "reg": 0, "structural": 3, "total": 4},
+                "instructions": [],
+            },
+        )
+        result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        assert result.diff_lines == 3
+        assert "effective match" not in (result.message or "")
+
     def test_success_delegates(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.binary_loader
         import rebrew.compile
@@ -144,12 +322,13 @@ class TestVerifyEntryBranches:
             )
 
         def _fake_diff(target, cand, relocs, as_dict=True, **kw):
-            return {"summary": {"structural": 2}}
+            return {"summary": {"structural": 2, "reg": 0}}
 
         monkeypatch.setattr(rebrew.compile, "compile_and_compare", _unmatched)
         monkeypatch.setattr(rebrew.matcher.scoring, "diff_functions", _fake_diff)
         result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
         assert result.diff_lines == 2
+        assert result.reg_delta == 0
 
     def test_matched_skips_diff_lines_compute(self, tmp_path: Path, monkeypatch) -> None:
         """Matched functions must not pay for a disassembly diff — diff_lines
@@ -401,6 +580,91 @@ class TestVerifyCli:
             passed=0,
             failed=1,
         )
+        result = CliRunner().invoke(app, ["--json"])
+        assert result.exit_code == EXIT_MISMATCH
+
+    def test_nolib_excludes_library_entries(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--nolib (the reccmp --nolib equivalent) must drop LIBRARY-marked
+        functions from the work list, the cached results, and the exit gate —
+        gate on game code only."""
+        from rebrew.verify import app
+
+        cfg = _cfg(tmp_path)
+        lib_ann = _ann(0x1000)
+        lib_ann.marker_type = "LIBRARY"  # type: ignore[attr-defined]
+        fn_ann = _ann(0x2000)
+        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        monkeypatch.setattr(
+            "rebrew.verify.prepare_entries",
+            lambda cfg, full, json_output: (
+                [lib_ann, fn_ann],
+                1,  # passed — the cached LIBRARY hit
+                0,
+                [],
+                [{"va": "0x00001000", "status": "EXACT", "passed": True}],
+                1,
+                [],
+                [],
+            ),
+        )
+        monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
+        monkeypatch.setattr(
+            "rebrew.verify._load_previous_report",
+            lambda out_file, diff_mode, json_output: (None, None),
+        )
+        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
+
+        result = CliRunner().invoke(app, ["--json", "--nolib"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["summary"]["library_excluded"] == 1
+        assert data["summary"]["total"] == 1  # only the FUNCTION entry remains
+        assert data["summary"]["passed"] == 0  # cached LIBRARY hit dropped
+        # The LIBRARY row must not appear in the report results at all.
+        assert all(r["va"] != "0x00001000" for r in data["results"])
+
+    def test_nolib_failed_library_does_not_trip_gate(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failing LIBRARY function must not fail the run under --nolib
+        (without the flag it would exit EXIT_MISMATCH)."""
+        from rebrew.verify import app
+
+        cfg = _cfg(tmp_path)
+        lib_ann = _ann(0x1000)
+        lib_ann.marker_type = "LIBRARY"  # type: ignore[attr-defined]
+        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        monkeypatch.setattr(
+            "rebrew.verify.prepare_entries",
+            lambda cfg, full, json_output: (
+                [lib_ann],
+                0,
+                1,
+                [(lib_ann, "byte mismatch")],
+                [{"va": "0x00001000", "status": "NEAR_MATCHING", "passed": False}],
+                1,
+                [],
+                [],
+            ),
+        )
+        monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
+        monkeypatch.setattr(
+            "rebrew.verify._load_previous_report",
+            lambda out_file, diff_mode, json_output: (None, None),
+        )
+        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
+
+        result = CliRunner().invoke(app, ["--json", "--nolib"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["summary"]["library_excluded"] == 1
+        assert data["summary"]["failed"] == 0
+
+        # Without --nolib the same failure trips the gate.
         result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == EXIT_MISMATCH
 

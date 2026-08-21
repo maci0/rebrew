@@ -1,3 +1,172 @@
+## [Unreleased]
+### Added
+- **`rebrew cross-import`** — import functions already matched in another
+  target of the same project (binary versions with the same code at
+  different VAs, or a DLL+EXE pair sharing code).  Structural matching from
+  target bytes (no compile needed; source side = the other target's
+  EXACT/RELOC/PROVEN functions), `--min-score`/`--min-gap` thresholding
+  (default 95: identical code scores 100, structural siblings with a shared
+  prologue score high 80s–low 90s), then compile + verify against the
+  destination before STATUS promotion — a wrong match fails verification
+  and stays untouched.  `--dry-run`/`--json`/`--va`/`--limit`.  See
+  ADR-009.
+- **Shared multi-version sources** — `[project] shared_dir` (default
+  `src/shared`, empty disables): a project-level source root scanned for
+  every target, so one `.c` serves multiple binaries.  Shared files can
+  carry one `// FUNCTION: <target> <va>` marker per target (the same
+  function at a different VA per version) with per-target STATUS in
+  `rebrew-function.toml`, and `[targets.<name>] defines` add per-target
+  compile-time defines (`/DV2`/`-DV2`) for `#ifdef` version deltas —
+  the isledecomp/LEGO Island multi-version model.  A defines edit
+  invalidates the target's verify cache.  See ADR-010.
+- **Codegen fingerprint catalog for toolchain detection** — a new
+  per-compiler-version reference in `docs/codegen/` (one file per
+  compiler major version — MSVC 1.x/2.0/4.x/5.0/6.0/7.0/7.1/8.0/9.0/10.0/
+  11.0, MinGW GCC, Open Watcom, Turbo C, Borland C++ 5.5, Delphi, Zig)
+  documenting minute byte-level codegen patterns, cross-version deltas
+  and verified "100% unique" markers, plus new detectors in
+  `toolchain_detect.py`: VC 7.0+ `lea esp,[esp]` loop-alignment nops,
+  rep movs/stos string-op inlining, magic-number division, SSE2 vs x87
+  FPU, GCC `rep ret`, stack-probe symbol names (`__chkstk`,
+  `___chkstk_ms`, `__aNchkstk`, `__CHK`, security cookie), frame-pointer
+  prologue counting, and a 16-bit MZ entry-code disassembly scan.  All
+  patterns verified by compiling one probe source through the MSVC 2.0–
+  11.0 (incl. 4.0/4.2), MSVC 1.52, Turbo C 2.0/3.1, Borland C++ 5.5,
+  Open Watcom 2.0 and MinGW GCC 16.1 toolchains.  `docs/CODEGEN_REFERENCE.md`
+  is now a pointer into `docs/codegen/`.
+- **Probe-verified unique codegen markers per toolchain** — five probe
+  sources (division tables, copies, 64-bit, long double, rotates,
+  cmov/SSE2, switches, FP constants/conversions, multiply chains,
+  memcmp, struct returns, tail calls, sqrt/fdiv, bit idioms,
+  `__fastcall`) compiled through every toolchain + two Pascal probes
+  through Delphi 1.0's `DCC.EXE`, first-time probes of MSVC 1.0/1.5
+  and Watcom 16-bit `wcc`, and the **first-ever service-pack codegen
+  sweep**.  Highlights: the only verified SP-level codegen difference
+  (VC 7.0 SP1's FP-equality `fucompp` → `fcomp [mem]`; 7.1/8.0/10.0
+  SP1 and VC 6.0 SP1–SP6 verified identical); MSVC tail calls and
+  `strcmp` tail-`jmp` from VC 7.0; `fsqrt` inlined in VC 2.0–7.1 vs
+  `jmp __CIsqrt` from 8.0; reciprocal-`fmul` vs real `fdiv` for `a/5`
+  (8.0+); `cvttsd2si` and SSE `movq`/`xorps` in VC 11; per-toolchain
+  64-bit helper names and FP-conversion idioms (`__ftol`/`__CHP`/
+  `fnstcw` dance); TC 2.0 vs 3.1 far/near long-mul helpers; Delphi
+  `case` compare-chains and `rol`-based set membership.  Full table
+  in `docs/codegen/README.md`.
+- **GA pragma mutations** — five new operators in `matcher/mutator.py`
+  (114 → 119) that explore codegen levers compiler flags cannot reach:
+  `mut_add/remove_optimize_pragma` wrap the function in
+  `#pragma optimize("X", on|off)` … `("", on)` (X ∈ `""`/`"y"`/`"g"`/`"s"`/
+  `"t"` — `("", off)` forces the classic unoptimized full-stack-frame
+  layout), `mut_add/remove_intrinsic_pragma` toggle `#pragma intrinsic` for
+  the string/memory CRT functions (memcpy → rep movs etc. under /Oi), and
+  `mut_toggle_check_stack_pragma` suppresses /Gs stack probes.  Function-
+  level pragmas now stay with the function body across preamble/body
+  splits so removals are complete.  Researched in
+  `docs/GA_MUTATIONS.md` §20 (MSVC 6.0 semantics + the deliberately
+  not-mutated set: pack, auto_inline, code_seg, function).
+- **Fenced naked reconstruction for round-trip verification** — sources
+  generated from raw asm (`rebrew asm`) and thiscall stubs on compilers
+  without a native `__thiscall` (MSVC 5.0) now emit their
+  `__declspec(naked)` + inline-asm body behind `#ifdef REBREW_ALLOW_NAKED`
+  (`__attribute__((naked))` for gcc/clang), with an idiomatic-C `#else`
+  fallback so the comparison build always compiles.  New `rebrew round-trip
+  --allow-naked` is the only switch that defines the macro (MSVC `/D` or
+  posix `-D` per toolchain), so the naked branch reproduces exact bytes for
+  byte-identity verification while `test`/`verify`/`match` never see it;
+  naked remains a non-mutation (round-trip-only capability, never a GA
+  operator).
+- **Stale-annotation audit in `rebrew doctor`** — new `Annotation staleness`
+  check cross-references every `// FUNCTION:`/`// STUB:` marker against the
+  target's current `functions.txt` (the list `rebrew intake`/`discover`
+  write).  A marker whose VA no longer has a function there ("dangling",
+  function removed), or that now points *inside* another function's span
+  ("moved/merged"), is reported with file:line, a sample list, and the
+  fix (re-run `rebrew intake`, then re-annotate).  `LIBRARY` markers are
+  excluded (they may legitimately point at import stubs the function-list
+  parser filters out) and so are `DATA`/`GLOBAL` (not code); a missing or
+  empty function list skips the check.  Warn-level: a changed binary is a
+  workflow state, not a broken environment.
+### Changed
+- **`rebrew verify` EXTRACT_ERROR now names stale annotations** — when
+  byte extraction fails and the annotation VA is not a function in the
+  current function list, the error says so ("stale annotation? re-run
+  `rebrew intake` or edit the marker VA") instead of a bare "Cannot
+  extract DLL bytes" that blames binary tooling.
+- **`rebrew verify --nolib`** — exclude LIBRARY-marked functions from
+  verification entirely (not compiled, not counted, `summary.library_excluded`
+  reports how many), the reccmp `--nolib` equivalent: the summary + CI gate
+  reflect game code only, so statically-linked CRT / vendored zlib sources
+  no longer drag the SERVER gate.  Fenced naked functions that fail to
+  byte-match now get an explanatory note instead of a bare mismatch — the
+  comparison build compiles the `#else` fallback, so byte-identity needs a
+  `REBREW_ALLOW_NAKED` build (`round-trip --allow-naked`, or
+  `-DREBREW_ALLOW_NAKED=1` for the reccmp recomp binary).
+- **`rebrew round-trip --allow-naked` reports `fenced_naked`** — the JSON
+  report lists the exact functions that require the define for byte-identity
+  (`count` + `vas`), the checklist for a reccmp build matrix (a recomp
+  binary built without the define shows those functions at ~0%).
+- **`EFFECTIVE` verdict in `rebrew near-diag`** — reccmp's 100% effective
+  match: when the ENTIRE byte delta is register allocation (same
+  instructions, different registers), the verdict names it (not
+  byte-identical — `rebrew prove` for PROVEN, or register-nudging C tweaks
+  for byte-identity) and lists the register-oriented GA mutations.  A
+  register-dominant verdict with real structural churn stays `REGISTER`.
+- **`rebrew verify` reports effective matches** — the per-function diff now
+  classifies register-encoding differences separately (`register_aware`
+  x86-32), and a NEAR_MATCHING whose entire delta is register allocation
+  gets an "effective match" note in its message (reccmp-parity naming) so
+  the cause is visible instead of a bare byte diff.
+- **`rebrew verify-exports`** — new tool (reccmp `verexp` equivalent):
+  compare the export *names* of the project target vs a recompiled binary;
+  reports missing/added, exits `EXIT_MISMATCH` when the sets differ.
+- **`rebrew stack-cmp`** — new tool (reccmp `stackcmp` adapted, no PDB
+  needed): compiles the function and compares its stack frame against the
+  target — frame size (ESP tracking), ebp-vs-esp (`/Oy` frame-pointer
+  omission), `ret N` popping (calling convention), and `[ebp±N]` slot
+  layout — with flag-focused hints.  A frame delta is the per-function
+  CFLAGS signal for tuning static-CRT / vendored-zlib LIBRARY functions.
+  `rebrew near-diag --json` now carries the same comparison as a `frame`
+  field on every classified pair.
+- **recoverage integration** — `verify_results` rows now carry `reg_delta`
+  (register-encoding-only diff count) and `effective_match` (true when the
+  entire delta is register allocation — reccmp's 100% effective-match
+  class), surfaced through the `rebrew verify` JSON report and the
+  `db/coverage.db` `verify_results` table (`rebrew build-db`, schema
+  version 4 → 5).  `diff_lines` semantics clarified: it counts *structural*
+  diffs only since the register-aware diff (`RR` class) was wired into
+  `rebrew verify`.  `tests/test_recoverage_contract.py` pins the two new
+  columns.
+- **`rebrew binary-similarity`** — new tool: whole-binary structural
+  similarity vs another binary (the per-binary analog of the per-function
+  diff metrics).  Best-matches every function of the current target against
+  another binary's function list via the shared structural signature
+  (mnemonic-histogram cosine + call/branch agreement, vectorised N×M), then
+  aggregates into a byte-weighted `overall` similarity, mean/median,
+  threshold buckets with byte shares, and the lowest-scoring functions —
+  the version deltas.  `--other-list` (functions.txt format) or
+  `--other-target` for a configured target.
+- **GA works without docker (native toolchains)** — `base_cflags` now
+  defaults per compiler profile: posix profiles (gcc-pe/mingw, watcom,
+  tc16/20, borland) get `""` instead of the MSVC `/nologo /c /MT` glue
+  that broke every compile for hand-written tomls, and the matcher's raw
+  subprocess path no longer emits a bare `-I`/`/I` for empty include
+  dirs.  The GA's per-run build cache key now covers per-target `defines`.
+  `rebrew match --flag-sweep-only` / `--all --flag-sweep` refuse loudly on
+  posix profiles (the sweep explores MSVC flag combos; previously every
+  combo failed silently under gcc and only the empty-combo "matched").
+### Fixed
+- **`cross-import` no longer clobbers unrelated destination files** —
+  importing to a filename that already annotates a different VA is refused
+  (`TARGET_CONFLICT`) instead of silently deleting that function's source;
+  the destination's own annotation file (same VA) is still overwritten.
+  Imported copies of shared multi-version sources now carry only the
+  destination's marker (stacked markers from other targets are collapsed),
+  and the stacked-marker name fallback no longer misnames bodyless
+  LIBRARY/STUB blocks.
+- **`iter_sources` no longer leaks shared sources into scans of unrelated
+  directories** (shared files belong to the target's `reversed_dir` scan
+  only), and `_parse_defines` rejects non-string entries (no more garbage
+  `-DNone` flags).
+
 ## [0.4.0] - 2026-08-21
 ### Changed
 - **Docs/housekeeping release — no user-facing code changes.**  The audit

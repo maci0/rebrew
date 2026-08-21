@@ -210,16 +210,23 @@ def _find_function_range(source: str, symbol: str) -> tuple[int, int] | None:
 
 
 def _ga_cache_key(
-    src: str, cflags: str, cl_cmd: str, inc_dir: str, extra_include_dirs: list[str] | None = None
+    src: str,
+    cflags: str,
+    cl_cmd: str,
+    inc_dir: str,
+    extra_include_dirs: list[str] | None = None,
+    defines: list[str] | None = None,
 ) -> str:
     """Cache key for a GA compile result.
 
     Must cover everything that changes the produced .obj: the source text,
-    the compiler flags, the compiler command, the include directory, and the
-    extra include dirs (different headers → different codegen).  The build
-    cache persists across runs (``output/ga_runs/<rel>/build_cache.db``), so
-    a sweep-then-GA or CFLAGS-metadata change must not reuse an .obj compiled
-    under different flags.
+    the compiler flags, the compiler command, the include directory, the
+    extra include dirs (different headers → different codegen), and the
+    per-target defines (a version switch changes ``#ifdef``-driven codegen).
+    The build cache persists across runs
+    (``output/ga_runs/<rel>/build_cache.db``), so a sweep-then-GA or
+    CFLAGS-metadata change must not reuse an .obj compiled under different
+    flags.
     """
     # Incremental hashing — the old code built a full material buffer per
     # candidate (src.encode() + joins), and the source hash was recomputed
@@ -231,6 +238,8 @@ def _ga_cache_key(
     h.update(b"\x00inc=" + inc_dir.encode())
     for d in sorted(extra_include_dirs or []):
         h.update(b"\x00" + d.encode())
+    for d in sorted(defines or []):
+        h.update(b"\x00defines=" + d.encode())
     return h.hexdigest()[:16]
 
 
@@ -388,7 +397,12 @@ class BinaryMatchingGA:
         # the source.  A sweep-then-GA or CFLAGS-metadata change used to
         # reuse the previous flag combination's .obj.
         src_hash = _ga_cache_key(
-            src, self.cflags, str(self.cl_cmd), self.inc_dir, self.extra_include_dirs
+            src,
+            self.cflags,
+            str(self.cl_cmd),
+            self.inc_dir,
+            self.extra_include_dirs,
+            getattr(self.cfg, "defines", None) or [],
         )
         res = self.cache.get(src_hash)
         if res:
@@ -2009,22 +2023,26 @@ def _run_single_flag_sweep(
     json_output: bool,
 ) -> None:
     """Run compiler flag sweep on one function and report results."""
-    results = flag_sweep(
-        p.seed_src,
-        p.target_bytes,
-        p.cl,
-        p.inc,
-        p.cflags,
-        p.symbol,
-        jobs,
-        tier=tier,
-        env=p.msvc_env,
-        cache=p.cc,
-        timeout=p.cfg.compile_timeout,
-        extra_include_dirs=[str(p.seed_c.parent.resolve())],
-        profile=getattr(p.cfg, "compiler_profile", ""),
-        cfg=p.cfg,
-    )
+    try:
+        results = flag_sweep(
+            p.seed_src,
+            p.target_bytes,
+            p.cl,
+            p.inc,
+            p.cflags,
+            p.symbol,
+            jobs,
+            tier=tier,
+            env=p.msvc_env,
+            cache=p.cc,
+            timeout=p.cfg.compile_timeout,
+            extra_include_dirs=[str(p.seed_c.parent.resolve())],
+            posix_style=getattr(p.cfg, "posix_style", False),
+            profile=getattr(p.cfg, "compiler_profile", ""),
+            cfg=p.cfg,
+        )
+    except ValueError as exc:
+        error_exit(str(exc), json_mode=json_output)
 
     sim_res = None
     res = build_candidate_obj_only(
@@ -2128,22 +2146,28 @@ def run_flag_sweep(
     # NOTE: no redirect_stdout here — mutating process-global stdout is not
     # thread-safe under --sweep-then-ga batch (-j N) and silently loses later
     # prints (incl. the --json report).  flag_sweep logs via logging, not stdout.
-    results = flag_sweep(
-        source,
-        target_bytes,
-        cl_cmd,
-        inc_dir,
-        cflags,
-        symbol,
-        n_jobs=jobs,
-        tier=tier,
-        env=msvc_env,
-        cache=cc,
-        extra_include_dirs=[str(filepath.parent.resolve())],
-        timeout=cfg.compile_timeout,
-        profile=getattr(cfg, "compiler_profile", ""),
-        cfg=cfg,
-    )
+    try:
+        results = flag_sweep(
+            source,
+            target_bytes,
+            cl_cmd,
+            inc_dir,
+            cflags,
+            symbol,
+            n_jobs=jobs,
+            tier=tier,
+            env=msvc_env,
+            cache=cc,
+            extra_include_dirs=[str(filepath.parent.resolve())],
+            timeout=cfg.compile_timeout,
+            posix_style=bool(getattr(cfg, "posix_style", False)),
+            profile=getattr(cfg, "compiler_profile", ""),
+            cfg=cfg,
+        )
+    except ValueError as exc:
+        # The flag sweep is MSVC-only — a posix project must not silently
+        # waste compiles; surface it as a per-function failure.
+        return float("inf"), str(exc), []
 
     if not results:
         return float("inf"), "", []

@@ -1,0 +1,126 @@
+# MSVC 7.0 — codegen patterns
+
+MSVC 7.0 (VS .NET 2002, CL 13.00.9466).  The first compiler to emit
+**`lea esp,[esp]` loop-alignment nops inside function bodies**, and the
+first to post-shift division magic.
+
+**Profiles:** `msvc700`, `msvc700sp1` — Rich builds 9466 (RTM), 9955
+(SP1); linker 7.0.
+
+## Prologue & frame pointer
+
+- `/O2`: no frame pointer, args `[esp+4]`+ — as before.
+- Unoptimized: `55 8b ec`.
+
+## Argument passing
+
+- Direct `[esp+N]` loads; same /O1//O2 wrapper styles as 6.0.
+
+## Register conventions
+
+- Callee-saved `ebx/esi/edi`.
+- **Unsigned char sum switches to `movzx`**: `movzx edi, byte ptr
+  [ecx+esi]` (`0f b6 3c 31`) where VC 5.0/6.0 emit `mov dl,[mem]; add
+  eax,edx`.  Verified in `bsum` (32B vs 33B in 6.0).
+
+## Integer division
+
+- **Magic + post-shift**: `x/3u` → `mov eax,0xAAAAAAAB; mul [esp+4];
+  shr edx,1; mov eax,edx`.  `x/10u` → `shr edx,3`, `x/100u` → `shr
+  edx,5`.  The `shr edx,N` tail is the **7.0+ marker** (5.0/6.0 take
+  `mov eax,edx` directly).
+
+## FPU / SSE
+
+- Pure x87 (`fld`/`fadd`, `.rdata` constants) — SSE2 default arrives in
+  VC 11.0.
+
+## Loops
+
+- **`lea esp,[esp]` (`8d 64 24 00`) as loop-alignment nop inside
+  function bodies** — verified in `bigstack` and `csum` (2–3 per
+  optimized probe function).  Zero occurrences in VC 2.0–6.0 probes;
+  this is the clean "VC 7.0+ codegen" marker (the 7.0 probe's nop
+  register is `esp`; VC 9.0 uses `lea ebx,[ebx]` in places — the
+  alignment-nop *register* varies by version).
+- `dec/jnz` induction, `rep stosd` memset inlining — unchanged.
+
+## String ops
+
+- `rep stosd`/`rep movsd` inlining unchanged.
+
+## Padding & nops
+
+- Adds the intra-body `8d 64 24 00`; still uses `90`/`8b ff`/`8d 74 26
+  00`-style inter-function padding.  `mov edi,edi` (`8b ff`) as a 2-byte
+  pad appears in 7.0+ objects too — not a 7.0-exclusive marker.
+
+## Stack probes
+
+- `mov eax,<size>; call __chkstk` — unchanged.
+
+## Switch dispatch
+
+- Dense jump table, unchanged.
+
+## Optimization fingerprints
+
+- Same wrapper styles.  `csum` (char scan) shows the loop head aligned
+  with `8d 64 24 00` at /O2.
+
+## 100% unique to this version
+
+- **None proven per minor** (7.0 vs 7.1 remain codegen-indistinguishable
+  in probe1 and probe2 — same object sizes, same nops, same tails).
+- **Shared with 7.1+ (era markers, first appearance in 7.0):**
+  - `lea esp,[esp]` (`8d 64 24 00`) loop-alignment nops inside function
+    bodies — zero in every VC ≤6.0 probe;
+  - the division tails: unsigned `shr edx,N; mov eax,edx` (`c1 ea N 8b
+    c2`) and signed `sar edx,N; mov eax,edx; shr eax,31; add eax,edx`
+    (`c1 fa N 8b c2 c1 e8 1f 03 c2`) — 5.0/6.0 shift the *low* register
+    instead (see [msvc-5.md](msvc-5.md));
+  - `movzx` for unsigned char loads (5.0/6.0 use `mov dl;add`).
+  - **`imul` for constant multiply** — `x*100` → `imul eax,eax,100`
+    (`6b c0 64`) and `x*1000` → `imul eax,eax,1000` (`69 c0 e8 03 00
+    00`) — VC 5.0/6.0 build these from `lea`×5 chains, VC 2.0/4.x use
+    a different lea order.  Verified in probe4 (`m100`/`m1000`).
+  - **strcmp → tail `jmp strcmp`** — `strcmp(a,b)` compiles to a bare
+    `jmp strcmp` (`e9` reloc) from VC 7.0 on; VC 2.0–6.0 push the args
+    and `call` + clean up.  Verified in probe4 (`strc`).
+  - **tail call `jmp g`** — `return g(x)` compiles to a bare `jmp g`
+    (`e9` reloc) from VC 7.0 on (VC 2.0–6.0: `call g; add esp,4; ret`;
+    bcc32 also does not tail-call; GCC and Watcom do).  Verified in
+    probe5 (`tc`).
+  - **`__fastcall` register fusion** — `__fastcall` args `ecx`/`edx`
+    fuse via `lea eax,[ecx+edx]` (`8d 04 11`) from VC 7.0 on (VC
+    2.0–6.0: `mov eax,[esp+4]` first).  Verified in probe5 (`fc1`).
+  - (Not unique: `imul eax,eax,7` for `x*7` — Watcom shares it; the
+    `/O1` `lea eax,[eax+eax*2]` for `x*3` — GCC shares it.)
+  Distinguish 7.0 from 7.1 via Rich build (9466/9955 = 7.0, 3077/6030
+  = 7.1) and linker (7.0 vs 7.10).
+
+## Service packs (probed for the first time)
+
+- **VC 7.0 SP1 is the ONLY service pack with a verified codegen
+  difference in the whole sweep.**  FP equality `a==b`: VC 7.0 RTM
+  emits `fld; fld; fucompp; fnstsw ax; test ah,0x44` (`da e9`) — VC
+  7.0 SP1 emits `fld; fcomp [mem]; fnstsw ax; test ah,0x44` (`dc 5c
+  24 0c`, 2 bytes shorter).  Verified in probe5 `fcmp2` at both /O1
+  and /O2.  The fucompp style is shared by 7.1 (RTM+SP1) and 10.0
+  (RTM+SP1); the fcomp style by 2.0–6.0, 8.0 and 9.0 — so the RTM↔
+  SP1 flip is a genuine SP-level fingerprint: `da e9` at offset 4 =
+  7.0 RTM, `dc 5c 24 0c` = 7.0 SP1.
+
+## Version deltas
+
+- From VC 6.0: `lea esp,[esp]` loop-alignment nops appear; division
+  magic gains `shr edx,N`; unsigned char loads use `movzx`; `rep
+  stosd`/wrappers unchanged.
+- To VC 7.1: nothing verified in codegen.
+
+## Verification
+
+Probe `/O1`/`/O2` via `rebrew/msvc:7.0-win32` (`msvc700_{O1,O2}.obj`);
+smoke `msvc700/t.obj` and `msvc700sp1/t.obj`.  Census: `lea esp,[esp]`
+= 3 at /O2 (0 for every VC ≤6.0 probe), `8b ff` = 2 (operand noise —
+see [msvc-6.md](msvc-6.md) for the padding caveat).

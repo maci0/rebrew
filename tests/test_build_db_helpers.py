@@ -147,7 +147,8 @@ class TestCheckDbVersion:
                 );
                 CREATE TABLE verify_results (
                     target TEXT, va INTEGER, verified_at TEXT, byte_delta INTEGER,
-                    diff_lines INTEGER, similarity REAL
+                    diff_lines INTEGER, similarity REAL,
+                    reg_delta INTEGER, effective_match INTEGER
                 );
                 CREATE TABLE history (
                     id INTEGER, target TEXT, va INTEGER, old_status TEXT,

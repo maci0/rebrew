@@ -175,6 +175,7 @@ src/rebrew/
 ├── cu_map.py            # Compilation-unit boundary inference (contiguity + call graph)
 ├── todo.py              # Prioritized action list
 ├── similar.py           # Find structurally similar functions
+├── binary_similarity.py # Whole-binary structural similarity vs another binary (versions/DLL+EXE)
 ├── match.py             # GA engine — single or batch (--all); absorbs old ga.py
 │
 ├── # --- CLI tools (each exports app, main, main_entry) ---
@@ -186,10 +187,12 @@ src/rebrew/
 ├── skeleton.py          # Generate skeleton C files (convention-aware stubs; --batch --skip-fragments; stale-size warnings)
 ├── lint.py              # Lint C annotations
 ├── llm_seed.py          # LLM alternative-implementation seeding for GA (--llm-seed)
-├── near_diag.py         # Classify why NEAR_MATCHING doesn't byte-match
+├── near_diag.py         # Classify why NEAR_MATCHING doesn't byte-match (register/equiv/reloc/structural + EFFECTIVE)
+├── stack_cmp.py         # Compare compiled function's stack frame vs target (reccmp stackcmp, no PDB)
 ├── rename.py            # Rename function + update cross-references
 ├── init.py              # Initialize new project
 ├── imports.py           # List PE imports + detect jmp [iat] stubs
+├── exports.py           # Verify recompiled binary export table vs target (verexp equivalent)
 ├── pdb_info.py          # PDB metadata (S_COMPILE3 compiler + command line)
 ├── identify_library.py  # Library-function backends (CRT/ZLIB marking)
 ├── intake.py            # One-shot binary onboarding (FLIRT scan, catalog, triage)
@@ -227,7 +230,7 @@ src/rebrew/
 │   ├── core.py          # Types: Score, BuildResult, BuildCache, GACheckpoint
 │   ├── compiler.py      # MSVC6 compilation + flag sweep (docker images)
 │   ├── scoring.py       # Byte scoring, structural similarity (capstone + numpy)
-│   ├── mutator.py       # 114 C mutation operators for GA
+│   ├── mutator.py       # 119 C mutation operators for GA
 │   ├── ast_engine.py    # tree-sitter AST mutation helpers
 │   ├── parsers.py       # Object parsing (COFF/ELF/Mach-O via LIEF)
 │   ├── flags.py         # FlagSet/Checkbox primitives (decomp.me compatible)

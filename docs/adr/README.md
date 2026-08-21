@@ -28,3 +28,5 @@ itself, and the consequences (including trade-offs accepted).
 | 006 | Standardized toolchain invocation (docker-first, host fallback) |
 | 007 | Complete containerization + unified byte-reproducibility gate |
 | 008 | Docker-only toolchain execution (no host wine/dosbox) |
+| 009 | Cross-target function import (`rebrew cross-import`) |
+| 010 | Shared multi-version sources (`src/shared` + per-target defines) |

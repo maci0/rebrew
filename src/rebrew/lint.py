@@ -360,15 +360,111 @@ def _check_W019_inline_metadata(
                 result._inline_fixes.append((module, va_int, key, found_keys[key], marker))
 
 
+def _check_E023_naked_asm(
+    result: LintResult, lines: list[str], claimed_statuses: set[str] | None = None
+) -> None:
+    """Flag whole-function ``__declspec(naked)`` + ``__asm`` dumps (E023).
+
+    ``__declspec(naked)`` is only allowed for *minor padding* (1-2 alignment
+    ``nop``/``int3`` bytes, e.g. ``_emit 0x90`` / ``_emit 0xCC`` or
+    ``__asm nop``).  A whole-function naked body pasted from disassembly is
+    not a decompilation and must be flagged as an error.
+
+    Heuristic: a naked function whose asm body exceeds minor padding — more
+    than 2 ``__asm``/``_emit`` lines, or any ``_emit`` byte that is not
+    padding (``0x90``/``0xCC``) / non-nop mnemonic — is a whole-function
+    dump and earns E023.  1-2 nops for alignment are tolerated silently.
+    """
+    # Find naked declaration outside comments.
+    has_naked = False
+    naked_line = 0
+    for idx, line in enumerate(lines, start=1):
+        s = line.strip()
+        if s.startswith("//") or s.startswith("/*") or s.startswith("*"):
+            continue
+        if "__declspec(naked)" in line or "__declspec( naked" in line:
+            has_naked = True
+            naked_line = idx
+            break
+    if not has_naked:
+        return
+
+    asm_lines: list[int] = []
+    emit_lines: list[int] = []
+    meaningful_asm: list[int] = []
+    for idx, line in enumerate(lines, start=1):
+        s = line.strip()
+        if s.startswith("//") or s.startswith("/*") or s.startswith("*"):
+            continue
+        # Use "_emit" so both "_emit" and "__emit" variants are caught.
+        has_asm = "__asm" in s
+        has_emit = "_emit" in s
+        if has_asm:
+            asm_lines.append(idx)
+            payload = s.lower().split("__asm", 1)[1]
+            payload = payload.replace("{", "").replace("}", "").replace(";", "").strip()
+            # Only count as meaningful if it carries a mnemonic, not just braces.
+            if payload:
+                # Strip _emit payload — the emit line itself is counted via emit_lines.
+                payload_no_emit = payload.replace("_emit", "").strip()
+                # After removing _emit, if nothing left (or just hex) it's not a separate asm mnemonic.
+                if (
+                    payload_no_emit
+                    and payload_no_emit not in ("", ",", "0x90", "0xcc", "0x90,", "0xcc,")
+                    and not all(
+                        tok.strip() in ("", "0x90", "0xcc", ",")
+                        for tok in payload_no_emit.replace(",", " , ").split()
+                    )
+                ):
+                    meaningful_asm.append(idx)
+        if has_emit:
+            emit_lines.append(idx)
+
+    total_meaningful = len(emit_lines) + len(meaningful_asm)
+    if total_meaningful == 0:
+        return
+
+    # Minor padding allowance: 1-2 meaningful asm/emit lines that are *only*
+    # padding (nop / 0x90 / 0xCC / int 3) are tolerated.  Bare `__asm {` /
+    # `}` braces are structural and not counted.
+    if total_meaningful <= 2:
+        padding_only = True
+        for idx in meaningful_asm:
+            low = lines[idx - 1].lower()
+            if "__asm" in low:
+                payload = low.split("__asm", 1)[1]
+                payload = payload.replace("{", "").replace("}", "").replace(";", "").strip()
+                if payload and payload not in ("nop", "int 3", "") and "nop" not in payload:
+                    padding_only = False
+                    break
+        for idx in emit_lines:
+            low = lines[idx - 1].lower()
+            if "0x90" not in low and "0xcc" not in low and "nop" not in low:
+                padding_only = False
+                break
+        if padding_only:
+            return
+
+    claimed = sorted((claimed_statuses or set()) - {"STUB", "SKIP"})
+    suffix = f" but STATUS claims {', '.join(claimed)}" if claimed else ""
+    result.error(
+        naked_line,
+        "E023",
+        f"whole-function __declspec(naked) + __asm/__emit is not allowed{suffix} — "
+        "naked asm is only for minor padding (1-2 alignment bytes: nop / _emit 0x90 / 0xCC); "
+        "decompile the function to C instead",
+    )
+
+
 def _check_W020_asm_dump(
     result: LintResult, lines: list[str], claimed_statuses: set[str] | None = None
 ) -> None:
     """Flag asm-dump placeholder implementations (W020).
 
-    ``__declspec(naked)`` functions whose "implementation" is an ``__asm``
-    block (often with raw ``__emit`` byte emission) are pasted disassembly,
-    not real C source: they cannot be maintained, refactored, or matched
-    beyond byte-identical reproduction.  Warn once per file at the first hit.
+    Non-naked ``__asm``/``__emit`` bodies are pasted disassembly, not real C
+    source.  Whole-function ``__declspec(naked)`` + ``__asm`` is escalated to
+    E023 (error); this warning covers the remaining non-naked asm dumps.
+    Warn once per file at the first hit.
 
     Status-aware: a file whose metadata claims a non-stub status
     (``EXACT``/``RELOC``/...) while its body is an asm dump escalates the
@@ -376,6 +472,13 @@ def _check_W020_asm_dump(
     That is how "documented STUB" (expected) is told apart from a "claimed
     match on an asm dump" (a metadata bug) at a glance.
     """
+    # Whole-function naked asm is handled by E023 — don't double-report W020.
+    for line in lines:
+        s = line.strip()
+        if s.startswith("//") or s.startswith("/*") or s.startswith("*"):
+            continue
+        if "__declspec(naked)" in line:
+            return
     claimed = sorted((claimed_statuses or set()) - {"STUB", "SKIP"})
     for i, line in enumerate(lines, start=1):
         s = line.strip()
@@ -742,6 +845,7 @@ def lint_file(
             )
 
     result.context_prefix = ""
+    _check_E023_naked_asm(result, lines, _file_statuses)
     _check_W020_asm_dump(result, lines, _file_statuses)
     _check_W021_duplicate_globals(result, lines, filepath, seen_globals)
     _check_W022_zero_init_bss(result, lines)
@@ -798,6 +902,7 @@ app = typer.Typer(
         "  W018   Missing CFLAGS with no config fallback\n\n"
         "  W019   Inline metadata key (STATUS, SIZE, etc.) should be in rebrew-function.toml\n\n"
         "  W020   Asm-dump placeholder (__emit / __asm block) instead of real C source\n\n"
+        "  E023   Whole-function __declspec(naked) + __asm/__emit (only 1-2 nop/0x90/0xCC padding bytes allowed)\n\n"
         "  W021   Duplicate global symbol annotated in multiple files\n\n"
         "  W022   File-scope zero initializer (= {0}) forces the global into .data, not .bss\n\n"
         "[dim]Checks for reccmp-style markers in each .c file.[/dim]"

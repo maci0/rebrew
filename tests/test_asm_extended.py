@@ -97,7 +97,7 @@ class TestGenerateInlineC:
             "_my_func",
         )
         assert "// FUNCTION: SERVER 0x00001000" in out
-        assert "void __declspec(naked) my_func(void)" in out
+        assert "__declspec(naked) void my_func(void)" in out
         assert "__asm {" in out
         assert "push ebp" in out
         assert "_emit 0x90" in out
@@ -110,6 +110,32 @@ class TestGenerateInlineC:
         assert "__asm__(" in out
         assert '"mov eax, 1\\n"' in out
         assert "func_00001000" in out  # default symbol fallback
+
+    def test_naked_fenced_for_round_trip(self) -> None:
+        """The naked reconstruction must sit behind the REBREW_ALLOW_NAKED
+        fence: the exact-bytes branch for round-trip verification, an
+        idiomatic C fallback for the comparison build.  Never a GA mutation."""
+        cfg = _cfg(Path("/tmp"), compiler_profile="msvc")
+        out = generate_inline_c(
+            "bits 32\norg 0x1000\nmy_func:\n    mov eax, 1\n", cfg, 0x1000, "_my_func"
+        )
+        assert "#ifdef REBREW_ALLOW_NAKED" in out
+        assert "#else" in out
+        assert "#endif" in out
+        # naked only inside the guarded branch
+        naked_idx = out.index("#ifdef REBREW_ALLOW_NAKED")
+        else_idx = out.index("#else")
+        endif_idx = out.index("#endif")
+        assert "__declspec(naked)" in out[naked_idx:else_idx]
+        assert "__declspec(naked)" not in out[else_idx:endif_idx]
+        # fallback branch compiles as plain C
+        assert "idiomatic C89 fallback" in out
+        assert "void my_func(void)" in out
+
+    def test_naked_gcc_attribute(self) -> None:
+        cfg = _cfg(Path("/tmp"), compiler_profile="gcc-pe")
+        out = generate_inline_c("bits 32\norg 0x1000\nlbl:\n    mov eax, 1\n", cfg, 0x1000, None)
+        assert "__attribute__((naked))" in out
 
 
 class TestParseAnnotations:

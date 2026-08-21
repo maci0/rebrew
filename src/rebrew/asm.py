@@ -817,18 +817,30 @@ def generate_inline_c(
     va: int,
     symbol: str | None,
 ) -> str:
-    """Generate a C file with inline assembly using rebrew annotations."""
+    """Generate a C file with inline assembly using rebrew annotations.
+
+    The function is emitted behind the ``REBREW_ALLOW_NAKED`` fence: the
+    ``__declspec(naked)``/``__attribute__((naked))`` + inline-asm version
+    reproduces the exact bytes for **round-trip verification** builds
+    (``rebrew round-trip --allow-naked`` defines it), while the ``#else``
+    branch is an idiomatic C fallback that keeps the comparison build
+    compiling (``rebrew prove`` can establish it as PROVEN without byte
+    equality).  Naked functions are only ever generated here — never as a
+    GA mutation — and only the MSVC/gcc paths see the naked attribute.
+    """
     marker = cfg.marker if cfg.marker else "TARGET"
     sym = symbol or f"_func_{va:08x}"
     func_name = sym.lstrip("_")
 
+    is_gcc = "clang" in cfg.compiler_profile.lower() or "gcc" in cfg.compiler_profile.lower()
+    naked_attr = "__attribute__((naked))" if is_gcc else "__declspec(naked)"
+
     lines: list[str] = []
     lines.append(f"// FUNCTION: {marker} 0x{va:08x}")
     lines.append("")
-    lines.append(f"void __declspec(naked) {func_name}(void)")
+    lines.append("#ifdef REBREW_ALLOW_NAKED")
+    lines.append(f"{naked_attr} void {func_name}(void)")
     lines.append("{")
-
-    is_gcc = "clang" in cfg.compiler_profile.lower() or "gcc" in cfg.compiler_profile.lower()
 
     if is_gcc:
         lines.append("    __asm__(")
@@ -857,6 +869,14 @@ def generate_inline_c(
         lines.append("    }")
 
     lines.append("}")
+    lines.append("#else")
+    lines.append(f"void {func_name}(void)")
+    lines.append("{")
+    lines.append("    /* TODO: idiomatic C89 fallback for the comparison build — replace with")
+    lines.append("       the real C (rebrew prove can mark it PROVEN); the naked branch above")
+    lines.append("       reproduces the exact bytes for round-trip builds (--allow-naked). */")
+    lines.append("}")
+    lines.append("#endif")
     lines.append("")
     return "\n".join(lines)
 

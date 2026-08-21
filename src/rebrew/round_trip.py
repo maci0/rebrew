@@ -101,6 +101,13 @@ def main(
         "from [link] in rebrew-project.toml, falling back to the original's "
         "own fields",
     ),
+    allow_naked: bool = typer.Option(
+        False,
+        "--allow-naked",
+        help="Define REBREW_ALLOW_NAKED so fenced naked functions use their "
+        "__declspec(naked) + __asm exact-byte branch (round-trip only; the "
+        "comparison build keeps the idiomatic C fallback)",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -114,6 +121,7 @@ def main(
             json_output=json_output,
             strict_catalog=strict_catalog,
             fix_headers=fix_headers,
+            allow_naked=allow_naked,
         )
     )
 
@@ -420,6 +428,21 @@ def _make_resolver(
     return resolve_va
 
 
+def _source_is_naked_fenced(path: str | Path) -> bool:
+    """True when *path* guards its body behind ``#ifdef REBREW_ALLOW_NAKED``.
+
+    The fenced sources are exactly the functions that need the define for
+    byte-identity; round-trip reports them so the reccmp recomp build can be
+    checked against the same list (those sources must also be compiled with
+    ``-DREBREW_ALLOW_NAKED=1``).
+    """
+    try:
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return "#ifdef REBREW_ALLOW_NAKED" in text
+
+
 def _run_round_trip(
     cfg: ProjectConfig,
     *,
@@ -429,6 +452,7 @@ def _run_round_trip(
     json_output: bool,
     strict_catalog: bool = False,
     fix_headers: bool = False,
+    allow_naked: bool = False,
 ) -> int:
     """Top-level orchestration. Returns the process exit code."""
     if cfg.image_base == 0:
@@ -450,6 +474,23 @@ def _run_round_trip(
     info: BinaryInfo | None = None
 
     splice_set, proven_set, other_count = _collect_splice_set(cfg, symbol_filter)
+
+    # Naked reconstruction is a round-trip-only capability: the
+    # REBREW_ALLOW_NAKED define selects the `__declspec(naked)` + __asm
+    # branch of fenced sources (exact bytes) instead of the idiomatic C
+    # fallback.  It is NEVER added by test/verify/match — only here.
+    fenced_naked_vas: list[str] = []
+    if allow_naked:
+        define = "-DREBREW_ALLOW_NAKED" if cfg.posix_style else "/DREBREW_ALLOW_NAKED"
+        for fn in splice_set:
+            fn.cflags.append(define)
+            # The fenced functions are exactly the ones that require the
+            # define for byte-identity — report them so the reccmp recomp
+            # build matrix can be checked against this list (those sources
+            # must be compiled with -DREBREW_ALLOW_NAKED=1 too).
+            if _source_is_naked_fenced(fn.path):
+                fenced_naked_vas.append(f"0x{fn.va:08x}")
+
     funcs_by_va, data_by_name = _load_catalogs(cfg)
 
     mismatches: list[dict[str, str | None]] = []
@@ -660,6 +701,10 @@ def _run_round_trip(
         "spliced": len(spliced_vas),
         "skipped_proven": len(proven_set),
         "skipped_other": other_count,
+        "fenced_naked": {
+            "count": len(fenced_naked_vas),
+            "vas": fenced_naked_vas,
+        },
         "skipped_catalog": skipped_catalog,
         "mismatches": mismatches,
         "reason_counts": reason_counts,
@@ -841,6 +886,9 @@ def _render_rich(report: dict[str, Any]) -> None:
         stats_parts.append(f"[yellow]catalog gaps: {n_catalog}[/yellow]")
     if n_mismatch:
         stats_parts.append(f"[red]mismatches: {n_mismatch}[/red]")
+    fenced = (report.get("fenced_naked") or {}).get("count", 0)
+    if fenced:
+        stats_parts.append(f"[magenta]naked fenced: {fenced}[/magenta]")
     reason_counts = report.get("reason_counts", {}) or {}
     if reason_counts:
         reason_breakdown = ", ".join(f"{k}: {v}" for k, v in sorted(reason_counts.items()))

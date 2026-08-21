@@ -497,6 +497,72 @@ def _gcc_era_hint(count_modern: int, count_old: int) -> str:
 # signal marks pre-6.0 codegen even when the CRT/linker era is 6.0.
 _HOIST_REGS = (0xBB, 0xBD, 0xBE, 0xBF)  # mov ebx/ebp/esi/edi, imm32
 
+# --- byte-level codegen fingerprint patterns (verified — see docs/CODEGEN_REFERENCE.md) ---
+
+#: VC 7.0+ loop-alignment nop `lea esp,[esp]` — verified inside optimized
+#: function bodies for VC 7.0..11.0; VC 2.0-6.0 never emit it (their nop
+#: ladder is 90 / 8d 74 26 00 / 8d a4 24, inter-function only).
+_LEA_ESP_NOP = bytes.fromhex("8d 64 24 00")
+
+#: MSVC string-op inlining: memset/memcpy-shaped loops become rep stosd
+#: (f3 ab), rep movsd (f3 a5), rep stosb (f3 aa) — every MSVC 2.0..11.0
+#: version verified; GCC 16 and Borland bcc32 do NOT rep-stos the same
+#: source (GCC calls memset), so presence is MSVC-family evidence.
+_REP_STRING_OPS = (
+    bytes.fromhex("f3 ab"),  # rep stosd
+    bytes.fromhex("f3 a5"),  # rep movsd
+    bytes.fromhex("f3 aa"),  # rep stosb
+    bytes.fromhex("f3 a4"),  # rep movsb
+)
+
+#: `rep ret` (f3 c3) — GCC's return-after-branch idiom.  Verified present
+#: in real MinGW binaries (cpubench, test_sse2), absent in MSVC binaries.
+_REP_RET = bytes.fromhex("f3 c3")
+
+#: Magic immediates for unsigned/signed division by small constants — the
+#: MSVC 5.0+ / GCC divide-by-constant sequence (mov reg, magic; mul/imul).
+#: MSVC 2.0/4.x, Borland and Watcom emit real div instead (see the doc).
+_DIV_MAGICS = tuple(
+    bytes.fromhex(h)
+    for h in (
+        "aa aa aa ab",  # x/3u
+        "24 92 49 25",  # x/7u
+        "cd cc cc cc",  # x/10u
+        "1f 85 eb 51",  # x/100u
+        "93 24 49 92",  # x/7 (signed)
+        "67 66 66 66",  # x/10 (signed)
+    )
+)
+
+#: SSE2 FP ops (addsd f2 0f 58, subsd 5c, mulsd 59, divsd 5e) — VC 11.0
+#: (VS2012) defaults x86 to SSE2; VC 2.0-10.0 emit pure x87.
+_SSE2_FP_OPS = tuple(bytes.fromhex(f"f2 0f {h}") for h in ("58", "59", "5c", "5e"))
+
+#: x87 FP loads from the stack: fld qword/dword [esp+N] (dd/d9 44 24 /
+#: dd/d9 54 24).  Presence = x87 FPU codegen (pre-SSE2 default).
+_X87_ESP_LOADS = tuple(bytes.fromhex(h) for h in ("dd 44 24", "d9 44 24", "dd 54 24", "d9 54 24"))
+
+#: Frame-pointer prologue push ebp; mov ebp,esp — /Oy- or unoptimized
+#: MSVC/Borland builds; absent at MSVC /O1//O2 and in Watcom.
+_FP_PROLOGUE = bytes.fromhex("55 8b ec")
+
+#: 2-byte `mov edi,edi` nop — MSVC-style padding in linked VC6+ binaries
+#: (VC5 corpus binaries show 0; VC6+ show ~10 per 15KB of .text).
+_MOV_EDI_EDI = bytes.fromhex("8b ff")
+
+#: Stack-probe / security-cookie symbol names -> (family, evidence).
+#: These survive in COFF symbol tables, .drectve records and unstripped
+#: binaries — the byte shapes alone cannot tell __chkstk from
+#: ___chkstk_ms (both are `mov eax,size; call`).
+_PROBE_SYMBOLS: dict[str, tuple[str, str]] = {
+    "__chkstk": ("msvc", "MSVC 32-bit stack probe __chkstk"),
+    "___chkstk_ms": ("mingw", "MinGW stack probe ___chkstk_ms"),
+    "__aNchkstk": ("msvc", "16-bit MSVC stack probe __aNchkstk"),
+    "__CHK": ("watcom", "Watcom stack probe __CHK"),
+    "__security_check_cookie": ("msvc", "MSVC /GS security-cookie check (VC 8.0+ default)"),
+    "__security_cookie": ("msvc", "MSVC /GS security cookie (VC 8.0+ default)"),
+}
+
 
 def _count_const_hoists(text: bytes) -> int:
     """Count pre-6.0 constant-caching fingerprints in raw code bytes.
@@ -525,6 +591,91 @@ def _count_const_hoists(text: bytes) -> int:
                     n += 1
                     break
     return n
+
+
+def _mz_codegen_scan(data: bytes) -> dict[str, int]:
+    """Disassemble a DOS MZ executable's entry code (16-bit, capstone).
+
+    Returns counts of distinctive 16-bit codegen instructions: ``leave``
+    epilogues (MSVC 1.5x — Borland TC emits ``pop bp; ret``), ``loop``
+    instructions, far returns (``retf``) and ``push bp`` frame prologues.
+    Best-effort: an unreadable entry point yields an empty dict.
+
+    Entry point = e_cs * 16 + e_ip (the MZ header's CS:IP, both relative to
+    the start of the load module = file offset 0).
+    """
+    if len(data) < 0x18 or data[:2] != b"MZ":
+        return {}
+    e_ip = int.from_bytes(data[0x14:0x16], "little")
+    e_cs = int.from_bytes(data[0x16:0x18], "little")
+    entry = e_cs * 16 + e_ip
+    if not 0 <= entry < len(data):
+        return {}
+    try:
+        import capstone
+
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_16)
+        md.skipdata = True
+    except Exception:
+        return {}
+    counts = {"leave": 0, "loop": 0, "retf": 0, "fp_prologue": 0}
+    prev_m: str | None = None
+    prev_op: str = ""
+    for insn in md.disasm(data[entry : entry + 4096], entry):
+        m = insn.mnemonic
+        if m == "leave":
+            counts["leave"] += 1
+        elif m in ("loop", "loope", "loopne", "jcxz", "jecxz"):
+            counts["loop"] += 1
+        elif m == "retf":
+            counts["retf"] += 1
+        if prev_m == "push" and prev_op == "bp":
+            counts["fp_prologue"] += 1
+        prev_m = m
+        prev_op = insn.op_str
+    return counts
+
+
+@dataclass
+class CodegenSignals:
+    """Byte-level codegen fingerprint counts for one .text section.
+
+    Every pattern is verified against real toolchain output — see
+    docs/CODEGEN_REFERENCE.md for the provenance of each field.
+    """
+
+    lea_esp_nops: int = 0  # lea esp,[esp] — VC 7.0+ loop alignment
+    rep_stosd: int = 0  # f3 ab — memset-style inlining (MSVC)
+    rep_movsd: int = 0  # f3 a5 — memcpy-style inlining (MSVC)
+    rep_stosb: int = 0  # f3 aa
+    rep_movsb: int = 0  # f3 a4
+    rep_ret: int = 0  # f3 c3 — GCC return-after-branch idiom
+    magic_divs: int = 0  # divide-by-constant magic immediates (MSVC 5.0+/GCC)
+    sse2_fp: int = 0  # addsd/mulsd/divsd/subsd — VC 11.0+ or /arch:SSE2
+    x87_fp: int = 0  # fld [esp+N] — x87 FPU loads
+    fp_prologues: int = 0  # push ebp; mov ebp,esp — /Oy- or unoptimized
+    mov_edi_edi: int = 0  # 2-byte mov edi,edi nops (MSVC-style padding)
+
+    @property
+    def rep_string_ops(self) -> int:
+        return self.rep_stosd + self.rep_movsd + self.rep_stosb + self.rep_movsb
+
+
+def _count_codegen_signals(text: bytes) -> CodegenSignals:
+    """Count every byte-level codegen fingerprint in *text* (pure)."""
+    s = CodegenSignals()
+    s.lea_esp_nops = text.count(_LEA_ESP_NOP)
+    s.rep_stosd = text.count(_REP_STRING_OPS[0])
+    s.rep_movsd = text.count(_REP_STRING_OPS[1])
+    s.rep_stosb = text.count(_REP_STRING_OPS[2])
+    s.rep_movsb = text.count(_REP_STRING_OPS[3])
+    s.rep_ret = text.count(_REP_RET)
+    s.magic_divs = sum(text.count(m) for m in _DIV_MAGICS)
+    s.sse2_fp = sum(text.count(p) for p in _SSE2_FP_OPS)
+    s.x87_fp = sum(text.count(p) for p in _X87_ESP_LOADS)
+    s.fp_prologues = text.count(_FP_PROLOGUE)
+    s.mov_edi_edi = text.count(_MOV_EDI_EDI)
+    return s
 
 
 def _pdb_compile_record(path: Path) -> dict[str, str] | None:
@@ -841,6 +992,22 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
     if icc_hits:
         info.add(f"Intel C++ strings: {', '.join(icc_hits[:2])}")
 
+    # --- stack-probe / security-cookie symbol names ---
+    # These survive in COFF symbol tables, .drectve records and unstripped
+    # binaries (PE executables strip them).  Each name pins a family:
+    # __chkstk (MSVC 32-bit), ___chkstk_ms (MinGW), __aNchkstk (16-bit
+    # MSVC), __CHK (Watcom), __security_check_cookie (VC 8.0+ /GS).
+    probe_hits: list[str] = []
+    for sym in _PROBE_SYMBOLS:
+        if any(sym in s for s in strings):
+            # "___chkstk_ms" also contains "__chkstk" — prefer the longer,
+            # more specific name when both match.
+            if sym == "__chkstk" and any("___chkstk_ms" in s for s in strings):
+                continue
+            probe_hits.append(sym)
+    for sym in probe_hits:
+        info.add(f"{_PROBE_SYMBOLS[sym][1]}")
+
     # --- packer detection: LZEXE-compressed DOS executables ---
     # A packed MZ reveals nothing about the compiler (the visible code is
     # the decompressor stub); the detection must say so, or the family
@@ -966,6 +1133,14 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
                 info.family = "symantec"
                 info.confidence = "medium"
                 info.version_hint = "Symantec C++ runtime strings present"
+            elif "__aNchkstk" in probe_hits or "__chkstk" in probe_hits:
+                info.family = "msvc"
+                info.confidence = "medium"
+                info.version_hint = "MSVC (16-bit stack probe symbol)"
+            elif "__CHK" in probe_hits:
+                info.family = "watcom"
+                info.confidence = "medium"
+                info.version_hint = "Watcom (stack probe __CHK)"
             elif msvc_hits:
                 info.family = "msvc"
                 info.confidence = "medium"
@@ -975,6 +1150,20 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
                 # named the family — a stronger backend (die/PDB) that ran
                 # first keeps its detected_by.
                 info.detected_by = "mz"
+
+        # 16-bit codegen scan: confirms the family from the entry code
+        # (evidence only — the string evidence above stays the decider).
+        mz_cg = _mz_codegen_scan(getattr(binfo, "data", b""))
+        if mz_cg.get("leave", 0) >= 3:
+            info.add(f"{mz_cg['leave']} leave epilogues in entry code (MSVC 1.5x style)")
+        if mz_cg.get("loop", 0) >= 2:
+            info.add(
+                f"{mz_cg['loop']} loop instructions in entry code (Borland/Watcom 16-bit style)"
+            )
+        if mz_cg.get("retf", 0):
+            info.add(f"{mz_cg['retf']} far returns (retf) in entry code (far-model 16-bit)")
+        if mz_cg.get("fp_prologue", 0) >= 2:
+            info.add(f"{mz_cg['fp_prologue']} push bp frame prologues (16-bit codegen)")
         return info
 
     sections = {s.name for s in binfo.sections.values()}
@@ -1051,6 +1240,7 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
     o2_wrappers = 0
     o1_wrappers = 0
     const_hoists = 0
+    signals = CodegenSignals()
     try:
         from rebrew.binary_loader import extract_bytes_at_va
 
@@ -1081,6 +1271,7 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
         o1_wrappers += text_bytes.count(bytes.fromhex("ff 74 24 04 e8"))
         o1_wrappers += text_bytes.count(bytes.fromhex("ff 74 24 08 ff 74 24 04"))
         const_hoists = _count_const_hoists(text_bytes)
+        signals = _count_codegen_signals(text_bytes)
     except Exception:
         pass
 
@@ -1126,6 +1317,40 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
                 "compiler may be MSVC 4.x/5.0)"
             )
 
+    # --- additional codegen fingerprints (verified patterns — see
+    # docs/CODEGEN_REFERENCE.md).  Raw whole-file counts are unreliable
+    # (resource data contains coincidental pattern bytes); these run on
+    # .text only. ---
+    if signals.lea_esp_nops >= 2:
+        info.add(f"{signals.lea_esp_nops} lea esp,[esp] loop-alignment nops (VC 7.0+ codegen)")
+    if signals.rep_string_ops:
+        info.add(f"{signals.rep_string_ops} rep movs/stos string ops (MSVC-style inlining)")
+    if signals.rep_ret:
+        info.add(f"{signals.rep_ret} rep-ret idioms (GCC-style)")
+    if signals.magic_divs:
+        info.add(f"{signals.magic_divs} magic-number division sites (MSVC 5.0+ / GCC)")
+    if signals.sse2_fp:
+        info.add(f"{signals.sse2_fp} SSE2 FP ops (VC 11.0+ or /arch:SSE2)")
+    if signals.x87_fp:
+        info.add(f"{signals.x87_fp} x87 FPU loads ([esp+N])")
+    if signals.fp_prologues:
+        info.add(
+            f"{signals.fp_prologues} frame-pointer prologues "
+            "(push ebp; mov ebp,esp) — /Oy- or unoptimized"
+        )
+    if signals.mov_edi_edi >= 2:
+        info.add(f"{signals.mov_edi_edi} mov edi,edi 2-byte nops (MSVC-style padding)")
+
+    # Codegen may pin a NEWER compiler than the CRT/linker era: the era
+    # fingerprints (Rich header, DIE) name the build, but the codegen can
+    # prove a different compiler compiled the code (a VC6-era binary whose
+    # code is VC 7.0+ style, or vice versa).
+    if info.family == "msvc" and info.version_hint.startswith("MSVC 6.0"):
+        if signals.lea_esp_nops >= 2:
+            info.version_hint += " (lea esp,[esp] loop-alignment nops; compiler may be VC 7.0+)"
+        elif signals.sse2_fp:
+            info.version_hint += " (SSE2 FP ops; compiler may be VC 11.0+ or built with /arch:SSE2)"
+
     # --- decide the family (only if a better backend hasn't) ---
     if info.family != "unknown":
         # higher backends won; keep their decision but append era hints
@@ -1157,6 +1382,22 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
         info.family = "watcom"
         info.confidence = "medium"
         info.version_hint = "Watcom C/C++ (section layout)"
+    elif "__CHK" in probe_hits:
+        info.family = "watcom"
+        info.confidence = "medium"
+        info.version_hint = "Watcom C/C++ (stack probe __CHK)"
+    elif "__aNchkstk" in probe_hits or "__chkstk" in probe_hits:
+        info.family = "msvc"
+        info.confidence = "medium"
+        info.version_hint = "MSVC (stack probe symbol)"
+    elif "___chkstk_ms" in probe_hits:
+        info.family = "mingw"
+        info.confidence = "medium"
+        info.version_hint = "MinGW GCC (stack probe ___chkstk_ms)"
+    elif "__security_check_cookie" in probe_hits or "__security_cookie" in probe_hits:
+        info.family = "msvc"
+        info.confidence = "medium"
+        info.version_hint = "MSVC (security-cookie /GS codegen, VC 8.0+ default)"
     elif symantec_hits:
         info.family = "symantec"
         info.confidence = "medium"
@@ -1193,6 +1434,18 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
         info.family = "msvc"
         info.confidence = "medium"
         info.version_hint = "MSVC-style codegen"
+    elif signals.rep_ret and gnu_nops:
+        # GCC return-after-branch idiom + GNU nops without a .buildid
+        # section (stripped/renamed) — still MinGW codegen.
+        info.family = "mingw"
+        info.confidence = "medium"
+        info.version_hint = _gcc_era_hint(modern_mov_calls, old_push_calls)
+    elif signals.rep_string_ops and signals.fp_prologues:
+        # rep movs/stos inlining + frame-pointer prologues with no CRT
+        # strings or imports to lean on — MSVC-style codegen.
+        info.family = "msvc"
+        info.confidence = "low"
+        info.version_hint = "MSVC-style codegen (rep string ops + frame prologues)"
     else:
         info.family = "unknown"
         info.confidence = "low"

@@ -1901,7 +1901,14 @@ def _split_preamble_body(source: str) -> tuple[str, str]:
 
     for line in lines:
         if not in_body:
-            if _RE_FUNC_START.match(line):
+            if _RE_FUNC_PRAGMA.match(line):
+                # Function-level pragmas (optimize/intrinsic/function/
+                # check_stack) belong WITH the function, not the file
+                # preamble: pragma mutations must see and toggle them, and a
+                # removed pragma must not linger in the preamble.
+                in_body = True
+                body.append(line)
+            elif _RE_FUNC_START.match(line):
                 in_body = True
                 body.append(line)
                 brace_count += line.count("{") - line.count("}")
@@ -5446,6 +5453,102 @@ def mut_hoist_repeated_deref(s: str, rng: random.Random) -> str | None:
     return s[:body_start] + new_body + s[body_end:]
 
 
+#: Function-level pragmas that affect a single function's codegen — they
+#: stay with the function body across preamble/body splits so the pragma
+#: mutations can find, add, and remove them (a removed pragma must not
+#: linger in the preamble, where the mutation layer never sees it).
+_RE_FUNC_PRAGMA = re.compile(
+    r"^[ \t]*#pragma[ \t]+(?:optimize|intrinsic|function|check_stack)\b",
+    re.MULTILINE,
+)
+
+
+#: Letters the ``#pragma optimize`` directive accepts (MSVC 6+): g = global
+#: optimizations, s/t = favor size/speed, y = frame-pointer omission; the
+#: empty string turns everything off (or resets to the /O baseline with on).
+_OPTIMIZE_PRAGMA_RE = re.compile(
+    r'^[ \t]*#pragma[ \t]+optimize\(\s*"[gsty]*"\s*,\s*(?:on|off)\s*\)[ \t]*$',
+    re.MULTILINE,
+)
+
+#: MSVC library functions with intrinsic forms that change codegen when
+#: inlined (memcpy → rep movs, memset → rep stos, strlen → repne scasb …).
+_INTRINSIC_PRAGMA_SET = (
+    "memcmp",
+    "memcpy",
+    "memset",
+    "strcmp",
+    "strcpy",
+    "strlen",
+    "abs",
+    "labs",
+    "fabs",
+)
+
+_INTRINSIC_PRAGMA_RE = re.compile(r"^[ \t]*#pragma[ \t]+intrinsic\([^)]*\)[ \t]*$", re.MULTILINE)
+
+_CHECK_STACK_PRAGMA_RE = re.compile(
+    r"^[ \t]*#pragma[ \t]+check_stack\(\s*off\s*\)[ \t]*$", re.MULTILINE
+)
+
+
+def mut_add_optimize_pragma(s: str, rng: random.Random) -> str | None:
+    """Wrap the function in ``#pragma optimize("X", on|off)`` … ``("", on)``.
+
+    ``#pragma optimize("", off)`` is the classic binary-matching lever: it
+    disables all of g/s/t/y, forcing the unoptimized full-stack-frame layout
+    (complete prologue, every local on the stack) that many original builds
+    exhibit.  The other letters target one aspect each: ``"y"`` off keeps
+    the frame pointer, ``"g"`` off disables global optimizations, ``"s"``/
+    ``"t"`` on favor size/speed.  The closing ``("", on)`` resets to the
+    /O-specified baseline.  No-op when a wrapper is already present.
+    """
+    if _OPTIMIZE_PRAGMA_RE.search(s):
+        return None
+    letter = rng.choice(("", "y", "g", "s", "t"))
+    mode = "on" if letter in ("s", "t") else "off"
+    return f'#pragma optimize("{letter}", {mode})\n{s}\n#pragma optimize("", on)\n'
+
+
+def mut_remove_optimize_pragma(s: str, rng: random.Random) -> str | None:
+    """Strip an existing ``#pragma optimize(...)`` wrapper (opening + reset)."""
+    if not _OPTIMIZE_PRAGMA_RE.search(s):
+        return None
+    return _OPTIMIZE_PRAGMA_RE.sub("", s) or None
+
+
+def mut_add_intrinsic_pragma(s: str, rng: random.Random) -> str | None:
+    """Insert ``#pragma intrinsic(<crt fns>)`` before the function.
+
+    With /Oi (included in /O2, /Ox, /O1) the listed library calls become
+    inline instructions (memcpy → rep movs, memset → rep stos, strlen →
+    repne scasb …) — a codegen lever for functions whose original was
+    compiled with intrinsics.  Harmless for functions that call none of
+    them.  No-op when already present.
+    """
+    if _INTRINSIC_PRAGMA_RE.search(s):
+        return None
+    return f"#pragma intrinsic({', '.join(_INTRINSIC_PRAGMA_SET)})\n{s}\n"
+
+
+def mut_remove_intrinsic_pragma(s: str, rng: random.Random) -> str | None:
+    """Strip an existing ``#pragma intrinsic(...)`` line."""
+    if not _INTRINSIC_PRAGMA_RE.search(s):
+        return None
+    return _INTRINSIC_PRAGMA_RE.sub("", s) or None
+
+
+def mut_toggle_check_stack_pragma(s: str, rng: random.Random) -> str | None:
+    """Toggle ``#pragma check_stack(off)`` — suppresses /Gs stack probes.
+
+    A target function with a large stack frame compiled WITHOUT probes needs
+    the pragma; one with probes (or a small frame) does not.
+    """
+    if _CHECK_STACK_PRAGMA_RE.search(s):
+        return _CHECK_STACK_PRAGMA_RE.sub("", s) or None
+    return "#pragma check_stack(off)\n" + s + "\n"
+
+
 ALL_MUTATIONS = [
     mut_hoist_repeated_deref,
     mut_tweak_integer_literal,
@@ -5569,6 +5672,13 @@ ALL_MUTATIONS = [
     mut_dummy_stack_vars,
     mut_inject_dummy_registers,
     mut_extract_complex_args,
+    # --- Pragma levers: #pragma optimize / intrinsic / check_stack (codegen
+    #     switches that flags cannot reach) ---
+    mut_add_optimize_pragma,
+    mut_remove_optimize_pragma,
+    mut_add_intrinsic_pragma,
+    mut_remove_intrinsic_pragma,
+    mut_toggle_check_stack_pragma,
 ]
 
 __all__ = [

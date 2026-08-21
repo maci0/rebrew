@@ -7,6 +7,9 @@ need to understand why your C source produces different bytes.
 Cross-references: [MATCH_TYPES.md](MATCH_TYPES.md) explains the match status
 categories; [GA_MUTATIONS.md](GA_MUTATIONS.md) lists the mutation operators the GA
 uses to explore these patterns automatically.
+For how each *compiler version* behaves (registers, prologues, division magic,
+padding, probes) — including non-MSVC toolchains — see the per-version
+reference in [codegen/](codegen/README.md).
 
 ---
 

@@ -1,6 +1,6 @@
 # GA Mutation Engine Reference
 
-The Genetic Algorithm (GA) matching engine uses **114 C source mutation operators** to
+The Genetic Algorithm (GA) matching engine uses **119 C source mutation operators** to
 explore the MSVC6 code generation space.  Each mutation transforms syntactically valid
 C89 source into a semantically plausible variant, compiles it with MSVC6 (via Wine/wibo),
 and scores the resulting binary against the target function's bytes.
@@ -14,7 +14,7 @@ by [tree-sitter](https://tree-sitter.github.io/) AST queries — never regex.
 
 ```
 Source (.c) ──→ mutate_code(source, rng)
-                  ├─ Pick random mutation from ALL_MUTATIONS (114 operators)
+                  ├─ Pick random mutation from ALL_MUTATIONS (119 operators)
                   ├─ Apply AST-level transform to source text
                   ├─ Validate syntax (fast_syntax_check)
                   └─ Return (mutated_source, mutation_name) or None
@@ -360,7 +360,7 @@ mutated, name = mutate_code(source, rng, mutation_weights=weights)
 Children have a 35% chance of undergoing 2–3 **chained mutations** in a
 single generation step.  This enables larger jumps in the search space
 that single mutations cannot reach.  (Bumped from 30% after expanding
-to 114 operators.)
+to 119 operators.)
 
 ---
 
@@ -415,3 +415,46 @@ of the paper's Definition 8 for every operator without touching the 120+
 immutable base (`best_source`), so rollback there is equivalent to keeping
 the previous base; the log machinery is for code that chains mutations on a
 live buffer and needs to unwind them.
+
+---
+
+### 20. Pragma levers (`#pragma optimize` / `intrinsic` / `check_stack`)
+
+Source-level pragmas that change a single function's codegen — switches
+that compiler flags cannot reach, and a distinct search dimension for the
+GA (flags are per-compile; pragmas are per-function and co-exist with any
+flag set).
+
+**Research basis** (MSVC 6.0 documentation; `#pragma optimize("", off)` is
+used in ~24k GitHub repos, a staple of MSVC decompilation):
+
+| Operator | Transform | MSVC6 Rationale |
+|----------|-----------|-----------------|
+| `mut_add_optimize_pragma` | wraps the function in `#pragma optimize("X", on\|off)` … `#pragma optimize("", on)` (X ∈ `""`, `"y"`, `"g"`, `"s"`, `"t"`) | `("", off)` turns **all** of g/s/t/y off — the classic lever that forces the unoptimized full-stack-frame layout (complete `push ebp; mov ebp,esp` prologue, every local on the stack) that many original builds exhibit.  `("y", off)` keeps the frame pointer, `("g", off)` disables global opts, `("s"/"t", on)` favor size/speed.  The closing `("", on)` resets to the `/O` baseline.  The pragma must sit **outside** the function (MS requirement); the closing reset is hygiene for any following code. |
+| `mut_remove_optimize_pragma` | strips an existing `#pragma optimize(...)` wrapper | Reverts the above; the two form a toggle pair like any add/remove mutation. |
+| `mut_add_intrinsic_pragma` | inserts `#pragma intrinsic(memcmp, memcpy, memset, strcmp, strcpy, strlen, abs, labs, fabs)` before the function | With `/Oi` (included in `/O2`, `/Ox`, `/O1`) the listed library calls become **inline instructions** — `memcpy` → `rep movs`, `memset` → `rep stos`, `strlen` → `repne scasb` — a big codegen difference for string/memory-heavy functions whose original was compiled with intrinsics.  Harmless when the function calls none of them (the pragma only affects listed functions). |
+| `mut_remove_intrinsic_pragma` | strips the `#pragma intrinsic(...)` line | `#pragma function(...)` (force calls) is the inverse lever; not mutated — remove covers the common direction. |
+| `mut_toggle_check_stack_pragma` | toggles `#pragma check_stack(off)` | Suppresses `/Gs` stack probes.  A target with a large stack frame compiled **without** probes needs the pragma; one compiled with probes does not. |
+
+**Why pragma mutations stay with the body**: `_split_preamble_body` keeps
+function-level pragmas (`optimize`/`intrinsic`/`function`/`check_stack`)
+attached to the function body rather than the file preamble, so add/remove
+mutations see the full wrapper — a removed pragma can never linger
+invisible in the preamble.  File-level pragmas (`pack`, `warning`, `once`)
+still belong to the preamble.
+
+**Documented, deliberately not mutated**:
+
+- `#pragma pack` — changes struct member offsets; it is data layout, lives
+  in headers/preamble, and affects all functions that touch the struct.
+- `#pragma auto_inline` / `#pragma inline_depth` — control *callers'*
+  inlining of this function, not its own bytes; useless for per-function
+  byte matching.
+- `#pragma code_seg` / `#pragma data_seg` — section placement only; the
+  function's bytes are unchanged.
+- `#pragma function(...)` — the intrinsic inverse; rare in matching
+  practice, and `remove_intrinsic` covers the frequent direction.
+
+**Toolchain note**: MSVC 6 accepts all of the above.  gcc-pe (native,
+posix) ignores them with a warning — the GA explores them on MSVC targets
+and wastes nothing on posix ones.

@@ -57,6 +57,36 @@ class TestRenderersWithDecomp:
         assert "undefined4 func(void) { return 0; }" in out
         assert "/* === End decompilation === */" in out
 
+    def test_fenced_naked_stub_two_branches(self) -> None:
+        """A thiscall skeleton (MSVC 5.0 has no __thiscall) must emit the
+        REBREW_ALLOW_NAKED fence: naked + inline-asm branch for round-trip
+        verification, an idiomatic C fallback for the comparison build."""
+        fenced = (
+            "#ifdef REBREW_ALLOW_NAKED\n"
+            "__declspec(naked) int f(void *self, int a1)\n"
+            "#else\n"
+            "int f(void *self, int a1)\n"
+            "#endif"
+        )
+        out = _render_annotation_block(
+            marker="FUNCTION",
+            cfg_marker="SERVER",
+            va=0x1000,
+            xref_context="",
+            decomp_code=None,
+            decomp_backend="decompiler",
+            func_name="f",
+            ghidra_name="f",
+            convention_stub=fenced,
+            convention_note="thiscall + 1 stack arg(s) — write the body as inline asm",
+        )
+        assert "#ifdef REBREW_ALLOW_NAKED" in out
+        assert "__declspec(naked) int f(void *self, int a1)" in out
+        assert "#else" in out
+        assert "idiomatic C89 fallback" in out
+        assert "return 0;" in out
+        assert "#endif" in out
+
     def test_annotation_block_with_decomp(self) -> None:
         out = _render_annotation_block(
             marker="FUNCTION",

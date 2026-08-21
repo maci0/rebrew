@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.compile_cache import CompileCache, compile_cache_key
+from rebrew.config import _POSIX_PROFILES
 from rebrew.utils import safe_shlex_split
 
 from .core import BuildResult
@@ -347,6 +348,13 @@ def build_candidate_obj_only(
 
     src_name = f"cand{source_ext}"
     all_flags = shlex.split(cflags)
+    # Per-target version defines (targets.<name>.defines) — the raw
+    # subprocess path must compile with the same flags compile_to_obj
+    # applies, or GA/diff results diverge from verify for shared
+    # multi-version sources.  (Docker-backed profiles get them inside
+    # compile_to_obj; this path serves native compilers like gcc-pe.)
+    for define in getattr(cfg, "defines", None) or []:
+        all_flags.append(f"{'-D' if posix_style else '/D'}{define}")
     extra_inc = extra_include_dirs or []
 
     # Resolve relative /I paths in the flags (base_cflags often carry e.g.
@@ -396,9 +404,13 @@ def build_candidate_obj_only(
             _compiler_cmd_parts(cl_cmd, env)
             + all_flags
             + (
-                ["-c", f"-I{inc_dir}"] + [f"-I{d}" for d in extra_inc] + ["-o", obj_name, src_name]
+                ["-c"]
+                + ([f"-I{inc_dir}"] if inc_dir else [])
+                + [f"-I{d}" for d in extra_inc]
+                + ["-o", obj_name, src_name]
                 if posix_style
-                else ["/c", f"/I{inc_dir}"]
+                else ["/c"]
+                + ([f"/I{inc_dir}"] if inc_dir else [])
                 + [f"/I{d}" for d in extra_inc]
                 + [f"/Fo{obj_name}", src_name]
             )
@@ -561,6 +573,18 @@ def flag_sweep(
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     from .scoring import precompute_target, score_candidate
+
+    if posix_style or profile in _POSIX_PROFILES:
+        # The sweep explores MSVC flag combos (/O1, /MT, /Gd...); a posix
+        # compiler (gcc-pe/mingw, watcom, tc16/20, borland) treats /flags as
+        # files and every combo would fail — and there is no posix flag
+        # database to sweep.  Refuse loudly instead of silently wasting
+        # compiles (a sweep on gcc-pe only ever "matched" via the empty
+        # extra-flag combo, which the plain GA already tries).
+        raise ValueError(
+            f"flag sweep is MSVC-only (profile {profile!r} uses posix-style "
+            "flags) — run the GA without --flag-sweep-only"
+        )
 
     combos = generate_flag_combinations(tier=tier, profile=profile)
     log.info("Sweeping %d flag combinations (tier=%s)...", len(combos), tier)
