@@ -45,6 +45,10 @@ class TestSimilarCli:
         )
         r = runner.invoke(rebrew.main.app, ["similar", "0x1000"])
         assert r.exit_code == 0
+        # The table must render the actual result row, not just an empty frame.
+        assert "Functions similar to 0x1000" in r.output
+        assert "_twin" in r.output
+        assert "0x00002000" in r.output
 
     def test_invalid_va_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch(monkeypatch, [])

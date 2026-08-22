@@ -52,9 +52,18 @@ class TestExtractCli:
     def test_show_json_passthrough(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch(monkeypatch, [])
         monkeypatch.setattr(extract_mod, "load_binary", lambda p: SimpleNamespace())
-        monkeypatch.setattr(extract_mod, "cmd_extract", lambda *a, **k: None)
+        seen: dict[str, object] = {}
+
+        def fake_cmd_extract(*a: object, **k: object) -> None:
+            seen["va"] = a[2]
+            seen["json_output"] = k.get("json_output")
+
+        monkeypatch.setattr(extract_mod, "cmd_extract", fake_cmd_extract)
         r = runner.invoke(extract_mod.app, ["show", "0x1000", "--json"])
         assert r.exit_code == 0
+        # --json must reach cmd_extract as json_output=True at the right VA.
+        assert seen["va"] == 0x1000
+        assert seen["json_output"] is True
 
 
 class TestCmdExtract:

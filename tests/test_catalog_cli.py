@@ -180,19 +180,41 @@ class TestCatalogCli:
     def test_fix_sizes_updates_metadata(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _patch(monkeypatch, tmp_path)
-        updated: list[bool] = []
-
-        def fake_update(
-            cfile: object, va: object, size: object, metadata_dir: object = None
-        ) -> bool:
-            updated.append(True)
-            return True
-
-        monkeypatch.setattr("rebrew.annotation.update_size_annotation", fake_update)
-        monkeypatch.setattr("rebrew.cli.iter_sources", lambda _d, _c: [])
+        """--fix-sizes must raise an undersized SIZE annotation to the
+        registry's canonical size — the metadata entry ends up holding the
+        canonical value and the run reports one update."""
+        cfg = _patch(monkeypatch, tmp_path)
+        cfg.source_ext = ".c"
+        cfg.marker = "T"
+        func_c = cfg.reversed_dir / "func.c"
+        func_c.write_text(
+            "// FUNCTION: T 0x1000\n// SIZE: 32\nint f_a(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            catalog_cli,
+            "build_function_registry",
+            lambda *a, **k: {
+                0x1000: {
+                    "detected_by": ["list"],
+                    "size_by_tool": {},
+                    "list_name": "f_a",
+                    "ghidra_name": "",
+                    "is_thunk": False,
+                    "is_export": False,
+                    "canonical_size": 64,
+                    "size_reason": "truncation",
+                }
+            },
+        )
         r = runner.invoke(catalog_cli.app, ["--fix-sizes"], input="y\n")
         assert r.exit_code == 0
+        assert "Updated 1 SIZE annotations" in r.output
+
+        from rebrew.metadata import load_metadata
+
+        entry = load_metadata(cfg.metadata_dir).get(("T", 0x1000), {})
+        assert entry.get("size") == 64
 
     def test_fix_sizes_json_requires_force(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
