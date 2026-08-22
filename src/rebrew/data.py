@@ -15,6 +15,7 @@ Also provides:
 import logging
 import re
 import struct
+import tomllib
 import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -1045,6 +1046,71 @@ def _render_summary(
 # CLI
 # ---------------------------------------------------------------------------
 
+
+def annotate_globals(
+    src_dir: Path, metadata: Path, marker: str, dry_run: bool = False
+) -> dict[str, int]:
+    """Insert ``// GLOBAL: <marker> 0x<VA>`` markers from the data metadata.
+
+    For every symbol in ``rebrew-data.toml``, insert the marker immediately
+    above the first declaration/definition of that name in each source file
+    that mentions it (extern or definition).  Declarations already carrying a
+    ``GLOBAL:`` or ``DATA:`` marker are skipped.  Returns ``{file: markers}``.
+    """
+    with open(metadata, "rb") as fh:
+        db = tomllib.load(fh)
+    symbols: dict[str, tuple[str, int]] = {}
+    for key, val in db.items():
+        if not val.get("name"):
+            continue
+        try:
+            mod, _, addr = key.partition(".")
+            symbols[str(val["name"])] = (mod, int(addr, 16))
+        except ValueError:
+            continue
+
+    marker_re = re.compile(r"^\s*//\s*GLOBAL:\s*\S+\s+0x([0-9a-fA-F]+)")
+    decl_cache: dict[str, re.Pattern[str]] = {}
+    total = 0
+    per_file: dict[str, int] = {}
+    for f in sorted(src_dir.rglob("*.c")):
+        text = f.read_text(encoding="utf-8", errors="replace")
+        lines = text.splitlines()
+        existing = {int(m.group(1), 16) for m in (marker_re.match(ln) for ln in lines) if m}
+        insertions: list[tuple[int, str]] = []
+        used: set[int] = set()
+        for name, (_mod, sym_addr) in sorted(symbols.items(), key=lambda kv: kv[1][1]):
+            if sym_addr in existing:
+                continue
+            pat = decl_cache.get(name)
+            if pat is None:
+                pat = re.compile(
+                    r"^\s*(?:extern\s+)?[\w\s\*]+\s+"
+                    + re.escape(name)
+                    + r"(\[\d*\])?\s*(?:=\s*[^;]*|\s*;)"
+                )
+                decl_cache[name] = pat
+            hit = next(
+                (i for i, ln in enumerate(lines) if i not in used and pat.match(ln)),
+                None,
+            )
+            if hit is None:
+                continue
+            if hit > 0 and re.match(r"^\s*//\s*DATA:", lines[hit - 1]):
+                continue
+            used.add(hit)
+            insertions.append((hit, f"// GLOBAL: {marker} 0x{sym_addr:08x}"))
+        if not insertions:
+            continue
+        for shift, (hit, marker_line) in enumerate(insertions):
+            lines.insert(hit + shift, marker_line)
+        total += len(insertions)
+        per_file[str(f.relative_to(src_dir))] = len(insertions)
+        if not dry_run:
+            f.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return per_file
+
+
 app = typer.Typer(
     help="Global data scanner — inventory .data/.rdata/.bss globals.",
     rich_markup_mode="rich",
@@ -1287,6 +1353,11 @@ def main(
         "--gen-header",
         help="Generate rebrew_globals.h from GLOBAL:/DATA: annotations (no Ghidra needed)",
     ),
+    annotate: bool = typer.Option(
+        False,
+        "--annotate",
+        help="Insert // GLOBAL: markers from the data metadata into the sources",
+    ),
     gen_header_out: Path | None = typer.Option(
         None,
         "--gen-header-out",
@@ -1317,6 +1388,22 @@ def main(
             dry_run=dry_run,
             json_output=json_output,
         )
+        return
+
+    # --annotate: insert // GLOBAL: markers from the data metadata
+    if annotate:
+        metadata = cfg.metadata_dir / "rebrew-data.toml"
+        if not metadata.exists():
+            error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
+        marker = cfg.marker or cfg.target_name.upper()
+        per_file = annotate_globals(src_dir, metadata, marker, dry_run=dry_run)
+        total = sum(per_file.values())
+        if json_output:
+            json_print({"markers": total, "files": per_file})
+        else:
+            console.print(f"[green]data annotate:[/green] {total} markers")
+            for f, n in sorted(per_file.items()):
+                console.print(f"  {f}: {n}")
         return
 
     # Scan source files

@@ -349,6 +349,7 @@ the `wine ` prefix) for faster headless compiles.
 | `--min-table-len N` | Minimum entries to qualify as a dispatch table (default: 3; requires `--dispatch`) |
 | `--max-pointer-stride N` | Maximum byte stride between pointer slots when scanning (default: 4; requires `--dispatch`) |
 | `--fix-bss` | Auto-generate `bss_padding.c` with dummy arrays for detected gaps |
+| `--annotate` | Insert `// GLOBAL: <marker> 0x<VA>` markers from `rebrew-data.toml` into the sources (above each symbol's first declaration; skips already-marked ones; `--dry-run` previews) |
 | `--gen-header` | Output `rebrew_globals.h` locally without fetching from Ghidra |
 | `--gen-header-out PATH` | Override output path for `--gen-header` (default: `{reversed_dir}/rebrew_globals.h`) |
 | `--force` | Overwrite an existing file when using `--gen-header` |

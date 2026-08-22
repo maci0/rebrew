@@ -1,5 +1,8 @@
 ## [Unreleased]
 ### Added
+- **`rebrew data --annotate`** — insert `// GLOBAL:` markers from the data
+  metadata into the sources (generalized from the project's
+  annotate_globals.py; `--dry-run` previews, skips already-marked decls).
 - **FLIRT sigs moved to a sibling checkout** (`rebrew-flirt-sigs`, like
   rebrew-toolchains; `REBREW_FLIRT_SIGS_DIR` overrides) — `rebrew flirt`
   merges the project's `flirt_sigs/` (project-specific, wins on conflicts)
