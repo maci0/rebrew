@@ -40,9 +40,7 @@ from rebrew.cli import (
     error_exit,
     json_print,
     parse_va,
-    rel_display_path,
     require_config,
-    target_marker,
 )
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.decompiler import fetch_decompilation
@@ -51,7 +49,14 @@ from rebrew.naming import (
     make_filename,
     sanitize_name,
 )
-from rebrew.utils import atomic_write_text, read_source_text
+from rebrew.sources import (
+    target_marker,
+)
+from rebrew.utils import (
+    atomic_write_text,
+    read_source_text,
+    rel_display_path,
+)
 
 console = Console(stderr=True)
 

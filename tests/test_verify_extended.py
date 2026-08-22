@@ -1119,7 +1119,7 @@ class TestVerifyWatch:
             retest()  # invoke once to prove the nested main() path works
 
         monkeypatch.setattr("rebrew.utils.watch_files", _watch)
-        monkeypatch.setattr("rebrew.cli.iter_sources", lambda d, cfg=None: [])
+        monkeypatch.setattr("rebrew.sources.iter_sources", lambda d, cfg=None: [])
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries", lambda *a, **k: ([], 0, 0, [], [], 0, [], [])
         )

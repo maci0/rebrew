@@ -69,7 +69,7 @@ class TestGetGlobals:
     def _scan(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, src: str) -> dict[int, dict]:
         f = tmp_path / "data.c"
         f.write_text(src, encoding="utf-8")
-        monkeypatch.setattr("rebrew.cli.iter_sources", lambda _d, _c: [f])
+        monkeypatch.setattr("rebrew.catalog.sections.iter_sources", lambda _d, _c: [f])
         return get_globals(tmp_path)
 
     def test_int_global(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -102,7 +102,7 @@ class TestGetGlobals:
         f2 = tmp_path / "b.c"
         f1.write_text("// GLOBAL: SERVER 0x10005000\nint g;\n", encoding="utf-8")
         f2.write_text("// GLOBAL: SERVER 0x10005000\n", encoding="utf-8")
-        monkeypatch.setattr("rebrew.cli.iter_sources", lambda _d, _c: [f1, f2])
+        monkeypatch.setattr("rebrew.catalog.sections.iter_sources", lambda _d, _c: [f1, f2])
         globals_dict = get_globals(tmp_path)
         assert sorted(globals_dict[0x10005000]["files"]) == ["a.c", "b.c"]
 

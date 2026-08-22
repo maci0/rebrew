@@ -355,7 +355,7 @@ def main(
 
     if fix_sizes:
         from rebrew.annotation import update_size_annotation
-        from rebrew.cli import iter_sources, target_marker
+        from rebrew.sources import iter_sources, target_marker
 
         updated = 0
         skipped = 0
@@ -377,7 +377,7 @@ def main(
                     cfile, canonical, target_va=va, metadata_dir=cfg.metadata_dir
                 ):
                     diff = canonical - ann.size
-                    from rebrew.cli import rel_display_path
+                    from rebrew.utils import rel_display_path
 
                     display = rel_display_path(cfile, reversed_dir)
                     console.print(

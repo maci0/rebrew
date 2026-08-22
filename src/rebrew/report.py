@@ -35,17 +35,21 @@ from rebrew.binary_loader import load_binary
 from rebrew.cli import (
     TargetOption,
     iter_annotations,
-    iter_sources,
     json_print,
-    rel_display_path,
     require_config,
-    target_marker,
 )
 from rebrew.config import ProjectConfig
 from rebrew.depgraph import NodeInfo, build_graph, render_mermaid
 from rebrew.imports import find_import_stubs, parse_imports
+from rebrew.sources import (
+    iter_sources,
+    target_marker,
+)
 from rebrew.status import StatusReport, collect_status
-from rebrew.utils import atomic_write_text
+from rebrew.utils import (
+    atomic_write_text,
+    rel_display_path,
+)
 
 console = Console(stderr=True)
 

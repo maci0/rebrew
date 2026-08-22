@@ -518,7 +518,7 @@ def _collect_functions(
 ) -> list[tuple[int, str]]:
     """Resolve the function set to decompile: explicit VAs, --all, or filtered."""
     from rebrew.annotation import parse_c_file_multi
-    from rebrew.cli import iter_sources, target_marker
+    from rebrew.sources import iter_sources, target_marker
 
     if functions:
         out: list[tuple[int, str]] = []
@@ -616,7 +616,7 @@ def main(
         raise typer.Exit(code=EXIT_ERROR)
 
     # Existing structs in the project, for the merge report.
-    from rebrew.cli import iter_sources
+    from rebrew.sources import iter_sources
 
     existing = existing_structs(list(iter_sources(cfg.reversed_dir, cfg)))
     # Offsets ≥ the image base are absolute addresses (Kuna folds

@@ -810,3 +810,19 @@ def remove_temp_dir(path: Path, retries: int = 5, delay: float = 0.2) -> None:
             if attempt == retries - 1:
                 raise
             time.sleep(delay)
+
+
+def rel_display_path(filepath: Path, base_dir: Path | None = None) -> str:
+    """Return a display-friendly relative path for a source file.
+
+    If *base_dir* is provided, returns the path relative to it (e.g.
+    ``"game/pool_free.c"`` for nested dirs, or ``"pool_free.c"`` for flat
+    layouts).  Falls back to ``filepath.name`` if the file is not under
+    *base_dir*.
+    """
+    if base_dir is not None:
+        try:
+            return str(filepath.relative_to(base_dir))
+        except ValueError:
+            pass
+    return filepath.name

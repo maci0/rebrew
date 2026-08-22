@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from rebrew.rename import rename_function_everywhere
+from rebrew.rename_ops import rename_function_everywhere
 
 
 def _cfg(tmp_path: Path) -> SimpleNamespace:
@@ -20,7 +20,7 @@ def _src(tmp_path: Path, name: str, content: str) -> Path:
 
 
 def _patch_sources(monkeypatch: pytest.MonkeyPatch, files: list[Path]) -> None:
-    monkeypatch.setattr("rebrew.rename.iter_sources", lambda _d, _c: files)
+    monkeypatch.setattr("rebrew.rename_ops.iter_sources", lambda _d, _c: files)
 
 
 class TestRenameFunctionEverywhere:
@@ -106,7 +106,7 @@ class TestRenameFunctionEverywhere:
 
 class TestRenameEdgeCases:
     def test_dry_run_unreadable_file_skipped(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from rebrew.rename import rename_function_everywhere
+        from rebrew.rename_ops import rename_function_everywhere
 
         src = tmp_path / "src"
         src.mkdir()
@@ -124,7 +124,7 @@ class TestRenameEdgeCases:
         error-review F9, the old code warned and half-applied the rename)."""
         import pytest
 
-        from rebrew.rename import rename_function_everywhere
+        from rebrew.rename_ops import rename_function_everywhere
 
         src = tmp_path / "src"
         src.mkdir()
@@ -140,7 +140,7 @@ class TestRenameEdgeCases:
         assert "old_fn" in sibling.read_text(encoding="utf-8")
 
     def test_extern_oserror_skipped(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from rebrew.rename import rename_function_everywhere
+        from rebrew.rename_ops import rename_function_everywhere
 
         src = tmp_path / "src"
         src.mkdir()
@@ -154,7 +154,7 @@ class TestRenameEdgeCases:
         assert "new_fn" in (src / "e.c").read_text(encoding="utf-8")
 
     def test_new_filename_absolute_path(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from rebrew.rename import rename_function_everywhere
+        from rebrew.rename_ops import rename_function_everywhere
 
         src = tmp_path / "src"
         src.mkdir()
@@ -168,7 +168,7 @@ class TestRenameEdgeCases:
         assert (src / "sub" / "new_file.c").exists()
 
     def test_stem_not_matching_keeps_file(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from rebrew.rename import rename_function_everywhere
+        from rebrew.rename_ops import rename_function_everywhere
 
         src = tmp_path / "src"
         src.mkdir()
@@ -359,7 +359,7 @@ class TestCollectMatchingFiles:
     ) -> None:
         import re
 
-        from rebrew.rename import _collect_matching_files
+        from rebrew.rename_ops import _collect_matching_files
 
         a = _src(tmp_path, "func_a.c", "int func_a(void) { return 1; }\n")
         b = _src(tmp_path, "other.c", "extern int func_a(void);\n")

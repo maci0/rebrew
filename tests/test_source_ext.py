@@ -8,8 +8,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from rebrew.binary_loader import detect_source_language
-from rebrew.cli import source_glob
 from rebrew.config import ProjectConfig
+from rebrew.sources import source_glob
 
 # ---------------------------------------------------------------------------
 # detect_source_language() tests

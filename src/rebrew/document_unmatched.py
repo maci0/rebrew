@@ -29,11 +29,13 @@ from rebrew.cli import (
     TargetOption,
     error_exit,
     iter_annotations,
-    iter_sources,
     json_print,
     require_config,
 )
 from rebrew.intake import classify_all
+from rebrew.sources import (
+    iter_sources,
+)
 
 console = Console(stderr=True)
 

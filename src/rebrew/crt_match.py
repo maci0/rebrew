@@ -25,14 +25,16 @@ from rebrew.annotation import Annotation, parse_c_file_multi, update_annotation_
 from rebrew.cli import (
     TargetOption,
     error_exit,
-    iter_library_headers,
-    iter_sources,
     json_print,
     parse_va,
     require_config,
 )
 from rebrew.config import ProjectConfig
 from rebrew.naming import normalize_name
+from rebrew.sources import (
+    iter_library_headers,
+    iter_sources,
+)
 
 console = Console(stderr=True)
 

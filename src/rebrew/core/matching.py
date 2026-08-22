@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
+from rebrew.sources import iter_sources
+
 if TYPE_CHECKING:
     from rebrew.config import ProjectConfig
 
@@ -162,7 +164,6 @@ def build_name_to_va(cfg: ProjectConfig) -> dict[str, int]:
             if isinstance(name, str) and name and isinstance(va, int):
                 name_to_va[name] = va
         from rebrew.annotation import parse_c_file_multi
-        from rebrew.cli import iter_sources
 
         for path in iter_sources(cfg.reversed_dir, cfg):
             for ann in parse_c_file_multi(path):

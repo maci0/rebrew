@@ -183,7 +183,8 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
     type declarations are found across files.
     """
     from rebrew.c_parser import find_extern_variables
-    from rebrew.cli import iter_sources, rel_display_path
+    from rebrew.sources import iter_sources
+    from rebrew.utils import rel_display_path
 
     result = ScanResult()
     # Track all type declarations per name for conflict detection
@@ -297,8 +298,9 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
     Returns a list of dicts with: va, name, size, section, note, filepath.
     """
     from rebrew.annotation import parse_c_file_multi
-    from rebrew.cli import iter_sources, rel_display_path, target_marker
     from rebrew.data_metadata import merge_into_data_annotation
+    from rebrew.sources import iter_sources, target_marker
+    from rebrew.utils import rel_display_path
 
     entries: list[dict[str, Any]] = []
     if not src_dir.exists():
@@ -349,7 +351,8 @@ def _build_dispatch_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[i
     when the catalog already knows the names.
     """
     from rebrew.annotation import parse_c_file_multi
-    from rebrew.cli import iter_sources, rel_display_path, target_marker
+    from rebrew.sources import iter_sources, target_marker
+    from rebrew.utils import rel_display_path
 
     known_functions: dict[int, dict[str, str]] = {}
     for cfile in iter_sources(src_dir, cfg):
@@ -1185,8 +1188,9 @@ def _gen_globals_header(
     import time
 
     from rebrew.annotation import parse_c_file_multi
-    from rebrew.cli import error_exit, iter_sources
+    from rebrew.cli import error_exit
     from rebrew.data_metadata import load_data_metadata
+    from rebrew.sources import iter_sources
 
     marker = getattr(cfg, "marker", getattr(cfg, "target_name", "GAME").upper())
     metadata = load_data_metadata(cfg.metadata_dir)

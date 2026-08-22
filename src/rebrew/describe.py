@@ -46,14 +46,16 @@ from rebrew.catalog.loaders import parse_function_list
 from rebrew.cli import (
     TargetOption,
     error_exit,
-    iter_sources,
     json_print,
     parse_va,
     require_config,
-    target_marker,
 )
 from rebrew.config import ProjectConfig
 from rebrew.imports import parse_import_table
+from rebrew.sources import (
+    iter_sources,
+    target_marker,
+)
 
 console = Console(stderr=True)
 

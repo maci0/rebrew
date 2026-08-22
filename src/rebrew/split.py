@@ -25,14 +25,20 @@ from rebrew.c_parser import extract_function_name_from_line
 from rebrew.cli import (
     TargetOption,
     error_exit,
-    iter_sources,
     json_print,
-    rel_display_path,
     require_config,
+)
+from rebrew.sources import (
+    iter_sources,
     source_exts,
     target_marker,
 )
-from rebrew.utils import atomic_write_text, read_source_text, strip_comment_blocks
+from rebrew.utils import (
+    atomic_write_text,
+    read_source_text,
+    rel_display_path,
+    strip_comment_blocks,
+)
 
 console = Console(stderr=True)
 

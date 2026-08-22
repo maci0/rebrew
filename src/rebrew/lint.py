@@ -35,14 +35,18 @@ from rebrew.annotation import (
 from rebrew.cli import (
     EXIT_MISMATCH,
     TargetOption,
-    iter_sources,
     json_print,
-    rel_display_path,
 )
 from rebrew.config import ProjectConfig, load_config
 from rebrew.data_metadata import load_data_metadata
 from rebrew.metadata import load_metadata
-from rebrew.utils import read_source_text
+from rebrew.sources import (
+    iter_sources,
+)
+from rebrew.utils import (
+    read_source_text,
+    rel_display_path,
+)
 
 console = Console(stderr=True)
 

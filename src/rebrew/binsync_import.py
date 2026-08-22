@@ -275,7 +275,7 @@ def main(
                 )
             if not dry_run:
                 try:
-                    from rebrew.rename import rename_function_everywhere as _rename
+                    from rebrew.rename_ops import rename_function_everywhere as _rename
 
                     fp = Path(cfg.reversed_dir) / local_filepath if local_filepath else None
                     if fp is None or not fp.exists():
@@ -327,7 +327,7 @@ def main(
                 )
             else:
                 try:
-                    from rebrew.rename import rename_function_everywhere as _rename2
+                    from rebrew.rename_ops import rename_function_everywhere as _rename2
 
                     fp = Path(cfg.reversed_dir) / local_filepath if local_filepath else None
                     if fp is None or not fp.exists():

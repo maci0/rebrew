@@ -146,15 +146,17 @@ Key libraries:
 src/rebrew/
 ├── main.py              # Umbrella CLI (`rebrew`)
 ├── merge.py             # Merge single-function C files into one
-├── cli.py               # Shared: TargetOption, require_config(), iter_sources(),
-│                        #   iter_library_headers(), iter_annotations(), error_exit(),
-│                        #   json_print(), parse_va(), source_glob(), target_marker(),
-│                        #   EXIT_OK, EXIT_MISMATCH, EXIT_ERROR, NEAR_MATCH_THRESHOLD,
-│                        #   classify_match_status(), is_matched(), rel_display_path()
+├── cli.py               # Shared: TargetOption, require_config(), iter_annotations(),
+│                        #   error_exit(), json_print(), parse_va(),
+│                        #   EXIT_OK, EXIT_MISMATCH, EXIT_ERROR, STATUS_COLORS
+├── sources.py           # Source discovery: source_exts(), source_glob(), target_marker(),
+│                        #   iter_sources(), iter_library_headers() (pure pathlib/config logic)
 ├── config.py            # ProjectConfig dataclass, rebrew-project.toml loader
 ├── annotation.py        # Annotation parsing (dataclass + comment parsers + library header parser); MIN_VALID_VA / min_valid_va_for VA floor
 ├── c_parser.py          # tree-sitter C parsing (function defs, extern decls/vars)
-├── compile.py           # Compile helpers (compile_to_obj, compile_and_compare → CompareResult, classify_compare_result)
+├── compile.py           # Compile helpers (compile_to_obj, compile_and_compare → CompareResult,
+│                        #   classify_compare_result, classify_match_status, is_matched,
+│                        #   NEAR_MATCH_THRESHOLD)
 ├── naming.py            # Naming/difficulty/origin helpers (next, skeleton, triage)
 ├── binary_loader.py     # PE/COFF/ELF/Mach-O loading + format detection (via LIEF)
 ├── extract.py           # Batch extract + disassemble functions
@@ -164,7 +166,7 @@ src/rebrew/
 ├── signature_parser.py  # Extract function signatures from C (tree-sitter)
 ├── split.py             # Split multi-function C files into singles
 ├── struct_parser.py     # Extract struct/typedef defs from C (tree-sitter)
-├── utils.py             # Shared utilities (atomic_write_text)
+├── utils.py             # Shared utilities (atomic_write_text, rel_display_path)
 ├── analysis.py          # Recon primitives: iter_strings, scan_references (Xref/Insn/StringEntry), string_refs
 ├── analyze.py           # One-shot dossier (toolchain, strings, imports, dispatch, FLIRT, NEAR_MATCHING blockers)
 ├── pe_headers.py        # PE header helpers (image base, section math)
@@ -213,7 +215,8 @@ src/rebrew/
 ├── llm_seed.py          # LLM alternative-implementation seeding for GA (--llm-seed)
 ├── near_diag.py         # Classify why NEAR_MATCHING doesn't byte-match (register/equiv/reloc/structural + EFFECTIVE)
 ├── stack_cmp.py         # Compare compiled function's stack frame vs target (reccmp stackcmp, no PDB)
-├── rename.py            # Rename function + update cross-references
+├── rename.py            # `rebrew rename` CLI (typer app + argument resolution)
+├── rename_ops.py        # Cross-reference rename engine (shared by rename CLI, sync pull, binsync import)
 ├── init.py              # Initialize new project
 ├── imports.py           # List PE imports + detect jmp [iat] stubs
 ├── exports.py           # Verify recompiled binary export table vs target (verexp equivalent)
@@ -377,9 +380,9 @@ Numeric constants need explicit operators: GA can't fix wrong offsets/magics/siz
 - **Config-driven**: all tools read `rebrew-project.toml` — never hardcode paths
 - **ADRs**: record decisions (new formats/profiles/backends, contract changes, trade-offs) in `docs/adr/NNN-short-title.md` (Nygard: Status/Context/Decision/Consequences), listed in `docs/adr/README.md`; keep current. Small fixes → `CHANGELOG.md`, not an ADR.
 - **Idempotent**: every tool safe to re-run
-- **Source discovery**: `iter_sources(directory, cfg)` from `cli.py`; `iter_library_headers(directory)` for `library_*.h`
+- **Source discovery**: `iter_sources(directory, cfg)` from `sources.py`; `iter_library_headers(directory)` for `library_*.h`
 - **Batch annotations**: `iter_annotations(sources, target=...)` from `cli.py` — wraps `parse_c_file_multi` with silent errors → `[(path, [Annotation])]`
-- **Source glob**: `source_glob(cfg)` — respects `cfg.source_ext` (`.c`, `.cpp`)
+- **Source glob**: `source_glob(cfg)` from `sources.py` — respects `cfg.source_ext` (`.c`, `.cpp`)
 - **Don't reimplement**: if an imported library provides it, use it
 - **No backward compat**: one name per function — no aliases/shims/wrappers
 - **Volatile metadata**: fields `STATUS`, `CFLAGS`, `BLOCKER`, `NOTE`, `GHIDRA` live in per-directory `rebrew-function.toml` via `rebrew.metadata` — never edit manually

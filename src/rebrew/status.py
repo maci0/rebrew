@@ -23,8 +23,9 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from rebrew.cli import STATUS_COLORS, TargetOption, iter_sources, json_print, require_config
+from rebrew.cli import STATUS_COLORS, TargetOption, json_print, require_config
 from rebrew.config import ProjectConfig
+from rebrew.sources import iter_sources
 
 # Regex that matches an inline metadata comment line (``// STATUS: EXACT``,
 # ``// SIZE: 120``, ``// CFLAGS: /O2``, ``/* BLOCKER: ... */``, etc.).  The
@@ -300,8 +301,8 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     so that functions which fail verification (NEAR_MATCHING, COMPILE_ERROR) are
     not counted as byte-matched.
     """
-    from rebrew.cli import iter_sources
     from rebrew.naming import load_data
+    from rebrew.sources import iter_sources
 
     report = StatusReport(
         target=cfg.target_name,
@@ -409,9 +410,9 @@ def _count_inline_metadata_files(src_dir: Path, cfg: ProjectConfig) -> int:
     (``cfg.source_ext``) is respected.  Uses a single regex pass per file
     rather than a full annotation parse to keep the hot-path fast.
     """
-    from rebrew.cli import iter_sources
     from rebrew.data_metadata import load_data_metadata
     from rebrew.metadata import load_metadata
+    from rebrew.sources import iter_sources
 
     fn_entries = load_metadata(cfg.metadata_dir)
     data_entries = load_data_metadata(cfg.metadata_dir)

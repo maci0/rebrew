@@ -27,6 +27,7 @@ import typer
 from rich.console import Console
 
 from rebrew.config import ProjectConfig, load_config
+from rebrew.sources import iter_sources, target_marker
 
 # ---------------------------------------------------------------------------
 # Standardised exit codes
@@ -35,10 +36,6 @@ from rebrew.config import ProjectConfig, load_config
 EXIT_OK = 0  # Success (all functions matched / no errors)
 EXIT_MISMATCH = 1  # Actionable failure (fix your code)
 EXIT_ERROR = 2  # Infrastructure error (build/config broken)
-
-# Match-quality threshold for NEAR_MATCHING vs STUB classification.
-# A function that matches >= 60 % of bytes is NEAR_MATCHING; below is STUB.
-NEAR_MATCH_THRESHOLD = 0.60
 
 # Canonical Rich colour tags for status strings — used across CLI tools
 # for consistent output formatting.
@@ -57,34 +54,6 @@ STATUS_COLORS: dict[str, str] = {
     "INTERNAL_ERROR": "red",
     "SKIP": "dim",
 }
-
-
-def is_matched(status: str) -> bool:
-    """True when *status* indicates a fully matched function (EXACT, RELOC, or PROVEN)."""
-    return status in ("EXACT", "RELOC", "PROVEN")
-
-
-def classify_match_status(
-    matched: bool,
-    match_count: int,
-    total: int,
-    relocs: list[int] | tuple[()] = (),
-) -> str:
-    """Determine the canonical status string from match results.
-
-    Centralises the EXACT / RELOC / NEAR_MATCHING / STUB decision for
-    raw match results.
-
-    :param matched: True when all non-reloc bytes match.
-    :param match_count: Number of matching bytes.
-    :param total: Total byte count considered.
-    :param relocs: Relocation offsets (non-empty → RELOC instead of EXACT).
-    """
-    if matched:
-        return "RELOC" if relocs else "EXACT"
-    if total > 0 and (match_count / total) >= NEAR_MATCH_THRESHOLD:
-        return "NEAR_MATCHING"
-    return "STUB"
 
 
 # Re-usable Typer option for --target
@@ -212,110 +181,6 @@ def parse_va(va_str: str, *, json_mode: bool = False) -> int:
         return int(va_str.strip(), 16)
     except ValueError:
         error_exit(f"Invalid hex VA: {va_str!r}", json_mode=json_mode, code=EXIT_ERROR)
-
-
-def source_exts(cfg: ProjectConfig | None) -> list[str]:
-    """Return the configured source extensions as a list, e.g. ``[".c", ".cpp"]``.
-
-    ``cfg.source_ext`` may hold a single extension or a comma-separated
-    list (``".c,.cpp"``); falls back to ``[".c"]`` when the attribute is
-    missing or empty.
-    """
-    raw = cfg.source_ext if cfg is not None else ".c"
-    if not raw:
-        return [".c"]
-    return [ext for ext in (part.strip() for part in raw.split(",")) if ext]
-
-
-def source_glob(cfg: ProjectConfig | None) -> str:
-    """Return glob pattern for source files based on the configured extension.
-
-    Uses ``cfg.source_ext`` (e.g. ``".c"``, ``".cpp"``, ``".c,.cpp"``) to
-    build a pattern like ``"*.c"``, ``"*.cpp"`` or ``"*.{c,cpp}"``.  Falls
-    back to ``"*.c"`` if the attribute is missing.  The brace form is a
-    display/validation convenience — :func:`iter_sources` expands multi-
-    extension configs by filtering suffixes rather than relying on brace
-    support in ``pathlib``.
-    """
-    exts = source_exts(cfg)
-    if not exts:
-        return "*.c"
-    if len(exts) == 1:
-        return f"*{exts[0]}"
-    return f"*.{{{','.join(e.lstrip('.') for e in exts)}}}"
-
-
-def target_marker(cfg: ProjectConfig | None) -> str | None:
-    """Return the target marker name from *cfg*, or ``None`` if unavailable.
-
-    Shorthand for the ``cfg.marker if cfg else None`` pattern that appears
-    at every ``parse_c_file_multi`` / ``parse_library_header`` call site.
-    """
-    return cfg.marker if cfg is not None else None
-
-
-def rel_display_path(filepath: Path, base_dir: Path | None = None) -> str:
-    """Return a display-friendly relative path for a source file.
-
-    If *base_dir* is provided, returns the path relative to it (e.g.
-    ``"game/pool_free.c"`` for nested dirs, or ``"pool_free.c"`` for flat
-    layouts).  Falls back to ``filepath.name`` if the file is not under
-    *base_dir*.
-    """
-    if base_dir is not None:
-        try:
-            return str(filepath.relative_to(base_dir))
-        except ValueError:
-            pass
-    return filepath.name
-
-
-def iter_library_headers(directory: Path) -> list[Path]:
-    """Return all library_*.h files under *directory*, recursively."""
-    return sorted(directory.rglob("library_*.h"))
-
-
-def iter_sources(directory: Path, cfg: ProjectConfig | None = None) -> list[Path]:
-    """Return all source files under *directory*, recursively, sorted by path.
-
-    Uses :func:`source_exts` to determine the file extensions and ``rglob``
-    to descend into nested subdirectories.  Multi-extension configs (e.g.
-    ``source_ext = ".c,.cpp"``) are expanded by suffix filtering since
-    ``pathlib`` globs do not support brace alternation.  This is the single
-    entry point for discovering reversed source files — using it everywhere
-    ensures consistent support for both flat and nested directory layouts.
-
-    When *cfg* is provided and *directory* is the target's ``reversed_dir``,
-    the project's shared-sources root (``cfg.shared_dir``, e.g.
-    ``src/shared``) is appended: files there serve **every** target, with
-    one ``// FUNCTION: <target> <va>`` marker per target and ``#ifdef``
-    deltas driven by the per-target ``defines``.
-    """
-    exts = source_exts(cfg) or [".c"]
-    if len(exts) == 1:
-        base = sorted(directory.rglob(f"*{exts[0]}"))
-    else:
-        suffixes = {ext.lower() for ext in exts}
-        base = sorted(
-            p for p in directory.rglob("*") if p.is_file() and p.suffix.lower() in suffixes
-        )
-
-    if cfg is None:
-        return base
-    shared = getattr(cfg, "shared_dir", None)
-    reversed_dir = getattr(cfg, "reversed_dir", None)
-    if (
-        shared is not None
-        and reversed_dir is not None
-        # Shared sources belong to the target's reversed_dir scan ONLY —
-        # a scan of any other directory with cfg must not pull them in.
-        and Path(directory).resolve() == Path(reversed_dir).resolve()
-        and shared.is_dir()
-        and Path(shared).resolve() != Path(directory).resolve()
-    ):
-        shared_files = iter_sources(shared, None)  # cfg=None: no recursion
-        return sorted(set(base) | set(shared_files))
-    return base
 
 
 def iter_annotations(
