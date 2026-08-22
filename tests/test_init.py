@@ -209,10 +209,10 @@ class TestConstraints:
         assert "ELF" in GCC_CONSTRAINTS
 
     def test_msvc_mentions_wine(self) -> None:
-        assert "Wine" in MSVC_CONSTRAINTS
+        assert "wine" in MSVC_CONSTRAINTS
 
     def test_msvc7_mentions_wine(self) -> None:
-        assert "Wine" in MSVC7_CONSTRAINTS
+        assert "wine" in MSVC7_CONSTRAINTS
 
 
 # ---------------------------------------------------------------------------

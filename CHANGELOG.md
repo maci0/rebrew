@@ -1,5 +1,66 @@
 ## [Unreleased]
+### Fixed
+- **`rebrew doctor` annotation-staleness fix message** — stale FUNCTION/STUB
+  markers no longer always prescribe "re-run `rebrew intake`" on the
+  assumption that the binary changed.  The check now compares the target
+  binary's mtime against the function list's: a newer binary gets the
+  intake/discover-refresh advice, while a list that is as new as the binary
+  gets "the binary did not change — re-annotate the markers / regenerate the
+  list if it came from a different binary (e.g. a rebuilt artifact)".
+  Indeterminate mtimes (missing file) fall back to a cause-neutral message.
+
 ### Added
+- **Interactive `rebrew init` onboarding wizard** — bare `rebrew init` on a
+  TTY now walks through picking the binary (auto-scans `original/`, then the
+  cwd root, for `*.exe`/`*.dll`/`*.sys`/`*.bin`/`*.com`, with a manual-entry
+  option), the compiler profile (toolchain detection on the chosen binary
+  suggests one, visibly flagged when it differs from the default; unknown
+  answers get one reprompt then fall back), the target name (defaults to the
+  binary stem), and a summary/confirm step that writes nothing when
+  declined.  Afterwards the chosen profile's docker image state is reported
+  (missing image → exact `rebrew toolchain build <profile>` hint plus an
+  optional immediate build), and the next-steps block points at
+  `rebrew doctor` + `rebrew intake`.  Automation is untouched: `--no-wizard`,
+  `--json`, non-TTY stdin, and direct Python calls all keep the previous
+  flow byte-identical, explicit CLI flags suppress their prompts
+  (click parameter-source based), and a fully flagged run prompts zero
+  times.  New `--wizard/--no-wizard` flag.  Covered by
+  `tests/test_init_wizard.py` (gating, end-to-end prompt drives, abort,
+  fully-flagged zero-prompt runs, mocked image build).
+- **Ecosystem documentation** — new `docs/ECOSYSTEM.md` maps how rebrew fits
+  with the sibling repos (rebrew-toolchains, resembl, recoverage, recompile,
+  reagent, relumea, decompedia, recondb) via mermaid diagrams, dependency
+  layering, and the workspace layout; linked from `ARCHITECTURE.md` and the
+  docs index.
+- **wine is the default runtime for docker toolchains** — the images already
+  ran wine (`REBREW_RUNNER` defaults to wine), but rebrew steered users
+  toward wibo (faster, but fails on some tools).  Now: `rebrew doctor
+  --install-wibo` downloads wibo but leaves a docker-backed project's
+  `runner` config untouched (the image runs wine; the config runner is
+  obsolete for it), and `rebrew doctor`'s Runner check reports a present
+  wibo binary as an informational note instead of recommending the switch.
+  Documented in ONBOARDING.md + TOOLCHAIN.md.
+- **Onboarding overhaul** — a fresh `rebrew init` → `rebrew intake` journey
+  now ends with a zero-fail `rebrew doctor` (toolchain-independent checks)
+  and actionable terminal messages:
+  - `rebrew doctor`'s `Include path`/`Lib path` checks are docker-aware: a
+    docker-backed profile gets its includes/libs from the image (built from
+    the vendored toolchain), so a fresh intake's dangling host path is no
+    longer a spurious fail — it reports the image and suggests
+    `rebrew toolchain build <profile>` when it is missing.  Native profiles
+    (gcc-pe) still require real host paths.
+  - `rebrew intake`'s toolchain line for docker-backed profiles says the
+    image is the toolchain (with the build command) instead of
+    "symlink tools/ yourself".
+  - `rebrew init`'s "Next steps" and `rebrew intake`'s summary point at the
+    new **docs/ONBOARDING.md** first-run walkthrough (also linked from
+    CLI.md's workflow intro): prerequisites, the 5-minute path, and a table
+    of every first-run error with its fix.
+  - New `tests/test_onboarding.py` runs the real intake journey on the
+    `mini_pe.exe` fixture (rizin stubbed for determinism) and pins the
+    contract: populated `functions.txt`, documented skeletons with valid
+    markers, doctor clean on all toolchain-independent checks, idempotent
+    re-run, and the ONBOARDING.md links.
 - **`rebrew cross-import`** — import functions already matched in another
   target of the same project (binary versions with the same code at
   different VAs, or a DLL+EXE pair sharing code).  Structural matching from
@@ -49,8 +110,47 @@
   (8.0+); `cvttsd2si` and SSE `movq`/`xorps` in VC 11; per-toolchain
   64-bit helper names and FP-conversion idioms (`__ftol`/`__CHP`/
   `fnstcw` dance); TC 2.0 vs 3.1 far/near long-mul helpers; Delphi
-  `case` compare-chains and `rol`-based set membership.  Full table
-  in `docs/codegen/README.md`.
+  `case` compare-chains and `rol`-based set membership; **SEH prologue
+  ladder** (`push -1` 2.0–7.1 vs `push -2` 8.0+, `fs:[0]`-first in
+  2.0/4.x); inline 64-bit multiply-high from VC 6.0; **FP-loop x87
+  accumulation** (`fldz` init from 8.0, ×4 unrolling from 7.0,
+  memory-accumulator in 2.0/4.x); indirect tail-calls from VC 7.0;
+  volatile reads verified identical across all versions; **combined
+  divmod from VC 7.0** (one `div` for `x/N + x%N`); the stack-probe
+  threshold verified uniform at 4096 across all versions; 64-bit
+  compares direct-memory from VC 7.0; `/O2` verified to already imply
+  `/Oi`; a **corpus-validation sweep of all 51 marker byte-sequences**
+  against the VC5/VC6/MinGW binaries (strong hits for `f3 a6`, `d9
+  fa`, `dc 0d`, `0f 1f`, `0f a5 c2`, `83 e4 f8`; context-dependence
+  notes for common instructions; two downgrade notes from VC6 hits);
+  and the **expanded VC 7.0 SP1 finding — SEVENTEEN differing
+  functions** (FP-equality structural, FP-libcall marshalling, FP
+  loops + char-array + stack-probe functions in register
+  allocation/layout).  Full table in `docs/codegen/README.md`.
+- **Probe11 flag matrix** — `/G6` never enables `cmov` in VC 6.0
+  (min/max/clamp stay branches; `/G5` vs `/G6` differ only in
+  scheduling); VC 7.0 `/G5`≡`/G6` and 7.1 `/G5`≡`/G7`;
+  `/arch:SSE2` on VC 8.0–10.0 produces the SSE `movq`/`pxor`/
+  `comisd` forms (the VC 11.0-default markers now carry the flag
+  caveat); `/fp:fast` ≡ default on the probe2 FP set; Delphi probe
+  #3 (set/record copy via `rep movsw`).
+- **Probe12 inlining + 16-bit switch** — static-helper inlining is an
+  era marker: VC 7.0+ inlines small static helpers called once/twice/
+  in a loop at /O2 and /O1 (11–12B callers) while VC 2.0–6.0 keep the
+  call (30–34B) at both levels; VC 7.0/7.1/8.0/10.0 SP1s are identical
+  to their RTMs on this feature.  New 16-bit discriminator: MSVC 1.52
+  dispatches 8-case switches via `add ax,ax; xchg bx,ax` (`03 c0 93`)
+  + `dw` table where TC 2.0/3.1 and Watcom 16-bit use `shl bx,1`
+  scaling (`d1 e3`).  Probe3 leftovers analyzed: Delphi `pchar_len`
+  walks a PChar via `les di` + `cmp byte ptr es:[di],0` with an
+  offset-only `inc word ptr [bp+4]` (no segment carry), and Delphi
+  `longmul` delegates 32-bit multiply to the RTL with a single
+  `lcall` (`@LDmul`, register-pair operands) instead of inlining.
+  Watcom 16-bit division verified as real `div`/`idiv` with **no
+  reciprocal-magic even for constant divisors** (mirrors 32-bit
+  wcc386); bcc32 5.5 verified NOT to inline the probe12 static
+  helpers at -O1 or -O2 (4 `call`s at both levels), same as MSVC
+  2.0–6.0; GCC inlines them unconditionally (not a discriminator).
 - **GA pragma mutations** — five new operators in `matcher/mutator.py`
   (114 → 119) that explore codegen levers compiler flags cannot reach:
   `mut_add/remove_optimize_pragma` wrap the function in
@@ -85,7 +185,80 @@
   parser filters out) and so are `DATA`/`GLOBAL` (not code); a missing or
   empty function list skips the check.  Warn-level: a changed binary is a
   workflow state, not a broken environment.
-### Changed
+### Added
+- **DecBench/Kuna adoption** — three new capabilities researched from
+  Noelo-Lab's [decbench](https://github.com/Noelo-Lab/decbench) and
+  [kuna](https://github.com/Noelo-Lab/kuna):
+  - **`rebrew fix`** — compilability fixup for raw decompiler output
+    (DecBench's fairness principle): token sanitization (Ghidra/IDA
+    pseudo-types like `undefined4`, qualified symbols like
+    `GLIBC_2.2.5::stderr`) plus diagnostic-driven injection of missing
+    typedefs/prototypes, never redefining what the source declared.  Lets
+    rebrew byte-match decompiler output, not just hand-written C.
+  - **CFG structural similarity** (`rebrew.cfg_ged`) — a DecBench-GED-inspired
+    control-flow score over capstone basic-block graphs (greedy block
+    matching + edge Jaccard), surfaced as the `cfg` field in
+    `rebrew near-diag --json`.
+  - **Kuna backend + seeding** — `rebrew decompiler` gained a `kuna` backend
+    (the agent-first Ghidra-port decompiler); `rebrew match --kuna-seed`
+    decompiles the target function with Kuna, fixup's it, and injects it
+    into the GA's initial population (with `--dry-run` preview).
+  - **Symptom index** — `rebrew near-diag --catalog` prints the generated
+    delta-category → suggestion → GA-mutations index (Kuna's options.md
+    pattern), also committed as `docs/NEAR_DIAG_CATALOG.md`.
+  - **Struct recovery surfaces unnamed-pointer evidence** — `rebrew
+    recover-structs` no longer drops pointer accesses when the decompiler
+    fails to type them (Kuna's `int a0` / `short *a0` params, Ghidra's
+    `undefined4 *this`).  Cast-derefs capture the variable, offsets accept
+    hex or decimal, and Kuna's array-index form (`*(int *)&a0[10]` → byte
+    offset = index × element width) is parsed; the evidence is grouped by
+    variable name into **anonymous candidates** with a synthesized layout
+    (`--apply` never writes them — they need a user-chosen name first).
+    Meaningful var names (`pPlayer`) get a type name with the Hungarian
+    prefix stripped; compiler temps (`v1`, `local_8`) are dropped; offsets
+    ≥ the target's image base (absolute addresses folded into
+    `var + 0xADDR`) are filtered.  Verified against guild-rebrew's
+    command handlers: 68 functions decompiled → one `a0` candidate shared
+    by 48 functions with a consistent 0x3…0x3F layout.
+  - **`rebrew decompile --named`** — the "feed the recovered structs back
+    in" loop (`rebrew.name_decomp`): a naming pass over decompiler output
+    that types anonymous pointer variables with the project's declared
+    structs (from sources + `library_*.h`).  Rewrites the signature
+    (`int a1` → `command_s *a1`), cast-derefs (`*(int *)(a1 + 0x10)` →
+    `a1->field_10`), Kuna array-index forms (`&a0[10]` → `a0->field_14`),
+    bare address arithmetic (`sub(a0 + 0x10)` → `sub(&a0->field_10)`), and
+    `vN = aN;` aliases.  Matching is conservative (≥1 exact non-padding
+    field hit, all offsets within span; misaligned reads into `gap_*`
+    padding left alone; named cast types untouched; image-base addresses
+    never rewritten).  Verified on guild's real kuna output for
+    `sub_1000d350`: `command_s *a1` with every member access rewritten.
+
+
+- **Hot-path optimizations (profile-driven)** — the GA scoring loop is
+  **3.6x faster**: `_normalize_and_mnems_x86_32` now uses a non-detail
+  disassembly with raw-byte reloc zeroing (legacy prefixes skipped; the
+  rare SIB/disp32 fallback re-disassembles just that instruction), and
+  `_zero_reloc_fields` skips sub-5-byte instructions.  Metadata reads use
+  tomllib instead of tomlkit (**~23x** on `load_metadata`); `near-diag`
+  classification is **~4.7x** faster via module-level imports + cached
+  capstone handles.  Behavior is byte-identical, pinned by a parity
+  regression test.  `tools/bench_hotpaths.py` reproduces the numbers
+  (`--compare` shows the speedups vs recorded baselines).
+- **Hot-path pass 2 (project-scale)** — the benchmark now covers
+  whole-tree parsing, per-function diffing, registry/status aggregation and
+  cache paths (`tools/bench_hotpaths.py --compare`).  Whole-tree annotation
+  parse + metadata merge is **~1.8x faster** (metadata loaded once per file
+  instead of per function), the incremental verify cache-hit check **~1.4x**,
+  and `diff_functions`/`structural_similarity` **~1.3x** (a `summary_only`
+  fast path with in-pass mnemonic collection, non-detail no-reloc
+  normalization, and an in-place register mask).  The register-aware diff's
+  remaining cost is the register mask's ModR/M detail dependency — a safe
+  ceiling, documented.  Test suite now 57s wall.
+- **Test-suite wall time 149s -> ~59s** — `tools/validate_skill_commands.py`
+  runs its `--help` probes in parallel (16s -> 3.2s) with a session-cached
+  validator test; `tools/check_idempotency.py` runs its read-only command
+  pairs in parallel (19.5s -> 4.3s).  The remaining floor is docker
+  compiles (out of scope).
 - **`rebrew verify` EXTRACT_ERROR now names stale annotations** — when
   byte extraction fails and the annotation VA is not a function in the
   current function list, the error says so ("stale annotation? re-run
@@ -153,6 +326,10 @@
   `rebrew match --flag-sweep-only` / `--all --flag-sweep` refuse loudly on
   posix profiles (the sweep explores MSVC flag combos; previously every
   combo failed silently under gcc and only the empty-combo "matched").
+### Changed
+- **Lint default line length 100 → 200** — `rebrew lint`'s
+  `lint_max_line_length` default was too aggressive for generated/decompiled
+  C; projects can still override via `[project.lint] max_line_length`.
 ### Fixed
 - **`cross-import` no longer clobbers unrelated destination files** —
   importing to a filename that already annotates a different VA is refused
@@ -166,8 +343,32 @@
   directories** (shared files belong to the target's `reversed_dir` scan
   only), and `_parse_defines` rejects non-string entries (no more garbage
   `-DNone` flags).
+- **Agent docs drift** — `.agents/skills/` re-rendered from the canonical
+  `src/rebrew/agent-skills/` (it had fallen behind on the watcom16/tc16/
+  borlandc55 sweep tiers, the vendored `source/` toolchain paths, and the
+  `src/<target>` placeholders), guarded by a new `tests/test_skills_sync.py`.
+  Root `AGENTS.md` tree updated for the modules it was missing
+  (`postlink.py`, `struct_recover.py`, `ne_loader.py`, `headless.py`,
+  `tc16.py`, `lzexe*.py`, `cross_import.py`, `document_unmatched.py`,
+  `binsync_diff.py`/`binsync_import.py`, `library.py`), the duplicated
+  `decompiler.py` entry collapsed, and `matcher/AGENTS.md`'s mutation count
+  fixed (119).  `rebrew init`'s generated-domain wording now says docker,
+  not host Wine, for MSVC toolchains; the `rebrew init --help` profile list
+  and README's compiler-profiles paragraph were also rewritten for the
+  docker-only registry ("via Wine (or wibo)" is gone everywhere; remaining
+  Wine mentions are either the wine-in-image runtime or roadmap documents).
 
 ## [0.4.0] - 2026-08-21
+- **`rebrew recover-structs`** — recover struct definitions from
+  decompiler output: aggregate member-access offsets (`->field_N`,
+  `*(T *)(p + 0xN)`) per named pointer type, synthesize `typedef struct
+  ..._s { ... } name;` definitions with gap padding, merge against the
+  project's existing structs, and `--apply` the new ones.  Backend-pluggable
+  (kuna/r2ghidra/r2dec/ghidra) — the "recover more structs" workflow for
+  guild-style projects once a decompiler backend is installed.
+- **`rebrew decompiler` tool probe now finds `rizin`** — the upstream binary
+  name was invisible to the r2ghidra/r2dec backends.
+
 ### Changed
 - **Docs/housekeeping release — no user-facing code changes.**  The audit
   work below is recorded with per-item references in the dated

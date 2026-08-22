@@ -949,6 +949,7 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
     current_kv: dict[str, str] = {}
     pending_kv: dict[str, str] = {}
     seen_code_after_marker: bool = False
+    in_block_comment: bool = False
     current_line: int = 0  # 1-based line number of the current marker
 
     def _flush() -> None:
@@ -963,6 +964,20 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
     for lineno, line in enumerate(lines, start=1):
         stripped = line.strip()
         if not stripped:
+            continue
+
+        # Track /* */ block-comment state.  Lines inside a block comment can't
+        # contain markers or KV lines, and a multi-line comment opener must not
+        # be fed to the C-definition extractor: tree-sitter error-recovery
+        # misparses an unterminated "/* ..." line as a function definition
+        # (e.g. "/* Dispatches a log message to the configured output handlers"
+        # derives a bogus "output" symbol, breaking extraction).
+        if in_block_comment:
+            if "*/" in stripped:
+                in_block_comment = False
+            continue
+        if stripped.startswith("/*") and "*/" not in stripped:
+            in_block_comment = True
             continue
 
         # Fast pre-filter: marker/KV/hint regexes all require a leading `//`;
@@ -1139,10 +1154,16 @@ def _parse_c_file_text(
         for entry in filtered_entries:
             entry.filepath = rel
         if metadata_dir is not None:
-            from rebrew.metadata import merge_into_annotation
+            from rebrew.metadata import _apply_metadata_entry, load_metadata
 
+            # Load the metadata ONCE per file and apply per annotation —
+            # merge_into_annotation re-loaded it per function (the
+            # whole-tree parse hot path: 1000 functions = 1000 TOML loads).
+            entries_by_key = load_metadata(metadata_dir)
             for entry in filtered_entries:
-                merge_into_annotation(entry, metadata_dir)
+                meta = entries_by_key.get((entry.module, entry.va))
+                if meta:
+                    _apply_metadata_entry(entry, meta)
         return filtered_entries
 
     return []

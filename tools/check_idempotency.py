@@ -169,9 +169,16 @@ def main(argv: list[str] | None = None) -> int:
         del argv[idx : idx + 2]
     commands = DEFAULT_COMMANDS + argv
 
+    # Every command is read-only (the module contract) and independent —
+    # run them in parallel: 36 serial `rebrew` subprocess spawns made the
+    # idempotency check (and the suite test driving it) take ~19s; eight
+    # workers cut that to a few seconds while preserving output order.
+    from concurrent.futures import ThreadPoolExecutor
+
     failed = 0
-    for cmd in commands:
-        ok = outputs_identical(cmd, cwd)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        outcomes = list(pool.map(lambda cmd: (cmd, outputs_identical(cmd, cwd)), commands))
+    for cmd, ok in outcomes:
         marker = "PASS" if ok else "FAIL"
         print(f"[{marker}] {cmd}")
         if not ok:

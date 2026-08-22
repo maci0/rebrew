@@ -7060,3 +7060,290 @@ multi-version / DLL+EXE use case.  Note: one-to-many best-per-A matching
   used `[lo, hi)` and excluded exactly 100.0 (fixed with `inf` bound).
 - Gates: full suite 4732+ passed, mypy 113 files clean, ruff clean,
   pre-commit all stages passed.
+
+## 2026-08-21 — Onboarding experience goal (init → intake → doctor → first verify)
+
+Goal: "improve the onboarding experience for rebrew" — a new user goes from
+`rebrew init` to a documented, verified project without reading the docs,
+and every first-run error names its fix.  Three parts (A journey polish,
+B written guide, C diagnostics), all landed:
+
+**Empirical baseline** (the driver): `rebrew intake tests/fixtures/mini_pe.exe`
+→ 2 functions documented, but `rebrew doctor` showed ONE fail — `Include
+path` pointing at the project-local `toolchain/msvc/8.0-win32/source/VC/include`
+which a fresh project doesn't have.  Root cause: for docker-backed profiles
+execution is docker-only and the image (built from the vendored toolchain)
+IS the include/lib provider — the host path is a non-load-bearing placeholder
+intake inherits from the template.  `intake._link_toolchain` also has no
+msvc800+ entries, so it printed the confusing "symlink tools/ yourself".
+
+**Fixes (in scope: doctor/intake/init/config):**
+- `doctor.check_includes`/`check_libs` are now docker-aware via
+  `_docker_toolchain_check`: image present → PASS "provided by docker image
+  rebrew/…"; image missing → WARN with `rebrew toolchain build <profile>`;
+  native profiles (gcc-pe, image=None) keep the host-path check.  Fresh
+  intake on this machine: doctor 15 pass / 0 fail / 2 informational warns.
+- `intake` terminal summary: docker-backed profile without a tools/ link
+  now says the image is the toolchain + the build command; both `init`'s
+  "Next steps" and intake's summary point at docs/ONBOARDING.md.
+- `docs/ONBOARDING.md` — first-run walkthrough: prerequisites, the 5-minute
+  path (init/intake/doctor/status/skeleton/test), and an error table
+  (missing binary, rizin no-functions, docker image missing, alignment
+  mismatch, bad format, existing project).  Linked from CLI.md's intro.
+
+**Tests (A + C):** `tests/test_onboarding.py` (5) — real intake on the real
+fixture (rizin stubbed for machine independence) asserting the contract:
+populated functions.txt, documented skeletons with valid markers, doctor
+clean on all toolchain-INDEPENDENT checks, idempotent re-run, ONBOARDING.md
+in init + intake output.  Regression tests: doctor docker include/libs
+(image present/absent, native fallback) + intake docker toolchain message.
+Error-path audit confirmed the existing fix messages (missing binary, empty
+rizin, unreadable config) already name their fixes with tests.
+
+Gates: full suite green, ruff + mypy clean, pre-commit all stages.
+
+## 2026-08-21 — wine-default for docker toolchains (wibo fails on some tools)
+
+User directive mid-goal: "for the docker toolchains make wine the default.
+wibo fails in some scenarious".  Investigation:
+- The images ALREADY default to wine — the shared wrapper
+  (rebrew-toolchains/base/wrapper-common.sh) selects the PE runtime via
+  `${REBREW_RUNNER:-wine}`; wibo is opt-in.  rebrew never sets
+  REBREW_RUNNER.
+- init profile templates already write `runner = "wine"`.
+- The violations were the wibo NUDGES: `rebrew doctor --install-wibo`
+  unconditionally rewrote `runner = "tools/wibo"` (also for docker-backed
+  profiles where the config runner is obsolete — execution is docker-only),
+  and doctor's Runner check recommended switching wine→wibo with an exact
+  config change.
+
+Fixes (in scope: doctor/config/docs):
+- `doctor --install-wibo`: docker-backed profile (TOOLCHAINS spec has an
+  image) → wibo is downloaded but the runner rewrite is SKIPPED with an
+  explanatory note (image runs wine by default; runner config obsolete).
+  Legacy host-runner profiles keep the rewrite.
+- `doctor check_runner`: the wine+wibo-available case is now a PASS with an
+  informational note ("wibo is faster but fails on some tools, wine remains
+  the default") instead of a WARN recommending the switch.
+- Docs: ONBOARDING.md prerequisites + TOOLCHAIN.md "Headless by
+  construction" block document the wine default, REBREW_RUNNER=wine, and the
+  wibo caveat.
+- Tests: `test_wine_with_wibo_available_keeps_wine_default` (updated pin),
+  `test_install_wibo_skips_rewrite_for_docker_backed` (new).
+
+## 2026-08-21 — Profile & optimize hot paths (goal)
+
+User goal: "profile the code and optimize every hot-path" + drive the test
+suite under 60s.  Profiled first, optimized only what the numbers showed.
+
+**Part 1 — pure-Python hot paths** (tools/bench_hotpaths.py measures 7
+workloads; BASELINES recorded before any change):
+
+| Workload | Before | After | Speedup |
+|---|---|---|---|
+| ga_scoring (score_candidate) | 0.361s / 400 cand | 0.100s | **3.6x** |
+| metadata_load (500 entries) | 0.087s | 0.004s | **23x** |
+| near_diag (200 pairs) | 0.031s | 0.007s | **4.7x** |
+| annotation_parsing / verify_cache / catalog_grid / binary_similarity | already fast | unchanged | — |
+
+- **ga_scoring (worst hotspot)**: `_normalize_and_mnems_x86_32` switched from
+  a detail disassembly to a non-detail one — capstone detail builds
+  per-instruction operand objects (the dominant cost).  The four reloc
+  opcode branches now read raw instruction bytes (`_first_opcode_byte`
+  skips legacy prefixes, matching capstone's `opcode[0]`); the rare
+  SIB/disp32 fallback (needs detail attributes) re-disassembles just that
+  instruction via `_has_disp32` superset routing.  `_zero_reloc_fields`
+  also skips <5-byte instructions entirely (no room for a reloc field) and
+  hoists `insn.address`.  Behavior pinned by a parity regression test
+  (`test_fast_path_parity_with_detail`) covering prefixed + fallback cases.
+- **metadata_load**: reads switched from tomlkit to tomllib (reads don't
+  need round-trip preservation; writes still use tomlkit).  ~23x.
+- **near_diag**: per-call `import capstone` / `from rebrew.stack_cmp import`
+  hoisted to module level; `capstone.Cs` handle construction cached per
+  (arch, mode) in near_diag + stack_cmp (the `scoring._get_cs` pattern).
+  ~4.7x.
+
+**Part 2 — suite wall time: 149s -> 59.4s** (docker-contention variance on
+this host; the pytest timer is 57.7s):
+- `tools/validate_skill_commands.py`: `--help` probes now run in parallel
+  (8 workers) instead of serially (~30 subprocess spawns) — 16s -> 3.2s;
+  the in-process validator test uses a session-scoped fixture (one
+  validation per session).
+- `tools/check_idempotency.py`: the 18 read-only commands x2 runs now
+  execute in parallel (read-only by contract) — 19.5s -> 4.3s.
+- The remaining ~24s is the docker compile floor (roundtrip +
+  relative_includes, ~10 image compiles) — out of scope to reduce (the
+  stop rule's docker-bound clause); reported honestly.
+
+Proof: `uv run python tools/bench_hotpaths.py --compare` shows the table
+above; full suite 4755 passed in 59.4s wall; ruff + mypy clean; behavior
+preserved (existing suite + the parity test).
+
+## 2026-08-21 — Hot-path pass 2 (follow-on; project-scale workloads)
+
+User re-ran the "profile and optimize hot paths" goal; this pass extended the
+bench to PROJECT-scale workloads the first pass skipped and optimized the
+measured hotspots.
+
+**Bench extensions** (tools/bench_hotpaths.py, BASELINES recorded before any
+change): parse_tree (1000-function file + metadata merge), diff_structural
+(diff_functions + structural_similarity over 200 realistic pairs),
+registry_build (2000 entries), status_aggregation (500-file project),
+compile_cache (1000 put/get), verify_cached (500 incremental cache-hit
+checks).
+
+**Results** (`--compare` vs recorded baselines):
+- parse_tree: 0.022s -> 0.012s (**1.83x**) — `_parse_c_file_text` loaded the
+  metadata ONCE per file and applied entries via the new
+  `_apply_metadata_entry` instead of `merge_into_annotation` re-loading the
+  TOML per function (1000 functions = 1000 loads).
+- verify_cached: 0.006s -> 0.004s (**1.38x**).
+- diff_structural: 0.409s -> ~0.29-0.32s (**1.3-1.4x**) — `diff_functions`
+  gained a `summary_only` fast path (skips the per-instruction row dicts,
+  collects mnemonics in the same pass so `structural_similarity` no longer
+  re-disassembles either side), the no-reloc norm buffers use the GA's
+  non-detail `_zero_reloc_fields_raw` path, and the register mask is applied
+  in-place from the already-disassembled insns instead of re-disassembling.
+- status_aggregation / registry_build / compile_cache: already at their
+  per-file-parse / per-entry floors (no safe gain).
+
+**Safe ceiling (stop rule)**: structural_similarity's register-aware path is
+~80% of diff_structural's cost and is detail-disasm-bound — the RR
+classification needs the register mask, whose ModR/M byte offset is a
+detail-only attribute.  Replicating modrm offsets from raw bytes fails
+empirical validation (229/603 mismatches on an opcode corpus — the
+immediate-operand opcodes), and a text-based RR would change classification
+(the mask also matches abs-vs-reg addressing).  Both violate the
+behavior-preserving bar, so diff_structural's 1.3-1.4x is the honest
+ceiling; reported instead of forcing a risky pass.  The overall bench's
+worst baseline hotspot (ga_scoring) remains 3.76x.
+
+**Gates**: full suite 4756 passed in 57.3s wall (55.8s pytest — the parse
+fixes sped the suite too, under the 60s bar), ruff + mypy clean, pre-commit
+all stages passed.
+
+## 2026-08-22 — DecBench/Kuna adoption (fixup, CFG-GED, symptom index, Kuna seeding)
+
+User: "anything we can learn from Noelo-Lab/kuna and Noelo-Lab/decbench?" then
+"build all the above.. kuna can be used for seeding also".
+
+Research takeaways: DecBench's byte_match IS rebrew's core (original-toolchain
+recompile + operand normalization); its compilability-fixup pass is what makes
+raw decompiler output scorable; its GED structural axis is a principled
+complement to rebrew's mnemonic-histogram proxy.  Kuna's generated symptom
+index (options.md) maps output shapes to internal toggles — the same shape as
+near-diag's verdict → mutation suggestions.
+
+Built (4 features, 37 new tests):
+1. **`rebrew fix`** (`fixup.py`) — DecBench-style compilability fixup:
+   token sanitization (pseudo-types undefined1/2/4/8/byte/word/dword/qword,
+   qualified symbols `GLIBC_2.2.5::stderr`, junk specifiers, leading-star
+   casts) + diagnostic-driven injection of missing typedefs/prototypes from
+   compiler errors (never redefines declared symbols).  15 tests.
+2. **CFG structural similarity** (`cfg_ged.py`) — capstone basic-block CFG
+   (blocks end at jmp/jcc/ret; fallthrough + jump-target edges incl.
+   back-edges; mid-block loop-head targets resolve to their block) with a
+   bounded GED: greedy mnemonic-multiset block matching weighted by size +
+   edge Jaccard.  Surfaced as `cfg` in `near-diag --json`.  11 tests.
+3. **Symptom index** — `rebrew near-diag --catalog` prints the generated
+   category → suggestion → mutations table (Kuna's options.md pattern);
+   committed as `docs/NEAR_DIAG_CATALOG.md`; the verdict suggestions moved
+   to a module-level registry so the catalog cannot drift.  Tests added.
+4. **Kuna backend + seeding** — `decompiler.py` gained `fetch_kuna`
+   (`kuna decompile <bin> 0x<va> --addr`, graceful None when absent) and
+   `kuna_seed_source` (fetch + fixup + validity gate); `rebrew match
+   --kuna-seed` injects it into the GA's initial population (`--dry-run`
+   previews the seed, no GA run).  9 tests.
+
+Gates: full suite green, ruff + mypy clean, pre-commit all stages.
+
+## 2026-08-22 — struct recovery from decompiler output (`rebrew recover-structs`)
+
+User: "if kuna can help us recover more structs its in guild-rebrew that
+would be good".  Built the struct-recovery capability in rebrew and verified
+the pipeline against the real guild-rebrew project.
+
+- **`rebrew recover-structs`** (`struct_recover.py`) — decompiles functions
+  (backend-pluggable: kuna/r2ghidra/r2dec/ghidra/auto), parses member-access
+  evidence (`->field_N`/`->field_0xN` offsets, `*(T *)(p + 0xN)` casts with
+  width from T), groups by the pointer's NAMED base type (pseudo-types never
+  name a struct), and synthesizes `typedef struct name_s { ... } name;` with
+  `gap_XXXX` padding (guild convention).  Merge step compares against
+  existing structs (struct_parser) and marks NEW vs already-declared;
+  `--apply FILE` appends only the NEW definitions (C89-safe).  `--all`,
+  `--functions VA,VA`, `--filter`, `--limit`, `--json`.
+- **`_find_re_tool` fix** — probes `rizin` (the upstream binary name) in
+  addition to `rz`/`r2`; the local rizin install was invisible to the
+  decompiler backends.
+- Verified on guild-rebrew (`original/Server/server.dll`): config + function
+  enumeration work; the run reports the honest backend-availability error
+  until kuna (or a rizin ghidra plugin) is installed — the tool is ready to
+  produce struct candidates the moment a backend exists.
+- 13 tests (evidence parsing incl. widths/pseudo-types, synthesis padding,
+  merge/new detection, CLI with mocked decompiler).
+
+**Follow-on (same day, kuna installed + real run):** the first real run
+against guild showed the initial parser dropped ALL evidence — kuna types
+everything as `int a0` / `short *a0` and accesses via cast-derefs
+(`*(char *)(a0 + 0x10)`, `*(int *)(a0 + 0x11)`, decimal `(a0 + 3)`,
+array-index `*(int *)&a0[10]`), so no named base type ever appeared.
+- **Anonymous candidates** — cast-derefs now capture the variable;
+  evidence with unknown/pseudo pointer types is grouped by variable name
+  into `ParseResult.anonymous`, reported with a synthesized layout (never
+  auto-applied; user names the type in Ghidra and re-runs).  Semantic var
+  names (`pPlayer`, `this`) get a type name with the Hungarian `p`/`lp`
+  prefix stripped; compiler temps (`v1`, `local_8`, `uVar2`, `var_10h`)
+  are dropped; named types still win over pseudo casts.
+- **Hex + decimal offsets** (`(a0 + 3)`), **array-index scale**
+  (`&a0[10]` on `short *a0` → byte offset 0x14 = idx × element width,
+  with the cast supplying the access width).
+- **Absolute-address filter** — kuna folds `global_base + index` into
+  `var + 0xADDR` (seen: `a0 = idx * 0x21c; *(short *)(a0 + 0x100358A0)`);
+  offsets ≥ the target's image base (from `load_binary`) are dropped, so
+  globals never leak into layouts.
+- **Guild verification (scratch copy `/tmp/guild-probe`, 68 command
+  functions decompiled)**: one `a0` anonymous candidate shared by **48
+  functions** with a consistent 0x3…0x3F layout (offsets 0x3, 0x6, 0x10,
+  0x11, 0x14, 0x18, 0x1a, 0x1f, 0x26, 0x27, 0x35, 0x3f), plus `a1`
+  (20 funcs) and `a2` — strong evidence of the shared command-packet
+  struct.  The guild folder itself was never touched (read-only tool +
+  scratch-copy runs).
+- 28 tests in `test_struct_recover.py` (13 → 28 with the anonymous
+  candidates, array-index, decimal-offset and address-cap coverage; CLI
+  JSON asserts both named and anonymous paths).
+
+**Follow-on 2 (same day, naming pass):** the recovered layouts are only
+useful if they flow back into kuna's output.  Since kuna can't ingest
+named data (no CLI type input; even the Ghidra-extension path is Phase 2,
+names/types at scale is Phase 3 upstream), rebrew applies the names itself.
+- **`rebrew decompile 0xVA [--named]`** (`name_decomp.py`) — decompile one
+  function (kuna/r2ghidra/ghidra backends) and optionally rewrite
+  anonymous pointers to the project's declared structs: signature typing
+  (`int a1` → `command_s *a1`), cast-derefs (`*(int *)(a1 + 0x10)` →
+  `a1->field_10`), array-index form (`*(unsigned int *)&v2[10]` →
+  `v2->field_14`), bare address arithmetic (`sub(a0 + 0x10)` →
+  `sub(&a0->field_10)`), and `vN = aN;` alias inheritance.  Matching:
+  smallest complete struct with ≥1 exact non-`gap_*` field hit and all
+  evidence offsets within its span; misaligned reads into padding, named
+  cast types, and image-base addresses are left untouched.
+- `struct_field_layout` parses typedef bodies (typed/pointer/array fields,
+  multi-dim, `unsigned` prefixes); bitfields/embedded structs mark the
+  layout incomplete so it never matches.  `struct_recover` gained a public
+  `pointer_element_widths()` helper for the array-index scale.
+- **Guild verification (scratch copy)**: `rebrew decompile 0x1000d350
+  --named` with a `command_s` header (named from the recovered a0 layout)
+  → `unsigned int sub_1000d350(int a0,command_s *a1,char *a2)` with
+  `a1->field_10`, `a1->field_16`, `v3->field_16` (alias), the global-array
+  `a0 + 0x100358a0` accesses untouched.  The guild folder itself is still
+  untouched (only the /tmp probe gained the test header).
+- 16 tests in `test_name_decomp.py` (layout parsing incl. incomplete
+  markers, signature + access + alias + array rewrites, width-mismatch
+  casts, smallest-struct tiebreak, CLI JSON both raw and named).
+- Gates: full suite 4835 → **4851 passed** / 34 skipped, ruff clean, mypy
+  clean, `ruff format --check` clean, pre-commit all stages green.  Also fixed pre-existing reds found by the
+  gate: W022's undefined `_strip_c_comments_strings` helper (now
+  implemented, comment/string-quote-aware, 3 new tests), W023 missing
+  from the ANNOTATIONS.md lint table, wine-constraint tests matching the
+  new docker wording.
+- Gates: full suite 4835 passed / 34 skipped, ruff clean, mypy clean,
+  `ruff format --check` clean, pre-commit all stages green.

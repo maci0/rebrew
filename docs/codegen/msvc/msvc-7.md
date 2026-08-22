@@ -94,6 +94,30 @@ first to post-shift division magic.
   - **`__fastcall` register fusion** — `__fastcall` args `ecx`/`edx`
     fuse via `lea eax,[ecx+edx]` (`8d 04 11`) from VC 7.0 on (VC
     2.0–6.0: `mov eax,[esp+4]` first).  Verified in probe5 (`fc1`).
+  - **FP-loop unrolling ×4** — FP accumulation loops peel 4 iterations
+    (`cmp esi,4; jl`) from VC 7.0 on; VC 5.0/6.0 keep the tight x87
+    loop in st0, VC 2.0/4.x keep the accumulator in memory.  Verified
+    in probe8 (`fs1`/`fs2`).
+  - **combined divmod** — `x/N + x%N` compiles to a SINGLE division
+    (`idiv ecx; add eax,edx` / `div` + remainder arithmetic) from VC
+    7.0 on; VC 2.0–6.0 emit TWO separate divisions.  Verified in
+    probe9 (`dm3`/`udm3`); the magic-based forms of 8.0+ derive the
+    remainder from the quotient.
+  - **64-bit compares: direct memory operands** — `__int64` `<`/`==`/
+    `!=`/`>=` compare the high and low dwords directly against
+    memory (`3b 44 24 10 … 3b 4c 24 0c`, 31B) from VC 7.0 on; VC
+    5.0/6.0 load both operands into registers first (35B); VC 4.1
+    uses `39 44`-forms.  Verified in probe10 (`i64lt/eq/ne/ge`).
+  - **FP libcall args: `fstp`-temp vs `push`-pair** — `floor(a)`/
+    `ceil(a)` pass the double via `fld; fstp [esp]` in 7.0 RTM and via
+    `push`-pair in 7.0 SP1 (marshalling change).
+  - **indirect tail call `jmp [mem]`** — `(*fp)(x)` compiles to a
+    bare `jmp [fp]` from VC 7.0 on (VC 2.0–6.0: `call [fp]; add
+    esp,4; ret`).  Verified in probe8 (`indirect`).
+  - **static-helper inlining at /O2** — small static helpers called
+    once/twice/in a loop are inlined from VC 7.0 on (11–12B callers);
+    VC 2.0–6.0 keep the call at both /O2 and /O1.  Verified in probe12
+    (`f1`/`f2`/`fl`).
   - (Not unique: `imul eax,eax,7` for `x*7` — Watcom shares it; the
     `/O1` `lea eax,[eax+eax*2]` for `x*3` — GCC shares it.)
   Distinguish 7.0 from 7.1 via Rich build (9466/9955 = 7.0, 3077/6030
@@ -101,15 +125,20 @@ first to post-shift division magic.
 
 ## Service packs (probed for the first time)
 
-- **VC 7.0 SP1 is the ONLY service pack with a verified codegen
-  difference in the whole sweep.**  FP equality `a==b`: VC 7.0 RTM
-  emits `fld; fld; fucompp; fnstsw ax; test ah,0x44` (`da e9`) — VC
-  7.0 SP1 emits `fld; fcomp [mem]; fnstsw ax; test ah,0x44` (`dc 5c
-  24 0c`, 2 bytes shorter).  Verified in probe5 `fcmp2` at both /O1
-  and /O2.  The fucompp style is shared by 7.1 (RTM+SP1) and 10.0
-  (RTM+SP1); the fcomp style by 2.0–6.0, 8.0 and 9.0 — so the RTM↔
-  SP1 flip is a genuine SP-level fingerprint: `da e9` at offset 4 =
-  7.0 RTM, `dc 5c 24 0c` = 7.0 SP1.
+- **VC 7.0 SP1 is the ONLY service pack with verified codegen
+  differences — spanning NINE probe functions.**  (a) The `==`/`!=` FP
+  family is structurally different: `fcmp2` (`a==b`), `fc5`
+  (`a!=0.0`), `fc8` (`a!=b`), `fc9` (`a==0.0`) all switch from the
+  two-load `fucompp` (`da e9`) to the single memory-operand
+  `fcomp [mem]` (`dc 5c 24 0c`, 2 bytes shorter).  (b) The FP-loop
+  functions `fs1`/`fs2`/`fs3`/`ff1` and the char-array `cb16` differ
+  in register allocation (edx↔ecx swaps, same sizes) — scheduling
+  fixes, not structural.  The relational compares and everything else
+  are unchanged.  Verified in probes 5/7/8 at both /O1 and /O2.
+  The fucompp style is shared by 7.1 (RTM+SP1) and 10.0 (RTM+SP1);
+  the fcomp style by 2.0–6.0, 8.0 and 9.0 — so the RTM↔SP1 flip is a
+  genuine SP-level fingerprint: `da e9` = 7.0 RTM, `dc 5c 24 0c` =
+  7.0 SP1.
 
 ## Version deltas
 

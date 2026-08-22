@@ -23,6 +23,7 @@ To load a specific target::
     cfg = load_config(target="client_exe")
 """
 
+import os
 import re
 import shlex
 import sys
@@ -217,7 +218,7 @@ class ProjectConfig:
 
     # --- project-level defaults ---
     project_name: str = ""
-    default_jobs: int = 4  # Default parallelism for batch operations
+    default_jobs: int = os.cpu_count() or 4  # Default parallelism for batch operations
     db_dir: Path = field(default_factory=lambda: Path())
     output_dir: Path = field(default_factory=lambda: Path())
 
@@ -298,6 +299,13 @@ class ProjectConfig:
     source_ext: str = ".c"  # Source file extension (e.g. ".c", ".cpp")
     ghidra_program_path: str = ""
     ghidra_backend: str = "reva"  # "reva" (MCP) or "cli" (ghidra-cli binary)
+
+    # --- Lint configuration ---
+    lint_naming_convention: str = "none"  # "snake_case", "camelCase", or "none"
+    lint_brace_style: str = "none"  # "same_line", "new_line", or "none"
+    lint_indent_style: str = "none"  # "spaces", "tabs", or "none"
+    lint_indent_size: int = 4  # Number of spaces per indent level
+    lint_max_line_length: int = 200  # Maximum line length
 
     # --- All known target names ---
     all_targets: list[str] = field(default_factory=list)
@@ -421,7 +429,13 @@ def _parse_str_list(values: list[Any] | None, field_name: str) -> list[str]:
 
 
 def _safe_int(value: Any, default: int, field_name: str = "integer") -> int:
-    """Convert *value* to int, returning *default* on failure."""
+    """Convert *value* to int, returning *default* on failure.
+
+    ``None`` (not set) returns *default* silently — matching ``_as_str`` —
+    so absent optional keys never warn on an otherwise valid config.
+    """
+    if value is None:
+        return default
     try:
         return int(value)
     except (ValueError, TypeError):
@@ -793,6 +807,7 @@ _KNOWN_PROJECT_KEYS = {
     "db_dir",
     "output_dir",
     "default_target",
+    "lint",
 }
 
 _KNOWN_FORMATS = {"pe", "elf", "macho", "ne", "mz"}
@@ -1149,6 +1164,32 @@ def load_config(
         ),
         ghidra_backend=ghidra_backend_val,
         all_targets=all_target_names,
+        # lint configuration
+        lint_naming_convention=_as_str(
+            (_as_table(project_raw.get("lint", {}), "project.lint")).get("naming_convention"),
+            "none",
+            "project.lint.naming_convention",
+        ),
+        lint_brace_style=_as_str(
+            (_as_table(project_raw.get("lint", {}), "project.lint")).get("brace_style"),
+            "none",
+            "project.lint.brace_style",
+        ),
+        lint_indent_style=_as_str(
+            (_as_table(project_raw.get("lint", {}), "project.lint")).get("indent_style"),
+            "none",
+            "project.lint.indent_style",
+        ),
+        lint_indent_size=_positive_int(
+            (_as_table(project_raw.get("lint", {}), "project.lint")).get("indent_size"),
+            4,
+            "project.lint.indent_size",
+        ),
+        lint_max_line_length=_positive_int(
+            (_as_table(project_raw.get("lint", {}), "project.lint")).get("max_line_length"),
+            200,
+            "project.lint.max_line_length",
+        ),
     )
 
     # Auto-detect CRT sources if not explicitly configured

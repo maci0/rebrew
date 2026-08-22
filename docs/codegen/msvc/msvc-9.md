@@ -62,16 +62,23 @@ MSVC 9.0 (VS 2008, CL 15.00.21022; SP1 = 15.00.30729).  First version to
   `movsx`=2, `movzx`=5, same magic set).  Identity via Rich build
   21022/30729 + linker 9.0.
 - **Service pack:** 9.0 SP1 is codegen-identical to 9.0 RTM at `/Od`
-  (probe5).  The `/O1`/`/O2` comparison is **blocked**: the
-  `rebrew/msvc:9.0-sp1-win32` image is missing `sched.dll`
-  (C1350 "error loading dll") — a packaging defect in the image, not
-  a compiler behavior.
+  (probe5).  The `/O1`/`/O2` comparison is **blocked**: the SP1
+  compiler needs `sched.dll` (C1350 "error loading dll"), and the DLL
+  was never vendored into any image — verified absent from the 9.0
+  RTM, 9.0 SP1, 10.0, 10.0 SP1 and 11.0 images (a packaging defect,
+  not a compiler behavior).  A workaround by staging `sched.dll` from
+  another image is not possible — no image has it.
 
 ## Version deltas
 
 - From VC 8.0: loop unrolling (the visible change); nop register ebx in
   `bigstack` (already observed in 8.0).
 - To VC 10.0: nothing verified in codegen (identical census).
+
+## Probe12: static-helper inlining — verified positive
+
+Small static helpers inline at /O2 and /O1 (11–12B callers), matching
+the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 
 ## Verification
 

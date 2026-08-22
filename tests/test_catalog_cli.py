@@ -50,6 +50,9 @@ class TestCatalogCli:
         stale structure cache diverging from the freshly-written data JSON
         (idempotency-review F5)."""
         cfg = _patch(monkeypatch, tmp_path)
+        # load_func_list only calls parse_function_list when the list file
+        # exists — provide the fixture so the mocked list is actually used.
+        cfg.function_list.write_text("0x10001000 32 f_a\n0x10002000 64 f_b\n", encoding="utf-8")
         monkeypatch.setattr(
             catalog_cli,
             "parse_function_list",

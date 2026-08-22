@@ -38,7 +38,7 @@ MSVC static CRT, `/MT /O2 /Gd`) fill missing fields via presets.  See
 uv pip install -e .
 uv sync --all-extras            # with dev deps
 
-# Run all tests (~4620)
+# Run all tests (~4850)
 uv run pytest tests/ -v
 
 # Single file
@@ -150,7 +150,8 @@ src/rebrew/
 ├── naming.py            # Naming/difficulty/origin helpers (next, skeleton, triage)
 ├── binary_loader.py     # PE/COFF/ELF/Mach-O loading + format detection (via LIEF)
 ├── extract.py           # Batch extract + disassemble functions
-├── decompiler.py        # Pluggable decompiler backend (r2ghidra, r2dec, Ghidra headless)
+├── decompiler.py        # Pluggable decompiler backend (r2ghidra, r2dec, ghidra, kuna) — kuna also seeds the GA (--kuna-seed)
+├── cfg_ged.py           # CFG structural similarity (basic-block graph edit distance; feeds near-diag)
 ├── gen_flirt_pat.py     # Generate FLIRT .pat from MSVC6 COFF .lib archives
 ├── signature_parser.py  # Extract function signatures from C (tree-sitter)
 ├── split.py             # Split multi-function C files into singles
@@ -159,6 +160,8 @@ src/rebrew/
 ├── analysis.py          # Recon primitives: iter_strings, scan_references (Xref/Insn/StringEntry), string_refs
 ├── analyze.py           # One-shot dossier (toolchain, strings, imports, dispatch, FLIRT, NEAR_MATCHING blockers)
 ├── pe_headers.py        # PE header helpers (image base, section math)
+├── ne_loader.py         # NE (New Executable) loader — 16-bit Windows 3.x format detection + parsing
+├── headless.py          # Headless X server management for wine compiler invocations
 ├── wibo.py              # Auto-download + verify wibo (lightweight Wine alternative)
 ├── compile_cache.py     # Disk-backed compile cache (diskcache, SHA-256 keyed)
 ├── metadata.py          # Per-directory rebrew-function.toml loader/writer; update_source_status is canonical STATUS writer
@@ -169,6 +172,9 @@ src/rebrew/
 ├── prove.py             # Symbolic equivalence prover via angr (optional)
 ├── delphi16.py          # Delphi 1.0 (16-bit) compile support — DOSBox sandbox + NE parse
 ├── msvc16.py            # MSVC 1.52 (16-bit) compile support — DOSBox + OMF object
+├── tc16.py              # Turbo C 2.0/C++ 3.1 (16-bit) compile support — DOSBox + tiny-model output
+├── lzexe.py             # LZEXE 0.90/0.91 DOS unpacker core (CLI in lzexe_cli.py)
+├── library.py           # rebrew-library.toml per-library overrides + `rebrew library` CLI group
 ├── dosbox.py            # Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads)
 ├── toolchain.py         # Toolchain abstraction: spec registry, docker-only runner (images for Windows/DOS, native for Linux compilers)
 ├── toolchain_cli.py     # `rebrew toolchain` CLI (list/status/detect/pull/build)
@@ -185,6 +191,14 @@ src/rebrew/
 ├── asm.py               # Disassemble (hex/NASM); --imports/--strings/--hints annotate IAT, strings, codegen patterns (post-decrement, SEH, CRT magic, switch dispatch incl. byte-compressed, IAT forwarder, EH-ctor, esp-disp8); detect_function_pattern + calling_convention
 ├── switch.py            # `rebrew switch` — decode jump-table switches (case → handler; --all recon)
 ├── skeleton.py          # Generate skeleton C files (convention-aware stubs; --batch --skip-fragments; stale-size warnings)
+├── fixup.py             # `rebrew fix` — DecBench-style compilability fixup for decompiler output
+├── struct_recover.py    # `rebrew recover-structs` — struct typedefs from decompiler offset evidence
+├── document_unmatched.py# STUB skeletons + blockers for remaining functions (`rebrew document-unmatched`)
+├── postlink.py          # `rebrew postlink` — normalize built-binary layout onto the reference
+├── cross_import.py      # `rebrew cross-import` — import functions matched in another target
+├── lzexe_cli.py         # `rebrew unpack-lzexe` — unpack LZEXE 0.90/0.91 DOS executables
+├── binsync_import.py    # Import a BinSync state dir into rebrew metadata
+├── binsync_diff.py      # Read-only BinSync divergence report
 ├── lint.py              # Lint C annotations
 ├── llm_seed.py          # LLM alternative-implementation seeding for GA (--llm-seed)
 ├── near_diag.py         # Classify why NEAR_MATCHING doesn't byte-match (register/equiv/reloc/structural + EFFECTIVE)
@@ -231,6 +245,7 @@ src/rebrew/
 │   ├── compiler.py      # MSVC6 compilation + flag sweep (docker images)
 │   ├── scoring.py       # Byte scoring, structural similarity (capstone + numpy)
 │   ├── mutator.py       # 119 C mutation operators for GA
+│   ├── omf16.py         # Minimal 16-bit OMF parser (MSVC 1.52 dialect — code + reloc slots for the 16-bit path)
 │   ├── ast_engine.py    # tree-sitter AST mutation helpers
 │   ├── parsers.py       # Object parsing (COFF/ELF/Mach-O via LIEF)
 │   ├── flags.py         # FlagSet/Checkbox primitives (decomp.me compatible)
@@ -263,6 +278,14 @@ overridable via `REBREW_TOOLCHAINS_DIR`).  `rebrew toolchain build`/
 `vendor`/`update` read it from there; `rebrew.toolchain._toolchains_repo()`
 resolves it (a missing checkout is an actionable error).
 
+`agent-skills/` is the single source of truth for AI workflow skills
+(packaged; served by `rebrew skills list/show` — `src/rebrew/skills.py`).
+`rebrew init` renders it into a project's `.agents/skills/`, substituting
+`<target>` with the target name (`init._copy_agent_skills`).  This repo's own
+`.agents/skills/` is one such rendered copy (target `bench`) — edit
+`agent-skills/`, then re-render; `tests/test_skills_sync.py` pins the copy and
+`tools/validate_skill_commands.py` gates stale CLI flags in SKILL.md files.
+
 ### CLI Tool Pattern
 
 Single-command tools follow this pattern:
@@ -293,7 +316,7 @@ if __name__ == "__main__":
 - `TargetOption` + `require_config()` from `rebrew.cli` — never build config manually. Use `load_config()` from `rebrew.config` only for optional loads (e.g. `lint.py`, `doctor.py`).
 - `main_entry()` registered in `pyproject.toml` `[project.scripts]`.
 - Most tools support `--json`; always use it for structured output when invoking them yourself.
-- Multi-command modules: `cfg.py` (`list-targets`, `show`, `add-target`, `remove-target`, `add-module`, `remove-module`, `set`, `set-cflags`, `raw`, `path`, `detect-crt`) and `cache_cli.py` (`stats`, `clear`), both via `add_typer()` in `main.py`.
+- Multi-command modules (registered via `add_typer()` in `main.py`'s `_MULTI_COMMANDS`): `extract.py` (`list`, `show`, `batch`), `cfg.py` (`list-targets`, `show`, `add-target`, `remove-target`, `add-module`, `remove-module`, `set`, `set-cflags`, `raw`, `path`, `detect-crt`), `cache_cli.py` (`stats`, `clear`), `skills.py` (`list`, `show`), `resource.py`, `library.py`, `toolchain_cli.py` (`list`, `status`, `detect`, `pull`, `build`, `vendor`, `smoke`, `update`, `check-updates`).
 
 ### CLI Conventions
 

@@ -864,6 +864,44 @@ class TestE023NakedAsm:
         result = self._lint(tmp_path, body)
         assert not any(c == "E023" for _, c, _ in result.errors)
 
+    def test_metadata_cflags_rebrew_allow_naked_skips_e023(self, tmp_path: Path) -> None:
+        """REBREW_ALLOW_NAKED in rebrew-function.toml (not source) suppresses E023."""
+        metadata_toml = tmp_path / "rebrew-function.toml"
+        metadata_toml.write_text(
+            '["SERVER.0x10008880"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n',
+            encoding="utf-8",
+        )
+        content = (
+            "// FUNCTION: SERVER 0x10008880\n"
+            "__declspec(naked) int f(void) {\n"
+            "    __asm { push ebp }\n"
+            "    __asm { mov eax, 1 }\n"
+            "    __asm { ret }\n"
+            "}\n"
+        )
+        f = _write_c(tmp_path, "naked.c", content)
+        result = lint_file(f)
+        assert not any(c == "E023" for _, c, _ in result.errors), (
+            f"E023 must not fire when metadata cflags carry /DREBREW_ALLOW_NAKED, "
+            f"got errors={result.errors}"
+        )
+
+    def test_metadata_cflags_without_guard_keeps_e023(self, tmp_path: Path) -> None:
+        """Metadata cflags that lack REBREW_ALLOW_NAKED must not suppress E023."""
+        metadata_toml = tmp_path / "rebrew-function.toml"
+        metadata_toml.write_text('["SERVER.0x10008880"]\ncflags = "/O2 /Gd"\n', encoding="utf-8")
+        content = (
+            "// FUNCTION: SERVER 0x10008880\n"
+            "__declspec(naked) int f(void) {\n"
+            "    __asm { push ebp }\n"
+            "    __asm { mov eax, 1 }\n"
+            "    __asm { ret }\n"
+            "}\n"
+        )
+        f = _write_c(tmp_path, "naked2.c", content)
+        result = lint_file(f)
+        assert any(c == "E023" for _, c, _ in result.errors)
+
 
 class TestW021W022:
     """Duplicate-global (W021) and zero-init .bss (W022) checks."""
@@ -916,6 +954,38 @@ class TestW021W022:
         f = _write_c(tmp_path, "l.c", content)
         result = lint_file(f)
         assert not any(c == "W022" for _, c, _ in result.warnings)
+
+    def test_zero_init_in_comment_no_warning(self, tmp_path: Path) -> None:
+        from rebrew.lint import lint_file
+
+        # A commented-out zero-init at file scope must not warn, and a
+        # string literal that looks like one must not either.
+        content = (
+            "// FUNCTION: SERVER 0x1000\n"
+            "// int g_buf[4] = {0};  // old layout\n"
+            'const char *kMsg = "= 0";\n'
+            "void f(void) {}\n"
+        )
+        f = _write_c(tmp_path, "c.c", content)
+        result = lint_file(f)
+        assert not any(c == "W022" for _, c, _ in result.warnings)
+
+    def test_zero_init_after_multiline_comment_warns(self, tmp_path: Path) -> None:
+        from rebrew.lint import lint_file
+
+        # The file-scope preamble spans lines; the declaration after it must
+        # still be seen (block-comment state must not leak).
+        content = (
+            "/*\n"
+            " * preamble\n"
+            " */\n"
+            "// FUNCTION: SERVER 0x1000\n"
+            "int g_buf[4] = {0};\n"
+            "void f(void) {}\n"
+        )
+        f = _write_c(tmp_path, "m.c", content)
+        result = lint_file(f)
+        assert any(c == "W022" for _, c, _ in result.warnings)
 
 
 class TestDuplicateVAMultiBlock:

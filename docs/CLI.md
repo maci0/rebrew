@@ -7,6 +7,9 @@ reads defaults (binary path, reversed_dir, compiler settings) from the project c
 Run any tool with `--help` to see usage examples and context
 (typer `rich_markup_mode="rich"` with epilog text).
 
+New to rebrew?  Start with the [first-run walkthrough](ONBOARDING.md)
+(`rebrew init` → `rebrew intake` → `rebrew doctor` in ~5 minutes).
+
 ## Typical Workflow
 
 ```
@@ -370,11 +373,31 @@ the `wine ` prefix) for faster headless compiles.
 | `--fix` | Auto-migrate old source marker formats |
 | `--dry-run` | Preview changes without writing |
 | `--quiet` | Suppress warnings, show errors only |
+| `--pedantic` | Warn on functions with default names (fcn, fn, fun, etc.) |
 | `--json` | Machine-readable JSON output |
 | `--summary` | Print status/origin breakdown table |
 | `FILE...` | Specific files to check (positional) instead of full scan |
 
-See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–E017, W001–W019).
+Project-specific linting rules can be configured in `rebrew-project.toml` under `[project.lint]`:
+- `naming_convention`: "snake_case", "camelCase", or "none" (default)
+- `brace_style`: "same_line", "new_line", or "none" (default)
+- `indent_style`: "spaces", "tabs", or "none" (default)
+- `indent_size`: integer (default: 4)
+- `max_line_length`: integer (default: 200)
+
+See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–E017, W001–W027).
+
+### `rebrew refactor`
+
+`rebrew refactor [--root DIR] [--min-lines N] [--json]`
+
+Scan the project's Python files and print lightweight refactoring
+recommendations per file: oversized modules, TODO density, missing
+`from __future__ import annotations` / type hints, and for/while-loop
+counts (heuristics only — a starting point for maintainers, not an
+enforced rule).  `--min-lines` filters to files longer than N lines
+(default 200).  `--json` emits `{files: [{file, lines, too_long, todos,
+missing_typing, for_loops, while_loops, suggestions}]}`.
 
 ### `rebrew catalog`
 
@@ -526,6 +549,7 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 | `--binary NAME` | Binary filename (default: `program.exe`) |
 | `--compiler PROFILE` | Compiler profile (default: `msvc6`) |
 | `--guess-compiler` | Auto-select the compiler profile from the target binary (diec → PDB → heuristics; prefers the 16-bit profile for DOS/NE binaries — requires the binary in `original/`) |
+| `--wizard` / `--no-wizard` | Interactive onboarding wizard (default: on; TTY only, never under `--json` or piped stdin).  Prompts only for options not passed explicitly: binary pick from `original/`/cwd, compiler profile with detection-based suggestion from the binary, target name (binary stem), a summary confirmation, and shell completions — then reports the profile's docker image state and offers `rebrew toolchain build <profile>` when it is missing. |
 | `--json` | Output results as JSON |
 
 - `--link-tools-from PATH` — symlink `toolchain/<family>/<version>-<arch>` from a master toolchain
@@ -880,6 +904,90 @@ A frame delta is a classic per-function flag symptom (`/Oy`, `/O1` vs `/O2`,
 `/Gs` probes, calling convention) — the hints point at the exact flag, which
 is the actionable signal when tuning static-CRT / vendored-zlib LIBRARY
 functions per-function.  Exits 1 when the frames differ, 2 on build failure.
+
+### `rebrew fix`
+
+`rebrew fix SOURCE.c [--dry-run] [--out PATH] [--json]`
+
+Make raw decompiler output (Ghidra, r2ghidra, r2dec, Kuna, angr) compilable
+so rebrew can byte-match it — the DecBench fairness pass:
+
+- **sanitize** — decompiler pseudo-types (`undefined4` → `int`,
+  `undefined1` → `char`, `byte` → `unsigned char`, `qword` → `unsigned long
+  long`), qualified symbols (`GLIBC_2.2.5::stderr` → `stderr`), junk
+  specifiers, leading `*` casts.
+- **inject** — from compiler errors: missing typedefs for undeclared type
+  names and prototypes for implicitly-declared functions, never redefining
+  what the source declared.
+
+Writes `<file>.fixed.c` by default (`--out` to override, `--dry-run` to
+print instead).  Also used internally by `rebrew match --kuna-seed`.
+
+### `rebrew recover-structs`
+
+`rebrew recover-structs [--all | --functions VA,VA | --filter SUBSTR] [--decompiler kuna|r2ghidra|r2dec|ghidra|auto] [--limit N] [--apply FILE] [--json]`
+
+Recover struct definitions by decompiling functions and aggregating their
+member-access offsets per pointer base.  Parses `->field_N` /
+`->field_0xN` accesses (Ghidra/Kuna style), `*(T *)(p + 0xN)` casts
+(width from *T*, hex or decimal offsets), and Kuna's array-index form
+(`*(int *)&a0[10]` — byte offset = index × element width).  Evidence is
+grouped by the pointer's named base type, and synthesized into
+`typedef struct name_s { ... } name;` definitions with `gap_XXXX` padding
+(the decomp convention).  Pseudo-types (`undefined4`, `byte`, ...) never
+name a struct — but their pointer evidence is NOT lost: it is reported as
+**anonymous candidates** (Kuna's `int a0` params, Ghidra's
+`undefined4 *this`) grouped by variable name, with a synthesized layout so
+you can name the type in Ghidra and re-run for a named struct.  Meaningful
+variable names (`pPlayer`, `this`) get a type name with the Hungarian
+prefix stripped; compiler temporaries (`v1`, `local_8`) are dropped.
+Offsets at or above the target's image base are absolute addresses (Kuna
+folds `global_base + index` into `var + 0xADDR`) and are filtered out.
+
+The merge step compares against the project's existing structs
+(`struct_parser`) and marks each result NEW vs already-declared; `--apply
+FILE` appends the NEW definitions (C89-safe) — never the anonymous ones
+(they need a user-chosen name first).  Backend-pluggable — needs
+`kuna` on PATH (github.com/Noelo-Lab/kuna), a rizin/radare2 ghidra plugin,
+or a Ghidra MCP endpoint.  For guild-rebrew-style projects this is the
+"recover more structs" workflow.
+
+### `rebrew decompile`
+
+`rebrew decompile 0xVA [--decompiler kuna|r2ghidra|r2dec|ghidra|auto] [--named] [--json]`
+
+Decompile one function and print the pseudo-C (raw `print()`, pipeable to a
+file).  Backend-pluggable, same backends as `recover-structs` (needs `kuna`
+on PATH or the rizin/MCP backend).
+
+`--named` applies the **known-struct naming pass** (`rebrew.name_decomp`):
+decompiler output types struct pointers as primitives (`int a1` +
+`*(int *)(a1 + 0x10)`), so the pass matches each anonymous pointer variable
+against the project's declared structs (from the reversed sources and
+`library_*.h` headers) and rewrites::
+
+    unsigned int sub_1000d350(int a0,command_s *a1,char *a2)
+    a1->field_10 = dat_10030b6c;      // was *(unsigned int *)(a1 + 0x10)
+    v3->field_16 = v4;                // v3 = a1; alias inherits the match
+    sub_1000b1c0(&a1->field_10);      // was sub_1000b1c0(a1 + 0x10)
+
+Matching is conservative: the variable is typed only when at least one
+accessed offset is an exact (non-padding) field of the smallest covering
+struct, and every access falls within its span; misaligned reads into
+`gap_*` padding are left as written.  This is the "feed the recovered
+structs back in" loop — `recover-structs` recovers the layout as an
+anonymous candidate, you name the type (e.g. `command_s`) in a header, and
+`--named` picks it up.  `--json` returns `{va, backend, named, applied,
+code}` where `applied` lists `{var, struct, offsets}`.
+
+### `rebrew postlink`
+
+`rebrew postlink BUILT REFERENCE [--fix imports|data|pe-metadata] [-o OUT]`
+
+Normalize a built binary's layout onto a reference binary (post-link
+fixes) — import table, data sections, and PE metadata convergence, in
+place by default (`--output` to write elsewhere).  For byte-identical
+rebuild verification where the linker layout differs from the original.
 
 ### `rebrew analyze`
 

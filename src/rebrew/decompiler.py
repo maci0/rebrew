@@ -32,8 +32,10 @@ import httpx
 _ANSI_RE = re.compile(r"\x1B\[[0-9;]*[a-zA-Z]")
 
 # Auto-probe order when backend="auto" (ghidra is available for explicit
-# use but not auto-probed; use backend='ghidra' with MCP configuration)
-BACKENDS = ("r2ghidra", "r2dec")
+# use but not auto-probed; use backend='ghidra' with MCP configuration).
+# kuna (the agent-first Ghidra-port decompiler) is probed last — a separate
+# binary, slower to start than r2's in-process plugins.
+BACKENDS = ("r2ghidra", "r2dec", "kuna")
 
 _DEFAULT_MCP_ENDPOINT = "http://localhost:8080/mcp/message"
 _MCP_TIMEOUT_S = 30.0
@@ -53,13 +55,13 @@ def _clean_output(text: str) -> str | None:
 def _find_re_tool() -> str | None:
     """Return the radare2/rizin binary name available on PATH.
 
-    Prefers rizin (``rz``) over radare2 (``r2``).  Returns ``None`` if
-    neither is installed.
+    Prefers rizin (``rz``) over radare2 (``r2``); the ``rizin`` name (the
+    upstream binary on Debian/Ubuntu and some distros) is probed too.
+    Returns ``None`` if none is installed.
     """
-    if shutil.which("rz"):
-        return "rz"
-    if shutil.which("r2"):
-        return "r2"
+    for name in ("rz", "r2", "rizin"):
+        if shutil.which(name):
+            return name
     return None
 
 
@@ -116,6 +118,37 @@ def fetch_r2dec(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None
     return _run_re(binary, va, "pdd", root)
 
 
+def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
+    """Fetch decompilation from the Kuna decompiler (agent-first Ghidra port).
+
+    Requires the ``kuna`` binary on PATH (github.com/Noelo-Lab/kuna — a
+    single Rust binary).  Runs ``kuna decompile <binary> 0x<va> --addr``
+    (Kuna's CLI takes an address with ``--addr``) and returns the cleaned C
+    printed to stdout.  Returns ``None`` when kuna is unavailable or fails,
+    exactly like the other optional backends.
+    """
+    if not binary.exists():
+        return None
+    kuna = shutil.which("kuna")
+    if kuna is None:
+        return None
+    try:
+        result = subprocess.run(
+            [kuna, "decompile", str(binary), f"0x{va:x}", "--addr"],
+            capture_output=True,
+            text=True,
+            cwd=root,
+            timeout=180,
+        )
+        if result.returncode == 0 and result.stdout:
+            return _clean_output(result.stdout)
+    except subprocess.TimeoutExpired:
+        warnings.warn(f"kuna timed out decompiling 0x{va:08x}", stacklevel=2)
+    except (OSError, subprocess.SubprocessError) as e:
+        warnings.warn(f"kuna failed decompiling 0x{va:08x}: {e}", stacklevel=2)
+    return None
+
+
 def fetch_ghidra(
     binary: Path,
     va: int,
@@ -170,10 +203,27 @@ def fetch_ghidra(
         return None
 
 
+def kuna_seed_source(binary: Path, va: int, root: Path) -> str | None:
+    """Fetch Kuna's decompilation of *va* and make it compilable (rebrew fix).
+
+    Returns the fixup'd C — a GA seed candidate — or ``None`` when kuna is
+    unavailable, fails, or the output is not valid C.
+    """
+    raw = fetch_kuna(binary, va, root)
+    if not raw:
+        return None
+    from rebrew.fixup import sanitize_tokens
+    from rebrew.llm_seed import _valid_c_source
+
+    fixed, _ = sanitize_tokens(raw)
+    return fixed if _valid_c_source(fixed) else None
+
+
 _BACKEND_MAP = {
     "r2ghidra": fetch_r2ghidra,
     "r2dec": fetch_r2dec,
     "ghidra": fetch_ghidra,
+    "kuna": fetch_kuna,
 }
 
 

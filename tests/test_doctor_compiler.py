@@ -283,20 +283,21 @@ class TestCheckRunner:
         result = check_runner(_cfg(compiler_runner="wine"))
         assert result.status == _PASS
 
-    def test_wine_with_wibo_available_suggests_switch(
+    def test_wine_with_wibo_available_keeps_wine_default(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """wine configured + a wibo binary around → advisory recommending the
-        faster headless runner (with the exact config change)."""
+        """wine configured + a wibo binary around → informational note, NOT a
+        recommended switch: wibo fails on some tools, wine is the compatible
+        default (the docker images also run wine by default)."""
         monkeypatch.setattr(
             "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
         )
         monkeypatch.setattr("rebrew.wibo.find_wibo", lambda root: Path("/tmp/wibo"))
         result = check_runner(_cfg(compiler_runner="wine"))
-        assert result.status == _WARN
-        assert "wibo is available" in result.message
-        assert "tools/wibo" in (result.fix or "")
-        assert "compiler.command" in (result.fix or "")
+        assert result.status == _PASS
+        assert "wibo" in result.message
+        assert "fails on some tools" in result.message
+        assert (result.fix or "") == ""
 
     def test_unknown_runner_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("rebrew.doctor.shutil.which", lambda exe: None)
@@ -389,6 +390,35 @@ class TestDoctorCli:
         result = CliRunner().invoke(app, ["--install-wibo"])
         assert result.exit_code == 0
         assert 'runner = "tools/wibo"' in toml.read_text(encoding="utf-8")
+
+    def test_install_wibo_skips_rewrite_for_docker_backed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--install-wibo must NOT rewrite runner=tools/wibo for docker-backed
+        profiles: the image runs wine by default and wibo fails on some tools —
+        the config runner is obsolete for them (regression for the
+        'make wine the default' directive)."""
+        from typer.testing import CliRunner
+
+        from rebrew.doctor import app
+
+        cfg = SimpleNamespace(root=tmp_path, target_name="SERVER", compiler_profile="msvc6")
+        monkeypatch.setattr("rebrew.doctor.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.wibo.download_wibo", lambda p: "v1.0")
+        toml = tmp_path / "rebrew-project.toml"
+        toml.write_text('[compiler]\nrunner = "wine"\ncommand = "cl"\n', encoding="utf-8")
+        monkeypatch.setattr(
+            "rebrew.doctor.run_doctor",
+            lambda target=None: __import__("rebrew.doctor", fromlist=["DoctorReport"]).DoctorReport(
+                checks=[]
+            ),
+        )
+        result = CliRunner().invoke(app, ["--install-wibo"])
+        assert result.exit_code == 0
+        content = toml.read_text(encoding="utf-8")
+        assert 'runner = "wine"' in content
+        assert "tools/wibo" not in content
+        assert "docker-backed" in result.stderr
 
 
 class TestInstallWiboToml:

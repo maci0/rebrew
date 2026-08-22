@@ -1,6 +1,6 @@
 # AGENTS.md — matcher/
 
-GA engine for binary-matching decompilation. Compiles C with MSVC6 under Wine, scores byte similarity against targets, mutates source to converge on exact matches.
+GA engine for binary-matching decompilation. Compiles C through the docker-backed toolchain abstraction (wine lives inside the image; no host wine/wibo fallback), scores byte similarity against targets, mutates source to converge on exact matches.
 
 ## Module Map
 
@@ -9,10 +9,12 @@ GA engine for binary-matching decompilation. Compiles C with MSVC6 under Wine, s
 | `core.py` | Types (pure, no logic) | `Score`, `BuildResult`, `BuildCache`, `GACheckpoint`, `StructuralSimilarity` |
 | `compiler.py` | Compilation backend | `build_candidate()`, `build_candidate_obj_only(cache=)`, `flag_sweep(cache=)`, `generate_flag_combinations()` |
 | `scoring.py` | Binary comparison (pure) | `score_candidate()`, `diff_functions()`, `structural_similarity()` |
-| `mutator.py` | C mutations (pure) | `mutate_code()`, `mutate_chain()`, `MutationLog`, `crossover()`, `compute_population_diversity()`, 120 `mut_*` operators |
+| `mutator.py` | C mutations (pure) | `mutate_code()`, `mutate_chain()`, `MutationLog`, `crossover()`, `compute_population_diversity()`, 119 `mut_*` operators |
 | `parsers.py` | Object parsing (read-only) | `parse_obj_symbol_bytes()`, `list_obj_symbols()`, `extract_function_from_binary()` |
+| `omf16.py` | 16-bit OMF parsing (MSVC 1.52 dialect) | `detect_omf16()`, `parse_omf16()`, `parse_obj_omf16()` (code + reloc slots for the 16-bit path) |
 | `flags.py` | Flag primitives | `FlagSet`, `Checkbox` (frozen), `Flags` alias |
 | `flag_data.py` | MSVC flag defs | `MSVC6_FLAGS`, `COMMON_MSVC_FLAGS`, `MSVC_SWEEP_TIERS` |
+| `solutions.py` | Solution transfer DB | `SolutionEntry`, `load_solutions()`, `save_solution()`, `find_similar()` (seeds GA runs from solved lookalikes) |
 
 ## Dependency Graph
 
@@ -45,7 +47,7 @@ Minimal coupling — each module largely independent. `compiler.py` orchestrates
 Source (.c) ──→ compiler.build_candidate()
                   ├─ Check cache (if cache=, SHA-256 keyed)
                   ├─ Write temp dir (on miss)
-                  ├─ Run CL.EXE via Wine/wibo (60s timeout)
+                  ├─ Run compiler inside the docker image (60s timeout)
                   ├─ parsers.parse_obj_symbol_bytes() → bytes + relocs
                   ├─ Cache result (on miss)
                   └─ Return BuildResult {ok, obj_bytes, reloc_offsets, error_msg}
@@ -60,7 +62,7 @@ Source (.c) ──→ compiler.build_candidate()
                         │
                         ▼
               mutator.mutate_code(source, rng)
-                  ├─ Pick random mutation from ALL_MUTATIONS (120 ops)
+                  ├─ Pick random mutation from ALL_MUTATIONS (119 ops)
                   ├─ Apply, validate syntax
                   └─ Return (mutated_source, mutation_name)
                         │
@@ -114,7 +116,7 @@ Selected uniformly by default; `mutate_code()` accepts optional `mutation_weight
 
 ## Gotchas
 
-- **Hardcoded profile**: `_COMPILER_PROFILE = "msvc6"` in `compiler.py` — flag sweep always uses MSVC6.
+- **Profile-parametrized sweep**: `generate_flag_combinations(tier=, profile=)` picks the flag set per profile (`msvc6` default; `watcom`/`watcom16`, `msvc1.52`, `tc16`/`borlandc55` tiers) and `build_candidate()` resolves the docker image via the toolchain abstraction — no host wine.
 - **Heuristic reloc/register detection**: `scoring.py` zeros reloc slots / masks register diffs via pattern matching, not COFF metadata.
 - **60s timeout**: `build_candidate()` kills hung compilers → `BuildResult(ok=False)`, never raises.
 - **Wine stderr**: `compiler.py` calls `rebrew.compile.filter_wine_stderr()` via lazy import (avoids cycle).

@@ -165,12 +165,20 @@ def _parse_coff(
     section = target_sym.section
     content = bytes(section.content)
     func_start = target_sym.value
+    # Match symbols by SECTION OFFSET, not name: naked functions land in
+    # separate .text COMDATs (multiple sections all named ".text"), so a
+    # name match collects offsets from unrelated sections and the
+    # next-symbol distance (function size) comes out wrong (e.g. a 3328-byte
+    # naked function reported as 57 bytes).  LIEF COFF has no
+    # section_number on symbols and returns a fresh Section object per
+    # access, so compare the stable section file offset instead.
+    target_off = getattr(section, "offset", None)
     sec_offsets = sorted(
         s.value
         for s in symbols
         if s.section is not None
-        and s.section.name == section.name
         and not str(s.name).startswith("$")
+        and (getattr(s.section, "offset", None) == target_off if target_off is not None else True)
     )
     func_end = _next_symbol_end(sec_offsets, func_start, len(content))
 

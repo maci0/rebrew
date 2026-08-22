@@ -145,6 +145,15 @@ structurally.  Verified with **GCC 16.1** at `/O1`/`/O2`.
   binaries match only structurally — document the semantic decomp and
   blocker the byte delta.
 
+## Probe12: static-helper inlining — verified negative (not a discriminator)
+
+GCC inlines the probe12 static helpers at -O1 and -O2 — the callers
+are bare 11–12B bodies with no `call` (`f1` at both levels is
+`mov edx,[esp+4]; lea eax,[edx*8]; sub eax,edx; add eax,2; ret`) — so
+the MSVC 7.0+ inlining marker does not separate GCC from anything;
+inlining is unconditional.  Verified in a probe12 re-run with native
+`i686-w64-mingw32-gcc` (`out12_gcc/probe12_{O1,O2}.obj`).
+
 ## Verification
 
 Probe `/O1`/`/O2`/`/O3` via native `i686-w64-mingw32-gcc` 16.1

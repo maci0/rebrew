@@ -475,3 +475,120 @@ class TestMatchCliLink:
         assert result.exit_code == 0
         assert "Linker command" in result.output
         assert "--link" in result.output
+
+
+class TestKunaSeed:
+    def test_kuna_seed_injected_into_ga(self, tmp_path: Path, monkeypatch) -> None:
+        """--kuna-seed fetches Kuna's decompilation, fixes it, and injects it
+        into the GA's initial population (extra_seeds)."""
+        from types import SimpleNamespace
+
+        import rebrew.decompiler as dc_mod
+        import rebrew.match as match_mod
+
+        seen: dict = {}
+
+        class FakeGA:
+            def __init__(self, *a, **k):
+                seen["extra_seeds"] = k.get("extra_seeds")
+
+            def run(self):
+                return ("src", 50.0)
+
+            def close(self):
+                pass
+
+            _pairs_count = 0
+            elapsed_sec = 1.0
+            stagnant_gens = 0
+
+        monkeypatch.setattr(match_mod, "BinaryMatchingGA", FakeGA)
+        monkeypatch.setattr(
+            dc_mod,
+            "kuna_seed_source",
+            lambda b, va, root: "int FUN_00401000(void) { return 1; }\n",
+        )
+
+        cfg = SimpleNamespace(
+            target_binary=tmp_path / "x.exe",
+            root=tmp_path,
+            compile_timeout=60,
+            posix_style=False,
+            compiler_profile="gcc-pe",
+        )
+        p = SimpleNamespace(
+            cfg=cfg,
+            seed_src="int f(void) { return 0; }\n",
+            seed_c=tmp_path / "f.c",
+            target_bytes=b"\x90" * 8,
+            cl="cl",
+            inc="",
+            cflags="/O2",
+            symbol="_f",
+            va_int=0x401000,
+            msvc_env=None,
+            cc=None,
+            target_size=8,
+        )
+        import typer
+
+        with pytest.raises(typer.Exit):
+            # best_score 50.0 → the no-match exit contract (EXIT_MISMATCH);
+            # the seeding assertion below is what this test checks.
+            match_mod._run_single_ga(
+                p,
+                out_dir=str(tmp_path / "out"),
+                pop_size=4,
+                generations=1,
+                jobs=1,
+                compare_obj=False,
+                lib=None,
+                ldflags=None,
+                seed=None,
+                json_output=False,
+                extra_seed=None,
+                no_seed=False,
+                kuna_seed=True,
+            )
+        assert seen.get("extra_seeds") == ["int FUN_00401000(void) { return 1; }\n"]
+
+    def test_kuna_seed_dry_run_skips_ga(self, tmp_path: Path, monkeypatch) -> None:
+        """--kuna-seed --dry-run prints the fixed decompilation and returns
+        without constructing the GA."""
+        from types import SimpleNamespace
+
+        import rebrew.decompiler as dc_mod
+        import rebrew.match as match_mod
+
+        constructed: list = []
+
+        class FakeGA:
+            def __init__(self, *a, **k):
+                constructed.append(a)
+
+        monkeypatch.setattr(match_mod, "BinaryMatchingGA", FakeGA)
+        monkeypatch.setattr(
+            dc_mod, "kuna_seed_source", lambda b, va, root: "int f(void) { return 2; }\n"
+        )
+        p = SimpleNamespace(
+            cfg=SimpleNamespace(target_binary=tmp_path / "x.exe", root=tmp_path),
+            seed_src="x",
+            va_int=0x401000,
+        )
+        match_mod._run_single_ga(
+            p,
+            out_dir=str(tmp_path / "out"),
+            pop_size=4,
+            generations=1,
+            jobs=1,
+            compare_obj=False,
+            lib=None,
+            ldflags=None,
+            seed=None,
+            json_output=False,
+            extra_seed=None,
+            no_seed=False,
+            kuna_seed=True,
+            dry_run=True,
+        )
+        assert constructed == []  # the GA must not run under --dry-run

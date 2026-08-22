@@ -8,6 +8,7 @@ Orchestrates annotation scanning, registry building, and output generation
 """
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +18,8 @@ from rich.console import Console
 from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.catalog.export import generate_catalog, generate_reccmp_csv
 from rebrew.catalog.grid import count_statuses, generate_data_json
-from rebrew.catalog.loaders import parse_function_list, scan_reversed_dir
+from rebrew.catalog.loaders import load_function_structure, parse_function_list, scan_reversed_dir
+from rebrew.catalog.models import FunctionEntry
 from rebrew.catalog.registry import build_function_registry, count_detection_sources
 from rebrew.catalog.sections import get_text_section_size
 from rebrew.cli import (
@@ -166,7 +168,27 @@ def main(
 
     console.print(f"Scanning {reversed_dir}...", style="dim")
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
-    funcs = parse_function_list(func_list_path)
+
+    # Load function list and function structure in parallel
+    jobs = getattr(cfg, "default_jobs", 4) or 4
+    func_list_path = cfg.function_list
+    ghidra_json_path = reversed_dir / FUNCTION_STRUCTURE_JSON
+
+    def load_func_list() -> list[dict[str, Any]]:
+        if func_list_path and Path(func_list_path).exists():
+            return parse_function_list(Path(func_list_path))
+        return []
+
+    def load_func_struct() -> list[FunctionEntry]:
+        if ghidra_json_path.exists():
+            return load_function_structure(ghidra_json_path)
+        return []
+
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        future_funcs = pool.submit(load_func_list)
+        future_struct = pool.submit(load_func_struct)
+        funcs = future_funcs.result()
+        future_struct.result()  # structure load (read again below by build_function_registry)
 
     # The .text size drives the coverage percentage.  A missing binary used
     # to fall back to a fabricated 0x24000 (92160B) section — coverage was

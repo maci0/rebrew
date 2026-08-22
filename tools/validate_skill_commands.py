@@ -157,11 +157,13 @@ def validate(*, quiet: bool = False) -> bool:
         print(f"[SKIP] agent-skills dir not found: {_SKILLS_DIR}", file=sys.stderr)
         return True
 
-    # Collect (skill_name, subcommand, flags) triples, deduplicating per subcommand
-    help_cache: dict[str, tuple[bool, str]] = {}
-    errors: list[str] = []
-    checked = 0
+    # Collect (skill_name, subcommand, flags) triples first, deduplicating per
+    # skill, then probe the UNIQUE subcommands' --help output IN PARALLEL —
+    # each probe is an independent subprocess spawn (~1s); serialising ~30 of
+    # them made the validation (and the two suite tests running it) take 30s+.
+    from concurrent.futures import ThreadPoolExecutor
 
+    combos: list[tuple[str, str, tuple[str, ...]]] = []
     for skill_dir in sorted(_SKILLS_DIR.iterdir()):
         skill_md = skill_dir / "SKILL.md"
         if not skill_md.is_file():
@@ -175,29 +177,35 @@ def validate(*, quiet: bool = False) -> bool:
             if key in seen:
                 continue
             seen.add(key)
-            checked += 1
+            combos.append((skill_name, subcommand, tuple(sorted(flags))))
 
-            # Get --help output (cached per subcommand)
-            if subcommand not in help_cache:
-                ok, output = _run_help(subcommand)
-                help_cache[subcommand] = (ok, output)
-            ok, output = help_cache[subcommand]
+    unique_subs = sorted({c[1] for c in combos})
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        help_cache: dict[str, tuple[bool, str]] = dict(
+            zip(unique_subs, pool.map(_run_help, unique_subs), strict=True)
+        )
 
-            if not ok:
-                err = f"{skill_name}: rebrew {subcommand} — subcommand not found / timeout"
+    errors: list[str] = []
+    checked = 0
+    for skill_name, subcommand, flags in combos:
+        checked += 1
+        ok, output = help_cache[subcommand]
+
+        if not ok:
+            err = f"{skill_name}: rebrew {subcommand} — subcommand not found / timeout"
+            errors.append(err)
+            if not quiet:
+                print(f"FAIL  {err}")
+            continue
+
+        for flag in flags:
+            if flag not in output:
+                err = f"{skill_name}: rebrew {subcommand} {flag} — flag not in --help output"
                 errors.append(err)
                 if not quiet:
                     print(f"FAIL  {err}")
-                continue
-
-            for flag in flags:
-                if flag not in output:
-                    err = f"{skill_name}: rebrew {subcommand} {flag} — flag not in --help output"
-                    errors.append(err)
-                    if not quiet:
-                        print(f"FAIL  {err}")
-                elif not quiet:
-                    pass  # verbose success suppressed by default
+            elif not quiet:
+                pass  # verbose success suppressed by default
 
     if not quiet:
         print(

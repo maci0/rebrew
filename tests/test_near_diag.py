@@ -142,6 +142,22 @@ class TestAnalyzeVerdict:
         assert frame["frame_match"] is True
         assert frame["slots"]["target"] == []
 
+    def test_cfg_field_present(self) -> None:
+        """analyze() must carry the CFG structural similarity (cfg_ged) as a
+        best-effort cfg dict."""
+        result = nd.analyze(MOV_EAX_EBX + RET, MOV_EAX_ECX + RET, None, 0x1000)
+        cfg = result["cfg"]
+        assert isinstance(cfg, dict)
+        assert "overall" in cfg
+        assert cfg["overall"] == 100.0  # straight-line flow, register swap only
+
+    def test_catalog_markdown_has_all_categories(self) -> None:
+        md = nd.catalog_markdown()
+        for cat in ("register", "equivalent", "structural", "reloc", "effective", "match"):
+            assert f"`{cat}`" in md
+        assert "mut_reorder_register_vars" in md  # a real operator name
+        assert "|" in md
+
 
 class TestAnalyzeDegenerate:
     def test_empty_target_bytes(self) -> None:

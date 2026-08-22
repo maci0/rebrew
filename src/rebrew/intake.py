@@ -550,13 +550,28 @@ def main(
         console.print(f"  functions: {result.function_count}, documented: {result.documented}")
         if linked:
             console.print(f"  toolchain: {linked}")
-        elif profile != "gcc-pe":
-            console.print(
-                f"[yellow]  toolchain: not found in {_REPO_TOOLS} — symlink tools/ yourself or run rebrew doctor[/yellow]"
-            )
+        else:
+            # Docker-backed profiles run through their image — the vendored
+            # tree symlink is a build-source nicety, not an execution
+            # requirement.  Say so instead of "symlink tools/ yourself".
+            from rebrew.toolchain import TOOLCHAINS
+
+            spec = TOOLCHAINS.get(profile)
+            if spec is not None and spec.image is not None:
+                console.print(
+                    f"  toolchain: {profile} runs through docker image "
+                    f"{spec.image} — run 'rebrew toolchain build {profile}' "
+                    "if the image is missing"
+                )
+            elif profile != "gcc-pe":
+                console.print(
+                    f"[yellow]  toolchain: not found in {_REPO_TOOLS} — symlink "
+                    "tools/ yourself or run rebrew doctor[/yellow]"
+                )
         for note in notes:
             console.print(f"  [yellow]note:[/yellow] {note}")
         console.print("  next: rebrew doctor && rebrew status --json")
+        console.print("  first run? see docs/ONBOARDING.md for the walkthrough")
 
 
 def main_entry() -> None:

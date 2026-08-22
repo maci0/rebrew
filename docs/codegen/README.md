@@ -87,8 +87,8 @@ claims are explicitly downgraded in the per-version files.
 | **`cmov` for min/max/clamp** | `0f 4f` / `0f 4c` | **MSVC 11.0 only** (branches in 2.0–10.0) | ✓ probe2 (`imax/imin/clamp`) |
 | SSE2 FP ops by default | `f2 0f 58/59/5c/5e` | MSVC 11.0 | ✓ probe1+2 (all earlier MSVC pure x87) |
 | SSE2 `movsd/addsd` handoff for FP returns | `f2 0f 10 … f2 0f 58 … dd 44 24` | MSVC 11.0 | ✓ probe2 (`fadd1`) |
-| **SSE `movq` for 16/32-byte memcpy** | `f3 0f 7e` / `66 0f d6` | **MSVC 11.0** (mov pairs / rep movsd in 2.0–10.0) | ✓ probe3 (`c16`/`c32`) |
-| **`xorps`+`movq` 16-byte memset** | `0f 57 c0` + `66 0f d6` | **MSVC 11.0** (4× mov pairs in 2.0–10.0) | ✓ probe3 (`z16`) |
+| **SSE `movq` for 16/32-byte memcpy** | `f3 0f 7e` / `66 0f d6` | **MSVC 11.0 by default; VC 8.0–10.0 with `/arch:SSE2`** (mov pairs / rep movsd otherwise) | ✓ probe3/11 (`c16`/`c32`) |
+| **`xorps`+`movq` 16-byte memset** | `0f 57 c0` + `66 0f d6` | **MSVC 11.0 by default; VC 8.0–10.0 with `/arch:SSE2`** (4× mov pairs otherwise) | ✓ probe3/11 (`z16`) |
 | **128-byte memset → libcall** | `68 80 00 00 00 6a 00 ff 74 24 0c e8` | **MSVC 11.0** (rep stosd in 2.0–10.0) | ✓ probe3 (`z128`) |
 | **64-bit helper args pushed from memory** | `ff 74 24 10` ×4 | **MSVC 11.0** (register loads in 4.1–10.0) | ✓ probe3 (`i64mul`/`i64div`) |
 | **`cvttsd2si` inline double→int** | `f2 0f 2c 44 24 04` | **MSVC 11.0** (2.0–10.0: `fld; jmp __ftol`; caveat: GCC with SSE2 also uses it) | ✓ probe4 (`d2i`/`f2i`) |
@@ -101,7 +101,20 @@ claims are explicitly downgraded in the per-version files.
 | **inline `fsqrt`** | `d9 fa` | **MSVC 2.0–7.1** (8.0–10.0: `jmp __CIsqrt`; 11.0: SSE2 call; GCC inlines with a NaN check) | ✓ probe5 (`sq`) |
 | **reciprocal-`fmul` for `a/5.0`** | `dc 0d` | **MSVC 2.0–7.1** + Watcom + bcc32 | ✓ probe5 (`fdiv5`) |
 | **real `fdiv` for `a/5.0`** | `dc 35` | **MSVC 8.0–10.0** (GCC uses `fdivr`) | ✓ probe5 (`fdiv5`) |
-| **`fucompp` FP equality** | `da e9` | VC 7.0 RTM, 7.1, 10.0 (SP1: `fcomp [mem]` `dc 5c 24 0c`) | ✓ probe5 (`fcmp2`) — the only SP difference |
+| **`fucompp` FP equality** | `da e9` | VC 7.0 RTM, 7.1, 10.0 (SP1: `fcomp [mem]` `dc 5c 24 0c`) | ✓ probe5 (`fcmp2`) + probe7 (`fc5`/`fc8`/`fc9`) |
+| **SEH frame `push -1`** (`__try/__except`) | `6a ff` after `push ebp` | **MSVC 2.0–7.1** (8.0+ uses `push -2` `6a fe`) | ✓ probe7 (`seh1`) |
+| **SEH `fs:[0]` load BEFORE the frame** | `64 a1 00 00 00 00 55 8b ec` | **MSVC 2.0 & 4.x** (5.0+ loads it after `push ebp`) | ✓ probe7 (`seh1`) |
+| **SEH frame `push -2`** (new handler) | `6a fe` | **MSVC 8.0+** (with /GS cookie interleave) | ✓ probe7 (`seh1`) |
+| **inline 64-bit multiply-high** | `f7 64 24 08 8b c2` (`mul [mem]; mov eax,edx`) | **MSVC 6.0+** (4.1/5.0: `mul` + `jmp` to the shift helper) | ✓ probe7 (`mulhi`) |
+| **`fldz` FP-loop accumulator init** | `d9 ee` | **MSVC 8.0+** (2.0–7.1 load 0.0 from `.rdata`) | ✓ probe8 (`fs1/fs2/fs3`) |
+| **FP-loop unrolling ×4** | `cmp esi,4; jl` peel | **MSVC 7.0+** (5.0/6.0: tight x87 loop in st0; 2.0/4.x: memory accumulator) | ✓ probe8 (`fs1/fs2`) |
+| **indirect tail call `jmp [mem]`** | `ff 25` / `ff 20` (reloc) | **MSVC 7.0+** (2.0–6.0: `call [mem]; add esp,4; ret`) | ✓ probe8 (`indirect`) |
+| **volatile reads** | `mov eax,[0]` | identical in ALL versions (verified negative) | ✓ probe8 (`vread`) |
+| **combined divmod** (`x/N + x%N` → one `div`) | `99 … f7 f9 … 03 c2` | **MSVC 7.0+** (2.0–6.0 do TWO divisions) | ✓ probe9 (`dm3`/`udm3`) |
+| **stack-probe threshold** | `b8 <size> e8` | **uniform 4096 bytes across ALL versions** (`/Gs` default; verified negative) | ✓ probe9 (`sp1024…8192`) |
+| **64-bit compares: direct-memory form** | `3b 44 24 10 … 3b 4c 24 0c` | **MSVC 7.0+** (5.0/6.0 load operands into registers first — 35B; 4.1 uses `39 44`-forms) | ✓ probe10 (`i64lt/eq/ne/ge`) |
+| **static-helper inlining at /O2** | (no `call` in the caller) | **MSVC 7.0+** (2.0–6.0 keep the call at /O2 and /O1; 7.0+ inline to 11–12B) | ✓ probe12 (`f1`/`f2`/`fl`) |
+| **16-bit switch via `xchg bx,ax`** | `03 c0 93` (`add ax,ax; xchg bx,ax`) | **MSVC 1.5x (16-bit)** (TC 2.0/3.1 and Watcom 16-bit scale via `shl bx,1` — `d1 e3`) | ✓ probe12 (`sw8`) |
 | **SSE2 `ucomisd` FP compare** | `66 0f 2f` + `0f 97 c0` | MSVC 11.0 | ✓ probe5 (`fcmp1-4`) |
 | **`__fastcall` register fusion `lea eax,[ecx+edx]`** | `8d 04 11` | **MSVC 7.0+** (2.0–6.0: `mov eax,[esp+4]` first) | ✓ probe5 (`fc1`) |
 | **`fdivr` for `a/5.0`** | `dc 35`-reverse (`fdivr m64`) | MinGW GCC | ✓ probe5 (`fdiv5`) |
@@ -109,6 +122,7 @@ claims are explicitly downgraded in the per-version files.
 | **TC 3.1 near long-mul helper** | `call N_LXMUL@` | TC 3.1 (TC 2.0: far `call far ptr LXMUL@`) | ✓ probe6 (`lmul`) |
 | **Delphi set-membership `rol`** | `d3 c0` + `85 46` | Delphi 1.0 (`x in s` → `mov ax,1; rol ax,cl; test [mem],ax`) | ✓ probe2.dpr (`setop`) |
 | **Delphi `case` = compare chain** | `3d … 75 …` | Delphi 1.0 (no jump table) | ✓ probe2.dpr (`casesel`) |
+| **Delphi set/record copy via `rep movsw`** | `fc … c5 76 … b9 04 00 f3 a5` | Delphi 1.0 (`cld; lds si; les di; mov cx,N; rep movsw`) | ✓ probe3.dpr (`setadd`) |
 | **no-op `sub esp,4; add esp,4` after `fild`** | `83 ec 04 83 c4 04` | **MSVC 2.0 & 4.x** | ✓ probe4 (`i2d`/`i2f`) |
 | `leave` epilogues (16-bit) | `c9` | MSVC 1.x (16-bit) | ✓ probe msvc1.52 (TC 2.0/3.1 never) |
 | **`enter` frame setup** | `c8` | **MSVC 1.5x (16-bit)** (TC/Delphi use `push bp;mov bp,sp`) | ✓ probe3 (`c8 02 00 00`) |
@@ -133,19 +147,57 @@ claims are explicitly downgraded in the per-version files.
 | **Delphi stack-check far call in prologue** | `b8 <size>; 9a` (`lcall`) | Delphi 1.0 (DCC) | ✓ probe3 (dpr) |
 | **`leave; ret N` callee-cleanup epilogue** | `c9 c2 N N` | Delphi 1.0 (DCC) | ✓ probe3 (dpr) |
 
-**Service-pack verdicts** (probe5 sweep — the SP1 images probed for the
-first time): **VC 7.0 SP1 is the only SP with a verified codegen
-difference** — its FP-equality `a==b` uses `fcomp [mem]` (`dc 5c 24 0c`)
-where VC 7.0 RTM uses `fucompp` (`da e9`, 2 bytes longer); the fucompp
-style is shared by 7.0 RTM, 7.1 (RTM+SP1) and 10.0 (RTM+SP1).  VC 7.1
-SP1, 8.0 SP1, 10.0 SP1: codegen-identical to their RTMs (probes 1–5).
-VC 9.0 SP1: identical to RTM at `/Od`; the `/O1`/`/O2` comparison is
-**blocked** — the `rebrew/msvc:9.0-sp1-win32` image is missing
-`sched.dll` (C1350).  VC 6.0 SP1–SP6: codegen-identical to RTM at both
-`/O1` and `/O2` (probes 1–5).  VC 5.0 SP1–SP3 ship the same CL.EXE (no
-distinct builds to compare).
+**Service-pack verdicts** (probe5+7+8+9+10 sweeps — the SP1 images probed
+for the first time): **VC 7.0 SP1 is the only SP with verified codegen
+differences — now SEVENTEEN probe functions.**  (a) 4 structural: the
+`==`/`!=` FP family (`fcmp2`/`fc5`/`fc8`/`fc9`) switch from the
+two-load `fucompp` (`da e9`) to `fcomp [mem]` (`dc 5c 24 0c`, 2 bytes
+shorter).  (b) 2 marshalling: `fl`/`cl` (floor/ceil) pass the FP
+libcall argument via `fstp`-temp in RTM vs `push`-pair in SP1.  (c) 11
+scheduling/layout: the FP loops `fs1`/`fs2`/`fs3`/`ff1`, the char-array
+`cb16`, and all six stack-probe functions `sp1024…sp8192` differ in
+register allocation and stack layout (±2 bytes).  The relational
+compares, the 64-bit compares and everything else are unchanged.  The
+fucompp style is shared by 7.0 RTM, 7.1 (RTM+SP1) and 10.0 (RTM+SP1);
+the fcomp style by 2.0–6.0, 8.0 and 9.0.  VC 7.1 SP1, 8.0 SP1, 10.0
+SP1: codegen-identical to their RTMs (probes 1–10).  VC 9.0 SP1:
+identical to RTM at `/Od`; the `/O1`/`/O2` comparison is **blocked** —
+the compiler needs `sched.dll` (C1350) which no image ships (verified
+absent from 9.0 RTM, 9.0 SP1, 10.0, 10.0 SP1, 11.0 — the DLL was never
+vendored).  VC 6.0 SP1–SP6: codegen-identical to RTM at both `/O1` and
+`/O2` (probes 1–10).  VC 5.0 SP1–SP3 ship the same CL.EXE (no distinct
+builds to compare).
 
-**Proven *non*-markers** (verified negative results): the VC 6.0 SP levels
+**Corpus validation** (probe10 round) — every byte-level marker in this
+table was scanned against the corpus binaries' `.text`
+(win2k-*/bind = VC 5.0, rt63/rt7/skifree32/tcmd = VC 6.0,
+cpubench/test_sse2 = MinGW GCC 16).  Strongly confirmed (corpus hits in
+the claimed versions): `f3 a6` repe-cmpsd (rt63/rt7/tcmd), `d9 fa`
+fsqrt, `dc 0d` reciprocal-fmul, `d9 e8` fld1, `c1 e8 01` 3-byte shift,
+`2b d2` div-zero, `0f 1f`/`0f a5 c2`/`83 e4 f8`/`0f 4f`/`0f 4c`/`d9 ee`/
+`0f 57 c0`/`f3 0f 7e`/`66 0f d6` in the MinGW binaries.  Markers whose
+raw bytes are **context-dependent** (they appear in binaries of versions
+outside the claim because the instruction is common — the marker is the
+*sequence*, not the bytes): `ff 74 24 10` (push [esp+0x10]), `ff 25`/
+`ff 20` (jmp [mem] — IAT jumps), `6a ff`/`6a fe` (push ±1 — SEH frame
+vs plain constants), `51 52` (push ecx;push edx), `c2 04 00`/`c2 08 00`
+(ret N — stdcall cleanup), `8d 04 11` (lea [ecx+edx]), `6b c0 64`
+(imul eax,100).  Two claims get **downgrade notes** from corpus hits in
+VC 6.0 binaries: the `cdq`-abs idiom (`99 33 c2 2b c2`, skifree32=1)
+and `imul eax,100` (`6b c0 64`, tcmd=1) — both exist in pre-10.0 code
+in *some* context, so the marker is the probe *function's* form, not
+the raw idiom.
+
+**Proven *non*-markers** (verified negative results, incl. the probe11
+flag matrix): **VC 6.0 never emits `cmov` — even under `/G6`** (PPro
+target; `imax/imin/clamp/iabs` stay branches; `/G5` vs `/G6` differ
+only in instruction scheduling — 7 functions, register-order and
+epilogue `pop` placement); VC 7.0 `/G5`≡`/G6` and 7.1 `/G5`≡`/G7`
+(identical); `/fp:fast` ≡ default on the probe2 FP set (no contraction
+opportunities); the `/arch:SSE2` FP-comparison form (`comisd`) and the
+SSE `movq`/`pxor` copy forms are produced by VC 8.0–10.0 under
+`/arch:SSE2` — so the VC 11.0-default markers carry the flag caveat
+(see the table). the VC 6.0 SP levels
 (SP1–SP6) are codegen-identical for every probe3 function — only the
 Rich-header C1 build separates them; VC 4.0/4.1/4.2 are codegen-identical
 to each other and to VC 2.0; **MSVC 1.0/1.5/1.52 are codegen-identical
@@ -183,18 +235,17 @@ standalone raw-byte marker.
 
 ## Verification methodology
 
-Every byte pattern in this folder comes from compiling three C89 probes
-(`.cache/fp_probe/probe.c` — division by 3/7/10/100, loops, FP math, char
-ops, a 6 KB stack frame, struct copies, switches, string scans;
-`.cache/fp_probe/probe2.c` — 64-bit arithmetic, FP constants (1.0/2.0/
-0.5), min/max/clamp, division by 5/9/12/100/1000, fixed-size memcpy/
-memset, strlen, rotates, sparse switch; `.cache/fp_probe/probe3.c` — a
-13-divisor unsigned+signed table (2…100000 + big constants), fixed-size
-memcpy/memset (1–128 B), long double, 64-bit arithmetic, cmov/SSE2-
-eligible code, switch shapes, nested loops) through the real toolchains
-and disassembling the objects.  Delphi is probed with a Pascal source
-(`probe.dpr`) through `DCC.EXE`; Turbo C 2.0 with a pre-resolved
-`#`-free variant (its image's wrapper cannot run the preprocessor):
+Every byte pattern in this folder comes from compiling eleven C89
+probes (division, copies, 64-bit, long double, rotates, cmov/SSE2,
+switches, FP constants/conversions, multiply chains, memcmp, struct
+returns, tail calls, sqrt/fdiv, bit idioms, __fastcall, 16-bit long
+arithmetic, SEH, FP loops, bitfields, divmod, stack probes, 64-bit
+compares, floor/ceil/fmod, strchr/memchr) plus three Pascal probes
+through Delphi 1.0's `DCC.EXE`, and flag-matrix passes (/G5-/G7,
+/arch:SSE2/IA32, /fp:fast) — compiled through every toolchain and
+disassembling the objects.  Turbo C 2.0 is compiled from a
+pre-resolved `#`-free variant (its image's wrapper cannot run the
+preprocessor):
 
 | Toolchain | Image / binary | Flags |
 |-----------|----------------|-------|

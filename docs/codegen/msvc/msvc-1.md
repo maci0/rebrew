@@ -80,6 +80,12 @@ DOSBox.  Emits 16-bit OMF objects.
   some functions (verified 1× in the probe3 object: `c8 02 00 00`);
   TC 2.0/3.1 (0×) and Delphi use `push bp; mov bp,sp` instead.
   Unique among the 16-bit compilers here.
+- **switch dispatch via `xchg bx,ax` (`03 c0 93`)** — MSVC 1.52
+  dispatches 8-case `switch` statements with `dec ax; cmp ax,7; ja;
+  add ax,ax; xchg bx,ax; jmp word ptr cs:[table+bx]` + `dw` entries;
+  TC 2.0/3.1 use `shl bx,1` (`e3`) in the same position instead.
+  Verified in probe12 (`sw8`); the MSVC 1.0/1.5 line dispatches the
+  same way (1.52 == 1.5 line for probe4).
 - `__aNchkstk` stack-probe symbol is unique among the probed
   toolchains (32-bit MSVC uses `__chkstk`, MinGW `___chkstk_ms`,
   Watcom `__CHK`).

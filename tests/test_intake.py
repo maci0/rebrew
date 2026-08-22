@@ -82,6 +82,31 @@ class TestIntake:
         assert result.exit_code != 0
         assert "not found" in result.output
 
+    def test_docker_toolchain_message_when_link_missing(self, tmp_path: Path, monkeypatch) -> None:
+        """A docker-backed profile with no tools/ symlink must say the image
+        is the toolchain (with the build command), not 'symlink tools/ yourself'
+        — the first-run message a new user actually acts on."""
+        from typer.testing import CliRunner
+
+        import rebrew.main as main_mod
+
+        binary = tmp_path / "game.exe"
+        binary.write_bytes(b"MZ")
+        monkeypatch.setattr("rebrew.intake._run_rizin_functions", lambda b: FAKE_FUNCS)
+        monkeypatch.setattr(
+            "rebrew.intake._suggest_profile",
+            lambda b: ("msvc6", "msvc", "MSVC 6.0", []),
+        )
+        monkeypatch.setattr("rebrew.intake._link_toolchain", lambda project, profile: None)
+        runner = CliRunner()
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(main_mod.app, ["intake", "game.exe"])
+        assert result.exit_code == 0, result.output
+        combined = result.stdout + result.stderr
+        assert "docker image" in combined
+        assert "toolchain build" in combined
+        assert "symlink tools" not in combined
+
     def test_rizin_empty_functions_fails(self, tmp_path: Path, monkeypatch) -> None:
         """Regression (error-review F2): rizin failing/timing out must not be
         reported as a successful 'Intake complete: functions: 0' — onboarding

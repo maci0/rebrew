@@ -112,6 +112,13 @@ does.  VC 2.0–4.2 linkers write no Rich header at all.
 - To VC 6.0: nothing verified in codegen — the two are the same optimizer
   for the probe.  (VC 6.0's identity is the Rich header + linker 6.0.)
 
+## Probe12: static-helper inlining — verified negative
+
+Small static helpers called once/twice/in a loop are NOT inlined: VC
+5.0 keeps the `call` at both /O2 and /O1 (30–34B callers), unlike VC
+7.0+ which inline them (11–12B).  Verified in probe12
+(`f1`/`f2`/`fl`); keeping the call is itself the 2.0–6.0 era marker.
+
 ## Verification
 
 Probe at `/O1`/`/O2` via `rebrew/msvc:5.0-win32`
