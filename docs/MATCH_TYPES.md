@@ -202,7 +202,7 @@ flowchart TD
 ```
 
 ```text
-1. Compile .c file to .obj with MSVC6 under Wine
+1. Compile .c file to .obj with MSVC6 (toolchain docker image)
 2. Extract symbol bytes from .obj (COFF parser)
 3. Extract target bytes from DLL at the given VA
 4. Compare:

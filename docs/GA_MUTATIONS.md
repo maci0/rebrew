@@ -39,8 +39,8 @@ Source (.c) ──→ mutate_code(source, rng)
 ### Key mechanics
 
 - **Population**: Pool of candidates (default 64) evolved over generations
-- **Selection**: Tournament selection — fittest survive, weakest are replaced
-- **Mutation**: One random mutation per child (30% chance of 2–3 chained mutations)
+- **Selection**: Elitist — the top `elitism` candidates carry over unchanged and parents are sampled uniformly from that elite subset
+- **Mutation**: One random mutation per child (35% chance of 2–3 chained mutations)
 - **Crossover**: Line-level crossover between two parents
 - **Stagnation**: GA stops after 40 generations without improvement
 - **Caching**: SQLite-backed `BuildCache` prevents recompiling identical source

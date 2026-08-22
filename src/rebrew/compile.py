@@ -1,20 +1,25 @@
-"""Unified MSVC compilation helper for rebrew.
+"""Unified compilation helper for rebrew.
 
 Provides a single, consistent interface for compiling C source to .obj files
-using MSVC under Wine. All tools (rebrew test, rebrew match, rebrew verify)
-use these functions instead of building compile commands independently.
+through the configured toolchain (docker images for every Windows/DOS
+compiler — wine runs inside the image; native binaries for Linux compilers
+such as gcc-pe/watcom16). All tools (rebrew test, rebrew match, rebrew
+verify) use these functions instead of building compile commands
+independently.
 
 Architecture
 ~~~~~~~~~~~~
 Entry points in order of abstraction:
 
 ``resolve_cl_command(cfg)``
-    Lowest level — builds the ``["wine", "/path/CL.EXE"]`` prefix list
-    from the config's ``compiler_command`` string.
+    Lowest level — builds the base compiler command list from the config's
+    ``compiler_command`` string.  Returns ``[]`` for docker-only configs
+    (empty host command; the image is the compiler).
 
 ``compile_to_obj(cfg, source_path, cflags, workdir)``
-    Mid-level — copies source to a Wine-compatible workdir and produces
-    a ``.obj`` file. Returns ``(obj_path, error_msg)``.
+    Mid-level — compiles a source file inside the toolchain's docker image
+    (or natively for Linux-hosted compilers) and produces a ``.obj`` file.
+    Returns ``(obj_path, error_msg)``.
 
 ``compile_and_compare(cfg, source_path, symbol, target_bytes, cflags)``
     High-level — compile, extract symbol bytes, compare to *target_bytes*,
@@ -26,14 +31,16 @@ Entry points in order of abstraction:
 
 :class:`CompareResult`
     Structured return type returned by ``compile_and_compare`` and consumed by
-    verify/test tools.  Fields: ``matched``, ``status``, ``match_percent``,
-    ``delta``, ``obj_bytes``, ``reloc_offsets``, ``inv_reloc_offsets``, ``message``.
+    verify/test tools.  See the class docstring for the full field list
+    (``matched``, ``status``, ``match_percent``, ``delta``, ``obj_bytes``,
+    reloc data, similarity/diff stats, and the effective-match flag).
 
 Configuration
 ~~~~~~~~~~~~~
 All functions read from ``cfg`` (a ``ProjectConfig`` instance):
 
-- ``cfg.compiler_command`` — e.g. ``"wine toolchain/msvc/6.0-win32/bin/CL.EXE"``
+- ``cfg.compiler_command`` — host compiler command, e.g. ``"wine CL.EXE"``;
+  empty for docker-only profiles (the image provides the compiler)
 - ``cfg.compiler_includes`` — path to MSVC include directory
 - ``cfg.base_cflags`` — always-on flags (e.g. ``/nologo /c /MT``)
 - ``cfg.compile_timeout`` — seconds before subprocess is killed

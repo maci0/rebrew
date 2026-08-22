@@ -40,7 +40,7 @@ The `// MARKER: MODULE 0xVA` syntax and the following **markers** are reccmp's f
 | `VTABLE` | C++ virtual function tables |
 | `STRING` | String literals |
 
-Rebrew currently uses `FUNCTION`, `LIBRARY`, and `GLOBAL` from the reccmp set. `VTABLE` and `STRING` are recognized but not actively used.
+Rebrew currently uses `FUNCTION`, `LIBRARY`, and `GLOBAL` from the reccmp set. `VTABLE` and `STRING` are not recognized: an inline marker with those names fails lint check E001 (invalid marker type).
 
 ## What rebrew adds
 

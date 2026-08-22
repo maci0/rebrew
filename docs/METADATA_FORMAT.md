@@ -67,7 +67,7 @@ note = "register allocation differs in inner loop"
 | `update_source_status()`    | Set STATUS (with PROVEN guard) |
 | `update_field(key, value)`  | Set any non-STATUS field       |
 | `remove_field(key)`         | Delete a field                 |
-| `get_entry(directory, va)`  | Read an entry                  |
+| `get_entry(directory, va, module)` | Read an entry                  |
 
 > **Never write `rebrew-function.toml` manually** — always go through the
 > `rebrew.metadata` API.

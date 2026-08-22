@@ -1588,7 +1588,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=1.26" },
     { name = "python-flirt", specifier = ">=0.9.10" },
     { name = "rapidfuzz", marker = "extra == 'similarity'", specifier = ">=3.13" },
-    { name = "resembl", marker = "extra == 'similarity'", directory = "/home/maci/Desktop/Projects/relumea/resembl" },
+    { name = "resembl", marker = "extra == 'similarity'", directory = "../resembl" },
     { name = "rich", specifier = ">=13.0" },
     { name = "tomlkit", specifier = ">=0.12" },
     { name = "tree-sitter", specifier = ">=0.25.2" },
@@ -1611,7 +1611,7 @@ dev = [
 [[package]]
 name = "resembl"
 version = "0.1.0"
-source = { directory = "/home/maci/Desktop/Projects/relumea/resembl" }
+source = { directory = "../resembl" }
 dependencies = [
     { name = "datasketch" },
     { name = "numpy" },
@@ -1625,6 +1625,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "atheris", marker = "extra == 'fuzz'", specifier = ">=2.3.0" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=25.1.0" },
     { name = "datasketch", specifier = ">=1.6.5" },
     { name = "duckdb", marker = "extra == 'dev'", specifier = ">=1.0.0" },
@@ -1639,6 +1640,7 @@ requires-dist = [
     { name = "pymysql", marker = "extra == 'dev'", specifier = ">=1.1.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.1" },
     { name = "pytest-benchmark", marker = "extra == 'dev'", specifier = ">=4.0.0" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0.0" },
     { name = "rapidfuzz", specifier = ">=3.13.0" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.12.2" },
@@ -1646,9 +1648,8 @@ requires-dist = [
     { name = "sqlmodel", specifier = ">=0.0.24" },
     { name = "tomli-w", specifier = ">=1.2.0" },
     { name = "typer", specifier = ">=0.9.0" },
-    { name = "unittest-xml-reporting", marker = "extra == 'dev'", specifier = ">=3.2.0" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["dev", "fuzz"]
 
 [[package]]
 name = "rich"
