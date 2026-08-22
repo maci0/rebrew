@@ -515,6 +515,33 @@ def remove_field(directory: Path, va: int, key: str, module: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def is_status_sticky(current_status: str) -> bool:
+    """True when *current_status* should never be demoted by test/verify.
+
+    PROVEN is a post-verify promotion from ``rebrew prove`` — byte-level
+    comparison cannot reproduce it, so test/verify must preserve it.
+    """
+    return current_status == "PROVEN"
+
+
+def should_promote_status(current_status: str, new_status: str) -> bool:
+    """True when *new_status* should overwrite *current_status* in metadata.
+
+    Single canonical promotion decision shared by ``rebrew test`` and
+    ``rebrew verify``.  Refuses to promote when the current status is sticky
+    (PROVEN), when a STUB's placeholder size-mismatch would erase the user's
+    STUB classification, or when the status did not change.
+    """
+    if is_status_sticky(current_status):
+        return False
+    if current_status == "STUB" and new_status in ("SIZE_MISMATCH", "MISSING_SIZE"):
+        # A documented STUB (typically blocker-documented) must not be
+        # demoted by a placeholder size-mismatch or a missing-size
+        # evaluation — that would erase the user's classification.
+        return False
+    return current_status != new_status
+
+
 def update_source_status(
     metadata_dir: Path,
     new_status: str,
@@ -579,8 +606,6 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
     """
     if not updates:
         return 0
-    from rebrew.cli import is_status_sticky
-
     path = (metadata_dir / METADATA_FILENAME).resolve()
     changed = 0
     with _metadata_write_lock(metadata_dir):

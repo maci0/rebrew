@@ -84,7 +84,7 @@ def _get_parser() -> tuple[Any, Any]:
     return tls_parser, _language
 
 
-def _get_ts_parser() -> tuple[Any, Any] | None:
+def get_ts_parser() -> tuple[Any, Any] | None:
     """Return a cached (parser, language) pair, or None if tree-sitter is unavailable."""
     try:
         return _get_parser()

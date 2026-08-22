@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from rebrew.struct_parser import _get_ts_parser, _iter_definitions
+from rebrew.struct_parser import _iter_definitions, get_ts_parser
 
 
 def test_parser_unavailable_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -12,7 +12,7 @@ def test_parser_unavailable_returns_none(monkeypatch: pytest.MonkeyPatch) -> Non
         raise ImportError("no tree-sitter")
 
     monkeypatch.setattr("rebrew.c_parser._get_parser", _boom)
-    assert _get_ts_parser() is None
+    assert get_ts_parser() is None
 
 
 def test_unreadable_file_yields_nothing(tmp_path: Path) -> None:

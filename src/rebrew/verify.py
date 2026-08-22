@@ -37,7 +37,7 @@ from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 from rich.table import Table
 from rich.text import Text
 
-from rebrew.annotation import Annotation
+from rebrew.annotation import Annotation, min_valid_va_for
 from rebrew.catalog import (
     build_function_registry,
     cached_function_list,
@@ -51,11 +51,10 @@ from rebrew.cli import (
     error_exit,
     is_matched,
     json_print,
-    min_valid_va_for,
     require_config,
-    should_promote_status,
 )
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
+from rebrew.metadata import should_promote_status
 from rebrew.utils import atomic_write_text
 
 log = logging.getLogger(__name__)

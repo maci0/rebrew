@@ -26,17 +26,17 @@ from rich.text import Text
 from rebrew.annotation import (
     ALL_KNOWN_KEYS,
     METADATA_KEYS,
+    MIN_VALID_VA,
     NEW_FUNC_RE,
     NEW_KV_RE,
     VALID_MARKERS,
+    min_valid_va_for,
 )
 from rebrew.cli import (
     EXIT_MISMATCH,
-    MIN_VALID_VA,
     TargetOption,
     iter_sources,
     json_print,
-    min_valid_va_for,
     rel_display_path,
 )
 from rebrew.config import ProjectConfig, load_config

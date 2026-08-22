@@ -34,7 +34,7 @@ scoring.py
 
 mutator.py → ast_engine (internal: _C_LANGUAGE, ASTMutator, parse_c_ast)
 core.py    → diskcache (external), no internal imports
-parsers.py → lief (external), no internal imports
+parsers.py → lief (external), core.matching.CoffRelocRecord
 flags.py   → no imports (pure dataclasses)
 flag_data.py → flags.Checkbox, FlagSet
 ```

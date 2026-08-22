@@ -40,25 +40,6 @@ EXIT_ERROR = 2  # Infrastructure error (build/config broken)
 # A function that matches >= 60 % of bytes is NEAR_MATCHING; below is STUB.
 NEAR_MATCH_THRESHOLD = 0.60
 
-# Minimum plausible virtual address.  VAs below this threshold are almost
-# certainly invalid (PE image base is typically 0x10000000 or higher).
-# Used across verify, annotation, and naming to reject bad entries early.
-MIN_VALID_VA = 0x1000
-
-
-def min_valid_va_for(cfg: Any) -> int:
-    """The lowest legitimate function VA for a target's architecture.
-
-    16-bit DOS targets (MZ/NE, ``x86_16``) address code from segment 0 —
-    VAs legitimately start at 0 (the MZ code region base), so the 0x1000
-    PE-era floor does not apply.  Returns ``0`` for ``x86_16`` targets,
-    ``MIN_VALID_VA`` otherwise.
-    """
-    if getattr(cfg, "arch", "") == "x86_16":
-        return 0
-    return MIN_VALID_VA
-
-
 # Canonical Rich colour tags for status strings — used across CLI tools
 # for consistent output formatting.
 STATUS_COLORS: dict[str, str] = {
@@ -81,33 +62,6 @@ STATUS_COLORS: dict[str, str] = {
 def is_matched(status: str) -> bool:
     """True when *status* indicates a fully matched function (EXACT, RELOC, or PROVEN)."""
     return status in ("EXACT", "RELOC", "PROVEN")
-
-
-def is_status_sticky(current_status: str) -> bool:
-    """True when *current_status* should never be demoted by test/verify.
-
-    PROVEN is a post-verify promotion from ``rebrew prove`` — byte-level
-    comparison cannot reproduce it, so test/verify must preserve it.
-    """
-    return current_status == "PROVEN"
-
-
-def should_promote_status(current_status: str, new_status: str) -> bool:
-    """True when *new_status* should overwrite *current_status* in metadata.
-
-    Single canonical promotion decision shared by ``rebrew test`` and
-    ``rebrew verify``.  Refuses to promote when the current status is sticky
-    (PROVEN), when a STUB's placeholder size-mismatch would erase the user's
-    STUB classification, or when the status did not change.
-    """
-    if is_status_sticky(current_status):
-        return False
-    if current_status == "STUB" and new_status in ("SIZE_MISMATCH", "MISSING_SIZE"):
-        # A documented STUB (typically blocker-documented) must not be
-        # demoted by a placeholder size-mismatch or a missing-size
-        # evaluation — that would erase the user's classification.
-        return False
-    return current_status != new_status
 
 
 def classify_match_status(

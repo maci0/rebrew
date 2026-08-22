@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from rebrew.c_parser import _get_ts_parser
+from rebrew.c_parser import get_ts_parser
 from rebrew.utils import detect_source_encoding
 
 
@@ -18,7 +18,7 @@ def _iter_definitions(filepath: Path, *, all_type_defs: bool) -> Iterator[str]:
     With ``all_type_defs``, yields every ``typedef`` (e.g. ``typedef unsigned
     int uint32_t;``); otherwise only typedefs whose body contains a struct.
     """
-    result = _get_ts_parser()
+    result = get_ts_parser()
     if result is None:
         return
     parser, _ = result
@@ -81,7 +81,7 @@ def extract_enums_from_file(filepath: Path) -> Iterator[str]:
 
     Returns empty if tree-sitter is unavailable or the file is unreadable.
     """
-    result = _get_ts_parser()
+    result = get_ts_parser()
     if result is None:
         return
     parser, _ = result

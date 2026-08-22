@@ -14,7 +14,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from rebrew.c_parser import _get_ts_parser
+from rebrew.c_parser import get_ts_parser
 from rebrew.utils import detect_source_encoding
 
 _PTR_NOSPACE_RE = re.compile(r"([a-zA-Z0-9_])\*")
@@ -49,7 +49,7 @@ def extract_function_signatures(filepath: Path) -> Iterator[tuple[str, str]]:
     Signatures are normalized (MSVC extensions stripped) for Ghidra CParser
     compatibility.  Returns empty if tree-sitter is unavailable or file unreadable.
     """
-    result = _get_ts_parser()
+    result = get_ts_parser()
     if result is None:
         return
     parser, _ = result

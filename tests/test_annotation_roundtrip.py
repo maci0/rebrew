@@ -298,8 +298,7 @@ def test_x86_16_va_floor(tmp_path: Path) -> None:
     check when the arch-aware floor is passed."""
     from types import SimpleNamespace
 
-    from rebrew.annotation import Annotation
-    from rebrew.cli import min_valid_va_for
+    from rebrew.annotation import Annotation, min_valid_va_for
 
     cfg16 = SimpleNamespace(arch="x86_16")
     cfg32 = SimpleNamespace(arch="x86_32")
