@@ -80,6 +80,16 @@ MSVC 9.0 (VS 2008, CL 15.00.21022; SP1 = 15.00.30729).  First version to
 Small static helpers inline at /O2 and /O1 (11–12B callers), matching
 the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 
+## Probe13: string intrinsics + promotion — verified
+
+- **strlen manual scan loop** at /O2 (`8d 50 01 8a 08 40 84 c9 75 f9
+  2b c2`), the 7.0+ form.
+- **memcmp(8B) dword-compare loop** with `83 e8 04`/`83 c1 04`/
+  `83 c2 04` decrement+advance at /O2 — the 9.0/10.0 pair (8.0 uses
+  an ESI counter, 11.0 a 2-dword + byte-tail form).
+- **signed-char compare against the zero register in memory**
+  (`33 c0 38 44 24 04 0f 9c c0`) — 8.0+ form.
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:9.0-win32` (`msvc900_{O1,O2}.obj`);

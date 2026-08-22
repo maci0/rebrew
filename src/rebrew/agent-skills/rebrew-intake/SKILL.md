@@ -55,13 +55,17 @@ This writes, into the project:
 - `src/<target>/crt_region/crt_imports.c` — the `#pragma comment(linker, "/include:__imp_...@N")`
   IAT-forcing list in the binary's true IAT order (suffixes resolved from the toolchain
   import libraries; ordinal imports such as WS2_32 resolved by name).
-- `layout/<target>/link_layout.json` + `<section>.bin` files — a self-contained layout
-  package (header block + raw section bytes). `rebrew postlink <built.dll> --layout
-  layout/<target>/link_layout.json` can then converge a built binary onto the original
-  **without the original DLL present** (PE normalization, import order, .data/.reloc).
+- `layout/<target>/` — a text-only layout package (no binary blobs): a structured
+  `layout.txt` (image base, sections, exports, imports with reference IAT-slot VAs)
+  plus hex dumps of the opaque linker-stamped regions (`header.hex`, `iat.hex`,
+  `prefix.hex`, `bookkeeping.hex`, `data.hex`, `reloc.hex`) and sparse `.text` maps
+  (`operands.txt`, `calls.txt`). `rebrew postlink <built.dll> --layout layout/<target>`
+  can then converge a built binary onto the original **without the original DLL
+  present** (PE normalization, import order, .data/.reloc), reconstructing the
+  reference purely from this metadata.
 
 The layout package is the project-side source of truth for the reference layout; keep it
-in VCS so later fixes never need `original/` around.
+in VCS (it is plain text) so later fixes never need `original/` around.
 
 Then place the binary at the path specified in `rebrew-project.toml` (default: `original/<filename>`).
 

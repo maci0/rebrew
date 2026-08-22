@@ -491,7 +491,7 @@ class TestIncrementalVerify:
 
         monkeypatch.setattr("rebrew.verify.require_config", fake_require_config)
         monkeypatch.setattr("rebrew.verify.scan_reversed_dir", fake_scan_reversed_dir)
-        monkeypatch.setattr("rebrew.verify.parse_function_list", fake_parse_function_list)
+        monkeypatch.setattr("rebrew.verify.cached_function_list", fake_parse_function_list)
         monkeypatch.setattr("rebrew.verify.build_function_registry", fake_build_registry)
         monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify_entry)
 
@@ -579,7 +579,7 @@ class TestIncrementalVerify:
 
         monkeypatch.setattr("rebrew.verify.require_config", fake_require_config)
         monkeypatch.setattr("rebrew.verify.scan_reversed_dir", fake_scan_reversed_dir)
-        monkeypatch.setattr("rebrew.verify.parse_function_list", fake_parse_function_list)
+        monkeypatch.setattr("rebrew.verify.cached_function_list", fake_parse_function_list)
         monkeypatch.setattr("rebrew.verify.build_function_registry", fake_build_registry)
         monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify_entry)
 

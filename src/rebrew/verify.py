@@ -5,7 +5,7 @@ target binary.  Results are classified by :class:`~rebrew.compile.CompareResult`
 (EXACT, RELOC, STUB, COMPILE_ERROR, …).
 
 After verification, STATUS is always promoted/demoted in
-``rebrew-function.toml`` via :func:`~rebrew.metadata.update_source_status`
+``rebrew-function.toml`` via :func:`~rebrew.metadata.update_statuses_batch`
 — the ``.c`` files are **never modified**.  PROVEN status is sticky and
 never demoted.
 
@@ -40,8 +40,8 @@ from rich.text import Text
 from rebrew.annotation import Annotation
 from rebrew.catalog import (
     build_function_registry,
+    cached_function_list,
     count_detection_sources,
-    parse_function_list,
     scan_reversed_dir,
 )
 from rebrew.cli import (
@@ -175,8 +175,6 @@ def verify_entry(
         # say so instead of a bare tooling error.
         hint = ""
         try:
-            from rebrew.catalog.loaders import cached_function_list
-
             funcs = cached_function_list(cfg)
             if funcs and entry.va not in {f["va"] for f in funcs}:
                 hint = (
@@ -1543,12 +1541,11 @@ def prepare_entries(
     cached_count, size_divergences, missing_sizes).
     """
     reversed_dir = cfg.reversed_dir
-    func_list_path = cfg.function_list
     ghidra_json_path = reversed_dir / FUNCTION_STRUCTURE_JSON
 
     console.print(f"Scanning {reversed_dir}...")
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
-    funcs = parse_function_list(func_list_path)
+    funcs = cached_function_list(cfg)
     registry = build_function_registry(funcs, cfg, ghidra_json_path, cfg.target_binary)
 
     unique_vas = {e.va for e in entries}

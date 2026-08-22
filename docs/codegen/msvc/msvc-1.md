@@ -99,6 +99,18 @@ DOSBox.  Emits 16-bit OMF objects.
   codegen separates them.  (The earlier "1.0/1.5 assumed same line"
   note is now probe-confirmed.)
 
+## Probe13: 16-bit bitfields and char promotion — verified
+
+- **Bitfield access via full-word loads + masks** — `bf_set` loads the
+  field word (`mov dx,[bx]`), masks with `and ax,0xf8` / `and cx,7`,
+  extracts the 8-bit field via `mov cl,ch; sub ch,ch` (high-byte load
+  + self-subtract zero-extend), and `shr al,3` for the 5-bit field.
+  Verified in probe13.
+- **`char + char` = plain 16-bit word add** — `c_add` compiles to
+  `mov ax,[bp+6]; add ax,[bp+4]; leave; ret` — NO sign-extension (a
+  char fits a word in 16-bit); the second arg is loaded first, the
+  same reverse-order quirk as 32-bit VC 2.0/4.x.
+
 ## Verification
 
 Probe `/O1` via `rebrew/msvc:1.52-win16` (`out16/probe.OBJ` and the

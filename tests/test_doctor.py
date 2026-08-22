@@ -1,6 +1,5 @@
 """Tests for rebrew doctor diagnostic command."""
 
-import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,11 +8,9 @@ import pytest
 from rebrew.doctor import (
     _FAIL,
     _PASS,
-    _SKIP,
     _WARN,
     CheckResult,
     DoctorReport,
-    check_annotation_staleness,
     check_arch_format,
     check_bin_dir,
     check_config_parse,
@@ -254,126 +251,6 @@ class TestCheckFunctionList:
         assert result.status == _WARN
 
 
-class TestCheckAnnotationStaleness:
-    """Cross-checking FUNCTION/STUB annotations against the current function
-    list — a stale annotation (binary updated, VA moved/removed) must be
-    reported so test/verify stop compiling against the wrong bytes."""
-
-    def _src(self, tmp_path: Path, name: str, body: str) -> None:
-        (tmp_path / "src").mkdir(exist_ok=True)
-        (tmp_path / "src" / name).write_text(body, encoding="utf-8")
-
-    def test_all_match_passes(self, tmp_path: Path) -> None:
-        (tmp_path / "funcs.txt").write_text(
-            "0x1000 256 func_a\n0x2000 128 func_b\n", encoding="utf-8"
-        )
-        self._src(
-            tmp_path, "func_a.c", "// FUNCTION: SERVER 0x1000\nint func_a(void) { return 0; }\n"
-        )
-        self._src(
-            tmp_path, "func_b.c", "// FUNCTION: SERVER 0x2000\nint func_b(void) { return 0; }\n"
-        )
-        result = check_annotation_staleness(_make_cfg(tmp_path))
-        assert result.status == _PASS
-        assert "2 FUNCTION/STUB annotation(s) match" in result.message
-
-    def test_dangling_va_warns(self, tmp_path: Path) -> None:
-        # Function list changed: 0x1000 no longer exists there.
-        (tmp_path / "funcs.txt").write_text("0x2000 128 func_b\n", encoding="utf-8")
-        self._src(
-            tmp_path, "func_a.c", "// FUNCTION: SERVER 0x1000\nint func_a(void) { return 0; }\n"
-        )
-        result = check_annotation_staleness(_make_cfg(tmp_path))
-        assert result.status == _WARN
-        assert "1 of 1 FUNCTION/STUB annotation(s) stale" in result.message
-        assert "func_a.c:1 → 0x1000 has no function" in result.message
-        assert "rebrew intake" in result.fix
-
-    def test_fix_blames_binary_when_binary_newer(self, tmp_path: Path) -> None:
-        # Binary written after the list: it plausibly changed, so the fix
-        # should recommend refreshing the list via intake/discover.
-        (tmp_path / "funcs.txt").write_text("0x2000 128 func_b\n", encoding="utf-8")
-        bin_path = tmp_path / "test.exe"
-        bin_path.write_bytes(b"MZ")
-        os.utime(tmp_path / "funcs.txt", (1_000_000, 1_000_000))
-        os.utime(bin_path, (2_000_000, 2_000_000))
-        self._src(
-            tmp_path, "func_a.c", "// FUNCTION: SERVER 0x1000\nint func_a(void) { return 0; }\n"
-        )
-        result = check_annotation_staleness(_make_cfg(tmp_path))
-        assert result.status == _WARN
-        assert "rebrew intake" in result.fix
-        assert "it likely changed" in result.fix
-
-    def test_fix_blames_annotations_when_list_newer(self, tmp_path: Path) -> None:
-        # List at least as new as the binary: the binary cannot have changed
-        # since the list was written, so the fix must NOT claim it did and
-        # must not lead with `rebrew intake`.
-        (tmp_path / "funcs.txt").write_text("0x2000 128 func_b\n", encoding="utf-8")
-        bin_path = tmp_path / "test.exe"
-        bin_path.write_bytes(b"MZ")
-        os.utime(bin_path, (1_000_000, 1_000_000))
-        os.utime(tmp_path / "funcs.txt", (2_000_000, 2_000_000))
-        self._src(
-            tmp_path, "func_a.c", "// FUNCTION: SERVER 0x1000\nint func_a(void) { return 0; }\n"
-        )
-        result = check_annotation_staleness(_make_cfg(tmp_path))
-        assert result.status == _WARN
-        assert "did not change" in result.fix
-        assert "rebrew intake" not in result.fix
-        assert "rebrew skeleton" in result.fix
-
-    def test_va_inside_another_function_warns(self, tmp_path: Path) -> None:
-        # The function moved: 0x1050 now falls inside func_a's span.
-        (tmp_path / "funcs.txt").write_text("0x1000 256 func_a\n", encoding="utf-8")
-        self._src(tmp_path, "old.c", "// FUNCTION: SERVER 0x1050\nint old(void) { return 0; }\n")
-        result = check_annotation_staleness(_make_cfg(tmp_path))
-        assert result.status == _WARN
-        assert "now inside func_a" in result.message
-
-    def test_missing_function_list_skips(self, tmp_path: Path) -> None:
-        self._src(
-            tmp_path, "func_a.c", "// FUNCTION: SERVER 0x1000\nint func_a(void) { return 0; }\n"
-        )
-        result = check_annotation_staleness(_make_cfg(tmp_path))
-        assert result.status == _SKIP
-
-    def test_data_and_library_markers_ignored(self, tmp_path: Path) -> None:
-        # DATA/LIBRARY markers can point at non-function VAs legitimately
-        # (data labels, import stubs that the parser filters out) — never
-        # flag them as stale.
-        (tmp_path / "funcs.txt").write_text("0x1000 256 func_a\n", encoding="utf-8")
-        self._src(
-            tmp_path,
-            "data.c",
-            "// DATA: SERVER 0x2000\n// SECTION: .rdata\n// LIBRARY: SERVER 0x3000\n",
-        )
-        result = check_annotation_staleness(_make_cfg(tmp_path))
-        assert result.status == _PASS
-        assert "0 FUNCTION/STUB annotation(s)" in result.message
-
-    def test_other_target_marker_filtered(self, tmp_path: Path) -> None:
-        # A shared source carries a marker for a DIFFERENT target — the
-        # per-target filter must drop it before the staleness cross-check.
-        (tmp_path / "funcs.txt").write_text("0x1000 256 func_a\n", encoding="utf-8")
-        self._src(
-            tmp_path, "shared.c", "// FUNCTION: CLIENT 0x3000\nint shared(void) { return 0; }\n"
-        )
-        cfg = _make_cfg(tmp_path, marker="SERVER")
-        result = check_annotation_staleness(cfg)
-        assert result.status == _PASS
-        assert "0 FUNCTION/STUB annotation(s)" in result.message
-
-    def test_capped_samples(self, tmp_path: Path) -> None:
-        # More than 5 stale annotations — the report caps the sample list.
-        (tmp_path / "funcs.txt").write_text("0x1000 256 func_a\n", encoding="utf-8")
-        lines = "\n".join(f"// FUNCTION: SERVER 0x{n:x}\n" for n in range(0x2000, 0x2008))
-        self._src(tmp_path, "many.c", lines)
-        result = check_annotation_staleness(_make_cfg(tmp_path))
-        assert result.status == _WARN
-        assert "8 of 8 FUNCTION/STUB annotation(s) stale (showing 5 of 8)" in result.message
-
-
 class TestCheckSourceFiles:
     def test_has_sources(self, tmp_path: Path) -> None:
         src = tmp_path / "src"
@@ -429,6 +306,33 @@ class TestRunDoctor:
         d = report.to_dict()
         assert "checks" in d
         assert "summary" in d
+
+    def test_no_delphi_row_for_x86_32(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The Delphi 1.0 check is 16-bit-only — a 32-bit project must not
+        show the 'not a 16-bit target' skip row (doctor is environment
+        health; structurally inapplicable checks stay hidden)."""
+        _make_project(
+            tmp_path,
+            "[project]\ndefault_target = 'main'\n\n"
+            "[targets.main]\nbinary = 'test.exe'\nformat = 'pe'\narch = 'x86_32'\n",
+        )
+        monkeypatch.chdir(tmp_path)
+        report = run_doctor()
+        assert "Delphi 1.0 toolchain" not in [c.name for c in report.checks]
+
+    def test_delphi_row_present_for_x86_16(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _make_project(
+            tmp_path,
+            "[project]\ndefault_target = 'main'\n\n"
+            "[targets.main]\nbinary = 'test.exe'\nformat = 'ne'\narch = 'x86_16'\n",
+        )
+        monkeypatch.chdir(tmp_path)
+        report = run_doctor()
+        assert "Delphi 1.0 toolchain" in [c.name for c in report.checks]
 
 
 class TestExtraBranches:

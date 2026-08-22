@@ -27,7 +27,7 @@ function at the same VA.  The format mirrors the ``// FUNCTION: SERVER
 
 Owned fields per entry::
 
-    size, cflags, status, blocker, blocker_delta, note, ghidra,
+    size, cflags, toolchain, status, blocker, blocker_delta, note, ghidra,
     analysis, skip, source, globals, prove_constraints
 
 The full canonical set is :data:`METADATA_FIELDS` (upper-case marker names).
@@ -68,7 +68,6 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import threading
 import tomllib
 import typing
 from collections.abc import Iterator
@@ -81,8 +80,9 @@ import tomlkit
 from rebrew.utils import (
     atomic_write_text,
     build_metadata_doc,
+    load_metadata_doc,
     load_toml_for_write,
-    parse_metadata_doc,
+    metadata_write_lock,
     qualified_key,
 )
 
@@ -99,39 +99,17 @@ logger = logging.getLogger(__name__)
 
 _metadata_cache: dict[Path, tuple[int, dict[tuple[str, int], dict[str, Any]]]] = {}
 
-# Serialises read-modify-write cycles on the metadata file across worker
-# threads (verify --jobs, GA batch promotion).
-_METADATA_LOCK = threading.Lock()
-
 
 @contextlib.contextmanager
 def _metadata_write_lock(directory: Path) -> Iterator[None]:
     """Thread + cross-process lock around a metadata read-modify-write.
 
-    The thread lock serializes in-process writers; an advisory ``flock`` on a
-    sidecar ``.lock`` file serializes *concurrent processes* (e.g.
-    ``rebrew verify --watch`` in one terminal while ``rebrew test`` promotes
-    in another — without it, interleaved read-modify-writes silently drop one
-    process's STATUS promotion; error-review F6).  Falls back to the thread
-    lock alone on platforms without ``fcntl``.
+    Delegates to the shared :func:`rebrew.utils.metadata_write_lock`
+    (per-filename lock + advisory ``flock`` sidecar) so the function and
+    data stores serialize on the same mechanism.
     """
-    try:
-        import fcntl
-    except ImportError:  # non-POSIX (no advisory file locks)
-        fcntl = None  # type: ignore[assignment]
-
-    path = (directory / METADATA_FILENAME).resolve()
-    with _METADATA_LOCK:
-        if fcntl is None:
-            yield
-            return
-        lock_path = path.with_suffix(path.suffix + ".lock")
-        with lock_path.open("w", encoding="utf-8") as lock_fh:
-            fcntl.flock(lock_fh, fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(lock_fh, fcntl.LOCK_UN)
+    with metadata_write_lock(directory, METADATA_FILENAME):
+        yield
 
 
 def clear_metadata_cache() -> None:
@@ -154,6 +132,7 @@ METADATA_FILENAME = "rebrew-function.toml"
 _CANONICAL_ORDER = [
     "size",
     "cflags",
+    "toolchain",
     "status",
     "blocker",
     "blocker_delta",
@@ -171,6 +150,7 @@ METADATA_FIELDS: frozenset[str] = frozenset(
         "STATUS",
         "SIZE",
         "CFLAGS",
+        "TOOLCHAIN",
         "BLOCKER",
         "BLOCKER_DELTA",
         "NOTE",
@@ -251,27 +231,7 @@ def load_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
     if not path.exists():
         return {}
 
-    # Fast mtime-based cache check — avoids re-parsing the same TOML file
-    # hundreds of times during batch operations (verify, status, match --all).
-    try:
-        current_mtime = path.stat().st_mtime_ns
-    except OSError:
-        current_mtime = 0
-    cached = _metadata_cache.get(path)
-    if cached is not None and cached[0] == current_mtime:
-        return cached[1]
-
-    try:
-        # Reads use tomllib (strict, ~10x faster than tomlkit) — round-trip
-        # preservation is only needed for WRITES, which still use tomlkit.
-        doc = tomllib.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001 — parser raises various types
-        logger.warning("Failed to parse metadata %s: %s", path, exc)
-        return {}
-
-    result = parse_metadata_doc(doc)
-    _metadata_cache[path] = (current_mtime, result)
-    return result
+    return load_metadata_doc(path, _metadata_cache, "metadata")
 
 
 def save_metadata(
@@ -311,6 +271,19 @@ def get_entry(directory: Path, va: int, module: str) -> dict[str, Any]:
     return load_metadata(directory).get((module, va), {})
 
 
+def _require_module(module: str) -> None:
+    """Reject empty modules on metadata writes.
+
+    A module-less key (``0xVA``) can be written but never read back —
+    ``parse_metadata_key`` only accepts the qualified ``MODULE.0xVA`` form.
+    The batch/status writers skip empty modules themselves; this guard
+    covers the single-entry helpers that would otherwise silently write a
+    key the loader drops.
+    """
+    if not module:
+        raise ValueError("metadata writes require a non-empty module")
+
+
 def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> None:
     """Set one field for *(module, va)* in the metadata.  **Private** — use
     :func:`update_field` or :func:`update_source_status` instead.
@@ -318,6 +291,7 @@ def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> N
     Writes directly to ``directory / rebrew-function.toml``.  No walk-up.
     Uses in-place ``tomlkit`` editing to preserve formatting and comments.
     """
+    _require_module(module)
     path = (directory / METADATA_FILENAME).resolve()
     toml_key = qualified_key(module, va)
 
@@ -341,6 +315,7 @@ def _set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) -
     """
     if not fields:
         return
+    _require_module(module)
     path = (directory / METADATA_FILENAME).resolve()
     toml_key = qualified_key(module, va)
 
@@ -414,6 +389,7 @@ def _delete_field(directory: Path, va: int, key: str, module: str) -> bool:
     path = (directory / METADATA_FILENAME).resolve()
     if not path.exists():
         return False
+    _require_module(module)
     toml_key = qualified_key(module, va)
 
     with _metadata_write_lock(directory):
@@ -446,6 +422,7 @@ def delete_metadata_entry(directory: Path, va: int, module: str) -> bool:
     path = (directory / METADATA_FILENAME).resolve()
     if not path.exists():
         return False
+    _require_module(module)
     toml_key = qualified_key(module, va)
 
     with _metadata_write_lock(directory):

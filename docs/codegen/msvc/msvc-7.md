@@ -147,6 +147,16 @@ first to post-shift division magic.
   stosd`/wrappers unchanged.
 - To VC 7.1: nothing verified in codegen.
 
+## Probe13: string intrinsics — verified
+
+- **strlen is inlined as a manual scan loop** at /O2 — `lea edx,[eax+1];
+  mov cl,[eax]; inc eax; test cl,cl; jnz; sub eax,edx`
+  (`8d 50 01 8a 08 40 84 c9 75 f9 2b c2`) — the 7.0+ form; the
+  `repne scasb` intrinsic ends at 6.0.
+- **memcmp(8B) keeps `repe cmpsb` (`f3 a6`)** at /O2 — 7.0/7.1 are
+  the LAST versions with the rep-string form (8.0+ switch to a
+  dword-compare loop).
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:7.0-win32` (`msvc700_{O1,O2}.obj`);

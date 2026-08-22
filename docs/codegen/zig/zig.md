@@ -55,6 +55,17 @@ means byte-exact matching is not expected).
 
 - Not applicable — no codegen fingerprints to diff.
 
+## Probe13 re-verification — claim stands
+
+`probe13.c` compiled with `zig cc -target x86-windows-gnu -O2` (zig
+0.16.0): the object differs from the MinGW GCC one per-function
+(different register allocation, `55 89 e5` frame prologues, `0f 1f`
+nops) but shares every probe13 family shape — libcall strlen, signed
+`char` (`shr al,7` in `c_cmp`), `movzx` for unsigned-char sums,
+EAX:EDX 8-byte struct returns.  No zig-vs-gcc byte marker exists in
+the probe13 set; the "indistinguishable from MinGW GCC" claim is
+re-verified.
+
 ## Verification
 
 PDB module scan of a real Zig-built program (`.zig-cache` paths);

@@ -74,12 +74,14 @@ you what to attack next.
 - `--name` overrides the auto-derived function name.
 - `--output` overrides the destination path.
 - `--batch N` generates the N smallest uncovered skeletons (`--min-size`,
-  `--max-size` filter the range).
+  `--max-size` filter the range; `--skip-fragments` excludes entries whose
+  first bytes look like data/fragments).
 - `--force` overwrites an existing file.
 - `--append PATH` appends the marker block to an existing multi-function
   `.c` file rather than creating a new one.
 - `--decomp [--decomp-backend auto|r2ghidra|r2dec|ghidra]` embeds a
-  decompilation as a starting point.
+  decompilation as a starting point; `--decomp-body` writes the decompiled C
+  as the function body (a real GA seed) instead of a comment block.
 - `--xrefs --endpoint URL` fetches cross-references from Ghidra and
   injects them as comments.
 - All volatile metadata (STATUS=STUB, SIZE, CFLAGS, BLOCKER) is written to
@@ -91,7 +93,8 @@ you what to attack next.
   extracts the named COFF symbol, and byte-compares against the target.
 - Auto-detects symbol, VA, size from `// FUNCTION:` markers, and STATUS/
   SIZE/CFLAGS from `rebrew-function.toml`.
-- `--va`, `--symbol`, `--size`, `--target-bin`, `--cflags` override values.
+- `--va`, `--symbol`, `--size`, `--target-bin`, `--cflags`, `--toolchain`
+  override values.
 - `--no-promote` disables STATUS auto-update (also auto-skipped for files
   outside the project).
 - Batch mode: `--all` (+ optional `--dir`, `--origin`, `-j JOBS`, `--dry-run`).
@@ -103,7 +106,7 @@ you what to attack next.
 - Compiles the source, compares to target, and renders a hex diff with
   marker codes (`==` identical, `~~` relocation diff, `RR` register
   encoding diff with `-r`, `**` structural, `XX` invalid relocation).
-- `-m` shows only mismatches.
+- `-m` shows only structural diff (`**`) lines.
 - `-r` normalises register encodings.
 - `--format csv` emits CSV.
 - `--fix-blocker` writes the inferred BLOCKER/BLOCKER_DELTA to
@@ -116,10 +119,16 @@ you what to attack next.
 - Validates `// FUNCTION:` / `// LIBRARY:` / `// STUB:` / `// GLOBAL:` /
   `// DATA:` markers.
 - Error codes: `E001` (missing marker), `E002` (invalid VA), `E012`
-  (module mismatch), `E013` (duplicate VA).
+  (module mismatch), `E013` (duplicate VA), `E023` (whole-function
+  `__declspec(naked)` + `__asm`/`__emit` block instead of real C).
 - Warnings: `W005` (STUB without BLOCKER), `W016` (DATA/GLOBAL missing
   SECTION), `W010` (unknown marker key), `W018` (missing CFLAGS), `W019`
-  (inline metadata should be in `rebrew-function.toml`).
+  (inline metadata should be in `rebrew-function.toml`), `W020` (asm-dump
+  placeholder instead of real C source), `W021` (duplicate global symbol
+  across files), `W022` (zero-initializer forces `.data` not `.bss`),
+  `W023` (default function name), `W024` (name violates naming convention),
+  `W025` (brace style mismatch), `W026` (indent style mismatch), `W027`
+  (line too long).
 - `--fix` migrates inline metadata into `rebrew-function.toml` and removes
   it from source.
 - `--summary` prints a STATUS/origin breakdown table.
@@ -130,9 +139,9 @@ you what to attack next.
 - `split SRC` produces one `<name>.c` per function. `--va` extracts a
   single function and leaves the rest. `--out-dir` overrides the output
   directory. `--dry-run`, `--force` available.
-- `merge SRCS... -o OUTPUT` deduplicates preambles (includes, typedefs)
-  and keeps each function's `// FUNCTION:` marker. `--delete` removes the
-  source files on success.
+- `merge SRCS... -o OUTPUT` (inputs may be files or directories)
+  deduplicates preambles (includes, typedefs) and keeps each function's
+  `// FUNCTION:` marker. `--delete` removes the source files on success.
 - `rename TARGET NEW` accepts a function name, file path, or VA, and
   updates the FUNCTION marker, definition, extern declarations, and
   cross-references. `--file NAME` renames the underlying file.
@@ -142,12 +151,16 @@ you what to attack next.
 - Computes a continuous ROI score and emits a globally interleaved list:
   - `setup` — fresh project steps.
   - `compile-error` — failed verify.
+  - `extract-error` — symbol not found in `.obj`
+    (marker/symbol/implementation issue).
   - `fix-delta` — known small deltas (≤20 B) ripe for flag sweep / GA.
   - `improve-match` — in-progress without small delta.
   - `start-function` — uncovered, ranked by size + difficulty.
-  - `missing-annotation` — in Ghidra but no C body.
+  - `missing-annotation` — in Ghidra but no C body / SIZE annotation.
   - `identify-library` — uncovered LIBRARY-origin functions.
   - `run-prover` — small near-matches eligible for `rebrew prove`.
+  - `documented` — IAT thunks / non-reproducible code (audit only, hidden
+    from the default list).
 - `--count N`, `--category C` filters.
 - `--stats` adds coverage stats header.
 
@@ -194,14 +207,17 @@ rebrew skeleton [VA]
       --name TEXT
   -o, --output TEXT
       --batch N
+      --skip-fragments
       --min-size N (default 10)
       --max-size N (default 9999)
       --force
       --append PATH
       --decomp
+      --decomp-body
       --decomp-backend auto|r2ghidra|r2dec|ghidra (default auto)
       --xrefs
       --endpoint URL  (default http://localhost:8080/mcp/message)
+      --dry-run
       --json
   -t, --target TEXT
 
@@ -211,12 +227,16 @@ rebrew test [SOURCE]
       --target-bin TEXT
       --size N
       --cflags TEXT
+      --toolchain TEXT
       --all
       --dir TEXT
       --origin GAME|MSVCRT|ZLIB|...
       --dry-run
   -j, --jobs N
       --no-promote
+      --force-status
+      --fix-size
+      --watch
       --json
   -t, --target TEXT
 
@@ -224,8 +244,10 @@ rebrew diff SEED_C
   -m, --mismatches-only
   -r, --register-aware
       --fix-blocker
+      --dry-run
   -f, --format terminal|csv (default terminal)
       --ignore-lint
+      --watch
       --json
   -t, --target TEXT
 
@@ -233,6 +255,7 @@ rebrew lint [FILES...]
       --fix
       --dry-run
   -q, --quiet
+      --pedantic
       --summary
       --json
   -t, --target TEXT
@@ -289,8 +312,9 @@ rebrew todo
 - `rebrew skeleton --decomp` requires r2 + r2ghidra/r2dec/ghidra to be
   installed on the host; failure modes degrade to a bare skeleton with a
   warning.
-- `rebrew rename` does best-effort cross-reference updates by symbol name;
-  it does not handle macros or stringified identifiers.
+- `rebrew rename` does best-effort cross-reference updates by scanning the
+  reversed directory; it deliberately does not rewrite macros or string
+  literals — `grep` for the old name afterwards if you suspect any.
 - `rebrew split` and `rebrew merge` are textual operations driven by
   `// FUNCTION:` markers; arbitrary C constructs between functions (e.g.
   file-scope statics that span declarations) may need manual fix-up.

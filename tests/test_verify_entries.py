@@ -27,7 +27,7 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
 
 def _patch(monkeypatch: pytest.MonkeyPatch, entries: list[Annotation]) -> None:
     monkeypatch.setattr(verify_mod, "scan_reversed_dir", lambda _d, cfg=None: entries)
-    monkeypatch.setattr(verify_mod, "parse_function_list", lambda _p: [])
+    monkeypatch.setattr(verify_mod, "cached_function_list", lambda _cfg: [])
     monkeypatch.setattr(verify_mod, "build_function_registry", lambda *a, **k: {})
     monkeypatch.setattr(verify_mod, "count_detection_sources", lambda r: (0, 0, 0, 0))
     monkeypatch.setattr(verify_mod, "_load_verify_cache", lambda *a, **k: None)
@@ -81,7 +81,7 @@ class TestPrepareEntriesCache:
         f = src / entry.filepath
         f.write_text("int f(void) { return 0; }\n", encoding="utf-8")
         monkeypatch.setattr(verify_mod, "scan_reversed_dir", lambda _d, cfg=None: [entry])
-        monkeypatch.setattr(verify_mod, "parse_function_list", lambda _p: [])
+        monkeypatch.setattr(verify_mod, "cached_function_list", lambda _cfg: [])
         monkeypatch.setattr(verify_mod, "build_function_registry", lambda *a, **k: {})
         monkeypatch.setattr(verify_mod, "count_detection_sources", lambda r: (0, 0, 0, 0))
         return cfg

@@ -51,8 +51,9 @@ import tomlkit
 
 from rebrew.utils import (
     atomic_write_text,
+    load_metadata_doc,
     load_toml_for_write,
-    parse_metadata_doc,
+    metadata_write_lock,
     qualified_key,
 )
 
@@ -126,25 +127,9 @@ def load_data_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]
     if not path.exists():
         return {}
 
-    # Fast mtime-based cache check — avoids re-parsing the same TOML file
-    # during batch operations (lint, verify, round-trip, smart_reloc_compare).
-    try:
-        current_mtime = path.stat().st_mtime_ns
-    except OSError:
-        current_mtime = 0
-    cached = _data_metadata_cache.get(path)
-    if cached is not None and cached[0] == current_mtime:
-        return cached[1]
-
-    try:
-        doc = tomlkit.parse(path.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to parse data metadata %s: %s", path, exc)
-        return {}
-
-    result = parse_metadata_doc(doc)
-    _data_metadata_cache[path] = (current_mtime, result)
-    return result
+    # Shared loader: tomllib reads (fast), mtime-keyed cache — same
+    # mechanism as rebrew-function.toml (metadata.py).
+    return load_metadata_doc(path, _data_metadata_cache, "data metadata")
 
 
 # ---------------------------------------------------------------------------
@@ -180,17 +165,20 @@ def set_data_field(directory: Path, va: int, key: str, value: Any, module: str) 
         module: Target module name (e.g. ``"SERVER"``).
 
     """
+    if not module:
+        raise ValueError("data metadata writes require a non-empty module")
     path = directory / DATA_METADATA_FILENAME
     toml_key = qualified_key(module, va)
 
-    doc = load_toml_for_write(path, "data metadata")
+    with metadata_write_lock(directory, DATA_METADATA_FILENAME):
+        doc = load_toml_for_write(path, "data metadata")
 
-    if toml_key not in doc:
-        doc[toml_key] = tomlkit.table()
+        if toml_key not in doc:
+            doc[toml_key] = tomlkit.table()
 
-    doc[toml_key][key] = value  # type: ignore[index]
-    atomic_write_text(path, tomlkit.dumps(doc))
-    _invalidate_data_cache(path)
+        doc[toml_key][key] = value  # type: ignore[index]
+        atomic_write_text(path, tomlkit.dumps(doc))
+        _invalidate_data_cache(path)
 
 
 # ---------------------------------------------------------------------------

@@ -440,6 +440,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | W025 | Opening brace style | Opening brace style does not match project configuration (`lint_brace_style` in config) |
 | W026 | Line indent style | Line indent style does not match project configuration (`lint_indent_style` in config) |
 | W027 | Line too long | Line exceeds `lint_max_line_length` characters |
+| W028 | Stale annotation VA | FUNCTION/STUB marker VA has no function in the current `functions.txt` (removed/shifted) or points inside another function's span (moved/merged) — re-annotate or refresh the list; LIBRARY/DATA/GLOBAL markers excluded |
 
 #### Data Annotation Warnings
 

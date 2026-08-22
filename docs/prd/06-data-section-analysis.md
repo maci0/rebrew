@@ -82,6 +82,9 @@ verification, and `rebrew_globals.h` generation.
   by looking for runs of plausible function-pointer-aligned values into
   the `.text` section.
 - Lists the table VA, length, and named entries (when identifiable).
+- Tunable via `--min-table-len` (default 3) and `--max-pointer-stride`
+  (default 4 = contiguous); non-pointer slots within the stride are
+  tolerated, so sparse tables still register.
 
 ### `--bss`
 
@@ -91,19 +94,27 @@ verification, and `rebrew_globals.h` generation.
 
 ### `--fix-bss`
 
-- Generates `bss_padding.c` with `static char _pad_<VA>[N];` arrays for
-  each detected gap.
-- Writes SIZE/SECTION/NOTE metadata back to `rebrew-data.toml` (the per-directory
-  data metadata file, distinct from `rebrew-function.toml` which tracks function status).
-- Idempotent on re-run.
+- Generates `bss_padding.c` with `char gap_<VA>[N];` arrays (plus
+  `// DATA:` markers) for each detected gap, headed by an auto-generated
+  comment.
+- Writes SIZE/SECTION/NOTE metadata back to `rebrew-data.toml` (the data
+  metadata file at `cfg.metadata_dir`, distinct from the per-directory
+  `rebrew-function.toml` which tracks function status).
+- Idempotent on re-run: previously generated declarations are merged with
+  newly detected gaps instead of being deleted.
 
 ### `--gen-header`
 
 - Builds `rebrew_globals.h` from `// GLOBAL:` / `// DATA:` annotations,
   grouped by section.
-- Emits typed `extern` declarations.
-- Safe to invoke offline; `rebrew sync --pull-data` will overwrite the
-  same file with Ghidra-sourced types if/when available.
+- Emits typed `extern` declarations (falling back to
+  `unsigned char <name>[]` when no type is known).
+- Writes to `{reversed_dir}/rebrew_globals.h` by default;
+  `--gen-header-out` redirects it. Refuses to overwrite an existing file
+  unless `--force` is passed; regeneration is idempotent (the write is
+  skipped when only the timestamp would differ).
+- Safe to invoke offline; `rebrew sync --pull-data` writes the same file
+  with Ghidra-sourced types when available.
 
 ## User Stories / Workflows
 
@@ -147,15 +158,21 @@ rebrew data [OPTIONS]
       --conflicts
       --summary
       --dispatch
+      --min-table-len INTEGER       (default: 3)
+      --max-pointer-stride INTEGER  (default: 4)
       --bss
       --fix-bss
       --gen-header
+      --gen-header-out PATH         (default: {reversed_dir}/rebrew_globals.h)
+      --force
+      --dry-run
       --json
   -t, --target TEXT
 ```
 
 (Modes can compose for `--summary` / `--conflicts` plus `--json`; modes
-like `--bss --fix-bss` and `--gen-header` are write modes.)
+like `--bss --fix-bss` and `--gen-header` are write modes, previewable
+with `--dry-run`.)
 
 ## Success Metrics
 
@@ -174,12 +191,15 @@ like `--bss --fix-bss` and `--gen-header` are write modes.)
   tool can only report the byte range.
 - `--fix-bss` adds opaque padding arrays; the user must later replace
   them with the real declarations.
-- The dispatch-table heuristic uses runs of x86-aligned candidate
-  pointers; tables containing non-pointer entries (mixed payloads) may
-  be missed.
-- `--gen-header` overwrites `rebrew_globals.h`; users editing that file
-  by hand should rename it or block the path before running.
-- Section detection comes from LIEF and assumes a single PE/ELF target;
-  fat / Mach-O binaries are not yet covered.
+- The dispatch-table heuristic (tunable via `--min-table-len` /
+  `--max-pointer-stride`) tolerates non-pointer slots within the
+  configured stride, but tables whose pointer runs are further apart
+  than the stride may still be missed; 16-bit NE tables rely on far
+  pointer (`seg:off`) decoding.
+- `--gen-header` refuses to overwrite an existing `rebrew_globals.h`
+  unless `--force` is passed (FIXED: was a silent overwrite); hand-edited
+  files are otherwise preserved.
+- Section detection comes from LIEF and covers single PE/ELF/NE (16-bit)
+  targets; fat / Mach-O binaries are not yet covered.
 - `rebrew data` does not handle data-flow analysis (e.g. which functions
   read which globals). That's left to Ghidra.

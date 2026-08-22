@@ -115,6 +115,21 @@ Probe12 (`sw8`) re-confirms the jump-table form for TC 3.1: `shl bx,1`
 is the TC/Watcom-16 family trait; the `xchg bx,ax` idiom is
 MSVC-1.5x-specific (see README).
 
+## Probe13: 16-bit char/bitfield forms — verified (TC 3.1)
+
+- **`char * 7` = `cwde` + `imul dx`** — `mov al,[bp+4]; cwde; mov
+  dx,7; imul dx` (the 16-bit `imul dx`), vs Watcom16's `shl ax,3;
+  sub ax,dx` and MSVC 1.52's plain word ops.
+- **zero-extension via `mov ah,0` / `mov dh,0`** — no `movzx` on the
+  8086 line (`uc_add`: `mov al,[bp+4]; mov ah,0; mov dl,[bp+6]; mov
+  dh,0; add ax,dx`).
+- **byte-in-memory compares** — `c_cmp` = `cmp byte ptr [bp+4],0;
+  jge` (signed), `uc_cmp` = `cmp byte ptr [bp+4],0xc8; jbe`
+  (unsigned) — char is SIGNED (unlike Watcom16's fold).
+- **bitfield set = byte RMW** — `bf_set` clears/ors fields with
+  `and byte ptr [si],0xf8; or byte ptr [si],al` (byte-level
+  read-modify-write).
+
 ## Verification
 
 Probes via `rebrew/borland:{3.1,2.0}-win16` — probe1 (`-O1`:

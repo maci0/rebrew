@@ -6,7 +6,8 @@ import os
 import shlex
 import threading
 import time
-from collections.abc import Callable, Sequence
+import tomllib
+from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -410,6 +411,84 @@ def load_toml_for_write(path: Path, description: str) -> TOMLDocument:
         return tomlkit.document()
 
 
+#: Per-file thread locks for :func:`metadata_write_lock` (one lock per
+#: metadata filename so the function and data stores don't contend).
+_METADATA_WRITE_LOCKS: dict[str, threading.Lock] = {}
+
+
+@contextlib.contextmanager
+def metadata_write_lock(directory: Path, filename: str) -> Iterator[None]:
+    """Thread + cross-process lock around a metadata read-modify-write.
+
+    Shared by ``metadata.py`` (``rebrew-function.toml``) and
+    ``data_metadata.py`` (``rebrew-data.toml``).  The thread lock serializes
+    in-process writers (``rebrew verify --jobs``, GA batch promotion); an
+    advisory ``flock`` on a ``.lock`` sidecar serializes *concurrent
+    processes* (e.g. ``rebrew verify --watch`` in one terminal while
+    ``rebrew test`` promotes in another — without it, interleaved
+    read-modify-writes silently drop one process's STATUS promotion).
+    Falls back to the thread lock alone on platforms without ``fcntl``.
+    """
+    try:
+        import fcntl
+    except ImportError:  # non-POSIX (no advisory file locks)
+        fcntl = None  # type: ignore[assignment]
+
+    path = (directory / filename).resolve()
+    with _METADATA_WRITE_LOCKS.setdefault(filename, threading.Lock()):
+        if fcntl is None:
+            yield
+            return
+        lock_path = path.with_suffix(path.suffix + ".lock")
+        with lock_path.open("w", encoding="utf-8") as lock_fh:
+            fcntl.flock(lock_fh, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_fh, fcntl.LOCK_UN)
+
+
+def load_metadata_doc(
+    path: Path,
+    cache: dict[Path, tuple[int, dict[tuple[str, int], dict[str, Any]]]],
+    description: str,
+) -> dict[tuple[str, int], dict[str, Any]]:
+    """Parse a qualified-key metadata TOML (``rebrew-function.toml`` /
+    ``rebrew-data.toml``) into ``{(module, va): fields}``.
+
+    Shared by ``metadata.load_metadata`` and ``data_metadata.load_data_metadata``,
+    which previously each hand-rolled the load→parse→mtime-cache pattern
+    (with an inconsistent parser choice: tomlkit vs tomllib).  Reads use
+    tomllib (strict, ~10x faster than tomlkit); round-trip preservation is
+    only needed for WRITES, which still use tomlkit.
+
+    *path* is resolved for stable cache keys.  *cache* is the caller's
+    mtime-keyed in-memory cache (invalidated by write helpers).  Returns an
+    empty dict when the file is missing or unparseable.
+    """
+    path = path.resolve()
+    if not path.exists():
+        return {}
+
+    try:
+        current_mtime = path.stat().st_mtime_ns
+    except OSError:
+        current_mtime = 0
+    cached = cache.get(path)
+    if cached is not None and cached[0] == current_mtime:
+        return cached[1]
+
+    try:
+        doc = tomllib.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001 — parser raises various types
+        logger.warning("Failed to parse %s %s: %s", description, path, exc)
+        return {}
+
+    result = parse_metadata_doc(doc)
+    cache[path] = (current_mtime, result)
+    return result
+
+
 def qualified_key(module: str | None, va: int) -> str:
     """Return the canonical TOML key for *(module, va)*.
 
@@ -672,11 +751,16 @@ def writable_temp_dir(prefix: str) -> Path:
     (sandboxed homes / CI) fall back to the rebrew workspace ``.cache``
     (a real disk, visible to docker) and then the system temp dir.
 
+    Home sandboxes live under ``~/.cache/rebrew/tmp`` (not directly in the
+    home directory) so that a straggler left behind by a hard-killed run
+    stays out of ``~`` and is trivially sweepable.
+
     Raises :class:`OSError` when no candidate is writable."""
     import tempfile
 
     workspace = Path(__file__).resolve().parents[2] / ".cache"
-    candidates = [Path.home(), workspace]
+    home_tmp = Path.home() / ".cache" / "rebrew" / "tmp"
+    candidates = [home_tmp, workspace]
     with contextlib.suppress(Exception):
         candidates.append(Path(tempfile.gettempdir()))
     for base in candidates:
@@ -686,3 +770,25 @@ def writable_temp_dir(prefix: str) -> Path:
         except OSError:
             continue
     raise OSError(f"no writable directory for temp dir {prefix!r}")
+
+
+def remove_temp_dir(path: Path, retries: int = 5, delay: float = 0.2) -> None:
+    """Remove a temp dir created by :func:`writable_temp_dir`.
+
+    A container that has not released its mount yet makes the top-level
+    dir non-removable ("Device or resource busy") even after its contents
+    are gone; the short retry absorbs the unmount race so sandboxes do not
+    accumulate empty shells in their parent.  Raises :class:`OSError` when
+    the dir is still busy after *retries*.
+    """
+    import shutil
+    import time
+
+    for attempt in range(retries):
+        try:
+            shutil.rmtree(path)
+            return
+        except OSError:
+            if attempt == retries - 1:
+                raise
+            time.sleep(delay)

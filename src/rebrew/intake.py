@@ -134,6 +134,8 @@ def _enumerate_functions(binary: Path) -> list[tuple[int, int, str]]:
 
 def _run_rizin_functions(binary: Path) -> list[tuple[int, int, str]]:
     """Enumerate functions via rizin. ``aaa`` first, ``aa; aap`` fallback."""
+    from rebrew.catalog.loaders import parse_rizin_afl
+
     for cmd in (["aaa"], ["aa", "aap"]):
         try:
             r = subprocess.run(
@@ -144,31 +146,7 @@ def _run_rizin_functions(binary: Path) -> list[tuple[int, int, str]]:
             )
         except (OSError, subprocess.TimeoutExpired):
             continue
-        funcs: list[tuple[int, int, str]] = []
-        for line in r.stdout.splitlines():
-            p = line.split()
-            if not p or not p[0].startswith("0x"):
-                continue
-            try:
-                va = int(p[0], 16)
-            except ValueError:
-                continue
-            if len(p) >= 4 and p[2].isdigit():
-                size, name = int(p[2]), p[3]
-            elif len(p) >= 3:
-                try:
-                    # Rizin versions differ on size radix (decimal vs 0x-prefixed
-                    # hex); int(x, 0) tolerates both without misreading plain
-                    # decimal as hex.
-                    size = int(p[1], 0)
-                except ValueError:
-                    continue
-                name = p[2]
-            else:
-                continue
-            if name in ("->", "loc") or name.startswith("sub."):
-                name = f"fcn.{va:08x}"
-            funcs.append((va, size, name))
+        funcs = parse_rizin_afl(r.stdout)
         if funcs:
             return sorted(funcs)
     return []

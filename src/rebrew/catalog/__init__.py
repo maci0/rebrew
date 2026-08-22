@@ -17,6 +17,9 @@ from rebrew.catalog.grid import (
     generate_data_json as generate_data_json,
 )
 from rebrew.catalog.loaders import (
+    cached_function_list as cached_function_list,
+)
+from rebrew.catalog.loaders import (
     load_function_structure as load_function_structure,
 )
 from rebrew.catalog.loaders import (
@@ -65,6 +68,7 @@ __all__ = [
     "RegistryEntry",
     "app",
     "build_function_registry",
+    "cached_function_list",
     "count_detection_sources",
     "generate_catalog",
     "generate_data_json",

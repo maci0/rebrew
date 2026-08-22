@@ -548,6 +548,86 @@ class TestInlineMetadataWarning:
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.inline_metadata_warning == 2
 
+    def test_markerless_cflags_not_counted(self, tmp_path: Path) -> None:
+        """A markerless // CFLAGS (naked-guard #else convention) is not counted.
+
+        It is not migratable (no marker block) and lint's E023 documents the
+        inline REBREW_ALLOW_NAKED CFLAGS form — the status warning must not nag
+        about files lint cannot fix.
+        """
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "function_structure.json").write_text("[]", encoding="utf-8")
+        (src / "func_a.c").write_text(
+            "// FUNCTION: TEST 0x1000\nint func_a(void) {}\n"
+            "#else\n// CFLAGS: /O2 /Gd /DREBREW_ALLOW_NAKED\n",
+            encoding="utf-8",
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.inline_metadata_warning == 0
+
+    def test_metadata_backed_inline_not_counted(self, tmp_path: Path) -> None:
+        """An inline key already owned by rebrew-function.toml is not counted."""
+        from rebrew.metadata import set_field
+
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "function_structure.json").write_text("[]", encoding="utf-8")
+        (src / "func_a.c").write_text(
+            "// FUNCTION: TEST 0x1000\n// SIZE: 42\nvoid func_a(void) {}\n",
+            encoding="utf-8",
+        )
+        set_field(tmp_path, 0x1000, "size", 42, module="TEST")
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.inline_metadata_warning == 0
+
+    def test_pending_cflags_before_marker_backed_not_counted(self, tmp_path: Path) -> None:
+        """A // CFLAGS before the marker, backed by metadata, is not counted."""
+        from rebrew.metadata import set_field
+
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "function_structure.json").write_text("[]", encoding="utf-8")
+        (src / "func_a.c").write_text(
+            "// CFLAGS: /O2 /Gd /DREBREW_ALLOW_NAKED\n// FUNCTION: TEST 0x1000\n"
+            "void func_a(void) {}\n",
+            encoding="utf-8",
+        )
+        set_field(tmp_path, 0x1000, "cflags", "/O2 /Gd /DREBREW_ALLOW_NAKED", module="TEST")
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.inline_metadata_warning == 0
+
+    def test_pending_cflags_before_marker_unbacked_counted(self, tmp_path: Path) -> None:
+        """A // CFLAGS before the marker with no metadata backing is counted."""
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "function_structure.json").write_text("[]", encoding="utf-8")
+        (src / "func_a.c").write_text(
+            "// CFLAGS: /O2 /Gd\n// FUNCTION: TEST 0x1000\nvoid func_a(void) {}\n",
+            encoding="utf-8",
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.inline_metadata_warning == 1
+
+    def test_data_size_backed_not_counted(self, tmp_path: Path) -> None:
+        """DATA blocks source size/section/note from rebrew-data.toml."""
+        from rebrew.data_metadata import set_data_field
+
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "function_structure.json").write_text("[]", encoding="utf-8")
+        (src / "globals.c").write_text(
+            "// DATA: TEST 0x1000\n// SIZE: 16\nint g_x;\n", encoding="utf-8"
+        )
+        set_data_field(tmp_path, 0x1000, "size", 16, "TEST")
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.inline_metadata_warning == 0
+
     def test_inline_warning_in_to_dict(self, tmp_path: Path) -> None:
         """inline_metadata_warning appears in to_dict() only when non-zero."""
         report_clean = StatusReport()

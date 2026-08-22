@@ -86,6 +86,17 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 7.0+ which inline them (11–12B).  Verified in probe12
 (`f1`/`f2`/`fl`); keeping the call is itself the 2.0–6.0 era marker.
 
+## Probe13: string intrinsics + promotion — verified
+
+- **strlen is `repne scasb` (`f2 ae`)** with ECX=−1 at /O2 — the
+  2.0–6.0 form; bcc32/Watcom/GCC libcall strlen instead.
+- **memcmp(8B) is `repe cmpsb` (`f3 a6`) + sbb idiom** at /O2 — the
+  2.0–7.1 form.
+- **`unsigned char` sums use `xor eax,eax; mov al`** (2.0/4.x form;
+  shared with bcc32) at /O2; every version uses `movzx` at /O1.
+- **8-byte struct returns round-trip the stack** (`83 ec 08` + field
+  copies + reload) — 2.0/4.x; 5.0+ return in EAX:EDX.
+
 ## Verification
 
 Probe compiled with `rebrew/msvc:4.0-win32`, `4.1-win32`, `4.2-win32` at

@@ -309,3 +309,78 @@ class TestSourceEncoding:
             text, encoding = read_source_text(f)
             assert isinstance(text, str)
             assert isinstance(encoding, str)
+
+
+class TestWritableTempDir:
+    """Sandbox dirs must live on a real-disk, container-visible location —
+    and never directly in the home directory (home sandboxes go under
+    ~/.cache/rebrew/tmp so stragglers stay out of ~)."""
+
+    def test_creates_prefixed_dir(self) -> None:
+        from rebrew.utils import writable_temp_dir
+
+        d = writable_temp_dir("rebrew_test_")
+        try:
+            assert d.is_dir()
+            assert d.name.startswith("rebrew_test_")
+        finally:
+            import shutil
+
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_created_under_allowed_parents(self) -> None:
+        import tempfile
+
+        from rebrew.utils import writable_temp_dir
+
+        allowed = {
+            Path.home() / ".cache" / "rebrew" / "tmp",
+            Path(__file__).resolve().parents[1] / ".cache",
+            Path(tempfile.gettempdir()),
+        }
+        d = writable_temp_dir("rebrew_test_")
+        try:
+            assert d.parent in allowed, f"temp dir escaped to {d.parent}"
+        finally:
+            import shutil
+
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_not_directly_in_home(self) -> None:
+        from rebrew.utils import writable_temp_dir
+
+        d = writable_temp_dir("rebrew_test_")
+        try:
+            assert d.parent != Path.home()
+        finally:
+            import shutil
+
+            shutil.rmtree(d, ignore_errors=True)
+
+
+class TestRemoveTempDir:
+    def test_removes_dir(self, tmp_path: Path) -> None:
+        from rebrew.utils import remove_temp_dir
+
+        d = tmp_path / "sandbox"
+        d.mkdir()
+        (d / "t.c").write_text("int x;\n")
+        remove_temp_dir(d)
+        assert not d.exists()
+
+    def test_raises_when_never_removable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import shutil
+
+        from rebrew.utils import remove_temp_dir
+
+        d = tmp_path / "sandbox"
+        d.mkdir()
+
+        def always_busy(*args: object, **kwargs: object) -> None:
+            raise OSError("Device or resource busy")
+
+        monkeypatch.setattr(shutil, "rmtree", always_busy)
+        with pytest.raises(OSError, match="busy"):
+            remove_temp_dir(d, retries=1)

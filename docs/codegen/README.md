@@ -115,6 +115,11 @@ claims are explicitly downgraded in the per-version files.
 | **64-bit compares: direct-memory form** | `3b 44 24 10 … 3b 4c 24 0c` | **MSVC 7.0+** (5.0/6.0 load operands into registers first — 35B; 4.1 uses `39 44`-forms) | ✓ probe10 (`i64lt/eq/ne/ge`) |
 | **static-helper inlining at /O2** | (no `call` in the caller) | **MSVC 7.0+** (2.0–6.0 keep the call at /O2 and /O1; 7.0+ inline to 11–12B) | ✓ probe12 (`f1`/`f2`/`fl`) |
 | **16-bit switch via `xchg bx,ax`** | `03 c0 93` (`add ax,ax; xchg bx,ax`) | **MSVC 1.5x (16-bit)** (TC 2.0/3.1 and Watcom 16-bit scale via `shl bx,1` — `d1 e3`) | ✓ probe12 (`sw8`) |
+| **strlen intrinsic: `repne scasb`** | `f2 ae` (ECX=−1 init) | **MSVC 2.0–6.0 /O2** (7.0+ inline a manual scan loop `8d 50 01 8a 08 84 c9 75 f9 2b c2`; bcc32/Watcom/GCC libcall strlen) | ✓ probe13 (`str_len_lib`) |
+| **memcmp 8B intrinsic: `repe cmpsb`** | `f3 a6` | **MSVC 2.0–7.1 /O2** (8.0+ use a dword-compare loop; bcc32/Watcom/GCC libcall memcmp) | ✓ probe13 (`mem_cmp8_lib`) |
+| **`and eax,0xff` zero-extension** | `25 ff 00 00 00` / `81 e1 ff 00 00 00` | **MSVC 5.0/6.0 /O2** (2.0/4.x: `xor eax,eax; mov al` — shared with bcc32; 7.0+: `movzx` — shared with GCC/Watcom) | ✓ probe13 (`uc_add`) |
+| **default-unsigned `char`** | `char < 0` → `31 c0 c3` (folded to 0) | **Open Watcom** (wcc386 + wcc16; MSVC/GCC/bcc32/TC use signed char) | ✓ probe13 (`c_cmp`) |
+| **8-byte struct return via `movsd` pair** | `a5 a5` | **Open Watcom** (MSVC 5.0+ return in EAX:EDX; bcc32 and MSVC 2.0/4.x round-trip the stack) | ✓ probe13 (`s8_make`) |
 | **SSE2 `ucomisd` FP compare** | `66 0f 2f` + `0f 97 c0` | MSVC 11.0 | ✓ probe5 (`fcmp1-4`) |
 | **`__fastcall` register fusion `lea eax,[ecx+edx]`** | `8d 04 11` | **MSVC 7.0+** (2.0–6.0: `mov eax,[esp+4]` first) | ✓ probe5 (`fc1`) |
 | **`fdivr` for `a/5.0`** | `dc 35`-reverse (`fdivr m64`) | MinGW GCC | ✓ probe5 (`fdiv5`) |

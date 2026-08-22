@@ -117,6 +117,21 @@ entries — the `shl bx,1` (`d1 e3`) scaling, same family trait as TC
 (not MSVC 1.52's `add ax,ax; xchg bx,ax`).  Verified in probe12
 (`out12/watcom16/sw16.obj`, native `wcc`).
 
+## Probe13: char signedness + struct return — verified
+
+- **default-unsigned `char`** — `c_cmp` (`char a < 0 ? 1 : 0`)
+  compiles to `xor eax,eax; ret` at -otexan: the comparison is
+  provably false.  Verified in wcc386 (32-bit) AND wcc16 (`xor ax,ax;
+  ret`).  MSVC, GCC, bcc32 and TC all treat `char` as signed here —
+  the constant fold is a clean Watcom discriminator.
+- **8-byte struct returns via a `movsd` pair** — `s8_make` copies the
+  struct to the sret pointer with `a5 a5` (2× movsd) after building
+  it in registers; 16-byte structs use `a5 a5 a5 a5`.  MSVC 5.0+
+  return 8-byte structs in EAX:EDX and bcc32 / MSVC 2.0/4.x
+  round-trip the stack — the movsd-pair copy is Watcom-exclusive here
+  (the 16B movsd×4 form is shared with MSVC 5.0/6.0 at /O1).
+- **strlen/memcmp are libcalls** (tail-jump `e9`), never inlined.
+
 ## Verification
 
 Probe via `rebrew/watcom:2.0-win32` (wcc386 entrypoint) `-fo=` `-zq`

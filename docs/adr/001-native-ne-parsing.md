@@ -37,9 +37,9 @@ function discovery, and the old behavior was to reject the format outright
   the VA; tools that assume a single linear image (PE relocs, IAT slots)
   degrade gracefully rather than misparse.
 - Byte matching for 16-bit targets is **implemented** (not future work):
-  the `msvc1.52` profile compiles C89 to 16-bit OMF via DOSBox
-  (`rebrew/msvc:1.52-win16` image or vendored `toolchain/msvc/1.52-win16`), the
-  built-in `omf16` parser decodes both OMF dialects (objconv crashes on
-  them), and `test`/`verify`/`match --flag-sweep-only` run on NE targets
-  (see TOOLCHAIN.md item 6).  Delphi's Borland ABI remains unmatchable —
-  those functions are documented as blockers.
+  the `msvc1.52` profile compiles C89 to 16-bit OMF inside the
+  `rebrew/msvc:1.52-win16` image (DOSBox in-image; execution is docker-only
+  per ADR-008), the built-in `omf16` parser decodes both OMF dialects
+  (objconv crashes on them), and `test`/`verify`/`match --flag-sweep-only`
+  run on NE targets (see TOOLCHAIN.md item 6).  Delphi's Borland ABI
+  remains unmatchable — those functions are documented as blockers.

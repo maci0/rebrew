@@ -2,12 +2,16 @@
 
 Check that all .c files in the reversed directory have proper reccmp-style
 annotations (``// FUNCTION: MODULE 0xVA`` markers) and that volatile metadata
-(STATUS, SIZE, CFLAGS, etc.) lives in ``rebrew-function.toml``.
+(STATUS, SIZE, CFLAGS, etc.) lives in ``rebrew-function.toml``.  Also
+cross-checks FUNCTION/STUB marker VAs against the target's function list
+(W028) so stale annotations are caught at lint time, not as confusing
+mismatches in ``rebrew test``.
 Supports ``--fix`` to migrate inline metadata keys to the TOML metadata file.
 
 Inspired by reccmp's decomplint tool.
 """
 
+import bisect
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -163,8 +167,13 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
                 pending_kv[m.group("key").upper()] = m.group("value").strip()
             continue
 
-        if in_block:
-            seen_code_after_marker = True
+        # Any other line here is a comment (non-comment lines were handled
+        # above): a bare function-name hint (``// Foo``), an explanation, or
+        # a ``/* ... */`` block.  A comment is not code — keep the header
+        # block open so a following ``// SIZE:``/``// CFLAGS:``/etc. still
+        # attaches to the marker block (mirrors annotation.py's name-hint
+        # handling; without this, the name line orphaned later KV keys and
+        # W019/--fix could never see them).
 
     if in_block:
         results.append((current_keys, current_flags))
@@ -215,6 +224,153 @@ def _check_E013_duplicate_va(
         result.error(result.marker_line, "E013", f"Duplicate VA {va_str} — also in {seen_vas[key]}")
     else:
         seen_vas[key] = rel_display_path(filepath)
+
+
+def _function_containing_va(
+    spans: list[tuple[int, int, str]], va: int
+) -> tuple[int, int, str] | None:
+    """Return the ``(start, end, name)`` span containing *va*, or None.
+
+    ``spans`` is a list sorted by start.  A span whose *start* equals *va*
+    is NOT a "contains" — the caller already established that *va* is not a
+    function start, so only strictly-inside hits qualify (a moved/merged
+    annotation now points into the body of a different function).
+    """
+    if not spans or va < spans[0][0]:
+        return None
+    starts = [s[0] for s in spans]
+    idx = bisect.bisect_right(starts, va) - 1
+    if idx < 0:
+        return None
+    start, end, name = spans[idx]
+    if start < va < end:
+        return (start, end, name)
+    return None
+
+
+def _build_function_index(
+    cfg: ProjectConfig,
+) -> tuple[set[int], list[tuple[int, int, str]]] | None:
+    """Build ``(starts, spans)`` from the target's function list, or None.
+
+    ``starts`` is the set of function-start VAs; ``spans`` is the sorted
+    ``(start, end, name)`` list used to detect annotations that fell inside
+    another function after a move/merge.  Returns None when the list is
+    missing or empty — the W028 check is then silent (nothing to check
+    against), matching the old doctor behavior.
+    """
+    from rebrew.catalog.loaders import cached_function_list
+
+    funcs = cached_function_list(cfg)
+    if not funcs:
+        return None
+    starts: set[int] = set()
+    spans: list[tuple[int, int, str]] = []
+    for f in funcs:
+        va = int(f.get("va", 0))
+        if va <= 0:
+            continue
+        starts.add(va)
+        spans.append((va, va + max(int(f.get("size", 0) or 0), 1), str(f.get("name", ""))))
+    spans.sort()
+    return starts, spans
+
+
+def _staleness_fix(cfg: ProjectConfig | None) -> str:
+    """Pick a staleness fix hint from which artifact is newer.
+
+    Stale annotations have two very different causes: the target binary was
+    replaced (refresh the function list), or the annotations moved / the list
+    no longer reflects the target (re-annotate) — recommending ``rebrew
+    intake`` for the second case is wrong.  The binary-vs-list mtime
+    comparison is a cheap proxy: a binary newer than the list means it
+    plausibly changed after the list was written; a list at least as new as
+    the binary means the binary cannot have changed since, so the markers
+    (or a list regenerated from a different binary, e.g. a rebuild) are at
+    fault.  Falls back to a cause-neutral message when either file's mtime
+    is unavailable.
+    """
+    binary_newer: bool | None = None
+    try:
+        bin_path = Path(str(getattr(cfg, "target_binary", "")))
+        list_path: Path | None = getattr(cfg, "function_list", None) if cfg is not None else None
+        if list_path is not None and bin_path.is_file() and list_path.is_file():
+            binary_newer = bin_path.stat().st_mtime > list_path.stat().st_mtime
+    except OSError:
+        binary_newer = None
+
+    annotate = "re-annotate the moved functions (`rebrew skeleton <new_va>` or edit the marker VA)"
+    if binary_newer is True:
+        return (
+            "The target binary is newer than the function list — it likely changed: "
+            "re-run `rebrew intake` / `rebrew discover` to refresh the list, then " + annotate
+        )
+    if binary_newer is False:
+        return (
+            "The function list is as new as the target binary, so the binary did not "
+            "change: " + annotate + ". If the list was regenerated from a different "
+            "binary (e.g. a rebuilt artifact) instead of the target, regenerate it "
+            "from the target"
+        )
+    return (
+        "The function list no longer matches these annotations: if the target binary "
+        "changed, re-run `rebrew intake` / `rebrew discover` to refresh the list; "
+        "otherwise " + annotate + " (or regenerate the list if it was built from a "
+        "different binary, e.g. a rebuilt artifact)"
+    )
+
+
+def _check_W028_stale_annotation(
+    result: LintResult,
+    va_int: int,
+    module: str,
+    cfg: ProjectConfig | None,
+    function_index: tuple[set[int], list[tuple[int, int, str]]] | None,
+) -> None:
+    """Warn when a FUNCTION/STUB marker VA matches no function start (W028).
+
+    A "stale annotation" is a ``// FUNCTION:``/``// STUB:`` marker whose VA
+    no longer corresponds to a function in the current binary.  After a
+    binary update or a re-discovery the function either moved — the marker
+    now points *inside* another function's span — or was removed (no
+    function at that VA).  Either way ``rebrew test``/``verify`` compile
+    against the wrong bytes and status/todo keep reporting phantom
+    functions.
+
+    Uses the target's ``functions.txt`` (the same list ``rebrew intake`` /
+    ``discover`` write) as ground truth.  ``LIBRARY`` markers are excluded
+    (import stubs) and ``GLOBAL``/``DATA`` markers are data, not code;
+    markers of a different target module are filtered by the caller's
+    config.  Silent when no function index is available.
+    """
+    if function_index is None:
+        return
+    marker = getattr(cfg, "marker", None) if cfg is not None else None
+    if marker and module and module != marker:
+        return  # another target's marker — E012 already flags the module
+    starts, spans = function_index
+    if va_int in starts:
+        return
+    host = _function_containing_va(spans, va_int)
+    # Append the mtime-aware fix hint only to the first stale marker in the
+    # file — repeating it per marker would drown the signal.
+    hint = _staleness_fix(cfg) if not any(c == "W028" for _, c, _ in result.warnings) else ""
+    if host is not None:
+        result.warning(
+            result.marker_line,
+            "W028",
+            f"annotation VA 0x{va_int:x} points inside function "
+            f"'{host[2] or 'a function'}' (moved/merged) — re-annotate the "
+            "marker VA or refresh the function list" + hint,
+        )
+    else:
+        result.warning(
+            result.marker_line,
+            "W028",
+            f"annotation VA 0x{va_int:x} has no function in the current "
+            "function list (removed or shifted) — re-annotate the marker VA "
+            "or refresh the function list" + hint,
+        )
 
 
 def _check_W018_cflags(
@@ -662,13 +818,21 @@ def _strip_c_comments_strings(line: str, in_block_comment: bool) -> tuple[str, b
     return "".join(out), in_block_comment
 
 
-def _check_W022_zero_init_bss(result: LintResult, lines: list[str]) -> None:
+def _check_W022_zero_init_bss(
+    result: LintResult, lines: list[str], data_section_names: frozenset[str] = frozenset()
+) -> None:
     """Flag file-scope zero initializers (W022).
 
     A file-scope ``= {0}`` / ``= 0`` forces the global into ``.data``
     (initialized) instead of ``.bss`` (uninitialized, virtual-only) — this
     is exactly the np-rebrew .data bloat (41K of zero-init arrays).  Leave
     the global uninitialized for .bss.
+
+    Exception: a global whose name appears in ``rebrew-data.toml`` with
+    ``section = ".data"`` (passed via *data_section_names*) stored zero-init
+    data in the original's ``.data`` as well — dropping the initializer
+    would shrink the rebuilt section and break byte identity, so the warning
+    is suppressed for it.
     """
     depth = 0
     in_block_comment = False
@@ -676,6 +840,10 @@ def _check_W022_zero_init_bss(result: LintResult, lines: list[str]) -> None:
         cleaned, in_block_comment = _strip_c_comments_strings(line, in_block_comment)
         depth += cleaned.count("{") - cleaned.count("}")
         if depth == 0 and _ZERO_INIT_RE.match(cleaned.strip()):
+            if data_section_names:
+                name_match = _GLOBAL_NAME_RE.search(cleaned)
+                if name_match and name_match.group(1) in data_section_names:
+                    continue
             result.warning(
                 i,
                 "W022",
@@ -838,6 +1006,7 @@ def lint_file(
     seen_globals: dict[str, str] | None = None,
     preloaded_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
     preloaded_data_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
+    function_index: tuple[set[int], list[tuple[int, int, str]]] | None = None,
     pedantic: bool = False,
 ) -> LintResult:
     """Lint a single C file.
@@ -851,6 +1020,9 @@ def lint_file(
                       W021 duplicate-global detection. Will be mutated.
         preloaded_metadata: Pre-loaded metadata dict (avoids per-file I/O in batch).
         preloaded_data_metadata: Pre-loaded data metadata dict (avoids per-file I/O in batch).
+        function_index: ``(starts, spans)`` from the target function list
+                        (built once per batch); enables the W028
+                        annotation-staleness cross-check.
 
     """
     result = LintResult(filepath)
@@ -969,6 +1141,9 @@ def lint_file(
             # file whose blocks share a VA (a valid layout) is not flagged.
             _check_E013_duplicate_va(result, va_int, va_str, filepath, seen_vas, module=mod)
 
+            if marker in ("FUNCTION", "STUB") and va_int is not None:
+                _check_W028_stale_annotation(result, va_int, mod, cfg, function_index)
+
             if marker not in ("GLOBAL", "DATA"):
                 _check_W018_cflags(result, found_keys, cfg)
             else:
@@ -1013,10 +1188,17 @@ def lint_file(
             )
 
     result.context_prefix = ""
+    # Names of globals annotated section=".data" in rebrew-data.toml — W022
+    # exemption (the original binary stored the zero-init data in .data).
+    _data_section_names = frozenset(
+        str(entry["name"])
+        for entry in _data_metadata_entries.values()
+        if entry.get("section") == ".data" and entry.get("name")
+    )
     _check_E023_naked_asm(result, lines, _file_statuses, " ".join(_file_cflags))
     _check_W020_asm_dump(result, lines, _file_statuses)
     _check_W021_duplicate_globals(result, lines, filepath, seen_globals)
-    _check_W022_zero_init_bss(result, lines)
+    _check_W022_zero_init_bss(result, lines, _data_section_names)
     _check_body_rules(result, lines, all_headers[0][1]["has_new"] if all_headers else False)
     _check_W023_default_func_names(result, lines, pedantic)
     _check_style_rules(result, cfg)
@@ -1073,12 +1255,15 @@ app = typer.Typer(
         "  W020   Asm-dump placeholder (__emit / __asm block) instead of real C source\n\n"
         "  E023   Whole-function __declspec(naked) + __asm/__emit (only 1-2 nop/0x90/0xCC padding bytes allowed)\n\n"
         "  W021   Duplicate global symbol annotated in multiple files\n\n"
-        "  W022   File-scope zero initializer (= {0}) forces the global into .data, not .bss\n\n"
+        "  W022   File-scope zero initializer (= {0}) forces the global into .data, not .bss\n"
+        '         (exempt: globals annotated section = ".data" in rebrew-data.toml)\n\n'
         "  W023   Function has a default name (fcn, fn, fun, etc.); consider renaming\n\n"
         "  W024   Function name does not match project naming convention\n\n"
         "  W025   Opening brace style does not match project configuration\n\n"
         "  W026   Line indent style does not match project configuration\n\n"
         "  W027   Line too long (exceeds max_line_length)\n\n"
+        "  W028   Annotation VA matches no function in the current function list\n"
+        "         (stale after a binary update — re-annotate or refresh the list)\n\n"
         "[dim]Checks for reccmp-style markers in each .c file.[/dim]"
     ),
 )
@@ -1138,6 +1323,8 @@ def main(
     if cfg:
         _preloaded_metadata = load_metadata(cfg.metadata_dir)
         _preloaded_data_metadata = load_data_metadata(cfg.metadata_dir)
+    # Pre-load the function list once for the whole batch (W028).
+    function_index = _build_function_index(cfg) if cfg else None
 
     total = 0
     passed = 0
@@ -1154,6 +1341,7 @@ def main(
             seen_globals=seen_globals,
             preloaded_metadata=_preloaded_metadata,
             preloaded_data_metadata=_preloaded_data_metadata,
+            function_index=function_index,
             pedantic=pedantic,
         )
         all_results.append(result)

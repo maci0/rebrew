@@ -87,6 +87,21 @@ keeps 4 `call`s in 119B of code, the -O2 object 4 `call`s in 128B —
 the same keep-the-call behavior as MSVC 2.0–6.0.  Verified in a
 probe12 re-run via `rebrew/borland:5.5-win32` (`out12/bcc55*`).
 
+## Probe13: string intrinsics + bitfields — verified negatives
+
+- **strlen/memcmp/strcmp are libcalls** (stack-arg `e8` calls), never
+  inlined — the MSVC `repne scasb`/`repe cmpsb` intrinsic forms have
+  no bcc32 counterpart.
+- **bitfield loads via non-movzx byte/word loads** — `bf_get` reads
+  fields with `8a 50 01` (mov dl,[eax+1]) and `66 8b 40 02` (mov
+  ax,[eax+2]) — the 8a/66-8b forms, distinct from MSVC/GCC `movzx`
+  and Watcom's shift/mask.
+- **`unsigned char` sums use `xor eax,eax; mov al`** — shared with
+  MSVC 2.0/4.x (vs 5.0/6.0 `and eax,0xff`, 7.0+ `movzx`).
+- **8-byte struct returns round-trip the stack** (`83 c4 f8` + field
+  stores) — bcc32's own encoding of the 2.0/4.x-style round-trip.
+- `char` is signed (`c_cmp`: `cmp byte ptr [ebp+8],0; jge`).
+
 ## Verification
 
 Probe `-O1` and `-O2` via `rebrew/borland:5.5-win32` (`probe.obj`,
