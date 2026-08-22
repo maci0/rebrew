@@ -59,6 +59,10 @@ class ToolchainSpec:
     host_path: str | Path | None = None  # vendored dir (host fallback)
     host_bin: str = "Bin"  # subdir of host_path holding the compiler (Bin for
     # MSVC, binl for Watcom, "" for the root — Delphi)
+    tool_root: str | None = None  # container dir holding the command-line tools
+    # (e.g. "/opt/msvc6.0/VC98/Bin"); the CMake toolchain wrapper
+    # (rebrew-cmake-cl/link/lib) calls the tools there directly via `wine` and
+    # derives the Include/Lib dirs from it
     description: str = ""
 
     @property
@@ -535,6 +539,7 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc6.0/VC98/Bin",
         host_path=_vendored("msvc/6.0-win32") if _vendored("msvc/6.0-win32").exists() else None,
         description="MSVC 6.0 (32-bit PE, C89) — docker image (wine inside)",
     ),

@@ -104,6 +104,10 @@ rebrew-test = "rebrew.test:main_entry"
 rebrew-todo = "rebrew.todo:main_entry"
 rebrew-unpack-lzexe = "rebrew.lzexe_cli:main_entry"
 rebrew-verify = "rebrew.verify:main_entry"
+# CMake toolchain bridge — CMAKE_C_COMPILER/LINKER/AR wrappers (docker)
+rebrew-cmake-cl = "rebrew.cmake_tc:tc_main"
+rebrew-cmake-link = "rebrew.cmake_tc:tc_main"
+rebrew-cmake-lib = "rebrew.cmake_tc:tc_main"
 
 [project.urls]
 Homepage = "https://github.com/maci0/rebrew"

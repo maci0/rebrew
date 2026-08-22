@@ -21,6 +21,14 @@ Install editable (`uv pip install -e .`) inside a workspace containing binaries,
 
 All images build reproducibly (pinned sources, sha256-verified downloads or 16-bit media tarballs in the rebrew-toolchains checkout; shared `rebrew/base` with pinned Debian digest) and `rebrew toolchain smoke` gates byte-reproducible objects for every image-backed toolchain — see `docs/TOOLCHAIN.md`.
 
+**CMake builds** (projects that link via CMake instead of the rebrew compile
+pipeline) run the image's tools through the `rebrew-cmake-{cl,link,lib}`
+console scripts: they translate CMake's invocations into `docker run` calls
+(same-path-mounted project root, shared flock-initialized wineprefix,
+`INCLUDE`/`LIB` from the image's own tree).  Generate a project's toolchain
+file with `rebrew cmake-toolchain --toolchain msvc6 --out cmake/` and pass
+`--toolchain cmake/toolchain-msvc6-docker.cmake` to `cmake -B build`.
+
 **Per-library toolchain/flags overrides** (`rebrew-library.toml` at a library
 root, managed by `rebrew library set/show/rm`): a source subtree whose
 functions were all built with one compiler + flags declares them once — every
@@ -195,6 +203,8 @@ src/rebrew/
 ├── struct_recover.py    # `rebrew recover-structs` — struct typedefs from decompiler offset evidence
 ├── document_unmatched.py# STUB skeletons + blockers for remaining functions (`rebrew document-unmatched`)
 ├── postlink.py          # `rebrew postlink` — normalize built-binary layout onto the reference
+├── cmake_tc.py          # `rebrew cmake-toolchain` + rebrew-cmake-{cl,link,lib} — CMake
+│                        # bridge: run the toolchain image's tools via docker from CMake
 ├── cross_import.py      # `rebrew cross-import` — import functions matched in another target
 ├── lzexe_cli.py         # `rebrew unpack-lzexe` — unpack LZEXE 0.90/0.91 DOS executables
 ├── binsync_import.py    # Import a BinSync state dir into rebrew metadata

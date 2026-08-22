@@ -1,5 +1,13 @@
 ## [Unreleased]
 ### Added
+- **CMake toolchain bridge** (`rebrew.cmake_tc` + `rebrew cmake-toolchain`) —
+  the `rebrew-cmake-{cl,link,lib}` console scripts run a docker toolchain
+  image's tools (CL.EXE/LINK.EXE/LIB.EXE via wine inside the image) from any
+  project's CMake build, with the same guarantees as the compile pipeline
+  (same-path-mounted project root, shared flock-initialized wineprefix,
+  self-contained INCLUDE/LIB).  `rebrew cmake-toolchain --toolchain msvc6`
+  writes the CMake toolchain file; `ToolchainSpec` gained `tool_root`
+  (container dir holding the tools).
 - **Metadata store tiers documented (ADR-012 + `docs/METADATA.md`)** — the
   full store map (canonical vs derived vs cache, who owns which fact,
   precedence rules) now has a written contract.  Replaces the implicit

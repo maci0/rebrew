@@ -208,6 +208,11 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "Generate linker-script scaffolding from the binary (.def, layout manifest, IAT seed).",
     ),
     (
+        "cmake-toolchain",
+        "rebrew.cmake_tc",
+        "Write a CMake toolchain file that drives a docker toolchain via rebrew-cmake-*.",
+    ),
+    (
         "link-sweep",
         "rebrew.link_sweep",
         "Sweep LINK options to reproduce the reference PE header (find stamp-only fields).",
