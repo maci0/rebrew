@@ -69,7 +69,7 @@ sections.py → binary_loader.py, config.py, cli.py (all external)
         │
         ▼
 [Export]
-  ├─ export.generate_catalog() → db/CATALOG.md
+  ├─ export.generate_catalog() → src/<target>/CATALOG.md
   ├─ export.generate_reccmp_csv() → db/{target}_functions.csv (pipe-delimited)
   └─ grid output → db/data_{target}.json (recoverage dashboard)
 ```

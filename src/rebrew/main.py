@@ -213,6 +213,26 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "Write a CMake toolchain file that drives a docker toolchain via rebrew-cmake-*.",
     ),
     (
+        "order-sources",
+        "rebrew.order_sources",
+        "Order source files by their first function's original VA (position-aligned .text).",
+    ),
+    (
+        "calibrate-bss",
+        "rebrew.calibrate_bss",
+        "Calibrate a BSS tail pad so the raw link's .data VirtualSize matches the reference.",
+    ),
+    (
+        "gen-link-stubs",
+        "rebrew.gen_link_stubs",
+        "Generate a link_stubs.c-style BSS placeholder TU from the data metadata.",
+    ),
+    (
+        "verify-placement",
+        "rebrew.verify_placement",
+        "Compare .data symbol VAs of the current build against the data metadata.",
+    ),
+    (
         "link-sweep",
         "rebrew.link_sweep",
         "Sweep LINK options to reproduce the reference PE header (find stamp-only fields).",

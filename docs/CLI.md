@@ -431,6 +431,43 @@ post-link metadata fix — see `rebrew postlink`).  The link command is read
 from `build/CMakeFiles/*/link.txt` when present, or passed as
 `--link-cmd` (a template with `{options}` and `{out}` placeholders).
 
+### `rebrew gen-link-stubs`
+
+`rebrew gen-link-stubs [--data-metadata src/rebrew-data.toml] [--out src/link_stubs.c]`
+
+Generate a `link_stubs.c`-style BSS placeholder TU: a `char <sym>[1] = {0};`
+stub per `.data` symbol in the data metadata plus a `g_bss_tail[0x400000]`
+pad array.  The pad is what `rebrew calibrate-bss` later sizes so the raw
+link's `.data` VirtualSize matches the reference.
+
+### `rebrew calibrate-bss`
+
+`rebrew calibrate-bss [--stub src/link_stubs.c] [--symbol g_bss_tail] [--target 0x...] [--max-iters 8]`
+
+Size the BSS tail pad empirically so the raw link's `.data` VirtualSize
+matches the reference (from `[targets.<t>.layout]` unless `--target`):
+relink raw, measure the VirtualSize, adjust the tail array, recompile the
+stub, repeat until equal.
+
+### `rebrew order-sources`
+
+`rebrew order-sources <src.c>... [--first-va file=0xVA]... [--exclude file]... [--json]`
+
+Order source files by each file's lowest original function VA — MSVC6 LINK
+keeps object order and (without /Gy) doesn't reorder functions, so this
+reproduces the original `.text`/`.data` layout (fixes reccmp "0 aligned").
+`--first-va` covers library files without FUNCTION markers; `--exclude`
+drops files absent from the original.
+
+### `rebrew verify-placement`
+
+`rebrew verify-placement [--data-metadata src/rebrew-data.toml] [--json]`
+
+Post-edit check: walk the link's object files (objdump, link order), compute
+each symbol's current `.data` VA, and compare against the data metadata.
+Misplaced symbols mean the object order or a TU's layout drifted (the reccmp
+"0 aligned" symptom).
+
 ### `rebrew refactor`
 
 `rebrew refactor [--root DIR] [--min-lines N] [--json]`
