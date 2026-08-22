@@ -1657,7 +1657,7 @@ class TestParseMemo:
         assert a1 is a2  # same object served from the memo
 
     def test_memo_invalidated_by_content_change(self, tmp_path: Path) -> None:
-        import time
+        import os
 
         from rebrew.annotation import _PARSE_MEMO, parse_c_file_multi
 
@@ -1665,10 +1665,14 @@ class TestParseMemo:
         f.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
         _PARSE_MEMO.clear()
         parse_c_file_multi(f)
-        time.sleep(0.01)
-        f.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 1; }\n", encoding="utf-8")
+        # Same byte length (VA 0x1000 → 0x1001), so cache invalidation must
+        # come from the mtime in the memo key — set it explicitly instead of
+        # hoping the clock ticks between writes.
+        f.write_text("// FUNCTION: GAME 0x1001\nint f(void) { return 0; }\n", encoding="utf-8")
+        st = f.stat()
+        os.utime(f, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
         a2 = parse_c_file_multi(f)
-        assert a2  # re-parsed, not a stale memo hit
+        assert a2[0].va == 0x1001  # re-parsed, not a stale memo hit
 
     def test_metadata_dir_bypasses_memo(self, tmp_path: Path) -> None:
         from rebrew.annotation import _PARSE_MEMO, parse_c_file_multi

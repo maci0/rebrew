@@ -242,11 +242,18 @@ class TestPullComments:
 
     def test_empty_response_no_crash(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.ghidra.commands as cmds
+        from rebrew.metadata import get_entry
 
         cfg = _cfg(tmp_path)
+        func_c = cfg.reversed_dir / "func.c"
+        original = "// FUNCTION: SERVER 0x1000\nint my_func(void) { return 0; }\n"
+        func_c.write_text(original, encoding="utf-8")
         entries = [{"va": 0x1000, "size": 0x40, "marker_type": "FUNCTION", "filepath": "func.c"}]
         _patch_base(monkeypatch, pages=[{}])
         cmds.pull_comments(entries, cfg, "http://x", "/p", dry_run=False)
+        # An empty response must leave both sources and metadata untouched.
+        assert func_c.read_text(encoding="utf-8") == original
+        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER") == {}
 
     def test_no_entries_with_va_early_return(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -254,7 +261,13 @@ class TestPullComments:
         import rebrew.ghidra.commands as cmds
 
         cfg = _cfg(tmp_path)
-        _patch_base(monkeypatch)
+
+        def _fail_fetch(*_a: object, **_k: object) -> object:
+            raise AssertionError("fetch_mcp_tool_raw must not be called without VAs")
+
+        monkeypatch.setattr(cmds.httpx, "Client", lambda **kw: _FakeClient())
+        monkeypatch.setattr(cmds, "init_mcp_session", lambda *a, **k: "sess")
+        monkeypatch.setattr(cmds, "fetch_mcp_tool_raw", _fail_fetch)
         cmds.pull_comments([{"va": None}], cfg, "http://x", "/p", dry_run=False)
 
     def test_connect_failure_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
