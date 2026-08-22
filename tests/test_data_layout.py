@@ -303,3 +303,33 @@ def test_converge_layout_single_tu(tmp_path: Path) -> None:
     # expected (0x10027000) == current (build data_va + offset) — no pad needed
     result = converge_layout(tmp_path, meta, tmp_path / "original" / "x.dll", src, dry_run=True)
     assert result["adjustments"] == []
+
+
+# ---------------------------------------------------------------------------
+# objdump failure surfacing (no silent zero sizes)
+# ---------------------------------------------------------------------------
+
+
+def test_obj_data_symbols_raises_on_bad_object(tmp_path: Path) -> None:
+    from rebrew.data_layout import obj_data_symbols
+
+    bad = tmp_path / "bad.obj"
+    bad.write_text("this is not an object file\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="objdump -h failed"):
+        obj_data_symbols(bad)
+
+
+def test_audit_layout_records_objdump_error(tmp_path: Path) -> None:
+    """A broken object must surface as a flagged row, not silent zeros."""
+    from rebrew.data_layout import audit_layout
+
+    bad = tmp_path / "bad.obj"
+    bad.write_text("not an object\n", encoding="utf-8")
+    _write_rsp(tmp_path, [bad])
+    meta = tmp_path / "rebrew-data.toml"
+    meta.write_text("", encoding="utf-8")
+    report = audit_layout(tmp_path, meta)
+    assert report["violations"] == 1
+    (row,) = report["rows"]
+    assert row["flags"] == ["OBJDUMP_ERROR"]
+    assert "objdump" in row["error"]

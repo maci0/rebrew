@@ -38,6 +38,34 @@ from rebrew.cli import error_exit
 
 _OBJ_RE = re.compile(r'"([^"]+\.obj)"|(?:^|\s)(\S+\.obj)(?=\s|$)')
 
+#: Wall-clock cap for one objdump invocation.
+_OBJDUMP_TIMEOUT_S = 60
+
+
+def _run_objdump(obj: Path, flag: str) -> str:
+    """Run ``objdump <flag> <obj>`` and return stdout.
+
+    Raises with the command and stderr when objdump is missing, fails, or
+    times out — an unchecked run would silently yield zero sizes and an
+    empty symbol set, turning every downstream audit row into garbage.
+    """
+    try:
+        r = subprocess.run(
+            ["objdump", flag, str(obj)],
+            capture_output=True,
+            text=True,
+            timeout=_OBJDUMP_TIMEOUT_S,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"objdump not found on PATH (needed for {obj})") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"objdump {flag} timed out after {_OBJDUMP_TIMEOUT_S}s: {obj}") from exc
+    if r.returncode != 0:
+        raise RuntimeError(
+            f"objdump {flag} failed on {obj} (rc={r.returncode}): {r.stderr.strip()}"
+        )
+    return r.stdout
+
 
 def link_objects(root: Path) -> list[Path]:
     """The build's object files in link order (build/CMakeFiles/*/objects*.rsp)."""
@@ -50,12 +78,12 @@ def link_objects(root: Path) -> list[Path]:
 
 def obj_data_symbols(obj: Path) -> tuple[int, int, set[str], set[str]]:
     """``(dsize, bsize, .data symbols, .bss symbols)`` of one object file."""
-    h = subprocess.run(["objdump", "-h", str(obj)], capture_output=True, text=True).stdout
+    h = _run_objdump(obj, "-h")
     secs = re.findall(r"^\s+(\d+)\s+(\S+)\s+([0-9a-f]+)\s", h, re.M)
     secname = {int(a): b for a, b, _ in secs}
     dsize = sum(int(c, 16) for a, b, c in secs if b == ".data")
     bsize = sum(int(c, 16) for a, b, c in secs if b == ".bss")
-    t = subprocess.run(["objdump", "-t", str(obj)], capture_output=True, text=True).stdout
+    t = _run_objdump(obj, "-t")
     dsyms: set[str] = set()
     bsyms: set[str] = set()
     for line in t.splitlines():
@@ -78,11 +106,11 @@ def obj_data_symbols(obj: Path) -> tuple[int, int, set[str], set[str]]:
 
 def obj_data_symbol_offsets(obj: Path) -> tuple[int, dict[str, int]]:
     """(obj .data size, {symbol: offset within the obj's .data})."""
-    h = subprocess.run(["objdump", "-h", str(obj)], capture_output=True, text=True).stdout
+    h = _run_objdump(obj, "-h")
     secs = re.findall(r"^\s+(\d+)\s+(\S+)\s+([0-9a-f]+)\s", h, re.M)
     secname = {int(a): b for a, b, _ in secs}
     dsize = sum(int(c, 16) for a, b, c in secs if b == ".data")
-    t = subprocess.run(["objdump", "-t", str(obj)], capture_output=True, text=True).stdout
+    t = _run_objdump(obj, "-t")
     syms: dict[str, int] = {}
     for line in t.splitlines():
         m = re.match(r"\[ *\d+\]\(sec +(-?\d+)\)", line)
@@ -236,9 +264,29 @@ def audit_layout(root: Path, metadata: Path) -> dict[str, Any]:
     toml = data_symbols(metadata)
     owner: dict[str, list[str]] = defaultdict(list)
     rows: list[dict[str, Any]] = []
+    violations = 0
     for obj in link_objects(root):
-        dsize, bsize, dsyms, bsyms = obj_data_symbols(obj)
         name = str(obj).split(".dir/")[-1]
+        try:
+            dsize, bsize, dsyms, bsyms = obj_data_symbols(obj)
+        except RuntimeError as exc:
+            # Record the broken TU and keep auditing the rest — a visible
+            # OBJDUMP_ERROR row beats both a crash and silent zero sizes.
+            rows.append(
+                {
+                    "obj": name,
+                    "dsize": 0,
+                    "bsize": 0,
+                    "dsyms": [],
+                    "bsyms": [],
+                    "min_addr": 0,
+                    "max_addr": 0,
+                    "flags": ["OBJDUMP_ERROR"],
+                    "error": str(exc),
+                }
+            )
+            violations += 1
+            continue
         rows.append(
             {
                 "obj": name,
@@ -252,9 +300,10 @@ def audit_layout(root: Path, metadata: Path) -> dict[str, Any]:
             if sym in toml:
                 owner[sym].append(name)
 
-    violations = 0
     prev_max: int | None = None
     for r in rows:
+        if "error" in r:
+            continue  # already flagged — nothing to order/score
         all_syms = set(r["dsyms"]) | set(r["bsyms"])
         syms = sorted(toml[s] for s in all_syms if s in toml)
         lo = syms[0] if syms else 0

@@ -492,7 +492,15 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _respond(self, method: str) -> None:
         query = parse_qs(urlparse(self.path).query)
-        status, content_type, body = self.dashboard.handle(method, self.path, query)
+        try:
+            status, content_type, body = self.dashboard.handle(method, self.path, query)
+        except sqlite3.Error as exc:
+            # A vanished/corrupt database must answer 500 JSON instead of
+            # killing the handler thread with no response at all.
+            console.print(f"[red]dashboard query failed:[/red] {self.path}: {exc}")
+            status, content_type, body = self.dashboard._json(
+                500, {"error": f"database error: {exc}"}
+            )
         body_bytes = body.encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", content_type)

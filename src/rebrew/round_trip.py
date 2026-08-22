@@ -65,7 +65,7 @@ from rebrew.matcher.parsers import (
     parse_obj_symbol_bytes,
 )
 from rebrew.metadata import get_entry
-from rebrew.utils import safe_shlex_split
+from rebrew.utils import atomic_write_bytes, safe_shlex_split
 
 console = Console(stderr=True)
 
@@ -668,7 +668,7 @@ def _run_round_trip(
     out_path = out or cfg.target_binary.with_suffix(cfg.target_binary.suffix + ".reasm")
     if not no_write:
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_bytes(bytes(reasm))
+        atomic_write_bytes(out_path, bytes(reasm))
 
     # Byte-coverage accounting: how much of .text came from our compilation
     # versus passthrough from the input PE.  Uses the actual spliced span

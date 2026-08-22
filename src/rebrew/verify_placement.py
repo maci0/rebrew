@@ -52,11 +52,14 @@ def main(
 
     here: dict[str, int] = {}
     tot = 0
-    for obj in link_objects(root):
-        dsize, syms = obj_data_symbol_offsets(obj)
-        for sym, off in syms.items():
-            here.setdefault(sym, data_va + tot + off)
-        tot += dsize
+    try:
+        for obj in link_objects(root):
+            dsize, syms = obj_data_symbol_offsets(obj)
+            for sym, off in syms.items():
+                here.setdefault(sym, data_va + tot + off)
+            tot += dsize
+    except (RuntimeError, OSError) as exc:
+        error_exit(f"cannot inventory build objects: {exc}")
 
     good = bad = 0
     bads: list[tuple[str, int, int]] = []

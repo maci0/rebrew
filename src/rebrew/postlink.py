@@ -62,6 +62,7 @@ from rich.console import Console
 from rebrew.binary_loader import BinaryInfo, load_binary
 from rebrew.cli import EXIT_ERROR, error_exit, json_print
 from rebrew.layout_meta import ImportMeta, LayoutMetadata, extract_layout, load_package
+from rebrew.utils import atomic_write_bytes
 
 console = Console(stderr=True)
 
@@ -604,7 +605,9 @@ def main(
         error_exit(f"postlink failed: {exc}", json_mode=json_output, code=EXIT_ERROR)
 
     target = output or built
-    target.write_bytes(patched)
+    # Atomic replace: a crash or disk-full mid-write must not truncate the
+    # (by default in-place) built binary.
+    atomic_write_bytes(target, patched)
 
     if json_output:
         json_print(

@@ -132,7 +132,17 @@ def main(
     iters: list[dict[str, int]] = []
     for it in range(max_iters):
         cmd = cmd_tpl.format(out=scratch, options="")
-        subprocess.run(cmd, shell=True, cwd=link_cwd, check=True, capture_output=True)
+        try:
+            subprocess.run(
+                cmd, shell=True, cwd=link_cwd, check=True, capture_output=True, timeout=600
+            )
+        except subprocess.TimeoutExpired:
+            error_exit(f"raw link timed out after 600s (iter {it}): {cmd}")
+        except subprocess.CalledProcessError as exc:
+            # capture_output swallows the linker's stderr — surface it, or the
+            # failure is an opaque traceback with no diagnostic.
+            stderr = exc.stderr.decode(errors="replace")[-400:].strip() if exc.stderr else ""
+            error_exit(f"raw link failed (rc={exc.returncode}) on iter {it}: {stderr}")
         vs = read_data_vs(scratch)
         delta = target_vs - vs
         iters.append({"iter": it, "vs": vs, "delta": delta})
@@ -146,12 +156,19 @@ def main(
             error_exit(f"tail would go non-positive ({new_tail:#x}) — manual fix needed")
         stub.write_text(text[: m.start(1)] + f"{new_tail:x}" + text[m.end(1) :])  # type: ignore[union-attr]
         obj = _stub_obj(target_dir, stub, root)
-        subprocess.run(
-            [compile_cmd, "/nologo", "/c", *cflags.split(), f"/Fo{obj}", str(stub)],
-            cwd=root,
-            check=True,
-            capture_output=True,
-        )
+        try:
+            subprocess.run(
+                [compile_cmd, "/nologo", "/c", *cflags.split(), f"/Fo{obj}", str(stub)],
+                cwd=root,
+                check=True,
+                capture_output=True,
+                timeout=300,
+            )
+        except subprocess.TimeoutExpired:
+            error_exit(f"stub compile timed out after 300s: {compile_cmd}")
+        except subprocess.CalledProcessError as exc:
+            stderr = exc.stderr.decode(errors="replace")[-400:].strip() if exc.stderr else ""
+            error_exit(f"stub compile failed (rc={exc.returncode}): {stderr}")
     else:
         error_exit(f"did not converge in {max_iters} iterations (last delta {delta:+d})")
 

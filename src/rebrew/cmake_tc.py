@@ -204,26 +204,34 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
         try:
             if (prefix / ".update-timestamp").exists():
                 return
-            subprocess.run(
-                [
-                    "docker",
-                    "run",
-                    "--rm",
-                    "--user",
-                    f"{os.getuid()}:{os.getgid()}",
-                    "-e",
-                    f"WINEPREFIX={prefix}",
-                    "-v",
-                    f"{prefix}:{prefix}",
-                    "--entrypoint",
-                    _WINE,
-                    spec.image,
-                    "wineboot",
-                    "-u",
-                ],
-                capture_output=True,
-                timeout=300,
-            )
+            try:
+                r = subprocess.run(
+                    [
+                        "docker",
+                        "run",
+                        "--rm",
+                        "--user",
+                        f"{os.getuid()}:{os.getgid()}",
+                        "-e",
+                        f"WINEPREFIX={prefix}",
+                        "-v",
+                        f"{prefix}:{prefix}",
+                        "--entrypoint",
+                        _WINE,
+                        spec.image,
+                        "wineboot",
+                        "-u",
+                    ],
+                    capture_output=True,
+                    timeout=300,
+                )
+            except subprocess.TimeoutExpired as exc:
+                error_exit(f"wineprefix init timed out after 300s ({prefix}): {exc}")
+            if r.returncode != 0:
+                # A half-initialized prefix makes every later compile fail with
+                # confusing wine errors — fail here where the cause is visible.
+                stderr = r.stderr.decode(errors="replace")[-400:].strip()
+                error_exit(f"wineprefix init failed (rc={r.returncode}) at {prefix}: {stderr}")
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
 

@@ -508,8 +508,10 @@ def check_toolchain_alignment(cfg: ProjectConfig) -> CheckResult:
 
     try:
         info = detect_toolchain(binary)
-    except Exception:
-        return CheckResult(name="Toolchain alignment", status=_SKIP, message="detection failed")
+    except Exception as exc:  # noqa: BLE001 — a broken detector must not kill the doctor
+        return CheckResult(
+            name="Toolchain alignment", status=_SKIP, message=f"detection failed: {exc}"
+        )
 
     profile = getattr(cfg, "compiler_profile", "") or "msvc6"
     if info.family == "unknown":
@@ -1278,8 +1280,8 @@ def check_crt_linkage(cfg: ProjectConfig) -> CheckResult:
 
     try:
         info = detect_toolchain(binary)
-    except Exception:
-        return CheckResult(name="CRT linkage", status=_SKIP, message="detection failed")
+    except Exception as exc:  # noqa: BLE001 — a broken detector must not kill the doctor
+        return CheckResult(name="CRT linkage", status=_SKIP, message=f"detection failed: {exc}")
     if not info.base_cflags:
         return CheckResult(name="CRT linkage", status=_SKIP, message="CRT linkage not identifiable")
 
@@ -1322,8 +1324,10 @@ def check_opt_level(cfg: ProjectConfig) -> CheckResult:
 
     try:
         info = detect_toolchain(binary)
-    except Exception:
-        return CheckResult(name="Optimization level", status=_SKIP, message="detection failed")
+    except Exception as exc:  # noqa: BLE001 — a broken detector must not kill the doctor
+        return CheckResult(
+            name="Optimization level", status=_SKIP, message=f"detection failed: {exc}"
+        )
     if not info.opt_level:
         return CheckResult(
             name="Optimization level",

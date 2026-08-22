@@ -206,9 +206,21 @@ def main(
     for cand in candidates:
         out = scratch_dir / f"{cand.name}.dll"
         cmd = cmd_tpl.format(options=" ".join(cand.options), out=out)
-        proc = subprocess.run(
-            shlex.split(cmd), cwd=workdir, capture_output=True, text=True, timeout=300
-        )
+        try:
+            proc = subprocess.run(
+                shlex.split(cmd), cwd=workdir, capture_output=True, text=True, timeout=300
+            )
+        except subprocess.TimeoutExpired:
+            # One hung link must not kill the sweep — record it and move on.
+            results.append(
+                {
+                    "candidate": cand.name,
+                    "options": cand.options,
+                    "link_failed": True,
+                    "stderr": f"link timed out after 300s: {cmd}",
+                }
+            )
+            continue
         if not out.exists():
             results.append(
                 {

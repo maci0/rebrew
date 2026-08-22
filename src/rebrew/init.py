@@ -1058,11 +1058,17 @@ def _toolchain_image_followup(compiler_profile: str) -> None:
     if exe is None:
         console.print(f"[yellow]rebrew CLI not found on PATH — run '{build_cmd}' yourself[/]")
         return
-    proc = subprocess.run(
-        [exe, "toolchain", "build", compiler_profile],
-        stdin=subprocess.DEVNULL,  # real stdin is a TTY; keep the run non-interactive
-        timeout=3600,
-    )
+    try:
+        proc = subprocess.run(
+            [exe, "toolchain", "build", compiler_profile],
+            stdin=subprocess.DEVNULL,  # real stdin is a TTY; keep the run non-interactive
+            timeout=3600,
+        )
+    except subprocess.TimeoutExpired:
+        console.print(
+            f"[yellow]toolchain build exceeded 1h and was stopped — retry: {build_cmd}[/]"
+        )
+        return
     if proc.returncode != 0:
         console.print(
             f"[yellow]toolchain build failed (exit {proc.returncode}) — retry: {build_cmd}[/]"
