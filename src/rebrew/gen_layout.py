@@ -11,14 +11,15 @@ What it emits (into the target's ``reversed_dir`` unless overridden):
   ``<target>.def``
       EXPORTS table with the original's ordinals (``name @ ordinal``).
 
-  ``link_layout.json``
-      Machine-readable layout manifest: sections (VA/virtual size/raw
-      size/characteristics), export table (name/ordinal/VA), import table
-      (per-DLL, in the binary's IAT order), and the PE-normalization
-      parameters a post-link normalizer needs (.data VirtualSize override,
-      .reloc VA, SizeOfImage, CheckSum, TimeDateStamp, ...).  This is the
-      "linker script template": everything a byte-identical rebuild must
-      reproduce, derived from the reference.
+  ``layout/<target>/`` (text-only layout package, committed to git)
+      Everything ``rebrew postlink --layout`` needs to reconstruct the
+      reference with **zero binary blobs at rest**: a structured
+      ``layout.txt`` (image base, sections with raw pointers, exports,
+      imports with reference IAT-slot VAs, export-directory stamp) plus hex
+      dumps of the opaque linker-stamped regions (header block, IAT,
+      import bookkeeping + drift-check prefix, ``.data`` raw, ``.reloc``
+      content) and sparse ``.text`` maps (data operands, E8/E9 call
+      targets).  The original DLL is not needed at build time.
 
   ``crt_region/crt_imports.c``
       ``#pragma comment(linker, "/include:__imp_...")`` forcing list in the
@@ -45,7 +46,6 @@ Usage::
 
 from __future__ import annotations
 
-import json
 import re
 import struct
 from dataclasses import dataclass
@@ -56,7 +56,8 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
-from rebrew.utils import atomic_write_text
+from rebrew.layout_meta import LayoutMetadata, extract_layout, write_package
+from rebrew.utils import atomic_write_text, load_toml_for_write
 
 console = Console(stderr=True)
 
@@ -569,54 +570,99 @@ def derive_link_options(pe: dict[str, Any]) -> tuple[list[str], str]:
     return opts, "\n".join(link) + "\n"
 
 
-def gen_layout_json(
-    target: str,
-    sections: list[_Section],
-    exports: list[dict[str, Any]],
-    imports: list[dict[str, Any]],
-    pe: dict[str, Any],
-    header_block_hex: str,
+def layout_config_dict(
+    meta: LayoutMetadata,
+    resolved_imports: list[dict[str, Any]],
     link_options: list[str],
-) -> str:
-    manifest = {
-        "target": target,
-        "image_base": pe["image_base"],
-        "sections": [
-            {
-                "name": s.name,
-                "va": s.va,
-                "virtual_size": s.vs,
-                "raw_size": s.raw_size,
-                "raw_ptr": s.raw_ptr,
-                "characteristics": s.characteristics,
-            }
-            for s in sections
-        ],
-        #: original header block (DOS stub + PE sig + COFF + optional header
-        #: + section table), hex — enough to reconstruct the reference for
-        #: PE-metadata fixing without the original DLL.
-        "header_block_hex": header_block_hex,
-        "section_files": {s.name: f"{s.name}.bin" for s in sections},
-        "exports": exports,
-        "imports": imports,
-        #: MSVC6 LINK options derived from the reference header (put these on
-        #: the link line so the linker stamps the fields itself).
+    resolve_names: bool = True,
+) -> dict[str, Any]:
+    """The ``[targets.<t>.layout]`` block as a plain dict (toml + layout.txt).
+
+    *resolved_imports* is the import list with ordinal names resolved (the
+    same order as ``meta.imports``).  With ``resolve_names=True`` (the
+    reviewable project toml) those names are kept and the reference IAT-slot
+    VA from ``meta.imports`` is attached by position.  With
+    ``resolve_names=False`` (the layout package the fixers consume) the raw
+    imports are used — ordinal-only entries stay ordinal-only, which is what
+    the import-set signature and the IAT-slot remap compare against.
+    """
+    if not resolve_names:
+        imports: list[dict[str, Any]] = [i.as_dict() for i in meta.imports]
+    else:
+        imports = []
+        for i, imp in enumerate(resolved_imports):
+            entry: dict[str, Any] = {"dll": imp["dll"]}
+            if imp.get("name"):
+                entry["name"] = imp["name"]
+            if imp.get("ordinal") is not None:
+                entry["ordinal"] = imp["ordinal"]
+            if i < len(meta.imports):
+                entry["iat"] = meta.imports[i].iat_va
+            imports.append(entry)
+    return {
+        "target": meta.target,
         "link_options": link_options,
-        "pe_normalize": {
-            "e_lfanew": pe["e_lfanew"],
-            "header_size": pe["header_size"],
-            "time_date_stamp": pe["time_date_stamp"],
-            "checksum": pe["checksum"],
-            "size_of_image": pe["size_of_image"],
-            "size_of_initialized_data": pe["size_of_initialized_data"],
-            "base_of_data": pe["base_of_data"],
-            "reloc_rva": pe["reloc_rva"],
-            "reloc_va": pe["reloc_va"],
-            "reloc_size": pe["reloc_size"],
-            "data_vs_override": next((s.vs for s in sections if s.name == ".data"), None),
-        },
+        "image_base": meta.image_base,
+        "sections": [s.as_dict() for s in meta.sections],
+        "exports": [
+            {
+                "name": ex.get("name") or f"ORD_{ex['ordinal']}",
+                "ordinal": ex["ordinal"],
+                "va": ex["va"],
+            }
+            for ex in meta.exports
+        ],
+        "imports": imports,
+        "export_stamp": list(meta.export_stamp),
+        "exp_rva": meta.exp_rva,
     }
-    return json.dumps(manifest, indent=2) + "\n"
+
+
+def fmt_layout_toml(
+    meta: LayoutMetadata, resolved_imports: list[dict[str, Any]], link_options: list[str]
+) -> str:
+    """Render the ``layout.txt`` structured file (TOML) for a layout package.
+
+    Uses the raw import list (ordinal-only entries stay ordinal-only) so the
+    package is the exact input the post-link fixers compare against.
+    """
+    import tomlkit
+
+    lay = tomlkit.inline_table()
+    for k, v in layout_config_dict(
+        meta, resolved_imports, link_options, resolve_names=False
+    ).items():
+        lay[k] = v
+    doc = tomlkit.document()
+    doc["layout"] = lay
+    return tomlkit.dumps(doc)
+
+
+def write_layout_config(
+    toml_path: Path,
+    target: str,
+    meta: LayoutMetadata,
+    resolved_imports: list[dict[str, Any]],
+    link_options: list[str],
+) -> None:
+    """Merge the readable layout metadata into ``rebrew-project.toml``.
+
+    Writes ``[targets."<target>".layout]`` (sections with raw pointers,
+    exports, imports with reference IAT-slot VAs, image base, export
+    stamp) so the project config is the committed, human-readable source
+    of truth for the layout metadata.  The opaque reconstruction bytes
+    (hex dumps) live in ``layout/<target>/`` — also committed, plain text.
+    """
+    import tomlkit
+
+    doc = load_toml_for_write(toml_path, "rebrew-project.toml")
+    targets = doc.setdefault("targets", tomlkit.table())
+    t = targets.setdefault(target, tomlkit.table())
+    t["layout"] = tomlkit.inline_table()
+    lay = t["layout"]
+    for k, v in layout_config_dict(meta, resolved_imports, link_options).items():
+        lay[k] = v
+    atomic_write_text(toml_path, tomlkit.dumps(doc), encoding="utf-8")
 
 
 def main(
@@ -624,6 +670,11 @@ def main(
     def_only: bool = typer.Option(False, "--def-only", help="Only emit <target>.def"),
     link_config: bool = typer.Option(
         False, "--link-config", help="Print the derived [link] toml block for rebrew-project.toml"
+    ),
+    layout_config: bool = typer.Option(
+        False,
+        "--layout-config",
+        help="Print the [targets.<t>.layout] toml block (readable metadata) for rebrew-project.toml",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
@@ -638,11 +689,9 @@ def main(
         error_exit(f"{cfg.target_binary}: {exc}")
 
     link_options, link_toml = derive_link_options(pe)
-    if link_config:
-        print(link_toml)
-        return
 
-    # resolve import lib symbols for @N suffixes
+    # resolve import lib symbols for @N suffixes (readable list + the
+    # crt_imports.c /include seed)
     lib_symbols: set[str] = set()
     libs_dir = cfg.compiler_libs if cfg.compiler_libs else None
     if libs_dir and libs_dir.is_dir():
@@ -662,14 +711,36 @@ def main(
                     break
     imports = _resolve_imports(imports_raw, lib_symbols)
 
+    if link_config:
+        print(link_toml)
+        return
+    if layout_config:
+        print(
+            fmt_layout_toml(
+                extract_layout(cfg.target_binary.read_bytes(), cfg.target_name),
+                imports,
+                link_options,
+            )
+        )
+        return
+
     marker = cfg.marker or cfg.target_name.upper()
     out_dir = cfg.reversed_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "crt_region").mkdir(parents=True, exist_ok=True)
-    # self-contained layout package (reference without the original DLL)
-    pkg_dir = cfg.root / "layout" / cfg.target_name
-    pkg_dir.mkdir(parents=True, exist_ok=True)
 
+    # Text-only layout metadata (committed, no binary blobs): the readable
+    # summary merges into rebrew-project.toml; the full package (structured
+    # layout.txt + hex dumps of the opaque linker-stamped regions + sparse
+    # .text maps) lands in layout/<target>/, which the build's
+    # 'rebrew postlink --layout' consumes without the original DLL.
+    meta = extract_layout(data, cfg.target_name)
+    if not def_only:
+        write_layout_config(
+            cfg.root / "rebrew-project.toml", cfg.target_name, meta, imports, link_options
+        )
+
+    pkg_dir = cfg.root / "layout" / cfg.target_name
     tname = cfg.target_name.rsplit(".", 1)[0]
     written: list[str] = []
 
@@ -679,16 +750,12 @@ def main(
 
     write(Path(f"{cfg.target_name}.def"), gen_def(tname, exports))
     if not def_only:
-        header_block = data[: pe["header_size"]].hex()
-        manifest = gen_layout_json(
-            cfg.target_name, sections, exports, imports, pe, header_block, link_options
+        written.extend(
+            str(p)
+            for p in write_package(
+                meta, pkg_dir, fmt_toml=lambda m: fmt_layout_toml(m, imports, link_options)
+            )
         )
-        atomic_write_text(pkg_dir / "link_layout.json", manifest)
-        written.append(str(pkg_dir / "link_layout.json"))
-        for s in sections:
-            blob = data[s.raw_ptr : s.raw_ptr + s.raw_size]
-            (pkg_dir / f"{s.name}.bin").write_bytes(blob)
-            written.append(str(pkg_dir / f"{s.name}.bin"))
         iat_section = next((s for s in sections if s.name == ".rdata"), None)
         write(
             Path("crt_region/crt_imports.c"),

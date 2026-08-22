@@ -12,11 +12,33 @@ differences.
 
 ```
 rebrew postlink <built.dll> <reference.dll> [--fix imports|data|pe-metadata|all] [--output out.dll]
+rebrew postlink <built.dll> --layout layout/<target> [--fix ...]
 ```
 
 Fixers run in dependency order (`imports` → `data` → `pe-metadata`); each is
 idempotent, refuses to run when its preconditions are not met, and reports
 what it changed (`--json` for machine-readable output).
+
+## The reference: text-only layout metadata
+
+The fixers never need the original DLL (or any binary snapshot): they
+reconstruct the reference from a **text-only layout package** written by
+`rebrew gen-layout` into `layout/<target>/` and committed to git:
+
+- `layout.txt` — structured metadata (image base, sections with raw
+  pointers, exports, imports with their reference IAT-slot VAs, export
+  directory stamp);
+- `header.hex`, `iat.hex`, `prefix.hex`, `bookkeeping.hex`, `data.hex`,
+  `reloc.hex` — hex dumps of exactly the linker-stamped regions the fixers
+  copy or check (the `prefix` is checked for drift, never copied);
+- `operands.txt`, `calls.txt` — sparse `.text` maps (offset → reference
+  value) covering every position the operand rewrites can touch.
+
+Everything is plain text — zero binary bytes at rest — so a public checkout
+reproduces the byte-identical DLL without the original binary.  A reference
+DLL may still be passed directly; it is reduced to the same metadata in
+memory.  Regenerate the package whenever the original changes
+(`rebrew gen-layout --target <t>`).
 
 ---
 
@@ -107,11 +129,13 @@ reusable across any decompilation that hits the same wall:
 ## Integration
 
 `rebrew postlink` is designed to run as a post-link step, e.g. a CMake
-`POST_BUILD` command:
+`POST_BUILD` command — against the committed text layout package, so the
+build needs neither the original DLL nor any binary blob:
 
 ```cmake
 add_custom_command(TARGET server_dll POST_BUILD
-  COMMAND rebrew postlink "$<TARGET_FILE:server_dll>" original/Server/server.dll
+  COMMAND rebrew postlink "$<TARGET_FILE:server_dll>"
+          --layout "${PROJECT_SOURCE_DIR}/layout/server.dll"
   VERBATIM)
 ```
 

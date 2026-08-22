@@ -1,9 +1,68 @@
 ## [Unreleased]
+### Added
+- **Metadata store tiers documented (ADR-012 + `docs/METADATA.md`)** — the
+  full store map (canonical vs derived vs cache, who owns which fact,
+  precedence rules) now has a written contract.  Replaces the implicit
+  "why are there so many files?" with one reference page.
+- **Shared metadata loader + write lock** (`rebrew.utils.load_metadata_doc`,
+  `metadata_write_lock`) — `rebrew-function.toml`, `rebrew-data.toml`, and
+  the library store now load through one tomllib-based, mtime-cached loader
+  and serialize writes through one thread + flock mechanism (the data store
+  previously had no write lock and used a different parser).
+- **`TOOLCHAIN` is now a declared metadata field** (`METADATA_FIELDS` +
+  canonical order) — it was live in the code but missing from the routing
+  table, so writes bypassed the field gate.  Empty-module metadata writes
+  now raise instead of silently writing a `0xVA` key the loader drops.
+- **BinSync import writes STATUS via `update_source_status`** — created
+  stubs carry only the marker line; STATUS/SIZE/NOTE land in
+  `rebrew-function.toml` instead of deprecated inline `// STATUS:` forms
+  (lint W019 no longer flags fresh BinSync stubs).
+- **Dead/duplicate parsing removed** — `catalog.loaders.load_all_sources_parallel`
+  (dead and broken), a second rizin `afl` parser (discover/intake now share
+  `parse_rizin_afl`), `round_trip._list_names` (uses `cached_function_list`),
+  and verify's double functions.txt parse (single `cached_function_list` call).
+- **Doc drift fixes** — `docs/DB_FORMAT.md` `db_version` 4→5 and the
+  JSON keying (hex VA, not name); lint code ranges in `docs/CLI.md` /
+  `docs/ANNOTATIONS.md` (E000–E023 / W001–W028).
+- **Text-only layout package** (`rebrew.layout_meta`, `gen-layout`,
+  `postlink`) — the post-link fixers now reconstruct the reference from a
+  committed text package (`layout/<target>/`: structured `layout.txt` +
+  hex dumps of the opaque linker-stamped regions + sparse `.text` operand/
+  call maps) instead of a binary snapshot (`layout/<target>.zip` with raw
+  section blobs).  Zero binary bytes at rest; the original DLL is not needed
+  at build time.  `gen-layout` emits the package + the extended
+  `[targets.<t>.layout]` toml (image base, section raw pointers, reference
+  IAT-slot VAs per import, export stamp); `postlink --layout` consumes it.
+
 ### Fixed
-- **`rebrew doctor` annotation-staleness fix message** — stale FUNCTION/STUB
+- **`rebrew lint` W019 / `rebrew status` inline-metadata mismatch** — the
+  two tools disagreed (status warned "N file(s) contain inline
+  STATUS/CFLAGS/SIZE comments" while lint reported clean, so the hint was a
+  dead end).  Two fixes: lint's header parser no longer treats a bare
+  name-hint comment line (``// FuncName``) after a marker as "code", so
+  following ``// SIZE:``/``// CFLAGS:``/``// BLOCKER:`` keys attach to the
+  block and W019/``--fix`` can finally see them; and status now counts
+  exactly what ``rebrew lint --fix`` migrates — inline keys in marker
+  blocks not already backed by the metadata store — instead of any inline
+  key anywhere.  Markerless ``// CFLAGS: /DREBREW_ALLOW_NAKED`` naked-guard
+  markers (documented in E023) and metadata-backed stale duplicates no
+  longer nag.  status count now equals lint's W019 count.
+- **`rebrew doctor` / `rebrew lint` boundary** — the annotation-staleness
+  check moved from `rebrew doctor` to `rebrew lint` (W028): doctor is
+  environment health only, corpus-content checks belong to lint.  The
+  Delphi 1.0 toolchain row no longer appears on 32-bit targets where it
+  structurally cannot apply (16-bit-only checks now show only for x86_16).
+- **`rebrew lint` W022 exemption for `.data` globals** — a file-scope zero
+  initializer (`= 0` / `= {0}`) whose global is annotated
+  `section = ".data"` (with a `name`) in `rebrew-data.toml` no longer warns:
+  the original binary stored that zero-init data in `.data`, so dropping the
+  initializer would shrink the rebuilt section and break byte identity.
+  Unknown names and `.bss`-annotated globals still warn.
+- **`rebrew lint` W028 mtime-aware fix message** — stale FUNCTION/STUB
   markers no longer always prescribe "re-run `rebrew intake`" on the
-  assumption that the binary changed.  The check now compares the target
-  binary's mtime against the function list's: a newer binary gets the
+  assumption that the binary changed.  The check (moved from `rebrew
+  doctor`; see the boundary entry above) compares the target binary's mtime
+  against the function list's: a newer binary gets the
   intake/discover-refresh advice, while a list that is as new as the binary
   gets "the binary did not change — re-annotate the markers / regenerate the
   list if it came from a different binary (e.g. a rebuilt artifact)".
@@ -151,6 +210,30 @@
   wcc386); bcc32 5.5 verified NOT to inline the probe12 static
   helpers at -O1 or -O2 (4 `call`s at both levels), same as MSVC
   2.0–6.0; GCC inlines them unconditionally (not a discriminator).
+- **Probe13 string intrinsics + char/bitfield/struct-return map** —
+  five new dimensions swept across every MSVC version at /O2 and /O1
+  plus bcc32/Watcom/GCC and the 16-bit set.  **strlen intrinsic**:
+  `repne scasb` (`f2 ae`) in VC 2.0–6.0 /O2, manual scan loop in
+  7.0+ (bcc32/Watcom/GCC libcall strlen — the forms are MSVC-only).
+  **memcmp(8B)**: `repe cmpsb` (`f3 a6`) in 2.0–7.1 /O2, dword-compare
+  loop in 8.0+ (three distinct register allocations: 8.0 ESI-counter,
+  9.0/10.0 decrement-pair, 11.0 2-dword + byte tail).  **char
+  zero-extension**: `xor; mov al` in 2.0/4.x (shared with bcc32),
+  `and eax,0xff` (`25 ff 00 00 00`) in 5.0/6.0 — unique — and
+  `movzx` in 7.0+ (shared with GCC/Watcom); every version uses movzx
+  at /O1.  **VC 8.0 `add eax,1` (`83 c0 01`) over `inc eax`** in
+  strlen and `g_val+1` (family-level; GCC shares the encoding).
+  **signed-char compare against the zero register in memory**
+  (`33 c0 38 44 24 04 0f 9c c0`) from 8.0+.  **New Watcom markers**:
+  default-unsigned `char` (`char < 0` folds to `xor eax,eax; ret` in
+  wcc386 AND wcc16 — every other toolchain is signed) and 8-byte
+  struct returns via a `movsd` pair (`a5 a5`).  Delphi 1.0
+  packed-record fields load as individual bytes (`es:[di+N]` +
+  `xor ah,ah`) and `Char < #0` stays a runtime compare (not folded,
+  unlike Watcom).  SP spot-check: 7.0/7.1/8.0/10.0 SP1 and VC 6.0
+  SP1–SP6 are all byte-identical to their RTMs on every probe13
+  function, and VC 5.0 SP1–SP3 match the 5.0 RTM as well.  Zig 0.16
+  re-verified: no zig-vs-gcc byte marker in the probe13 set.
 - **GA pragma mutations** — five new operators in `matcher/mutator.py`
   (114 → 119) that explore codegen levers compiler flags cannot reach:
   `mut_add/remove_optimize_pragma` wrap the function in
@@ -357,6 +440,19 @@
   and README's compiler-profiles paragraph were also rewritten for the
   docker-only registry ("via Wine (or wibo)" is gone everywhere; remaining
   Wine mentions are either the wine-in-image runtime or roadmap documents).
+  API-attribution fixes in `AGENTS.md` and `verify.py`'s docstring:
+  `verify_entry` lives in `rebrew.verify` (not `rebrew.compile`), and
+  `rebrew verify` promotes STATUS via `update_statuses_batch`, not
+  `update_source_status` (that is `rebrew test`'s writer).
+- **Compile sandboxes no longer leak into `~`** — `rebrew toolchain smoke`
+  and `rebrew toolchain update` created a `writable_temp_dir` sandbox per
+  run and never removed it, so `~/rebrew_smoke_*/` accumulated (with the
+  pinned `t.c` inside).  Both now clean up in `finally`; `compile.py`'s
+  cleanup retries across the docker mount-unmount race (a busy mountpoint
+  previously left an empty `~/rebrew_cmp_*/` shell), and
+  `writable_temp_dir` now creates home sandboxes under
+  `~/.cache/rebrew/tmp` instead of directly in the home directory so even
+  hard-killed runs never clutter `~` again.
 
 ## [0.4.0] - 2026-08-21
 - **`rebrew recover-structs`** — recover struct definitions from

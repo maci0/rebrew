@@ -16,6 +16,7 @@ graph TD
     Triage --> CuMap[Infer compilation units<br/>rebrew graph --cu-map]
     CuMap --> Skeleton[Generate first skeletons<br/>rebrew skeleton --batch 10]
     Skeleton --> Dashboard[Dashboard handoff<br/>rebrew dashboard]
+    Catalog -.-> Layout[Linker-script scaffolding<br/>rebrew gen-layout]
 ```
 
 # Rebrew Intake
@@ -38,6 +39,29 @@ A `rebrew-project.toml` must exist with the new target configured. If starting f
 rebrew init --target <name> --binary <filename> --guess-compiler   # auto-selects the profile from the binary
 rebrew init --install-wibo            # fresh Linux/macOS setup: download wibo runner now
 ```
+
+## Linker-script scaffolding (optional, after the catalog)
+
+Once the target binary is in place (and ideally after `rebrew catalog` has run), generate
+the byte-identity build scaffolding from the binary:
+
+```bash
+rebrew gen-layout --target <name>
+```
+
+This writes, into the project:
+
+- `src/bench/bench.def` — the EXPORTS table with the original's ordinals.
+- `src/bench/crt_region/crt_imports.c` — the `#pragma comment(linker, "/include:__imp_...@N")`
+  IAT-forcing list in the binary's true IAT order (suffixes resolved from the toolchain
+  import libraries; ordinal imports such as WS2_32 resolved by name).
+- `layout/bench/link_layout.json` + `<section>.bin` files — a self-contained layout
+  package (header block + raw section bytes). `rebrew postlink <built.dll> --layout
+  layout/bench/link_layout.json` can then converge a built binary onto the original
+  **without the original DLL present** (PE normalization, import order, .data/.reloc).
+
+The layout package is the project-side source of truth for the reference layout; keep it
+in VCS so later fixes never need `original/` around.
 
 Then place the binary at the path specified in `rebrew-project.toml` (default: `original/<filename>`).
 

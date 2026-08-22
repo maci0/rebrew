@@ -328,13 +328,12 @@ Output prefixes for unambiguous parsing:
 
 Checks: project toml, target binary, arch/format, toolchain alignment
 (diec → PDB → heuristics), CRT linkage, optimization level, compiler +
-CL.EXE reachability, runner, include/lib paths, function list, **annotation
-staleness** (cross-references every `// FUNCTION:`/`// STUB:` marker against
-the current `functions.txt` — a VA that no longer has a function there, or
-that now points *inside* another function's span, is a stale annotation
-after a binary update; LIBRARY/DATA/GLOBAL markers are excluded so import
-stubs and data labels never false-positive), source dirs, FLIRT
-signatures, Ghidra sync, optional tools (angr/claripy), and metadata files.
+CL.EXE reachability, runner, include/lib paths, function list, source dirs,
+FLIRT signatures, Ghidra sync, optional tools (angr/claripy), and metadata
+files.  `rebrew doctor` is environment health only — source-corpus checks
+(annotation markers, VA-vs-function-list consistency) live in
+`rebrew lint`.  16-bit-only checks (e.g. Delphi 1.0) only appear on
+x86_16 targets.
 The **Runner** check also flags a `wine`-configured project that has wibo
 available, with the exact config switch (`runner = "tools/wibo"` + strip
 the `wine ` prefix) for faster headless compiles.
@@ -385,7 +384,41 @@ Project-specific linting rules can be configured in `rebrew-project.toml` under 
 - `indent_size`: integer (default: 4)
 - `max_line_length`: integer (default: 200)
 
-See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–E017, W001–W027).
+See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–E023, W001–W028).
+
+`rebrew lint` is the source-corpus checker — in addition to markers and
+metadata it cross-references every `// FUNCTION:`/`// STUB:` marker against
+the current `functions.txt` (**W028**): a VA that no longer has a function
+there, or that now points *inside* another function's span, is a stale
+annotation after a binary update (LIBRARY/DATA/GLOBAL markers are excluded
+so import stubs and data labels never false-positive).  Environment/setup
+health is `rebrew doctor`'s job, not lint's.
+
+### `rebrew gen-layout`
+
+`rebrew gen-layout [--def-only] [--link-config] [--layout-config] [--json]`
+
+Generate linker-script scaffolding from the target binary for byte-identity
+rebuilds: `<target>.def` (EXPORTS with the original's ordinals), the
+text-only layout package in `layout/<target>/` (structured `layout.txt` +
+hex dumps of the opaque linker-stamped regions + sparse `.text` maps —
+everything `rebrew postlink --layout` needs, zero binary blobs at rest),
+the CRT IAT-forcing import list, and the data-restore bits.  `--def-only`
+emits just the `.def`; `--link-config` prints the derived `[link]` toml
+block for `rebrew-project.toml`; `--layout-config` prints the
+`[targets.<t>.layout]` block; `--json` emits a machine-readable manifest.
+
+### `rebrew link-sweep`
+
+`rebrew link-sweep [--link-cmd TEMPLATE] [--cwd DIR] [--keep] [--json]`
+
+Empirically find which MSVC6 LINK options reproduce the reference PE header:
+links the project's objects with each candidate option set, diffs the
+resulting header fields against the target, and reports which fields each
+candidate fixes and which are linker-stamped (only reachable via the
+post-link metadata fix — see `rebrew postlink`).  The link command is read
+from `build/CMakeFiles/*/link.txt` when present, or passed as
+`--link-cmd` (a template with `{options}` and `{out}` placeholders).
 
 ### `rebrew refactor`
 
@@ -1367,7 +1400,7 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 | Module | Purpose |
 |--------|---------|
 | `annotation.py` | Canonical annotation parser (`parse_c_file`, `parse_c_file_multi`, `normalize_status`) |
-| `lint.py` | Source marker linter (E000–E017 / W001–W019); `--fix` auto-migrates old formats |
+| `lint.py` | Source marker linter (E000–E023 / W001–W028); `--fix` auto-migrates old formats |
 | `ghidra/cli.py` | Sync annotations to Ghidra via ReVa MCP; skips generic `func_` labels by default |
 
 ### Binary Analysis

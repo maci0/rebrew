@@ -303,3 +303,103 @@ class TestCli:
 
 def test_fixer_order_constant() -> None:
     assert FIXER_ORDER == ("imports", "data", "pe-metadata")
+
+
+def _write_pkg(tmp_path: Path, ref: bytes, name: str = "pkg") -> Path:
+    """Write a text-only layout package for *ref* (the gen-layout emission path)."""
+    import tomlkit
+
+    from rebrew.layout_meta import extract_layout, write_package
+
+    meta = extract_layout(ref, "ref.dll")
+
+    def fmt(m):
+        doc = tomlkit.document()
+        doc["layout"] = tomlkit.inline_table()
+        for k, v in m.as_dict().items():
+            doc["layout"][k] = v
+        return tomlkit.dumps(doc)
+
+    pkg = tmp_path / name
+    write_package(meta, pkg, fmt_toml=fmt)
+    return pkg
+
+
+class TestLayoutPackage:
+    """The text-only layout package: write/load roundtrip + fixer consumption."""
+
+    def test_package_roundtrip_preserves_all_reference_bytes(self, tmp_path: Path) -> None:
+        imports = [("KERNEL32.dll", ["GetLocalTime", "WriteFile"])]
+        ref = _write(tmp_path, "ref.dll", make_full_pe(imports=imports, data=b"\x07" * 0x20))
+        pkg = _write_pkg(tmp_path, ref.read_bytes())
+
+        from rebrew.layout_meta import load_package
+
+        meta = load_package(pkg)
+        assert meta.header == ref.read_bytes()[: len(meta.header)]
+        assert meta.iat and meta.bookkeeping
+        assert len(meta.data) == 0x200 and meta.data[:0x20] == b"\x07" * 0x20
+        assert meta.image_base == _IMAGE_BASE
+        assert [(i.dll, i.name) for i in meta.imports] == [
+            ("KERNEL32.dll", "GetLocalTime"),
+            ("KERNEL32.dll", "WriteFile"),
+        ]
+        # every committed file is plain text (no binary blobs at rest)
+        for f in pkg.iterdir():
+            if f.name != "layout.txt":
+                assert f.read_bytes().decode("ascii"), f"not text: {f.name}"
+
+    def test_fixers_run_from_package(self, tmp_path: Path) -> None:
+        imports = [("KERNEL32.dll", ["GetLocalTime", "WriteFile"])]
+        ref = _write(tmp_path, "ref.dll", make_full_pe(imports=imports))
+        pkg = _write_pkg(tmp_path, ref.read_bytes())
+        built = _write(
+            tmp_path,
+            "built.dll",
+            make_full_pe(imports=imports, record_order=["WriteFile", "GetLocalTime"]),
+        )
+        patched, reports = run_fixers(built, None, ["imports"], layout_dir=pkg)
+        assert patched == ref.read_bytes()
+        assert reports[0].changed
+
+    def test_package_missing_file_is_rejected(self, tmp_path: Path) -> None:
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        import pytest
+
+        from rebrew.layout_meta import load_package
+
+        with pytest.raises(ValueError, match="missing layout.txt"):
+            load_package(pkg)
+
+    def test_full_fixer_chain_from_package(self, tmp_path: Path) -> None:
+        # the exact scenario the CMake POST_BUILD performs: raw link → package
+        imports = [("KERNEL32.dll", ["GetLocalTime", "WriteFile"])]
+        operand = _DATA_VA + 0x10 + _IMAGE_BASE
+        ref = _write(
+            tmp_path,
+            "ref.dll",
+            make_full_pe(
+                imports=imports,
+                code=b"\xb8" + struct.pack("<I", operand) + b"\xc3",
+                data=bytes(range(0x20)),
+                timestamp=0x60000000,
+                checksum=0x4D328,
+            ),
+        )
+        pkg = _write_pkg(tmp_path, ref.read_bytes())
+        built = _write(
+            tmp_path,
+            "built.dll",
+            make_full_pe(
+                imports=imports,
+                record_order=["WriteFile", "GetLocalTime"],
+                code=b"\xb8" + struct.pack("<I", _DATA_VA + 4 + _IMAGE_BASE) + b"\xc3",
+                data=b"\x00" * 4,
+                timestamp=0x70000001,
+                checksum=0,
+            ),
+        )
+        patched, reports = run_fixers(built, None, None, layout_dir=pkg)
+        assert patched == ref.read_bytes()
+        assert len(reports) == len(FIXER_ORDER)
