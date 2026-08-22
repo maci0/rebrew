@@ -4,6 +4,10 @@
 
 Accepted
 
+## Date
+
+2026-08
+
 ## Context
 
 ADR-006 established in-repo `toolchain/<family>/<version>-<arch>/Dockerfile`

@@ -418,18 +418,15 @@ honor a per-function toolchain:
   GA, flag sweeps — transparently uses the overridden compiler.
 - CLI `--toolchain`/`--compiler`/`--inc` still take precedence over the
   metadata value; the override only fills in the config default.
-- The compile cache keys on the resolved `cl` command + include dir, so
-  functions compiled under different toolchains never share cache
-  entries.
-- **The toolchain own C1.DLL/C2.DLL must be used.**  cl.exe alone is not
-  enough: MSVC compiler components are loaded at runtime, and Wine finds
-  them through `WINEPATH`.  If the project-default compiler bin dir stays
-  in the search path, the vendored cl.exe silently loads the DEFAULT
-  compiler C1.DLL/C2.DLL and the codegen comes from the wrong compiler —
-  a per-function msvc5 override then quietly produces msvc6 code.
-  `vendored_msvc_env` REPLACES `WINEPATH` (and retargets `INCLUDE`/`LIB`/
-  `PATH`) with the overridden toolchain own dirs whenever a per-function
-  toolchain is active.
+- The compile cache keys on the toolchain image id + flags + include-dir
+  closure, so functions compiled under different toolchains never share
+  cache entries.
+- **Execution is docker-only (ADR-008).**  The override selects a
+  different *image*, not a patched wine environment: an msvc5 override
+  runs `rebrew/msvc:5.0-win32`, whose compiler loads its own matching
+  C1.DLL/C2.DLL by construction.  The old host-wine machinery that had to
+  retarget `WINEPATH`/`INCLUDE`/`LIB`/`PATH` per override
+  (`vendored_msvc_env`) is gone.
 
 Pick the toolchain with `rebrew test --toolchain <name> --json` on each
 function and compare match counts; the vendored names are the registry

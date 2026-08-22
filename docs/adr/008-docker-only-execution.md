@@ -4,6 +4,10 @@
 
 Accepted
 
+## Date
+
+2026-08
+
 ## Context
 
 The toolchain abstraction (ADR-006) standardized invocation as
