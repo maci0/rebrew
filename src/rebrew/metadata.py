@@ -811,20 +811,48 @@ _LIBRARY_PRESETS: dict[str, dict[str, str]] = {
 }
 
 
+#: Process-level memo for :func:`parse_library_metadata`, keyed by file path.
+#: Entries hold ``((mtime_ns, size), parsed_dict)`` so a repeated resolution
+#: skips the read+parse while any rewrite (new mtime/size) re-parses.  Cleared
+#: wholesale when full — library files per project are few.
+_LIBRARY_META_CACHE: dict[str, tuple[tuple[int, int], dict[str, Any]]] = {}
+_LIBRARY_META_CACHE_MAX = 64
+
+
 def parse_library_metadata(path: Path) -> dict[str, Any]:
     """Parse a ``rebrew-library.toml`` into a plain dict.
 
     Returns ``{}`` for an absent file.  Raises :class:`LibraryOverrideError`
-    on malformed TOML or a non-dict document."""
-    if not path.exists():
+    on malformed TOML or a non-dict document.
+
+    Memoized per process behind an ``mtime_ns``+``size`` stat guard:
+    override resolution runs once per function (verify's cache-hit check,
+    per-entry save, and every compile site re-resolve), so a batch over a
+    library directory re-read and re-parsed the same small TOML thousands
+    of times per run.  The stat guard keeps edits visible — a rewritten
+    file has a new fingerprint and is parsed fresh (the resolution-confluence
+    property tests rely on this).
+    """
+    key = str(path)
+    try:
+        st = path.stat()
+    except OSError:
+        _LIBRARY_META_CACHE.pop(key, None)
         return {}
+    fp = (st.st_mtime_ns, st.st_size)
+    cached = _LIBRARY_META_CACHE.get(key)
+    if cached is not None and cached[0] == fp:
+        return dict(cached[1])
     try:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise LibraryOverrideError(f"bad {LIBRARY_METADATA_FILE} at {path}: {exc}") from exc
     if not isinstance(raw, dict):
         raise LibraryOverrideError(f"{path} must be a TOML table")
-    return raw
+    if len(_LIBRARY_META_CACHE) >= _LIBRARY_META_CACHE_MAX:
+        _LIBRARY_META_CACHE.clear()
+    _LIBRARY_META_CACHE[key] = (fp, raw)
+    return dict(raw)
 
 
 def apply_library_presets(meta: dict[str, Any]) -> tuple[dict[str, Any], tuple[str, ...]]:
