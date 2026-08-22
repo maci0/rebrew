@@ -350,6 +350,8 @@ the `wine ` prefix) for faster headless compiles.
 | `--max-pointer-stride N` | Maximum byte stride between pointer slots when scanning (default: 4; requires `--dispatch`) |
 | `--fix-bss` | Auto-generate `bss_padding.c` with dummy arrays for detected gaps |
 | `--annotate` | Insert `// GLOBAL: <marker> 0x<VA>` markers from `rebrew-data.toml` into the sources (above each symbol's first declaration; skips already-marked ones; `--dry-run` previews) |
+| `--layout-audit` | Per-TU `.data`/`.bss` span/order feasibility audit — what blocks placement convergence (ORDER/SPAN violations, unowned + duplicate-owned symbols) |
+| `--fill-data` | Emit `_dpad_<addr>[N]` pads for uncovered `.data` byte runs (byte-exact from the reference in the raw region, zero-init for BSS); `--bss-only` skips the initialized region |
 | `--gen-header` | Output `rebrew_globals.h` locally without fetching from Ghidra |
 | `--gen-header-out PATH` | Override output path for `--gen-header` (default: `{reversed_dir}/rebrew_globals.h`) |
 | `--force` | Overwrite an existing file when using `--gen-header` |

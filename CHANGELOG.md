@@ -1,5 +1,10 @@
 ## [Unreleased]
 ### Added
+- **`.data` placement tooling** (`rebrew.data_layout` + `rebrew data
+  --layout-audit` / `--fill-data`) — the per-TU span/order audit and the
+  `_dpad_` pad emission (byte-exact raw region + BSS sizing), generalized
+  from the project's audit_layout/fill_data scripts with the geometry read
+  from the layout metadata; verify-placement now shares the same model.
 - **`rebrew data --annotate`** — insert `// GLOBAL:` markers from the data
   metadata into the sources (generalized from the project's
   annotate_globals.py; `--dry-run` previews, skips already-marked decls).
