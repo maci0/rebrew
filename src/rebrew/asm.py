@@ -30,6 +30,7 @@ from rich.console import Console
 from rebrew.annotation import parse_c_file_multi
 from rebrew.catalog import load_function_structure
 from rebrew.cli import (
+    DISPLAY_STATUSES,
     EXIT_ERROR,
     TargetOption,
     error_exit,
@@ -932,7 +933,7 @@ def _parse_annotations(filepath: Path, metadata_dir: Path | None = None) -> list
     entries = parse_c_file_multi(filepath, metadata_dir=metadata_dir)
     results: list[dict[str, Any]] = []
     for entry in entries:
-        if entry.status not in ("EXACT", "RELOC", "NEAR_MATCHING", "PROVEN", "STUB"):
+        if entry.status not in DISPLAY_STATUSES:
             continue
         if not entry.size:
             continue

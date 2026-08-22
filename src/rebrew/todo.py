@@ -27,7 +27,13 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import (
+    MATCHED_STATUSES,
+    TargetOption,
+    error_exit,
+    json_print,
+    require_config,
+)
 from rebrew.compile import NEAR_MATCH_THRESHOLD
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.naming import (
@@ -297,12 +303,12 @@ def _collect_active_functions(
     # 1. Gather all unique VAs between metadata and verify cache
     metadata_vas = set(existing.keys())
     verify_vas = set()
+    from rebrew.verify import canonical_va_key
+
     for va_str in verify_entries:
-        try:
-            v = int(va_str, 16) if va_str.startswith("0x") else int(va_str)
-            verify_vas.add(v)
-        except (ValueError, TypeError):
-            pass
+        va = canonical_va_key(va_str)
+        if isinstance(va, int):
+            verify_vas.add(va)
 
     all_vas = metadata_vas | verify_vas
 
@@ -311,7 +317,7 @@ def _collect_active_functions(
         status = info.get("status", "STUB")
 
         # Skip finished functions
-        if status in ("EXACT", "RELOC", "PROVEN"):
+        if status in MATCHED_STATUSES:
             continue
 
         size = size_by_va.get(va) or int(info.get("size", 0))
@@ -491,7 +497,7 @@ def _collect_prover_candidates(
     for va, info in existing.items():
         ann_status = info.get("status", "STUB")
         # PROVEN is a post-verify promotion that wins over verify cache
-        if ann_status in ("EXACT", "RELOC", "PROVEN"):
+        if ann_status in MATCHED_STATUSES:
             continue
         va_key = f"0x{va:08x}"
         cached = verify_entries.get(va_key)

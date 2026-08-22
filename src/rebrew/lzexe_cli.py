@@ -19,7 +19,7 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from rebrew.cli import EXIT_ERROR, error_exit, json_print
+from rebrew.cli import error_exit, json_print
 from rebrew.lzexe import NotLzexeError, unpack_lzexe
 
 console = Console(stderr=True)
@@ -51,11 +51,7 @@ def main(
     """Unpack an LZEXE-compressed DOS executable into a loadable MZ file."""
     if not binary.exists():
         msg = f"binary not found: {binary}"
-        if json_output:
-            json_print({"error": msg, "code": EXIT_ERROR})
-        else:
-            console.print(f"[red]Error:[/red] {msg}")
-        raise typer.Exit(code=EXIT_ERROR)
+        error_exit(msg, json_mode=json_output)
 
     try:
         # unpack_lzexe runs detection internally — derive the version from

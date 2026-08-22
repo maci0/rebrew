@@ -22,6 +22,7 @@ from rich.console import Console
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.cli import (
+    DISPLAY_STATUSES,
     TargetOption,
     error_exit,
     json_print,
@@ -457,7 +458,7 @@ def render_summary(
         + (f" direct, {len(dispatch_edges or [])} dispatch" if dispatch_edges else ""),
         "By status:",
     ]
-    for status in ("EXACT", "RELOC", "PROVEN", "NEAR_MATCHING", "STUB", "UNKNOWN", "DISPATCH"):
+    for status in (*DISPLAY_STATUSES, "UNKNOWN", "DISPATCH"):
         count = by_status.get(status, 0)
         if count:
             lines.append(f"  {status}: {count}")

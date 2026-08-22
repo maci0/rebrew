@@ -22,7 +22,14 @@ from rich.table import Table
 from rebrew.asm import disasm_bytes
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
 from rebrew.catalog import parse_function_list, scan_reversed_dir
-from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
+from rebrew.cli import (
+    EXIT_MISMATCH,
+    TargetOption,
+    error_exit,
+    json_print,
+    parse_va,
+    require_config,
+)
 from rebrew.config import ProjectConfig
 
 console = Console(stderr=True)
@@ -134,20 +141,15 @@ def cmd_extract(
         if va == target_va:
             code = extract_bytes_at_va(binary_info, va, size) or b""
             if code == b"":
-                msg = f"Failed to extract bytes at VA 0x{va:08X}"
-                if json_output:
-                    json_print({"status": "ERROR", "error": msg})
-                else:
-                    console.print(f"[red bold]error:[/red bold] {msg}")
-                raise typer.Exit(code=1)
+                error_exit(
+                    f"Failed to extract bytes at VA 0x{va:08X}",
+                    json_mode=json_output,
+                    code=EXIT_MISMATCH,
+                )
             try:
                 asm_text = disasm_bytes(code, va, cfg=cfg)
             except RuntimeError as e:
-                if json_output:
-                    json_print({"status": "ERROR", "error": str(e)})
-                else:
-                    console.print(f"[red bold]error:[/red bold] {e}")
-                raise typer.Exit(code=1)
+                error_exit(str(e), json_mode=json_output, code=EXIT_MISMATCH)
 
             bin_dir.mkdir(parents=True, exist_ok=True)
             bin_path = bin_dir / f"func_0x{va:08X}.bin"
@@ -173,13 +175,11 @@ def cmd_extract(
             print(asm_text)
             console.print(f"Saved to {bin_path}")
             return
-    if json_output:
-        json_print(
-            {"status": "ERROR", "error": f"VA 0x{target_va:08X} not found in candidate list"}
-        )
-        raise typer.Exit(code=1)
-    console.print(f"[red bold]error:[/red bold] VA 0x{target_va:08X} not found in candidate list")
-    raise typer.Exit(code=1)
+    error_exit(
+        f"VA 0x{target_va:08X} not found in candidate list",
+        json_mode=json_output,
+        code=EXIT_MISMATCH,
+    )
 
 
 def cmd_batch(

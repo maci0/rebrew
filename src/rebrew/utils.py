@@ -817,12 +817,17 @@ def rel_display_path(filepath: Path, base_dir: Path | None = None) -> str:
 
     If *base_dir* is provided, returns the path relative to it (e.g.
     ``"game/pool_free.c"`` for nested dirs, or ``"pool_free.c"`` for flat
-    layouts).  Falls back to ``filepath.name`` if the file is not under
-    *base_dir*.
+    layouts).  A file outside *base_dir* gets a ``..``-relative path — the
+    bare filename would resolve to the wrong location from the base dir.
+    Falls back to ``filepath.name`` if even that is impossible (cross-drive
+    on Windows) or no *base_dir* is given.
     """
     if base_dir is not None:
         try:
             return str(filepath.relative_to(base_dir))
         except ValueError:
-            pass
+            try:
+                return str(os.path.relpath(filepath, base_dir))
+            except ValueError:  # cross-drive on Windows
+                return filepath.name
     return filepath.name

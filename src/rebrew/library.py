@@ -21,7 +21,7 @@ import tomlkit
 import typer
 from rich.console import Console
 
-from rebrew.cli import json_print
+from rebrew.cli import error_exit, json_print
 from rebrew.metadata import (
     _LIBRARY_PRESETS,
     LIBRARY_METADATA_FILE,
@@ -130,28 +130,16 @@ def set_cmd(
     target = _resolve_root(directory)
     if not target.is_dir():
         msg = f"{target} is not a directory"
-        if json_output:
-            json_print({"error": msg, "code": 2})
-        else:
-            console.print(f"[red]Error:[/red] {msg}")
-        raise typer.Exit(code=2)
+        error_exit(msg, json_mode=json_output)
     if preset is not None and preset not in _LIBRARY_PRESETS:
         msg = f"unknown preset {preset!r} (known: {sorted(_LIBRARY_PRESETS)})"
-        if json_output:
-            json_print({"error": msg, "code": 2})
-        else:
-            console.print(f"[red]Error:[/red] {msg}")
-        raise typer.Exit(code=2)
+        error_exit(msg, json_mode=json_output)
     if toolchain is not None:
         from rebrew.toolchain import TOOLCHAINS
 
         if toolchain not in TOOLCHAINS:
             msg = f"unknown toolchain {toolchain!r} (known: {sorted(TOOLCHAINS)})"
-            if json_output:
-                json_print({"error": msg, "code": 2})
-            else:
-                console.print(f"[red]Error:[/red] {msg}")
-            raise typer.Exit(code=2)
+            error_exit(msg, json_mode=json_output)
     path = target / LIBRARY_METADATA_FILE
     doc = tomlkit.document()
     if path.exists():

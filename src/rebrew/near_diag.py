@@ -70,17 +70,17 @@ _REGISTER_RE = re.compile(
 class Insn:
     """Minimal instruction view for classification."""
 
-    __slots__ = ("addr", "mnemonic", "op_str", "bytes", "size")
+    __slots__ = ("va", "mnemonic", "op_str", "bytes", "size")
 
-    def __init__(self, addr: int, mnemonic: str, op_str: str, raw: bytes) -> None:
-        self.addr = addr
+    def __init__(self, va: int, mnemonic: str, op_str: str, raw: bytes) -> None:
+        self.va = va
         self.mnemonic = mnemonic
         self.op_str = op_str
         self.bytes = raw
         self.size = len(raw)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return f"<Insn {self.addr:08x} {self.mnemonic} {self.op_str}>"
+        return f"<Insn {self.va:08x} {self.mnemonic} {self.op_str}>"
 
 
 def _resolve_capstone(value: str | int) -> int:
@@ -146,7 +146,7 @@ def classify_pair(target: Insn, compiled: Insn) -> str:
 
 def _insn_reloc_bytes(insn: Insn, base: int, reloc_offsets: set[int]) -> bool:
     """True if any byte of *insn* (offset relative to *base*) is a reloc site."""
-    off = insn.addr - base
+    off = insn.va - base
     return any(o in reloc_offsets for o in range(off, off + insn.size))
 
 
@@ -164,7 +164,7 @@ def align_and_classify(
     neutralised and counted as ``reloc``.  Unpaired target instructions
     (insertion/deletion) count as structural.
     """
-    base = target_insns[0].addr if target_insns else 0
+    base = target_insns[0].va if target_insns else 0
     match = difflib.SequenceMatcher(
         a=[i.mnemonic for i in compiled_insns],
         b=[i.mnemonic for i in target_insns],

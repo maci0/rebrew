@@ -29,6 +29,7 @@ from rebrew.annotation import (
 )
 from rebrew.binary_loader import PADDING_BYTES, extract_raw_bytes
 from rebrew.cli import (
+    DISPLAY_STATUSES,
     EXIT_ERROR,
     EXIT_MISMATCH,
     STATUS_COLORS,
@@ -1438,7 +1439,7 @@ def _print_batch_summary(
     )
     console.print()
 
-    for status in ("EXACT", "RELOC", "PROVEN", "NEAR_MATCHING", "STUB"):
+    for status in DISPLAY_STATUSES:
         count = result_counts.get(status, 0)
         if count == 0:
             continue
@@ -1449,9 +1450,7 @@ def _print_batch_summary(
         console.print(f"  [{color}]{status:12s}  {count:4d}  ({pct:5.1f}%)  {bar}[/{color}]")
 
     # Other statuses not in the standard order
-    for status in sorted(
-        set(result_counts) - {"EXACT", "RELOC", "PROVEN", "NEAR_MATCHING", "STUB"}
-    ):
+    for status in sorted(set(result_counts) - set(DISPLAY_STATUSES)):
         count = result_counts[status]
         console.print(f"  [dim]{status:12s}  {count:4d}[/dim]")
 

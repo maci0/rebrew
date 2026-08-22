@@ -34,6 +34,7 @@ from rebrew.annotation import (
 )
 from rebrew.cli import (
     EXIT_MISMATCH,
+    MATCHED_STATUSES,
     TargetOption,
     json_print,
 )
@@ -433,7 +434,7 @@ def _check_E017_contradictory(result: LintResult, status: str, marker: str) -> N
         result.error(
             result.marker_line, "E017", f"Contradictory: status is {status} but marker is STUB"
         )
-    elif marker == "STUB" and status in ("EXACT", "RELOC", "PROVEN"):
+    elif marker == "STUB" and status in MATCHED_STATUSES:
         # A matched function marked STUB (stale marker from stub generation,
         # metadata later promoted). The STUB marker hides a byte-matched
         # function from status/todo and misleads reversers.

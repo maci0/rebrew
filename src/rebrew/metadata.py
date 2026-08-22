@@ -71,7 +71,7 @@ import contextlib
 import logging
 import tomllib
 import typing
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -380,12 +380,18 @@ def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
     return changed_entries
 
 
-def _delete_field(directory: Path, va: int, key: str, module: str) -> bool:
-    """Remove *key* from the metadata entry for *(module, va)*.  **Private** —
-    use :func:`remove_field` instead.
+def _mutate_entry_doc(
+    directory: Path,
+    va: int,
+    module: str,
+    mutate: Callable[[dict[str, Any], str], bool],
+) -> bool:
+    """Apply *mutate*(doc_dict, toml_key) to the entry for *(module, va)*.
 
-    Reads/writes directly at ``directory / rebrew-function.toml``.  No walk-up.
-    Returns True if removed.
+    Opens ``directory / rebrew-function.toml`` under the metadata write lock,
+    hands the parsed document and the qualified key to *mutate*, and writes
+    the document back only when *mutate* returns True.  No walk-up.
+    Returns True if the file was modified.
     """
     path = (directory / METADATA_FILENAME).resolve()
     if not path.exists():
@@ -404,13 +410,29 @@ def _delete_field(directory: Path, va: int, key: str, module: str) -> bool:
         doc_dict = typing.cast(dict[str, Any], doc)
         if toml_key not in doc_dict:
             return False
+        if not mutate(doc_dict, toml_key):
+            return False
+        atomic_write_text(path, tomlkit.dumps(doc))
+        _metadata_cache.pop(path, None)
+        return True
+
+
+def _delete_field(directory: Path, va: int, key: str, module: str) -> bool:
+    """Remove *key* from the metadata entry for *(module, va)*.  **Private** —
+    use :func:`remove_field` instead.
+
+    Reads/writes directly at ``directory / rebrew-function.toml``.  No walk-up.
+    Returns True if removed.
+    """
+
+    def _drop(doc_dict: dict[str, Any], toml_key: str) -> bool:
         entry = typing.cast(dict[str, Any], doc_dict[toml_key])
         if key in entry:
             del entry[key]
-            atomic_write_text(path, tomlkit.dumps(doc))
-            _metadata_cache.pop(path, None)
             return True
         return False
+
+    return _mutate_entry_doc(directory, va, module, _drop)
 
 
 def delete_metadata_entry(directory: Path, va: int, module: str) -> bool:
@@ -420,26 +442,12 @@ def delete_metadata_entry(directory: Path, va: int, module: str) -> bool:
     ``rebrew intake`` stale-stub pruning after an enumeration fix).  Only
     touches the metadata file — never a source file.
     """
-    path = (directory / METADATA_FILENAME).resolve()
-    if not path.exists():
-        return False
-    _require_module(module)
-    toml_key = qualified_key(module, va)
 
-    with _metadata_write_lock(directory):
-        try:
-            doc = tomlkit.parse(path.read_text(encoding="utf-8"))
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to parse metadata %s: %s", path, exc)
-            return False
-
-        doc_dict = typing.cast(dict[str, Any], doc)
-        if toml_key not in doc_dict:
-            return False
+    def _drop_entry(doc_dict: dict[str, Any], toml_key: str) -> bool:
         del doc_dict[toml_key]
-        atomic_write_text(path, tomlkit.dumps(doc))
-        _metadata_cache.pop(path, None)
         return True
+
+    return _mutate_entry_doc(directory, va, module, _drop_entry)
 
 
 def update_field(directory: Path, va: int, key: str, value: Any, module: str) -> None:
@@ -795,11 +803,12 @@ def coerce_metadata_value(key: str, value: Any) -> Any:
     """Coerce *value* to the canonical type for metadata field *key* (lower-case TOML key).
 
     Only fields with a single unambiguous type are coerced; everything else
-    passes through untouched.
+    passes through untouched.  String spellings follow ``metadata_model._coerce``:
+    both decimal (``"42"``) and hex (``"0x2A"``) are accepted.
     """
     if key in ("size", "blocker_delta") and not isinstance(value, int):
         with contextlib.suppress(ValueError, TypeError):
-            return int(value)
+            return int(value, 0) if isinstance(value, str) else int(value)
     return value
 
 

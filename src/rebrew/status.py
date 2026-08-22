@@ -23,7 +23,13 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from rebrew.cli import STATUS_COLORS, TargetOption, json_print, require_config
+from rebrew.cli import (
+    MATCHED_STATUSES,
+    STATUS_COLORS,
+    TargetOption,
+    json_print,
+    require_config,
+)
 from rebrew.config import ProjectConfig
 from rebrew.sources import iter_sources
 
@@ -271,9 +277,10 @@ def _load_verify_statuses(cfg: ProjectConfig) -> dict[int, str]:
         status = result.get("status", "")
         if not status:
             continue
-        try:
-            va = int(va_str, 16) if va_str.startswith("0x") else int(va_str)
-        except (ValueError, TypeError):
+        from rebrew.verify import canonical_va_key
+
+        va = canonical_va_key(va_str)
+        if not isinstance(va, int):
             continue
         statuses[va] = status
     return statuses
@@ -363,7 +370,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         if effective == "MISSING_SIZE":
             verify_missing_size += 1
         status_counts[effective] = status_counts.get(effective, 0) + 1
-        if effective in ("EXACT", "RELOC", "PROVEN"):
+        if effective in MATCHED_STATUSES:
             # Fall back to annotation-metadata SIZE when the Ghidra
             # function_structure.json is missing/stale — otherwise every
             # matched byte counted 0 and coverage read 0%.

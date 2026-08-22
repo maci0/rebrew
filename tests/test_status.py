@@ -712,14 +712,14 @@ class TestVerifyCacheHelpers:
                 "target": "T",
                 "entries": {
                     "0x1000": {"result": {"status": "EXACT"}},
-                    "4097": {"result": {"status": "STUB"}},
                     "zzz": {"result": {"status": "EXACT"}},  # bad VA skipped
+                    "4097": {"result": {"status": "STUB"}},  # non-hex key skipped
                     "0x2000": {"result": {}},  # no status skipped
                 },
             },
         )
         statuses = _load_verify_statuses(self._cfg(tmp_path))
-        assert statuses == {0x1000: "EXACT", 4097: "STUB"}
+        assert statuses == {0x1000: "EXACT"}
 
     def test_verify_info_wrong_target_ignored(self, tmp_path: Path) -> None:
         """A cache written for another target must not be presented as ours."""

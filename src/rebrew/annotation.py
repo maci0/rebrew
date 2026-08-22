@@ -13,14 +13,13 @@ from __future__ import annotations
 import contextlib
 import functools
 import logging
-import os
 import re
 import warnings
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Final
 
-from rebrew.utils import atomic_write_text, read_source_text
+from rebrew.utils import atomic_write_text, read_source_text, rel_display_path
 
 logger = logging.getLogger(__name__)
 
@@ -894,24 +893,6 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
     return _kv_to_annotation(kv, marker_type, va, module)
 
 
-def _relative_filepath(filepath: Path, base_dir: Path | None) -> str:
-    """Return the filepath relative to *base_dir*, or just the filename.
-
-    A file outside *base_dir* (e.g. a shared source at ``src/shared/`` while
-    *base_dir* is ``src/<TARGET>``) gets a ``..``-relative path — the bare
-    filename would resolve to the wrong location from the base dir.
-    """
-    if base_dir is not None:
-        try:
-            return str(filepath.relative_to(base_dir))
-        except ValueError:
-            try:
-                return str(os.path.relpath(filepath, base_dir))
-            except ValueError:  # cross-drive on Windows
-                return filepath.name
-    return filepath.name
-
-
 def parse_c_file(
     filepath: Path,
     target_name: str | None = None,
@@ -936,7 +917,7 @@ def parse_c_file(
     if not lines:
         return None
 
-    rel = _relative_filepath(filepath, base_dir)
+    rel = rel_display_path(filepath, base_dir)
 
     # Only use new format (multi-line) — preferred, canonical output
     entry = parse_new_format(lines[:_PARSE_LOOKAHEAD_LINES])
@@ -1162,7 +1143,7 @@ def _parse_c_file_text(
     if not lines:
         return []
 
-    rel = _relative_filepath(filepath, base_dir)
+    rel = rel_display_path(filepath, base_dir)
 
     # Try multi-block new format (scans entire file)
     entries = parse_new_format_multi(lines)

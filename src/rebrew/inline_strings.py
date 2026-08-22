@@ -121,9 +121,9 @@ def _mask_keep_regions(text: str) -> bytearray:
     return mask
 
 
-def _string_at(orig: bytes, addr: int, data_base: int) -> bytes | None:
-    """The NUL-terminated string at *addr* in the reference's .data raw, or None."""
-    off = addr - data_base
+def _string_at(orig: bytes, va: int, data_base: int) -> bytes | None:
+    """The NUL-terminated string at *va* in the reference's .data raw, or None."""
+    off = va - data_base
     if off < 0 or off >= len(orig):
         return None
     end = orig.find(b"\x00", off)
@@ -150,10 +150,10 @@ def inline_string_uses(
         s, e = m.span()
         if b"0" in mask[s:e]:
             continue  # comment or asm
-        addr = int(m.group(1), 16)
-        if addr not in cache:
-            cache[addr] = _string_at(orig, addr, data_base)
-        data = cache[addr]
+        va = int(m.group(1), 16)
+        if va not in cache:
+            cache[va] = _string_at(orig, va, data_base)
+        data = cache[va]
         if data is None:
             continue
         out.append(text[last:s])
@@ -221,8 +221,8 @@ def define_remaining_strings(
             tok = tm.group(0)
             if tok not in owner or owner[tok] != f:
                 continue
-            addr = int(tm.group(1), 16)
-            data = _string_at(orig, addr, data_base)
+            va = int(tm.group(1), 16)
+            data = _string_at(orig, va, data_base)
             if data is None:
                 continue
             lines[i] = f"{m.group(1)}char {tok}[{len(data) + 1}] = {c_literal(data)};"
