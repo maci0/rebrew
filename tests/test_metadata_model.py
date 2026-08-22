@@ -176,3 +176,27 @@ def test_apply_load_status_roundtrip_property(status: str) -> None:
         loaded = MetadataEntry.load(Path(td), 0x1000, "MAIN")
         assert loaded.status == status
         assert loaded.problems() == []
+
+
+class TestPersistedVerdictsAreKnownStatuses:
+    """`rebrew verify` persists CompareResult.status verbatim (deferred_fixes →
+    update_statuses_batch), so every persistable verdict must be in
+    KNOWN_STATUSES — otherwise MetadataEntry.problems() flags the fresh entry
+    as invalid and lint rejects what verify itself wrote."""
+
+    def test_invalid_va_persists_without_problems(self, tmp_path: Path) -> None:
+        """INVALID_VA is a real persisted verdict (VA below the arch-aware
+        floor is an annotation problem, reported by verify_entry), so it must
+        be part of the validated vocabulary."""
+        from rebrew.metadata import update_source_status
+        from rebrew.metadata_model import MetadataEntry
+
+        update_source_status(tmp_path, "INVALID_VA", "MAIN", 0x1000)
+        loaded = MetadataEntry.load(tmp_path, 0x1000, "MAIN")
+        assert loaded.status == "INVALID_VA"
+        assert loaded.problems() == []
+
+    def test_internal_error_is_not_persistable_vocabulary(self) -> None:
+        """INTERNAL_ERROR stays out of KNOWN_STATUSES on purpose: verify
+        filters tooling crashes out of deferred_fixes, never writing them."""
+        assert "INTERNAL_ERROR" not in KNOWN_STATUSES

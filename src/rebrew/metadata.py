@@ -527,10 +527,11 @@ def is_status_sticky(current_status: str) -> bool:
 def should_promote_status(current_status: str, new_status: str) -> bool:
     """True when *new_status* should overwrite *current_status* in metadata.
 
-    Single canonical promotion decision shared by ``rebrew test`` and
-    ``rebrew verify``.  Refuses to promote when the current status is sticky
-    (PROVEN), when a STUB's placeholder size-mismatch would erase the user's
-    STUB classification, or when the status did not change.
+    Single canonical promotion decision, enforced both by ``rebrew test`` /
+    ``rebrew verify`` call sites and inside :func:`update_statuses_batch`
+    (the writer layer).  Refuses to promote when the current status is
+    sticky (PROVEN), when a STUB's placeholder size-mismatch would erase
+    the user's STUB classification, or when the status did not change.
     """
     if is_status_sticky(current_status):
         return False
@@ -603,6 +604,13 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
     *updates*: list of dicts with keys ``module``, ``va``, ``new_status``
     and optional ``clear_blockers`` (default True), ``force`` (default
     False).  Returns the number of statuses actually changed.
+
+    Each changed status passes through :func:`should_promote_status` —
+    the single canonical promotion policy (PROVEN never silently demoted,
+    a documented STUB kept against placeholder size-mismatch verdicts).
+    ``force=True`` bypasses that policy for manual/repair writes.
+    Same-status updates still fall through when they will clear blockers
+    (the stale-blocker cleanup path).
     """
     if not updates:
         return 0
@@ -632,8 +640,14 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
             if current_status == new_status and (not clear_blockers or not current_blocker):
                 continue
 
-            # PROVEN is a post-verify promotion — never silently demote.
-            if is_status_sticky(current_status) and new_status != current_status and not force:
+            # Canonical promotion policy — only consulted for actual status
+            # changes; same-status writes proceed so clear_blockers can
+            # strip a stale blocker from an already-classified entry.
+            if (
+                current_status != new_status
+                and not force
+                and not should_promote_status(current_status, new_status)
+            ):
                 continue
 
             entry["status"] = new_status
@@ -763,11 +777,15 @@ KNOWN_STATUSES: frozenset[str] = frozenset(
         # Machine outcomes persisted by `rebrew test` / `rebrew verify`
         # (they pass CompareResult.status straight to update_source_status,
         # so the validation gate must accept the same vocabulary).
+        # INVALID_VA is a persisted annotation-problem verdict (verify_entry
+        # emits it below the arch-aware VA floor); INTERNAL_ERROR is
+        # deliberately absent — verify never persists tooling crashes.
         "SIZE_MISMATCH",
         "COMPILE_ERROR",
         "EXTRACT_ERROR",
         "MISSING_SIZE",
         "MISSING_FILE",
+        "INVALID_VA",
     }
 )
 
