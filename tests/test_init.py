@@ -26,7 +26,7 @@ class TestCompilerDefaults:
     """Tests for the COMPILER_DEFAULTS constant."""
 
     def test_has_expected_profiles(self) -> None:
-        assert len(COMPILER_DEFAULTS) == 38  # 14 legacy + 24 MSVC 1.0-11.0 matrix profiles
+        assert len(COMPILER_DEFAULTS) == 39  # 14 legacy + 24 MSVC 1.0-11.0 matrix profiles
 
     def test_known_profiles(self) -> None:
         assert set(COMPILER_DEFAULTS.keys()) == {
@@ -65,6 +65,7 @@ class TestCompilerDefaults:
             "gcc-pe",
             "watcom",
             "borlandc55",
+            "delphi16",
             "watcom16",
             "tc20",
             "tc16",
@@ -872,6 +873,61 @@ class TestInitTc16:
             cfg = load_config(tmp_path, "main")
         assert cfg.compiler_profile == "tc16"
         assert not any("unknown profile" in str(x.message) for x in w)
+
+
+class TestInitDelphi16:
+    """rebrew init --compiler delphi16 must generate a config that loads
+    without an unknown-profile fallback — the profile is advertised in the
+    CLI epilog, registered in TOOLCHAINS, and validated by _KNOWN_PROFILES."""
+
+    def test_init_delphi16_project(self, tmp_path: Path, monkeypatch) -> None:
+        import warnings
+
+        from rebrew.config import load_config
+        from rebrew.init import init
+
+        monkeypatch.chdir(tmp_path)
+        init(
+            target_name="main",
+            binary_name="main.exe",
+            compiler_profile="delphi16",
+            install_wibo=False,
+            json_output=False,
+            install_completions=False,
+        )
+        content = (tmp_path / "rebrew-project.toml").read_text()
+        assert 'profile = "delphi16"' in content
+        assert 'format = "ne"' in content
+        assert 'arch = "x86_16"' in content
+        # docker-only: no host DCC.EXE command
+        assert 'command = ""' in content
+        assert "DCC.EXE" not in content
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            cfg = load_config(tmp_path, "main")
+        assert cfg.compiler_profile == "delphi16"
+        assert cfg.binary_format == "ne"
+        assert cfg.arch == "x86_16"
+        assert not any("unknown profile" in str(x.message) for x in w)
+
+    def test_init_delphi16_agents_md(self, tmp_path: Path, monkeypatch) -> None:
+        """The generated AGENTS.md must describe the Pascal/research path,
+        not fall through to the GCC constraints (ELF / objdump / C99)."""
+        from rebrew.init import init
+
+        monkeypatch.chdir(tmp_path)
+        init(
+            target_name="main",
+            binary_name="main.exe",
+            compiler_profile="delphi16",
+            install_wibo=False,
+            json_output=False,
+            install_completions=False,
+        )
+        agents = (tmp_path / "AGENTS.md").read_text()
+        assert "Object Pascal" in agents
+        assert "ADR-001" in agents
+        assert "ELF format" not in agents
 
 
 class TestInitGuessCompiler:

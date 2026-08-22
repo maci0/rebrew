@@ -855,6 +855,7 @@ _KNOWN_PROFILES = {
     "watcom",
     "watcom16",
     "borlandc55",
+    "delphi16",
     "tc20",
     "tc16",
 }
