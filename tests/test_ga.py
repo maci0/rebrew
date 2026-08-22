@@ -473,6 +473,39 @@ class TestGADeadline:
         # passed even when no generation ran. Require elapsed time from a gen.
         assert ga.elapsed_sec > 0
 
+    def test_elapsed_sec_ignores_wall_clock_steps(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import time
+
+        from rebrew.match import BinaryMatchingGA
+
+        ga = BinaryMatchingGA(
+            seed_source="int f(void) { return 0; }",
+            target_bytes=b"\xc3",
+            cl_cmd="cl",
+            inc_dir="",
+            cflags="/O2",
+            symbol="_f",
+            out_dir=tmp_path,
+            num_generations=1,
+            pop_size=4,
+            num_jobs=1,
+        )
+        # Simulate an NTP step backwards mid-generation: the wall clock reads
+        # one hour earlier after the generation started.  elapsed_sec must be
+        # measured with the monotonic clock and stay a small positive value.
+        real_time = time.time()
+        calls = {"n": 0}
+
+        def fake_time() -> float:
+            calls["n"] += 1
+            return real_time if calls["n"] == 1 else real_time - 3600.0
+
+        monkeypatch.setattr(time, "time", fake_time)
+        ga.run(deadline=None)
+        assert 0 < ga.elapsed_sec < 60
+
 
 class TestRunAllParallel:
     """Batch --all processes stubs in parallel with deterministic order."""
@@ -859,6 +892,32 @@ class TestSkipRecent:
         vas = [s.va for s in kept]
         assert "0x10000000" not in vas  # recent -> skipped
         assert "0x10001000" in vas  # old -> kept
+
+    def test_naive_timestamp_does_not_crash(self, tmp_path: Path) -> None:
+        from rebrew.match import StubInfo, _filter_recently_run
+
+        cfg = SimpleNamespace(root=tmp_path, target_name="SERVER", reversed_dir=tmp_path)
+        stubs = [
+            StubInfo(
+                filepath=tmp_path / "s.c",
+                va="0x10001000",
+                size=64,
+                symbol="_s",
+                cflags="/O2",
+                status="STUB",
+                module="SERVER",
+            )
+        ]
+        runs = tmp_path / ".rebrew"
+        runs.mkdir(parents=True)
+        # Zone-less timestamp: naive-vs-aware comparison raises TypeError,
+        # which must be tolerated like any other malformed line.
+        (runs / "ga_runs.jsonl").write_text(
+            '{"ts": "2026-01-01T00:00:00", "target": "SERVER", '
+            '"va": "0x10001000", "symbol": "_s", "matched": false}\n',
+            encoding="utf-8",
+        )
+        assert _filter_recently_run(stubs, cfg, hours=2, json_output=True) == stubs
 
     def test_no_records_keeps_all(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.match import StubInfo, _filter_recently_run
