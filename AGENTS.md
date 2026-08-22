@@ -152,7 +152,7 @@ src/rebrew/
 │                        #   EXIT_OK, EXIT_MISMATCH, EXIT_ERROR, NEAR_MATCH_THRESHOLD,
 │                        #   classify_match_status(), is_matched(), rel_display_path()
 ├── config.py            # ProjectConfig dataclass, rebrew-project.toml loader
-├── annotation.py        # Annotation parsing (dataclass + comment parsers + library header parser)
+├── annotation.py        # Annotation parsing (dataclass + comment parsers + library header parser); MIN_VALID_VA / min_valid_va_for VA floor
 ├── c_parser.py          # tree-sitter C parsing (function defs, extern decls/vars)
 ├── compile.py           # Compile helpers (compile_to_obj, compile_and_compare → CompareResult, classify_compare_result)
 ├── naming.py            # Naming/difficulty/origin helpers (next, skeleton, triage)
@@ -172,7 +172,7 @@ src/rebrew/
 ├── headless.py          # Headless X server management for wine compiler invocations
 ├── wibo.py              # Auto-download + verify wibo (lightweight Wine alternative)
 ├── compile_cache.py     # Disk-backed compile cache (diskcache, SHA-256 keyed)
-├── metadata.py          # Per-directory rebrew-function.toml loader/writer; update_source_status is canonical STATUS writer
+├── metadata.py          # Per-directory rebrew-function.toml loader/writer; update_source_status is canonical STATUS writer; is_status_sticky / should_promote_status promotion rules
 ├── metadata_model.py    # Typed metadata schema helpers (file-only vs metadata-only routing)
 ├── data_metadata.py     # Per-directory data metadata (global/BSS annotations)
 ├── crt_match.py         # CRT cross-reference matcher (index, match, ASM detection)

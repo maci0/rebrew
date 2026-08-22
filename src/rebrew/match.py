@@ -42,6 +42,7 @@ from rich.console import Console
 from rebrew.annotation import (
     Annotation,
     has_skip_annotation,
+    min_valid_va_for,
     parse_c_file_multi,
     parse_source_metadata,
     resolve_symbol,
@@ -53,7 +54,6 @@ from rebrew.cli import (
     TargetOption,
     error_exit,
     json_print,
-    min_valid_va_for,
     parse_va,
     require_config,
     resolve_source_arg,
@@ -63,7 +63,6 @@ from rebrew.compile import resolve_compiler_env
 from rebrew.compile_cache import CompileCache, _source_digest
 from rebrew.config import ProjectConfig
 from rebrew.core import build_iat_region, smart_reloc_compare
-from rebrew.diff import print_structural_similarity
 from rebrew.matcher import (
     BuildCache,
     BuildResult,
@@ -87,6 +86,21 @@ log = logging.getLogger(__name__)
 # (read-modify-write of rebrew-function.toml is not otherwise thread-safe).
 _metadata_lock = threading.Lock()
 console = Console(stderr=True)
+
+
+def print_structural_similarity(sim: Any) -> None:
+    """Print a :class:`StructuralSimilarity` result to the console."""
+    verdict = "flag sweep MAY help" if sim.flag_sensitive else "flags unlikely to help"
+    console.print(f"\nStructural similarity ({verdict}):")
+    console.print(
+        f"  Instructions: {sim.exact} exact, {sim.reloc_only} reloc, "
+        f"{sim.register_only} register, {sim.structural} structural "
+        f"(of {sim.total_insns} total)"
+    )
+    console.print(
+        f"  Mnemonic match: {sim.mnemonic_match_ratio:.1%}  |  "
+        f"Structural ratio: {sim.structural_ratio:.1%}"
+    )
 
 
 def _ga_runs_dir(cfg: ProjectConfig, rel: Path | None = None) -> Path:

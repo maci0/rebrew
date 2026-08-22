@@ -29,6 +29,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
+from rebrew.match import print_structural_similarity
 
 console = Console(stderr=True)
 
@@ -89,20 +90,6 @@ def classify_blockers(diff_summary: dict[str, Any]) -> list[str]:
             blockers.add("instruction folding (lea vs mov)")
 
     return sorted(blockers)
-
-
-def print_structural_similarity(sim: Any) -> None:
-    verdict = "flag sweep MAY help" if sim.flag_sensitive else "flags unlikely to help"
-    console.print(f"\nStructural similarity ({verdict}):")
-    console.print(
-        f"  Instructions: {sim.exact} exact, {sim.reloc_only} reloc, "
-        f"{sim.register_only} register, {sim.structural} structural "
-        f"(of {sim.total_insns} total)"
-    )
-    console.print(
-        f"  Mnemonic match: {sim.mnemonic_match_ratio:.1%}  |  "
-        f"Structural ratio: {sim.structural_ratio:.1%}"
-    )
 
 
 # ---------------------------------------------------------------------------

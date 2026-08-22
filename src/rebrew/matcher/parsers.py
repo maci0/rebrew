@@ -11,11 +11,11 @@ import bisect
 import struct
 import warnings
 from collections.abc import Iterable
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from rebrew.binary_loader import PADDING_BYTES as _PADDING_BYTES
+from rebrew.core.matching import CoffRelocRecord
 
 _PADDING_STRIP = bytes(_PADDING_BYTES)
 
@@ -62,15 +62,6 @@ def _collect_reloc_offsets(
 # ---------------------------------------------------------------------------
 # Type-aware COFF relocation extraction
 # ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class CoffRelocRecord:
-    """One COFF relocation entry with its IMAGE_REL_I386_* type preserved."""
-
-    offset: int  # byte offset inside the function's .text slice
-    type: int  # IMAGE_REL_I386_* (0x06=DIR32, 0x14=REL32, ...)
-    symbol: str  # target symbol name (with leading underscore on MSVC)
 
 
 def parse_obj_relocs_full(obj_path: str | Path, symbol: str) -> list[CoffRelocRecord]:

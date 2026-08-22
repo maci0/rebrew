@@ -18,9 +18,8 @@ import capstone
 if TYPE_CHECKING:
     from rebrew.catalog import FunctionEntry
 
-from rebrew.annotation import parse_c_file_multi, parse_library_header
+from rebrew.annotation import min_valid_va_for, parse_c_file_multi, parse_library_header
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va
-from rebrew.cli import min_valid_va_for
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 
 # ---------------------------------------------------------------------------

@@ -21,7 +21,12 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from rebrew.annotation import Annotation, parse_c_file_multi, parse_source_metadata
+from rebrew.annotation import (
+    Annotation,
+    min_valid_va_for,
+    parse_c_file_multi,
+    parse_source_metadata,
+)
 from rebrew.binary_loader import PADDING_BYTES, extract_raw_bytes
 from rebrew.cli import (
     EXIT_ERROR,
@@ -31,13 +36,10 @@ from rebrew.cli import (
     classify_match_status,
     error_exit,
     is_matched,
-    is_status_sticky,
     json_print,
-    min_valid_va_for,
     parse_va,
     require_config,
     resolve_source_arg,
-    should_promote_status,
     target_marker,
 )
 from rebrew.compile import (
@@ -49,7 +51,13 @@ from rebrew.compile import (
 from rebrew.config import ProjectConfig
 from rebrew.core import build_iat_region, build_name_to_va, smart_reloc_compare
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
-from rebrew.metadata import set_fields_batch, update_field, update_source_status
+from rebrew.metadata import (
+    is_status_sticky,
+    set_fields_batch,
+    should_promote_status,
+    update_field,
+    update_source_status,
+)
 
 console = Console(stderr=True)
 

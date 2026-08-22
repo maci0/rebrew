@@ -348,7 +348,7 @@ def _parse_struct_fields(typedef_text: str) -> list[dict[str, str]]:
     """
     # Prefer tree-sitter AST for precise type/field splits
     try:
-        from rebrew.c_parser import _get_ts_parser as _get_parser
+        from rebrew.c_parser import get_ts_parser as _get_parser
 
         result = _get_parser()
         if result is not None:

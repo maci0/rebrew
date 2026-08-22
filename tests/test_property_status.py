@@ -20,7 +20,7 @@ from hypothesis import strategies as st
 
 from rebrew.annotation import Annotation
 from rebrew.catalog.grid import count_statuses
-from rebrew.cli import is_status_sticky, should_promote_status
+from rebrew.metadata import is_status_sticky, should_promote_status
 
 _STATUSES = ["EXACT", "RELOC", "NEAR_MATCHING", "NEAR_MATCH", "STUB", "SIZE_MISMATCH", "PROVEN", ""]
 _MARKERS = ["FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"]

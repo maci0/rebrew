@@ -20,7 +20,6 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Final
 
-from rebrew.cli import MIN_VALID_VA
 from rebrew.utils import atomic_write_text, read_source_text
 
 logger = logging.getLogger(__name__)
@@ -35,11 +34,32 @@ _PARSE_LOOKAHEAD_LINES: Final[int] = 20
 scans the entire file instead.
 """
 
+# Minimum plausible virtual address.  VAs below this threshold are almost
+# certainly invalid (PE image base is typically 0x10000000 or higher).
+# Used across verify, annotation, and naming to reject bad entries early.
+MIN_VALID_VA = 0x1000
+
+
+def min_valid_va_for(cfg: Any) -> int:
+    """The lowest legitimate function VA for a target's architecture.
+
+    16-bit DOS targets (MZ/NE, ``x86_16``) address code from segment 0 —
+    VAs legitimately start at 0 (the MZ code region base), so the 0x1000
+    PE-era floor does not apply.  Returns ``0`` for ``x86_16`` targets,
+    ``MIN_VALID_VA`` otherwise.
+    """
+    if getattr(cfg, "arch", "") == "x86_16":
+        return 0
+    return MIN_VALID_VA
+
+
 __all__ = [
     "Annotation",
+    "MIN_VALID_VA",
     "VALID_MARKERS",
     "METADATA_KEYS",
     "has_skip_annotation",
+    "min_valid_va_for",
     "module_for_va",
     "parse_c_file",
     "parse_c_file_multi",

@@ -9,12 +9,11 @@ from __future__ import annotations
 import logging
 import struct
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
-
-from rebrew.matcher.parsers import CoffRelocRecord
 
 if TYPE_CHECKING:
     from rebrew.config import ProjectConfig
@@ -24,6 +23,16 @@ log = logging.getLogger(__name__)
 # IMAGE_REL_I386_*
 _REL_DIR32 = 0x0006
 _REL_REL32 = 0x0014
+
+
+@dataclass(frozen=True)
+class CoffRelocRecord:
+    """One COFF relocation entry with its IMAGE_REL_I386_* type preserved."""
+
+    offset: int  # byte offset inside the function's .text slice
+    type: int  # IMAGE_REL_I386_* (0x06=DIR32, 0x14=REL32, ...)
+    symbol: str  # target symbol name (with leading underscore on MSVC)
+
 
 # Accepted coff_relocs shapes for smart_reloc_compare
 RelocInput = list[int] | dict[int, str] | Sequence[CoffRelocRecord] | None

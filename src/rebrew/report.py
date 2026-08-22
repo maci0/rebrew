@@ -30,14 +30,13 @@ import typer
 from rich.console import Console
 
 from rebrew.analysis import StringEntry, Xref, iter_strings, string_refs
-from rebrew.annotation import Annotation
+from rebrew.annotation import Annotation, min_valid_va_for
 from rebrew.binary_loader import load_binary
 from rebrew.cli import (
     TargetOption,
     iter_annotations,
     iter_sources,
     json_print,
-    min_valid_va_for,
     rel_display_path,
     require_config,
     target_marker,

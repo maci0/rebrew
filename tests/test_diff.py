@@ -7,7 +7,8 @@ from types import SimpleNamespace
 import pytest
 from rich.console import Console
 
-from rebrew.diff import classify_blockers, print_structural_similarity
+from rebrew.diff import classify_blockers
+from rebrew.match import print_structural_similarity
 
 
 def _row(match: str, t_asm: str, c_asm: str) -> dict:
@@ -62,11 +63,11 @@ class TestClassifyBlockers:
 
 class TestPrintStructuralSimilarity:
     def test_flag_sensitive_wording(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.diff as diff_mod
+        import rebrew.match as match_mod
 
         buf = StringIO()
         monkeypatch.setattr(
-            diff_mod,
+            match_mod,
             "console",
             Console(file=buf, force_terminal=True, width=120, no_color=True, highlight=False),
         )
@@ -92,11 +93,11 @@ class TestPrintStructuralSimilarity:
         assert "25.0%" in out
 
     def test_flag_insensitive_wording(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.diff as diff_mod
+        import rebrew.match as match_mod
 
         buf = StringIO()
         monkeypatch.setattr(
-            diff_mod,
+            match_mod,
             "console",
             Console(file=buf, force_terminal=True, width=120, no_color=True, highlight=False),
         )

@@ -55,12 +55,12 @@ from rebrew.cli import (
 from rebrew.compile import compile_to_obj
 from rebrew.config import ProjectConfig
 from rebrew.core.matching import (
+    CoffRelocRecord,
     UnresolvedSymbolError,
     apply_coff_relocations,
     build_symbol_resolver,
 )
 from rebrew.matcher.parsers import (
-    CoffRelocRecord,
     parse_obj_relocs_full,
     parse_obj_symbol_bytes,
 )
