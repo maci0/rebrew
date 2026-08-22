@@ -184,16 +184,33 @@ def hex_list(data: bytes) -> str:
 
 
 def insert_definition(
-    f: Path, name: str, ctype: str, size: int, init_text: str | None, dry_run: bool
+    f: Path,
+    name: str,
+    ctype: str,
+    size: int,
+    init_text: str | None,
+    dry_run: bool,
+    is_array: bool = True,
 ) -> bool:
-    """Define ``ctype name[size] = init_text;`` in *f*, replacing an extern decl."""
+    """Define ``ctype name = init;`` / ``ctype name[size] = init;`` in *f*.
+
+    Replaces an existing matching ``extern`` line in place (keeping its
+    indentation); appends the definition when the TU has no such extern.
+    With ``is_array=False`` a scalar ``TYPE name = value;`` is emitted.
+    """
     lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
-    extern_re = re.compile(
-        r"^(\s*)extern\s+([A-Za-z_][\w\s]*\**)\s+"
-        + re.escape(name)
-        + r"\s*(?:\[\s*\d*\s*\])\s*;\s*$"
-    )
-    def_line = f"{ctype} {name}[{size}]"
+    if is_array:
+        extern_re = re.compile(
+            r"^(\s*)extern\s+([A-Za-z_][\w\s]*\**)\s+"
+            + re.escape(name)
+            + r"\s*(?:\[\s*\d*\s*\])\s*;\s*$"
+        )
+        def_line = f"{ctype} {name}[{size}]"
+    else:
+        extern_re = re.compile(
+            r"^(\s*)extern\s+([A-Za-z_][\w\s]*\**)\s+" + re.escape(name) + r"\s*;\s*$"
+        )
+        def_line = f"{ctype} {name}"
     if init_text:
         def_line += f" = {init_text}"
     def_line += ";"
@@ -341,3 +358,443 @@ def fill_data(
                 ):
                     n_pad += 1
     return {"init_pads": n_pad, "bss_pads": n_bss}
+
+
+# ---------------------------------------------------------------------------
+# data --own: materialize stub-file globals as real definitions
+# ---------------------------------------------------------------------------
+
+_STUB_DEF_RE = re.compile(
+    r"^\s*([\w\s\*]+?)\s+(\w+)(?:\[(0x[0-9a-fA-F]+|\d+)\])?\s*=\s*(?:\{[^;]*\}|[^;]+);\s*$"
+)
+
+
+def _parse_stub_globals(stub_file: Path) -> dict[str, tuple[str, int | None]]:
+    """``name -> (type, declared array size or None for scalars)`` from a stubs TU."""
+    out: dict[str, tuple[str, int | None]] = {}
+    for line in stub_file.read_text(encoding="utf-8", errors="replace").splitlines():
+        m = _STUB_DEF_RE.match(line)
+        if not m:
+            continue
+        typ = " ".join(m.group(1).split())
+        if typ == "extern":
+            continue
+        out[m.group(2)] = (typ, int(m.group(3), 0) if m.group(3) else None)
+    return out
+
+
+def _type_size_for(base: str) -> int:
+    """Byte size of a simplified stub base type (linker COMDAT size)."""
+    if base in ("double",):
+        return 8
+    if base in ("char", "unsigned char", "signed char", "bool"):
+        return 1
+    if base in ("short", "unsigned short", "wchar_t"):
+        return 2
+    return 4
+
+
+def _scalar_literal(data: bytes, ctype: str, size: int) -> str | None:
+    """A C initializer for *data* as *ctype* (None when the bytes don't fit)."""
+    if "*" in ctype:
+        if len(data) >= 4:
+            v = struct.unpack_from("<I", data)[0]
+            return "0" if v == 0 else f"(void*) 0x{v:08x}"
+        return None
+    base = ctype.rstrip("*").strip()
+    if base in ("float",):
+        return f"{struct.unpack_from('<f', data)[0]!r}f" if len(data) >= 4 else None
+    if base in ("double",):
+        return repr(struct.unpack_from("<d", data)[0]) if len(data) >= 8 else None
+    if size == 1:
+        return str(data[0])
+    if size == 2:
+        return str(struct.unpack_from("<H", data)[0])
+    if size == 4:
+        v = struct.unpack_from("<I", data)[0]
+        return f"0x{v:08x}" if v >= 0x10000000 else str(v)
+    if size == 8:
+        v = struct.unpack_from("<Q", data)[0]
+        return f"0x{v:016x}" if v else "0"
+    return None
+
+
+def own_data_globals(
+    root: Path,
+    metadata: Path,
+    bin_path: Path,
+    src_dir: Path,
+    stub_file: Path,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Materialize stub-file globals as real definitions in their owner TUs.
+
+    For every .data symbol in the data metadata that is still defined only as
+    a placeholder in *stub_file* (e.g. ``src/link_stubs.c``), read the
+    original bytes from *bin_path* and turn the owner TU's ``extern`` into a
+    real definition — ``TYPE name = value;`` for scalars, ``TYPE name[N] =
+    {...};`` for arrays — so the global is defined once, in the TU whose
+    .data slot lands at the original address (link-order placement).
+    Char arrays are NUL-terminated; other arrays use the declared element
+    count, else the gap to the next metadata symbol (capped at the raw end).
+
+    *stub_file*'s symbols then drop out of the unresolved set on regeneration
+    (``rebrew gen-stubs``).
+    """
+    data_base, raw_end, _section_end = layout_geometry(root / "rebrew-project.toml")
+    orig = _data_raw_from_binary(bin_path)
+    toml = data_symbols(metadata)
+    stub_resolved = stub_file.resolve()
+    files = [f for f in sorted(src_dir.rglob("*.c")) if f.resolve() != stub_resolved]
+    by_addr = sorted(toml.items(), key=lambda kv: kv[1])
+    toml_next: dict[str, int] = {
+        by_addr[i][0]: (by_addr[i + 1][1] if i + 1 < len(by_addr) else raw_end)
+        for i in range(len(by_addr))
+    }
+
+    stubs = _parse_stub_globals(stub_file)
+    owned = 0
+    skipped: list[str] = []
+    for name, (ctype, decl_n) in sorted(stubs.items()):
+        if name not in toml:
+            skipped.append(name)
+            continue
+        addr = toml[name]
+        if addr >= raw_end:
+            continue  # BSS region — zero-init, nothing to materialize
+        base = ctype.replace("*", "").strip()
+        elemsize = _type_size_for(base)
+        cap = min(toml_next.get(name, raw_end), raw_end) - addr
+        if cap <= 0:
+            continue
+        off = addr - data_base
+        if decl_n is None:
+            # scalar placeholder (TYPE name = 0;)
+            size = elemsize
+            value = _scalar_literal(orig[off : off + size], ctype, size)
+            if value is None:
+                skipped.append(name)
+                continue
+            is_array = False
+        else:
+            # array placeholder — NUL-terminate char arrays, honor declared
+            # element counts, else fill the gap to the next symbol.
+            data_end = orig.find(b"\x00", off, off + cap)
+            if elemsize == 1 and data_end >= 0:
+                size = data_end - off + 1
+            elif decl_n > 1:
+                size = decl_n * elemsize
+            else:
+                size = cap
+            size = min(size, cap)
+            data = orig[off : off + size]
+            if not data:
+                skipped.append(name)
+                continue
+            value = hex_list(data)
+            is_array = True
+        owner = owner_of([name], files)
+        if owner is None:
+            skipped.append(name)
+            continue
+        if insert_definition(owner, name, ctype, size, value, dry_run, is_array=is_array):
+            owned += 1
+    return {"owned": owned, "skipped": skipped}
+
+
+# ---------------------------------------------------------------------------
+# data --fix-ownership: repartition global definitions across TUs
+# ---------------------------------------------------------------------------
+
+
+def _obj_to_source(obj: Path, root: Path, src_dir: Path) -> Path | None:
+    """The source file behind a link-order object, or None."""
+    s = re.sub(r"^.*?CMakeFiles/[^/]+\.dir/", "", str(obj))
+    if s.endswith(".obj"):
+        s = s[:-4]
+    for cand in (root / s, src_dir / s, src_dir / Path(s).name):
+        if cand.exists():
+            return cand
+    return None
+
+
+def _find_definition(text: str, name: str) -> tuple[int, int, str, str] | None:
+    """(start, end, type, size_suffix) of *name*'s definition in *text*, or None."""
+    pat = re.compile(r"^[ \t]*([\w\s\*]+)\s+" + re.escape(name) + r"(\[\d+\])?\s*=\s*\{")
+    start = None
+    typ = ""
+    sz = ""
+    pos = 0
+    for ln in text.split("\n"):
+        m = pat.match(ln)
+        if m:
+            start, typ, sz = pos, m.group(1).strip(), m.group(2) or ""
+            break
+        pos += len(ln) + 1
+    if start is None:
+        pat2 = re.compile(r"^[ \t]*([\w\s\*]+\s*\*?)\s+" + re.escape(name) + r"\s*=\s*[^;]+;\s*$")
+        pos = 0
+        for ln in text.split("\n"):
+            m = pat2.match(ln)
+            if m and m.group(1).strip():
+                start, typ, sz = pos, m.group(1).strip(), ""
+                break
+            pos += len(ln) + 1
+    if start is None:
+        return None
+    depth = 0
+    i = start
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+        elif c == ";" and depth == 0:
+            return start, i + 1, typ, sz
+        i += 1
+    return start, len(text), typ, sz
+
+
+def _decl_info(text: str, name: str) -> tuple[str, int | None] | None:
+    """(type, array size or None) of *name*'s existing declaration, or None."""
+    m = re.search(
+        r"^[ \t]*([\w\s\*]+?)\s+" + re.escape(name) + r"(\[\s*\d*\s*\])?\s*(?:=|;)", text, re.M
+    )
+    if not m:
+        return None
+    size_m = re.search(r"\[(\d+)\]", m.group(2) or "")
+    return m.group(1).strip(), (int(size_m.group(1)) if size_m else None)
+
+
+def _data_symbol_types(metadata: Path) -> dict[str, tuple[int, str]]:
+    """``{name: (full VA, type)}`` for the .data symbols in the metadata."""
+    with open(metadata, "rb") as fh:
+        db = tomllib.load(fh)
+    out: dict[str, tuple[int, str]] = {}
+    for key, val in db.items():
+        if val.get("section") != ".data" or not val.get("name"):
+            continue
+        try:
+            addr = int(key.rsplit(".", 1)[1], 16)
+        except (IndexError, ValueError):
+            continue
+        out[str(val["name"])] = (addr, str(val.get("type", "int")))
+    return out
+
+
+def fix_ownership(
+    root: Path,
+    metadata: Path,
+    bin_path: Path,
+    src_dir: Path,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Re-assign global ownership so each TU owns one contiguous address run.
+
+    Fixes the layout-audit SPAN/ORDER violations by moving symbol definitions
+    between TUs: .data-contributing TUs (in link order) are partitioned at the
+    largest address gaps of the metadata symbols, each symbol moves to its
+    partition's TU (the old TU keeps an ``extern``), and unowned symbols are
+    emitted with their original bytes.
+    """
+    toml = _data_symbol_types(metadata)
+    data_base, raw_end, _section_end = layout_geometry(root / "rebrew-project.toml")
+    orig = _data_raw_from_binary(bin_path)
+    files = sorted(src_dir.rglob("*.c"))
+
+    def_re = re.compile(r"^[ \t]*[\w\s\*]+\s+(\w+)(?:\[\d+\])?\s*=")
+    owner: dict[str, Path] = {}
+    for f in files:
+        for ln in f.read_text(encoding="utf-8", errors="replace").splitlines():
+            m = def_re.match(ln.strip())
+            if m and m.group(1) in toml and m.group(1) not in owner:
+                owner[m.group(1)] = f
+    original_owner = dict(owner)
+
+    tu_files: list[Path | None] = [_obj_to_source(obj, root, src_dir) for obj in link_objects(root)]
+    data_tus = list(
+        dict.fromkeys(tf for tf in tu_files if tf and any(owner.get(n) == tf for n in toml))
+    )
+
+    all_syms = sorted(toml.keys(), key=lambda n: toml[n][0])
+    new_owner: dict[str, Path] = {}
+    if len(data_tus) > 1:
+        gaps = []
+        for i in range(1, len(all_syms)):
+            gaps.append((toml[all_syms[i]][0] - toml[all_syms[i - 1]][0], i))
+        cuts = sorted(i for _, i in sorted(gaps, reverse=True)[: len(data_tus) - 1])
+        seg = 0
+        for i, n in enumerate(all_syms):
+            if seg < len(cuts) and i >= cuts[seg]:
+                seg += 1
+            if seg < len(data_tus):
+                new_owner[n] = data_tus[seg]
+
+    removals: dict[Path, list[str]] = defaultdict(list)
+    additions: dict[Path, list[str]] = defaultdict(list)
+    for name, (addr, typ) in sorted(toml.items(), key=lambda kv: kv[1][0]):
+        tu = new_owner.get(name) or owner.get(name)
+        if tu is None:
+            continue
+        if addr < raw_end:
+            base = typ.replace("*", "").strip()
+            elemsize = _type_size_for(base)
+            off = addr - data_base
+            end = orig.find(b"\x00", off, off + 0x200)
+            size = end - off + 1 if elemsize == 1 and 0 <= end < raw_end - data_base else elemsize
+            data = orig[off : off + size]
+            def_line = f"{typ} {name}[{size}] = {hex_list(data)};"
+        else:
+            def_line = f"{typ} {name} = 0;"
+        cur = original_owner.get(name)
+        if cur and cur != tu:
+            removals[cur].append(name)
+        additions[tu].append(def_line)
+
+    n_edit = 0
+    for tu, names in removals.items():
+        text = tu.read_text(encoding="utf-8", errors="replace")
+        for name in names:
+            r = _find_definition(text, name)
+            if r:
+                s, e, typ, sz = r
+                text = text[:s] + f"extern {typ} {name}{sz};" + text[e:]
+                n_edit += 1
+        if not dry_run:
+            tu.write_text(text, encoding="utf-8")
+    for tu, lines in additions.items():
+        text = tu.read_text(encoding="utf-8", errors="replace").rstrip("\n") + "\n"
+        for line in lines:
+            name_m = re.search(r"\s(\w+)(?:\[|\s*=)", line)
+            if not name_m:
+                continue
+            name = name_m.group(1)
+            if _find_definition(text, name):
+                continue
+            di = _decl_info(text, name)
+            if di and not di[0].startswith("extern"):
+                continue
+            if di:
+                dtyp, dsize = di
+                init_m = re.search(r"=\s*(\{[^;]*\}|[^;]+);?$", line)
+                init = init_m.group(1) if init_m else "0"
+                if dsize is not None and init.startswith("{"):
+                    line = f"{dtyp} {name}[{dsize}] = {init};"
+                else:
+                    line = f"{dtyp} {name} = {init};"
+            text += line + "\n"
+            n_edit += 1
+        if not dry_run:
+            tu.write_text(text, encoding="utf-8")
+    return {"edits": n_edit, "moved": sum(len(v) for v in removals.values())}
+
+
+# ---------------------------------------------------------------------------
+# data --converge: fixed-point .data placement via leading _dlead_ pads
+# ---------------------------------------------------------------------------
+
+_DLEAD_RE = re.compile(r"^unsigned char (_dlead_\w+)\[(\d+)\]")
+
+
+def built_data_va(dll: Path) -> int:
+    """image-base-correct .data VA of a built DLL (never hardcode)."""
+    d = dll.read_bytes()
+    e = struct.unpack_from("<I", d, 0x3C)[0]
+    n = struct.unpack_from("<H", d, e + 6)[0]
+    optsz = struct.unpack_from("<H", d, e + 20)[0]
+    opt = e + 24
+    base: int = struct.unpack_from("<I", d, opt + 28)[0]
+    sh = opt + optsz
+    for i in range(n):
+        h = sh + i * 40
+        if d[h : h + 8].rstrip(b"\0") == b".data":
+            vals: tuple[int, int, int, int] = struct.unpack_from("<IIII", d, h + 8)
+            return base + vals[1]
+    raise ValueError("no .data section in the built DLL")
+
+
+def converge_layout(
+    root: Path,
+    metadata: Path,
+    bin_path: Path,
+    src_dir: Path,
+    rounds: int = 1,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Fixed-point convergence of .data placement via ``_dlead_<tu>[N]`` pads.
+
+    Per-OBJ walk of the build (in link order) gives each TU's actual .data
+    start.  For every TU owning metadata symbols, delta = expected VA of its
+    first symbol - current VA; a leading ``unsigned char _dlead_<n>[N] = {...}``
+    pad (original bytes from the reference) is inserted/adjusted so the TU's
+    contribution shifts by delta.  Iterate: rebuild -> measure.
+
+    Returns per-round pad adjustments.
+    """
+    data_base, raw_end, _section_end = layout_geometry(root / "rebrew-project.toml")
+    orig = _data_raw_from_binary(bin_path)
+    toml = data_symbols(metadata)
+    dll = root / "build" / "server.dll"
+    if not dll.exists():
+        raise FileNotFoundError(f"build output not found: {dll} — build the project first")
+
+    changes: list[dict[str, Any]] = []
+    for _rnd in range(rounds):
+        data_va = built_data_va(dll)
+        tot = 0
+        rows: list[tuple[Path, int, dict[str, int]]] = []
+        for obj in link_objects(root):
+            dsize, syms = obj_data_symbol_offsets(obj)
+            rows.append((obj, data_va + tot, {s: off for s, off in syms.items() if s in toml}))
+            tot += dsize
+        for obj, start, syms in rows:
+            if not syms:
+                continue
+            first = min(syms, key=lambda s: toml[s])
+            exp = toml[first]
+            cur = start + syms[first]
+            # relative mode: section-offset convergence (absolute placement is
+            # gated by .text size -> section VA shift; offsets are not)
+            delta = (exp - data_base) - (cur - data_va)
+            if abs(delta) < 4:
+                continue
+            f = _obj_to_source(obj, root, src_dir)
+            if f is None:
+                continue
+            text = f.read_text(encoding="utf-8", errors="replace")
+            m = _DLEAD_RE.search(text)
+            old_size = int(m.group(2)) if m else 0
+            new_size = max(0, old_size + delta)
+            pad_name = "_dlead_" + re.sub(r"\W", "_", f.stem)
+            if new_size > 0 and exp - new_size >= data_base:
+                off = (exp - new_size) - data_base
+                data = orig[off : off + new_size]
+                line = f"unsigned char {pad_name}[{new_size}] = {hex_list(data)};"
+            else:
+                line = f"unsigned char {pad_name}[{new_size}];"
+            if m:
+                text = text[: m.start()] + line + text[m.end() :]
+            else:
+                text = re.sub(
+                    r"(\n)(?=\s*(?:extern|static|__declspec|// FUNCTION|// GLOBAL))",
+                    r"\1" + line + "\n",
+                    text,
+                    count=1,
+                )
+                if line not in text:
+                    text = line + "\n" + text
+            if not dry_run:
+                f.write_text(text, encoding="utf-8")
+            changes.append(
+                {
+                    "tu": str(f.relative_to(root)),
+                    "first": first,
+                    "expected": f"0x{exp:x}",
+                    "current": f"0x{cur:x}",
+                    "delta": delta,
+                    "pad": f"0x{new_size:x}",
+                }
+            )
+    return {"rounds": rounds, "adjustments": changes}

@@ -112,6 +112,44 @@ class TestMergeBasic:
         text = out.read_text(encoding="utf-8")
         assert text.find("0x10001000") < text.find("0x10003000")
 
+    def test_consolidate_hoists_declarations(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """--consolidate hoists per-block includes/externs/typedefs to the top."""
+        block_extra = "#include <stdio.h>\nextern int helper(void);\ntypedef int HANDLE;\n"
+        a = _write(
+            tmp_path / "a.c",
+            _single(0x10001000, "_a", extra=block_extra),
+        )
+        b = _write(
+            tmp_path / "b.c",
+            _single(0x10002000, "_b", extra="#include <stdio.h>\nextern int helper(char*);\n"),
+        )
+
+        result, out = _invoke(tmp_path, monkeypatch, "--consolidate", str(a), str(b))
+        assert result.exit_code == 0, result.output
+        text = out.read_text(encoding="utf-8")
+        # hoisted once, above the first function marker
+        assert text.index("#include <stdio.h>") < text.index("// FUNCTION: SERVER 0x10001000")
+        assert text.count("#include <stdio.h>") == 1
+        assert text.count("extern int helper") == 1
+        assert "typedef int HANDLE;" in text
+        # and the bodies keep their markers
+        assert text.count("// FUNCTION: SERVER") == 2
+
+    def test_consolidate_merges_intrinsics(self, tmp_path: Path, monkeypatch: Any) -> None:
+        a = _write(
+            tmp_path / "a.c",
+            _single(0x10001000, "_a", extra="#pragma intrinsic(memcpy)\n"),
+        )
+        b = _write(
+            tmp_path / "b.c",
+            _single(0x10002000, "_b", extra="#pragma intrinsic(memset)\n"),
+        )
+        result, out = _invoke(tmp_path, monkeypatch, "--consolidate", str(a), str(b))
+        assert result.exit_code == 0, result.output
+        text = out.read_text(encoding="utf-8")
+        assert "#pragma intrinsic(memcpy, memset)" in text
+        assert text.count("#pragma intrinsic") == 1
+
     def test_dry_run_does_not_create_output(self, tmp_path: Path, monkeypatch: Any) -> None:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a"))
         b = _write(tmp_path / "b.c", _single(0x10002000, "_b"))

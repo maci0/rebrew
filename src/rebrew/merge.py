@@ -4,6 +4,7 @@ Combines multiple annotated source files into a single compilation unit,
 deduplicating preamble lines and sorting function blocks by virtual address.
 """
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -34,11 +35,154 @@ app = typer.Typer(
         "  rebrew merge src/game/func1.c src/game/func2.c -o merged.c · Merge two files\n\n"
         "  rebrew merge src/game/ -o all_funcs.c · · · · · · · · · · · Merge entire directory\n\n"
         "  rebrew merge src/game/ -o merged.c --delete · · · · · · · · Merge and delete originals\n\n"
-        "  rebrew merge src/game/ -o merged.c --dry-run · · · · · · · · Preview without writing\n\n"
+        "  rebrew merge src/game/ -o merged.c --consolidate · · · · · · Hoist declarations to the top\n\n"
         "[dim]Shared preambles (includes, typedefs) are deduplicated. "
         "Each function block retains its // FUNCTION: marker.[/dim]"
     ),
 )
+
+# ---------------------------------------------------------------------------
+# --consolidate: hoist/deduplicate declarations in a merged TU
+# ---------------------------------------------------------------------------
+
+_INCLUDE_RE = re.compile(r"^\s*#\s*include\s+")
+_EXTERN_RE = re.compile(r"^\s*extern\s+")
+_TYPEDEF_RE = re.compile(r"^\s*typedef\s+")
+_PRAGMA_INTRINSIC_RE = re.compile(r"^\s*#\s*pragma\s+intrinsic\s*\(")
+_GLOBAL_COMMENT_RE = re.compile(r"^\s*/\*\s*GLOBAL:")
+
+
+def _extract_extern_name(decl: str) -> str | None:
+    """The symbol name from an extern declaration."""
+    d = decl.strip().rstrip(";").strip()
+    d = re.sub(r"/\*.*?\*/", "", d).strip()
+    m = re.search(r"(\w+)\s*[\[;(]", d)
+    if m:
+        return m.group(1)
+    m = re.search(r"(\w+)\s*$", d)
+    return m.group(1) if m else None
+
+
+def _extern_specificity(decl: str) -> int:
+    """Higher = more specific/better declaration when conflicts exist."""
+    score = 0
+    for pat in ("void*", "void *", "char*", "char *", "short*", "short *"):
+        if pat in decl:
+            score += 2
+    if "unsigned" in decl:
+        score += 1
+    score += len(re.findall(r"\b[a-z_]\w*(?=\s*[,)])", decl)) * 3
+    if "..." in decl:
+        score += 5
+    if "struct" in decl:
+        score += 2
+    if "const" in decl:
+        score += 1
+    return score
+
+
+def _resolve_externs(externs: list[str]) -> list[str]:
+    """Deduplicate externs, keeping the most specific declaration per symbol."""
+    by_name: dict[str, list[str]] = {}
+    order: list[str] = []
+    for ext in externs:
+        name = _extract_extern_name(ext)
+        if name is None:
+            continue
+        if name not in by_name:
+            order.append(name)
+        by_name.setdefault(name, []).append(ext)
+    out = []
+    for name in order:
+        unique = list(dict.fromkeys(by_name[name]))
+        out.append(max(unique, key=_extern_specificity) if len(unique) > 1 else unique[0])
+    return out
+
+
+def _pragma_funcs(pragmas: list[str]) -> set[str]:
+    funcs: set[str] = set()
+    for p in pragmas:
+        m = re.search(r"intrinsic\s*\(([^)]+)\)", p)
+        if m:
+            funcs.update(f.strip() for f in m.group(1).split(",") if f.strip())
+    return funcs
+
+
+def consolidate_declarations(text: str) -> str:
+    """Hoist unique includes/externs/typedefs/intrinsics to the top of *text*.
+
+    Each merged function block carries its own declarations, which conflict
+    when compiled as a single TU.  The pass moves unique declarations to a
+    header, resolves conflicting extern signatures by specificity, merges
+    ``#pragma intrinsic`` lists, and strips the moved lines from the bodies.
+    Also drops the legacy ``#include "rebrew_types.h"`` (the file no longer
+    exists).
+    """
+    lines = text.splitlines(keepends=True)
+    includes: list[str] = []
+    externs: list[str] = []
+    typedefs: list[str] = []
+    pragmas: list[str] = []
+    global_comments: dict[int, str] = {}
+    lines_to_remove: set[int] = set()
+
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if stripped == '#include "rebrew_types.h"':
+            lines_to_remove.add(i)
+        elif _INCLUDE_RE.match(stripped):
+            includes.append(stripped)
+            lines_to_remove.add(i)
+        elif _GLOBAL_COMMENT_RE.match(stripped):
+            global_comments[i] = stripped
+        elif _EXTERN_RE.match(stripped):
+            # a GLOBAL: comment above an extern documents the global — keep it
+            if i > 0 and _GLOBAL_COMMENT_RE.match(lines[i - 1].strip()):
+                i += 1
+                continue
+            externs.append(stripped)
+            lines_to_remove.add(i)
+        elif _TYPEDEF_RE.match(stripped):
+            typedefs.append(stripped)
+            lines_to_remove.add(i)
+        elif _PRAGMA_INTRINSIC_RE.match(stripped):
+            pragmas.append(stripped)
+            lines_to_remove.add(i)
+        i += 1
+
+    header: list[str] = []
+    uniq_includes = [inc for inc in dict.fromkeys(includes) if "rebrew_types" not in inc]
+    if uniq_includes:
+        header += [inc + "\n" for inc in uniq_includes] + ["\n"]
+    if typedefs:
+        header += [td + "\n" for td in dict.fromkeys(typedefs)] + ["\n"]
+    funcs = _pragma_funcs(pragmas)
+    if funcs:
+        header.append("#pragma intrinsic(" + ", ".join(sorted(funcs)) + ")\n\n")
+    resolved = _resolve_externs(externs)
+    if resolved:
+        header += [ext if ext.endswith(";") else ext + ";" for ext in resolved]
+        header.append("\n")
+
+    body_lines: list[str] = []
+    prev_blank = False
+    for i, line in enumerate(lines):
+        if i in lines_to_remove:
+            continue
+        stripped = line.strip()
+        if not stripped:
+            if prev_blank:
+                continue
+            prev_blank = True
+        else:
+            prev_blank = False
+        body_lines.append(line)
+    while body_lines and body_lines[0].strip() == "":
+        body_lines.pop(0)
+
+    out = "".join(header) + "".join(body_lines)
+    return out if out.endswith("\n") else out + "\n"
 
 
 def _block_metadata(block: str) -> dict[str, Any] | None:
@@ -118,6 +262,11 @@ def main(
     delete: bool = typer.Option(
         False, "--delete", help="Delete input files after successful merge"
     ),
+    consolidate: bool = typer.Option(
+        False,
+        "--consolidate",
+        help="Hoist unique includes/externs/typedefs/intrinsics to the top of the merged TU",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -189,6 +338,8 @@ def main(
     merged_preamble = _merge_preambles(preambles)
     sorted_blocks = [block for _, block in sorted(blocks_with_va, key=lambda x: x[0])]
     merged_text = merged_preamble + "\n\n".join(sorted_blocks) + "\n"
+    if consolidate:
+        merged_text = consolidate_declarations(merged_text)
 
     if delete and not dry_run and not force:
         if json_output:
@@ -214,6 +365,7 @@ def main(
         "input_count": len(included_inputs),
         "dry_run": dry_run,
         "deleted": bool(delete and not dry_run),
+        "consolidated": consolidate,
         "inputs": [rel_display_path(p, cfg.reversed_dir) for p in included_inputs],
         "vas": [f"0x{va:08x}" for va, _ in sorted(blocks_with_va, key=lambda x: x[0])],
     }

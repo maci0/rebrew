@@ -23,6 +23,28 @@
   generalized from the server.dll project's scripts; `gen-layout` now
   resolves the import `@N` suffixes from the toolchain image's own Lib dir
   when no host MSVC tree exists.
+- **Whole-binary build tooling folded in from project scripts** — six
+  workflows that lived as ad-hoc project scripts are now rebrew commands:
+  - `rebrew gen-stubs` — a stub TU for the linker's unresolved external
+    symbols (LNK2001/2019): parses a build/log/stdin, derives types from the
+    sources' `extern` decls, filters CRT library symbols (functions CSV),
+    with `--specials <toml>`/`--footer <file>` for project policy (forwarding
+    stubs, BSS arrays, tail pad, `_fltused`-style markers) and
+    `--exclude-file`/`--cmake-stub-var` build integration.
+  - `rebrew data --own` — materialize stub-file globals as real definitions
+    in their owner TUs with the reference's original bytes (scalars and
+    NUL-terminated/gap-sized arrays); `--fix-ownership` re-partitions global
+    definitions across TUs to fix layout-audit SPAN/ORDER violations;
+    `--converge` is the fixed-point `.data` placement loop
+    (`_dlead_<tu>[N]` leading pads, re-measure per round).  All reuse the
+    `data_layout` model (link order, ownership, pad emission) with PE-derived
+    geometry instead of per-project hardcoded offsets.
+  - `rebrew inline-strings` — materialize `s_<hint>_<0xADDR>` string-literal
+    globals: rewrite C-level uses to literals (comments/`__asm` masked) and
+    define the remaining asm-referenced strings in their owning TU.
+  - `rebrew merge --consolidate` — hoist unique includes/externs/typedefs/
+    `#pragma intrinsic` to the top of a merged multi-function TU, resolving
+    conflicting extern signatures by specificity.
 - **CMake toolchain bridge** (`rebrew.cmake_tc` + `rebrew cmake-toolchain`) —
   the `rebrew-cmake-{cl,link,lib}` console scripts run a docker toolchain
   image's tools (CL.EXE/LINK.EXE/LIB.EXE via wine inside the image) from any
@@ -39,7 +61,11 @@
   `layout.txt` + `*.hex` package), `[targets.<t>.layout]` / `[link]`
   config blocks, `<target>.def`, `crt_region/*.c`, `src/link_stubs.c`,
   `flirt_sigs/*.pat`, `.rebrew/ghidra_sync_state.json`, and the
-  VCS-intended vs gitignored build-output split.
+  VCS-intended vs gitignored build-output split.  A third sweep (after the
+  data-placement tooling landed) added `src/<target>/bss_padding.c`
+  (`rebrew data --fix-bss`), `src/<target>/rebrew_globals.h`
+  (`rebrew data --gen-header`), the `--fill-data` `_dpad_<addr>[N]` pads,
+  and the rebrew-flirt-sigs sibling checkout as a read-only input source.
 - **Shared metadata loader + write lock** (`rebrew.utils.load_metadata_doc`,
   `metadata_write_lock`) — `rebrew-function.toml`, `rebrew-data.toml`, and
   the library store now load through one tomllib-based, mtime-cached loader
