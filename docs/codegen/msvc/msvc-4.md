@@ -97,6 +97,28 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 - **8-byte struct returns round-trip the stack** (`83 ec 08` + field
   copies + reload) — 2.0/4.x; 5.0+ return in EAX:EDX.
 
+## Probe14: zero-compare + 64-bit — verified
+
+- **`a == 0` uses `cmp dword ptr [esp+4],1; sbb eax,eax; neg eax`
+  (`83 7c 24 04 01 1b c0 f7 d8`)** — the compare-against-1 idiom,
+  unique to the 2.0/4.x era among the probed toolchains (5.0–7.1:
+  load+`test`; 8.0+: memory compare against the zero register).
+- **64-byte struct returns round-trip the stack** (`83 ec 40` + field
+  stores) — the 2.0/4.x form of the large-struct return.
+- `g_counter++` round-trips EAX (`a1 … 40 … a3`) at /O2 — same as
+  5.0–11.0 except 8.0's `add eax,1` variant.
+
+## Probe15: setcc + stdcall — verified
+
+- **setcc uses branch + `mov eax,1`** — `a < b` = `cmp [esp+8],[esp+4]`
+  load + `b8 01 00 00 00` + `jle`-branch — the 2.0/4.x branch-form
+  (5.0+ use `setcc`).
+- **shift counts load as BYTES** — `a << b` loads b via `mov cl,
+  [esp+8]` (`8a 4c 24 08`) where 5.0+ load the full dword.
+- **stdcall args load in DIRECT order** — `std_add` = `mov eax,
+  [esp+4]; add eax,[esp+8]` (2.0/4.1 form; 5.0–9.0 reverse the order;
+  11.0 returns to direct).
+
 ## Verification
 
 Probe compiled with `rebrew/msvc:4.0-win32`, `4.1-win32`, `4.2-win32` at

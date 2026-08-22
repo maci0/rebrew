@@ -12,12 +12,11 @@ import logging
 import re
 from pathlib import Path
 
-import tomlkit
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from rebrew.catalog.loaders import scan_reversed_dir
+from rebrew.binsync_state import index_local_and_catalog, load_binsync_state
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 
 log = logging.getLogger(__name__)
@@ -56,69 +55,6 @@ def _strip_body(prototype: str) -> str:
     return prototype[:brace].strip() if brace != -1 else prototype.strip()
 
 
-def _load_binsync_state(
-    state_dir: Path,
-) -> tuple[dict[int, dict[str, str]], dict[int, dict[str, str]]]:
-    funcs: dict[int, dict[str, str]] = {}
-    funcs_dir = state_dir / "functions"
-    if funcs_dir.is_dir():
-        for p in funcs_dir.glob("*.toml"):
-            try:
-                doc = tomlkit.parse(p.read_text(encoding="utf-8"))
-            except Exception:
-                log.debug("unparseable BinSync function TOML %s", p.name, exc_info=True)
-                continue
-            info = doc.get("info", {})
-            if not isinstance(info, dict):
-                continue
-            addr = info.get("addr")
-            if addr is None:
-                try:
-                    addr = int(p.stem, 16)
-                except ValueError:
-                    continue
-            try:
-                va = int(addr)
-            except (TypeError, ValueError):
-                continue
-            entry: dict[str, str] = {}
-            name = info.get("name")
-            if isinstance(name, str) and name:
-                entry["name"] = name
-            header = doc.get("header", {})
-            if isinstance(header, dict):
-                htype = header.get("type")
-                if isinstance(htype, str) and htype.strip():
-                    entry["prototype"] = htype.strip()
-            funcs[va] = entry
-
-    globals_map: dict[int, dict[str, str]] = {}
-    gv_path = state_dir / "global_vars.toml"
-    if gv_path.exists():
-        try:
-            doc = tomlkit.parse(gv_path.read_text(encoding="utf-8"))
-            for _k, entry in doc.items():
-                if not isinstance(entry, dict):
-                    continue
-                addr = entry.get("addr")
-                if addr is None:
-                    try:
-                        addr = int(_k, 0)
-                    except ValueError:
-                        continue
-                try:
-                    va = int(addr)
-                except (TypeError, ValueError):
-                    continue
-                gname = entry.get("name")
-                if isinstance(gname, str) and gname:
-                    globals_map[va] = {"name": gname}
-        except Exception:
-            log.debug("unparseable BinSync global_vars.toml", exc_info=True)
-            pass
-    return funcs, globals_map
-
-
 @app.callback(invoke_without_command=True)
 def main(
     state_dir: Path = typer.Argument(..., help="BinSync state directory to compare"),
@@ -134,62 +70,11 @@ def main(
 
     cfg = require_config(target=target, json_mode=json_output)
 
-    funcs_by_va, globals_by_va = _load_binsync_state(state_dir)
+    funcs_by_va, globals_by_va = load_binsync_state(state_dir)
     if not funcs_by_va and not globals_by_va:
         error_exit(f"No BinSync data found in {state_dir}", json_mode=json_output)
 
-    # Local index: reversed + catalog (same as import)
-    local_entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
-    local_by_va: dict[int, object] = {}
-    for e in local_entries:
-        va = getattr(e, "va", 0)
-        if va and (va not in local_by_va or getattr(e, "marker_type", "") == "FUNCTION"):
-            local_by_va[va] = e
-
-    catalog_by_va: dict[int, object] = {}
-    catalog_vas: set[int] = set()
-    try:
-        import warnings
-
-        from rebrew.catalog.loaders import parse_function_list
-        from rebrew.catalog.registry import build_function_registry
-        from rebrew.config import FUNCTION_STRUCTURE_JSON
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            funcs = parse_function_list(cfg.function_list)
-        ghidra_path = cfg.reversed_dir / FUNCTION_STRUCTURE_JSON
-        registry = build_function_registry(funcs, cfg, ghidra_path, cfg.target_binary)
-        for va, reg_entry in registry.items():
-            if va in local_by_va:
-                continue
-            if reg_entry.get("is_thunk"):
-                continue
-            size = int(reg_entry.get("canonical_size", 0) or 0)
-            if size <= 0:
-                continue
-            raw_name = (
-                reg_entry.get("list_name") or reg_entry.get("ghidra_name") or f"func_{va:08x}"
-            )
-            catalog_by_va[va] = type(
-                "CatalogFunc",
-                (),
-                {
-                    "va": va,
-                    "size": size,
-                    "name": raw_name,
-                    "symbol": "",
-                    "module": "",
-                    "prototype": "",
-                    "marker_type": "FUNCTION",
-                    "filepath": "",
-                    "status": "",
-                },
-            )()
-    except Exception:
-        log.debug("catalog scan failed — treating as empty", exc_info=True)
-        pass
-    catalog_vas = set(catalog_by_va.keys())
+    local_by_va, catalog_by_va, catalog_vas = index_local_and_catalog(cfg)
 
     divergences: list[dict[str, str]] = []
     new_in_binsync: list[dict[str, str]] = []

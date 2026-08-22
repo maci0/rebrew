@@ -125,6 +125,36 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
   (`33 c0 38 44 24 04 0f 9c c0`) — the 8.0+ form; 5.0–7.1 load the
   byte and `test` it, 2.0/4.x `cmp byte ptr [esp+4],0`.
 
+## Probe14: statement idioms — verified
+
+- **`g_counter++` / `g_counter--` use `add eax,1` / `sub eax,1`
+  (`83 c0 01` / `83 e8 01`)** where every other version (2.0–7.1,
+  9.0–11.0) uses `inc`/`dec` (`40`/`48`) — a third independent
+  confirmation of VC 8.0's add-over-inc encoding (probe13: strlen +
+  `g_val+1`; probe14: `g_inc`/`g_dec`).  Family-level: GCC emits
+  `83 c0 01` too.
+- **zero-compare** — `a == 0` = `cmp dword ptr [esp+4],eax` against
+  the zero register (`33 c0 39 44 24 04 0f 94 c0`), the 8.0+ form
+  (5.0–7.1: load+`test`; 2.0/4.x: `cmp [mem],1; sbb; neg`).
+- **64-byte memcpy = `rep movsd`** — shared by every MSVC version.
+
+## Probe15: /GS cookies + setcc — verified
+
+- **`/GS` cookie prologue** — the buffer function opens
+  `sub esp,0x44; mov eax,[__security_cookie]; xor eax,esp; mov
+  [esp+0x40],eax` (`a1 <abs> 33 c4 89 44 24 40`) — the verified
+  cookie-mix form, MSVC-unique among the probed toolchains (no other
+  emits stack cookies).  The 8.0 copy loop also shows the `add eax,1`
+  (`83 c0 01`) encoding — a FIFTH independent confirmation of the
+  add-over-inc trait.
+- **signed setcc compares in memory** — `a < b` = `cmp ecx,[esp+8]`
+  (`8b 4c 24 04 33 c0 3b 4c 24 08 0f 9c c0`) — the 8.0+ form
+  (5.0–7.1 load both; shared memory-form with GCC/Zig).
+- **`wchar >= 0x100`** = `cmp word ptr [esp+4],0x100` + `sbb` +
+  `add eax,1` (`66 81 7c 24 04 00 01 1b c0 83 c0 01`) — memory-
+  immediate compare with the add-over-inc tail (2.0–7.1 use `inc
+  eax`; 9.0+ load the constant into EAX first).
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:8.0-win32` (`msvc800_{O1,O2}.obj`);

@@ -132,6 +132,34 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 - **SP spot-check** — VC 5.0 SP1–SP3 byte-identical to the 5.0 RTM
   on every probe13 function.
 
+## Probe14: 64-bit helpers + statement idioms — verified
+
+- **64-bit shifts call the helper** — `i64 << 4` compiles to
+  `mov ecx,4; jmp __allshl` (`b9 04 00 00 00 e9`, /O1: `6a 04 59 e9`)
+  and `>> 4` to `jmp __allshr` — the 5.0/6.0 tail-call form, unique
+  among the probed toolchains (7.0+ inline `shld`/`shrd` — shared
+  with GCC/bcc32/Zig; Watcom's `__I8LS` takes the count in EBX).
+- **64-bit `× 7` calls `__allmul`** (`6a 00 6a 07 50 51 e8`) — the
+  5.0–9.0 form; 10.0/11.0 inline a `shld`-based decomposition.
+- **64-byte memcpy = `rep movsd`** (`b9 10 00 00 00 f3 a5`) — shared
+  by every MSVC version; no other probed toolchain uses rep-movs here.
+- **zero-compare era** — `a == 0` = load + `test` + `setz` at /O2
+  (5.0–7.1 form; 8.0+ compares in memory against the zero register).
+- **SP spot-check** — 5.0 SP1–SP3 also byte-identical at /O1 on the
+  probe14 set.
+
+## Probe15: setcc + address forms — verified
+
+- **setcc loads BOTH operands** — `a < b` = `mov ecx,[esp+4]; mov
+  edx,[esp+8]; xor eax,eax; cmp ecx,edx; setl al` — the 5.0–7.1
+  register-form (8.0+ compare the second operand in memory).
+- **address form** — `p[i*4+3]` = `lea ecx,[eax*4]` + `mov eax,
+  [edx+ecx*4+0xc]` — the 5.0 lea-scale form (6.0–9.0 use
+  `shl eax,4` + scale-1; 10.0/11.0 `add reg,reg` + scale-8).
+- **stdcall args load in REVERSE order** — `std_add` = `mov eax,
+  [esp+8]; mov ecx,[esp+4]; add eax,ecx` — the 5.0–9.0 form
+  (2.0/4.1 and 11.0 use direct order; Zig/LLVM also reverses).
+
 ## Verification
 
 Probe at `/O1`/`/O2` via `rebrew/msvc:5.0-win32`

@@ -2894,7 +2894,7 @@ def _filter_recently_run(
 ) -> list[StubInfo]:
     """Drop stubs that already have a GA run record within the last *hours*.
 
-    Let's long batch runs resume without re-attempting recently-processed
+    Lets long batch runs resume without re-attempting recently-processed
     stubs (see ``--skip-recent``).
     """
     from datetime import UTC, datetime, timedelta

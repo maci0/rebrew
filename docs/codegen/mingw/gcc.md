@@ -169,6 +169,37 @@ inlining is unconditional.  Verified in a probe12 re-run with native
   0.16) shares every one of these family shapes — no new
   zig-vs-gcc byte marker.
 
+## Probe14: statement idioms — verified negatives
+
+- **64-byte memcpy is a register-block copy** (`8b 0a 89 08 …` —
+  8-dword mov/store pairs), NOT `rep movsd` — the MSVC rep-movs form
+  has no GCC counterpart; Zig (LLVM) inlines the same copy as
+  `movups`-pair SSE loads/stores.
+- **64-bit shifts inline `shld`/`shrd`** (`0f a4 c2 04 c1 e0 04`) —
+  byte-identical to MSVC 7.0+ and bcc32 (shared trait, not a
+  discriminator); Watcom alone calls `__I8LS`.
+- **`g_counter++` round-trips EAX with `83 c0 01`** — shares VC 8.0's
+  add-over-inc encoding (and the memory-inc form is bcc32-exclusive).
+- **zero-compare** — `a == 0` = load + `test` + `setz` (like MSVC
+  5.0–7.1); the ternary `a ? 7 : 13` uses the sbb trick
+  (`83 7c 24 04 01 19 c0 83 e0 06 83 c0 07`) — compare-against-1
+  shared with MSVC 2.0/4.x's style, but `sbb eax,eax` (`19 c0`) vs
+  MSVC's `1b c0`.
+
+## Probe15: function boundaries — verified negatives
+
+- **NO stack cookies** — the buffer-copy function opens
+  `push ebx; xor eax,eax; sub esp,0x40` with no cookie load/xor; the
+  MSVC 8.0+ `/GS` cookie-mix (`33 c4`) has no GCC counterpart.
+- **wide-literal sums ARE folded** — `L"AB"[0] + L"AB"[1]` compiles
+  to `mov eax,0x83` like MSVC 7.0+ (and Zig/LLVM); only
+  2.0–6.0/bcc32/Watcom load from memory.
+- **setcc compares the second operand in memory** — `a < b` =
+  `cmp eax,[esp+4]` after loading b (`39 44 24 04`), sharing the
+  8.0+ memory-compare form (MSVC: `cmp ecx,[esp+8]`).
+- **stdcall args load in REVERSE order** — `mov eax,[esp+8]; add
+  eax,[esp+4]` — shared with MSVC 5.0–9.0 and Zig.
+
 ## Verification
 
 Probe `/O1`/`/O2`/`/O3` via native `i686-w64-mingw32-gcc` 16.1

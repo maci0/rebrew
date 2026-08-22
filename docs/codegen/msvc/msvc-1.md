@@ -111,6 +111,21 @@ DOSBox.  Emits 16-bit OMF objects.
   char fits a word in 16-bit); the second arg is loaded first, the
   same reverse-order quirk as 32-bit VC 2.0/4.x.
 
+## Probe14: zero-compare idiom — verified
+
+- **`a == 0` compiles to `cmp word ptr [bp+4],1; sbb ax,ax; neg ax`**
+  — the compare-against-1 + sbb/neg idiom, the same family trait as
+  32-bit VC 2.0/4.x (probe14 `zc_reg`; also `cmp word ptr [bp+4],1;
+  sbb ax,ax; and ax,6; add ax,7` for `a ? 7 : 13`).
+
+## Probe15: 16-bit compares — verified
+
+- **signed/unsigned/wide compares use branch + `mov ax,1`** — `a < b`
+  (signed) = `mov ax,[bp+4]; cmp word ptr [bp+6],ax; jle; mov ax,1`
+  (the second operand compared in memory, branch form — the same
+  branch-style as 32-bit VC 2.0/4.x setcc).  `u_lt` uses `jbe`,
+  `w_eq` uses `jne`.
+
 ## Verification
 
 Probe `/O1` via `rebrew/msvc:1.52-win16` (`out16/probe.OBJ` and the

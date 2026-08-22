@@ -1041,7 +1041,7 @@ app = typer.Typer(
 def _list_size_for(cfg: ProjectConfig, va_int: int) -> int | None:
     """Function-list size for *va_int*, if the list knows it.
 
-    Let's ``rebrew asm <va>`` default to the real function size instead of a
+    Lets ``rebrew asm <va>`` default to the real function size instead of a
     hardcoded 32-byte window (which bleeds into the adjacent function).
     """
     func_list_path = getattr(cfg, "function_list", "")

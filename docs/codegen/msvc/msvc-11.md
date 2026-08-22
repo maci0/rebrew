@@ -115,6 +115,39 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 - **signed-char compare against the zero register in memory**
   (`33 c0 38 44 24 04 0f 9c c0`) — 8.0+ form.
 
+## Probe14: statement idioms — verified
+
+- **ternary `a ? 7 : 13` uses `cmov`** (`83 7c 24 04 00 b8 0d 00 00
+  00 b9 07 00 00 00 0f 45 c1`, /O1: push/pop constants + `0f 45 c1`)
+  — extends the VC 11.0 cmov trait to ternaries; note Zig (LLVM)
+  also emits `cmov` (`0f 44 c1`) for the same expression, so this is
+  an 11.0+LLVM trait, not MSVC-exclusive.
+- **64-bit `× 7` inlines a `shld`-based decomposition** (`0f a4 c2 03
+  c1 e0 03 2b 44 24 04 1b 54 24 08`) — VC 10.0/11.0 both inline;
+  5.0–9.0 call `__allmul`.
+- **`g_counter++` round-trips EAX even at /O1** (`a1 … 40 … a3`) —
+  11.0 is the ONLY version that keeps the EAX round-trip at /O1
+  (4.1–10.0 use the memory-form `inc dword ptr [g]` — `ff 05` — at
+  /O1; 2.0 also round-trips).
+- **zero-compare** — memory compare against the zero register
+  (`33 c0 39 44 24 04 0f 94 c0`), the 8.0+ form.
+- **64-byte memcpy = `rep movsd`** — shared by every MSVC version.
+
+## Probe15: /GS + setcc + address forms — verified
+
+- **`/GS` cookie prologue** — `sub esp,0x44; mov eax,[__security_cookie];
+  xor eax,esp; mov [esp+0x40],eax` (`a1 <abs> 33 c4 89 44 24 40`),
+  the 8.0+ cookie-mix form.
+- **signed setcc compares in memory** — `cmp ecx,[esp+8]; setl al`,
+  the 8.0+ form (shared with GCC/Zig).
+- **address form** — `p[i*4+3]` = `add ecx,ecx` + `mov eax,
+  [eax+ecx*8+0xc]` — the 10.0/11.0 add-self + scale-8 decomposition.
+- **stdcall args load in DIRECT order** — 11.0 returns to `mov eax,
+  [esp+4]; add eax,[esp+8]` (2.0/4.1 form) after 5.0–9.0's reverse
+  order (Zig/LLVM also reverses).
+- **`wchar >= 0x100`** = `mov eax,0x100; cmp ax,[esp+4]` (9.0+ loads
+  the constant first, vs 2.0–8.0's memory-immediate `66 81 7c 24 04`).
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:11.0-win32` (`msvc1100_{O1,O2}.obj`);

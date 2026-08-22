@@ -130,6 +130,30 @@ MSVC-1.5x-specific (see README).
   `and byte ptr [si],0xf8; or byte ptr [si],al` (byte-level
   read-modify-write).
 
+## Probe14: statement idioms — verified (TC 3.1)
+
+- **`g += 7` adds in memory** — `add word ptr [g],7; mov ax,[g]`
+  (memory-operand add), the 16-bit analog of bcc32's memory-inc
+  form; MSVC 1.52 round-trips AX.
+- **`a == 0` compares against 0 with branches** — `cmp word ptr
+  [bp+4],0; jne; mov ax,1; jmp; xor ax,ax` (vs MSVC 1.52's
+  compare-against-1 + sbb idiom).
+- **ternary `a ? 7 : 13` uses branches** — `cmp [bp+4],0; je; mov
+  ax,7; jmp; mov ax,0xd` (no cmov/sbb trick).
+- **64-byte memcpy is a libcall** — `mov ax,0x40; push ax; push
+  [bp+6]; push [bp+4]; call` (3-arg near call).
+
+## Probe15: 16-bit compares + address forms — verified (TC 3.1)
+
+- **setcc compares the second operand in memory + branches** —
+  `a < b` = `mov ax,[bp+4]; cmp ax,[bp+6]; jge; mov ax,1` (signed
+  `jge`, unsigned `jae`, wide-eq `jne`) — the branch form.
+- **wide-literal sums load from memory** — `L"AB"` = `mov si,0; mov
+  ax,[si]; add ax,[si+2]` (reloc'd absolute) — NOT folded.
+- **16-bit address form** — `p[i*4+3]` = `shl ax,1; shl ax,1; add
+  ax,3; shl ax,1` — the shl-chain + add + shl (no lea-scale).
+- **no stack cookies** — plain frame + `sub sp,0x40` + `push si/di`.
+
 ## Verification
 
 Probes via `rebrew/borland:{3.1,2.0}-win16` — probe1 (`-O1`:
