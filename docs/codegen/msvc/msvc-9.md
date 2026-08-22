@@ -90,6 +90,24 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 - **signed-char compare against the zero register in memory**
   (`33 c0 38 44 24 04 0f 9c c0`) — 8.0+ form.
 
+## Probe15: function boundaries + the 9.0 SP1 unblock — verified
+
+- **`/GS` cookie prologue** — `sub esp,0x44; mov eax,[__security_cookie];
+  xor eax,esp; mov [esp+0x40],eax` (`a1 <abs> 33 c4 89 44 24 40`) —
+  the 8.0+ cookie-mix form, MSVC-unique among the probed toolchains
+  (GCC/Zig/bcc32/Watcom emit no cookies).
+- **signed setcc** — `a < b` = `cmp ecx,[esp+8]` against MEMORY
+  (`8b 4c 24 04 33 c0 3b 4c 24 08 0f 9c c0`), the 8.0+ form
+  (5.0–7.1 load both operands; 2.0/4.x use branch + `mov eax,1`).
+- **VC 9.0 SP1 UNBLOCKED** — the previously-recorded sched.dll blocker
+  is resolved: the x86 `sched.dll` from the XP SP1 SDK cross-tools
+  (win2k-revival/downloads) is interface-compatible with the SP1
+  cl.exe.  With it mounted next to cl.exe, VC 9.0 SP1 compiled
+  probe13/14/15 at /O2 and /O1 and is **byte-identical to the 9.0 RTM
+  on every one of the 54 probe functions** — the SP record is now
+  complete: every MSVC SP probed is identical to its RTM except VC
+  7.0 SP1's known 17 functions.
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:9.0-win32` (`msvc900_{O1,O2}.obj`);

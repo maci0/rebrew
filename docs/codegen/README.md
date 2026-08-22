@@ -120,6 +120,11 @@ claims are explicitly downgraded in the per-version files.
 | **`and eax,0xff` zero-extension** | `25 ff 00 00 00` / `81 e1 ff 00 00 00` | **MSVC 5.0/6.0 /O2** (2.0/4.x: `xor eax,eax; mov al` — shared with bcc32; 7.0+: `movzx` — shared with GCC/Watcom) | ✓ probe13 (`uc_add`) |
 | **default-unsigned `char`** | `char < 0` → `31 c0 c3` (folded to 0) | **Open Watcom** (wcc386 + wcc16; MSVC/GCC/bcc32/TC use signed char) | ✓ probe13 (`c_cmp`) |
 | **8-byte struct return via `movsd` pair** | `a5 a5` | **Open Watcom** (MSVC 5.0+ return in EAX:EDX; bcc32 and MSVC 2.0/4.x round-trip the stack) | ✓ probe13 (`s8_make`) |
+| **64-byte memcpy = `rep movsd`** | `b9 10 00 00 00 f3 a5` | **MSVC, ALL versions** (GCC register-blocks the copy; bcc32/Watcom libcall; Zig LLVM uses `movups`-pair SSE copies) | ✓ probe14 (`cpy64_lib`) |
+| **memory-form `inc dword ptr [g]`** | `ff 05` | **bcc32 at -O2** (MSVC/GCC/Watcom/Zig round-trip through EAX: `a1 … 40 … a3` in the same probe functions; context-dependent — VC5/6 also emit `ff 05` for memory counters in other shapes) | ✓ probe14 (`g_inc`) |
+| **64-bit shift helper tail-call** | `b9 <n> 00 00 00 e9` (`mov ecx,N; jmp __allshl/__allshr`) | **MSVC 5.0/6.0** (7.0+ inline `shld`/`shrd` — shared with GCC/bcc32/Zig; Watcom `__I8LS` uses an EBX count) | ✓ probe14 (`i64_shl`/`i64_shr`) |
+| **zero-compare: `cmp [mem],1; sbb; neg`** | `83 7c 24 04 01 1b c0 f7 d8` | **MSVC 2.0/4.x + 1.52 (16-bit)** (5.0–7.1: load+`test`; 8.0+: memory compare against the zero register) | ✓ probe14 (`zc_reg`) |
+| **`/GS` cookie-mix prologue** | `a1 <cookie> 33 c4 89 44 24 40` (`mov eax,[cookie]; xor eax,esp; store`) | **MSVC 8.0+** — the only probed toolchain with stack cookies (GCC/Zig/bcc32/Watcom emit none) | ✓ probe15 (`pro_gs`) |
 | **SSE2 `ucomisd` FP compare** | `66 0f 2f` + `0f 97 c0` | MSVC 11.0 | ✓ probe5 (`fcmp1-4`) |
 | **`__fastcall` register fusion `lea eax,[ecx+edx]`** | `8d 04 11` | **MSVC 7.0+** (2.0–6.0: `mov eax,[esp+4]` first) | ✓ probe5 (`fc1`) |
 | **`fdivr` for `a/5.0`** | `dc 35`-reverse (`fdivr m64`) | MinGW GCC | ✓ probe5 (`fdiv5`) |

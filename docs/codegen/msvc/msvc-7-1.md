@@ -88,6 +88,27 @@ feature (SP spot-check).  Verified in probe12 (`f1`/`f2`/`fl`).
   the LAST versions with the rep-string form (8.0+ switch to a
   dword-compare loop).
 
+## Probe14: statement idioms — verified
+
+- **64-bit shifts inline `shld`/`shrd`** — `i64 << 4` = `shld
+  edx,eax,4; shl eax,4` (`0f a4 c2 04 c1 e0 04`) — from 7.0 on
+  (shared with GCC/bcc32/Zig; the 5.0/6.0 `jmp __allshl` tail-call
+  is MSVC-unique to them).
+- **64-byte memcpy = `rep movsd`** (`b9 10 00 00 00 f3 a5`), shared
+  by every MSVC version.
+- **zero-compare era** — `a == 0` = load + `test` + `setz` at /O2
+  (5.0–7.1 form; 8.0+ compares in memory against the zero register).
+
+## Probe15: setcc + wide literals — verified
+
+- **setcc loads BOTH operands** — `a < b` = register-form `cmp
+  ecx,edx; setl al` (the 5.0–7.1 form; 8.0+ compare in memory).
+- **wide-literal sums are CONSTANT-FOLDED from 7.0** — `L"AB"[0] +
+  L"AB"[1]` compiles to `mov eax,0x83`; VC 2.0–6.0 (and
+  bcc32/Watcom/TC) load the literal from memory.  Shared with
+  GCC/Zig — family-level era marker.
+- **stdcall args load in REVERSE order** — the 5.0–9.0 form.
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:7.1-win32` (`msvc710_{O1,O2}.obj`);

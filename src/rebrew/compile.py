@@ -96,7 +96,7 @@ class CompareResult:
             correct a stale SIZE annotation with the definitive compiled
             size instead of re-deriving it by hand.
         full_obj_bytes: Full compiled ``.obj`` bytes (untruncated) on the
-            SIZE_MISMATCH path, else ``None``.  Let's ``--fix-size`` verify
+            SIZE_MISMATCH path, else ``None``.  Lets ``--fix-size`` verify
             the bytes beyond the annotated slice before declaring the SIZE
             annotation stale — a false fix would otherwise write a size
             that hides unreproduced code.

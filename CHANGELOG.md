@@ -296,6 +296,60 @@
   SP1–SP6 are all byte-identical to their RTMs on every probe13
   function, and VC 5.0 SP1–SP3 match the 5.0 RTM as well.  Zig 0.16
   re-verified: no zig-vs-gcc byte marker in the probe13 set.
+- **Probe14 statement-level idioms + corpus validation + SP closure**
+  — six statement dimensions swept across every MSVC version at /O2
+  and /O1 plus bcc32/Watcom/GCC/Zig and the 16-bit set.  New unique
+  markers: **64-byte memcpy = `rep movsd` (`b9 10 00 00 00 f3 a5`) in
+  every MSVC version** (GCC register-blocks, bcc32/Watcom libcall,
+  Zig `movups`-pairs); **bcc32's memory-form `inc dword ptr [g]`
+  (`ff 05`)** (everyone else round-trips EAX); **MSVC 5.0/6.0 64-bit
+  shifts = `mov ecx,N; jmp __allshl/__allshr` tail-call** (7.0+ inline
+  `shld`/`shrd` — shared with GCC/bcc32/Zig; Watcom `__I8LS` takes
+  the count in EBX); **2.0/4.x + 1.52 zero-compare `cmp [mem],1;
+  sbb; neg`** (5.0–7.1 load+test, 8.0+ memory compare against the
+  zero register).  Family-level: VC 8.0's `add eax,1`/`sub eax,1`
+  (`83 c0 01`/`83 e8 01`) confirmed a THIRD time on `g_inc`/`g_dec`
+  (GCC shares); VC 10.0/11.0 inline 64-bit ×const via `shld`
+  decomposition (5.0–9.0 call `__allmul`); VC 11.0 `cmov` ternaries
+  (Zig/LLVM shares — downgraded); 11.0 keeps the EAX round-trip at
+  /O1 where 4.1–10.0 use `ff 05` memory-inc.  **Corpus validation**
+  (rebrew-projects win2k + skifree16/32 binaries): `f2 ae` strlen
+  marker hits in 13 binaries, `f3 a6` in 12, `25 ff 00 00 00` in 6
+  — the round-11 markers are real in the wild; `83 c0 01` correctly
+  absent (VC8-only trait); no Watcom-built corpus binary for the
+  unsigned-char fold (stands on the probe).  **SP closure**: VC 6.0
+  SP2/SP4/SP5, VC 7.0/7.1/8.0/10.0 SP1 and VC 5.0 SP1–SP3 at /O1 all
+  byte-identical to their RTMs on probe14; the VC 9.0 SP1 blocker is
+  now RESOLVED — see the Probe15 entry below.
+- **Probe15 function boundaries + VC 9.0 SP1 UNBLOCKED + corpus
+  round 3** — six function-boundary dimensions swept across every
+  MSVC version at /O2 and /O1 plus bcc32/Watcom/GCC/Zig and the
+  16-bit set.  New unique marker: **the `/GS` cookie-mix prologue
+  (`a1 <cookie> 33 c4 89 44 24 40` — mov eax,[cookie]; xor eax,esp;
+  store) in VC 8.0+** — the only probed toolchain with stack cookies
+  (GCC/Zig/bcc32/Watcom emit none).  Family-level maps: signed setcc
+  eras (2.0/4.x branch+`mov eax,1`; 5.0–7.1 register compare;
+  8.0+ memory compare — shared with GCC/Zig); **wide-literal folding
+  from 7.0** (`L"AB"[0]+L"AB"[1]` → `mov eax,0x83`; 2.0–6.0/bcc32/
+  Watcom/TC load from memory; shared with GCC/Zig); address-form
+  census (5.0 lea-scale, 6.0–9.0 `shl`+scale-1, 10.0/11.0
+  `add reg,reg`+scale-8); stdcall reverse-arg-order in 5.0–9.0
+  (2.0/4.1 + 11.0 direct; Zig also reverses); **VC 8.0's add-over-inc
+  confirmed a FIFTH time** (`w_ge`, `/GS` copy loop); bcc32's
+  setcc+`and eax,1` tail.  **VC 9.0 SP1 UNBLOCKED**: the x86
+  `sched.dll` from the XP SP1 SDK cross-tools is interface-compatible
+  with the SP1 cl.exe — mounted next to cl.exe it compiles
+  probe13/14/15 and is **byte-identical to the 9.0 RTM on all 54
+  probe functions at /O2 and /O1**.  The SP record is now COMPLETE:
+  every MSVC SP probed (5.0 SP1–SP3, 6.0 SP1–SP6, 7.1 SP1, 8.0 SP1,
+  9.0 SP1, 10.0 SP1) is byte-identical to its RTM on probes 13–15;
+  the ONLY SP codegen difference anywhere remains VC 7.0 SP1's known
+  17 functions.  **Corpus round 3** (rebrew-projects + guild): the
+  cmp-1 zero-compare marker correctly absent from VC5/6 binaries;
+  `ff 05` present in VC5/6/guild (context-dependent — the bcc32 claim
+  now carries the caveat); the exact constant-size 64B `rep movsd`
+  form absent (real memcpys use variable sizes); no VC8+ corpus
+  binary exists to hit the `/GS` marker (stands on the probe).
 - **GA pragma mutations** — five new operators in `matcher/mutator.py`
   (114 → 119) that explore codegen levers compiler flags cannot reach:
   `mut_add/remove_optimize_pragma` wrap the function in

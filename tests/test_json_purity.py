@@ -103,6 +103,11 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "// FUNCTION: SERVER 0x00401000\nint __cdecl _func1(void) { return 0; }\n",
         encoding="utf-8",
     )
+    # Hermetic FLIRT scan: a sibling rebrew-flirt-sigs checkout on the host
+    # would otherwise load standard sigs and flip flirt's exit code.
+    empty_sigs = tmp_path / "no-flirt-sigs"
+    empty_sigs.mkdir()
+    monkeypatch.setenv("REBREW_FLIRT_SIGS_DIR", str(empty_sigs))
     monkeypatch.chdir(root)
     return root
 

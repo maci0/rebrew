@@ -81,15 +81,15 @@ class TestBinsyncImportHelpers:
         assert not _is_meaningful("DAT_10002000")
 
     def test_load_binsync_state(self, tmp_path: Path) -> None:
-        from rebrew.binsync_import import _load_binsync_state
+        from rebrew.binsync_state import load_binsync_state
 
         state = _make_state(tmp_path, funcs={0x10001000: "_Foo"}, globals_map={0x01008000: "g_foo"})
-        funcs, globs = _load_binsync_state(state)
+        funcs, globs = load_binsync_state(state)
         assert 0x10001000 in funcs
         assert globs[0x01008000]["name"] == "g_foo"
 
     def test_load_binsync_state_with_header(self, tmp_path: Path) -> None:
-        from rebrew.binsync_import import _load_binsync_state
+        from rebrew.binsync_state import load_binsync_state
 
         state = tmp_path / "state2"
         funcs_dir = state / "functions"
@@ -103,7 +103,7 @@ class TestBinsyncImportHelpers:
         hdr["type"] = "int __cdecl Bar(int x)"
         doc["header"] = hdr
         (funcs_dir / "10002000.toml").write_text(tomlkit.dumps(doc), encoding="utf-8")
-        funcs, _ = _load_binsync_state(state)
+        funcs, _ = load_binsync_state(state)
         assert funcs[0x10002000]["prototype"] == "int __cdecl Bar(int x)"
 
 

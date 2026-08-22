@@ -138,6 +138,21 @@ plain Integer args too).  RTL functions use far `retf`/`retf N` (`ca`).
   even though Char is unsigned — contrast with Watcom, which folds
   `char < 0` to 0 for its default-unsigned char.
 
+## Probe14: statement idioms — not applicable (Pascal)
+
+- probe14 is a C-statement probe; the Pascal equivalents of its
+  dimensions were covered in probe2/3 (case chains, set membership,
+  for-loop induction) and probe13.dpr (packed records, Char
+  compare).  No new Delphi marker in this dimension — verified
+  negative.
+
+## Probe15: function boundaries — not applicable (Pascal)
+
+- probe15's C-boundary dimensions (setcc census, wide-char literals,
+  stdcall cleanup) have Pascal counterparts covered in probe2/3
+  (`case` chains, `LongInt` results in dx:ax, `ret N` cleanup
+  already documented) — no new marker; verified negative.
+
 ## Verification
 
 Pascal probe `probe.dpr` compiled via `rebrew/delphi:1.0-win16`

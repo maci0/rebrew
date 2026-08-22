@@ -132,6 +132,34 @@ entries — the `shl bx,1` (`d1 e3`) scaling, same family trait as TC
   (the 16B movsd×4 form is shared with MSVC 5.0/6.0 at /O1).
 - **strlen/memcmp are libcalls** (tail-jump `e9`), never inlined.
 
+## Probe14: statement idioms — verified
+
+- **64-bit shifts call `__I8LS` with the count in EBX** (`bb 04 00 00
+  00 31 c9 e8`) — the 5.0/6.0 MSVC tail-call takes the count in ECX,
+  7.0+/GCC/bcc32 inline `shld` — Watcom's EBX-count helper call is
+  its own convention.
+- **64-byte memcpy is a libcall** (`bb 40 00 00 00 e8`) — never
+  `rep movsd`.
+- **`g_counter++` round-trips EAX** (`a1 … 40 … a3`) like MSVC;
+  Watcom16 instead adds in memory (`add word ptr [g],7` for
+  `g += 7`).
+- **zero-compare** — `a == 0` = `test ax,ax` + branch (16-bit
+  `test`/`jne` shape).
+
+## Probe15: function boundaries — verified
+
+- **setcc compares in registers** — `a < b` = `cmp ax,dx; jge` +
+  branch (the register-form compare, 16-bit `jge` for signed, `jae`
+  unsigned, `jne` for wide-eq).
+- **wide-literal sums load from memory** — `L"AB"[0] + L"AB"[1]` =
+  `mov ax,[0]; add ax,[2]` (reloc'd absolute) — NOT folded (MSVC
+  7.0+/GCC/Zig fold).
+- **no stack cookies** — the buffer-copy function opens with the
+  `__CHK` prologue + plain frame, no cookie.
+- **16-bit address form** — `p[i*4+3]` = `shl`-chain + `add ax,3;
+  shl ax,1` (`mov cl,3; shl dx,cl` in Watcom16) — no `lea`-scale in
+  the 8086 set.
+
 ## Verification
 
 Probe via `rebrew/watcom:2.0-win32` (wcc386 entrypoint) `-fo=` `-zq`

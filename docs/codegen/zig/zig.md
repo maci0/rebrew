@@ -66,6 +66,30 @@ EAX:EDX 8-byte struct returns.  No zig-vs-gcc byte marker exists in
 the probe13 set; the "indistinguishable from MinGW GCC" claim is
 re-verified.
 
+## Probe14 re-verification — first byte-level divergences, still not Zig markers
+
+`probe14.c` (zig 0.16.0, -O2): 64-byte memcpy inlines as
+`movups`-pair SSE copies (`f2 0f 10 … f2 0f 11 …`, 4×16B) where MinGW
+GCC emits a register-block — the first verified byte-level divergence
+in the corpus probes.  It is an LLVM codegen style, not a Zig marker
+(any LLVM-front-end PE build shows it), so the "no Zig-specific
+codegen fingerprint" claim stands, sharpened to: *divergences exist
+and are LLVM-family traits, not Zig identifiers*.  Zig also uses
+`cmov` for `a ? 7 : 13` (shared with VC 11.0), `shld` for 64-bit
+shifts (shared with MSVC 7.0+/GCC/bcc32), and `inc eax` (`40`) for
+`g_counter++` (like non-8.0 MSVC, unlike GCC's `83 c0 01`).
+
+## Probe15 re-verification — LLVM traits confirmed
+
+`probe15.c` (zig 0.16.0, -O2): no stack cookies (`push ebp; mov
+ebp,esp; push esi; sub esp,0x40` — no cookie load/xor, unlike MSVC
+8.0+'s `/GS`); wide-literal sums folded (`mov eax,0x83` like
+MSVC 7.0+/GCC); setcc compares in memory (`cmp ecx,[ebp+0xc]; setl
+al` like MSVC 8.0+/GCC); stdcall args load in reverse order (`mov
+eax,[ebp+0xc]` first — shared with MSVC 5.0–9.0).  Every probe15
+divergence from MinGW GCC is an LLVM-family trait, not a Zig
+identifier — the claim stands.
+
 ## Verification
 
 PDB module scan of a real Zig-built program (`.zig-cache` paths);

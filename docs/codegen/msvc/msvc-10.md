@@ -84,6 +84,34 @@ the VC 7.0+ era marker; 10.0 SP1 is identical to RTM on this feature
 - **signed-char compare against the zero register in memory**
   (`33 c0 38 44 24 04 0f 9c c0`) — 8.0+ form.
 
+## Probe14: statement idioms — verified
+
+- **64-bit `× 7` inlines a `shld`-based decomposition** (`0f a4 c2 03
+  c0 03 c0 03 c0 2b c1 1b d6`) — VC 10.0 drops the `__allmul` helper
+  call (5.0–9.0: `6a 00 6a 07 50 51 e8`) and decomposes the constant
+  multiply inline.
+- **`i64` abs goes branchless** — `99 33 c2 2b ca 1b c2` (cdq/xor/
+  sub) from 10.0 on (the known cdq-abs, extended to the 64-bit
+  form).
+- **zero-compare** — `a == 0` = memory compare against the zero
+  register (`33 c0 39 44 24 04 0f 94 c0`), the 8.0+ form.
+- **64-byte memcpy = `rep movsd`** — shared by every MSVC version.
+- **SP spot-check** — 10.0 SP1 byte-identical to the 10.0 RTM on the
+  probe14 set.
+
+## Probe15: /GS + address forms — verified
+
+- **`/GS` cookie prologue** — `sub esp,0x44; mov eax,[__security_cookie];
+  xor eax,esp; mov [esp+0x40],eax` (`a1 <abs> 33 c4 89 44 24 40`),
+  the 8.0+ cookie-mix form.
+- **address form** — `p[i*4+3]` = `add eax,eax` + `mov eax,
+  [ecx+eax*8+0xc]` — the 10.0/11.0 add-self + scale-8 decomposition
+  (5.0: lea-scale; 6.0–9.0: shl + scale-1).
+- **signed setcc compares in memory** — `cmp ecx,[esp+8]; setl al`,
+  the 8.0+ form (shared memory-form with GCC/Zig).
+- **stdcall args load in REVERSE order** — the 5.0–9.0 form.
+- **SP spot-check** — 10.0 SP1 byte-identical on the probe15 set.
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:10.0-win32`

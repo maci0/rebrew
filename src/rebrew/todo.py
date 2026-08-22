@@ -884,8 +884,8 @@ def main(
     for i, item in enumerate(display_items, 1):
         color = _CATEGORY_COLORS.get(item.category, "white")
         cat_label = item.category.replace("-", "\u2011")  # non-breaking hyphen for display
-        match_str = f"{item.match_percent:.0f}%" if item.match_percent is not None else ""
-        delta_str = f"{item.byte_delta}B" if item.byte_delta is not None else ""
+        match_str = f"{item.match_percent:.0f}%" if item.match_percent is not None else "—"
+        delta_str = f"{item.byte_delta}B" if item.byte_delta is not None else "—"
         table.add_row(
             str(i),
             f"[{color}]{cat_label}[/{color}]",

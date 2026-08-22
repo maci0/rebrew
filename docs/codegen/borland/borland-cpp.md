@@ -102,6 +102,34 @@ probe12 re-run via `rebrew/borland:5.5-win32` (`out12/bcc55*`).
   stores) — bcc32's own encoding of the 2.0/4.x-style round-trip.
 - `char` is signed (`c_cmp`: `cmp byte ptr [ebp+8],0; jge`).
 
+## Probe14: statement idioms — verified
+
+- **`g_counter++` increments the global IN MEMORY** — `inc dword ptr
+  [g]` (`ff 05 00 00 00`) at -O2 — the ONLY probed 32-bit toolchain
+  that does so (MSVC/GCC/Watcom/Zig round-trip through EAX).
+- **64-bit `× 7` calls `__llmul`** (`6a 00 6a 07 8b 45 08 8b 55 0c
+  e8`) — the Borland helper (MSVC 5.0–9.0 uses `__allmul`); 64-bit
+  shifts inline `shld` like MSVC 7.0+/GCC.
+- **64-byte memcpy is a libcall** (`6a 40 … e8`) — never `rep
+  movsd`.
+- **zero-compare** — `cmp dword ptr [ebp+8],0` + `setz` + `and
+  eax,1` (immediate compare, distinct from MSVC's zero-register
+  form).
+
+## Probe15: function boundaries — verified
+
+- **setcc = compare + `setcc` + `and eax,1`** — `a < b` = `mov
+  eax,[ebp+8]; cmp eax,[ebp+0xc]; setl al; and eax,1` — the
+  `0f 9c c0 83 e0 01` tail (distinct from MSVC/GCC's `setcc` +
+  movzx/zero-extend forms).
+- **wide compare via memory-immediate** — `wchar >= 0x100` = `cmp
+  word ptr [ebp+8],0x100` + `setae` + `and eax,1` (the `66 81 7d 08`
+  form, shared with MSVC 2.0–8.0's `66 81 7c 24 04`).
+- **wide-literal sums load from memory** — `L"AB"` = `movzx`-word
+  loads + add — NOT folded (MSVC 7.0+/GCC/Zig fold).
+- **no stack cookies** — the buffer-copy function opens a plain
+  frame; no `/GS`-style cookie (MSVC 8.0+ unique).
+
 ## Verification
 
 Probe `-O1` and `-O2` via `rebrew/borland:5.5-win32` (`probe.obj`,
