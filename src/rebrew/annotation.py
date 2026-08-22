@@ -420,6 +420,7 @@ class Annotation:
             "module": self.module,
             "status": self.status,
             "cflags": self.cflags,
+            "toolchain": self.toolchain,
             "marker_type": self.marker_type,
             "filepath": self.filepath,
             "source": self.source,

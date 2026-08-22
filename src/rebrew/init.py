@@ -528,6 +528,21 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
+    "delphi16": {
+        # Docker-only (rebrew/delphi:1.0-win16) — command/includes/libs are
+        # blanked by the image check below; compile_ne stages its own DCC.CFG.
+        # Matching is NOT wired for Delphi (ADR-001): this profile sets up a
+        # research project (compile + NE parse), functions stay blockers.
+        "runner": "",
+        "command": "",
+        "includes": "",
+        "libs": "",
+        "cflags": "",
+        "base_cflags": "",
+        "format": "ne",
+        "arch": "x86_16",
+        "lang": "Object Pascal",
+    },
     "watcom16": {
         "runner": "",
         "command": "toolchain/watcom/2.0-win32/source/binl/wcc",
@@ -559,6 +574,10 @@ GCC_CONSTRAINTS = """- **C99/C11**: standard modern C
 - **Symbol decoration**: no leading underscore on Linux
 - **ELF format**: use `objdump` / `readelf` for inspection"""
 
+DELPHI16_CONSTRAINTS = """- **Object Pascal**: Delphi 1.0 compiles Pascal, not C — there is no C source to write
+- **Matching not wired** (ADR-001): Delphi's Borland ABI has no byte-matching profile; document functions as blockers
+- **Research path**: `rebrew.delphi16.compile_ne` compiles NE executables headless (DCC.EXE inside the rebrew/delphi:1.0-win16 image / DOSBox)"""
+
 
 _AGENT_SKILLS_SRC = Path(__file__).parent / "agent-skills"
 _PRINCIPLES_SRC = Path(__file__).parent / "PRINCIPLES.md"
@@ -579,6 +598,7 @@ _PROFILE_FAMILIES: dict[str, frozenset[str]] = {
     "msvc7": frozenset({"msvc"}),
     "msvc1.52": frozenset({"msvc"}),
     "borlandc55": frozenset({"borlandc"}),
+    "delphi16": frozenset({"delphi"}),
     "watcom16": frozenset({"watcom"}),
     "gcc-pe": frozenset({"zig", "gcc", "clang", "mingw"}),
     "gcc": frozenset({"gcc", "clang", "icc"}),
@@ -595,6 +615,7 @@ _FAMILY_COUNTERPART: dict[str, str] = {
     "msvc": "msvc6",
     "watcom": "watcom",
     "borlandc": "borlandc55",
+    "delphi": "delphi16",
     "symantec": "borlandc55",  # Digital Mars — closest free match
     "zortech": "borlandc55",
 }
@@ -1310,6 +1331,8 @@ def main(
     # 2. Write AGENTS.md (for LLM agents)
     if compiler_profile.startswith("msvc6"):
         constraints = MSVC_CONSTRAINTS
+    elif compiler_profile == "delphi16":
+        constraints = DELPHI16_CONSTRAINTS
     elif compiler_profile.startswith("msvc"):
         constraints = MSVC7_CONSTRAINTS
     else:

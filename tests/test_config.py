@@ -7,6 +7,7 @@ import pytest
 # Import from the rebrew package
 from rebrew.config import (
     _ARCH_PRESETS,
+    _KNOWN_PROFILES,
     ProjectConfig,
     _detect_binary_layout,
     _resolve,
@@ -661,6 +662,44 @@ profile = "turbo_c"
         with pytest.warns(UserWarning, match=r"unknown profile 'turbo_c'"):
             cfg = load_config(root)
         assert cfg.compiler_profile == "msvc6"
+
+    def test_registered_toolchain_profile_accepted(self, tmp_path: Path) -> None:
+        """Every name in toolchain.TOOLCHAINS must pass config validation —
+        a registered profile (delphi16) must not be rejected and silently
+        fall back to msvc6."""
+        from rebrew.toolchain import TOOLCHAINS
+
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+format = "ne"
+arch = "x86_16"
+
+[compiler]
+profile = "delphi16"
+"""
+        root = _make_project(tmp_path, toml)
+        # A real (minimal) NE binary so layout detection succeeds silently
+        # (a missing/unparseable binary emits a load-time UserWarning).
+        ne = bytearray(0x300)
+        ne[0:2] = b"MZ"
+        ne[0x3C:0x40] = (0x100).to_bytes(4, "little")
+        ne[0x100:0x102] = b"NE"
+        (root / "test.exe").write_bytes(bytes(ne))
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", UserWarning)  # no unknown-profile warn
+            cfg = load_config(root)
+        assert cfg.compiler_profile == "delphi16"
+        assert cfg.binary_format == "ne"
+        assert cfg.arch == "x86_16"
+        # every registry-backed profile is a valid rebrew-project.toml value
+        for name in TOOLCHAINS:
+            assert name in _KNOWN_PROFILES
 
     def test_empty_binary_raises(self, tmp_path: Path) -> None:
         toml = """\
