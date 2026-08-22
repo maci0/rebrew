@@ -1,19 +1,23 @@
 """Tests for rebrew.cmake_tc — the docker CMake toolchain bridge.
 
 Covers the argv translation (ported from the project's wine wrapper), the
-project-root discovery, and the toolchain-file generator.  The docker runs
-themselves are not executed here — ``tc_main`` is exercised with a mocked
-runner.
+project-root discovery, the toolchain-file generator, and the docker
+command construction (mocked runner — no docker is executed here).
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from rebrew.cmake_tc import (
     _TOOL_MODES,
+    _docker_run,
+    _docker_user_args,
+    _exclusive_lock,
     _find_project_root,
     _rewrite_args,
     _to_w,
@@ -86,6 +90,85 @@ def test_tool_modes_dispatch() -> None:
         "rebrew-cmake-link": "link",
         "rebrew-cmake-lib": "lib",
     }
+
+
+class TestDockerUserArgs:
+    def test_posix_hosts_pass_uid_gid(self) -> None:
+        """Capability probe: --user only where the host exposes unix ids."""
+        args = _docker_user_args()
+        if hasattr(os, "getuid") and hasattr(os, "getgid"):
+            assert args == ["--user", f"{os.getuid()}:{os.getgid()}"]
+        else:
+            assert args == []
+
+
+class TestExclusiveLock:
+    def test_released_after_exit(self, tmp_path: Path) -> None:
+        lock_path = tmp_path / ".lock"
+        with _exclusive_lock(lock_path):
+            pass
+        with _exclusive_lock(lock_path):
+            pass  # second acquisition must succeed (no leaked handle)
+
+    def test_excludes_concurrent_holder(self, tmp_path: Path) -> None:
+        import fcntl
+
+        lock_path = tmp_path / ".lock"
+        with (
+            _exclusive_lock(lock_path),
+            open(lock_path) as other,
+            pytest.raises(OSError),
+        ):
+            fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def test_docker_run_builds_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """_docker_run serializes on the prefix lock and builds the docker argv."""
+    proj = tmp_path / "proj"
+    (proj / "build").mkdir(parents=True)
+    (proj / "rebrew-project.toml").write_text("", encoding="utf-8")
+    monkeypatch.chdir(proj / "build")
+
+    prefix = tmp_path / "prefix"
+    monkeypatch.setenv("REBREW_WINEPREFIX", str(prefix))
+
+    calls: list[list[str]] = []
+    returncodes = [0, 3]
+
+    def fake_run(cmd: list[str], **kwargs: object) -> SimpleNamespace:
+        calls.append(cmd)
+        return SimpleNamespace(returncode=returncodes[len(calls) - 1], stdout="", stderr="")
+
+    monkeypatch.setattr("rebrew.cmake_tc.subprocess.run", fake_run)
+
+    spec = TOOLCHAINS["msvc6"]
+    rc = _docker_run(spec, "cl", ["/c", "x.c"])
+    assert rc == 3
+
+    # First invocation initializes the shared wineprefix exactly once.
+    init_cmd, run_cmd = calls
+    assert init_cmd[init_cmd.index("--entrypoint") + 1] == "/usr/bin/wine"
+    assert init_cmd[-2:] == ["wineboot", "-u"]
+    if hasattr(os, "getuid"):
+        user = f"{os.getuid()}:{os.getgid()}"
+        assert init_cmd[init_cmd.index("--user") + 1] == user
+        assert run_cmd[run_cmd.index("--user") + 1] == user
+
+    # Second invocation runs CL.EXE from the image's tool tree with the
+    # INCLUDE/LIB env pointing at that same tree.
+    assert run_cmd[run_cmd.index("--entrypoint") + 1] == "/usr/bin/wine"
+    assert run_cmd[run_cmd.index("--entrypoint") + 2] == spec.image
+    tool = run_cmd[run_cmd.index("--entrypoint") + 3]
+    assert tool == "/opt/msvc6.0/VC98/Bin/CL.EXE"
+    env_args = [run_cmd[i + 1] for i in range(len(run_cmd) - 1) if run_cmd[i] == "-e"]
+    env_pairs = dict(arg.split("=", 1) for arg in env_args)
+    assert env_pairs["WINEPREFIX"] == str(prefix)
+    assert env_pairs["XDG_CACHE_HOME"] == f"{prefix}/xdg-cache"
+    assert env_pairs["INCLUDE"] == r"Z:\opt\msvc6.0\VC98\Include"
+    assert env_pairs["LIB"] == r"Z:\opt\msvc6.0\VC98\Lib"
+    # Both critical sections take their sidecar lock under the prefix.
+    assert (prefix / ".init.lock").exists()
+    assert (prefix / ".run.lock").exists()
 
 
 def test_generate_toolchain_file(tmp_path: Path) -> None:
