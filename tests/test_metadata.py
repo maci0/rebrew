@@ -629,6 +629,69 @@ class TestConcurrentWrites:
 
 
 # ---------------------------------------------------------------------------
+# Writer-layer promotion policy (update_statuses_batch)
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateStatusesBatchPromotionPolicy:
+    """The batch writer must enforce the same canonical promotion policy as
+    should_promote_status — a direct writer-layer caller (prove, near-diag,
+    future tools) gets STUB protection and PROVEN stickiness without having
+    to pre-gate."""
+
+    def _read_status(self, metadata_dir: Path, va: int) -> str:
+        return load_metadata(metadata_dir).get(("T", va), {}).get("status", "")
+
+    def test_stub_kept_against_size_mismatch(self, tmp_path: Path) -> None:
+        from rebrew.metadata import update_statuses_batch
+
+        update_statuses_batch(tmp_path, [{"module": "T", "va": 0x1000, "new_status": "STUB"}])
+        changed = update_statuses_batch(
+            tmp_path, [{"module": "T", "va": 0x1000, "new_status": "SIZE_MISMATCH"}]
+        )
+        assert changed == 0
+        assert self._read_status(tmp_path, 0x1000) == "STUB"
+
+    def test_force_overrides_stub_guard(self, tmp_path: Path) -> None:
+        from rebrew.metadata import update_statuses_batch
+
+        update_statuses_batch(tmp_path, [{"module": "T", "va": 0x1000, "new_status": "STUB"}])
+        changed = update_statuses_batch(
+            tmp_path,
+            [{"module": "T", "va": 0x1000, "new_status": "SIZE_MISMATCH", "force": True}],
+        )
+        assert changed == 1
+        assert self._read_status(tmp_path, 0x1000) == "SIZE_MISMATCH"
+
+    def test_proven_never_silently_demoted(self, tmp_path: Path) -> None:
+        from rebrew.metadata import update_statuses_batch
+
+        update_statuses_batch(tmp_path, [{"module": "T", "va": 0x1000, "new_status": "PROVEN"}])
+        changed = update_statuses_batch(
+            tmp_path, [{"module": "T", "va": 0x1000, "new_status": "NEAR_MATCHING"}]
+        )
+        assert changed == 0
+        assert self._read_status(tmp_path, 0x1000) == "PROVEN"
+
+    def test_same_status_still_clears_stale_blocker(self, tmp_path: Path) -> None:
+        """An already-classified entry with a stale blocker is cleaned up by
+        the same-status clear_blockers write (the blocker-clearing path must
+        not be swallowed by the unchanged-status refusal)."""
+        from rebrew.metadata import set_field, update_statuses_batch
+
+        update_statuses_batch(tmp_path, [{"module": "T", "va": 0x1000, "new_status": "EXACT"}])
+        set_field(tmp_path, 0x1000, "blocker", "stale note", module="T")
+        changed = update_statuses_batch(
+            tmp_path,
+            [{"module": "T", "va": 0x1000, "new_status": "EXACT", "clear_blockers": True}],
+        )
+        assert changed == 1
+        entry = load_metadata(tmp_path).get(("T", 0x1000), {})
+        assert entry.get("status") == "EXACT"
+        assert "blocker" not in entry
+
+
+# ---------------------------------------------------------------------------
 # Cross-process metadata write safety (concurrency-review; error-review F6)
 # ---------------------------------------------------------------------------
 
