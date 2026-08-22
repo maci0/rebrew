@@ -4,6 +4,10 @@
 
 Accepted
 
+## Date
+
+2026-08
+
 ## Context
 
 A single rebrew project can contain multiple targets (`[targets.*]` in

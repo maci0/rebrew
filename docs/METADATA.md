@@ -84,8 +84,9 @@ whenever the reference binary changes — the layout files carry
 3. Writes to canonical stores go through the gated APIs:
    `update_source_status` (STATUS), `update_field` (function metadata),
    `set_data_field` (data metadata), `rebrew library set` (library
-   overrides).  No module-less metadata keys (a bare `0xVA` key can be
-   written but never read back).
+   overrides).  No module-less metadata keys: the writers reject an empty
+   module (a bare `0xVA` key was once writable but never readable — the
+   guard now raises instead).
 4. Caches must be invalidation-correct: mtime-keyed or content-keyed, and
    written with the shared `atomic_write_text` / `metadata_write_lock`
    machinery.

@@ -4,6 +4,10 @@
 
 Accepted
 
+## Date
+
+2026-08
+
 ## Context
 
 A rebrew project can hold several targets (binary versions, or a DLL+EXE
