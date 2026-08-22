@@ -1559,6 +1559,7 @@ prove = [
     { name = "gitpython" },
 ]
 similarity = [
+    { name = "rapidfuzz" },
     { name = "resembl" },
 ]
 
@@ -1586,6 +1587,7 @@ requires-dist = [
     { name = "lief", specifier = ">=0.17.4,<1" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "python-flirt", specifier = ">=0.9.10" },
+    { name = "rapidfuzz", marker = "extra == 'similarity'", specifier = ">=3.13" },
     { name = "resembl", marker = "extra == 'similarity'", directory = "/home/maci/Desktop/Projects/relumea/resembl" },
     { name = "rich", specifier = ">=13.0" },
     { name = "tomlkit", specifier = ">=0.12" },

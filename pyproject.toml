@@ -53,7 +53,10 @@ prove = [
 # `uv pip install -e .` keeps working (the column stays NULL); install this
 # extra to enable the score.  Path is environment-coupled to the sibling
 # checkout (same parent dir layout on this machine).
-similarity = ["resembl @ file:///home/maci/Desktop/Projects/relumea/resembl"]
+similarity = [
+    "resembl @ file:///home/maci/Desktop/Projects/relumea/resembl",
+    "rapidfuzz>=3.13",  # direct import in matcher/scoring.py code_similarity (resembl only declares it transitively)
+]
 
 [project.scripts]
 rebrew = "rebrew.main:main"
