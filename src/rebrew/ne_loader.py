@@ -26,14 +26,8 @@ from rebrew.binary_loader import BinaryInfo, SectionInfo
 
 NE_MAGIC = b"NE"
 
-# Segment flags (low byte bits we care about)
-SEG_CODE = 0x01
-SEG_ITERATED = 0x02  # iterated data (not supported for raw extraction)
-SEG_MOVEABLE = 0x10
-SEG_SHARED = 0x20
-SEG_PRELOAD = 0x40
-SEG_DISCARDABLE = 0x80
-SEG_DATA = 0x04  # not code
+# Segment flag: iterated data has no on-disk raw form.
+SEG_ITERATED = 0x02
 
 
 @dataclass
@@ -350,10 +344,6 @@ class NeExport:
 
 class NeParseError(ValueError):
     """Raised when a file claims to be NE but its tables are malformed."""
-
-
-def _u8(data: bytes, off: int) -> int:
-    return int(data[off])
 
 
 def _u16(data: bytes, off: int) -> int:

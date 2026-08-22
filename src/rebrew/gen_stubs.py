@@ -201,46 +201,6 @@ def collect_extern_info(src_dir: Path) -> dict[str, dict[str, typing.Any]]:
     return externs
 
 
-# --- stub type simplification -------------------------------------------------
-
-
-def _type_size(t: str) -> int:
-    """Byte size of a simplified stub type (used for BSS accounting)."""
-    t = t.strip()
-    if t in ("double",):
-        return 8
-    if t in ("char", "unsigned char", "signed char", "bool"):
-        return 1
-    if t in ("short", "unsigned short", "wchar_t"):
-        return 2
-    if "*" in t or t in (
-        "int",
-        "unsigned int",
-        "long",
-        "unsigned long",
-        "float",
-        "void*",
-        "int*",
-        "short*",
-        "char*",
-        "unsigned char*",
-    ):
-        return 4
-    return 4
-
-
-def _type_align(t: str) -> int:
-    """Alignment of a simplified stub type (linker COMDAT alignment)."""
-    t = t.strip()
-    if t in ("double",):
-        return 8
-    if t in ("char", "unsigned char", "signed char", "bool"):
-        return 1
-    if t in ("short", "unsigned short", "wchar_t"):
-        return 2
-    return 4
-
-
 _KNOWN_TYPES = {
     "ENT": "int",
     "Record*": "int*",

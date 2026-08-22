@@ -29,6 +29,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from rebrew.binary_loader import load_binary
 from rebrew.cli import error_exit
 
 # ---------------------------------------------------------------------------
@@ -136,17 +137,11 @@ def layout_geometry(project_toml: Path) -> tuple[int, int, int]:
 
 def _data_raw_from_binary(bin_path: Path) -> bytes:
     """The reference's raw .data bytes."""
-    d = bin_path.read_bytes()
-    e = struct.unpack_from("<I", d, 0x3C)[0]
-    n = struct.unpack_from("<H", d, e + 6)[0]
-    optsz = struct.unpack_from("<H", d, e + 20)[0]
-    sh = e + 24 + optsz
-    for i in range(n):
-        h = sh + i * 40
-        if d[h : h + 8].rstrip(b"\0") == b".data":
-            vals: tuple[int, int, int, int] = struct.unpack_from("<IIII", d, h + 8)
-            return d[vals[3] : vals[3] + vals[2]]
-    raise ValueError("no .data section in the reference binary")
+    info = load_binary(bin_path)
+    sec = info.sections.get(".data")
+    if sec is None:
+        raise ValueError("no .data section in the reference binary")
+    return info.data[sec.file_offset : sec.file_offset + sec.raw_size]
 
 
 # ---------------------------------------------------------------------------
@@ -700,19 +695,11 @@ _DLEAD_RE = re.compile(r"^unsigned char (_dlead_\w+)\[(\d+)\]")
 
 def built_data_va(dll: Path) -> int:
     """image-base-correct .data VA of a built DLL (never hardcode)."""
-    d = dll.read_bytes()
-    e = struct.unpack_from("<I", d, 0x3C)[0]
-    n = struct.unpack_from("<H", d, e + 6)[0]
-    optsz = struct.unpack_from("<H", d, e + 20)[0]
-    opt = e + 24
-    base: int = struct.unpack_from("<I", d, opt + 28)[0]
-    sh = opt + optsz
-    for i in range(n):
-        h = sh + i * 40
-        if d[h : h + 8].rstrip(b"\0") == b".data":
-            vals: tuple[int, int, int, int] = struct.unpack_from("<IIII", d, h + 8)
-            return base + vals[1]
-    raise ValueError("no .data section in the built DLL")
+    info = load_binary(dll)
+    sec = info.sections.get(".data")
+    if sec is None:
+        raise ValueError("no .data section in the built DLL")
+    return sec.va
 
 
 def converge_layout(

@@ -13,14 +13,13 @@ Usage:
 
 from __future__ import annotations
 
-import re
-import struct
 from pathlib import Path
 
 import typer
 from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
+from rebrew.data_layout import built_data_va
 
 console = Console(stderr=True)
 
@@ -28,35 +27,6 @@ app = typer.Typer(
     help="Compare .data symbol VAs of the current build against the data metadata.",
     rich_markup_mode="rich",
 )
-
-_OBJ_RE = re.compile(r'"([^"]+\.obj)"|(?:^|\s)(\S+\.obj)(?=\s|$)')
-
-
-def _link_objects(root: Path) -> list[Path]:
-    rsps = sorted((root / "build/CMakeFiles").glob("*/objects*.rsp"))
-    if not rsps:
-        error_exit("no build/CMakeFiles/*/objects*.rsp found — build the project first")
-    text = rsps[0].read_text()
-    objs = [Path(root / "build") / (a or b) for a, b in _OBJ_RE.findall(text)]
-    return objs
-
-
-def _data_section_va(dll: Path) -> int:
-    """image-base-correct .data VA of *dll* (never hardcode)."""
-    d = dll.read_bytes()
-    e = struct.unpack_from("<I", d, 0x3C)[0]
-    n = struct.unpack_from("<H", d, e + 6)[0]
-    optsz = struct.unpack_from("<H", d, e + 20)[0]
-    opt = e + 24
-    base_vals: tuple[int, ...] = struct.unpack_from("<I", d, opt + 28)
-    base = base_vals[0]
-    sh = opt + optsz
-    for i in range(n):
-        h = sh + i * 40
-        if d[h : h + 8].rstrip(b"\0") == b".data":
-            vals: tuple[int, int, int, int] = struct.unpack_from("<IIII", d, h + 8)
-            return base + vals[1]
-    raise ValueError("no .data section in the built DLL")
 
 
 @app.callback(invoke_without_command=True)
@@ -77,7 +47,7 @@ def main(
         error_exit("build/server.dll not found — build the project first")
     from rebrew.data_layout import data_symbols, link_objects, obj_data_symbol_offsets
 
-    data_va = _data_section_va(dll)
+    data_va = built_data_va(dll)
     expected = data_symbols(metadata)
 
     here: dict[str, int] = {}

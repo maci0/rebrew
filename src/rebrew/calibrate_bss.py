@@ -38,8 +38,6 @@ app = typer.Typer(
     rich_markup_mode="rich",
 )
 
-_TAIL_RE = re.compile(r"g_bss_tail\[\s*0x([0-9A-Fa-f]+)\s*\]")
-
 
 def find_project_root(cwd: Path) -> Path | None:
     for p in (cwd, *cwd.parents):
