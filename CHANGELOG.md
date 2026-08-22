@@ -1,5 +1,15 @@
 ## [Unreleased]
 ### Added
+- **Byte-identity link tools** — `rebrew order-sources` (order sources by
+  first-function VA for a position-aligned .text), `rebrew calibrate-bss`
+  (empirically size a BSS tail pad so the raw link's .data VirtualSize
+  matches the reference), `rebrew gen-link-stubs` (BSS placeholder TU from
+  the data metadata), `rebrew verify-placement` (post-edit .data symbol VA
+  check), and `rebrew gen-layout --data-gap <raw-size>` (emit
+  `crt_region/data_restore.c` with the reference's raw .data tail).  All
+  generalized from the server.dll project's scripts; `gen-layout` now
+  resolves the import `@N` suffixes from the toolchain image's own Lib dir
+  when no host MSVC tree exists.
 - **CMake toolchain bridge** (`rebrew.cmake_tc` + `rebrew cmake-toolchain`) —
   the `rebrew-cmake-{cl,link,lib}` console scripts run a docker toolchain
   image's tools (CL.EXE/LINK.EXE/LIB.EXE via wine inside the image) from any
@@ -11,7 +21,12 @@
 - **Metadata store tiers documented (ADR-012 + `docs/METADATA.md`)** — the
   full store map (canonical vs derived vs cache, who owns which fact,
   precedence rules) now has a written contract.  Replaces the implicit
-  "why are there so many files?" with one reference page.
+  "why are there so many files?" with one reference page.  A second sweep
+  added the layout/PE-header family: `layout/<target>/` (text-only
+  `layout.txt` + `*.hex` package), `[targets.<t>.layout]` / `[link]`
+  config blocks, `<target>.def`, `crt_region/*.c`, `src/link_stubs.c`,
+  `flirt_sigs/*.pat`, `.rebrew/ghidra_sync_state.json`, and the
+  VCS-intended vs gitignored build-output split.
 - **Shared metadata loader + write lock** (`rebrew.utils.load_metadata_doc`,
   `metadata_write_lock`) — `rebrew-function.toml`, `rebrew-data.toml`, and
   the library store now load through one tomllib-based, mtime-cached loader

@@ -6,13 +6,14 @@ so the "why are there so many files?" question has a written answer: most
 of the surface is *derived snapshots and caches*, not competing sources of
 truth.
 
-## The three tiers
+## The four tiers
 
 | Tier | Stores | Contract |
 |---|---|---|
 | **Canonical (user-owned)** | `.c` marker lines, `rebrew-function.toml`, `rebrew-data.toml`, `rebrew-library.toml`, `rebrew-project.toml` | The only stores you hand-edit or that hold non-derivable facts.  Everything below is regenerable from these (plus the binary). |
-| **Derived (regenerable)** | `functions.txt` (written by discover/intake), `db/data_<target>.json`, `db/coverage.db`, `db/verify_results.json`, `CATALOG.md`, reccmp CSV | Rebuildable via `rebrew discover` / `rebrew catalog` / `rebrew verify` / `rebrew build-db`.  Treat as build output; never hand-edit. |
-| **Cache (delete-safe)** | `.rebrew/verify_cache.json`, `.rebrew/compile_cache/`, `output/ga_runs/*/build_cache*`, in-memory mtime caches | Regenerated on demand.  Deleting costs a recompile/re-verify at most.  The exception: `.rebrew/solutions.json` and `.rebrew/ga_runs.jsonl` are *history*, not caches — they accumulate knowledge re-running GA would not reproduce. |
+| **Derived, VCS-intended** | `functions.txt`, `src/<target>/CATALOG.md`, `<target>.def`, `crt_region/*.c`, `src/link_stubs.c`, `layout/<target>/`, `[targets.<t>.layout]` + `[link]` config blocks, `flirt_sigs/*.pat`, `cmake/toolchain-*.cmake` | Build scaffolding generated from the binary / binary-derived facts (gen-layout, discover, catalog, link-stubs, flirt).  Committed to git so a rebuild never needs `original/` around; regenerable via the generating command.  Never hand-edit. |
+| **Derived, gitignored (build output)** | `db/data_<target>.json`, `db/coverage.db`, `db/verify_results.json`, `db/<target>_functions.csv`, `bin/<target>/*.bin`, `output/report/` | Rebuildable via `rebrew catalog` / `rebrew build-db` / `rebrew verify` / `rebrew extract` / `rebrew report`.  Treat as build output. |
+| **Cache (delete-safe)** | `.rebrew/verify_cache.json`, `.rebrew/ghidra_sync_state.json`, `.rebrew/compile_cache/`, `output/ga_runs/*/build_cache*`, `output/ga_runs/*/checkpoints/*.json`, `output/ga_runs/*/best.c`, in-memory mtime caches | Regenerated on demand.  Deleting costs a recompile/re-verify/resync at most.  The exception: `.rebrew/solutions.json` and `.rebrew/ga_runs.jsonl` are *history*, not caches — they accumulate knowledge re-running GA would not reproduce. |
 
 ## Who owns which fact
 
@@ -25,6 +26,11 @@ truth.
 | **cflags / toolchain** | `rebrew-function.toml` (per-function) → `rebrew-library.toml` (per-library, walk-up) → project defaults, resolved by `resolve_compile_overrides` | grid `cflags`, DB column |
 | Data symbols (globals) | `rebrew-data.toml` | grid `globals`, DB `globals` table |
 | Coverage presence | grid JSON (`db/data_<target>.json`) | coverage.db (pure function of the JSON) |
+| **Layout / PE normalization** | `layout/<target>/` package — `layout.txt` (sections, exports, imports, export_stamp, link_options, image_base), `header.hex` (full PE header block: SizeOfImage/CheckSum/TimeDateStamp/section table), `iat.hex`, `data.hex`, `reloc.hex`, `operands.txt`, `calls.txt` | `[targets.<t>.layout]` config copy (editor/UI + bss calibration), `[link]` block (`file_align`, `stack_*`, `tsaware`, `timestamp`) consumed by `round_trip --fix-headers` |
+| **Import order / IAT** | original binary (IAT order), captured into `layout/<target>/` | `crt_region/crt_imports.c` (`#pragma comment(linker, "/include:__imp_...")`), `[targets.<t>.layout].imports[]` |
+| **`.data` / BSS layout** | `rebrew-data.toml` (symbols) + `layout/<target>/data.hex` (reference bytes) | `src/link_stubs.c` (`g_bss_tail` pad, mutated by `rebrew calibrate-bss`), `layout.txt` `sections[.data].vs` |
+| **Export table** | original binary, captured into `layout/<target>/` (`exports`, `export_stamp`, `exp_rva`) | `<target>.def` (`name @ ordinal` for the linker) |
+| **Ghidra provenance** (names/sizes) | `src/<target>/function_structure.json`, `ghidra_data_labels.json` (external exports, provenance-stamped) | registry `list_name`/`ghidra_name`, grid/DB columns; `.rebrew/ghidra_sync_state.json` (pushed-op hashes) |
 
 ## Precedence rules (who wins on conflict)
 
@@ -44,10 +50,22 @@ truth.
 
 - **Ghidra** (ReVa MCP): the Ghidra program is the store; sync edits `.c`
   markers + TOML metadata.  Pulls land as renames, `NOTE:`/`GHIDRA:`
-  metadata, `// PROTOTYPE:` markers.
+  metadata, `// PROTOTYPE:` markers.  `src/<target>/function_structure.json`
+  and `ghidra_data_labels.json` are Ghidra exports (input provenance);
+  `.rebrew/ghidra_sync_state.json` is a pushed-op-hash cache.
 - **BinSync**: export writes rebrew-only fields as `[rebrew]` comment
   strings in the state dir; import applies back through `.c` files and
   `rebrew-data.toml` — STATUS via `update_source_status` (never inline).
+
+## Layout package lifecycle
+
+`rebrew gen-layout` derives `layout/<target>/` (text-only: `layout.txt` +
+`*.hex` byte files) and the `[targets.<t>.layout]` / `[link]` config blocks
+from the reference binary.  The package is committed to git; `rebrew
+postlink --layout <dir>` consumes it to normalize a built binary onto the
+reference **without the original DLL present**.  Regenerate the package
+whenever the reference binary changes — the layout files carry
+"do not hand-edit" headers.
 
 ## Rules for new stores
 
@@ -66,3 +84,8 @@ truth.
 4. Caches must be invalidation-correct: mtime-keyed or content-keyed, and
    written with the shared `atomic_write_text` / `metadata_write_lock`
    machinery.
+5. Generated scaffolding that must survive without `original/` (layout
+   package, `.def`, `crt_region/`, `link_stubs.c`, toolchain files) is
+   **VCS-intended** — derive it once, commit it, rebuild only on binary
+   change.  Keep the generator idempotent so re-runs are no-ops when the
+   binary is unchanged.

@@ -34,16 +34,23 @@ harder to see:
 
 ## Decision
 
-Adopt an explicit **three-tier model** and document it as the contract:
+Adopt an explicit **four-tier model** and document it as the contract:
 
 1. **Canonical (user-owned)** — `.c` marker lines (identity), the three
    TOML stores (overrides), `rebrew-project.toml` (config).  The only
    stores that hold non-derivable facts.
-2. **Derived (regenerable)** — `functions.txt` (written by discover/
-   intake), grid JSON, coverage.db, verify_results.json, CATALOG.md, CSV.
-   Build output; never hand-edited.
-3. **Cache (delete-safe)** — verify cache, compile caches, in-memory mtime
-   caches.  Except `solutions.json`/`ga_runs.jsonl`, which are history.
+2. **Derived, VCS-intended** — `functions.txt`, `src/<target>/CATALOG.md`,
+   the layout package (`layout/<target>/`: `layout.txt` + `*.hex`),
+   `<target>.def`, `crt_region/*.c`, `src/link_stubs.c`,
+   `flirt_sigs/*.pat`, toolchain files.  Generated from the binary but
+   committed so a rebuild never needs `original/` around; regenerable via
+   the generating command (gen-layout, discover, catalog, link-stubs).
+3. **Derived, gitignored (build output)** — grid JSON, coverage.db,
+   verify_results.json, CSV, `bin/<target>/*.bin`, `output/report/`.
+   Rebuildable via one command; never hand-edited.
+4. **Cache (delete-safe)** — verify cache, Ghidra sync-state, compile
+   caches, GA build caches/checkpoints, in-memory mtime caches.  Except
+   `solutions.json`/`ga_runs.jsonl`, which are history.
 
 Single-source rules enforced by code where cheap:
 
@@ -85,7 +92,10 @@ Single-source rules enforced by code where cheap:
   `rebrew-function.toml` or drop `coverage.db`: distinct key spaces
   (functions vs data symbols) and a real query consumer (dashboard,
   recoverage) justify the split.  Simplification came from shared
-  mechanics and documented tiers, not fewer files.
+  mechanics and documented tiers, not fewer files.  The layout package
+  (`layout/<target>/`) is a derived-but-VCS-intended tier of its own —
+  committed so postlink never needs `original/` around, regenerable from
+  the reference binary on change.
 - `verify_cache.json` stays a *measured-result mirror* (not folded into
   metadata) so `rebrew status`/`todo` serve without recompiling and
   demotions aren't masked; its overlay precedence is documented.
