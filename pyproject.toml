@@ -51,10 +51,11 @@ prove = [
 # (resembl/scoring.py — importable without its sqlmodel/sqlalchemy DB stack).
 # resembl pulls pygments/rapidfuzz/datasketch/numpy transitively.  Plain
 # `uv pip install -e .` keeps working (the column stays NULL); install this
-# extra to enable the score.  Path is environment-coupled to the sibling
-# checkout (same parent dir layout on this machine).
+# extra to enable the score.  Path is relative to this checkout: it resolves
+# against the conventional sibling layout (same parent dir as rebrew, like
+# the rebrew-toolchains checkout).
 similarity = [
-    "resembl @ file:///home/maci/Desktop/Projects/relumea/resembl",
+    "resembl",
     "rapidfuzz>=3.13",  # direct import in matcher/scoring.py code_similarity (resembl only declares it transitively)
 ]
 
@@ -159,6 +160,12 @@ ignore = ["E501", "B008", "B904"]
 
 [tool.uv]
 package = true
+
+[tool.uv.sources]
+# Sibling-checkout path dep (see the `similarity` extra above): uv resolves
+# `resembl` from ../resembl relative to this pyproject.toml, keeping the
+# manifest free of machine-specific absolute paths.
+resembl = { path = "../resembl" }
 
 [dependency-groups]
 dev = [

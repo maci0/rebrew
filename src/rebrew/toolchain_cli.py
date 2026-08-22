@@ -1013,13 +1013,12 @@ def _github_auth_headers() -> dict[str, str]:
 def _live_commit_sha(owner: str, repo: str, branch: str) -> str:
     """Current default-branch commit sha for a GitHub repo (GitHub API —
     cheap: no tarball download)."""
-    import json
-    import urllib.request
+    import httpx
 
     url = f"https://api.github.com/repos/{owner}/{repo}/commits/{branch}"
-    req = urllib.request.Request(url, headers=_github_auth_headers())
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        return str(json.load(resp)["sha"])
+    resp = httpx.get(url, headers=_github_auth_headers(), timeout=20, follow_redirects=True)
+    resp.raise_for_status()
+    return str(resp.json()["sha"])
 
 
 @app.command("check-updates")
@@ -1038,7 +1037,8 @@ def check_updates_cmd(
     import hashlib
     import re
     import tempfile
-    import urllib.request
+
+    import httpx
 
     from rebrew.toolchain import _SOURCES
 
@@ -1070,7 +1070,11 @@ def check_updates_cmd(
             try:
                 with tempfile.TemporaryDirectory() as td:
                     path = Path(td) / "src.bin"
-                    urllib.request.urlretrieve(url, path)
+                    with httpx.stream("GET", url, timeout=60, follow_redirects=True) as resp:
+                        resp.raise_for_status()
+                        with path.open("wb") as fh:
+                            for chunk in resp.iter_bytes():
+                                fh.write(chunk)
                     actual = hashlib.sha256(path.read_bytes()).hexdigest()
                 if actual == src.sha256:
                     rows[name] = "current"
