@@ -1,12 +1,7 @@
 # ADR-008: Docker-only toolchain execution (no host wine/dosbox)
 
-## Status
-
-Accepted
-
-## Date
-
-2026-08
+- **Status**: Accepted
+- **Date**: 2026-08
 
 ## Context
 

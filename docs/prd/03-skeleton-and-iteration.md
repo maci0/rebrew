@@ -89,7 +89,8 @@ you what to attack next.
 
 ### `rebrew test`
 
-- Compiles a single `.c` (or every `.c` with `--all`) with MSVC6 via Wine,
+- Compiles a single `.c` (or every `.c` with `--all`) with MSVC6 via the
+  profile's docker image (execution is docker-only, ADR-008),
   extracts the named COFF symbol, and byte-compares against the target.
 - Auto-detects symbol, VA, size from `// FUNCTION:` markers, and STATUS/
   SIZE/CFLAGS from `rebrew-function.toml`.

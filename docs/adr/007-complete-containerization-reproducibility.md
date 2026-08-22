@@ -2,6 +2,11 @@
 
 - **Status**: Accepted
 - **Date**: 2026-08
+- **Amended by**: [ADR-011](011-external-toolchains-checkout.md)
+  (the build source this ADR described as in-repo — Dockerfiles, media
+  tarballs, vendored trees — moved to the sibling rebrew-toolchains
+  checkout; the pinned-source and smoke-gate invariants below are
+  unchanged).
 
 ## Context
 

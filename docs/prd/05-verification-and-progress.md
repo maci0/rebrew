@@ -149,8 +149,8 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 ### Story 2 — Fast incremental check after one edit
 
 1. User edits one `.c` file, runs `rebrew verify`.
-2. Cache hits skip Wine subprocess startup for unchanged files; only the
-   edited file (and dependents) are recompiled.
+2. Cache hits skip the compile invocation entirely for unchanged files;
+   only the edited file (and dependents) are recompiled.
 3. Total wall-clock drops from minutes to seconds.
 
 ### Story 3 — Visualising progress
@@ -163,8 +163,8 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 
 ### Story 4 — Cleaning a stale cache
 
-1. After a Wine upgrade, the user runs
-   `rebrew verify` and observes spurious COMPILE_ERROR rows.
+1. After rebuilding a toolchain image (`rebrew toolchain build`), the
+   user runs `rebrew verify` and observes spurious COMPILE_ERROR rows.
 2. `rebrew cache clear` deletes the cached `.obj` files.
 3. `rebrew verify --full` rebuilds everything from scratch.
 
