@@ -231,7 +231,8 @@ src/rebrew/
 ├── dashboard.py         # Read-only web dashboard over db/coverage.db
 ├── data.py              # Global data scanner (.data/.rdata/.bss)
 ├── depgraph.py          # Function dependency graph
-├── flirt.py             # FLIRT signature scanning
+├── flirt.py             # FLIRT signature scanning (project flirt_sigs/ merged
+│                        # with the sibling rebrew-flirt-sigs checkout)
 ├── build_db.py          # Build SQLite coverage DB from data JSON
 ├── binsync_export.py    # Export annotations to BinSync state dir
 ├── round_trip.py        # Splice matched functions back into PE, verify byte equality
