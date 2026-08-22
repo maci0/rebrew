@@ -22,12 +22,20 @@ reference's layout, byte-for-byte, without re-linking:
   ``e_lfanew``, ``TimeDateStamp``, ``.data`` VirtualSize (BSS tail),
   ``.reloc`` VA, ``SizeOfImage``, export ``Characteristics``, and CheckSum.
 
+The reference is supplied as **text-only layout metadata** (see
+``rebrew.layout_meta`` — the ``layout/<target>/`` package written by
+``rebrew gen-layout``), never as a binary snapshot or the original DLL, so
+the fixers run on a public checkout with zero binary blobs at rest.  A raw
+reference binary may still be passed directly for development/tests; it is
+reduced to the same metadata in memory.
+
 Architecture notes:
 
 - Each fixer operates on the raw file bytes (``bytearray``) so the output is
-  byte-identical; LIEF is used only for parsing (imports, sections, data
-  directories).  ``lief.PE.Binary.write()`` re-serializes and would change
-  bytes, so header fields are patched at their computed offsets instead.
+  byte-identical; LIEF is used only for parsing the *built* binary (imports,
+  sections, data directories).  ``lief.PE.Binary.write()`` re-serializes and
+  would change bytes, so header fields are patched at their computed offsets
+  instead.
 - Fixers run in dependency order: ``imports`` → ``data`` → ``pe-metadata``
   (the operand rewrites assume the import bookkeeping is already converged).
 - ``data`` and ``pe-metadata`` assume the built ``.text`` is position-aligned
@@ -35,7 +43,8 @@ Architecture notes:
   decompilation that has passed ``rebrew test``.
 
 Usage:
-    rebrew postlink <built.dll> <reference.dll> [--fix imports|data|pe-metadata|all]
+    rebrew postlink <built.dll> [<reference.dll> | --layout layout/<target>]
+                   [--fix imports|data|pe-metadata|all]
 """
 
 from __future__ import annotations
@@ -52,6 +61,7 @@ from rich.console import Console
 
 from rebrew.binary_loader import BinaryInfo, load_binary
 from rebrew.cli import EXIT_ERROR, error_exit, json_print
+from rebrew.layout_meta import ImportMeta, LayoutMetadata, extract_layout, load_package
 
 console = Console(stderr=True)
 
@@ -79,7 +89,7 @@ class FixerReport:
         }
 
 
-Fixer = Callable[[bytearray, bytes, BinaryInfo, BinaryInfo], FixerReport]
+Fixer = Callable[[bytearray, LayoutMetadata, BinaryInfo], FixerReport]
 
 
 # ---------------------------------------------------------------------------
@@ -104,13 +114,6 @@ def _rva_to_offset(info: BinaryInfo, rva: int) -> int:
     raise ValueError(f"rva 0x{rva:x} not in any section")
 
 
-def _data_dir_rva(info: BinaryInfo, index: int) -> int:
-    """RVA of data-directory *index* (0=EXPORT_TABLE, 1=IMPORT_TABLE, 5=BASE_RELOC)."""
-    e = struct.unpack_from("<I", info.data, 0x3C)[0]
-    opt = e + 24
-    return int(struct.unpack_from("<I", info.data, opt + 96 + index * 8)[0])
-
-
 def _section_table(info: BinaryInfo) -> tuple[int, int, int]:
     """Return (e_lfanew, optional-header offset, section-table offset)."""
     e = struct.unpack_from("<I", info.data, 0x3C)[0]
@@ -124,7 +127,8 @@ def _section_table(info: BinaryInfo) -> tuple[int, int, int]:
 def _section_header_offset(info: BinaryInfo, name: str) -> int:
     """File offset of the section-table entry for *name*."""
     _, _, sec_off = _section_table(info)
-    n = struct.unpack_from("<H", info.data, _section_table(info)[0] + 4 + 2)[0]
+    e = struct.unpack_from("<I", info.data, 0x3C)[0]
+    n = struct.unpack_from("<H", info.data, e + 4 + 2)[0]
     for i in range(n):
         h = sec_off + 40 * i
         sn = info.data[h : h + 8].rstrip(b"\x00").decode(errors="replace")
@@ -138,8 +142,13 @@ def _section_header_offset(info: BinaryInfo, name: str) -> int:
 # ---------------------------------------------------------------------------
 
 
-def _import_signature(raw: bytes) -> list[tuple[str | bytes, list[str | bytes | int]]]:
-    """Import set as ``[(dll, sorted [entry names or ordinals])]``.
+def _entry_key(dll: str | bytes, name: str | bytes | None, ordinal: int | None) -> tuple[str, str]:
+    """Canonical import key: ``(dll, name)`` or ``(dll, "#<ordinal>")`` for ordinal-only."""
+    return (str(dll), str(name) if name is not None else f"#{ordinal}")
+
+
+def _import_signature(meta_imports: Iterable[ImportMeta]) -> list[tuple[str, list[str]]]:
+    """Import set from the metadata as ``[(dll, sorted [entry names or ordinals])]``.
 
     Entries are *sorted* so the signature is order-insensitive: the MSVC6
     linker assigns IAT slots in a hash-driven order that differs between
@@ -147,21 +156,26 @@ def _import_signature(raw: bytes) -> list[tuple[str | bytes, list[str | bytes | 
     order — comparing it here would make the fixer refuse the exact case it
     repairs.
     """
-    pe = _pe(raw)
-    sig: list[tuple[str | bytes, list[str | bytes | int]]] = []
-    for imp in pe.imports:
-        entries = sorted(
-            imp.entries,
-            key=lambda e: e.iat_address if e.iat_address else 0,
-        )
-        names = sorted(e.name if e.name else e.ordinal for e in entries)
-        sig.append((imp.name, names))
+    sig: list[tuple[str, list[str]]] = []
+    per_dll: dict[str, list[str]] = {}
+    for imp in meta_imports:
+        key = imp.name if imp.name else f"#{imp.ordinal}"
+        per_dll.setdefault(imp.dll, []).append(key)
+    for dll, names in per_dll.items():
+        sig.append((dll, sorted(names)))
     return sig
 
 
-def _fix_imports(
-    built: bytearray, ref: bytes, info_b: BinaryInfo, info_r: BinaryInfo
-) -> FixerReport:
+def _built_import_signature(raw: bytes) -> list[tuple[str, list[str]]]:
+    pe = _pe(raw)
+    sig: list[tuple[str, list[str]]] = []
+    for imp in pe.imports:
+        names = sorted(str(e.name) if e.name else f"#{e.ordinal}" for e in imp.entries)
+        sig.append((str(imp.name), names))
+    return sig
+
+
+def _fix_imports(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> FixerReport:
     """Converge the built import layer onto the reference's.
 
     For an identical import set the IAT arrays, import descriptors, OFT
@@ -169,17 +183,17 @@ def _fix_imports(
     bytes as the reference's — the MSVC6 linker just places the records in a
     hash-driven order and may assign IAT slots in a different order.  We
     rewrite the ``.text`` operands that point at moved slots and copy the two
-    regions verbatim.
+    regions verbatim (from the text metadata).
     """
     report = FixerReport(name="imports", changed=False)
-    sig_b, sig_r = _import_signature(bytes(built)), _import_signature(ref)
+    sig_b = _built_import_signature(bytes(built))
+    sig_r = _import_signature(meta.imports)
     if sig_b != sig_r:
         raise ValueError(
             "import sets differ — refusing to copy bookkeeping "
             f"(only-in-built={[d for d, _ in sig_b if d not in {n for n, _ in sig_r}]})"
         )
 
-    pe_r = _pe(ref)
     pe_b = _pe(bytes(built))
 
     def data_dir(pe: lief.PE.Binary, kind: lief.PE.DataDirectory.TYPES) -> tuple[int, int]:
@@ -188,31 +202,27 @@ def _fix_imports(
                 return d.rva, d.size
         return 0, 0
 
-    iat_rva, iat_size = data_dir(pe_r, lief.PE.DataDirectory.TYPES.IAT)
-    imp_rva, _ = data_dir(pe_r, lief.PE.DataDirectory.TYPES.IMPORT_TABLE)
-    exp_rva, _ = data_dir(pe_r, lief.PE.DataDirectory.TYPES.EXPORT_TABLE)
+    iat_rva, iat_size = data_dir(pe_b, lief.PE.DataDirectory.TYPES.IAT)
+    imp_rva, _ = data_dir(pe_b, lief.PE.DataDirectory.TYPES.IMPORT_TABLE)
 
     # ---- 1. rewrite .text operands that reference moved IAT slots ----
-    # Map each entry (by DLL + name/ordinal) to its built and reference slot.
-    def slot_map(pe: lief.PE.Binary) -> dict[tuple[str | bytes, str | bytes | int], int]:
-        out: dict[tuple[str | bytes, str | bytes | int], int] = {}
-        for imp in pe.imports:
-            for e in imp.entries:
-                key = (imp.name, e.name if e.name else e.ordinal)
-                out[key] = e.iat_address
-        return out
-
-    slots_b, slots_r = slot_map(pe_b), slot_map(pe_r)
+    # built slot VAs come from the built binary (LIEF); reference slot VAs
+    # from the metadata.  Only slots that differ are remapped.
+    slots_b: dict[tuple[str, str], int] = {}
+    for imp_b in pe_b.imports:
+        for e in imp_b.entries:
+            slots_b[_entry_key(imp_b.name, e.name, e.ordinal)] = e.iat_address
+    slots_r: dict[tuple[str, str], int] = {}
+    for imp_m in meta.imports:
+        slots_r[_entry_key(imp_m.dll, imp_m.name, imp_m.ordinal)] = imp_m.iat_va
     remap = {slots_b[k]: slots_r[k] for k in slots_b if slots_b[k] != slots_r[k]}
     if remap and iat_rva:
         text = info_b.sections[".text"]
-        text_lo = text.file_offset
-        text_hi = text.file_offset + text.raw_size
         moved = 0
-        for off in range(text_lo, text_hi - 4):
+        for off in range(text.file_offset, text.file_offset + text.raw_size - 4):
             v = struct.unpack_from("<I", built, off)[0]
             slot = v - info_b.image_base
-            if slot in remap and built[off : off + 4] != ref[off : off + 4]:
+            if slot in remap:
                 struct.pack_into("<I", built, off, remap[slot] + info_b.image_base)
                 moved += 1
         report.stats["slot_operands_rewritten"] = moved
@@ -221,11 +231,16 @@ def _fix_imports(
     # ---- 2. safety: the .rdata prefix must already match ----
     # The hint/name records and OFT arrays are derived from the content before
     # the import directory; if that prefix drifted the copy would be wrong.
-    if iat_rva and imp_rva > iat_rva:
+    if meta.prefix:
         prefix_lo = _rva_to_offset(info_b, iat_rva + iat_size)
         prefix_hi = _rva_to_offset(info_b, imp_rva)
-        prefix_r = ref[_rva_to_offset(info_r, iat_rva + iat_size) : _rva_to_offset(info_r, imp_rva)]
-        if bytes(built[prefix_lo:prefix_hi]) != prefix_r:
+        if prefix_hi - prefix_lo != len(meta.prefix):
+            raise ValueError(
+                "built .rdata prefix size does not match the reference — "
+                "check the debug directory: builds with /debug carry an extra "
+                "0x1c-byte directory that shifts everything"
+            )
+        if bytes(built[prefix_lo:prefix_hi]) != meta.prefix:
             raise ValueError(
                 "built .rdata prefix between the IAT and the import directory "
                 "does not match the reference — refusing to copy the import "
@@ -234,22 +249,17 @@ def _fix_imports(
             )
 
     # ---- 3. copy the IAT arrays + the import bookkeeping verbatim ----
-    if iat_rva and iat_size:
+    if meta.iat:
         lo = _rva_to_offset(info_b, iat_rva)
-        built[lo : lo + iat_size] = ref[
-            _rva_to_offset(info_r, iat_rva) : _rva_to_offset(info_r, iat_rva) + iat_size
-        ]
-    if imp_rva and exp_rva > imp_rva:
+        built[lo : lo + len(meta.iat)] = meta.iat
+    if meta.bookkeeping:
         lo = _rva_to_offset(info_b, imp_rva)
-        hi = _rva_to_offset(info_b, exp_rva)
-        rlo = _rva_to_offset(info_r, imp_rva)
-        rhi = _rva_to_offset(info_r, exp_rva)
-        if hi - lo != rhi - rlo:
-            raise ValueError(f"import bookkeeping size differs ({hi - lo:#x} vs {rhi - rlo:#x})")
-        built[lo:hi] = ref[rlo:rhi]
+        if lo + len(meta.bookkeeping) > len(built):
+            built.extend(b"\x00" * (lo + len(meta.bookkeeping) - len(built)))
+        built[lo : lo + len(meta.bookkeeping)] = meta.bookkeeping
     report.changed = True
     report.messages.append(
-        f"copied IAT ({iat_rva:#x}+{iat_size:#x}) and bookkeeping ({imp_rva:#x}..{exp_rva:#x})"
+        f"copied IAT ({len(meta.iat):#x} bytes) and bookkeeping ({len(meta.bookkeeping):#x} bytes)"
     )
     return report
 
@@ -259,88 +269,89 @@ def _fix_imports(
 # ---------------------------------------------------------------------------
 
 
-def _fix_data(built: bytearray, ref: bytes, info_b: BinaryInfo, info_r: BinaryInfo) -> FixerReport:
+def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> FixerReport:
     """Converge ``.data``/``.reloc`` and the ``.text`` data operands.
 
     The linker's ``.data`` COMDAT order is hash-driven (not source-orderable),
     so once the content is correct the raw ``.data`` is copied from the
     reference.  The ``.text`` operand rewrite covers absolute pointers into
     ``.rdata``/``.data`` (the full VirtualSize, including the BSS tail beyond
-    the raw size) and E8/E9 relative call/jump targets.
+    the raw size) and E8/E9 relative call/jump targets.  All reference bytes
+    come from the text metadata (operands/calls sparse maps + hex dumps).
     """
     report = FixerReport(name="data", changed=False)
     text = info_b.sections[".text"]
-    text_r = info_r.sections[".text"]
+    rdata = meta.section(".rdata")
+    data_m = meta.section(".data")
 
-    # operand ranges, image-base-relative
-    lo_r = info_r.sections[".rdata"].va - info_r.image_base
-    hi_r = info_r.sections[".rdata"].va - info_r.image_base + info_r.sections[".rdata"].size
-    data_va = info_r.sections[".data"].va - info_r.image_base
-    lo_d = data_va
-    hi_d = data_va + info_r.sections[".data"].size  # full VS (raw + BSS)
+    # operand ranges, image-base-relative (== the reference's RVA space)
+    lo_r = rdata.va
+    hi_r = rdata.va + rdata.vs
+    lo_d = data_m.va
+    hi_d = data_m.va + data_m.vs
 
-    def in_range(v: int) -> bool:
-        return lo_r <= v < hi_r or lo_d <= v < hi_d
+    def in_range(rva: int) -> bool:
+        return lo_r <= rva < hi_r or lo_d <= rva < hi_d
 
-    # ---- 1. absolute data operands (every offset — x86 operands are
-    # misaligned, a 4-byte-aligned scan misses most of them) ----
+    # ---- 1. absolute data operands (sparse map: every position where the
+    # reference holds an image-relative address; only differing positions are
+    # rewritten) ----
     operands = 0
-    for off in range(text.file_offset, text.file_offset + text.raw_size - 4):
-        va = struct.unpack_from("<I", built, off)[0]
-        vb = struct.unpack_from("<I", ref, off)[0]
-        if va != vb and in_range(va - info_b.image_base) and in_range(vb - info_r.image_base):
-            struct.pack_into("<I", built, off, vb)
+    for off_rel, val in meta.operands.items():
+        off = text.file_offset + off_rel
+        if struct.unpack_from("<I", built, off)[0] != val and in_range(
+            struct.unpack_from("<I", built, off)[0] - info_b.image_base
+        ):
+            struct.pack_into("<I", built, off, val)
             operands += 1
     report.stats["data_operands"] = operands
     report.changed = report.changed or operands > 0
 
-    # ---- 2. E8/E9 relative call/jump targets (context-matched) ----
+    # ---- 2. E8/E9 relative call/jump targets (context-matched via the map) ----
     rel32 = 0
-    for off in range(text.file_offset + 1, text.file_offset + text.raw_size - 6):
-        if built[off] == ref[off]:
+    for off_rel, (val, pre, suf) in meta.calls.items():
+        off = text.file_offset + off_rel
+        if struct.unpack_from("<I", built, off)[0] == val:
             continue
         if (
             built[off - 1] in (0xE8, 0xE9)
-            and ref[off - 1] in (0xE8, 0xE9)
-            and built[off - 3 : off - 1] == ref[off - 3 : off - 1]
-            and built[off + 4 : off + 6] == ref[off + 4 : off + 6]
+            and bytes(built[off - 3 : off - 1]) == pre.to_bytes(2, "big")
+            and bytes(built[off + 4 : off + 6]) == suf.to_bytes(2, "big")
         ):
-            struct.pack_into("<I", built, off, struct.unpack_from("<I", ref, off)[0])
+            struct.pack_into("<I", built, off, val)
             rel32 += 1
     report.stats["call_targets"] = rel32
     report.changed = report.changed or rel32 > 0
 
     # ---- 3. trim the extra .text tail + fix .text VirtualSize ----
-    text_end = text_r.file_offset + text_r.size  # reference content end
+    text_end = meta.section(".text").raw_ptr + meta.section(".text").vs  # reference content end
     if text_end < text.file_offset + text.raw_size:
         built[text_end : text.file_offset + text.raw_size] = b"\x00" * (
             text.file_offset + text.raw_size - text_end
         )
-        struct.pack_into("<I", built, _section_header_offset(info_b, ".text") + 8, text_r.size)
+        struct.pack_into(
+            "<I", built, _section_header_offset(info_b, ".text") + 8, meta.section(".text").vs
+        )
         report.changed = True
 
     # ---- 4. grow .data to the reference raw size and copy it ----
     data_b = info_b.sections[".data"]
-    data_r = info_r.sections[".data"]
-    if data_r.raw_size > len(built):
-        built.extend(b"\x00" * (data_r.raw_size - len(built)))
-    built[data_b.file_offset : data_b.file_offset + data_r.raw_size] = ref[
-        data_r.file_offset : data_r.file_offset + data_r.raw_size
-    ]
-    struct.pack_into("<I", built, _section_header_offset(info_b, ".data") + 16, data_r.raw_size)
+    if len(meta.data) > len(built) - data_b.file_offset:
+        built.extend(b"\x00" * (data_b.file_offset + len(meta.data) - len(built)))
+    built[data_b.file_offset : data_b.file_offset + len(meta.data)] = meta.data
+    struct.pack_into("<I", built, _section_header_offset(info_b, ".data") + 16, len(meta.data))
 
     # ---- 5. replace .reloc (at the reference's file offset) ----
     reloc_b = info_b.sections[".reloc"]
-    reloc_r = info_r.sections[".reloc"]
-    new_rptr = reloc_r.file_offset
-    if new_rptr + reloc_r.raw_size > len(built):
-        built.extend(b"\x00" * (new_rptr + reloc_r.raw_size - len(built)))
-    built[new_rptr : new_rptr + reloc_r.raw_size] = ref[
-        reloc_r.file_offset : reloc_r.file_offset + reloc_r.raw_size
-    ]
+    reloc_m = meta.section(".reloc")
+    new_rptr = reloc_m.raw_ptr
+    reloc_raw = meta.reloc + b"\x00" * max(0, reloc_m.raw - len(meta.reloc))
+    if new_rptr + len(reloc_raw) > len(built):
+        built.extend(b"\x00" * (new_rptr + len(reloc_raw) - len(built)))
+    built[new_rptr : new_rptr + len(reloc_raw)] = reloc_raw
     h = _section_header_offset(info_b, ".reloc")
-    struct.pack_into("<I", built, h + 8, reloc_r.size)  # VirtualSize
-    struct.pack_into("<I", built, h + 16, reloc_r.raw_size)
+    struct.pack_into("<I", built, h + 8, reloc_m.vs)  # VirtualSize
+    struct.pack_into("<I", built, h + 16, len(reloc_raw))
     struct.pack_into("<I", built, h + 20, new_rptr)
     # .reloc data directory size
     e, opt, _ = _section_table(info_b)
@@ -348,12 +359,11 @@ def _fix_data(built: bytearray, ref: bytes, info_b: BinaryInfo, info_r: BinaryIn
     for i in range(16):
         rva = struct.unpack_from("<I", built, dd + 8 * i)[0]
         if rva == reloc_b.va - info_b.image_base:
-            struct.pack_into("<I", built, dd + 8 * i + 4, reloc_r.size)
+            struct.pack_into("<I", built, dd + 8 * i + 4, reloc_m.vs)
             break
     report.changed = True
     report.messages.append(
-        f".data -> {data_r.raw_size:#x} bytes; .reloc -> {reloc_r.raw_size:#x} "
-        f"bytes at {new_rptr:#x}"
+        f".data -> {len(meta.data):#x} bytes; .reloc -> {len(reloc_raw):#x} bytes at {new_rptr:#x}"
     )
     return report
 
@@ -363,26 +373,25 @@ def _fix_data(built: bytearray, ref: bytes, info_b: BinaryInfo, info_r: BinaryIn
 # ---------------------------------------------------------------------------
 
 
-def _fix_pe_metadata(
-    built: bytearray, ref: bytes, info_b: BinaryInfo, info_r: BinaryInfo
-) -> FixerReport:
+def _fix_pe_metadata(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> FixerReport:
     """Normalize toolchain-stamped PE metadata against the reference.
 
     The MSVC6 link step stamps the DOS stub (Rich header / different
     ``e_lfanew``), ``TimeDateStamp``, an empty CheckSum, a too-small ``.data``
     VirtualSize (BSS placeholders are emitted as ``char[1]``), and a
     ``.reloc`` VA that predates the BSS growth.  None of these are decomp
-    content; this fixer copies the reference's header/stub values.
+    content; this fixer copies the reference's header/stub values from the
+    metadata.
     """
     report = FixerReport(name="pe-metadata", changed=False)
     b = built
-    r = ref
+    header = meta.header
+    e_r = struct.unpack_from("<I", header, 0x3C)[0]  # reference e_lfanew
 
-    e_b, opt_b, sec_b = _section_table(info_b)
-    e_r, opt_r, sec_r = _section_table(info_r)
+    e_b, opt_b, _ = _section_table(info_b)
 
     # ---- 1. DOS stub + e_lfanew (header block is relocated losslessly) ----
-    if e_b != e_r or b[:e_r] != r[:e_r]:
+    if e_b != e_r or b[:e_r] != header[:e_r]:
         coff = e_b + 4
         n = struct.unpack_from("<H", b, coff + 2)[0]
         opt_size = struct.unpack_from("<H", b, coff + 16)[0]
@@ -390,7 +399,7 @@ def _fix_pe_metadata(
         if e_r + hdr_size > 0x1000:
             raise ValueError("headers would overlap the first section")
         new = bytearray()
-        new += r[:e_r]  # reference DOS stub (carries e_lfanew = e_r)
+        new += header[:e_r]  # reference DOS stub (carries e_lfanew = e_r)
         new += b[e_b : e_b + hdr_size]
         new += b"\x00" * (0x1000 - len(new))
         new += b[0x1000:]
@@ -408,9 +417,7 @@ def _fix_pe_metadata(
     # verbatim — recomputing any of them would never match a reference whose
     # .text still differs.
     n_b = struct.unpack_from("<H", b, e_b + 4 + 2)[0]
-    n_r = struct.unpack_from("<H", r, e_r + 4 + 2)[0]
     opt_size_b = struct.unpack_from("<H", b, e_b + 4 + 16)[0]
-    opt_size_r = struct.unpack_from("<H", r, e_r + 4 + 16)[0]
 
     def names_at(raw: bytes | bytearray, e: int, n: int, opt_size: int) -> list[str]:
         sec_off = e + 4 + 20 + opt_size
@@ -419,18 +426,20 @@ def _fix_pe_metadata(
             for i in range(n)
         ]
 
-    hdr_size_r = 4 + 20 + opt_size_r + n_r * 40
-    if n_b == n_r and names_at(b, e_b, n_b, opt_size_b) == names_at(r, e_r, n_r, opt_size_r):
-        b[e_b : e_b + hdr_size_r] = r[e_r : e_r + hdr_size_r]
+    meta_names = [s.name for s in meta.sections]
+    opt_size_r = struct.unpack_from("<H", header, e_r + 4 + 16)[0]
+    hdr_size_r = 4 + 20 + opt_size_r + len(meta.sections) * 40  # bytes after e_r
+    if n_b == len(meta.sections) and names_at(b, e_b, n_b, opt_size_b) == meta_names:
+        b[e_b : e_b + hdr_size_r] = header[e_r : e_r + hdr_size_r]
         report.changed = True
     else:
         # Section layout not converged — fall back to stamping only the
         # fields that are safe regardless of layout.
-        ts = struct.unpack_from("<I", r, e_r + 4 + 4)[0]
+        ts = struct.unpack_from("<I", header, e_r + 4 + 4)[0]
         if struct.unpack_from("<I", b, e_b + 4 + 4)[0] != ts:
             struct.pack_into("<I", b, e_b + 4 + 4, ts)
             report.changed = True
-        cs_r = struct.unpack_from("<I", r, opt_r + 64)[0]
+        cs_r = struct.unpack_from("<I", header, e_r + 24 + 64)[0]
         if struct.unpack_from("<I", b, opt_b + 64)[0] != cs_r:
             struct.pack_into("<I", b, opt_b + 64, cs_r)
             report.changed = True
@@ -439,13 +448,16 @@ def _fix_pe_metadata(
     # LINK writes the link time into the export directory's TimeDateStamp
     # (and Characteristics); the original carries its own values.  Copy the
     # 8-byte Characteristics+TimeDateStamp pair verbatim.
-    exp_rva = _data_dir_rva(info_r, 0)  # EXPORT_TABLE
-    if exp_rva:
-        eo_b = _rva_to_offset(info_b, exp_rva)
-        eo_r = _rva_to_offset(info_r, exp_rva)
-        if eo_b is not None and eo_r is not None and b[eo_b : eo_b + 8] != r[eo_r : eo_r + 8]:
-            b[eo_b : eo_b + 8] = r[eo_r : eo_r + 8]
-            report.changed = True
+    if meta.exp_rva:
+        try:
+            eo_b = _rva_to_offset(info_b, meta.exp_rva)
+        except ValueError:
+            eo_b = None
+        if eo_b is not None:
+            stamp = struct.pack("<II", *meta.export_stamp)
+            if b[eo_b : eo_b + 8] != stamp:
+                b[eo_b : eo_b + 8] = stamp
+                report.changed = True
 
     report.messages.append("normalized DOS stub, timestamp, VS, VA, SizeOfImage, checksum")
     return report
@@ -465,18 +477,30 @@ FIXER_ORDER: tuple[str, ...] = ("imports", "data", "pe-metadata")
 
 
 def run_fixers(
-    built_path: Path, reference_path: Path, fixer_names: Iterable[str] | None = None
+    built_path: Path,
+    reference_path: Path | None = None,
+    fixer_names: Iterable[str] | None = None,
+    layout_dir: Path | None = None,
 ) -> tuple[bytes, list[FixerReport]]:
     """Apply the named fixers (default: all) to *built_path*.
+
+    The reference is the text layout package in *layout_dir* (preferred —
+    zero binary bytes at rest) or a raw reference binary at *reference_path*
+    (reduced to the same metadata in memory; useful for development/tests).
 
     Returns the patched bytes and the per-fixer reports.  Raises ``ValueError``
     if a fixer's preconditions are not met (import set mismatch, drifted
     prefix, etc.).
     """
+    if layout_dir is not None:
+        meta = load_package(layout_dir)
+    elif reference_path is not None:
+        meta = extract_layout(reference_path.read_bytes())
+    else:
+        raise ValueError("reference binary or --layout is required")
+
     info_b = load_binary(built_path)
-    info_r = load_binary(reference_path)
     built = bytearray(info_b.data)
-    ref = bytes(info_r.data)
 
     names = list(fixer_names) if fixer_names else list(FIXER_ORDER)
     unknown = [n for n in names if n not in FIXERS]
@@ -487,39 +511,10 @@ def run_fixers(
     reports: list[FixerReport] = []
     for name in names:
         before = bytes(built)
-        report = FIXERS[name](built, ref, info_b, info_r)
+        report = FIXERS[name](built, meta, info_b)
         report.changed = before != bytes(built)  # byte-diff is authoritative
         reports.append(report)
     return bytes(built), reports
-
-
-def _reference_from_layout(layout_json: Path) -> Path:
-    """Reconstruct a reference image from a ``gen-layout`` package.
-
-    The package (``layout/<target>/``) holds the original's header block
-    (hex) and raw section blobs, so ``postlink`` can run without the
-    original DLL.  Returns the path of a temporary reconstructed image.
-    """
-    import json
-    import tempfile
-
-    manifest = json.loads(layout_json.read_text())
-    pkg = layout_json.parent
-    hdr = bytes.fromhex(manifest["header_block_hex"])
-    img_size = len(hdr)
-    blobs: dict[str, bytes] = {}
-    for s in manifest["sections"]:
-        blob = (pkg / manifest["section_files"][s["name"]]).read_bytes()
-        blobs[s["name"]] = blob
-        img_size = max(img_size, s["raw_ptr"] + s["raw_size"])
-    img = bytearray(img_size)
-    img[: len(hdr)] = hdr
-    for s in manifest["sections"]:
-        blob = blobs[s["name"]]
-        img[s["raw_ptr"] : s["raw_ptr"] + len(blob)] = blob
-    with tempfile.NamedTemporaryFile(prefix="rebrew-layout-", suffix=".dll", delete=False) as tmp:
-        tmp.write(bytes(img))
-    return Path(tmp.name)
 
 
 # ---------------------------------------------------------------------------
@@ -538,13 +533,16 @@ _FIX_CHOICES = ("all",) + FIXER_ORDER
 def main(
     built: Path = typer.Argument(..., help="Built binary to fix (in place)"),
     reference: Path | None = typer.Argument(
-        None, help="Reference binary to converge onto (omit when --layout is used)"
+        None,
+        help="Reference binary to converge onto (omit when --layout is used; "
+        "reduced to text metadata in memory)",
     ),
     layout: Path | None = typer.Option(
         None,
         "--layout",
-        help="link_layout.json from 'rebrew gen-layout' — reconstruct the reference "
-        "from the project layout package instead of a reference binary",
+        help="Text-only layout package directory (layout/<target>/) from "
+        "'rebrew gen-layout' — reconstruct the reference from metadata instead "
+        "of a reference binary",
     ),
     fix: str = typer.Option(
         "all",
@@ -563,19 +561,19 @@ def main(
     from the original build.  See ``rebrew postlink --help`` and
     ``docs/POSTLINK.md`` for what each fixer touches.
 
-    Either pass the reference DLL directly, or ``--layout`` pointing at the
-    ``link_layout.json`` produced by ``rebrew gen-layout`` (the layout
-    package carries the original's header block and section bytes, so the
-    original DLL is not needed at fix time).
+    The reference comes from ``--layout`` (a text-only layout package — no
+    original binary or binary blobs needed) or a reference DLL directly.
     """
     if not built.exists():
         error_exit(f"built binary not found: {built}", json_mode=json_output, code=EXIT_ERROR)
     if layout is not None:
-        if not layout.exists():
+        if not layout.exists() or not layout.is_dir():
             error_exit(
-                f"layout manifest not found: {layout}", json_mode=json_output, code=EXIT_ERROR
+                f"layout package not found: {layout} (expected layout/<target>/ "
+                "with header.hex, data.hex, ... — run 'rebrew gen-layout')",
+                json_mode=json_output,
+                code=EXIT_ERROR,
             )
-        reference = _reference_from_layout(layout)
     elif reference is None:
         error_exit(
             "reference binary or --layout is required", json_mode=json_output, code=EXIT_ERROR
@@ -597,7 +595,7 @@ def main(
         )
 
     try:
-        patched, reports = run_fixers(built, reference, fixers)
+        patched, reports = run_fixers(built, reference, fixers, layout_dir=layout)
     except (OSError, ValueError, KeyError) as exc:
         error_exit(f"postlink failed: {exc}", json_mode=json_output, code=EXIT_ERROR)
 
@@ -609,6 +607,7 @@ def main(
             {
                 "built": str(built),
                 "reference": str(reference),
+                "layout": str(layout),
                 "output": str(target),
                 "reports": [r.as_dict() for r in reports],
             }

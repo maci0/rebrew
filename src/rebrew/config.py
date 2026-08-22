@@ -784,6 +784,11 @@ _KNOWN_TARGET_KEYS = {
     # used for annotation filtering (module filters come from the
     # annotations themselves).
     "cflags_presets",  # written by `rebrew cfg set-cflags` (per-origin compiler flag overrides)
+    # written by `rebrew gen-layout`: readable layout metadata (sections,
+    # exports, imports, link options) derived from the original binary —
+    # editor/UI only; the build consumes the text layout package
+    # layout/<target>/ (header.hex, data.hex, ...) instead.
+    "layout",
 }
 
 _KNOWN_COMPILER_KEYS = {
