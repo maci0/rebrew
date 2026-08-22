@@ -1,0 +1,16 @@
+# Line-ending policy: normalize text to LF in the index (the tree is LF;
+# contributors on CRLF checkouts get conversion on commit, not churn).
+* text=auto
+
+# Binary fixtures and assets — never line-ending converted, regardless of
+# git's content heuristic.
+*.exe binary
+*.dll binary
+*.obj binary
+*.o binary
+*.lib binary
+*.elf binary
+*.q binary
+*.png binary
+*.jpg binary
+*.jpeg binary
