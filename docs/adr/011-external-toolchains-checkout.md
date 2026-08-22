@@ -1,12 +1,7 @@
 # ADR-011: Toolchain build source moves to the sibling rebrew-toolchains checkout
 
-## Status
-
-Accepted
-
-## Date
-
-2026-08
+- **Status**: Accepted
+- **Date**: 2026-08
 
 ## Context
 

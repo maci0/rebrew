@@ -1,12 +1,7 @@
 # ADR-012: Metadata store tiers (canonical vs derived vs cache)
 
-## Status
-
-Accepted
-
-## Date
-
-2026-08
+- **Status**: Accepted
+- **Date**: 2026-08
 
 ## Context
 

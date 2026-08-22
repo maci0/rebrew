@@ -1,12 +1,7 @@
 # ADR-009: Cross-target function import (`rebrew cross-import`)
 
-## Status
-
-Accepted
-
-## Date
-
-2026-08
+- **Status**: Accepted
+- **Date**: 2026-08
 
 ## Context
 

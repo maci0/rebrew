@@ -1,12 +1,7 @@
 # ADR-010: Shared multi-version sources (`src/shared` + per-target defines)
 
-## Status
-
-Accepted
-
-## Date
-
-2026-08
+- **Status**: Accepted
+- **Date**: 2026-08
 
 ## Context
 

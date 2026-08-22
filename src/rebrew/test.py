@@ -127,7 +127,7 @@ _EPILOG = (
     "  rebrew test --all --dir src/game_dll/ · · · · · Restrict batch to a subdirectory\n\n"
     "  rebrew test --all --dry-run · · · · · · · · · · List batch candidates without testing\n\n"
     "[bold]Auto-promote (default behaviour):[/bold]\n\n"
-    "  1. Compiles the .c file with MSVC6 (via Wine) using CFLAGS from metadata\n\n"
+    "  1. Compiles the .c file with MSVC6 (docker image; execution is docker-only per ADR-008) using CFLAGS from metadata\n\n"
     "  2. Extracts the named COFF symbol from the .obj\n\n"
     "  3. Compares compiled bytes against the original DLL bytes at the given VA\n\n"
     "  4. Reports EXACT, RELOC (match after masking relocations), or STUB\n\n"
