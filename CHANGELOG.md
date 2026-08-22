@@ -1,5 +1,10 @@
 ## [Unreleased]
 ### Added
+- **FLIRT sigs moved to a sibling checkout** (`rebrew-flirt-sigs`, like
+  rebrew-toolchains; `REBREW_FLIRT_SIGS_DIR` overrides) — `rebrew flirt`
+  merges the project's `flirt_sigs/` (project-specific, wins on conflicts)
+  with the checkout's standard library sigs; the project no longer vendors
+  the .pat/.sig files.
 - **Byte-identity link tools** — `rebrew order-sources` (order sources by
   first-function VA for a position-aligned .text), `rebrew calibrate-bss`
   (empirically size a BSS tail pad so the raw link's .data VirtualSize

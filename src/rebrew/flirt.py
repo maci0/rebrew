@@ -3,6 +3,7 @@
 Usage: rebrew flirt [sig_dir]
 """
 
+import os
 import warnings
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,31 @@ _MIN_MATCH_WINDOW = 32
 _FUNC_ALIGNMENT = 16
 _MAX_AMBIGUOUS = 3
 _MAX_AMBIGUOUS_REPORT = 12  # cap on candidate names kept per ambiguous match
+
+
+def _flirt_sigs_repo() -> Path:
+    """Root of the standalone rebrew-flirt-sigs checkout (standard library sigs).
+
+    Defaults to the sibling checkout (same workspace as this repo), like
+    rebrew-toolchains; overridable via REBREW_FLIRT_SIGS_DIR.  Project-specific
+    sigs stay in the project's own ``flirt_sigs/`` and are merged on top.
+    """
+    env = os.environ.get("REBREW_FLIRT_SIGS_DIR")
+    if env:
+        return Path(env)
+    return Path(__file__).resolve().parents[2].parent / "rebrew-flirt-sigs"
+
+
+def _sig_files(dirs: list[Path]) -> list[Path]:
+    """All ``.sig``/``.pat`` files across *dirs*, deduped by name (first wins)."""
+    seen: dict[str, Path] = {}
+    for d in dirs:
+        if not d.is_dir():
+            continue
+        for suffix in (".sig", ".pat"):
+            for p in sorted(d.glob(f"*{suffix}")):
+                seen.setdefault(p.name, p)
+    return list(seen.values())
 
 
 def load_signatures(sig_dir: str) -> list[Any]:
@@ -50,6 +76,38 @@ def load_signatures(sig_dir: str) -> list[Any]:
             # signatures; one bad file must not abort the whole scan.
             warnings.warn(f"Error parsing {filepath}: {e}", stacklevel=2)
 
+    return sigs
+
+
+def load_signatures_merged(project_dir: Path, repo_dir: Path) -> list[Any]:
+    """Load signatures from the project dir merged with the rebrew-flirt-sigs repo.
+
+    Project-specific sigs win on name conflicts (deduped by filename);
+    missing dirs are skipped.  The repo dir may be overridden via
+    ``REBREW_FLIRT_SIGS_DIR`` (resolved by :func:`_flirt_sigs_repo`).
+    """
+    files = _sig_files([project_dir, repo_dir])
+    if not files:
+        console.print(
+            f"No signature files in {project_dir} or {repo_dir} — "
+            "clone the rebrew-flirt-sigs checkout next to this repo "
+            "(or set REBREW_FLIRT_SIGS_DIR)."
+        )
+        return []
+    sigs: list[Any] = []
+    for filepath in files:
+        try:
+            content = filepath.read_bytes()
+            if filepath.suffix == ".sig":
+                parsed = flirt.parse_sig(content)
+            else:
+                parsed = flirt.parse_pat(content.decode("utf-8", errors="ignore"))
+            sigs.extend(parsed)
+            console.print(f"Loaded {len(parsed)} signatures from {filepath.name}")
+        except (OSError, ValueError, TypeError) as e:
+            warnings.warn(f"Error loading {filepath}: {e}", stacklevel=2)
+        except Exception as e:  # noqa: BLE001
+            warnings.warn(f"Error parsing {filepath}: {e}", stacklevel=2)
     return sigs
 
 
@@ -125,8 +183,9 @@ app = typer.Typer(
         "  Scans the target binary using FLIRT (Fast Library Identification and "
         "Recognition Technology) signatures to identify known library functions "
         "(MSVCRT, DirectX, Zlib, etc.).\n\n"
-        "[dim]Requires .sig/.pat signature files in the project or passed as the positional "
-        "SIG_DIR argument. Reads target binary path from rebrew-project.toml.[/dim]"
+        "[dim]Signatures load from the project's flirt_sigs/ merged with the "
+        "rebrew-flirt-sigs checkout (REBREW_FLIRT_SIGS_DIR overrides); or pass "
+        "a SIG_DIR argument. Reads target binary path from rebrew-project.toml.[/dim]"
     ),
 )
 
@@ -150,11 +209,18 @@ def main(
     """FLIRT signature scanner for binaries."""
     cfg = require_config(target=target, json_mode=json_output)
 
-    final_sig_dir = sig_dir or (cfg.root / "flirt_sigs")
     final_exe = exe or cfg.target_binary
 
-    # 1. Load FLIRT signatures
-    sigs = load_signatures(str(final_sig_dir))
+    # 1. Load FLIRT signatures: explicit dir, else project flirt_sigs/ merged
+    # with the rebrew-flirt-sigs checkout (standard library sigs).
+    if sig_dir is not None:
+        sigs = load_signatures(str(sig_dir))
+        sig_sources = [str(sig_dir)]
+    else:
+        project_dir = cfg.root / "flirt_sigs"
+        repo_dir = _flirt_sigs_repo()
+        sigs = load_signatures_merged(project_dir, repo_dir)
+        sig_sources = [str(project_dir), str(repo_dir)]
     if not sigs:
         error_exit("No signatures loaded", json_mode=json_output)
 
@@ -265,7 +331,7 @@ def main(
     if json_output:
         output: dict[str, Any] = {
             "binary": str(final_exe),
-            "sig_dir": str(final_sig_dir),
+            "sig_dirs": sig_sources,
             "signature_count": sig_count,
             "text_size": len(code_data),
             "min_size": min_size,
