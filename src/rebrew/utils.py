@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 # ...).  Projects resolve compiler paths project-relative first, then fall
 # back here so a freshly-inited project works without a local tools/ symlink.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_INSTALL_TOOLS = _REPO_ROOT / "tools"
 
 
 def find_install_tool(rel: str | Path) -> Path | None:

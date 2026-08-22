@@ -140,7 +140,7 @@ class TestCliSurface:
                 root=tmp_path, target_binary=tmp_path / "x.dll"
             ),
         )
-        monkeypatch.setattr(flirt_mod, "load_signatures", lambda d: [object()])
+        monkeypatch.setattr(flirt_mod, "load_signatures_merged", lambda p, r: [object()])
         monkeypatch.setattr(
             flirt_mod,
             "flirt",
@@ -178,7 +178,7 @@ class TestAmbiguousReporting:
                 root=tmp_path, target_binary=tmp_path / "x.dll"
             ),
         )
-        monkeypatch.setattr(flirt_mod, "load_signatures", lambda d: [object()])
+        monkeypatch.setattr(flirt_mod, "load_signatures_merged", lambda p, r: [object()])
         monkeypatch.setattr(
             flirt_mod,
             "flirt",
@@ -295,7 +295,7 @@ class TestSmallTextSectionSchema:
                 root=tmp_path, target_binary=tmp_path / "x.dll"
             ),
         )
-        monkeypatch.setattr(flirt_mod, "load_signatures", lambda d: [object()])
+        monkeypatch.setattr(flirt_mod, "load_signatures_merged", lambda p, r: [object()])
         monkeypatch.setattr(
             flirt_mod,
             "flirt",
@@ -327,7 +327,7 @@ class TestSmallTextSectionSchema:
         data = json.loads(result.stdout)
         for key in (
             "binary",
-            "sig_dir",
+            "sig_dirs",
             "signature_count",
             "text_size",
             "min_size",

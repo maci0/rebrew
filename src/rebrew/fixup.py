@@ -136,11 +136,6 @@ _UNDECLARED_TYPE_RE = re.compile(
 )
 _IMPLICIT_FN_RE = re.compile(r"implicit declaration of function '(?P<name>[A-Za-z_]\w*)'")
 
-#: Statements that look like calls to *name* — used to derive a prototype's
-#: argument count.  Best-effort; a bare ``int name();`` prototype suffices
-#: for C89 compilation.
-_CALL_RE = re.compile(r"\b(?P<name>[A-Za-z_]\w*)\s*\(")
-
 
 @dataclass
 class FixupResult:

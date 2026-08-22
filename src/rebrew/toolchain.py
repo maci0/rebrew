@@ -1113,57 +1113,6 @@ def _vendored_binary(spec: ToolchainSpec) -> Path | None:
     return None
 
 
-def _vendored_include(spec: ToolchainSpec) -> Path | None:
-    """Locate the spec's include dir inside its vendored host tree.
-
-    Case-insensitive on the subdir name because MSVC trees differ across
-    versions (5.0: include/, 6.0 master/SP5: VC98/Include, 4.0: INCLUDE).
-    Checks the host root, then one wrapper level deep (VC98/Include etc).
-    Returns None when nothing matches.
-    """
-    if spec.host_path is None:
-        return None
-    host = Path(spec.host_path)
-    if (host / "source").is_dir():
-        host = host / "source"
-    candidates = []
-    try:
-        candidates = [e for e in host.iterdir() if e.is_dir()]
-    except OSError:
-        return None
-    # Direct hit at host root first (5.0/4.2/4.0 layouts).
-    for entry in candidates:
-        if entry.name.lower() == "include":
-            return entry
-    # Wrapped product trees (VC98/Include, VC/include) nest one level deep.
-    for wrapper in candidates:
-        try:
-            for entry in wrapper.iterdir():
-                if entry.is_dir() and entry.name.lower() == "include":
-                    return entry
-        except OSError:
-            continue
-    return None
-
-
-def _vendored_libdir(spec: ToolchainSpec) -> Path | None:
-    """Locate the spec lib dir inside its vendored host tree (case-insensitive)."""
-    if spec.host_path is None:
-        return None
-    host = Path(spec.host_path)
-    roots = [host]
-    with contextlib.suppress(OSError):
-        roots.extend(e for e in host.iterdir() if e.is_dir())
-    for base in roots:
-        try:
-            for entry in base.iterdir():
-                if entry.is_dir() and entry.name.lower() == "lib":
-                    return entry
-        except OSError:
-            continue
-    return None
-
-
 def _resolve_binary(spec: ToolchainSpec) -> str:
     """The host-side compiler path for a native-runtime spec (no image):
     vendored dir / PATH binary.  Raises ToolchainError when nothing

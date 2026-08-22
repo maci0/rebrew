@@ -100,9 +100,6 @@ _MSVC_MARKERS = (
 
 _BORLAND_SECTIONS = {"CODE", "DATA", "BSS"}
 
-# Watcom C/C++ (Open Watcom / watcom-win32 9.x-11.0) uses underscore-prefixed
-# section names instead of MSVC's dotted or Borland's bare ones.
-_WATCOM_SECTIONS = {"_TEXT", "_DATA", "_BSS"}
 _WATCOM_MARKERS = ("Open Watcom", "Watcom C/C++", "Watcom Run-time Library", "WATCOM C/C++")
 
 # Borland C/C++ (Turbo C, C++Builder) — distinct from Delphi: same CODE/DATA/
@@ -490,12 +487,6 @@ def _gcc_era_hint(count_modern: int, count_old: int) -> str:
         return "modern GCC style (accumulate-outgoing-args)"
     return "mixed GCC codegen styles"
 
-
-# pre-6.0 MSVC (4.x/5.0) hoists a loop-invariant constant into a
-# callee-saved register and stores it via that register; MSVC 6.0 folds the
-# constant into immediate stores.  A strong mov ebx/ebp/esi/edi, small-imm32
-# signal marks pre-6.0 codegen even when the CRT/linker era is 6.0.
-_HOIST_REGS = (0xBB, 0xBD, 0xBE, 0xBF)  # mov ebx/ebp/esi/edi, imm32
 
 # --- byte-level codegen fingerprint patterns (verified — see docs/CODEGEN_REFERENCE.md) ---
 

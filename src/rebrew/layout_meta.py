@@ -376,8 +376,6 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
 # Text package serialization
 # ---------------------------------------------------------------------------
 
-_HEX_WRAP = 64  # hex chars per line (32 bytes)
-
 
 def _to_hex(data: bytes) -> str:
     out = []

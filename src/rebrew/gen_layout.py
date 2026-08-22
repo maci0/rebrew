@@ -467,10 +467,6 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
     return set(r.stdout.split()) if r.returncode == 0 else set()
 
 
-def _decorated(name: str, args: int | None) -> str:
-    return f"{name}@{args}" if args is not None else name
-
-
 def _imp_suffix(name: str, lib_symbols: set[str], ordinal_map: dict[str, int]) -> str | None:
     """Find the decorated suffix (``@N``) for an import name."""
     for sym in lib_symbols:

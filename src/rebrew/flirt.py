@@ -49,18 +49,10 @@ def _sig_files(dirs: list[Path]) -> list[Path]:
     return list(seen.values())
 
 
-def load_signatures(sig_dir: str) -> list[Any]:
-    """Load all ``.sig`` and ``.pat`` FLIRT signature files from *sig_dir*."""
-    console.print(f"Loading signatures from {sig_dir}...")
+def _parse_sig_files(files: list[Path]) -> list[Any]:
+    """Parse each FLIRT signature file, warning (not aborting) on bad ones."""
     sigs: list[Any] = []
-
-    sig_path = Path(sig_dir)
-    if not sig_path.exists():
-        console.print(f"Signature directory {sig_dir} not found.")
-        return []
-
-    sig_files = sorted(sig_path.glob("*.sig")) + sorted(sig_path.glob("*.pat"))
-    for filepath in sig_files:
+    for filepath in files:
         try:
             content = filepath.read_bytes()
             if filepath.suffix == ".sig":
@@ -75,8 +67,19 @@ def load_signatures(sig_dir: str) -> list[Any]:
             # struct.error / IndexError / UnicodeDecodeError on malformed
             # signatures; one bad file must not abort the whole scan.
             warnings.warn(f"Error parsing {filepath}: {e}", stacklevel=2)
-
     return sigs
+
+
+def load_signatures(sig_dir: str) -> list[Any]:
+    """Load all ``.sig`` and ``.pat`` FLIRT signature files from *sig_dir*."""
+    console.print(f"Loading signatures from {sig_dir}...")
+
+    sig_path = Path(sig_dir)
+    if not sig_path.exists():
+        console.print(f"Signature directory {sig_dir} not found.")
+        return []
+
+    return _parse_sig_files(sorted(sig_path.glob("*.sig")) + sorted(sig_path.glob("*.pat")))
 
 
 def load_signatures_merged(project_dir: Path, repo_dir: Path) -> list[Any]:
@@ -94,21 +97,7 @@ def load_signatures_merged(project_dir: Path, repo_dir: Path) -> list[Any]:
             "(or set REBREW_FLIRT_SIGS_DIR)."
         )
         return []
-    sigs: list[Any] = []
-    for filepath in files:
-        try:
-            content = filepath.read_bytes()
-            if filepath.suffix == ".sig":
-                parsed = flirt.parse_sig(content)
-            else:
-                parsed = flirt.parse_pat(content.decode("utf-8", errors="ignore"))
-            sigs.extend(parsed)
-            console.print(f"Loaded {len(parsed)} signatures from {filepath.name}")
-        except (OSError, ValueError, TypeError) as e:
-            warnings.warn(f"Error loading {filepath}: {e}", stacklevel=2)
-        except Exception as e:  # noqa: BLE001
-            warnings.warn(f"Error parsing {filepath}: {e}", stacklevel=2)
-    return sigs
+    return _parse_sig_files(files)
 
 
 def find_func_size(code_data: bytes, offset: int) -> int:
