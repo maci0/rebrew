@@ -408,6 +408,17 @@ emits just the `.def`; `--link-config` prints the derived `[link]` toml
 block for `rebrew-project.toml`; `--layout-config` prints the
 `[targets.<t>.layout]` block; `--json` emits a machine-readable manifest.
 
+### `rebrew cmake-toolchain`
+
+`rebrew cmake-toolchain [--toolchain msvc6] [--out cmake/]`
+
+Write a CMake toolchain file that drives a docker toolchain's tools from
+CMake: `CMAKE_C_COMPILER/LINKER/AR` point at the `rebrew-cmake-{cl,link,lib}`
+console scripts, which translate CMake invocations into `docker run` calls
+against the toolchain image (same-path-mounted project root, shared
+flock-initialized wineprefix, self-contained `INCLUDE`/`LIB`).  Use the
+generated file with `cmake -B build --toolchain <file> -DCMAKE_BUILD_TYPE=Release`.
+
 ### `rebrew link-sweep`
 
 `rebrew link-sweep [--link-cmd TEMPLATE] [--cwd DIR] [--keep] [--json]`
