@@ -231,7 +231,9 @@ class TestRunDiff:
         assert len(lines) == 2  # header + only the ** row
         assert "push ebp" in lines[1]
 
-    def test_terminal_output_with_blockers(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_terminal_output_with_blockers(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         summary = _summary(
             instructions=[
                 {
@@ -242,6 +244,10 @@ class TestRunDiff:
             ]
         )
         _call_run_diff(monkeypatch, summary=summary)  # must not raise
+        captured = capsys.readouterr()
+        output = captured.out + captured.err
+        assert "Auto-classified blockers:" in output
+        assert "jump condition swap" in output
 
     def test_fix_blocker_writes_metadata(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -326,8 +332,17 @@ class TestRunDiff:
             _call_run_diff(monkeypatch, summary=summary)
         assert exc.value.exit_code == EXIT_MISMATCH
 
-    def test_clean_diff_no_exit(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_clean_diff_no_exit(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         _call_run_diff(monkeypatch, summary=_summary())  # no structural → no exit
+        captured = capsys.readouterr()
+        output = captured.out + captured.err
+        # A perfect diff must not classify blockers or report structural loss.
+        assert "Auto-classified blockers" not in output
+        assert "Structural similarity" in output
+        assert "4 exact" in output
+        assert "100.0%" in output
 
 
 class TestDiffCli:

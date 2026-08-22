@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -156,3 +157,43 @@ class TestGetGlobalsSizes:
     def test_default_pointer_size(self, tmp_path: Path) -> None:
         globals_dict = self._scan(tmp_path, "extern int g_i;")
         assert globals_dict[0x1000]["size"] == 4
+
+
+class TestSectionsFromInfo:
+    """The .data → .data + .bss split mirrors the loader's BSS model."""
+
+    @staticmethod
+    def _info(**sections: object) -> Any:
+        from rebrew.binary_loader import BinaryInfo, SectionInfo
+
+        info = BinaryInfo(path=Path("/fake/x.dll"), format="pe")
+        for name, (va, size, raw, off) in sections.items():  # type: ignore[union-attr]
+            info.sections[name] = SectionInfo(
+                name=name, va=va, size=size, file_offset=off, raw_size=raw
+            )
+        return info
+
+    def test_data_without_bss_tail_passes_through(self) -> None:
+        from rebrew.catalog.sections import sections_from_info
+
+        info = self._info(
+            **{".text": (0x1000, 0x40, 0x40, 0x400), ".data": (0x2000, 0x20, 0x20, 0x800)}
+        )
+        sections = sections_from_info(info)
+        assert set(sections) == {".text", ".data"}
+        assert sections[".data"] == {"va": 0x2000, "size": 0x20, "fileOffset": 0x800}
+
+    def test_data_splits_bss_zero_fill_tail(self) -> None:
+        from rebrew.catalog.sections import sections_from_info
+
+        # raw 0x10 of 0x30 virtual: 0x20 zero-fill tail becomes .bss.
+        info = self._info(**{".data": (0x2000, 0x30, 0x10, 0x800)})
+        sections = sections_from_info(info)
+        assert sections[".data"] == {"va": 0x2000, "size": 0x10, "fileOffset": 0x800}
+        assert sections[".bss"] == {"va": 0x2010, "size": 0x20, "fileOffset": 0}
+
+    def test_raw_larger_than_virtual_never_splits(self) -> None:
+        from rebrew.catalog.sections import sections_from_info
+
+        info = self._info(**{".data": (0x2000, 0x10, 0x30, 0x800)})
+        assert set(sections_from_info(info)) == {".data"}
