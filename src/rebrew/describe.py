@@ -22,6 +22,7 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import typer
@@ -133,7 +134,12 @@ def _build_lookup(
             if size > 0:
                 ranges.append((va, va + size, name))
     except (OSError, ValueError, KeyError):
-        pass
+        # Without the function list, containing-function resolution degrades
+        # to annotation ranges only; log why so an empty dossier is explainable.
+        logging.debug(
+            "function list unavailable — dossier ranges limited to annotations",
+            exc_info=True,
+        )
     ranges.sort(key=lambda r: r[0])
     return annotations, names, ranges
 

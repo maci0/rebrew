@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import atexit
 import hashlib
+import logging
 import re
 import threading
 from collections.abc import Iterator
@@ -56,8 +57,34 @@ from pathlib import Path
 
 import diskcache
 
+logger = logging.getLogger(__name__)
+
 # Bump on key semantics changes to invalidate stale entries.
 CACHE_SCHEMA_VERSION = 5
+
+# Warn once per process: a corrupt/contended store degrades every get/put,
+# and one line per lookup would flood a GA batch's log without adding info.
+_degraded_logged = False
+
+
+def _warn_cache_failure(op: str, exc: Exception) -> None:
+    """Log the first cache failure per process at WARNING.
+
+    The cache is an accelerator: any failure must degrade to a miss/skip,
+    never break compilation — but silently losing it would leave the user
+    wondering why every compile suddenly pays full subprocess cost.
+    """
+    global _degraded_logged
+    if not _degraded_logged:
+        _degraded_logged = True
+        logger.warning(
+            "Compile cache %s failed (%s: %s) — continuing with degraded/no cache; "
+            "delete .rebrew/compile_cache/ to reset a corrupted store",
+            op,
+            type(exc).__name__,
+            exc,
+        )
+
 
 # Extensions treated as headers when fingerprinting an include directory.
 _HEADER_SUFFIXES = frozenset({".h", ".hpp", ".hxx", ".inl", ".hh"})
@@ -87,7 +114,6 @@ class CompileCache:
                 are evicted by ``diskcache`` when the limit is exceeded (LRU).
 
         """
-        self._cache = diskcache.Cache(str(cache_dir), size_limit=size_limit)
         self.hits: int = 0
         self.misses: int = 0
         # ``CompileCache`` instances are shared across worker threads in
@@ -96,42 +122,65 @@ class CompileCache:
         # ``+= 1`` is not atomic across the GIL — protect the increments so
         # stats are not silently undercounted under contention.
         self._counter_lock = threading.Lock()
+        # None when the store could not be opened (corrupt SQLite file,
+        # unwritable directory): the cache runs disabled instead of raising,
+        # so callers keep compiling at full subprocess cost.
+        self._cache: diskcache.Cache | None
+        try:
+            self._cache = diskcache.Cache(str(cache_dir), size_limit=size_limit)
+        except Exception as exc:  # noqa: BLE001 — any store failure must degrade, not raise
+            self._cache = None
+            _warn_cache_failure(f"open ({cache_dir})", exc)
 
     def get(self, key: str) -> bytes | None:
         """Return cached .obj bytes for *key*, or ``None`` on miss.
 
         Increments ``self.hits`` on a cache hit, ``self.misses`` on a miss.
+        A failing store (corruption, lock contention timeout) degrades to a
+        miss so compilation proceeds via the compiler subprocess.
         """
-        result = self._cache.get(key, default=None)
-        if isinstance(result, bytes):
-            with self._counter_lock:
-                self.hits += 1
-            return result
+        if self._cache is not None:
+            try:
+                result = self._cache.get(key, default=None)
+            except Exception as exc:  # noqa: BLE001 — degrade to miss, never break compiles
+                _warn_cache_failure("lookup", exc)
+                result = None
+            if isinstance(result, bytes):
+                with self._counter_lock:
+                    self.hits += 1
+                return result
         with self._counter_lock:
             self.misses += 1
         return None
 
     def put(self, key: str, obj_bytes: bytes) -> None:
-        """Store .obj bytes under *key*."""
-        self._cache.set(key, obj_bytes)
+        """Store .obj bytes under *key* (skipped when the store is unusable)."""
+        if self._cache is None:
+            return
+        try:
+            self._cache.set(key, obj_bytes)
+        except Exception as exc:  # noqa: BLE001 — a failed write only costs future hits
+            _warn_cache_failure("store", exc)
 
     @property
     def volume(self) -> int:
         """Total bytes used by the cache on disk."""
-        return int(self._cache.volume())
+        return int(self._cache.volume()) if self._cache is not None else 0
 
     @property
     def count(self) -> int:
         """Number of entries in the cache."""
-        return len(self._cache)
+        return len(self._cache) if self._cache is not None else 0
 
     def clear(self) -> None:
         """Remove all cached entries."""
-        self._cache.clear()
+        if self._cache is not None:
+            self._cache.clear()
 
     def close(self) -> None:
         """Close the underlying diskcache store."""
-        self._cache.close()
+        if self._cache is not None:
+            self._cache.close()
 
     def stats(self) -> dict[str, int | float]:
         """Return cache statistics as a dict.
@@ -142,11 +191,12 @@ class CompileCache:
         """
         total_lookups = self.hits + self.misses
         hit_rate = round(100.0 * self.hits / total_lookups, 1) if total_lookups > 0 else 0.0
+        size_limit = self._cache.size_limit if self._cache is not None else 0
         return {
             "entries": self.count,
             "volume_bytes": self.volume,
             "volume_mb": round(self.volume / (1024 * 1024), 2),
-            "size_limit_mb": round(self._cache.size_limit / (1024 * 1024), 2),
+            "size_limit_mb": round(size_limit / (1024 * 1024), 2),
             "session_hits": self.hits,
             "session_misses": self.misses,
             "session_hit_rate_pct": hit_rate,

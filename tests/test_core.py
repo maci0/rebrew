@@ -81,6 +81,34 @@ class TestBuildCache:
         cache._cache.close()
 
 
+class TestBuildCacheDegradation:
+    """A corrupt store must degrade to miss/skip, never raise: BuildCache.get
+    sits in the GA per-candidate hot loop and an unhandled sqlite/diskcache
+    error would kill an hours-long run (error-handling review)."""
+
+    def test_corrupt_store_disables_cache(self, tmp_path: Path) -> None:
+        cache_dir = tmp_path / "test_cache_cache"
+        cache_dir.mkdir()
+        (cache_dir / "cache.db").write_bytes(b"this is not sqlite\x00\x01\x02")
+        cache = BuildCache(db_path=str(tmp_path / "test_cache.db"))
+        assert cache._cache is None
+        assert cache.get("k") is None  # miss, not raise
+        cache.put("k", BuildResult(ok=True))  # skip, not raise
+        cache.close()  # no-op, not raise
+
+    def test_read_failure_degrades_to_miss(self, tmp_path: Path, monkeypatch) -> None:
+        import sqlite3
+
+        cache = BuildCache(db_path=str(tmp_path / "test_cache.db"))
+
+        def _boom(*a: object, **kw: object) -> object:
+            raise sqlite3.DatabaseError("database disk image is malformed")
+
+        monkeypatch.setattr(cache._cache, "get", _boom)
+        assert cache.get("k") is None
+        cache.close()
+
+
 # -------------------------------------------------------------------------
 # Save/load
 # -------------------------------------------------------------------------

@@ -174,7 +174,12 @@ def _validate_and_refine(
                     hit_nxt = True
                     break
         except Exception:
-            pass
+            # Disassembly failure at this candidate: ret_end stays None, so the
+            # size falls back to the raw gap. Log it — a mis-sized function in
+            # the catalog is otherwise indistinguishable from a correct one.
+            logging.debug(
+                "instruction sweep failed at candidate 0x%x (size = raw gap)", va, exc_info=True
+            )
 
         if hit_nxt:
             # code runs straight into the next candidate with no ret — that

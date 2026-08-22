@@ -1,8 +1,11 @@
 """Tests for rebrew.compile_cache — CompileCache, key builder, module-level registry."""
 
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
+
+import pytest
 
 from rebrew.compile_cache import (
     CACHE_SCHEMA_VERSION,
@@ -632,4 +635,74 @@ class TestHitMissCounters:
         cache.get("x")
         info = cache.stats()
         assert info["session_hit_rate_pct"] == 100.0
+        cache.close()
+
+
+class TestCacheDegradation:
+    """A corrupt or contended store must degrade to miss/skip, never raise.
+
+    The cache is an accelerator for the GA hot loop and verify batch: an
+    unhandled diskcache/sqlite error there kills hours-long runs with an
+    obscure traceback (error-handling review).
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_degraded_flag(self, monkeypatch) -> None:
+        """Each test sees its own warn-once budget (the flag is module-global)."""
+        import rebrew.compile_cache as cc_mod
+
+        monkeypatch.setattr(cc_mod, "_degraded_logged", False)
+
+    def test_corrupt_store_disables_cache(self, tmp_path: Path) -> None:
+        cache_dir = tmp_path / "cc"
+        cache_dir.mkdir()
+        # A non-SQLite file where diskcache expects its DB header.
+        (cache_dir / "cache.db").write_bytes(b"this is not sqlite\x00\x01\x02")
+        cache = CompileCache(cache_dir)  # must not raise
+        assert cache._cache is None
+        assert cache.get("k") is None  # miss, not raise
+        assert cache.misses == 1
+        cache.put("k", b"\x01")  # skip, not raise
+        assert cache.count == 0
+        assert cache.volume == 0
+        cache.clear()  # no-op, not raise
+        stats = cache.stats()
+        assert stats["entries"] == 0
+        cache.close()  # no-op, not raise
+
+    def test_corrupt_entry_degrades_to_miss(self, tmp_path: Path) -> None:
+        """An entry whose stored value fails validation is a plain miss."""
+        cache = CompileCache(tmp_path / "cc")
+        cache._cache.set("bad", 3.14)  # non-bytes payload → type-guarded miss
+        assert cache.get("bad") is None
+        cache.close()
+
+    def test_get_failure_counts_as_miss(self, tmp_path: Path, monkeypatch) -> None:
+        cache = CompileCache(tmp_path / "cc")
+        calls = {"n": 0}
+
+        def _boom(*a: object, **kw: object) -> bytes:
+            calls["n"] += 1
+            raise sqlite3.DatabaseError("database disk image is malformed")
+
+        monkeypatch.setattr(cache._cache, "get", _boom)
+        assert cache.get("k") is None
+        assert calls["n"] == 1
+        assert cache.misses == 1 and cache.hits == 0
+        cache.close()
+
+    def test_put_failure_is_swallowed_with_warning(
+        self, tmp_path: Path, monkeypatch, caplog
+    ) -> None:
+        import logging
+
+        cache = CompileCache(tmp_path / "cc")
+
+        def _full(key: object, value: object) -> None:
+            raise OSError(28, "No space left on device")
+
+        monkeypatch.setattr(cache._cache, "set", _full)
+        with caplog.at_level(logging.WARNING, logger="rebrew.compile_cache"):
+            cache.put("k", b"\x01")  # must not raise
+        assert any("Compile cache store failed" in r.message for r in caplog.records)
         cache.close()

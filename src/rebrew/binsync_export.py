@@ -730,8 +730,14 @@ def main(
                     },
                 )()
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        # A failed catalog scan would silently ship an incomplete export
+        # (every not-yet-reversed function missing) — surface it.
+        logger.warning("Catalog scan failed — export omits catalog-only functions", exc_info=True)
+        console.print(
+            f"[yellow]warning:[/] catalog scan failed ({exc.__class__.__name__}: {exc}); "
+            "export includes annotations only, no catalog-only functions"
+        )
 
     # Nothing at all to export?
     if not func_entries and not catalog_func_entries and not global_entries:
@@ -823,8 +829,14 @@ def main(
                         cleaned.append(str(p))
                 if cleaned:
                     console.print(f"[dim]Cleaned {len(cleaned)} orphan TOML(s)[/dim]")
-        except Exception:
-            pass
+        except Exception as exc:
+            # --clean is an explicit request: silently skipping it would leave
+            # the user believing stale TOMLs are gone (state-dir drift).
+            logger.warning("Orphan TOML cleanup failed", exc_info=True)
+            console.print(
+                f"[yellow]warning:[/] --clean failed ({exc.__class__.__name__}: {exc}); "
+                "orphan TOMLs were left in place"
+            )
 
     # Validation warnings (non-fatal)
     warnings_list: list[str] = []
