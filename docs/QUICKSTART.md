@@ -1,7 +1,8 @@
 # Rebrew Quick Start
 
 Rebrew is a compiler-in-the-loop decompilation workbench for binary-matching game
-reversing. It compiles your hand-written C89 source with MSVC6 under Wine and
+reversing. It compiles your hand-written C89 source with MSVC6 in a pinned docker
+image (wine runs inside the image; there is no host wine/wibo path) and
 byte-compares the output against the original binary, giving you instant feedback on
 whether your reconstruction matches.
 
@@ -11,7 +12,7 @@ commands see [CLI.md](CLI.md).
 
 ```mermaid
 graph TD
-    Clone[Fresh clone] --> Setup[uv sync --all-extras<br/>install toolchain under tools/]
+    Clone[Fresh clone] --> Setup[uv sync --all-extras<br/>pull the toolchain docker image]
     Setup --> Init[rebrew init<br/>scaffold rebrew-project.toml]
     Init --> Skeleton[rebrew skeleton 0x&lt;VA&gt;<br/>generate a .c skeleton]
     Skeleton --> Test[rebrew test src/&lt;target&gt;/&lt;file&gt;.c<br/>compile + byte-compare]
@@ -24,8 +25,9 @@ graph TD
 
 ## Prerequisites
 
-- MSVC6 toolchain at `toolchain/msvc/6.0-win32/source/VC98/` (already in repo)
-- Wine installed and working
+- Docker, with the `rebrew/msvc:6.0-win32` toolchain image built or pulled
+  (`rebrew toolchain build msvc6` / `rebrew toolchain pull msvc6`; see
+  [TOOLCHAIN.md](TOOLCHAIN.md))
 - Python dependencies: `uv sync`
 - Ghidra with ReVa MCP (optional but strongly recommended)
 

@@ -1,7 +1,8 @@
 # Contributing to Rebrew
 
 Thanks for contributing!  Rebrew is a compiler-in-the-loop decompilation
-workbench for binary-matching game reversing (MSVC6 targets under Wine).
+workbench for binary-matching game reversing (MSVC6 targets compiled in a
+pinned docker image).
 
 ## Start here
 

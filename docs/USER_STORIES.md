@@ -152,12 +152,12 @@ graph TD
 ```mermaid
 graph TD
     A["Function at STATUS: NEAR_MATCHING<br/>(small byte delta)"] --> B["rebrew match func.c<br/>--generations 200 --pop-size 64"]
-    B --> C["GA mutates C AST<br/>(120 operators)"]
-    C --> D["Compile each candidate<br/>(MSVC6 via Wine)"]
+    B --> C["GA mutates C AST<br/>(119 operators)"]
+    C --> D["Compile each candidate<br/>(MSVC6 toolchain image)"]
     D --> E{"Fitness improved?"}
     E -->|"EXACT / RELOC"| F["✅ Match found!<br/>Update annotation"]
     E -->|"Improved but not exact"| G["Continue evolving<br/>(next generation)"]
-    E -->|"Stagnation<br/>(50 gen no improvement)"| H["Add BLOCKER note<br/>escalate to LLM"]
+    E -->|"Stagnation<br/>(40 gen no improvement)"| H["Add BLOCKER note<br/>escalate to LLM"]
     G --> C
 
     style A fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f

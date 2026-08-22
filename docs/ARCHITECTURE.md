@@ -1,9 +1,10 @@
 # Rebrew Architecture
 
 Compiler-in-the-loop decompilation workbench for binary-matching game
-reversing. C source is compiled (MSVC6 under Wine/wibo), byte-compared
-against a target binary's functions, and the result drives STATUS promotion
-and the GA matching engine.
+reversing. C source is compiled in a pinned toolchain docker image
+(MSVC6 runs wine inside its image; there is no host wine/wibo path),
+byte-compared against a target binary's functions, and the result drives
+STATUS promotion and the GA matching engine.
 
 ## Ecosystem
 
@@ -68,7 +69,7 @@ flowchart LR
 | `rebrew/metadata.py` | `rebrew-function.toml` store; typed facade (`FunctionMetadata`, `field_kind`, `load_entry`/`save_entry`) |
 | `rebrew/compile.py` | MSVC6 compile + compare → `CompareResult` |
 | `rebrew/binary_loader.py` | PE/ELF/Mach-O loading via LIEF → `BinaryInfo` (sections, VAs, raw bytes) |
-| `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (120+ tree-sitter mutations), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
+| `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (119 tree-sitter mutations), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
 | `rebrew/catalog/` | Function registry, coverage grid (`grid.py`), `data_*.json` export, `coverage.db` schema consumers |
 | `rebrew/ghidra/` | ReVa MCP sync: push/pull structs, signatures, renames, size-sync |
 | `rebrew/core/` | Relocation-aware byte comparison, MSVC env setup |
@@ -80,7 +81,7 @@ flowchart LR
 | `rebrew/msvc16.py` | MSVC 1.52 (16-bit) compile support — DOSBox + 16-bit OMF objects |
 | `rebrew/dosbox.py` | Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads) |
 | `rebrew/toolchain.py` | Toolchain abstraction: spec registry, docker-only runner (images for Windows/DOS, native for Linux compilers) |
-| `rebrew/toolchain_cli.py` | `rebrew toolchain` CLI (`list`/`status`/`pull`) |
+| `rebrew/toolchain_cli.py` | `rebrew toolchain` CLI (`list`/`status`/`detect`/`pull`/`build`/`vendor`/`smoke`/`update`/`check-updates`) |
 | `rebrew/round_trip.py` | Splice matched functions back into the target PE, verify byte equality |
 | `rebrew/similar.py` | Structural clone detection (mnemonic-histogram similarity) |
 | `rebrew/near_diag.py` | NEAR_MATCHING delta classification (register/reloc/structural buckets) |

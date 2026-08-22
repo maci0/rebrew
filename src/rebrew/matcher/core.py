@@ -1,7 +1,7 @@
 """core.py – Data types and caching for the GA matching engine.
 
-Defines Score, BuildResult, and BuildCache (disk-backed) for the GA
-matching engine.
+Defines Score, StructuralSimilarity, BuildResult, BuildCache (disk-backed),
+and GACheckpoint (serializable run state) for the GA matching engine.
 """
 
 from __future__ import annotations
@@ -14,8 +14,6 @@ from typing import Any
 import diskcache
 
 
-# Python's random.Random.getstate() returns (version, internalstate, gauss_next).
-# Providing a precise alias here avoids tuple[Any, ...] which gives no static guarantees.
 @dataclass
 class Score:
     """Multi-metric fitness score for a compiled candidate."""

@@ -78,8 +78,8 @@ see [`AGENTS.md`](../AGENTS.md); for the CLI surface see [`CLI.md`](CLI.md).
 
 ## Toolchain-dependent tests
 
-- `match.py`/`test.py`/`matcher/compiler.py` need MSVC under Wine/wibo —
-  covered with stubs at the pure-helper level only.
+- `match.py`/`test.py`/`matcher/compiler.py` need the MSVC toolchain docker
+  image — covered with stubs at the pure-helper level only.
 - `prove.py` needs `angr` (the `prove` extra).  `uv sync --all-extras` (the
   documented dev install) enables the full prove test classes for real
   (62 tests, previously skipped when angr was absent).  The module-level
@@ -99,7 +99,7 @@ uv run pytest tests/ -q                 # full suite
 uv run ruff check src/ tests/ tools/    # lint
 uv run ruff format --check src/ tests/ tools/
 uv run mypy src/rebrew/                 # type check (0 issues expected)
-uv run pre-commit run --all-files       # all 10 hooks
+uv run pre-commit run --all-files       # all 15 hooks
 make build                              # sdist+wheel (deterministic wheels)
 uv run python -m slipcover -m pytest tests/ -q   # coverage (summary line)
 ```

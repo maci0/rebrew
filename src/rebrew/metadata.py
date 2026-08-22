@@ -41,8 +41,9 @@ remain in the ``.c`` files for reccmp compatibility.
 Status promotion
 ----------------
 Use :func:`update_source_status` — the single canonical writer — to promote
-a function's STATUS.  Both ``rebrew test`` and ``rebrew verify`` call this
-function; it never touches the ``.c`` file.
+a function's STATUS.  ``rebrew test`` calls it directly; the bulk tool
+``rebrew verify`` goes through :func:`update_statuses_batch`, which enforces
+the same promotion rules.  Neither ever touches the ``.c`` file.
 
 Merge semantics
 ---------------
@@ -309,9 +310,9 @@ def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> N
 def _set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) -> None:
     """Write several fields for *(module, va)* in a single read-modify-write.
 
-    Batches what would otherwise be N full TOML rewrites (used by
-    :func:`save_entry`).  Skips fields whose value is unchanged.  **Private** —
-    use :func:`update_field` / :func:`update_source_status` instead.
+    Batches what would otherwise be N full TOML rewrites.  Skips fields whose
+    value is unchanged.  **Private** — use :func:`update_field` /
+    :func:`update_source_status` instead.
     """
     if not fields:
         return

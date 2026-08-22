@@ -16,7 +16,7 @@ that produce target binaries.
 ### Prerequisites
 
 - One or more rebrew projects configured with `rebrew-project.toml`
-- MSVC6 toolchain accessible via Wine/wibo
+- MSVC6 toolchain image available (`rebrew toolchain build msvc6`)
 - Sufficient disk space (a 100k-pair dataset ≈ 2-5 GB of JSONL)
 
 ### Collecting Pairs from a Single Function
@@ -1030,7 +1030,7 @@ def compute_score(candidate: str, ground_truth: str, extra_info: dict | None = N
 
 
 def _msvc6_compiles(source: str, extra_info: dict | None) -> bool:
-    """Try to compile source with MSVC6 via Wine/wibo."""
+    """Try to compile source with MSVC6 via rebrew's toolchain image."""
     # This would call rebrew's compile_to_obj() internally
     # Simplified here for illustration
     with tempfile.TemporaryDirectory() as tmpdir:
