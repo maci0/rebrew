@@ -143,8 +143,12 @@ def _section_header_offset(info: BinaryInfo, name: str) -> int:
 
 
 def _entry_key(dll: str | bytes, name: str | bytes | None, ordinal: int | None) -> tuple[str, str]:
-    """Canonical import key: ``(dll, name)`` or ``(dll, "#<ordinal>")`` for ordinal-only."""
-    return (str(dll), str(name) if name is not None else f"#{ordinal}")
+    """Canonical import key: ``(dll, name)`` or ``(dll, "#<ordinal>")`` for ordinal-only.
+
+    LIEF reports ordinal-only imports (WS2_32) with an *empty* name string —
+    falsy names are treated as ordinals, matching the metadata (name=None).
+    """
+    return (str(dll), str(name) if name else f"#{ordinal}")
 
 
 def _import_signature(meta_imports: Iterable[ImportMeta]) -> list[tuple[str, list[str]]]:
