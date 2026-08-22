@@ -33,6 +33,7 @@ from rebrew.analysis import StringEntry, Xref, iter_strings, string_refs
 from rebrew.annotation import Annotation, min_valid_va_for
 from rebrew.binary_loader import load_binary
 from rebrew.cli import (
+    DISPLAY_STATUSES,
     TargetOption,
     iter_annotations,
     json_print,
@@ -249,7 +250,7 @@ def _render_index(
         ("Byte coverage", f"{report.byte_coverage_pct}%"),
     ]
     # Any non-standard statuses (MISMATCH, COMPILE_ERROR, ...) get their own card.
-    standard = ("EXACT", "RELOC", "PROVEN", "NEAR_MATCHING", "STUB")
+    standard = set(DISPLAY_STATUSES)
     cards.extend(
         (status, str(count)) for status, count in sorted(sc.items()) if status not in standard
     )

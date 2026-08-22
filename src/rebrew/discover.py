@@ -35,7 +35,7 @@ from rich.console import Console
 
 from rebrew.analysis import iter_instructions
 from rebrew.binary_loader import load_binary
-from rebrew.cli import EXIT_ERROR, json_print
+from rebrew.cli import error_exit, json_print
 from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
@@ -369,11 +369,7 @@ def main(
     bin_path = Path(binary)
     if not bin_path.exists():
         msg = f"binary not found: {bin_path}"
-        if json_output:
-            json_print({"error": msg, "code": EXIT_ERROR})
-        else:
-            console.print(f"[red]Error:[/red] {msg}")
-        raise typer.Exit(code=EXIT_ERROR)
+        error_exit(msg, json_mode=json_output)
 
     d = discover_functions(bin_path, min_size=min_size)
     text = "".join(f"0x{va:08x} {name} {size}\n" for va, size, name in d.functions)

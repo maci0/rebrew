@@ -57,6 +57,7 @@ from pathlib import Path
 
 import numpy as np
 
+from rebrew.cli import MATCHED_STATUSES
 from rebrew.compile_cache import CompileCache, compile_cache_key, get_compile_cache
 from rebrew.config import ProjectConfig
 from rebrew.core import (
@@ -150,7 +151,7 @@ NEAR_MATCH_THRESHOLD = 0.60
 
 def is_matched(status: str) -> bool:
     """True when *status* indicates a fully matched function (EXACT, RELOC, or PROVEN)."""
-    return status in ("EXACT", "RELOC", "PROVEN")
+    return status in MATCHED_STATUSES
 
 
 def classify_match_status(

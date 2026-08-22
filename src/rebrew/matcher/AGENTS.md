@@ -11,7 +11,7 @@ GA engine for binary-matching decompilation. Compiles C through the docker-backe
 | `scoring.py` | Binary comparison (pure) | `score_candidate()`, `diff_functions()`, `structural_similarity()` |
 | `mutator.py` | C mutations (pure) | `mutate_code()`, `mutate_chain()`, `MutationLog`, `crossover()`, `compute_population_diversity()`, 119 `mut_*` operators |
 | `parsers.py` | Object parsing (read-only) | `parse_obj_symbol_bytes()`, `list_obj_symbols()`, `extract_function_from_binary()` |
-| `omf16.py` | 16-bit OMF parsing (MSVC 1.52 dialect) | `detect_omf16()`, `parse_omf16()`, `parse_obj_omf16()` (code + reloc slots for the 16-bit path) |
+| `omf16.py` | 16-bit OMF parsing (MSVC 1.52 dialect) | `is_omf16()`, `parse_omf16()`, `parse_obj_omf16()` (code + reloc slots for the 16-bit path) |
 | `flags.py` | Flag primitives | `FlagSet`, `Checkbox` (frozen), `Flags` alias |
 | `flag_data.py` | MSVC flag defs | `MSVC6_FLAGS`, `COMMON_MSVC_FLAGS`, `MSVC_SWEEP_TIERS` |
 | `solutions.py` | Solution transfer DB | `SolutionEntry`, `load_solutions()`, `save_solution()`, `find_similar()` (seeds GA runs from solved lookalikes) |

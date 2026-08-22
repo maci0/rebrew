@@ -79,7 +79,7 @@ def _parse_name_list(body: bytes) -> list[str]:
     return names
 
 
-def detect_omf16(data: bytes) -> bool:
+def is_omf16(data: bytes) -> bool:
     """True when *data* looks like the MSVC 1.52 16-bit OMF dialect (an
     ``0xA0`` or ``0xC2`` code record present)."""
     pos = 0
@@ -262,4 +262,4 @@ def parse_obj_omf16(obj_path: str | Path, symbol: str) -> tuple[bytes | None, di
     return _match_symbol(mod, symbol)
 
 
-__all__ = ["Omf16Error", "Omf16Module", "detect_omf16", "parse_omf16", "parse_obj_omf16"]
+__all__ = ["Omf16Error", "Omf16Module", "is_omf16", "parse_omf16", "parse_obj_omf16"]

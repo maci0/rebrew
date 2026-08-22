@@ -46,6 +46,7 @@ from rebrew.catalog import (
 )
 from rebrew.cli import (
     EXIT_MISMATCH,
+    MATCHED_STATUSES,
     STATUS_COLORS,
     TargetOption,
     error_exit,
@@ -805,7 +806,7 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             total = p["total"]
             match_pct = round(100.0 * p["match_count"] / total, 1) if total > 0 else 0.0
             result["match_percent"] = match_pct
-            result["passed"] = p["status"] in ("EXACT", "RELOC", "PROVEN")
+            result["passed"] = p["status"] in MATCHED_STATUSES
             if p.get("delta") is not None:
                 result["delta"] = p["delta"]
             elif total > 0:
@@ -946,12 +947,13 @@ def _save_verify_cache(
         atomic_write_text(cache_path, json.dumps(cache_data.to_dict(), indent=2), encoding="utf-8")
 
 
-def _canonical_va_key(va: Any) -> Any:
-    """Normalize a VA to a canonical comparison key.
+def canonical_va_key(va: Any) -> Any:
+    """Normalize a verify-cache VA key to its canonical form.
 
     Hex strings (``0x1000`` vs ``0x00001000``) map to the same int so report
     format drift can't silently break diffing.  Non-hex values pass through
-    unchanged (still unique).
+    unchanged (still unique).  This is the single parser for keys written by
+    ``_save_verify_cache``; readers elsewhere must use it.
     """
     if isinstance(va, int):
         return va
@@ -985,12 +987,12 @@ def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str,
 
     """
     previous_results = {
-        _canonical_va_key(r["va"]): r
+        canonical_va_key(r["va"]): r
         for r in previous.get("results", [])
         if isinstance(r, dict) and "va" in r
     }
     current_results = {
-        _canonical_va_key(r["va"]): r
+        canonical_va_key(r["va"]): r
         for r in current.get("results", [])
         if isinstance(r, dict) and "va" in r
     }

@@ -35,7 +35,7 @@ import typer
 from rich.console import Console
 from typer.testing import CliRunner
 
-from rebrew.cli import EXIT_ERROR, EXIT_OK, json_print
+from rebrew.cli import EXIT_OK, error_exit, json_print
 from rebrew.skeleton import _C89_STRICT_PROFILES
 from rebrew.utils import atomic_write_text
 
@@ -352,11 +352,7 @@ def main(
     bin_path = Path(binary)
     if not bin_path.exists():
         msg = f"binary not found: {bin_path}"
-        if json_output:
-            json_print({"error": msg, "code": EXIT_ERROR})
-        else:
-            console.print(f"[red]Error:[/red] {msg}")
-        raise typer.Exit(code=EXIT_ERROR)
+        error_exit(msg, json_mode=json_output)
 
     target_name = target or bin_path.stem
     marker = re.sub(r"[^A-Za-z0-9_]", "", target_name).upper()
@@ -428,11 +424,7 @@ def main(
         )
         if init_result.exit_code != 0:
             msg = f"rebrew init failed: {init_result.output[:300]}"
-            if json_output:
-                json_print({"error": msg, "code": EXIT_ERROR})
-            else:
-                console.print(f"[red]Error:[/red] {msg}")
-            raise typer.Exit(code=EXIT_ERROR)
+            error_exit(msg, json_mode=json_output)
 
     project = Path(".")
     # 16-bit DOS/NE targets must disassemble as x86-16 — init defaults every
@@ -455,11 +447,7 @@ def main(
         shutil.copy2(bin_path, dest)
     except OSError as e:
         msg = f"failed to copy binary: {e}"
-        if json_output:
-            json_print({"error": msg, "code": EXIT_ERROR})
-        else:
-            console.print(f"[red]Error:[/red] {msg}")
-        raise typer.Exit(code=EXIT_ERROR)
+        error_exit(msg, json_mode=json_output)
 
     # 3. symlink the vendored toolchain
     linked = _link_toolchain(project, profile)
@@ -474,11 +462,7 @@ def main(
             "rizin produced no functions — install rizin (or fix the analysis "
             "timeout) and re-run intake; the project scaffold was still created"
         )
-        if json_output:
-            json_print({"error": msg, "code": EXIT_ERROR})
-        else:
-            console.print(f"[red]Error:[/red] {msg}")
-        raise typer.Exit(code=EXIT_ERROR)
+        error_exit(msg, json_mode=json_output)
 
     src_dir = project / "src" / target_name
     src_dir.mkdir(parents=True, exist_ok=True)

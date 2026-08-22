@@ -86,7 +86,7 @@ class TestCmdExtract:
             cmd_extract(binary, [(0x1000, 8, "f")], 0x1000, tmp_path, json_output=True)  # type: ignore[arg-type]
         assert exc.value.exit_code == 1
         out = json.loads(capsys.readouterr().out)
-        assert out["status"] == "ERROR"
+        assert out["code"] == 1
 
     def test_json_disasm_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
@@ -102,7 +102,7 @@ class TestCmdExtract:
             cmd_extract(binary, [(0x1000, 8, "f")], 0x1000, tmp_path, json_output=True)  # type: ignore[arg-type]
         assert exc.value.exit_code == 1
         out = json.loads(capsys.readouterr().out)
-        assert out["status"] == "ERROR"
+        assert out["code"] == 1
         assert "no capstone" in out["error"]
 
     def test_va_not_found_json(

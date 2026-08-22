@@ -55,6 +55,14 @@ STATUS_COLORS: dict[str, str] = {
     "SKIP": "dim",
 }
 
+# Statuses that count as matched work (byte-identical or proven-equivalent),
+# in canonical display order.  Single source of truth: use these instead of
+# re-spelling the tuple locally.
+MATCHED_STATUSES: tuple[str, ...] = ("EXACT", "RELOC", "PROVEN")
+
+# User-visible classification statuses, in canonical display order.
+DISPLAY_STATUSES: tuple[str, ...] = (*MATCHED_STATUSES, "NEAR_MATCHING", "STUB")
+
 
 # Re-usable Typer option for --target
 TargetOption: str | None = typer.Option(

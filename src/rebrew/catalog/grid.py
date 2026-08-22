@@ -24,6 +24,7 @@ from rebrew.catalog.sections import (
     sections_from_info,
     trim_trailing_padding,
 )
+from rebrew.cli import MATCHED_STATUSES
 
 log = logging.getLogger(__name__)
 
@@ -341,7 +342,7 @@ def generate_data_json(
         }
         if e["marker_type"] not in ("GLOBAL", "DATA"):
             emitted_fn_count += 1
-            if e["status"] in ("EXACT", "RELOC", "PROVEN"):
+            if e["status"] in MATCHED_STATUSES:
                 emitted_matched += 1
 
     # Generate cells for each section

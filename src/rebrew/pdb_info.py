@@ -32,7 +32,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from rebrew.cli import EXIT_ERROR, json_print
+from rebrew.cli import error_exit, json_print
 
 console = Console(stderr=True)
 
@@ -186,20 +186,11 @@ def main(
     bin_path = Path(binary)
     if not bin_path.exists():
         msg = f"binary not found: {bin_path}"
-        if json_output:
-            json_print({"error": msg, "code": EXIT_ERROR})
-        else:
-            console.print(f"[red]Error:[/red] {msg}")
-        raise typer.Exit(code=EXIT_ERROR)
+        error_exit(msg, json_mode=json_output)
 
     info = extract_pdb_info(bin_path)
     if info is None:
-        msg = "no sibling .pdb found"
-        if json_output:
-            json_print({"error": msg, "code": EXIT_ERROR})
-        else:
-            console.print(f"[yellow]{msg}[/yellow]")
-        raise typer.Exit(code=EXIT_ERROR)
+        error_exit("no sibling .pdb found", json_mode=json_output)
 
     payload = {
         "pdb": str(info.pdb),

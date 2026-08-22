@@ -89,9 +89,9 @@ def parse_obj_symbol_and_relocs(
     # vendored objconv first — LIEF cannot parse OMF.
     data = Path(obj_path).read_bytes()
     if _detect_obj_format_data(data[:4]) == "omf":
-        from rebrew.matcher.omf16 import detect_omf16, parse_obj_omf16
+        from rebrew.matcher.omf16 import is_omf16, parse_obj_omf16
 
-        if detect_omf16(data):
+        if is_omf16(data):
             code, reloc_dict = parse_obj_omf16(obj_path, symbol)
             if code is not None:
                 return code, reloc_dict, []

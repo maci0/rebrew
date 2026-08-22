@@ -5,6 +5,7 @@ source files in nested subdirectory layouts (e.g. src/server.dll/game/init.c
 vs src/server.dll/network/init.c).
 """
 
+import os
 from pathlib import Path
 
 from rebrew.config import ProjectConfig
@@ -118,12 +119,13 @@ class TestRelDisplayPath:
         assert rel_display_path(f) == "init.c"
 
     def test_file_not_under_base(self, tmp_path: Path) -> None:
+        """A file outside base_dir keeps its location via a ..-relative path."""
         f = tmp_path / "other" / "file.c"
         f.parent.mkdir()
         f.touch()
         base = tmp_path / "unrelated"
         base.mkdir()
-        assert rel_display_path(f, base) == "file.c"
+        assert rel_display_path(f, base) == os.path.join("..", "other", "file.c")
 
 
 # ---------------------------------------------------------------------------

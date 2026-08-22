@@ -32,7 +32,14 @@ from rich.console import Console
 from rich.table import Table
 
 from rebrew.catalog.registry import RegistryEntry
-from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
+from rebrew.cli import (
+    MATCHED_STATUSES,
+    TargetOption,
+    error_exit,
+    json_print,
+    parse_va,
+    require_config,
+)
 from rebrew.config import ProjectConfig
 from rebrew.similar import _DEFAULT_CS_ARCH, _DEFAULT_CS_MODE, _disasm_signature, similarity_score
 
@@ -40,7 +47,6 @@ console = Console(stderr=True)
 
 #: STATUS values that count as "already matched" on the source side (and
 #: exclude a destination function from consideration).
-MATCHED_STATUSES = frozenset({"EXACT", "RELOC", "PROVEN"})
 
 
 # ---------------------------------------------------------------------------

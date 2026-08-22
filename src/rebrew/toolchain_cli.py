@@ -17,7 +17,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from rebrew.cli import TargetOption, json_print
+from rebrew.cli import TargetOption, error_exit, json_print
 from rebrew.toolchain import (
     ToolchainError,
     docker_available,
@@ -130,7 +130,6 @@ def detect_cmd(
     target: str | None = TargetOption,
 ) -> None:
     """Detect which compiler/toolchain built a binary; check profile alignment."""
-    from rebrew.cli import error_exit
     from rebrew.toolchain_detect import (
         _PROFILE_COMPAT,
         detect_toolchain,
@@ -234,11 +233,7 @@ def pull_cmd(
     try:
         tag, was_present = pull_toolchain(name)
     except ToolchainError as exc:
-        if json_output:
-            json_print({"error": str(exc), "code": 2})
-        else:
-            console.print(f"[red]Error:[/red] {exc}")
-        raise typer.Exit(code=2)
+        error_exit(str(exc), json_mode=json_output)
     if json_output:
         json_print({"pulled": tag, "already_present": was_present})
     else:
@@ -271,11 +266,7 @@ def vendor_cmd(
     src = _SOURCES.get(name)
     if src is None:
         msg = f"no pinned source for toolchain {name!r} (known: {sorted(_SOURCES)})"
-        if json_output:
-            json_print({"error": msg, "code": 2})
-        else:
-            console.print(f"[red]Error:[/red] {msg}")
-        raise typer.Exit(code=2)
+        error_exit(msg, json_mode=json_output)
 
     host = _REPO_TOOLS / src.host_dir
     # Canonical layout: every vendored tree nests the actual toolchain one
@@ -296,11 +287,7 @@ def vendor_cmd(
     )
     if content:
         msg = f"{host} already has files — refusing to clobber"
-        if json_output:
-            json_print({"error": msg, "code": 2})
-        else:
-            console.print(f"[yellow]{msg}[/yellow]")
-        raise typer.Exit(code=2)
+        error_exit(msg, json_mode=json_output)
     host.mkdir(parents=True, exist_ok=True)
     extract_dir = host / "source"
     extract_dir.mkdir()
@@ -328,11 +315,7 @@ def vendor_cmd(
                 actual = hashlib.sha256(archive.read_bytes()).hexdigest()
                 if actual != src.sha256:
                     msg = f"sha256 mismatch for {name}: expected {src.sha256}, got {actual}"
-                    if json_output:
-                        json_print({"error": msg, "code": 2})
-                    else:
-                        console.print(f"[red]Error:[/red] {msg}")
-                    raise typer.Exit(code=2)
+                    error_exit(msg, json_mode=json_output)
                 if src.layout == "zip-installshield":
                     subprocess.run(
                         ["unzip", "-q", str(archive), "-d", td + "/zip"],
@@ -380,11 +363,7 @@ def vendor_cmd(
                 console.print(f"[green]Downloaded + verified[/green] {src.url} -> {src.host_dir}")
     except (subprocess.CalledProcessError, OSError) as exc:
         msg = f"vendor {name} failed: {exc}"
-        if json_output:
-            json_print({"error": msg, "code": 2})
-        else:
-            console.print(f"[red]Error:[/red] {msg}")
-        raise typer.Exit(code=2)
+        error_exit(msg, json_mode=json_output)
 
     # MSVC 6.0's classic master layout wraps the tree in VC98/ (the decomp.me
     # tarball is flat) — canonical config paths and every legacy
@@ -420,11 +399,7 @@ def vendor_cmd(
         probe = _vendored_binary(replace(spec, host_path=host / "source"))
     if probe is None:
         msg = f"vendor {name} produced no {spec.binary} under {host}"
-        if json_output:
-            json_print({"error": msg, "code": 2})
-        else:
-            console.print(f"[red]Error:[/red] {msg}")
-        raise typer.Exit(code=2)
+        error_exit(msg, json_mode=json_output)
 
     if json_output:
         json_print({"vendored": src.host_dir, "binary": str(probe)})
@@ -857,28 +832,16 @@ def build_cmd(
     spec = get_toolchain(name)
     if spec.image is None:
         msg = f"toolchain {name!r} is host-only (no image to build)"
-        if json_output:
-            json_print({"error": msg, "code": 2})
-        else:
-            console.print(f"[red]Error:[/red] {msg}")
-        raise typer.Exit(code=2)
+        error_exit(msg, json_mode=json_output)
     if spec.image is None or ":" not in spec.image:
         msg = f"toolchain {name!r} image tag {spec.image!r} has no version-arch tag"
-        if json_output:
-            json_print({"error": msg, "code": 2})
-        else:
-            console.print(f"[red]Error:[/red] {msg}")
-        raise typer.Exit(code=2)
+        error_exit(msg, json_mode=json_output)
     tag, verarch = spec.image.rsplit(":", 1)
     image = spec.image  # narrowed local — mypy does not narrow into the closure
     build_dir = _REPO_TOOLS / spec.family / verarch
     if not (build_dir / "Dockerfile").exists():
         msg = f"no Dockerfile at {build_dir}"
-        if json_output:
-            json_print({"error": msg, "code": 2})
-        else:
-            console.print(f"[red]Error:[/red] {msg}")
-        raise typer.Exit(code=2)
+        error_exit(msg, json_mode=json_output)
 
     # Every toolchain image inherits FROM rebrew/base — build it first so a
     # fresh docker daemon resolves the dependency.
@@ -900,11 +863,7 @@ def build_cmd(
             )
             if r.returncode != 0:
                 msg = f"docker build {base_tag} failed: {r.stderr[-300:]}"
-                if json_output:
-                    json_print({"error": msg, "code": 2})
-                else:
-                    console.print(f"[red]Error:[/red] {msg}")
-                raise typer.Exit(code=2)
+                error_exit(msg, json_mode=json_output)
 
     # Build through swap_toolchain_image (backup→swap→rollback): docker tags
     # on success, and a failed build leaves the previous image under the tag —
@@ -923,11 +882,7 @@ def build_cmd(
         swap_toolchain_image(image, _build_image)
     except ToolchainError as exc:
         msg = str(exc)
-        if json_output:
-            json_print({"error": msg, "code": 2})
-        else:
-            console.print(f"[red]Error:[/red] {msg}")
-        raise typer.Exit(code=2)
+        error_exit(msg, json_mode=json_output)
     if json_output:
         json_print({"built": spec.image})
     else:
@@ -1216,18 +1171,10 @@ def update_cmd(
     src = _SOURCES.get(name)
     if src is None:
         msg = f"no pinned source for toolchain {name!r} (known: {sorted(_SOURCES)})"
-        if json_output:
-            json_print({"error": msg, "code": 2})
-        else:
-            console.print(f"[red]Error:[/red] {msg}")
-        raise typer.Exit(code=2)
+        error_exit(msg, json_mode=json_output)
     if src.in_repo:
         msg = f"toolchain {name!r} is a pinned tarball (static) — nothing to update"
-        if json_output:
-            json_print({"error": msg, "code": 2})
-        else:
-            console.print(f"[yellow]{msg}[/yellow]")
-        raise typer.Exit(code=2)
+        error_exit(msg, json_mode=json_output)
     url = src.url
     with tempfile.TemporaryDirectory(prefix="rebrew_update_") as td:
         archive = Path(td) / "src.bin"
@@ -1311,18 +1258,10 @@ def update_cmd(
             h2 = _image_smoke_hash(name, workdir)
             if h1 is None or h2 is None:
                 msg = f"update {name}: smoke compile failed after rebuild — golden not updated"
-                if json_output:
-                    json_print({"error": msg, "code": 2})
-                else:
-                    console.print(f"[red]Error:[/red] {msg}")
-                raise typer.Exit(code=2)
+                error_exit(msg, json_mode=json_output)
             if h1 != h2:
                 msg = f"update {name}: smoke hash unstable ({h1[:12]} vs {h2[:12]}) — golden not updated"
-                if json_output:
-                    json_print({"error": msg, "code": 2})
-                else:
-                    console.print(f"[red]Error:[/red] {msg}")
-                raise typer.Exit(code=2)
+                error_exit(msg, json_mode=json_output)
             golden_changed = name in _SMOKE_GOLDEN and _SMOKE_GOLDEN[name][2] != h1
             if name in _SMOKE_GOLDEN:
                 _rewrite_golden(name, h1)

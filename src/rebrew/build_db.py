@@ -15,7 +15,13 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print
+from rebrew.cli import (
+    EXIT_ERROR,
+    MATCHED_STATUSES,
+    TargetOption,
+    error_exit,
+    json_print,
+)
 from rebrew.config import load_config
 
 console = Console(stderr=True)
@@ -140,7 +146,7 @@ def _function_stats(
         # Function statuses are EXACT/RELOC/STUB/... — never "none" (a cell
         # state); the old `st != "none"` guard was always true and misleading.
         covered_bytes += size if size is not None else 0
-        if st in ("EXACT", "RELOC", "PROVEN"):
+        if st in MATCHED_STATUSES:
             matched_bytes += size if size is not None else 0
     return total, by_status, by_module, covered_bytes, matched_bytes
 
