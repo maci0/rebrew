@@ -30,6 +30,7 @@ import re
 import shlex
 import struct
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -178,7 +179,7 @@ def main(
     cwd: Path | None = typer.Option(
         None, "--cwd", help="Working directory for the link command (default: the build dir)"
     ),
-    keep: bool = typer.Option(False, "--keep", help="Keep scratch DLLs under /tmp"),
+    keep: bool = typer.Option(False, "--keep", help="Keep scratch DLLs in the temp dir"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Link the project's objects with candidate option sets and diff headers."""
@@ -201,7 +202,7 @@ def main(
     candidates = _candidates(pe)
 
     results: list[dict[str, Any]] = []
-    scratch_dir = Path("/tmp/rebrew-linksweep")
+    scratch_dir = Path(tempfile.gettempdir()) / "rebrew-linksweep"
     scratch_dir.mkdir(parents=True, exist_ok=True)
     for cand in candidates:
         out = scratch_dir / f"{cand.name}.dll"

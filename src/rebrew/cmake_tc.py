@@ -24,11 +24,12 @@ that points ``CMAKE_C_COMPILER/LINKER/AR`` at these scripts.
 
 from __future__ import annotations
 
-import fcntl
 import os
 import subprocess
 import sys
 import tomllib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import typer
@@ -36,6 +37,11 @@ from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
 from rebrew.toolchain import TOOLCHAINS, ToolchainSpec
+
+try:
+    import fcntl
+except ImportError:  # non-POSIX (no advisory file locks)
+    fcntl = None  # type: ignore[assignment]
 
 console = Console(stderr=True)
 
@@ -62,6 +68,35 @@ _WINE = "/usr/bin/wine"  # the rebrew base image installs wine here
 # ---------------------------------------------------------------------------
 # Resolution
 # ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _exclusive_lock(lock_path: Path) -> Iterator[None]:
+    """Advisory cross-process lock around a wineprefix/docker critical section.
+
+    Falls back to no locking on platforms without ``flock`` (same discipline
+    as :func:`rebrew.utils.metadata_write_lock`).
+    """
+    if fcntl is None:
+        yield
+        return
+    with open(lock_path, "w") as lock_fh:
+        fcntl.flock(lock_fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_fh, fcntl.LOCK_UN)
+
+
+def _docker_user_args() -> list[str]:
+    """``--user uid:gid`` on hosts that expose unix ids (POSIX).
+
+    Capability probe rather than an OS-name check: docker desktop hosts
+    without unix uid/gid just omit the flag and use the daemon default.
+    """
+    if hasattr(os, "getuid") and hasattr(os, "getgid"):
+        return ["--user", f"{os.getuid()}:{os.getgid()}"]
+    return []
 
 
 def _find_project_root(cwd: Path) -> Path | None:
@@ -199,41 +234,36 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
     prefix.mkdir(parents=True, exist_ok=True)
     assert spec.image is not None  # _resolve_spec validated it
     lock_path = prefix / ".init.lock"
-    with open(lock_path, "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with _exclusive_lock(lock_path):
+        if (prefix / ".update-timestamp").exists():
+            return
         try:
-            if (prefix / ".update-timestamp").exists():
-                return
-            try:
-                r = subprocess.run(
-                    [
-                        "docker",
-                        "run",
-                        "--rm",
-                        "--user",
-                        f"{os.getuid()}:{os.getgid()}",
-                        "-e",
-                        f"WINEPREFIX={prefix}",
-                        "-v",
-                        f"{prefix}:{prefix}",
-                        "--entrypoint",
-                        _WINE,
-                        spec.image,
-                        "wineboot",
-                        "-u",
-                    ],
-                    capture_output=True,
-                    timeout=300,
-                )
-            except subprocess.TimeoutExpired as exc:
-                error_exit(f"wineprefix init timed out after 300s ({prefix}): {exc}")
-            if r.returncode != 0:
-                # A half-initialized prefix makes every later compile fail with
-                # confusing wine errors — fail here where the cause is visible.
-                stderr = r.stderr.decode(errors="replace")[-400:].strip()
-                error_exit(f"wineprefix init failed (rc={r.returncode}) at {prefix}: {stderr}")
-        finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+            r = subprocess.run(
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    *_docker_user_args(),
+                    "-e",
+                    f"WINEPREFIX={prefix}",
+                    "-v",
+                    f"{prefix}:{prefix}",
+                    "--entrypoint",
+                    _WINE,
+                    spec.image,
+                    "wineboot",
+                    "-u",
+                ],
+                capture_output=True,
+                timeout=300,
+            )
+        except subprocess.TimeoutExpired as exc:
+            error_exit(f"wineprefix init timed out after 300s ({prefix}): {exc}")
+        if r.returncode != 0:
+            # A half-initialized prefix makes every later compile fail with
+            # confusing wine errors — fail here where the cause is visible.
+            stderr = r.stderr.decode(errors="replace")[-400:].strip()
+            error_exit(f"wineprefix init failed (rc={r.returncode}) at {prefix}: {stderr}")
 
 
 def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
@@ -255,8 +285,7 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
         "docker",
         "run",
         "--rm",
-        "--user",
-        f"{os.getuid()}:{os.getgid()}",
+        *_docker_user_args(),
         "-e",
         f"WINEPREFIX={prefix}",
         "-e",
@@ -278,12 +307,8 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
         *_rewrite_args(mode, args),
     ]
 
-    with open(prefix / ".run.lock", "w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
-        finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+    with _exclusive_lock(prefix / ".run.lock"):
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
     sys.stdout.write((r.stdout + r.stderr).replace("\r", ""))
     sys.stdout.flush()
     return r.returncode
