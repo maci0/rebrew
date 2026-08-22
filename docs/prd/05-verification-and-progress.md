@@ -48,8 +48,9 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 - `verify` does not promote STATUS unconditionally — it calls
   `update_source_status` only when the new STATUS is a true promotion or
   matches the canonical promotion ladder.
-- `graph` does not run dataflow analysis; it tracks call edges based on
-  identifiers found in reversed source files.
+- `graph` does not run dataflow analysis; direct call edges come from
+  identifiers found in reversed source files, optionally augmented with
+  binary-derived edges (`--include-dispatch`, `--binary`).
 - `cache` does not manage other on-disk artifacts (e.g. `db/coverage.db`
   belongs to PRD 02). It only handles `.rebrew/compile_cache/`.
 - Coverage in `status` is computed from local annotations and metadata,
@@ -67,7 +68,9 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   (overridable with `-o`).
 - `--compare` diffs against the last saved report and flags regressions
   (STATUS downgrades, new compile errors).
-- `--full` ignores cache hits (required after header/include changes).
+- `--full` ignores cache hits and re-verifies everything (edits to shared
+  headers or include dirs otherwise invalidate the affected cache entries
+  automatically).
 - `--summary` prints a STATUS breakdown table.
 - `-j JOBS` parallel compile jobs.
 - `--json` machine-readable.
@@ -77,8 +80,11 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 
 ### `rebrew status`
 
-- Reads source markers, `rebrew-function.toml`, and function structure;
-  no compilation.
+- Reads `rebrew-function.toml` (STATUS lives in per-function metadata via
+  `rebrew.metadata`), source markers, and function structure; no
+  compilation.  Inline `// STATUS:` comments in `.c` files are legacy —
+  they are counted as a W019 warning and `rebrew lint` migrates them to
+  metadata.
 - Prints:
   - Counts per STATUS (PROVEN, EXACT, RELOC, NEAR_MATCHING, STUB,
     LIBRARY, …).
@@ -94,14 +100,22 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 - `--format mermaid` (default) | `dot` | `summary`.
 - `--focus FN [--depth N]` extracts a neighbourhood.
 - `--cu-map` overlays compilation-unit boundary inference.
+- `--include-dispatch` adds a virtual `dispatch_0x<VA>` node per dispatch
+  table detected in the binary, connected to its function-pointer targets
+  (dashed edges in mermaid/dot).
+- `--min-table-len N` / `--max-pointer-stride N` tune dispatch-table
+  detection (with `--include-dispatch`).
+- `--binary` builds call edges from the target binary's xrefs instead of
+  the reversed C sources (16-bit NE support included).
 - `-o PATH` writes output to a file.
 - `--json` emits a structured graph.
 
 ### `rebrew cache`
 
-- `cache stats` — show the compile cache's path, entry count, and total
-  size on disk.
-- `cache clear` — delete every cached `.obj` blob.
+- `cache stats` — show the compile cache's path, entry count, disk usage,
+  size limit, and session hit/miss counts with hit rate.
+- `cache clear` — delete every cached `.obj` blob (`--force` skips the
+  confirmation prompt).
 - Cache lives in `<project_root>/.rebrew/compile_cache/`.
 - Keyed by SHA-256 of (source + flags + compiler signature).
 
@@ -115,7 +129,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 - Verify the result is byte-identical to the original PE (sha256 hash match).
 - Writes reassembled PE to disk next to the target binary (suffix
   `.reasm`), or to a custom path with `--out`.
-- `--no-write` skips writing; report still emitted.
+- `--dry-run` skips writing the `.reasm` file; report still emitted.
 - `--filter SUBSTR` restricts to functions whose symbol contains the
   substring.
 - `--json` machine-readable report.
@@ -175,29 +189,40 @@ rebrew verify [OPTIONS]
   -s, --summary
       --compare
       --full
+      --fix-sizes
+      --dry-run
+      --watch
+      --nolib
       --json
   -t, --target TEXT
 
-rebrew status
+rebrew status [OPTIONS]
       --json
   -t, --target TEXT
 
-rebrew graph
+rebrew graph [OPTIONS]
   -f, --format mermaid|dot|summary (default mermaid)
       --focus FUNC
       --depth N (default 1)
       --cu-map
+      --include-dispatch
+      --min-table-len N (default 3)
+      --max-pointer-stride N (default 4)
+      --binary
   -o, --output PATH
       --json
   -t, --target TEXT
 
-rebrew cache stats
-rebrew cache clear
+rebrew cache stats [--json] [-t TARGET]
+rebrew cache clear [--force] [--json] [-t TARGET]
 
-rebrew round-trip
+rebrew round-trip [OPTIONS]
       --out PATH
-      --no-write
+      --dry-run
       --filter SUBSTR
+      --strict-catalog
+      --fix-headers
+      --allow-naked
       --json
   -t, --target TEXT
 ```
@@ -223,18 +248,23 @@ rebrew round-trip
 ## Open Questions / Known Limitations
 
 - `verify` does not detect *header* changes; users must add `--full` after
-  editing any shared header. (Tracking header dependencies is an open
-  feature.)
+  editing any shared header. (FIXED: the verify cache key now hashes every
+  reachable header via `_headers_hash` + `_external_includes_hash` in
+  `verify.py`, so editing a shared header re-verifies exactly the entries
+  whose sources reach it; `--full` remains available for a hard reset.)
 - `verify --compare` baseline lives in a single file
   (`db/verify_results.json`); branching workflows may need
   per-branch artifacts (left to CI to manage).
 - `status` percentages are computed from `function_structure.json` if
   available, else from the function list. With neither, % coverage shows
   N/A.
-- `graph` relies on identifier matching for call edges; macros, function
-  pointer calls, and inline assembly are not resolved.
-- `cache stats` does not break down hit rate (only count + size). Logging
-  hit/miss telemetry across the session is not exposed.
+- `graph` direct call edges rely on identifier matching; macros and inline
+  assembly are not resolved. (Partially fixed: function-pointer targets are
+  now recoverable via `--include-dispatch` dispatch-table scanning of the
+  binary, and `--binary` adds xref-derived edges — both opt-in.)
+- `cache stats` does not break down hit rate (only count + size); logging
+  hit/miss telemetry across the session was not exposed. (FIXED: `cache
+  stats` now reports session hits/misses and hit rate.)
 - The compile cache is project-local; sharing it across CI runs requires
   caching the `.rebrew/compile_cache/` directory as a build artifact.
 - `round-trip` skips PROVEN functions (semantically equivalent, not

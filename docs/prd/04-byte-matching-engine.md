@@ -52,7 +52,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
 - The flag sweep is bounded to flag presets defined in `matcher/flag_data.py`;
   it does not invent flags or experiment with non-MSVC compilers.
 - `rebrew prove` runs only when the function is already NEAR_MATCHING or
-  RELOC; it does not rewrite source to make it provable.
+  SIZE_MISMATCH; it does not rewrite source to make it provable.
 - No GUI; CLI only.
 
 ## Functional Requirements
@@ -68,15 +68,17 @@ prover that promotes NEAR_MATCHING → PROVEN.
 - `--compare-obj` / `--no-compare-obj` toggles between fast object
   comparison and full link.
 - `--extra-seed PATH` injects additional seed sources (mutations from
-  already-solved functions).
-- `--no-seed` disables cross-function seeding.
-- Writes `output/ga_run/` (default) with best candidate, score log, and
+  already-solved functions); ignored when `--no-seed` is also passed.
+- `--no-seed` disables cross-function seeding and takes precedence over
+  `--extra-seed`.
+- Writes `output/ga_runs/` (default) with best candidate, score log, and
   cflags solution if a match is achieved.
 - `--ignore-lint` allows running on files with annotation lint errors.
 
 ### `rebrew match --flag-sweep-only`
 
-- Skips the GA and runs a tiered MSVC flag sweep.
+- Skips the GA and runs a tiered MSVC flag sweep (tier reference:
+  `docs/FLAG_SWEEP_TIERS.md`).
 - `--tier quick|targeted|normal|thorough|full` (default `targeted`).
 - Auto-detects symbol/VA/size/CFLAGS like `rebrew test`/`rebrew diff`.
 - On success, prints the winning flag combination and (in `--all` mode)
@@ -90,19 +92,21 @@ prover that promotes NEAR_MATCHING → PROVEN.
   (default 10 bytes).
 - `--flag-sweep` runs the flag sweep instead of GA on NEAR_MATCHING set;
   `--fix-cflags` writes wins back to `rebrew-function.toml`.
-- `-j JOBS` parallelism, `--dry-run` lists targets without running.
+- `-j JOBS` parallelism, `--dry-run` previews changes without running.
 
 ### `rebrew prove`
 
-- Validates STATUS is NEAR_MATCHING (RELOC/EXACT already match byte-for-byte;
-  promoting those to PROVEN is rejected).
+- Validates STATUS is NEAR_MATCHING or SIZE_MISMATCH (RELOC/EXACT already
+  match byte-for-byte; promoting those to PROVEN is rejected).
 - Extracts target bytes from the DLL and compiles the C source.
 - Refuses promotion when post-compile bytes already match (that is RELOC).
-- Loads both blobs into angr; uses claripy/Z3 to prove EAX equivalence.
+- Loads both blobs into angr; uses claripy/Z3 to prove EAX equivalence
+  (`--check-edx` also compares EDX — auto-enabled for 64-bit return types).
 - `--timeout N` (default 60 s) and `--loop-bound N` (default 10) govern
   the search.
 - `--start-offset` / `--end-offset` prove a sub-range of the function.
-- `--all` proves every eligible function.
+- `--all` proves all NEAR_MATCHING/SIZE_MISMATCH functions;
+  `--max-delta N` limits the batch to those with recorded byte delta ≤ N.
 - `--dry-run` leaves metadata untouched even on success.
 - On success, promotes STATUS → PROVEN in `rebrew-function.toml`.
 
@@ -153,40 +157,65 @@ rebrew match [SEED_C]
       --symbol TEXT
       --va TEXT
       --size N
-      --out-dir TEXT (default output/ga_run)
-      --compare-obj / --no-compare-obj
+      --out-dir TEXT (default output/ga_runs)
+      --compare-obj / --no-compare-obj (default compare-obj)
       --link TEXT
       --lib TEXT
       --ldflags TEXT
       --flag-sweep-only
       --tier quick|targeted|normal|thorough|full (default targeted)
       --ignore-lint
-      --seed N
-      --extra-seed PATH
-      --no-seed
+      --extra-seed PATH (ignored if --no-seed passed)
+      --no-seed (takes precedence over --extra-seed)
+      --sweep-toolchain
+      --sweep-only TEXT
+      --sweep-exclude TEXT
+      --llm-seed
+      --kuna-seed
+      --watch
   GA tuning
+      --seed N
+      --mutation-focus register|equivalent|structural|auto
   -g, --generations N (default 100)
   -p, --pop-size N (default 64)
-  -j, --jobs N
+  -j, --jobs N (default: from config)
   Batch mode
       --all
+      --all-targets
       --near-miss
       --improve
+      --size-mismatch
       --threshold N (default 10)
       --flag-sweep
       --fix-cflags
+      --sweep-then-ga
+      --resume
+      --seed-solutions PATH
+      --skip-recent N (default 0)
+      --max-stubs N (default 0)
+      --min-size N (default 10)
+      --max-size N (default 9999)
+      --filter TEXT
+      --timeout-min N (default 30)
       --dry-run
+      --ga-history
+      --seed-from-solved / --no-seed-from-solved (default seed-from-solved)
+      --collect-pairs PATH
   Output
       --json
   -t, --target TEXT
 
 rebrew prove [SOURCE]
       --all
+      --max-delta N
       --timeout N (default 60)
       --loop-bound N (default 10)
-      --start-offset N
-      --end-offset N
+      --start-offset N (default 0)
+      --end-offset N (default 0)
+      --check-edx
+      --watch-va VA
       --dry-run
+      --watch
       --json
   -t, --target TEXT
 ```
@@ -212,12 +241,16 @@ rebrew prove [SOURCE]
   `--check-edx` is passed or when the `PROTOTYPE` annotation declares a
   64-bit return type (`long long`, `__int64`, `int64_t`, `uint64_t`).
   EDX checking is auto-enabled from the prototype (E9 v1, partially addressed).
-  Remaining work: memory side-effect checking — functions that write to globals
-  or output-pointer arguments can still be falsely promoted if those writes differ.
+  Memory side-effect checking is now opt-in per VA via `--watch-va` (compares
+  4 bytes at each listed VA across state pairs); general tracking of writes to
+  globals or output-pointer arguments is still unimplemented, so functions
+  that write there can still be falsely promoted if those writes differ.
 - angr is a heavy optional dependency (~500 MB) and must be installed via
   the `prove` extra (`uv pip install -e ".[prove]"`).
-- The flag-sweep tier definitions are MSVC-specific (`matcher/flag_data.py`);
-  GCC/Clang sweeps would require new flag presets.
+- The flag-sweep tier definitions are MSVC-specific
+  (`matcher/flag_data.py`; tier grid, axes and combinations are documented
+  in `docs/FLAG_SWEEP_TIERS.md`); GCC/Clang sweeps would require new flag
+  presets.
 - `--no-compare-obj` (full link) is slow; default object-only comparison
   trades a few false negatives (link-time deduplication) for speed.
 - Batch flag sweep with `--fix-cflags` writes CFLAGS per function; this

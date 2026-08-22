@@ -199,7 +199,7 @@ src/rebrew/
 ├── lzexe_cli.py         # `rebrew unpack-lzexe` — unpack LZEXE 0.90/0.91 DOS executables
 ├── binsync_import.py    # Import a BinSync state dir into rebrew metadata
 ├── binsync_diff.py      # Read-only BinSync divergence report
-├── lint.py              # Lint C annotations
+├── lint.py              # Lint C annotations + corpus consistency (W028: markers vs function list)
 ├── llm_seed.py          # LLM alternative-implementation seeding for GA (--llm-seed)
 ├── near_diag.py         # Classify why NEAR_MATCHING doesn't byte-match (register/equiv/reloc/structural + EFFECTIVE)
 ├── stack_cmp.py         # Compare compiled function's stack frame vs target (reccmp stackcmp, no PDB)
@@ -370,5 +370,5 @@ Numeric constants need explicit operators: GA can't fix wrong offsets/magics/siz
 - **Don't reimplement**: if an imported library provides it, use it
 - **No backward compat**: one name per function — no aliases/shims/wrappers
 - **Volatile metadata**: fields `STATUS`, `CFLAGS`, `BLOCKER`, `NOTE`, `GHIDRA` live in per-directory `rebrew-function.toml` via `rebrew.metadata` — never edit manually
-- **STATUS promotion**: only via `update_source_status(metadata_dir, new_status, module, va)` from `rebrew.metadata` (pass `cfg.metadata_dir`). Both `rebrew test` and `rebrew verify` call it — never write `STATUS` in `.c` files.
-- **Compile result**: `compile_and_compare` / `verify_entry` → `CompareResult` from `rebrew.compile`; use `.matched`, `.status`, `.delta`, `.match_percent` — never tuple-unpack.
+- **STATUS promotion**: only via `rebrew.metadata` writers — `update_source_status(metadata_dir, new_status, module, va)` (single; `rebrew test`) or `update_statuses_batch(metadata_dir, updates)` (batch; `rebrew verify`) — never write `STATUS` in `.c` files.
+- **Compile result**: `compile_and_compare` (`rebrew.compile`) / `verify_entry` (`rebrew.verify`) → `CompareResult`; use `.matched`, `.status`, `.delta`, `.match_percent` — never tuple-unpack.

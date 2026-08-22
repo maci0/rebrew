@@ -119,6 +119,19 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 7.0+ which inline them (11–12B).  Verified in probe12
 (`f1`/`f2`/`fl`); keeping the call is itself the 2.0–6.0 era marker.
 
+## Probe13: string intrinsics + promotion — verified
+
+- **strlen is `repne scasb` (`f2 ae`)** with ECX=−1 at /O2 (2.0–6.0
+  form; bcc32/Watcom/GCC libcall strlen).
+- **memcmp(8B) is `repe cmpsb` (`f3 a6`) + sbb idiom** at /O2 (the
+  2.0–7.1 form).
+- **`unsigned char` sums zero-extend via `and eax,0xff`
+  (`25 ff 00 00 00` / `81 e1 ff 00 00 00`)** at /O2 — the 5.0/6.0
+  form, unique among the probed toolchains (2.0/4.x: xor+mov, 7.0+:
+  movzx); /O1 uses movzx like everything else.
+- **SP spot-check** — VC 5.0 SP1–SP3 byte-identical to the 5.0 RTM
+  on every probe13 function.
+
 ## Verification
 
 Probe at `/O1`/`/O2` via `rebrew/msvc:5.0-win32`

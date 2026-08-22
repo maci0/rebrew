@@ -26,13 +26,22 @@ from rich.text import Text
 from rebrew.cli import STATUS_COLORS, TargetOption, iter_sources, json_print, require_config
 from rebrew.config import ProjectConfig
 
-# Regex that matches any inline metadata comment fired by W019.
-# Matches lines like ``// STATUS: EXACT``, ``// SIZE: 120``, ``// CFLAGS: /O2``, etc.
-# We use the same key set as annotation.METADATA_KEYS but inline to avoid a
+# Regex that matches an inline metadata comment line (``// STATUS: EXACT``,
+# ``// SIZE: 120``, ``// CFLAGS: /O2``, ``/* BLOCKER: ... */``, etc.).  The
+# key set mirrors annotation.METADATA_KEYS but is kept inline to avoid a
 # circular-import chain from status → annotation at module load time.
 _W019_INLINE_RE = re.compile(
-    r"//\s*(?:STATUS|ORIGIN|CFLAGS|SKIP|GLOBALS|BLOCKER|BLOCKER_DELTA|SOURCE|NOTE|SECTION|GHIDRA|SIZE)\s*:",
+    r"(?://|/\*)\s*"
+    r"(STATUS|ORIGIN|CFLAGS|SKIP|GLOBALS|BLOCKER|BLOCKER_DELTA|SOURCE|NOTE|"
+    r"SECTION|GHIDRA|SIZE|ANALYSIS|PROVE_CONSTRAINTS|TOOLCHAIN)\s*:",
     re.IGNORECASE,
+)
+# Marker line (same shape as annotation.NEW_FUNC_CAPTURE_RE) — opens a header
+# block whose following ``// KEY:`` comment lines are inline-metadata
+# candidates (mirrors lint._parse_multi_headers' block attachment).
+_W019_MARKER_RE = re.compile(
+    r"(?://|/\*)\s*(?P<type>FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*"
+    r"(?P<module>\S+)\s+(?P<va>0x[0-9a-fA-F]+)"
 )
 
 console = Console(stderr=True)
@@ -386,23 +395,116 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
 
 
 def _count_inline_metadata_files(src_dir: Path, cfg: ProjectConfig) -> int:
-    """Return the number of source files containing inline W019 metadata comments.
+    """Return the number of source files ``rebrew lint --fix`` can migrate.
+
+    Mirrors lint's W019 rule (see ``_check_W019_inline_metadata`` in lint.py):
+    a file counts when an inline metadata key (STATUS, CFLAGS, SIZE, BLOCKER,
+    ...) is attached to a marker header block and that field is NOT already
+    owned by the metadata store.  Markerless occurrences — e.g. the documented
+    ``// CFLAGS: /DREBREW_ALLOW_NAKED`` naked-guard convention in an ``#else``
+    branch — and keys already backed by metadata are deliberately not counted,
+    so the "run rebrew lint to migrate" hint is always actionable.
 
     Only scans files returned by ``iter_sources`` so that the extension filter
-    (``cfg.source_ext``) is respected.  Uses a single compiled regex rather than
-    a full annotation parse to keep the hot-path fast.
+    (``cfg.source_ext``) is respected.  Uses a single regex pass per file
+    rather than a full annotation parse to keep the hot-path fast.
     """
     from rebrew.cli import iter_sources
+    from rebrew.data_metadata import load_data_metadata
+    from rebrew.metadata import load_metadata
 
+    fn_entries = load_metadata(cfg.metadata_dir)
+    data_entries = load_data_metadata(cfg.metadata_dir)
     count = 0
     for src in iter_sources(src_dir, cfg):
         try:
-            text = src.read_text(encoding="utf-8", errors="replace")
+            lines = src.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
             continue
-        if _W019_INLINE_RE.search(text):
+        if _has_migratable_inline_metadata(lines, fn_entries, data_entries):
             count += 1
     return count
+
+
+def _has_migratable_inline_metadata(
+    lines: list[str],
+    fn_entries: dict[tuple[str, int], dict[str, Any]],
+    data_entries: dict[tuple[str, int], dict[str, Any]],
+) -> bool:
+    """True when *lines* carry an inline metadata key that lint W019/--fix acts on.
+
+    Header-block state machine mirroring lint._parse_multi_headers: a marker
+    line opens a block; ``// KEY:`` comment lines attach to the open block
+    until real C code appears (comment lines do not close it); keys seen
+    outside a block — before the first marker or after code — buffer as
+    "pending" for the next marker block.  Pending keys are dropped at EOF,
+    matching the parser's orphan handling.
+    """
+    pending: list[str] = []
+    in_block = False
+    block: tuple[str, str, int] | None = None  # (marker_type, module, va_int)
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        is_comment = stripped.startswith("//") or stripped.startswith("/*")
+
+        marker = _W019_MARKER_RE.match(stripped) if is_comment else None
+        if marker:
+            # Pending keys attach to THIS new block in lint's parser, so their
+            # metadata-backing is judged against the new (module, va).
+            new_block = (marker.group("type"), marker.group("module"), int(marker.group("va"), 16))
+            for k in pending:
+                if not _w019_key_backed(k, new_block, fn_entries, data_entries):
+                    return True
+            pending = []
+            block = new_block
+            in_block = True
+            continue
+
+        kv = _W019_INLINE_RE.search(stripped) if is_comment else None
+        if kv:
+            key = kv.group(1)
+            if (
+                in_block
+                and block is not None
+                and not _w019_key_backed(key, block, fn_entries, data_entries)
+            ):
+                return True
+            if not in_block:
+                pending.append(key)
+            continue
+
+        # Any other comment line (name hint, explanation, block comment) keeps
+        # the header block open; only real code closes it.
+        if not is_comment:
+            in_block = False
+
+    return False
+
+
+def _w019_key_backed(
+    key: str,
+    block: tuple[str, str, int],
+    fn_entries: dict[tuple[str, int], dict[str, Any]],
+    data_entries: dict[tuple[str, int], dict[str, Any]],
+) -> bool:
+    """True when the metadata store already owns *key* for *block*'s function.
+
+    Mirrors lint's metadata overlay: for DATA/GLOBAL blocks only
+    size/section/note are sourced from rebrew-data.toml; everything else comes
+    from rebrew-function.toml.
+    """
+    marker_type, module, va = block
+    mod_va = (module, va)
+    if marker_type in ("DATA", "GLOBAL"):
+        if key.lower() in {"size", "section", "note"}:
+            entry = data_entries.get(mod_va, {})
+            return key.lower() in {k.lower() for k in entry}
+        return False
+    entry = fn_entries.get(mod_va, {})
+    return key.lower() in {k.lower() for k in entry}
 
 
 # ---------------------------------------------------------------------------

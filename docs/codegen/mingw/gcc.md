@@ -154,6 +154,21 @@ the MSVC 7.0+ inlining marker does not separate GCC from anything;
 inlining is unconditional.  Verified in a probe12 re-run with native
 `i686-w64-mingw32-gcc` (`out12_gcc/probe12_{O1,O2}.obj`).
 
+## Probe13: string intrinsics — verified negatives
+
+- **strlen/memcmp/strcmp are NOT inlined** — all four probe13
+  functions emit a tail-call or stack-arg call to the libc entry
+  (`e9 00 00 00 00` PLT form) at -O1/-O2; the MSVC `repne scasb` /
+  `repe cmpsb` intrinsic forms have no GCC counterpart here.
+- **signed `char`** — `c_cmp` (`a < 0`) shifts the sign bit
+  (`0f b6 44 24 04 c0 e8 07`), unlike Watcom's unsigned fold.
+- **`unsigned char` sums use `movzx`** (shared with MSVC 7.0+ and
+  Watcom); **8-byte structs return in EAX:EDX** (shared with MSVC
+  5.0+); **`g_val+1` uses `83 c0 01`** (shares VC 8.0's
+  add-over-inc encoding).  Zig `cc` output (probe13 re-run, zig
+  0.16) shares every one of these family shapes — no new
+  zig-vs-gcc byte marker.
+
 ## Verification
 
 Probe `/O1`/`/O2`/`/O3` via native `i686-w64-mingw32-gcc` 16.1

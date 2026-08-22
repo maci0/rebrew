@@ -304,14 +304,28 @@ def main(
                         if bs_proto and bs_proto.endswith(";"):
                             bs_proto = bs_proto[:-1].strip()
                         body_proto = bs_proto if bs_proto else f"void {target_func}(void)"
+                        # Marker line only — STATUS/SIZE/NOTE are metadata-owned
+                        # keys and go to rebrew-function.toml (inline forms are
+                        # deprecated: lint W019 flags them).
                         stub = (
-                            f"// FUNCTION: {cfg.marker or 'SERVER'} 0x{va:08x}\n"
-                            f"// STATUS: STUB\n"
-                            f"// SIZE: {size_hint}\n"
-                            f"// NOTE: imported from BinSync as {bs_name}\n"
-                            f"{body_proto} {{}}\n"
+                            f"// FUNCTION: {cfg.marker or 'SERVER'} 0x{va:08x}\n{body_proto} {{}}\n"
                         )
                         _awt(out_path, stub, encoding="utf-8")
+                        # Route the volatile fields through the canonical metadata
+                        # writers (STATUS via the promotion gate).
+                        mod = cfg.marker or "SERVER"
+                        from rebrew.metadata import set_field, update_source_status
+
+                        update_source_status(cfg.metadata_dir, "STUB", mod, va)
+                        if size_hint:
+                            set_field(cfg.metadata_dir, va, "size", size_hint, mod)
+                        set_field(
+                            cfg.metadata_dir,
+                            va,
+                            "note",
+                            f"imported from BinSync as {bs_name}",
+                            mod,
+                        )
                         applied_names += 1
                     except Exception:  # noqa: BLE001
                         log.debug("stub write failed for VA 0x%x", va, exc_info=True)

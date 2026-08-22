@@ -504,6 +504,54 @@ class TestLintFile:
 
 
 class TestLintFileBranches:
+    def test_w019_after_bare_name_hint_line(self, tmp_path: Path) -> None:
+        """A bare '// FuncName' comment line must not orphan later inline keys.
+
+        Regression: the header parser used to treat any non-KV comment line as
+        "code", so ``// SIZE:``/``// CFLAGS:`` after a name-hint line were
+        buffered as pending and never attached to the block — W019 (and --fix)
+        never saw them.
+        """
+        from rebrew.lint import lint_file
+
+        f = _write_c(
+            tmp_path,
+            "foo.c",
+            "// FUNCTION: SERVER 0x1000\n"
+            "// FooBar\n"
+            "// SIZE: 42\n"
+            "// CFLAGS: /O2 /Gd\n"
+            "int FooBar(void) { return 0; }\n",
+        )
+        result = lint_file(f)
+        w019 = [m for _, c, m in result.warnings if c == "W019"]
+        assert any("'// SIZE:'" in m for m in w019), w019
+        assert any("'// CFLAGS:'" in m for m in w019), w019
+
+    def test_w019_silent_for_metadata_backed_after_name_hint(self, tmp_path: Path) -> None:
+        """SIZE after a name-hint line that metadata already owns stays silent."""
+        from rebrew.lint import lint_file
+        from rebrew.metadata import set_field
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "foo.c").write_text(
+            "// FUNCTION: SERVER 0x1000\n// FooBar\n// SIZE: 42\nint FooBar(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        set_field(tmp_path, 0x1000, "size", 42, module="SERVER")
+        cfg = SimpleNamespace(
+            metadata_dir=tmp_path,
+            marker="SERVER",
+            library_modules=set(),
+            cflags_presets={},
+            default_cflags="/O2",
+            origins=[],
+        )
+        result = lint_file(src / "foo.c", cfg=cfg)  # type: ignore[arg-type]
+        w019 = [m for _, c, m in result.warnings if c == "W019"]
+        assert w019 == []  # metadata-sourced keys must not fire W019
+
     def test_preloaded_data_metadata_overlay(self, tmp_path: Path) -> None:
         """DATA markers pull size/section/note from rebrew-data.toml without W019."""
         from rebrew.data_metadata import set_data_field
@@ -987,6 +1035,63 @@ class TestW021W022:
         result = lint_file(f)
         assert any(c == "W022" for _, c, _ in result.warnings)
 
+    def test_zero_init_data_section_name_no_warning(self, tmp_path: Path) -> None:
+        """A zero-init global annotated section='.data' in rebrew-data.toml
+        is exempt — the original stored the zero-init data in .data."""
+        from rebrew.lint import lint_file
+
+        data_toml = tmp_path / "rebrew-data.toml"
+        data_toml.write_text(
+            '["SERVER.0x10034628"]\nname = "g_stat1"\nsection = ".data"\n', encoding="utf-8"
+        )
+        content = "// FUNCTION: SERVER 0x1000\nint g_stat1 = 0;\nvoid f(void) {}\n"
+        f = _write_c(tmp_path, "d.c", content)
+        result = lint_file(f)
+        assert not any(c == "W022" for _, c, _ in result.warnings)
+
+    def test_zero_init_bss_section_name_still_warns(self, tmp_path: Path) -> None:
+        """section='.bss' metadata does NOT exempt a zero-init global."""
+        from rebrew.lint import lint_file
+
+        data_toml = tmp_path / "rebrew-data.toml"
+        data_toml.write_text(
+            '["SERVER.0x1004a000"]\nname = "g_buf"\nsection = ".bss"\n', encoding="utf-8"
+        )
+        content = "// FUNCTION: SERVER 0x1000\nint g_buf[4] = {0};\nvoid f(void) {}\n"
+        f = _write_c(tmp_path, "b.c", content)
+        result = lint_file(f)
+        assert any(c == "W022" for _, c, _ in result.warnings)
+
+    def test_zero_init_different_name_still_warns(self, tmp_path: Path) -> None:
+        """A .data exemption for another symbol does not suppress this global."""
+        from rebrew.lint import lint_file
+
+        data_toml = tmp_path / "rebrew-data.toml"
+        data_toml.write_text(
+            '["SERVER.0x10034628"]\nname = "g_other"\nsection = ".data"\n', encoding="utf-8"
+        )
+        content = "// FUNCTION: SERVER 0x1000\nint g_buf = 0;\nvoid f(void) {}\n"
+        f = _write_c(tmp_path, "n.c", content)
+        result = lint_file(f)
+        assert any(c == "W022" for _, c, _ in result.warnings)
+
+    def test_zero_init_exempt_and_warn_in_same_file(self, tmp_path: Path) -> None:
+        """Exempt .data globals are skipped; a later non-exempt zero-init warns."""
+        from rebrew.lint import lint_file
+
+        data_toml = tmp_path / "rebrew-data.toml"
+        data_toml.write_text(
+            '["SERVER.0x10034628"]\nname = "g_stat1"\nsection = ".data"\n', encoding="utf-8"
+        )
+        content = (
+            "// FUNCTION: SERVER 0x1000\nint g_stat1 = 0;\nint g_bss_var = 0;\nvoid f(void) {}\n"
+        )
+        f = _write_c(tmp_path, "mx.c", content)
+        result = lint_file(f)
+        w022 = [(line, m) for line, c, m in result.warnings if c == "W022"]
+        assert len(w022) == 1
+        assert w022[0][0] == 3
+
 
 class TestDuplicateVAMultiBlock:
     """E013 must flag a duplicate VA in a LATER block of a multi-function file
@@ -1011,3 +1116,83 @@ class TestDuplicateVAMultiBlock:
         )
         result = lint_file(f)
         assert not any((c == "E013" for _, c, _ in result.errors))
+
+
+class TestAnnotationStaleness:
+    """W028 — FUNCTION/STUB marker VAs must match a function start in the
+    current function list (moved from `rebrew doctor`; corpus-content
+    checks belong to lint, environment checks to doctor)."""
+
+    # (starts, spans) as built by _build_function_index from a funcs.txt
+    # with func_a@0x1000 (256B) and func_b@0x2000 (128B).
+    INDEX = (
+        {0x1000, 0x2000},
+        [(0x1000, 0x1100, "func_a"), (0x2000, 0x2080, "func_b")],
+    )
+
+    @staticmethod
+    def _w028(result: LintResult) -> list[tuple[int, str]]:
+        return [(line, m) for line, c, m in result.warnings if c == "W028"]
+
+    def test_matching_start_silent(self, tmp_path: Path) -> None:
+        f = _write_c(tmp_path, "a.c", "// FUNCTION: SERVER 0x1000\nint a(void) { return 0; }\n")
+        result = lint_file(f, cfg=_make_cfg(), function_index=self.INDEX)
+        assert self._w028(result) == []
+
+    def test_dangling_va_warns(self, tmp_path: Path) -> None:
+        f = _write_c(tmp_path, "a.c", "// FUNCTION: SERVER 0x3000\nint a(void) { return 0; }\n")
+        result = lint_file(f, cfg=_make_cfg(), function_index=self.INDEX)
+        w028 = self._w028(result)
+        assert len(w028) == 1
+        assert w028[0][0] == 1
+        assert "0x3000 has no function" in w028[0][1]
+        assert "re-annotate" in w028[0][1]
+
+    def test_va_inside_span_warns(self, tmp_path: Path) -> None:
+        f = _write_c(tmp_path, "a.c", "// FUNCTION: SERVER 0x1050\nint a(void) { return 0; }\n")
+        result = lint_file(f, cfg=_make_cfg(), function_index=self.INDEX)
+        w028 = self._w028(result)
+        assert len(w028) == 1
+        assert "points inside function 'func_a'" in w028[0][1]
+
+    def test_library_marker_ignored(self, tmp_path: Path) -> None:
+        # LIBRARY markers may point at import stubs the parser filters out.
+        f = _write_c(tmp_path, "l.c", "// LIBRARY: SERVER 0x3000\nint l(void) { return 0; }\n")
+        result = lint_file(f, cfg=_make_cfg(), function_index=self.INDEX)
+        assert self._w028(result) == []
+
+    def test_data_marker_ignored(self, tmp_path: Path) -> None:
+        f = _write_c(tmp_path, "d.c", "// DATA: SERVER 0x3000\n// SECTION: .rdata\nint d = 1;\n")
+        result = lint_file(f, cfg=_make_cfg(), function_index=self.INDEX)
+        assert self._w028(result) == []
+
+    def test_other_target_marker_filtered(self, tmp_path: Path) -> None:
+        # A shared source carrying a marker for a different target must not
+        # be cross-checked against this target's function list.
+        f = _write_c(tmp_path, "s.c", "// FUNCTION: CLIENT 0x3000\nint s(void) { return 0; }\n")
+        result = lint_file(f, cfg=_make_cfg(marker="SERVER"), function_index=self.INDEX)
+        assert self._w028(result) == []
+
+    def test_no_index_silent(self, tmp_path: Path) -> None:
+        # No function list (or cfg=None): the check is silent, matching the
+        # old doctor SKIP-on-missing-list behavior.
+        f = _write_c(tmp_path, "a.c", "// FUNCTION: SERVER 0x3000\nint a(void) { return 0; }\n")
+        result = lint_file(f, cfg=_make_cfg())
+        assert self._w028(result) == []
+
+    def test_build_function_index(self, tmp_path: Path) -> None:
+        from rebrew.lint import _build_function_index
+
+        funcs = tmp_path / "funcs.txt"
+        funcs.write_text("0x1000 256 func_a\n0x2000 128 func_b\n", encoding="utf-8")
+        cfg = _make_cfg()
+        cfg.function_list = funcs
+        index = _build_function_index(cfg)
+        assert index == self.INDEX
+
+    def test_build_function_index_empty_list(self, tmp_path: Path) -> None:
+        from rebrew.lint import _build_function_index
+
+        cfg = _make_cfg()
+        cfg.function_list = tmp_path / "missing.txt"
+        assert _build_function_index(cfg) is None

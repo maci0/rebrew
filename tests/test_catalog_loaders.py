@@ -176,3 +176,43 @@ class TestScanReversedDirLibraryHeaders:
         cfg = SimpleNamespace(metadata_dir=tmp_path, marker="SERVER", source_ext=".c")
         entries = scan_reversed_dir(src, cfg=cfg)
         assert any(e.va == 0x1000 and e.marker_type == "LIBRARY" for e in entries)
+
+
+class TestParseRizinAfl:
+    """Shared rizin ``afl`` parser (discover + intake used to hand-roll
+    two subtly different copies of this)."""
+
+    def test_three_column(self) -> None:
+        from rebrew.catalog.loaders import parse_rizin_afl
+
+        out = parse_rizin_afl("0x1000 16 func_a\n0x2000 32 func_b\n")
+        assert out == [(0x1000, 16, "func_a"), (0x2000, 32, "func_b")]
+
+    def test_four_column(self) -> None:
+        from rebrew.catalog.loaders import parse_rizin_afl
+
+        out = parse_rizin_afl("0x1000 0x1000 16 func_a\n")
+        assert out == [(0x1000, 16, "func_a")]
+
+    def test_hex_sizes_tolerated(self) -> None:
+        from rebrew.catalog.loaders import parse_rizin_afl
+
+        # Some rizin versions print sizes as 0x-prefixed hex (int(x, 0)).
+        out = parse_rizin_afl("0x1000 0x10 func_a\n")
+        assert out == [(0x1000, 16, "func_a")]
+
+    def test_name_normalization(self) -> None:
+        from rebrew.catalog.loaders import parse_rizin_afl
+
+        out = parse_rizin_afl("0x1000 16 ->\n0x2000 16 loc\n0x3000 16 sub.foo\n")
+        assert out == [
+            (0x1000, 16, "fcn.00001000"),
+            (0x2000, 16, "fcn.00002000"),
+            (0x3000, 16, "fcn.00003000"),
+        ]
+
+    def test_garbage_lines_skipped(self) -> None:
+        from rebrew.catalog.loaders import parse_rizin_afl
+
+        out = parse_rizin_afl("nope 1 2\n0x1000 16 func_a\n\n")
+        assert out == [(0x1000, 16, "func_a")]

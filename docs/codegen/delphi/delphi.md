@@ -126,6 +126,18 @@ plain Integer args too).  RTL functions use far `retf`/`retf N` (`ca`).
 - Not applicable (single preserved version; Delphi 2+ is 32-bit and
   out of scope).
 
+## probe13.dpr: packed records + Char — verified
+
+- **packed-record fields = individual byte loads** — `bf_get` reads
+  `p^.c`/`p^.b`/`p^.a` as `mov al, byte ptr es:[di+2]` /
+  `es:[di+1]` / `es:[di]` with `xor ah,ah` zero-extension, then adds
+  — no masking, no shifts (no range-checking codegen by default).
+  Verified in probe13.dpr (`probe13.EXE` seg0 @ 0x2).
+- **`Char < #0` is NOT constant-folded** — `c_cmp` keeps a runtime
+  `cmp byte ptr [bp+4],0` (result 0/1 via the Pascal if/else shape),
+  even though Char is unsigned — contrast with Watcom, which folds
+  `char < 0` to 0 for its default-unsigned char.
+
 ## Verification
 
 Pascal probe `probe.dpr` compiled via `rebrew/delphi:1.0-win16`

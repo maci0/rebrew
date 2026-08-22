@@ -187,7 +187,7 @@ class TestSizePersistence:
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
-        (src_dir / "f.c").write_text("// FUNCTION: TEST 0x1000\nint f(void) { return 1; }\n")
+        (src_dir / "f.c").write_text("// FUNCTION: X 0x1000\nint f(void) { return 1; }\n")
 
         def _fake_compile(*a, **k):
             return CompareResult(
@@ -483,7 +483,7 @@ class TestCflagsPersistence:
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
-        (src_dir / "f.c").write_text("// FUNCTION: TEST 0x1000\nint f(void) { return 1; }\n")
+        (src_dir / "f.c").write_text("// FUNCTION: X 0x1000\nint f(void) { return 1; }\n")
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(
             "rebrew.test.compile_and_compare",

@@ -170,8 +170,7 @@ class TestDataMetadataCache:
         dm._data_metadata_cache.clear()
         parse_calls: list[object] = []
         monkeypatch.setattr(
-            dm,
-            "parse_metadata_doc",
+            "rebrew.utils.parse_metadata_doc",
             lambda doc: parse_calls.append(doc) or {},
         )
         f = tmp_path / "rebrew-data.toml"

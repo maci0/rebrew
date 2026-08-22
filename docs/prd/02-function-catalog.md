@@ -72,16 +72,21 @@ CATALOG.md, JSON, CSV, and a SQLite coverage DB.
 - Resolves canonical sizes (Ghidra/Catalog wins over annotation; warns on
   conflict).
 - Outputs in any combination of modes:
-  - Default: scan + validate, print summary.
+  - Default (no flags): scan + validate, write CATALOG.md, data JSON, and
+    CSV, and print the summary table.
   - `--data-json` writes `db/data_<target>.json` (cell-level coverage grid).
   - `--catalog` writes CATALOG.md to `reversed_dir`.
-  - `--csv` writes a reccmp-compatible CSV next to data JSON.
-  - `--summary` prints stdout summary table.
-  - `--export-ghidra` caches `ghidra_functions.json` for offline tools.
+  - `--csv` writes `db/<target>_functions.csv` (reccmp-compatible CSV) next
+    to the data JSON.
+  - `--summary` prints the summary table to stderr.
+  - `--export-ghidra` prints interactive Ghidra MCP export instructions for
+    `function_structure.json` / `ghidra_data_labels.json` (writes no cache;
+    refuses `--json`).
   - `--export-ghidra-labels` writes `ghidra_data_labels.json` from detected
     jump tables / dispatch tables.
   - `--fix-sizes` rewrites `SIZE` in `rebrew-function.toml` when the catalog's
-    canonical size differs.
+    canonical size differs; `--force` skips its confirmation prompt (and is
+    required to combine it with `--json`).
 - `--json` produces machine-readable output.
 
 ### `rebrew extract`
@@ -89,10 +94,14 @@ CATALOG.md, JSON, CSV, and a SQLite coverage DB.
 Three subcommands:
 
 - `extract list` — enumerate un-reversed candidates from the function list.
-- `extract show VA` — disassemble a single function (hex by default).
-- `extract batch N [--start M]` — extract + disassemble the N smallest
-  un-reversed functions, optionally offset into the sorted list.
+- `extract show VA [--size N]` — disassemble a single function (hex by
+  default); `--size N` overrides the catalog-recorded size, also for VAs
+  absent from the candidate list (e.g. already reversed).
+- `extract batch [N] [--start M]` — extract + disassemble the N smallest
+  un-reversed functions (N defaults to 20), optionally offset into the
+  sorted list.
 
+All three accept `--exe`/`--min-size`/`--max-size` filters and `--json`.
 Output `.bin` files land in the configured `bin_dir`.
 
 ### `rebrew flirt`
@@ -100,6 +109,9 @@ Output `.bin` files land in the configured `bin_dir`.
 - Scans the target PE/ELF with FLIRT signatures (`.sig` or `.pat`).
 - Emits matched function VAs + likely library identities.
 - `--min-size` filters out tiny matches that are likely noise.
+- `--va VA` checks a single function VA (hex) instead of the whole `.text`.
+- `--show-ambiguous` reports ambiguous matches (offsets with >3 candidate
+  names) as well.
 - `--exe PATH` overrides the binary; `--target` selects from
   `rebrew-project.toml`.
 - `--json` emits structured matches.
@@ -112,6 +124,7 @@ Output `.bin` files land in the configured `bin_dir`.
 - `--all` runs across every LIBRARY marker.
 - `--fix-source` writes a `// SOURCE: <path>` annotation back to each
   matched `.c` file.
+- `--dry-run` previews `--fix-source` writes without modifying files.
 - `--index` prints the constructed CRT index for inspection.
 - `--json` emits structured matches.
 
@@ -119,8 +132,10 @@ Output `.bin` files land in the configured `bin_dir`.
 
 - Consumes `db/data_<target>.json` (one per target) and produces
   `db/coverage.db` (SQLite) containing function, global, section, and
-  cell tables.
-- Writes CATALOG.md alongside.
+  cell tables. CATALOG.md is generated separately by `rebrew catalog
+  --catalog`.
+- `--force` deletes and recreates `db/coverage.db` when the schema version
+  is incompatible.
 - Schema version is stamped in a `metadata` table.
 
 ## User Stories / Workflows
@@ -171,17 +186,20 @@ rebrew catalog [OPTIONS]
       --export-ghidra
       --export-ghidra-labels
       --fix-sizes
+      --force
       --root PATH
       --json
   -t, --target TEXT
 
 rebrew extract list   [--json] [-t TARGET]
 rebrew extract show VA [--size N] [--json] [-t TARGET]
-rebrew extract batch N [--start M] [--json] [-t TARGET]
+rebrew extract batch [N] [--start M] [--dry-run] [--json] [-t TARGET]
 
 rebrew flirt [SIG_DIR]
       --exe PATH
       --min-size N           (default 16)
+      --va VA
+      --show-ambiguous
       --json
   -t, --target TEXT
 
@@ -189,11 +207,13 @@ rebrew crt-match [VA]
       --all
       --fix-source
       --index
+      --dry-run
       --json
   -t, --target TEXT
 
 rebrew build-db
       --root PATH
+      --force
       --json
   -t, --target TEXT
 ```
@@ -218,10 +238,14 @@ rebrew build-db
 - The function list ingester accepts both `functions.txt` (one VA per line
   or `VA size name`) and `function_structure.json` (Ghidra export); other
   formats are not supported.
-- `--export-ghidra` caches a Ghidra function list but does not re-fetch
-  live data; pair with `rebrew sync --refresh-cache` for that.
+- `--export-ghidra` writes no cache: it prints interactive Ghidra MCP export
+  instructions for `function_structure.json` / `ghidra_data_labels.json` and
+  exits (refuses `--json`). `rebrew catalog --data-json` writes a
+  provenance-stamped `function_structure.json` compatibility export from the
+  function list when no real export exists; fetch live data via
+  `rebrew sync`.
 - `build-db` writes to `db/coverage.db` deterministically but never migrates
-  an older schema; users must delete the file when the schema version
-  changes.
+  an older schema _(fixed)_: on a version mismatch it errors and points at
+  `--force`, which deletes and recreates the DB. No data migration.
 - `rebrew extract show` uses capstone for x86; non-x86 targets are out of
-  scope until matchings adds support.
+  scope until matching adds support.

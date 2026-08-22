@@ -5,6 +5,8 @@
 > NOTE, GHIDRA) and data section metadata (SIZE, SECTION, NOTE).
 > For the source-file marker format (`// FUNCTION: MODULE 0xVA`) and `library_*.h`
 > headers see [ANNOTATIONS.md](ANNOTATIONS.md).
+> For the **full store map** (canonical vs derived vs cache, who owns which
+> fact, precedence) see [METADATA.md](METADATA.md).
 
 This document describes the two-layer metadata system used by rebrew to track
 function and data metadata.
@@ -38,8 +40,9 @@ The following keys are **metadata-only** and must not appear in source files.
 `rebrew lint` fires **W019** for any of these found inline, and
 `rebrew lint --fix` migrates them to the correct TOML.
 
-`STATUS`, `CFLAGS`, `SKIP`, `GLOBALS`, `BLOCKER`, `BLOCKER_DELTA`, `SOURCE`,
-`NOTE`, `SECTION`, `GHIDRA`, `ANALYSIS`, `ORIGIN`, `SIZE`
+`STATUS`, `CFLAGS`, `TOOLCHAIN`, `SKIP`, `GLOBALS`, `BLOCKER`, `BLOCKER_DELTA`,
+`SOURCE`, `NOTE`, `SECTION`, `GHIDRA`, `ANALYSIS`, `ORIGIN`, `SIZE`,
+`PROVE_CONSTRAINTS`
 
 ## Layer 2: Metadata TOML Files
 

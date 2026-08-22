@@ -2,6 +2,13 @@
 
 - **Status**: Accepted
 - **Date**: 2026-08
+- **Amended by**: [ADR-007](007-complete-containerization-reproducibility.md)
+  (pinned-source unification), [ADR-008](008-docker-only-execution.md)
+  (docker-only — the host fallback described below no longer exists for
+  Windows/DOS toolchains), [ADR-011](011-external-toolchains-checkout.md)
+  (build specs moved out of this repo to the sibling rebrew-toolchains
+  checkout).  Read this ADR for the model's origin; 007/008/011 for its
+  current shape.
 
 ## Context
 
@@ -24,15 +31,19 @@ finicky installer — build once, share).
 - `rebrew.toolchain` holds a `ToolchainSpec` registry (`name`, image tag,
   host binary, image entry shim, flag style, object extension, vendored
   host path) and a runner that picks backend in order: **docker image
-  present → vendored host path → PATH binary**.
+  present → vendored host path → PATH binary**.  *(The docker→host
+  fallback was removed for every Windows/DOS toolchain by ADR-008 —
+  execution is docker-only there; native-Linux specs like gcc-pe and
+  watcom16 still exec their vendored/PATH binary directly.)*
 - `rebrew toolchain list/status/pull/build/vendor/smoke` exposes the
   registry.
 - `toolchain/<family>/<version>-<arch>/Dockerfile` are the
   canonical build specs (top-level dir = unversioned family — `msvc/`,
   `delphi/`, `watcom/` — so version and arch appear exactly once, in the
-  subdir and image tag).  All images inherit the shared
+  subdir and image tag).  *(Moved with the build source to the sibling
+  rebrew-toolchains checkout — ADR-011.)*  All images inherit the shared
   `rebrew/base` (pinned debian digest) and download pinned, sha256-verified
-  sources (or extract committed in-repo tarballs), so builds are
+  sources (or extract committed media tarballs), so builds are
   reproducible from a clean checkout with only docker.
 - The shared `rebrew.dosbox` runner (mount a sandbox as `C:`, run
   autoexec, read FAT-uppercased outputs) is reused by both 16-bit
@@ -53,6 +64,9 @@ finicky installer — build once, share).
 - A toolchain can be shared/pinned via its image tag — reproducible
   matching across machines (the eventual goal for CI and the corpus).
 - Host fallback keeps existing vendored toolchains working without docker.
+  *(Superseded for Windows/DOS toolchains by ADR-008 — execution is
+  docker-only there; the vendored trees remain as the image build source,
+  see ADR-007/011.)*
 - Watcom/32-bit OMF objects are converted to COFF via the vendored
   **objconv** and parsed by LIEF — 32-bit OMF byte matching is enabled.
   The vendored objconv carries the 16-bit OMF fix from the objconv fork

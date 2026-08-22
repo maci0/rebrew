@@ -412,3 +412,13 @@ reversed_dir = "src/server"
         data = json.loads(result.stdout)
         assert data["applied_names"] == 1
         assert (src / "FromBinSync.c").exists()
+        # The stub carries only the marker — STATUS/SIZE/NOTE are
+        # metadata-owned keys and must land in rebrew-function.toml, not
+        # as deprecated inline // STATUS://SIZE://NOTE: forms (lint W019).
+        text = (src / "FromBinSync.c").read_text()
+        assert "// FUNCTION:" in text
+        assert "// STATUS:" not in text and "// SIZE:" not in text and "// NOTE:" not in text
+        meta = (tmp_path / "src" / "rebrew-function.toml").read_text(encoding="utf-8")
+        assert "SERVER.0x10002000" in meta
+        assert 'status = "STUB"' in meta
+        assert "imported from BinSync" in meta

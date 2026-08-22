@@ -1080,5 +1080,10 @@ def compile_and_compare(
         return classify_compare_result(False, f"COMPILE_ERROR: {exc}", target_bytes, None, None)
     finally:
         if workdir is not None:
+            # Retry-removes absorb the docker mount-unmount race (a busy
+            # mountpoint leaves an empty dir behind); best-effort on
+            # persistent failures.
+            from rebrew.utils import remove_temp_dir
+
             with contextlib.suppress(OSError):
-                shutil.rmtree(workdir)
+                remove_temp_dir(workdir)

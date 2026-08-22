@@ -716,9 +716,9 @@ def smoke_cmd(
     """Compile the fixed smoke source in each image and verify the object
     hash matches the golden bytes (reproducibility gate).
 
-    Deterministic inputs: a FIXED work directory (/tmp/rebrew-smoke) and a
-    FIXED source mtime (the object metadata embeds both the source path and
-    its modification time — fresh writes would break the golden hashes).
+    Deterministic inputs: a FIXED work directory and a FIXED source mtime
+    (the object metadata embeds both the source path and its modification
+    time — fresh writes would break the golden hashes).
 
     --print-goldens recomputes the masked hashes WITHOUT comparing, so a
     maintainer who bumps a pinned toolchain source (new tarball/snapshot)
@@ -740,91 +740,96 @@ def smoke_cmd(
     ok = True
     # A real-disk, docker-visible workdir (the system temp dir may be
     # tmpfs or docker-invisible in sandboxed environments).
-    from rebrew.utils import writable_temp_dir
+    from rebrew.utils import remove_temp_dir, writable_temp_dir
 
     workdir = writable_temp_dir("rebrew_smoke_")
-    for tool in targets:
-        spec = get_toolchain(tool)
-        if spec.image is None and spec.host_path is None:
-            results[tool] = "skip (no image, no vendored host tree)"
-            continue
-        flags, out_name, golden, src_name, mask = _SMOKE_GOLDEN[tool]
-        src = _SMOKE_SOURCE if src_name == "t.c" else _SMOKE_DPR
-        src_path = workdir / src_name
-        src_path.write_text(src, encoding="utf-8")
-        os.utime(src_path, (int(_SDE), int(_SDE)))
-        if spec.image is not None:
-            r = subprocess.run(
-                [
-                    "docker",
-                    "run",
-                    "--rm",
-                    "-v",
-                    f"{workdir}:/work",
-                    "-w",
-                    "/work",
-                    spec.image,
-                    *flags,
-                ],
-                capture_output=True,
-                text=True,
-                timeout=300,
-            )
-            detail = (r.stdout + r.stderr)[-120:].strip()
-        else:
-            # Host-only vendored toolchain (msvc420/msvc5 under wine, watcom16
-            # native wcc): gate its reproducibility through the uniform host
-            # runner (resolves the vendored binary, sets the wine env).  The
-            # same fixed-workdir + fixed-mtime determinism contract applies —
-            # previously these had NO reproducibility gate at all.
-            from rebrew.toolchain import ToolchainError, run_toolchain
+    try:
+        for tool in targets:
+            spec = get_toolchain(tool)
+            if spec.image is None and spec.host_path is None:
+                results[tool] = "skip (no image, no vendored host tree)"
+                continue
+            flags, out_name, golden, src_name, mask = _SMOKE_GOLDEN[tool]
+            src = _SMOKE_SOURCE if src_name == "t.c" else _SMOKE_DPR
+            src_path = workdir / src_name
+            src_path.write_text(src, encoding="utf-8")
+            os.utime(src_path, (int(_SDE), int(_SDE)))
+            if spec.image is not None:
+                r = subprocess.run(
+                    [
+                        "docker",
+                        "run",
+                        "--rm",
+                        "-v",
+                        f"{workdir}:/work",
+                        "-w",
+                        "/work",
+                        spec.image,
+                        *flags,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
+                detail = (r.stdout + r.stderr)[-120:].strip()
+            else:
+                # Host-only vendored toolchain (msvc420/msvc5 under wine, watcom16
+                # native wcc): gate its reproducibility through the uniform host
+                # runner (resolves the vendored binary, sets the wine env).  The
+                # same fixed-workdir + fixed-mtime determinism contract applies —
+                # previously these had NO reproducibility gate at all.
+                from rebrew.toolchain import ToolchainError, run_toolchain
 
-            try:
-                rr = run_toolchain(spec, flags, workdir=workdir, timeout=300)
-                detail = (rr.stdout + rr.stderr)[-120:].strip()
-            except ToolchainError as exc:
-                results[tool] = "FAIL (" + str(exc)[-120:] + ")"
+                try:
+                    rr = run_toolchain(spec, flags, workdir=workdir, timeout=300)
+                    detail = (rr.stdout + rr.stderr)[-120:].strip()
+                except ToolchainError as exc:
+                    results[tool] = "FAIL (" + str(exc)[-120:] + ")"
+                    ok = False
+                    continue
+            obj = workdir / out_name
+            if not obj.exists():
+                results[tool] = "FAIL (no object: " + detail + ")"
                 ok = False
                 continue
-        obj = workdir / out_name
-        if not obj.exists():
-            results[tool] = "FAIL (no object: " + detail + ")"
-            ok = False
-            continue
-        raw = obj.read_bytes()
-        if mask is not None:
-            # Zero the compiler's build-timestamp fields (e.g. the COFF
-            # TimeDateStamp, or Turbo C's per-run COMENT ticks + record
-            # checksums) — the rest of the object is what determinism
-            # covers.  A single range or a list of ranges both work.
-            ranges = mask if isinstance(mask, list) else [mask]
-            masked = bytearray(raw)
-            for start, end in ranges:
-                masked[start:end] = b"\x00" * (end - start)
-            raw = bytes(masked)
-        actual = hashlib.sha256(raw).hexdigest()
-        if print_goldens:
-            results[tool] = actual
+            raw = obj.read_bytes()
+            if mask is not None:
+                # Zero the compiler's build-timestamp fields (e.g. the COFF
+                # TimeDateStamp, or Turbo C's per-run COMENT ticks + record
+                # checksums) — the rest of the object is what determinism
+                # covers.  A single range or a list of ranges both work.
+                ranges = mask if isinstance(mask, list) else [mask]
+                masked = bytearray(raw)
+                for start, end in ranges:
+                    masked[start:end] = b"\x00" * (end - start)
+                raw = bytes(masked)
+            actual = hashlib.sha256(raw).hexdigest()
+            if print_goldens:
+                results[tool] = actual
+                obj.unlink(missing_ok=True)
+                continue
+            results[tool] = "OK" if actual == golden else f"MISMATCH ({actual[:12]}…)"
+            ok = ok and actual == golden
             obj.unlink(missing_ok=True)
-            continue
-        results[tool] = "OK" if actual == golden else f"MISMATCH ({actual[:12]}…)"
-        ok = ok and actual == golden
-        obj.unlink(missing_ok=True)
-    if json_output:
-        json_print({"goldens": results} if print_goldens else {"results": results, "passed": ok})
-        return
-    if print_goldens:
-        for tool, h in results.items():
-            console.print(f"  {tool:12s} {h}")
-        return
-    for tool, status in results.items():
-        console.print(f"  [{'green' if status == 'OK' else 'red'}]{tool:12s}[/] {status}")
-    if ok:
-        console.print(
-            f"[green]Smoke: {sum(1 for s in results.values() if s == 'OK')} toolchains byte-reproducible[/green]"
-        )
-    else:
-        raise typer.Exit(code=2)
+        if json_output:
+            json_print(
+                {"goldens": results} if print_goldens else {"results": results, "passed": ok}
+            )
+            return
+        if print_goldens:
+            for tool, h in results.items():
+                console.print(f"  {tool:12s} {h}")
+            return
+        for tool, status in results.items():
+            console.print(f"  [{'green' if status == 'OK' else 'red'}]{tool:12s}[/] {status}")
+        if ok:
+            console.print(
+                f"[green]Smoke: {sum(1 for s in results.values() if s == 'OK')} toolchains byte-reproducible[/green]"
+            )
+        else:
+            raise typer.Exit(code=2)
+    finally:
+        remove_temp_dir(workdir)
 
 
 @app.command("build")
@@ -1284,51 +1289,54 @@ def update_cmd(
                 _rewrite_dockerfile_sha(name, src.sha256)
             raise
         # 4. regenerate the smoke golden (stable across two compiles) + write it.
-        from rebrew.utils import writable_temp_dir
+        from rebrew.utils import remove_temp_dir, writable_temp_dir
 
         workdir = writable_temp_dir("rebrew_smoke_")
-        h1 = _image_smoke_hash(name, workdir)
-        h2 = _image_smoke_hash(name, workdir)
-        if h1 is None or h2 is None:
-            msg = f"update {name}: smoke compile failed after rebuild — golden not updated"
-            if json_output:
-                json_print({"error": msg, "code": 2})
-            else:
-                console.print(f"[red]Error:[/red] {msg}")
-            raise typer.Exit(code=2)
-        if h1 != h2:
-            msg = (
-                f"update {name}: smoke hash unstable ({h1[:12]} vs {h2[:12]}) — golden not updated"
-            )
-            if json_output:
-                json_print({"error": msg, "code": 2})
-            else:
-                console.print(f"[red]Error:[/red] {msg}")
-            raise typer.Exit(code=2)
-        golden_changed = name in _SMOKE_GOLDEN and _SMOKE_GOLDEN[name][2] != h1
-        if name in _SMOKE_GOLDEN:
-            _rewrite_golden(name, h1)
-        if json_output:
-            json_print(
-                {
-                    "toolchain": name,
-                    "sha256": actual_sha,
-                    "commit": live_commit,
-                    "golden": h1,
-                    "golden_changed": golden_changed,
-                    "applied": True,
-                }
-            )
-        else:
-            console.print(f"[green]{name} re-pinned:[/green] {new_pin}")
-            console.print(f"  host tree re-vendored, image rebuilt ({get_toolchain(name).image})")
-            if name in _SMOKE_GOLDEN:
-                if golden_changed:
-                    console.print(f"  smoke golden updated: {h1[:16]}…")
+        try:
+            h1 = _image_smoke_hash(name, workdir)
+            h2 = _image_smoke_hash(name, workdir)
+            if h1 is None or h2 is None:
+                msg = f"update {name}: smoke compile failed after rebuild — golden not updated"
+                if json_output:
+                    json_print({"error": msg, "code": 2})
                 else:
-                    console.print(f"  smoke golden unchanged ({h1[:16]}…)")
+                    console.print(f"[red]Error:[/red] {msg}")
+                raise typer.Exit(code=2)
+            if h1 != h2:
+                msg = f"update {name}: smoke hash unstable ({h1[:12]} vs {h2[:12]}) — golden not updated"
+                if json_output:
+                    json_print({"error": msg, "code": 2})
+                else:
+                    console.print(f"[red]Error:[/red] {msg}")
+                raise typer.Exit(code=2)
+            golden_changed = name in _SMOKE_GOLDEN and _SMOKE_GOLDEN[name][2] != h1
+            if name in _SMOKE_GOLDEN:
+                _rewrite_golden(name, h1)
+            if json_output:
+                json_print(
+                    {
+                        "toolchain": name,
+                        "sha256": actual_sha,
+                        "commit": live_commit,
+                        "golden": h1,
+                        "golden_changed": golden_changed,
+                        "applied": True,
+                    }
+                )
             else:
-                console.print("[dim]  no smoke golden for this toolchain[/dim]")
+                console.print(f"[green]{name} re-pinned:[/green] {new_pin}")
+                console.print(
+                    f"  host tree re-vendored, image rebuilt ({get_toolchain(name).image})"
+                )
+                if name in _SMOKE_GOLDEN:
+                    if golden_changed:
+                        console.print(f"  smoke golden updated: {h1[:16]}…")
+                    else:
+                        console.print(f"  smoke golden unchanged ({h1[:16]}…)")
+                else:
+                    console.print("[dim]  no smoke golden for this toolchain[/dim]")
+        finally:
+            remove_temp_dir(workdir)
 
 
 def main_entry() -> None:

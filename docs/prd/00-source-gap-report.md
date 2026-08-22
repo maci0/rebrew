@@ -17,6 +17,12 @@ Shipped: The round-trip command implementation shipped in commits
 `fd84782..4260a6c` (May 2026). PRD 05 now covers round-trip user surface,
 workflows, and limitations.
 
+> **Refresh (audited 2026-08-22):** every entry below was re-verified against
+> the current source and live `--help`. All 33 distinct gaps are FIXED — each
+> carries an evidence line and its Severity is marked `(fixed)`; no open items
+> remain. Summary counts and Top blockers are updated below; historical
+> entries are preserved aside from the fix marks.
+
 ---
 
 ## Feature: 01 — Project Onboarding
@@ -27,7 +33,9 @@ workflows, and limitations.
   on the binary path. If the binary isn't placed yet (likely on fresh projects), the
   detector silently falls back to defaults and the stanza is wrong-but-quiet.
 - **Evidence:** `src/rebrew/cfg.py:162` `_detect_format_and_arch`, `src/rebrew/cfg.py:302` `add_target`.
-- **Severity:** enhancement
+- **Severity:** enhancement (fixed)
+- **Fixed:** `add_target` now refuses a missing binary without `--force` (and warns
+  with it) — `src/rebrew/cfg.py:426` guard; the silent wrong-but-quiet stanza is gone.
 - **Suggested fix (high level):** Warn loudly (or refuse without `--force`) when the
   binary file doesn't exist at the configured `original/` path, so users don't end up
   with a silently mis-formatted target stanza.
@@ -37,7 +45,9 @@ workflows, and limitations.
 - **Gap:** `rebrew doctor --install-wibo` downloads `tools/wibo` if missing. Help text
   doesn't make clear whether running it on a working project replaces the binary.
 - **Evidence:** `uv run rebrew doctor --help` (see /tmp/rebrew_help.txt), `src/rebrew/wibo.py`.
-- **Severity:** nit
+- **Severity:** nit (fixed)
+- **Fixed:** `--install-wibo` help now states "no-op if already installed" — idempotent
+  semantics documented (`src/rebrew/doctor.py:986`).
 - **Suggested fix:** Help text could clarify that `--install-wibo` only acts if
   `tools/wibo` is missing or executable bit unset (idempotent).
 
@@ -48,7 +58,10 @@ workflows, and limitations.
   `cfg set targets.<name>.compiler` short-hand; users must use dotted-key set.
 - **Evidence:** `src/rebrew/cfg.py:450` `set_value` handles arbitrary dotted keys
   generically, but the `--help` text only shows scalar examples; no shortcut.
-- **Severity:** enhancement
+- **Severity:** enhancement (fixed)
+- **Fixed:** dedicated `rebrew cfg set-compiler TARGET PROFILE` ships
+  (`src/rebrew/cfg.py:699`), and the `cfg` epilog now shows dotted-key examples
+  (`cfg set compiler.timeout 120`, `cfg show targets.main.binary`).
 - **Suggested fix:** Add a worked example to `rebrew cfg set --help` for
   per-target compiler overrides, or a dedicated `cfg set-compiler TARGET PROFILE`
   helper.
@@ -64,7 +77,9 @@ workflows, and limitations.
   a `--size`, so the inconsistency surprises users.
 - **Evidence:** `uv run rebrew extract show --help` (no `--size`),
   `src/rebrew/extract.py:335` `show_candidate`.
-- **Severity:** enhancement
+- **Severity:** enhancement (fixed)
+- **Fixed:** `show_candidate` now accepts `--size N` ("Override catalog-recorded size
+  for this extraction") — `src/rebrew/extract.py:377`.
 - **Suggested fix:** Add `--size N` to `extract show` so it can extract a single
   function with a known size override.
 
@@ -74,7 +89,9 @@ workflows, and limitations.
   via `--sig-dir`," but the actual option is the positional `[SIG_DIR]` argument.
 - **Evidence:** `uv run rebrew flirt --help` shows `SIG_DIR` as positional; epilog
   references non-existent `--sig-dir`.
-- **Severity:** nit
+- **Severity:** nit (fixed)
+- **Fixed:** epilog now says "passed as the positional SIG_DIR argument" and no longer
+  mentions `--sig-dir` (`src/rebrew/flirt.py:128`).
 - **Suggested fix:** Update the help epilog to refer to the positional argument, or
   add `--sig-dir` as an alias.
 
@@ -83,7 +100,10 @@ workflows, and limitations.
 - **Gap:** PRD acknowledges this. Schema version is stamped in metadata, but on
   mismatch the tool errors instead of recreating; users may not know to delete the file.
 - **Evidence:** `src/rebrew/build_db.py` (schema version handling).
-- **Severity:** enhancement
+- **Severity:** enhancement (fixed)
+- **Fixed:** `_check_db_version` tells the user to pass `--force`; `--force` deletes
+  the DB and rebuilds, and schema-less debris is auto-rebuilt
+  (`src/rebrew/build_db.py:158`).
 - **Suggested fix:** When the version mismatches, prompt to drop+recreate the DB or
   auto-recreate when `--force` is passed.
 
@@ -92,7 +112,9 @@ workflows, and limitations.
 - **Gap:** Help text says `--csv` "Generate reccmp-compatible CSV" but doesn't tell
   users where it lands. Code writes next to data JSON (`db/`).
 - **Evidence:** `src/rebrew/catalog/cli.py` `--csv` handling.
-- **Severity:** nit
+- **Severity:** nit (fixed)
+- **Fixed:** `--csv` help now states the destination — "(written to
+  db/<target>_functions.csv)" (`src/rebrew/catalog/cli.py:85`).
 - **Suggested fix:** Help line should mention the output path.
 
 ---
@@ -105,7 +127,10 @@ workflows, and limitations.
   but the `rebrew-ghidra-sync` skill documents `http://localhost:8089` as the default
   ReVa endpoint.
 - **Evidence:** `src/rebrew/skeleton.py:723` (8080), `src/rebrew/agent-skills/rebrew-ghidra-sync/SKILL.md:23` (8089).
-- **Severity:** blocker
+- **Severity:** blocker (fixed)
+- **Fixed:** code and skill now agree — `skeleton.py:1297` defaults
+  `--endpoint` to `http://localhost:8080/mcp/message`, and the ghidra-sync
+  skill documents the same (SKILL.md:40).
 - **Suggested fix:** Pick one canonical default (the codebase uses 8080/mcp/message),
   update the skill text, and consider centralising the constant in
   `rebrew.config` or `rebrew.ghidra.client`.
@@ -117,7 +142,10 @@ workflows, and limitations.
   shared meaning of "1" for structural diff and "1" elsewhere (NEAR_MATCHING in
   `rebrew test`) can confuse pipelines.
 - **Evidence:** `src/rebrew/diff.py` and `src/rebrew/test.py` epilogs.
-- **Severity:** nit
+- **Severity:** nit (fixed)
+- **Fixed:** `docs/CLI.md` now carries a dedicated exit-code alignment write-up:
+  the `test` contract (0/1/2) vs `diff`, with the advice to branch on `--json`
+  fields rather than the exit code (`docs/CLI.md:1411`).
 - **Suggested fix:** Document the alignment between exit codes across `test` and
   `diff` in one place (e.g. `docs/CLI.md`).
 
@@ -126,7 +154,9 @@ workflows, and limitations.
 - **Gap:** PRD says "`--fix --dry-run` is safe to suggest to humans." Help text
   describes `--fix` and `--dry-run` separately but doesn't show their combination.
 - **Evidence:** `uv run rebrew lint --help`.
-- **Severity:** nit
+- **Severity:** nit (fixed)
+- **Fixed:** epilog example added — "rebrew lint --fix --dry-run · Preview
+  inline-metadata migrations before commit" (`src/rebrew/lint.py:1185`).
 - **Suggested fix:** Add an example showing `--fix --dry-run` as the safe preview
   combination.
 
@@ -135,7 +165,9 @@ workflows, and limitations.
 - **Gap:** PRD documents the limitation. CLI help text doesn't.
 - **Evidence:** `uv run rebrew rename --help` epilog only mentions FUNCTION markers,
   definitions, externs.
-- **Severity:** nit
+- **Severity:** nit (fixed)
+- **Fixed:** epilog note added — "macros and string literals are NOT rewritten —
+  `grep` for the old name afterwards if you suspect any" (`src/rebrew/rename.py:80`).
 - **Suggested fix:** Add a one-line note that macro/string references are not
   rewritten, and recommend a follow-up `grep` for safety.
 
@@ -145,7 +177,10 @@ workflows, and limitations.
   project. The CLI help also mentions it briefly, but users running on symlinked
   paths may be confused why STATUS didn't update.
 - **Evidence:** `src/rebrew/test.py` (auto-skip logic).
-- **Severity:** nit
+- **Severity:** nit (fixed)
+- **Fixed:** `--no-promote` help states "(auto-skipped if file is outside project)"
+  (`src/rebrew/test.py:193`), and a skipped promotion logs "STATUS update skipped
+  (file outside project)" (`src/rebrew/test.py:552`).
 - **Suggested fix:** Log a one-line message when STATUS is auto-skipped so the user
   isn't left guessing.
 
@@ -159,7 +194,11 @@ workflows, and limitations.
   with relevant memory side effects may be incorrectly promoted to PROVEN.
 - **Evidence:** `src/rebrew/prove.py` (EAX-only proof goal), and PRD 04 open
   questions section.
-- **Severity:** enhancement
+- **Severity:** enhancement (fixed)
+- **Fixed:** `--check-edx` (forced on when the return type is 64-bit) and
+  `--watch-va` (compare 4 bytes of memory at a VA, repeatable) extend the proof
+  goal beyond EAX — `src/rebrew/prove.py:1096`/`1099`; `_compare_state_pairs`
+  checks EAX+EDX+watched memory (`prove.py:582`).
 - **Suggested fix:** Extend proof goals to cover EDX:EAX pairs and selected memory
   locations referenced by the function, behind a flag.
 
@@ -168,7 +207,10 @@ workflows, and limitations.
 - **Gap:** Passing both `--no-seed` and `--extra-seed PATH` is accepted but their
   precedence isn't documented; current behaviour is `--no-seed` wins.
 - **Evidence:** `src/rebrew/match.py` (typer option declarations).
-- **Severity:** nit
+- **Severity:** nit (fixed)
+- **Fixed:** precedence documented on both flags — `--extra-seed`: "Ignored if
+  `--no-seed` is also passed"; `--no-seed`: "(takes precedence over
+  `--extra-seed`)" (`src/rebrew/match.py:1263`/`1269`).
 - **Suggested fix:** Either error when both are supplied, or document that
   `--extra-seed` overrides `--no-seed`.
 
@@ -178,7 +220,9 @@ workflows, and limitations.
   but the meaning of each tier and the time/flag-count tradeoff is not surfaced.
 - **Evidence:** `src/rebrew/matcher/flag_data.py:74` sweep tiers; help text only
   lists the tier names.
-- **Severity:** enhancement
+- **Severity:** enhancement (fixed)
+- **Fixed:** `docs/FLAG_SWEEP_TIERS.md` exists and documents tier sizes / runtime
+  expectations.
 - **Suggested fix:** Document tier sizes / runtime expectations either in
   `docs/CLI.md` or a new `docs/FLAG_SWEEP_TIERS.md`.
 
@@ -192,7 +236,11 @@ workflows, and limitations.
   after any header edit; otherwise stale cache hits hide regressions.
 - **Evidence:** `src/rebrew/verify.py` cache lookup uses the per-file cache key
   derived from compile flags + source bytes; headers are not in the key.
-- **Severity:** blocker
+- **Severity:** blocker (fixed)
+- **Fixed:** `src/rebrew/verify.py:432` `_headers_hash` + per-entry reached-header
+  fingerprints (`_entry_headers_fp`, `verify.py:510`, served at `verify.py:1689`)
+  invalidate exactly the entries whose source reaches an edited header; the
+  compile cache tracks headers independently via `include_fingerprint`.
 - **Suggested fix:** Either hash the include-line fingerprint into the cache key, or
   invalidate the entire compile cache when any `.h` file under `reversed_dir`
   changes. Cheap option: add a watch/dependency file timestamp check on first run.
@@ -203,7 +251,10 @@ workflows, and limitations.
   inline STATUS markers (legacy), they will not match the displayed value.
 - **Evidence:** `src/rebrew/status.py` and `src/rebrew/lint.py` W019 warning for
   inline metadata.
-- **Severity:** enhancement
+- **Severity:** enhancement (fixed)
+- **Fixed:** `rebrew status` runs a quick W019 scan and prints "N file(s) contain
+  inline STATUS/CFLAGS/SIZE comments" when any are found (`src/rebrew/status.py:380`,
+  hint at `status.py:539`); count also surfaced in `--json`.
 - **Suggested fix:** When `rebrew status` is invoked, run a quick lint
   (W019) and print a hint if inline metadata is present anywhere in the project.
 
@@ -213,7 +264,9 @@ workflows, and limitations.
   tables don't appear in the graph, undercutting the visualisation's value for
   C++-heavy code.
 - **Evidence:** `src/rebrew/depgraph.py` (string-match call detection).
-- **Severity:** enhancement
+- **Severity:** enhancement (fixed)
+- **Fixed:** `rebrew graph --include-dispatch` folds dispatch-table edges in as
+  virtual `dispatch_0x<VA>` nodes (`src/rebrew/depgraph.py:12`, `:220`).
 - **Suggested fix:** Cross-reference `rebrew data --dispatch` results into the graph
   builder so dispatch-table edges appear (perhaps under a `--include-dispatch` flag).
 
@@ -221,7 +274,9 @@ workflows, and limitations.
 
 - **Gap:** `cache stats` prints size + entry count but no hit/miss telemetry.
 - **Evidence:** `src/rebrew/cache_cli.py` (no hit-rate field).
-- **Severity:** nit
+- **Severity:** nit (fixed)
+- **Fixed:** `cache stats` now prints "Session: N hits, M misses (X% hit rate)"
+  (`src/rebrew/cache_cli.py:52`).
 - **Suggested fix:** Track a session-local hit/miss counter in `CompileCache` and
   print a 1-day rolling summary in `cache stats`.
 
@@ -238,7 +293,11 @@ workflows, and limitations.
   lives in `rebrew-data.toml`"; `src/rebrew/agent-skills/rebrew-data-analysis/SKILL.md`
   references `rebrew-data.toml` correctly, but PRD 03 / 05 broadly say "metadata in
   rebrew-function.toml" without distinguishing.
-- **Severity:** nit
+- **Severity:** nit (fixed)
+- **Fixed:** both skills now make the split explicit — data metadata lives in
+  `rebrew-data.toml` at `cfg.metadata_dir` (`rebrew-data-analysis/SKILL.md:103`,
+  `rebrew-workflow/SKILL.md:197`); `rebrew data --fix-bss` writes SIZE/SECTION/NOTE
+  there (`src/rebrew/data.py:772`).
 - **Suggested fix:** Audit the data-section docstrings + skill text to make the
   function-metadata vs data-metadata split explicit. (PRDs in this directory already
   call it out.)
@@ -248,7 +307,9 @@ workflows, and limitations.
 - **Gap:** The pointer-alignment heuristic is hard-coded; users can't tune the
   minimum table length or pointer range.
 - **Evidence:** `src/rebrew/data.py:337` `find_dispatch_tables` constants.
-- **Severity:** enhancement
+- **Severity:** enhancement (fixed)
+- **Fixed:** `--min-table-len N` and `--max-pointer-stride N` surfaced (both require
+  `--dispatch`) — `src/rebrew/data.py` epilog/examples.
 - **Suggested fix:** Surface `--min-table-len` / `--max-pointer-stride` options.
 
 ### Gap: `rebrew data --gen-header` overwrites `rebrew_globals.h` without backup
@@ -256,7 +317,9 @@ workflows, and limitations.
 - **Gap:** PRD notes the limitation. There's no `--out PATH` override and no
   prompt before clobbering hand-edits.
 - **Evidence:** `src/rebrew/data.py:866` `_gen_globals_header`.
-- **Severity:** enhancement
+- **Severity:** enhancement (fixed)
+- **Fixed:** `--gen-header-out PATH` overrides the destination and `--force` guards
+  overwrites (`src/rebrew/data.py:1296`).
 - **Suggested fix:** Add `--out PATH` and a `--force` guard; warn if the destination
   exists and was modified after the last `--gen-header` run.
 
@@ -271,7 +334,9 @@ workflows, and limitations.
   `http://localhost:8089`.
 - **Evidence:** `src/rebrew/ghidra/cli.py:164`, `src/rebrew/ghidra/client.py:301`,
   `src/rebrew/agent-skills/rebrew-ghidra-sync/SKILL.md:23`.
-- **Severity:** blocker (duplicated from PRD 03)
+- **Severity:** blocker (fixed) (duplicated from PRD 03)
+- **Fixed:** code and skill agree on `http://localhost:8080/mcp/message`
+  (`src/rebrew/ghidra/client.py:373`, `ghidra/cli.py:477`, SKILL.md:40).
 - **Suggested fix:** Pick one default and align.
 
 ### Gap: `rebrew sync --pull-structs` writes a single `types.h` regardless of source module
@@ -280,7 +345,10 @@ workflows, and limitations.
   isolation must edit the file by hand.
 - **Evidence:** `src/rebrew/ghidra/commands.py:1003` `pull_structs`, output path
   `cfg.reversed_dir / "types.h"`.
-- **Severity:** enhancement
+- **Severity:** enhancement (fixed)
+- **Fixed:** `--types-out PATH` (single-file override) and `--by-module` (per-module
+  files like `types_server.h`/`types_shared.h`) — `src/rebrew/ghidra/cli.py:449`,
+  `commands.py:1128` `pull_structs`.
 - **Suggested fix:** Accept `--types-out PATH` and/or `--by-module` to split.
 
 ### Gap: Sync's offline fallback is partial
@@ -290,7 +358,10 @@ workflows, and limitations.
   the `--pull` function-name path and `--summary` consult the cache.
 - **Evidence:** `src/rebrew/ghidra/commands.py` (multiple pull functions assume live
   client).
-- **Severity:** enhancement
+- **Severity:** enhancement (fixed)
+- **Fixed:** offline scope documented in the sync epilog — falls back to local JSON
+  caches `function_structure.json` + `ghidra_data_labels.json` when offline
+  (`src/rebrew/ghidra/cli.py:371`).
 - **Suggested fix:** Document explicitly which pull modes work offline, or extend the
   cache to store struct/signature/comment payloads for offline use.
 
@@ -313,7 +384,9 @@ workflows, and limitations.
   `ghidra_data_labels.json` (used by `rebrew catalog --export-ghidra-labels` and
   the data analysis skill) is not refreshed unless `--pull-data` is invoked.
 - **Evidence:** `src/rebrew/ghidra/cli.py` `--refresh-cache` handling.
-- **Severity:** enhancement
+- **Severity:** enhancement (fixed)
+- **Fixed:** `--refresh-cache` refreshes both caches — `_refresh_structure_cache`
+  AND `_refresh_data_labels_cache` (`src/rebrew/ghidra/cli.py:746`).
 - **Suggested fix:** Refresh both caches when `--refresh-cache` is passed (or add a
   separate `--refresh-data-cache`).
 
@@ -326,7 +399,9 @@ workflows, and limitations.
 - **Gap:** Agents must scan `src/rebrew/agent-skills/` manually. There's no CLI
   command to enumerate installed skills.
 - **Evidence:** No subcommand registered for skills in `src/rebrew/main.py`.
-- **Severity:** enhancement
+- **Severity:** enhancement (fixed)
+- **Fixed:** `rebrew skills list` / `rebrew skills show` ship
+  (`src/rebrew/skills.py:111`/`135`).
 - **Suggested fix:** Either ship a `rebrew skills list/show` subcommand or add a
   `docs/SKILLS.md` index that the agent loader can fetch first.
 
@@ -334,7 +409,10 @@ workflows, and limitations.
 
 - **Gap:** PRD captures this. Renames or removed flags can drift undetected.
 - **Evidence:** Manual review only; no test asserts SKILL.md commands.
-- **Severity:** enhancement
+- **Severity:** enhancement (fixed)
+- **Fixed:** `tools/validate_skill_commands.py` extracts `rebrew` command lines from
+  every SKILL.md bash block and runs `--help` on each, wired into pre-commit
+  (`.pre-commit-config.yaml:76`).
 - **Suggested fix:** Add a pre-commit hook or pytest case that extracts command
   lines from SKILL.md (e.g. by fenced-block parsing) and runs `--help` on each to
   verify the flags resolve.
@@ -345,7 +423,9 @@ workflows, and limitations.
   The intake skill should chain it explicitly.
 - **Evidence:** `src/rebrew/agent-skills/rebrew-intake/SKILL.md` intake procedure
   (no `cfg detect-crt` step).
-- **Severity:** nit
+- **Severity:** nit (fixed)
+- **Fixed:** intake procedure now chains `rebrew cfg detect-crt --write` between
+  doctor and crt-match (SKILL.md:11 flow + `:163` "required before crt-match").
 - **Suggested fix:** Add `rebrew cfg detect-crt` between doctor and crt-match in the
   intake procedure.
 
@@ -353,7 +433,9 @@ workflows, and limitations.
 
 - **Gap:** See blocker above. The `rebrew-ghidra-sync` skill says port 8089;
   the code defaults to 8080.
-- **Severity:** blocker (duplicated)
+- **Severity:** blocker (fixed) (duplicated)
+- **Fixed:** the skill now documents `http://localhost:8080/mcp/message`
+  (SKILL.md:40), matching the code default.
 
 ---
 
@@ -367,7 +449,9 @@ workflows, and limitations.
   unimplemented `rebrew promote` command and an explicit 75% threshold.
 - **Evidence:** `diff src/rebrew/PRINCIPLES.md docs/PRINCIPLES.md` shows divergence
   starting on line 15.
-- **Severity:** blocker
+- **Severity:** blocker (fixed)
+- **Fixed:** `docs/PRINCIPLES.md` is now a symlink to `src/rebrew/PRINCIPLES.md`;
+  the `rebrew promote` / 75%-threshold text is gone.
 - **Suggested fix:** Pick one canonical location (probably `docs/PRINCIPLES.md`) and
   delete the other, or have `src/rebrew/PRINCIPLES.md` be a symlink. Resolve the
   factual divergence about `rebrew promote` (no such command exists today).
@@ -377,7 +461,8 @@ workflows, and limitations.
 - **Gap:** CLAUDE.md and PRD scaffolding reference `docs/METADATA_FORMAT.md` (upper
   case); the on-disk file is `docs/metadata_format.md` (lower case).
 - **Evidence:** `ls docs/` and CLAUDE.md "Existing user-facing docs" list.
-- **Severity:** nit
+- **Severity:** nit (fixed)
+- **Fixed:** file renamed to `docs/METADATA_FORMAT.md` (upper case, matching refs).
 - **Suggested fix:** Rename the file to match the conventional casing
   (`docs/METADATA_FORMAT.md`) or update the references.
 
@@ -389,7 +474,9 @@ workflows, and limitations.
   try `rebrew cfg set compiler_command "wine CL.EXE"` and fail.
 - **Evidence:** `docs/CONFIG.md:286`, `src/rebrew/config.py:134`,
   `src/rebrew/cfg.py:192` (uses dotted form in example).
-- **Severity:** nit
+- **Severity:** nit (fixed)
+- **Fixed:** CONFIG.md now uses the dotted key `compiler.command` throughout
+  (`docs/CONFIG.md:286` and the matrix at `:313`).
 - **Suggested fix:** Re-emit CONFIG.md to use dotted keys consistently.
 
 ### Gap: `rebrew test` and `rebrew verify` overlap is documented inline but no high-level "which one to use" page
@@ -399,35 +486,36 @@ workflows, and limitations.
   guidance.
 - **Evidence:** `uv run rebrew --help` epilog includes the table; no companion in
   `docs/`.
-- **Severity:** nit
+- **Severity:** nit (fixed)
+- **Fixed:** `docs/CLI.md` now has a dedicated "test vs verify vs match" section
+  with a decision table (`docs/CLI.md:23`).
 - **Suggested fix:** Move the table into `docs/CLI.md` or `docs/WORKFLOW.md`.
 
 ---
 
 ## Summary
 
-Distinct gaps (deduplicated across PRDs):
+Distinct gaps (deduplicated across PRDs), as of the 2026-08 refresh:
 
-- blockers: 3
-- enhancements: 17
-- nits: 14
+- blockers: 3 — all FIXED (0 open)
+- enhancements: 16 — all FIXED (0 open)
+- nits: 14 — all FIXED (0 open)
 
 (The "MCP endpoint disagreement" gap is cited in PRDs 03, 07, and 08 but is
-counted once. Total Severity lines in this file: 36.)
+counted once. Total Severity lines in this file: 35 — the 3 blockers appear as
+5 lines because the endpoint blocker is duplicated in Features 07 and 08. The
+enhancement count is 16, not the 17 stated at generation time; all 33 distinct
+gaps were re-verified as fixed in the 2026-08-22 refresh.)
 
-Top blockers (verbatim):
+Top blockers — all FIXED as of 2026-08-22:
 
-1. **Verify cache key omits headers.** `rebrew verify` does not detect
-   shared-header changes — users must remember `--full` after any header
-   edit or face stale cache hits hiding regressions.
-   *(PRD 05; `src/rebrew/verify.py`.)*
-2. **MCP endpoint disagreement.** `rebrew skeleton --endpoint` / `rebrew sync`
-   default to `http://localhost:8080/mcp/message`, but the
-   `rebrew-ghidra-sync` skill documents `http://localhost:8089`; pick one and
-   align.
-   *(PRDs 03/07/08; `src/rebrew/skeleton.py:723`,
-   `src/rebrew/agent-skills/rebrew-ghidra-sync/SKILL.md:23`.)*
-3. **Duplicate PRINCIPLES.md files.** `src/rebrew/PRINCIPLES.md` and
-   `docs/PRINCIPLES.md` diverge; the docs copy references an unimplemented
-   `rebrew promote` command and a 75% threshold rule that doesn't exist.
-   *(`diff src/rebrew/PRINCIPLES.md docs/PRINCIPLES.md`.)*
+1. **Verify cache key omits headers.** FIXED: the verify cache now keys on a
+   per-entry reached-header fingerprint (`src/rebrew/verify.py` `_headers_hash`
+   / `_entry_headers_fp`); editing a header re-verifies exactly the entries
+   whose source reaches it. *(PRD 05.)*
+2. **MCP endpoint disagreement.** FIXED: code and the ghidra-sync skill agree
+   on `http://localhost:8080/mcp/message` (`skeleton.py:1297`,
+   `ghidra/client.py:373`, SKILL.md:40). *(PRDs 03/07/08.)*
+3. **Duplicate PRINCIPLES.md files.** FIXED: `docs/PRINCIPLES.md` is a symlink
+   to `src/rebrew/PRINCIPLES.md`; the `rebrew promote` / 75%-threshold text is
+   gone.

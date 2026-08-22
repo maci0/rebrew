@@ -758,30 +758,25 @@ def _target_name(funcs_by_va: dict[int, str], va: int | None) -> str:
     return funcs_by_va.get(va, "")
 
 
-_list_names: dict[str, dict[int, str]] = {}
-
-
 def _list_name(cfg: ProjectConfig, va: int | None) -> str:
     """Function-list name for an un-annotated target VA (e.g. fcn.1001a286).
 
     The annotated-function map only knows reversed functions; the function
     list (r2) names everything the disassembler found.  Falls back to the
     ``fcn.<va>``-style name so drift details are actionable even for
-    un-reversed targets.  Returns "" when unavailable.  The cache is keyed
-    by the function-list path (multiple projects in one process).
+    un-reversed targets.  Returns "" when unavailable.  The underlying
+    parse is cached by ``cached_function_list`` (path-keyed); this helper
+    is only reached on mismatch error paths, so the projection is rebuilt
+    per call rather than kept in a second cache.
     """
     if va is None:
         return ""
-    func_list_path = str(getattr(cfg, "function_list", ""))
-    names = _list_names.get(func_list_path)
-    if names is None:
-        from rebrew.catalog.loaders import cached_function_list
+    from rebrew.catalog.loaders import cached_function_list
 
-        try:
-            names = {f["va"]: str(f["name"]) for f in cached_function_list(cfg)}
-        except (OSError, ValueError, KeyError, TypeError):
-            names = {}
-        _list_names[func_list_path] = names
+    try:
+        names = {f["va"]: str(f["name"]) for f in cached_function_list(cfg)}
+    except (OSError, ValueError, KeyError, TypeError):
+        names = {}
     return names.get(va, "")
 
 

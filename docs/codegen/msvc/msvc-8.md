@@ -113,6 +113,18 @@ codegen change of this version.
 Small static helpers inline at /O2 and /O1 (11–12B callers), matching
 the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 
+## Probe13: string intrinsics + encoding quirks — verified
+
+- **strlen manual loop with `add eax,1` (`83 c0 01`)** where 7.x and
+  9.0–11.0 use `inc eax` (`40`) — VC 8.0's `add`-over-`inc` encoding
+  preference, seen in strlen AND `g_val+1`; family-level only (GCC
+  also emits `83 c0 01` for `g_val+1`).
+- **memcmp(8B) switches to a dword-compare loop** (ESI=8 counter) at
+  /O2 — the `repe cmpsb` rep-string form ends at 7.1.
+- **signed-char compare against the zero register in memory**
+  (`33 c0 38 44 24 04 0f 9c c0`) — the 8.0+ form; 5.0–7.1 load the
+  byte and `test` it, 2.0/4.x `cmp byte ptr [esp+4],0`.
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:8.0-win32` (`msvc800_{O1,O2}.obj`);

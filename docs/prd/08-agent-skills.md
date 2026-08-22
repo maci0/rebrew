@@ -187,6 +187,19 @@ license: MIT
 Supporting documents live alongside, e.g.
 `agent-skills/rebrew-workflow/references/annotation-format.md`.
 
+`rebrew init` renders this tree into a project's `.agents/skills/` directory
+(substituting `<target>`), so agents working in the project load them from
+there; `src/rebrew/agent-skills/` remains the canonical, packaged tree.
+
+## CLI Surface
+
+```bash
+rebrew skills list                # table of skill name + short description
+rebrew skills list --json         # machine-readable list (name + description)
+rebrew skills show <name>         # pretty-print the SKILL.md (Markdown render)
+rebrew skills show <name> --json  # name/description/path + raw content
+```
+
 ## Success Metrics
 
 - An agent presented with a fresh project completes intake purely from
@@ -195,20 +208,26 @@ Supporting documents live alongside, e.g.
   skill emphasises `update_source_status` / the CLI tools.
 - Skill files stay <250 lines so the agent always loads them in one
   fetch.
-- A regression test asserts that example commands in each SKILL.md run
-  with the right flags (covered by lint + manual review today).
+- A regression test asserts that example commands in each SKILL.md use real
+  flags: `tools/validate_skill_commands.py` checks every `rebrew <subcommand>
+  --flag` in the SKILL.md bash blocks against live `--help` output (pre-commit
+  hook + suite tests), and `tests/test_skills_sync.py` pins the rendered
+  `.agents/skills/` copy to `src/rebrew/agent-skills/`.
 
 ## Open Questions / Known Limitations
 
-- Skill descriptions and trigger keywords are not yet auto-validated
-  against the actual CLI surface; they can drift if a flag is renamed.
+- Flag drift is auto-checked: `tools/validate_skill_commands.py` parses every
+  `rebrew <subcommand>` line in the SKILL.md bash blocks and verifies each
+  `--flag` against live `--help` (pre-commit + suite tests). (Resolved — flags
+  can no longer silently drift; frontmatter descriptions / trigger keywords are
+  still not validated against the CLI surface.)
 - The `rebrew-ghidra-sync` skill and all CLI tools share a single canonical
   default endpoint of `http://localhost:8080/mcp/message`. (Resolved — was
   a dual-default between 8089 and 8080; see gap report for history.)
 - Skills do not yet ship a "scaffolding" skill for `rebrew init` itself;
   initial onboarding is documented inside `rebrew-intake`.
-- There is no automated way to list all installed skills with one
-  command (`rebrew skills list` is not implemented); agents must scan
-  the directory.
+- `rebrew skills list` / `rebrew skills show` provide built-in discovery
+  (`--json` for machine-readable output). (Resolved — was missing; agents no
+  longer need to scan the directory.)
 - Skills assume the agent has shell access to run rebrew CLI; pure
   text-only agents can read the skills but cannot execute commands.

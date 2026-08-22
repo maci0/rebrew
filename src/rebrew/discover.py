@@ -53,6 +53,8 @@ class Discovery:
 
 def _rizin_functions(binary: Path, cmds: list[str]) -> list[tuple[int, int, str]]:
     """Run rizin with *cmds* and parse ``afl`` output (3- or 4-column)."""
+    from rebrew.catalog.loaders import parse_rizin_afl
+
     try:
         r = subprocess.run(
             ["rizin", "-q", "-c", "; ".join(cmds) + "; afl", str(binary)],
@@ -62,25 +64,7 @@ def _rizin_functions(binary: Path, cmds: list[str]) -> list[tuple[int, int, str]
         )
     except (OSError, subprocess.TimeoutExpired):
         return []
-    out: list[tuple[int, int, str]] = []
-    for line in r.stdout.splitlines():
-        p = line.split()
-        if not p or not p[0].startswith("0x"):
-            continue
-        try:
-            va = int(p[0], 16)
-        except ValueError:
-            continue
-        if len(p) >= 4 and p[2].isdigit():
-            size, name = int(p[2]), p[3]
-        elif len(p) >= 3:
-            size, name = int(p[1]), p[2]
-        else:
-            continue
-        if name in ("->", "loc") or name.startswith("sub."):
-            name = f"fcn.{va:08x}"
-        out.append((va, size, name))
-    return out
+    return parse_rizin_afl(r.stdout)
 
 
 def _capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
