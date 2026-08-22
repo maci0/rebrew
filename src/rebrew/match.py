@@ -57,7 +57,6 @@ from rebrew.cli import (
     parse_va,
     require_config,
     resolve_source_arg,
-    target_marker,
 )
 from rebrew.compile import resolve_compiler_env
 from rebrew.compile_cache import CompileCache, _source_digest
@@ -77,6 +76,9 @@ from rebrew.matcher import (
     quick_validate,
     score_candidate,
     structural_similarity,
+)
+from rebrew.sources import (
+    target_marker,
 )
 from rebrew.utils import atomic_write_text, read_source_text
 
@@ -943,7 +945,8 @@ def _collect_with_dedup(
     warn_duplicates: bool = True,
 ) -> list[StubInfo]:
     """Collect StubInfo entries from source files, deduplicating by VA."""
-    from rebrew.cli import iter_sources, rel_display_path
+    from rebrew.sources import iter_sources
+    from rebrew.utils import rel_display_path
 
     results: list[StubInfo] = []
     seen_vas: dict[str, str] = {}
@@ -1189,7 +1192,7 @@ def update_stub_to_matched(
     meta_root = metadata_dir or filepath.parent
     update_source_status(meta_root, "RELOC", module, va_int)
 
-    from rebrew.cli import rel_display_path
+    from rebrew.utils import rel_display_path
 
     display = rel_display_path(filepath, filepath.parent.parent)
     console.print(f"  [bold green]Updated[/] {display}: STUB → RELOC (backup: {bak_path.name})")
@@ -3035,7 +3038,7 @@ def _run_all(  # noqa: PLR0913
     if max_stubs > 0:
         stubs = stubs[:max_stubs]
 
-    from rebrew.cli import rel_display_path
+    from rebrew.utils import rel_display_path
 
     if not json_output:
         console.print(f"\nFound [bold]{len(stubs)}[/] {mode_label} function(s) to process:\n")
@@ -3345,9 +3348,9 @@ def _run_batch_flag_sweep(
     aggregation reports real numbers instead of a hardcoded ``(0, 0)``.
     """
     from rebrew.annotation import module_for_va
-    from rebrew.cli import rel_display_path
     from rebrew.matcher.solutions import SolutionEntry, save_solutions
     from rebrew.metadata import update_source_status
+    from rebrew.utils import rel_display_path
 
     reversed_dir = cfg.reversed_dir
     # Collect solved entries and flush ONCE at the end — save_solution per

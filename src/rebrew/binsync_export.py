@@ -140,7 +140,7 @@ def _extract_global_name_and_type(
             return None, None
         full = Path(cfg_reversed) / filepath if filepath else None
         if full is None or not full.exists():
-            from rebrew.cli import iter_sources as _iter_sources
+            from rebrew.sources import iter_sources as _iter_sources
 
             found = None
             for cand in _iter_sources(Path(cfg_reversed), cfg):
@@ -455,7 +455,7 @@ def _collect_struct_definitions(cfg: ProjectConfig) -> dict[str, tuple[str, list
     """
     result: dict[str, tuple[str, list[dict[str, str]]]] = {}
     try:
-        from rebrew.cli import iter_sources as _iter_sources
+        from rebrew.sources import iter_sources as _iter_sources
         from rebrew.struct_parser import (
             extract_structs_from_file,
         )

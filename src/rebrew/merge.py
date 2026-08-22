@@ -15,15 +15,21 @@ from rebrew.annotation import NEW_FUNC_CAPTURE_RE, parse_c_file_multi, split_ann
 from rebrew.cli import (
     TargetOption,
     error_exit,
-    iter_sources,
     json_print,
-    rel_display_path,
     require_config,
+)
+from rebrew.config import ProjectConfig
+from rebrew.sources import (
+    iter_sources,
     source_exts,
     target_marker,
 )
-from rebrew.config import ProjectConfig
-from rebrew.utils import atomic_write_text, read_source_text, strip_comment_blocks
+from rebrew.utils import (
+    atomic_write_text,
+    read_source_text,
+    rel_display_path,
+    strip_comment_blocks,
+)
 
 console = Console(stderr=True)
 

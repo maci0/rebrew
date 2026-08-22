@@ -24,7 +24,6 @@ from rebrew.cli import (
     EXIT_MISMATCH,
     TargetOption,
     error_exit,
-    iter_sources,
     json_print,
     require_config,
 )
@@ -60,6 +59,9 @@ from rebrew.ghidra.commands import (
 )
 from rebrew.ghidra.commands import (
     pull_structs as pull_structs_cmd,
+)
+from rebrew.sources import (
+    iter_sources,
 )
 from rebrew.utils import atomic_write_text
 

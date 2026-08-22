@@ -57,7 +57,6 @@ from pathlib import Path
 
 import numpy as np
 
-from rebrew.cli import NEAR_MATCH_THRESHOLD
 from rebrew.compile_cache import CompileCache, compile_cache_key, get_compile_cache
 from rebrew.config import ProjectConfig
 from rebrew.core import (
@@ -142,6 +141,39 @@ class CompareResult:
     #: different registers.  Not byte-identical; PROVEN or register-nudging C
     #: tweaks are the paths forward.
     effective_match: bool = False
+
+
+#: Match-quality threshold for NEAR_MATCHING vs STUB classification.
+#: A function that matches >= 60 % of bytes is NEAR_MATCHING; below is STUB.
+NEAR_MATCH_THRESHOLD = 0.60
+
+
+def is_matched(status: str) -> bool:
+    """True when *status* indicates a fully matched function (EXACT, RELOC, or PROVEN)."""
+    return status in ("EXACT", "RELOC", "PROVEN")
+
+
+def classify_match_status(
+    matched: bool,
+    match_count: int,
+    total: int,
+    relocs: list[int] | tuple[()] = (),
+) -> str:
+    """Determine the canonical status string from match results.
+
+    Centralises the EXACT / RELOC / NEAR_MATCHING / STUB decision for
+    raw match results.
+
+    :param matched: True when all non-reloc bytes match.
+    :param match_count: Number of matching bytes.
+    :param total: Total byte count considered.
+    :param relocs: Relocation offsets (non-empty → RELOC instead of EXACT).
+    """
+    if matched:
+        return "RELOC" if relocs else "EXACT"
+    if total > 0 and (match_count / total) >= NEAR_MATCH_THRESHOLD:
+        return "NEAR_MATCHING"
+    return "STUB"
 
 
 def classify_compare_result(

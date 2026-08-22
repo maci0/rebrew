@@ -472,7 +472,7 @@ class TestAllBatch:
         monkeypatch.setattr(
             "rebrew.near_diag.require_config", lambda target=None, json_mode=False: cfg
         )
-        monkeypatch.setattr("rebrew.cli.iter_sources", lambda *a, **k: [tmp_path / "f.c"])
+        monkeypatch.setattr("rebrew.sources.iter_sources", lambda *a, **k: [tmp_path / "f.c"])
         monkeypatch.setattr("rebrew.annotation.parse_c_file_multi", lambda *a, **k: annos)
         monkeypatch.setattr(
             "rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec\x5d\xc3"

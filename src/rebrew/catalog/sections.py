@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from rebrew.config import ProjectConfig
+from rebrew.sources import iter_sources
 
 
 def _default_padding() -> tuple[int, ...]:
@@ -133,8 +134,6 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
     Each value is a dict with keys: va, name, decl, files, module, size.
     """
     globals_dict: dict[int, dict[str, Any]] = {}
-    from rebrew.cli import iter_sources
-
     for p in iter_sources(src_dir, cfg):
         try:
             lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()

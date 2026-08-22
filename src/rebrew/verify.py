@@ -49,9 +49,11 @@ from rebrew.cli import (
     STATUS_COLORS,
     TargetOption,
     error_exit,
-    is_matched,
     json_print,
     require_config,
+)
+from rebrew.compile import (
+    is_matched,
 )
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.metadata import should_promote_status
@@ -1175,7 +1177,7 @@ def main(
             return
 
     if watch:
-        from rebrew.cli import iter_sources
+        from rebrew.sources import iter_sources
         from rebrew.utils import watch_files
 
         def _sources() -> list[Path]:

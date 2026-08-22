@@ -21,6 +21,13 @@ if TYPE_CHECKING:
 from rebrew.annotation import min_valid_va_for, parse_c_file_multi, parse_library_header
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
+from rebrew.sources import (
+    iter_library_headers,
+    iter_sources,
+    source_exts,
+    target_marker,
+)
+from rebrew.utils import rel_display_path
 
 # ---------------------------------------------------------------------------
 # Unmatchable function detection
@@ -232,7 +239,6 @@ def load_data(
     - covered_vas: dict mapping VA -> filename (for find_neighbor_file)
     """
     from rebrew.catalog import load_function_structure
-    from rebrew.cli import iter_library_headers, iter_sources, rel_display_path, target_marker
 
     src_dir = Path(cfg.reversed_dir)
     ghidra_json = src_dir / FUNCTION_STRUCTURE_JSON
@@ -307,8 +313,6 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
         cfg: Optional config for source extension (defaults to ``".c"``).
 
     """
-    from rebrew.cli import iter_library_headers, iter_sources, rel_display_path, target_marker
-
     src_path = Path(src_dir)
     existing: dict[int, str] = {}
     for cfile in iter_sources(src_path, cfg):
@@ -426,8 +430,6 @@ def make_filename(
     # sanitize_name already converts FUN_<hex> to func_<hex> and strips
     # path-hostile characters, so the result is always a safe filename.
     base = custom_name or sanitize_name(ghidra_name)
-
-    from rebrew.cli import source_exts
 
     exts = source_exts(cfg)
     ext = exts[0] if exts else ".c"

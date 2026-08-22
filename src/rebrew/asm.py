@@ -33,13 +33,15 @@ from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
     error_exit,
-    iter_sources,
     json_print,
     parse_va,
     require_config,
-    target_marker,
 )
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
+from rebrew.sources import (
+    iter_sources,
+    target_marker,
+)
 
 console = Console(stderr=True)
 

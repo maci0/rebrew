@@ -63,7 +63,8 @@ flowchart LR
 |---|---|
 | `rebrew/` top-level tools | One CLI command each (`test`, `verify`, `diff`, `match`, `lint`, `data`, `status`, `todo`, …), registered in `main.py` |
 | `rebrew/main.py` | Umbrella CLI. Flat `app.command()` for single-command modules, `app.add_typer()` for multi-command (`cfg`, `cache`, `extract`, `skills`, `resource`, `toolchain`) |
-| `rebrew/cli.py` | Shared options/helpers: `TargetOption`, `require_config`, `iter_sources`, `iter_annotations`, `error_exit`, `json_print`, exit codes |
+| `rebrew/cli.py` | Shared options/helpers: `TargetOption`, `require_config`, `iter_annotations`, `error_exit`, `json_print`, exit codes |
+| `rebrew/sources.py` | Source-tree discovery: `source_exts`, `source_glob`, `target_marker`, `iter_sources`, `iter_library_headers` (pure pathlib/config logic, importable by library modules) |
 | `rebrew/config.py` | `ProjectConfig` dataclass + `rebrew-project.toml` loader (multi-target) |
 | `rebrew/annotation.py` | Marker/KV annotation parsing (`// FUNCTION: MOD 0xVA`), key classification (file-only vs metadata) |
 | `rebrew/metadata.py` | `rebrew-function.toml` store; typed facade (`FunctionMetadata`, `field_kind`, `load_entry`/`save_entry`) |

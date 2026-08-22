@@ -842,7 +842,7 @@ def check_source_files(cfg: ProjectConfig) -> CheckResult:
             fix=f"Create the directory: mkdir -p {reversed_dir}",
         )
 
-    from rebrew.cli import iter_sources
+    from rebrew.sources import iter_sources
 
     sources = iter_sources(reversed_dir, cfg)
     if not sources:

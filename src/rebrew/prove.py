@@ -49,17 +49,19 @@ from rebrew.cli import (
     EXIT_OK,
     TargetOption,
     error_exit,
-    iter_sources,
     json_print,
     parse_va,
     require_config,
     resolve_source_arg,
-    target_marker,
 )
 from rebrew.compile import compile_to_obj
 from rebrew.config import ProjectConfig
 from rebrew.core import build_iat_region, build_name_to_va, smart_reloc_compare
 from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
+from rebrew.sources import (
+    iter_sources,
+    target_marker,
+)
 from rebrew.utils import safe_shlex_split
 
 log = logging.getLogger(__name__)

@@ -18,7 +18,7 @@ import httpx
 from rich.console import Console
 
 from rebrew.annotation import Annotation, update_annotation_key
-from rebrew.cli import iter_sources, json_print
+from rebrew.cli import json_print
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.ghidra.client import (
     fetch_all_functions,
@@ -28,6 +28,8 @@ from rebrew.ghidra.client import (
     init_mcp_session,
 )
 from rebrew.ghidra.models import PullChange, PullResult
+from rebrew.rename_ops import rename_function_everywhere
+from rebrew.sources import iter_sources
 from rebrew.utils import atomic_write_text, read_source_text
 
 console = Console(stderr=True)
@@ -612,8 +614,6 @@ def pull_ghidra_renames(
                             )
 
                         if entry.get("marker_type", "FUNCTION") == "FUNCTION":
-                            from rebrew.rename import rename_function_everywhere
-
                             old_name = entry.get("name", "")
                             old_sym = entry.get("symbol", "")
                             if not old_sym:

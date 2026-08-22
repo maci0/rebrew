@@ -27,7 +27,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from rebrew.cli import NEAR_MATCH_THRESHOLD, TargetOption, error_exit, json_print, require_config
+from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.compile import NEAR_MATCH_THRESHOLD
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.naming import (
     detect_unmatchable,

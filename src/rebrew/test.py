@@ -33,20 +33,19 @@ from rebrew.cli import (
     EXIT_MISMATCH,
     STATUS_COLORS,
     TargetOption,
-    classify_match_status,
     error_exit,
-    is_matched,
     json_print,
     parse_va,
     require_config,
     resolve_source_arg,
-    target_marker,
 )
 from rebrew.compile import (
     CompareResult,
     classify_compare_result,
+    classify_match_status,
     compile_and_compare,
     compile_to_obj,
+    is_matched,
 )
 from rebrew.config import ProjectConfig
 from rebrew.core import build_iat_region, build_name_to_va, smart_reloc_compare
@@ -57,6 +56,9 @@ from rebrew.metadata import (
     should_promote_status,
     update_field,
     update_source_status,
+)
+from rebrew.sources import (
+    target_marker,
 )
 
 console = Console(stderr=True)

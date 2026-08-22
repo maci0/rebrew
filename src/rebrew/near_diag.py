@@ -612,7 +612,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
     in the results list instead of aborting the batch.
     """
     from rebrew.annotation import parse_c_file_multi
-    from rebrew.cli import iter_sources, target_marker
+    from rebrew.sources import iter_sources, target_marker
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     tm = target_marker(cfg)
@@ -771,7 +771,7 @@ def main(
     import re
 
     from rebrew.annotation import parse_c_file_multi
-    from rebrew.cli import target_marker
+    from rebrew.sources import target_marker
 
     cfg = require_config(target=target, json_mode=json_output)
 

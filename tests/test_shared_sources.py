@@ -121,7 +121,7 @@ class TestIterSources:
         (cfg.reversed_dir / "local.c").write_text("int l(void){return 1;}\n", encoding="utf-8")
         (cfg.shared_dir / "common.c").write_text("int c(void){return 1;}\n", encoding="utf-8")
 
-        from rebrew.cli import iter_sources
+        from rebrew.sources import iter_sources
 
         files = iter_sources(cfg.reversed_dir, cfg)
         assert (cfg.reversed_dir / "local.c") in files
@@ -131,7 +131,7 @@ class TestIterSources:
         cfg = _cfg(tmp_path, shared="")
         (cfg.reversed_dir / "local.c").write_text("x", encoding="utf-8")
 
-        from rebrew.cli import iter_sources
+        from rebrew.sources import iter_sources
 
         files = iter_sources(cfg.reversed_dir, cfg)
         assert files == [cfg.reversed_dir / "local.c"]
@@ -141,7 +141,7 @@ class TestIterSources:
         cfg.shared_dir = tmp_path / "src" / "nope"  # never created
         (cfg.reversed_dir / "local.c").write_text("x", encoding="utf-8")
 
-        from rebrew.cli import iter_sources
+        from rebrew.sources import iter_sources
 
         assert iter_sources(cfg.reversed_dir, cfg) == [cfg.reversed_dir / "local.c"]
 
@@ -154,7 +154,7 @@ class TestIterSources:
         other.mkdir(parents=True)
         (other / "o.c").write_text("x", encoding="utf-8")
 
-        from rebrew.cli import iter_sources
+        from rebrew.sources import iter_sources
 
         files = iter_sources(other, cfg)
         assert files == [other / "o.c"]

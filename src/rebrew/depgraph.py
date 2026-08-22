@@ -24,12 +24,14 @@ from rebrew.annotation import parse_c_file_multi
 from rebrew.cli import (
     TargetOption,
     error_exit,
-    iter_sources,
     json_print,
     require_config,
-    target_marker,
 )
 from rebrew.config import ProjectConfig
+from rebrew.sources import (
+    iter_sources,
+    target_marker,
+)
 from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
@@ -167,7 +169,7 @@ def build_graph(
 
     # Single pass: collect all reversed functions and cache file text.
     # Uses parse_c_file_multi to capture every annotation in multi-function files.
-    from rebrew.cli import rel_display_path
+    from rebrew.utils import rel_display_path
 
     # Cache file text so _extract_callees doesn't re-read from disk
     _file_text_cache: dict[Path, str] = {}
@@ -584,8 +586,9 @@ def main(
         try:
             from rebrew.annotation import parse_c_file_multi
             from rebrew.binary_loader import load_binary, section_dict
-            from rebrew.cli import iter_sources, rel_display_path, target_marker
             from rebrew.data import find_dispatch_tables
+            from rebrew.sources import iter_sources, target_marker
+            from rebrew.utils import rel_display_path
 
             info = load_binary(bin_path)
             sec_dict = section_dict(info)

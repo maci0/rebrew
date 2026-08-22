@@ -353,7 +353,7 @@ def main(
 
     applied: list[dict[str, Any]] = []
     if named:
-        from rebrew.cli import iter_library_headers, iter_sources
+        from rebrew.sources import iter_library_headers, iter_sources
         from rebrew.struct_recover import existing_structs
 
         sources = list(iter_sources(cfg.reversed_dir, cfg))

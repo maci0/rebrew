@@ -109,7 +109,7 @@ def _annotations_by_va(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
     ``cfg.metadata_dir``); filepath is relative to ``cfg.reversed_dir``.
     """
     from rebrew.annotation import parse_c_file_multi
-    from rebrew.cli import iter_sources
+    from rebrew.sources import iter_sources
 
     out: dict[int, tuple[str, str]] = {}
     for path in iter_sources(cfg.reversed_dir, cfg):

@@ -14,6 +14,7 @@ from rebrew.annotation import Annotation, parse_c_file_multi, parse_library_head
 from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
 from rebrew.catalog.registry import make_func_entry
 from rebrew.config import ProjectConfig
+from rebrew.sources import iter_library_headers, iter_sources, target_marker
 from rebrew.utils import read_source_text
 
 # ---------------------------------------------------------------------------
@@ -236,8 +237,6 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
     are visible to catalog tools.  When *cfg* is None, volatile metadata is
     not loaded.
     """
-    from rebrew.cli import iter_library_headers, iter_sources, target_marker
-
     entries: list[Annotation] = []
     for cfile in iter_sources(reversed_dir, cfg):
         parsed = parse_c_file_multi(

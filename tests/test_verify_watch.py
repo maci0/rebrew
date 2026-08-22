@@ -134,7 +134,7 @@ class TestVerifyWatchCli:
             ),
         )
         monkeypatch.setattr(
-            "rebrew.cli.iter_sources", lambda _d, _c: [Path("/tmp/a.c"), Path("/tmp/b.c")]
+            "rebrew.sources.iter_sources", lambda _d, _c: [Path("/tmp/a.c"), Path("/tmp/b.c")]
         )
 
         def fake_watch(paths: list[Path], retest: object, **kwargs: object) -> None:

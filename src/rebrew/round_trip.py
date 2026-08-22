@@ -47,10 +47,8 @@ from rebrew.cli import (
     TargetOption,
     error_exit,
     iter_annotations,
-    iter_sources,
     json_print,
     require_config,
-    target_marker,
 )
 from rebrew.compile import compile_to_obj
 from rebrew.config import ProjectConfig
@@ -65,6 +63,10 @@ from rebrew.matcher.parsers import (
     parse_obj_symbol_bytes,
 )
 from rebrew.metadata import get_entry
+from rebrew.sources import (
+    iter_sources,
+    target_marker,
+)
 from rebrew.utils import atomic_write_bytes, safe_shlex_split
 
 console = Console(stderr=True)
