@@ -97,6 +97,18 @@
   IAT-slot VAs per import, export stamp); `postlink --layout` consumes it.
 
 ### Fixed
+- **Single HTTP client** — `rebrew toolchain check-updates` used
+  `urllib.request` (API call + release download) while every other network
+  path in the package uses httpx; both spots now go through httpx (with
+  `raise_for_status()` preserving urlopen's raise-on-non-2xx behavior).
+  One TLS/proxy code path instead of two (deps-review).
+- **Machine-independent `similarity` extra** — the optional `resembl`
+  dependency was pinned to an absolute `file:///home/...` URL, breaking
+  resolution on any other checkout.  It now declares a plain name resolved
+  via `[tool.uv.sources]` (`path = "../resembl"`, relative to this
+  pyproject.toml), matching the sibling-checkout convention used by
+  rebrew-toolchains/rebrew-flirt-sigs; re-locking resolves byte-identically
+  on this machine (deps-review).
 - **`rebrew lint` W019 / `rebrew status` inline-metadata mismatch** — the
   two tools disagreed (status warned "N file(s) contain inline
   STATUS/CFLAGS/SIZE comments" while lint reported clean, so the hint was a
