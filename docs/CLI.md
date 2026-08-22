@@ -352,6 +352,9 @@ the `wine ` prefix) for faster headless compiles.
 | `--annotate` | Insert `// GLOBAL: <marker> 0x<VA>` markers from `rebrew-data.toml` into the sources (above each symbol's first declaration; skips already-marked ones; `--dry-run` previews) |
 | `--layout-audit` | Per-TU `.data`/`.bss` span/order feasibility audit — what blocks placement convergence (ORDER/SPAN violations, unowned + duplicate-owned symbols) |
 | `--fill-data` | Emit `_dpad_<addr>[N]` pads for uncovered `.data` byte runs (byte-exact from the reference in the raw region, zero-init for BSS); `--bss-only` skips the initialized region |
+| `--own` | Materialize stub-file globals as real definitions in their owner TUs (original bytes from the reference); `--stub-file PATH` overrides the stub TU (default `src/link_stubs.c`) |
+| `--fix-ownership` | Re-partition global definitions across TUs so each owns one contiguous address run (fixes `--layout-audit` SPAN/ORDER violations) |
+| `--converge` | Fixed-point `.data` placement: insert/adjust `_dlead_<tu>[N]` leading pads and re-measure; `--rounds N` iterates (rebuild per round) |
 | `--gen-header` | Output `rebrew_globals.h` locally without fetching from Ghidra |
 | `--gen-header-out PATH` | Override output path for `--gen-header` (default: `{reversed_dir}/rebrew_globals.h`) |
 | `--force` | Overwrite an existing file when using `--gen-header` |
@@ -451,6 +454,49 @@ Size the BSS tail pad empirically so the raw link's `.data` VirtualSize
 matches the reference (from `[targets.<t>.layout]` unless `--target`):
 relink raw, measure the VirtualSize, adjust the tail array, recompile the
 stub, repeat until equal.
+
+### `rebrew gen-stubs`
+
+`rebrew gen-stubs [--out src/link_stubs.c] [--source-dir ...] [--build-cmd CMD] [--log FILE] [--library-csv ...] [--specials ...] [--footer ...] [--dry-run] [--json]`
+
+Generate a stub TU for the linker's unresolved external symbols
+(LNK2001/LNK2019): parses the errors from a build (`--build-cmd`), a saved
+log (`--log`), or stdin (pipe the build output), derives each symbol's type
+from `extern` declarations in the reversed sources, and emits zero-init
+globals, `s_*` string globals and stub functions with simplified C89 types.
+CRT library symbols are filtered with `--library-csv` (functions CSV tagged
+`library`).  Project policy — special forwarding stubs, big non-tentative
+BSS arrays, the `g_bss_tail` pad and a footer (e.g. a `_fltused` marker) —
+comes from `--specials <toml>` / `--footer <file>`:
+
+```toml
+[specials.thread_proc]
+decl = "extern int __cdecl ServerMainThread(void*);"
+impl = "int __stdcall thread_proc(void* param)\n{\n\treturn ServerMainThread(param);\n}"
+
+[[bss_arrays]]
+name = "g_player_slot_0"
+size = 0x264264
+
+bss_tail_size = 0x1269f30
+keep_stub_exceptions = ["_vfs_Crc32Update"]
+```
+
+Build integration: `--exclude-file PATH` renames the stub TU out of the
+build for the duration (`.off`, restored after); `--cmake-stub-var LINK_STUBS`
+temporarily blanks a `set(LINK_STUBS "...")` line in `CMakeLists.txt` so the
+stub drops out of the link — both restore on failure.
+
+### `rebrew inline-strings`
+
+`rebrew inline-strings [--files a.c b.c] [--source-dir ...] [--binary ...] [--token-prefix s_] [--inline-only] [--dry-run] [--json]`
+
+Materialize `s_<hint>_<0xADDR>` string-literal globals from the reference
+binary: rewrites C-level uses to inline literals (never inside comments or
+`__asm` blocks), and with `--define` (default) turns the remaining
+asm-referenced `extern char s_x[];` into real `char s_x[N] = "...";`
+definitions in the owning TU (most-referencing file), so the string gets
+content AND lands in the owning translation unit's `.data` slot.
 
 ### `rebrew order-sources`
 
@@ -615,6 +661,7 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 | `--dry-run` | Preview changes without writing |
 | `--force` | Overwrite output if it already exists |
 | `--delete` | Delete input files after successful merge |
+| `--consolidate` | Hoist unique includes/externs/typedefs/`#pragma intrinsic` to the top of the merged TU, resolving conflicting extern signatures by specificity (companion cleanup for multi-function merges) |
 | `--json` | Structured JSON output |
 
 ### `rebrew build-db`

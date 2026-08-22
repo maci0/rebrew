@@ -1383,6 +1383,31 @@ def main(
     bss_only: bool = typer.Option(
         False, "--bss-only", help="With --fill-data: only BSS pads, skip initialized-region pads"
     ),
+    own: bool = typer.Option(
+        False,
+        "--own",
+        help="Materialize stub-file globals as real definitions in their owner TUs "
+        "(original bytes from the reference)",
+    ),
+    stub_file: Path | None = typer.Option(
+        None,
+        "--stub-file",
+        help="With --own: the stub TU whose placeholders to own (default src/link_stubs.c)",
+    ),
+    fix_ownership: bool = typer.Option(
+        False,
+        "--fix-ownership",
+        help="Re-partition global definitions across TUs to fix layout-audit SPAN/ORDER violations",
+    ),
+    converge: bool = typer.Option(
+        False,
+        "--converge",
+        help="Fixed-point .data placement: insert/adjust _dlead_<tu>[N] pads and re-measure "
+        "(rebuild between rounds)",
+    ),
+    rounds: int = typer.Option(
+        1, "--rounds", help="With --converge: iteration count (rebuild per round)"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -1404,10 +1429,13 @@ def main(
         )
         return
 
-    # --layout-audit / --fill-data: .data placement machinery
-    if layout_audit or fill_data:
-        from rebrew.data_layout import audit_layout
+    # --layout-audit / --fill-data / --own / --fix-ownership / --converge:
+    # .data placement machinery
+    if layout_audit or fill_data or own or fix_ownership or converge:
+        from rebrew.data_layout import audit_layout, own_data_globals
+        from rebrew.data_layout import converge_layout as converge_data_layout
         from rebrew.data_layout import fill_data as fill_data_layout
+        from rebrew.data_layout import fix_ownership as fix_data_ownership
 
         metadata = cfg.metadata_dir / "rebrew-data.toml"
         if not metadata.exists():
@@ -1443,15 +1471,57 @@ def main(
                         + ", ".join(s for s, _, _ in report["duplicate_owned"][:10])
                     )
             return
-        result = fill_data_layout(
-            cfg.root, metadata, bin_path, src_dir, dry_run=dry_run, bss_only=bss_only
+        if fill_data:
+            result = fill_data_layout(
+                cfg.root, metadata, bin_path, src_dir, dry_run=dry_run, bss_only=bss_only
+            )
+            if json_output:
+                json_print(result)
+            else:
+                console.print(
+                    f"[green]data fill-data:[/green] {result['init_pads']} init pads, "
+                    f"{result['bss_pads']} bss pads{' (dry run)' if dry_run else ''}"
+                )
+            return
+        if own:
+            stub = stub_file if stub_file is not None else cfg.root / "src" / "link_stubs.c"
+            if not stub.exists():
+                error_exit(f"stub file not found: {stub} (--stub-file)", json_mode=json_output)
+            own_result = own_data_globals(
+                cfg.root, metadata, bin_path, src_dir, stub, dry_run=dry_run
+            )
+            if json_output:
+                json_print(own_result)
+            else:
+                console.print(
+                    f"[green]data own:[/green] {own_result['owned']} globals materialized"
+                    f"{' (dry run)' if dry_run else ''}"
+                )
+                if own_result["skipped"]:
+                    console.print(
+                        f"  skipped ({len(own_result['skipped'])}): "
+                        + ", ".join(own_result["skipped"][:10])
+                    )
+            return
+        if fix_ownership:
+            fix_result = fix_data_ownership(cfg.root, metadata, bin_path, src_dir, dry_run=dry_run)
+            if json_output:
+                json_print(fix_result)
+            else:
+                console.print(
+                    f"[green]data fix-ownership:[/green] {fix_result['edits']} edits "
+                    f"({fix_result['moved']} definitions moved){' (dry run)' if dry_run else ''}"
+                )
+            return
+        conv_result = converge_data_layout(
+            cfg.root, metadata, bin_path, src_dir, rounds=rounds, dry_run=dry_run
         )
         if json_output:
-            json_print(result)
+            json_print(conv_result)
         else:
             console.print(
-                f"[green]data fill-data:[/green] {result['init_pads']} init pads, "
-                f"{result['bss_pads']} bss pads{' (dry run)' if dry_run else ''}"
+                f"[green]data converge:[/green] {len(conv_result['adjustments'])} pad adjustments "
+                f"over {conv_result['rounds']} round(s){' (dry run)' if dry_run else ''}"
             )
         return
 

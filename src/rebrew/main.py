@@ -228,6 +228,16 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "Generate a link_stubs.c-style BSS placeholder TU from the data metadata.",
     ),
     (
+        "gen-stubs",
+        "rebrew.gen_stubs",
+        "Generate a stub TU for unresolved linker symbols (LNK2001/LNK2019).",
+    ),
+    (
+        "inline-strings",
+        "rebrew.inline_strings",
+        "Inline string-literal globals (s_<hint>_<0xADDR>) from the reference binary.",
+    ),
+    (
         "verify-placement",
         "rebrew.verify_placement",
         "Compare .data symbol VAs of the current build against the data metadata.",
