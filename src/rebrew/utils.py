@@ -367,6 +367,25 @@ def atomic_write_text(filepath: Path, text: str, encoding: str = "utf-8") -> Non
         raise
 
 
+def atomic_write_bytes(filepath: Path, data: bytes) -> None:
+    """Byte counterpart of :func:`atomic_write_text`.
+
+    Writes to a sibling ``.<pid>.<tid>.tmp`` then ``os.replace()``s, so a
+    crash or disk-full mid-write never leaves a truncated binary at the
+    target path (e.g. a postlinked or reassembled PE).  The temp file is
+    cleaned up on any failure; the original exception is always re-raised.
+    """
+    tmp_path = filepath.with_name(f"{filepath.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        tmp_path.write_bytes(data)
+        os.replace(tmp_path, filepath)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp_path.unlink()
+        raise
+
+
 def preserve_corrupt(path: Path) -> Path | None:
     """Move an unparseable file aside to ``<name>.corrupt`` and return the new path.
 

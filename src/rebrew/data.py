@@ -1460,6 +1460,9 @@ def main(
                     )
                 console.print("-" * 104)
                 console.print(f"violations: {report['violations']}")
+                for r in report["rows"]:
+                    if r.get("error"):
+                        console.print(f"[red]objdump error on {r['obj']}: {r['error']}[/red]")
                 if report["unowned"]:
                     console.print(
                         f"unowned toml symbols ({len(report['unowned'])}): "

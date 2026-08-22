@@ -755,22 +755,27 @@ def smoke_cmd(
             src_path.write_text(src, encoding="utf-8")
             os.utime(src_path, (int(_SDE), int(_SDE)))
             if spec.image is not None:
-                r = subprocess.run(
-                    [
-                        "docker",
-                        "run",
-                        "--rm",
-                        "-v",
-                        f"{workdir}:/work",
-                        "-w",
-                        "/work",
-                        spec.image,
-                        *flags,
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=300,
-                )
+                try:
+                    r = subprocess.run(
+                        [
+                            "docker",
+                            "run",
+                            "--rm",
+                            "-v",
+                            f"{workdir}:/work",
+                            "-w",
+                            "/work",
+                            spec.image,
+                            *flags,
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=300,
+                    )
+                except subprocess.TimeoutExpired:
+                    results[tool] = "FAIL (docker run timed out after 300s)"
+                    ok = False
+                    continue
                 detail = (r.stdout + r.stderr)[-120:].strip()
             else:
                 # Host-only vendored toolchain (msvc420/msvc5 under wine, watcom16
@@ -955,22 +960,27 @@ def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
     src_path = workdir / src_name
     src_path.write_text(src, encoding="utf-8")
     os.utime(src_path, (int(_SDE), int(_SDE)))
-    subprocess.run(
-        [
-            "docker",
-            "run",
-            "--rm",
-            "-v",
-            f"{workdir}:/work",
-            "-w",
-            "/work",
-            spec.image,
-            *flags,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
+    try:
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "-v",
+                f"{workdir}:/work",
+                "-w",
+                "/work",
+                spec.image,
+                *flags,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        # A hung daemon or missing docker degrades to "no object" — the
+        # caller reports the golden mismatch instead of crashing mid-update.
+        return None
     obj = workdir / out_name
     if not obj.exists():
         return None

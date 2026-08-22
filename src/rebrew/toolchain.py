@@ -979,12 +979,19 @@ def _image_present(tag: str) -> bool:
         return _image_presence[tag]
     if not docker_available():
         return False
-    r = subprocess.run(
-        ["docker", "image", "inspect", tag],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    try:
+        r = subprocess.run(
+            ["docker", "image", "inspect", tag],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        # A hung daemon must surface as ToolchainError (callers catch that),
+        # not a raw TimeoutExpired escaping into the compile/GA path — and
+        # not a silent False, which would misreport a present image as
+        # "not built".
+        raise ToolchainError(f"docker image inspect {tag} failed: {exc}") from exc
     _image_presence[tag] = r.returncode == 0
     return _image_presence[tag]
 
@@ -995,12 +1002,15 @@ def _image_id(tag: str) -> str | None:
     primitive calls it around image changes where freshness matters."""
     if not docker_available():
         return None
-    r = subprocess.run(
-        ["docker", "image", "inspect", "--format", "{{.Id}}", tag],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+    try:
+        r = subprocess.run(
+            ["docker", "image", "inspect", "--format", "{{.Id}}", tag],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise ToolchainError(f"docker image inspect {tag} failed: {exc}") from exc
     if r.returncode != 0 or not r.stdout.strip():
         return None
     return r.stdout.strip()
