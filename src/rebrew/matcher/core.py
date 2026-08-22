@@ -6,6 +6,7 @@ matching engine.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -69,22 +70,60 @@ class BuildCache:
         """Open (or create) the disk-backed build cache.
 
         Cache directory is derived from *db_path* (suffix ``.db`` replaced with ``_cache/``).
+        A store that cannot be opened (corrupt SQLite file, unwritable dir)
+        leaves the cache disabled — every lookup misses and every write is
+        skipped, so a GA run degrades to full recompiles instead of crashing.
         """
         cache_dir = str(db_path).removesuffix(".db") + "_cache"
-        self._cache = diskcache.Cache(cache_dir)
+        self._cache: diskcache.Cache | None
+        try:
+            self._cache = diskcache.Cache(cache_dir)
+        except Exception as exc:  # noqa: BLE001 — any store failure must degrade, not raise
+            logging.getLogger(__name__).warning(
+                "GA build cache at %s unusable (%s: %s) — running without it "
+                "(delete the _cache/ dir to reset a corrupted store)",
+                cache_dir,
+                type(exc).__name__,
+                exc,
+            )
+            self._cache = None
 
     def get(self, key: str) -> BuildResult | None:
-        """Return a cached build result for *key* if present."""
-        res = self._cache.get(key, default=None)
+        """Return a cached build result for *key* if present.
+
+        A failing store (corruption, lock contention timeout) degrades to a
+        miss so the candidate is rebuilt via the compiler subprocess.
+        """
+        if self._cache is None:
+            return None
+        try:
+            res = self._cache.get(key, default=None)
+        except Exception as exc:  # noqa: BLE001 — degrade to miss, never kill the GA
+            logging.getLogger(__name__).warning(
+                "GA build cache read failed (%s: %s) — treating as miss",
+                type(exc).__name__,
+                exc,
+            )
+            return None
         return res if isinstance(res, BuildResult) else None
 
     def put(self, key: str, result: BuildResult) -> None:
-        """Store a build result in the cache under *key*."""
-        self._cache.set(key, result)
+        """Store a build result in the cache under *key* (skipped when unusable)."""
+        if self._cache is None:
+            return
+        try:
+            self._cache.set(key, result)
+        except Exception as exc:  # noqa: BLE001 — a failed write only costs future hits
+            logging.getLogger(__name__).warning(
+                "GA build cache write failed (%s: %s)",
+                type(exc).__name__,
+                exc,
+            )
 
     def close(self) -> None:
         """Close the underlying diskcache store."""
-        self._cache.close()
+        if self._cache is not None:
+            self._cache.close()
 
     def __enter__(self) -> BuildCache:
         return self

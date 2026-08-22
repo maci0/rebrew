@@ -74,6 +74,35 @@ class TestCheckpointIO:
     def test_missing_checkpoint_returns_none(self, tmp_path: Path) -> None:
         assert read_ga_checkpoint(tmp_path / "out", "_nope") is None
 
+    def test_corrupt_checkpoint_returns_none(self, tmp_path: Path, caplog) -> None:
+        """A truncated/corrupt checkpoint must not raise — but it must warn,
+        because resume silently restarts from scratch (prior generations lost)."""
+        import logging
+
+        ckpt_dir = tmp_path / "out" / "checkpoints"
+        ckpt_dir.mkdir(parents=True)
+        (ckpt_dir / "_f.json").write_text('{"generation": 3, "trunc', encoding="utf-8")
+        with caplog.at_level(logging.WARNING, logger="rebrew.match"):
+            loaded = read_ga_checkpoint(tmp_path / "out", "_f")
+        assert loaded is None
+        assert any("restarts _f from scratch" in r.message for r in caplog.records)
+
+    def test_failed_checkpoint_save_warns_once(self, tmp_path: Path, caplog) -> None:
+        """A persistent checkpoint-save failure (e.g. disk full) silently
+        disables --resume — warn once per run instead of logging at DEBUG."""
+        import logging
+        from unittest.mock import patch
+
+        ga = _make_ga(tmp_path)
+        with (
+            caplog.at_level(logging.WARNING, logger="rebrew.match"),
+            patch("rebrew.match.atomic_write_text", side_effect=OSError("disk full")),
+        ):
+            ga._save_checkpoint(2)
+            ga._save_checkpoint(3)
+        warnings = [r for r in caplog.records if "--resume unavailable" in r.message]
+        assert len(warnings) == 1  # once per run, not per generation
+
 
 class TestResume:
     def test_resume_restores_state(self, tmp_path: Path) -> None:

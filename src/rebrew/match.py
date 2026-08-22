@@ -338,6 +338,9 @@ class BinaryMatchingGA:
 
         self.rng = random.Random(rng_seed)
         self.mutation_weights = mutation_weights or {}
+        # One-shot flag: _save_checkpoint warns once per run on failure
+        # (per-generation repetition would flood a long batch's log).
+        self._checkpoint_warned = False
 
         self.population: list[str] = []
         self.best_source: str | None = None
@@ -697,8 +700,13 @@ class BinaryMatchingGA:
                 json.dumps(checkpoint.to_dict(), indent=1),
                 encoding="utf-8",
             )
-        except (OSError, TypeError, ValueError):  # noqa: BLE001 — best-effort
-            log.debug("Checkpoint save failed for %s", self.symbol, exc_info=True)
+        except (OSError, TypeError, ValueError):
+            # Best-effort, but a persistent failure silently disables
+            # --resume for this run (hours of GA lost on interruption) —
+            # warn once so the user knows resume will restart from scratch.
+            if not self._checkpoint_warned:
+                self._checkpoint_warned = True
+                log.warning("Checkpoint save failed for %s — --resume unavailable", self.symbol)
 
     def close(self) -> None:
         """Close the build cache (releases SQLite connection)."""
@@ -750,6 +758,10 @@ def read_ga_checkpoint(out_dir: Path, symbol: str) -> GACheckpoint | None:
 
     The GA constructor validates ``args_hash`` itself; this raw reader is
     for the batch path where the final cflags are only known inside the GA.
+
+    A checkpoint that exists but cannot be parsed (truncated write, corrupt
+    JSON) is reported at WARNING: resume would silently restart from
+    scratch, discarding all prior generations for this stub.
     """
     ckpt = Path(out_dir) / "checkpoints" / f"{symbol}.json"
     if not ckpt.is_file():
@@ -758,6 +770,11 @@ def read_ga_checkpoint(out_dir: Path, symbol: str) -> GACheckpoint | None:
         data = json.loads(ckpt.read_text(encoding="utf-8"))
         return GACheckpoint.from_dict(data)
     except (OSError, ValueError, TypeError, KeyError):
+        log.warning(
+            "Checkpoint %s is unreadable — GA restarts %s from scratch",
+            ckpt,
+            symbol,
+        )
         return None
 
 
