@@ -15,8 +15,6 @@ from __future__ import annotations
 
 import re
 import struct
-import subprocess
-import tomllib
 from pathlib import Path
 
 import typer
@@ -61,40 +59,6 @@ def _data_section_va(dll: Path) -> int:
     raise ValueError("no .data section in the built DLL")
 
 
-def _expected(root: Path, metadata: Path) -> dict[str, int]:
-    with open(metadata, "rb") as f:
-        doc = tomllib.load(f)
-    out: dict[str, int] = {}
-    for key, val in doc.items():
-        if val.get("section") == ".data" and val.get("name"):
-            try:
-                out[str(val["name"])] = int(key.rsplit(".", 1)[1], 16)
-            except (IndexError, ValueError):
-                continue
-    return out
-
-
-def _obj_data_symbols(obj: Path) -> tuple[int, dict[str, int]]:
-    """(obj .data size, {symbol: offset within the obj's .data})."""
-    h = subprocess.run(["objdump", "-h", str(obj)], capture_output=True, text=True).stdout
-    secs = re.findall(r"^\s+(\d+)\s+(\S+)\s+([0-9a-f]+)\s", h, re.M)
-    secname = {int(a): b for a, b, _ in secs}
-    dsize = sum(int(c, 16) for a, b, c in secs if b == ".data")
-    t = subprocess.run(["objdump", "-t", str(obj)], capture_output=True, text=True).stdout
-    syms: dict[str, int] = {}
-    for line in t.splitlines():
-        m = re.match(r"\[ *\d+\]\(sec +(-?\d+)\)", line)
-        if not m:
-            continue
-        sec = int(m.group(1))
-        vm = re.search(r"\s(?:0x)?([0-9a-f]{8})\s+(\S+)\s*$", line[m.end() :])
-        if not vm:
-            continue
-        if secname.get(sec - 1) == ".data":
-            syms[vm.group(2).lstrip("_")] = int(vm.group(1), 16)
-    return dsize, syms
-
-
 @app.callback(invoke_without_command=True)
 def main(
     data_metadata: Path = typer.Option(
@@ -111,13 +75,15 @@ def main(
     dll = root / "build" / "server.dll"
     if not dll.exists():
         error_exit("build/server.dll not found — build the project first")
+    from rebrew.data_layout import data_symbols, link_objects, obj_data_symbol_offsets
+
     data_va = _data_section_va(dll)
-    expected = _expected(root, metadata)
+    expected = data_symbols(metadata)
 
     here: dict[str, int] = {}
     tot = 0
-    for obj in _link_objects(root):
-        dsize, syms = _obj_data_symbols(obj)
+    for obj in link_objects(root):
+        dsize, syms = obj_data_symbol_offsets(obj)
         for sym, off in syms.items():
             here.setdefault(sym, data_va + tot + off)
         tot += dsize

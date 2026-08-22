@@ -1369,6 +1369,20 @@ def main(
         help="Overwrite existing output file when using --gen-header",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    layout_audit: bool = typer.Option(
+        False,
+        "--layout-audit",
+        help="Per-TU .data/.bss span/order feasibility audit (what blocks placement convergence)",
+    ),
+    fill_data: bool = typer.Option(
+        False,
+        "--fill-data",
+        help="Emit _dpad_<addr>[N] pads for the uncovered .data byte runs (byte-exact "
+        "from the reference in the raw region, zero-init for BSS)",
+    ),
+    bss_only: bool = typer.Option(
+        False, "--bss-only", help="With --fill-data: only BSS pads, skip initialized-region pads"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -1388,6 +1402,57 @@ def main(
             dry_run=dry_run,
             json_output=json_output,
         )
+        return
+
+    # --layout-audit / --fill-data: .data placement machinery
+    if layout_audit or fill_data:
+        from rebrew.data_layout import audit_layout
+        from rebrew.data_layout import fill_data as fill_data_layout
+
+        metadata = cfg.metadata_dir / "rebrew-data.toml"
+        if not metadata.exists():
+            error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
+        if layout_audit:
+            report = audit_layout(cfg.root, metadata)
+            if json_output:
+                json_print(report)
+            else:
+                console.print(
+                    f"{'TU':58} {'#sym':>4} {'min addr':>10} {'max addr':>10} "
+                    f"{'data':>7} {'bss':>7}"
+                )
+                console.print("-" * 104)
+                for r in report["rows"]:
+                    flag = f"  <== {'/'.join(r['flags'])} VIOLATION" if r["flags"] else ""
+                    sym_count = len(set(r["dsyms"]) | set(r["bsyms"]))
+                    console.print(
+                        f"{r['obj']:58} {sym_count:4} "
+                        f"{r['min_addr']:#10x} {r['max_addr']:#10x} "
+                        f"{r['dsize']:#7x} {r['bsize']:#7x}{flag}"
+                    )
+                console.print("-" * 104)
+                console.print(f"violations: {report['violations']}")
+                if report["unowned"]:
+                    console.print(
+                        f"unowned toml symbols ({len(report['unowned'])}): "
+                        + ", ".join(s for s, _ in report["unowned"][:10])
+                    )
+                if report["duplicate_owned"]:
+                    console.print(
+                        f"duplicate-owned ({len(report['duplicate_owned'])}): "
+                        + ", ".join(s for s, _, _ in report["duplicate_owned"][:10])
+                    )
+            return
+        result = fill_data_layout(
+            cfg.root, metadata, bin_path, src_dir, dry_run=dry_run, bss_only=bss_only
+        )
+        if json_output:
+            json_print(result)
+        else:
+            console.print(
+                f"[green]data fill-data:[/green] {result['init_pads']} init pads, "
+                f"{result['bss_pads']} bss pads{' (dry run)' if dry_run else ''}"
+            )
         return
 
     # --annotate: insert // GLOBAL: markers from the data metadata

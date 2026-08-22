@@ -230,7 +230,8 @@ src/rebrew/
 ├── toolchain_detect.py  # Compiler/version detection (diec → PDB → heuristics)
 ├── dashboard.py         # Read-only web dashboard over db/coverage.db
 ├── data.py              # Global data scanner (.data/.rdata/.bss); --annotate inserts
-│                        # // GLOBAL: markers from the data metadata
+│                        # // GLOBAL: markers; --layout-audit/--fill-data placement
+├── data_layout.py       # Shared .data placement model (audit, pad emission, ownership)
 ├── depgraph.py          # Function dependency graph
 ├── flirt.py             # FLIRT signature scanning (project flirt_sigs/ merged
 │                        # with the sibling rebrew-flirt-sigs checkout)
