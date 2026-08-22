@@ -581,7 +581,7 @@ class BinaryMatchingGA:
         for gen in range(self._start_generation, self.num_generations):
             if deadline is not None and time.monotonic() > deadline:
                 break
-            gen_start = time.time()
+            gen_start = time.monotonic()
             scored_pop = []
             with ThreadPoolExecutor(max_workers=self.num_jobs) as executor:
                 # Perf-review F5: consult the in-process fitness memo BEFORE
@@ -671,7 +671,7 @@ class BinaryMatchingGA:
             # Accumulate the FULL generation time (scoring + mutation +
             # crossover) — stopping at the break above under-reported GA
             # time by ~99% on cache-warm runs (mutation dominates).
-            self.elapsed_sec += time.time() - gen_start
+            self.elapsed_sec += time.monotonic() - gen_start
 
             # Persist a checkpoint every generation so an interrupted batch
             # resumes from here instead of restarting the stub.
@@ -2924,6 +2924,11 @@ def _filter_recently_run(
             if datetime.fromisoformat(ts) >= cutoff:
                 recent_vas.add(str(rec.get("va")))
         except ValueError:
+            continue
+        except TypeError:
+            # Naive timestamp (no offset) can't compare against the aware UTC
+            # cutoff; treat like any other unparseable line instead of
+            # aborting the batch filter.
             continue
     if not recent_vas:
         return stubs
