@@ -1355,6 +1355,17 @@ def main(
         ),
         rich_help_panel="Single-Function",
     ),
+    kuna_seed: bool = typer.Option(
+        False,
+        "--kuna-seed",
+        help=(
+            "Seed the GA's initial population with Kuna's decompilation of "
+            "the target function (github.com/Noelo-Lab/kuna — requires the "
+            "`kuna` binary on PATH).  The output is compilability-fixed "
+            "(rebrew fix) before injection."
+        ),
+        rich_help_panel="Single-Function",
+    ),
     resume: bool = typer.Option(
         False,
         "--resume",
@@ -1722,6 +1733,7 @@ def main(
                 skip_recent_hours=skip_recent_hours,
                 seed_solutions=seed_solutions,
                 llm_seed=llm_seed,
+                kuna_seed=kuna_seed,
                 resume=resume,
                 ignore_lint=ignore_lint,
                 seed=seed,
@@ -1783,6 +1795,7 @@ def main(
         no_seed,
         collect_pairs,
         llm_seed=llm_seed,
+        kuna_seed=kuna_seed,
         dry_run=dry_run,
         mutation_weights=mutation_weights,
         link=link,
@@ -2401,6 +2414,7 @@ def _run_single_ga(
     no_seed: bool,
     collect_pairs: str | None = None,
     llm_seed: bool = False,
+    kuna_seed: bool = False,
     dry_run: bool = False,
     mutation_weights: dict[str, float] | None = None,
     link: str | None = None,
@@ -2459,6 +2473,34 @@ def _run_single_ga(
                     "to the initial population.[/dim]"
                 )
                 return
+
+    # Optional Kuna-assisted seeding: decompile the target function with the
+    # Kuna decompiler (agent-first Ghidra port), fix it up so it compiles
+    # (rebrew fix), and inject it into the GA's initial population.  Off by
+    # default; degrades to a warning when kuna is unavailable.
+    if kuna_seed and not no_seed:
+        from rebrew.decompiler import kuna_seed_source
+
+        kuna_snippet = kuna_seed_source(p.cfg.target_binary, p.va_int, p.cfg.root)
+        if kuna_snippet is None:
+            console.print(
+                "[yellow]warning:[/yellow] --kuna-seed set but kuna produced no "
+                "compilable C (install the kuna binary — "
+                "github.com/Noelo-Lab/kuna); running without the kuna seed"
+            )
+            if dry_run:
+                console.print(
+                    "\n[bold]Dry run:[/bold] no kuna seed available — "
+                    "nothing to preview; skipping the GA run."
+                )
+                return
+        else:
+            console.print("[dim]Kuna seeding:[/dim] decompilation added to the initial population")
+            loaded_seeds.append(kuna_snippet)
+        if dry_run:
+            console.print("\n[bold]Kuna seed (dry-run):[/bold]\n")
+            console.print(kuna_snippet)
+            return
 
     ga = BinaryMatchingGA(
         p.seed_src,

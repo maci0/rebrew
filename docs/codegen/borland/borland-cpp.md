@@ -80,6 +80,13 @@ Borland C++ 5.5 (1999) — the free 32-bit Windows command-line tools
 - Not verified vs other bcc32 versions (4.5/5.0 floppies exist but
   were not compiled for this reference).
 
+## Probe12: static-helper inlining — verified negative
+
+bcc32 5.5 does NOT inline the probe12 static helpers: the -O1 object
+keeps 4 `call`s in 119B of code, the -O2 object 4 `call`s in 128B —
+the same keep-the-call behavior as MSVC 2.0–6.0.  Verified in a
+probe12 re-run via `rebrew/borland:5.5-win32` (`out12/bcc55*`).
+
 ## Verification
 
 Probe `-O1` and `-O2` via `rebrew/borland:5.5-win32` (`probe.obj`,

@@ -66,12 +66,30 @@ plain Integer args too).  RTL functions use far `retf`/`retf N` (`ca`).
   [bp+6],ax` (the set bitmask word) · `jne` → true.  The
   `rol`-based set bit is verified; TC/MSVC16 never emitted `rol` in
   any probe.
+- **set/record copy via `rep movsw`** (probe3.dpr) — `setadd`'s
+  4-byte `Set of 0..31` argument copy emits `cld` (`fc`) · `les di`
+  · `lds si` · `mov cx,4` · `rep movsw` (`f3 a5`) — the Borland
+  Pascal bulk-copy idiom for set/record values.
 - **`for` loop** — `loopy2` (`for i := n downto 1`) keeps the
   counter in memory (`mov [bp-4],ax; dec word ptr [bp-4]; cmp word
   ptr [bp-4],1; jne`) — no register-held induction.
 - **`LongInt` arithmetic** — `longadd` loads `ax:[bp+8]`/`dx:[bp+0xa]`
   and does `add ax,[bp+4]; adc dx,[bp+6]` — the 32-bit-in-16-bit
   `adc` idiom, result in `dx:ax`, `ret 8` (callee cleanup).
+
+## probe3 leftovers: PChar walk and LongInt multiply
+
+- **`pchar_len` (PChar walk)** — `les di,[bp+4]` · `cmp byte ptr
+  es:[di],0` · `je` exit · `inc word ptr [bp+4]` (increments only the
+  OFFSET word, no segment carry) · `jmp` loop; the char is tested via
+  ES:DI, the counter in `[bp-4]`.  Ends `leave; ret 4`.  Verified in
+  probe3.dpr (`probe3.EXE` seg0 @ 0x81).
+- **`longmul` (LongInt multiply)** — a single **far call to the RTL
+  helper**: `lcall 0,0xffff` (the `@LDmul` runtime entry), operands in
+  register pairs `ax:dx` (a) and `cx:bx` (b), 32-bit result back in
+  `ax:dx`, `leave; ret 8`.  NOT inlined — Delphi 1.0 delegates
+  32×32→64 multiply to the RTL (contrast: `longadd` above is inlined
+  as `add; adc`).  Verified in probe3.dpr (`probe3.EXE` seg0 @ 0xb6).
 
 ## RTL / startup (segment 1)
 

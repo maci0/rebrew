@@ -2,7 +2,7 @@
 
 The Genetic Algorithm (GA) matching engine uses **119 C source mutation operators** to
 explore the MSVC6 code generation space.  Each mutation transforms syntactically valid
-C89 source into a semantically plausible variant, compiles it with MSVC6 (via Wine/wibo),
+C89 source into a semantically plausible variant, compiles it with MSVC6 (inside the toolchain's docker image),
 and scores the resulting binary against the target function's bytes.
 
 All mutations live in [`mutator.py`](../src/rebrew/matcher/mutator.py) and are driven
@@ -22,7 +22,7 @@ Source (.c) ──→ mutate_code(source, rng)
                         ▼
                   build_candidate(source, ...)
                   ├─ SHA-256 hash → check compile cache
-                  ├─ Run CL.EXE via Wine/wibo (60s timeout)
+                  ├─ Run CL.EXE inside the docker image (60s timeout)
                   ├─ parse_obj_symbol_bytes() → extract function bytes + relocs
                   └─ Return BuildResult {ok, obj_bytes, reloc_offsets}
                         │

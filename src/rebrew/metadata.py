@@ -262,8 +262,10 @@ def load_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
         return cached[1]
 
     try:
-        doc = tomlkit.parse(path.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001 — tomlkit raises various types
+        # Reads use tomllib (strict, ~10x faster than tomlkit) — round-trip
+        # preservation is only needed for WRITES, which still use tomlkit.
+        doc = tomllib.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001 — parser raises various types
         logger.warning("Failed to parse metadata %s: %s", path, exc)
         return {}
 
@@ -675,7 +677,18 @@ def merge_into_annotation(ann: Annotation, directory: Path) -> Annotation:
     entry = get_entry(directory, ann.va, module=module)
     if not entry:
         return ann
+    _apply_metadata_entry(ann, entry)
+    return ann
 
+
+def _apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
+    """Overlay one ``{field: value}`` metadata *entry* onto *ann* in place.
+
+    Shared by :func:`merge_into_annotation` (single function) and
+    :func:`rebrew.annotation._parse_c_file_text` (whole-file batches, which
+    load the metadata once and apply it per function instead of re-loading
+    the TOML for every annotation — the per-function hot path).
+    """
     if "size" in entry:
         with contextlib.suppress(ValueError, TypeError):
             ann.size = int(entry["size"])
@@ -722,8 +735,6 @@ def merge_into_annotation(ann: Annotation, directory: Path) -> Annotation:
         raw_pc = entry["prove_constraints"]
         if isinstance(raw_pc, dict):
             ann.prove_constraints = dict(raw_pc)
-
-    return ann
 
 
 # ---------------------------------------------------------------------------

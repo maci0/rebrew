@@ -68,6 +68,12 @@ linker 10.0.
 - To VC 11.0: SSE2 FP ops appear (addsd/mulsd/divsd/addss alongside
   x87).
 
+## Probe12: static-helper inlining — verified positive
+
+Small static helpers inline at /O2 and /O1 (11–12B callers), matching
+the VC 7.0+ era marker; 10.0 SP1 is identical to RTM on this feature
+(SP spot-check).  Verified in probe12 (`f1`/`f2`/`fl`).
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:10.0-win32`

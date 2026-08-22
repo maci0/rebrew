@@ -7,6 +7,7 @@ and scans reversed directories for annotated source files.
 import json
 import re
 import warnings
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -101,6 +102,94 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, GhidraDataLabel]:
         if gdl.va and gdl.size:
             result[gdl.va] = gdl
     return result
+
+
+# ---------------------------------------------------------------------------
+# Parallel loading helpers
+# ---------------------------------------------------------------------------
+
+
+def _load_json_file(path: Path) -> list[dict[str, Any]]:
+    """Load a JSON file and return a list of dicts (empty list on error)."""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return data
+        warnings.warn(f"Ignoring non-list JSON at {path}: {type(data).__name__}", stacklevel=2)
+        return []
+    except (json.JSONDecodeError, OSError) as exc:
+        warnings.warn(f"Failed to load JSON {path}: {exc}", stacklevel=2)
+        return []
+
+
+def load_all_sources_parallel(
+    cfg: ProjectConfig,
+) -> tuple[
+    list[FunctionEntry],  # function entries from function_structure.json
+    dict[int, GhidraDataLabel],  # data labels
+    list[dict[str, Any]],  # raw function list entries (from cfg.function_list)
+]:
+    """Load Ghidra/rizin sources in parallel using ThreadPoolExecutor.
+
+    Returns (function_entries, data_labels, raw_func_list).
+    This function is called from catalog/cli.py to avoid duplicated I/O.
+    """
+    # Determine which files to load
+    func_struct_path = cfg.reversed_dir / "function_structure.json"
+    ghidra_labels_path = cfg.reversed_dir / "ghidra_data_labels.json"
+    legacy_labels_path = cfg.reversed_dir / "ghidra_switchdata.json"
+    func_list_path = getattr(cfg, "function_list", None)
+
+    jobs = getattr(cfg, "default_jobs", 4) or 4
+
+    # Helper to submit a load job
+    def submit_loader(executor: ThreadPoolExecutor, path: Path | None) -> Future[Any] | None:
+        if path is None or not path.exists():
+            return None
+        return executor.submit(_load_json_file, path)
+
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        futures: dict[Future[Any], str] = {}
+        if func_struct_path.exists():
+            futures[pool.submit(load_function_structure, func_struct_path)] = "func_struct"
+        if ghidra_labels_path.exists():
+            futures[pool.submit(_load_json_file, ghidra_labels_path)] = "ghidra_labels"
+        elif legacy_labels_path.exists():
+            futures[pool.submit(_load_json_file, legacy_labels_path)] = "legacy_labels"
+        if func_list_path and Path(func_list_path).exists():
+            futures[pool.submit(_load_json_file, Path(func_list_path))] = "func_list"
+
+        # Collect results
+        func_entries: list[FunctionEntry] = []
+        data_labels: dict[int, GhidraDataLabel] = {}
+        raw_func_list: list[dict[str, Any]] = []
+
+        for future in as_completed(futures):
+            kind = futures[future]
+            try:
+                result = future.result()
+            except Exception as exc:  # pragma: no cover - defensive
+                warnings.warn(f"Parallel load failed for {kind}: {exc}", stacklevel=2)
+                continue
+
+            if kind == "func_struct":
+                if isinstance(result, list):
+                    func_entries = [
+                        FunctionEntry.from_dict(d) for d in result if isinstance(d, dict)
+                    ]
+            elif kind in ("ghidra_labels", "legacy_labels"):
+                if isinstance(result, list):
+                    for entry in result:
+                        if isinstance(entry, dict):
+                            gdl = GhidraDataLabel.from_dict(entry)
+                            if gdl.label:
+                                gdl.state = _classify_ghidra_label(gdl.label)
+                            if gdl.va and gdl.size:
+                                data_labels[gdl.va] = gdl
+            elif kind == "func_list" and isinstance(result, list):
+                raw_func_list = result
+
+    return func_entries, data_labels, raw_func_list
 
 
 # ---------------------------------------------------------------------------

@@ -93,6 +93,9 @@ tc20 use needs the wrapper fixed first.
   `long` add/sub are inlined by both as `add; adc` — identical.)
   MSVC 1.52 calls its own long-op helpers (push-args + call) instead
   of inlining.
+- **`-1` (8086) vs `-2` (80286) codegen: byte-identical** — verified
+  negative on the probe3 function set (Turbo C++ 3.1's 8086/80286
+  instruction-selection flags change nothing for the tested code).
 - The frame-pointer-always + `pop bp; ret` (no `leave`) combination
   is Borland-16-bit-unique vs MSVC 1.5x within this set (see
   [msvc-1.md](../msvc/msvc-1.md) for the other half).
@@ -103,6 +106,14 @@ tc20 use needs the wrapper fixed first.
   helper differences above (probe3-verified).  Probe1's simpler set
   showed no difference — the two share the base 16-bit idioms
   (frame, `div bx`, `fwait` FPU).
+
+## Probe12: 16-bit switch — verified
+
+Probe12 (`sw8`) re-confirms the jump-table form for TC 3.1: `shl bx,1`
+(`d1 e3`) + `jmp word ptr cs:[table+bx]`, in the position where MSVC
+1.52 emits `add ax,ax; xchg bx,ax` instead.  The `shl`-scaling idiom
+is the TC/Watcom-16 family trait; the `xchg bx,ax` idiom is
+MSVC-1.5x-specific (see README).
 
 ## Verification
 

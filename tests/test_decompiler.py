@@ -549,3 +549,84 @@ class TestFetchBackends:
 
         assert fetch_r2ghidra(tmp_path / "nope", 0x1000, tmp_path) is None
         assert fetch_r2dec(tmp_path / "nope", 0x1000, tmp_path) is None
+
+
+class TestKunaBackend:
+    def test_fetch_kuna_absent_binary(self) -> None:
+        from rebrew.decompiler import fetch_kuna
+
+        assert fetch_kuna(Path("/nonexistent.bin"), 0x401000, Path("/tmp")) is None
+
+    def test_fetch_kuna_no_tool(self, tmp_path: Path, monkeypatch) -> None:
+        import rebrew.decompiler as dc
+
+        binary = tmp_path / "x.exe"
+        binary.write_bytes(b"MZ")
+        monkeypatch.setattr(dc.shutil, "which", lambda n: None)
+        assert dc.fetch_kuna(binary, 0x401000, tmp_path) is None
+
+    def test_fetch_kuna_parses_stdout(self, tmp_path: Path, monkeypatch) -> None:
+
+        import rebrew.decompiler as dc
+
+        binary = tmp_path / "x.exe"
+        binary.write_bytes(b"MZ")
+
+        class _R:
+            returncode = 0
+            stdout = "\n\n  /* Kuna v1.0 */\nint FUN_00401000(void) { return 0; }\n\n"
+            stderr = ""
+
+        monkeypatch.setattr(dc.shutil, "which", lambda n: "/usr/bin/kuna")
+
+        def _run(cmd, **kw):
+            assert cmd[0] == "/usr/bin/kuna"
+            assert cmd[1] == "decompile"
+            assert cmd[3] == "0x401000"
+            assert "--addr" in cmd
+            return _R()
+
+        monkeypatch.setattr(dc.subprocess, "run", _run)
+        out = dc.fetch_kuna(binary, 0x401000, tmp_path)
+        assert out is not None
+        assert "Kuna v1.0" in out
+        assert "FUN_00401000" in out
+
+    def test_fetch_kuna_failure_returns_none(self, tmp_path: Path, monkeypatch) -> None:
+        import rebrew.decompiler as dc
+
+        binary = tmp_path / "x.exe"
+        binary.write_bytes(b"MZ")
+
+        class _R:
+            returncode = 1
+            stdout = ""
+            stderr = "boom"
+
+        monkeypatch.setattr(dc.shutil, "which", lambda n: "/usr/bin/kuna")
+        monkeypatch.setattr(dc.subprocess, "run", lambda *a, **k: _R())
+        assert dc.fetch_kuna(binary, 0x401000, tmp_path) is None
+
+    def test_kuna_seed_source_fixes_pseudo_types(self, tmp_path: Path, monkeypatch) -> None:
+        import rebrew.decompiler as dc
+
+        monkeypatch.setattr(
+            dc,
+            "fetch_kuna",
+            lambda b, va, root: "undefined4 FUN_00401000(void) { return 1; }\n",
+        )
+        seed = dc.kuna_seed_source(tmp_path / "x.exe", 0x401000, tmp_path)
+        assert seed is not None
+        assert "int FUN_00401000(void)" in seed  # pseudo-type fixed
+
+    def test_kuna_seed_source_rejects_garbage(self, tmp_path: Path, monkeypatch) -> None:
+        import rebrew.decompiler as dc
+
+        monkeypatch.setattr(dc, "fetch_kuna", lambda b, va, root: "#### not c ####")
+        assert dc.kuna_seed_source(tmp_path / "x.exe", 0x401000, tmp_path) is None
+
+    def test_kuna_seed_source_none_when_fetch_fails(self, tmp_path: Path, monkeypatch) -> None:
+        import rebrew.decompiler as dc
+
+        monkeypatch.setattr(dc, "fetch_kuna", lambda b, va, root: None)
+        assert dc.kuna_seed_source(tmp_path / "x.exe", 0x401000, tmp_path) is None

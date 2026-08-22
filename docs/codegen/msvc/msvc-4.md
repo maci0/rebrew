@@ -62,7 +62,11 @@ dense jump tables.
   **No-op stack pair after `fild`** — `(double)x` emits `fild
   [esp+4]` followed by `sub esp,4; add esp,4` (`83 ec 04 83 c4 04`,
   a no-op pair) in VC 2.0/4.x — absent in every later version.
-  Verified in probe4 (`i2d`/`i2f`).  No verified codegen separates
+  Verified in probe4 (`i2d`/`i2f`).  **SEH `fs:[0]` load before the
+  frame** — `__try/__except` functions load `mov eax,fs:[0]`
+  (`64 a1 00 00 00 00`) BEFORE `push ebp; mov ebp,esp` in VC 2.0/4.x
+  (5.0+ loads it after the frame).  Verified in probe7 (`seh1`).
+  No verified codegen separates
   4.x from 2.0, or one 4.x minor from another — use the linker
   version (3.0 / 3.10 / 4.20) or PE-era metadata.
 
@@ -74,6 +78,13 @@ dense jump tables.
 - To VC 5.0: the big jump — magic-number division arrives, `sub edx,edx`
   becomes `xor edx,edx`, `cmp reg,zeroreg` becomes `test reg,reg`, and
   constant-caching hoists loop-invariant values into `ebx/ebp/esi/edi`.
+
+## Probe12: static-helper inlining — verified negative
+
+Small static helpers called once/twice/in a loop are NOT inlined: VC
+4.x keeps the `call` at both /O2 and /O1 (30–34B callers), unlike VC
+7.0+ which inline them (11–12B).  Verified in probe12
+(`f1`/`f2`/`fl`); keeping the call is itself the 2.0–6.0 era marker.
 
 ## Verification
 

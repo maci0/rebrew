@@ -455,12 +455,13 @@ def parse_metadata_key(key: str) -> tuple[str, int] | None:
     return None
 
 
-def parse_metadata_doc(doc: TOMLDocument) -> dict[tuple[str, int], dict[str, Any]]:
+def parse_metadata_doc(doc: dict[str, Any]) -> dict[tuple[str, int], dict[str, Any]]:
     """Convert a parsed metadata TOML document into ``{(module, va): fields}``.
 
-    Entries whose key is not a qualified ``MODULE.0xVA`` form, or whose value
-    is not a table, are skipped.  Shared by ``metadata.py`` and
-    ``data_metadata.py``.
+    Accepts either a tomlkit ``TOMLDocument`` (writes) or a plain ``dict``
+    from ``tomllib`` (fast reads).  Entries whose key is not a qualified
+    ``MODULE.0xVA`` form, or whose value is not a table, are skipped.  Shared
+    by ``metadata.py`` and ``data_metadata.py``.
     """
     result: dict[tuple[str, int], dict[str, Any]] = {}
     for key, value in doc.items():

@@ -97,6 +97,21 @@ build is the only reliable SP discriminator (see below).  Linker 6.0.
 - **`shl eax,1` for `x*10`** and **`repe cmpsd` memcmp** — shared
   5.0–7.1 / 2.0–7.1 era markers, see
   [msvc-5.md](msvc-5.md).
+- **TWO divisions for `x/N + x%N`** — VC 2.0–6.0 emit separate
+  divisions for the quotient and remainder (VC 7.0+ shares one — see
+  [msvc-7.md](msvc-7.md)).  Verified in probe9 (`dm3`/`udm3`).
+- **Bitfield get/set: 5.0/6.0 share a 67B packing form** (VC 2.0/4.1
+  a 77B form, 7.0+ the movzx-based 60B-and-smaller forms) — the
+  bitfield code shrinks monotonically across versions (77→55B);
+  version-ladder evidence, not a single byte marker.
+- **SEH frame `push -1`** — `__try/__except` functions open the SEH
+  frame with `push -1` (`6a ff`) in VC 2.0–7.1 (VC 8.0+ uses
+  `push -2`); VC 5.0–7.1 load `fs:[0]` after the frame (VC 2.0/4.x
+  load it first).  Verified in probe7 (`seh1`).
+- **inline 64-bit multiply-high** — `(a*b)>>32` compiles to
+  `mul [mem]; mov eax,edx` (`f7 64 24 08 8b c2`) inline from VC 6.0
+  on; VC 4.1/5.0 do `mul` then tail-jump to the shift helper.
+  Verified in probe7 (`mulhi`).
 - **SP levels are codegen-identical:** every probe2–probe5 function
   produces byte-identical output across SP1–SP6 at **both /O1 and
   /O2** (the smoke `_add` is identical too) — the SPs differ in the
@@ -115,6 +130,13 @@ build is the only reliable SP discriminator (see below).  Linker 6.0.
 - To VC 7.0: `lea esp,[esp]` loop-alignment nops appear; division tails
   gain `shr edx,N`; `movzx` replaces `mov dl;add` for unsigned char
   sums; linked binaries show `mov edi,edi` padding.
+
+## Probe12: static-helper inlining — verified negative
+
+Small static helpers called once/twice/in a loop are NOT inlined: VC
+6.0 keeps the `call` at both /O2 and /O1 (30–34B callers), unlike VC
+7.0+ which inline them (11–12B).  Verified in probe12
+(`f1`/`f2`/`fl`); keeping the call is itself the 2.0–6.0 era marker.
 
 ## Verification
 

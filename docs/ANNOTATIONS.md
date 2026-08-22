@@ -435,6 +435,11 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | W020 | Asm-dump placeholder | Body uses `__asm`/`__emit` — pasted disassembly, not real C.  Does **not** fire for whole-function `__declspec(naked)` + asm (that is **E023** — error).  **Escalates** when the file's `STATUS` claims a non-stub match (`EXACT`/`RELOC`/...): an asm dump cannot be a byte-match, so the metadata status is wrong (fix it or mark `BLOCKER`).  `STATUS: STUB` + asm dump is an expected documented placeholder and gets the base message only |
 | W021 | Duplicate global | Same global defined in more than one file |
 | W022 | Zero-init `.bss` global | File-scope `= 0` initializer on a `.bss`-style global |
+| W023 | Default function name | Function named `fcn`/`fn`/`fun`/... (pedantic only) — rename it; a descriptive name is what the call graph and reports key on |
+| W024 | Function naming convention | Function name does not match project naming convention (`lint_naming_convention` in config) |
+| W025 | Opening brace style | Opening brace style does not match project configuration (`lint_brace_style` in config) |
+| W026 | Line indent style | Line indent style does not match project configuration (`lint_indent_style` in config) |
+| W027 | Line too long | Line exceeds `lint_max_line_length` characters |
 
 #### Data Annotation Warnings
 

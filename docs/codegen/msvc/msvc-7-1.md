@@ -72,6 +72,12 @@ x87 MSVC of the .NET era; codegen-identical to 7.0 for the probe.
   functions); `lea esp,[esp]` counts drop slightly in the probe (8.0:
   2 vs 7.x: 3).
 
+## Probe12: static-helper inlining — verified positive
+
+Small static helpers inline at /O2 and /O1 (11–12B callers) — VC 7.1
+shares VC 7.0's inlining marker; 7.1 SP1 is identical to RTM on this
+feature (SP spot-check).  Verified in probe12 (`f1`/`f2`/`fl`).
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:7.1-win32` (`msvc710_{O1,O2}.obj`);

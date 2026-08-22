@@ -78,6 +78,30 @@ class TestNormalizeReloc:
         result = _normalize_reloc_x86_32(code)
         assert result == code
 
+    def test_fast_path_parity_with_detail(self) -> None:
+        """The non-detail fast path (_normalize_and_mnems_x86_32) must zero
+        EXACTLY the same fields as the detail path (_normalize_reloc_x86_32)
+        — including prefixed instructions and the rare SIB/disp32 fallback."""
+        from rebrew.matcher.scoring import _normalize_and_mnems_x86_32
+
+        cases = [
+            b"\xe8\x00\x00\x00\x00\xc3",  # call rel32
+            b"\xa1\x34\x12\x00\x10\xc3",  # mov eax,[abs]
+            b"\x68\x78\x56\x34\x10\xc3",  # push imm32
+            b"\x0f\x85\x00\x00\x00\x00\xc3",  # jnz rel32
+            b"\x64\x8b\x05\x34\x12\x00\x10\xc3",  # mov eax, fs:[abs] (prefixed)
+            b"\x8d\x85\x34\x12\x00\x10\xc3",  # lea eax,[ebp+disp32] (fallback)
+            b"\x8b\x84\x9d\x34\x12\x00\x10\xc3",  # mov eax,[ebp*4+disp32] (SIB)
+            b"\x83\x3d\x34\x12\x00\x10\x01\xc3",  # cmp [abs],1
+            b"\xff\x15\x34\x12\x00\x10\xc3",  # call [abs]
+            b"\x55\x8b\xec\x83\xec\x10",  # non-reloc unchanged
+        ]
+        for code in cases:
+            detail = _normalize_reloc_x86_32(code)
+            fast, mnems = _normalize_and_mnems_x86_32(code)
+            assert fast == detail, f"parity mismatch for {code.hex()}"
+            assert mnems, f"no mnemonics extracted for {code.hex()}"
+
 
 # -------------------------------------------------------------------------
 # score_candidate

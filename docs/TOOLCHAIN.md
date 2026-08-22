@@ -186,6 +186,16 @@ generous API limits.
 > window, no `DISPLAY` needed on the host), so the old host-side Xvfb /
 > xvfb-run / wibo dance is gone.  The images set `WINEDEBUG=-all` and a
 > fixed wine prefix; nothing wine-related runs on the host.
+>
+> **wine is the default runtime.**  The shared wrapper (`base/wrapper-common.sh`)
+> selects the PE runtime per run via `REBREW_RUNNER`, defaulting to **wine**
+> (`${REBREW_RUNNER:-wine}`) — the most compatible option.  `wibo` is opt-in
+> (`REBREW_RUNNER=wibo`) and faster for plain console tools, but **fails on
+> some tools**, so rebrew never steers projects toward it: `rebrew doctor`
+> reports a present wibo binary as informational only, and
+> `rebrew doctor --install-wibo` downloads it but leaves a docker-backed
+> project's `runner` config untouched (the config runner is obsolete for
+> images anyway).
 
 **Image layout convention** (Godbolt-style): Dockerfiles live at
 `<family>/<version>-<arch>/Dockerfile` under the rebrew-toolchains
@@ -757,7 +767,7 @@ Not integrated into the pipeline. Potential uses:
 
 ### DUMPBIN.EXE (MSVC6)
 
-Part of the MSVC6 toolchain. Run via Wine:
+Part of the MSVC6 toolchain. Run via the docker image (wine entrypoint inside the image):
 
 ```bash
 docker run --rm -v "$PWD":/work -w /work rebrew/msvc:6.0-win32 /c t.c

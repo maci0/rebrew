@@ -37,6 +37,12 @@
 | [GHIDRA_SYNC.md](GHIDRA_SYNC.md) | `rebrew sync` feature matrix and known issues (current state; see [prd/07](prd/07-ghidra-sync.md) for roadmap) |
 | [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) | `rebrew binsync-export` / `rebrew binsync-import` bidirectional bridge (real types + struct fields, `--module`, `--git`, `--accept-binsync`; see [prd/09](prd/09-binsync-full.md) for full `libbs` PRD) |
 
+## Ecosystem
+
+| Document | Description |
+|----------|-------------|
+| [ECOSYSTEM.md](ECOSYSTEM.md) | Cross-repo architecture: how rebrew fits with rebrew-toolchains, resembl, recoverage, recompile, reagent, relumea, decompedia, recondb — mermaid diagrams |
+
 ## Project
 
 | Document | Description |

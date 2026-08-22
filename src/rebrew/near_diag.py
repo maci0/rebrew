@@ -18,10 +18,12 @@ The verdict maps the dominant category to an actionable suggestion
 from __future__ import annotations
 
 import difflib
+import functools
 import re
 from pathlib import Path
 from typing import Any
 
+import capstone  # module-level: per-call `import capstone` was ~half of analyze() time
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -33,6 +35,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
+from rebrew.stack_cmp import analyze_frame, compare_frames
 
 console = Console(stderr=True)
 
@@ -80,6 +83,26 @@ class Insn:
         return f"<Insn {self.addr:08x} {self.mnemonic} {self.op_str}>"
 
 
+def _resolve_capstone(value: str | int) -> int:
+    """Resolve a capstone constant-name string ("CS_MODE_32") or int to an int."""
+    if isinstance(value, int):
+        return value
+    try:
+        return int(getattr(capstone, value))
+    except (AttributeError, TypeError):
+        # A numeric string ("3") is a valid capstone constant.
+        return int(value)
+
+
+@functools.lru_cache(maxsize=8)
+def _cs_handle(arch: int, mode: int) -> capstone.Cs:
+    """A cached non-detail capstone handle — constructing ``capstone.Cs`` per
+    call was a measurable cost in the per-function hot path."""
+    md = capstone.Cs(arch, mode)
+    md.detail = False
+    return md
+
+
 def disasm_insns(
     code: bytes,
     va: int,
@@ -92,19 +115,7 @@ def disasm_insns(
     defaults), the int constants that ``cfg.capstone_arch``/``cfg.capstone_mode``
     return, or a bare numeric string ("3") — both config styles must work.
     """
-    import capstone
-
-    def _resolve(value: str | int) -> int:
-        if isinstance(value, int):
-            return value
-        try:
-            return int(getattr(capstone, value))
-        except (AttributeError, TypeError):
-            # A numeric string ("3") is a valid capstone constant.
-            return int(value)
-
-    md = capstone.Cs(_resolve(cs_arch), _resolve(cs_mode))
-    md.detail = False
+    md = _cs_handle(_resolve_capstone(cs_arch), _resolve_capstone(cs_mode))
     return [Insn(i.address, i.mnemonic, i.op_str, bytes(i.bytes)) for i in md.disasm(code, va)]
 
 
@@ -184,6 +195,21 @@ def align_and_classify(
     return byte_counts
 
 
+#: Per-category actionable suggestion text — module-level so the symptom
+#: catalog (:func:`catalog_markdown`) can render it alongside the mutations.
+_VERDICT_SUGGESTIONS: dict[str, str] = {
+    "register": "Register allocation differs — try reordering expressions, "
+    "swapping loop counters, or splitting/merging statements.  Register "
+    "gaps are usually PROVEN-able: run 'rebrew prove' to establish "
+    "semantic equivalence without byte changes.",
+    "equivalent": "Instruction selection differs — try alternative C constructs "
+    "(e.g. pointer arithmetic vs indexing, cast-based masking).",
+    "reloc": "Difference is confined to relocation sites — the match is RELOC-level.",
+    "structural": "Control flow / block layout differs — try restructuring loops "
+    "or if/else; may need a compiler-pattern workaround.",
+}
+
+
 def _verdict(counts: dict[str, int], raw_total: int) -> tuple[str, str]:
     """Map byte-count distribution to a verdict (label, suggestion)."""
     if raw_total <= 0:
@@ -208,17 +234,7 @@ def _verdict(counts: dict[str, int], raw_total: int) -> tuple[str, str]:
         )
     dominant = max(("register", "equivalent", "reloc", "structural"), key=lambda k: counts[k])
     share = counts[dominant] / non_match
-    suggestions = {
-        "register": "Register allocation differs — try reordering expressions, "
-        "swapping loop counters, or splitting/merging statements.  Register "
-        "gaps are usually PROVEN-able: run 'rebrew prove' to establish "
-        "semantic equivalence without byte changes.",
-        "equivalent": "Instruction selection differs — try alternative C constructs "
-        "(e.g. pointer arithmetic vs indexing, cast-based masking).",
-        "reloc": "Difference is confined to relocation sites — the match is RELOC-level.",
-        "structural": "Control flow / block layout differs — try restructuring loops "
-        "or if/else; may need a compiler-pattern workaround.",
-    }
+    suggestions = _VERDICT_SUGGESTIONS
     label = f"{dominant.upper()} ({(share * 100):.0f}% of delta)"
     suggestion = suggestions[dominant]
     # A RELOC-dominant verdict is only "RELOC-level" when there are NO real
@@ -304,6 +320,37 @@ def mutation_suggestions(dominant_category: str) -> list[str]:
     return list(_MUTATION_SUGGESTIONS.get(dominant_category, []))
 
 
+def catalog_markdown() -> str:
+    """Render the near-diag symptom index (Kuna-style) as Markdown.
+
+    Maps each delta category — the *symptom* a user/agent sees in the
+    verdict — to the actionable suggestion and the GA mutation operators
+    most likely to fix it.  Generated from the same registry the verdict
+    logic uses, so it cannot drift.
+    """
+    rows: list[str] = []
+    for category in ("register", "equivalent", "structural", "reloc"):
+        suggestion = _VERDICT_SUGGESTIONS.get(category, "")
+        ops = mutation_suggestions(category)
+        ops_text = ", ".join(f"`{op}`" for op in ops) if ops else "— (no mutation helps)"
+        rows.append(f"| `{category}` | {suggestion} | {ops_text} |")
+    rows.append(
+        "| `effective` | Same instructions, different registers (not "
+        "byte-identical) — `rebrew prove` for PROVEN, or register-nudging C "
+        "tweaks | " + ", ".join(f"`{op}`" for op in mutation_suggestions("register")) + " |"
+    )
+    rows.append("| `match` | Bytes are identical — nothing to fix | — |")
+    return (
+        "# near-diag symptom index\n\n"
+        "Generated from the verdict registry (`rebrew near-diag --catalog`).  "
+        "When a function is NEAR_MATCHING, the verdict names the dominant "
+        "delta category; the row below gives the actionable suggestion and "
+        "the GA mutation operators most likely to close the gap.\n\n"
+        "| Symptom (verdict category) | What it means / what to do | GA mutations to try |\n"
+        "|---|---|---|\n" + "\n".join(rows) + "\n"
+    )
+
+
 def _blocker_text(result: dict[str, Any]) -> str:
     """The BLOCKER metadata text for a non-MATCH verdict.
 
@@ -384,7 +431,32 @@ def analyze(
         "suggestion": suggestion,
         "mutations": mutations,
         "frame": _frame_comparison(target_bytes, compiled_bytes, va, cs_arch, cs_mode),
+        "cfg": _cfg_score(target_bytes, compiled_bytes, va, cs_mode),
     }
+
+
+def _cfg_score(
+    target_bytes: bytes,
+    compiled_bytes: bytes,
+    va: int,
+    cs_mode: str | int,
+) -> dict[str, Any] | None:
+    """CFG structural similarity (cfg_ged) for the pair — best-effort.
+
+    A control-flow-aware complement to the byte classification: identical
+    structure with different registers scores high, a loop-vs-linear flow
+    mismatch scores low.  ``None`` for non-x86 modes or when disassembly
+    fails — never raises.
+    """
+    try:
+        mode = _resolve_capstone(cs_mode)
+        if mode not in (capstone.CS_MODE_16, capstone.CS_MODE_32):
+            return None
+        from rebrew.cfg_ged import cfg_similarity
+
+        return cfg_similarity(target_bytes, compiled_bytes, va, mode)
+    except Exception:  # noqa: BLE001 — cfg info is best-effort
+        return None
 
 
 def _frame_comparison(
@@ -401,13 +473,10 @@ def _frame_comparison(
     complements the register/structural byte classification.  ``None`` for
     non-x86 modes or when disassembly fails — never raises.
     """
-    import capstone
-
     try:
-        mode = int(getattr(capstone, cs_mode)) if isinstance(cs_mode, str) else int(cs_mode)
+        mode = _resolve_capstone(cs_mode)
         if mode not in (capstone.CS_MODE_16, capstone.CS_MODE_32):
             return None
-        from rebrew.stack_cmp import analyze_frame, compare_frames
 
         return compare_frames(
             analyze_frame(target_bytes, va, mode),
@@ -685,11 +754,20 @@ def main(
         "--fix-blocker",
         help="Write the verdict as BLOCKER metadata for the function (skipped on a match)",
     ),
+    catalog: bool = typer.Option(
+        False,
+        "--catalog",
+        help="Print the symptom index (delta category → suggestion → GA mutations)",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Compile SOURCE and classify its byte delta against the target function."""
+    if catalog:
+        print(catalog_markdown(), end="")
+        return
+
     import re
 
     from rebrew.annotation import parse_c_file_multi

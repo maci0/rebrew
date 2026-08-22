@@ -61,11 +61,15 @@ codegen marker unique to a single 32-bit MSVC version.
   in probe2.  The only VC 11.0-unique marker among the line.
 - **SSE `movq` for 16/32-byte memcpy** — `memcpy(d,s,16)`/`(,32)`
   compile to `movq xmm0,[s]` (`f3 0f 7e`) + `movq [d],xmm0` (`66 0f
-  d6`) pairs; VC 2.0–10.0 use integer mov pairs (16 B) / `rep movsd`
-  (32 B).  Verified in probe3 (`c16`/`c32`).
+  d6`) pairs by default from VC 11.0; VC 2.0–10.0 use integer mov
+  pairs (16 B) / `rep movsd` (32 B).  Verified in probe3 (`c16`/
+  `c32`).  **Caveat: VC 8.0–10.0 produce the same SSE forms under
+  `/arch:SSE2`** (probe11) — the marker is "11.0 by default", not
+  11.0-only.
 - **`xorps`+`movq` 16-byte memset** — `memset(d,0,16)` →
   `xorps xmm0,xmm0` (`0f 57 c0`) + 2× `movq` (`66 0f d6`); 2.0–10.0
-  use 4× `mov dword` pairs.  Verified in probe3 (`z16`).
+  use 4× `mov dword` pairs.  Verified in probe3 (`z16`); same
+  `/arch:SSE2` caveat as the movq copies.
 - **128-byte memset → libcall** — `memset(d,0,128)` becomes a call to
   the CRT (`push 0x80; push 0; push [esp+0xc]; call memset; add
   esp,0xc` — `68 80 00 00 00 6a 00 ff 74 24 0c e8`); 2.0–10.0 inline
@@ -95,6 +99,11 @@ codegen marker unique to a single 32-bit MSVC version.
   min/max/clamp; memory-operand `imul` in div magic (10.0+); cdq-abs
   (10.0+); /O1 frame-pointer frequency rises; `bsum` grows 74B → 78B
   (extra `lea esp,[esp]`).
+
+## Probe12: static-helper inlining — verified positive
+
+Small static helpers inline at /O2 and /O1 (11–12B callers), matching
+the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 
 ## Verification
 

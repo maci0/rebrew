@@ -28,6 +28,23 @@ def _script_available() -> bool:
 
 @pytest.mark.skipif(not _script_available(), reason="validate_skill_commands.py not found")
 class TestValidateSkillCommands:
+    @pytest.fixture(scope="session")
+    def _validate_once(self) -> bool:
+        """Run the full validation ONCE per session and cache the boolean.
+
+        The validation spawns one ``rebrew <subcommand> --help`` subprocess per
+        unique subcommand (~3s) — running it in both tests doubled the suite's
+        slowest non-docker cost.  The subprocess test below still exercises the
+        CLI entrypoint end-to-end; this fixture only serves the in-process API
+        test.
+        """
+        spec = importlib.util.spec_from_file_location("validate_skill_commands", _SCRIPT)
+        assert spec is not None
+        mod = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        return bool(mod.validate(quiet=True))
+
     def test_script_is_importable(self) -> None:
         """The script must be importable (no syntax errors)."""
         spec = importlib.util.spec_from_file_location("validate_skill_commands", _SCRIPT)
@@ -37,15 +54,9 @@ class TestValidateSkillCommands:
         spec.loader.exec_module(mod)  # type: ignore[union-attr]
         assert hasattr(mod, "validate")
 
-    def test_validate_function_returns_bool(self) -> None:
+    def test_validate_function_returns_bool(self, _validate_once: bool) -> None:
         """validate() must return a boolean."""
-        spec = importlib.util.spec_from_file_location("validate_skill_commands", _SCRIPT)
-        assert spec is not None
-        mod = importlib.util.module_from_spec(spec)
-        assert spec.loader is not None
-        spec.loader.exec_module(mod)  # type: ignore[union-attr]
-        result = mod.validate(quiet=True)
-        assert isinstance(result, bool)
+        assert isinstance(_validate_once, bool)
 
     def test_no_unknown_subcommands(self) -> None:
         """All subcommands referenced in SKILL.md files must exist in the CLI."""

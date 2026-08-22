@@ -1,5 +1,6 @@
 """Tests for rebrew doctor diagnostic command."""
 
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,6 +20,7 @@ from rebrew.doctor import (
     check_function_list,
     check_includes,
     check_libs,
+    check_redundant_cflags,
     check_source_files,
     check_target_binary,
     run_doctor,
@@ -182,6 +184,47 @@ class TestCheckIncludes:
         assert result.status == _FAIL
 
 
+class TestDockerIncludeLibs:
+    """Docker-backed profiles get includes/libs from their image — a dangling
+    host path (a fresh intake's placeholder) must not fail doctor."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return _make_cfg(
+            tmp_path,
+            compiler_profile="msvc6",
+            compiler_includes=tmp_path / "nope" / "include",
+            compiler_libs=tmp_path / "nope" / "lib",
+        )
+
+    def test_docker_profile_with_image_passes(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setattr("rebrew.toolchain._image_present", lambda img: True)
+        inc = check_includes(self._cfg(tmp_path))
+        assert inc.status == _PASS
+        assert "docker image" in inc.message
+        lib = check_libs(self._cfg(tmp_path))
+        assert lib.status == _PASS
+        assert "docker image" in lib.message
+
+    def test_docker_profile_without_image_warns_with_fix(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.setattr("rebrew.toolchain._image_present", lambda img: False)
+        inc = check_includes(self._cfg(tmp_path))
+        assert inc.status == _WARN
+        assert "toolchain build" in inc.fix
+        lib = check_libs(self._cfg(tmp_path))
+        assert lib.status == _WARN
+
+    def test_native_profile_still_checks_host_path(self, tmp_path: Path, monkeypatch) -> None:
+        # gcc-pe has no docker image — the host path check applies as before.
+        cfg = _make_cfg(
+            tmp_path,
+            compiler_profile="gcc-pe",
+            compiler_includes=tmp_path / "nope" / "include",
+        )
+        result = check_includes(cfg)
+        assert result.status == _FAIL
+        assert "compiler.includes" in result.fix
+
+
 class TestCheckLibs:
     def test_exists(self, tmp_path: Path) -> None:
         lib = tmp_path / "libs"
@@ -245,6 +288,40 @@ class TestCheckAnnotationStaleness:
         assert "1 of 1 FUNCTION/STUB annotation(s) stale" in result.message
         assert "func_a.c:1 → 0x1000 has no function" in result.message
         assert "rebrew intake" in result.fix
+
+    def test_fix_blames_binary_when_binary_newer(self, tmp_path: Path) -> None:
+        # Binary written after the list: it plausibly changed, so the fix
+        # should recommend refreshing the list via intake/discover.
+        (tmp_path / "funcs.txt").write_text("0x2000 128 func_b\n", encoding="utf-8")
+        bin_path = tmp_path / "test.exe"
+        bin_path.write_bytes(b"MZ")
+        os.utime(tmp_path / "funcs.txt", (1_000_000, 1_000_000))
+        os.utime(bin_path, (2_000_000, 2_000_000))
+        self._src(
+            tmp_path, "func_a.c", "// FUNCTION: SERVER 0x1000\nint func_a(void) { return 0; }\n"
+        )
+        result = check_annotation_staleness(_make_cfg(tmp_path))
+        assert result.status == _WARN
+        assert "rebrew intake" in result.fix
+        assert "it likely changed" in result.fix
+
+    def test_fix_blames_annotations_when_list_newer(self, tmp_path: Path) -> None:
+        # List at least as new as the binary: the binary cannot have changed
+        # since the list was written, so the fix must NOT claim it did and
+        # must not lead with `rebrew intake`.
+        (tmp_path / "funcs.txt").write_text("0x2000 128 func_b\n", encoding="utf-8")
+        bin_path = tmp_path / "test.exe"
+        bin_path.write_bytes(b"MZ")
+        os.utime(bin_path, (1_000_000, 1_000_000))
+        os.utime(tmp_path / "funcs.txt", (2_000_000, 2_000_000))
+        self._src(
+            tmp_path, "func_a.c", "// FUNCTION: SERVER 0x1000\nint func_a(void) { return 0; }\n"
+        )
+        result = check_annotation_staleness(_make_cfg(tmp_path))
+        assert result.status == _WARN
+        assert "did not change" in result.fix
+        assert "rebrew intake" not in result.fix
+        assert "rebrew skeleton" in result.fix
 
     def test_va_inside_another_function_warns(self, tmp_path: Path) -> None:
         # The function moved: 0x1050 now falls inside func_a's span.
@@ -747,3 +824,71 @@ class TestOptLevel:
         cfg = self._cfg(tmp_path, compiler_profile="gcc-pe")
         res = self.check(cfg)
         assert res.status == "skip"
+
+
+class TestRedundantCflags:
+    """check_redundant_cflags: flag settings that only repeat a wider level's value."""
+
+    def _cfg(self, tmp_path: Path, **overrides: object) -> SimpleNamespace:
+        base = {
+            "root": tmp_path,
+            "metadata_dir": tmp_path,
+            "cflags": "/O2 /Gd",
+            "cflags_presets": {},
+            "cflags_explicit": True,
+        }
+        base.update(overrides)
+        return SimpleNamespace(**base)
+
+    def test_clean_project_passes(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-function.toml").write_text(
+            '["SERVER.0x1000"]\nstatus = "EXACT"\nsize = 42\n', encoding="utf-8"
+        )
+        res = check_redundant_cflags(self._cfg(tmp_path))
+        assert res.status == _PASS
+
+    def test_function_override_redundant(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-function.toml").write_text(
+            '["SERVER.0x1000"]\nstatus = "EXACT"\ncflags = "/O2 /Gd"\n', encoding="utf-8"
+        )
+        res = check_redundant_cflags(self._cfg(tmp_path))
+        assert res.status == _WARN
+        assert "0x1000" in res.message
+        assert "Drop" in res.fix
+
+    def test_flag_order_does_not_matter(self, tmp_path: Path) -> None:
+        # /Gd /O2 is the same set as /O2 /Gd — still redundant.
+        (tmp_path / "rebrew-function.toml").write_text(
+            '["SERVER.0x1000"]\ncflags = "/Gd /O2"\n', encoding="utf-8"
+        )
+        res = check_redundant_cflags(self._cfg(tmp_path))
+        assert res.status == _WARN
+
+    def test_extra_flags_not_redundant(self, tmp_path: Path) -> None:
+        # Adds /DREBREW_ALLOW_NAKED on top of the default — carries new info.
+        (tmp_path / "rebrew-function.toml").write_text(
+            '["SERVER.0x1000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n', encoding="utf-8"
+        )
+        res = check_redundant_cflags(self._cfg(tmp_path))
+        assert res.status == _PASS
+
+    def test_function_override_matching_module_preset_is_redundant(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-function.toml").write_text(
+            '["GAME.0x1000"]\ncflags = "/O2 /Gd"\n', encoding="utf-8"
+        )
+        cfg = self._cfg(tmp_path, cflags="/O1 /Gd", cflags_presets={"GAME": "/O2 /Gd"})
+        res = check_redundant_cflags(cfg)
+        assert res.status == _WARN
+        assert "GAME 0x1000" in res.message
+
+    def test_module_preset_redundant_with_project(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-function.toml").write_text("", encoding="utf-8")
+        cfg = self._cfg(tmp_path, cflags_presets={"GAME": "/O2 /Gd", "MSVCRT": "/O1"})
+        res = check_redundant_cflags(cfg)
+        assert res.status == _WARN
+        assert "cflags_presets.GAME" in res.message
+        assert "MSVCRT" not in res.message
+
+    def test_no_metadata_file_passes(self, tmp_path: Path) -> None:
+        res = check_redundant_cflags(self._cfg(tmp_path))
+        assert res.status == _PASS

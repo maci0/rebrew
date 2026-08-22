@@ -119,32 +119,41 @@ def _zero_reloc_fields(insn: capstone.CsInsn, out: bytearray) -> None:
     Shared by :func:`_normalize_reloc_x86_32` and
     :func:`_normalize_and_mnems_x86_32` (the GA hot path merges normalization
     and mnemonic extraction into ONE candidate disassembly).
+
+    Hot-path notes (the GA scores thousands of candidates): every relocatable
+    field is a 32-bit immediate/displacement, so an instruction shorter than
+    5 bytes can never carry one — those return before any attribute access
+    (capstone attribute reads are the per-instruction cost).
     """
+    size = insn.size
+    if size < 5:
+        return  # no room for a 32-bit relocatable field
+    addr = insn.address
     # call rel32 / jmp rel32 / MOV abs32 (A0-A3)
     if insn.opcode[0] in (0xE8, 0xE9, 0xA0, 0xA1, 0xA2, 0xA3):
-        if insn.size >= 5:
+        if size >= 5:
             for i in range(1, 5):
-                if insn.address + i < len(out):
-                    out[insn.address + i] = 0
+                if addr + i < len(out):
+                    out[addr + i] = 0
     # cmp [abs32], imm8 / conditional jmp near
     elif (insn.opcode[0] == 0x83 and len(insn.bytes) >= 2 and insn.bytes[1] == 0x3D) or (
         insn.opcode[0] == 0x0F and len(insn.bytes) >= 2 and (insn.bytes[1] & 0xF0) == 0x80
     ):
-        if insn.size >= 6:
+        if size >= 6:
             for i in range(2, 6):
-                if insn.address + i < len(out):
-                    out[insn.address + i] = 0
+                if addr + i < len(out):
+                    out[addr + i] = 0
     # push imm32 (if it looks like an address)
     elif insn.opcode[0] == 0x68 or 0xB8 <= insn.opcode[0] <= 0xBF:
-        if insn.size >= 5:
+        if size >= 5:
             imm = int.from_bytes(insn.bytes[1:5], byteorder="little")
             if imm > 0x10000000:
                 for i in range(1, 5):
-                    if insn.address + i < len(out):
-                        out[insn.address + i] = 0
+                    if addr + i < len(out):
+                        out[addr + i] = 0
     # call/jmp dword ptr [abs32] (FF 15/25) or mov reg,[abs32] / mov [abs32],reg
     elif (
-        insn.size >= 6
+        size >= 6
         and len(insn.bytes) >= 2
         and (
             (insn.opcode[0] == 0xFF and insn.bytes[1] in (0x15, 0x25))
@@ -165,17 +174,19 @@ def _zero_reloc_fields(insn: capstone.CsInsn, out: bytearray) -> None:
         )
     ):
         for i in range(2, 6):
-            if insn.address + i < len(out):
-                out[insn.address + i] = 0
+            if addr + i < len(out):
+                out[addr + i] = 0
 
     # General fallback: Any instruction with a 32-bit displacement that looks like an address (> 0x10000)
-    # Handles SIB+disp32, lea reg, [reg*scale + disp32], and other indirect addressing modes
-    if getattr(insn, "disp_size", 0) == 4 and getattr(insn, "disp_offset", 0) > 0:
+    # Handles SIB+disp32, lea reg, [reg*scale + disp32], and other indirect addressing modes.
+    # A 32-bit displacement needs at least 6 bytes (opcode + modrm + disp32), so
+    # smaller instructions skip the detail attribute reads entirely.
+    if size >= 6 and insn.disp_size == 4 and insn.disp_offset > 0:
         for op in insn.operands:
             if op.type == capstone.x86.X86_OP_MEM:
                 disp = op.mem.disp
                 if disp > 0x10000 or disp < -0x10000:
-                    offset = insn.address + insn.disp_offset
+                    offset = addr + insn.disp_offset
                     for i in range(4):
                         if offset + i < len(out):
                             out[offset + i] = 0
@@ -205,15 +216,181 @@ def _normalize_and_mnems_x86_32(
     mnemonic similarity) but disassembled the candidate twice: once with
     ``detail=True`` for normalization, once without for mnemonics.  The
     mnemonic list does not depend on the address base or detail mode, so a
-    single detail pass serves both.
+    single pass serves both.
+
+    Hot-path note: detail mode builds per-instruction operand objects (the
+    GA scores thousands of candidates), so the normalization here runs on a
+    NON-detail disassembly using raw instruction bytes — the four opcode
+    branches of :func:`_zero_reloc_fields` only need ``bytes``/``size``/
+    ``address`` and an opcode byte that is cheaply recoverable from the raw
+    bytes (legacy prefixes skipped).  Instructions that could carry a 32-bit
+    displacement (the rare SIB/disp32 fallback, which needs detail
+    attributes) are re-disassembled individually with a detail handle.
     """
-    md = _get_cs(cs_arch, cs_mode, detail=True)
+    md = _get_cs(cs_arch, cs_mode, detail=False)
+    md_det = _get_cs(cs_arch, cs_mode, detail=True)
     out = bytearray(code)
     mnems: list[str] = []
     for insn in md.disasm(code, 0):
         mnems.append(insn.mnemonic)
-        _zero_reloc_fields(insn, out)
+        _zero_reloc_fields_raw(insn, out, md_det)
     return bytes(out), mnems
+
+
+#: x86 legacy prefixes — skipped to recover the first real opcode byte from
+#: raw instruction bytes (capstone's ``opcode[0]`` skips them too).
+_PREFIX_BYTES: frozenset[int] = frozenset(
+    (0x26, 0x2E, 0x36, 0x3E, 0x64, 0x65, 0x66, 0x67, 0xF2, 0xF3)
+)
+
+
+def _first_opcode_byte(insn_bytes: bytes) -> int:
+    """The first real opcode byte of *insn_bytes* (legacy prefixes skipped).
+
+    Equivalent to ``capstone.CsInsn.opcode[0]`` for the opcode set
+    :func:`_zero_reloc_fields_raw` checks — x86-32 has no REX/VEX, so the
+    legacy prefix set is complete.
+    """
+    for b in insn_bytes:
+        if b not in _PREFIX_BYTES:
+            return b
+    return insn_bytes[0] if insn_bytes else 0
+
+
+def _has_disp32(insn_bytes: bytes) -> bool:
+    """Cheap superset test: could this instruction carry a 32-bit displacement?
+
+    Mirrors the ModR/M/SIB conditions under which capstone reports
+    ``disp_size == 4``: mod=10 (disp32), mod=00 with rm=101 (absolute disp32),
+    or a SIB byte with mod=00 base=101 / mod=10.  A superset is safe — false
+    positives only cost a redundant detail re-check.
+    """
+    i = 0
+    n = len(insn_bytes)
+    while i < n and insn_bytes[i] in _PREFIX_BYTES:
+        i += 1
+    if i >= n:
+        return False
+    op0 = insn_bytes[i]
+    if op0 == 0x0F and i + 1 < n:  # two-byte opcode (0F xx): modrm follows
+        i += 1
+    i += 1
+    if i >= n:
+        return False
+    modrm = insn_bytes[i]
+    mod, rm = modrm >> 6, modrm & 7
+    if mod == 0b10:
+        return True
+    if mod == 0b00 and rm == 0b101:
+        return True
+    if rm == 0b100 and i + 1 < n:  # SIB byte follows
+        base = insn_bytes[i + 1] & 7
+        if mod == 0b00 and base == 0b101:
+            return True
+        if mod == 0b10:
+            return True
+    return False
+
+
+def _zero_reloc_fields_raw(insn: capstone.CsInsn, out: bytearray, md_det: capstone.Cs) -> None:
+    """Non-detail variant of :func:`_zero_reloc_fields`.
+
+    Reads opcode bytes directly from ``insn.bytes`` (no detail attribute
+    access) for the four common reloc patterns.  Instructions that could
+    carry a 32-bit displacement (the detail-only fallback) are re-disassembled
+    with *md_det* and delegated to :func:`_zero_reloc_fields` — identical
+    semantics, detail work limited to the rare cases.
+    """
+    size = insn.size
+    if size < 5:
+        return  # no room for a 32-bit relocatable field
+    addr = insn.address
+    b = insn.bytes
+    op0 = _first_opcode_byte(b)
+    # call rel32 / jmp rel32 / MOV abs32 (A0-A3)
+    if op0 in (0xE8, 0xE9, 0xA0, 0xA1, 0xA2, 0xA3):
+        for i in range(1, 5):
+            if addr + i < len(out):
+                out[addr + i] = 0
+        return
+    # cmp [abs32], imm8 / conditional jmp near
+    if (op0 == 0x83 and len(b) >= 2 and b[1] == 0x3D) or (
+        op0 == 0x0F and len(b) >= 2 and (b[1] & 0xF0) == 0x80
+    ):
+        if size >= 6:
+            for i in range(2, 6):
+                if addr + i < len(out):
+                    out[addr + i] = 0
+        return
+    # push imm32 (if it looks like an address)
+    if op0 == 0x68 or 0xB8 <= op0 <= 0xBF:
+        imm = int.from_bytes(b[1:5], byteorder="little")
+        if imm > 0x10000000:
+            for i in range(1, 5):
+                if addr + i < len(out):
+                    out[addr + i] = 0
+        return
+    # call/jmp dword ptr [abs32] (FF 15/25) or mov reg,[abs32] / mov [abs32],reg
+    if (
+        size >= 6
+        and len(b) >= 2
+        and (
+            (op0 == 0xFF and b[1] in (0x15, 0x25))
+            or (
+                op0 in (0x8B, 0x89)
+                and b[1]
+                in (
+                    0x05,
+                    0x0D,
+                    0x15,
+                    0x1D,
+                    0x25,
+                    0x2D,
+                    0x35,
+                    0x3D,
+                )
+            )
+        )
+    ):
+        for i in range(2, 6):
+            if addr + i < len(out):
+                out[addr + i] = 0
+        return
+
+    # Rare SIB/disp32 fallback — needs detail attributes; re-disassemble just
+    # this instruction and apply the original detail-based logic verbatim.
+    if size >= 6 and _has_disp32(b):
+        for det in md_det.disasm(b, addr):
+            _zero_reloc_fields(det, out)
+
+
+def _mask_registers_inplace(insns: list[capstone.CsInsn], buf: bytearray) -> None:
+    """Apply the register-encoding mask to *buf* using ALREADY-disassembled
+    (detail) instructions — the old path re-disassembled each side inside
+    ``_mask_registers_x86_32``, adding two detail passes per diff.
+
+    Mask semantics are identical: reg (bits 3-5) and rm (bits 0-2) of the
+    ModR/M byte are cleared (mod bits kept), and the opcode byte of
+    inc/dec/push/pop-reg, xchg-reg, and mov-reg-imm32 instructions has its
+    register field masked.
+    """
+    for insn in insns:
+        modrm_offset = insn.modrm_offset
+        if modrm_offset > 0:
+            offset = insn.address + modrm_offset
+            if offset < len(buf):
+                buf[offset] &= 0xC0
+
+        op0 = insn.opcode[0]
+        if (
+            (0x40 <= op0 <= 0x5F)  # inc/dec/push/pop reg
+            or (0x90 <= op0 <= 0x97)  # xchg eax, reg
+            or (0xB8 <= op0 <= 0xBF)  # mov reg, imm32
+        ):
+            for i in range(insn.size):
+                if buf[insn.address + i] == op0:
+                    buf[insn.address + i] &= 0xF8
+                    break
 
 
 def _mask_registers_x86_32(
@@ -224,25 +401,7 @@ def _mask_registers_x86_32(
     """Mask out register encodings in ModR/M and opcode bytes for register-aware diff."""
     md = _get_cs(cs_arch, cs_mode, detail=True)
     out = bytearray(code)
-
-    for insn in md.disasm(code, 0):
-        modrm_offset = getattr(insn, "modrm_offset", 0)
-        if modrm_offset > 0:
-            offset = insn.address + modrm_offset
-            # Mask out reg (bits 3-5) and rm (bits 0-2), keep mod (bits 6-7)
-            out[offset] &= 0xC0
-
-        op0 = insn.opcode[0]
-        if (
-            (0x40 <= op0 <= 0x5F)  # inc/dec/push/pop reg
-            or (0x90 <= op0 <= 0x97)  # xchg eax, reg
-            or (0xB8 <= op0 <= 0xBF)  # mov reg, imm32
-        ):
-            for i in range(insn.size):
-                if out[insn.address + i] == op0:
-                    out[insn.address + i] &= 0xF8
-                    break
-
+    _mask_registers_inplace(list(md.disasm(code, 0)), out)
     return bytes(out)
 
 
@@ -473,6 +632,7 @@ def diff_functions(
     mismatches_only: bool = False,
     register_aware: bool = False,
     as_dict: bool = False,
+    summary_only: bool = False,
     cs_arch: int = _DEFAULT_CS_ARCH,
     cs_mode: int = _DEFAULT_CS_MODE,
     pointer_size: int = 4,
@@ -481,7 +641,10 @@ def diff_functions(
 
     When ``as_dict`` is False (default), prints the diff to stdout and
     returns ``None``.  When ``as_dict`` is True, suppresses printing and
-    returns a structured dict.
+    returns a structured dict.  When ``summary_only`` is True (implies
+    ``as_dict``), the per-instruction rows are skipped and the return dict
+    carries only ``summary`` plus ``mnemonics`` — the fast path for callers
+    that need just the counts (structural_similarity).
 
     Args:
         target_bytes: Ground-truth target bytes.
@@ -510,27 +673,40 @@ def diff_functions(
         norm_target = _normalize_with_reloc_offsets(target_bytes, reloc_offsets, pointer_size)
         norm_cand = _normalize_with_reloc_offsets(candidate_bytes, reloc_offsets, pointer_size)
     else:
-        # Reloc-less diff: normalize with ONE detail disassembly per buffer
-        # instead of two (the old path disassembled plain for the rows, then
-        # _normalize_reloc_x86_32 re-disassembled with detail=True for the
-        # normalization).  Detail mode produces identical rows — verified
-        # (mnemonic/op_str/bytes/address match the plain pass) — so a single
-        # detail pass serves both.
-        md_det = _get_cs(cs_arch, cs_mode, detail=True)
-        target_insns = list(md_det.disasm(target_bytes, 0))
-        cand_insns = list(md_det.disasm(candidate_bytes, 0))
+        # Reloc-less diff: a NON-detail disassembly serves the rows; the
+        # norm buffers are zeroed from raw bytes (_zero_reloc_fields_raw,
+        # the GA fast path) so detail mode is only entered when the
+        # register-aware mask needs modrm/opcode attributes.
+        if register_aware:
+            md_det = _get_cs(cs_arch, cs_mode, detail=True)
+            target_insns = list(md_det.disasm(target_bytes, 0))
+            cand_insns = list(md_det.disasm(candidate_bytes, 0))
+        else:
+            target_insns = list(md.disasm(target_bytes, 0))
+            cand_insns = list(md.disasm(candidate_bytes, 0))
         norm_target_buf = bytearray(target_bytes)
-        for insn in target_insns:
-            _zero_reloc_fields(insn, norm_target_buf)
         norm_cand_buf = bytearray(candidate_bytes)
+        # Cached detail handle for the rare SIB/disp32 fallback in the raw
+        # zeroing (only actually disassembles when such an instruction appears).
+        _md_det_fallback = _get_cs(cs_arch, cs_mode, detail=True)
+        for insn in target_insns:
+            _zero_reloc_fields_raw(insn, norm_target_buf, _md_det_fallback)
         for insn in cand_insns:
-            _zero_reloc_fields(insn, norm_cand_buf)
+            _zero_reloc_fields_raw(insn, norm_cand_buf, _md_det_fallback)
         norm_target = bytes(norm_target_buf)
         norm_cand = bytes(norm_cand_buf)
-    reg_norm_target = (
-        _mask_registers_x86_32(norm_target, cs_arch, cs_mode) if register_aware else None
-    )
-    reg_norm_cand = _mask_registers_x86_32(norm_cand, cs_arch, cs_mode) if register_aware else None
+    if register_aware and norm_target:
+        _t_buf = bytearray(norm_target)
+        _mask_registers_inplace(target_insns, _t_buf)
+        reg_norm_target = bytes(_t_buf)
+    else:
+        reg_norm_target = None
+    if register_aware and norm_cand:
+        _c_buf = bytearray(norm_cand)
+        _mask_registers_inplace(cand_insns, _c_buf)
+        reg_norm_cand = bytes(_c_buf)
+    else:
+        reg_norm_cand = None
 
     # Precompute a boolean "invalid reloc" byte mask once instead of scanning
     # invalid_relocs per instruction (O(insns × invalid_relocs) → O(bytes)).
@@ -538,8 +714,13 @@ def diff_functions(
 
     # Build rows with match markers.  When as_dict is True we collect
     # structured dicts and simple counters instead of formatted lines.
+    # summary_only (used by structural_similarity, which needs only the
+    # counts + mnemonics) skips the per-instruction hex/disasm/dict building
+    # entirely — that overhead was significant in the verify hot path.
     rows: list[tuple[str, str]] = []  # (match_char, formatted_line) — populated in print mode
     insn_data: list[dict[str, Any]] = []  # populated only when as_dict=True
+    target_mnems: list[str] = []
+    cand_mnems: list[str] = []
     exact_count = 0
     reloc_count = 0
     invalid_reloc_count = 0
@@ -552,10 +733,12 @@ def diff_functions(
         t_str = ""
         if i < len(target_insns):
             ti = target_insns[i]
-            t_bytes_hex = ti.bytes.hex()
-            t_disasm = f"{ti.mnemonic} {ti.op_str}".strip()
-            if not as_dict:
-                t_str = f"{ti.mnemonic:6} {ti.op_str}"
+            target_mnems.append(ti.mnemonic)
+            if not summary_only:
+                t_bytes_hex = ti.bytes.hex()
+                t_disasm = f"{ti.mnemonic} {ti.op_str}".strip()
+                if not as_dict:
+                    t_str = f"{ti.mnemonic:6} {ti.op_str}"
 
         c_bytes_hex = ""
         c_disasm = ""
@@ -563,10 +746,12 @@ def diff_functions(
         match_char = "  "
         if i < len(cand_insns):
             ci = cand_insns[i]
-            c_bytes_hex = ci.bytes.hex()
-            c_disasm = f"{ci.mnemonic} {ci.op_str}".strip()
-            if not as_dict:
-                c_str = f"{ci.mnemonic:6} {ci.op_str}"
+            cand_mnems.append(ci.mnemonic)
+            if not summary_only:
+                c_bytes_hex = ci.bytes.hex()
+                c_disasm = f"{ci.mnemonic} {ci.op_str}".strip()
+                if not as_dict:
+                    c_str = f"{ci.mnemonic:6} {ci.op_str}"
 
             if i < len(target_insns):
                 ti = target_insns[i]
@@ -592,7 +777,7 @@ def diff_functions(
                         match_char = "**"
 
         # Classify unpaired instructions (one side exhausted) as structural diffs
-        if match_char == "  " and (t_bytes_hex or c_bytes_hex):
+        if match_char == "  " and (i < len(target_insns) or i < len(cand_insns)):
             match_char = "**"
 
         # Track counts
@@ -608,6 +793,8 @@ def diff_functions(
         elif match_char == "**":
             mismatch_count += 1
 
+        if summary_only:
+            continue
         if as_dict:
             insn_data.append(
                 {
@@ -624,7 +811,7 @@ def diff_functions(
             rows.append((match_char, line))
 
     if as_dict:
-        return {
+        payload: dict[str, Any] = {
             "target_size": len(target_bytes),
             "candidate_size": len(candidate_bytes),
             "summary": {
@@ -634,8 +821,14 @@ def diff_functions(
                 "structural": mismatch_count,
                 "total": max_insns,
             },
-            "instructions": insn_data,
         }
+        if summary_only:
+            # structural_similarity needs the mnemonics too — collected during
+            # the same pass, so it avoids re-disassembling both sides.
+            payload["mnemonics"] = {"target": target_mnems, "candidate": cand_mnems}
+        else:
+            payload["instructions"] = insn_data
+        return payload
 
     # Print header
     print(f"\nTarget ({len(target_bytes)}B) vs Candidate ({len(candidate_bytes)}B)")
@@ -684,6 +877,7 @@ def structural_similarity(
         reloc_offsets,
         register_aware=True,
         as_dict=True,
+        summary_only=True,
         cs_arch=cs_arch,
         cs_mode=cs_mode,
         pointer_size=pointer_size,
@@ -700,9 +894,15 @@ def structural_similarity(
     reg = s["reg"]
     structural = s["structural"]
 
-    md = _get_cs(cs_arch, cs_mode)
-    target_mnems = [m for (_a, _s, m, _o) in md.disasm_lite(target_bytes, 0)]
-    cand_mnems = [m for (_a, _s, m, _o) in md.disasm_lite(candidate_bytes, 0)]
+    # Mnemonics come from the same pass (summary_only collects them) — no
+    # second disassembly of either side.
+    mnemonic_map = summary.get("mnemonics") or {}
+    target_mnems = mnemonic_map.get("target")
+    cand_mnems = mnemonic_map.get("candidate")
+    if not target_mnems or not cand_mnems:
+        md = _get_cs(cs_arch, cs_mode)
+        target_mnems = [m for (_a, _s, m, _o) in md.disasm_lite(target_bytes, 0)]
+        cand_mnems = [m for (_a, _s, m, _o) in md.disasm_lite(candidate_bytes, 0)]
     sm = difflib.SequenceMatcher(None, target_mnems, cand_mnems)
     mnemonic_ratio = sm.ratio()
 

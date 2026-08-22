@@ -686,20 +686,21 @@ def check_runner(cfg: ProjectConfig) -> CheckResult:
         )
 
     if runner == "wine":
-        # Advisory: wibo is a headless PE loader with no X dependency —
-        # faster (no wine boot) and fully headless.  If a wibo binary is
-        # already around, recommend the switch; the compile path supports
-        # `runner = "tools/wibo"` + a command without the wine prefix.
+        # Wine is the compatible default: the docker images run wine
+        # (REBREW_RUNNER defaults to wine) and wibo — while faster and
+        # headless — FAILS on some tools, so rebrew deliberately does not
+        # recommend the switch.  A wibo binary sitting around is reported
+        # as an informational note, never as a suggested change.
         from rebrew.wibo import find_wibo
 
         if shutil.which("wine") is not None and find_wibo(cfg.root) is not None:
             return CheckResult(
                 name="Runner",
-                status=_WARN,
-                message="wine configured, but wibo is available",
-                fix=(
-                    "Switch for faster headless compiles: set [compiler] runner = "
-                    "'tools/wibo' and strip the 'wine ' prefix from compiler.command"
+                status=_PASS,
+                message=(
+                    "Wine (checked by compiler check); wibo also available in "
+                    "tools/ — wibo is faster but fails on some tools, wine "
+                    "remains the default"
                 ),
             )
         return CheckResult(name="Runner", status=_PASS, message="Wine (checked by compiler check)")
@@ -708,6 +709,36 @@ def check_runner(cfg: ProjectConfig) -> CheckResult:
         return CheckResult(name="Runner", status=_PASS, message=f"{runner} found in PATH")
 
     return CheckResult(name="Runner", status=_WARN, message=f"Unknown runner '{runner}'")
+
+
+def _docker_toolchain_check(cfg: ProjectConfig, name: str, what: str) -> CheckResult | None:
+    """For docker-backed profiles, the image IS the include/lib provider.
+
+    Execution is docker-only: the image encapsulates the compiler AND its
+    include/lib trees (it is built from the vendored toolchain source), so a
+    dangling host ``compiler.includes``/``compiler.libs`` path is not a
+    first-run failure — it is only meaningful for legacy native/wine/wibo
+    profiles.  Returns a CheckResult, or None when the profile is not
+    docker-backed (the caller proceeds with the host-path check).
+    """
+    from rebrew.toolchain import TOOLCHAINS, _image_present
+
+    profile = str(getattr(cfg, "compiler_profile", ""))
+    spec = TOOLCHAINS.get(profile) if profile else None
+    if spec is None or spec.image is None:
+        return None
+    if _image_present(spec.image):
+        return CheckResult(
+            name=name,
+            status=_PASS,
+            message=f"{profile}: {what} provided by docker image {spec.image}",
+        )
+    return CheckResult(
+        name=name,
+        status=_WARN,
+        message=f"{profile}: docker image {spec.image} not built",
+        fix=f"Run `rebrew toolchain build {profile}` (execution is docker-only).",
+    )
 
 
 def check_includes(cfg: ProjectConfig) -> CheckResult:
@@ -724,6 +755,9 @@ def check_includes(cfg: ProjectConfig) -> CheckResult:
             fix='Set compiler.profile = "msvc1.52" (vendored INCLUDE is '
             "staged as C:\\INCLUDE in the DOSBox sandbox).",
         )
+    docker = _docker_toolchain_check(cfg, "Include path", "includes")
+    if docker is not None:
+        return docker
     inc_path: Path = cfg.compiler_includes
     if not inc_path.exists():
         return CheckResult(
@@ -743,6 +777,9 @@ def check_includes(cfg: ProjectConfig) -> CheckResult:
 
 def check_libs(cfg: ProjectConfig) -> CheckResult:
     """Check that the compiler lib directory exists."""
+    docker = _docker_toolchain_check(cfg, "Lib path", "libs")
+    if docker is not None:
+        return docker
     lib_path: Path = cfg.compiler_libs
     if not lib_path.exists():
         return CheckResult(
@@ -812,6 +849,50 @@ def _function_containing_va(
     return None
 
 
+def _staleness_fix(cfg: ProjectConfig) -> str:
+    """Pick a staleness fix message from which artifact is newer.
+
+    Stale annotations have two very different causes: the target binary was
+    replaced (refresh the function list), or the annotations moved / the list
+    no longer reflects the target (re-annotate) — recommending ``rebrew
+    intake`` for the second case is wrong.  The binary-vs-list mtime
+    comparison is a cheap proxy: a binary newer than the list means it
+    plausibly changed after the list was written; a list at least as new as
+    the binary means the binary cannot have changed since, so the markers
+    (or a list regenerated from a different binary, e.g. a rebuild) are at
+    fault.  Falls back to a cause-neutral message when either file's mtime
+    is unavailable.
+    """
+    binary_newer: bool | None = None
+    try:
+        bin_path = Path(str(getattr(cfg, "target_binary", "")))
+        list_path: Path = cfg.function_list
+        if bin_path.is_file() and list_path.is_file():
+            binary_newer = bin_path.stat().st_mtime > list_path.stat().st_mtime
+    except OSError:
+        binary_newer = None
+
+    annotate = "re-annotate the moved functions (`rebrew skeleton <new_va>` or edit the marker VA)"
+    if binary_newer is True:
+        return (
+            "The target binary is newer than the function list — it likely changed: "
+            "re-run `rebrew intake` / `rebrew discover` to refresh the list, then " + annotate
+        )
+    if binary_newer is False:
+        return (
+            "The function list is as new as the target binary, so the binary did not "
+            "change: " + annotate + ". If the list was regenerated from a different "
+            "binary (e.g. a rebuilt artifact) instead of the target, regenerate it "
+            "from the target"
+        )
+    return (
+        "The function list no longer matches these annotations: if the target binary "
+        "changed, re-run `rebrew intake` / `rebrew discover` to refresh the list; "
+        "otherwise " + annotate + " (or regenerate the list if it was built from a "
+        "different binary, e.g. a rebuilt artifact)"
+    )
+
+
 def check_annotation_staleness(cfg: ProjectConfig) -> CheckResult:
     """Cross-reference FUNCTION/STUB annotations against the current function list.
 
@@ -830,9 +911,11 @@ def check_annotation_staleness(cfg: ProjectConfig) -> CheckResult:
     drown the real signal.  ``GLOBAL``/``DATA`` markers are data, not code.
 
     Skips when the function list is missing or empty (nothing to check
-    against).  Reports a WARN when any annotation is stale — a changed binary
+    against).  Reports a WARN when any annotation is stale — a stale marker
     is a workflow state (re-annotate), not a broken environment, so it must
-    not hard-fail ``rebrew doctor``.
+    not hard-fail ``rebrew doctor``.  The fix message distinguishes a
+    binary that changed after the list was written from a stale list /
+    moved annotations (see ``_staleness_fix``).
     """
     from rebrew.catalog.loaders import cached_function_list
     from rebrew.cli import iter_annotations, iter_sources, rel_display_path, target_marker
@@ -890,12 +973,7 @@ def check_annotation_staleness(cfg: ProjectConfig) -> CheckResult:
         name="Annotation staleness",
         status=_WARN,
         message=(f"{len(stale)} of {total} FUNCTION/STUB annotation(s) stale{suffix}: {samples}"),
-        fix=(
-            "The binary changed since the annotation was written: re-run "
-            "`rebrew intake` / `rebrew discover` to refresh functions.txt, "
-            "then re-annotate the moved functions (`rebrew skeleton <new_va>` "
-            "or edit the marker VA)"
-        ),
+        fix=_staleness_fix(cfg),
     )
 
 
@@ -993,6 +1071,7 @@ def run_doctor(target: str | None = None) -> DoctorReport:
     report.checks.append(check_toolchain_alignment(cfg))
     report.checks.append(check_crt_linkage(cfg))
     report.checks.append(check_opt_level(cfg))
+    report.checks.append(check_redundant_cflags(cfg))
     report.checks.append(check_delphi16_toolchain(cfg))
     report.checks.append(check_toolchain_backed(cfg))
     report.checks.append(check_compiler(cfg))
@@ -1063,6 +1142,26 @@ def main(
         wibo_path = cfg.root / "tools" / "wibo"
         tag_name = download_wibo(wibo_path)
         console.print(f"Downloaded wibo {tag_name} to {wibo_path}")
+
+        # Docker-backed profiles execute through their image, which runs
+        # WINE by default (REBREW_RUNNER defaults to wine; wibo is opt-in and
+        # fails on some tools).  The config runner is obsolete for them, so
+        # --install-wibo must NOT rewrite runner = "tools/wibo" — that would
+        # silently steer a docker-only project toward the less-compatible
+        # runtime the user just reported failing.  Only legacy host-runner
+        # profiles (native/wine/wibo without an image) get the rewrite.
+        from rebrew.toolchain import TOOLCHAINS
+
+        profile = str(getattr(cfg, "compiler_profile", ""))
+        spec = TOOLCHAINS.get(profile) if profile else None
+        if spec is not None and spec.image is not None:
+            console.print(
+                f"[yellow]note:[/yellow] {profile} is docker-backed — execution "
+                f"runs through image {spec.image}, which uses wine by default; "
+                "the runner config is obsolete and was left untouched (wibo "
+                "is available in tools/ for legacy profiles)"
+            )
+            return
 
         toml_path = cfg.root / "rebrew-project.toml"
         if toml_path.exists():
@@ -1409,4 +1508,77 @@ def check_opt_level(cfg: ProjectConfig) -> CheckResult:
         status=_WARN,
         message=f"binary fingerprint shows {detected}, project cflags is '{cflags or '(unset)'}'",
         fix=f'Set compiler cflags to "{detected}" in rebrew-project.toml (or per-function metadata)',
+    )
+
+
+def _cflags_key(cflags: str) -> frozenset[str]:
+    """Normalize a CFLAGS string for redundancy comparison.
+
+    Flag ORDER carries no meaning for MSVC (/O2 /Gd == /Gd /O2), so compare
+    as token sets — a lower-level entry only counts as redundant when its
+    whole flag set is what the higher level would already supply.
+    """
+    return frozenset(cflags.split())
+
+
+def check_redundant_cflags(cfg: ProjectConfig) -> CheckResult:
+    """Flag level-construct settings that only repeat a wider level's value.
+
+    The compile-settings ladder (most specific first) is: per-function
+    ``cflags`` in rebrew-function.toml → module preset
+    (``compiler.cflags_presets.<MODULE>``) → project ``compiler.cflags``.
+    A lower rung that repeats exactly the flag set a wider rung already
+    supplies is redundant: it pins the setting against future wider-level
+    changes without adding information, and multiplies the review surface
+    N times.  This check reports such entries so they can be dropped
+    (the compile fallback chain makes them no-ops anyway).
+
+    Entries that merely *include* the wider flags plus extras (e.g. a
+    per-function ``/DREBREW_ALLOW_NAKED`` on top of ``/O2 /Gd``) are NOT
+    redundant — they carry new information, so they are not flagged.
+    """
+    from rebrew.cli import resolve_cflags
+    from rebrew.metadata import load_metadata
+
+    project_cflags = str(getattr(cfg, "cflags", "") or "")
+    project_key = _cflags_key(project_cflags)
+    presets: dict[str, str] = getattr(cfg, "cflags_presets", {}) or {}
+
+    redundant: list[str] = []
+
+    # 1. Module presets that only repeat the project default.
+    for mod, preset_cflags in sorted(presets.items()):
+        if project_key and _cflags_key(str(preset_cflags)) == project_key:
+            redundant.append(f"cflags_presets.{mod} = '{preset_cflags}' (= project cflags)")
+
+    # 2. Per-function cflags that only repeat what the wider rungs already
+    # resolve to (module preset → project default → /O2 /Gd fallback) —
+    # compare against resolve_cflags with the function override absent.
+    metadata = load_metadata(cfg.metadata_dir)
+    for (module, va), meta in sorted(metadata.items(), key=lambda kv: kv[0][1]):
+        fn_cflags = str(meta.get("cflags") or "").strip()
+        if not fn_cflags:
+            continue
+        inherited = resolve_cflags(cfg, None, module)
+        if _cflags_key(fn_cflags) == _cflags_key(inherited):
+            redundant.append(f"{module} 0x{va:x}: cflags '{fn_cflags}' (= inherited '{inherited}')")
+
+    if redundant:
+        shown = redundant[:5]
+        suffix = f" (and {len(redundant) - 5} more)" if len(redundant) > 5 else ""
+        return CheckResult(
+            name="Redundant cflags",
+            status=_WARN,
+            message=f"{len(redundant)} setting(s) repeat a wider level: "
+            + "; ".join(shown)
+            + suffix,
+            fix=(
+                "Drop the redundant entry — the fallback chain (function → module "
+                "preset → project cflags) already supplies the same flags."
+            ),
+        )
+    return CheckResult(
+        name="Redundant cflags",
+        status=_PASS,
+        message="no level-construct cflags repeat a wider level's value",
     )

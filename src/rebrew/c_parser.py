@@ -39,6 +39,9 @@ _CALLING_CONVENTIONS = frozenset(
 
 # Pre-compiled regex for stripping calling conventions (used by _strip_cc).
 _CC_PATTERN = re.compile(r"\b(" + "|".join(re.escape(cc) for cc in _CALLING_CONVENTIONS) + r")\b")
+# Strip whole __declspec(...) constructs (e.g. __declspec(naked),
+# __declspec(dllimport)) — tree-sitter's standard C grammar doesn't know them.
+_DECLSPEC_PATTERN = re.compile(r"__declspec\s*\(\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\)")
 
 # ---------------------------------------------------------------------------
 # Lazy tree-sitter initialisation
@@ -113,7 +116,7 @@ def _strip_cc(source: str) -> str:
     Tree-sitter's standard C grammar doesn't recognise ``__cdecl``,
     ``__stdcall``, etc., causing parse errors.
     """
-    return _CC_PATTERN.sub("", source)
+    return _DECLSPEC_PATTERN.sub("", _CC_PATTERN.sub("", source))
 
 
 def _find_child(node: Any, *types: str) -> Any | None:

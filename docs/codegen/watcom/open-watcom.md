@@ -71,9 +71,16 @@ fixture.
 
 - Same convention traits at 16-bit width (register args in
   `ax/dx/bx/cx`, `ret N` cleanup, `__CHK` probing); 8086 instruction
-  set; OMF objects.  (16-bit specifics beyond the shared traits were
-  not separately probed — the `watcom16` claims rest on the family
-  traits, marked family-level, not per-minor verified.)
+  set; OMF objects.  Probe12 (native `wcc` 2.0) verified two 16-bit
+  specifics:
+  - **Switch dispatch** — an 8-case `switch` compiles to `cmp ax,7;
+    ja; mov bx,ax; shl bx,1; jmp word ptr cs:[bx]` + `dw` entries —
+    the `shl bx,1` (`d1 e3`) scaling, shared with TC (MSVC 1.52 alone
+    uses `add ax,ax; xchg bx,ax`).  Verified in `sw16`.
+  - **Division** — real `xor dx,dx; div bx` (unsigned) / `cdq; idiv
+    bx` (signed), and **no reciprocal-magic for constant divisors**
+    (`a/7` loads `mov bx,7; cdq; idiv bx`) — mirroring the 32-bit
+    wcc386 no-magic behavior.  Verified in `div16`.
 
 ## 100% unique to this version (family level)
 
@@ -101,6 +108,14 @@ fixture.
 - Not verified: no controlled compile of Open Watcom 1.0 or the
   commercial 9.x/10.x/11.x line for this reference; family traits
   above are 2.0-verified.
+
+## Probe12: 16-bit switch — verified
+
+The 16-bit `wcc` dispatches the 8-case probe12 `sw8` switch via
+`cmp ax,7; ja; mov bx,ax; shl bx,1; jmp word ptr cs:[bx]` + `dw`
+entries — the `shl bx,1` (`d1 e3`) scaling, same family trait as TC
+(not MSVC 1.52's `add ax,ax; xchg bx,ax`).  Verified in probe12
+(`out12/watcom16/sw16.obj`, native `wcc`).
 
 ## Verification
 

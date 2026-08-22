@@ -41,7 +41,7 @@ rebrew init --install-wibo            # fresh Linux/macOS setup: download wibo r
 
 Then place the binary at the path specified in `rebrew-project.toml` (default: `original/<filename>`).
 
-`rebrew init` creates `rebrew-project.toml`, `AGENTS.md`, `original/`, `src/<target>/`, and
+`rebrew init` creates `rebrew-project.toml`, `AGENTS.md`, `original/`, `src/bench/`, and
 empty `src/rebrew-function.toml` + `src/rebrew-data.toml` metadata files. Prefer
 `--install-wibo` from a fresh environment so compiles run through wibo (a lightweight Win32
 PE loader) instead of full Wine — it also writes `runner = "tools/wibo"` into the config.
@@ -145,7 +145,7 @@ Common failures and fixes:
 - FLIRT signatures missing → generate from a `.lib` or drop `.sig` files into `flirt_sigs/`:
 
 ```bash
-rebrew gen-flirt-pat toolchain/msvc/6.0-win32/VC98/Lib/msvcrt.lib --output flirt_sigs/msvcrt_vc6.pat
+rebrew gen-flirt-pat toolchain/msvc/6.0-win32/source/VC98/Lib/msvcrt.lib --output flirt_sigs/msvcrt_vc6.pat
 ```
 
 If the target is missing, add it (the binary must already exist, or pass `--force`):
@@ -180,16 +180,16 @@ since the original source is often available.
 ### 3. Build Function Catalog + Coverage DB
 
 ```bash
-rebrew catalog --data-json              # write db/data_<target>.json
+rebrew catalog --data-json              # write db/data_bench.json
 rebrew catalog --export-ghidra-labels   # write ghidra_data_labels.json (switch tables etc.)
 rebrew catalog --fix-sizes              # backfill SIZE in rebrew-function.toml from catalog
 rebrew build-db                         # build SQLite coverage database (db/coverage.db)
 ```
 
-- `catalog --data-json` scans reversed sources + the function list into `db/data_<target>.json`;
-  it also writes `src/<target>/function_structure.json` from `functions.txt` when no Ghidra
+- `catalog --data-json` scans reversed sources + the function list into `db/data_bench.json`;
+  it also writes `src/bench/function_structure.json` from `functions.txt` when no Ghidra
   export exists (skeleton generation needs one of the two).
-- `--export-ghidra-labels` writes `src/<target>/ghidra_data_labels.json` (data cells, switch
+- `--export-ghidra-labels` writes `src/bench/ghidra_data_labels.json` (data cells, switch
   tables) for labeling non-function addresses in Ghidra.
 - `--fix-sizes` edits metadata in place — it prompts interactively, so pass `--force` when
   scripting or in `--json` mode (`--json` without `--force` errors out).
@@ -256,7 +256,7 @@ rebrew skeleton 0x<VA> --xrefs          # with caller context from Ghidra
 decompiler (`--decomp-backend`: `auto`, `r2ghidra`, `r2dec`, `ghidra`; default `auto`).
 
 For library functions identified by FLIRT, check if reference source is available
-(e.g. `toolchain/msvc/6.0-win32/VC98/CRT/SRC/` for MSVCRT, `references/zlib-1.1.3/` for zlib).
+(e.g. `toolchain/msvc/6.0-win32/source/VC98/CRT/SRC/` for MSVCRT, `references/zlib-1.1.3/` for zlib).
 
 ### 9. Sync to Ghidra (Optional)
 

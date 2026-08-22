@@ -94,7 +94,10 @@ no Rich header (early linkers write none).
   (VC 5.0+ use the 2-byte `d1 e8`/`d1 f8`) — verified in probe3
   (`u2`/`s2`) — and the **no-op `sub esp,4; add esp,4` pair after
   `fild`** in `(double)x` (`83 ec 04 83 c4 04`, verified in probe4
-  `i2d`/`i2f`).  No verified codegen separates 2.0 from 4.x, or one
+  `i2d`/`i2f`).  **SEH `fs:[0]` load before the frame** —
+  `__try/__except` loads `mov eax,fs:[0]` (`64 a1 00 00 00 00`)
+  before `push ebp; mov ebp,esp` (verified in probe7 `seh1`; shared
+  with 4.x).  No verified codegen separates 2.0 from 4.x, or one
   4.x minor from another — use the linker version (2.50 → VC 2.0,
   3.0/3.10/4.20 → 4.x).
 
@@ -106,6 +109,13 @@ no Rich header (early linkers write none).
 - To VC 4.x: nothing codegen-visible in the probe (identical objects).
 - To VC 5.0: real `div` → magic constants; `sub edx,edx` → `xor edx,edx`;
   `cmp reg,zeroreg` → `test reg,reg`.
+
+## Probe12: static-helper inlining — verified negative
+
+Small static helpers called once/twice/in a loop are NOT inlined: VC
+2.0 keeps the `call` at both /O2 and /O1 (30–34B callers), unlike VC
+7.0+ which inline them (11–12B).  Verified in probe12
+(`f1`/`f2`/`fl`); keeping the call is itself the 2.0–6.0 era marker.
 
 ## Verification
 

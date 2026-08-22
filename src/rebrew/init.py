@@ -6,13 +6,17 @@ Usage:
 
 import re
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
+import click
 import tomlkit
 import typer
 from rich.console import Console
+from rich.prompt import Confirm, Prompt
 
-from rebrew.cli import error_exit, json_print
+from rebrew.cli import error_exit, json_print, option_default
 from rebrew.toolchain_detect import ToolchainInfo
 from rebrew.utils import atomic_write_text, toolchain_link_candidates
 
@@ -34,13 +38,14 @@ app = typer.Typer(
         "  src/<target>/ · · · · · · Directory for reversed .c files\n\n"
         "  bin/<target>/ · · · · · · Directory for extracted .bin files\n\n"
         "[bold]Compiler profiles:[/bold]\n\n"
-        "  msvc400 · MSVC 4.0 (C89, PE/x86_32) — via Wine (or wibo)\n\n"
-        "  msvc420 · MSVC 4.2 (C89, PE/x86_32) — via Wine (or wibo)\n\n"
-        "  msvc5 · · MSVC 5.0 (C89, PE/x86_32) — via Wine (or wibo)\n\n"
-        "  msvc6 · · MSVC 6.0 (C89, PE/x86_32) — via Wine (or wibo)\n\n"
-        "  msvc7 · · MSVC 7.x (C99 subset, PE/x86_32) — via Wine (or wibo)\n\n"
-        "  gcc · · · GCC (C99, ELF/x86_64)\n\n"
-        "  clang · · Clang (C99, ELF/x86_64)\n\n"
+        "  msvc6 · · · MSVC 6.0 (C89, PE/x86_32) — default\n\n"
+        "  msvc# · · · MSVC 1.52–7.1 variants (PE/x86_32, 16-bit NE/MZ for 1.52)\n\n"
+        "  borlandc55 / tc16 / tc20 · Borland/Turbo C (PE/x86_32, 16-bit DOS)\n\n"
+        "  watcom / watcom16 · Open Watcom (32-bit / 16-bit DOS)\n\n"
+        "  delphi16 · · Delphi 1.0 (16-bit NE)\n\n"
+        "  gcc-pe · · GCC/MinGW (C99, PE/x86_32)\n\n"
+        "  gcc / clang · ELF/x86_64\n\n"
+        "[dim]Windows/DOS profiles compile inside docker images only — gcc/clang/gcc-pe/watcom16 run natively. Full list: rebrew toolchain list.[/dim]\n\n"
         "[dim]Run this once in an empty directory, then place your binary in original/.[/dim]"
     ),
 )
@@ -543,12 +548,12 @@ MSVC_CONSTRAINTS = """- **C89 only**: no `for(int i=...)`, declare all variables
 - **Comments in code**: use `/* */` only (C89). `//` is used exclusively for annotation headers
 - **Symbol decoration**: `_func` for `__cdecl`, `_func@N` for `__stdcall`
 - **No `/GS`** (buffer security), no `__declspec(noinline)`
-- **Execution**: all CL.EXE/LINK.EXE calls go through Wine"""
+- **Execution**: all CL.EXE/LINK.EXE calls run inside the toolchain's docker image (wine lives in the image; there is no host wine/wibo fallback)"""
 
 MSVC7_CONSTRAINTS = """- **C99 subset**: `for(int i=...)` OK, `//` comments OK
 - **Symbol decoration**: `_func` for `__cdecl`, `_func@N` for `__stdcall`
 - **Supports `/fp:*`** (floating point model) and `/GS-` (buffer security)
-- **Execution**: all CL.EXE/LINK.EXE calls go through Wine"""
+- **Execution**: all CL.EXE/LINK.EXE calls run inside the toolchain's docker image (wine lives in the image; there is no host wine/wibo fallback)"""
 
 GCC_CONSTRAINTS = """- **C99/C11**: standard modern C
 - **Symbol decoration**: no leading underscore on Linux
@@ -819,6 +824,251 @@ def _rewrite_compiler_paths(toml_path: Path, layout: tuple[str, str, str]) -> No
     atomic_write_text(toml_path, tomlkit.dumps(doc), encoding="utf-8")
 
 
+# ---------------------------------------------------------------------------
+# Interactive onboarding wizard (TTY only -- `--no-wizard`/`--json` opt out).
+# ---------------------------------------------------------------------------
+
+#: Binary candidates the wizard offers when picking the target binary.
+_WIZARD_BINARY_GLOBS = ("*.exe", "*.dll", "*.sys", "*.bin", "*.com")
+
+
+def _wizard_active(wizard: bool, json_output: bool, ctx: typer.Context | None) -> bool:
+    """True when the onboarding wizard may prompt.
+
+    All four conditions must hold: the ``--wizard`` flag (default on), not
+    ``--json``, a typer context (only CLI entry passes one; direct Python
+    calls get ``None`` and keep the non-wizard flow byte-identical), and an
+    actual TTY on stdin.  Tests monkeypatch this to force the gate on/off.
+    """
+    if not wizard or json_output or ctx is None:
+        return False
+    try:
+        return bool(sys.stdin.isatty())
+    except Exception:  # DontReadFromInput etc. — treat as non-interactive
+        return False
+
+
+def _wizard_param_explicit(ctx: typer.Context, param_name: str) -> bool:
+    """True when *param_name* came from the CLI (not the option default)."""
+    try:
+        src = ctx.get_parameter_source(param_name)
+    except Exception:  # param unknown to the context — assume explicit
+        return True
+    return src is not click.core.ParameterSource.DEFAULT
+
+
+def _binary_stem_target(binary_name: str) -> str | None:
+    """Sanitized target name from the binary stem (``mini_pe.exe`` -> ``mini_pe``)."""
+    stem = Path(binary_name).stem.lower()
+    stem = re.sub(r"[^a-z0-9_]+", "_", stem).strip("_")
+    return stem or None
+
+
+def _resolve_manual_binary(cwd: Path, raw: str) -> str:
+    """Validate a manually entered binary path/name and return its name.
+
+    Accepts ``name``, ``original/name``, or a relative/absolute path to an
+    existing file; the returned value is always the bare binary name (an
+    ``original/`` prefix is stripped by the caller's normalization)."""
+    p = Path(raw)
+    candidates = [p] if p.is_absolute() else [p, cwd / "original" / raw]
+    if not any(c.is_file() for c in candidates):
+        console.print(f"[yellow]No such file — keeping the value as-is: {raw}[/]")
+    name = Path(raw).name
+    return name or raw
+
+
+def _prompt_binary(cwd: Path, binary_name: str) -> str:
+    """Wizard step 1: pick (or enter) the target binary.
+
+    Scans ``original/`` first, then the cwd root (non-recursive) for known
+    binary extensions and offers the hits as numbered choices plus an
+    "m" (manual path/name) option; manual input keeps the value on Enter
+    and validates the path with a warning when nothing exists there."""
+    found: list[Path] = []
+    for base in (cwd / "original", cwd):
+        if not base.is_dir():
+            continue
+        for glob in _WIZARD_BINARY_GLOBS:
+            # Non-recursive, directory-filtered scan; sorted for stable orders.
+            found.extend(sorted(p for p in base.glob(glob) if p.is_file()))
+    if not found:
+        if (cwd / "original" / binary_name).is_file() or (cwd / binary_name).is_file():
+            return binary_name
+        return _resolve_manual_binary(
+            cwd, Prompt.ask("Binary path or name", default=binary_name, console=console)
+        )
+    labels = [str(p.relative_to(cwd)) if p.is_relative_to(cwd) else str(p) for p in found]
+    console.print("[bold]Select the target binary:[/bold]")
+    for i, label in enumerate(labels, 1):
+        console.print(f"  {i}. {label}")
+    console.print(f"  m. enter a path/name manually (default: {binary_name})")
+    options = [str(i) for i in range(1, len(labels) + 1)] + ["m"]
+    choice = Prompt.ask("Binary", choices=options, default="m", console=console)
+    if choice == "m":
+        return _resolve_manual_binary(
+            cwd, Prompt.ask("Binary path or name", default=binary_name, console=console)
+        )
+    return Path(labels[int(choice) - 1]).name
+
+
+def _suggested_profile(cwd: Path, binary_name: str) -> tuple[str | None, str]:
+    """Detect the toolchain of the chosen binary and suggest a profile.
+
+    Returns ``(suggestion, summary)`` — ``summary`` is a one-line detection
+    report (family/hint/format/arch) printed by the caller; empty when the
+    binary is missing or detection failed (best-effort)."""
+    from rebrew.toolchain_detect import detect_toolchain
+
+    candidates = [cwd / "original" / binary_name, cwd / binary_name]
+    binary_path = next((p for p in candidates if p.is_file()), None)
+    if binary_path is None:
+        return None, ""
+    summary = f"binary: {binary_path.relative_to(cwd)}"
+    detected = _detect_binary_format(binary_path)
+    if detected is not None:
+        summary += f" — {detected[0]}/{detected[1]}"
+    try:
+        tc = detect_toolchain(binary_path)
+    except Exception:  # detection is best-effort — bad/unknown binaries OK
+        return None, summary
+    if tc.family or tc.version_hint:
+        summary += f"; toolchain: {tc.family} {tc.version_hint} ({tc.confidence})".strip()
+    return _guess_compiler_profile(tc, binary_path), summary
+
+
+def _run_wizard(
+    ctx: typer.Context,
+    cwd: Path,
+    target_name: str,
+    binary_name: str,
+    compiler_profile: str,
+    install_completions: bool,
+) -> tuple[str, str, str, bool]:
+    """Interactive onboarding: binary, profile, target name, completions.
+
+    Resolves only the four wizard-covered inputs — every parameter passed
+    explicitly on the command line keeps its value.  Aborting at the final
+    confirmation exits without writing anything."""
+    if ctx is None:
+        # Direct Python call: no parameter-source information — treat every
+        # value as user-provided and return the inputs unchanged.
+        return target_name, binary_name, compiler_profile, install_completions
+    covered = ("binary_name", "compiler_profile", "target_name", "install_completions")
+    needed = [p for p in covered if not _wizard_param_explicit(ctx, p)]
+    if not needed:
+        # Fully flagged: nothing to ask — zero prompts even on a TTY.
+        return target_name, binary_name, compiler_profile, install_completions
+
+    console.print("[bold]rebrew init — onboarding wizard[/] (pass --no-wizard to skip)")
+    if "binary_name" in needed:
+        binary_name = _prompt_binary(cwd, binary_name)
+        console.print(f"[dim]binary: {binary_name}[/]")
+
+    suggestion, summary = _suggested_profile(cwd, binary_name)
+    if summary:
+        console.print(f"[dim]detected {summary}[/dim]")
+
+    if "compiler_profile" in needed:
+        if suggestion and suggestion != compiler_profile:
+            console.print(
+                f"  [yellow]hint:[/yellow] detection suggests [bold]{suggestion}[/bold] "
+                f"(the default is {compiler_profile})"
+            )
+        answer = Prompt.ask(
+            "Compiler profile", default=suggestion or compiler_profile, console=console
+        )
+        if answer not in COMPILER_DEFAULTS:
+            # Reprompt once, then fall back to the current value.
+            console.print(f"[yellow]unknown profile '{answer}' (see --help for the list)[/]")
+            retry = Prompt.ask("Compiler profile", default=compiler_profile, console=console)
+            if retry not in COMPILER_DEFAULTS:
+                console.print(f"[yellow]unknown '{retry}' too — keeping {compiler_profile}[/]")
+                retry = compiler_profile
+            answer = retry
+        compiler_profile = answer
+
+    if "target_name" in needed:
+        stem = _binary_stem_target(binary_name)
+        target_name = (
+            Prompt.ask("Target name", default=stem or target_name, console=console) or target_name
+        )
+
+    rows = [
+        ("target", target_name),
+        ("binary", f"original/{binary_name}"),
+        ("compiler profile", compiler_profile),
+    ]
+    if suggestion and suggestion != compiler_profile:
+        rows.append(("suggested profile", f"{suggestion} (not used)"))
+    console.print("[bold]Project settings:[/bold]")
+    for key, value in rows:
+        console.print(f"  [cyan]{key:>18}:[/] {value}")
+    if not Confirm.ask("Create project with these settings?", default=True, console=console):
+        console.print(
+            "Aborted — nothing was written. Re-run with flags to skip the wizard:\n"
+            "  rebrew init --no-wizard --target <name> --binary <file> --compiler <profile>"
+        )
+        raise typer.Exit(code=1)
+
+    if not _wizard_param_explicit(ctx, "install_completions"):
+        install_completions = Confirm.ask(
+            "Write shell completion scripts into completions/?", default=False, console=console
+        )
+
+    return target_name, binary_name, compiler_profile, install_completions
+
+
+def _toolchain_image_followup(compiler_profile: str) -> None:
+    """Report the compiler profile's docker image state (wizard runs only).
+
+    Missing image → print the exact build command and offer to run it
+    (streamed output; failure/wibo/docker errors only warn — never crash
+    init).  Native PATH toolchains have no image, so nothing to build."""
+    from rebrew.toolchain import TOOLCHAINS, _image_present
+
+    spec = TOOLCHAINS.get(compiler_profile)
+    if spec is None:
+        return
+    image = spec.image
+    if image is None:
+        console.print(
+            f"[dim]toolchain: {compiler_profile} runs natively from PATH — nothing to build[/]"
+        )
+        return
+    try:
+        present = _image_present(image)
+    except Exception:
+        console.print(
+            f"[yellow]toolchain: docker daemon not reachable — check later with "
+            f"'rebrew toolchain build {compiler_profile}'[/]"
+        )
+        return
+    if present:
+        console.print(f"[green]toolchain image {image} present[/]")
+        return
+    build_cmd = f"rebrew toolchain build {compiler_profile}"
+    console.print(
+        f"[yellow]toolchain image {image} not present locally[/] — build it with:\n  {build_cmd}"
+    )
+    if not Confirm.ask("Build it now?", default=False, console=console):
+        console.print(f"[dim]later: {build_cmd}[/]")
+        return
+    exe = shutil.which("rebrew")
+    if exe is None:
+        console.print(f"[yellow]rebrew CLI not found on PATH — run '{build_cmd}' yourself[/]")
+        return
+    proc = subprocess.run(
+        [exe, "toolchain", "build", compiler_profile],
+        stdin=subprocess.DEVNULL,  # real stdin is a TTY; keep the run non-interactive
+        timeout=3600,
+    )
+    if proc.returncode != 0:
+        console.print(
+            f"[yellow]toolchain build failed (exit {proc.returncode}) — retry: {build_cmd}[/]"
+        )
+
+
 @app.callback(invoke_without_command=True)
 def main(
     target_name: str = typer.Option("main", "--target", "-t", help="Name of the initial target."),
@@ -857,6 +1107,17 @@ def main(
         ),
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    wizard: bool = typer.Option(
+        True,
+        "--wizard/--no-wizard",
+        help=(
+            "Run the interactive onboarding wizard (TTY only, off under "
+            "--json).  Only parameters not passed on the CLI are prompted."
+        ),
+    ),
+    # typer injects the real Context on CLI runs; direct Python calls get None
+    # (a union annotation would defeat typer's Context detection).
+    ctx: typer.Context = None,  # type: ignore[assignment]
 ) -> None:
     """Initialize a new rebrew project in the current directory.
 
@@ -866,16 +1127,12 @@ def main(
     cwd = Path.cwd()
     toml_path = cwd / "rebrew-project.toml"
 
-    if toml_path.exists():
-        error_exit(f"A rebrew-project.toml already exists in {cwd}", json_mode=json_output)
-
     # Direct Python calls to main() (unit-test convention) leak
     # typer.OptionInfo for omitted params — a documented typer quirk (see
     # docs/DEVELOPMENT.md).  Normalize to the declared default.
-    from rebrew.cli import option_default
-
     toolchain_dir = option_default(toolchain_dir, None)
     guess_compiler = option_default(guess_compiler, False)
+    wizard = option_default(wizard, True)
 
     # Accept both "original/bench.exe" and "bench.exe" — the config already
     # prefixes binary = "original/<name>", so a user-supplied original/
@@ -883,6 +1140,19 @@ def main(
     binary_name = binary_name.replace("\\", "/")
     if binary_name.lower().startswith("original/"):
         binary_name = binary_name[len("original/") :]
+
+    if toml_path.exists():
+        error_exit(f"A rebrew-project.toml already exists in {cwd}", json_mode=json_output)
+
+    # Interactive onboarding wizard: TTY-only, off under --json/--no-wizard.
+    # Only parameters NOT passed explicitly on the CLI are prompted; direct
+    # Python calls (ctx=None) take the non-interactive path unchanged.
+    wizard_ran = False
+    if _wizard_active(wizard, json_output, ctx):
+        target_name, binary_name, compiler_profile, install_completions = _run_wizard(
+            ctx, cwd, target_name, binary_name, compiler_profile, install_completions
+        )
+        wizard_ran = True
 
     # --guess-compiler: auto-select the profile from the target binary
     # (must already be in place under original/).  Runs before the profile
@@ -1122,6 +1392,11 @@ def main(
         for p in completion_paths:
             console.print(f"[green]Created {p.relative_to(cwd)}[/] (source this for completions)")
 
+    # Wizard-only: report the toolchain image state (present/build command)
+    # right after the project is written.  Non-wizard runs stay untouched.
+    if wizard_ran:
+        _toolchain_image_followup(compiler_profile)
+
     if json_output:
         json_print(
             {
@@ -1144,6 +1419,10 @@ def main(
         console.print(f"1. Copy your original binary to original/{binary_name}")
         console.print("2. Verify your compiler paths in rebrew-project.toml")
         console.print("3. Run 'rebrew todo' to get started!")
+        console.print("4. First time with rebrew? See docs/ONBOARDING.md for the walkthrough")
+        if wizard_ran:
+            console.print("5. Run 'rebrew doctor' to check project health and toolchain setup")
+            console.print("6. Run 'rebrew intake original/<binary>' to onboard the binary")
         if install_completions:
             console.print("\n[bold cyan]Shell completion:[/]")
             console.print("  bash: source completions/rebrew.bash")

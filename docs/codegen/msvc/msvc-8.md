@@ -81,6 +81,20 @@ codegen change of this version.
   [const]` (`dc 35`) from VC 8.0 on; VC 2.0–7.1 (and Watcom, bcc32)
   use reciprocal-`fmul` (`dc 0d`); GCC uses `fdivr`.  Verified in
   probe5 (`fdiv5`).
+- **SEH frame `push -2`** — `__try/__except` functions open the SEH
+  frame with `push -2` (`6a fe`, the new handler marker) from VC 8.0
+  on, interleaved with the /GS cookie; VC 2.0–7.1 use `push -1`
+  (`6a ff`).  Verified in probe7 (`seh1`).
+- **`fldz` FP-loop accumulator init** — FP accumulation loops seed
+  the accumulator with `fldz` (`d9 ee`) from VC 8.0 on; VC 2.0–7.1
+  load 0.0 from `.rdata`.  Verified in probe8 (`fs1`/`fs2`/`fs3`).
+- **`/arch:SSE2` switches copies and compares to SSE** — with
+  `/arch:SSE2`, VC 8.0/9.0 emit `movq xmm0,[s]; movq [d],xmm0`
+  (`f3 0f 7e`/`66 0f d6`) for 16-byte copies, `pxor xmm0,xmm0` for
+  16-byte memset, and `movsd; comisd; jbe` (`66 0f 2f`) for FP
+  compares — the same SSE forms VC 11.0 produces by default (see
+  [msvc-11.md](msvc-11.md)).  Verified in probe11 (`mc16`/`ms16`/
+  `fcmp`).  Basic x87 FP adds are NOT affected (fadd1 stays x87).
 - /GS is shared by 8.0–11.0; the rest is inherited from 7.x.  No
   verified marker separates 8.0 from 9.0/10.0 — the probe objects are
   near-identical (519B vs 551B at /O2; same nops, cookie, division
@@ -93,6 +107,11 @@ codegen change of this version.
 - From VC 7.1: /GS default-on (the defining change); loop-align nop
   register shifts esp→ebx in `bigstack` (observed, not proven uniform).
 - To VC 9.0: loop unrolling appears (`bsum` 33B → 74B).
+
+## Probe12: static-helper inlining — verified positive
+
+Small static helpers inline at /O2 and /O1 (11–12B callers), matching
+the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 
 ## Verification
 

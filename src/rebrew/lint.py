@@ -44,6 +44,16 @@ console = Console(stderr=True)
 
 _HEADER_MARKER_RE = re.compile(r"//\s*(\w+):\s*(\S+)\s+(0x[0-9a-fA-F]+)")
 _SIZE_ANNOTATION_RE = re.compile(r"//\s*SIZE\s+0x[0-9a-fA-F]+")
+# Patterns for default function names (to be used with --pedantic flag)
+_DEFAULT_FUNC_NAME_PATTERNS = [
+    r"\bfcn\b",
+    r"\bfn\b",
+    r"\bfun\b",
+    r"\bFUN_[0-9A-Fa-f]+\b",
+    r"\bsub_[0-9A-Fa-f]+\b",
+    r"\bfunc_[0-9A-Fa-f]+\b",
+    r"\bthunk_[0-9A-Fa-f]+\b",
+]
 
 
 @dataclass
@@ -65,6 +75,8 @@ class LintResult:
     _marker_counts: Counter[str] = field(default_factory=Counter)
     # Collected inline metadata for --fix migration: (module, va_int, key, value)
     _inline_fixes: list[tuple[str, int, str, str, str]] = field(default_factory=list)
+    # Lines of the file for style checks
+    _lines: list[str] = field(default_factory=list)
 
     def error(self, line: int, code: str, msg: str) -> None:
         """Record an error diagnostic at *line*."""
@@ -361,7 +373,10 @@ def _check_W019_inline_metadata(
 
 
 def _check_E023_naked_asm(
-    result: LintResult, lines: list[str], claimed_statuses: set[str] | None = None
+    result: LintResult,
+    lines: list[str],
+    claimed_statuses: set[str] | None = None,
+    metadata_cflags: str = "",
 ) -> None:
     """Flag whole-function ``__declspec(naked)`` + ``__asm`` dumps (E023).
 
@@ -375,6 +390,21 @@ def _check_E023_naked_asm(
     padding (``0x90``/``0xCC``) / non-nop mnemonic — is a whole-function
     dump and earns E023.  1-2 nops for alignment are tolerated silently.
     """
+    # The project's byte-identity guard: a naked body gated by
+    # ``REBREW_ALLOW_NAKED`` — either fenced in ``#ifdef REBREW_ALLOW_NAKED``
+    # (with a C fallback in ``#else``) or compiled via ``cflags`` carrying
+    # ``/DREBREW_ALLOW_NAKED`` (in rebrew-function.toml, or a remaining
+    # inline ``// CFLAGS:`` annotation) — is the documented workflow for
+    # reproducing a compiler whose codegen the available toolchains cannot
+    # emit (see AGENTS.md / the naked-guard convention).  That is
+    # intentional, not a decompilation shortcut — the flag marks it.
+    # Skip E023 for naked bodies gated by REBREW_ALLOW_NAKED.
+    if "REBREW_ALLOW_NAKED" in metadata_cflags:
+        return
+    for line in lines:
+        if "REBREW_ALLOW_NAKED" in line:
+            return
+
     # Find naked declaration outside comments.
     has_naked = False
     naked_line = 0
@@ -410,7 +440,7 @@ def _check_E023_naked_asm(
                 # After removing _emit, if nothing left (or just hex) it's not a separate asm mnemonic.
                 if (
                     payload_no_emit
-                    and payload_no_emit not in ("", ",", "0x90", "0xcc", "0x90,", "0xcc,")
+                    and payload_no_emit not in ("", ",", "0x90", "0xcc", "0x90,", "0x90,")
                     and not all(
                         tok.strip() in ("", "0x90", "0xcc", ",")
                         for tok in payload_no_emit.replace(",", " , ").split()
@@ -519,14 +549,6 @@ def _check_W020_asm_dump(
             return
 
 
-_ZERO_INIT_RE = re.compile(
-    r"^\s*(?:extern\s+|static\s+)?(?:unsigned\s+|signed\s+|const\s+)?"
-    r"[A-Za-z_][\w\s\*]*?\s+[A-Za-z_]\w*\s*(?:\[[^\]]*\])?\s*=\s*\{?\s*0\s*\}?\s*;"
-)
-
-_GLOBAL_NAME_RE = re.compile(r"\b([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)?[;=]")
-
-
 def _check_W021_duplicate_globals(
     result: LintResult,
     lines: list[str],
@@ -568,45 +590,76 @@ def _check_W021_duplicate_globals(
                 seen_globals[name] = str(filepath)
 
 
-def _strip_c_comments_strings(line: str, in_block: bool) -> tuple[str, bool]:
-    """Remove C comments and string/char literals from *line* for brace counting.
+_ZERO_INIT_RE = re.compile(
+    r"^\s*(?:extern\s+|static\s+)?(?:unsigned\s+|signed\s+|const\s+)?"
+    r"[A-Za-z_][\w\s\*]*?\s+[A-Za-z_]\w*\s*(?:\[[^\]]*\])?\s*=\s*\{?\s*0\s*\}?\s*;"
+)
 
-    Returns ``(cleaned, in_block_comment)`` — *in_block_comment* carries the
-    multi-line ``/* ... */`` state across calls.  A file-scope ``/* { */``
-    comment must not permanently suppress W022's brace-depth tracking.
+_GLOBAL_NAME_RE = re.compile(r"\b([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)?[;=]")
+
+
+def _strip_c_comments_strings(line: str, in_block_comment: bool) -> tuple[str, bool]:
+    """Remove C comments and string/char literals from *line*.
+
+    Stateful: *in_block_comment* tracks a ``/* ... */`` block spanning
+    lines (e.g. a multi-line file preamble).  Quote-aware — ``/*``/``*/``
+    inside string or char literals are not comment delimiters, and ``//``
+    line comments terminate the rest of the line.  Returns
+    ``(cleaned, new_block_state)``; literal contents become spaces so they
+    never match code patterns.
     """
     out: list[str] = []
     i = 0
     n = len(line)
+    in_str = False
+    in_char = False
     while i < n:
         c = line[i]
-        if in_block:
-            if c == "*" and i + 1 < n and line[i + 1] == "/":
-                in_block = False
+        nxt = line[i + 1] if i + 1 < n else ""
+        if in_block_comment:
+            if c == "*" and nxt == "/":
+                in_block_comment = False
                 i += 2
             else:
                 i += 1
             continue
-        if c == "/" and i + 1 < n:
-            nxt = line[i + 1]
-            if nxt == "/":
-                break  # line comment — the rest of the line is comment
-            if nxt == "*":
-                in_block = True
+        if in_str:
+            if c == "\\":
                 i += 2
                 continue
-        if c in ('"', "'"):
-            quote = c
+            if c == '"':
+                in_str = False
+            out.append(" ")
             i += 1
-            while i < n and line[i] != quote:
-                if line[i] == "\\":
-                    i += 2
-                else:
-                    i += 1
             continue
+        if in_char:
+            if c == "\\":
+                i += 2
+                continue
+            if c == "'":
+                in_char = False
+            out.append(" ")
+            i += 1
+            continue
+        if c == '"':
+            in_str = True
+            out.append(" ")
+            i += 1
+            continue
+        if c == "'":
+            in_char = True
+            out.append(" ")
+            i += 1
+            continue
+        if c == "/" and nxt == "*":
+            in_block_comment = True
+            i += 2
+            continue
+        if c == "/" and nxt == "/":
+            break  # line comment — rest of the line is not code
         out.append(c)
         i += 1
-    return "".join(out), in_block
+    return "".join(out), in_block_comment
 
 
 def _check_W022_zero_init_bss(result: LintResult, lines: list[str]) -> None:
@@ -622,8 +675,7 @@ def _check_W022_zero_init_bss(result: LintResult, lines: list[str]) -> None:
     for i, line in enumerate(lines, start=1):
         cleaned, in_block_comment = _strip_c_comments_strings(line, in_block_comment)
         depth += cleaned.count("{") - cleaned.count("}")
-        s = line.strip()
-        if depth == 0 and _ZERO_INIT_RE.match(s):
+        if depth == 0 and _ZERO_INIT_RE.match(cleaned.strip()):
             result.warning(
                 i,
                 "W022",
@@ -631,6 +683,114 @@ def _check_W022_zero_init_bss(result: LintResult, lines: list[str]) -> None:
                 ".data, not .bss — leave it uninitialized to keep the PE small",
             )
             return
+
+
+def _check_W023_default_func_names(result: LintResult, lines: list[str], pedantic: bool) -> None:
+    """Warn about functions with default names (W023) when --pedantic is used.
+
+    Looks for function names that match common default patterns from decompilers
+    like fcn, fn, fun, FUN_<addr>, sub_<addr>, etc.
+    """
+    if not pedantic:
+        return
+
+    # Join lines and remove comments/strings to avoid false positives
+    code = "\n".join(lines)
+    # Simple comment/string removal (not perfect but good enough for this check)
+    # Remove /* ... */ comments
+    while True:
+        start = code.find("/*")
+        end = code.find("*/", start + 2)
+        if start == -1 or end == -1:
+            break
+        code = code[:start] + code[end + 2 :]
+    # Remove // comments
+    code_lines = []
+    for line in code.split("\n"):
+        comment_pos = line.find("//")
+        if comment_pos != -1:
+            line = line[:comment_pos]
+        code_lines.append(line)
+    code = "\n".join(code_lines)
+
+    # Look for function definitions with default names
+    # Pattern: return_type function_name(...) {
+    func_def_pattern = r"([a-zA-Z_][a-zA-Z0-9_]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^)]*\)\s*\{"
+
+    for match in re.finditer(func_def_pattern, code):
+        func_name = match.group(2)
+        line_num = code[: match.start()].count("\n") + 1
+
+        # Check against default patterns
+        for pattern in _DEFAULT_FUNC_NAME_PATTERNS:
+            if re.fullmatch(pattern, func_name):
+                result.warning(
+                    line_num,
+                    "W023",
+                    f"Function '{func_name}' has a default name; consider renaming to something meaningful",
+                )
+                break
+
+
+def _check_style_rules(result: LintResult, cfg: ProjectConfig | None) -> None:
+    """Check code style rules from project config (W024-W027).
+
+    Config keys (all optional, from ``rebrew-project.toml [project.lint]``):
+    ``naming_convention`` (snake_case|camelCase), ``brace_style``
+    (same_line|new_line), ``indent_style`` (spaces|tabs), ``indent_size``,
+    ``max_line_length``.  Read defensively via ``getattr`` so mocks and
+    configs without a ``[project.lint]`` section default to "no rule".
+    """
+    if cfg is None:
+        return
+    lines = result._lines
+
+    # Naming convention (W024): function definitions should follow the rule.
+    naming = getattr(cfg, "lint_naming_convention", "none")
+    if naming != "none":
+        func_pat = re.compile(
+            r"([a-zA-Z_][a-zA-Z0-9_]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^)]*\)\s*\{"
+        )
+        for i, line in enumerate(lines, start=1):
+            m = func_pat.search(line)
+            if not m:
+                continue
+            func_name = m.group(2)
+            if naming == "snake_case" and not re.fullmatch(r"[a-z_][a-z0-9_]*", func_name):
+                result.warning(i, "W024", f"Function '{func_name}' should be snake_case")
+            elif naming == "camelCase" and not re.fullmatch(r"[a-z][a-zA-Z0-9]*", func_name):
+                result.warning(i, "W024", f"Function '{func_name}' should be camelCase")
+
+    # Brace style (W025).
+    brace = getattr(cfg, "lint_brace_style", "none")
+    if brace != "none":
+        for i, line in enumerate(lines, start=1):
+            stripped = line.strip()
+            if brace == "new_line" and stripped.endswith("{") and not stripped.startswith("{"):
+                result.warning(i, "W025", "Opening brace should be on new line")
+            elif brace == "same_line" and stripped == "{":
+                result.warning(
+                    i, "W025", "Opening brace should be on same line as preceding statement"
+                )
+
+    # Indent style (W026).
+    indent = getattr(cfg, "lint_indent_style", "none")
+    if indent != "none":
+        if indent == "spaces":
+            for i, line in enumerate(lines, start=1):
+                if line.startswith("\t"):
+                    result.warning(i, "W026", "Line uses tab indent, expected spaces")
+        elif indent == "tabs":
+            for i, line in enumerate(lines, start=1):
+                if line.startswith(" "):
+                    result.warning(i, "W026", "Line uses space indent, expected tabs")
+
+    # Max line length (W027).
+    max_len = getattr(cfg, "lint_max_line_length", 0)
+    if max_len and max_len > 0:
+        for i, line in enumerate(lines, start=1):
+            if len(line) > max_len:
+                result.warning(i, "W027", f"Line too long ({len(line)} > {max_len})")
 
 
 def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> None:
@@ -678,6 +838,7 @@ def lint_file(
     seen_globals: dict[str, str] | None = None,
     preloaded_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
     preloaded_data_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
+    pedantic: bool = False,
 ) -> LintResult:
     """Lint a single C file.
 
@@ -710,6 +871,9 @@ def lint_file(
     if not lines:
         result.error(1, "E001", "Empty file, missing FUNCTION/LIBRARY/STUB marker")
         return result
+    result._lines = lines
+    # DEBUG
+    # print(f"[DEBUG] Linting {filepath} with {len(lines)} lines")
 
     all_headers = _parse_multi_headers(lines)
     if not all_headers:
@@ -749,6 +913,9 @@ def lint_file(
     # Statuses claimed by this file's annotations (for W020 escalation: a
     # non-STUB claim on an asm-dump body is a metadata error).
     _file_statuses: set[str] = set()
+    # CFLAGS from metadata/inline annotations (for the E023 REBREW_ALLOW_NAKED
+    # guard — the flag lives in rebrew-function.toml, not in source lines).
+    _file_cflags: set[str] = set()
 
     for found_keys, flags in all_headers:
         result.marker_line = int(found_keys.get("_LINE", "1"))
@@ -799,7 +966,7 @@ def lint_file(
             # Check EVERY block (module + VA keyed): a duplicate appearing in
             # a later block of a multi-function file used to be skipped by the
             # old `i == 0` guard.  The (module, va) key keeps a multi-module
-            # file whose blocks share a VA (a valid layout) unflagged.
+            # file whose blocks share a VA (a valid layout) is not flagged.
             _check_E013_duplicate_va(result, va_int, va_str, filepath, seen_vas, module=mod)
 
             if marker not in ("GLOBAL", "DATA"):
@@ -818,6 +985,7 @@ def lint_file(
 
             module = found_keys.get("MODULE", "")
             status = found_keys.get("STATUS", "")
+            _file_cflags.update(found_keys.get("CFLAGS", "").split())
 
             # Collect summary data during the lint pass (used by _print_summary).
             if marker:
@@ -845,12 +1013,13 @@ def lint_file(
             )
 
     result.context_prefix = ""
-    _check_E023_naked_asm(result, lines, _file_statuses)
+    _check_E023_naked_asm(result, lines, _file_statuses, " ".join(_file_cflags))
     _check_W020_asm_dump(result, lines, _file_statuses)
     _check_W021_duplicate_globals(result, lines, filepath, seen_globals)
     _check_W022_zero_init_bss(result, lines)
     _check_body_rules(result, lines, all_headers[0][1]["has_new"] if all_headers else False)
-
+    _check_W023_default_func_names(result, lines, pedantic)
+    _check_style_rules(result, cfg)
     return result
 
 
@@ -905,6 +1074,11 @@ app = typer.Typer(
         "  E023   Whole-function __declspec(naked) + __asm/__emit (only 1-2 nop/0x90/0xCC padding bytes allowed)\n\n"
         "  W021   Duplicate global symbol annotated in multiple files\n\n"
         "  W022   File-scope zero initializer (= {0}) forces the global into .data, not .bss\n\n"
+        "  W023   Function has a default name (fcn, fn, fun, etc.); consider renaming\n\n"
+        "  W024   Function name does not match project naming convention\n\n"
+        "  W025   Opening brace style does not match project configuration\n\n"
+        "  W026   Line indent style does not match project configuration\n\n"
+        "  W027   Line too long (exceeds max_line_length)\n\n"
         "[dim]Checks for reccmp-style markers in each .c file.[/dim]"
     ),
 )
@@ -919,6 +1093,11 @@ def main(
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Only show errors, suppress warnings"),
+    pedantic: bool = typer.Option(
+        False,
+        "--pedantic",
+        help="Warn on functions that have not been renamed yet to a meaningful name",
+    ),
     files: list[Path] | None = typer.Argument(
         None, help="Specific files to check (defaults to all *.c in project)"
     ),
@@ -975,6 +1154,7 @@ def main(
             seen_globals=seen_globals,
             preloaded_metadata=_preloaded_metadata,
             preloaded_data_metadata=_preloaded_data_metadata,
+            pedantic=pedantic,
         )
         all_results.append(result)
         if result.passed:

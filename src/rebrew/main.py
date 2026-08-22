@@ -134,6 +134,7 @@ _COMMAND_PANELS: dict[str, str] = {
     "analyze": "Analysis",
     "report": "Analysis",
     "crt-match": "Analysis",
+    "refactor": "Analysis",
     # Matching — solving byte-level differences
     "match": "Matching",
     "diff": "Matching",
@@ -143,6 +144,7 @@ _COMMAND_PANELS: dict[str, str] = {
     "prove": "Matching",
     "solutions": "Analysis",
     "round-trip": "Matching",
+    "postlink": "Matching",
     # Export & Sync — generating data and syncing with external tools
     "catalog": "Export & Sync",
     "build-db": "Export & Sync",
@@ -161,8 +163,28 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("skeleton", "rebrew.skeleton", "Generate skeleton C files for matching."),
     ("sync", "rebrew.ghidra.cli", "Sync annotations between decomp C files and Ghidra."),
     ("lint", "rebrew.lint", "Lint C annotations."),
+    (
+        "fix",
+        "rebrew.fixup",
+        "Make raw decompiler output compilable (DecBench-style fixup: sanitize + inject).",
+    ),
+    (
+        "recover-structs",
+        "rebrew.struct_recover",
+        "Recover struct definitions from decompiler output (offset evidence → typedefs).",
+    ),
+    (
+        "decompile",
+        "rebrew.name_decomp",
+        "Decompile a function via kuna/r2ghidra/ghidra, optionally applying known struct names (--named).",
+    ),
     ("match", "rebrew.match", "GA matching engine — single file or batch (--all)."),
     ("diff", "rebrew.diff", "Compile and diff a reversed function against the target binary."),
+    (
+        "postlink",
+        "rebrew.postlink",
+        "Normalize a built binary's layout onto a reference (import records, .data/.reloc, PE stamps).",
+    ),
     (
         "stack-cmp",
         "rebrew.stack_cmp",
@@ -179,6 +201,16 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "intake",
         "rebrew.intake",
         "One-shot binary onboarding: init + toolchain detect + functions + document.",
+    ),
+    (
+        "gen-layout",
+        "rebrew.gen_layout",
+        "Generate linker-script scaffolding from the binary (.def, layout manifest, IAT seed).",
+    ),
+    (
+        "link-sweep",
+        "rebrew.link_sweep",
+        "Sweep LINK options to reproduce the reference PE header (find stamp-only fields).",
     ),
     (
         "document-unmatched",
@@ -306,6 +338,11 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "near-diag",
         "rebrew.near_diag",
         "Classify why a NEAR_MATCHING function does not byte-match.",
+    ),
+    (
+        "refactor",
+        "rebrew.refactor",
+        "Analyse the source tree and suggest refactoring opportunities.",
     ),
 ]
 

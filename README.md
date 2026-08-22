@@ -230,12 +230,16 @@ structural heuristics (strings, imports, codegen style, section layout).
 (`delphi` vs MSVC-style markerless segments).  When diec misses a compiler
 record, the Microsoft Linker version still pins the MSVC era.
 
-**Compiler profiles:** `msvc6` is the default (MSVC 6.0 via Wine/wibo);
-`gcc-pe` targets MinGW GCC / Zig PE builds; point-version MSVC profiles
-(`msvc5`, `msvc-6.0-sp3-win32`, `msvc-6.0-sp6-win32`, `msvc7`, `msvc420`) cover the 1995–2003
-era, and `toolchain/delphi/1.0-win16` holds the Delphi 1.0 16-bit toolchain (not yet
-wired for byte matching — ADR-001).  Profile selection happens
-automatically on `rebrew intake` from the detected family.
+**Compiler profiles:** `msvc6` is the default — all Windows/DOS
+profiles (every `msvc*` from 1.0 through 11.0, `borlandc55`, `tc16`/`tc20`,
+`watcom`, `delphi16`) compile inside per-toolchain **docker images**
+(wine/DOSBox live in the image; there is no host wine/wibo path).  `gcc-pe`
+targets MinGW GCC / Zig PE builds, `gcc`/`clang` cover ELF/x86_64, and
+`watcom16` is the one native DOS profile.  Service-pack variants
+(`msvc600sp1`–`msvc600sp6`, `msvc700sp1`, …) cover the pin-specific
+codegen differences.  Profile selection happens automatically on
+`rebrew intake` from the detected family; the full list is
+`rebrew toolchain list`.
 
 ## 🛠️ Development
 

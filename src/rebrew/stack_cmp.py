@@ -31,9 +31,11 @@ Usage::
 
 from __future__ import annotations
 
+import functools
 import re
 from typing import Any
 
+import capstone  # module-level: analyze_frame is a hot path (near-diag calls it per pair)
 import typer
 from rich.console import Console
 
@@ -53,9 +55,17 @@ _EBP_SLOT_RE = re.compile(r"\[(?:e?bp)\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\]")
 
 def _cs_mode_for_cfg(cfg: Any) -> int:
     """Capstone mode for a target config: 16-bit for DOS/NE (x86_16)."""
-    import capstone
-
     return int(capstone.CS_MODE_16 if getattr(cfg, "arch", "") == "x86_16" else capstone.CS_MODE_32)
+
+
+@functools.lru_cache(maxsize=8)
+def _cs_detail_handle(arch: int, mode: int) -> capstone.Cs:
+    """A cached detail capstone handle — constructing ``capstone.Cs`` per call
+    was a measurable cost in the per-pair hot path (near-diag calls
+    ``analyze_frame`` twice per classification)."""
+    md = capstone.Cs(arch, mode)
+    md.detail = True
+    return md
 
 
 def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
@@ -75,11 +85,8 @@ def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
 
     Robust to garbage/undecodable input (empty result, never raises).
     """
-    import capstone
-
     word = 4 if cs_mode == capstone.CS_MODE_32 else 2
-    md = capstone.Cs(capstone.CS_ARCH_X86, cs_mode)
-    md.detail = True
+    md = _cs_detail_handle(capstone.CS_ARCH_X86, cs_mode)
 
     esp = 0
     min_esp = 0
