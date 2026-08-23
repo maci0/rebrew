@@ -1,5 +1,23 @@
 ## [Unreleased]
 ### Added
+- **`// SOURCE: naked` honest-status split** (ct-recomp's NAKED_REQUIRED vs
+  PURE_C_EXACT distinction, generalized) — `rebrew asm --inline-c` skeletons
+  now carry a `// SOURCE: naked` marker, and `rebrew status`/`rebrew todo`
+  treat naked reconstructions as **byte-covered but not decompiled**:
+  - `rebrew status` reports `decompiled_pct` (matched minus naked) and a
+    `naked_matched`/`naked_bytes` bucket ("N naked reconstructions, XB
+    byte-exact but not decompiled — implement the C bodies"); JSON gains
+    `decompiled_pct` + `naked_matched`.
+  - `rebrew todo` keeps naked-marked matched functions actionable as
+    `naked-reconstruction` items ("implement the real C body") instead of
+    silently counting them as finished work.
+  - `naming.load_data` surfaces the file-level `source` field; lint W019 and
+    status's migration scan exempt the file-borne `// SOURCE: naked` marker
+    (same convention as the `// CFLAGS: /DREBREW_ALLOW_NAKED` naked-guard).
+- **`rebrew asm --format nasm --all --inline-c`** — batch naked-skeleton
+  generation for the whole binary (`--batch-stubs` restricts to unmatched
+  functions): every function gets a compileable, iterable fenced skeleton in
+  `output/naked/`, giving the whole-binary byte-coverage baseline.
 - **`rebrew test --linked`** — the linker-resolved single-function oracle
   (dll-rebuild's "padded link shell"): compile the function inside a
   `#pragma data_seg(".text$A")` pad + `#pragma code_seg(".text$B")` shell so
@@ -505,6 +523,29 @@
   fixed-point/atoi signatures are absent from these binaries
   (recorded negatives).  RULES.md gained idiom rows C19-C22, F11-F12,
   E9; all 17 per-toolchain files point at the cheat-sheet.
+- **Probe21 decomp idioms + version-matrix index + toolchain retries**
+  — batch 3 (round-half-up, 4x4 transforms, AABB checks, centering,
+  8/16-case dispatch, function-pointer tables, distance compares,
+  byte-swap/endian fixups, array-update loops, tolower chars)
+  compiled through every toolchain and folded into the corpus
+  (**10073 records, CORPUS VALID**).  New era markers: the
+  **lea-adjusted range check is an 8.0+ trait** (hex_nibble +
+  ci_char); **`sar reg,1` = `c1 f8 01` (3B) in 2.0/4.x vs `d1 f8`
+  (2B) from 5.0**; **function-pointer dispatch `ff 14 8a` (5.0-7.1)
+  vs load+`call eax` (8.0+)**; **bswap16's three eras** (byte-moves →
+  movzx → shift/mask); **VC 11.0 unrolls array-update loops ×4**;
+  **VC 8.0's add/sub-over-inc confirmed an 8th time** (update_objs
+  loop decrement); 8/16-case jump tables uniform across all versions.
+  **`corpus-matrix.json`** — the precomputed per-function version
+  byte-group index (386 functions) — makes matrix/diff/unique O(1).
+  **Toolchain retries (one focused pass each)**: MSC 5.1's CL.EXE
+  runs under the image's DOSBox but produces no object/error output
+  for any compile (bundled HELLO.OBJ was a false positive; line
+  endings, single-shot, and ERROUT routing ruled out) — documented
+  blocker; Watcom 10.5a's `binnt/wcc.exe` is a PE32 launcher
+  requiring a `binw/wcc.exe` the package lacks — documented blocker
+  (compiler absent).  TC 2.0 compiled probe18 (guard-free); probes
+  17/19/20 fail on the documented `defined()` preprocessor quirk.
 - **Corpus coverage + usability** — the corpus now carries **Delphi 1.0
   records** (NE user-code segments from probe1/2/3/13, function
   boundaries inferred at ret/retf — 6 records, probe13 split into 3

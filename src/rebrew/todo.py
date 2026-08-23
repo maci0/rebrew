@@ -61,6 +61,9 @@ CAT_MISSING_ANNOTATION = "missing-annotation"
 CAT_IDENTIFY_LIBRARY = "identify-library"
 CAT_RUN_PROVER = "run-prover"
 CAT_DOCUMENTED = "documented"
+# Byte-exact via a generated naked skeleton (`// SOURCE: naked`) — reproduced,
+# NOT decompiled: it stays on the list until the real C body matches.
+CAT_NAKED = "naked-reconstruction"
 
 # Proving is only feasible when few bytes actually differ: symbolic execution
 # over hundreds of mismatched bytes just times out.  Cap the estimated byte
@@ -84,6 +87,7 @@ _CATEGORY_COLORS = {
     CAT_IDENTIFY_LIBRARY: "blue",
     CAT_RUN_PROVER: "cyan",
     CAT_DOCUMENTED: "dim",
+    CAT_NAKED: "magenta",
 }
 
 # ---------------------------------------------------------------------------
@@ -316,13 +320,33 @@ def _collect_active_functions(
         info = existing.get(va, {})
         status = info.get("status", "STUB")
 
-        # Skip finished functions
-        if status in MATCHED_STATUSES:
-            continue
-
         size = size_by_va.get(va) or int(info.get("size", 0))
         name = info.get("symbol") or name_by_va.get(va) or f"FUN_{va:08x}"
         filename = info.get("filename", "")
+
+        # Skip finished functions — except naked reconstructions: byte-exact
+        # via a generated skeleton (`// SOURCE: naked`) is reproduced, not
+        # decompiled, so it stays actionable until the real C body matches
+        # (ct-recomp's NAKED_REQUIRED vs PURE_C_EXACT distinction).
+        if status in MATCHED_STATUSES:
+            if info.get("source") == "naked":
+                items.append(
+                    TodoItem(
+                        category=CAT_NAKED,
+                        roi_score=0.0,
+                        va=va,
+                        name=name,
+                        size=size,
+                        filename=filename,
+                        description=(
+                            "Byte-exact via generated naked asm — implement the "
+                            "real C body and drop the REBREW_ALLOW_NAKED fence"
+                        ),
+                        command=f"rebrew test 0x{va:08x}",
+                        status=status,
+                    )
+                )
+            continue
 
         # Documented non-targets (IAT import thunks, Delphi application code):
         # the blocker already states they are not decomp work, so a 6-byte

@@ -528,6 +528,36 @@ class TestLintFileBranches:
         assert any("'// SIZE:'" in m for m in w019), w019
         assert any("'// CFLAGS:'" in m for m in w019), w019
 
+    def test_w019_silent_for_source_naked_marker(self, tmp_path: Path) -> None:
+        """`// SOURCE: naked` (rebrew asm --inline-c skeletons) is the
+        file-borne naked-reconstruction marker — exempt from W019 like the
+        naked-guard CFLAGS convention, while other inline SOURCE values warn."""
+        from rebrew.lint import lint_file
+
+        f = _write_c(
+            tmp_path,
+            "naked.c",
+            "// FUNCTION: SERVER 0x1000\n// SIZE: 42\n// SOURCE: naked\n"
+            "#ifdef REBREW_ALLOW_NAKED\n__declspec(naked) void f(void){}\n"
+            "#else\nvoid f(void){}\n#endif\n",
+        )
+        result = lint_file(f)
+        # SIZE is legitimately metadata-owned and may still warn — the
+        # exemption is SOURCE: naked specifically.
+        assert not any("'// SOURCE:'" in m for _, c, m in result.warnings if c == "W019"), (
+            result.warnings
+        )
+
+        g = _write_c(
+            tmp_path,
+            "other.c",
+            "// FUNCTION: SERVER 0x2000\n// SIZE: 42\n// SOURCE: zlib\nint g(void){return 0;}\n",
+        )
+        result2 = lint_file(g)
+        assert any("'// SOURCE:'" in m for _, c, m in result2.warnings if c == "W019"), (
+            result2.warnings
+        )
+
     def test_w019_silent_for_metadata_backed_after_name_hint(self, tmp_path: Path) -> None:
         """SIZE after a name-hint line that metadata already owns stays silent."""
         from rebrew.lint import lint_file

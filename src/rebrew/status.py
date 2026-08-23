@@ -91,6 +91,12 @@ class StatusReport:
     matched_bytes: int = 0
     total_text_bytes: int = 0
 
+    # Naked reconstructions (`// SOURCE: naked`) that are byte-exact via a
+    # generated skeleton — reproduced, NOT decompiled.  Counted separately so
+    # coverage can distinguish "decompiled" from "byte-covered via asm".
+    naked_matched: int = 0
+    naked_bytes: int = 0
+
     # Per-module status breakdown: {module: {status: count}}
     module_status: dict[str, dict[str, int]] = field(default_factory=dict)
 
@@ -131,6 +137,18 @@ class StatusReport:
         return round(100.0 * (exact + reloc + proven) / self.total_functions, 1)
 
     @property
+    def decompiled_pct(self) -> float:
+        """Percentage of total functions matched by REAL C (naked reconstructions
+        excluded) — ct-recomp's "decompiled" vs "byte-covered via asm" split."""
+        if self.total_functions == 0:
+            return 0.0
+        exact = self.status_counts.get("EXACT", 0)
+        reloc = self.status_counts.get("RELOC", 0)
+        proven = self.status_counts.get("PROVEN", 0)
+        decompiled = max(0, exact + reloc + proven - self.naked_matched)
+        return round(100.0 * decompiled / self.total_functions, 1)
+
+    @property
     def byte_coverage_pct(self) -> float:
         """Percentage of total binary bytes that are EXACT, RELOC, or PROVEN."""
         if self.total_text_bytes == 0:
@@ -151,6 +169,8 @@ class StatusReport:
             "modules": self.module_status,
             "coverage_pct": self.coverage_pct,
             "matched_pct": self.matched_pct,
+            "decompiled_pct": self.decompiled_pct,
+            "naked_matched": self.naked_matched,
             "source_files": self.source_files,
             "unresolved_blockers": self.unresolved_blockers,
         }
@@ -344,6 +364,8 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     status_counts: dict[str, int] = {}
     size_by_va: dict[int, int] = {f.va: f.size for f in ghidra_funcs}
     matched_bytes = 0
+    naked_matched = 0
+    naked_bytes = 0
     verify_overrides = 0
     verify_missing_size = 0
     unresolved_blockers = 0
@@ -351,6 +373,11 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         if info.get("blocker"):
             unresolved_blockers += 1
         ann_status = info.get("status", "STUB")
+        # A naked reconstruction (`// SOURCE: naked`) is byte-exact via a
+        # generated skeleton — reproduced, not decompiled (ct-recomp's
+        # NAKED_REQUIRED vs PURE_C_EXACT distinction).  Detected from the
+        # source annotation so the bucket survives metadata status churn.
+        naked = info.get("source") == "naked"
         # Metadata is authoritative for STUB (a stub's size mismatch is
         # expected); only more actionable cache states (COMPILE_ERROR,
         # matched) override.  Same rule as todo.py.
@@ -380,12 +407,17 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
                     size = int(info.get("size") or 0)
                 except (TypeError, ValueError):
                     size = 0
+            if naked:
+                naked_matched += 1
+                naked_bytes += size
             matched_bytes += size
         module = info.get("module") or "?"
         report.module_status.setdefault(module, {})
         report.module_status[module][effective] = report.module_status[module].get(effective, 0) + 1
     report.status_counts = status_counts
     report.matched_bytes = matched_bytes
+    report.naked_matched = naked_matched
+    report.naked_bytes = naked_bytes
     report.total_text_bytes = _compute_text_size(cfg)
     report.verify_overrides = verify_overrides
     report.verify_missing_size = verify_missing_size
@@ -474,6 +506,11 @@ def _has_migratable_inline_metadata(
         kv = _W019_INLINE_RE.search(stripped) if is_comment else None
         if kv:
             key = kv.group(1)
+            if key == "SOURCE" and stripped.rstrip().endswith("naked"):
+                # File-borne `// SOURCE: naked` marker (rebrew asm
+                # --inline-c skeletons) — travels with the file like the
+                # naked-guard CFLAGS convention; not migratable metadata.
+                continue
             if (
                 in_block
                 and block is not None
@@ -599,6 +636,16 @@ def _render_terminal(report: StatusReport) -> None:
         f"  [dim]({exact + reloc + proven} EXACT+RELOC+PROVEN"
         f" / {report.total_functions} total)[/dim]"
     )
+
+    # Naked reconstructions: byte-exact via generated asm, NOT decompiled.
+    # The honest split (ct-recomp's NAKED vs PURE_C_EXACT): decompiled_pct
+    # excludes them so mass-generated skeletons can't inflate progress.
+    if report.naked_matched:
+        summary_lines.append(
+            f"  [magenta]{report.decompiled_pct}% decompiled[/magenta]"
+            f"  [dim]({report.naked_matched} naked reconstructions, {report.naked_bytes:,}B"
+            " byte-exact but not decompiled — implement the C bodies)[/dim]"
+        )
 
     # Byte coverage
     if report.total_text_bytes > 0:

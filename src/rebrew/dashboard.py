@@ -17,6 +17,9 @@ Endpoints
 
 Target-scoped endpoints return 400 when ``target`` is missing/empty and 404 when
 the target is unknown.  Non-GET/HEAD methods return 405 with ``Allow: GET, HEAD``.
+Requests whose ``Host`` header does not match the bound host (or a loopback
+alias) are rejected with 403, so a web page the analyst visits cannot reach
+the server via DNS rebinding.
 List endpoints expose ``count`` (rows in this page) and ``total`` (matching rows).
 
 The query layer (``Dashboard``) is separated from the HTTP plumbing so tests
@@ -501,10 +504,53 @@ def _load_list(raw: str | None) -> list[str]:
     return [str(v) for v in value] if isinstance(value, list) else []
 
 
+def allowed_hosts_for(host: str, port: int) -> frozenset[str]:
+    """Host-header values that must be accepted for a server bound to *host*:*port*.
+
+    Loopback binds also accept their numeric/localhost aliases (users open
+    ``localhost`` and ``127.0.0.1`` interchangeably); anything else would
+    break normal use.  Every other Host value is rejected by
+    :func:`_host_allowed`, which keeps browser-based attackers (DNS
+    rebinding against ``127.0.0.1``, cross-site reads of the JSON APIs)
+    from reaching the dashboard.
+    """
+    loopback = host in ("127.0.0.1", "localhost", "::1", "")
+    names = {host} if host else set()
+    if loopback:
+        names |= {"127.0.0.1", "localhost", "::1"}
+    hosts: set[str] = set()
+    for name in names:
+        display = f"[{name}]" if ":" in name else name
+        hosts.add(f"{display}:{port}".lower())
+        if port == 80:  # default port may be omitted in a Host header
+            hosts.add(display.lower())
+    return frozenset(hosts)
+
+
+def _host_allowed(host_header: str, allowed: frozenset[str]) -> bool:
+    """True when the request's Host header matches one of *allowed* exactly."""
+    return host_header.strip().lower() in allowed
+
+
 class _Handler(BaseHTTPRequestHandler):
     dashboard: Dashboard
+    #: Host headers this server must answer; everything else gets 403.
+    allowed_hosts: frozenset[str] = frozenset()
 
     def _respond(self, method: str) -> None:
+        if not _host_allowed(self.headers.get("Host", ""), self.allowed_hosts):
+            status, content_type, body = self.dashboard._json(
+                403, {"error": "request Host not allowed (wrong or missing Host header)"}
+            )
+            body_bytes = body.encode("utf-8")
+            self.send_response(403)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body_bytes)))
+            self.end_headers()
+            if method != "HEAD":
+                self.wfile.write(body_bytes)
+            return
+
         query = parse_qs(urlparse(self.path).query)
         try:
             status, content_type, body = self.dashboard.handle(method, self.path, query)
@@ -598,6 +644,7 @@ def main(
 
     server = ThreadingHTTPServer((host, port), _Handler)
     _Handler.dashboard = Dashboard(db_path)
+    _Handler.allowed_hosts = allowed_hosts_for(host, port)
     console.print(
         f"[green]Rebrew dashboard on http://{host}:{port}[/] — "
         f"[dim]serving {db_path} (Ctrl+C to stop)[/dim]"

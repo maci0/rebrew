@@ -324,3 +324,68 @@ class TestEscapeLike:
         assert _escape_like("100%") == "100\\%"
         assert _escape_like("a\\b") == "a\\\\b"
         assert _escape_like("plain") == "plain"
+
+
+class TestHostValidation:
+    """Requests with a foreign Host header must be rejected (DNS rebinding)."""
+
+    def test_loopback_bind_accepts_aliases(self) -> None:
+        from rebrew.dashboard import _host_allowed, allowed_hosts_for
+
+        allowed = allowed_hosts_for("127.0.0.1", 8000)
+        assert "127.0.0.1:8000" in allowed
+        assert "localhost:8000" in allowed
+        assert "[::1]:8000" in allowed
+        assert _host_allowed("LOCALHOST:8000", allowed)
+        assert not _host_allowed("evil.example:8000", allowed)
+        assert not _host_allowed("", allowed)
+
+    def test_port_80_allows_bare_host(self) -> None:
+        from rebrew.dashboard import _host_allowed, allowed_hosts_for
+
+        allowed = allowed_hosts_for("127.0.0.1", 80)
+        assert _host_allowed("localhost", allowed)
+        assert _host_allowed("127.0.0.1", allowed)
+
+    def test_non_loopback_bind_rejects_aliases(self) -> None:
+        from rebrew.dashboard import _host_allowed, allowed_hosts_for
+
+        allowed = allowed_hosts_for("192.168.1.10", 8000)
+        assert _host_allowed("192.168.1.10:8000", allowed)
+        assert not _host_allowed("localhost:8000", allowed)
+        assert not _host_allowed("127.0.0.1:8000", allowed)
+
+    def test_handler_rejects_foreign_host(self) -> None:
+        """A request whose Host is not the bound host gets 403 without touching the DB."""
+        from rebrew.dashboard import Dashboard, _Handler, allowed_hosts_for
+
+        handler = _Handler.__new__(_Handler)  # bypass __init__: no socket needed
+        handler.headers = {"Host": "attacker.example:8000"}
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        sent: list[tuple] = []
+
+        def fake_send_response(status: int) -> None:
+            sent.append(("status", status))
+
+        def fake_send_header(name: str, value: str) -> None:
+            sent.append((name, value))
+
+        def fake_end_headers() -> None:
+            sent.append(("end", None))
+
+        handler.send_response = fake_send_response
+        handler.send_header = fake_send_header
+        handler.end_headers = fake_end_headers
+        written = []
+
+        class _FakeWFile:
+            def write(self, data: bytes) -> int:
+                written.append(data)
+                return len(data)
+
+        handler.wfile = _FakeWFile()
+        handler._respond("GET")
+        statuses = [v for k, v in sent if k == "status"]
+        assert statuses == [403]
+        assert b"not allowed" in bytes(written[0])
