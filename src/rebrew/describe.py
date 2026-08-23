@@ -181,7 +181,7 @@ def _function_range(info: BinaryInfo, va: int, size: int | None) -> tuple[int, i
             end = insn.va + insn.size
             if insn.mnemonic == "ret":
                 break
-    except Exception:  # noqa: BLE001 — best-effort fallback sizing
+    except Exception:  # best-effort fallback sizing
         pass
     return va, end
 
@@ -204,7 +204,7 @@ def _import_table(cfg: ProjectConfig) -> dict[int, str]:
     """Return ``{iat_slot_va: api_name}`` for the target binary (best-effort)."""
     try:
         return parse_import_table(cfg.target_binary)
-    except Exception:  # noqa: BLE001 — import parsing is best-effort
+    except Exception:  # import parsing is best-effort
         return {}
 
 
@@ -212,7 +212,7 @@ def _safe_section(compute: Any, default: Any) -> Any:
     """Run a dossier section computation, degrading to *default* on failure."""
     try:
         return compute()
-    except Exception:  # noqa: BLE001 — a failing section must not kill the dossier
+    except Exception:  # a failing section must not kill the dossier
         return default
 
 
@@ -339,7 +339,7 @@ def build_dossier(cfg: ProjectConfig, info: BinaryInfo, va: int) -> dict[str, An
     """
     try:
         annotations, names, ranges = _build_lookup(cfg)
-    except Exception:  # noqa: BLE001 — lookup failures degrade to empty lookups
+    except Exception:  # lookup failures degrade to empty lookups
         annotations, names, ranges = {}, {}, []
     ann = annotations.get(va)
     if ann is None:
@@ -370,7 +370,7 @@ def build_dossier(cfg: ProjectConfig, info: BinaryInfo, va: int) -> dict[str, An
             from rebrew.asm import detect_function_pattern
 
             pattern = detect_function_pattern(cfg, va)
-        except Exception:  # noqa: BLE001 — best-effort tag
+        except Exception:  # best-effort tag
             pattern = None
         # Extent-based inference (shared helper) — the old flat 64-byte
         # window truncated longer functions mid-code, so the epilogue `ret`
@@ -380,7 +380,7 @@ def build_dossier(cfg: ProjectConfig, info: BinaryInfo, va: int) -> dict[str, An
             from rebrew.asm import calling_convention_at
 
             convention = calling_convention_at(cfg, va) or None
-        except Exception:  # noqa: BLE001 — best-effort tag
+        except Exception:  # best-effort tag
             convention = None
 
     return {
@@ -488,7 +488,7 @@ def main(
     va_int = parse_va(va, json_mode=json_output)
     try:
         info = load_binary(bin_path)
-    except Exception as exc:  # noqa: BLE001 — LIEF parse errors are fatal here
+    except Exception as exc:  # LIEF parse errors are fatal here
         error_exit(f"Failed to load binary: {exc}", json_mode=json_output)
     if not is_inside(info, va_int):
         error_exit(f"VA 0x{va_int:08x} is outside the binary image", json_mode=json_output)

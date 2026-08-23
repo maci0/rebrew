@@ -128,7 +128,7 @@ class CompileCache:
         self._cache: diskcache.Cache | None
         try:
             self._cache = diskcache.Cache(str(cache_dir), size_limit=size_limit)
-        except Exception as exc:  # noqa: BLE001 — any store failure must degrade, not raise
+        except Exception as exc:  # any store failure must degrade, not raise
             self._cache = None
             _warn_cache_failure(f"open ({cache_dir})", exc)
 
@@ -142,7 +142,7 @@ class CompileCache:
         if self._cache is not None:
             try:
                 result = self._cache.get(key, default=None)
-            except Exception as exc:  # noqa: BLE001 — degrade to miss, never break compiles
+            except Exception as exc:  # degrade to miss, never break compiles
                 _warn_cache_failure("lookup", exc)
                 result = None
             if isinstance(result, bytes):
@@ -159,7 +159,7 @@ class CompileCache:
             return
         try:
             self._cache.set(key, obj_bytes)
-        except Exception as exc:  # noqa: BLE001 — a failed write only costs future hits
+        except Exception as exc:  # a failed write only costs future hits
             _warn_cache_failure("store", exc)
 
     @property

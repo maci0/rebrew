@@ -417,7 +417,7 @@ def load_toml_for_write(path: Path, description: str) -> TOMLDocument:
         return tomlkit.document()
     try:
         return tomlkit.parse(path.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001 — tomlkit raises various types
+    except Exception as exc:  # tomlkit raises various types
         backup = preserve_corrupt(path)
         logger.warning(
             "Failed to parse %s %s (%s); preserved as %s, starting fresh",
@@ -504,7 +504,7 @@ def load_metadata_doc(
 
     try:
         doc = tomllib.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001 — parser raises various types
+    except Exception as exc:  # parser raises various types
         logger.warning("Failed to parse %s %s: %s", description, path, exc)
         return {}
 
@@ -660,7 +660,7 @@ def watch_files(
             last = current
             try:
                 retest()
-            except BaseException as exc:  # noqa: BLE001 — keep watching after a failed run
+            except BaseException as exc:  # keep watching after a failed run
                 if isinstance(exc, KeyboardInterrupt):
                     raise
                 _console.print(

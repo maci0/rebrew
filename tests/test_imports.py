@@ -11,9 +11,9 @@ import pytest
 from typer.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
-from bin_util import make_pe  # noqa: E402
+from bin_util import make_pe
 
-from rebrew.imports import find_import_stubs, parse_import_table  # noqa: E402
+from rebrew.imports import find_import_stubs, parse_import_table
 
 IMAGE_BASE = 0x400000
 TEXT_VA = 0x1000

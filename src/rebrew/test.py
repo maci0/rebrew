@@ -508,7 +508,7 @@ def main(
         if not dry_run:
             try:
                 update_field(cfg.metadata_dir, section_va, "size", new_size, anno_module)
-            except Exception as exc:  # noqa: BLE001 — metadata write is best-effort
+            except Exception as exc:  # metadata write is best-effort
                 logging.warning(
                     "Could not persist fixed SIZE 0x%x: %s (the .c still claims the stale size)",
                     section_va,
@@ -580,7 +580,7 @@ def main(
                 update_field(
                     cfg.metadata_dir, va_int_for_promote, "size", int(size_val), anno_module
                 )
-            except Exception as exc:  # noqa: BLE001 — metadata write is best-effort
+            except Exception as exc:  # metadata write is best-effort
                 logging.warning(
                     "Could not persist SIZE for 0x%x: %s (downstream diff/near-diag "
                     "may report an invalid size)",
@@ -595,7 +595,7 @@ def main(
                 update_field(
                     cfg.metadata_dir, va_int_for_promote, "cflags", cflags_str, anno_module
                 )
-            except Exception as exc:  # noqa: BLE001 — metadata write is best-effort
+            except Exception as exc:  # metadata write is best-effort
                 logging.warning(
                     "Could not persist CFLAGS for 0x%x: %s (verify may recompile "
                     "with different flags and demote the match)",
@@ -611,7 +611,7 @@ def main(
                 update_field(
                     cfg.metadata_dir, va_int_for_promote, "toolchain", toolchain_name, anno_module
                 )
-            except Exception as exc:  # noqa: BLE001 — metadata write is best-effort
+            except Exception as exc:  # metadata write is best-effort
                 logging.warning(
                     "Could not persist TOOLCHAIN for 0x%x: %s (verify may recompile "
                     "with the project default compiler)",

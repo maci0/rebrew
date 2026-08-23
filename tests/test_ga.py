@@ -1416,7 +1416,7 @@ class TestCrossProjectSeeding:
         )
         captured: dict[str, Any] = {}
 
-        def _fake_find_similar(project_root, *, entries=None, **kw):  # noqa: ARG001
+        def _fake_find_similar(project_root, *, entries=None, **kw):
             captured["entries"] = entries
             return []
 
@@ -1466,7 +1466,7 @@ class TestToolchainRoutedBuildCandidate:
 
         seen: dict = {}
 
-        def _fake_compile_to_obj(cfg, src_path, cflags, workdir, **kwargs):  # noqa: ARG001
+        def _fake_compile_to_obj(cfg, src_path, cflags, workdir, **kwargs):
             seen["profile"] = getattr(cfg, "compiler_profile", "")
             seen["cflags"] = cflags
             obj = Path(workdir) / "cand.obj"
@@ -1507,7 +1507,7 @@ class TestToolchainRoutedBuildCandidate:
 
         seen: dict = {}
 
-        def _fake_compile_to_obj(cfg, src_path, cflags, workdir, **kwargs):  # noqa: ARG001
+        def _fake_compile_to_obj(cfg, src_path, cflags, workdir, **kwargs):
             seen["profile"] = getattr(cfg, "compiler_profile", "")
             return None, "boom"
 

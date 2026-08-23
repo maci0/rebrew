@@ -86,7 +86,7 @@ def _collect_toolchain(binary: Path) -> dict[str, Any] | None:
 
     try:
         info = detect_toolchain(binary)
-    except Exception:  # noqa: BLE001 — best-effort dossier section
+    except Exception:  # best-effort dossier section
         return None
     return {
         "family": info.family,
@@ -153,7 +153,7 @@ def _collect_imports(binary: Path) -> dict[str, Any]:
         dlls[str(rec.get("dll", ""))] += 1
     try:
         stubs = find_import_stubs(binary)
-    except Exception:  # noqa: BLE001 — stub scan is best-effort
+    except Exception:  # stub scan is best-effort
         stubs = {}
     return {
         "count": len(imports),
@@ -180,7 +180,7 @@ def _collect_references(info: Any) -> dict[str, Any]:
 
     try:
         refs = scan_references(info)
-    except Exception:  # noqa: BLE001 — disassembly is best-effort
+    except Exception:  # disassembly is best-effort
         return {"total": 0, "by_kind": {}}
     kinds = Counter(r.kind for r in refs)
     return {"total": len(refs), "by_kind": dict(kinds.most_common())}
@@ -204,7 +204,7 @@ def _collect_far_calls(binary: Path) -> list[dict[str, Any]] | None:
         return None
     try:
         info = load_binary(binary)
-    except Exception:  # noqa: BLE001 — best-effort dossier section
+    except Exception:  # best-effort dossier section
         return None
 
     seg_count = info.ne_header.segment_count  # type: ignore[attr-defined]
@@ -254,7 +254,7 @@ def _collect_functions(cfg: Any) -> dict[str, Any] | None:
 
     try:
         ghidra_funcs, existing, _covered = load_data(cfg)
-    except Exception:  # noqa: BLE001 — coverage needs the function list
+    except Exception:  # coverage needs the function list
         return None
     if ghidra_funcs:
         total = len(ghidra_funcs)
@@ -292,7 +292,7 @@ def _collect_near_match(cfg: Any) -> list[dict[str, Any]] | None:
                         "blocker": entry.get("blocker", ""),
                     }
                 )
-    except Exception:  # noqa: BLE001 — best-effort dossier section
+    except Exception:  # best-effort dossier section
         return None
     items.sort(key=lambda i: i["va"])
     return items
@@ -306,7 +306,7 @@ def _collect_dispatch(info: Any) -> list[dict[str, Any]]:
         tables = find_dispatch_tables(
             info.data, _section_dicts(info), {}, ptr_size=4, min_entries=3, info=info
         )
-    except Exception:  # noqa: BLE001 — best-effort
+    except Exception:  # best-effort
         return []
     return [
         {
@@ -357,7 +357,7 @@ def _collect_flirt(cfg: Any, info: Any) -> dict[str, Any] | None:
                 names_seen.add(m["name"])
                 matches.append({"va": f"0x{m['va']:08x}", "size": m["size"], "name": m["name"]})
         return {"signature_count": len(sigs), "matches": matches}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         warnings.warn(f"FLIRT section skipped: {exc}", stacklevel=2)
         return None
 
@@ -368,7 +368,7 @@ def _collect_library(cfg: Any) -> list[dict[str, Any]]:
 
     try:
         candidates = collect_candidates(cfg)
-    except Exception:  # noqa: BLE001 — best-effort section
+    except Exception:  # best-effort section
         return []
     return [
         {

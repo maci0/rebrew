@@ -514,19 +514,19 @@ class _Handler(BaseHTTPRequestHandler):
         if method != "HEAD":
             self.wfile.write(body_bytes)
 
-    def do_GET(self) -> None:  # noqa: N802 (http.server API)
+    def do_GET(self) -> None:  # (http.server API)
         self._respond("GET")
 
-    def do_HEAD(self) -> None:  # noqa: N802
+    def do_HEAD(self) -> None:
         self._respond("HEAD")
 
-    def do_POST(self) -> None:  # noqa: N802
+    def do_POST(self) -> None:
         self._respond("POST")
 
-    def do_PUT(self) -> None:  # noqa: N802
+    def do_PUT(self) -> None:
         self._respond("PUT")
 
-    def do_DELETE(self) -> None:  # noqa: N802
+    def do_DELETE(self) -> None:
         self._respond("DELETE")
 
     def log_message(self, fmt: str, *args: Any) -> None:  # quiet default logging

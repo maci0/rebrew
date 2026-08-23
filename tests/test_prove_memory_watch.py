@@ -34,16 +34,16 @@ def _install_fake_claripy(monkeypatch: pytest.MonkeyPatch) -> None:
         def satisfiable(self) -> bool:
             return bool(self.constraints[-1])
 
-        def eval(self, e: Any, n: int = 1) -> tuple[Any, ...]:  # noqa: ARG002
+        def eval(self, e: Any, n: int = 1) -> tuple[Any, ...]:
             """claripy 9.x: eval returns a tuple of up to n concrete values."""
             return tuple(e for _ in range(n))
 
-        def batch_eval(self, exprs: list[Any], n: int = 1) -> list[tuple[Any, ...]]:  # noqa: ARG002
+        def batch_eval(self, exprs: list[Any], n: int = 1) -> list[tuple[Any, ...]]:
             """Return one solution tuple holding each expr's concrete value."""
             return [tuple(exprs)]
 
     fake = types.ModuleType("claripy")
-    fake.BVV = lambda value, bits=0: value  # noqa: ARG005
+    fake.BVV = lambda value, bits=0: value
     fake.BoolV = lambda value: bool(value)
     fake.Or = lambda *terms: any(terms)
     fake.Solver = _Solver

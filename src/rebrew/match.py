@@ -197,7 +197,7 @@ def _find_function_range(source: str, symbol: str) -> tuple[int, int] | None:
     """
     try:
         from rebrew.matcher.ast_engine import parse_c_ast
-    except Exception:  # noqa: BLE001 — tree-sitter unavailable: no scoping
+    except Exception:  # tree-sitter unavailable: no scoping
         return None
     try:
         tree = parse_c_ast(source.encode("utf-8"))
@@ -219,7 +219,7 @@ def _find_function_range(source: str, symbol: str) -> tuple[int, int] | None:
                 and name_node.start_byte != name_node.end_byte
             ):
                 return node.start_byte, node.end_byte
-    except Exception:  # noqa: BLE001 — parse failure: no scoping
+    except Exception:  # parse failure: no scoping
         return None
     return None
 
@@ -2664,7 +2664,7 @@ def _save_solution(
             collect_out.append(entry)
             return
         save_solution(cfg.root, entry)
-    except Exception:  # noqa: BLE001
+    except Exception:
         # A failed save silently breaks --seed-from-solved / find_similar for
         # this function; visible at WARNING, not swallowed at DEBUG.
         log.warning("Solution save failed for %s", symbol, exc_info=True)
@@ -2824,7 +2824,7 @@ def _run_one_stub_ga(
                             cmp_res.status,
                             cmp_res.message[:120],
                         )
-            except Exception as exc:  # noqa: BLE001 — validation is best-effort
+            except Exception as exc:  # validation is best-effort
                 log.warning("GA match validation failed for %s: %s", stub.symbol, exc)
             if not confirmed:
                 matched = False
@@ -2866,7 +2866,7 @@ def _run_one_stub_ga(
                                         }
                                     ],
                                 )
-                            except Exception:  # noqa: BLE001 — cache patch is best-effort
+                            except Exception:  # cache patch is best-effort
                                 log.warning(
                                     "Verify-cache patch failed for %s (status may be stale)",
                                     stub.symbol,
@@ -2978,7 +2978,7 @@ def _filter_recently_run(
     return kept
 
 
-def _run_all(  # noqa: PLR0913
+def _run_all(
     cfg: ProjectConfig,
     jobs: int,
     generations: int,
@@ -3147,7 +3147,7 @@ def _run_all(  # noqa: PLR0913
                         f"  [dim]Cross-project seeding:[/] {len(extra)} solutions "
                         f"from {seed_solutions_path}"
                     )
-        except Exception:  # noqa: BLE001
+        except Exception:
             # Seeding is a batch-time enhancement, but a failed load silently
             # disables --seed-from-solved for the whole batch — warn at
             # WARNING so the user knows the run was not seed-informed.
@@ -3188,7 +3188,7 @@ def _run_all(  # noqa: PLR0913
                                 f"  [dim]Seeding cflags from solved:[/] {sol.symbol} "
                                 f"({sol.size}B, {sol.cflags})"
                             )
-            except Exception:  # noqa: BLE001
+            except Exception:
                 # Per-stub seed lookup failure — warn so a stub that would
                 # otherwise have been seed-informed is not silently run from
                 # its bare seed.
@@ -3223,7 +3223,7 @@ def _run_all(  # noqa: PLR0913
                         console.print(
                             f"  [dim]Flag sweep:[/] {stub.symbol} best flags {best_flags}"
                         )
-            except Exception:  # noqa: BLE001 — sweep failure falls back to stub flags
+            except Exception:  # sweep failure falls back to stub flags
                 # A sweep failure silently degrades the GA to the stub's own
                 # cflags — visible at WARNING (batch workflow default hides
                 # DEBUG), so the user can tell the result was not
@@ -3263,7 +3263,7 @@ def _run_all(  # noqa: PLR0913
                 mutation_weights=mutation_weights,
                 solutions_out=solutions_out,
             )
-        except Exception as exc:  # noqa: BLE001 — one bad stub must not abort the batch
+        except Exception as exc:  # one bad stub must not abort the batch
             log.debug("GA run failed for %s", stub.symbol, exc_info=True)
             console.print(
                 f"  [yellow]warning:[/yellow] GA run failed for {stub.symbol}: "
@@ -3282,7 +3282,7 @@ def _run_all(  # noqa: PLR0913
                 symbol=stub.symbol,
                 matched=matched,
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             # A failed record makes --skip-recent re-run this stub next batch
             # (hours of GA).  Visible at WARNING, not swallowed at DEBUG.
             log.warning("GA run record failed for %s", stub.symbol, exc_info=True)
@@ -3346,7 +3346,7 @@ def _run_all(  # noqa: PLR0913
             from rebrew.matcher.solutions import save_solutions
 
             save_solutions(cfg.root, solutions_out)
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.warning("Batch solution save failed", exc_info=True)
     return matched_count, failed_count
 
@@ -3450,7 +3450,7 @@ def _run_batch_flag_sweep(
                                 f"  [yellow]sweep exact not confirmed:[/] {stub.symbol} "
                                 f"({cmp_res.status}: {cmp_res.message[:80]}) — not promoting"
                             )
-                except Exception as exc:  # noqa: BLE001 — validation is best-effort
+                except Exception as exc:  # validation is best-effort
                     log.warning(
                         "Match validation failed for %s — not promoting: %s",
                         stub.symbol,
@@ -3490,7 +3490,7 @@ def _run_batch_flag_sweep(
                             }
                         ],
                     )
-                except Exception:  # noqa: BLE001 — cache patch is best-effort
+                except Exception:  # cache patch is best-effort
                     log.warning(
                         "Verify-cache patch failed for %s (status may be stale)",
                         stub.symbol,

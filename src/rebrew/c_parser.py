@@ -61,7 +61,7 @@ def _get_parser() -> tuple[Any, Any]:
     The language is initialised once under a lock; each thread then gets its
     own Parser instance (tree-sitter's TSParser is per-thread state).
     """
-    global _language  # noqa: PLW0603
+    global _language
     if _language is None:
         with _parser_lock:
             if _language is None:

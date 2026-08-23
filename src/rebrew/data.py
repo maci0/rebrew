@@ -1201,7 +1201,7 @@ def _gen_globals_header(
     for src in sorted(iter_sources(src_dir, cfg)):
         try:
             annotations = parse_c_file_multi(src, target_name=marker, metadata_dir=cfg.metadata_dir)
-        except Exception:  # noqa: BLE001 — non-fatal; skip unparseable files
+        except Exception:  # non-fatal; skip unparseable files
             logging.debug("Skipping %s: annotation parse failed", src, exc_info=True)
             continue
         for ann in annotations:

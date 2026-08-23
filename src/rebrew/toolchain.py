@@ -228,7 +228,7 @@ _SOURCES: dict[str, ToolchainSource] = {
         # product tree (archaic-msvc msvc600 + VS6 Enterprise CD1 CRT/debug/
         # redist) plus the files SP1 is documented to have fixed (strftime.c,
         # MFC sources) taken in cumulative state from the official SP2 payload
-        # — the standalone SP1 payload (VSE600SP1.EXE) is not preserved in any
+        # the standalone SP1 payload (VSE600SP1.EXE) is not preserved in any
         # public archive.  CL.EXE 12.00.8168 (the RTM..SP3 driver, byte-identical
         # to the base 6.0 compiler).
         url="https://codeload.github.com/archaic-toolchains/msvc600_sp1/tar.gz/refs/heads/main",

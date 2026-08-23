@@ -272,7 +272,7 @@ class TestDefinesCompile:
 
         captured: dict[str, list[str]] = {}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
             captured["args"] = args
             (workdir / "f.obj").write_bytes(b"\x00OBJ")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
@@ -315,7 +315,7 @@ class TestDefinesCompile:
         captured: dict[str, list[str]] = {}
         mini_obj = (Path(__file__).parent / "fixtures" / "mini.obj").read_bytes()
 
-        def _fake_run(cmd, **kw):  # noqa: ARG001
+        def _fake_run(cmd, **kw):
             captured["cmd"] = cmd
             import pathlib
 
@@ -356,7 +356,7 @@ class TestDefinesCompile:
 
         captured: dict[str, list[str]] = {}
 
-        def _fake_run(cmd, **kw):  # noqa: ARG001
+        def _fake_run(cmd, **kw):
             captured["cmd"] = cmd
             import pathlib
 
@@ -409,7 +409,7 @@ class TestGANativeEndToEnd:
         reason="gcc-pe toolchain not installed",
     )
     def test_ga_finds_exact_match_with_gcc_pe(self, tmp_path: Path) -> None:
-        from bin_util import make_pe  # noqa: E402
+        from bin_util import make_pe
 
         from rebrew.binary_loader import extract_raw_bytes
         from rebrew.match import BinaryMatchingGA
@@ -464,7 +464,7 @@ class TestVerifySharedFile:
         reason="gcc-pe toolchain not installed",
     )
     def test_verify_compiles_shared_function(self, tmp_path: Path) -> None:
-        from bin_util import make_pe  # noqa: E402
+        from bin_util import make_pe
 
         F1 = bytes.fromhex("55 8b ec 8b 05 00 00 00 00 5d c3")
         binary = tmp_path / "b.exe"

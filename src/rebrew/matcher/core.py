@@ -76,7 +76,7 @@ class BuildCache:
         self._cache: diskcache.Cache | None
         try:
             self._cache = diskcache.Cache(cache_dir)
-        except Exception as exc:  # noqa: BLE001 — any store failure must degrade, not raise
+        except Exception as exc:  # any store failure must degrade, not raise
             logging.getLogger(__name__).warning(
                 "GA build cache at %s unusable (%s: %s) — running without it "
                 "(delete the _cache/ dir to reset a corrupted store)",
@@ -96,7 +96,7 @@ class BuildCache:
             return None
         try:
             res = self._cache.get(key, default=None)
-        except Exception as exc:  # noqa: BLE001 — degrade to miss, never kill the GA
+        except Exception as exc:  # degrade to miss, never kill the GA
             logging.getLogger(__name__).warning(
                 "GA build cache read failed (%s: %s) — treating as miss",
                 type(exc).__name__,
@@ -111,7 +111,7 @@ class BuildCache:
             return
         try:
             self._cache.set(key, result)
-        except Exception as exc:  # noqa: BLE001 — a failed write only costs future hits
+        except Exception as exc:  # a failed write only costs future hits
             logging.getLogger(__name__).warning(
                 "GA build cache write failed (%s: %s)",
                 type(exc).__name__,

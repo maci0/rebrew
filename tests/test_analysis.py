@@ -12,9 +12,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
-from bin_util import make_pe  # noqa: E402
+from bin_util import make_pe
 
-from rebrew.analysis import (  # noqa: E402
+from rebrew.analysis import (
     Insn,
     Xref,
     extract_bytes,
@@ -26,7 +26,7 @@ from rebrew.analysis import (  # noqa: E402
     string_refs,
     va_to_file_offset,
 )
-from rebrew.binary_loader import load_binary  # noqa: E402
+from rebrew.binary_loader import load_binary
 
 TEXT_VA = 0x401000
 IMAGE_BASE = 0x400000

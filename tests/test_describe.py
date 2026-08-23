@@ -18,11 +18,11 @@ import pytest
 from typer.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
-from bin_util import append_pe_section, make_pe  # noqa: E402
+from bin_util import append_pe_section, make_pe
 
-from rebrew.analysis import section_range  # noqa: E402
-from rebrew.binary_loader import load_binary  # noqa: E402
-from rebrew.describe import app  # noqa: E402
+from rebrew.analysis import section_range
+from rebrew.binary_loader import load_binary
+from rebrew.describe import app
 
 IMAGE_BASE = 0x400000
 TEXT_VA = 0x1000

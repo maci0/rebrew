@@ -103,7 +103,7 @@ def _global_name_map(cfg: Any) -> dict[int, str]:
 
     try:
         return {v: n for n, v in build_name_to_va(cfg).items() if v}
-    except Exception:  # noqa: BLE001 — best-effort name resolution
+    except Exception:  # best-effort name resolution
         return {}
 
 

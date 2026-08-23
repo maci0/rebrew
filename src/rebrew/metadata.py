@@ -402,7 +402,7 @@ def _mutate_entry_doc(
     with _metadata_write_lock(directory):
         try:
             doc = tomlkit.parse(path.read_text(encoding="utf-8"))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("Failed to parse metadata %s: %s", path, exc)
             return False
 

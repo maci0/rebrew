@@ -125,7 +125,7 @@ def _build_import_map(bin_path: Path) -> dict[int, str]:
         from rebrew.imports import parse_import_table
 
         return parse_import_table(bin_path)
-    except Exception:  # noqa: BLE001 — recon aid, never block disasm
+    except Exception:  # recon aid, never block disasm
         return {}
 
 
@@ -142,7 +142,7 @@ def _build_string_map(bin_path: Path) -> dict[int, str]:
             # strings inside .text — scan it as a fallback.
             strings = iter_strings(info, min_len=4, section_names=[".text"])
         return {s.va: s.text for s in strings}
-    except Exception:  # noqa: BLE001
+    except Exception:
         return {}
 
 
@@ -314,7 +314,7 @@ def detect_function_pattern(cfg: ProjectConfig, va: int) -> str | None:
                     break
             if pushes >= 3:
                 return f"IAT forwarder ({pushes}-arg) — stdcall callee; the forwarder is cdecl"
-    except Exception:  # noqa: BLE001 — best-effort pattern tag
+    except Exception:  # best-effort pattern tag
         return None
     return None
 
@@ -393,7 +393,7 @@ def calling_convention(insns: list[Any]) -> str:
             n = 0
         if n == 0:
             # Plain ret: cdecl, or thiscall with NO stack args (ecx=this only
-            # — the caller has nothing to clean).
+            # the caller has nothing to clean).
             return "thiscall (no stack args)" if ecx_as_this else "cdecl"
         return "thiscall" if ecx_as_this else "stdcall"
     return "unknown"
@@ -442,7 +442,7 @@ def calling_convention_at(cfg: ProjectConfig, va: int) -> str:
         if not insns:
             return "unknown"
         return calling_convention(insns)
-    except Exception:  # noqa: BLE001 — best-effort inference
+    except Exception:  # best-effort inference
         return "unknown"
 
 
@@ -507,7 +507,7 @@ def _run_hex_mode(
                     ne_seg = s.index
                     ne_seg_name = "code" if s.is_code else "data"
                     break
-    except Exception:  # noqa: BLE001 — segment context is cosmetic
+    except Exception:  # segment context is cosmetic
         pass
 
     import_map: dict[int, str] = {}
@@ -550,7 +550,7 @@ def _run_hex_mode(
                     rng = section_range(load_binary(bin_path), ".text")
                     text_start = rng[0] if rng else 0
                     pre_va = max(text_start, va_int - 12)
-                except Exception:  # noqa: BLE001 — lookbehind is best-effort
+                except Exception:  # lookbehind is best-effort
                     pre_va = va_int - 12
             pre_data = extract_raw_bytes(cfg.target_binary, pre_va, size + (va_int - pre_va))
             insn_list = list(md.disasm(pre_data, pre_va))
@@ -655,7 +655,7 @@ def _run_hex_mode(
 
     except (OSError, KeyError, ValueError, TypeError) as e:
         error_exit(str(e), json_mode=json_output)
-    except Exception as e:  # noqa: BLE001 — capstone.CsError and friends
+    except Exception as e:  # capstone.CsError and friends
         # CsError (bad arch/mode config) and capstone internals are not in
         # the tuple above; report them as clean errors, not tracebacks.
         error_exit(f"capstone error: {e}", json_mode=json_output)

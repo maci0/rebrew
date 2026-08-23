@@ -102,7 +102,7 @@ def test_toolchain_sweep_orders_best_first(monkeypatch, capsys) -> None:
     )
     calls: dict[str, bytes] = {}
 
-    def _fake_build(src, cl_cmd, inc_dir, cflags, symbol, **kw):  # noqa: ARG001
+    def _fake_build(src, cl_cmd, inc_dir, cflags, symbol, **kw):
         calls[cl_cmd] = good if "good" in cl_cmd else bad
         return _FakeRes(calls[cl_cmd])
 
@@ -143,7 +143,7 @@ def test_toolchain_flag_sweep_reports_per_toolchain(monkeypatch, capsys) -> None
         lambda cfg, cl, inc, *a, **k: [("good", "wine good", "/good"), ("bad", "wine bad", "/bad")],
     )
 
-    def _fake_flag_sweep(src, target, cl_cmd, inc_dir, cflags, symbol, jobs, tier=None, **kw):  # noqa: ARG001
+    def _fake_flag_sweep(src, target, cl_cmd, inc_dir, cflags, symbol, jobs, tier=None, **kw):
         if "good" in cl_cmd:
             return [(0.0, "/O1")]
         return [(42.0, "")]

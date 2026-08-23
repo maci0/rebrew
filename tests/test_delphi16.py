@@ -22,7 +22,7 @@ def _fake_compile(monkeypatch, sandbox: Path) -> None:
     """Simulate a successful DOSBox run: write the compiler log + a compiled
     NE executable (built with the shared NE test helper) into the sandbox."""
 
-    def _run(args, **kwargs):  # noqa: ARG001
+    def _run(args, **kwargs):
         from test_ne_loader import _build_ne
 
         code = b"\x01\x00" + bytes.fromhex("55 8b ec 5d c3") + b"\x00" * 8
@@ -76,7 +76,7 @@ class TestCompileNe:
         src = tmp_path / "hello.dpr"
         src.write_text("program Hello;\n", encoding="utf-8")
 
-        def _run_no_output(args, **kwargs):  # noqa: ARG001
+        def _run_no_output(args, **kwargs):
             return type("R", (), {"returncode": 0})()
 
         monkeypatch.setattr("rebrew.dosbox.subprocess.run", _run_no_output)
@@ -93,7 +93,7 @@ class TestCompileNe:
     def test_dosbox_timeout_raises(self, tmp_path: Path, monkeypatch) -> None:
         import subprocess
 
-        def _run_timeout(args, **kwargs):  # noqa: ARG001
+        def _run_timeout(args, **kwargs):
             raise subprocess.TimeoutExpired("dosbox", 5)
 
         monkeypatch.setattr("rebrew.dosbox.subprocess.run", _run_timeout)
@@ -118,7 +118,7 @@ class TestLongSourceName:
 
         calls: list[str] = []
 
-        def _run(args, **kwargs):  # noqa: ARG001
+        def _run(args, **kwargs):
             from test_ne_loader import _build_ne
 
             code = b"\x01\x00" + bytes.fromhex("55 8b ec 5d c3") + b"\x00" * 8
@@ -134,7 +134,7 @@ class TestLongSourceName:
         # spy on the autoexec line DCC receives: must be the short name
         real_run_dosbox = __import__("rebrew.dosbox", fromlist=["run_dosbox"]).run_dosbox
 
-        def _spy_run_dosbox(sandbox, autoexec, **kwargs):  # noqa: ARG001
+        def _spy_run_dosbox(sandbox, autoexec, **kwargs):
             calls.append(autoexec)
             return real_run_dosbox(sandbox, autoexec, **kwargs)
 

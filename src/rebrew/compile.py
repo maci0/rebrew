@@ -315,7 +315,7 @@ def classify_compare_result(
         # A minimal candidate against a much larger target is an
         # UNIMPLEMENTED stub (a freshly generated skeleton's default
         # `return 0` body, ~3-8 bytes), not a size mismatch to puzzle over
-        # — name it STUB with a clear message instead of a bare
+        # name it STUB with a clear message instead of a bare
         # SIZE_MISMATCH.  Genuinely tiny functions match byte-for-byte and
         # never reach here (EXACT/RELOC above).  The caller truncates the
         # LONGER side before classifying, so the original lengths arrive via
@@ -899,7 +899,7 @@ def compile_to_obj(
                     extra_inc.append(str(inc_path))
                 # The GA / diff paths compile from a temp source copy and
                 # pass the original source's parent (for relative includes)
-                # — mount those dirs too.
+                # mount those dirs too.
                 extra_inc.extend(d for d in (extra_include_dirs or []) if d)
                 prefix = "/I" if spec.flags_style == "msvc" else "-I"
                 for d in extra_inc:

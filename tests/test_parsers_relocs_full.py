@@ -354,7 +354,7 @@ def test_omf16_failure_falls_through_to_objconv(monkeypatch) -> None:
 
     from rebrew.matcher import omf16 as omf16_mod
 
-    def _no_code(*args, **kwargs):  # noqa: ARG001
+    def _no_code(*args, **kwargs):
         return None, {}
 
     monkeypatch.setattr(omf16_mod, "parse_obj_omf16", _no_code)
