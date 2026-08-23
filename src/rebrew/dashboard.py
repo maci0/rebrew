@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -203,9 +205,21 @@ class Dashboard:
     def __init__(self, db_path: Path) -> None:
         self.db_path = Path(db_path)
 
-    def _conn(self) -> sqlite3.Connection:
+    @contextmanager
+    def _conn(self) -> Iterator[sqlite3.Connection]:
+        """Yield a read-only connection, closed on every exit path.
+
+        ``sqlite3.Connection`` used directly as a context manager only
+        commits/rolls back the transaction — it never closes.  Under the
+        threaded HTTP server that would leave one GC-dependent connection
+        per request; closing here releases the handle deterministically.
+        """
         uri = f"file:{self.db_path.resolve()}?mode=ro"
-        return sqlite3.connect(uri, uri=True, timeout=_SQLITE_TIMEOUT_SECONDS)
+        conn = sqlite3.connect(uri, uri=True, timeout=_SQLITE_TIMEOUT_SECONDS)
+        try:
+            yield conn
+        finally:
+            conn.close()
 
     def targets(self) -> list[str]:
         with self._conn() as conn:

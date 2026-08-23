@@ -153,8 +153,10 @@ def ensure_xvfb() -> str | None:
     except OSError:
         return None
     if not _wait_for_socket(display, proc=proc):
-        with contextlib.suppress(Exception):
-            proc.terminate()
+        # Same release path as the atexit hook: terminate AND wait, so a
+        # server that died during startup is reaped instead of lingering
+        # as a zombie for the rest of this process's lifetime.
+        _shutdown_xvfb(proc)
         return None
     os.environ[_XVFB_DISPLAY_ENV] = display
     atexit.register(_shutdown_xvfb, proc)
