@@ -1658,7 +1658,11 @@ class TestParseMemo:
         a1 = parse_c_file_multi(f)
         a2 = parse_c_file_multi(f)
         assert a1 == a2
-        assert a1 is a2  # same object served from the memo
+        # The structural parse is shared (one memo entry), but each call
+        # receives fresh copies so per-call overlays never leak between
+        # callers.
+        assert a1[0] is not a2[0]
+        assert len(_PARSE_MEMO) == 1
 
     def test_memo_invalidated_by_content_change(self, tmp_path: Path) -> None:
         import os
@@ -1678,18 +1682,26 @@ class TestParseMemo:
         a2 = parse_c_file_multi(f)
         assert a2[0].va == 0x1001  # re-parsed, not a stale memo hit
 
-    def test_metadata_dir_bypasses_memo(self, tmp_path: Path) -> None:
+    def test_metadata_overlay_applied_per_call(self, tmp_path: Path) -> None:
         from rebrew.annotation import _PARSE_MEMO, parse_c_file_multi
+        from rebrew.metadata import clear_metadata_cache, save_metadata
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        save_metadata(tmp_path, {("GAME", 0x1000): {"status": "EXACT"}})
+        clear_metadata_cache()
         _PARSE_MEMO.clear()
-        parse_c_file_multi(f)  # memoized (no metadata)
-        _PARSE_MEMO.clear()
-        # With metadata_dir the parse must still work (bypass path).
-        anns = parse_c_file_multi(f, metadata_dir=tmp_path)
-        assert anns and anns[0].va == 0x1000
-        assert len(_PARSE_MEMO) == 0  # the bypass path never populates the memo
+
+        # With metadata: volatile fields come from the TOML overlay...
+        anns_meta = parse_c_file_multi(f, metadata_dir=tmp_path)
+        assert anns_meta and anns_meta[0].va == 0x1000
+        assert anns_meta[0].status == "EXACT"
+
+        # ...and without it: the raw source values — same structural parse,
+        # no overlay leakage through the shared memo.
+        anns_raw = parse_c_file_multi(f)
+        assert len(_PARSE_MEMO) == 1
+        assert anns_raw[0].status != "EXACT"
 
 
 class TestMarkerConsistencyStub:

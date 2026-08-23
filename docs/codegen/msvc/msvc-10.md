@@ -121,6 +121,10 @@ the VC 7.0+ era marker; 10.0 SP1 is identical to RTM on this feature
 
 - **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
 
+## Probe17: conventions + allocator behaviors
+
+- **Probe17 allocator/conventions**: `-1` register form; **address-taken params force FOUR callee-saves (ebx/ebp/esi/edi)** — the most aggressive of any version.  See RULES.md B7.
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:10.0-win32`

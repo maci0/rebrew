@@ -890,9 +890,14 @@ def _check_W023_default_func_names(result: LintResult, lines: list[str], pedanti
     # Pattern: return_type function_name(...) {
     func_def_pattern = r"([a-zA-Z_][a-zA-Z0-9_]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^)]*\)\s*\{"
 
+    # Matches are monotonic, so count newlines incrementally — rescanning
+    # the whole prefix per match is quadratic on merged multi-function files.
+    last_pos = 0
+    line_num = 1
     for match in re.finditer(func_def_pattern, code):
         func_name = match.group(2)
-        line_num = code[: match.start()].count("\n") + 1
+        line_num += code.count("\n", last_pos, match.start())
+        last_pos = match.start()
 
         # Check against default patterns
         for pattern in _DEFAULT_FUNC_NAME_PATTERNS:

@@ -169,22 +169,36 @@ def _reloc_fixup_width(reloc: Any) -> int:
     return max(int(reloc.size) // 8, 1)
 
 
+def _build_crc16_table() -> list[int]:
+    """Build the 256-entry lookup table for IDA's FLIRT CRC16 variant."""
+    table = []
+    for byte in range(256):
+        crc = byte
+        for _ in range(8):
+            if crc & 1:
+                crc = (crc >> 1) ^ 0x8408
+            else:
+                crc >>= 1
+        table.append(crc & 0xFFFF)
+    return table
+
+
+_CRC16_TABLE = _build_crc16_table()
+
+
 def _crc16_flirt(buf: bytes) -> int:
     """IDA's FLIRT CRC16 — the exact variant sigmake emits and python-flirt
     verifies (ported from flair/crc16.cpp as in lancelot's flirt crate):
     reflected poly 0x8408, init 0xFFFF, final bitwise invert, byte-swapped.
+
+    Table-driven: one lookup per byte instead of the 8-iteration bit loop.
     """
     if not buf:
         return 0
+    table = _CRC16_TABLE
     crc = 0xFFFF
     for b in buf:
-        for _ in range(8):
-            if (crc ^ b) & 1:
-                crc = (crc >> 1) ^ 0x8408
-            else:
-                crc >>= 1
-            b >>= 1
-        crc &= 0xFFFF
+        crc = (crc >> 8) ^ table[(crc ^ b) & 0xFF]
     crc = (~crc) & 0xFFFF
     return ((crc & 0xFF) << 8) | (crc >> 8)
 

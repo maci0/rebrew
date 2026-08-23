@@ -11,6 +11,7 @@ Annotation format (reccmp-compatible):
 from __future__ import annotations
 
 import contextlib
+import copy
 import functools
 import logging
 import re
@@ -1051,6 +1052,10 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
             current_marker_type in ("FUNCTION", "LIBRARY", "STUB")
             and "_C_FUNC_NAME" not in current_kv
             and not stripped.rstrip().endswith(";")
+            # A C definition line must carry a parameter list — skip
+            # braces/labels/else/etc. before paying for a tree-sitter parse
+            # (this check runs per scanned code line).
+            and "(" in stripped
         ):
             from rebrew.c_parser import extract_function_name_from_line
 
@@ -1118,28 +1123,80 @@ def parse_c_file_multi(
     except OSError:
         return []
 
-    # Metadata-free parses are deterministic per file content — memoize
-    # them for the process lifetime so repeated scans (verify's
-    # prepare_entries + build_name_to_va, test --all) don't parse the same
-    # source tree twice.  The metadata overlay (metadata_dir) is applied
-    # per call and never memoized (it can change independently of source).
-    if metadata_dir is None and base_dir is None:
-        try:
-            st = filepath.stat()
-            key = (str(filepath), st.st_mtime_ns, st.st_size)
-        except OSError:
-            key = None
-        if key is not None:
-            cached = _PARSE_MEMO.get(key)
-            if cached is not None:
-                return cached
-        result = _parse_c_file_text(text, filepath, target_name, base_dir, metadata_dir)
+    # Structural parses are deterministic per file content — memoize them
+    # for the process lifetime so repeated scans (verify's prepare_entries
+    # + build_name_to_va + scan_reversed_dir, test --all) don't parse the
+    # same source tree once per call shape.  The per-call tail (target
+    # filter, relative path, metadata overlay) is applied to fresh copies
+    # on every call: metadata can change independently of source, and the
+    # overlay writes scalars only, so a shallow copy carries it safely.
+    try:
+        st = filepath.stat()
+        key = (str(filepath), st.st_mtime_ns, st.st_size)
+    except OSError:
+        key = None
+    structural = _PARSE_MEMO.get(key) if key is not None else None
+    if structural is None:
+        structural = _parse_structural_entries(text)
         if key is not None:
             if len(_PARSE_MEMO) >= _PARSE_MEMO_MAX:
-                _PARSE_MEMO.clear()
-            _PARSE_MEMO[key] = result
-        return result
-    return _parse_c_file_text(text, filepath, target_name, base_dir, metadata_dir)
+                # Evict the oldest entry, not the whole cache — clearing
+                # everything re-parses the entire tree on big projects.
+                oldest = next(iter(_PARSE_MEMO))
+                _PARSE_MEMO.pop(oldest, None)
+            _PARSE_MEMO[key] = structural
+    return _finalize_entries(structural, filepath, target_name, base_dir, metadata_dir)
+
+
+def _parse_structural_entries(text: str) -> list[Annotation]:
+    """Parse annotation blocks from *text* without per-call overlays.
+
+    Returns entries as parsed from the source: no target filtering, no
+    relative path, no metadata.  Callers must treat the result as
+    read-only shared state (see ``_finalize_entries``).
+    """
+    try:
+        lines = text.splitlines()
+    except Exception:  # degenerate input
+        return []
+    return parse_new_format_multi(lines)
+
+
+def _finalize_entries(
+    structural: list[Annotation],
+    filepath: Path,
+    target_name: str | None,
+    base_dir: Path | None,
+    metadata_dir: Path | None,
+) -> list[Annotation]:
+    """Copy *structural* entries and apply the per-call overlays.
+
+    Copies are shallow: the metadata overlay assigns scalar fields only
+    (:func:`rebrew.metadata._apply_metadata_entry`), so shared nested
+    lists (callers, etc.) are never mutated through a copy.
+    """
+    if not structural:
+        return []
+    rel = rel_display_path(filepath, base_dir)
+    filtered_entries = [
+        copy.copy(entry)
+        for entry in structural
+        if not (target_name and entry.module and entry.module.lower() != target_name.lower())
+    ]
+    for entry in filtered_entries:
+        entry.filepath = rel
+    if metadata_dir is not None:
+        from rebrew.metadata import _apply_metadata_entry, load_metadata
+
+        # Load the metadata ONCE per file and apply per annotation —
+        # merge_into_annotation re-loaded it per function (the
+        # whole-tree parse hot path: 1000 functions = 1000 TOML loads).
+        entries_by_key = load_metadata(metadata_dir)
+        for entry in filtered_entries:
+            meta = entries_by_key.get((entry.module, entry.va))
+            if meta:
+                _apply_metadata_entry(entry, meta)
+    return filtered_entries
 
 
 def _parse_c_file_text(
@@ -1149,39 +1206,10 @@ def _parse_c_file_text(
     base_dir: Path | None,
     metadata_dir: Path | None,
 ) -> list[Annotation]:
-    try:
-        lines = text.splitlines()
-    except Exception:  # degenerate input
-        return []
-    if not lines:
-        return []
-
-    rel = rel_display_path(filepath, base_dir)
-
-    # Try multi-block new format (scans entire file)
-    entries = parse_new_format_multi(lines)
-    if entries:
-        filtered_entries = [
-            entry
-            for entry in entries
-            if not (target_name and entry.module and entry.module.lower() != target_name.lower())
-        ]
-        for entry in filtered_entries:
-            entry.filepath = rel
-        if metadata_dir is not None:
-            from rebrew.metadata import _apply_metadata_entry, load_metadata
-
-            # Load the metadata ONCE per file and apply per annotation —
-            # merge_into_annotation re-loaded it per function (the
-            # whole-tree parse hot path: 1000 functions = 1000 TOML loads).
-            entries_by_key = load_metadata(metadata_dir)
-            for entry in filtered_entries:
-                meta = entries_by_key.get((entry.module, entry.va))
-                if meta:
-                    _apply_metadata_entry(entry, meta)
-        return filtered_entries
-
-    return []
+    """Parse annotation blocks from pre-read *text* with per-call overlays."""
+    return _finalize_entries(
+        _parse_structural_entries(text), filepath, target_name, base_dir, metadata_dir
+    )
 
 
 # ---------------------------------------------------------------------------

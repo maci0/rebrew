@@ -397,7 +397,7 @@
   win2k binaries; the exact 8.0+ setcc memory-compare form is
   correctly absent from the VC5/6 corpus (era boundary validated).
 - **The massive codegen pattern corpus** — `docs/codegen/corpus.json`
-  now holds **7892 machine-readable records** (one per toolchain,
+  now holds **8315 machine-readable records** (grew from 7892 with probe17) (one per toolchain,
   version, SP, flags, probe, function, with size + bytes), generated
   from every probe 1-16 object via `.cache/fp_probe/
   gen_codegen_corpus.py` and schema-validated by
@@ -416,6 +416,38 @@
   SP1 comparison remains blocked.  Corpus pointer added to all 17
   per-toolchain files; README gained a corpus section with query
   examples.
+- **Probe17 conventions + allocator behaviors + fingerprint layer** —
+  the documented rules from RULES.md verified by compilation.  **A2
+  corrected**: 16-bit Watcom `__fastcall` = `ax,dx,bx` (3 register
+  args, 4th on the stack) — Agner Fog table 5's "ax,dx,bx,cx (4
+  regs)" claim is NOT reproduced by Open Watcom 2.0 (may be
+  commercial-10.x-specific); TC 2.0/3.1 and 16-bit MSVC 1.5x lack
+  `__fastcall` entirely.  **A5 verified in every version**: varargs
+  float→double via `fld; sub esp,8; fstp qword [esp]` (`dd 1c 24`)
+  for 2.0–10.0, SSE `movss; cvtss2sd; movsd` in 11.0, `fld; sub
+  sp,8; fstp qword` in watcom16.  **A8 verified**: Watcom16 struct
+  returns use PSI (`lea si,[bp-6]` + `movsw`, ptr in SI), TC 3.1
+  passes the far stack pointer (I); 32-bit 2.0–6.0 stack-passed, 7.0+
+  inlined sret, 11.0 SSE `movq`.  **B5 `-1`-store 3-era split**:
+  2.0/4.x immediate `c7 05 ... ff ff ff ff`; 5.0–10.0 register `or
+  eax,-1` (`83 c8 ff`) + `a3`; 11.0 immediate + dead `or eax,-1`.
+  **B7**: address-taken params push ESI only in 5.0–8.0 but FOUR
+  callee-saves (ebx/ebp/esi/edi) in 9.0/10.0.  B3's live-range flip
+  does NOT trigger with the simplified probe in any version (the
+  guild doc's fuller dispatch shape is required — recorded
+  negative); B4's `dl`/`bl` form needs `char` flags (partial).
+  **Behavioral fingerprint layer**: `corpus-behavior.json` now carries
+  per-record register/zeroing/moffs/push signals; the fingerprint
+  sweep found **`a3`/`a1` moffs usage doubles from VC 8.0** (15–16
+  hits in 2.0–7.1 vs 24–25 in 8.0–11.0).  Corpus grew to **8315
+  records** (CORPUS VALID).  **MSC 5.1 + Watcom 10.5a downloaded**
+  from decomp.me releases and unpacked (CL.EXE/wcc.exe present);
+  MSC 5.1's CL runs under the image's DOSBox but produced no object
+  in the staged compile — recorded as a documented partial blocker
+  pending a dedicated image; the fastcall/struct-return conventions
+  were verified with the existing Open Watcom 2.0 instead.  RULES.md
+  A2/A5/A8/B2-B7/B11 updated with the verified matrix; all 17
+  per-toolchain files gained probe17 records.
 - **GA pragma mutations** — five new operators in `matcher/mutator.py`
   (114 → 119) that explore codegen levers compiler flags cannot reach:
   `mut_add/remove_optimize_pragma` wrap the function in

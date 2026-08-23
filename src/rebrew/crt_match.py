@@ -49,6 +49,10 @@ class CrtSourceEntry:
         line: Line number where function is defined.
         is_asm: True if function is ASM-only (cannot be compiled from C).
         module: Origin module name (e.g. ``'MSVCRT'``, ``'zlib'``).
+
+    The normalized forms (``name_raw``/``name_norm``/``module_upper``) are
+    derived once at construction — matching walks the whole index per
+    binary function, so re-normalizing per visit would dominate the run.
     """
 
     name: str
@@ -56,6 +60,14 @@ class CrtSourceEntry:
     line: int
     is_asm: bool
     module: str
+    name_raw: str = ""
+    name_norm: str = ""
+    module_upper: str = ""
+
+    def __post_init__(self) -> None:
+        self.name_raw = self.name.strip().lower()
+        self.name_norm = normalize_name(self.name)
+        self.module_upper = self.module.upper()
 
 
 @dataclass
@@ -225,14 +237,15 @@ def match_function(
     binary_raw = name.strip().lower()
     binary_norm = normalize_name(name)
     asm_only = is_asm_only(name)
+    module_upper = module.upper()
 
     matches: list[CrtMatch] = []
     for source_entry in index:
-        if source_entry.module.upper() != module.upper():
+        if source_entry.module_upper != module_upper:
             continue
 
-        source_raw = source_entry.name.strip().lower()
-        source_norm = normalize_name(source_entry.name)
+        source_raw = source_entry.name_raw
+        source_norm = source_entry.name_norm
 
         # A real function definition (line != 0) that exactly matches is the
         # strongest signal.  Filename-derived entries (line == 0) cap at the

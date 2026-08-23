@@ -254,7 +254,7 @@ standalone raw-byte marker.
 ## Machine-readable corpus — `corpus.json`
 
 [`corpus.json`](corpus.json) is the machine-readable codegen corpus:
-**7892 records**, one per (toolchain, version, SP, flags, probe,
+**8315 records**, one per (toolchain, version, SP, flags, probe,
 function) with `{toolchain, version, sp, flags, probe, function,
 size, bytes}` — generated from every probe 1-16 object (all 13 MSVC
 versions 1.0-11.0 at /O2 and /O1 + all SP images, bcc32, Watcom

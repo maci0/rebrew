@@ -17,6 +17,7 @@ Architecture notes:
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from typing import Any
 
@@ -74,6 +75,13 @@ class StringEntry:
 # ---------------------------------------------------------------------------
 
 
+# Capstone ``Cs`` objects wrap a libcapstone handle mutated on every
+# ``disasm`` call, so one instance cannot be shared across threads.
+# ``iter_instructions`` runs per function over whole code sections; a
+# per-thread cache elides repeated constructor calls without handle races.
+_capstone_tls = threading.local()
+
+
 def _capstone(skipdata: bool = False, info: BinaryInfo | None = None) -> Any:
     """Return a capstone ``Cs`` disassembler.
 
@@ -81,18 +89,29 @@ def _capstone(skipdata: bool = False, info: BinaryInfo | None = None) -> Any:
     uses ``CS_MODE_16``.  With *skipdata* set, undecodable bytes are emitted
     as ``.byte`` pseudo instructions instead of terminating the linear scan —
     required for real binaries whose code contains embedded data.
+
+    Instances are cached per thread keyed on (mode, skipdata).
     """
     try:
         from capstone import CS_ARCH_X86, CS_MODE_16, CS_MODE_32, Cs
     except ImportError as exc:
         raise RuntimeError("capstone not installed") from exc
 
-    mode = CS_MODE_16 if info is not None and info.format == "ne" else CS_MODE_32
-    md = Cs(CS_ARCH_X86, mode)
-    md.detail = True
-    if skipdata:
-        md.skipdata = True
-        md.skipdata_setup = ("db", None, None)
+    mode_16 = info is not None and info.format == "ne"
+    mode = CS_MODE_16 if mode_16 else CS_MODE_32
+    cache = getattr(_capstone_tls, "cache", None)
+    if cache is None:
+        cache = {}
+        _capstone_tls.cache = cache
+    key = (mode_16, skipdata)
+    md = cache.get(key)
+    if md is None:
+        md = Cs(CS_ARCH_X86, mode)
+        md.detail = True
+        if skipdata:
+            md.skipdata = True
+            md.skipdata_setup = ("db", None, None)
+        cache[key] = md
     return md
 
 

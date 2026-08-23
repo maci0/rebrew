@@ -417,16 +417,20 @@ def smart_reloc_compare(
             # List[int] branch: plain offset list (no symbol resolution)
             valid_relocs.extend(r for r in coff_relocs if isinstance(r, int) and r + 4 <= min_len)
     else:
-        i = 0
-        while i <= min_len - 4:
-            if (
-                obj_bytes[i : i + 4] == b"\x00\x00\x00\x00"
-                and obj_bytes[i : i + 4] != target_bytes[i : i + 4]
-            ):
-                valid_relocs.append(i)
-                i += 4
-            else:
-                i += 1
+        # Zero-reloc objects: candidate slots are 4-aligned zero dwords in
+        # the object that differ from the target.  Skip the byte-by-byte
+        # scan entirely when no zero dword exists — common for leaf functions.
+        if min_len >= 4 and b"\x00\x00\x00\x00" in obj_bytes[:min_len]:
+            i = 0
+            while i <= min_len - 4:
+                if (
+                    obj_bytes[i : i + 4] == b"\x00\x00\x00\x00"
+                    and obj_bytes[i : i + 4] != target_bytes[i : i + 4]
+                ):
+                    valid_relocs.append(i)
+                    i += 4
+                else:
+                    i += 1
 
     # Vectorized comparison: build a boolean relocation mask and use NumPy
     # for the byte-level match instead of a Python-level per-byte loop.
