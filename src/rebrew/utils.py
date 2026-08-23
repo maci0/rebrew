@@ -453,6 +453,12 @@ def metadata_write_lock(directory: Path, filename: str) -> Iterator[None]:
         fcntl = None  # type: ignore[assignment]
 
     path = (directory / filename).resolve()
+    # Create the target directory before opening the ``.lock`` sidecar: the
+    # first-ever write into a fresh metadata root would otherwise crash with
+    # FileNotFoundError inside the lock acquisition (the data write itself
+    # only runs later, inside atomic_write_text's own mkdir).  exist_ok
+    # keeps concurrent creators safe.
+    path.parent.mkdir(parents=True, exist_ok=True)
     with _METADATA_WRITE_LOCKS.setdefault(filename, threading.Lock()):
         if fcntl is None:
             yield
