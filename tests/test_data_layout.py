@@ -425,3 +425,35 @@ def test_audit_layout_records_objdump_error(tmp_path: Path) -> None:
     (row,) = report["rows"]
     assert row["flags"] == ["OBJDUMP_ERROR"]
     assert "objdump" in row["error"]
+
+
+# ---------------------------------------------------------------------------
+# CRLF sources: definition spans must stay byte-exact
+# ---------------------------------------------------------------------------
+
+
+def test_find_definition_crlf_offsets() -> None:
+    """Splice offsets must account for CRLF, not drift one byte per line."""
+    from rebrew.data_layout import _find_definition
+
+    text = "int g_a = 1;\r\nstatic char g_pad[4];\r\n\r\nint g_b = { 2, 3 };\r\n"
+    r = _find_definition(text, "g_b")
+    assert r is not None
+    start, end, typ, sz = r
+    assert typ == "int"
+    assert sz == ""
+    # The span must slice exactly the definition out of the CRLF text.
+    assert text[start:end] == "int g_b = { 2, 3 };"
+
+    s_a = _find_definition(text, "g_a")
+    assert s_a is not None
+    assert text[s_a[0] : s_a[1]] == "int g_a = 1;"
+
+
+def test_find_definition_crlf_scalar_form() -> None:
+    from rebrew.data_layout import _find_definition
+
+    text = "extern int g_x;\r\nint g_y = 5;\r\nint g_z = 7;\r\n"
+    r = _find_definition(text, "g_z")
+    assert r is not None
+    assert text[r[0] : r[1]] == "int g_z = 7;"
