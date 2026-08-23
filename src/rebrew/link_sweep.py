@@ -26,8 +26,10 @@ Usage::
 
 from __future__ import annotations
 
+import atexit
 import re
 import shlex
+import shutil
 import struct
 import subprocess
 import tempfile
@@ -122,7 +124,7 @@ def _discover_link_cmd() -> tuple[Path, str] | None:
         hits = sorted(Path("build").glob("CMakeFiles/*/link.txt"))
     if not hits:
         return None
-    txt = hits[0].read_text().strip()
+    txt = hits[0].read_text(encoding="utf-8").strip()
     # redirect /out: to {out}; strip /pdb: (wine link may reject a dup pdb)
     txt = re.sub(r"/out:[^ ]+", "/out:{out}", txt)
     txt = re.sub(r"/pdb:[^ ]+", "/pdb:{out}.pdb", txt)
@@ -202,8 +204,13 @@ def main(
     candidates = _candidates(pe)
 
     results: list[dict[str, Any]] = []
-    scratch_dir = Path(tempfile.gettempdir()) / "rebrew-linksweep"
-    scratch_dir.mkdir(parents=True, exist_ok=True)
+    # Per-run scratch dir with an unpredictable name: a fixed shared dir in
+    # the system temp dir would let another local user pre-create/symlink the
+    # DLL path (the linker follows it), clobber a concurrent sweep, and leak
+    # partial DLLs from failed links forever.
+    scratch_dir = Path(tempfile.mkdtemp(prefix="rebrew-linksweep-"))
+    if not keep:
+        atexit.register(shutil.rmtree, scratch_dir, True)
     for cand in candidates:
         out = scratch_dir / f"{cand.name}.dll"
         cmd = cmd_tpl.format(options=" ".join(cand.options), out=out)
@@ -247,7 +254,13 @@ def main(
         )
 
     if json_output:
-        json_print({"reference": str(cfg.target_binary), "results": results})
+        json_print(
+            {
+                "reference": str(cfg.target_binary),
+                "scratch_dir": str(scratch_dir),
+                "results": results,
+            }
+        )
         return
 
     # render
@@ -291,6 +304,8 @@ def main(
         console.print("  → belong in the final metadata fix, not the link line.")
     if not stamp_only:
         console.print("\n[green]All compared fields reproduced by at least one candidate.[/]")
+    if keep:
+        console.print(f"\n[dim]Scratch DLLs kept in: {scratch_dir}[/]")
 
 
 def main_entry() -> None:

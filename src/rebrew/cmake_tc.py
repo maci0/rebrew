@@ -80,7 +80,7 @@ def _exclusive_lock(lock_path: Path) -> Iterator[None]:
     if fcntl is None:
         yield
         return
-    with open(lock_path, "w") as lock_fh:
+    with open(lock_path, "w", encoding="utf-8") as lock_fh:
         fcntl.flock(lock_fh, fcntl.LOCK_EX)
         try:
             yield

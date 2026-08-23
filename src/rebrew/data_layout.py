@@ -72,7 +72,7 @@ def link_objects(root: Path) -> list[Path]:
     rsps = sorted((root / "build/CMakeFiles").glob("*/objects*.rsp"))
     if not rsps:
         error_exit("no build/CMakeFiles/*/objects*.rsp found — build the project first")
-    text = rsps[0].read_text()
+    text = rsps[0].read_text(encoding="utf-8")
     return [Path(root / "build") / (a or b) for a, b in _OBJ_RE.findall(text)]
 
 
