@@ -33,7 +33,7 @@ console = Console(stderr=True)
 _EXTRACT_TIMEOUT_S = 1800
 
 app = typer.Typer(
-    help="Standardized toolchain management (docker-first, host fallback).",
+    help="Standardized toolchain management (Windows/DOS profiles run in docker).",
     rich_markup_mode="rich",
     no_args_is_help=True,
 )

@@ -7,7 +7,7 @@ Single-command modules are registered as flat ``app.command()`` entries,
 avoiding the Typer "group" behaviour of ``add_typer()`` which expects a
 ``COMMAND [ARGS]...`` token after callback arguments.  Only true
 multi-command modules (``extract``, ``cfg``, ``cache``, ``skills``,
-``resource``, ``toolchain``) use ``add_typer()``.
+``resource``, ``library``, ``toolchain``) use ``add_typer()``.
 """
 
 import importlib
@@ -390,7 +390,11 @@ _MULTI_COMMANDS: list[tuple[str, str, str]] = [
     ("skills", "rebrew.skills", "Discover and display agent skills bundled with rebrew."),
     ("resource", "rebrew.resource", "Compare / extract PE resource (.rsrc) sections."),
     ("library", "rebrew.library", "Per-library toolchain/flags overrides (rebrew-library.toml)."),
-    ("toolchain", "rebrew.toolchain_cli", "Manage toolchains (docker-first, host fallback)."),
+    (
+        "toolchain",
+        "rebrew.toolchain_cli",
+        "Manage toolchains (Windows/DOS profiles run in docker).",
+    ),
 ]
 
 
