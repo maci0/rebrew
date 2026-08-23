@@ -172,6 +172,10 @@ entries — the `shl bx,1` (`d1 e3`) scaling, same family trait as TC
 
 - **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
 
+## Probe17: conventions + allocator behaviors
+
+- **Probe17 conventions (A2/A8)**: 16-bit `wcc` `__fastcall` = **`ax,dx,bx` (3 register args, 4th on the stack)** — AF table 5's "4 registers" claim is NOT reproduced by Open Watcom 2.0 (may be commercial-10.x-specific); struct returns use **PSI** (`lea si,[bp-6]` + `movsw` copy, ptr in SI).  See RULES.md A2/A8.
+
 ## Verification
 
 Probe via `rebrew/watcom:2.0-win32` (wcc386 entrypoint) `-fo=` `-zq`

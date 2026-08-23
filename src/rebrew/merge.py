@@ -11,7 +11,11 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from rebrew.annotation import NEW_FUNC_CAPTURE_RE, parse_c_file_multi, split_annotation_sections
+from rebrew.annotation import (
+    NEW_FUNC_CAPTURE_RE,
+    _parse_c_file_text,
+    split_annotation_sections,
+)
 from rebrew.cli import (
     TargetOption,
     error_exit,
@@ -327,18 +331,20 @@ def main(
     out_encoding = "utf-8"
 
     for file_path in input_files:
-        annotations = parse_c_file_multi(
-            file_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
-        )
-        if not annotations:
-            continue
-
+        # One read serves both the annotation parse and the section split —
+        # parse_c_file_multi would re-read and re-decode the same file.
         try:
             text, enc = read_source_text(file_path)
         except OSError as exc:
             error_exit(f"Failed to read {file_path}: {exc}", json_mode=json_output)
         if enc != "utf-8":
             out_encoding = enc
+
+        annotations = _parse_c_file_text(
+            text, file_path, target_marker(cfg), None, cfg.metadata_dir
+        )
+        if not annotations:
+            continue
 
         preamble, blocks = split_annotation_sections(text)
         preambles.append(preamble)

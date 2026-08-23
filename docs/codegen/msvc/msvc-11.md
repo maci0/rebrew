@@ -164,6 +164,10 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 
 - **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
 
+## Probe17: conventions + allocator behaviors
+
+- **Probe17 allocator/conventions**: varargs float→double via SSE (`movss; cvtss2sd; movsd [esp]`); `-1` stores emit the immediate form PLUS a dead `or eax,-1`; 12-byte sret built with SSE `movq`.  See RULES.md A5/A8/B5.
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:11.0-win32` (`msvc1100_{O1,O2}.obj`);

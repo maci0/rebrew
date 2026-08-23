@@ -160,6 +160,10 @@ plain Integer args too).  RTL functions use far `retf`/`retf N` (`ca`).
 
 - **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
 
+## Probe17: conventions + allocator behaviors
+
+- **Probe17 verified-negative**: the C-convention triggers (fastcall, varargs) have no Delphi 1.0 Pascal counterpart — no new marker; corpus pointer.
+
 ## Verification
 
 Pascal probe `probe.dpr` compiled via `rebrew/delphi:1.0-win16`

@@ -200,6 +200,10 @@ first to post-shift division magic.
 
 - **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
 
+## Probe17: conventions + allocator behaviors
+
+- **Probe17 allocator/conventions**: `-1` register form (`83 c8 ff` + `a3`); zero in EAX; 7.0+ inline the 12-byte sret construction (direct register stores).  See RULES.md A8/B5.
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:7.0-win32` (`msvc700_{O1,O2}.obj`);

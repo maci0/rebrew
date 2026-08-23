@@ -127,6 +127,10 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 
 - **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
 
+## Probe17: conventions + allocator behaviors
+
+- **Probe17 allocator/conventions**: `-1` stores use the IMMEDIATE `c7 05 <addr> ff ff ff ff` form (2.0/4.x era); no zero register materialized.  Varargs float→double promotion verified.  See RULES.md A5/B5.
+
 ## Verification
 
 Probe compiled with `rebrew/msvc:4.0-win32`, `4.1-win32`, `4.2-win32` at

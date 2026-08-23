@@ -136,6 +136,10 @@ DOSBox.  Emits 16-bit OMF objects.
 
 - **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
 
+## Probe17: conventions + allocator behaviors
+
+- **Probe17 conventions**: 16-bit struct-return (A8) — MSVC 1.52's `s12_caller`/`s12_make` decode partially in the /O1 object (recorded partial); `__fastcall` is absent from the 1.5x keyword set (same as TC).  See RULES.md A8.
+
 ## Verification
 
 Probe `/O1` via `rebrew/msvc:1.52-win16` (`out16/probe.OBJ` and the

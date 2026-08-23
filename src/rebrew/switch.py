@@ -171,12 +171,18 @@ def _va_in_image(info: Any, va: int) -> bool:
     return False
 
 
-def _resolve_name(cfg: Any, va: int) -> str:
-    """Function-list / registry name for *va*, or ``""``."""
-    try:
-        from rebrew.asm import build_function_lookup
+def _resolve_name(cfg: Any, va: int, func_lookup: dict[int, tuple[str, str]] | None = None) -> str:
+    """Function-list / registry name for *va*, or ``""``.
 
-        name, _status = build_function_lookup(cfg).get(va, ("", ""))
+    Building the lookup scans the whole source tree, so callers resolving
+    many addresses pass a shared *func_lookup* instead of paying one tree
+    scan per address."""
+    try:
+        if func_lookup is None:
+            from rebrew.asm import build_function_lookup
+
+            func_lookup = build_function_lookup(cfg)
+        name, _status = func_lookup.get(va, ("", ""))
         return name
     except Exception:  # best-effort naming
         return ""
@@ -233,6 +239,15 @@ def main(
         )
         raise typer.Exit(0)
 
+    # One shared lookup for every handler row — a tree scan per row would
+    # dominate the command's runtime on large projects.
+    from rebrew.asm import build_function_lookup
+
+    try:
+        func_lookup: dict[int, tuple[str, str]] | None = build_function_lookup(cfg)
+    except Exception:  # best-effort naming
+        func_lookup = None
+
     for sw in switches:
         console.print(
             f"[bold]Dispatch @ 0x{sw['jmp_va']:08x}:[/] "
@@ -248,7 +263,7 @@ def main(
             if shown >= _MAX_TABLE_ROWS:
                 table.add_row("...", "", f"{len(sw['cases']) - shown} more")
                 break
-            name = _resolve_name(cfg, handler_va)
+            name = _resolve_name(cfg, handler_va, func_lookup)
             table.add_row(f"{index}", f"0x{handler_va:08x}", name)
         console.print(table)
 

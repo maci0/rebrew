@@ -143,6 +143,10 @@ probe12 re-run via `rebrew/borland:5.5-win32` (`out12/bcc55*`).
 
 - **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
 
+## Probe17: conventions + allocator behaviors
+
+- **Probe17 verified-negative**: the convention markers (A5 promotion, register forms) hold for bcc32's shared conventions — no new bcc32 marker; corpus pointer.
+
 ## Verification
 
 Probe `-O1` and `-O2` via `rebrew/borland:5.5-win32` (`probe.obj`,

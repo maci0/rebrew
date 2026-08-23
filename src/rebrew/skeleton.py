@@ -170,6 +170,7 @@ def generate_skeleton(
     decomp_code: str | None = None,
     decomp_backend: str = "",
     decomp_body: bool = False,
+    func_lookup: FuncLookup | None = None,
 ) -> str:
     """Generate the .c file content.
 
@@ -182,6 +183,9 @@ def generate_skeleton(
         xref_context: Optional string containing fetched caller cross-references.
         decomp_code: Optional decompilation output to embed as a comment block.
         decomp_backend: Name of the decompiler backend (for the header comment).
+        decomp_body: Embed the decompiled body as the initial implementation.
+        func_lookup: Optional prebuilt VA→(name, status) map for tail-call
+            resolution; batch callers share one instance across functions.
 
     """
     lib_modules = cfg.library_modules or set()
@@ -197,7 +201,7 @@ def generate_skeleton(
     # target's convention (rebrew asm's inference), not always `int __cdecl
     # f(void)` — for MFC-heavy binaries most functions are thiscall, and a
     # wrong starting signature costs a rewrite per function.
-    signature, conv_note = _convention_stub(cfg, va, func_name)
+    signature, conv_note = _convention_stub(cfg, va, func_name, func_lookup)
 
     return _render_annotation_block(
         marker=marker,
@@ -216,7 +220,9 @@ def generate_skeleton(
     )
 
 
-def _convention_stub(cfg: ProjectConfig, va: int, func_name: str) -> tuple[str | None, str | None]:
+def _convention_stub(
+    cfg: ProjectConfig, va: int, func_name: str, func_lookup: FuncLookup | None = None
+) -> tuple[str | None, str | None]:
     """Return a (signature_line, note) stub for *va* based on its calling
     convention, or ``(None, None)`` to keep the plain ``int __cdecl f(void)``
     default.  Best-effort: returns the default on any disassembly failure.
@@ -288,7 +294,7 @@ def _convention_stub(cfg: ProjectConfig, va: int, func_name: str) -> tuple[str |
         # frame, so the callee's decorated name (@N = bytes of args) gives
         # THIS function's stack-arg count (the stdcall/fastcall forwarding
         # pattern).  Best-effort — falls back to a plain signature + note.
-        n, callee = _tail_call_arg_count(insns, cfg)
+        n, callee = _tail_call_arg_count(insns, cfg, func_lookup)
         if n:
             args = ", ".join(f"int a{i}" for i in range(1, n + 1))
             return (
@@ -305,15 +311,26 @@ def _convention_stub(cfg: ProjectConfig, va: int, func_name: str) -> tuple[str |
     return None, None
 
 
-def _tail_call_arg_count(insns: list[Any], cfg: ProjectConfig) -> tuple[int, str]:
+FuncLookup = dict[int, tuple[str, str]]
+
+
+def _tail_call_arg_count(
+    insns: list[Any], cfg: ProjectConfig, func_lookup: FuncLookup | None = None
+) -> tuple[int, str]:
     """Stack-arg count + callee name for a tail-calling function, if the
     jmp target's decorated name (``name@N``) resolves — ``(0, "")`` when
     unknown.  The @N is the callee's argument bytes (stdcall/fastcall), so
     for a frame-forwarding tail jmp it equals the caller's own stack args.
     Scans jmps backward (the window may include the next function's code);
-    accepts the first one whose target resolves to a decorated name."""
+    accepts the first one whose target resolves to a decorated name.
+
+    *func_lookup* may carry a prebuilt VA→(name, status) map (see
+    ``rebrew.asm.build_function_lookup``); building it scans the whole
+    source tree, so batch callers pass one shared instance instead of
+    paying a tree scan per instruction."""
     import re
 
+    lazy_lookup = func_lookup
     for insn in reversed(insns):
         if insn.mnemonic != "jmp":
             continue
@@ -321,12 +338,14 @@ def _tail_call_arg_count(insns: list[Any], cfg: ProjectConfig) -> tuple[int, str
         if m is None:
             continue
         target = int(m.group(1), 16)
-        try:
-            from rebrew.asm import build_function_lookup
+        if lazy_lookup is None:
+            try:
+                from rebrew.asm import build_function_lookup
 
-            name, _status = build_function_lookup(cfg).get(target, ("", ""))
-        except Exception:  # best-effort resolution
-            continue
+                lazy_lookup = build_function_lookup(cfg)
+            except Exception:  # best-effort resolution
+                return 0, ""
+        name, _status = lazy_lookup.get(target, ("", ""))
         dm = re.search(r"@(\d+)\s*$", name)
         if dm is not None:
             return max(0, int(dm.group(1)) // 4), name
@@ -950,6 +969,11 @@ def _run_batch_mode(
 
     count = min(batch, len(uncovered))
     created: list[dict[str, Any]] = []
+    # Tail-call resolution needs a VA→(name, status) map; building it scans
+    # the whole source tree, so build ONE instance for the whole batch.
+    from rebrew.asm import build_function_lookup
+
+    batch_func_lookup: FuncLookup = build_function_lookup(cfg)
     for va_val, size_val, name_val in uncovered[:count]:
         filename = make_filename(va_val, name_val, cfg=cfg)
         filepath = src_dir / filename
@@ -975,6 +999,7 @@ def _run_batch_mode(
             decomp_code=d_code,
             decomp_backend=d_backend,
             decomp_body=decomp_body,
+            func_lookup=batch_func_lookup,
         )
         if dry_run:
             console.print(f"[dim]Would create[/dim] {rel_path} ({size_val}B)")
