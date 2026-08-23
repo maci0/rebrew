@@ -120,6 +120,7 @@ _COMMAND_PANELS: dict[str, str] = {
     "split": "Development",
     "merge": "Development",
     # Analysis — understanding the binary and progress
+    "blocker": "Analysis",
     "status": "Analysis",
     "todo": "Analysis",
     "data": "Analysis",
@@ -384,6 +385,7 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
 # Multi-command modules – registered as groups via app.add_typer().
 # Only modules with multiple @app.command() subcommands belong here.
 _MULTI_COMMANDS: list[tuple[str, str, str]] = [
+    ("blocker", "rebrew.blocker", "Manage BLOCKER metadata (set/clear/show) — programmatic only."),
     ("extract", "rebrew.extract", "Extract and disassemble functions from binary."),
     ("cfg", "rebrew.cfg", "Read and edit rebrew-project.toml programmatically."),
     ("cache", "rebrew.cache_cli", "Manage the compile result cache."),

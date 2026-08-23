@@ -168,7 +168,7 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 
 - **Probe17 allocator/conventions**: `-1` register form; zero in EAX; moffs (`a1`/`a3`) usage doubles from 8.0 across the corpus (fingerprint B11).  See RULES.md B5/B11.
 
-- **Decomp idioms** — the probe19-24 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe24` records).
+- **Decomp idioms** — the probe19-25 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe25` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -183,6 +183,11 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 ## Probe24: Findings 37-43 primitives (round 21)
 
 - **Probe24 (8.0)**: word compares switch to `movzx`+`cmp ax`; **size-dispatch sub-chain (`83 e8 01` — the B10 sub-over-dec trait)**; byte or-mask memory-operand begins; word zero-extend movzx.  See RULES.md F23/F24/E19/C29.
+
+
+## Probe25: Finding 44 primitives (round 22)
+
+- **Probe25 (8.0)**: clamp `setle; sub ecx,1` (`83 e9 01` — sub-over-dec); ×589 imul; byte-arg `movzx`.  See RULES.md C30/E21.
 
 
 ## Verification

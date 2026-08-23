@@ -77,9 +77,13 @@ Use `--fix-blocker` to auto-write these to the `rebrew-function.toml` metadata f
 ```bash
 rebrew diff --fix-blocker src/<target>/<file>.c        # auto-write BLOCKER to metadata file
 rebrew diff --fix-blocker --json src/<target>/<file>.c # with JSON output
+# Ad-hoc BLOCKERs that diff cannot classify (needs structs, SEH helper, etc.):
+rebrew blocker set src/<target>/<file>.c "needs RE structs -- see struct_recover"
+rebrew blocker clear src/<target>/<file>.c
 ```
 
 When no structural diffs remain, `--fix-blocker` clears existing BLOCKER/BLOCKER_DELTA.
+**Never hand-edit `rebrew-function.toml` for BLOCKER — use `rebrew blocker set/clear` or the `--fix-blocker` writers.**
 
 Use this to quickly rule out structural issues before running the GA.
 
@@ -287,7 +291,7 @@ the job.
 
 ## 6. Blocker Tracking
 
-When a function is NEAR_MATCHING but not byte-perfect, blockers live in the `rebrew-function.toml` metadata file:
+When a function is NEAR_MATCHING but not byte-perfect, blockers live in the `rebrew-function.toml` metadata file (managed programmatically — never hand-edit):
 
 ```toml
 ["SERVER.0x<VA>"]
@@ -295,7 +299,8 @@ blocker = "register allocation, jump condition swap"
 blocker_delta = 3
 ```
 
-Use `rebrew diff --fix-blocker` to auto-generate these from diff classification.
+Set them via `rebrew blocker set <file|0xVA> "<reason>" [--delta N]` (and `rebrew blocker clear` to remove).
+Use `rebrew diff --fix-blocker` / `rebrew near-diag --fix-blocker` to auto-generate from classification.
 
 ## 7. Tips
 

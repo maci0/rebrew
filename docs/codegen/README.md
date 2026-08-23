@@ -256,9 +256,9 @@ standalone raw-byte marker.
 ## Machine-readable corpus — `corpus.json`
 
 [`corpus.json`](corpus.json) is the machine-readable codegen corpus:
-**12408 records**, one per (toolchain, version, SP, flags, probe,
+**12715 records**, one per (toolchain, version, SP, flags, probe,
 function) with `{toolchain, version, sp, flags, probe, function,
-size, bytes}` — generated from every probe 1-24 object (all 13 MSVC
+size, bytes}` — generated from every probe 1-25 object (all 13 MSVC
 versions 1.0-11.0 at /O2 and /O1 + all SP images, bcc32, Watcom
 32/16, TC 2.0/3.1, MinGW GCC, Zig, the 16-bit MSVC set).  Query
 examples:
@@ -276,7 +276,7 @@ The generator (`gen_codegen_corpus.py`), schema validator
 **query CLI** (`corpus_query.py` — `info` / `matrix <func>` /
 `unique <ver>` / `diff <v1> <v2>` / `look <hex>`) live in the
 gitignored `.cache/fp_probe/` harness.  `matrix`/`diff`/`unique` read
-the precomputed **`corpus-matrix.json`** index (447 functions × their
+the precomputed **`corpus-matrix.json`** index (456 functions × their
 per-version byte groups) for O(1) lookups.  `matrix lcg_next` prints the
 per-version byte groups for a function; `look ff 24 85` finds every
 record containing a byte pattern.  The corpus also carries Delphi 1.0

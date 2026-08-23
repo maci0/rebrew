@@ -454,7 +454,8 @@ def _check_W005_blocker(result: LintResult, status: str, found_keys: dict[str, s
         result.warning(
             result.marker_line,
             "W005",
-            "STUB function missing 'blocker' explanation (set via rebrew match --fix-blocker or add to rebrew-function.toml)",
+            "STUB function missing 'blocker' explanation "
+            '(run: rebrew blocker set <file|0xVA> "<reason>" — or: rebrew diff --fix-blocker)',
         )
 
 

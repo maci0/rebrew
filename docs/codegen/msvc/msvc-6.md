@@ -195,7 +195,7 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 
 - **Probe17 allocator/conventions**: `-1` stores use the REGISTER form `or eax,-1` + `a3` (5.0–10.0 era); zero register kept in EAX (`alloc_zero`: `a3` moffs stores).  The guild-rebrew live-range flip (B3) does NOT trigger with the simplified probe.  See RULES.md B2/B3/B5.
 
-- **Decomp idioms** — the probe19-24 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe24` records).
+- **Decomp idioms** — the probe19-25 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe25` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -210,6 +210,11 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 ## Probe24: Findings 37-43 primitives (round 21)
 
 - **Probe24 (6.0)**: word zero-extend `xor;mov ax` (the guild doc's exact form); size-dispatch dec-chain; in-place memory and; lea+disp folded into the lea (`8d 44 40 24`); byte or-mask register round-trip; field-store fold.  See RULES.md C29/F24/E18/E19/E20.
+
+
+## Probe25: Finding 44 primitives (round 22)
+
+- **Probe25 (6.0)**: branchless clamp (the doc's setle/dec/and form); ×589 five-lea chain; byte-arg raw push (`mov al,[mem]; push eax` — refutes the doc's unreproducibility claim for the simple shape); byte-first sum load.  See RULES.md C30/C31/E21/E22.
 
 
 ## Verification

@@ -1,5 +1,33 @@
 ## [Unreleased]
 ### Added
+- **Codegen corpus round 22 — guild Finding 44 primitives (probe25)** —
+  `docs/codegen/corpus.json` grows 12408 → **12715 records** (probe25
+  adds 307: 10 MSVC versions × /O2+/O1, 7 SPs, bcc32/Watcom/GCC/Zig,
+  and the 16-bit set).  The four probe-able primitives from Finding 44
+  were compiled through every toolchain and added to
+  `docs/codegen/RULES.md`:
+  - **C30 VERIFIED** — ternary nonnegative clamp `(x<=0)?0:x`:
+    branchless `setle cl; neg ecx; and eax,ecx` in 5.0–7.1/9.0/10.0
+    (the doc's setle/dec/and form), branchy `test; jg; xor` in 2.0/4.1,
+    `setle; sub ecx,1` in 8.0 (sub-over-dec), `cmovle` in 11.0;
+    `clamp_lt0` uses `sets` in 10.0 (sign-flag preference).
+  - **C31 VERIFIED** — ×589 multiply: 2.0/4.1 four-lea chain,
+    5.0/6.0 five-instruction lea chain, **7.0+ single `imul
+    0x24d`** — the lea-vs-imul split fingerprints the era for
+    non-power constants.
+  - **E21 VERIFIED** — byte-arg push forms: **2.0–6.0 push the raw
+    byte (`mov al,[mem]; push eax` — refutes the doc's "no C shape
+    produces the raw push" claim, which only holds under register
+    pressure)**; 7.0/7.1 `xor;mov cl` zero-extend; 8.0+ `movzx`;
+    7.0+ tail-call the wrapper.
+  - **E22 VERIFIED** — byte+dword sum loads the byte FIRST in every
+    version (the doc's dword-first is a register-pressure artifact).
+  - `corpus-matrix.json` index 447 → **456 functions**; idiom sweep
+    validates (`clamp_*` guild 1× + sndrec32 1×, `mul589` lea-chain
+    guild 2×, `sum_load` guild 11-18× + server.dll 1×; exact
+    `bpush3`/`imul`-589 negatives recorded).  Docs: RULES.md (+4
+    rows), DECOMP_IDIOMS.md (+4 idioms), 17 per-toolchain files,
+    README.  See the round-22 spec `.cache/goal_probe25.md`.
 - **Codegen corpus round 21 — guild Findings 37-43 primitives (probe24)** —
   `docs/codegen/corpus.json` grows 11897 → **12408 records** (probe24
   adds 511: 10 MSVC versions × /O2+/O1, 7 SPs, bcc32/Watcom/GCC/Zig,
