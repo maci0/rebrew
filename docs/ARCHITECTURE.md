@@ -29,7 +29,7 @@ flowchart LR
     end
 
     C --> ANNOT["annotation.py<br/>parse_c_file_multi"]
-    META --> FACADE["metadata.py<br/>typed facade + merge_into_annotation"]
+    META --> FACADE["metadata.py + metadata_model.py<br/>store, typed facade, merge_into_annotation"]
     TOML --> CFG["config.py<br/>ProjectConfig"]
 
     ANNOT --> MERGED["merged Annotation"]
@@ -62,13 +62,14 @@ flowchart LR
 | Package / module | Responsibility |
 |---|---|
 | `rebrew/` top-level tools | One CLI command each (`test`, `verify`, `diff`, `match`, `lint`, `data`, `status`, `todo`, …), registered in `main.py` |
-| `rebrew/main.py` | Umbrella CLI. Flat `app.command()` for single-command modules, `app.add_typer()` for multi-command (`cfg`, `cache`, `extract`, `skills`, `resource`, `toolchain`) |
+| `rebrew/intake.py` | One-shot binary onboarding: init + toolchain detect (diec → PDB → heuristics) + rizin function enumeration + STUB/blocker documentation |
+| `rebrew/main.py` | Umbrella CLI. Flat `app.command()` for single-command modules, `app.add_typer()` for multi-command (`cfg`, `cache`, `extract`, `skills`, `resource`, `library`, `toolchain`) |
 | `rebrew/cli.py` | Shared options/helpers: `TargetOption`, `require_config`, `iter_annotations`, `error_exit`, `json_print`, exit codes |
 | `rebrew/sources.py` | Source-tree discovery: `source_exts`, `source_glob`, `target_marker`, `iter_sources`, `iter_library_headers` (pure pathlib/config logic, importable by library modules) |
 | `rebrew/config.py` | `ProjectConfig` dataclass + `rebrew-project.toml` loader (multi-target) |
 | `rebrew/annotation.py` | Marker/KV annotation parsing (`// FUNCTION: MOD 0xVA`), key classification (file-only vs metadata) |
-| `rebrew/metadata.py` | `rebrew-function.toml` store; typed facade (`FunctionMetadata`, `field_kind`, `load_entry`/`save_entry`) |
-| `rebrew/compile.py` | MSVC6 compile + compare → `CompareResult` |
+| `rebrew/metadata.py` | `rebrew-function.toml` store + routing (`METADATA_FIELDS`, `update_source_status`); typed facade in `metadata_model.py` (`MetadataEntry`) |
+| `rebrew/compile.py` | Compile (docker image or native backend) + compare → `CompareResult` |
 | `rebrew/binary_loader.py` | PE/ELF/Mach-O loading via LIEF → `BinaryInfo` (sections, VAs, raw bytes) |
 | `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (119 tree-sitter mutations), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
 | `rebrew/catalog/` | Function registry, coverage grid (`grid.py`), `data_*.json` export, `coverage.db` schema consumers |
@@ -90,14 +91,14 @@ flowchart LR
 | `rebrew/toolchain_detect.py` | Layered compiler-family detector: Detect It Easy (diec) → PDB → codegen heuristics; feeds init's CRT/opt seeding and doctor's alignment check |
 | `rebrew/wibo.py` | Auto-download + SHA256-verify the wibo runner (fast headless wine alternative) |
 | `rebrew/binsync_export.py` / `binsync_import.py` / `binsync_diff.py` | BinSync state export/import/diff (TOML-based, no libbs dependency) |
-| `rebrew/document_unmatched.py` | Bulk classifier for unmatched functions (library/CRT/dispatch buckets) |
+| `rebrew/document_unmatched.py` | STUB skeleton + BLOCKER writer for unmatched functions (standalone intake document step) |
 | `rebrew/discover.py` | Function enumeration: rizin aaa→aap→capstone linear sweep with size cross-checks |
 | `rebrew/pdb_info.py` | PDB metadata extraction (S_COMPILE3 compiler + command line) |
 | `rebrew/identify_library.py` | Library-function identification backends (CRT/ZLIB marking) |
 | `rebrew/dashboard.py` | Read-only web dashboard over `db/coverage.db` |
 | `rebrew/imports.py` | Import-table symbol listing — PE IAT + `jmp [iat]` stub detection, 16-bit NE module references |
 | `rebrew/skills.py` | Agent-skill discovery CLI (`list`/`show` subcommands) |
-| `rebrew/agent-skills/` | Bundled `SKILL.md` workflows (intake, matching, data analysis, ghidra sync) |
+| `rebrew/agent-skills/` | Bundled `SKILL.md` workflows (intake, workflow, matching, data analysis, ghidra sync) |
 
 ## The compile → compare → STATUS loop
 
@@ -113,14 +114,16 @@ flowchart LR
 
 ## Metadata routing rules (file-only vs metadata-only)
 
-- **metadata-owned**: STATUS, SIZE, CFLAGS, BLOCKER, BLOCKER_DELTA, NOTE,
-  GHIDRA, ANALYSIS, SKIP, GLOBALS, SOURCE, PROVE_CONSTRAINTS — live in
+- **metadata-owned**: STATUS, SIZE, CFLAGS, TOOLCHAIN, BLOCKER, BLOCKER_DELTA,
+  NOTE, GHIDRA, ANALYSIS, SKIP, GLOBALS, SOURCE, PROVE_CONSTRAINTS — live in
   `rebrew-function.toml`; inline use fires lint W019.
 - **file-only**: MARKER, VA, MODULE, SYMBOL — live in the `.c` block.
 - **legacy**: ORIGIN (derived from module), SECTION (owned by
   `rebrew-data.toml`) — inline → W019, never stored in function metadata.
-- `metadata.field_kind(key)` is the single routing table; a consistency test
-  pins `annotation.METADATA_KEYS` against it.
+- `metadata.METADATA_FIELDS` is the single routing table (annotation.py keeps
+  `METADATA_KEYS` in sync so lint W019 fires on inline metadata keys);
+  `metadata_model.MetadataEntry.apply` rejects writes of any other key with
+  `MetadataValidationError`.
 
 ## Key architectural rules
 

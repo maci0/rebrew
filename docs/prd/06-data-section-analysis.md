@@ -45,6 +45,9 @@ verification, and `rebrew_globals.h` generation.
   layout.
 - A `--gen-header` mode that builds `rebrew_globals.h` from local
   annotations without needing Ghidra.
+- `.data` placement tooling (`--layout-audit`, `--fill-data`, `--own`,
+  `--fix-ownership`, `--converge`) that converges the linked per-TU data
+  layout onto the reference binary's bytes.
 
 ## Non-Goals
 
@@ -116,6 +119,31 @@ verification, and `rebrew_globals.h` generation.
 - Safe to invoke offline; `rebrew sync --pull-data` writes the same file
   with Ghidra-sourced types when available.
 
+### `.data` placement family
+
+These modes treat per-TU `.data`/`.bss` placement as a convergence
+problem: the linked layout must reproduce the reference binary's byte
+order across all translation units at once.
+
+- `--annotate` inserts `// GLOBAL:` markers from `rebrew-data.toml` into
+  the sources, above each symbol's first declaration (`--dry-run`
+  previews; already-marked symbols are skipped).
+- `--layout-audit` reports per-TU `.data`/`.bss` span/order feasibility —
+  what blocks placement convergence (ORDER/SPAN violations, unowned and
+  duplicate-owned symbols).
+- `--fill-data` emits `_dpad_<addr>[N]` pads for uncovered `.data` byte
+  runs (byte-exact from the reference in the raw region, zero-init for
+  BSS); `--bss-only` skips the initialized region.
+- `--own` materializes stub-file globals as real definitions in their
+  owner TUs (original bytes from the reference); `--stub-file PATH`
+  overrides the stub TU (default `src/link_stubs.c`).
+- `--fix-ownership` re-partitions global definitions across TUs so each
+  owns one contiguous address run (fixes `--layout-audit` SPAN/ORDER
+  violations).
+- `--converge` runs fixed-point `.data` placement: insert/adjust
+  `_dlead_<tu>[N]` leading pads and re-measure; `--rounds N` iterates
+  (rebuild per round).
+
 ## User Stories / Workflows
 
 ### Story 1 — Chasing a `~~` diff to a missing extern
@@ -162,6 +190,15 @@ rebrew data [OPTIONS]
       --max-pointer-stride INTEGER  (default: 4)
       --bss
       --fix-bss
+      --annotate
+      --layout-audit
+      --fill-data
+      --bss-only
+      --own
+      --stub-file PATH
+      --fix-ownership
+      --converge
+      --rounds N                    (default: 1)
       --gen-header
       --gen-header-out PATH         (default: {reversed_dir}/rebrew_globals.h)
       --force

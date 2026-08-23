@@ -82,10 +82,10 @@ Project Onboarding solves all of this with `rebrew init`, `rebrew doctor`, and t
   context, copies the bundled `agent-skills/` into `.agents/skills/` (with
   `<target>` substituted), and copies `PRINCIPLES.md`.
 - Picks the compiler profile from `--compiler` (default `msvc6`). Accepted
-  profiles are the full toolchain list — MSVC 1.52–11.0 variants (`msvc6`,
+  profiles are the full toolchain list — MSVC 1.0–11.0 variants (`msvc6`,
   `msvc7`, `msvc600sp6`, ...), Borland/Turbo C (`borlandc55`, `tc16`, `tc20`),
-  Open Watcom (`watcom`, `watcom16`), `gcc-pe`, `gcc`, `clang` (see
-  `rebrew toolchain list`).
+  Open Watcom (`watcom`, `watcom16`), `delphi16`, `gcc-pe`, `gcc`, `clang`
+  (see `rebrew toolchain list`).
 - When the binary is already in `original/`, auto-detects format/arch (PE/ELF/
   Mach-O/NE/MZ) and seeds CRT linkage + optimization flags from the toolchain
   fingerprint (MSVC profiles); warns on 16-bit/profile and compiler-family
