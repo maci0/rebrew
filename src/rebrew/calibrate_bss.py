@@ -19,6 +19,7 @@ Usage:
 
 from __future__ import annotations
 
+import os
 import re
 import struct
 import subprocess
@@ -126,51 +127,58 @@ def main(
         error_exit(f"{symbol}[0x..] not found in {stub}")
 
     link_cwd, cmd_tpl, target_dir = find_link_cmd(root)
-    scratch = Path(tempfile.gettempdir()) / "rebrew-calibrate-bss.dll"
-    scratch.unlink(missing_ok=True)
+    # Unpredictable scratch name in the shared temp dir: a fixed
+    # "rebrew-calibrate-bss.dll" would let any local user pre-create/symlink
+    # the path (the linker follows it) or swap the DLL between iterations and
+    # poison the calibration, and concurrent runs would clobber each other.
+    fd, scratch_name = tempfile.mkstemp(prefix="rebrew-calibrate-bss-", suffix=".dll")
+    os.close(fd)
+    scratch = Path(scratch_name)
 
     iters: list[dict[str, int]] = []
-    for it in range(max_iters):
-        cmd = cmd_tpl.format(out=scratch, options="")
-        try:
-            subprocess.run(
-                cmd, shell=True, cwd=link_cwd, check=True, capture_output=True, timeout=600
-            )
-        except subprocess.TimeoutExpired:
-            error_exit(f"raw link timed out after 600s (iter {it}): {cmd}")
-        except subprocess.CalledProcessError as exc:
-            # capture_output swallows the linker's stderr — surface it, or the
-            # failure is an opaque traceback with no diagnostic.
-            stderr = exc.stderr.decode(errors="replace")[-400:].strip() if exc.stderr else ""
-            error_exit(f"raw link failed (rc={exc.returncode}) on iter {it}: {stderr}")
-        vs = read_data_vs(scratch)
-        delta = target_vs - vs
-        iters.append({"iter": it, "vs": vs, "delta": delta})
-        if delta == 0:
-            scratch.unlink(missing_ok=True)
-            break
-        text = stub.read_text()
-        m = tail_re.search(text)
-        new_tail = int(m.group(1), 16) + delta  # type: ignore[union-attr]
-        if new_tail <= 0:
-            error_exit(f"tail would go non-positive ({new_tail:#x}) — manual fix needed")
-        stub.write_text(text[: m.start(1)] + f"{new_tail:x}" + text[m.end(1) :])  # type: ignore[union-attr]
-        obj = _stub_obj(target_dir, stub, root)
-        try:
-            subprocess.run(
-                [compile_cmd, "/nologo", "/c", *cflags.split(), f"/Fo{obj}", str(stub)],
-                cwd=root,
-                check=True,
-                capture_output=True,
-                timeout=300,
-            )
-        except subprocess.TimeoutExpired:
-            error_exit(f"stub compile timed out after 300s: {compile_cmd}")
-        except subprocess.CalledProcessError as exc:
-            stderr = exc.stderr.decode(errors="replace")[-400:].strip() if exc.stderr else ""
-            error_exit(f"stub compile failed (rc={exc.returncode}): {stderr}")
-    else:
-        error_exit(f"did not converge in {max_iters} iterations (last delta {delta:+d})")
+    try:
+        for it in range(max_iters):
+            cmd = cmd_tpl.format(out=scratch, options="")
+            try:
+                subprocess.run(
+                    cmd, shell=True, cwd=link_cwd, check=True, capture_output=True, timeout=600
+                )
+            except subprocess.TimeoutExpired:
+                error_exit(f"raw link timed out after 600s (iter {it}): {cmd}")
+            except subprocess.CalledProcessError as exc:
+                # capture_output swallows the linker's stderr — surface it, or the
+                # failure is an opaque traceback with no diagnostic.
+                stderr = exc.stderr.decode(errors="replace")[-400:].strip() if exc.stderr else ""
+                error_exit(f"raw link failed (rc={exc.returncode}) on iter {it}: {stderr}")
+            vs = read_data_vs(scratch)
+            delta = target_vs - vs
+            iters.append({"iter": it, "vs": vs, "delta": delta})
+            if delta == 0:
+                break
+            text = stub.read_text()
+            m = tail_re.search(text)
+            new_tail = int(m.group(1), 16) + delta  # type: ignore[union-attr]
+            if new_tail <= 0:
+                error_exit(f"tail would go non-positive ({new_tail:#x}) — manual fix needed")
+            stub.write_text(text[: m.start(1)] + f"{new_tail:x}" + text[m.end(1) :])  # type: ignore[union-attr]
+            obj = _stub_obj(target_dir, stub, root)
+            try:
+                subprocess.run(
+                    [compile_cmd, "/nologo", "/c", *cflags.split(), f"/Fo{obj}", str(stub)],
+                    cwd=root,
+                    check=True,
+                    capture_output=True,
+                    timeout=300,
+                )
+            except subprocess.TimeoutExpired:
+                error_exit(f"stub compile timed out after 300s: {compile_cmd}")
+            except subprocess.CalledProcessError as exc:
+                stderr = exc.stderr.decode(errors="replace")[-400:].strip() if exc.stderr else ""
+                error_exit(f"stub compile failed (rc={exc.returncode}): {stderr}")
+        else:
+            error_exit(f"did not converge in {max_iters} iterations (last delta {delta:+d})")
+    finally:
+        scratch.unlink(missing_ok=True)
 
     if json_output:
         json_print({"target": target_vs, "symbol": symbol, "iters": iters})
