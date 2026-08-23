@@ -66,7 +66,7 @@ def find_link_cmd(root: Path) -> tuple[Path, str, Path]:
     hits = sorted((root / "build/CMakeFiles").glob("*/link.txt"))
     if not hits:
         error_exit("no build/CMakeFiles/*/link.txt found — build the project first")
-    txt = hits[0].read_text().strip()
+    txt = hits[0].read_text(encoding="utf-8").strip()
     txt = re.sub(r"/out:[^ ]+", "/out:{out}", txt, flags=re.IGNORECASE)
     txt = re.sub(r"/pdb:[^ ]+", "/pdb:{out}.pdb", txt, flags=re.IGNORECASE)
     txt = f"{txt} {{options}}"
@@ -123,7 +123,7 @@ def main(
         target_vs = int(target, 0)
 
     tail_re = re.compile(rf"{symbol}\[\s*0x([0-9A-Fa-f]+)\s*\]")
-    if not tail_re.search(stub.read_text()):
+    if not tail_re.search(stub.read_text(encoding="utf-8")):
         error_exit(f"{symbol}[0x..] not found in {stub}")
 
     link_cwd, cmd_tpl, target_dir = find_link_cmd(root)
@@ -155,12 +155,16 @@ def main(
             iters.append({"iter": it, "vs": vs, "delta": delta})
             if delta == 0:
                 break
-            text = stub.read_text()
+            text = stub.read_text(encoding="utf-8")
             m = tail_re.search(text)
-            new_tail = int(m.group(1), 16) + delta  # type: ignore[union-attr]
+            if m is None:
+                error_exit(f"{symbol}[0x..] not found in {stub}")
+            new_tail = int(m.group(1), 16) + delta
             if new_tail <= 0:
                 error_exit(f"tail would go non-positive ({new_tail:#x}) — manual fix needed")
-            stub.write_text(text[: m.start(1)] + f"{new_tail:x}" + text[m.end(1) :])  # type: ignore[union-attr]
+            stub.write_text(
+                text[: m.start(1)] + f"{new_tail:x}" + text[m.end(1) :], encoding="utf-8"
+            )
             obj = _stub_obj(target_dir, stub, root)
             try:
                 subprocess.run(
