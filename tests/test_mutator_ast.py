@@ -471,7 +471,7 @@ def test_mut_ast_reorder_declarations() -> None:
     assert "int b" in res[: res.index("int a")]
 
 
-from rebrew.matcher.ast_engine import parse_c_ast, quick_validate_ast, replace_node  # noqa: E402
+from rebrew.matcher.ast_engine import parse_c_ast, replace_node  # noqa: E402
 
 
 def test_parse_c_ast() -> None:
@@ -479,15 +479,6 @@ def test_parse_c_ast() -> None:
     tree = parse_c_ast(source)
     assert tree.root_node.type == "translation_unit"
     assert not tree.root_node.has_error
-
-
-def test_quick_validate_ast_valid() -> None:
-    assert quick_validate_ast(b"int main() { return 0; }")
-
-
-def test_quick_validate_ast_invalid() -> None:
-    # Missing closing brace
-    assert not quick_validate_ast(b"int main() { return 0;")
 
 
 def test_replace_node() -> None:

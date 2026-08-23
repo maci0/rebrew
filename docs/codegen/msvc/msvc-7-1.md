@@ -124,7 +124,12 @@ feature (SP spot-check).  Verified in probe12 (`f1`/`f2`/`fl`).
 
 - **Probe17 allocator/conventions**: `-1` register form; zero in EAX; inline sret construction.  See RULES.md A8/B5.
 
-- **Decomp idioms** — the probe19/20 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](DECOMP_IDIOMS.md) and the corpus (`probe19`/`probe20` records).
+- **Decomp idioms** — the probe19-22 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe22` records).
+
+## Probe22: guild-rule verification (round 19)
+
+- **Probe22 (7.1)**: mirrors 7.0 (`movzx`-era, `sete`+`neg`, unrolled 36B memset); SP1 byte-identical to RTM.  See RULES.md C23/C24/E14.
+
 
 ## Verification
 

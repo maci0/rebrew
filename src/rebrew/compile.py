@@ -1247,6 +1247,7 @@ def build_linked_link_cmd(
         "docker",
         "run",
         "--rm",
+        "--network=none",  # link-only container — no egress needed
         "-v",
         f"{Path(workdir).resolve()}:/work",
         "-w",

@@ -18,7 +18,6 @@ from rebrew.lzexe import (
     _decompress,
     lzexe_version,
     unpack_lzexe,
-    unpack_to_file,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -87,20 +86,6 @@ class TestUnpack:
         words = struct.unpack_from("<14H", out, 0)
         assert words[0x0C] == 0x1C  # lfarlc -> our reloc table position
         assert words[4] * 16 + len(unpack_lzexe(PACKED).image) == len(out)
-
-    def test_unpack_to_file(self, tmp_path: Path) -> None:
-        out = tmp_path / "out.exe"
-        unpack_to_file(PACKED, out)
-        assert out.read_bytes() == unpack_lzexe(PACKED).to_bytes()
-
-    def test_default_output_path(self, tmp_path: Path) -> None:
-        import shutil
-
-        src = tmp_path / "game.exe"
-        shutil.copy(PACKED, src)
-        out = unpack_to_file(src)
-        assert out.name == "game.exe.unpacked.exe"
-        assert out.exists()
 
 
 class TestDecompress:

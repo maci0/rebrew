@@ -266,37 +266,6 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
 # ---------------------------------------------------------------------------
 
 
-def normalize_status(raw: str) -> str:
-    """Map old-format status strings to canonical values.
-
-    Check order matters for strings that are substrings of each other:
-    ``EXACT`` must be tested first so that e.g. ``"EXACT_MATCH"`` maps to
-    ``"EXACT"`` and not ``"RELOC"``.  ``NEAR_MATCHING`` is tested before
-    ``RELOC`` so that it is not accidentally matched by the ``"RELOC"``
-    substring check (``"NEAR_MATCHING"`` does not contain ``"RELOC"`` but
-    the ordering is preserved for safety).  ``PROVEN`` is included before
-    the generic fallthrough so old-format strings like ``"PROVEN_MATCH"``
-    are normalised to ``"PROVEN"`` rather than returned verbatim.
-    """
-    s = raw.strip().upper()
-    if "EXACT" in s:
-        return "EXACT"
-    if "NEAR_MATCHING" in s:
-        return "NEAR_MATCHING"
-    if "RELOC" in s:
-        return "RELOC"
-    if "STUB" in s:
-        return "STUB"
-    if "PROVEN" in s:
-        return "PROVEN"
-    return s
-
-
-def normalize_cflags(raw: str) -> str:
-    """Clean up cflags string."""
-    return raw.strip().rstrip(",").strip()
-
-
 def marker_for_module(module: str, status: str, library_modules: set[str] | None = None) -> str:
     """Derive expected marker type from module name and status.
 

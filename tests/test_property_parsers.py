@@ -301,22 +301,6 @@ def test_annotation_va_hex_roundtrip(va: int) -> None:
     assert ann.va == va
 
 
-@settings(max_examples=200, deadline=None)
-@given(st.text(max_size=64))
-def test_normalize_status_idempotent(raw: str) -> None:
-    from rebrew.annotation import normalize_status
-
-    assert normalize_status(normalize_status(raw)) == normalize_status(raw)
-
-
-@settings(max_examples=200, deadline=None)
-@given(st.text(max_size=64))
-def test_normalize_cflags_idempotent(raw: str) -> None:
-    from rebrew.annotation import normalize_cflags
-
-    assert normalize_cflags(normalize_cflags(raw)) == normalize_cflags(raw)
-
-
 # ---------------------------------------------------------------------------
 # C declarator parsing (rebrew.c_parser)
 # ---------------------------------------------------------------------------

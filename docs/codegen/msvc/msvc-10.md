@@ -125,7 +125,12 @@ the VC 7.0+ era marker; 10.0 SP1 is identical to RTM on this feature
 
 - **Probe17 allocator/conventions**: `-1` register form; **address-taken params force FOUR callee-saves (ebx/ebp/esi/edi)** — the most aggressive of any version.  See RULES.md B7.
 
-- **Decomp idioms** — the probe19/20 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](DECOMP_IDIOMS.md) and the corpus (`probe19`/`probe20` records).
+- **Decomp idioms** — the probe19-22 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe22` records).
+
+## Probe22: guild-rule verification (round 19)
+
+- **Probe22 (10.0)**: C24 `sete`+`neg` memory-compare era; 36B memset unrolled + GS cookie (`a1 <cookie> 33 c4`); SP1 byte-identical.  See RULES.md C24/E14/J1.
+
 
 ## Verification
 

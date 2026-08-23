@@ -1161,6 +1161,10 @@ def run_toolchain(
     vendored/PATH binary directly — they are not Windows binaries, so no
     wine glue is involved.
 
+    The container runs with ``--network=none`` — compilation is strictly
+    local (source in, object out), and the toolchain image needs no egress
+    (a malformed image cannot reach the network during a build).
+
     Args:
         spec: The toolchain to run.
         args: Compiler arguments (flags, source, output).
@@ -1195,6 +1199,7 @@ def run_toolchain(
             "docker",
             "run",
             "--rm",
+            "--network=none",  # compile-only containers — no egress needed
             "-v",
             f"{workdir.resolve()}:/work",
             "-w",

@@ -452,6 +452,7 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
                 "docker",
                 "run",
                 "--rm",
+                "--network=none",  # read-only grep inside the image
                 "--entrypoint",
                 "sh",
                 spec.image,

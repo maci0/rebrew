@@ -1,6 +1,51 @@
 ## [Unreleased]
 ### Added
-- *(nothing yet)*
+- **Codegen corpus round 19 — guild-rule verification (probe22)** —
+  `docs/codegen/corpus.json` grows 10073 → **11182 records** (probe22
+  adds 885: 10 MSVC versions × /O2+/O1, 7 SPs, bcc32/Watcom/GCC/Zig,
+  and the 16-bit set now folded — `tc31`/`watcom16`/`msvc152` records
+  for probes 17–22 were previously dropped by the classifier and are
+  retroactively recovered).  The eight probe-able guild-rebrew
+  allocator rules were compiled through every toolchain and promoted in
+  `docs/codegen/RULES.md`:
+  - **C24 VERIFIED** — `(x != c) ? -1 : 0` fuses to
+    `sub al,N; neg al; sbb eax,eax; and; add` byte-exact in **5.0/6.0/
+    8.0**; `-(x != c)` emits `cmp; setne; neg` (7B larger) — the doc's
+    lever confirmed.
+  - **F15 VERIFIED** — `*player |= 0x3000` → `or ch,0x30` (5.0/6.0);
+    the `*player` flag shape emits `test ah,0x60` + `or ah,0x8` in
+    5.0/6.0; 8.0+ switch to dword/memory forms; MinGW GCC emits the
+    same AH-slot family (`or ah,0x30`).
+  - **F17 VERIFIED** — byte-LIVE switch → and-mask preamble
+    (`mov al,[eax]; and eax,0xff; add eax,-3; cmp eax,0x66; ja; jmp`)
+    in 5.0/6.0; byte-DEAD → the 4B `xor; mov reg_low` form; 7.0+
+    `movzx`-based.
+  - **C23/C25 partial** — the C23 liveness forms (param and-form,
+    dead xor-form, live and-form, equal-arm fold lever) verified per
+    version (2.0/4.1 always mask, 5.0/6.0 the split, 7.0+ movzx);
+    C25's signed/unsigned split (`jge` vs `jae`) verified in every
+    version, the hoisted `or reg,0xff` materialization is **VC 5.0-only**.
+  - **F12/F13/E11 verified-negatives** — the named-vs-direct register
+    role lever and the array-index scalarization do not fire on the
+    simplified shapes (full guild contexts required); the opaque-dest
+    memset alignment prelude does not reproduce in ANY version (simple
+    `rep stosd`+tail 2.0–7.1, libcall 8.0+).
+  - **New E14** — constant-36B memset style: `rep stosd` 2.0–6.0,
+    unrolled dword stores 7.0–10.0 (+GS cookie 10.0), SSE `movq` 11.0;
+    **J1 addition** — VC 7.0 SP1 emits `rep stosd` where RTM unrolls
+    (only probe22 SP delta).  `corpus-matrix.json` index 386 → **411
+    functions**; idiom sweep validates the new signatures against the
+    win2k/guild binaries (`ah_hi` guild 1×, `clear_fresh` server.dll
+    5×, `uc_add` and-form guild 29–53×; fused-`negidm2`/`test ah,0x60`
+    byte-exact negatives recorded).  Docs: RULES.md (8 rows promoted),
+    DECOMP_IDIOMS.md (+5 guild-rule idioms), 17 per-toolchain files,
+    README.  See `docs/codegen/` and the round-19 spec
+    `.cache/goal_probe22.md`.
+- **Toolchain containers run with `--network=none`** — every docker `run`
+  of a toolchain image (compile runner, CMake cl/link/lib bridge, wineboot
+  init, `toolchain smoke`, linked-compare link, import-symbol grep) now
+  blocks egress: compilation is strictly local (source in, object out) and
+  a toolchain image has no reason to touch the network during a build.
 
 ## [0.5.0] - 2026-08-23
 ### Added

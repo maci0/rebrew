@@ -131,7 +131,12 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 
 - **Probe17 allocator/conventions**: `-1` stores use the IMMEDIATE `c7 05 <addr> ff ff ff ff` form (2.0/4.x era); no zero register materialized.  Varargs float→double promotion verified.  See RULES.md A5/B5.
 
-- **Decomp idioms** — the probe19/20 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](DECOMP_IDIOMS.md) and the corpus (`probe19`/`probe20` records).
+- **Decomp idioms** — the probe19-22 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe22` records).
+
+## Probe22: guild-rule verification (round 19)
+
+- **Probe22 (4.x-era)**: mirrors 2.0's C23 mask-always + C24 sbb decomposition; `byte_dead2` is the only xor-extend `movzx`-style form (`33 c0; mov cl,[eax]`).  See RULES.md C23/C24.
+
 
 ## Verification
 

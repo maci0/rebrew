@@ -204,7 +204,12 @@ first to post-shift division magic.
 
 - **Probe17 allocator/conventions**: `-1` register form (`83 c8 ff` + `a3`); zero in EAX; 7.0+ inline the 12-byte sret construction (direct register stores).  See RULES.md A8/B5.
 
-- **Decomp idioms** — the probe19/20 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](DECOMP_IDIOMS.md) and the corpus (`probe19`/`probe20` records).
+- **Decomp idioms** — the probe19-22 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe22` records).
+
+## Probe22: guild-rule verification (round 19)
+
+- **Probe22 (7.0)**: zero-extend becomes `movzx` in every form; C24 uses `sete`+`neg` (register compare); constant-memset 36B unrolls to dword stores — and **7.0 SP1 still emits `rep stosd`** (a J1 SP-difference).  See RULES.md C23/C24/E14/J1.
+
 
 ## Verification
 

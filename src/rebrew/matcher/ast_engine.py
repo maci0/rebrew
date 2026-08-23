@@ -50,15 +50,6 @@ def parse_c_ast(source: bytes | str) -> ts.Tree:
     return _parse_c_ast_cached(source)
 
 
-def quick_validate_ast(source: bytes | str) -> bool:
-    """Validate C source code using tree-sitter.
-
-    Returns True if the code parses without syntax errors.
-    """
-    tree = parse_c_ast(source)
-    return not tree.root_node.has_error
-
-
 def replace_node(source: bytes, node: ts.Node, replacement: bytes) -> bytes:
     """Replace the text of a node with new bytes."""
     return source[: node.start_byte] + replacement + source[node.end_byte :]

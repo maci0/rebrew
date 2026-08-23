@@ -12,7 +12,7 @@ itself, and the consequences (including trade-offs accepted).
   **Consequences**.
 - Status values: `Accepted` (in force), `Amended by NNN` (partially
   superseded — read the citing ADR for the current shape), `Superseded by
-  NNN`, `Proposed`.
+  NNN`. A decision still being made is an RFC, not a proposed ADR.
 - Write a new ADR when a change is architectural: a new format/profile/
   backend, a behavioral contract change, or a deliberate trade-off that
   future readers must not silently undo.  Small fixes and polish do not

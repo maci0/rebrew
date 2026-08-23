@@ -243,6 +243,7 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
                     "docker",
                     "run",
                     "--rm",
+                    "--network=none",  # wineboot needs no network
                     *_docker_user_args(),
                     "-e",
                     f"WINEPREFIX={prefix}",
@@ -285,6 +286,7 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
         "docker",
         "run",
         "--rm",
+        "--network=none",  # compile-only containers — no egress needed
         *_docker_user_args(),
         "-e",
         f"WINEPREFIX={prefix}",

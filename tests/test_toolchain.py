@@ -71,9 +71,16 @@ class TestRunToolchain:
         r = run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path)
         assert r.backend == "docker"
         assert r.ok
-        assert calls[0][:5] == ["docker", "run", "--rm", "-v", f"{tmp_path.resolve()}:/work"]
-        assert calls[0][5:9] == ["-w", "/work", "rebrew/t:latest", "cl"]
-        assert calls[0][9:] == ["/c", "f.c"]
+        assert calls[0][:6] == [
+            "docker",
+            "run",
+            "--rm",
+            "--network=none",
+            "-v",
+            f"{tmp_path.resolve()}:/work",
+        ]
+        assert calls[0][6:10] == ["-w", "/work", "rebrew/t:latest", "cl"]
+        assert calls[0][10:] == ["/c", "f.c"]
 
     def test_docker_entrypoint_image_passes_no_command(self, tmp_path: Path, monkeypatch) -> None:
         """image_binary=None means the image ENTRYPOINT is the compiler —
@@ -81,7 +88,7 @@ class TestRunToolchain:
         spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="wcc386")
         calls = _monkey_docker(monkeypatch)
         run_toolchain(spec, ["-zq", "f.c"], workdir=tmp_path)
-        assert calls[0][8:] == ["-zq", "f.c"]
+        assert calls[0][9:] == ["-zq", "f.c"]
 
     def test_docker_uses_image_binary_shim(self, tmp_path: Path, monkeypatch) -> None:
         spec = ToolchainSpec(
@@ -89,7 +96,7 @@ class TestRunToolchain:
         )
         calls = _monkey_docker(monkeypatch)
         run_toolchain(spec, ["hello.dpr"], workdir=tmp_path)
-        assert calls[0][8] == "dcc"
+        assert calls[0][9] == "dcc"
 
     def test_wine_runtime_without_image_raises(self, tmp_path: Path, monkeypatch) -> None:
         """A wine-runtime spec without an image is not runnable — execution

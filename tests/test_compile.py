@@ -895,12 +895,12 @@ class TestLinkedLinkCmd:
         cmd, _script = build_linked_link_cmd(
             self._spec(), base=0x10000000, obj_name="f.obj", out_name="out.dll", workdir="/tmp/w"
         )
-        assert cmd[:6] == ["docker", "run", "--rm", "-v", "/tmp/w:/work", "-w"]
-        assert cmd[6] == "/work"
-        assert cmd[7:9] == ["--entrypoint", "sh"]
-        assert cmd[9] == "rebrew/msvc:6.0-win32"
+        assert cmd[:7] == ["docker", "run", "--rm", "--network=none", "-v", "/tmp/w:/work", "-w"]
+        assert cmd[7] == "/work"
+        assert cmd[8:10] == ["--entrypoint", "sh"]
+        assert cmd[10] == "rebrew/msvc:6.0-win32"
         # LINK flags: DLL / NOENTRY at the target base, /OPT:NOREF + /OPT:NOICF.
-        args = cmd[12:]
+        args = cmd[13:]
         assert "/DLL" in args and "/NOENTRY" in args
         assert "/BASE:0x10000000" in args
         assert "/ALIGN:4096" in args and "/FILEALIGN:4096" in args

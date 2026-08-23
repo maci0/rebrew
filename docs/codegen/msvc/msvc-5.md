@@ -25,7 +25,7 @@ does.  VC 2.0–4.2 linkers write no Rich header at all.
   small constant is hoisted into a callee-saved register and stored via
   it (`mov ebx,imm32` then `mov [mem],ebx`) — the pre-6.0 fingerprint
   (validated on the Europa 1400 server, whose player-init loop caches
-  1000 in `ebx`; see [TOOLCHAIN.md](../TOOLCHAIN.md)).  VC 6.0 folds the
+  1000 in `ebx`; see [TOOLCHAIN.md](../../TOOLCHAIN.md)).  VC 6.0 folds the
   constant into immediate stores instead.
 - Zero-tests now use `test reg,reg` (`85 d2`) — the `cmp reg,zeroreg`
   idiom of 2.0/4.x is gone.
@@ -181,7 +181,12 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 
 - **Probe17 allocator/conventions**: `-1` stores use the REGISTER form `or eax,-1` (`83 c8 ff`) + `a3` store (5.0–10.0 era); varargs float→double via `fld; sub esp,8; fstp qword [esp]` (`dd 1c 24`).  See RULES.md A5/B5.
 
-- **Decomp idioms** — the probe19/20 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](DECOMP_IDIOMS.md) and the corpus (`probe19`/`probe20` records).
+- **Decomp idioms** — the probe19-22 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe22` records).
+
+## Probe22: guild-rule verification (round 19)
+
+- **Probe22 (5.0)**: C23 and/xor liveness split begins here (`and eax,0xff` live, `xor;mov` dead); C24 fused negation byte-exact (`sub al,0xe; neg al; sbb eax,eax`); C25 `or dl,0xff` hoisted materialization (5.0-only); F17 live-switch and-mask preamble.  See RULES.md C23-C25/F17.
+
 
 ## Verification
 
