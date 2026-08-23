@@ -43,8 +43,6 @@ _GLOBAL_RE = re.compile(r"(?://|/\*)\s*GLOBAL:\s*(?P<module>[A-Z0-9_]+)\s+(?P<va
 # extern data declarations are parsed by c_parser.find_extern_variables()
 # via tree-sitter AST walking — see scan_globals().
 
-_ARRAY_SIZE_RE = re.compile(r"\[(\d+)\]")
-_ARRAY_STRIP_RE = re.compile(r"\[.*\]")
 _DECL_IDENT_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[.*\])?\s*;")
 
 
@@ -596,49 +594,6 @@ class BssReport:
         }
 
 
-# Common C type sizes for size estimation
-_TYPE_SIZES: dict[str, int] = {
-    "char": 1,
-    "unsigned char": 1,
-    "signed char": 1,
-    "BYTE": 1,
-    "BOOL": 1,
-    "short": 2,
-    "unsigned short": 2,
-    "signed short": 2,
-    "WORD": 2,
-    "int": 4,
-    "unsigned int": 4,
-    "signed int": 4,
-    "long": 4,
-    "unsigned long": 4,
-    "DWORD": 4,
-    "LONG": 4,
-    "ULONG": 4,
-    "float": 4,
-    "FLOAT": 4,
-    "double": 8,
-    "DOUBLE": 8,
-    "__int64": 8,
-    "LONGLONG": 8,
-}
-
-
-def _estimate_type_size(type_str: str) -> int:
-    """Estimate the size of a C type from its name."""
-    base = type_str.rstrip("*").strip()
-    # Strip array suffix
-    arr_match = _ARRAY_SIZE_RE.search(base)
-    elem_count = int(arr_match.group(1)) if arr_match else 1
-    base = _ARRAY_STRIP_RE.sub("", base).strip()
-
-    if "*" in type_str:
-        return 4 * elem_count  # 32-bit pointer
-
-    size = _TYPE_SIZES.get(base, 4)  # default to 4 (int)
-    return size * elem_count
-
-
 def verify_bss_layout(
     scan: ScanResult,
     sections: dict[str, dict[str, Any]],
@@ -659,11 +614,15 @@ def verify_bss_layout(
 
     bss_end = bss_va + bss_size
 
+    # Shared type-size model (data_layout) — the same table that sizes
+    # materialized definitions, so coverage estimates cannot drift.
+    from rebrew.data_layout import estimate_type_size
+
     # Collect BSS globals (those with VAs in the .bss range)
     bss_entries: list[BssEntry] = []
     for entry in scan.globals.values():
         if entry.va and bss_va <= entry.va < bss_end:
-            size_hint = _estimate_type_size(entry.type_str) if entry.type_str else 4
+            size_hint = estimate_type_size(entry.type_str) if entry.type_str else 4
             bss_entries.append(
                 BssEntry(
                     name=entry.name,
@@ -971,9 +930,11 @@ def _section_summary(scan: ScanResult, sections: dict[str, dict[str, Any]]) -> l
     """Per-section progress: globals, annotated bytes, and % byte coverage.
 
     Annotated bytes are estimated from each annotated global's declared type
-    (via the same type-size heuristic as BSS coverage).  A section with no
+    (via the shared data_layout type-size model).  A section with no
     annotatable contribution reports coverage 0.0%.
     """
+    from rebrew.data_layout import estimate_type_size
+
     per_section: dict[str, dict[str, Any]] = {}
     for entry in scan.globals.values():
         sec_name = entry.section or "unknown"
@@ -983,7 +944,7 @@ def _section_summary(scan: ScanResult, sections: dict[str, dict[str, Any]]) -> l
         s["globals"] += 1
         if entry.annotated:
             s["annotated"] += 1
-            s["annotated_bytes"] += _estimate_type_size(entry.type_str) if entry.type_str else 4
+            s["annotated_bytes"] += estimate_type_size(entry.type_str) if entry.type_str else 4
 
     out: list[dict[str, Any]] = []
     for sec_name in [".data", ".rdata", ".bss", "unknown"]:

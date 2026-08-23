@@ -88,8 +88,14 @@ def compile_c(
     # symlinks on the mounted host dir); only the source is copied.
     for sub in ("BIN", "INCLUDE", "LIB"):
         link = sandbox / sub
+        target = vc / sub
+        # Replace a stale symlink when the sandbox is reused with a different
+        # compiler version (a workdir staged for 1.52 must not silently keep
+        # compiling with 1.52 when version="1.5-win16" is requested).
+        if link.is_symlink() and link.resolve() != target.resolve():
+            link.unlink()
         if not link.exists():
-            link.symlink_to(vc / sub, target_is_directory=True)
+            link.symlink_to(target, target_is_directory=True)
     (sandbox / staged_name).write_text(src_text, encoding="utf-8")
 
     flags = cflags if cflags is not None else ["/c", "/nologo"]

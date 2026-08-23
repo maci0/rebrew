@@ -1017,18 +1017,23 @@ def _test_multi(
                 obj_bytes, reloc_dict, full_relocs = parse_obj_symbol_and_relocs(obj_path, sym)
 
                 if obj_bytes is None:
+                    # Same failure class as a malformed .obj below: label it
+                    # EXTRACT_ERROR (not "ERROR"/MISSING) so verify-cache,
+                    # reports, and the exit-code contract treat all three
+                    # post-compile extraction failures identically.
+                    any_extract_error = True
                     if json_output:
                         results_list.append(
                             {
                                 "symbol": sym,
                                 "va": f"0x{ann.va:08x}",
                                 "size": ann.size,
-                                "status": "ERROR",
+                                "status": "EXTRACT_ERROR",
                                 "error": "Symbol not found in .obj",
                             }
                         )
                     else:
-                        console.print(f"[red]MISSING[/red] {sym} — not found in .obj")
+                        console.print(f"[red]EXTRACT_ERROR[/red] {sym} — not found in .obj")
                     continue
 
                 coff_relocs = full_relocs if full_relocs else reloc_dict

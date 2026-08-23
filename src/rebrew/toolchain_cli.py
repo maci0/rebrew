@@ -424,6 +424,10 @@ def vendor_cmd(
 #: source + toolchain → the same object, every build).
 _SMOKE_SOURCE = "int add(int a, int b) { return a + b; }\n"
 _SMOKE_DPR = "program hello;\nbegin\nend.\n"
+# SOURCE_DATE_EPOCH convention: a fixed source mtime makes the object
+# metadata deterministic across runs (the object embeds the source path
+# and its modification time — fresh writes would break the golden hashes).
+_SDE = 1767225600  # 2026-01-01 00:00:00 UTC
 _SMOKE_GOLDEN: dict[
     str, tuple[list[str], str, str, str, tuple[int, int] | list[tuple[int, int]] | None]
 ] = {
@@ -714,15 +718,10 @@ def smoke_cmd(
     can regenerate the _SMOKE_GOLDEN table mechanically: run it, verify the
     new hashes are stable across a second run, then paste them in.
     """
-    import hashlib
     import os
     import subprocess
 
     from rebrew.toolchain import get_toolchain
-
-    # SOURCE_DATE_EPOCH convention: a fixed source mtime makes the object
-    # metadata deterministic across runs.
-    _SDE = 1767225600  # 2026-01-01 00:00:00 UTC
 
     targets = [name] if name else sorted(_SMOKE_GOLDEN)
     results: dict[str, str] = {}
@@ -742,7 +741,7 @@ def smoke_cmd(
             src = _SMOKE_SOURCE if src_name == "t.c" else _SMOKE_DPR
             src_path = workdir / src_name
             src_path.write_text(src, encoding="utf-8")
-            os.utime(src_path, (int(_SDE), int(_SDE)))
+            os.utime(src_path, (_SDE, _SDE))
             if spec.image is not None:
                 container = f"rebrew-smoke-{spec.name}-{tool}"
                 try:
@@ -795,18 +794,11 @@ def smoke_cmd(
                 results[tool] = "FAIL (no object: " + detail + ")"
                 ok = False
                 continue
-            raw = obj.read_bytes()
-            if mask is not None:
-                # Zero the compiler's build-timestamp fields (e.g. the COFF
-                # TimeDateStamp, or Turbo C's per-run COMENT ticks + record
-                # checksums) — the rest of the object is what determinism
-                # covers.  A single range or a list of ranges both work.
-                ranges = mask if isinstance(mask, list) else [mask]
-                masked = bytearray(raw)
-                for start, end in ranges:
-                    masked[start:end] = b"\x00" * (end - start)
-                raw = bytes(masked)
-            actual = hashlib.sha256(raw).hexdigest()
+            # Zero the compiler's build-timestamp fields (e.g. the COFF
+            # TimeDateStamp, or Turbo C's per-run COMENT ticks + record
+            # checksums) — the rest of the object is what determinism
+            # covers.  A single range or a list of ranges both work.
+            actual = _masked_obj_sha256(obj, mask)
             if print_goldens:
                 results[tool] = actual
                 obj.unlink(missing_ok=True)
@@ -912,8 +904,18 @@ def build_cmd(
         console.print(f"[green]Built[/green] {spec.image}")
 
 
-_SDE = 1767225600  # 2026-01-01 00:00:00 UTC — fixed source mtime so the
-# object metadata is deterministic across runs.
+def _masked_obj_sha256(obj: Path, mask: tuple[int, int] | list[tuple[int, int]] | None) -> str:
+    """sha256 of *obj* with the masked byte ranges zeroed (golden hashing)."""
+    import hashlib
+
+    raw = obj.read_bytes()
+    if mask is not None:
+        ranges = mask if isinstance(mask, list) else [mask]
+        masked = bytearray(raw)
+        for start, end in ranges:
+            masked[start:end] = b"\x00" * (end - start)
+        raw = bytes(masked)
+    return hashlib.sha256(raw).hexdigest()
 
 
 def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
@@ -924,7 +926,6 @@ def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
     the helper 'rebrew toolchain update' uses to regenerate _SMOKE_GOLDEN
     after re-pinning and rebuilding an image.  Returns None when the
     compile produced no object."""
-    import hashlib
     import os
     import subprocess
 
@@ -937,7 +938,10 @@ def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
     src = _SMOKE_SOURCE if src_name == "t.c" else _SMOKE_DPR
     src_path = workdir / src_name
     src_path.write_text(src, encoding="utf-8")
-    os.utime(src_path, (int(_SDE), int(_SDE)))
+    os.utime(src_path, (_SDE, _SDE))
+    # Named so the timeout path can kill it (a killed docker CLI leaves the
+    # container under dockerd) — same discipline as smoke_cmd above.
+    container = f"rebrew-smoke-hash-{tool}"
     try:
         subprocess.run(
             [
@@ -945,6 +949,8 @@ def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
                 "run",
                 "--rm",
                 "--network=none",  # compile-only container
+                "--name",
+                container,
                 "-v",
                 f"{workdir}:/work",
                 "-w",
@@ -956,22 +962,21 @@ def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
             text=True,
             timeout=300,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except subprocess.TimeoutExpired:
+        from rebrew.toolchain import _kill_container
+
+        _kill_container(container)
+        return None
+    except OSError:
         # A hung daemon or missing docker degrades to "no object" — the
         # caller reports the golden mismatch instead of crashing mid-update.
         return None
     obj = workdir / out_name
     if not obj.exists():
         return None
-    raw = obj.read_bytes()
-    if mask is not None:
-        ranges = mask if isinstance(mask, list) else [mask]
-        masked = bytearray(raw)
-        for start, end in ranges:
-            masked[start:end] = b"\x00" * (end - start)
-        raw = bytes(masked)
+    digest = _masked_obj_sha256(obj, mask)
     obj.unlink(missing_ok=True)
-    return hashlib.sha256(raw).hexdigest()
+    return digest
 
 
 _CODELOAD_RE = r"https://codeload\.github\.com/([^/]+)/([^/]+)/tar\.gz/refs/heads/([A-Za-z0-9._-]+)"
