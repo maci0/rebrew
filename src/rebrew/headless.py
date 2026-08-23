@@ -112,11 +112,21 @@ def _wait_for_socket(
 
 
 def _shutdown_xvfb(proc: subprocess.Popen[bytes]) -> None:
-    """atexit hook — terminate the Xvfb this process spawned."""
+    """atexit hook — terminate the Xvfb this process spawned.
+
+    A server that ignores SIGTERM must not survive this process holding
+    its display socket, nor linger as an unreaped child for the rest of
+    the batch — escalate to SIGKILL when the graceful wait times out.
+    """
     with contextlib.suppress(Exception):
         proc.terminate()
-    with contextlib.suppress(Exception):
+    try:
         proc.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        with contextlib.suppress(Exception):
+            proc.kill()
+        with contextlib.suppress(Exception):
+            proc.wait(timeout=2)
 
 
 def ensure_xvfb() -> str | None:
