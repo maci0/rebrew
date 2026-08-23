@@ -21,6 +21,7 @@ All addresses are full image VAs; the section geometry (``data_base``,
 
 from __future__ import annotations
 
+import math
 import re
 import struct
 import subprocess
@@ -484,31 +485,53 @@ def typed_array_literal(ctype: str, data: bytes) -> tuple[str, int]:
     Byte-sized elements keep :func:`hex_list`'s raw-byte layout; wider
     elements are formatted per element so ``int arr[3]`` emits three ints
     instead of twelve bytes under an inflated dimension.
+
+    Raises ``ValueError`` when an element has no valid C89 literal
+    (a non-finite float/double — ``nan``/``inf`` are not constant
+    expressions), so callers can skip the symbol instead of emitting a
+    definition that cannot compile.
     """
     elemsize = c_type_size(ctype)
     if elemsize <= 1:
         return hex_list(data), len(data)
     usable = len(data) - len(data) % elemsize
-    elems = [
-        _scalar_literal(data[off : off + elemsize], ctype, elemsize) or "0"
-        for off in range(0, usable, elemsize)
-    ]
+    elems = []
+    for off in range(0, usable, elemsize):
+        lit = _scalar_literal(data[off : off + elemsize], ctype, elemsize)
+        if lit is None:
+            raise ValueError(
+                f"{ctype} element at byte {off} has no C89 literal (non-finite float/double bytes)"
+            )
+        elems.append(lit)
     lines = ["    " + ", ".join(elems[i : i + 16]) + "," for i in range(0, len(elems), 16)]
     return "{\n" + "\n".join(lines) + "\n}", len(elems)
 
 
 def _scalar_literal(data: bytes, ctype: str, size: int) -> str | None:
-    """A C initializer for *data* as *ctype* (None when the bytes don't fit)."""
+    """A C initializer for *data* as *ctype* (None when the bytes don't fit).
+
+    Floats and doubles (including the ``FLOAT``/``DOUBLE`` Windows typedefs)
+    emit decimal literals whose widened-double repr round-trips to the exact
+    original bits under any conforming compiler.  Non-finite values return
+    None: C89 has no NaN/Inf literal, and an integer fallback would be
+    implicitly converted to a completely different value.
+    """
     if "*" in ctype:
         if len(data) >= 4:
             v = struct.unpack_from("<I", data)[0]
             return "0" if v == 0 else f"(void*) 0x{v:08x}"
         return None
-    base = ctype.rstrip("*").strip()
-    if base in ("float",):
-        return f"{struct.unpack_from('<f', data)[0]!r}f" if len(data) >= 4 else None
-    if base in ("double",):
-        return repr(struct.unpack_from("<d", data)[0]) if len(data) >= 8 else None
+    base = ctype.rstrip("*").strip().lower()
+    if base == "float":
+        if len(data) < 4:
+            return None
+        v = struct.unpack_from("<f", data)[0]
+        return f"{v!r}f" if math.isfinite(v) else None
+    if base == "double":
+        if len(data) < 8:
+            return None
+        v = struct.unpack_from("<d", data)[0]
+        return repr(v) if math.isfinite(v) else None
     if size == 1:
         return str(data[0])
     if size == 2:
@@ -596,7 +619,11 @@ def own_data_globals(
             if not data:
                 skipped.append(name)
                 continue
-            value, dim = typed_array_literal(base, data)
+            try:
+                value, dim = typed_array_literal(base, data)
+            except ValueError:
+                skipped.append(name)  # non-finite float bytes — no C89 literal exists
+                continue
             is_array = True
         owner = owner_of([name], files)
         if owner is None:
@@ -749,7 +776,12 @@ def fix_ownership(
             end = orig.find(b"\x00", off, off + 0x200)
             size = end - off + 1 if elemsize == 1 and 0 <= end < raw_end - data_base else elemsize
             data = orig[off : off + size]
-            init, count = typed_array_literal(typ, data)
+            try:
+                init, count = typed_array_literal(typ, data)
+            except ValueError:
+                # Non-finite float bytes have no C89 literal — leave the
+                # definition in its current TU rather than emit invalid C.
+                continue
             def_line = f"{typ} {name}[{count}] = {init};"
         else:
             def_line = f"{typ} {name} = 0;"

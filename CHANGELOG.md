@@ -167,6 +167,19 @@
   init, `toolchain smoke`, linked-compare link, import-symbol grep) now
   blocks egress: compilation is strictly local (source in, object out) and
   a toolchain image has no reason to touch the network during a build.
+### Fixed
+- **`rebrew data --own`/`--fix-ownership` materialized wrong float
+  globals** — `_scalar_literal` (`data_layout.py`) routed the Windows
+  typedefs `FLOAT`/`DOUBLE` to the integer-literal branch, so e.g. the 4
+  bytes of `123.0f` were emitted as `FLOAT g = 0x42f60000;`, which C
+  implicitly converts to `1123483648.0` (silently corrupting the stored
+  value).  Float/double detection is now case-insensitive and emits a
+  decimal literal that round-trips to the exact original bits.
+  Non-finite bytes (NaN/Inf) previously rendered as `nanf`/`inff`
+  (invalid C89, breaking the generated TU); they now return no literal,
+  so `--own` reports the symbol as skipped instead of writing a
+  definition that cannot compile, and array materialization raises a
+  clear `ValueError` instead of silently zeroing the element.
 
 ## [0.5.0] - 2026-08-23
 ### Added

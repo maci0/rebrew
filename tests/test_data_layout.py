@@ -144,6 +144,98 @@ def test_parse_stub_globals(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Scalar literal rendering (float bit-exactness, non-finite handling)
+# ---------------------------------------------------------------------------
+
+
+def test_scalar_literal_float_emits_decimal_not_hex() -> None:
+    """A FLOAT typedef must render as a float literal: an integer literal
+    would be implicitly converted by C and silently change the value."""
+    import struct
+
+    from rebrew.data_layout import _scalar_literal
+
+    assert _scalar_literal(struct.pack("<f", 123.0), "float", 4) == "123.0f"
+    assert _scalar_literal(struct.pack("<f", 123.0), "FLOAT", 4) == "123.0f"
+    assert _scalar_literal(struct.pack("<f", -2.5), "float", 4) == "-2.5f"
+
+
+def test_scalar_literal_float_round_trips_bits() -> None:
+    """The emitted literal re-parsed by a compiler (float(double(literal)))
+    must reproduce the original 4 bytes exactly."""
+    import struct
+
+    from rebrew.data_layout import _scalar_literal
+
+    for bits in (0x3DCCCCCD, 0x7F7FFFFF, 0x00000001, 0x80000000, 0x4B18967F):
+        raw = struct.pack("<I", bits)
+        lit = _scalar_literal(raw, "float", 4)
+        assert lit is not None and lit.endswith("f")
+        # A C compiler parses the decimal literal as double, then narrows.
+        narrowed = struct.unpack("<f", struct.pack("<f", float(lit.rstrip("f"))))[0]
+        assert struct.pack("<f", narrowed) == raw
+
+
+def test_scalar_literal_non_finite_returns_none() -> None:
+    """NaN/Inf have no C89 literal; an integer fallback would change the value."""
+    import math
+    import struct
+
+    from rebrew.data_layout import _scalar_literal
+
+    assert _scalar_literal(struct.pack("<I", 0x7FC00000), "float", 4) is None  # qNaN
+    assert _scalar_literal(struct.pack("<I", 0x7F800000), "float", 4) is None  # inf
+    assert _scalar_literal(struct.pack("<d", math.inf), "double", 8) is None
+    assert _scalar_literal(struct.pack("<d", math.nan), "DOUBLE", 8) is None
+
+
+def test_typed_array_literal_rejects_non_finite_element() -> None:
+    import struct
+
+    from rebrew.data_layout import typed_array_literal
+
+    good = struct.pack("<f", 1.0)
+    inf = struct.pack("<I", 0x7F800000)
+    with pytest.raises(ValueError, match="no C89 literal"):
+        typed_array_literal("float", good + inf)
+
+
+def test_own_data_globals_skips_nan_float_and_materializes_finite(tmp_path: Path) -> None:
+    import struct
+
+    from rebrew.data_layout import own_data_globals
+
+    data_base = 0x10027000
+    raw = (
+        struct.pack("<f", 12.5)
+        + struct.pack("<I", 0x7FC00000)  # NaN
+        + b"\x00" * 24
+    )
+    binp = _own_fixture(tmp_path, raw, data_base)
+    (tmp_path / "src" / "mod.c").write_text(
+        "extern float g_ok;\nextern FLOAT g_nan;\n", encoding="utf-8"
+    )
+    meta = tmp_path / "rebrew-data.toml"
+    meta.write_text(
+        f'["SERVER.0x{data_base:x}"]\nname = "g_ok"\nsection = ".data"\ntype = "float"\n'
+        f'["SERVER.0x{data_base + 4:x}"]\nname = "g_nan"\nsection = ".data"\ntype = "FLOAT"\n',
+        encoding="utf-8",
+    )
+    stub = tmp_path / "src" / "link_stubs.c"
+    stub.write_text("float g_ok = 0;\nFLOAT g_nan = 0;\n", encoding="utf-8")
+
+    result = own_data_globals(tmp_path, meta, binp, tmp_path / "src", stub, dry_run=False)
+    text = (tmp_path / "src" / "mod.c").read_text()
+    assert "float g_ok = 12.5f;" in text
+    assert "nanf" not in text.lower()
+    assert "inff" not in text.lower()
+    assert "g_nan" in result["skipped"]
+    assert "FLOAT g_nan =" not in text
+
+
+# ---------------------------------------------------------------------------
+# data --fix-ownership (integration with a mingw-compiled COFF object)
+# ---------------------------------------------------------------------------
 # data --own
 # ---------------------------------------------------------------------------
 
