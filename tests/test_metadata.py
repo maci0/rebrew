@@ -11,6 +11,7 @@ from rebrew.metadata import (
     METADATA_FILENAME,
     _delete_field,
     _set_field,
+    delete_metadata_entry,
     get_entry,
     is_metadata_key,
     load_metadata,
@@ -200,6 +201,49 @@ class TestGetEntry:
 
     def test_no_metadata(self, tmp_path: Path) -> None:
         assert get_entry(tmp_path, 0x01006364, module="SERVER") == {}
+
+
+# ---------------------------------------------------------------------------
+# delete_metadata_entry
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteMetadataEntry:
+    """delete_metadata_entry removes the whole (module, va) entry — used by
+    intake's stale-stub pruning; a wrong deletion would silently drop status."""
+
+    def test_removes_existing_entry(self, tmp_path: Path) -> None:
+        save_metadata(
+            tmp_path,
+            {
+                ("SERVER", 0x01006364): {"size": 80, "status": "EXACT"},
+                ("SERVER", 0x01006400): {"size": 120, "status": "STUB"},
+            },
+        )
+        assert delete_metadata_entry(tmp_path, 0x01006364, "SERVER") is True
+        assert get_entry(tmp_path, 0x01006364, "SERVER") == {}
+        # Sibling entries must survive.
+        assert get_entry(tmp_path, 0x01006400, "SERVER")["status"] == "STUB"
+
+    def test_missing_entry_returns_false(self, tmp_path: Path) -> None:
+        save_metadata(tmp_path, {("SERVER", 0x01006364): {"size": 80}})
+        assert delete_metadata_entry(tmp_path, 0x99999999, "SERVER") is False
+        assert get_entry(tmp_path, 0x01006364, "SERVER")["size"] == 80
+
+    def test_missing_file_returns_false(self, tmp_path: Path) -> None:
+        assert delete_metadata_entry(tmp_path, 0x01006364, "SERVER") is False
+        assert not (tmp_path / METADATA_FILENAME).exists()
+
+    def test_same_va_other_module_untouched(self, tmp_path: Path) -> None:
+        save_metadata(
+            tmp_path,
+            {
+                ("SERVER", 0x10008880): {"status": "EXACT"},
+                ("CLIENT", 0x10008880): {"status": "STUB"},
+            },
+        )
+        assert delete_metadata_entry(tmp_path, 0x10008880, "CLIENT") is True
+        assert get_entry(tmp_path, 0x10008880, "SERVER")["status"] == "EXACT"
 
 
 # ---------------------------------------------------------------------------

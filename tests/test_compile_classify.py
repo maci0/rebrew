@@ -1,6 +1,11 @@
-"""Tests for compile.py classify_compare_result — the central classification."""
+"""Tests for compile.py classification — the central status decisions."""
 
-from rebrew.compile import classify_compare_result
+from rebrew.compile import (
+    NEAR_MATCH_THRESHOLD,
+    classify_compare_result,
+    classify_match_status,
+    is_matched,
+)
 
 
 class TestClassifyCompareResult:
@@ -160,6 +165,58 @@ class TestClassifyCompareResult:
             size_mismatch=True,
         )
         assert r.status == "SIZE_MISMATCH"
+
+
+class TestClassifyMatchStatus:
+    """classify_match_status: raw-result → EXACT/RELOC/NEAR_MATCHING/STUB.
+
+    The threshold boundary is inclusive (>= NEAR_MATCH_THRESHOLD), and a
+    zero-length target must classify STUB rather than divide by zero.
+    """
+
+    def test_matched_no_relocs_exact(self) -> None:
+        assert classify_match_status(True, 10, 10, []) == "EXACT"
+
+    def test_matched_default_relocs_exact(self) -> None:
+        # The default relocs sentinel is the empty tuple — must behave like [].
+        assert classify_match_status(True, 10, 10) == "EXACT"
+
+    def test_matched_with_relocs_reloc(self) -> None:
+        assert classify_match_status(True, 9, 10, [4]) == "RELOC"
+
+    def test_at_threshold_is_near_matching(self) -> None:
+        # Exactly at the threshold counts as NEAR_MATCHING (>=, not >).
+        total = 100
+        count = int(NEAR_MATCH_THRESHOLD * total)
+        status = classify_match_status(False, count, total)
+        assert status == "NEAR_MATCHING"
+
+    def test_just_below_threshold_is_stub(self) -> None:
+        total = 100
+        count = int(NEAR_MATCH_THRESHOLD * total) - 1
+        status = classify_match_status(False, count, total)
+        assert status == "STUB"
+
+    def test_above_threshold_near_matching(self) -> None:
+        assert classify_match_status(False, 90, 100) == "NEAR_MATCHING"
+
+    def test_zero_total_is_stub_not_crash(self) -> None:
+        # Empty comparison (both sides zero-length): no ZeroDivisionError.
+        assert classify_match_status(False, 0, 0) == "STUB"
+
+    def test_zero_total_with_relocs_still_unmatched(self) -> None:
+        # Relocs never promote a non-matching result to RELOC.
+        assert classify_match_status(False, 0, 0, [4]) == "STUB"
+
+
+class TestIsMatched:
+    def test_matched_statuses(self) -> None:
+        for status in ("EXACT", "RELOC", "PROVEN"):
+            assert is_matched(status) is True
+
+    def test_unmatched_statuses(self) -> None:
+        for status in ("STUB", "NEAR_MATCHING", "SIZE_MISMATCH", "", "COMPILE_ERROR"):
+            assert is_matched(status) is False
 
     def test_real_tiny_function_not_stub(self) -> None:
         """A genuinely tiny candidate (5B) against a small target (8B) is not
