@@ -126,6 +126,14 @@ DOSBox.  Emits 16-bit OMF objects.
   branch-style as 32-bit VC 2.0/4.x setcc).  `u_lt` uses `jbe`,
   `w_eq` uses `jne`.
 
+## Probe16: 16-bit depth — verified
+
+- **The 1.x line is byte-identical on the probe13 idiom set** — MSVC
+  1.0, 1.5 and 1.52 produce identical objects for every probe13
+  function (`c_add`/`uc_add`/`c_mul`/`bf_get`/`str_len_manual`/
+  `s8_make`), extending the earlier probe4 identicality note to the
+  full round-11 idiom set.  No codegen separates 1.0/1.5/1.52.
+
 ## Verification
 
 Probe `/O1` via `rebrew/msvc:1.52-win16` (`out16/probe.OBJ` and the

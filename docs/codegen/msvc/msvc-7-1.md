@@ -109,6 +109,15 @@ feature (SP spot-check).  Verified in probe12 (`f1`/`f2`/`fl`).
   GCC/Zig — family-level era marker.
 - **stdcall args load in REVERSE order** — the 5.0–9.0 form.
 
+## Probe16: 64-bit division + C++ — verified
+
+- **64-bit division = register-load + 4-push helper call** — the
+  5.0–10.0 form; /O1 uses the compact 4× memory-push in every
+  version.
+- **C++ `new`/`delete` TAIL-JUMP from 7.0** — `jmp <operator
+  new>`/`jmp <operator delete>` (5.0/6.0 call + ret instead).
+  Vtable dispatch uniform `mov eax,[ecx]; call [eax]`.
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:7.1-win32` (`msvc710_{O1,O2}.obj`);

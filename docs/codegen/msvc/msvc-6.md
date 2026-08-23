@@ -179,6 +179,16 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 - **SP spot-check** — 6.0 SP1/SP3/SP6 byte-identical to the 6.0 RTM
   on the probe15 set.
 
+## Probe16: 64-bit division + C++ — verified
+
+- **64-bit division = register-load + 4-push helper call** (`8b 44 24
+  10 8b 4c 24 0c 8b 54 24 08 50 8b 44 24 08 51 52 50 e8`) — the
+  5.0–10.0 form, uniform across div/udiv/rem/urem (target differs:
+  `__alldiv`/`__aulldiv`/`__allrem`/`__aullrem`); /O1 uses the
+  compact 4× memory-push in every version.
+- **C++ `new`/`delete` = call + `add esp,4`/`pop ecx`** — the
+  5.0/6.0 call+ret form (7.0+ tail-jumps).
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:6.0-win32` (`msvc600_{O1,O2}.obj`);

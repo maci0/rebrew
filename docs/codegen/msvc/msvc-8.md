@@ -155,6 +155,13 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
   immediate compare with the add-over-inc tail (2.0–7.1 use `inc
   eax`; 9.0+ load the constant into EAX first).
 
+## Probe16: 64-bit division — verified
+
+- **64-bit division = register-load + 4-push helper call** — the
+  5.0–10.0 form (8.0: `8b 44 24 10 8b 4c 24 0c 8b 54 24 08 50 8b 44
+  24 08 51 52 50 e8`); /O1 uses the compact 4× memory-push in every
+  version.
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:8.0-win32` (`msvc800_{O1,O2}.obj`);

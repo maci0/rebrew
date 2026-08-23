@@ -148,6 +148,20 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 - **`wchar >= 0x100`** = `mov eax,0x100; cmp ax,[esp+4]` (9.0+ loads
   the constant first, vs 2.0–8.0's memory-immediate `66 81 7c 24 04`).
 
+## Probe16: 64-bit division + C++ — verified
+
+- **64-bit division = 4× MEMORY-push helper call at /O2** — `push
+  dword ptr [esp+0x10]` ×4 + call (`ff 74 24 10 ff 74 24 10 ff 74
+  24 10 ff 74 24 10 e8`) — VC 11.0 is the ONLY version using the
+  memory-push form at /O2 (5.0–10.0 register-load + 4-push; every
+  version uses the memory-push at /O1).  The 11.0 push-from-memory
+  trait, now in its third dimension (i64 div, vtable args).
+- **C++ `new int[n]` adds a CHECKED array-size multiply** — `mov
+  edx,4; mul edx; seto cl; neg ecx; or ecx,eax` (the overflow-guard
+  before the `operator new[]` call); `new int`/`delete` stay
+  tail-jumps; vtable args are pushed from memory (`push dword ptr
+  [esp+8]`).
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:11.0-win32` (`msvc1100_{O1,O2}.obj`);

@@ -154,6 +154,21 @@ MSVC-1.5x-specific (see README).
   ax,3; shl ax,1` — the shl-chain + add + shl (no lea-scale).
 - **no stack cookies** — plain frame + `sub sp,0x40` + `push si/di`.
 
+## Probe16: TC 2.0 depth — verified
+
+- **TC 2.0 `char * 7` = `cwde` + UNSIGNED `mul dx`** where TC 3.1
+  uses `imul dx` — a verified 2.0-vs-3.1 discriminator for the same
+  source (`mov al,[bp+4]; cwde; mov dx,7; mul dx` vs `imul dx`).
+- **TC 2.0 keeps the loop pointer IN MEMORY** — `str_len_manual`
+  increments `word ptr [bp+4]` (the pointer on the stack) where TC
+  3.1 holds it in SI (`inc si`) — memory-held vs register-held
+  induction.
+- **TC 2.0 preprocessor quirk: no `defined()` in `#if`** — `#if
+  defined(...)` fails with "Illegal character '#'" / "Expression
+  syntax" (numeric `#if 1` works); probe13 (guard-free) compiles but
+  probe14/15 (`#if defined(...)` guards) do not — the probe13 idiom
+  set is the TC 2.0 comparison surface.
+
 ## Verification
 
 Probes via `rebrew/borland:{3.1,2.0}-win16` — probe1 (`-O1`:
