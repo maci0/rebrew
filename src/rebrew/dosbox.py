@@ -24,14 +24,13 @@ def _build_dosbox_conf(sandbox: Path, autoexec: list[str]) -> str:
     Byte-identical to the image-side driver (`wrapper-common.sh`'s
     ``rebrew_dosbox_run`` printf) — the two are the docker-less fallback and
     the containerized path for the same 16-bit compilers, enforced identical
-    by ``TestDosboxDriverSync`` (note the double backslash in ``cd \\\\``,
-    matching the shell single-quoted printf).
+    by ``TestDosboxDriverSync``.
     """
     body = "\n".join(
         [
             "mount c " + str(sandbox),
             "C:",
-            "cd \\\\",
+            "cd \\",
             *autoexec,
             "exit",
         ]
@@ -77,9 +76,9 @@ def run_dosbox(
     *,
     timeout: int = 180,
 ) -> None:
-    """Run DOSBox headless with *sandbox* mounted as the ``C:`` drive.
+    r"""Run DOSBox headless with *sandbox* mounted as the ``C:`` drive.
 
-    *autoexec* lines execute after ``mount c <sandbox>; C:; cd \\`` and
+    *autoexec* lines execute after ``mount c <sandbox>; C:; cd \`` and
     before ``exit``.  Raises :class:`DosboxError` when dosbox is not on
     PATH, the subprocess fails/times out, or dosbox exits nonzero (the
     compiler never ran, so callers must see why instead of hunting an

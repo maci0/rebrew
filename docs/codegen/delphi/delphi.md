@@ -164,7 +164,7 @@ plain Integer args too).  RTL functions use far `retf`/`retf N` (`ca`).
 
 - **Probe17 verified-negative**: the C-convention triggers (fastcall, varargs) have no Delphi 1.0 Pascal counterpart — no new marker; corpus pointer.
 
-- **Decomp idioms** — the probe19-27 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe27` records).
+- **Decomp idioms** — the probe19-28 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe28` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -194,6 +194,11 @@ plain Integer args too).  RTL functions use far `retf`/`retf N` (`ca`).
 ## Probe27: Findings 46-50 primitives (round 24)
 
 - **Probe27**: not applicable (Pascal).
+
+
+## Probe28: decompedia/CODEGEN_PATTERNS claims (round 25)
+
+- **Probe28**: not applicable (Pascal).
 
 
 ## Verification

@@ -11,6 +11,37 @@
   release-check` dropped the bash-only `set -o pipefail` (the recipe has
   no pipelines; `/bin/sh` is dash on stock Debian).
 ### Added
+- **Codegen corpus round 25 — decompedia + CODEGEN_PATTERNS claims
+  (probe28)** — `docs/codegen/corpus.json` grows 13127 → **13727
+  records** (probe28 adds 600: 10 MSVC versions × /O2+/O1, 7 SPs,
+  bcc32/Watcom/GCC/Zig, and the 16-bit set).  First round from the
+  dual-source line (guild doc re-checked: no new findings).  Added to
+  RULES.md:
+  - **D10 VERIFIED** — FP-const encoding eras: `a + 1.0` → 2.0/4.x
+    `fld1`+fadd, **VC 5.0 `fsub qword [−1.0]` with the NEGATED
+    constant in .rdata (a 5.0-ONLY quirk, also for `a+0.5` and the
+    float forms)** — the decompedia claim confirmed byte-exact;
+    6.0–10.0 `fadd [+1.0]`; 11.0 SSE.
+  - **C33 VERIFIED** — compare encodings: `x <= 0` → `test; setle`
+    (2B) vs `x < 1` → `cmp 1; setl` (3B) in 5.0–7.1 (8.0+ memory
+    compares, 2.0/4.1 branchy) — the exact-constant form is 1 byte
+    shorter and steerable from C.
+  - **C34 VERIFIED** — return-width: `char` returns `mov al,N` in
+    every version; **`short` returns `mov ax,N` 2.0–8.0 but `mov
+    eax,N` (no truncation) from 9.0** — a new era marker.
+  - **F25 extended** — `x == -1` compares: both the if-form and
+    `(x!=-1)-1` compile to `cmp; setne al; neg eax` in 5.0–11.0 (the
+    CODEGEN_PATTERNS "inc/neg/sbb 7B" claim only holds for the
+    2.0/4.1 inc/sbb family).
+  - **D11 verified-negative** — `(x<<n)|(x>>(32-n))` is a shift-pair
+    + `or` in EVERY version; the decompedia "rol from 8.0" claim is
+    not reproduced for the shift-pair shape.
+  - `corpus-matrix.json` index 469 → **487 functions**; idiom sweep
+    validates (`cmp_*` guild 6-12×, `m1*` 6-8×, `fp4` 3×, `ret_int`
+    8×, `rot*` TL 3×; rel32-const `fp1-3` negatives recorded).  Docs:
+    RULES.md (+3 rows + 2 extensions), DECOMP_IDIOMS.md (+4 idioms),
+    17 per-toolchain files, README.  See the round-25 spec
+    `.cache/goal_dual_source.md`.
 - **Codegen corpus round 24 — guild Findings 46-50 primitives
   (probe27)** — `docs/codegen/corpus.json` grows 12852 → **13127
   records** (probe27 adds 275: 10 MSVC versions × /O2+/O1, 7 SPs,

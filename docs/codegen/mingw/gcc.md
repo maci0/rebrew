@@ -218,7 +218,7 @@ inlining is unconditional.  Verified in a probe12 re-run with native
 
 - **Probe17 verified-negative**: the probe17 convention/allocator markers are MSVC-internal (register forms, zero-register anchoring); GCC's behavior follows the shared conventions — no new GCC marker; corpus pointer.
 
-- **Decomp idioms** — the probe19-27 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe27` records).
+- **Decomp idioms** — the probe19-28 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe28` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -248,6 +248,11 @@ inlining is unconditional.  Verified in a probe12 re-run with native
 ## Probe27: Findings 46-50 primitives (round 24)
 
 - **Probe27 (MinGW GCC)**: fail paths merge; memory-operand or — recorded in the corpus.  See RULES.md F25/C32.
+
+
+## Probe28: decompedia/CODEGEN_PATTERNS claims (round 25)
+
+- **Probe28 (MinGW GCC)**: FP const via x87 fadd; compares via setcc — recorded in the corpus.  See RULES.md D10/C33.
 
 
 ## Verification

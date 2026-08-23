@@ -181,7 +181,7 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 
 - **Probe17 allocator/conventions**: `-1` stores use the REGISTER form `or eax,-1` (`83 c8 ff`) + `a3` store (5.0–10.0 era); varargs float→double via `fld; sub esp,8; fstp qword [esp]` (`dd 1c 24`).  See RULES.md A5/B5.
 
-- **Decomp idioms** — the probe19-27 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe27` records).
+- **Decomp idioms** — the probe19-28 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe28` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -211,6 +211,11 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 ## Probe27: Findings 46-50 primitives (round 24)
 
 - **Probe27 (5.0)**: **byte-slot or begins (`or ch,0x10` for |=0x1000)**; shared fail epilogue; entry-push callee-saves.  See RULES.md C32/F25.
+
+
+## Probe28: decompedia/CODEGEN_PATTERNS claims (round 25)
+
+- **Probe28 (5.0)**: **the FP-const quirk — `a+1.0` → `fsub qword [−1.0]` (`dc 25`) with negated const in .rdata (5.0-only)**; setne+neg -1 compare; setcc cmp encodings.  See RULES.md D10/F25/C33.
 
 
 ## Verification
