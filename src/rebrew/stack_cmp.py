@@ -39,6 +39,7 @@ import capstone  # module-level: analyze_frame is a hot path (near-diag calls it
 import typer
 from rich.console import Console
 
+from rebrew.analysis import capstone_mode_for_arch
 from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
@@ -53,11 +54,6 @@ console = Console(stderr=True)
 _EBP_SLOT_RE = re.compile(r"\[(?:e?bp)\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\]")
 _ESP_DELTA_RE = re.compile(r"\[e?sp\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\]")
 _ENTER_SIZE_RE = re.compile(r"(0x[0-9a-fA-F]+|\d+)")
-
-
-def _cs_mode_for_cfg(cfg: Any) -> int:
-    """Capstone mode for a target config: 16-bit for DOS/NE (x86_16)."""
-    return int(capstone.CS_MODE_16 if getattr(cfg, "arch", "") == "x86_16" else capstone.CS_MODE_32)
 
 
 @functools.lru_cache(maxsize=8)
@@ -274,7 +270,7 @@ def run_stack_cmp(
         error_exit(f"Build failed: {res.error_msg}", json_mode=json_output, code=EXIT_ERROR)
 
     obj_bytes = res.obj_bytes
-    cs_mode = _cs_mode_for_cfg(params.cfg)
+    cs_mode = capstone_mode_for_arch(getattr(params.cfg, "arch", ""))
     target_frame = analyze_frame(params.target_bytes, params.va_int, cs_mode)
     compiled_frame = analyze_frame(obj_bytes, params.va_int, cs_mode)
     comparison = compare_frames(target_frame, compiled_frame)

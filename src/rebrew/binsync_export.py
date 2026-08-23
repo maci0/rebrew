@@ -34,7 +34,7 @@ from rich.console import Console
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, strip_body
 
 app = typer.Typer(
     help="Export rebrew annotations to a BinSync state directory.",
@@ -67,16 +67,6 @@ def _rebrew_comment(status: str, cflags: str) -> str:
     if cflags:
         parts.append(f"CFLAGS={cflags}")
     return f"[rebrew] {' '.join(parts)}" if parts else ""
-
-
-def strip_body(prototype: str) -> str:
-    """Return the function signature without the body (everything before ``{``).
-
-    ``annotation.prototype`` includes the full C definition including its body.
-    BinSync's ``[header].type`` expects only the declaration/signature line.
-    """
-    brace = prototype.find("{")
-    return prototype[:brace].strip() if brace != -1 else prototype.strip()
 
 
 # ---------------------------------------------------------------------------

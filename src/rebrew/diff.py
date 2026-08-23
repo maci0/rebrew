@@ -21,6 +21,7 @@ from typing import Any
 import typer
 from rich.console import Console
 
+from rebrew.analysis import capstone_mode_for_arch
 from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
@@ -224,13 +225,6 @@ def _write_blocker(
     return outcome
 
 
-def _cs_mode_for_cfg(cfg: Any) -> int:
-    """Capstone mode for a target config: 16-bit for DOS/NE (x86_16)."""
-    import capstone
-
-    return int(capstone.CS_MODE_16 if getattr(cfg, "arch", "") == "x86_16" else capstone.CS_MODE_32)
-
-
 def run_diff(
     seed_c: str,
     mismatches_only: bool,
@@ -274,7 +268,7 @@ def run_diff(
     if len(obj_bytes) > len(p.target_bytes):
         obj_bytes = obj_bytes[: len(p.target_bytes)]
 
-    cs_mode = _cs_mode_for_cfg(p.cfg)
+    cs_mode = capstone_mode_for_arch(getattr(p.cfg, "arch", ""))
     summary = diff_functions(
         p.target_bytes,
         obj_bytes,

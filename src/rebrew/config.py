@@ -289,9 +289,6 @@ class ProjectConfig:
     iat_thunks: list[int] = field(default_factory=list)
     dll_exports: dict[int, str] = field(default_factory=dict)
     ignored_symbols: list[str] = field(default_factory=list)
-    compiler_profiles: dict[str, dict[str, str]] = field(
-        default_factory=dict
-    )  # e.g. {"clang": {...}}
     library_modules: set[str] = field(
         default_factory=set
     )  # Module names using LIBRARY marker (e.g. {"MSVCRT", "ZLIB"})
@@ -304,7 +301,6 @@ class ProjectConfig:
     lint_naming_convention: str = "none"  # "snake_case", "camelCase", or "none"
     lint_brace_style: str = "none"  # "same_line", "new_line", or "none"
     lint_indent_style: str = "none"  # "spaces", "tabs", or "none"
-    lint_indent_size: int = 4  # Number of spaces per indent level
     lint_max_line_length: int = 200  # Maximum line length
 
     # --- All known target names ---
@@ -485,26 +481,6 @@ def _parse_str_dict(value: Any, field_name: str) -> dict[str, str]:
             _config_warn(f"Skipping non-string {field_name} entry: {key!r} = {item!r}")
             continue
         result[key] = item
-    return result
-
-
-def _parse_profiles(value: Any) -> dict[str, dict[str, str]]:
-    """Parse ``[compiler.profiles]`` into a typed nested mapping."""
-    if value is None:
-        return {}
-    if not isinstance(value, Mapping):
-        _config_warn(
-            f"Expected mapping for compiler.profiles, got {type(value).__name__}; using empty mapping"
-        )
-        return {}
-    result: dict[str, dict[str, str]] = {}
-    for profile_name, profile_data in value.items():
-        if not isinstance(profile_name, str) or not isinstance(profile_data, Mapping):
-            _config_warn(f"Skipping invalid compiler profile entry: {profile_name!r}")
-            continue
-        parsed = _parse_str_dict(profile_data, f"compiler.profiles.{profile_name}")
-        if parsed:
-            result[profile_name] = parsed
     return result
 
 
@@ -798,9 +774,6 @@ _KNOWN_COMPILER_KEYS = {
     "libs",
     "cflags",
     "profile",
-    "profiles",  # reserved: per-compiler profiles are documented but not yet
-    # wired into a profile-switch path (matcher/compiler.py keys off the
-    # profile NAME only).
     "base_cflags",
     "timeout",
     "cflags_presets",  # written by `rebrew cfg set-cflags --global` (per-origin compiler flag overrides)
@@ -929,18 +902,7 @@ def load_config(
     if not all_target_names:
         raise KeyError("rebrew-project.toml [targets] section has no valid target names")
 
-    global_compiler = {k: v for k, v in global_compiler_raw.items() if k not in ("profiles",)}
-    compiler_profiles = _parse_profiles(global_compiler_raw.get("profiles", {}))
-    if compiler_profiles:
-        # Documented in CONFIG.md as runtime-selectable, but no tool consumes
-        # cfg.compiler_profiles yet — a user configuring [compiler.profiles]
-        # gets zero effect, so say so at load instead of a silent no-op
-        # (config-review F5).
-        _config_warn(
-            f"[compiler].profiles defines {len(compiler_profiles)} profile(s) but "
-            "is RESERVED and currently has no effect (no profile-switch path "
-            "consumes it yet)"
-        )
+    global_compiler = global_compiler_raw
 
     if target is None:
         target = project_raw.get("default_target")
@@ -1161,7 +1123,6 @@ def load_config(
         iat_thunks=_parse_int_list(tgt.get("iat_thunks", []), "iat_thunks"),
         dll_exports=_parse_hex_dict(tgt.get("dll_exports", {})),
         ignored_symbols=_parse_str_list(tgt.get("ignored_symbols", []), "ignored_symbols"),
-        compiler_profiles=compiler_profiles,
         library_modules=set(_parse_str_list(tgt.get("library_modules", []), "library_modules")),
         crt_sources=_parse_str_dict(tgt.get("crt_sources", {}), "crt_sources"),
         source_ext=source_ext,
@@ -1185,11 +1146,6 @@ def load_config(
             (_as_table(project_raw.get("lint", {}), "project.lint")).get("indent_style"),
             "none",
             "project.lint.indent_style",
-        ),
-        lint_indent_size=_positive_int(
-            (_as_table(project_raw.get("lint", {}), "project.lint")).get("indent_size"),
-            4,
-            "project.lint.indent_size",
         ),
         lint_max_line_length=_positive_int(
             (_as_table(project_raw.get("lint", {}), "project.lint")).get("max_line_length"),

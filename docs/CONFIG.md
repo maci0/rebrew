@@ -181,43 +181,9 @@ profile = "msvc7"
 | `runner` | `string` | `""` | Win32 PE runner (`wine`, `wibo`, or empty). Auto-detected from `command` if not set explicitly. Under docker-only execution the runner is empty for image-backed profiles; `rebrew init --install-wibo` writes `tools/wibo` only for native (non-image) profiles — it is ignored for docker-backed ones. A relative runner path resolves against the project root and needs a `command` without the runner prefix |
 | `timeout` | `integer` | `60` | Compile subprocess timeout in seconds |
 
-### Custom Compiler Profiles
-
-Define alternative compiler profiles under `[compiler.profiles.<name>]`. Each profile is a full set of compiler keys.
-
-```toml
-[compiler]
-profile = "msvc6"
-command = ""                             # docker-backed: the image IS the compiler
-includes = "toolchain/msvc/6.0-win32/source/VC98/Include"
-libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
-cflags = "/O2 /Gd"
-
-[compiler.profiles.clang]
-command = "clang"
-includes = "/usr/include"
-libs = "/usr/lib"
-cflags = "-O2"
-
-[compiler.profiles.gcc-pe]
-command = "i686-w64-mingw32-gcc"
-includes = ""
-libs = ""
-cflags = "-O2 -march=pentium4"
-
-[compiler.profiles.msvc7]
-command = ""                             # docker-backed: the image IS the compiler
-includes = "toolchain/msvc/7.0-win32/source/Include"
-libs = "toolchain/msvc/7.0-win32/source/Lib"
-cflags = "/O2 /Gd"
-```
-
-> [!WARNING]
-> `[compiler.profiles.*]` is **reserved and currently has no effect**: no tool
-> consumes `cfg.compiler_profiles` yet — the active compiler comes from the
-> target's `[targets.<T>.compiler]` table (see `rebrew cfg set-compiler`).  The
-> loader warns on every load if profiles are defined.  Define per-target
-> compiler settings with `rebrew cfg set-compiler <target> <profile>` instead.
+Per-target compiler settings (`rebrew cfg set-compiler <target> <profile>`) are
+the supported way to vary the toolchain; `[compiler.profiles.*]` is not
+recognized (the loader warns about it as an unrecognized key).
 
 ### Origin-Based Flag Presets (`cflags_presets`)
 

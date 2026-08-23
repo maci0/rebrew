@@ -39,6 +39,7 @@ import capstone
 import typer
 from rich.console import Console
 
+from rebrew.analysis import capstone_mode_for_arch
 from rebrew.annotation import (
     Annotation,
     has_skip_annotation,
@@ -2129,11 +2130,8 @@ def _run_single_flag_sweep(
         obj_bytes = res.obj_bytes
         if len(obj_bytes) > len(p.target_bytes):
             obj_bytes = obj_bytes[: len(p.target_bytes)]
-        import capstone
 
-        sim_cs_mode = (
-            capstone.CS_MODE_16 if getattr(p.cfg, "arch", "") == "x86_16" else capstone.CS_MODE_32
-        )
+        sim_cs_mode = capstone_mode_for_arch(getattr(p.cfg, "arch", ""))
         sim_res = structural_similarity(
             p.target_bytes, obj_bytes, res.reloc_offsets, cs_mode=sim_cs_mode
         )
@@ -2753,9 +2751,7 @@ def _run_one_stub_ga(
         posix_style=getattr(cfg, "posix_style", False),
         resume_from=resume_from,
         mutation_weights=mutation_weights,
-        cs_mode=(
-            capstone.CS_MODE_16 if getattr(cfg, "arch", "") == "x86_16" else capstone.CS_MODE_32
-        ),
+        cs_mode=capstone_mode_for_arch(getattr(cfg, "arch", "")),
         profile=getattr(cfg, "compiler_profile", ""),
         cfg=cfg,
     )

@@ -386,6 +386,16 @@ def atomic_write_bytes(filepath: Path, data: bytes) -> None:
         raise
 
 
+def strip_body(prototype: str) -> str:
+    """Return the function signature without the body (everything before ``{``).
+
+    ``annotation.prototype`` includes the full C definition including its body.
+    BinSync's ``[header].type`` expects only the declaration/signature line.
+    """
+    brace = prototype.find("{")
+    return prototype[:brace].strip() if brace != -1 else prototype.strip()
+
+
 def preserve_corrupt(path: Path) -> Path | None:
     """Move an unparseable file aside to ``<name>.corrupt`` and return the new path.
 

@@ -545,7 +545,7 @@ binary = "test.exe"
 game_range_end = 0x20000000
 """
         root = _make_project(tmp_path, toml)
-        with pytest.warns(UserWarning, match="RESERVED and currently has no effect"):
+        with pytest.warns(UserWarning, match=r"unrecognized keys.*profiles"):
             load_config(root)
         with pytest.warns(UserWarning, match="legacy no-op key"):
             load_config(root)
