@@ -1,5 +1,42 @@
 ## [Unreleased]
 ### Added
+- **Codegen corpus round 20 — guild Findings 23-36 (probe23)** —
+  `docs/codegen/corpus.json` grows 11182 → **11897 records** (probe23
+  adds 715: 10 MSVC versions × /O2+/O1, 7 SPs, bcc32/Watcom/GCC/Zig,
+  and the 16-bit set).  The ten probe-able shapes from the guild doc's
+  new Findings 23-36 were compiled through every toolchain and added to
+  `docs/codegen/RULES.md`:
+  - **C27 VERIFIED** — index-form lea family: `p[i*7]` → `lea reg,[reg*8];
+    sub` (×8−1) everywhere **except 7.0/7.1 (`imul reg,reg,7`)**, a new
+    7.x fingerprint; `p[i*24]` → `lea*3`+`shl` (6.0–9.0), `add`+×8-SIB
+    (10.0/11.0); /O1 `imul` byte-offset (2.0/8.0/11.0).
+  - **C28 VERIFIED** — division magic constants: signed `/60` =
+    `0x88888889`+`sar 5`, unsigned `/24` = `0xaaaaaaab`+`shr 4`; real
+    `idiv` in 2.0/4.1 and at /O1 everywhere.
+  - **E15/E16/E17 VERIFIED** — SIB index-addressing from 7.0 (`cmp word
+    [base+idx*2],0`; 2.0–6.0 pointer induction); dead arg-slot reuse is
+    a **5.0/6.0 era marker** (`lea eax,[esp+8]`, no frame); base+offset
+    folding from 5.0 (2.0/4.1 materialize the `add`).
+  - **F19 VERIFIED** — branchless if-conversion of constant returns
+    (`dec al;neg al;sbb eax,eax;and al,0xfc` in 5.0/6.0; 7.0+ `sete`+lea;
+    11.0 `cmov`); **the `r=8; if (x==1) r=0xc; return r;` lever preserves
+    the branch in 2.0–10.0** — the steering recipe.
+  - **F21/F22 VERIFIED** — byte-compare temp lever (direct → memory
+    operand compare from 8.0, named temp → register compare); FPU clamp
+    compare forms (`fcomp` 5.0–7.1 / `fcomip` 8.0–10.0 / SSE `comisd`
+    11.0).
+  - **Verified-negatives** — zero-push hoist (every version `push 0`),
+    the FPU re-compare fold (folded everywhere), the separate
+    lea-then-load (SIB folded everywhere), the simple-shape SIB
+    counter-as-base role, and the do-while rotation of the simple scan
+    shape — all recorded with reasons (F27/F30/F35/F29/F23 contexts).
+  - `corpus-matrix.json` index 411 → **432 functions**; idiom sweep
+    validates the new signatures (`argslot` guild 1-3×, `idx7` 9-21×,
+    `udiv24` magic 5-7× + server.dll 2×, `scan_rot` 29-53×; exact
+    `ifconv1`/`div60`/`bytecmp`/`addfold`/`sib_scan`/`fpu_clamp`
+    negatives recorded).  Docs: RULES.md (+9 rows), DECOMP_IDIOMS.md
+    (+6 idioms), 17 per-toolchain files, README.  See the round-20 spec
+    `.cache/goal_probe23.md`.
 - **Codegen corpus round 19 — guild-rule verification (probe22)** —
   `docs/codegen/corpus.json` grows 10073 → **11182 records** (probe22
   adds 885: 10 MSVC versions × /O2+/O1, 7 SPs, bcc32/Watcom/GCC/Zig,

@@ -301,7 +301,7 @@ class TestGhidraBackend:
             ),
             patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
         ):
-            result = fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
+            result = fetch_ghidra(Path("/fake/target.dll"), 0x1000)
 
         assert result == "int foo() {\n  return 42;\n}"
 
@@ -319,7 +319,7 @@ class TestGhidraBackend:
             ),
             patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
         ):
-            result = fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
+            result = fetch_ghidra(Path("/fake/target.dll"), 0x1000)
 
         assert result == "void bar() {}"
 
@@ -335,7 +335,7 @@ class TestGhidraBackend:
             ),
             patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
         ):
-            result = fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
+            result = fetch_ghidra(Path("/fake/target.dll"), 0x1000)
 
         assert result == "int baz();"
 
@@ -349,7 +349,7 @@ class TestGhidraBackend:
             ),
             patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
         ):
-            result = fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
+            result = fetch_ghidra(Path("/fake/target.dll"), 0x1000)
 
         assert result is None
 
@@ -369,7 +369,7 @@ class TestGhidraBackend:
             warnings.catch_warnings(record=True) as caught,
         ):
             warnings.simplefilter("always")
-            result = fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
+            result = fetch_ghidra(Path("/fake/target.dll"), 0x1000)
 
         assert result is None
         assert any(
@@ -389,7 +389,7 @@ class TestGhidraBackend:
             ),
             patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
         ):
-            fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"), endpoint=custom_ep)
+            fetch_ghidra(Path("/fake/target.dll"), 0x1000, endpoint=custom_ep)
 
         post_calls = mock_client.post.call_args_list
         assert any(custom_ep in str(call) for call in post_calls)
@@ -406,7 +406,7 @@ class TestGhidraBackend:
             ),
             patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
         ):
-            fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
+            fetch_ghidra(Path("/fake/target.dll"), 0x1000)
 
         post_calls = mock_client.post.call_args_list
         assert any(_DEFAULT_MCP_ENDPOINT in str(call) for call in post_calls)
@@ -423,7 +423,7 @@ class TestGhidraBackend:
             ),
             patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
         ):
-            fetch_ghidra(Path("/some/dir/LEGO1.DLL"), 0xABCD, Path("/some/dir"))
+            fetch_ghidra(Path("/some/dir/LEGO1.DLL"), 0xABCD)
 
         post_calls = mock_client.post.call_args_list
         tool_call = [c for c in post_calls if "get-decompilation" in str(c)]
@@ -441,7 +441,11 @@ class TestGhidraBackend:
         assert code == "int x;"
         assert name == "ghidra"
         mock_fn.assert_called_once_with(
-            Path("/f"), 0x1000, Path("/f"), endpoint="http://custom:8080/mcp", program_path=None
+            Path("/f"),
+            0x1000,
+            root=Path("/f"),
+            endpoint="http://custom:8080/mcp",
+            program_path=None,
         )
 
     def test_dispatch_does_not_pass_endpoint_for_r2(self) -> None:
@@ -453,7 +457,7 @@ class TestGhidraBackend:
         assert code == "int y;"
         assert name == "r2ghidra"
         mock_fn.assert_called_once_with(
-            Path("/f"), 0x1000, Path("/f"), endpoint="http://unused", program_path=None
+            Path("/f"), 0x1000, root=Path("/f"), endpoint="http://unused", program_path=None
         )
 
     def test_cleans_ansi_from_mcp_response(self) -> None:
@@ -469,7 +473,7 @@ class TestGhidraBackend:
             ),
             patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
         ):
-            result = fetch_ghidra(Path("/fake/target.dll"), 0x1000, Path("/fake"))
+            result = fetch_ghidra(Path("/fake/target.dll"), 0x1000)
 
         assert result == "int foo() {\n  return 1;\n}"
 

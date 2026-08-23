@@ -162,11 +162,16 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 
 - **Probe17 allocator/conventions**: `-1` stores use the IMMEDIATE `c7 05 <addr> ff ff ff ff` form (2.0/4.x era; 5.0–10.0 use `or eax,-1` + `a3`); no zero register is materialized (`cmp [mem],0` memory-immediate compares).  Varargs float→double promotion verified (`fld; sub esp,8; fstp qword [esp]`).  See RULES.md A5/B5.
 
-- **Decomp idioms** — the probe19-22 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe22` records).
+- **Decomp idioms** — the probe19-23 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe23` records).
 
 ## Probe22: guild-rule verification (round 19)
 
 - **Probe22 (2.0-era)**: C23 zero-extend uses the `and eax,0xff` mask in ALL load forms (no dead/live split); C24 negation decomposes via `sub al,N; cmp al,1; sbb eax,eax; inc`; F17 switch preamble uses the xor-extend form; F15 AH ops appear at /O1 (`or ah,0x30`).  See RULES.md C23/C24/F15/F17.
+
+
+## Probe23: Findings 23-36 shapes (round 20)
+
+- **Probe23 (2.0-era)**: idx family via `shl`+`lea*3`; `/60` and `/24` are REAL `idiv` (`mov ecx,60; cdq; idiv`); `addfold` MATERIALIZES the `add reg,0x18`; sbb-variant branchless if-conversion.  See RULES.md C27/C28/E17/F19.
 
 
 ## Verification

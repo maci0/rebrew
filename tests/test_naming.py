@@ -93,18 +93,18 @@ class TestSanitizeName:
 
 class TestMakeFilename:
     def test_custom_name_wins(self) -> None:
-        assert make_filename(0x1000, "FUN_10001000", custom_name="my_func") == "my_func.c"
+        assert make_filename("FUN_10001000", custom_name="my_func") == "my_func.c"
 
     def test_fun_uses_hex(self) -> None:
-        assert make_filename(0x1000, "FUN_10001000") == "func_10001000.c"
+        assert make_filename("FUN_10001000") == "func_10001000.c"
 
     def test_sanitized_ghidra_name(self) -> None:
         # sanitize_name preserves case; only special chars are replaced.
-        assert make_filename(0x1000, "BitReverse") == "BitReverse.c"
+        assert make_filename("BitReverse") == "BitReverse.c"
 
     def test_custom_extension(self) -> None:
         cfg = SimpleNamespace(source_ext=".cpp")
-        assert make_filename(0x1000, "FUN_10001000", cfg=cfg) == "func_10001000.cpp"
+        assert make_filename("FUN_10001000", cfg=cfg) == "func_10001000.cpp"
 
 
 class TestDetectUnmatchablePatterns:

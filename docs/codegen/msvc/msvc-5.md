@@ -181,11 +181,16 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 
 - **Probe17 allocator/conventions**: `-1` stores use the REGISTER form `or eax,-1` (`83 c8 ff`) + `a3` store (5.0–10.0 era); varargs float→double via `fld; sub esp,8; fstp qword [esp]` (`dd 1c 24`).  See RULES.md A5/B5.
 
-- **Decomp idioms** — the probe19-22 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe22` records).
+- **Decomp idioms** — the probe19-23 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe23` records).
 
 ## Probe22: guild-rule verification (round 19)
 
 - **Probe22 (5.0)**: C23 and/xor liveness split begins here (`and eax,0xff` live, `xor;mov` dead); C24 fused negation byte-exact (`sub al,0xe; neg al; sbb eax,eax`); C25 `or dl,0xff` hoisted materialization (5.0-only); F17 live-switch and-mask preamble.  See RULES.md C23-C25/F17.
+
+
+## Probe23: Findings 23-36 shapes (round 20)
+
+- **Probe23 (5.0)**: idx7 = `mov; shl 3; sub` (mov-based ×8−1); `idx24` double-scales (`lea*3; shl 3` + ×4 SIB); division magic begins (0x88888889/0xaaaaaaab); **arg-slot reuse begins (no frame)**; branchless if-conversion = the `dec/neg/sbb/and al,0xfc` marker form.  See RULES.md C27/C28/E16/F19.
 
 
 ## Verification

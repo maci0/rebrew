@@ -61,41 +61,41 @@ def _make_cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
 class TestScoring:
     def test_base_match_pct(self) -> None:
         # Match % 80, size 200 -> base 33.0. Size < 300 (+5). Total 38.0
-        score = calculate_roi(200, 80.0, None, "NEAR_MATCHING")
+        score = calculate_roi(200, 80.0, None)
         assert score == 38.0
 
     def test_small_delta_massive_boost(self) -> None:
         # Match % 80, size 200 -> base 33.0. 3b delta (+25.0). Size < 300 (+5). Total 63.0
-        score_3b = calculate_roi(200, 80.0, 3, "NEAR_MATCHING")
+        score_3b = calculate_roi(200, 80.0, 3)
         assert score_3b == 63.0
 
     def test_medium_delta_boost(self) -> None:
         # Match % 80, size 200 -> base 33.0. 15b delta (+15.0). Size < 300 (+5). Total 53.0
-        score_15b = calculate_roi(200, 80.0, 15, "NEAR_MATCHING")
+        score_15b = calculate_roi(200, 80.0, 15)
         assert score_15b == 53.0
 
     def test_size_modifiers(self) -> None:
-        tiny = calculate_roi(20, 50.0, None, "STUB")  # +15 = 65
-        small = calculate_roi(100, 50.0, None, "STUB")  # +10 = 60
-        medium = calculate_roi(200, 50.0, None, "STUB")  # +5 = 55
-        large = calculate_roi(500, 50.0, None, "STUB")  # +0 = 50
-        huge = calculate_roi(1200, 50.0, None, "STUB")  # -10 = 40
+        tiny = calculate_roi(20, 50.0, None)  # +15 = 65
+        small = calculate_roi(100, 50.0, None)  # +10 = 60
+        medium = calculate_roi(200, 50.0, None)  # +5 = 55
+        large = calculate_roi(500, 50.0, None)  # +0 = 50
+        huge = calculate_roi(1200, 50.0, None)  # -10 = 40
         assert tiny > small > medium > large > huge
 
     def test_stubborn_diff_penalty(self) -> None:
         # High match, unknown delta: 99%, 200B -> bytes wrong = 2.0
         # Penalty adds 40.0 -> 42.0. 100 * exp(-42/150) ≈ 75.5.
-        score = calculate_roi(200, 99.0, None, "NEAR_MATCHING")
+        score = calculate_roi(200, 99.0, None)
         assert score < 80.0
 
         # High match, large delta
-        score2 = calculate_roi(200, 96.0, 10, "NEAR_MATCHING")
+        score2 = calculate_roi(200, 96.0, 10)
         # delta = 10 => halved = 5.0 bytes wrong + penalty 40.0 => 45.0. 100*exp(-45/150) ≈ 74.0
         assert score2 < 80.0
 
     def test_missing_match_defaults_to_zero(self) -> None:
         # size 150, match None -> base 65.0. Size < 300 (+5). Total 70.0
-        score = calculate_roi(150, None, None, "STUB")
+        score = calculate_roi(150, None, None)
         assert score == 70.0
 
 
@@ -496,7 +496,7 @@ class TestRoiOrdering:
     def test_small_delta_ranks_higher(self) -> None:
         small = TodoItem(
             category=CAT_FIX_DELTA,
-            roi_score=calculate_roi(100, 50.0, 1, "NEAR_MATCHING"),
+            roi_score=calculate_roi(100, 50.0, 1),
             va=0x1000,
             name="a",
             size=100,
@@ -507,7 +507,7 @@ class TestRoiOrdering:
         )
         large = TodoItem(
             category=CAT_FIX_DELTA,
-            roi_score=calculate_roi(100, 50.0, 10, "NEAR_MATCHING"),
+            roi_score=calculate_roi(100, 50.0, 10),
             va=0x2000,
             name="b",
             size=100,
@@ -740,13 +740,13 @@ class TestCalculateRoiEdges:
 
         # 400 gets +5 (size < 500 → 300-500 band... actually <300 → +5 at 299 max).
         # 600 gets -5; 400 gets +5 → 600 must score lower.
-        assert calculate_roi(600, 0.0, None, "STUB") < calculate_roi(400, 0.0, None, "STUB")
+        assert calculate_roi(600, 0.0, None) < calculate_roi(400, 0.0, None)
 
     def test_size_over_1000_penalty(self) -> None:
         from rebrew.todo import calculate_roi
 
         # 1100 gets -15; 600 gets -5.
-        assert calculate_roi(1100, 0.0, None, "STUB") < calculate_roi(600, 0.0, None, "STUB")
+        assert calculate_roi(1100, 0.0, None) < calculate_roi(600, 0.0, None)
 
 
 class TestSetupStepsExtended:

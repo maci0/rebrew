@@ -185,7 +185,7 @@ def test_make_filename_c() -> None:
     from rebrew.naming import make_filename
 
     cfg = ProjectConfig(root=Path("/tmp"), source_ext=".c")
-    result = make_filename(0x10001000, "my_func", "GAME", cfg=cfg)
+    result = make_filename("my_func", "GAME", cfg=cfg)
     assert result.endswith(".c")
 
 
@@ -194,7 +194,7 @@ def test_make_filename_cpp() -> None:
     from rebrew.naming import make_filename
 
     cfg = ProjectConfig(root=Path("/tmp"), source_ext=".cpp")
-    result = make_filename(0x10001000, "my_func", "GAME", cfg=cfg)
+    result = make_filename("my_func", "GAME", cfg=cfg)
     assert result.endswith(".cpp")
 
 
@@ -202,7 +202,7 @@ def test_make_filename_no_cfg() -> None:
     """No cfg → .c extension (backward compat)."""
     from rebrew.naming import make_filename
 
-    result = make_filename(0x10001000, "my_func", "GAME")
+    result = make_filename("my_func", "GAME")
     assert result.endswith(".c")
 
 

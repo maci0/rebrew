@@ -159,14 +159,9 @@ def _get_win32_simprocs() -> dict[str, type]:
         def run(self, *args: Any, **kwargs: Any) -> None:
             return
 
-    class SimLocalAlloc(angr.SimProcedure):
-        def run(self, *args: Any, **kwargs: Any) -> Any:
-            ptr = self.state.heap.allocate(256)  # type: ignore[attr-defined]
-            for i in range(256):
-                self.state.memory.store(ptr + i, claripy.BVV(0, 8))  # type: ignore[no-untyped-call]
-            return ptr
+    class SimAllocZeroed(angr.SimProcedure):
+        """LocalAlloc/GlobalLock: return a freshly zeroed 256-byte block."""
 
-    class SimGlobalLock(angr.SimProcedure):
         def run(self, *args: Any, **kwargs: Any) -> Any:
             ptr = self.state.heap.allocate(256)  # type: ignore[attr-defined]
             for i in range(256):
@@ -381,8 +376,8 @@ def _get_win32_simprocs() -> dict[str, type]:
     ):
         _WIN32_SIMPROCS[name] = ReturnSymbolicDword
 
-    _WIN32_SIMPROCS["GlobalLock"] = SimGlobalLock
-    _WIN32_SIMPROCS["LocalAlloc"] = SimLocalAlloc
+    for name in ("GlobalLock", "LocalAlloc"):
+        _WIN32_SIMPROCS[name] = SimAllocZeroed
     return _WIN32_SIMPROCS
 
 

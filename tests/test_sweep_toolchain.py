@@ -39,7 +39,7 @@ def test_vendored_enumeration_includes_msvc400() -> None:
     these profiles, so the sweep must be able to try each."""
     from rebrew.match import _vendored_msvc_toolchains
 
-    toolchains = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc6"), "", "")
+    toolchains = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc6"))
     profiles = [p for p, _cl, _inc in toolchains]
     assert "msvc400" in profiles
     assert "msvc420" in profiles
@@ -69,25 +69,23 @@ def test_vendored_enumeration_respects_only_exclude() -> None:
     """--sweep-only / --sweep-exclude narrow the registry enumeration."""
     from rebrew.match import _vendored_msvc_toolchains
 
-    all_ = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc6"), "", "")
+    all_ = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc6"))
     profiles = [p for p, _cl, _inc in all_]
     assert "msvc200" in profiles and "msvc1000" in profiles
 
-    only = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc6"), "", "", only="6.0")
+    only = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc6"), only="6.0")
     only_p = [p for p, _cl, _inc in only]
     assert "msvc6" in only_p and "msvc600sp6" in only_p
     assert "msvc200" not in only_p and "msvc1000" not in only_p
 
-    excl = _vendored_msvc_toolchains(
-        SimpleNamespace(compiler_profile="msvc6"), "", "", exclude="2.0,4.0"
-    )
+    excl = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc6"), exclude="2.0,4.0")
     excl_p = [p for p, _cl, _inc in excl]
     assert "msvc200" not in excl_p and "msvc400" not in excl_p
     assert "msvc6" in excl_p
 
     # the configured profile is always the baseline even when filtered out
     only_sp6 = _vendored_msvc_toolchains(
-        SimpleNamespace(compiler_profile="msvc600sp6"), "", "", only="6.0-sp6"
+        SimpleNamespace(compiler_profile="msvc600sp6"), only="6.0-sp6"
     )
     assert only_sp6[0][0] == "msvc600sp6"
 

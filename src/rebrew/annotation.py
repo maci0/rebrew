@@ -425,7 +425,6 @@ class Annotation:
 
     def validate(
         self,
-        filepath: Path | None = None,
         library_modules: set[str] | None = None,
         min_va: int = MIN_VALID_VA,
     ) -> tuple[list[str], list[str]]:

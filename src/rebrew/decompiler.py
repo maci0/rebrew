@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import warnings
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -152,7 +153,6 @@ def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
 def fetch_ghidra(
     binary: Path,
     va: int,
-    root: Path,
     **kwargs: Any,
 ) -> str | None:
     """Fetch decompilation from Ghidra via ReVa MCP ``get-decompilation`` tool.
@@ -219,7 +219,9 @@ def kuna_seed_source(binary: Path, va: int, root: Path) -> str | None:
     return fixed if _valid_c_source(fixed) else None
 
 
-_BACKEND_MAP = {
+# Backends share the (binary, va, root) core plus optional keyword args;
+# fetch_ghidra ignores root (the MCP server holds its own project).
+_BACKEND_MAP: dict[str, Callable[..., str | None]] = {
     "r2ghidra": fetch_r2ghidra,
     "r2dec": fetch_r2dec,
     "ghidra": fetch_ghidra,
@@ -257,7 +259,7 @@ def fetch_decompilation(
     if backend == "auto":
         for name in BACKENDS:
             fn = _BACKEND_MAP[name]
-            result = fn(binary_path, va, root, endpoint=endpoint, program_path=program_path)
+            result = fn(binary_path, va, root=root, endpoint=endpoint, program_path=program_path)
             if result:
                 return result, name
         return None, "auto"
@@ -270,4 +272,7 @@ def fetch_decompilation(
         )
         return None, backend
 
-    return backend_fn(binary_path, va, root, endpoint=endpoint, program_path=program_path), backend
+    return (
+        backend_fn(binary_path, va, root=root, endpoint=endpoint, program_path=program_path),
+        backend,
+    )

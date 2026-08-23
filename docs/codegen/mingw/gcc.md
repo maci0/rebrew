@@ -218,11 +218,16 @@ inlining is unconditional.  Verified in a probe12 re-run with native
 
 - **Probe17 verified-negative**: the probe17 convention/allocator markers are MSVC-internal (register forms, zero-register anchoring); GCC's behavior follows the shared conventions — no new GCC marker; corpus pointer.
 
-- **Decomp idioms** — the probe19-22 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe22` records).
+- **Decomp idioms** — the probe19-23 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe23` records).
 
 ## Probe22: guild-rule verification (round 19)
 
 - **Probe22 (MinGW GCC)**: GCC emits the AH-slot ops for `*player` flags (`or ah,0x30` = `80 cc 30` — family trait, not MSVC-exclusive); C24 negation uses `cmovne` (`0f 45 c2`); the 36B memset is not inline (libcall staging).  See RULES.md F15/C24.
+
+
+## Probe23: Findings 23-36 shapes (round 20)
+
+- **Probe23 (MinGW GCC)**: idx via `lea`-family with GCC's register order; division via libgcc calls at -O2 for /60? (recorded in corpus); the SIB/if-conversion forms differ from MSVC.  See RULES.md C27/F19.
 
 
 ## Verification

@@ -176,11 +176,16 @@ entries — the `shl bx,1` (`d1 e3`) scaling, same family trait as TC
 
 - **Probe17 conventions (A2/A8)**: 16-bit `wcc` `__fastcall` = **`ax,dx,bx` (3 register args, 4th on the stack)** — AF table 5's "4 registers" claim is NOT reproduced by Open Watcom 2.0 (may be commercial-10.x-specific); struct returns use **PSI** (`lea si,[bp-6]` + `movsw` copy, ptr in SI).  See RULES.md A2/A8.
 
-- **Decomp idioms** — the probe19-22 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe22` records).
+- **Decomp idioms** — the probe19-23 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe23` records).
 
 ## Probe22: guild-rule verification (round 19)
 
 - **Probe22 (Watcom)**: 16-bit `wcc` compiles with `-I/tmp/cur_wc/h`; 32-bit object resists symbol listing (raw fold).  See RULES.md E14.
+
+
+## Probe23: Findings 23-36 shapes (round 20)
+
+- **Probe23 (Watcom)**: 16-bit `wcc` compiled; 32-bit object resists symbol listing (raw fold).  See RULES.md C28.
 
 
 ## Verification
