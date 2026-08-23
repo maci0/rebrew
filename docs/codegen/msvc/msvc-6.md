@@ -195,7 +195,7 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 
 - **Probe17 allocator/conventions**: `-1` stores use the REGISTER form `or eax,-1` + `a3` (5.0–10.0 era); zero register kept in EAX (`alloc_zero`: `a3` moffs stores).  The guild-rebrew live-range flip (B3) does NOT trigger with the simplified probe.  See RULES.md B2/B3/B5.
 
-- **Decomp idioms** — the probe19-23 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe23` records).
+- **Decomp idioms** — the probe19-24 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe24` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -205,6 +205,11 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 ## Probe23: Findings 23-36 shapes (round 20)
 
 - **Probe23 (6.0)**: idx24 `lea*3; shl 5`; `/60`/`/24` magic; `argslot` reuses the dead arg2 slot (`lea eax,[esp+8]`, no frame); `addfold` folds all offsets; if-conversion sbb-trick; FPU clamp `fcomp [a4]`+`test ah,1`.  See RULES.md C27/C28/E16/E17/F19/F22.
+
+
+## Probe24: Findings 37-43 primitives (round 21)
+
+- **Probe24 (6.0)**: word zero-extend `xor;mov ax` (the guild doc's exact form); size-dispatch dec-chain; in-place memory and; lea+disp folded into the lea (`8d 44 40 24`); byte or-mask register round-trip; field-store fold.  See RULES.md C29/F24/E18/E19/E20.
 
 
 ## Verification

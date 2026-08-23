@@ -204,7 +204,7 @@ first to post-shift division magic.
 
 - **Probe17 allocator/conventions**: `-1` register form (`83 c8 ff` + `a3`); zero in EAX; 7.0+ inline the 12-byte sret construction (direct register stores).  See RULES.md A8/B5.
 
-- **Decomp idioms** — the probe19-23 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe23` records).
+- **Decomp idioms** — the probe19-24 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe24` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -214,6 +214,11 @@ first to post-shift division magic.
 ## Probe23: Findings 23-36 shapes (round 20)
 
 - **Probe23 (7.0)**: **idx7 uses `imul ecx,eax,7` (`6b c0 07`) — the 7.x marker**; SIB index-addressing begins (`cmp word [ecx+eax*2],0`); if-conversion via `sete`+`lea`; `argslot` switches to the `push ecx` frame; FPU clamp `fcomp`+`test ah,5`; SP1 differs on the memset shapes only.  See RULES.md C27/E15/E16/F19/J1.
+
+
+## Probe24: Findings 37-43 primitives (round 21)
+
+- **Probe24 (7.0)**: **word zero-extend becomes `movzx` (`0f b7 00`)**; size-dispatch dec-chain; in-place and; byte or-mask register round-trip.  See RULES.md C29/F24.
 
 
 ## Verification

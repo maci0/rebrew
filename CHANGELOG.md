@@ -1,5 +1,42 @@
 ## [Unreleased]
 ### Added
+- **Codegen corpus round 21 — guild Findings 37-43 primitives (probe24)** —
+  `docs/codegen/corpus.json` grows 11897 → **12408 records** (probe24
+  adds 511: 10 MSVC versions × /O2+/O1, 7 SPs, bcc32/Watcom/GCC/Zig,
+  and the 16-bit set).  The eight probe-able primitives the new
+  findings expose were compiled through every toolchain and added to
+  `docs/codegen/RULES.md`:
+  - **C29 VERIFIED** — WORD (unsigned short) zero-extension, the 16-bit
+    twin of C4: `xor reg,reg; mov reg_low16,[mem]` in 4.1–6.0 (the doc's
+    MSVC6 form, confirmed in the guild binary 2×), `and eax,0xffff` in
+    2.0, `movzx` from 7.0; word params `and reg,0xffff` 2.0–6.0,
+    `movzx` 7.0+; /O1 movzx everywhere.
+  - **F24 VERIFIED** — size-dispatch `switch{1,2,4}` compiles to a
+    **dec-chain, never a jump table**: `dec; jz; dec; jz; sub 2; jz` in
+    5.0–7.1/10.0/11.0, `sub reg,1`-chain in 8.0/9.0 (the B10
+    sub-over-dec trait), `cmp`-chain in 2.0/4.1 — extends F11.
+  - **F23 VERIFIED** — word compare eras: raw word load + 16-bit
+    `cmp ax,imm` 2.0–7.1; `movzx` + `cmp ax` 8.0+.
+  - **E18/E19/E20 VERIFIED** — in-place memory and (`and word
+    [mem],reg`) uniform in EVERY version (the doc's size2 form);
+    byte or-mask memory-operand from 8.0 (5.0–7.1 byte-register
+    round-trip is the odd era out); the simple field-store folds to
+    `mov [reg+0x14],eax` in every version (the reference's desired
+    form IS the default — the Finding 7 split needs the resolve-call
+    context).
+  - **D9 VERIFIED** — in-place float add eras: `fld [x]; fadd [y];
+    fstp [x]` 5.0–10.0 (y-first 2.0/4.1/5.0), SSE `movsd; addsd;
+    movsd` in 11.0.
+  - **C27 extended** — lea+disp chain: 6.0–10.0 fold the displacement
+    into the lea (`8d 44 40 24`), 2.0/4.1/5.0/11.0 keep the disp in
+    the load.
+  - `corpus-matrix.json` index 432 → **447 functions**; idiom sweep
+    validates (`wze`/`wze2` guild 2× — the MSVC6 word zero-extend is
+    real in the wild, `wze3` 5-6×, `wcmp` 2×+server.dll 1×,
+    `fadd_ip2` 1-4×; exact `sz_disp`/`wand`/`bmask3` negatives
+    recorded).  Docs: RULES.md (+8 rows), DECOMP_IDIOMS.md (+7 idioms),
+    17 per-toolchain files, README.  See the round-21 spec
+    `.cache/goal_probe24.md`.
 - **Codegen corpus round 20 — guild Findings 23-36 (probe23)** —
   `docs/codegen/corpus.json` grows 11182 → **11897 records** (probe23
   adds 715: 10 MSVC versions × /O2+/O1, 7 SPs, bcc32/Watcom/GCC/Zig,

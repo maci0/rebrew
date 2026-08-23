@@ -218,7 +218,7 @@ inlining is unconditional.  Verified in a probe12 re-run with native
 
 - **Probe17 verified-negative**: the probe17 convention/allocator markers are MSVC-internal (register forms, zero-register anchoring); GCC's behavior follows the shared conventions — no new GCC marker; corpus pointer.
 
-- **Decomp idioms** — the probe19-23 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe23` records).
+- **Decomp idioms** — the probe19-24 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe24` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -228,6 +228,11 @@ inlining is unconditional.  Verified in a probe12 re-run with native
 ## Probe23: Findings 23-36 shapes (round 20)
 
 - **Probe23 (MinGW GCC)**: idx via `lea`-family with GCC's register order; division via libgcc calls at -O2 for /60? (recorded in corpus); the SIB/if-conversion forms differ from MSVC.  See RULES.md C27/F19.
+
+
+## Probe24: Findings 37-43 primitives (round 21)
+
+- **Probe24 (MinGW GCC)**: word zero-extend via `movzx`-family; size-dispatch as compare chain; in-place and via memory operand — LLVM/GCC traits recorded in the corpus.  See RULES.md C29/F24.
 
 
 ## Verification
