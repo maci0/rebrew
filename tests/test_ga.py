@@ -711,81 +711,21 @@ class TestFlagSweepIncludeDirs:
 class TestSweepThenGa:
     """--sweep-then-ga: flag-sweep each stub, then GA with the best flags."""
 
-    def test_uses_sweep_flags(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.match import StubInfo, _run_all
-
-        stubs = [
-            StubInfo(
-                filepath=tmp_path / "s.c",
-                va="0x10001000",
-                size=64,
-                symbol="_s",
-                cflags="/O2 /Gd",
-                status="STUB",
-                module="SERVER",
-            )
-        ]
-        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
-        monkeypatch.setattr(
-            "rebrew.match.run_flag_sweep",
-            lambda stub, cfg, tier="targeted", jobs=4: (100.0, "/O2 /G3", []),
-        )
-        seen: dict = {}
-
-        def _fake_run(
-            stub,
-            cfg,
-            generations,
-            pop,
-            jobs,
-            timeout,
-            seeds=None,
-            cflags_override=None,
-            rng_seed=None,
-            resume_from=None,
-            mutation_weights=None,
-            solutions_out=None,
-        ):
-            seen["override"] = cflags_override
-            return False, "best_score=5.00"
-
-        monkeypatch.setattr("rebrew.match._run_one_stub_ga", _fake_run)
-        cfg = SimpleNamespace(
-            reversed_dir=tmp_path,
-            metadata_dir=tmp_path,
-            marker="SERVER",
-            source_ext=".c",
-            ignored_symbols=[],
-            target_name="SERVER",
-            root=tmp_path,
-            target_binary=tmp_path / "x.dll",
-        )
-        _run_all(
-            cfg,
-            jobs=1,
-            generations=1,
-            pop_size=1,
-            timeout_min=1,
-            dry_run=False,
-            min_size=0,
-            max_size=9999,
-            filter_str="",
-            near_miss=False,
-            improve=False,
-            threshold=10,
-            flag_sweep=False,
-            fix_cflags=False,
-            max_stubs=0,
-            seed_from_solved=False,
-            json_output=True,
-            tier="targeted",
-            sweep_then_ga=True,
-        )
-        assert seen.get("override") == "/O2 /G3"
-
-    def test_sweep_failure_falls_back(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("sweep_outcome", "expected_override"),
+        [
+            pytest.param((100.0, "/O2 /G3", []), "/O2 /G3", id="uses-sweep-flags"),
+            pytest.param(RuntimeError("boom"), None, id="sweep-failure-falls-back"),
+        ],
+    )
+    def test_ga_cflags_come_from_sweep(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        sweep_outcome: tuple[float, str, list[str]] | Exception,
+        expected_override: str | None,
     ) -> None:
+        """GA receives the sweep's best flags; a failed sweep falls back to stub.cflags."""
         from rebrew.match import StubInfo, _run_all
 
         stubs = [
@@ -800,10 +740,13 @@ class TestSweepThenGa:
             )
         ]
         monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
-        monkeypatch.setattr(
-            "rebrew.match.run_flag_sweep",
-            lambda stub, cfg, tier="targeted", jobs=4: (_ for _ in ()).throw(RuntimeError("boom")),
-        )
+
+        def _fake_sweep(stub: Any, cfg: Any, tier: str = "targeted", jobs: int = 4) -> Any:
+            if isinstance(sweep_outcome, Exception):
+                raise sweep_outcome
+            return sweep_outcome
+
+        monkeypatch.setattr("rebrew.match.run_flag_sweep", _fake_sweep)
         seen: dict = {}
 
         def _fake_run(
@@ -855,7 +798,7 @@ class TestSweepThenGa:
             tier="targeted",
             sweep_then_ga=True,
         )
-        assert seen.get("override") is None  # fell back to stub.cflags
+        assert seen.get("override") == expected_override
 
 
 class TestSkipRecent:
