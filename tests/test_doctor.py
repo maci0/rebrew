@@ -17,7 +17,6 @@ from rebrew.doctor import (
     check_function_list,
     check_includes,
     check_libs,
-    check_redundant_cflags,
     check_source_files,
     check_target_binary,
     run_doctor,
@@ -730,69 +729,15 @@ class TestOptLevel:
         assert res.status == "skip"
 
 
-class TestRedundantCflags:
-    """check_redundant_cflags: flag settings that only repeat a wider level's value."""
+class TestRedundantCflagsMoved:
+    """check_redundant_cflags now lives in lint as W029 — smoke the new home."""
 
-    def _cfg(self, tmp_path: Path, **overrides: object) -> SimpleNamespace:
-        base = {
-            "root": tmp_path,
-            "metadata_dir": tmp_path,
-            "cflags": "/O2 /Gd",
-            "cflags_presets": {},
-            "cflags_explicit": True,
-        }
-        base.update(overrides)
-        return SimpleNamespace(**base)
+    def test_w029_importable_from_lint(self) -> None:
+        from rebrew.lint import check_redundant_cflags as lint_cflags
 
-    def test_clean_project_passes(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-function.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "EXACT"\nsize = 42\n', encoding="utf-8"
-        )
-        res = check_redundant_cflags(self._cfg(tmp_path))
-        assert res.status == _PASS
+        assert callable(lint_cflags)
 
-    def test_function_override_redundant(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-function.toml").write_text(
-            '["SERVER.0x1000"]\nstatus = "EXACT"\ncflags = "/O2 /Gd"\n', encoding="utf-8"
-        )
-        res = check_redundant_cflags(self._cfg(tmp_path))
-        assert res.status == _WARN
-        assert "0x1000" in res.message
-        assert "Drop" in res.fix
+    def test_no_longer_in_doctor(self) -> None:
+        import rebrew.doctor as _d
 
-    def test_flag_order_does_not_matter(self, tmp_path: Path) -> None:
-        # /Gd /O2 is the same set as /O2 /Gd — still redundant.
-        (tmp_path / "rebrew-function.toml").write_text(
-            '["SERVER.0x1000"]\ncflags = "/Gd /O2"\n', encoding="utf-8"
-        )
-        res = check_redundant_cflags(self._cfg(tmp_path))
-        assert res.status == _WARN
-
-    def test_extra_flags_not_redundant(self, tmp_path: Path) -> None:
-        # Adds /DREBREW_ALLOW_NAKED on top of the default — carries new info.
-        (tmp_path / "rebrew-function.toml").write_text(
-            '["SERVER.0x1000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n', encoding="utf-8"
-        )
-        res = check_redundant_cflags(self._cfg(tmp_path))
-        assert res.status == _PASS
-
-    def test_function_override_matching_module_preset_is_redundant(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-function.toml").write_text(
-            '["GAME.0x1000"]\ncflags = "/O2 /Gd"\n', encoding="utf-8"
-        )
-        cfg = self._cfg(tmp_path, cflags="/O1 /Gd", cflags_presets={"GAME": "/O2 /Gd"})
-        res = check_redundant_cflags(cfg)
-        assert res.status == _WARN
-        assert "GAME 0x1000" in res.message
-
-    def test_module_preset_redundant_with_project(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-function.toml").write_text("", encoding="utf-8")
-        cfg = self._cfg(tmp_path, cflags_presets={"GAME": "/O2 /Gd", "MSVCRT": "/O1"})
-        res = check_redundant_cflags(cfg)
-        assert res.status == _WARN
-        assert "cflags_presets.GAME" in res.message
-        assert "MSVCRT" not in res.message
-
-    def test_no_metadata_file_passes(self, tmp_path: Path) -> None:
-        res = check_redundant_cflags(self._cfg(tmp_path))
-        assert res.status == _PASS
+        assert not hasattr(_d, "check_redundant_cflags")

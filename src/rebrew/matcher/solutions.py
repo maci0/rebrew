@@ -13,19 +13,12 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
-import threading
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from rebrew.utils import atomic_write_text
-
-#: Serializes whole-file read-modify-write cycles so a batch GA (or concurrent
-#: callers) can't lose entries via last-writer-wins.  The batch path already
-#: holds rebrew.match's _metadata_lock, but the safety must not depend on
-#: callers remembering to lock.
-_SAVE_LOCK = threading.Lock()
+from rebrew.utils import atomic_write_text, metadata_write_lock
 
 log = logging.getLogger(__name__)
 
@@ -149,7 +142,7 @@ def save_solution(project_root: Path, entry: SolutionEntry) -> None:
     entry = dataclasses.replace(
         entry, source_file=_relative_source(project_root, entry.source_file)
     )
-    with _SAVE_LOCK:
+    with metadata_write_lock(project_root / _SOLUTIONS_DIR, _SOLUTIONS_FILE):
         existing = load_solutions(project_root)
         # Replace existing entry for the same (target, symbol)
         updated = [
@@ -174,7 +167,7 @@ def save_solutions(project_root: Path, entries: list[SolutionEntry]) -> None:
     """
     if not entries:
         return
-    with _SAVE_LOCK:
+    with metadata_write_lock(project_root / _SOLUTIONS_DIR, _SOLUTIONS_FILE):
         existing = load_solutions(project_root)
         existing_by_key = {(e.symbol, e.target): e for e in existing}
         for entry in entries:

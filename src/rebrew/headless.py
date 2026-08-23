@@ -25,6 +25,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -41,6 +42,13 @@ _XVFB_DISPLAY_ENV = "REBREW_XVFB_DISPLAY"
 #: Display range rebrew is allowed to use.  Real desktops live on :0/:1, so
 #: scanning this range only ever collides with other virtual servers.
 _XVFB_DISPLAY_RANGE = range(90, 200)
+
+#: Serializes :func:`ensure_xvfb`.  Compile worker threads all call it on the
+#: first compile of a batch; without the lock, two threads can pass the
+#: "no display yet" checks simultaneously, pick the same free display, and
+#: both spawn an Xvfb (the loser dies with "server already active", leaking
+#: a zombie child and racing the winner's socket probe).
+_XVFB_INIT_LOCK = threading.Lock()
 
 #: Socket dir X servers bind (patchable in tests).
 _XVFB_SOCKET_DIR = Path("/tmp/.X11-unix")
@@ -126,7 +134,17 @@ def ensure_xvfb() -> str | None:
 
     Returns None when no Xvfb binary is available (caller falls back to
     the ``xvfb-run`` wrapper or bare wine).
+
+    Thread-safe: the whole resolution runs under one process-wide lock so
+    concurrent compile workers cannot double-spawn a server on the same
+    display (check-then-act on the socket, ``/proc`` scan, and env var).
     """
+    with _XVFB_INIT_LOCK:
+        return _ensure_xvfb_locked()
+
+
+def _ensure_xvfb_locked() -> str | None:
+    """Body of :func:`ensure_xvfb`; caller must hold ``_XVFB_INIT_LOCK``."""
     env_display = os.environ.get(_XVFB_DISPLAY_ENV, "")
     if env_display and _display_alive(env_display):
         return env_display

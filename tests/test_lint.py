@@ -1226,3 +1226,103 @@ class TestAnnotationStaleness:
         cfg = _make_cfg()
         cfg.function_list = tmp_path / "missing.txt"
         assert _build_function_index(cfg) is None
+
+
+class TestW029RedundantCflags:
+    """W029: flag settings that only repeat the fallback chain (now in lint)."""
+
+    def _cfg(self, tmp_path: Path, **overrides: object) -> SimpleNamespace:
+        base: dict[str, object] = {
+            "root": tmp_path,
+            "metadata_dir": tmp_path,
+            "cflags": "/O2 /Gd",
+            "cflags_presets": {},
+        }
+        base.update(overrides)
+        return SimpleNamespace(**base)
+
+    def _redundant(self, cfg: SimpleNamespace) -> tuple[list[str], list[str]]:
+        from rebrew.lint import check_redundant_cflags
+
+        return check_redundant_cflags(cfg)
+
+    def test_clean_project_passes(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-function.toml").write_text(
+            '["SERVER.0x1000"]\nstatus = "EXACT"\nsize = 42\n', encoding="utf-8"
+        )
+        presets, fns = self._redundant(self._cfg(tmp_path))
+        assert presets == [] and fns == []
+
+    def test_function_override_redundant(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-function.toml").write_text(
+            '["SERVER.0x1000"]\nstatus = "EXACT"\ncflags = "/O2 /Gd"\n', encoding="utf-8"
+        )
+        _presets, fns = self._redundant(self._cfg(tmp_path))
+        assert any("0x1000" in m for m in fns)
+
+    def test_flag_order_does_not_matter(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-function.toml").write_text(
+            '["SERVER.0x1000"]\ncflags = "/Gd /O2"\n', encoding="utf-8"
+        )
+        _presets, fns = self._redundant(self._cfg(tmp_path))
+        assert len(fns) == 1
+
+    def test_extra_flags_not_redundant(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-function.toml").write_text(
+            '["SERVER.0x1000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n', encoding="utf-8"
+        )
+        presets, fns = self._redundant(self._cfg(tmp_path))
+        assert presets == [] and fns == []
+
+    def test_function_override_matching_module_preset_is_redundant(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-function.toml").write_text(
+            '["GAME.0x1000"]\ncflags = "/O2 /Gd"\n', encoding="utf-8"
+        )
+        cfg = self._cfg(tmp_path, cflags="/O1 /Gd", cflags_presets={"GAME": "/O2 /Gd"})
+        _presets, fns = self._redundant(cfg)
+        assert any("GAME 0x1000" in m for m in fns)
+
+    def test_module_preset_redundant_with_project(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-function.toml").write_text("", encoding="utf-8")
+        cfg = self._cfg(tmp_path, cflags_presets={"GAME": "/O2 /Gd", "MSVCRT": "/O1"})
+        presets, _fns = self._redundant(cfg)
+        assert any("cflags_presets.GAME" in m for m in presets)
+        assert not any("MSVCRT" in m for m in presets)
+
+    def test_no_metadata_file_passes(self, tmp_path: Path) -> None:
+        presets, fns = self._redundant(self._cfg(tmp_path))
+        assert presets == [] and fns == []
+
+    def test_w029_appears_in_lint_output(self, tmp_path: Path) -> None:
+        """End-to-end: W029 warnings are attributed and counted in lint_file/main."""
+        from unittest.mock import patch
+
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+
+        src = tmp_path / "reversed"
+        src.mkdir()
+        (src / "foo.c").write_text(
+            "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8"
+        )
+        (tmp_path / "rebrew-function.toml").write_text(
+            '["SERVER.0x1000"]\ncflags = "/O2 /Gd"\n', encoding="utf-8"
+        )
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src,
+            metadata_dir=tmp_path,
+            source_ext=".c",
+            cflags="/O2 /Gd",
+            cflags_presets={},
+            marker="SERVER",
+            function_list=tmp_path / "funcs.txt",
+            library_modules=set(),
+        )
+        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
+        with patch("rebrew.lint.load_config", return_value=cfg):
+            result = CliRunner().invoke(app, [])
+        assert result.exit_code == 0, result.output
+        # W029 should appear either via the attributed file or synthetic entry
+        assert "W029" in result.output or "redundant cflags" in result.output.lower()

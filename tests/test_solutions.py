@@ -183,6 +183,48 @@ class TestLoadSave:
         assert len(loaded) == 1
         assert loaded[0].symbol == "_f"
 
+    def test_concurrent_saves_no_lost_entries(self, project_root: Path) -> None:
+        """Parallel savers must not lose each other's entries.
+
+        Each save is a whole-file read-modify-write; without the per-file
+        write lock (thread lock + flock sidecar), interleaved cycles would
+        drop every entry but the last writer's.
+        """
+        import threading
+
+        n = 16
+        barrier = threading.Barrier(n)
+
+        def _saver(i: int) -> None:
+            barrier.wait()
+            save_solution(
+                project_root,
+                SolutionEntry(
+                    symbol=f"_func_{i}",
+                    cflags="/O2",
+                    size=i,
+                    source_file=f"f{i}.c",
+                ),
+            )
+
+        threads = [threading.Thread(target=_saver, args=(i,)) for i in range(n)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        loaded = load_solutions(project_root)
+        assert {e.symbol for e in loaded} == {f"_func_{i}" for i in range(n)}
+
+    def test_save_creates_sidecar_lock(self, project_root: Path) -> None:
+        """The cross-process flock discipline leaves a .lock sidecar next to
+        the store — concurrent rebrew processes serialize on it instead of
+        last-writer-wins over whole-file rewrites."""
+        save_solution(
+            project_root,
+            SolutionEntry(symbol="_f", cflags="/O2", size=8, source_file="f.c"),
+        )
+        assert (project_root / ".rebrew" / "solutions.json.lock").exists()
+
 
 # -------------------------------------------------------------------------
 # find_similar

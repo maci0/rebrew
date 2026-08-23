@@ -4,14 +4,16 @@ Check that all .c files in the reversed directory have proper reccmp-style
 annotations (``// FUNCTION: MODULE 0xVA`` markers) and that volatile metadata
 (STATUS, SIZE, CFLAGS, etc.) lives in ``rebrew-function.toml``.  Also
 cross-checks FUNCTION/STUB marker VAs against the target's function list
-(W028) so stale annotations are caught at lint time, not as confusing
-mismatches in ``rebrew test``.
+(W028), flags redundant per-function / preset cflags that only repeat an
+inherited value (W029), and otherwise catches stale annotations at lint time
+instead of as confusing mismatches in ``rebrew test``.
 Supports ``--fix`` to migrate inline metadata keys to the TOML metadata file.
 
 Inspired by reccmp's decomplint tool.
 """
 
 import bisect
+import contextlib
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -1015,6 +1017,61 @@ def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> No
         )
 
 
+def _cflags_key(cflags: str) -> frozenset[str]:
+    """Normalize a CFLAGS string for redundancy comparison (W029).
+
+    Flag ORDER carries no meaning for MSVC (/O2 /Gd == /Gd /O2), so compare
+    as token sets — a lower-level entry only counts as redundant when its
+    whole flag set is what the higher level would already supply.
+    """
+    return frozenset(cflags.split())
+
+
+def check_redundant_cflags(
+    cfg: ProjectConfig | None,
+    preloaded_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Collect redundant cflags entries for W029 (module presets + per-function).
+
+    Returns ``(preset_redundant, function_redundant)`` as human-readable
+    strings so callers can attribute them to the right file.  Pure metadata
+    + config logic — no .c file I/O.  Order-invariant flag comparison via
+    ``_cflags_key``.
+
+    The level ladder is: per-function cflags (rebrew-function.toml) →
+    module preset (``compiler.cflags_presets.<MODULE>``) → project
+    ``compiler.cflags``.
+    """
+    if cfg is None:
+        return [], []
+    from rebrew.cli import resolve_cflags
+    from rebrew.metadata import load_metadata as _load_meta
+
+    project_cflags = str(getattr(cfg, "cflags", "") or "")
+    project_key = _cflags_key(project_cflags)
+    presets: dict[str, str] = getattr(cfg, "cflags_presets", {}) or {}
+
+    preset_redundant: list[str] = []
+    for mod, preset_cflags in sorted(presets.items()):
+        if project_key and _cflags_key(str(preset_cflags)) == project_key:
+            preset_redundant.append(f"cflags_presets.{mod} = '{preset_cflags}' (= project cflags)")
+
+    metadata = (
+        preloaded_metadata if preloaded_metadata is not None else _load_meta(cfg.metadata_dir)
+    )
+    fn_redundant: list[str] = []
+    for (module, va), meta in sorted(metadata.items(), key=lambda kv: kv[0][1]):
+        fn_cflags = str(meta.get("cflags") or "").strip()
+        if not fn_cflags:
+            continue
+        inherited = resolve_cflags(cfg, None, module)
+        if _cflags_key(fn_cflags) == _cflags_key(inherited):
+            fn_redundant.append(
+                f"{module} 0x{va:x}: cflags '{fn_cflags}' (= inherited '{inherited}')"
+            )
+    return preset_redundant, fn_redundant
+
+
 def lint_file(
     filepath: Path,
     cfg: ProjectConfig | None = None,
@@ -1280,7 +1337,11 @@ app = typer.Typer(
         "  W027   Line too long (exceeds max_line_length)\n\n"
         "  W028   Annotation VA matches no function in the current function list\n"
         "         (stale after a binary update — re-annotate or refresh the list)\n\n"
-        "[dim]Checks for reccmp-style markers in each .c file.[/dim]"
+        "  W029   Redundant cflags — per-function or preset cflags that only repeat\n"
+        "         the inherited value (project cflags / module preset) — drop it\n"
+        "         (the fallback chain already supplies the same flags)\n\n"
+        "[dim]Checks for reccmp-style markers in each .c file, plus project-level\n"
+        "corpus hygiene (W029 cflags redundancy via rebrew-function.toml / presets).[/dim]"
     ),
 )
 
@@ -1367,6 +1428,67 @@ def main(
             result.display(quiet=quiet)
         error_count += len(result.errors)
         warning_count += len(result.warnings)
+
+    # W029: redundant cflags across metadata + presets — batch-level, since
+    # no single .c file owns a preset and the redundancy is about the fallback
+    # ladder.  Attribute per-function warnings back to the file that hosts the
+    # VA when possible; presets and unattributed VAs land on a synthetic entry.
+    if cfg is not None:
+        preset_redundant, fn_redundant = check_redundant_cflags(cfg, _preloaded_metadata)
+        if preset_redundant or fn_redundant:
+            # Build VA -> file index from this run, for per-function attribution.
+            va_to_result: dict[tuple[str, int], LintResult] = {}
+            for r in all_results:
+                for keys, _flags in _parse_multi_headers(r._lines):
+                    m = keys.get("MODULE", "")
+                    v = keys.get("VA", "")
+                    if not m or not v:
+                        continue
+                    with contextlib.suppress(ValueError):
+                        va_to_result[(m, int(v, 16))] = r
+            # Presets: no single file — emit on a synthetic "config" result.
+            if preset_redundant:
+                syn = LintResult(Path("rebrew-project.toml"))
+                for msg in preset_redundant:
+                    syn.warning(1, "W029", f"redundant cflags preset: {msg}")
+                all_results.append(syn)
+                if not json_output and not quiet:
+                    syn.display(quiet=False)
+                warning_count += len(syn.warnings)
+            # Per-function redundancies: attribute per file when we can.
+            unattributed: list[str] = []
+            for msg in fn_redundant:
+                # msg format: "MODULE 0xVA: cflags '...' (= inherited '...')"
+                try:
+                    head = msg.split(":", 1)[0].strip()
+                    mod_s, va_s = head.rsplit(" ", 1)
+                    va_i = int(va_s, 16)
+                    dest = va_to_result.get((mod_s, va_i))
+                except (ValueError, IndexError):
+                    dest = None
+                if dest is not None:
+                    if not any(c == "W029" and msg in m for _, c, m in dest.warnings):
+                        dest.warning(dest.marker_line, "W029", f"redundant cflags: {msg}")
+                        warning_count += 1
+                        if not json_output and not quiet:
+                            # Show the newly added warning inline (the batch
+                            # loop already printed this file — emit just this).
+                            console.print(
+                                f"  [bold]{dest.filepath.name}[/bold]:{dest.marker_line}: "
+                                f"[yellow]W029[/yellow]: redundant cflags: {msg}"
+                            )
+                else:
+                    unattributed.append(msg)
+            if unattributed:
+                syn2 = LintResult(Path("rebrew-function.toml"))
+                for msg in unattributed:
+                    syn2.warning(1, "W029", f"redundant cflags: {msg}")
+                all_results.append(syn2)
+                if not json_output and not quiet:
+                    syn2.display(quiet=False)
+                warning_count += len(syn2.warnings)
+            # Recompute passed in case we flipped some files from passed->warned.
+            passed = sum(1 for r in all_results if r.passed)
 
     if json_output:
         output = {
