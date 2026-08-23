@@ -707,11 +707,16 @@ for functions without a C implementation: the target bytes are emitted
 verbatim (`__asm _emit 0xNN` on MSVC, `__asm__(".byte ...")` on GCC —
 no assembler-encoding risk, unlike assembler mnemonics) behind the
 `REBREW_ALLOW_NAKED` fence, with a plain-C fallback for the comparison
-build.  The file carries `// FUNCTION` + `// SIZE` + a symbol from its C
-definition, so it is self-contained for `rebrew test func.c --cflags
-/DREBREW_ALLOW_NAKED` — iterate one function at a time through the normal
-compile→compare loop, then replace the fallback body with real C and drop
-the define.  `rebrew round-trip --allow-naked` splices the naked branch.
+build.  The file carries `// FUNCTION` + `// SIZE` + a `// SOURCE: naked`
+marker + a symbol from its C definition, so it is self-contained for
+`rebrew test func.c --cflags /DREBREW_ALLOW_NAKED` — iterate one function
+at a time through the normal compile→compare loop, then replace the
+fallback body with real C and drop the define.  `rebrew round-trip
+--allow-naked` splices the naked branch.  `rebrew status`/`rebrew todo`
+bucket these as byte-covered but not decompiled (`decompiled_pct` /
+`naked-reconstruction`).  `--format nasm --all --inline-c` generates the
+whole-binary baseline into `output/naked/` (`--batch-stubs` limits it to
+unmatched functions).
 
 Both outputs include the inferred **calling convention** (cdecl / stdcall /
 thiscall / thiscall-with-no-stack-args / ctor thunk / EH-guard thunk /

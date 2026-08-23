@@ -521,6 +521,13 @@ def _check_W019_inline_metadata(
     for DATA/GLOBAL markers).  Inline occurrences are deprecated.
     """
     for key in found_keys:
+        if key == "SOURCE" and found_keys[key].strip().lower() == "naked":
+            # The file-borne naked-reconstruction marker written by
+            # `rebrew asm --inline-c`: like the // CFLAGS:
+            # /DREBREW_ALLOW_NAKED naked-guard convention, it must travel
+            # with the file (self-clears when the C body replaces it) —
+            # not a metadata-migration candidate.
+            continue
         if key in METADATA_KEYS and key not in metadata_sourced_keys:
             result.warning(
                 result.marker_line,

@@ -17,6 +17,7 @@ from rebrew.todo import (
     CAT_IDENTIFY_LIBRARY,
     CAT_IMPROVE_MATCH,
     CAT_MISSING_ANNOTATION,
+    CAT_NAKED,
     CAT_SETUP,
     CAT_START_FUNCTION,
     TodoItem,
@@ -166,6 +167,23 @@ class TestCollectors:
         assert len(items) == 1
         assert items[0].category == CAT_MISSING_ANNOTATION
         assert items[0].name == "FUN_00001000"
+
+    def test_active_functions_naked_matched_stays_actionable(self) -> None:
+        """A matched function whose source is `// SOURCE: naked` is byte-exact
+        via a generated skeleton — reproduced, not decompiled (ct-recomp's
+        NAKED vs PURE_C_EXACT distinction): it must stay on the list as
+        naked-reconstruction work instead of vanishing as finished."""
+        existing = {
+            0x1000: {"status": "EXACT", "source": "naked", "symbol": "func_a", "filename": "a.c"},
+            0x2000: {"status": "EXACT", "source": "", "symbol": "func_b", "filename": "b.c"},
+        }
+        items = _collect_active_functions(existing, {0x1000: 50, 0x2000: 60}, {}, {})
+        assert len(items) == 1  # the real EXACT is skipped
+        item = items[0]
+        assert item.category == CAT_NAKED
+        assert item.va == 0x1000
+        assert item.status == "EXACT"
+        assert "implement the real C" in item.description
 
     def test_active_functions_missing_size_not_fix_delta(self) -> None:
         """A MISSING_SIZE verify result has a vacuous 0-byte delta (nothing

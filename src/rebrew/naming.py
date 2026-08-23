@@ -235,7 +235,7 @@ def load_data(
 
     Returns (ghidra_funcs, existing, covered_vas) where:
     - ghidra_funcs: list of FunctionEntry objects
-    - existing: dict mapping VA -> {filename, size, status, blocker, blocker_delta, symbol}
+    - existing: dict mapping VA -> {filename, size, status, blocker, blocker_delta, symbol, source}
     - covered_vas: dict mapping VA -> filename (for find_neighbor_file)
     """
     from rebrew.catalog import load_function_structure
@@ -270,6 +270,7 @@ def load_data(
                 if entry.blocker_delta is not None
                 else "",
                 "symbol": entry.symbol,
+                "source": entry.source or "",
             }
             covered_vas[entry.va] = rel_name
 
@@ -287,6 +288,7 @@ def load_data(
                 "blocker": "",
                 "blocker_delta": "",
                 "symbol": entry.symbol,
+                "source": entry.source or "",
             }
             covered_vas[entry.va] = hfile.name
 

@@ -204,6 +204,30 @@ class TestCollectStatus:
         assert report.unresolved_blockers == 0
         assert report.to_dict()["unresolved_blockers"] == 0
 
+    def test_naked_reconstruction_bucketed(self, tmp_path: Path) -> None:
+        """A `// SOURCE: naked` EXACT function is byte-coverage but NOT
+        decompiled: naked_matched counts it, decompiled_pct excludes it, and
+        matched_pct still reflects byte-matching."""
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "function_structure.json").write_text(
+            json.dumps([{"va": 0x1000, "size": 100, "ghidra_name": "func_a"}]),
+            encoding="utf-8",
+        )
+        (src / "func_a.c").write_text(
+            "// FUNCTION: TEST 0x1000\n// SIZE: 100\n// STATUS: EXACT\n"
+            "// SOURCE: naked\nvoid func_a(void) {}\n",
+            encoding="utf-8",
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.naked_matched == 1
+        assert report.status_counts.get("EXACT") == 1  # still byte-matched
+        assert report.matched_pct == 100.0
+        assert report.decompiled_pct == 0.0  # nothing decompiled yet
+        assert report.to_dict()["naked_matched"] == 1
+        assert report.to_dict()["decompiled_pct"] == 0.0
+
     def test_unresolved_blockers_counted(self, tmp_path: Path) -> None:
         """Functions with a non-empty BLOCKER in rebrew-function.toml are counted."""
         cfg = _make_cfg(tmp_path)

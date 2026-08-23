@@ -93,6 +93,7 @@ class TestGenerateInlineC:
         out = generate_inline_c(b"\x55\x90", cfg, 0x1000, "_my_func")
         assert "// FUNCTION: SERVER 0x00001000" in out
         assert "// SIZE: 2" in out
+        assert "// SOURCE: naked" in out
         assert "__declspec(naked) void my_func(void)" in out
         assert "__asm {" in out
         # Raw-byte emission — byte-exact by construction, no MASM syntax.
@@ -142,6 +143,63 @@ class TestGenerateInlineC:
         assert f"// SIZE: {len(code)}" in out
         emitted = sum(1 for line in out.splitlines() if "_emit 0x" in line)
         assert emitted == len(code)
+
+    def test_batch_inline_c_writes_naked_skeletons(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--all --inline-c writes a `// SOURCE: naked` skeleton per annotated
+        function — the whole-binary byte-coverage baseline."""
+        from rebrew.asm import batch_extract_nasm
+
+        cfg = _cfg(tmp_path)
+        src_dir = cfg.reversed_dir
+        src_dir.mkdir(parents=True, exist_ok=True)
+        (src_dir / "f.c").write_text(
+            "// FUNCTION: SERVER 0x10001000\n// SIZE: 8\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        (src_dir / "g.c").write_text(
+            "// FUNCTION: SERVER 0x10002000\n// SIZE: 6\nint g(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes",
+            lambda *a, **k: bytes.fromhex("558bec83ec08"),
+        )
+        out = tmp_path / "naked"
+        batch_extract_nasm(cfg, out, inline_c=True)
+
+        files = sorted(out.glob("*.c"))
+        assert len(files) == 2
+        text = files[0].read_text(encoding="utf-8")
+        assert "// SOURCE: naked" in text
+        assert "// FUNCTION: SERVER 0x10001000" in text
+        assert "_emit 0x55" in text
+        assert "REBREW_ALLOW_NAKED" in text
+
+    def test_batch_inline_c_stubs_only(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.asm import batch_extract_nasm
+
+        cfg = _cfg(tmp_path)
+        src_dir = cfg.reversed_dir
+        src_dir.mkdir(parents=True, exist_ok=True)
+        (src_dir / "f.c").write_text(
+            "// FUNCTION: SERVER 0x10001000\n// SIZE: 8\n// STATUS: EXACT\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        (src_dir / "g.c").write_text(
+            "// FUNCTION: SERVER 0x10002000\n// SIZE: 6\nint g(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes",
+            lambda *a, **k: bytes.fromhex("558bec83ec08"),
+        )
+        out = tmp_path / "naked"
+        batch_extract_nasm(cfg, out, stubs_only=True, inline_c=True)
+        assert len(list(out.glob("*.c"))) == 1  # only the STUB one
 
 
 class TestParseAnnotations:
@@ -258,7 +316,7 @@ class TestBatchOutDirResolution:
         def fake_require_config(target=None, json_mode=False):
             return SimpleNamespace(root=tmp_path, target_binary=tmp_path / "x.dll")
 
-        def fake_batch(cfg, out_dir, verify_flag=False, stubs_only=False):
+        def fake_batch(cfg, out_dir, verify_flag=False, stubs_only=False, inline_c=False):
             captured["out_dir"] = out_dir
 
         monkeypatch.setattr("rebrew.asm.require_config", fake_require_config)
