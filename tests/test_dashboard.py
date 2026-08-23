@@ -389,3 +389,33 @@ class TestHostValidation:
         statuses = [v for k, v in sent if k == "status"]
         assert statuses == [403]
         assert b"not allowed" in bytes(written[0])
+
+    def test_handler_unexpected_error_answers_500(self) -> None:
+        """An unexpected route error must answer 500 JSON, not reset the connection."""
+        from rebrew.dashboard import Dashboard, _Handler, allowed_hosts_for
+
+        handler = _Handler.__new__(_Handler)  # bypass __init__: no socket needed
+        handler.headers = {"Host": "127.0.0.1:8000"}
+        handler.path = "/api/targets"
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        # Simulate any non-sqlite failure inside a route (bug, OSError, ...).
+        handler.dashboard.handle = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))  # type: ignore[method-assign]
+        sent: list[tuple] = []
+
+        handler.send_response = lambda status: sent.append(("status", status))  # type: ignore[method-assign]
+        handler.send_header = lambda name, value: sent.append((name, value))  # type: ignore[method-assign]
+        handler.end_headers = lambda: sent.append(("end", None))  # type: ignore[method-assign]
+        written: list[bytes] = []
+
+        class _FakeWFile:
+            def write(self, data: bytes) -> int:
+                written.append(data)
+                return len(data)
+
+        handler.wfile = _FakeWFile()
+        handler._respond("GET")
+        statuses = [v for k, v in sent if k == "status"]
+        assert statuses == [500]
+        body = b"".join(written)
+        assert b"internal server error" in body

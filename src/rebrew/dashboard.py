@@ -29,6 +29,7 @@ exercise it without opening a socket.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -44,6 +45,7 @@ from rebrew.build_db import resolve_db_dir
 from rebrew.cli import TargetOption, error_exit, json_print
 
 console = Console(stderr=True)
+log = logging.getLogger(__name__)
 
 _SQLITE_TIMEOUT_SECONDS = 30.0
 _DEFAULT_LIMIT = 500
@@ -560,6 +562,15 @@ class _Handler(BaseHTTPRequestHandler):
             console.print(f"[red]dashboard query failed:[/red] {self.path}: {exc}")
             status, content_type, body = self.dashboard._json(
                 500, {"error": f"database error: {exc}"}
+            )
+        except Exception as exc:  # last-resort handler guard
+            # Any other unexpected error (a bug in a route, an OSError on a
+            # sidecar read) gets the same treatment: without this the thread
+            # dies and the client sees a connection reset instead of a 500.
+            console.print(f"[red]dashboard handler failed:[/red] {self.path}: {exc!r}")
+            log.debug("dashboard handler error for %s", self.path, exc_info=True)
+            status, content_type, body = self.dashboard._json(
+                500, {"error": "internal server error"}
             )
         body_bytes = body.encode("utf-8")
         self.send_response(status)

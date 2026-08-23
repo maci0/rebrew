@@ -143,6 +143,54 @@ class TestMatchAllTargets:
         assert result.exit_code == 2
         assert "--all-targets cannot be combined with --all" in result.output
 
+    def test_one_broken_target_does_not_discard_the_others(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failing target is counted as failed; the other targets still aggregate."""
+        from rebrew.match import app
+
+        cfg = self._cfg(tmp_path)
+        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+
+        def _fake_load_config(root: Path, target: str | None = None) -> SimpleNamespace:
+            if target == "client_exe":
+                raise FileNotFoundError(f"no config for target {target!r}")
+            return SimpleNamespace(
+                metadata_dir=tmp_path,
+                reversed_dir=tmp_path / "src",
+                marker="SERVER",
+                source_ext=".c",
+                ignored_symbols=[],
+                default_jobs=2,
+                root=root,
+                target_name=target or "server_dll",
+                all_targets=cfg.all_targets,
+            )
+
+        monkeypatch.setattr("rebrew.config.load_config", _fake_load_config)
+        calls: list[str] = []
+
+        def _fake_run_all(cfg=None, **kwargs: object) -> tuple[int, int]:
+            calls.append(getattr(cfg, "target_name", "?"))
+            return 2, 0
+
+        monkeypatch.setattr("rebrew.match._run_all", _fake_run_all)
+        result = CliRunner().invoke(app, ["--all-targets", "--json"])
+        # The broken target counts as failed → documented exit contract (1),
+        # and the healthy target still runs and aggregates (its GA was not
+        # discarded by the sibling's failure).
+        assert result.exit_code == 1
+        assert calls == ["server_dll"]
+        import json
+
+        # CliRunner merges stderr into output; skip past the failure warning
+        # lines to the aggregate JSON document.
+        raw = result.output[result.output.index("{") :]
+        payload = json.loads(raw)
+        assert payload["mode"] == "all-targets"
+        assert payload["matched"] == 2
+        assert payload["failed"] == 1
+
     def test_all_targets_watch_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
