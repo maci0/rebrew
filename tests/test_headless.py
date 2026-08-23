@@ -169,6 +169,31 @@ class TestEnsureXvfb:
         assert terminated
         assert reaped == [2]
 
+    def test_shutdown_escalates_to_kill_on_terminate_timeout(self, tmp_path: Path) -> None:
+        """An Xvfb that ignores SIGTERM is SIGKILLed and reaped instead of
+        lingering (holding its display socket / unreaped zombie)."""
+        import subprocess as sp
+
+        from rebrew.headless import _shutdown_xvfb
+
+        calls: list[str] = []
+
+        class _StubbornProc:
+            def terminate(self) -> None:
+                calls.append("terminate")
+
+            def kill(self) -> None:
+                calls.append("kill")
+
+            def wait(self, timeout: float | None = None) -> int:
+                if calls[-1] == "terminate":
+                    raise sp.TimeoutExpired("Xvfb", timeout or 2)
+                calls.append(f"wait:{timeout}")
+                return 0
+
+        _shutdown_xvfb(_StubbornProc())  # must not raise
+        assert calls == ["terminate", "kill", "wait:2"]
+
     def test_concurrent_callers_spawn_one_server(self, monkeypatch) -> None:
         """Parallel compile workers calling ensure_xvfb must not double-spawn.
 
