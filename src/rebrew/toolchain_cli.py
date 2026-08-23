@@ -27,6 +27,11 @@ from rebrew.toolchain import (
 
 console = Console(stderr=True)
 
+#: Cap on each archive-extraction subprocess in `rebrew toolchain vendor`
+#: (matches the curl download timeout).  Without it a stuck filesystem or
+#: an unzip prompting for an encrypted-archive password hangs forever.
+_EXTRACT_TIMEOUT_S = 1800
+
 app = typer.Typer(
     help="Standardized toolchain management (docker-first, host fallback).",
     rich_markup_mode="rich",
@@ -301,6 +306,7 @@ def vendor_cmd(
                 ["tar", "xf", str(tarball), "-C", str(extract_dir)],
                 check=True,
                 capture_output=True,
+                timeout=_EXTRACT_TIMEOUT_S,
             )
             console.print(f"[green]Extracted[/green] {src.in_repo} -> {src.host_dir}")
         else:
@@ -321,11 +327,15 @@ def vendor_cmd(
                         ["unzip", "-q", str(archive), "-d", td + "/zip"],
                         check=True,
                         capture_output=True,
+                        stdin=subprocess.DEVNULL,
+                        timeout=_EXTRACT_TIMEOUT_S,
                     )
                     installer = next(Path(td + "/zip").iterdir())
                     subprocess.run(
                         ["7z", "x", "-y", str(installer), f"-o{td}/pay"],
                         capture_output=True,
+                        stdin=subprocess.DEVNULL,
+                        timeout=_EXTRACT_TIMEOUT_S,
                     )  # warning exits tolerated — the final check below guards
                     payload = Path(td + "/pay")
                     for sub in ("Bin", "Include", "Lib"):
@@ -338,6 +348,8 @@ def vendor_cmd(
                         ["unzip", "-q", str(archive), "-d", td + "/zip"],
                         check=True,
                         capture_output=True,
+                        stdin=subprocess.DEVNULL,
+                        timeout=_EXTRACT_TIMEOUT_S,
                     )
                     payload = Path(td + "/zip")
                     contents = [p for p in payload.iterdir() if p.is_dir()]
@@ -353,15 +365,17 @@ def vendor_cmd(
                         ["tar", "xf", str(archive), "-C", str(extract_dir), "--strip-components=1"],
                         check=True,
                         capture_output=True,
+                        timeout=_EXTRACT_TIMEOUT_S,
                     )
                 else:
                     subprocess.run(
                         ["tar", "xzf", str(archive), "-C", str(extract_dir)],
                         check=True,
                         capture_output=True,
+                        timeout=_EXTRACT_TIMEOUT_S,
                     )
                 console.print(f"[green]Downloaded + verified[/green] {src.url} -> {src.host_dir}")
-    except (subprocess.CalledProcessError, OSError) as exc:
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
         msg = f"vendor {name} failed: {exc}"
         error_exit(msg, json_mode=json_output)
 

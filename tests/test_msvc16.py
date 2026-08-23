@@ -109,3 +109,16 @@ class TestDosboxRunner:
         monkeypatch.setattr("rebrew.dosbox.shutil.which", lambda *a, **k: None)
         with pytest.raises(DosboxError, match="dosbox"):
             run_dosbox(tmp_path, [])
+
+    def test_nonzero_exit_raises_with_output(self, tmp_path: Path, monkeypatch) -> None:
+        """A dosbox crash (nonzero exit) must surface its output, not leave
+        callers reporting an empty compile log."""
+        from rebrew.dosbox import DosboxError, run_dosbox
+
+        def _run(cmd, **kwargs):
+            return type("R", (), {"returncode": 1, "stdout": "", "stderr": "SDL init failed"})()
+
+        monkeypatch.setattr("rebrew.dosbox.shutil.which", lambda *a, **k: "/usr/bin/dosbox")
+        monkeypatch.setattr("rebrew.dosbox.subprocess.run", _run)
+        with pytest.raises(DosboxError, match="SDL init failed"):
+            run_dosbox(tmp_path, ["dir"])
