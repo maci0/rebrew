@@ -1,5 +1,24 @@
 ## [Unreleased]
 ### Added
+- **Codegen corpus round 23 — guild Finding 45 early-return placement
+  (probe26)** — `docs/codegen/corpus.json` grows 12715 → **12852
+  records** (probe26 adds 137: 10 MSVC versions × /O2+/O1, 7 SPs,
+  bcc32/Watcom/GCC/Zig, and the 16-bit set).  Added to RULES.md:
+  - **F25 VERIFIED** — early-return blocks stay INLINE right after
+    their conditional checks in EVERY version (`test; jne +6; mov
+    reg,-3; ret` — the `jne` skips the block) — **the doc's Finding 45
+    tail-grouping claim is corrected: it is a register-pressure context
+    artifact, not general MSVC behavior**; the shared `-1` epilogue is
+    `or eax,-1` from 5.0 (2.0/4.1 `mov eax,-1`, the B5 trait); 11.0
+    materializes negative constants via `lea eax,[reg-N]`.
+  - The pop-edi scheduling and out-param order fixed points recorded
+    as D with reasons.
+  - `corpus-matrix.json` index 456 → **460 functions**; idiom sweep
+    validates (`er1` guild 2× + CLIPBRD 1×, `er2`/`er4` guild 14-19× +
+    server.dll 4× — the inline early-return placement is the default
+    shape in the wild; exact `er3` negative recorded).  Docs: RULES.md
+    (+1 row), DECOMP_IDIOMS.md (+2 idioms), 17 per-toolchain files,
+    README.  See the round-23 spec `.cache/goal_probe26.md`.
 - **Codegen corpus round 22 — guild Finding 44 primitives (probe25)** —
   `docs/codegen/corpus.json` grows 12408 → **12715 records** (probe25
   adds 307: 10 MSVC versions × /O2+/O1, 7 SPs, bcc32/Watcom/GCC/Zig,

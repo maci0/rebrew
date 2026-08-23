@@ -195,7 +195,7 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 
 - **Probe17 allocator/conventions**: `-1` stores use the REGISTER form `or eax,-1` + `a3` (5.0–10.0 era); zero register kept in EAX (`alloc_zero`: `a3` moffs stores).  The guild-rebrew live-range flip (B3) does NOT trigger with the simplified probe.  See RULES.md B2/B3/B5.
 
-- **Decomp idioms** — the probe19-25 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe25` records).
+- **Decomp idioms** — the probe19-26 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe26` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -215,6 +215,11 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 ## Probe25: Finding 44 primitives (round 22)
 
 - **Probe25 (6.0)**: branchless clamp (the doc's setle/dec/and form); ×589 five-lea chain; byte-arg raw push (`mov al,[mem]; push eax` — refutes the doc's unreproducibility claim for the simple shape); byte-first sum load.  See RULES.md C30/C31/E21/E22.
+
+
+## Probe26: Finding 45 early-return placement (round 23)
+
+- **Probe26 (6.0)**: inline early-return blocks after each check (`test; jne +6; mov -3; ret`) — the default placement; `or eax,-1` shared tail.  See RULES.md F25.
 
 
 ## Verification
