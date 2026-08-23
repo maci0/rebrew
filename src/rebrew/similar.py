@@ -107,8 +107,7 @@ def find_similar(
     itself), each as ``{va, size, name, score}``.
     """
     from rebrew.binary_loader import extract_raw_bytes
-    from rebrew.catalog.loaders import parse_function_list
-    from rebrew.catalog.registry import build_function_registry
+    from rebrew.catalog import build_function_registry, parse_function_list
 
     cs_arch = getattr(cfg, "capstone_arch", _DEFAULT_CS_ARCH)
     cs_mode = getattr(cfg, "capstone_mode", _DEFAULT_CS_MODE)

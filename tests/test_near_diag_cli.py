@@ -53,7 +53,7 @@ def _setup(
             return _CODE, {}, []
         return None, {}, []
 
-    monkeypatch.setattr("rebrew.matcher.parsers.parse_obj_symbol_and_relocs", _symbols)
+    monkeypatch.setattr("rebrew.matcher.parse_obj_symbol_and_relocs", _symbols)
     return cfg
 
 

@@ -207,7 +207,7 @@ def _load_side(
 ) -> list[dict[str, Any]]:
     """Load ``{va, size, name, signature}`` records for one binary."""
     from rebrew.binary_loader import extract_raw_bytes
-    from rebrew.catalog.loaders import parse_function_list
+    from rebrew.catalog import parse_function_list
 
     funcs = parse_function_list(func_list) if func_list and func_list.exists() else []
     out: list[dict[str, Any]] = []

@@ -349,7 +349,7 @@ def _canonical_size(cfg: ProjectConfig, va: int) -> int:
     func_list_path = str(getattr(cfg, "function_list", ""))
     sizes = _canonical_sizes.get(func_list_path)
     if sizes is None:
-        from rebrew.catalog.loaders import cached_function_list
+        from rebrew.catalog import cached_function_list
 
         try:
             sizes = {f["va"]: int(f["size"]) for f in cached_function_list(cfg)}

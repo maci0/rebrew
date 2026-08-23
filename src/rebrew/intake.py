@@ -134,7 +134,7 @@ def _enumerate_functions(binary: Path) -> list[tuple[int, int, str]]:
 
 def _run_rizin_functions(binary: Path) -> list[tuple[int, int, str]]:
     """Enumerate functions via rizin. ``aaa`` first, ``aa; aap`` fallback."""
-    from rebrew.catalog.loaders import parse_rizin_afl
+    from rebrew.catalog import parse_rizin_afl
 
     for cmd in (["aaa"], ["aa", "aap"]):
         try:

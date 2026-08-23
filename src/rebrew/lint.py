@@ -34,13 +34,12 @@ from rebrew.annotation import (
 )
 from rebrew.cli import (
     EXIT_MISMATCH,
-    MATCHED_STATUSES,
     TargetOption,
     json_print,
 )
 from rebrew.config import ProjectConfig, load_config
 from rebrew.data_metadata import load_data_metadata
-from rebrew.metadata import load_metadata
+from rebrew.metadata import MATCHED_STATUSES, load_metadata
 from rebrew.sources import (
     iter_sources,
 )
@@ -264,7 +263,7 @@ def _build_function_index(
     missing or empty — the W028 check is then silent (nothing to check
     against), matching the old doctor behavior.
     """
-    from rebrew.catalog.loaders import cached_function_list
+    from rebrew.catalog import cached_function_list
 
     funcs = cached_function_list(cfg)
     if not funcs:

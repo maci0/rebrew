@@ -39,7 +39,7 @@ from rich.table import Table
 from rich.text import Text
 
 from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary, va_to_file_offset
-from rebrew.catalog.sections import trim_trailing_padding
+from rebrew.catalog import trim_trailing_padding
 from rebrew.cli import (
     EXIT_MISMATCH,
     EXIT_OK,
@@ -58,10 +58,7 @@ from rebrew.core.matching import (
     apply_coff_relocations,
     build_symbol_resolver,
 )
-from rebrew.matcher.parsers import (
-    parse_obj_relocs_full,
-    parse_obj_symbol_bytes,
-)
+from rebrew.matcher import parse_obj_relocs_full, parse_obj_symbol_bytes
 from rebrew.metadata import get_entry
 from rebrew.sources import (
     iter_sources,
@@ -773,7 +770,7 @@ def _list_name(cfg: ProjectConfig, va: int | None) -> str:
     """
     if va is None:
         return ""
-    from rebrew.catalog.loaders import cached_function_list
+    from rebrew.catalog import cached_function_list
 
     try:
         names = {f["va"]: str(f["name"]) for f in cached_function_list(cfg)}

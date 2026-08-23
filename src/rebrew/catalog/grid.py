@@ -24,7 +24,7 @@ from rebrew.catalog.sections import (
     sections_from_info,
     trim_trailing_padding,
 )
-from rebrew.cli import MATCHED_STATUSES
+from rebrew.metadata import MATCHED_STATUSES
 
 log = logging.getLogger(__name__)
 

@@ -1219,7 +1219,7 @@ def check_ghidra_sync(cfg: ProjectConfig) -> CheckResult:
     program_path = getattr(cfg, "ghidra_program_path", "")
 
     if backend == "cli":
-        from rebrew.ghidra.cli_backend import resolve_ghidra_cli
+        from rebrew.ghidra import resolve_ghidra_cli
 
         found = resolve_ghidra_cli(cfg)
         if found is None:

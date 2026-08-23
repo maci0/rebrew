@@ -1306,8 +1306,8 @@ class TestCrossProjectSeeding:
             ),
         ]
         monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
-        monkeypatch.setattr("rebrew.matcher.solutions.load_solutions", lambda root: local_solutions)
-        monkeypatch.setattr("rebrew.matcher.solutions.load_solutions_file", lambda p: extra)
+        monkeypatch.setattr("rebrew.matcher.load_solutions", lambda root: local_solutions)
+        monkeypatch.setattr("rebrew.matcher.load_solutions_file", lambda p: extra)
         seen: dict[str, Any] = {}
 
         def _fake_run(
@@ -1396,7 +1396,7 @@ class TestCrossProjectSeeding:
         stubs = [self._stub(tmp_path, "_s0")]
         monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
         monkeypatch.setattr(
-            "rebrew.matcher.solutions.load_solutions",
+            "rebrew.matcher.load_solutions",
             lambda root: [
                 SolutionEntry(
                     symbol="_a", cflags="/O2", size=64, source_file="x.c", target="SERVER"
@@ -1404,7 +1404,7 @@ class TestCrossProjectSeeding:
             ],
         )
         monkeypatch.setattr(
-            "rebrew.matcher.solutions.load_solutions_file",
+            "rebrew.matcher.load_solutions_file",
             lambda p: [
                 SolutionEntry(
                     symbol="_a", cflags="/O1", size=64, source_file="y.c", target="SERVER"
@@ -1420,7 +1420,7 @@ class TestCrossProjectSeeding:
             captured["entries"] = entries
             return []
 
-        monkeypatch.setattr("rebrew.matcher.solutions.find_similar", _fake_find_similar)
+        monkeypatch.setattr("rebrew.matcher.find_similar", _fake_find_similar)
         monkeypatch.setattr(
             "rebrew.match._run_one_stub_ga",
             lambda *a, **k: (False, "best_score=5.00"),

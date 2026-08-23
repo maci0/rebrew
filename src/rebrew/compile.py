@@ -58,7 +58,6 @@ from pathlib import Path
 import numpy as np
 
 from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary
-from rebrew.cli import MATCHED_STATUSES
 from rebrew.compile_cache import CompileCache, compile_cache_key, get_compile_cache
 from rebrew.config import ProjectConfig
 from rebrew.core import (
@@ -68,7 +67,8 @@ from rebrew.core import (
     smart_reloc_compare,
 )
 from rebrew.headless import ensure_xvfb
-from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
+from rebrew.matcher import parse_obj_symbol_and_relocs
+from rebrew.metadata import MATCHED_STATUSES
 from rebrew.toolchain import TOOLCHAINS, ToolchainError, ToolchainSpec, run_toolchain
 from rebrew.utils import safe_shlex_split
 

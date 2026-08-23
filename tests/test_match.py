@@ -396,7 +396,7 @@ class TestRunAllBatch:
             calls.append((str(root), target, va, symbol, matched))
 
         monkeypatch.setattr("rebrew.match._run_one_stub_ga", _fake_ga)
-        monkeypatch.setattr("rebrew.matcher.solutions.record_ga_run", _fake_record)
+        monkeypatch.setattr("rebrew.matcher.record_ga_run", _fake_record)
         matched, failed = self._run(self._cfg(tmp_path), json_output=True)
         assert (matched, failed) == (1, 0)
         assert calls == [(str(tmp_path), "T", "0x10001000", "a.c", True)]
@@ -584,7 +584,7 @@ class TestFlagSweepMatchValidation:
             "rebrew.metadata.update_source_status", lambda *a, **k: calls.append("status")
         )
         monkeypatch.setattr("rebrew.verify.patch_verify_cache_entries", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.matcher.solutions.save_solutions", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.matcher.save_solutions", lambda *a, **k: None)
         # update_cflags_annotation is a module-level function in match.py —
         # bypass it so the test asserts promotion behavior, not the cflags write.
         monkeypatch.setattr("rebrew.match.update_cflags_annotation", lambda *a, **k: True)
@@ -650,7 +650,7 @@ class TestFlagSweepMatchValidation:
             "rebrew.metadata.update_source_status", lambda *a, **k: calls.append("status")
         )
         monkeypatch.setattr("rebrew.verify.patch_verify_cache_entries", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.matcher.solutions.save_solutions", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.matcher.save_solutions", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.match.update_cflags_annotation", lambda *a, **k: True)
 
         exact, not_exact = _run_batch_flag_sweep(
@@ -719,7 +719,7 @@ class TestFindSizeMismatch:
             return False, "best_score=5.00"
 
         monkeypatch.setattr("rebrew.match._run_one_stub_ga", _fake_ga)
-        monkeypatch.setattr("rebrew.matcher.solutions.record_ga_run", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.matcher.record_ga_run", lambda *a, **k: None)
 
         cfg = self._cfg(tmp_path)
         _run_all(

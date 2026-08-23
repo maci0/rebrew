@@ -366,8 +366,7 @@ def _build_dispatch_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[i
                 }
 
     try:
-        from rebrew.catalog.loaders import parse_function_list
-        from rebrew.catalog.registry import build_function_registry
+        from rebrew.catalog import build_function_registry, parse_function_list
         from rebrew.config import FUNCTION_STRUCTURE_JSON
 
         funcs = parse_function_list(cfg.function_list)
@@ -1435,7 +1434,10 @@ def main(
         if not metadata.exists():
             error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
         if layout_audit:
-            report = audit_layout(cfg.root, metadata)
+            try:
+                report = audit_layout(cfg.root, metadata)
+            except OSError as exc:
+                error_exit(str(exc), json_mode=json_output)
             if json_output:
                 json_print(report)
             else:
@@ -1469,9 +1471,12 @@ def main(
                     )
             return
         if fill_data:
-            result = fill_data_layout(
-                cfg.root, metadata, bin_path, src_dir, dry_run=dry_run, bss_only=bss_only
-            )
+            try:
+                result = fill_data_layout(
+                    cfg.root, metadata, bin_path, src_dir, dry_run=dry_run, bss_only=bss_only
+                )
+            except OSError as exc:
+                error_exit(str(exc), json_mode=json_output)
             if json_output:
                 json_print(result)
             else:
@@ -1484,9 +1489,12 @@ def main(
             stub = stub_file if stub_file is not None else cfg.root / "src" / "link_stubs.c"
             if not stub.exists():
                 error_exit(f"stub file not found: {stub} (--stub-file)", json_mode=json_output)
-            own_result = own_data_globals(
-                cfg.root, metadata, bin_path, src_dir, stub, dry_run=dry_run
-            )
+            try:
+                own_result = own_data_globals(
+                    cfg.root, metadata, bin_path, src_dir, stub, dry_run=dry_run
+                )
+            except OSError as exc:
+                error_exit(str(exc), json_mode=json_output)
             if json_output:
                 json_print(own_result)
             else:
@@ -1501,7 +1509,12 @@ def main(
                     )
             return
         if fix_ownership:
-            fix_result = fix_data_ownership(cfg.root, metadata, bin_path, src_dir, dry_run=dry_run)
+            try:
+                fix_result = fix_data_ownership(
+                    cfg.root, metadata, bin_path, src_dir, dry_run=dry_run
+                )
+            except OSError as exc:
+                error_exit(str(exc), json_mode=json_output)
             if json_output:
                 json_print(fix_result)
             else:
@@ -1510,9 +1523,12 @@ def main(
                     f"({fix_result['moved']} definitions moved){' (dry run)' if dry_run else ''}"
                 )
             return
-        conv_result = converge_data_layout(
-            cfg.root, metadata, bin_path, src_dir, rounds=rounds, dry_run=dry_run
-        )
+        try:
+            conv_result = converge_data_layout(
+                cfg.root, metadata, bin_path, src_dir, rounds=rounds, dry_run=dry_run
+            )
+        except OSError as exc:
+            error_exit(str(exc), json_mode=json_output)
         if json_output:
             json_print(conv_result)
         else:
@@ -1547,7 +1563,7 @@ def main(
     if bin_path and bin_path.exists():
         try:
             from rebrew.binary_loader import load_binary, section_dict
-            from rebrew.catalog.sections import sections_from_info
+            from rebrew.catalog import sections_from_info
 
             bin_info = load_binary(bin_path)
             sections = sections_from_info(bin_info)
