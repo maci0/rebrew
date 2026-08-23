@@ -162,7 +162,7 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 
 - **Probe17 allocator/conventions**: `-1` stores use the IMMEDIATE `c7 05 <addr> ff ff ff ff` form (2.0/4.x era; 5.0–10.0 use `or eax,-1` + `a3`); no zero register is materialized (`cmp [mem],0` memory-immediate compares).  Varargs float→double promotion verified (`fld; sub esp,8; fstp qword [esp]`).  See RULES.md A5/B5.
 
-- **Decomp idioms** — the probe19-25 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe25` records).
+- **Decomp idioms** — the probe19-26 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe26` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -182,6 +182,11 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 ## Probe25: Finding 44 primitives (round 22)
 
 - **Probe25 (2.0-era)**: clamp is BRANCHY (`test; jg; xor`); ×589 four-lea chain; byte-arg raw push (`mov al,[mem]`).  See RULES.md C30/C31/E21.
+
+
+## Probe26: Finding 45 early-return placement (round 23)
+
+- **Probe26 (2.0-era)**: early-return blocks INLINE (all versions); shared -1 tail as `mov eax,-1`.  See RULES.md F25.
 
 
 ## Verification

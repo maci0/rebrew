@@ -126,7 +126,7 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 
 - **Probe17 allocator/conventions**: `-1` register form; **address-taken params force FOUR callee-saves (ebx/ebp/esi/edi)** — the most aggressive of any version.  See RULES.md B7.
 
-- **Decomp idioms** — the probe19-25 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe25` records).
+- **Decomp idioms** — the probe19-26 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe26` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -146,6 +146,11 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 ## Probe25: Finding 44 primitives (round 22)
 
 - **Probe25 (9.0)**: clamp setle+neg (back from 8.0's sub-1); byte-arg movzx; SP1 remains blocked.  See RULES.md C30/J4.
+
+
+## Probe26: Finding 45 early-return placement (round 23)
+
+- **Probe26 (9.0)**: mirrors 8.0; SP1 remains blocked.  See RULES.md F25/J4.
 
 
 ## Verification
