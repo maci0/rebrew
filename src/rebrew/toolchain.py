@@ -29,6 +29,7 @@ import contextlib
 import os
 import shutil
 import subprocess
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -973,6 +974,17 @@ def docker_available() -> bool:
 _image_presence: dict[str, bool] = {}
 
 
+def _kill_container(name: str, timeout: int = 30) -> None:
+    """Best-effort ``docker kill`` of a timed-out run container.
+
+    The container was started with ``--rm``, so killing it also removes it.
+    All errors are suppressed: this is cleanup on an error path — losing the
+    kill race must not mask the original timeout with a secondary failure.
+    """
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
+        subprocess.run(["docker", "kill", name], capture_output=True, timeout=timeout)
+
+
 def _image_present(tag: str) -> bool:
     """True when a docker image for *tag* is present locally (cached)."""
     if tag in _image_presence:
@@ -1200,6 +1212,12 @@ def run_toolchain(
             "run",
             "--rm",
             "--network=none",  # compile-only containers — no egress needed
+            # A stable name lets the timeout path kill the container: when the
+            # docker CLI is killed, dockerd keeps the (attached) container
+            # running, so a hung compile would linger forever and accumulate
+            # one orphan per timed-out invocation.
+            "--name",
+            f"rebrew-{uuid.uuid4().hex[:12]}",
             "-v",
             f"{workdir.resolve()}:/work",
             "-w",
@@ -1213,7 +1231,10 @@ def run_toolchain(
         cmd.extend(args)
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        except subprocess.TimeoutExpired as exc:
+            _kill_container(str(cmd[cmd.index("--name") + 1]))
+            raise ToolchainError(f"docker invocation failed: {exc}") from exc
+        except OSError as exc:
             raise ToolchainError(f"docker invocation failed: {exc}") from exc
         return RunResult(r.returncode, r.stdout, r.stderr, backend="docker")
 

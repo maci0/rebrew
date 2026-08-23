@@ -71,16 +71,14 @@ class TestRunToolchain:
         r = run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path)
         assert r.backend == "docker"
         assert r.ok
-        assert calls[0][:6] == [
-            "docker",
-            "run",
-            "--rm",
-            "--network=none",
-            "-v",
-            f"{tmp_path.resolve()}:/work",
-        ]
-        assert calls[0][6:10] == ["-w", "/work", "rebrew/t:latest", "cl"]
-        assert calls[0][10:] == ["/c", "f.c"]
+        assert calls[0][:4] == ["docker", "run", "--rm", "--network=none"]
+        # Named container: the timeout path must be able to kill it (a killed
+        # docker CLI alone leaves the container running under dockerd).
+        assert calls[0][4] == "--name"
+        assert calls[0][5].startswith("rebrew-")
+        assert calls[0][6:10] == ["-v", f"{tmp_path.resolve()}:/work", "-w", "/work"]
+        assert calls[0][10:12] == ["rebrew/t:latest", "cl"]
+        assert calls[0][12:] == ["/c", "f.c"]
 
     def test_docker_entrypoint_image_passes_no_command(self, tmp_path: Path, monkeypatch) -> None:
         """image_binary=None means the image ENTRYPOINT is the compiler —
@@ -88,7 +86,7 @@ class TestRunToolchain:
         spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="wcc386")
         calls = _monkey_docker(monkeypatch)
         run_toolchain(spec, ["-zq", "f.c"], workdir=tmp_path)
-        assert calls[0][9:] == ["-zq", "f.c"]
+        assert calls[0][11:] == ["-zq", "f.c"]
 
     def test_docker_uses_image_binary_shim(self, tmp_path: Path, monkeypatch) -> None:
         spec = ToolchainSpec(
@@ -96,7 +94,7 @@ class TestRunToolchain:
         )
         calls = _monkey_docker(monkeypatch)
         run_toolchain(spec, ["hello.dpr"], workdir=tmp_path)
-        assert calls[0][9] == "dcc"
+        assert calls[0][11] == "dcc"
 
     def test_wine_runtime_without_image_raises(self, tmp_path: Path, monkeypatch) -> None:
         """A wine-runtime spec without an image is not runnable — execution
@@ -119,6 +117,51 @@ class TestRunToolchain:
         with pytest.raises(ToolchainError, match="no docker image"):
             run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path)
         assert calls == [], "no subprocess may run for a wine spec without an image"
+
+    def test_docker_timeout_kills_named_container(self, tmp_path: Path, monkeypatch) -> None:
+        """A timed-out compile must kill its container by name: killing the
+        docker CLI leaves the container running under dockerd, so a GA sweep
+        would otherwise accumulate one hung wine process per timeout."""
+        import subprocess as sp
+
+        spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="cl", image_binary="cl")
+        calls: list[list[str]] = []
+
+        def _run(cmd, **kwargs):
+            calls.append(list(cmd))
+            if cmd[1] == "run":
+                raise sp.TimeoutExpired(cmd, 300)
+            return _FakeProc(0, "", "")
+
+        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
+
+        with pytest.raises(ToolchainError, match="docker invocation failed"):
+            run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path, timeout=1)
+
+        assert len(calls) == 2
+        assert calls[0][4:6] == ["--name", calls[1][2]], "kill must target the run's container"
+        assert calls[1][:2] == ["docker", "kill"]
+
+    def test_docker_os_error_skips_kill(self, tmp_path: Path, monkeypatch) -> None:
+        """No container exists when docker itself cannot be exec'd — the
+        error path must not fire a kill."""
+        spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="cl", image_binary="cl")
+        calls: list[list[str]] = []
+
+        def _run(cmd, **kwargs):
+            calls.append(list(cmd))
+            raise OSError("docker not found")
+
+        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
+
+        with pytest.raises(ToolchainError, match="docker invocation failed"):
+            run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path)
+
+        assert len(calls) == 1
 
     def test_native_runtime_without_image_uses_vendored_path(
         self, tmp_path: Path, monkeypatch

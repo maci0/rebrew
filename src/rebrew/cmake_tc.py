@@ -28,8 +28,9 @@ import os
 import subprocess
 import sys
 import tomllib
+import uuid
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 
 import typer
@@ -227,6 +228,18 @@ def _wineprefix(spec: ToolchainSpec) -> Path:
     return Path.home() / ".cache" / f"rebrew-{spec.name}-wineprefix"
 
 
+def _kill_container(name: str, timeout: int = 30) -> None:
+    """Best-effort ``docker kill`` of a timed-out run container.
+
+    Killing the docker CLI leaves the container running under dockerd; the
+    kill (plus the ``--rm`` flag) reaps it instead of leaking one hung
+    wine compile per timeout.  Errors are suppressed: cleanup must not mask
+    the original timeout.
+    """
+    with suppress(OSError, subprocess.SubprocessError):
+        subprocess.run(["docker", "kill", name], capture_output=True, timeout=timeout)
+
+
 def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
     """Initialize the shared prefix exactly once (parallel builds race)."""
     if (prefix / ".update-timestamp").exists():
@@ -237,6 +250,7 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
     with _exclusive_lock(lock_path):
         if (prefix / ".update-timestamp").exists():
             return
+        name = f"rebrew-{spec.name}-wineboot-{uuid.uuid4().hex[:12]}"
         try:
             r = subprocess.run(
                 [
@@ -244,6 +258,8 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
                     "run",
                     "--rm",
                     "--network=none",  # wineboot needs no network
+                    "--name",
+                    name,
                     *_docker_user_args(),
                     "-e",
                     f"WINEPREFIX={prefix}",
@@ -259,6 +275,7 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
                 timeout=300,
             )
         except subprocess.TimeoutExpired as exc:
+            _kill_container(name)
             error_exit(f"wineprefix init timed out after 300s ({prefix}): {exc}")
         if r.returncode != 0:
             # A half-initialized prefix makes every later compile fail with
@@ -287,6 +304,8 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
         "run",
         "--rm",
         "--network=none",  # compile-only containers — no egress needed
+        "--name",
+        f"rebrew-{spec.name}-{mode}-{uuid.uuid4().hex[:12]}",
         *_docker_user_args(),
         "-e",
         f"WINEPREFIX={prefix}",
@@ -309,8 +328,14 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
         *_rewrite_args(mode, args),
     ]
 
-    with _exclusive_lock(prefix / ".run.lock"):
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+    try:
+        with _exclusive_lock(prefix / ".run.lock"):
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+    except subprocess.TimeoutExpired:
+        # Killing the CLI leaves the wine container running under dockerd —
+        # kill it by name so a hung compile does not outlive the timeout.
+        _kill_container(str(cmd[cmd.index("--name") + 1]))
+        raise
     sys.stdout.write((r.stdout + r.stderr).replace("\r", ""))
     sys.stdout.flush()
     return r.returncode

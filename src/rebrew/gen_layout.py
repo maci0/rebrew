@@ -446,6 +446,7 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
     if spec is None or spec.image is None or spec.tool_root is None:
         return set()
     lib_dir = str(Path(spec.tool_root).parent / "Lib")
+    name = f"rebrew-libgrep-{dll_stem}"
     try:
         r = subprocess.run(
             [
@@ -453,6 +454,10 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
                 "run",
                 "--rm",
                 "--network=none",  # read-only grep inside the image
+                # Named so the timeout path can kill it (a killed docker CLI
+                # leaves the container running under dockerd).
+                "--name",
+                name,
                 "--entrypoint",
                 "sh",
                 spec.image,
@@ -463,7 +468,12 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
             text=True,
             timeout=60,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except subprocess.TimeoutExpired:
+        from rebrew.toolchain import _kill_container
+
+        _kill_container(name)
+        return set()
+    except OSError:
         return set()
     return set(r.stdout.split()) if r.returncode == 0 else set()
 

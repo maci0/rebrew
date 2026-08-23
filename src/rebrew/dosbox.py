@@ -9,6 +9,7 @@ stage their toolchain there before invoking :func:`run_dosbox`.
 
 from __future__ import annotations
 
+import atexit
 import os
 import shutil
 import subprocess
@@ -50,13 +51,24 @@ def make_sandbox_dir(prefix: str) -> Path:
     /work, so the user's home is preferred when writable; read-only homes
     (sandboxed / CI) fall back to the workspace ``.cache`` and TMPDIR.
 
+    The sandbox is removed when the process exits (same discipline as
+    link_sweep's scratch dir) — each 16-bit compile stages compiler trees
+    and RTL units into its sandbox, so without the hook one dir leaks into
+    ``~/.cache/rebrew/tmp`` per invocation.  Callers that must keep a
+    sandbox for post-mortem inspection pass their own *workdir* instead and
+    own its lifetime.
+
     Raises :class:`DosboxError` when no candidate is writable."""
     from rebrew.utils import writable_temp_dir
 
     try:
-        return writable_temp_dir(prefix)
+        sandbox = writable_temp_dir(prefix)
     except OSError as exc:
         raise DosboxError(str(exc)) from exc
+    # ignore_errors=True: a still-mounted sandbox ("Device or resource busy")
+    # must not turn interpreter shutdown into a traceback.
+    atexit.register(shutil.rmtree, sandbox, True)
+    return sandbox
 
 
 def run_dosbox(

@@ -744,6 +744,7 @@ def smoke_cmd(
             src_path.write_text(src, encoding="utf-8")
             os.utime(src_path, (int(_SDE), int(_SDE)))
             if spec.image is not None:
+                container = f"rebrew-smoke-{spec.name}-{tool}"
                 try:
                     r = subprocess.run(
                         [
@@ -751,6 +752,10 @@ def smoke_cmd(
                             "run",
                             "--rm",
                             "--network=none",  # compile-only container
+                            # Named so the timeout path can kill it (a killed
+                            # docker CLI leaves the container under dockerd).
+                            "--name",
+                            container,
                             "-v",
                             f"{workdir}:/work",
                             "-w",
@@ -763,6 +768,9 @@ def smoke_cmd(
                         timeout=300,
                     )
                 except subprocess.TimeoutExpired:
+                    from rebrew.toolchain import _kill_container
+
+                    _kill_container(container)
                     results[tool] = "FAIL (docker run timed out after 300s)"
                     ok = False
                     continue
