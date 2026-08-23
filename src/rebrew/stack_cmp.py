@@ -51,6 +51,8 @@ from rebrew.cli import (
 console = Console(stderr=True)
 
 _EBP_SLOT_RE = re.compile(r"\[(?:e?bp)\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\]")
+_ESP_DELTA_RE = re.compile(r"\[e?sp\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\]")
+_ENTER_SIZE_RE = re.compile(r"(0x[0-9a-fA-F]+|\d+)")
 
 
 def _cs_mode_for_cfg(cfg: Any) -> int:
@@ -122,12 +124,12 @@ def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
         elif mnem == "lea" and "sp" in op_str:
             # lea esp, [esp - N] — stack alignment / probing reset.  The
             # destination esp takes the pointer value, so [esp-N] lowers esp.
-            m = re.search(r"\[e?sp\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\]", op_str)
+            m = _ESP_DELTA_RE.search(op_str)
             if m:
                 delta = int(m.group(2), 16) if m.group(2).startswith("0x") else int(m.group(2))
                 esp += -delta if m.group(1) == "-" else delta
         elif mnem == "enter":
-            m = re.search(r"(0x[0-9a-fA-F]+|\d+)", op_str)
+            m = _ENTER_SIZE_RE.search(op_str)
             if m:
                 size = int(m.group(1), 16) if m.group(1).startswith("0x") else int(m.group(1))
                 esp -= word + size

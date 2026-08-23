@@ -150,6 +150,10 @@ def _compile_cflags(cflags: str, base_cf: str, posix_style: bool = False) -> str
 _MUTATION_FOCUS_CATEGORIES = ("register", "equivalent", "structural")
 _MUTATION_FOCUS_WEIGHT = 6.0
 
+#: Generations between full-population checkpoint writes (an interrupted run
+#: redoes at most this many generations of deterministic work).
+_CHECKPOINT_INTERVAL = 5
+
 
 def _mutation_focus_weights(
     focus: str | None, blocker: str | None = None
@@ -337,6 +341,9 @@ class BinaryMatchingGA:
         self.compile_timeout = compile_timeout
         self.collect_pairs_path = collect_pairs_path
         self._pairs_count = 0
+        # Lazily hexed target bytes — every pair record repeats them, and
+        # re-hexing per candidate dominated --collect-pairs overhead.
+        self._target_hex: str | None = None
 
         self.rng = random.Random(rng_seed)
         self.mutation_weights = mutation_weights or {}
@@ -551,10 +558,12 @@ class BinaryMatchingGA:
         so no in-function re-check is needed (the old one sat AFTER the
         record was built, i.e. unreachable).
         """
+        if self._target_hex is None:
+            self._target_hex = self.target_bytes.hex()
         record = {
             "source": src,
             "compiled_bytes": obj_bytes.hex(),
-            "target_bytes": self.target_bytes.hex(),
+            "target_bytes": self._target_hex,
             "score": round(score, 4),
             "cflags": self.cflags,
             "symbol": self.symbol,
@@ -583,6 +592,7 @@ class BinaryMatchingGA:
 
     def _run_inner(self, deadline: float | None = None) -> tuple[str | None, float]:
         """Run the GA and return ``(best_source, best_score)``."""
+        last_generation = self._start_generation
         for gen in range(self._start_generation, self.num_generations):
             if deadline is not None and time.monotonic() > deadline:
                 break
@@ -678,9 +688,18 @@ class BinaryMatchingGA:
             # time by ~99% on cache-warm runs (mutation dominates).
             self.elapsed_sec += time.monotonic() - gen_start
 
-            # Persist a checkpoint every generation so an interrupted batch
-            # resumes from here instead of restarting the stub.
-            self._save_checkpoint(gen + 1)
+            # Persist a checkpoint every _CHECKPOINT_INTERVAL generations so
+            # an interrupted batch resumes from here instead of restarting
+            # the stub.  The full-population JSON write is not free; an
+            # interrupted run only redoes the skipped generations' work.
+            if (gen + 1) % _CHECKPOINT_INTERVAL == 0:
+                self._save_checkpoint(gen + 1)
+            last_generation = gen + 1
+
+        # Always leave a fresh checkpoint on orderly exit (converged,
+        # stagnant, deadline, or completed) so resume sees final state.
+        if last_generation > self._start_generation:
+            self._save_checkpoint(last_generation)
 
         return self.best_source, self.best_score
 

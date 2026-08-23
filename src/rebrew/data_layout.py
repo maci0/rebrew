@@ -177,23 +177,19 @@ def _data_raw_from_binary(bin_path: Path) -> bytes:
 # ---------------------------------------------------------------------------
 
 
-def ref_counts(name: str, files: list[Path]) -> dict[Path, int]:
+def owner_of(names: list[str], files: list[Path]) -> Path | None:
+    """The most-referencing file over *names* (None when nothing references them)."""
+    if not names:
+        return None
+    patterns = [re.compile(rf"\b{re.escape(n)}\b") for n in names]
     counts: dict[Path, int] = defaultdict(int)
     for f in files:
         try:
             t = f.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        counts[f] += len(re.findall(rf"\b{re.escape(name)}\b", t))
-    return counts
-
-
-def owner_of(names: list[str], files: list[Path]) -> Path | None:
-    """The most-referencing file over *names* (None when nothing references them)."""
-    counts: dict[Path, int] = defaultdict(int)
-    for n in names:
-        for f, c in ref_counts(n, files).items():
-            counts[f] += c
+        for pat in patterns:
+            counts[f] += len(pat.findall(t))
     if not counts:
         return None
     return max(counts, key=lambda p: counts[p])

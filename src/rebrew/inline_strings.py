@@ -180,10 +180,11 @@ def define_remaining_strings(
     Owner = the file with the most non-extern uses of the token (asm-referenced
     tokens have no inlinable uses left).  Returns the number of definitions.
     """
+    texts = {f: f.read_text(encoding="utf-8", errors="replace") for f in files}
 
-    def real_uses(f: Path) -> set[str]:
+    def real_uses(text: str) -> set[str]:
         uses: set[str] = set()
-        for ln in f.read_text(encoding="utf-8", errors="replace").splitlines():
+        for ln in text.splitlines():
             s = ln.strip()
             if (
                 s.startswith("//")
@@ -196,22 +197,17 @@ def define_remaining_strings(
         return uses
 
     owner: dict[str, Path] = {}
-    for f in files:
-        for tok in real_uses(f):
-            counts: dict[Path, int] = defaultdict(int)
-            for other in files:
-                counts[other] += len(
-                    re.findall(
-                        r"\b" + re.escape(tok) + r"\b",
-                        other.read_text(encoding="utf-8", errors="replace"),
-                    )
-                )
-            owner[tok] = max(counts, key=counts.__getitem__)
+    for tok in sorted({t for text in texts.values() for t in real_uses(text)}):
+        tok_re = re.compile(r"\b" + re.escape(tok) + r"\b")
+        counts: dict[Path, int] = defaultdict(int)
+        for other, text in texts.items():
+            counts[other] += len(tok_re.findall(text))
+        owner[tok] = max(counts, key=counts.__getitem__)
 
     extern_re = re.compile(r"^(\s*)extern\s+(?:char|unsigned char)\s+")
     done = 0
-    for f in files:
-        lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+    for f, text in texts.items():
+        lines = text.splitlines()
         changed = False
         for i, ln in enumerate(lines):
             m = extern_re.match(ln)
