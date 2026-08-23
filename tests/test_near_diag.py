@@ -333,14 +333,14 @@ class TestMutationSuggestions:
     """H6: every verdict category maps to GA mutation operators."""
 
     def test_every_category_has_suggestions_or_is_reloc(self) -> None:
-        from rebrew.near_diag import _MUTATION_SUGGESTIONS
+        from rebrew.near_diag import MUTATION_SUGGESTIONS
 
         for category in ("register", "equivalent", "structural"):
-            assert _MUTATION_SUGGESTIONS[category], f"{category} has no suggestions"
+            assert MUTATION_SUGGESTIONS[category], f"{category} has no suggestions"
         # reloc is RELOC-level and encoding is a compiler-version artifact —
         # deliberately no mutation suggestions.
-        assert _MUTATION_SUGGESTIONS["reloc"] == []
-        assert _MUTATION_SUGGESTIONS["encoding"] == []
+        assert MUTATION_SUGGESTIONS["reloc"] == []
+        assert MUTATION_SUGGESTIONS["encoding"] == []
 
     def test_operators_exist_in_mutator(self) -> None:
         """Every suggested operator must be a real mut_* in mutator.py."""
@@ -348,11 +348,11 @@ class TestMutationSuggestions:
         from pathlib import Path
 
         from rebrew.matcher import mutator
-        from rebrew.near_diag import _MUTATION_SUGGESTIONS
+        from rebrew.near_diag import MUTATION_SUGGESTIONS
 
         source = Path(mutator.__file__).read_text(encoding="utf-8")
         defined = set(re.findall(r"^def (mut_\w+)\(", source, re.M))
-        for category, ops in _MUTATION_SUGGESTIONS.items():
+        for category, ops in MUTATION_SUGGESTIONS.items():
             for op in ops:
                 assert op in defined, f"{op} (for {category}) not in mutator.py"
 

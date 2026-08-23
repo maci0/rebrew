@@ -34,7 +34,7 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import TargetOption, json_print, require_config
-from rebrew.data_layout import _data_raw_from_binary, layout_geometry
+from rebrew.data_layout import data_raw_from_binary, layout_geometry
 
 console = Console(stderr=True)
 
@@ -257,7 +257,7 @@ def main(
         error_exit(f"reference binary not found: {bin_path}", json_mode=json_output)
 
     data_base, _raw_end, _section_end = layout_geometry(cfg.root / "rebrew-project.toml")
-    orig = _data_raw_from_binary(bin_path)
+    orig = data_raw_from_binary(bin_path)
     token_re = re.compile(rf"\b{re.escape(token_prefix)}[A-Za-z0-9_]+_([0-9a-fA-F]{{6,8}})\b")
 
     scan_files = sorted(src_dir.rglob("*.c"))

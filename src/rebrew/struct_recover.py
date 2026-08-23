@@ -103,7 +103,7 @@ _ARRAY_DEREF_RE = re.compile(
 _ARRAY_IDX_RE = re.compile(r"(?<![\w&])(?P<var>[A-Za-z_]\w*)\s*\[\s*(?P<idx>\d+)\s*\]")
 
 #: Pseudo-types that never name a recoverable struct.
-_PSEUDO_TYPES = frozenset(
+PSEUDO_TYPES = frozenset(
     {
         "undefined",
         "undefined1",
@@ -146,7 +146,7 @@ _PSEUDO_TYPES = frozenset(
 )
 
 #: Cast type → access width in bytes.
-_TYPE_WIDTHS: dict[str, int] = {
+TYPE_WIDTHS: dict[str, int] = {
     "char": 1,
     "uchar": 1,
     "unsigned char": 1,
@@ -191,11 +191,11 @@ _TYPE_WIDTHS: dict[str, int] = {
 }
 
 
-def _type_width(cast_type: str) -> int | None:
+def type_width(cast_type: str) -> int | None:
     """Width of *cast_type* when it is a primitive (None for named structs)."""
     t = cast_type.strip()
-    if t in _TYPE_WIDTHS:
-        return _TYPE_WIDTHS[t]
+    if t in TYPE_WIDTHS:
+        return TYPE_WIDTHS[t]
     # pointer-to-anything → 4 (x86-32)
     if t.endswith("*"):
         return 4
@@ -221,7 +221,7 @@ def pointer_element_widths(text: str) -> dict[str, int]:
     """
     out: dict[str, int] = {}
     for m in _DECL_RE.finditer(text):
-        w = _TYPE_WIDTHS.get(m.group("type"))
+        w = TYPE_WIDTHS.get(m.group("type"))
         if w is not None:
             out[m.group("var")] = w
     return out
@@ -289,7 +289,7 @@ def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) ->
     var_types: dict[str, str] = {}
 
     def _set_var_type(var: str, t: str) -> None:
-        if t in _PSEUDO_TYPES:
+        if t in PSEUDO_TYPES:
             var_types.setdefault(var, t)
         else:
             var_types[var] = t
@@ -299,7 +299,7 @@ def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) ->
     for m in _CAST_RE.finditer(text):
         _set_var_type(m.group("var"), m.group("type"))
 
-    bases_with_pointers = {t for t in var_types.values() if t not in _PSEUDO_TYPES}
+    bases_with_pointers = {t for t in var_types.values() if t not in PSEUDO_TYPES}
 
     def _bump(container: dict[str, StructEvidence], base: str, offset: int, width: int) -> None:
         if offset >= max_offset:
@@ -312,7 +312,7 @@ def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) ->
         """Attribute one access: to a named base type, or an anonymous var."""
         if var:
             base = var_types.get(var)
-            if base is not None and base not in _PSEUDO_TYPES:
+            if base is not None and base not in PSEUDO_TYPES:
                 _bump(named, base, offset, width)
                 return
             if not _TEMP_VAR_RE.match(var):
@@ -330,7 +330,7 @@ def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) ->
 
     # Width evidence from explicit casts.
     for m in _CAST_DEREF_RE.finditer(text):
-        width = _type_width(m.group("type"))
+        width = type_width(m.group("type"))
         if width is None:
             continue
         var = m.group("var1") or m.group("var2")
@@ -343,15 +343,15 @@ def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) ->
     # struct pointers as primitive arrays; byte offset = index × element
     # width of the declared base type.
     for m in _ARRAY_DEREF_RE.finditer(text):
-        width = _type_width(m.group("type"))
+        width = type_width(m.group("type"))
         var = m.group("var")
-        elem = _TYPE_WIDTHS.get(var_types.get(var, ""))
+        elem = TYPE_WIDTHS.get(var_types.get(var, ""))
         if width is None or elem is None:
             continue
         _record(var, int(m.group("idx")) * elem, width)
     for m in _ARRAY_IDX_RE.finditer(text):
         var = m.group("var")
-        elem = _TYPE_WIDTHS.get(var_types.get(var, ""))
+        elem = TYPE_WIDTHS.get(var_types.get(var, ""))
         if elem is None:
             continue
         _record(var, int(m.group("idx")) * elem, elem)

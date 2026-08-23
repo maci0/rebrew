@@ -63,7 +63,7 @@ console = Console(stderr=True)
 
 #: 16-bit DOS profiles whose C compiler rejects ``//`` comments (C89-strict).
 #: Their skeleton markers are emitted as ``/* ... */`` instead.
-_C89_STRICT_PROFILES = frozenset({"tc20", "msvc1.52", "watcom16"})
+C89_STRICT_PROFILES = frozenset({"tc20", "msvc1.52", "watcom16"})
 
 
 def _render_annotation_block(
@@ -86,7 +86,7 @@ def _render_annotation_block(
     # ``//`` line — verified; MSVC 1.52 and Watcom C are equally strict).
     # TCC 3.1 and the 32-bit profiles accept both, so ``/* */`` would also
     # work there — but keep ``//`` (the long-standing convention) for them.
-    use_block_comment = profile in _C89_STRICT_PROFILES
+    use_block_comment = profile in C89_STRICT_PROFILES
     if use_block_comment:
         lines = [f"/* {marker}: {cfg_marker} 0x{va:08x} */\n"]
     else:

@@ -37,11 +37,11 @@ class Delphi16Result:
     log: str = ""
 
 
-def _find_dcc() -> Path:
+def find_dcc() -> Path:
     """Locate the vendored DCC.EXE (rebrew-toolchains/delphi/1.0-win16)."""
-    from rebrew.toolchain import _toolchains_repo
+    from rebrew.toolchain import toolchains_repo
 
-    dcc = _toolchains_repo() / "delphi" / "1.0-win16" / "source" / "DCC.EXE"
+    dcc = toolchains_repo() / "delphi" / "1.0-win16" / "source" / "DCC.EXE"
     if dcc.exists():
         return dcc
     raise Delphi16Error(
@@ -105,7 +105,7 @@ def compile_ne(
         Delphi16Error: toolchain/DOSBox missing, compile failure, or the
             output is not a parseable NE.
     """
-    dcc = _find_dcc()
+    dcc = find_dcc()
 
     src_path = Path(dpr_source) if Path(dpr_source).exists() else None
     if src_path is not None:

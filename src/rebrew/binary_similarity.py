@@ -44,7 +44,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.similar import _DEFAULT_CS_ARCH, _DEFAULT_CS_MODE, _disasm_signature
+from rebrew.similar import DEFAULT_CS_ARCH, DEFAULT_CS_MODE, disasm_signature
 
 console = Console(stderr=True)
 
@@ -221,7 +221,7 @@ def _load_side(
             continue
         if not code:
             continue
-        sig = _disasm_signature(code, va, cs_arch, cs_mode)
+        sig = disasm_signature(code, va, cs_arch, cs_mode)
         out.append({"va": va, "size": size, "name": str(f.get("name", "")), "signature": sig})
     return out
 
@@ -247,8 +247,8 @@ def run_binary_similarity(
             json_mode=json_output,
         )
 
-    cs_arch = getattr(cfg, "capstone_arch", _DEFAULT_CS_ARCH)
-    cs_mode = getattr(cfg, "capstone_mode", _DEFAULT_CS_MODE)
+    cs_arch = getattr(cfg, "capstone_arch", DEFAULT_CS_ARCH)
+    cs_mode = getattr(cfg, "capstone_mode", DEFAULT_CS_MODE)
 
     funcs_a = _load_side(cfg.target_binary, cfg.function_list, cs_arch, cs_mode)
     funcs_b = _load_side(other_binary, other_list, cs_arch, cs_mode)

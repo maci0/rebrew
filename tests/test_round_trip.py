@@ -1281,9 +1281,9 @@ class TestFixHeaders:
         assert orig_fields is not None and reasm_fields is not None
         # Every patchable field now matches the original (checksum is
         # recomputed, not copied — asserted separately below).
-        from rebrew.pe_headers import _PATCHABLE
+        from rebrew.pe_headers import PATCHABLE
 
-        for label in _PATCHABLE - {"checksum"}:
+        for label in PATCHABLE - {"checksum"}:
             assert reasm_fields.values[label] == orig_fields.values[label], label
         # The checksum was recomputed and is now valid.
         assert reasm_fields.values["checksum"] == _pe_checksum(reasm)

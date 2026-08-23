@@ -213,10 +213,10 @@ def kuna_seed_source(binary: Path, va: int, root: Path) -> str | None:
     if not raw:
         return None
     from rebrew.fixup import sanitize_tokens
-    from rebrew.llm_seed import _valid_c_source
+    from rebrew.llm_seed import valid_c_source
 
     fixed, _ = sanitize_tokens(raw)
-    return fixed if _valid_c_source(fixed) else None
+    return fixed if valid_c_source(fixed) else None
 
 
 # Backends share the (binary, va, root) core plus optional keyword args;

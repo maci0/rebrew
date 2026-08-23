@@ -520,14 +520,14 @@ def _entry_headers_fp(cfg: ProjectConfig, filepath: Path, cflags_str: str) -> st
     """
     import shlex
 
-    from rebrew.compile import _extract_include_dirs, _resolve_include_flags
+    from rebrew.compile import extract_include_dirs, resolve_include_flags
     from rebrew.compile_cache import header_dependency_hash
 
     source_dir = filepath.parent
     inc_path = str(getattr(cfg, "compiler_includes", "") or "")
     flags = shlex.split(getattr(cfg, "base_cflags", "") or "") + shlex.split(cflags_str)
-    flags = _resolve_include_flags(flags, source_dir, cfg.root)
-    include_dirs = [d for d in [inc_path, str(source_dir), *_extract_include_dirs(flags)] if d]
+    flags = resolve_include_flags(flags, source_dir, cfg.root)
+    include_dirs = [d for d in [inc_path, str(source_dir), *extract_include_dirs(flags)] if d]
     try:
         content = filepath.read_bytes().decode("utf-8", errors="surrogateescape")
     except OSError:

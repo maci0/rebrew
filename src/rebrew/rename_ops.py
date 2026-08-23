@@ -19,7 +19,7 @@ from rebrew.utils import atomic_write_text, read_source_text
 logger = logging.getLogger(__name__)
 
 
-def _collect_matching_files(
+def collect_matching_files(
     cfg: ProjectConfig, filepath: Path, pattern: re.Pattern[str]
 ) -> list[Path]:
     """Source files whose content matches *pattern* (rename candidates)."""
@@ -99,7 +99,7 @@ def rename_function_everywhere(
     if dry_run:
         # Preview mode: count files that would be modified without writing.
         pattern = re.compile(r"\b" + re.escape(actual_old_name) + r"\b")
-        return len(_collect_matching_files(cfg, filepath, pattern))
+        return len(collect_matching_files(cfg, filepath, pattern))
 
     updated_files = 0
 

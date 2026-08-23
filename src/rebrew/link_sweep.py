@@ -42,7 +42,7 @@ from rich.console import Console
 from rich.table import Table
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
-from rebrew.gen_layout import _parse_pe, derive_link_options
+from rebrew.gen_layout import derive_link_options, parse_pe
 
 console = Console(stderr=True)
 
@@ -199,7 +199,7 @@ def main(
         if cwd:
             workdir = cwd
 
-    _, _, _, pe = _parse_pe(cfg.target_binary.read_bytes())
+    _, _, _, pe = parse_pe(cfg.target_binary.read_bytes())
     ref = _read_fields(cfg.target_binary)
     candidates = _candidates(pe)
 

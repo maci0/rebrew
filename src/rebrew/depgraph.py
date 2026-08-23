@@ -114,7 +114,7 @@ def _extract_callees(c_path: Path, text: str | None = None) -> list[str]:
     return [name for name in find_extern_function_names(text) if name not in _NOISE_CALLEES]
 
 
-def _binary_call_edges(info: Any, ranges: list[tuple[int, int, str]]) -> list[tuple[str, str]]:
+def binary_call_edges(info: Any, ranges: list[tuple[int, int, str]]) -> list[tuple[str, str]]:
     """Call/jmp edges between known function ranges from the binary xrefs.
 
     ``ranges`` maps ``(lo, hi, name)``; a reference from a call site inside
@@ -650,7 +650,7 @@ def main(
                     va = int(n["va"]) if n.get("va") else 0
                     if va:
                         ranges.append((va, va + 1, name))
-            edges.extend(_binary_call_edges(info, ranges))
+            edges.extend(binary_call_edges(info, ranges))
         except (ImportError, OSError, ValueError) as exc:
             error_exit(f"Failed to scan binary call edges: {exc}", json_mode=json_output)
 

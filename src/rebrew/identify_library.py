@@ -316,10 +316,10 @@ def _import_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
 
 def _existing_vas(cfg: Any) -> set[int]:
     """VAs that already have a FUNCTION/LIBRARY annotation anywhere."""
-    from rebrew.crt_match import _collect_library_annotations
+    from rebrew.crt_match import collect_library_annotations
 
     try:
-        return {ann.va for _path, ann in _collect_library_annotations(cfg)}
+        return {ann.va for _path, ann in collect_library_annotations(cfg)}
     except Exception:
         return set()
 

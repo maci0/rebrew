@@ -9,9 +9,9 @@ from click.exceptions import Exit as ClickExit
 
 from rebrew.cfg import (
     _detect_format_and_arch,
-    _load_toml,
     _resolve_target,
-    _save_toml,
+    load_toml,
+    save_toml,
 )
 
 # ---------------------------------------------------------------------------
@@ -67,15 +67,15 @@ def _make_project(tmp_path: Path, toml_content: str = SAMPLE_TOML) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# _load_toml / _save_toml
+# load_toml / save_toml
 # ---------------------------------------------------------------------------
 
 
 class TestLoadSave:
     def test_round_trip_preserves_comments(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
-        doc, path = _load_toml(root)
-        _save_toml(doc, path)
+        doc, path = load_toml(root)
+        save_toml(doc, path)
         result = path.read_text(encoding="utf-8")
         assert "# Project config" in result
         assert "# Per-target cflags" in result
@@ -83,16 +83,16 @@ class TestLoadSave:
     def test_save_dry_run_does_not_write(self, tmp_path: Path) -> None:
         """--dry-run must preview the write without touching the disk."""
         root = _make_project(tmp_path)
-        doc, path = _load_toml(root)
+        doc, path = load_toml(root)
         doc["compiler"]["timeout"] = 120
-        _save_toml(doc, path, dry_run=True)
+        save_toml(doc, path, dry_run=True)
         # File unchanged: the timeout key is absent.
         result = path.read_text(encoding="utf-8")
         assert "timeout" not in result
 
     def test_load_nonexistent_raises(self, tmp_path: Path) -> None:
         with pytest.raises(ClickExit):
-            _load_toml(tmp_path)
+            load_toml(tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -103,22 +103,22 @@ class TestLoadSave:
 class TestResolveTarget:
     def test_default_first_target(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
-        doc, _ = _load_toml(root)
+        doc, _ = load_toml(root)
         assert _resolve_target(doc, None) == "server.dll"
 
     def test_project_default_target(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path, TOML_WITH_DEFAULT_TARGET)
-        doc, _ = _load_toml(root)
+        doc, _ = load_toml(root)
         assert _resolve_target(doc, None) == "client"
 
     def test_explicit_target(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
-        doc, _ = _load_toml(root)
+        doc, _ = load_toml(root)
         assert _resolve_target(doc, "server.dll") == "server.dll"
 
     def test_missing_target_raises(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
-        doc, _ = _load_toml(root)
+        doc, _ = load_toml(root)
         with pytest.raises(ClickExit):
             _resolve_target(doc, "nonexistent")
 
@@ -131,7 +131,7 @@ class TestResolveTarget:
 class TestAddTarget:
     def test_adds_target_section(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
-        doc, path = _load_toml(root)
+        doc, path = load_toml(root)
 
         # Simulate add-target
         targets = doc["targets"]
@@ -144,44 +144,44 @@ class TestAddTarget:
         tgt.add("bin_dir", "bin/client.exe")
         tgt.add("origins", ["GAME"])
         targets["client.exe"] = tgt
-        _save_toml(doc, path)
+        save_toml(doc, path)
 
         # Verify
-        doc2, _ = _load_toml(root)
+        doc2, _ = load_toml(root)
         assert "client.exe" in doc2["targets"]
         assert doc2["targets"]["client.exe"]["arch"] == "x86_32"
 
     def test_target_accessible_after_add(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
-        doc, _ = _load_toml(root)
+        doc, _ = load_toml(root)
         assert "server.dll" in doc["targets"]
 
 
 class TestRemoveTarget:
     def test_removes_target(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
-        doc, path = _load_toml(root)
+        doc, path = load_toml(root)
         del doc["targets"]["server.dll"]
-        _save_toml(doc, path)
+        save_toml(doc, path)
 
-        doc2, _ = _load_toml(root)
+        doc2, _ = load_toml(root)
         assert "server.dll" not in doc2.get("targets", {})
 
 
 class TestAddOrigin:
     def test_adds_origin(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
-        doc, path = _load_toml(root)
+        doc, path = load_toml(root)
         origins = doc["targets"]["server.dll"]["origins"]
         origins.append("MSVCRT")
-        _save_toml(doc, path)
+        save_toml(doc, path)
 
-        doc2, _ = _load_toml(root)
+        doc2, _ = load_toml(root)
         assert "MSVCRT" in doc2["targets"]["server.dll"]["origins"]
 
     def test_no_duplicate(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
-        doc, path = _load_toml(root)
+        doc, path = load_toml(root)
         origins = doc["targets"]["server.dll"]["origins"]
         assert "GAME" in origins
         # Add "GAME" a second time and verify it appears twice in the raw list
@@ -189,8 +189,8 @@ class TestAddOrigin:
         # state had exactly one.
         initial_count = list(origins).count("GAME")
         origins.append("GAME")
-        _save_toml(doc, path)
-        doc2, _ = _load_toml(root)
+        save_toml(doc, path)
+        doc2, _ = load_toml(root)
         origins2 = doc2["targets"]["server.dll"]["origins"]
         assert list(origins2).count("GAME") == initial_count + 1
 
@@ -198,12 +198,12 @@ class TestAddOrigin:
 class TestRemoveOrigin:
     def test_removes_origin(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
-        doc, path = _load_toml(root)
+        doc, path = load_toml(root)
         origins = doc["targets"]["server.dll"]["origins"]
         origins.remove("ZLIB")
-        _save_toml(doc, path)
+        save_toml(doc, path)
 
-        doc2, _ = _load_toml(root)
+        doc2, _ = load_toml(root)
         assert "ZLIB" not in doc2["targets"]["server.dll"]["origins"]
         assert "GAME" in doc2["targets"]["server.dll"]["origins"]
 
@@ -211,40 +211,40 @@ class TestRemoveOrigin:
 class TestSetCflags:
     def test_set_target_cflags(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
-        doc, path = _load_toml(root)
+        doc, path = load_toml(root)
         doc["targets"]["server.dll"]["cflags_presets"]["GAME"] = "/O1 /Gd"
-        _save_toml(doc, path)
+        save_toml(doc, path)
 
-        doc2, _ = _load_toml(root)
+        doc2, _ = load_toml(root)
         assert doc2["targets"]["server.dll"]["cflags_presets"]["GAME"] == "/O1 /Gd"
 
     def test_set_global_cflags(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
-        doc, path = _load_toml(root)
+        doc, path = load_toml(root)
         doc["compiler"]["cflags_presets"]["ZLIB"] = "/O3"
-        _save_toml(doc, path)
+        save_toml(doc, path)
 
-        doc2, _ = _load_toml(root)
+        doc2, _ = load_toml(root)
         assert doc2["compiler"]["cflags_presets"]["ZLIB"] == "/O3"
 
 
 class TestSetScalar:
     def test_set_existing_key(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
-        doc, path = _load_toml(root)
+        doc, path = load_toml(root)
         doc["compiler"]["cflags"] = "/O1"
-        _save_toml(doc, path)
+        save_toml(doc, path)
 
-        doc2, _ = _load_toml(root)
+        doc2, _ = load_toml(root)
         assert doc2["compiler"]["cflags"] == "/O1"
 
     def test_set_nested_key(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
-        doc, path = _load_toml(root)
+        doc, path = load_toml(root)
         doc["targets"]["server.dll"]["arch"] = "x86_64"
-        _save_toml(doc, path)
+        save_toml(doc, path)
 
-        doc2, _ = _load_toml(root)
+        doc2, _ = load_toml(root)
         assert doc2["targets"]["server.dll"]["arch"] == "x86_64"
 
 
@@ -257,7 +257,7 @@ class TestSetScalarCLI:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["set", "binary", "original/game.exe"])
         assert result.exit_code == 0
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         assert doc["targets"]["server.dll"]["binary"] == "original/game.exe"
         assert "binary" not in doc  # no stray top-level key
 
@@ -266,7 +266,7 @@ class TestSetScalarCLI:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["set", "marker", "GAME"])
         assert result.exit_code == 0
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         assert doc["targets"]["server.dll"]["marker"] == "GAME"
 
     def test_explicit_target_path_still_works(self, tmp_path: Path, monkeypatch) -> None:
@@ -274,7 +274,7 @@ class TestSetScalarCLI:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["set", "targets.server.dll.binary", "original/other.exe"])
         assert result.exit_code == 0
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         assert doc["targets"]["server.dll"]["binary"] == "original/other.exe"
         assert "binary" not in doc
 
@@ -284,7 +284,7 @@ class TestSetScalarCLI:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["set", "compiler.cflags", "/O2"])
         assert result.exit_code == 0
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         assert doc["compiler"]["cflags"] == "/O2"
         assert "binary" not in doc
 
@@ -292,12 +292,12 @@ class TestSetScalarCLI:
 class TestCommentsPreserved:
     def test_comments_survive_all_operations(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
-        doc, path = _load_toml(root)
+        doc, path = load_toml(root)
 
         # Mutate
         doc["targets"]["server.dll"]["origins"].append("ENGINE")
         doc["compiler"]["cflags"] = "/O1"
-        _save_toml(doc, path)
+        save_toml(doc, path)
 
         text = path.read_text(encoding="utf-8")
         assert "# Project config" in text
@@ -523,7 +523,7 @@ class TestCLIAddRemoveTarget:
         assert (tmp_path / "src" / "client.exe").is_dir()
         assert (tmp_path / "bin" / "client.exe").is_dir()
         # Verify TOML was updated
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         assert "client.exe" in doc["targets"]
 
     def test_add_target_idempotent(self, tmp_path: Path, monkeypatch) -> None:
@@ -548,7 +548,7 @@ class TestCLIAddRemoveTarget:
         result = runner.invoke(cfg_app, ["remove-target", "server.dll", "--force"])
         assert result.exit_code == 0
         assert "Removed" in result.output
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         assert "server.dll" not in doc.get("targets", {})
 
     def test_remove_target_idempotent(self, tmp_path: Path, monkeypatch) -> None:
@@ -565,7 +565,7 @@ class TestCLISet:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["set", "compiler.cflags", "/O1"])
         assert result.exit_code == 0
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         assert doc["compiler"]["cflags"] == "/O1"
 
     def test_set_int(self, tmp_path: Path, monkeypatch) -> None:
@@ -573,7 +573,7 @@ class TestCLISet:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["set", "compiler.workers", "4"])
         assert result.exit_code == 0
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         assert doc["compiler"]["workers"] == 4
 
     def test_set_hex(self, tmp_path: Path, monkeypatch) -> None:
@@ -581,7 +581,7 @@ class TestCLISet:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["set", "compiler.image_base", "0x10000000"])
         assert result.exit_code == 0
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         assert doc["compiler"]["image_base"] == 0x10000000
 
 
@@ -592,7 +592,7 @@ class TestCLIModules:
         result = runner.invoke(cfg_app, ["add-module", "ENGINE"])
         assert result.exit_code == 0
         assert "Added" in result.output
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         assert "ENGINE" in doc["targets"]["server.dll"]["origins"]
 
     def test_add_module_idempotent(self, tmp_path: Path, monkeypatch) -> None:
@@ -608,7 +608,7 @@ class TestCLIModules:
         result = runner.invoke(cfg_app, ["remove-module", "ZLIB", "--force"])
         assert result.exit_code == 0
         assert "Removed" in result.output
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         assert "ZLIB" not in doc["targets"]["server.dll"]["origins"]
 
     def test_remove_module_idempotent(self, tmp_path: Path, monkeypatch) -> None:
@@ -628,7 +628,7 @@ class TestCLISetCflags:
         # Written under the target's COMPILER sub-table — the location
         # _merge_cflags_presets reads (the old [targets.X.cflags_presets]
         # location was a silent no-op).
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         assert doc["targets"]["server.dll"]["compiler"]["cflags_presets"]["GAME"] == "/O1 /Gd"
 
     def test_set_global_cflags(self, tmp_path: Path, monkeypatch) -> None:
@@ -636,7 +636,7 @@ class TestCLISetCflags:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["set-cflags", "ZLIB", "/O3"])
         assert result.exit_code == 0
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         assert doc["compiler"]["cflags_presets"]["ZLIB"] == "/O3"
 
 
@@ -652,7 +652,7 @@ class TestResolveDottedKey:
 
     def test_simple_key(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
-        doc, _ = _load_toml(root)
+        doc, _ = load_toml(root)
         parent, final, parts = _resolve_dotted_key(doc, "compiler.cflags")
         assert final == "cflags"
         assert parent[final] == "/O2 /Gd"
@@ -660,7 +660,7 @@ class TestResolveDottedKey:
     def test_dotted_target_name(self, tmp_path: Path) -> None:
         """Key like 'targets.server.dll.arch' must resolve through 'server.dll' key."""
         root = _make_project(tmp_path)
-        doc, _ = _load_toml(root)
+        doc, _ = load_toml(root)
         parent, final, parts = _resolve_dotted_key(doc, "targets.server.dll.arch")
         assert final == "arch"
         assert parent[final] == "x86_32"
@@ -669,14 +669,14 @@ class TestResolveDottedKey:
     def test_dotted_target_nested(self, tmp_path: Path) -> None:
         """Deeply nested key through dotted target name."""
         root = _make_project(tmp_path)
-        doc, _ = _load_toml(root)
+        doc, _ = load_toml(root)
         parent, final, parts = _resolve_dotted_key(doc, "targets.server.dll.cflags_presets.ZLIB")
         assert final == "ZLIB"
         assert parent[final] == "/O3"
 
     def test_missing_key_raises(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
-        doc, _ = _load_toml(root)
+        doc, _ = load_toml(root)
         from click.exceptions import Exit as ClickExit
 
         with pytest.raises(ClickExit):
@@ -684,7 +684,7 @@ class TestResolveDottedKey:
 
     def test_create_missing(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
-        doc, _ = _load_toml(root)
+        doc, _ = load_toml(root)
         parent, final, _ = _resolve_dotted_key(
             doc, "new_section.sub_key.value", create_missing=True
         )
@@ -757,7 +757,7 @@ class TestCLISetDottedTarget:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["set", "targets.server.dll.arch", "x86_64"])
         assert result.exit_code == 0
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         assert doc["targets"]["server.dll"]["arch"] == "x86_64"
 
 
@@ -835,7 +835,7 @@ class TestCLIDetectCrt:
         result = runner.invoke(cfg_app, ["detect-crt", "--write"])
         assert result.exit_code == 0
         assert "Wrote" in result.output
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         assert "crt_sources" in doc["targets"]["server.dll"]
         assert (
             doc["targets"]["server.dll"]["crt_sources"]["MSVCRT"]
@@ -905,7 +905,7 @@ class TestCLIAddTargetMissingBinary:
         combined = result.output + (result.stderr or "")
         assert "warning" in combined.lower()
         # Stanza written with default arch
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         assert "ghost" in doc["targets"]
         assert doc["targets"]["ghost"]["arch"] == "x86_32"
         assert doc["targets"]["ghost"]["format"] == "pe"
@@ -923,7 +923,7 @@ class TestCLIAddTargetMissingBinary:
             ["add-target", "client", "--binary", "original/client.exe", "--arch", "x86_32"],
         )
         assert result.exit_code == 0
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         assert "client" in doc["targets"]
 
 
@@ -939,7 +939,7 @@ class TestCLISetCompiler:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "msvc6"])
         assert result.exit_code == 0
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         compiler_tbl = doc["targets"]["server.dll"]["compiler"]
         assert "CL.EXE" in compiler_tbl["command"]
         assert "Include" in compiler_tbl["includes"] or "include" in compiler_tbl["includes"]
@@ -954,7 +954,7 @@ class TestCLISetCompiler:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "gcc"])
         assert result.exit_code == 0
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         compiler_tbl = doc["targets"]["server.dll"]["compiler"]
         assert compiler_tbl["command"] == "gcc"
         assert compiler_tbl["profile"] == "gcc"
@@ -984,7 +984,7 @@ class TestCLISetCompiler:
         runner.invoke(cfg_app, ["set-compiler", "server.dll", "gcc"])
         result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "msvc6"])
         assert result.exit_code == 0
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         assert "CL.EXE" in doc["targets"]["server.dll"]["compiler"]["command"]
 
 
@@ -1144,7 +1144,7 @@ class TestCLISetCflagsDryRun:
             cfg_app, ["set-cflags", "GAME", "/O1", "--target", "server.dll", "--dry-run"]
         )
         assert result.exit_code == 0
-        doc, _ = _load_toml(tmp_path)
+        doc, _ = load_toml(tmp_path)
         # No per-target preset written (the dry-run must not touch the toml;
         # the global GAME preset already exists in the fixture).
         tgt = doc["targets"]["server.dll"]

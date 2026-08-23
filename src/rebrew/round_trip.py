@@ -625,7 +625,7 @@ def _run_round_trip(
     header_parity: list[dict[str, object]] = []
     if fix_headers:
         from rebrew.pe_headers import (
-            _PATCHABLE,
+            PATCHABLE,
             patch_pe_headers,
             read_pe_header_fields,
         )
@@ -638,7 +638,7 @@ def _run_round_trip(
             configured = getattr(cfg, "link", None)
             configured_fields = configured.to_patch_fields() if configured else {}
             patch: dict[str, int] = {}
-            for label in _PATCHABLE:
+            for label in PATCHABLE:
                 if label in configured_fields:
                     patch[label] = configured_fields[label]
                 elif label in original_fields.values:

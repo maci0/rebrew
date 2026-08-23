@@ -266,7 +266,7 @@ def _load_verify_info(cfg: ProjectConfig) -> VerifyInfo | None:
     )
 
 
-def _load_verify_statuses(cfg: ProjectConfig) -> dict[int, str]:
+def load_verify_statuses(cfg: ProjectConfig) -> dict[int, str]:
     """Load per-VA verify statuses from the verify cache.
 
     Returns a dict mapping VA -> verify status (e.g. "EXACT", "NEAR_MATCHING",
@@ -356,7 +356,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     # Load verify cache to override source statuses.
     # Metadata statuses may be optimistic (e.g. STATUS: RELOC) while
     # the actual verify result is STUB.  Verify results are authoritative.
-    verify_statuses = _load_verify_statuses(cfg)
+    verify_statuses = load_verify_statuses(cfg)
 
     # Single pass: status breakdown + byte-level coverage.
     # Exception: PROVEN (from rebrew prove) is a post-verify promotion that

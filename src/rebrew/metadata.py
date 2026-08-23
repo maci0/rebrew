@@ -720,7 +720,7 @@ def _apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
     """Overlay one ``{field: value}`` metadata *entry* onto *ann* in place.
 
     Shared by :func:`merge_into_annotation` (single function) and
-    :func:`rebrew.annotation._parse_c_file_text` (whole-file batches, which
+    :func:`rebrew.annotation.parse_c_file_text` (whole-file batches, which
     load the metadata once and apply it per function instead of re-loading
     the TOML for every annotation — the per-function hot path).
     """
@@ -868,7 +868,7 @@ class LibraryOverride:
 #: knows what the shipped runtimes were built with (the standard MSVC /MT
 #: vs /MD shapes, the 16-bit models, Borland/Watcom defaults), so users
 #: declare ``library = "msvcrt-static"`` instead of handwriting flags.
-_LIBRARY_PRESETS: dict[str, dict[str, str]] = {
+LIBRARY_PRESETS: dict[str, dict[str, str]] = {
     # MSVC shipped CRT: libc.lib (static single-thread), libcmt.lib (static
     # multi-thread = /MT), msvcrt.lib (dynamic = /MD) — the classic /O2 /Gd
     "msvcrt-static": {"toolchain": "msvc6", "cflags": "/O2 /Gd /MT"},
@@ -929,7 +929,7 @@ def apply_library_presets(meta: dict[str, Any]) -> tuple[dict[str, Any], tuple[s
     Returns ``(merged, preset_names_used)``.  Explicit fields always win.
     """
     name = str(meta.get("library") or "").strip()
-    preset = _LIBRARY_PRESETS.get(name, {})
+    preset = LIBRARY_PRESETS.get(name, {})
     if not preset:
         return meta, ()
     merged = {**meta}

@@ -102,7 +102,7 @@ class RunResult:
 _TOOLCHAINS_REPO_URL = "https://github.com/maci0/rebrew-toolchains"
 
 
-def _toolchains_repo() -> Path:
+def toolchains_repo() -> Path:
     """Root of the standalone rebrew-toolchains docker build source.
 
     Defaults to the sibling checkout (same workspace as this repo),
@@ -117,16 +117,16 @@ def _toolchains_repo() -> Path:
     return Path(__file__).resolve().parents[2].parent / "rebrew-toolchains"
 
 
-_REPO_TOOLS = _toolchains_repo()
+REPO_TOOLS = toolchains_repo()
 
 
-def _require_toolchains_repo() -> Path:
+def require_toolchains_repo() -> Path:
     """The rebrew-toolchains checkout, or an actionable error when missing.
 
     Only commands that actually consume the build source (``rebrew
     toolchain build``/``vendor``/``update``) call this — plain
     registry/status commands never touch the checkout."""
-    repo = _toolchains_repo()
+    repo = toolchains_repo()
     if not repo.is_dir():
         raise ToolchainError(
             f"rebrew-toolchains checkout not found at {repo} — the docker "
@@ -137,7 +137,7 @@ def _require_toolchains_repo() -> Path:
 
 
 def _vendored(sub: str) -> Path:
-    return _REPO_TOOLS / sub
+    return REPO_TOOLS / sub
 
 
 @dataclass(frozen=True)
@@ -974,7 +974,7 @@ def docker_available() -> bool:
 _image_presence: dict[str, bool] = {}
 
 
-def _kill_container(name: str, timeout: int = 30) -> None:
+def kill_container(name: str, timeout: int = 30) -> None:
     """Best-effort ``docker kill`` of a timed-out run container.
 
     The container was started with ``--rm``, so killing it also removes it.
@@ -985,7 +985,7 @@ def _kill_container(name: str, timeout: int = 30) -> None:
         subprocess.run(["docker", "kill", name], capture_output=True, timeout=timeout)
 
 
-def _image_present(tag: str) -> bool:
+def image_present(tag: str) -> bool:
     """True when a docker image for *tag* is present locally (cached)."""
     if tag in _image_presence:
         return _image_presence[tag]
@@ -1086,7 +1086,7 @@ def _match_binary(dir: Path, binary: str) -> Path | None:
     return None
 
 
-def _vendored_binary(spec: ToolchainSpec) -> Path | None:
+def vendored_binary(spec: ToolchainSpec) -> Path | None:
     """Locate the spec's compiler inside its vendored host tree.
 
     Case-insensitive on both the ``host_bin`` subdir (``Bin`` vs ``BIN`` —
@@ -1140,7 +1140,7 @@ def _resolve_binary(spec: ToolchainSpec) -> str:
     vendored dir / PATH binary.  Raises ToolchainError when nothing
     resolvable exists.  Only native-Linux toolchains (gcc-pe, watcom16
     wcc) reach this — wine/dosbox toolchains are docker-only."""
-    hit = _vendored_binary(spec)
+    hit = vendored_binary(spec)
     if hit is not None:
         return str(hit)
     found = shutil.which(spec.binary)
@@ -1202,7 +1202,7 @@ def run_toolchain(
     if spec.image is not None:
         if not docker_available():
             raise ToolchainError("docker is not available — cannot run toolchain images")
-        if not _image_present(spec.image):
+        if not image_present(spec.image):
             raise ToolchainError(
                 f"toolchain {spec.name!r}: docker image {spec.image} not built — "
                 f"run `rebrew toolchain build {spec.name}`"
@@ -1232,7 +1232,7 @@ def run_toolchain(
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired as exc:
-            _kill_container(str(cmd[cmd.index("--name") + 1]))
+            kill_container(str(cmd[cmd.index("--name") + 1]))
             raise ToolchainError(f"docker invocation failed: {exc}") from exc
         except OSError as exc:
             raise ToolchainError(f"docker invocation failed: {exc}") from exc
@@ -1299,7 +1299,7 @@ def pull_toolchain(name: str, timeout: int = 1200) -> tuple[str, bool]:
     image = spec.image  # narrowed local — mypy does not narrow into the closure
     if not docker_available():
         raise ToolchainError("docker is not available — cannot pull images")
-    if _image_present(image):
+    if image_present(image):
         return image, True
 
     def _pull() -> None:

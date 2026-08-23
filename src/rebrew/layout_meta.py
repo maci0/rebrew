@@ -165,7 +165,7 @@ class LayoutMetadata:
 # ---------------------------------------------------------------------------
 
 
-def _parse_pe(data: bytes) -> tuple[int, int, int, int, int]:
+def parse_pe(data: bytes) -> tuple[int, int, int, int, int]:
     """Return (e_lfanew, nsec, optsz, opt_off, image_base) with sanity checks."""
     if len(data) < 0x40:
         raise ValueError("file too small to be a PE")
@@ -201,7 +201,7 @@ def _data_dir(data: bytes, opt: int, index: int) -> tuple[int, int]:
 
 def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
     """Derive the full text-only layout metadata from a reference binary."""
-    e, nsec, optsz, opt, image_base = _parse_pe(data)
+    e, nsec, optsz, opt, image_base = parse_pe(data)
     header_size = e + 4 + 20 + optsz + nsec * 40
     sh = opt + optsz
 

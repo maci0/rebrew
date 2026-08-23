@@ -359,12 +359,12 @@ class TestCollectMatchingFiles:
     ) -> None:
         import re
 
-        from rebrew.rename_ops import _collect_matching_files
+        from rebrew.rename_ops import collect_matching_files
 
         a = _src(tmp_path, "func_a.c", "int func_a(void) { return 1; }\n")
         b = _src(tmp_path, "other.c", "extern int func_a(void);\n")
         c = _src(tmp_path, "unrelated.c", "int other(void) { return 0; }\n")
         _patch_sources(monkeypatch, [a, b, c])
         pattern = re.compile(r"\bfunc_a\b")
-        matched = _collect_matching_files(_cfg(tmp_path), a, pattern)
+        matched = collect_matching_files(_cfg(tmp_path), a, pattern)
         assert set(matched) == {a, b}

@@ -296,7 +296,7 @@ def _verdict(counts: dict[str, int], raw_total: int) -> tuple[str, str]:
 #: Advisory only — the GA still explores the whole operator set; this tells
 #: a human (or an agent) where to start.  Categories in the verdict space
 #: must each have at least one suggestion (enforced by test).
-_MUTATION_SUGGESTIONS: dict[str, list[str]] = {
+MUTATION_SUGGESTIONS: dict[str, list[str]] = {
     "register": [
         "mut_reorder_register_vars",
         "mut_swap_register_keywords",
@@ -352,7 +352,7 @@ _MUTATION_SUGGESTIONS: dict[str, list[str]] = {
 
 def mutation_suggestions(dominant_category: str) -> list[str]:
     """The GA operators most likely to fix *dominant_category* (advisory)."""
-    return list(_MUTATION_SUGGESTIONS.get(dominant_category, []))
+    return list(MUTATION_SUGGESTIONS.get(dominant_category, []))
 
 
 def catalog_markdown() -> str:

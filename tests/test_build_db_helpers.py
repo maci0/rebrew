@@ -12,7 +12,7 @@ from rebrew.build_db import (
     _function_stats,
     _normalize_cell_row,
     _parse_int,
-    _resolve_db_dir,
+    resolve_db_dir,
 )
 
 
@@ -89,7 +89,7 @@ class TestFunctionStats:
 
 class TestResolveDbDir:
     def test_no_config_falls_back_to_db(self, tmp_path: Path) -> None:
-        assert _resolve_db_dir(tmp_path) == tmp_path / "db"
+        assert resolve_db_dir(tmp_path) == tmp_path / "db"
 
     def test_config_db_dir(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-project.toml").write_text(
@@ -106,7 +106,7 @@ class TestResolveDbDir:
             ),
             encoding="utf-8",
         )
-        assert _resolve_db_dir(tmp_path) == tmp_path / "custom_db"
+        assert resolve_db_dir(tmp_path) == tmp_path / "custom_db"
 
 
 class TestCheckDbVersion:

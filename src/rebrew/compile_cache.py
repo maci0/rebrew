@@ -243,7 +243,7 @@ def include_fingerprint(include_dir: str) -> str:
 
 
 @lru_cache(maxsize=1024)
-def _source_digest(source_content: str) -> str:
+def source_digest(source_content: str) -> str:
     """SHA-256 hex of C source text, memoized per unique string.
 
     Flag sweeps / GA runs call :func:`compile_cache_key` once per combo with
@@ -617,9 +617,9 @@ def compile_cache_key(
     """
     h = hashlib.sha256()
     h.update(f"v{CACHE_SCHEMA_VERSION}\0".encode())
-    # Source digest memoized per string (see _source_digest) — the running
+    # Source digest memoized per string (see source_digest) — the running
     # hash consumes the digest's hex form, not the raw source.
-    h.update(_source_digest(source_content).encode())
+    h.update(source_digest(source_content).encode())
     h.update(f"\0filename={source_filename}\0".encode())
     h.update(f"\0ext={source_ext}\0".encode())
     # Flags are canonicalized first (see canonicalize_cflags): the hash sees

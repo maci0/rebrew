@@ -295,7 +295,7 @@ def match_function(
     return sorted(matches, key=lambda item: (item.confidence, item.source.line), reverse=True)
 
 
-def _collect_library_annotations(
+def collect_library_annotations(
     cfg: ProjectConfig,
 ) -> list[tuple[Path, Annotation]]:
     """Collect LIBRARY-marker annotations from source files.
@@ -364,7 +364,7 @@ def match_all(cfg: ProjectConfig) -> list[CrtMatch]:
     indexes = _build_indexes(cfg)
     all_matches: list[CrtMatch] = []
 
-    for _, ann in _collect_library_annotations(cfg):
+    for _, ann in collect_library_annotations(cfg):
         module_upper = (ann.module or "").upper()
         # Prefer the annotated name: for LIBRARY headers the name is the
         # mangled hint (e.g. `// _free`) and the derived symbol double-
@@ -527,7 +527,7 @@ def main(
         error_exit("Provide a VA or use --all", json_mode=json_output)
 
     annotation_map = {
-        ann.va: (source_path, ann) for source_path, ann in _collect_library_annotations(cfg)
+        ann.va: (source_path, ann) for source_path, ann in collect_library_annotations(cfg)
     }
 
     matches: list[CrtMatch] = []

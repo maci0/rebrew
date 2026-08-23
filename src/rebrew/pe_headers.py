@@ -39,7 +39,7 @@ _FIELD_SPECS: list[tuple[int, int, str]] = [
 ]
 
 # Fields --fix-headers actually patches (everything except file_align).
-_PATCHABLE = {label for _o, _s, label in _FIELD_SPECS if label != "file_align"}
+PATCHABLE = {label for _o, _s, label in _FIELD_SPECS if label != "file_align"}
 
 
 @dataclass
@@ -101,7 +101,7 @@ def _pe_checksum(data: bytes) -> int:
 def patch_pe_headers(data: bytes, fields: dict[str, int]) -> bytes:
     """Patch *fields* into a byte copy of *data*.
 
-    *fields* is ``{label: value}`` for any _PATCHABLE label (file_align is
+    *fields* is ``{label: value}`` for any PATCHABLE label (file_align is
     ignored — it needs a relink).  The checksum is always recomputed last.
     """
     out = bytearray(data)
@@ -109,7 +109,7 @@ def patch_pe_headers(data: bytes, fields: dict[str, int]) -> bytes:
     if lfanew is None:
         return bytes(out)
     for offset, size, label in _FIELD_SPECS:
-        if label not in _PATCHABLE or label not in fields:
+        if label not in PATCHABLE or label not in fields:
             continue
         pos = lfanew + offset
         if pos + size > len(out):

@@ -1167,7 +1167,7 @@ def _finalize_entries(
     return filtered_entries
 
 
-def _parse_c_file_text(
+def parse_c_file_text(
     text: str,
     filepath: Path,
     target_name: str | None,

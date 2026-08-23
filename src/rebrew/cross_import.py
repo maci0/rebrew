@@ -41,7 +41,7 @@ from rebrew.cli import (
 )
 from rebrew.config import ProjectConfig
 from rebrew.metadata import MATCHED_STATUSES
-from rebrew.similar import _DEFAULT_CS_ARCH, _DEFAULT_CS_MODE, _disasm_signature, similarity_score
+from rebrew.similar import DEFAULT_CS_ARCH, DEFAULT_CS_MODE, disasm_signature, similarity_score
 
 console = Console(stderr=True)
 
@@ -63,7 +63,7 @@ def cross_match(
     """Map each destination function to its best source-target counterpart.
 
     *dest_sigs* / *src_sigs* map VA -> structural signature (see
-    :func:`rebrew.similar._disasm_signature`).  For every destination
+    :func:`rebrew.similar.disasm_signature`).  For every destination
     signature the best-scoring source signature is kept when it is at least
     *min_score* (0-100) AND beats the runner-up by at least *min_gap* (an
     "unambiguous" match — two near-duplicate source functions are not
@@ -95,11 +95,11 @@ def cross_match(
 
 def _signature_for(cfg: ProjectConfig, code: bytes, va: int) -> dict[str, Any] | None:
     """Structural signature for *code*, honouring the config's arch/mode."""
-    return _disasm_signature(
+    return disasm_signature(
         code,
         va,
-        getattr(cfg, "capstone_arch", _DEFAULT_CS_ARCH),
-        getattr(cfg, "capstone_mode", _DEFAULT_CS_MODE),
+        getattr(cfg, "capstone_arch", DEFAULT_CS_ARCH),
+        getattr(cfg, "capstone_mode", DEFAULT_CS_MODE),
     )
 
 

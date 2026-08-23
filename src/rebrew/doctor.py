@@ -298,12 +298,12 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
     # Docker-only execution: every Windows/DOS profile compiles through its
     # docker image — the image IS the compiler.  Only native-Linux profiles
     # (gcc-pe and friends) fall through to the legacy executable check.
-    from rebrew.toolchain import TOOLCHAINS, _image_present
+    from rebrew.toolchain import TOOLCHAINS, image_present
 
     _profile = str(getattr(cfg, "compiler_profile", ""))
     _spec = TOOLCHAINS.get(_profile) if _profile else None
     if _spec is not None and _spec.image is not None:
-        if _image_present(_spec.image):
+        if image_present(_spec.image):
             return CheckResult(
                 name="Compiler",
                 status=_PASS,
@@ -573,10 +573,10 @@ def check_delphi16_toolchain(cfg: ProjectConfig) -> CheckResult:
     if getattr(cfg, "arch", "") != "x86_16":
         return CheckResult(name="Delphi 1.0 toolchain", status=_SKIP, message="not a 16-bit target")
 
-    from rebrew.delphi16 import Delphi16Error, _find_dcc
+    from rebrew.delphi16 import Delphi16Error, find_dcc
 
     try:
-        dcc = _find_dcc()
+        dcc = find_dcc()
     except Delphi16Error as exc:
         return CheckResult(
             name="Delphi 1.0 toolchain",
@@ -617,7 +617,7 @@ def check_toolchain_backed(cfg: ProjectConfig) -> CheckResult:
     source the image builds from).  Native-Linux profiles (gcc-pe, watcom16)
     skip (their binary is checked by the generic compiler check)."""
     profile = str(getattr(cfg, "compiler_profile", ""))
-    from rebrew.toolchain import ToolchainError, _image_present, get_toolchain
+    from rebrew.toolchain import ToolchainError, get_toolchain, image_present
 
     try:
         spec = get_toolchain(profile)
@@ -628,7 +628,7 @@ def check_toolchain_backed(cfg: ProjectConfig) -> CheckResult:
             name="Toolchain", status=_SKIP, message="not a docker-backed profile (native binary)"
         )
 
-    image_ok = _image_present(spec.image)
+    image_ok = image_present(spec.image)
     host_present = spec.host_path is not None and Path(spec.host_path).exists()
     bits = [f"image {spec.image} pulled"] if image_ok else []
     if host_present:
@@ -649,9 +649,9 @@ def check_runner(cfg: ProjectConfig) -> CheckResult:
     _profile = str(getattr(cfg, "compiler_profile", ""))
     _spec = TOOLCHAINS.get(_profile) if _profile else None
     if _spec is not None and _spec.image is not None:
-        from rebrew.toolchain import _image_present
+        from rebrew.toolchain import image_present
 
-        if _image_present(_spec.image):
+        if image_present(_spec.image):
             return CheckResult(
                 name="Runner", status=_PASS, message=f"docker image {_spec.image} ready"
             )
@@ -728,13 +728,13 @@ def _docker_toolchain_check(cfg: ProjectConfig, name: str, what: str) -> CheckRe
     profiles.  Returns a CheckResult, or None when the profile is not
     docker-backed (the caller proceeds with the host-path check).
     """
-    from rebrew.toolchain import TOOLCHAINS, _image_present
+    from rebrew.toolchain import TOOLCHAINS, image_present
 
     profile = str(getattr(cfg, "compiler_profile", ""))
     spec = TOOLCHAINS.get(profile) if profile else None
     if spec is None or spec.image is None:
         return None
-    if _image_present(spec.image):
+    if image_present(spec.image):
         return CheckResult(
             name=name,
             status=_PASS,

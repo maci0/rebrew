@@ -478,7 +478,7 @@ class TestCompileToObjMsvc152Image:
         from rebrew.toolchain import RunResult
 
         captured: dict = {}
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
 
         def _fake_run(spec, args, *, workdir, timeout, mounts=None):
             captured["args"] = args
@@ -506,7 +506,7 @@ class TestCompileToObjMsvc152Image:
         from rebrew.toolchain import RunResult
 
         captured: dict = {}
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
 
         def _fake_run(spec, args, *, workdir, timeout, mounts=None):
             captured["args"] = args
@@ -532,7 +532,7 @@ class TestCompileToObjMsvc152Image:
         DOSBox fallback anymore."""
         from rebrew.compile import compile_to_obj
 
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
         monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
 

@@ -20,9 +20,9 @@ def _force_wizard(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("rebrew.init._wizard_active", lambda *args: True)
 
 
-def _image_present(monkeypatch: pytest.MonkeyPatch, present: bool) -> None:
+def image_present(monkeypatch: pytest.MonkeyPatch, present: bool) -> None:
     """Keep the toolchain-image follow-up hermetic (no docker calls)."""
-    monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: present)
+    monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: present)
 
 
 def _fail_prompt(*args: Any, **kwargs: Any) -> Any:
@@ -88,7 +88,7 @@ class TestWizardGating:
         explicit — no prompts even with the gate forced on."""
         _force_wizard(monkeypatch)
         _no_prompts(monkeypatch)
-        _image_present(monkeypatch, True)
+        image_present(monkeypatch, True)
         monkeypatch.chdir(tmp_path)
         init(
             target_name="demo",
@@ -118,7 +118,7 @@ class TestWizardFlow:
         the detected profile (msvc800 for mini_pe) and a stem-based target."""
         _place_mini_pe(tmp_path)
         _force_wizard(monkeypatch)
-        _image_present(monkeypatch, True)
+        image_present(monkeypatch, True)
         monkeypatch.chdir(tmp_path)
         # binary: pick 1, profile: <enter> (suggestion), target: <enter>
         # (binary stem), confirm: y, completions: n
@@ -136,7 +136,7 @@ class TestWizardFlow:
         passed profile is kept despite a differing detection suggestion."""
         _place_mini_pe(tmp_path)
         _force_wizard(monkeypatch)
-        _image_present(monkeypatch, True)
+        image_present(monkeypatch, True)
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, ["--compiler", "msvc6"], input="1\n\ny\nn\n")
         assert result.exit_code == 0, result.output + result.stderr
@@ -149,7 +149,7 @@ class TestWizardFlow:
         suggestion (and the suggestion/default difference is shown)."""
         _place_mini_pe(tmp_path)
         _force_wizard(monkeypatch)
-        _image_present(monkeypatch, True)
+        image_present(monkeypatch, True)
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, [], input="1\nmsvc600sp6\n\ny\nn\n")
         assert result.exit_code == 0, result.output + result.stderr
@@ -161,7 +161,7 @@ class TestWizardFlow:
         """Garbage profile answers get one reprompt, then the current value."""
         _place_mini_pe(tmp_path)
         _force_wizard(monkeypatch)
-        _image_present(monkeypatch, True)
+        image_present(monkeypatch, True)
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, [], input="1\njunk1\njunk2\n\ny\nn\n")
         assert result.exit_code == 0, result.output + result.stderr
@@ -175,7 +175,7 @@ class TestWizardFlow:
         but keep the entered name verbatim for later staging."""
         _place_mini_pe(tmp_path)
         _force_wizard(monkeypatch)
-        _image_present(monkeypatch, True)
+        image_present(monkeypatch, True)
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, [], input="m\ncustom.exe\n\n\ny\nn\n")
         assert result.exit_code == 0, result.output + result.stderr
@@ -206,7 +206,7 @@ class TestWizardFullyFlagged:
     def test_zero_prompt_calls(self, tmp_path: Path, monkeypatch) -> None:
         _place_mini_pe(tmp_path)
         _force_wizard(monkeypatch)
-        _image_present(monkeypatch, True)
+        image_present(monkeypatch, True)
         monkeypatch.chdir(tmp_path)
         _no_prompts(monkeypatch)
         result = CliRunner().invoke(
@@ -252,7 +252,7 @@ class TestToolchainImageStep:
     def test_missing_image_declined_prints_hint(self, tmp_path: Path, monkeypatch) -> None:
         _place_mini_pe(tmp_path)
         _force_wizard(monkeypatch)
-        _image_present(monkeypatch, False)
+        image_present(monkeypatch, False)
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, _FLAGGED, input="n\n")
         assert result.exit_code == 0, result.output + result.stderr
@@ -262,7 +262,7 @@ class TestToolchainImageStep:
     def test_missing_image_accepted_runs_build(self, tmp_path: Path, monkeypatch) -> None:
         _place_mini_pe(tmp_path)
         _force_wizard(monkeypatch)
-        _image_present(monkeypatch, False)
+        image_present(monkeypatch, False)
         monkeypatch.chdir(tmp_path)
         real_which = shutil.which
         monkeypatch.setattr(
@@ -290,7 +290,7 @@ class TestToolchainImageStep:
     def test_build_failure_warns_but_completes(self, tmp_path: Path, monkeypatch) -> None:
         _place_mini_pe(tmp_path)
         _force_wizard(monkeypatch)
-        _image_present(monkeypatch, False)
+        image_present(monkeypatch, False)
         monkeypatch.chdir(tmp_path)
         real_which = shutil.which
         monkeypatch.setattr(

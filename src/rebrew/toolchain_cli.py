@@ -76,7 +76,7 @@ def status_cmd(
     the byte-identical source the image builds from)."""
     import shutil
 
-    from rebrew.toolchain import _vendored_binary, get_toolchain
+    from rebrew.toolchain import get_toolchain, vendored_binary
 
     spec = get_toolchain(name)
     host_ok: bool | None = None
@@ -85,7 +85,7 @@ def status_cmd(
         # Informational: the vendored tree (source for image builds) —
         # nothing executes from it anymore.
         try:
-            hit = _vendored_binary(spec)
+            hit = vendored_binary(spec)
             host_ok = hit is not None
             if hit is not None:
                 resolved_cmd = str(hit)
@@ -265,15 +265,15 @@ def vendor_cmd(
     import subprocess
     import tempfile
 
-    from rebrew.toolchain import _REPO_TOOLS, _SOURCES, _require_toolchains_repo
+    from rebrew.toolchain import _SOURCES, REPO_TOOLS, require_toolchains_repo
 
-    _require_toolchains_repo()
+    require_toolchains_repo()
     src = _SOURCES.get(name)
     if src is None:
         msg = f"no pinned source for toolchain {name!r} (known: {sorted(_SOURCES)})"
         error_exit(msg, json_mode=json_output)
 
-    host = _REPO_TOOLS / src.host_dir
+    host = REPO_TOOLS / src.host_dir
     # Canonical layout: every vendored tree nests the actual toolchain one
     # level under ``source/`` (<family>/<ver>-<arch>/source/...), so all
     # toolchain folders share the same shape.  Tracked metadata (Dockerfile,
@@ -299,7 +299,7 @@ def vendor_cmd(
 
     try:
         if src.is_in_repo():
-            tarball = _REPO_TOOLS / src.in_repo
+            tarball = REPO_TOOLS / src.in_repo
             subprocess.run(
                 # No explicit -z/-J: GNU tar auto-detects gzip/xz compression,
                 # so in-repo .tar.xz and remote codeload .tar.gz both extract.
@@ -403,14 +403,14 @@ def vendor_cmd(
     # Guard: a bad extraction must fail loudly (the images do the same).
     # Probe the ACTUAL extracted dir (src.host_dir) — the spec's host_path
     # is captured at import time and may predate the extraction.
-    from rebrew.toolchain import _vendored_binary, get_toolchain
+    from rebrew.toolchain import get_toolchain, vendored_binary
 
     spec = get_toolchain(name)
-    probe = _vendored_binary(replace(spec, host_path=host))
+    probe = vendored_binary(replace(spec, host_path=host))
     if probe is None:
         # Pre-source/ flat layout (trees vendored before the canonical
         # nesting) — still resolve so re-vendoring is not blocked.
-        probe = _vendored_binary(replace(spec, host_path=host / "source"))
+        probe = vendored_binary(replace(spec, host_path=host / "source"))
     if probe is None:
         msg = f"vendor {name} produced no {spec.binary} under {host}"
         error_exit(msg, json_mode=json_output)
@@ -767,9 +767,9 @@ def smoke_cmd(
                         timeout=300,
                     )
                 except subprocess.TimeoutExpired:
-                    from rebrew.toolchain import _kill_container
+                    from rebrew.toolchain import kill_container
 
-                    _kill_container(container)
+                    kill_container(container)
                     results[tool] = "FAIL (docker run timed out after 300s)"
                     ok = False
                     continue
@@ -836,14 +836,14 @@ def build_cmd(
     import subprocess
 
     from rebrew.toolchain import (
-        _REPO_TOOLS,
+        REPO_TOOLS,
         ToolchainError,
-        _require_toolchains_repo,
         get_toolchain,
+        require_toolchains_repo,
         swap_toolchain_image,
     )
 
-    _require_toolchains_repo()
+    require_toolchains_repo()
     spec = get_toolchain(name)
     if spec.image is None:
         msg = f"toolchain {name!r} is host-only (no image to build)"
@@ -853,14 +853,14 @@ def build_cmd(
         error_exit(msg, json_mode=json_output)
     tag, verarch = spec.image.rsplit(":", 1)
     image = spec.image  # narrowed local — mypy does not narrow into the closure
-    build_dir = _REPO_TOOLS / spec.family / verarch
+    build_dir = REPO_TOOLS / spec.family / verarch
     if not (build_dir / "Dockerfile").exists():
         msg = f"no Dockerfile at {build_dir}"
         error_exit(msg, json_mode=json_output)
 
     # Every toolchain image inherits FROM rebrew/base — build it first so a
     # fresh docker daemon resolves the dependency.
-    base_dir = _REPO_TOOLS / "base"
+    base_dir = REPO_TOOLS / "base"
     base_from = None
     for line in (build_dir / "Dockerfile").read_text(encoding="utf-8").splitlines():
         if line.upper().startswith("FROM "):
@@ -963,9 +963,9 @@ def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
             timeout=300,
         )
     except subprocess.TimeoutExpired:
-        from rebrew.toolchain import _kill_container
+        from rebrew.toolchain import kill_container
 
-        _kill_container(container)
+        kill_container(container)
         return None
     except OSError:
         # A hung daemon or missing docker degrades to "no object" — the
@@ -1154,13 +1154,13 @@ def _rewrite_dockerfile_sha(name: str, sha256: str) -> None:
     image rebuild fails."""
     import re
 
-    from rebrew.toolchain import _REPO_TOOLS, get_toolchain
+    from rebrew.toolchain import REPO_TOOLS, get_toolchain
 
     spec = get_toolchain(name)
     if spec.image is None or ":" not in spec.image:
         return
     tag, verarch = spec.image.rsplit(":", 1)
-    df = _REPO_TOOLS / spec.family / verarch / "Dockerfile"
+    df = REPO_TOOLS / spec.family / verarch / "Dockerfile"
     if not df.exists():
         return
     text = df.read_text(encoding="utf-8")
@@ -1194,9 +1194,9 @@ def update_cmd(
     import tempfile
     from dataclasses import replace
 
-    from rebrew.toolchain import _REPO_TOOLS, _SOURCES, _require_toolchains_repo, get_toolchain
+    from rebrew.toolchain import _SOURCES, REPO_TOOLS, get_toolchain, require_toolchains_repo
 
-    _require_toolchains_repo()
+    require_toolchains_repo()
     src = _SOURCES.get(name)
     if src is None:
         msg = f"no pinned source for toolchain {name!r} (known: {sorted(_SOURCES)})"
@@ -1253,7 +1253,7 @@ def update_cmd(
             _rewrite_dockerfile_sha(name, actual_sha)
             _SOURCES[name] = replace(src, sha256=actual_sha, commit=live_commit)
             # 2. clear the vendored host tree (keep Dockerfile/wrappers) + re-vendor.
-            host = _REPO_TOOLS / src.host_dir
+            host = REPO_TOOLS / src.host_dir
             _META_PATTERNS = (
                 "Dockerfile",
                 "pak_extract.py",

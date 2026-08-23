@@ -68,7 +68,7 @@ flowchart LR
 | `rebrew/sources.py` | Source-tree discovery: `source_exts`, `source_glob`, `target_marker`, `iter_sources`, `iter_library_headers` (pure pathlib/config logic, importable by library modules) |
 | `rebrew/config.py` | `ProjectConfig` dataclass + `rebrew-project.toml` loader (multi-target) |
 | `rebrew/annotation.py` | Marker/KV annotation parsing (`// FUNCTION: MOD 0xVA`), key classification (file-only vs metadata) |
-| `rebrew/metadata.py` | `rebrew-function.toml` store + routing (`METADATA_FIELDS`, `update_source_status`); typed facade in `metadata_model.py` (`MetadataEntry`) |
+| `rebrew/metadata.py` | `rebrew-function.toml` store + routing (`METADATA_FIELDS`, `update_source_status` / `update_field` / `remove_field`); typed facade in `metadata_model.py` (`MetadataEntry`) |
 | `rebrew/compile.py` | Compile (docker image or native backend) + compare → `CompareResult` |
 | `rebrew/binary_loader.py` | PE/ELF/Mach-O loading via LIEF → `BinaryInfo` (sections, VAs, raw bytes) |
 | `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (119 tree-sitter mutations), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
@@ -91,6 +91,7 @@ flowchart LR
 | `rebrew/toolchain_detect.py` | Layered compiler-family detector: Detect It Easy (diec) → PDB → codegen heuristics; feeds init's CRT/opt seeding and doctor's alignment check |
 | `rebrew/wibo.py` | Auto-download + SHA256-verify the wibo runner (fast headless wine alternative) |
 | `rebrew/binsync_export.py` / `binsync_import.py` / `binsync_diff.py` | BinSync state export/import/diff (TOML-based, no libbs dependency) |
+| `rebrew/blocker.py` | Programmatic BLOCKER writer — `rebrew blocker set/clear/show` (by file/VA/symbol; every write locked + atomic) |
 | `rebrew/document_unmatched.py` | STUB skeleton + BLOCKER writer for unmatched functions (standalone intake document step) |
 | `rebrew/discover.py` | Function enumeration: rizin aaa→aap→capstone linear sweep with size cross-checks |
 | `rebrew/pdb_info.py` | PDB metadata extraction (S_COMPILE3 compiler + command line) |
@@ -100,7 +101,7 @@ flowchart LR
 | `rebrew/skills.py` | Agent-skill discovery CLI (`list`/`show` subcommands) |
 | `rebrew/agent-skills/` | Bundled `SKILL.md` workflows (intake, workflow, matching, data analysis, ghidra sync) |
 
-## The compile → compare → STATUS loop
+## The compile → compare → STATUS/BLOCKER loop
 
 1. `parse_c_file_multi()` reads markers + inline keys from a `.c` file.
 2. `merge_into_annotation()` overlays `rebrew-function.toml` values (metadata
@@ -110,7 +111,9 @@ flowchart LR
    from the `rebrew-toolchains` checkout) and byte-compares against the
    target bytes → `CompareResult`.
 4. `update_source_status()` writes STATUS to the metadata file only — the
-   `.c` marker lines are never rewritten.
+   `.c` marker lines are never rewritten. `update_field` / `remove_field`
+   (via `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, etc.) do the
+   same for BLOCKER/BLOCKER_DELTA — never hand-edit `rebrew-function.toml`.
 
 ## Metadata routing rules (file-only vs metadata-only)
 
@@ -130,7 +133,7 @@ flowchart LR
 - Config-driven: every tool reads `rebrew-project.toml` via `require_config`.
 - Idempotent: every tool is safe to re-run.
 - One canonical name per function — no aliases/shims/legacy wrappers.
-- STATUS promotion only via `update_source_status` (never inline in `.c`).
+- STATUS promotion only via `update_source_status` (never inline in `.c`); BLOCKER only via `update_field`/`remove_field` through `rebrew blocker set/clear` or the auto-writers (`diff --fix-blocker`, `near-diag --fix-blocker`, `document-unmatched`).
 - Source discovery via `iter_sources`; batch annotations via `iter_annotations`.
 - Read-only tools open the DB/binary read-only (`mode=ro` sqlite, lazy LIEF).
 - See `docs/DEVELOPMENT.md` for test conventions, Typer quirks, and

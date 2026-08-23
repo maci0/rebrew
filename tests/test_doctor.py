@@ -193,7 +193,7 @@ class TestDockerIncludeLibs:
         )
 
     def test_docker_profile_with_image_passes(self, tmp_path: Path, monkeypatch) -> None:
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda img: True)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda img: True)
         inc = check_includes(self._cfg(tmp_path))
         assert inc.status == _PASS
         assert "docker image" in inc.message
@@ -202,7 +202,7 @@ class TestDockerIncludeLibs:
         assert "docker image" in lib.message
 
     def test_docker_profile_without_image_warns_with_fix(self, tmp_path: Path, monkeypatch) -> None:
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda img: False)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda img: False)
         inc = check_includes(self._cfg(tmp_path))
         assert inc.status == _WARN
         assert "toolchain build" in inc.fix

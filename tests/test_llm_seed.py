@@ -15,10 +15,10 @@ import pytest
 
 from rebrew.llm_seed import (
     _parse_response,
-    _valid_c_source,
     extract_seeds,
     llm_config,
     request_seeds,
+    valid_c_source,
 )
 
 
@@ -69,11 +69,11 @@ class TestExtractSeeds:
 
 class TestValidCSource:
     def test_valid_function(self) -> None:
-        assert _valid_c_source("int f(void) { return 0; }")
+        assert valid_c_source("int f(void) { return 0; }")
 
     def test_garbage_rejected(self) -> None:
-        assert not _valid_c_source("not c at all {{{")
-        assert not _valid_c_source("")
+        assert not valid_c_source("not c at all {{{")
+        assert not valid_c_source("")
 
 
 class TestParseResponse:

@@ -23,11 +23,11 @@ from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 
 console = Console(stderr=True)
 
-_DEFAULT_CS_ARCH = "CS_ARCH_X86"
-_DEFAULT_CS_MODE = "CS_MODE_32"
+DEFAULT_CS_ARCH = "CS_ARCH_X86"
+DEFAULT_CS_MODE = "CS_MODE_32"
 
 
-def _disasm_signature(
+def disasm_signature(
     code: bytes, va: int, cs_arch: int | str, cs_mode: int | str
 ) -> dict[str, Any] | None:
     """Disassemble *code* and build a structural signature.
@@ -109,8 +109,8 @@ def find_similar(
     from rebrew.binary_loader import extract_raw_bytes
     from rebrew.catalog import build_function_registry, parse_function_list
 
-    cs_arch = getattr(cfg, "capstone_arch", _DEFAULT_CS_ARCH)
-    cs_mode = getattr(cfg, "capstone_mode", _DEFAULT_CS_MODE)
+    cs_arch = getattr(cfg, "capstone_arch", DEFAULT_CS_ARCH)
+    cs_mode = getattr(cfg, "capstone_mode", DEFAULT_CS_MODE)
 
     funcs = parse_function_list(cfg.function_list)
     registry = build_function_registry(
@@ -127,7 +127,7 @@ def find_similar(
     if not query_size:
         return []
     query_bytes = extract_raw_bytes(cfg.target_binary, query_va, query_size)
-    query_sig = _disasm_signature(query_bytes, query_va, cs_arch, cs_mode)
+    query_sig = disasm_signature(query_bytes, query_va, cs_arch, cs_mode)
     if query_sig is None:
         return []
 
@@ -139,7 +139,7 @@ def find_similar(
         if not cand_size:
             continue
         cand_bytes = extract_raw_bytes(cfg.target_binary, va, cand_size)
-        sig = _disasm_signature(cand_bytes, va, cs_arch, cs_mode)
+        sig = disasm_signature(cand_bytes, va, cs_arch, cs_mode)
         if sig is None:
             continue
         score = similarity_score(query_sig, sig)

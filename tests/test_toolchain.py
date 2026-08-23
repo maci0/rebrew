@@ -31,7 +31,7 @@ def _monkey_docker(monkeypatch, *, available: bool = True, image: bool = True) -
         return _FakeProc(0, "compiled ok", "")
 
     monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: available)
-    monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: available and image)
+    monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: available and image)
     monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
     return calls
 
@@ -134,7 +134,7 @@ class TestRunToolchain:
             return _FakeProc(0, "", "")
 
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
         monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
 
         with pytest.raises(ToolchainError, match="docker invocation failed"):
@@ -155,7 +155,7 @@ class TestRunToolchain:
             raise OSError("docker not found")
 
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
         monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
 
         with pytest.raises(ToolchainError, match="docker invocation failed"):
@@ -196,7 +196,7 @@ class TestRunToolchain:
         tells the user to build it — there is no host fallback anymore."""
         spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="cl")
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
         with pytest.raises(ToolchainError, match="not built"):
             run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path)
 
@@ -355,7 +355,7 @@ class TestPullToolchain:
         from rebrew.toolchain import pull_toolchain
 
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
         called: list[str] = []
         monkeypatch.setattr(
             "rebrew.toolchain.subprocess.run",
@@ -370,7 +370,7 @@ class TestPullToolchain:
         from rebrew.toolchain import pull_toolchain
 
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
         # Model the swap's inspect calls: backup inspect fails (absent),
         # then the pull succeeds and the verify inspect resolves a new id.
         calls = {"n": 0}
@@ -394,7 +394,7 @@ class TestPullToolchain:
         from rebrew.main import app as umbrella
 
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
         result = CliRunner().invoke(umbrella, ["toolchain", "pull", "msvc6", "--json"])
         assert result.exit_code == 0
         assert '"already_present": true' in result.output
@@ -615,7 +615,7 @@ class TestDockerOnlyGuard:
         from rebrew.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
 
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
         with pytest.raises(ToolchainError, match="not built"):
             run_toolchain(TOOLCHAINS["msvc1.52"], ["t.c", "/O1"], workdir=tmp_path)
 
@@ -623,7 +623,7 @@ class TestDockerOnlyGuard:
         from rebrew.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
 
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
         with pytest.raises(ToolchainError, match="not built"):
             run_toolchain(TOOLCHAINS["delphi16"], ["hello.dpr"], workdir=tmp_path)
 
@@ -713,36 +713,36 @@ class TestCompatLinksRemoved:
 
 
 class TestToolchainsRepoResolver:
-    """_toolchains_repo() resolves the rebrew-toolchains build source: the
+    """toolchains_repo() resolves the rebrew-toolchains build source: the
     sibling checkout by default, REBREW_TOOLCHAINS_DIR otherwise."""
 
     def test_default_is_sibling(self) -> None:
-        from rebrew.toolchain import _toolchains_repo
+        from rebrew.toolchain import toolchains_repo
 
         repo = Path(__file__).resolve().parents[1]
-        assert _toolchains_repo() == repo.parent / "rebrew-toolchains"
+        assert toolchains_repo() == repo.parent / "rebrew-toolchains"
 
     def test_env_override(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.toolchain import _toolchains_repo
+        from rebrew.toolchain import toolchains_repo
 
         override = tmp_path / "my-toolchains"
         monkeypatch.setenv("REBREW_TOOLCHAINS_DIR", str(override))
-        assert _toolchains_repo() == override
+        assert toolchains_repo() == override
 
     def test_require_missing_raises_actionable(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.toolchain import ToolchainError, _require_toolchains_repo
+        from rebrew.toolchain import ToolchainError, require_toolchains_repo
 
         monkeypatch.setenv("REBREW_TOOLCHAINS_DIR", str(tmp_path / "nope"))
         with pytest.raises(ToolchainError, match="rebrew-toolchains"):
-            _require_toolchains_repo()
+            require_toolchains_repo()
 
     def test_in_repo_tarballs_rebased_to_checkout(self) -> None:
         """The 16-bit _SOURCES in_repo paths are now relative to the
         rebrew-toolchains checkout root (no toolchain/ prefix), sitting in
         the same <family>/<ver>-<arch> dir as the Dockerfile they feed."""
-        from rebrew.toolchain import _SOURCES, _toolchains_repo
+        from rebrew.toolchain import _SOURCES, toolchains_repo
 
-        repo = _toolchains_repo()
+        repo = toolchains_repo()
         for name in ("msvc15", "msvc10", "msvc1.52", "delphi16", "tc20", "tc16"):
             src = _SOURCES[name]
             assert src.in_repo, name
@@ -764,9 +764,9 @@ class TestDockerfileSanity:
     @classmethod
     def _repo(cls) -> Path:
         if cls._REPO is None:
-            from rebrew.toolchain import _toolchains_repo
+            from rebrew.toolchain import toolchains_repo
 
-            cls._REPO = _toolchains_repo()
+            cls._REPO = toolchains_repo()
         return cls._REPO
 
     def _read(self, rel: str) -> str:
@@ -878,7 +878,7 @@ class TestPullToolchainHint:
             return SimpleNamespace(returncode=1, stdout=b"", stderr=b"pull access denied")
 
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
         monkeypatch.setattr("rebrew.toolchain.subprocess.run", _fake_run)
         with pytest.raises(ToolchainError, match="toolchain build msvc420"):
             pull_toolchain("msvc420")

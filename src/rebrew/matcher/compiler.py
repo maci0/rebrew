@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.compile_cache import CompileCache, compile_cache_key
-from rebrew.config import _POSIX_PROFILES
+from rebrew.config import POSIX_PROFILES
 from rebrew.utils import safe_shlex_split
 
 from .core import BuildResult
@@ -363,15 +363,15 @@ def build_candidate_obj_only(
     # directory and fail on functions that #include those headers. Mirror the
     # resolution compile_to_obj performs for toolchain-backed profiles.
     if extra_inc and any(f.startswith(("/I", "-I")) for f in all_flags):
-        from rebrew.compile import _resolve_include_flags
+        from rebrew.compile import resolve_include_flags
 
         src_parent = Path(extra_inc[0])
         cfg_root = getattr(cfg, "root", Path.cwd()) if cfg is not None else Path.cwd()
-        all_flags = _resolve_include_flags(all_flags, src_parent, cfg_root)
+        all_flags = resolve_include_flags(all_flags, src_parent, cfg_root)
 
     cache_key: str | None = None
     if cache is not None:
-        from rebrew.compile import _extract_include_dirs
+        from rebrew.compile import extract_include_dirs
 
         cmd_parts = _compiler_cmd_parts(cl_cmd, env)
         toolchain_id = " ".join(cmd_parts)
@@ -381,7 +381,7 @@ def build_candidate_obj_only(
             cflags=all_flags + ["/c"],
             # The /I dirs carried by the flags join the search set so their
             # headers participate in the per-source dependency fingerprints.
-            include_dirs=[inc_dir, *extra_inc, *_extract_include_dirs(all_flags)],
+            include_dirs=[inc_dir, *extra_inc, *extract_include_dirs(all_flags)],
             toolchain_id=toolchain_id,
             source_ext=source_ext,
         )
@@ -574,7 +574,7 @@ def flag_sweep(
 
     from .scoring import precompute_target, score_candidate
 
-    if posix_style or profile in _POSIX_PROFILES:
+    if posix_style or profile in POSIX_PROFILES:
         # The sweep explores MSVC flag combos (/O1, /MT, /Gd...); a posix
         # compiler (gcc-pe/mingw, watcom, tc16/20, borland) treats /flags as
         # files and every combo would fail — and there is no posix flag

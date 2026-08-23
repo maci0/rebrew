@@ -248,7 +248,7 @@ def main(
         local_name = getattr(local, "symbol", "") or getattr(local, "name", "") or ""
         raw_proto = getattr(local, "prototype", "") or ""
         # BinSync [header].type stores signature without body; local prototype may have body
-        from rebrew.binsync_export import _strip_body as _sb  # local import to avoid cycle
+        from rebrew.binsync_export import strip_body as _sb  # local import to avoid cycle
 
         local_proto = _sb(raw_proto) if raw_proto else ""
         local_filepath = getattr(local, "filepath", "")

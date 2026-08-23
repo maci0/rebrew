@@ -40,7 +40,7 @@ from urllib.parse import parse_qs, urlparse
 import typer
 from rich.console import Console
 
-from rebrew.build_db import _resolve_db_dir
+from rebrew.build_db import resolve_db_dir
 from rebrew.cli import TargetOption, error_exit, json_print
 
 console = Console(stderr=True)
@@ -625,7 +625,7 @@ def main(
 ) -> None:
     """Serve the coverage database as a read-only web dashboard."""
     root_dir = root.resolve() if root else Path.cwd().resolve()
-    db_dir = _resolve_db_dir(root_dir, json_output=json_output)
+    db_dir = resolve_db_dir(root_dir, json_output=json_output)
     db_path = db_dir / "coverage.db"
     if not db_path.exists():
         error_exit(

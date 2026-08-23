@@ -451,7 +451,7 @@ def _render_graph(cfg: ProjectConfig) -> str:
             if bin_path and Path(bin_path).exists():
                 try:
                     from rebrew.binary_loader import load_binary
-                    from rebrew.depgraph import _binary_call_edges
+                    from rebrew.depgraph import binary_call_edges
                     from rebrew.ne_loader import enumerate_ne_functions
 
                     info = load_binary(bin_path)
@@ -460,7 +460,7 @@ def _render_graph(cfg: ProjectConfig) -> str:
                             (f.va, f.va + f.size, f"fcn_{f.va:08x}")
                             for f in enumerate_ne_functions(info)
                         ]
-                        edges.extend(_binary_call_edges(info, ranges))
+                        edges.extend(binary_call_edges(info, ranges))
                 except Exception:  # best-effort augmentation
                     pass
         mermaid = render_mermaid(nodes, edges, dispatch_edges)

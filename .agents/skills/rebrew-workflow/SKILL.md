@@ -101,7 +101,7 @@ void my_func() {}
 > [!CAUTION]
 > **All volatile metadata lives in `rebrew-function.toml` at `cfg.metadata_dir`
 > (the parent of `reversed_dir`, e.g. `src/` for `src/server.dll/`), never inline
-> in the `.c` file.** Metadata-owned keys: STATUS, SIZE, CFLAGS, BLOCKER/BLOCKER_DELTA,
+> in the `.c` file — and never by hand-editing the TOML.** Metadata-owned keys: STATUS, SIZE, CFLAGS, BLOCKER/BLOCKER_DELTA,
 > NOTE, GHIDRA, ORIGIN, SOURCE, SECTION, SKIP, GLOBALS, prove_constraints.
 > STATUS is promoted only by `rebrew test` / `rebrew verify` (canonical writer:
 > `metadata.update_source_status`); PROVEN is sticky — never silently demoted
@@ -160,6 +160,9 @@ rebrew diff src/bench/<file>.c -r             # register-aware (mark RR encoding
 rebrew diff src/bench/<file>.c --fix-blocker  # auto-write BLOCKER to rebrew-function.toml
 rebrew diff src/bench/<file>.c --format csv   # CSV for spreadsheet analysis
 rebrew diff 0x<VA> --json                        # JSON diff + structural similarity + blockers
+rebrew blocker set src/bench/<file>.c "needs RE structs"   # programmatic BLOCKER for STUBs diff cannot classify
+rebrew blocker set 0x<VA> "SEH helper -- not matchable from C"
+rebrew blocker clear src/bench/<file>.c       # remove BLOCKER again
 ```
 
 `rebrew diff` also accepts a VA or symbol name. Exit codes: `0` no structural diffs ·

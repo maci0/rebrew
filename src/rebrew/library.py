@@ -23,8 +23,8 @@ from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
 from rebrew.metadata import (
-    _LIBRARY_PRESETS,
     LIBRARY_METADATA_FILE,
+    LIBRARY_PRESETS,
     apply_library_presets,
     clear_library_override_cache,
     find_library_override,
@@ -132,8 +132,8 @@ def set_cmd(
     if not target.is_dir():
         msg = f"{target} is not a directory"
         error_exit(msg, json_mode=json_output)
-    if preset is not None and preset not in _LIBRARY_PRESETS:
-        msg = f"unknown preset {preset!r} (known: {sorted(_LIBRARY_PRESETS)})"
+    if preset is not None and preset not in LIBRARY_PRESETS:
+        msg = f"unknown preset {preset!r} (known: {sorted(LIBRARY_PRESETS)})"
         error_exit(msg, json_mode=json_output)
     if toolchain is not None:
         from rebrew.toolchain import TOOLCHAINS
