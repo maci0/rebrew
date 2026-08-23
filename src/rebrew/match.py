@@ -1611,38 +1611,51 @@ def main(
         total_failed = 0
 
         def _run_target(name: str) -> tuple[int, int]:
-            target_cfg = load_config(cfg.root, target=name) if len(names) > 1 else cfg
-            if not json_output:
-                console.print(f"\n[bold cyan]=== Target {name} ===[/]")
-            # Per-target detail stays on stderr (console); stdout gets one
-            # aggregate JSON document when --json is active.
-            return _run_all(
-                cfg=target_cfg,
-                jobs=per_target_jobs,
-                generations=generations,
-                pop_size=pop_size,
-                timeout_min=timeout_min,
-                dry_run=dry_run,
-                min_size=min_size,
-                max_size=max_size,
-                filter_str=filter_str,
-                near_miss=near_miss,
-                improve=improve,
-                size_mismatch=size_mismatch,
-                threshold=threshold,
-                flag_sweep=flag_sweep,
-                fix_cflags=fix_cflags,
-                max_stubs=max_stubs,
-                seed_from_solved=seed_from_solved,
-                json_output=False,
-                tier=tier,
-                sweep_then_ga=sweep_then_ga,
-                skip_recent_hours=skip_recent_hours,
-                seed=seed,
-                seed_solutions_path=seed_solutions,
-                resume=resume,
-                mutation_weights=batch_mutation_weights,
-            )
+            # One broken target (unresolvable config, unexpected error) must
+            # not discard the other targets' completed GA runs: in parallel
+            # mode every future has already been submitted, so letting the
+            # exception escape would drop results of targets that ran to
+            # completion after it.  Count the failure and keep aggregating
+            # (same contract as _run_stub: failed>0 → EXIT_MISMATCH).
+            try:
+                target_cfg = load_config(cfg.root, target=name) if len(names) > 1 else cfg
+                if not json_output:
+                    console.print(f"\n[bold cyan]=== Target {name} ===[/]")
+                # Per-target detail stays on stderr (console); stdout gets one
+                # aggregate JSON document when --json is active.
+                return _run_all(
+                    cfg=target_cfg,
+                    jobs=per_target_jobs,
+                    generations=generations,
+                    pop_size=pop_size,
+                    timeout_min=timeout_min,
+                    dry_run=dry_run,
+                    min_size=min_size,
+                    max_size=max_size,
+                    filter_str=filter_str,
+                    near_miss=near_miss,
+                    improve=improve,
+                    size_mismatch=size_mismatch,
+                    threshold=threshold,
+                    flag_sweep=flag_sweep,
+                    fix_cflags=fix_cflags,
+                    max_stubs=max_stubs,
+                    seed_from_solved=seed_from_solved,
+                    json_output=False,
+                    tier=tier,
+                    sweep_then_ga=sweep_then_ga,
+                    skip_recent_hours=skip_recent_hours,
+                    seed=seed,
+                    seed_solutions_path=seed_solutions,
+                    resume=resume,
+                    mutation_weights=batch_mutation_weights,
+                )
+            except Exception as exc:
+                log.warning("Target %s failed — counted as failed", name, exc_info=True)
+                console.print(
+                    f"  [yellow]warning:[/yellow] target {name} failed: {type(exc).__name__}: {exc}"
+                )
+                return 0, 1
 
         # Parallel targets: split --jobs across targets so total wine
         # concurrency stays bounded (~jobs).  Determinism is preserved — the

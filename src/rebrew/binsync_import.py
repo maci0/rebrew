@@ -355,7 +355,7 @@ def main(
                         _uak2(fp, va, "GHIDRA", bs_name, metadata_dir=cfg.metadata_dir)
                 except Exception:
                     log.debug("GHIDRA annotation apply failed for VA 0x%x", va, exc_info=True)
-                    pass
+                    skipped += 1
             proposed.append(
                 {
                     "va": f"0x{va:08x}",
