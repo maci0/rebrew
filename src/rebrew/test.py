@@ -506,7 +506,6 @@ def main(
         cmp = compile_and_compare_linked(
             cfg,
             source,
-            symbol,
             target_bytes,
             cflags_str,
             va=section_va,

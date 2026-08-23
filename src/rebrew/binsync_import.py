@@ -72,9 +72,9 @@ def _strip_cdecl_prefix(name: str) -> str:
 
 
 def _apply_binsync_func_name(
-    cfg: Any, va: int, local: Any, bs_name: str, local_filepath: str | None
+    cfg: Any, local: Any, bs_name: str, local_filepath: str | None
 ) -> bool:
-    """Rename the local function at *va* to the BinSync name, everywhere.
+    """Rename the local function *local* to the BinSync name, everywhere.
 
     Returns False (nothing written) when the source file is missing or the
     BinSync name is not a valid identifier.
@@ -306,7 +306,7 @@ def main(
                 applied_names += 1
             else:
                 try:
-                    if _apply_binsync_func_name(cfg, va, local, bs_stripped, local_filepath):
+                    if _apply_binsync_func_name(cfg, local, bs_stripped, local_filepath):
                         applied_names += 1
                     else:
                         skipped += 1
@@ -337,7 +337,7 @@ def main(
                 )
             else:
                 try:
-                    if _apply_binsync_func_name(cfg, va, local, bs_stripped, local_filepath):
+                    if _apply_binsync_func_name(cfg, local, bs_stripped, local_filepath):
                         applied_names += 1
                     else:
                         skipped += 1

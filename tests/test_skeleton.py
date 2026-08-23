@@ -59,21 +59,21 @@ class TestSanitizeName:
 
 class TestMakeFilename:
     def test_fun_prefix(self) -> None:
-        assert make_filename(0x10001000, "FUN_10001000") == "func_10001000.c"
+        assert make_filename("FUN_10001000") == "func_10001000.c"
 
     def test_custom_name(self) -> None:
-        result = make_filename(0x10001000, "whatever", "my_func")
+        result = make_filename("whatever", "my_func")
         assert result.endswith(".c")
         assert "my_func" in result
 
     def test_no_origin_prefix(self) -> None:
-        assert make_filename(0x10001000, "ParsePacket") == "ParsePacket.c"
+        assert make_filename("ParsePacket") == "ParsePacket.c"
 
     def test_no_origin_prefix_msvcrt(self) -> None:
-        assert make_filename(0x10001000, "memset") == "memset.c"
+        assert make_filename("memset") == "memset.c"
 
     def test_name_with_prefix_unchanged(self) -> None:
-        assert make_filename(0x10001000, "game_something") == "game_something.c"
+        assert make_filename("game_something") == "game_something.c"
 
 
 # -------------------------------------------------------------------------

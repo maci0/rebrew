@@ -28,15 +28,15 @@ dependencies = [
     "capstone>=5.0.8",  # PYSEC-2026-3544 fixed in 5.0.8
     "click>=8.3.3",  # direct import (init.py shell completion, tests); 8.3.3 fixes CVE-2025-6143/6144
     "diskcache>=5.6",  # advisory (unsafe pickle) has no fix yet — cache stores only compile .obj bytes, not untrusted input
-    "httpx>=0.28",
+    "httpx>=0.28",  # ReVa MCP / remote-tooling HTTP client (ghidra/, skeleton.py, decompiler.py, wibo.py)
     "idna>=3.15",  # NO direct import — transitive security pin: idna <3.15 has a Unicode-property DoS advisory; this floor forces the fixed version through httpx's tree
     "lief>=0.17.4,<1",  # 1.0.0 is breaking
-    "numpy>=1.26",
-    "python-flirt>=0.9.10",
-    "rich>=13.0",
-    "tomlkit>=0.12",
-    "tree-sitter>=0.25.2",
-    "tree-sitter-c>=0.24.1",
+    "numpy>=1.26",  # byte/structural similarity scoring (matcher/scoring.py, core/matching.py, binary_similarity.py)
+    "python-flirt>=0.9.10",  # FLIRT .sig signature scanning (flirt.py; imports as `flirt`)
+    "rich>=13.0",  # console rendering (Console(stderr=True) convention) and typer's markup backend
+    "tomlkit>=0.12",  # round-trip-preserving TOML writes (metadata.py, cfg.py, library.py)
+    "tree-sitter>=0.25.2",  # C AST parsing (c_parser.py, struct_parser.py, matcher/ast_engine.py) — never regex-parse C
+    "tree-sitter-c>=0.24.1",  # C grammar for tree-sitter
     "typer>=0.10",  # rich_markup_mode requires 0.10.0 (deps-review F1: the 0.9 floor admitted a version the CLI cannot start on)
 ]
 
@@ -54,6 +54,9 @@ prove = [
 # extra to enable the score.  Path is relative to this checkout: it resolves
 # against the conventional sibling layout (same parent dir as rebrew, like
 # the rebrew-toolchains checkout).
+# UV-ONLY: [tool.uv.sources] below pins `resembl` to the sibling path, but a
+# non-uv `pip install ".[similarity]"` would resolve the bare name from PyPI,
+# which this project does not own — pip users must install ../resembl by hand.
 similarity = [
     "resembl",
     "rapidfuzz>=3.13",  # direct import in matcher/scoring.py code_similarity (resembl only declares it transitively)

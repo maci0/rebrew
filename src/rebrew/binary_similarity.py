@@ -199,7 +199,6 @@ def aggregate_similarity(
 
 
 def _load_side(
-    cfg: Any,
     binary: Path,
     func_list: Path | None,
     cs_arch: str | int,
@@ -251,8 +250,8 @@ def run_binary_similarity(
     cs_arch = getattr(cfg, "capstone_arch", _DEFAULT_CS_ARCH)
     cs_mode = getattr(cfg, "capstone_mode", _DEFAULT_CS_MODE)
 
-    funcs_a = _load_side(cfg, cfg.target_binary, cfg.function_list, cs_arch, cs_mode)
-    funcs_b = _load_side(cfg, other_binary, other_list, cs_arch, cs_mode)
+    funcs_a = _load_side(cfg.target_binary, cfg.function_list, cs_arch, cs_mode)
+    funcs_b = _load_side(other_binary, other_list, cs_arch, cs_mode)
 
     result = aggregate_similarity(funcs_a, funcs_b, low_count=low_count)
     result["binary_a"] = str(cfg.target_binary)

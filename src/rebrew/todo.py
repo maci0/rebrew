@@ -143,7 +143,7 @@ class TodoItem:
 # ---------------------------------------------------------------------------
 
 
-def calculate_roi(size: int, match_pct: float | None, delta: int | None, status: str) -> float:
+def calculate_roi(size: int, match_pct: float | None, delta: int | None) -> float:
     """Calculate a continuous ROI score (0-100).
 
     User Workflow Heuristic: Higher match percentage is often HARDER to finish
@@ -416,7 +416,7 @@ def _collect_active_functions(
         elif not name or name.startswith("FUN_"):
             category = CAT_MISSING_ANNOTATION
             desc = "Missing C function definition (needs skeleton)"
-            score = calculate_roi(size, v_match, calc_delta, status)
+            score = calculate_roi(size, v_match, calc_delta)
             cmd = f"rebrew skeleton 0x{va:08x}"
 
         elif v_status == "MISSING_SIZE":
@@ -425,13 +425,13 @@ def _collect_active_functions(
             # verify --fix-sizes backfilling the binary-derived size.
             category = CAT_MISSING_ANNOTATION
             desc = "Missing SIZE annotation — backfill with rebrew verify --fix-sizes"
-            score = calculate_roi(size, v_match, calc_delta, status)
+            score = calculate_roi(size, v_match, calc_delta)
             cmd = "rebrew verify --fix-sizes"
 
         elif calc_delta is not None and calc_delta <= 20:
             category = CAT_FIX_DELTA
             desc = f"{calc_delta}B diff — try flag sweep, GA, or padding adjustments"
-            score = calculate_roi(size, v_match, calc_delta, status)
+            score = calculate_roi(size, v_match, calc_delta)
             blocker = info.get("blocker", "")
             # A near-diag STRUCTURAL verdict means the diff is control-flow
             # layout, not a flag/padding quick-win — demote it so the item is
@@ -462,7 +462,7 @@ def _collect_active_functions(
         else:
             category = CAT_IMPROVE_MATCH
             desc = "Needs implementation/fixing"
-            score = calculate_roi(size, v_match, calc_delta, status)
+            score = calculate_roi(size, v_match, calc_delta)
 
             blocker = info.get("blocker", "")
             if blocker:
@@ -552,7 +552,7 @@ def _collect_prover_candidates(
                 category=CAT_RUN_PROVER,
                 # Prover is most useful at high match% (few diffs to prove).
                 # Give it a bonus so it wins dedup over improve-match/fix-delta.
-                roi_score=calculate_roi(size, match_pct, None, "NEAR_MATCHING")
+                roi_score=calculate_roi(size, match_pct, None)
                 + (10.0 if match_pct and match_pct >= NEAR_MATCH_THRESHOLD * 100 else -10.0),
                 va=va,
                 name=info.get("symbol", ""),
@@ -656,7 +656,7 @@ def _collect_new_functions(
         items.append(
             TodoItem(
                 category=CAT_START_FUNCTION,
-                roi_score=max(10.0, calculate_roi(size, 0.0, None, "MISSING") - difficulty * 2),
+                roi_score=max(10.0, calculate_roi(size, 0.0, None) - difficulty * 2),
                 va=va,
                 name=name,
                 size=size,
@@ -691,7 +691,7 @@ def _collect_library_candidates(
         items.append(
             TodoItem(
                 category=CAT_IDENTIFY_LIBRARY,
-                roi_score=max(10.0, calculate_roi(size, 0.0, None, "MISSING") - 10.0),
+                roi_score=max(10.0, calculate_roi(size, 0.0, None) - 10.0),
                 va=va,
                 name=name,
                 size=size,

@@ -1,18 +1,14 @@
+# Weekly bundled update PRs for the pinned GitHub Actions (checkout,
+# setup-uv, ...).  Python dependencies are intentionally NOT automated:
+# uv.lock is the audited inventory and `uv audit --locked` in CI gates it;
+# bumps land as deliberate `uv lock --upgrade` changes.
 version: 2
 updates:
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: github-actions
+    directory: /
     schedule:
-      interval: "weekly"
-
-  - package-ecosystem: "pip"
-    directory: "/"
-    schedule:
-      interval: "weekly"
+      interval: weekly
     groups:
-      dev-dependencies:
+      actions:
         patterns:
-          - "pytest*"
-          - "ruff"
-          - "slipcover"
-          - "pre-commit"
+          - "*"

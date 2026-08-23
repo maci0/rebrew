@@ -2256,8 +2256,6 @@ def _sweep_filter_matches(name: str, verarch: str, filters: list[str]) -> bool:
 
 def _vendored_msvc_toolchains(
     cfg: Any,
-    baseline_cl: str,
-    baseline_inc: str,
     only: str = "",
     exclude: str = "",
 ) -> list[tuple[str, str, str]]:
@@ -2293,7 +2291,7 @@ def _run_single_toolchain_sweep(
     p: _BuildParams, json_output: bool, only: str = "", exclude: str = ""
 ) -> None:
     """Compile the seed with each vendored MSVC toolchain and report the best."""
-    toolchains = _vendored_msvc_toolchains(p.cfg, p.cl, p.inc, only, exclude)
+    toolchains = _vendored_msvc_toolchains(p.cfg, only, exclude)
     # Catalog + IAT region are constant across toolchains — computed once,
     # not per iteration (the old code called build_iat_region inside the
     # loop and passed name_to_va via a getattr that never existed, so reloc
@@ -2381,7 +2379,7 @@ def _run_single_toolchain_flag_sweep(
     project's cflags; ``--flag-sweep`` alone only tries the project's
     compiler).
     """
-    toolchains = _vendored_msvc_toolchains(p.cfg, p.cl, p.inc, only, exclude)
+    toolchains = _vendored_msvc_toolchains(p.cfg, only, exclude)
     rows: list[dict[str, Any]] = []
     for profile, cl_cmd, inc_dir in toolchains:
         results = flag_sweep(

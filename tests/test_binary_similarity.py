@@ -107,7 +107,7 @@ class TestCli:
         monkeypatch.setattr(
             bs,
             "_load_side",
-            lambda cfg, binary, func_list, arch, mode: [_fn(0x1000, 100, "f1", MOV_RET, calls=1)],
+            lambda binary, func_list, arch, mode: [_fn(0x1000, 100, "f1", MOV_RET, calls=1)],
         )
         return other, other_list
 

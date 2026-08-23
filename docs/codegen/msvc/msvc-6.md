@@ -195,11 +195,16 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 
 - **Probe17 allocator/conventions**: `-1` stores use the REGISTER form `or eax,-1` + `a3` (5.0–10.0 era); zero register kept in EAX (`alloc_zero`: `a3` moffs stores).  The guild-rebrew live-range flip (B3) does NOT trigger with the simplified probe.  See RULES.md B2/B3/B5.
 
-- **Decomp idioms** — the probe19-22 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe22` records).
+- **Decomp idioms** — the probe19-23 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe23` records).
 
 ## Probe22: guild-rule verification (round 19)
 
 - **Probe22 (6.0)**: the guild-doc rules verify in full here — C24 fused negation, F17 byte-live switch preamble, F15 `or ch,0x30`/`test ah,0x60` AH-slot ops, E11 opaque-memset negative (simple rep-stosd form), F13 no-scalarization negative.  See RULES.md C24/F15/F16/F17/E11.
+
+
+## Probe23: Findings 23-36 shapes (round 20)
+
+- **Probe23 (6.0)**: idx24 `lea*3; shl 5`; `/60`/`/24` magic; `argslot` reuses the dead arg2 slot (`lea eax,[esp+8]`, no frame); `addfold` folds all offsets; if-conversion sbb-trick; FPU clamp `fcomp [a4]`+`test ah,1`.  See RULES.md C27/C28/E16/E17/F19/F22.
 
 
 ## Verification

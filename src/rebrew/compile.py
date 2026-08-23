@@ -1336,7 +1336,6 @@ def _link_obj_docker(
 def compile_and_compare_linked(
     cfg: ProjectConfig,
     source_path: str | Path,
-    symbol: str,
     target_bytes: bytes,
     cflags: str | list[str],
     *,

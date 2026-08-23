@@ -13,6 +13,10 @@ into a clean venv for a smoke import. The uv installer is pinned via workflow
 `UV_VERSION`; Python default comes from `.python-version`.
 It does **not** require a target binary or MSVC toolchain.
 
+The nightly `toolchain-sync.yml` drift check installs through the same pinned
+uv flow (`uv sync --frozen`), so scheduled runs can never silently resolve
+newer dependency versions than the audited lockfile.
+
 ## Project / workspace CI
 
 Wire these into the **game/workspace** repo (the one with `rebrew-project.toml`

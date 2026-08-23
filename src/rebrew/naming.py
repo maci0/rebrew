@@ -418,7 +418,6 @@ def sanitize_name(ghidra_name: str) -> str:
 
 
 def make_filename(
-    va: int,
     ghidra_name: str,
     custom_name: str | None = None,
     cfg: ProjectConfig | None = None,

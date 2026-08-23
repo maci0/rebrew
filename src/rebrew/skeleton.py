@@ -975,7 +975,7 @@ def _run_batch_mode(
 
     batch_func_lookup: FuncLookup = build_function_lookup(cfg)
     for va_val, size_val, name_val in uncovered[:count]:
-        filename = make_filename(va_val, name_val, cfg=cfg)
+        filename = make_filename(name_val, cfg=cfg)
         filepath = src_dir / filename
         rel_path = rel_display_path(filepath, root)
 
@@ -1175,7 +1175,7 @@ def _run_single_va_mode(
     """Create a new single-function .c skeleton file."""
     root = cfg.root
     src_dir = cfg.reversed_dir
-    filename_val = make_filename(va_int, ghidra_name, name, cfg=cfg)
+    filename_val = make_filename(ghidra_name, name, cfg=cfg)
     filepath_val = Path(output) if output else src_dir / filename_val
     rel_path_val = rel_display_path(filepath_val, root)
 

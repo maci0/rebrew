@@ -168,11 +168,16 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 
 - **Probe17 allocator/conventions**: `-1` register form; zero in EAX; moffs (`a1`/`a3`) usage doubles from 8.0 across the corpus (fingerprint B11).  See RULES.md B5/B11.
 
-- **Decomp idioms** — the probe19-22 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe22` records).
+- **Decomp idioms** — the probe19-23 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe23` records).
 
 ## Probe22: guild-rule verification (round 19)
 
 - **Probe22 (8.0)**: C24 joins the 5.0/6.0 fused `sub/neg/sbb` group; F15 switches to dword/memory forms (`test eax,imm`); opaque memset becomes a LIBCALL (8.0+ boundary); the 36B constant memset stays inline (unrolled stores).  See RULES.md C24/F15/E11/E14.
+
+
+## Probe23: Findings 23-36 shapes (round 20)
+
+- **Probe23 (8.0)**: byte-scan loops switch to MEMORY-operand compares + `add eax,1`; FPU clamp via `fcomip` (`d8 d1`); if-conversion memory-`sete`+lea; /O1 idx uses `imul` byte-offset.  See RULES.md F21/F22/C27.
 
 
 ## Verification

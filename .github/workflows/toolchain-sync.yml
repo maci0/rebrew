@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# Keep in sync with UV_VERSION in ci.yml: one pinned installer everywhere,
+# never setup-uv's floating "latest".
+env:
+  UV_VERSION: "0.12.3"
+
 jobs:
   check-updates:
     runs-on: ubuntu-latest
@@ -15,15 +20,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: '3.12'
-      - name: Install rebrew
-        run: pip install -e . --quiet
+          version: ${{ env.UV_VERSION }}
+          python-version-file: ".python-version"
+      - name: Install dependencies
+        # --frozen installs exactly the audited uv.lock versions; a raw
+        # `pip install -e .` here would resolve fresh from PyPI nightly,
+        # bypassing review (deps-review F1).
+        run: uv sync --frozen
       - name: Check toolchain source drift
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          rebrew toolchain check-updates
-          rebrew toolchain check-updates --json | python3 -c "import json,sys; d=json.load(sys.stdin); print('drifted:', d['drifted']); sys.exit(1 if d['drifted'] else 0)"
+          uv run rebrew toolchain check-updates
+          uv run rebrew toolchain check-updates --json | uv run python -c "import json,sys; d=json.load(sys.stdin); print('drifted:', d['drifted']); sys.exit(1 if d['drifted'] else 0)"

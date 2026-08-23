@@ -439,10 +439,7 @@ def apply_commands_via_mcp(
                 if res.isError:
                     is_error = True
                     content = res.content
-                    if content and len(content) > 0:
-                        error_msg = content[0].text
-                    else:
-                        error_msg = str(data.result)
+                    error_msg = content[0].text if content else str(data.result)
             if is_error:
                 if "already exists" in str(error_msg).lower():
                     return True, ""
