@@ -131,7 +131,7 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 
 - **Probe17 allocator/conventions**: `-1` stores use the IMMEDIATE `c7 05 <addr> ff ff ff ff` form (2.0/4.x era); no zero register materialized.  Varargs float→double promotion verified.  See RULES.md A5/B5.
 
-- **Decomp idioms** — the probe19-23 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe23` records).
+- **Decomp idioms** — the probe19-24 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe24` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -141,6 +141,11 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 ## Probe23: Findings 23-36 shapes (round 20)
 
 - **Probe23 (4.x-era)**: mirrors 2.0 (real idiv, shl+lea idx, materialized add); `argslot` allocates `sub esp,4`.  See RULES.md C28/E16/E17.
+
+
+## Probe24: Findings 37-43 primitives (round 21)
+
+- **Probe24 (4.x-era)**: word zero-extend `xor;mov ax` begins (4.1); size-dispatch cmp-chain; in-place and.  See RULES.md C29/F24.
 
 
 ## Verification

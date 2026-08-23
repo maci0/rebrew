@@ -162,7 +162,7 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 
 - **Probe17 allocator/conventions**: `-1` stores use the IMMEDIATE `c7 05 <addr> ff ff ff ff` form (2.0/4.x era; 5.0–10.0 use `or eax,-1` + `a3`); no zero register is materialized (`cmp [mem],0` memory-immediate compares).  Varargs float→double promotion verified (`fld; sub esp,8; fstp qword [esp]`).  See RULES.md A5/B5.
 
-- **Decomp idioms** — the probe19-23 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe23` records).
+- **Decomp idioms** — the probe19-24 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe24` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -172,6 +172,11 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 ## Probe23: Findings 23-36 shapes (round 20)
 
 - **Probe23 (2.0-era)**: idx family via `shl`+`lea*3`; `/60` and `/24` are REAL `idiv` (`mov ecx,60; cdq; idiv`); `addfold` MATERIALIZES the `add reg,0x18`; sbb-variant branchless if-conversion.  See RULES.md C27/C28/E17/F19.
+
+
+## Probe24: Findings 37-43 primitives (round 21)
+
+- **Probe24 (2.0-era)**: word zero-extend via `and eax,0xffff`; size-dispatch cmp-chain; in-place `and word [mem],ax` present; word compares raw `66 3d`.  See RULES.md C29/F23/F24.
 
 
 ## Verification

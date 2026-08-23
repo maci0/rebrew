@@ -103,7 +103,7 @@ zig-vs-gcc byte marker in either dimension.
 
 - **Probe17 verified-negative**: the allocator/convention markers are MSVC-internal; Zig follows the shared conventions — no new zig-vs-gcc marker; corpus pointer.
 
-- **Decomp idioms** — the probe19-23 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe23` records).
+- **Decomp idioms** — the probe19-24 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe24` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -113,6 +113,11 @@ zig-vs-gcc byte marker in either dimension.
 ## Probe23: Findings 23-36 shapes (round 20)
 
 - **Probe23 (Zig/LLVM)**: branchless if-conversion via `cmov`-family; FPU clamp via SSE `comisd`; idx via lea — LLVM traits.  See RULES.md F19/F22.
+
+
+## Probe24: Findings 37-43 primitives (round 21)
+
+- **Probe24 (Zig/LLVM)**: word zero-extend movzx; in-place float add via SSE — LLVM traits.  See RULES.md C29/D9.
 
 
 ## Verification

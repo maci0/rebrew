@@ -13,9 +13,9 @@ from rebrew.data import (
     BssReport,
     GlobalEntry,
     ScanResult,
-    _estimate_type_size,
     verify_bss_layout,
 )
+from rebrew.data_layout import estimate_type_size as _estimate_type_size
 
 # ---------------------------------------------------------------------------
 # Idea #15: DATA annotation marker
