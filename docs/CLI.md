@@ -162,6 +162,7 @@ consumers can learn whether the blocker landed (mirrors `near-diag`'s
 | `--no-promote` | Skip STATUS metadata update |
 | `--force-status` | Force the STATUS update even from sticky PROVEN (deliberately demote a stale PROVEN to its actual result; single-function only) |
 | `--fix-size` | Fix a stale `SIZE` annotation when ALL common bytes match: writes the compiled size into metadata and reclassifies as EXACT/RELOC (no-op when the mismatch is a real byte difference; `--dry-run` previews). File-scoped — batch size repair is `rebrew verify --fix-sizes` |
+| `--linked` | Linked compare (single-function, VA required): compile in a padded `#pragma data_seg(".text$A")` + `code_seg(".text$B")` shell, LINK a real DLL at the target's image base inside the toolchain image, compare the linker-resolved bytes RAW — no relocation masking. rel32 displacements are linker-resolved and in-`.text` jump tables land in the window, so a match is byte-identical output, not RELOC-level. Sources with externals (imports, cross-TU calls) fail the link by design; MSVC docker toolchains only |
 | `--watch` | Re-test the source file on every save (single-file mode) |
 | `--json` | JSON structured output |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
@@ -697,9 +698,20 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 `rebrew asm <VA> [--format hex|nasm] [--size N] [--imports] [--strings] [--hints] [--json] [--target NAME]`
 
 Disassemble a single function from the target binary as a hex dump (default) or
-NASM-style listing (`--nas`).  `--imports`/`--strings`/`--hints` annotate the
+NASM-style listing (`--format nasm`).  `--imports`/`--strings`/`--hints` annotate the
 listing with IAT imports, referenced strings, and codegen hints; `--json`
 emits the structured instruction list (address, bytes, mnemonic, operands).
+
+`--format nasm --inline-c` generates an **exact-bytes naked C skeleton**
+for functions without a C implementation: the target bytes are emitted
+verbatim (`__asm _emit 0xNN` on MSVC, `__asm__(".byte ...")` on GCC —
+no assembler-encoding risk, unlike assembler mnemonics) behind the
+`REBREW_ALLOW_NAKED` fence, with a plain-C fallback for the comparison
+build.  The file carries `// FUNCTION` + `// SIZE` + a symbol from its C
+definition, so it is self-contained for `rebrew test func.c --cflags
+/DREBREW_ALLOW_NAKED` — iterate one function at a time through the normal
+compile→compare loop, then replace the fallback body with real C and drop
+the define.  `rebrew round-trip --allow-naked` splices the naked branch.
 
 Both outputs include the inferred **calling convention** (cdecl / stdcall /
 thiscall / thiscall-with-no-stack-args / ctor thunk / EH-guard thunk /
@@ -1296,6 +1308,7 @@ large binaries.
 # Disassembly
 rebrew asm 0x100011f0 --size 64                   # Hex dump 64 bytes at VA
 rebrew asm 0x100011f0 --format nasm               # NASM disassembly at VA
+rebrew asm 0x100011f0 --format nasm --inline-c -o f.c  # Exact-bytes naked C skeleton
 rebrew asm 0x100011f0 --target server.dll         # Use alternate target
 rebrew asm 0x100011f0 --imports                   # Annotate call/jmp [IAT] with import names
 rebrew asm 0x100011f0 --strings                   # Annotate push/mov/lea of strings with their text

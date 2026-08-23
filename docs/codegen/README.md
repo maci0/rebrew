@@ -35,7 +35,9 @@ One folder per compiler class; one file per version inside.
 | [zig/zig.md](zig/zig.md) | Zig (`zig cc` → MinGW-w64) | `gcc-pe` (structural) |
 
 Cross-cutting references: the **[rules catalog](RULES.md)** categorizes
-behavior-level codegen rules (calling conventions, register allocation,
+behavior-level codegen rules, and the **[decomp idiom cheat-sheet](DECOMP_IDIOMS.md)**
+maps the 30 probe19/20 game idioms to their per-version signatures and
+disassembly look-fors (calling conventions, register allocation,
 arithmetic, FP, memory ops, control flow, frames, 64-bit, C++, toolchain
 identity) across all toolchains with verification status; the
 **[uniqueness table](#uniqueness-table)** lists byte markers; and
@@ -254,7 +256,7 @@ standalone raw-byte marker.
 ## Machine-readable corpus — `corpus.json`
 
 [`corpus.json`](corpus.json) is the machine-readable codegen corpus:
-**8315 records**, one per (toolchain, version, SP, flags, probe,
+**9670 records**, one per (toolchain, version, SP, flags, probe,
 function) with `{toolchain, version, sp, flags, probe, function,
 size, bytes}` — generated from every probe 1-16 object (all 13 MSVC
 versions 1.0-11.0 at /O2 and /O1 + all SP images, bcc32, Watcom
@@ -270,8 +272,15 @@ d = json.load(open("docs/codegen/corpus.json"))
 ```
 
 The generator (`gen_codegen_corpus.py`), schema validator
-(`validate_corpus.py`) and mechanical sweep (`sweep_corpus.py`) live
-in the gitignored `.cache/fp_probe/` harness.  Sweep results: the
+(`validate_corpus.py`), mechanical sweep (`sweep_corpus.py`) and the
+**query CLI** (`corpus_query.py` — `info` / `matrix <func>` /
+`unique <ver>` / `diff <v1> <v2>` / `look <hex>`) live in the
+gitignored `.cache/fp_probe/` harness.  `matrix lcg_next` prints the
+per-version byte groups for a function; `look ff 24 85` finds every
+record containing a byte pattern.  The corpus also carries Delphi 1.0
+records (NE user-code segments, function boundaries inferred at
+`ret`/`retf`) and raw-code records for OMF dialects that resist symbol
+listing (e.g. the bcc32 C++ object).  Sweep results: the
 per-toolchain uniqueness confirmed every hand-documented marker and
 surfaced no new cross-toolchain-unique ones; the **SP equivalence is
 machine-verified over 1957 SP rows — 1939 identical to their RTMs,

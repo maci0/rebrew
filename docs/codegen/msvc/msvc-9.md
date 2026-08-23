@@ -126,6 +126,8 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 
 - **Probe17 allocator/conventions**: `-1` register form; **address-taken params force FOUR callee-saves (ebx/ebp/esi/edi)** — the most aggressive of any version.  See RULES.md B7.
 
+- **Decomp idioms** — the probe19/20 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](DECOMP_IDIOMS.md) and the corpus (`probe19`/`probe20` records).
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:9.0-win32` (`msvc900_{O1,O2}.obj`);

@@ -14,6 +14,14 @@ LEA_EAX_ECX = b"\x8d\x41\x00"  # lea eax, [ecx]
 ADD_EAX_1 = b"\x83\xc0\x01"  # add eax, 1
 XOR_EAX_EAX = b"\x31\xc0"  # xor eax, eax
 RET = b"\xc3"
+# mov esi, eax in both opcode forms: 89 /r (mov r/m32, r32) and 8b /r
+# (mov r32, r/m32) — identical disassembly, different bytes.
+MOV_ESI_EAX_89 = b"\x89\xc6"
+MOV_ESI_EAX_8B = b"\x8b\xf0"
+# add eax, edx in both opcode forms: 03 /r (add r32, r/m32) vs 01 /r
+# (add r/m32, r32) — MSVC6 picks 03 C2 where NASM defaults to 01 D0.
+ADD_EAX_EDX_03 = b"\x03\xc2"
+ADD_EAX_EDX_01 = b"\x01\xd0"
 
 
 def _insn(mnemonic: str, op_str: str, raw: bytes) -> nd.Insn:
@@ -33,6 +41,13 @@ class TestClassifyPair:
         a = _insn("mov", "eax, ebx", MOV_EAX_EBX)
         b = _insn("mov", "eax, ecx", MOV_EAX_ECX)
         assert nd.classify_pair(a, b) == "register"
+
+    def test_encoding_difference(self) -> None:
+        # Same instruction, same operands, different opcode bytes: mov esi,eax
+        # as 89 c6 (mov r/m32, r32) vs 8b f0 (mov r32, r/m32).
+        a = _insn("mov", "esi, eax", MOV_ESI_EAX_89)
+        b = _insn("mov", "esi, eax", MOV_ESI_EAX_8B)
+        assert nd.classify_pair(a, b) == "encoding"
 
     def test_operand_value_change_is_structural(self) -> None:
         a = _insn("mov", "eax, ebx", MOV_EAX_EBX)
@@ -69,6 +84,14 @@ class TestAlignAndClassify:
         counts = self._run(MOV_EAX_EBX + RET, MOV_EAX_ECX + RET)
         assert counts["register"] == 2  # the mov
         assert counts["match"] == 1  # the ret
+
+    def test_encoding_choice_detected(self) -> None:
+        # 89 c6 (mov r/m32, r32) vs 8b f0 (mov r32, r/m32) — same instruction,
+        # same operands, different bytes.
+        counts = self._run(MOV_ESI_EAX_89 + RET, MOV_ESI_EAX_8B + RET)
+        assert counts["encoding"] == 2  # the mov
+        assert counts["match"] == 1  # the ret
+        assert counts["register"] == 0
 
     def test_equivalent_selection_detected(self) -> None:
         counts = self._run(LEA_EAX_ECX + RET, MOV_EAX_ECX + RET)
@@ -123,6 +146,32 @@ class TestAnalyzeVerdict:
         register allocation — no EFFECTIVE verdict."""
         result = nd.analyze(LEA_EAX_ECX + RET, MOV_EAX_ECX + RET, None, 0x1000)
         assert not result["verdict"].startswith("EFFECTIVE")
+
+    def test_encoding_only_is_encoding_verdict(self) -> None:
+        """A delta that is ENTIRELY encoding choice gets its own verdict —
+        same instructions, same registers, different opcode bytes.  No C
+        mutation fixes it (compiler-version artifact), so the mutation list
+        is empty."""
+        result = nd.analyze(MOV_ESI_EAX_89 + RET, MOV_ESI_EAX_8B + RET, None, 0x1000)
+        assert result["verdict"].startswith("ENCODING-ONLY")
+        assert not result["verdict"].startswith("EFFECTIVE")
+        assert "different opcode" in result["suggestion"].lower()
+        assert "not byte-identical" in result["suggestion"].lower()
+        assert result["categories"]["encoding"]["bytes"] == 2
+        assert result["mutations"] == []
+
+    def test_encoding_with_register_is_effective(self) -> None:
+        """Encoding deltas riding along with register churn stay under the
+        EFFECTIVE verdict — still same-instructions modulo registers."""
+        # mov esi,eax (89 c6) vs mov edi,eax (8b f8): register-only.
+        # add eax,edx (01 d0) vs add eax,edx (03 c2): encoding-only.
+        target = MOV_ESI_EAX_89 + ADD_EAX_EDX_01 + RET
+        compiled = b"\x8b\xf8" + ADD_EAX_EDX_03 + RET  # mov edi,eax; add eax,edx; ret
+        result = nd.analyze(target, compiled, None, 0x1000)
+        assert result["verdict"].startswith("EFFECTIVE")
+        assert result["categories"]["encoding"]["bytes"] == 2
+        assert result["categories"]["register"]["bytes"] == 2
+        assert result["categories"]["match"]["bytes"] == 1
 
     def test_json_shape(self) -> None:
         result = nd.analyze(MOV_EAX_EBX + RET, MOV_EAX_EBX + RET, None, 0x1000)
@@ -288,8 +337,10 @@ class TestMutationSuggestions:
 
         for category in ("register", "equivalent", "structural"):
             assert _MUTATION_SUGGESTIONS[category], f"{category} has no suggestions"
-        # reloc is RELOC-level — deliberately no mutation suggestions.
+        # reloc is RELOC-level and encoding is a compiler-version artifact —
+        # deliberately no mutation suggestions.
         assert _MUTATION_SUGGESTIONS["reloc"] == []
+        assert _MUTATION_SUGGESTIONS["encoding"] == []
 
     def test_operators_exist_in_mutator(self) -> None:
         """Every suggested operator must be a real mut_* in mutator.py."""

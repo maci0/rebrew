@@ -57,6 +57,7 @@ from pathlib import Path
 
 import numpy as np
 
+from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary
 from rebrew.cli import MATCHED_STATUSES
 from rebrew.compile_cache import CompileCache, compile_cache_key, get_compile_cache
 from rebrew.config import ProjectConfig
@@ -1123,6 +1124,360 @@ def compile_and_compare(
             # Retry-removes absorb the docker mount-unmount race (a busy
             # mountpoint leaves an empty dir behind); best-effort on
             # persistent failures.
+            from rebrew.utils import remove_temp_dir
+
+            with contextlib.suppress(OSError):
+                remove_temp_dir(workdir)
+
+
+# ---------------------------------------------------------------------------
+# Linked single-function compare (linker-resolved bytes)
+# ---------------------------------------------------------------------------
+#
+# The object-level compare in compile_and_compare masks COFF relocation slots
+# and validates their targets against the name→VA catalog.  The linked compare
+# takes the opposite route (the dll-rebuild experiment's "padded link shell"):
+# compile the function inside a shell that pads .text$A so the code lands at
+# the exact .text offset it occupies in the target, LINK a real DLL at the
+# target's image base, and compare the resulting bytes RAW — rel32
+# displacements are resolved by the linker, in-.text jump tables are included
+# in the window, and no relocation masking is needed.
+
+
+def linked_shell_source(function_source: str, pad: int) -> str:
+    """Wrap *function_source* in a padded link shell.
+
+    ``#pragma data_seg(".text$A")`` emits *pad* zero bytes of data into the
+    code section; the function follows in ``#pragma code_seg(".text$B")``.
+    When the shell compiles and links at the target's image base with
+    /ALIGN:4096, the function's code lands at the same .text offset it has
+    in the target, so the linked bytes can be compared against the target
+    without relocation masking.  A *pad* of 0 emits no padding block
+    (MSVC rejects zero-length arrays).
+    """
+    parts: list[str] = []
+    if pad > 0:
+        parts.append(
+            '#pragma data_seg(".text$A")\n'
+            f"static unsigned char __rebrew_linked_pad[{pad}] = {{ 0 }};\n"
+            "#pragma data_seg()\n"
+        )
+    parts.append('#pragma code_seg(".text$B")\n')
+    parts.append(function_source.rstrip("\n"))
+    parts.append("\n#pragma code_seg()\n")
+    return "\n".join(parts)
+
+
+def linked_pad_size(fn_rva: int, section_rva: int) -> int:
+    """Padding that places a function at *fn_rva* inside its section.
+
+    The function is *section_rva* bytes into the code section in the target;
+    the shell reproduces that offset with a zero pad of the same length.
+    Returns -1 when the function precedes the section start (unsupported —
+    the linked shell cannot move the section's own RVA).
+    """
+    pad = fn_rva - section_rva
+    return pad if pad >= 0 else -1
+
+
+def extract_linked_slice(dll_bytes: bytes, text_raw_offset: int, pad: int, size: int) -> bytes:
+    """Slice *size* bytes of the linked DLL at the padded function offset.
+
+    ``text_raw_offset`` is the linked DLL's .text raw offset (read back from
+    its headers — LINK may place sections anywhere), and *pad* is the same
+    value fed to :func:`linked_shell_source`.  Returns fewer than *size*
+    bytes (possibly none) when the DLL does not cover the window.
+    """
+    start = text_raw_offset + pad
+    return dll_bytes[start : start + size]
+
+
+def build_linked_link_cmd(
+    spec: ToolchainSpec,
+    *,
+    base: int,
+    obj_name: str,
+    out_name: str,
+    workdir: str | Path,
+) -> tuple[list[str], str]:
+    """Docker command that runs the image's LINK.EXE on *obj_name*.
+
+    The image ENTRYPOINT is the CL wrapper, so the link goes through
+    ``sh -c`` that sources the shared wrapper helpers and runs
+    ``rebrew_run $tool_root/LINK.EXE`` — the exact wine environment the CL
+    wrapper uses (INCLUDE/LIB exported the same way).  Flags mirror the
+    bit-exact-rebuild recipe: /DLL /NOENTRY at the target's image base,
+    /ALIGN:4096 + /FILEALIGN:4096, /OPT:NOREF + /OPT:NOICF keep every
+    segment and block, /NODEFAULTLIB avoids pulling CRT import libs.
+
+    Returns ``(cmd, script)`` — the docker argv and the shell script, split
+    so tests can assert either without docker.
+    """
+    if spec.image is None or spec.tool_root is None:
+        raise ToolchainError(
+            f"linked compare needs a docker image with LINK.EXE (toolchain "
+            f"{spec.name!r} has image={spec.image!r}, tool_root={spec.tool_root!r})"
+        )
+    win_root = str(Path(spec.tool_root).parent).replace("/", "\\")
+    # Double the backslashes so the shell's double-quoted string yields the
+    # Windows path (wine's Z: drive = the container root).
+    esc = win_root.replace("\\", "\\\\")
+    script = (
+        ". /usr/local/lib/rebrew/wrapper-common.sh && "
+        f'export INCLUDE="Z:{esc}\\Include" && '
+        f'export LIB="Z:{esc}\\Lib" && '
+        f'rebrew_run {spec.tool_root}/LINK.EXE "$@"'
+    )
+    link_args = [
+        "/nologo",
+        "/DLL",
+        "/NOENTRY",
+        f"/BASE:0x{base:x}",
+        "/MACHINE:IX86",
+        "/ALIGN:4096",
+        "/FILEALIGN:4096",
+        "/OPT:NOREF",
+        "/OPT:NOICF",
+        "/INCREMENTAL:NO",
+        "/NODEFAULTLIB",
+        f"/OUT:{out_name}",
+        obj_name,
+    ]
+    cmd = [
+        "docker",
+        "run",
+        "--rm",
+        "-v",
+        f"{Path(workdir).resolve()}:/work",
+        "-w",
+        "/work",
+        "--entrypoint",
+        "sh",
+        spec.image,
+        "-c",
+        script,
+        "sh",
+        *link_args,
+    ]
+    return cmd, script
+
+
+def _linked_spec(cfg: ProjectConfig, toolchain: str | None) -> tuple[ToolchainSpec | None, str]:
+    """Resolve the toolchain spec for the linked compare.
+
+    Same profile / per-function TOOLCHAIN resolution as :func:`compile_to_obj`,
+    plus the linked-compare eligibility checks: a docker image with a real
+    MSVC LINK.EXE (``binary == "cl"`` — 32-bit MSVC; the 16-bit DOSBox and
+    Borland/Watcom toolchains have different linkers and flag dialects).
+    """
+    profile = getattr(cfg, "compiler_profile", "")
+    spec = (
+        TOOLCHAINS.get(toolchain) if toolchain else (TOOLCHAINS.get(profile) if profile else None)
+    )
+    if spec is None:
+        return None, f"no toolchain spec for profile {profile!r}"
+    if spec.image is None:
+        return None, (
+            f"toolchain {spec.name!r} is host-native (no docker image) — linked "
+            "compare runs LINK.EXE inside the toolchain image"
+        )
+    if spec.binary != "cl":
+        return None, (f"linked compare supports MSVC toolchains only (got {spec.name!r})")
+    return spec, ""
+
+
+def _section_for_va(info: BinaryInfo, va: int) -> SectionInfo | None:
+    """The target section covering *va* (by raw extent), or None."""
+    for sec in info.sections.values():
+        if sec.va <= va < sec.va + sec.raw_size:
+            return sec
+    return None
+
+
+def _link_obj_docker(
+    cfg: ProjectConfig,
+    spec: ToolchainSpec,
+    obj_path: str,
+    dll_path: str,
+    *,
+    base: int,
+    workdir: Path,
+) -> tuple[bool, str]:
+    """Run LINK.EXE in the toolchain image on *obj_path*.
+
+    Returns ``(ok, error_msg)`` — ``ok`` False with the linker's stderr on
+    failure (unresolved externals are the common case: the source references
+    symbols outside the shell, which only the object-level catalog compare
+    can validate).
+    """
+    cmd, _script = build_linked_link_cmd(
+        spec,
+        base=base,
+        obj_name=Path(obj_path).name,
+        out_name=Path(dll_path).name,
+        workdir=workdir,
+    )
+    try:
+        r = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=getattr(cfg, "compile_timeout", 300) or 300,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return False, str(exc)
+    if r.returncode != 0 or not Path(dll_path).exists():
+        err = (r.stdout + "\n" + r.stderr).strip()
+        return False, err[-400:] if err else f"LINK.EXE exited {r.returncode} with no output"
+    return True, ""
+
+
+def compile_and_compare_linked(
+    cfg: ProjectConfig,
+    source_path: str | Path,
+    symbol: str,
+    target_bytes: bytes,
+    cflags: str | list[str],
+    *,
+    va: int,
+    toolchain: str | None = None,
+    use_cache: bool = True,
+) -> CompareResult:
+    """Compile *source* in a padded link shell and compare linker-resolved bytes.
+
+    The dll-rebuild "linked" oracle: wrap the function source in a
+    ``.text$A`` pad + ``.text$B`` shell, compile it, LINK a real DLL at the
+    target's image base (/DLL /NOENTRY /OPT:NOREF /OPT:NOICF), and compare
+    the bytes at *va* against *target_bytes* RAW — no relocation masking.
+    The linker resolves rel32 displacements and in-.text jump tables land in
+    the window, so a match here is byte-identical output, not RELOC-level.
+
+    Requires a VA (the target's section geometry is derived from
+    ``cfg.target_binary``) and a docker MSVC toolchain (LINK.EXE runs inside
+    the image; see :func:`_linked_spec`).  Sources with externals (imports,
+    cross-TU calls) fail the link — only self-contained sources (direct-
+    address calls, same-TU stubs) are eligible; that is the documented
+    trade-off of the linker-resolved oracle.
+
+    Returns a :class:`CompareResult` whose ``status`` is EXACT on a raw byte
+    match, NEAR_MATCHING/STUB/SIZE_MISMATCH on diffs, and COMPILE_ERROR when
+    the compile or the link fails.
+    """
+    spec, spec_err = _linked_spec(cfg, toolchain)
+    if spec is None:
+        return classify_compare_result(
+            False, f"COMPILE_ERROR: {spec_err}", target_bytes, None, None
+        )
+
+    try:
+        info = load_binary(Path(cfg.target_binary))
+    except (ValueError, OSError) as exc:
+        return classify_compare_result(False, f"EXTRACT_ERROR: {exc}", target_bytes, None, None)
+    sec = _section_for_va(info, va)
+    if sec is None:
+        return classify_compare_result(
+            False,
+            f"EXTRACT_ERROR: VA 0x{va:08x} is not inside any target section",
+            target_bytes,
+            None,
+            None,
+        )
+    pad = linked_pad_size(va - info.image_base, sec.va - info.image_base)
+    if pad < 0:
+        return classify_compare_result(
+            False,
+            f"EXTRACT_ERROR: function 0x{va:08x} precedes its section start — "
+            "the linked shell cannot reproduce the offset",
+            target_bytes,
+            None,
+            None,
+        )
+
+    source = Path(source_path).read_text(encoding="utf-8", errors="surrogateescape")
+    shell = linked_shell_source(source, pad)
+    cflags_list = safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
+
+    workdir: Path | None = None
+    try:
+        from rebrew.utils import writable_temp_dir
+
+        workdir = writable_temp_dir("rebrew_linked_")
+        shell_path = workdir / ("linked_" + Path(source_path).name)
+        shell_path.write_text(shell, encoding="utf-8", errors="surrogateescape")
+        obj_path, err = compile_to_obj(
+            cfg,
+            shell_path,
+            cflags_list,
+            workdir,
+            use_cache=use_cache,
+            toolchain=toolchain,
+            extra_include_dirs=[str(Path(source_path).resolve().parent)],
+        )
+        if obj_path is None:
+            return classify_compare_result(
+                False, f"COMPILE_ERROR: {err[:200]}", target_bytes, None, None
+            )
+
+        dll_path = workdir / "linked_out.dll"
+        ok, link_err = _link_obj_docker(
+            cfg, spec, obj_path, str(dll_path), base=info.image_base, workdir=workdir
+        )
+        if not ok:
+            return classify_compare_result(
+                False,
+                (
+                    "COMPILE_ERROR: link failed — the source references externals "
+                    "the shell cannot resolve, or LINK.EXE failed: "
+                    f"{link_err[:200]}"
+                ),
+                target_bytes,
+                None,
+                None,
+            )
+
+        linked_info = load_binary(dll_path)
+        linked_bytes = extract_linked_slice(
+            linked_info.data, linked_info.text_raw_offset, pad, len(target_bytes)
+        )
+        if len(linked_bytes) != len(target_bytes):
+            # Built directly (not classify_compare_result's size path) so the
+            # skeleton-stub heuristic can't mislabel a short linked slice as
+            # an unimplemented stub — a geometry mismatch is a SIZE_MISMATCH,
+            # period.
+            common = min(len(linked_bytes), len(target_bytes))
+            mismatches = (
+                sum(
+                    a != b
+                    for a, b in zip(target_bytes[:common], linked_bytes[:common], strict=True)
+                )
+                if common
+                else 0
+            )
+            return CompareResult(
+                matched=False,
+                status="SIZE_MISMATCH",
+                match_percent=((common - mismatches) / len(target_bytes) * 100)
+                if target_bytes
+                else 0.0,
+                delta=abs(len(linked_bytes) - len(target_bytes)) + mismatches,
+                obj_bytes=linked_bytes,
+                reloc_offsets=None,
+                message=(
+                    f"SIZE_MISMATCH: linked slice {len(linked_bytes)}B vs target "
+                    f"{len(target_bytes)}B (linked .text too short at pad 0x{pad:x})"
+                ),
+            )
+        matched = linked_bytes == target_bytes
+        msg = (
+            "LINKED EXACT MATCH (linker-resolved bytes)"
+            if matched
+            else f"LINKED COMPARE: {sum(a != b for a, b in zip(target_bytes, linked_bytes, strict=True))} byte diffs"
+        )
+        return classify_compare_result(matched, msg, target_bytes, linked_bytes, None)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError, ValueError) as exc:
+        return classify_compare_result(False, f"COMPILE_ERROR: {exc}", target_bytes, None, None)
+    finally:
+        if workdir is not None:
             from rebrew.utils import remove_temp_dir
 
             with contextlib.suppress(OSError):

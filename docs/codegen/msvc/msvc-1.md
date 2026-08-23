@@ -140,6 +140,8 @@ DOSBox.  Emits 16-bit OMF objects.
 
 - **Probe17 conventions**: 16-bit struct-return (A8) — MSVC 1.52's `s12_caller`/`s12_make` decode partially in the /O1 object (recorded partial); `__fastcall` is absent from the 1.5x keyword set (same as TC).  See RULES.md A8.
 
+- **Decomp idioms** — the probe19/20 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](DECOMP_IDIOMS.md) and the corpus (`probe19`/`probe20` records).
+
 ## Verification
 
 Probe `/O1` via `rebrew/msvc:1.52-win16` (`out16/probe.OBJ` and the

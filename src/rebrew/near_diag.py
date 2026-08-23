@@ -4,6 +4,8 @@ Compiles the C source, extracts the target bytes, and classifies each
 mismatching instruction span into a category of compiler choice:
 
 - ``register``      — same instruction, different register allocation
+- ``encoding``      — same instruction, same registers, different opcode
+                      bytes (e.g. ``mov reg,reg`` as ``89 /r`` vs ``8b /r``)
 - ``equivalent``    — semantically equivalent instruction selection (lea/add,
                       movzx/and, xor-zeroing, ...)
 - ``reloc``         — span masked by COFF relocations that validated against
@@ -136,6 +138,12 @@ def classify_pair(target: Insn, compiled: Insn) -> str:
     if target.bytes == compiled.bytes:
         return "match"
     if target.mnemonic == compiled.mnemonic:
+        if target.op_str == compiled.op_str:
+            # Identical disassembly, different bytes → the same instruction
+            # re-encoded with a different opcode form (mov reg,reg as 89 /r
+            # vs 8b /r, add reg,reg as 01 /r vs 03 /r).  Not register churn —
+            # register allocation is untouched.
+            return "encoding"
         if _normalized_operands(target) == _normalized_operands(compiled):
             return "register"
         return "structural"
@@ -173,6 +181,7 @@ def align_and_classify(
     byte_counts: dict[str, int] = {
         "match": 0,
         "register": 0,
+        "encoding": 0,
         "equivalent": 0,
         "reloc": 0,
         "structural": 0,
@@ -202,6 +211,9 @@ _VERDICT_SUGGESTIONS: dict[str, str] = {
     "swapping loop counters, or splitting/merging statements.  Register "
     "gaps are usually PROVEN-able: run 'rebrew prove' to establish "
     "semantic equivalence without byte changes.",
+    "encoding": "Encoding choice differs — same instructions, same registers, "
+    "different opcode bytes.  Byte-identity needs the original compiler "
+    "version's encodings, or 'rebrew prove' for PROVEN equivalence.",
     "equivalent": "Instruction selection differs — try alternative C constructs "
     "(e.g. pointer arithmetic vs indexing, cast-based masking).",
     "reloc": "Difference is confined to relocation sites — the match is RELOC-level.",
@@ -217,22 +229,41 @@ def _verdict(counts: dict[str, int], raw_total: int) -> tuple[str, str]:
     non_match = raw_total - counts["match"]
     if non_match <= 0:
         return "MATCH", "Bytes are identical."
-    # Effective match (reccmp parity): every real delta byte is a register
-    # allocation difference — no structural churn, no instruction-selection
-    # swaps, no invalid relocs (reloc bytes are masked before classification).
-    # reccmp counts this as a 100% effective match; rebrew keeps it a real
-    # (non-byte-identical) NEAR_MATCHING with a named cause.
-    if counts["structural"] == 0 and counts["equivalent"] == 0 and counts["register"] > 0:
-        return (
-            "EFFECTIVE (matches modulo register allocation)",
-            "Every differing byte is a register-allocation difference — the "
-            "same instructions, different registers.  reccmp counts this as a "
-            "100% effective match, but it is NOT byte-identical: 'rebrew "
-            "prove' can establish semantic equivalence (PROVEN), or try "
-            "register-nudging C tweaks (reorder expressions, swap loop "
-            "counters) if byte-identity is required.",
-        )
-    dominant = max(("register", "equivalent", "reloc", "structural"), key=lambda k: counts[k])
+    # Effective match (reccmp parity): every real delta byte is register
+    # allocation and/or encoding choice — same instructions, no structural
+    # churn, no instruction-selection swaps, no invalid relocs (reloc bytes
+    # are masked before classification).  reccmp counts this as a 100%
+    # effective match; rebrew keeps it a real (non-byte-identical)
+    # NEAR_MATCHING with a named cause.
+    if counts["structural"] == 0 and counts["equivalent"] == 0:
+        encoding = counts.get("encoding", 0)
+        if encoding > 0 and counts["register"] == 0:
+            # The strictest near-match class: identical disassembly, only the
+            # opcode bytes differ.  No C tweak changes a compiler's encoding
+            # preference — only the exact compiler version (or PROVEN) closes
+            # this.
+            return (
+                "ENCODING-ONLY (same instructions, different opcode bytes)",
+                "Every differing byte is the same instruction re-encoded with "
+                "a different opcode form — semantically identical, but NOT "
+                "byte-identical.  Byte-identity needs the original compiler "
+                "version's encodings, or 'rebrew prove' for PROVEN "
+                "equivalence.",
+            )
+        if counts["register"] > 0:
+            return (
+                "EFFECTIVE (matches modulo register allocation)",
+                "Every differing byte is a register-allocation difference — the "
+                "same instructions, different registers.  reccmp counts this as a "
+                "100% effective match, but it is NOT byte-identical: 'rebrew "
+                "prove' can establish semantic equivalence (PROVEN), or try "
+                "register-nudging C tweaks (reorder expressions, swap loop "
+                "counters) if byte-identity is required.",
+            )
+    dominant = max(
+        ("register", "equivalent", "reloc", "structural", "encoding"),
+        key=lambda k: counts.get(k, 0),
+    )
     share = counts[dominant] / non_match
     suggestions = _VERDICT_SUGGESTIONS
     label = f"{dominant.upper()} ({(share * 100):.0f}% of delta)"
@@ -312,6 +343,10 @@ _MUTATION_SUGGESTIONS: dict[str, list[str]] = {
     ],
     # RELOC-level deltas are already masked by relocations — no mutation helps.
     "reloc": [],
+    # Encoding-only deltas are a compiler-version artifact — no C mutation
+    # changes the opcode form the compiler picks (same semantics, same
+    # registers).  PROVEN or the exact original toolchain is the answer.
+    "encoding": [],
 }
 
 
@@ -329,7 +364,7 @@ def catalog_markdown() -> str:
     logic uses, so it cannot drift.
     """
     rows: list[str] = []
-    for category in ("register", "equivalent", "structural", "reloc"):
+    for category in ("register", "encoding", "equivalent", "structural", "reloc"):
         suggestion = _VERDICT_SUGGESTIONS.get(category, "")
         ops = mutation_suggestions(category)
         ops_text = ", ".join(f"`{op}`" for op in ops) if ops else "— (no mutation helps)"
@@ -404,6 +439,10 @@ def analyze(
         # category's mutation list (reordering expressions, swapping loop
         # counters) as the actionable next step.
         dominant = "register"
+    elif dominant == "encoding-only":
+        # ENCODING-ONLY has no fixable mutation list (compiler-version
+        # artifact) — the category's empty list is the answer.
+        dominant = "encoding"
     mutations = mutation_suggestions(dominant)
     # A significant secondary category (>=15% of the delta, e.g. a register
     # component under a STRUCTURAL verdict) deserves its operators too — the

@@ -5458,7 +5458,7 @@ def mut_hoist_repeated_deref(s: str, rng: random.Random) -> str | None:
 #: mutations can find, add, and remove them (a removed pragma must not
 #: linger in the preamble, where the mutation layer never sees it).
 _RE_FUNC_PRAGMA = re.compile(
-    r"^[ \t]*#pragma[ \t]+(?:optimize|intrinsic|function|check_stack)\b",
+    r"^[ \t]*#pragma[ \t]+(?:optimize|intrinsic|function|check_stack|auto_inline)\b",
     re.MULTILINE,
 )
 
@@ -5547,6 +5547,37 @@ def mut_toggle_check_stack_pragma(s: str, rng: random.Random) -> str | None:
     if _CHECK_STACK_PRAGMA_RE.search(s):
         return _CHECK_STACK_PRAGMA_RE.sub("", s) or None
     return "#pragma check_stack(off)\n" + s + "\n"
+
+
+_AUTO_INLINE_PRAGMA_RE = re.compile(
+    r"^[ \t]*#pragma[ \t]+auto_inline\(\s*(?:on|off)\s*\)[ \t]*$",
+    re.MULTILINE,
+)
+
+
+def mut_add_auto_inline_pragma(s: str, rng: random.Random) -> str | None:
+    """Wrap the function in ``#pragma auto_inline(off)`` … ``("on")``.
+
+    ``auto_inline(off)`` stops MSVC from automatically inlining functions
+    **defined after the pragma** into their callers.  In the usual
+    single-function compile the target has no callers, so the lever only
+    bites when the same TU defines helper stubs the function calls (the
+    classic DllMain shape: an entry point plus ``sub_XXXX`` shims) —
+    without it MSVC inlines the helpers into the target, with it the
+    calls stay ``call`` instructions.  The closing ``auto_inline(on)``
+    restores auto-inlining for any following code.  No-op when a wrapper
+    is already present.
+    """
+    if _AUTO_INLINE_PRAGMA_RE.search(s):
+        return None
+    return "#pragma auto_inline(off)\n" + s + "\n#pragma auto_inline(on)\n"
+
+
+def mut_remove_auto_inline_pragma(s: str, rng: random.Random) -> str | None:
+    """Strip an existing ``#pragma auto_inline(...)`` wrapper (open + close)."""
+    if not _AUTO_INLINE_PRAGMA_RE.search(s):
+        return None
+    return _AUTO_INLINE_PRAGMA_RE.sub("", s) or None
 
 
 ALL_MUTATIONS = [
@@ -5672,13 +5703,15 @@ ALL_MUTATIONS = [
     mut_dummy_stack_vars,
     mut_inject_dummy_registers,
     mut_extract_complex_args,
-    # --- Pragma levers: #pragma optimize / intrinsic / check_stack (codegen
-    #     switches that flags cannot reach) ---
+    # --- Pragma levers: #pragma optimize / intrinsic / check_stack /
+    #     auto_inline (codegen switches that flags cannot reach) ---
     mut_add_optimize_pragma,
     mut_remove_optimize_pragma,
     mut_add_intrinsic_pragma,
     mut_remove_intrinsic_pragma,
     mut_toggle_check_stack_pragma,
+    mut_add_auto_inline_pragma,
+    mut_remove_auto_inline_pragma,
 ]
 
 __all__ = [

@@ -10,6 +10,7 @@ from rebrew.matcher.mutator import (
     compute_population_diversity,
     crossover,
     mut_accum_to_early_return,
+    mut_add_auto_inline_pragma,
     mut_add_cast,
     mut_add_intrinsic_pragma,
     mut_add_optimize_pragma,
@@ -61,6 +62,7 @@ from rebrew.matcher.mutator import (
     mut_preinit_byte_load,
     mut_ptr_arith_to_array,
     mut_reassociate_add,
+    mut_remove_auto_inline_pragma,
     mut_remove_cast,
     mut_remove_intrinsic_pragma,
     mut_remove_optimize_pragma,
@@ -173,6 +175,33 @@ class TestPragmaMutations:
         assert added is not None and added.startswith("#pragma check_stack(off)")
         removed = mut_toggle_check_stack_pragma(added, _rng())
         assert removed is not None and "pragma" not in removed
+
+    def test_add_auto_inline_wraps_function(self) -> None:
+        out = mut_add_auto_inline_pragma(self.SRC, _rng())
+        assert out is not None
+        lines = out.splitlines()
+        assert lines[0] == "#pragma auto_inline(off)"
+        assert lines[-1] == "#pragma auto_inline(on)"
+        assert "int f(void)" in out
+        assert quick_validate(out)
+
+    def test_remove_auto_inline_roundtrip(self) -> None:
+        added = mut_add_auto_inline_pragma(self.SRC, _rng())
+        assert added is not None
+        assert mut_add_auto_inline_pragma(added, _rng()) is None  # no-op when present
+        removed = mut_remove_auto_inline_pragma(added, _rng())
+        assert removed is not None
+        assert "pragma" not in removed
+        assert "int f(void)" in removed
+        assert mut_remove_auto_inline_pragma(self.SRC, _rng()) is None  # no-op when absent
+
+    def test_auto_inline_stays_with_body_across_split(self) -> None:
+        src = (
+            f"#include <windows.h>\n#pragma auto_inline(off)\n{self.SRC}\n#pragma auto_inline(on)\n"
+        )
+        p, b = _split_preamble_body(src)
+        assert "#include" in p
+        assert "#pragma auto_inline" in b
 
     def test_pragma_stays_with_body_across_split(self) -> None:
         """Function-level pragmas must survive the preamble/body split in the

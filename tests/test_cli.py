@@ -315,6 +315,16 @@ class TestResolveCflags:
         cfg2 = SimpleNamespace(cflags="", cflags_presets={})
         assert resolve_cflags(cfg2, "", "GAME") == "/O2 /Gd"
 
+    def test_posix_profile_never_gets_msvc_fallback(self) -> None:
+        """A posix-style profile (gcc-pe/watcom/tc16/...) with no configured
+        cflags must not inherit the MSVC-only `/O2 /Gd` fallback — gcc rejects
+        "/O2" as a nonexistent input file (mirrors the base_cflags loader
+        default in config.py, same bug class)."""
+        from rebrew.cli import resolve_cflags
+
+        cfg = SimpleNamespace(cflags="", cflags_presets={}, posix_style=True)
+        assert resolve_cflags(cfg, "", "GAME") == ""
+
 
 # ---------------------------------------------------------------------------
 # source_exts() / source_glob() / iter_sources()

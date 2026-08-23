@@ -204,6 +204,8 @@ first to post-shift division magic.
 
 - **Probe17 allocator/conventions**: `-1` register form (`83 c8 ff` + `a3`); zero in EAX; 7.0+ inline the 12-byte sret construction (direct register stores).  See RULES.md A8/B5.
 
+- **Decomp idioms** — the probe19/20 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](DECOMP_IDIOMS.md) and the corpus (`probe19`/`probe20` records).
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:7.0-win32` (`msvc700_{O1,O2}.obj`);

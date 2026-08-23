@@ -220,6 +220,15 @@ def main(
             "No-op when the mismatch is a real byte difference."
         ),
     ),
+    linked: bool = typer.Option(
+        False,
+        "--linked",
+        help=(
+            "Linked compare: compile in a padded .text shell, LINK a real DLL "
+            "at the target base, compare linker-resolved bytes (no reloc "
+            "masking).  Single-function only, requires a VA."
+        ),
+    ),
     watch: bool = typer.Option(
         False, "--watch", help="Watch the source file and re-test on every change"
     ),
@@ -268,6 +277,16 @@ def main(
     if watch and all_sources:
         # Flag-combination usage error — exit 2, not "needs code work" (1).
         error_exit("--watch cannot be combined with --all", json_mode=json_output, code=EXIT_ERROR)
+
+    if linked and all_sources:
+        error_exit("--linked is single-function only", json_mode=json_output, code=EXIT_ERROR)
+    if linked and fix_size:
+        error_exit(
+            "--linked and --fix-size are mutually exclusive — the linked compare "
+            "has no relocation masking to reclassify",
+            json_mode=json_output,
+            code=EXIT_ERROR,
+        )
 
     if source is not None:
         source_path = Path(source).resolve()
@@ -325,6 +344,7 @@ def main(
                 no_promote=no_promote,
                 force_status=force_status,
                 fix_size=fix_size,
+                linked=linked,
                 json_output=json_output,
                 target=target,
             )
@@ -362,6 +382,12 @@ def main(
     if symbol is None and va is None and size is None:
         annotations = lint_annos
         if len(annotations) > 1:
+            if linked:
+                error_exit(
+                    "--linked needs a single annotated function — use --va to select one",
+                    json_mode=json_output,
+                    code=EXIT_ERROR,
+                )
             if force_status:
                 error_exit(
                     "--force-status is single-function only — demote stale PROVEN "
@@ -454,6 +480,13 @@ def main(
         section_va = va_int
         target_bytes = extract_raw_bytes(cfg.target_binary, va_int, size_val)
     elif target_bin:
+        if linked:
+            error_exit(
+                "--linked needs the target binary's section geometry — use --va/--size, "
+                "not --target-bin",
+                json_mode=json_output,
+                code=EXIT_ERROR,
+            )
         target_bytes = Path(target_bin).read_bytes()
         if size_val is not None:
             target_bytes = target_bytes[:size_val]
@@ -463,17 +496,33 @@ def main(
             json_mode=json_output,
         )
 
-    # Shared compile→extract→compare path (same as rebrew verify).
-    cmp = compile_and_compare(
-        cfg,
-        source,
-        symbol,
-        target_bytes,
-        cflags_str,
-        name_to_va=name_to_va,
-        section_va=section_va,
-        toolchain=toolchain_name,
-    )
+    # Shared compile→extract→compare path (same as rebrew verify), or the
+    # --linked oracle: compile in a padded shell, LINK a real DLL at the
+    # target base, compare linker-resolved bytes without reloc masking.
+    if linked:
+        assert section_va is not None  # --target-bin rejected above
+        from rebrew.compile import compile_and_compare_linked
+
+        cmp = compile_and_compare_linked(
+            cfg,
+            source,
+            symbol,
+            target_bytes,
+            cflags_str,
+            va=section_va,
+            toolchain=toolchain_name,
+        )
+    else:
+        cmp = compile_and_compare(
+            cfg,
+            source,
+            symbol,
+            target_bytes,
+            cflags_str,
+            name_to_va=name_to_va,
+            section_va=section_va,
+            toolchain=toolchain_name,
+        )
     matched = cmp.matched
     relocs = cmp.reloc_offsets or []
     obj_bytes = cmp.obj_bytes or b""
