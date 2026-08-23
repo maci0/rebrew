@@ -19,9 +19,9 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
-from bin_util import make_pe  # noqa: E402
+from bin_util import make_pe
 
-from rebrew.xrefs import app  # noqa: E402
+from rebrew.xrefs import app
 
 TEXT_VA = 0x401000
 IMAGE_BASE = 0x400000

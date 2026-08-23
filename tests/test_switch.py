@@ -6,9 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
-from bin_util import make_pe  # noqa: E402
+from bin_util import make_pe
 
-from rebrew.switch import find_switches  # noqa: E402
+from rebrew.switch import find_switches
 
 IMAGE_BASE = 0x400000
 TEXT_VA = 0x401000

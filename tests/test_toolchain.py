@@ -325,7 +325,7 @@ class TestPullToolchain:
         # then the pull succeeds and the verify inspect resolves a new id.
         calls = {"n": 0}
 
-        def _run(cmd, **kwargs):  # noqa: ARG001
+        def _run(cmd, **kwargs):
             if cmd[:2] == ["docker", "image"]:
                 calls["n"] += 1
                 if calls["n"] == 1:
@@ -368,7 +368,7 @@ class TestSwapToolchainImage:
         state: dict[str, str | None] = {"id": initial_id}
         calls: list[list[str]] = []
 
-        def _run(cmd, **kwargs):  # noqa: ARG001
+        def _run(cmd, **kwargs):
             calls.append(cmd)
             if cmd[:2] == ["docker", "image"]:
                 if state["id"] is None:
@@ -792,7 +792,7 @@ class TestSmokePrintGoldens:
 
         obj = b"OBJ" + b"\x01\x02\x03\x04" + b"TAIL"
 
-        def _fake_run(cmd, **kwargs):  # noqa: ARG001
+        def _fake_run(cmd, **kwargs):
             # docker run ... -v <host>:/work ... image /c t.c → writes the
             # object into /work (the mounted host workdir).
             from pathlib import Path
@@ -824,7 +824,7 @@ class TestPullToolchainHint:
 
         from rebrew.toolchain import ToolchainError, pull_toolchain
 
-        def _fake_run(cmd, **kwargs):  # noqa: ARG001
+        def _fake_run(cmd, **kwargs):
             return SimpleNamespace(returncode=1, stdout=b"", stderr=b"pull access denied")
 
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)

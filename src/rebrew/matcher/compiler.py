@@ -649,7 +649,7 @@ def flag_sweep(
                     worker_errors += 1
                     if worker_errors <= 3:
                         log.warning("Flag sweep worker failed: %s", exc)
-                except Exception:  # noqa: BLE001
+                except Exception:
                     # Unexpected exception (e.g. TypeError from scoring pipeline bug):
                     # log at DEBUG so it surfaces in --verbose or CI runs without crashing the sweep.
                     worker_errors += 1

@@ -328,7 +328,7 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
         for src in iter_sources(src_dir, cfg):
             try:
                 annos = parse_c_file_multi(src, target_name=tm, metadata_dir=cfg.metadata_dir)
-            except Exception:  # noqa: BLE001 — per-file parse noise in a scan
+            except Exception:  # per-file parse noise in a scan
                 logging.debug("Skipping %s during source resolution", src, exc_info=True)
                 continue
             for a in annos:

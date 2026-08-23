@@ -19,7 +19,7 @@ _HAS_VENDORED_VC152 = (_toolchains_repo() / "msvc" / "1.52-win16" / "source" / "
 def _fake_cl(monkeypatch, sandbox: Path) -> None:
     """Simulate a successful DOSBox run: write the CL log + a .OBJ."""
 
-    def _run(args, **kwargs):  # noqa: ARG001
+    def _run(args, **kwargs):
         (sandbox / "CLOUT.TXT").write_text("src.c\n", encoding="utf-8")
         (sandbox / "SRC.OBJ").write_bytes(b"\x80\x08\x00fake")
         return type("R", (), {"returncode": 0})()
@@ -67,7 +67,7 @@ class TestCompileC:
         src = tmp_path / "test.c"
         src.write_text("int f(void) { return 1; }\n", encoding="utf-8")
 
-        def _run_no_output(args, **kwargs):  # noqa: ARG001
+        def _run_no_output(args, **kwargs):
             return type("R", (), {"returncode": 0})()
 
         monkeypatch.setattr("rebrew.dosbox.subprocess.run", _run_no_output)

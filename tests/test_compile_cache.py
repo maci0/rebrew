@@ -382,7 +382,7 @@ class TestCompileToObjCacheIntegration:
 
         subprocess_called = {"count": 0}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
             subprocess_called["count"] += 1
             (workdir / "f.obj").write_bytes(b"\x00COFF_OBJ")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
@@ -447,7 +447,7 @@ class TestCompileToObjCacheIntegration:
 
         call_count = {"n": 0}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
             call_count["n"] += 1
             (workdir / "f.obj").write_bytes(b"\x00OBJ")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
@@ -488,7 +488,7 @@ class TestCompileToObjCacheIntegration:
 
         call_count = {"n": 0}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
             call_count["n"] += 1
             (workdir / "f.obj").write_bytes(b"\x00OBJ")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
@@ -533,7 +533,7 @@ class TestCompileToObjCacheIntegration:
 
         call_count = {"n": 0}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
             call_count["n"] += 1
             return SimpleNamespace(returncode=1, stdout="error", stderr="")
 

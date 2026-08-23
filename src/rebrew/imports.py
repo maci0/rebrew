@@ -58,7 +58,7 @@ def parse_imports(binary_path: Path) -> list[dict[str, Any]]:
 
     try:
         pe = lief.PE.parse(str(binary_path))
-    except Exception:  # noqa: BLE001 — best-effort symbol recovery
+    except Exception:  # best-effort symbol recovery
         return []
     if pe is None:
         return []

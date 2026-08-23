@@ -610,7 +610,7 @@ def _split_compiler_runner(compiler: dict[str, Any]) -> tuple[str, str]:
             from rebrew.toolchain import TOOLCHAINS
 
             spec = TOOLCHAINS.get(profile)
-        except Exception:  # noqa: BLE001 — toolchain import is best-effort
+        except Exception:  # toolchain import is best-effort
             spec = None
         if spec is not None and spec.image is not None:
             return "", ""

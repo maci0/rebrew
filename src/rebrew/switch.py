@@ -68,7 +68,7 @@ def find_switches(cfg: Any, va: int, window: int = 512) -> list[dict[str, Any]]:
 
     try:
         raw = extract_raw_bytes(cfg.target_binary, va, window)
-    except Exception:  # noqa: BLE001 — missing/unreadable binary → no dispatch
+    except Exception:  # missing/unreadable binary → no dispatch
         return []
     if not raw:
         return []
@@ -143,7 +143,7 @@ def _read_table(cfg: Any, table_va: int, bounds: int | None) -> list[tuple[int, 
 
     try:
         info = load_binary(cfg.target_binary)
-    except Exception:  # noqa: BLE001 — unreadable binary → no table
+    except Exception:  # unreadable binary → no table
         return []
 
     entries: list[tuple[int, int]] = []
@@ -178,7 +178,7 @@ def _resolve_name(cfg: Any, va: int) -> str:
 
         name, _status = build_function_lookup(cfg).get(va, ("", ""))
         return name
-    except Exception:  # noqa: BLE001 — best-effort naming
+    except Exception:  # best-effort naming
         return ""
 
 

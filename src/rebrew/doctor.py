@@ -508,7 +508,7 @@ def check_toolchain_alignment(cfg: ProjectConfig) -> CheckResult:
 
     try:
         info = detect_toolchain(binary)
-    except Exception as exc:  # noqa: BLE001 — a broken detector must not kill the doctor
+    except Exception as exc:  # a broken detector must not kill the doctor
         return CheckResult(
             name="Toolchain alignment", status=_SKIP, message=f"detection failed: {exc}"
         )
@@ -1174,7 +1174,7 @@ def check_flirt_sigs(cfg: ProjectConfig) -> CheckResult:
         )
 
     try:
-        import flirt  # noqa: F401
+        import flirt
     except ImportError:
         return CheckResult(
             name="FLIRT signatures",
@@ -1280,7 +1280,7 @@ def check_crt_linkage(cfg: ProjectConfig) -> CheckResult:
 
     try:
         info = detect_toolchain(binary)
-    except Exception as exc:  # noqa: BLE001 — a broken detector must not kill the doctor
+    except Exception as exc:  # a broken detector must not kill the doctor
         return CheckResult(name="CRT linkage", status=_SKIP, message=f"detection failed: {exc}")
     if not info.base_cflags:
         return CheckResult(name="CRT linkage", status=_SKIP, message="CRT linkage not identifiable")
@@ -1324,7 +1324,7 @@ def check_opt_level(cfg: ProjectConfig) -> CheckResult:
 
     try:
         info = detect_toolchain(binary)
-    except Exception as exc:  # noqa: BLE001 — a broken detector must not kill the doctor
+    except Exception as exc:  # a broken detector must not kill the doctor
         return CheckResult(
             name="Optimization level", status=_SKIP, message=f"detection failed: {exc}"
         )

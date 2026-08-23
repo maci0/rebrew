@@ -21,10 +21,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
-from bin_util import make_pe  # noqa: E402
-from typer.testing import CliRunner  # noqa: E402
+from bin_util import make_pe
+from typer.testing import CliRunner
 
-from rebrew.strings import app  # noqa: E402
+from rebrew.strings import app
 
 TEXT_VA = 0x401000  # make_pe default: image_base 0x400000 + text_va 0x1000
 

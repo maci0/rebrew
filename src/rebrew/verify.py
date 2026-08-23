@@ -184,7 +184,7 @@ def verify_entry(
                     "current function list — stale annotation? re-run "
                     "`rebrew intake` or edit the marker VA)"
                 )
-        except Exception:  # noqa: BLE001 — best-effort hint only
+        except Exception:  # best-effort hint only
             pass
         return _failed_result("EXTRACT_ERROR", "Cannot extract DLL bytes" + hint)
 
@@ -246,7 +246,7 @@ def verify_entry(
                         "tweaks for byte-identity)"
                     )
                     result.message = f"{result.message} {note}".strip()
-        except Exception:  # noqa: BLE001 — diff_lines is best-effort
+        except Exception:  # diff_lines is best-effort
             result.diff_lines = None
     # Structural code-similarity score (0–100), computed for EVERY verified
     # function with compiled bytes — matched (short-circuit ~100) and
@@ -259,7 +259,7 @@ def verify_entry(
             from rebrew.matcher.scoring import code_similarity
 
             result.similarity = code_similarity(target_bytes, result.obj_bytes)
-        except Exception:  # noqa: BLE001 — similarity is best-effort
+        except Exception:  # similarity is best-effort
             result.similarity = None
     return result
 
@@ -1305,7 +1305,7 @@ def main(
         # Remove only the OVERLAID functions from fail_details (they may have
         # been added from stale cache entries before the overlay).  A PROVEN
         # function that now fails as COMPILE_ERROR stays in the failure list
-        # — the overlay must not hide its diagnostic.
+        # the overlay must not hide its diagnostic.
         fail_details = [(e, m) for e, m in fail_details if f"0x{e.va:08x}" not in overlaid_vas]
 
     timestamp = datetime.now(UTC).isoformat()
@@ -1639,7 +1639,7 @@ def prepare_entries(
             getattr(entry, "module", ""),
         )
         # Legacy entries written before the toolchain field existed carry ""
-        # — re-verify them once (same pattern as cflags/headers_fp).
+        # re-verify them once (same pattern as cflags/headers_fp).
         if not cached_entry.toolchain:
             continue
         if cached_entry.toolchain != (_tc or _DEFAULT_TOOLCHAIN):
@@ -1841,7 +1841,7 @@ def run_verification(
                     is_internal_error = False
                     try:
                         _entry, result = future.result()
-                    except Exception as exc:  # noqa: BLE001
+                    except Exception as exc:
                         is_internal_error = True
                         internal_errors += 1
                         log.debug(

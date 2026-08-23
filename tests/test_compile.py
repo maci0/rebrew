@@ -166,7 +166,7 @@ class TestCompileToObj:
         quoted include reaches the docker invocation as one flag."""
         captured: dict[str, list[str]] = {}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
             captured["args"] = args
             (workdir / "f.obj").write_bytes(b"\x00")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
@@ -205,14 +205,14 @@ class TestCompileToObj:
         seen: list[str] = []
 
         class _FakeCache:
-            def get(self, key: str):  # noqa: ANN001, ANN201
+            def get(self, key: str):
                 seen.append(key)
                 return None
 
-            def put(self, key: str, data: bytes) -> None:  # noqa: ANN001
+            def put(self, key: str, data: bytes) -> None:
                 pass
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
             (workdir / "f.obj").write_bytes(b"\x00")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
@@ -313,7 +313,7 @@ class TestCompileToObjPosix:
         with MSVC-style flags (/Fo), not a host wine subprocess."""
         captured: dict[str, list[str]] = {}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
             captured["args"] = args
             (workdir / "f.obj").write_bytes(b"\x00")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
@@ -388,7 +388,7 @@ class TestCompileToObjToolchainProfiles:
 
         captured: dict = {}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
             captured["args"] = args
             obj = workdir / "t.obj"
             obj.write_bytes(b"OMF")
@@ -417,7 +417,7 @@ class TestCompileToObjToolchainProfiles:
 
         captured: dict = {}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
             captured["args"] = args
             obj = workdir / "t.obj"
             obj.write_bytes(b"OMF")
@@ -444,7 +444,7 @@ class TestCompileToObjToolchainProfiles:
         from rebrew.compile import compile_to_obj
         from rebrew.toolchain import RunResult
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
             return RunResult(1, "", "Error! E1139", backend="host")
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
@@ -480,7 +480,7 @@ class TestCompileToObjMsvc152Image:
         captured: dict = {}
         monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
             captured["args"] = args
             # DOSBox FAT-uppercases the object
             (workdir / "T.OBJ").write_bytes(b"OMF")
@@ -508,7 +508,7 @@ class TestCompileToObjMsvc152Image:
         captured: dict = {}
         monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
             captured["args"] = args
             (workdir / "T.OBJ").write_bytes(b"OMF")
             return RunResult(0, "", "", backend="docker")
@@ -678,7 +678,7 @@ class TestCompileToObjBorlandc55:
 
         captured: dict = {}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
             captured["args"] = args
             obj = workdir / "t.obj"
             obj.write_bytes(b"OMF")
@@ -709,7 +709,7 @@ class TestPerFunctionOverrideArgShape:
 
         captured: dict = {}
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
             captured["args"] = args
             (workdir / "F.OBJ").write_bytes(b"OMF")
             return RunResult(0, "", "", backend="docker")
@@ -772,7 +772,7 @@ class TestCompileEdgeCases:
         from rebrew.compile import compile_to_obj
         from rebrew.toolchain import RunResult
 
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):  # noqa: ARG001
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
             return RunResult(0, "", "", backend="docker")  # no object written
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)

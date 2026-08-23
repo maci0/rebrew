@@ -228,7 +228,7 @@ def _ne_summary(cfg: ProjectConfig) -> dict[str, Any] | None:
             "functions": len(funcs),
             "vmt_tables": len(vmt),
         }
-    except Exception:  # noqa: BLE001 — best-effort summary
+    except Exception:  # best-effort summary
         return None
 
 
@@ -461,10 +461,10 @@ def _render_graph(cfg: ProjectConfig) -> str:
                             for f in enumerate_ne_functions(info)
                         ]
                         edges.extend(_binary_call_edges(info, ranges))
-                except Exception:  # noqa: BLE001 — best-effort augmentation
+                except Exception:  # best-effort augmentation
                     pass
         mermaid = render_mermaid(nodes, edges, dispatch_edges)
-    except Exception:  # noqa: BLE001 — best-effort graph; the report must not crash
+    except Exception:  # best-effort graph; the report must not crash
         console.print(
             "[yellow]report:[/yellow] call graph generation failed - writing a placeholder graph.html"
         )

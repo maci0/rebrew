@@ -108,7 +108,7 @@ class TestSplicePipeline:
         monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
         seen: dict = {}
 
-        def _fake_compile(cfg, fn, work_dir):  # noqa: ARG001
+        def _fake_compile(cfg, fn, work_dir):
             seen["cflags"] = list(fn.cflags)
             # ok=False avoids the post-compile binary parse (fake.dll is not a
             # real PE) — the cflags capture is what this test asserts.
@@ -177,7 +177,7 @@ class TestSplicePipeline:
         )
         monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
 
-        def _fake_compile(cfg, fn, work_dir):  # noqa: ARG001
+        def _fake_compile(cfg, fn, work_dir):
             return (b"", [], {}, {}, False, "skip")
 
         monkeypatch.setattr("rebrew.round_trip._compile_and_extract", _fake_compile)

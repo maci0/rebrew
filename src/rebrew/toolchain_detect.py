@@ -1528,7 +1528,7 @@ def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, 
         )
     # Version-exact check: when the PE metadata pinned the exact MSVC build
     # (Rich header / linker), a different-compiler profile cannot byte-match
-    # — every MSVC version is a different codegen.  This catches e.g. an
+    # every MSVC version is a different codegen.  This catches e.g. an
     # msvc6 profile on a VC 8.0 binary (silent COMPILE_ERROR for every
     # function) before the first compile.
     if info.family == "msvc" and info.suggested_profiles and profile not in info.suggested_profiles:

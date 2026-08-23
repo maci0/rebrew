@@ -194,7 +194,7 @@ def _crt_candidates(cfg: Any) -> list[LibCandidate]:
 
     try:
         matches = match_all(cfg)
-    except Exception as exc:  # noqa: BLE001 — best-effort backend
+    except Exception as exc:  # best-effort backend
         console.print(f"[yellow]warning:[/yellow] CRT matching skipped: {exc}")
         return []
     out: list[LibCandidate] = []
@@ -237,7 +237,7 @@ def _flirt_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
         if text_sec is None:
             return []
         code_data = info.data[text_sec.file_offset : text_sec.file_offset + text_sec.raw_size]
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         console.print(f"[yellow]warning:[/yellow] FLIRT identification skipped: {exc}")
         return []
 
@@ -248,7 +248,7 @@ def _flirt_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
                 sigs = flirt.parse_sig(sig_file.read_bytes())
             else:
                 sigs = flirt.parse_pat(sig_file.read_text(encoding="utf-8", errors="ignore"))
-        except Exception as exc:  # noqa: BLE001 — one bad file must not abort the rest
+        except Exception as exc:  # one bad file must not abort the rest
             console.print(f"[yellow]warning:[/yellow] unreadable signature {sig_file.name}: {exc}")
             continue
         if not sigs:
@@ -256,7 +256,7 @@ def _flirt_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
         file_module = _module_from_sig_file(sig_file.name, default_module)
         try:
             matcher = flirt.compile(sigs)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             console.print(
                 f"[yellow]warning:[/yellow] uncompileable signature {sig_file.name}: {exc}"
             )
@@ -285,7 +285,7 @@ def _import_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
 
     try:
         stubs = find_import_stubs(cfg.target_binary)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         console.print(f"[yellow]warning:[/yellow] import-stub detection skipped: {exc}")
         return []
     # API name -> DLL basename (uppercase, no extension).
@@ -296,7 +296,7 @@ def _import_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
             dll = str(rec.get("dll", ""))
             if name and dll:
                 dll_by_name[name] = dll.rsplit(".", 1)[0].upper()
-    except Exception:  # noqa: BLE001 — import parse is best-effort
+    except Exception:  # import parse is best-effort
         dll_by_name = {}
 
     out: list[LibCandidate] = []
@@ -320,7 +320,7 @@ def _existing_vas(cfg: Any) -> set[int]:
 
     try:
         return {ann.va for _path, ann in _collect_library_annotations(cfg)}
-    except Exception:  # noqa: BLE001
+    except Exception:
         return set()
 
 
@@ -377,7 +377,7 @@ def write_candidates(cfg: Any, candidates: list[LibCandidate], existing: set[int
                         cand.source_ref,
                         metadata_dir=cfg.metadata_dir,
                     )
-                except Exception as exc:  # noqa: BLE001 — SOURCE is best-effort
+                except Exception as exc:  # SOURCE is best-effort
                     console.print(
                         f"[yellow]warning:[/yellow] SOURCE write failed for 0x{cand.va:08x}: {exc}"
                     )

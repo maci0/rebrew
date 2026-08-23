@@ -33,7 +33,7 @@ def parse_exports(binary_path: Path) -> list[str]:
 
     try:
         pe = lief.PE.parse(str(binary_path))
-    except Exception:  # noqa: BLE001 — parse failures degrade to "no exports"
+    except Exception:  # parse failures degrade to "no exports"
         return []
     if pe is None:
         return []

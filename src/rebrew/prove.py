@@ -39,7 +39,7 @@ import typer
 from rich.console import Console
 
 if TYPE_CHECKING:
-    import angr  # noqa: F401  # only for annotations; runtime import is lazy
+    import angr  # # only for annotations; runtime import is lazy
 
 from rebrew.annotation import parse_c_file_multi, resolve_symbol
 from rebrew.binary_loader import extract_raw_bytes
@@ -123,7 +123,7 @@ def _cached_verify_status(cfg: Any, va: int) -> str | None:
 
 def _get_win32_simprocs() -> dict[str, type]:
     """Build and cache the Win32 SimProcedure registry (requires angr)."""
-    global _WIN32_SIMPROCS  # noqa: PLW0603
+    global _WIN32_SIMPROCS
     if _WIN32_SIMPROCS is not None:
         return _WIN32_SIMPROCS
 
@@ -574,7 +574,7 @@ def _mem_value(state: Any, va: int) -> Any:
     """
     try:
         return state.memory.load(va, 4)
-    except Exception:  # noqa: BLE001 — SimMemoryMissingError and concretization failures
+    except Exception:  # SimMemoryMissingError and concretization failures
         return None
 
 
@@ -672,7 +672,7 @@ def _compare_state_pairs(
                         diff_desc = f"; {reg_part}{mem_part}"
                     else:
                         diff_desc = f"; {reg_part}"
-                except Exception:  # noqa: BLE001 — model extraction is best-effort
+                except Exception:  # model extraction is best-effort
                     diff_desc = ""
                 break
 
@@ -700,7 +700,7 @@ def _run_simulation(
     Module-level so tests can patch it with crafted states and exercise the
     real comparison logic (:func:`_compare_state_pairs`).
     """
-    import angr  # noqa: F401  # lazy import (angr is an optional extra)
+    import angr  # # lazy import (angr is an optional extra)
 
     sm = proj.factory.simgr(state, save_unconstrained=True)  # type: ignore[no-untyped-call]
     sm.use_technique(angr.exploration_techniques.LoopSeer(bound=loop_bound))  # type: ignore[no-untyped-call]
@@ -797,7 +797,7 @@ def prove_equivalence(
                         iat_stub_map_orig[iat_va] = stub_addr
                         if fn.name:
                             iat_api_names[stub_addr] = str(fn.name)
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.debug("LIEF import scan failed (best-effort)", exc_info=True)
 
     cc, arg_count, return_width = _parse_prototype(prototype)
@@ -958,7 +958,7 @@ def prove_equivalence(
 
         ARGS_MISMATCH = True
 
-        def run(self, *args: Any, **kwargs: Any) -> Any:  # noqa: ARG002
+        def run(self, *args: Any, **kwargs: Any) -> Any:
             stub_addr = self.addr
             assert stub_addr is not None  # angr sets addr before invoking run()
             bv = shared_stub_returns.get(stub_addr)
@@ -987,7 +987,7 @@ def prove_equivalence(
             try:
                 proj_comp.hook(stub_addr, ret_proc_comp, length=1)
                 proj_orig.hook(stub_addr, ret_proc_orig, length=1)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 log.debug("Failed to hook stub at 0x%x (%s)", stub_addr, api_name, exc_info=True)
 
     # Hook the return sentinel address so states that reach it land in
@@ -998,7 +998,7 @@ def prove_equivalence(
         try:
             proj_comp.hook(RETURN_SENTINEL, _path_terminator(), length=0)
             proj_orig.hook(RETURN_SENTINEL, _path_terminator(), length=0)
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.debug("Failed to hook return sentinel", exc_info=True)
 
     # Seed IAT slot memory in the original blob's initial state so
@@ -1402,12 +1402,12 @@ def _resolve_watched_dir32(
         return {}
     try:
         name_to_va = build_name_to_va(cfg)
-    except Exception:  # noqa: BLE001 — best-effort; no resolution → no watching
+    except Exception:  # best-effort; no resolution → no watching
         return {}
     out: dict[int, int] = {}
     try:
         records = parse_obj_relocs_full(obj_path, symbol)
-    except Exception:  # noqa: BLE001 — best-effort
+    except Exception:  # best-effort
         return {}
     for rec in records:
         if rec.type != 0x06:  # IMAGE_REL_I386_DIR32
@@ -1656,7 +1656,7 @@ def _record_prove_counterexample(cfg: Any, ann: Any, message: str) -> None:
         if existing.get("note"):
             return
         set_field(cfg.metadata_dir, ann.va, "note", f"prove: {message}", module=ann.module)
-    except Exception:  # noqa: BLE001 — best-effort; never fail the prove flow
+    except Exception:  # best-effort; never fail the prove flow
         return
 
 
@@ -1685,7 +1685,7 @@ def _run_all_batch(
     for src in sources:
         try:
             annos = parse_c_file_multi(src, target_name=tm, metadata_dir=cfg.metadata_dir)
-        except Exception:  # noqa: BLE001
+        except Exception:
             log.debug("Skipping %s: annotation parse failed", src, exc_info=True)
             continue
         for a in annos:
@@ -1739,7 +1739,7 @@ def _run_all_batch(
                 watched_vas=watch_va,
                 name_to_va=name_to_va,
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log.debug("Prove failed for %s", src, exc_info=True)
             proven, message = False, f"Error: {e}"
 

@@ -98,7 +98,7 @@ def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
 
     try:
         insns = list(md.disasm(code, va))
-    except Exception:  # noqa: BLE001 — degenerate input yields an empty frame
+    except Exception:  # degenerate input yields an empty frame
         insns = []
 
     for idx, insn in enumerate(insns):

@@ -275,7 +275,7 @@ def _convention_stub(cfg: ProjectConfig, va: int, func_name: str) -> tuple[str |
         insns = list(md.disasm(raw, va))
         if not insns:
             return None, None
-    except Exception:  # noqa: BLE001 — best-effort stub shape
+    except Exception:  # best-effort stub shape
         return None, None
 
     # 16-bit targets: word-sized stack args (2 bytes) and the Borland
@@ -355,7 +355,7 @@ def _tail_call_arg_count(insns: list[Any], cfg: ProjectConfig) -> tuple[int, str
             from rebrew.asm import build_function_lookup
 
             name, _status = build_function_lookup(cfg).get(target, ("", ""))
-        except Exception:  # noqa: BLE001 — best-effort resolution
+        except Exception:  # best-effort resolution
             continue
         dm = re.search(r"@(\d+)\s*$", name)
         if dm is not None:
@@ -616,12 +616,12 @@ def _stale_size_note(cfg: ProjectConfig, va: int, size: int) -> str | None:
                     f"({len(rets)} ret-terminated epilogues) — a merged discovery "
                     "entry; split into per-function files (each has its own VA/size)"
                 )
-    except Exception:  # noqa: BLE001 — best-effort advisory
+    except Exception:  # best-effort advisory
         pass
 
     try:
         extent = function_extent_from_disasm(cfg.target_binary, va)
-    except Exception:  # noqa: BLE001 — best-effort advisory
+    except Exception:  # best-effort advisory
         return None
     if extent is not None and size < extent:
         return (
@@ -776,7 +776,7 @@ def _looks_like_fragment(cfg: ProjectConfig, va: int) -> bool:
         from rebrew.binary_loader import extract_raw_bytes
 
         raw = extract_raw_bytes(cfg.target_binary, va, 2)
-    except Exception:  # noqa: BLE001 — best-effort
+    except Exception:  # best-effort
         return False
     if len(raw) < 2:
         return False
@@ -807,7 +807,7 @@ def _is_thunk(cfg: ProjectConfig, va: int) -> bool:
             return True  # import thunk / jump thunk
         if i0.mnemonic == "call" and len(insns) > 1 and insns[1].mnemonic == "jmp":
             return True  # call thunk (hotpatch / chained stub)
-    except Exception:  # noqa: BLE001 — best-effort filter
+    except Exception:  # best-effort filter
         return False
     return False
 

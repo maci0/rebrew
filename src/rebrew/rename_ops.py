@@ -67,7 +67,7 @@ def rename_function_everywhere(
             multi_function_file = (
                 len(parse_c_file_multi(filepath, metadata_dir=filepath.parent)) > 1
             )
-        except Exception as exc:  # noqa: BLE001 — abort before mutating anything
+        except Exception as exc:  # abort before mutating anything
             raise ValueError(f"cannot rename {filepath}: annotation parse failed: {exc}")
         if multi_function_file and not new_filename:
             rename_file = False  # auto-rename unsafe for multi-function files

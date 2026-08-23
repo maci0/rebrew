@@ -455,7 +455,7 @@ def _cfg_score(
         from rebrew.cfg_ged import cfg_similarity
 
         return cfg_similarity(target_bytes, compiled_bytes, va, mode)
-    except Exception:  # noqa: BLE001 — cfg info is best-effort
+    except Exception:  # cfg info is best-effort
         return None
 
 
@@ -482,7 +482,7 @@ def _frame_comparison(
             analyze_frame(target_bytes, va, mode),
             analyze_frame(compiled_bytes, va, mode),
         )
-    except Exception:  # noqa: BLE001 — frame info is best-effort
+    except Exception:  # frame info is best-effort
         return None
 
 
@@ -621,7 +621,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
     for src in sources:
         try:
             annos = parse_c_file_multi(src, target_name=tm, metadata_dir=cfg.metadata_dir)
-        except Exception as exc:  # noqa: BLE001 — one bad file must not kill the batch
+        except Exception as exc:  # one bad file must not kill the batch
             skipped_files.append(f"{src.name}: {exc}")
             continue
         for a in annos:

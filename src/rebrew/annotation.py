@@ -76,7 +76,7 @@ VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"}
 # OPTIONAL_KEYS: only reccmp-compatible keys that are permitted inline.
 # All rebrew-specific keys (ORIGIN, CFLAGS, SKIP, GLOBALS, BLOCKER, SOURCE,
 # NOTE, SECTION, GHIDRA, BLOCKER_DELTA) must live in rebrew-function.toml
-# — see METADATA_KEYS.
+# see METADATA_KEYS.
 OPTIONAL_KEYS = {
     "ANALYSIS",  # reccmp compatibility (structural analysis note)
 }
@@ -321,7 +321,7 @@ def has_skip_annotation(filepath: Path, metadata_dir: Path | None = None) -> boo
             raw_skip = entries.get((ann.module, ann.va), {}).get("skip", "")
             if raw_skip and str(raw_skip).strip().lower() not in ("", "0", "false", "no"):
                 return True
-    except Exception:  # noqa: BLE001 — metadata read failure is non-fatal
+    except Exception:  # metadata read failure is non-fatal
         logger.debug("Metadata read failed for skip check in %s", metadata_dir, exc_info=True)
     return False
 
@@ -1138,7 +1138,7 @@ def _parse_c_file_text(
 ) -> list[Annotation]:
     try:
         lines = text.splitlines()
-    except Exception:  # noqa: BLE001 — degenerate input
+    except Exception:  # degenerate input
         return []
     if not lines:
         return []

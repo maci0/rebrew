@@ -21,7 +21,7 @@ _REPO_TC16 = _toolchains_repo() / "borland" / "3.1-win16" / "source"
 def _fake_tcc(monkeypatch, sandbox: Path) -> None:
     """Simulate a successful DOSBox run: write the TCC log + a .OBJ."""
 
-    def _run(args, **kwargs):  # noqa: ARG001
+    def _run(args, **kwargs):
         (sandbox / "TCOUT.TXT").write_text("src.c\n", encoding="utf-8")
         (sandbox / "SRC.OBJ").write_bytes(b"\x80\x08\x00fake")
         return type("R", (), {"returncode": 0})()
@@ -43,7 +43,7 @@ class TestTc16Compile:
         assert res.obj_path.name == "SRC.OBJ"
 
     def test_compile_c_no_object_raises(self, tmp_path: Path, monkeypatch) -> None:
-        def _run(args, **kwargs):  # noqa: ARG001
+        def _run(args, **kwargs):
             (tmp_path / "TCOUT.TXT").write_text("Error: cannot open", encoding="utf-8")
 
         monkeypatch.setattr("rebrew.dosbox.subprocess.run", _run)
@@ -71,7 +71,7 @@ class TestHeadlessDosbox:
 
         captured: dict = {}
 
-        def _fake_run(args, **kwargs):  # noqa: ARG001
+        def _fake_run(args, **kwargs):
             captured["env"] = kwargs.get("env", {})
             return type("R", (), {"returncode": 0})()
 

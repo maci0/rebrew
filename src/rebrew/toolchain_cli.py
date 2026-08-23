@@ -141,7 +141,7 @@ def detect_cmd(
         error_exit(f"Binary not found: {binary}", json_mode=json_output, code=2)
     try:
         info = detect_toolchain(binary_path)
-    except Exception as exc:  # noqa: BLE001 — detection is best-effort
+    except Exception as exc:  # detection is best-effort
         error_exit(f"Detection failed: {exc}", json_mode=json_output, code=2)
 
     compat: set[str] | None = _PROFILE_COMPAT.get(info.family)
@@ -1009,7 +1009,7 @@ def check_updates_cmd(
             owner, repo, branch = m.group(1), m.group(2), m.group(3)
             try:
                 live = _live_commit_sha(owner, repo, branch)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 rows[name] = f"check failed ({exc.__class__.__name__})"
                 continue
             if not src.commit:
@@ -1036,7 +1036,7 @@ def check_updates_cmd(
                 else:
                     rows[name] = f"DRIFTED sha256 {src.sha256[:12]} -> {actual[:12]}"
                     drifted.append(name)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 rows[name] = f"check failed ({exc.__class__.__name__})"
             continue
         rows[name] = "static (immutable release asset)"
@@ -1194,7 +1194,7 @@ def update_cmd(
         if m:
             try:
                 live_commit = _live_commit_sha(m.group(1), m.group(2), m.group(3))
-            except Exception:  # noqa: BLE001
+            except Exception:
                 live_commit = ""
         old_pin = f"sha256={src.sha256[:12]}…" + (
             f" commit={src.commit[:12]}" if src.commit else ""

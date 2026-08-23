@@ -9,10 +9,10 @@ import pytest
 from typer.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
-from bin_util import make_pe  # noqa: E402
+from bin_util import make_pe
 
-from rebrew.imports import parse_import_table  # noqa: E402
-from rebrew.report import app  # noqa: E402
+from rebrew.imports import parse_import_table
+from rebrew.report import app
 
 runner = CliRunner()
 

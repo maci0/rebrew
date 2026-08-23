@@ -15,7 +15,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from bin_util import make_pe  # noqa: E402
+from bin_util import make_pe
 
 import rebrew.cross_import as ci
 
@@ -196,7 +196,7 @@ class TestImportMechanics:
 
         seen: dict[str, Any] = {}
 
-        def fake_verify(entry, cfg, cache=None, **kw):  # noqa: ARG001
+        def fake_verify(entry, cfg, cache=None, **kw):
             seen["entry"] = entry
             return CompareResult(
                 matched=True,

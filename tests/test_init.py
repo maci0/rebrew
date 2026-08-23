@@ -961,7 +961,7 @@ class TestInitGuessCompiler:
         from rebrew.init import init
         from rebrew.toolchain_detect import ToolchainInfo
 
-        def _fake_detect(path):  # noqa: ARG001
+        def _fake_detect(path):
             return ToolchainInfo(
                 family="msvc",
                 version_hint="16-bit MSVC-style NE",
@@ -1010,7 +1010,7 @@ class TestGuessCompilerFailure:
         from rebrew.init import init
         from rebrew.toolchain_detect import ToolchainInfo
 
-        def _fake_detect(path):  # noqa: ARG001
+        def _fake_detect(path):
             return ToolchainInfo(
                 family="unknown",
                 version_hint="",

@@ -63,7 +63,7 @@ def _parse_sig_files(files: list[Path]) -> list[Any]:
             console.print(f"Loaded {len(parsed)} signatures from {filepath.name}")
         except (OSError, ValueError, TypeError) as e:
             warnings.warn(f"Error loading {filepath}: {e}", stacklevel=2)
-        except Exception as e:  # noqa: BLE001 — python-flirt can raise
+        except Exception as e:  # python-flirt can raise
             # struct.error / IndexError / UnicodeDecodeError on malformed
             # signatures; one bad file must not abort the whole scan.
             warnings.warn(f"Error parsing {filepath}: {e}", stacklevel=2)

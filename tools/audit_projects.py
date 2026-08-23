@@ -13,12 +13,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from rebrew.annotation import parse_c_file_multi  # noqa: E402
-from rebrew.catalog.loaders import parse_function_list  # noqa: E402
-from rebrew.compile import resolve_cl_command  # noqa: E402
-from rebrew.config import _KNOWN_PROFILES, load_config  # noqa: E402
-from rebrew.data_metadata import load_data_metadata  # noqa: E402
-from rebrew.metadata import KNOWN_STATUSES, load_metadata  # noqa: E402
+from rebrew.annotation import parse_c_file_multi
+from rebrew.catalog.loaders import parse_function_list
+from rebrew.compile import resolve_cl_command
+from rebrew.config import _KNOWN_PROFILES, load_config
+from rebrew.data_metadata import load_data_metadata
+from rebrew.metadata import KNOWN_STATUSES, load_metadata
 
 ROOT = Path(sys.argv[1] if len(sys.argv) > 1 else "/home/maci/Desktop/Projects/relumea")
 

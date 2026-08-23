@@ -218,7 +218,7 @@ def _load_side(
             continue
         try:
             code = extract_raw_bytes(binary, va, size)
-        except Exception:  # noqa: BLE001 — one bad function must not kill the report
+        except Exception:  # one bad function must not kill the report
             continue
         if not code:
             continue
@@ -349,7 +349,7 @@ def main(
 
         try:
             other_cfg = load_config(target=other_target)
-        except Exception as exc:  # noqa: BLE001 — report the config error
+        except Exception as exc:  # report the config error
             error_exit(f"cannot load target {other_target!r}: {exc}", json_mode=json_output)
         run_binary_similarity(
             other_cfg.target_binary, other_cfg.function_list, json_output, low, target

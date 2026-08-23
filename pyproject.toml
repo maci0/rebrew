@@ -149,14 +149,10 @@ target-version = "py312"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+# RUF100 keeps suppression hygiene: a `noqa` for a rule that does not fire
+# (wrong code, stale after a fix) fails lint instead of silently rotting.
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF100"]
 ignore = ["E501", "B008", "B904"]
-
-[tool.ruff.lint.per-file-ignores]
-# Re-export packages expose public API via __init__.py — redundant aliases
-# are the canonical way to silence F401 for intentional re-exports, but we
-# keep the suppression as a safety net for any future additions.
-# (All current re-exports use explicit `X as X` aliases.)
 
 [tool.uv]
 package = true
@@ -182,4 +178,3 @@ dev = [
 strict = true
 ignore_missing_imports = true
 exclude = ["venv", ".venv"]
-disallow_untyped_decorators = false

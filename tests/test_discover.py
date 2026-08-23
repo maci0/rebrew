@@ -27,7 +27,7 @@ def _mk_info(raw: bytes):
 
     info = Fake()
     info.data = raw
-    return info  # noqa: F841
+    return info
 
 
 @pytest.fixture(autouse=True)
@@ -35,7 +35,7 @@ def _patch_extract(monkeypatch):
     """Route rebrew.analysis.extract_bytes to the fake info's raw bytes."""
     import rebrew.analysis
 
-    def _extract(info, va, size):  # noqa: ARG001
+    def _extract(info, va, size):
         return info.data[va : va + size]
 
     monkeypatch.setattr(rebrew.analysis, "extract_bytes", _extract)
@@ -94,7 +94,7 @@ class TestDiscoverFunctions:
                 self.size = size
                 self.mnemonic = mnemonic
 
-        def _iter_instructions(info, va, size):  # noqa: ARG001
+        def _iter_instructions(info, va, size):
             # one code instruction filling the span, then a ret at the end
             yield Insn(va, max(size - 1, 1), "code")
             yield Insn(va + max(size - 1, 1), 1, "ret")

@@ -384,7 +384,7 @@ class TestSuggestProfileBorland:
     def test_msvc16_ne_suggests_msvc152(self, monkeypatch) -> None:
         from rebrew.toolchain_detect import ToolchainInfo
 
-        def _fake_detect(path):  # noqa: ARG001
+        def _fake_detect(path):
             return ToolchainInfo(
                 family="msvc",
                 version_hint="16-bit MSVC-style NE",

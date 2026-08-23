@@ -328,7 +328,7 @@ class TestDockerPathForwardsExtraIncludes:
 
         seen: dict[str, object] = {}
 
-        def _fake_compile_to_obj(cfg, src, cflags, workdir, **kwargs):  # noqa: ARG001
+        def _fake_compile_to_obj(cfg, src, cflags, workdir, **kwargs):
             seen["extra"] = kwargs.get("extra_include_dirs")
             (workdir / "cand.obj").write_bytes(b"\x00" * 8)
             return str(workdir / "cand.obj"), ""

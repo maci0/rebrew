@@ -198,7 +198,7 @@ def main(
                             mod,
                         )
                         applied_names += 1
-                    except Exception:  # noqa: BLE001
+                    except Exception:
                         log.debug("stub write failed for VA 0x%x", va, exc_info=True)
                         skipped += 1
                     continue

@@ -70,7 +70,7 @@ def _valid_c_source(src: str) -> bool:
 
     try:
         return extract_function_name_and_proto(src) is not None
-    except Exception:  # noqa: BLE001 — garbage must never break seeding
+    except Exception:  # garbage must never break seeding
         return False
 
 
@@ -144,7 +144,7 @@ def request_seeds(
 
         with httpx.Client(timeout=90) as http:
             return _request(http, conf, source, count)
-    except Exception as exc:  # noqa: BLE001 — LLM availability must never break the GA
+    except Exception as exc:  # LLM availability must never break the GA
         # --llm-seed was explicitly requested; a silent empty result hides a
         # misconfigured endpoint/key.  Warn so the user knows seeds were asked
         # for but never arrived (still return [] — the GA must run unchanged).

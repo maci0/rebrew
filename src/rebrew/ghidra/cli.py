@@ -157,7 +157,7 @@ def _build_ops(
 
             for hfile in sorted(reversed_dir.rglob("*.h")):
                 # Skip auto-generated Ghidra files (types.h from --pull-structs)
-                # — they use Ghidra notation that CParser rejects on push.
+                # they use Ghidra notation that CParser rejects on push.
                 if hfile.name == "types.h":
                     continue
                 for typedef_str in extract_type_definitions(hfile):
