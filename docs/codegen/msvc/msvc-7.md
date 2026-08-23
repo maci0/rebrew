@@ -204,7 +204,7 @@ first to post-shift division magic.
 
 - **Probe17 allocator/conventions**: `-1` register form (`83 c8 ff` + `a3`); zero in EAX; 7.0+ inline the 12-byte sret construction (direct register stores).  See RULES.md A8/B5.
 
-- **Decomp idioms** — the probe19-27 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe27` records).
+- **Decomp idioms** — the probe19-28 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe28` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -234,6 +234,11 @@ first to post-shift division magic.
 ## Probe27: Findings 46-50 primitives (round 24)
 
 - **Probe27 (7.0)**: `|=0x1000` becomes `or ecx,0x1000` (`81 c9`); shared fail tail; entry-push.  See RULES.md C32.
+
+
+## Probe28: decompedia/CODEGEN_PATTERNS claims (round 25)
+
+- **Probe28 (7.0)**: mirrors 6.0 (fadd const, setcc encodings, setne+neg).  See RULES.md D10/C33.
 
 
 ## Verification

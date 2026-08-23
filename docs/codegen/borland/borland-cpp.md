@@ -147,7 +147,7 @@ probe12 re-run via `rebrew/borland:5.5-win32` (`out12/bcc55*`).
 
 - **Probe17 verified-negative**: the convention markers (A5 promotion, register forms) hold for bcc32's shared conventions — no new bcc32 marker; corpus pointer.
 
-- **Decomp idioms** — the probe19-27 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe27` records).
+- **Decomp idioms** — the probe19-28 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe28` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -177,6 +177,11 @@ probe12 re-run via `rebrew/borland:5.5-win32` (`out12/bcc55*`).
 ## Probe27: Findings 46-50 primitives (round 24)
 
 - **Probe27 (bcc32)**: compiled; object folded (raw fallback).  See RULES.md E8.
+
+
+## Probe28: decompedia/CODEGEN_PATTERNS claims (round 25)
+
+- **Probe28 (bcc32)**: compiled; object folded (raw fallback).  See RULES.md E8.
 
 
 ## Verification

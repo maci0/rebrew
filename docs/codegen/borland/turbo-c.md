@@ -175,7 +175,7 @@ MSVC-1.5x-specific (see README).
 
 - **Probe17 conventions (A2/A8)**: TC 2.0/3.1 LACK the `__fastcall` keyword (declaration-syntax error — documented negative); struct returns pass the hidden pointer as a far stack arg (I-style).  See RULES.md A2/A8.
 
-- **Decomp idioms** — the probe19-27 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe27` records).
+- **Decomp idioms** — the probe19-28 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe28` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -205,6 +205,11 @@ MSVC-1.5x-specific (see README).
 ## Probe27: Findings 46-50 primitives (round 24)
 
 - **Probe27 (TC 3.1)**: compiled; 16-bit records folded.  See RULES.md C32.
+
+
+## Probe28: decompedia/CODEGEN_PATTERNS claims (round 25)
+
+- **Probe28 (TC 3.1)**: compiled; 16-bit records folded.  See RULES.md D10.
 
 
 ## Verification

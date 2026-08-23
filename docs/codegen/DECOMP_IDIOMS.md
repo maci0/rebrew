@@ -142,6 +142,15 @@ era).
 | Fill-loop counter | `for (i=0;i<n;i++) p[i]=f();` | `57 … 56 … 6a 40 e8 … 89 06 83 c6 04 4f 75 eb` (running pointer + `dec edi; jne` countdown) | **counter KEPT (countdown) in every version** — the F49/F50 elimination needs the nested 768x768 context; 8.0/9.0 add-over-inc + sub-over-dec on the pair |
 | Byte-slot or `\|=0x1000` | `*p \|= 0x1000;` | `8b 44 24 04 8b 08 80 cd 10 89 08` (`or ch,0x10`) | **5.0/6.0-only byte-slot or** (the doc's `or dh,0x10`); 2.0/4.1 `or eax,0x1000` imm; 7.0/7.1 `or ecx,imm`; 8.0+ memory `or dword [mem],imm` |
 
+## Decompedia / CODEGEN_PATTERNS claims (probe28)
+
+| Idiom | C shape | VC 6.0 /O2 signature | Look for |
+|---|---|---|---|
+| FP-const add | `a + 1.0` | `dd 44 24 04 dc 05 00 00 00 00` (`fld [a]; fadd qword [+1.0]`) | **VC 5.0 is the odd one out: `fsub qword [−1.0]` (`dc 25`) with the NEGATED constant in .rdata** — a 5.0-only marker; 2.0/4.x `fld1`+fadd; 6.0-10.0 fadd; 11.0 SSE |
+| `<= 0` vs `< 1` | `x <= 0` vs `x < 1` | `85 c9 0f 9e c0` (test; setle, 2B test) vs `83 f9 01 0f 9c c0` (cmp 1; setl, 3B cmp) | **5.0-7.1: the exact-constant form is 1 byte shorter** — steerable from C (write `<= 0`, not `< 1`) |
+| Return-width | `short f() { return 5; }` | 2.0-8.0: `66 b8 05 00` (`mov ax,5`, 4B); 9.0+: `b8 05 00 00 00` (`mov eax,5`, 5B) | **short-return width changes at 9.0** (char returns `mov al,N` in every version) |
+| `x == -1` compare | `if (x==-1) return -1;` | `83 f9 ff 0f 95 c0 48` (`cmp; setne al; neg eax`) | **5.0-11.0 setne+neg (both the if-form and `(x!=-1)-1`)**; 2.0/4.1 inc/sbb family — the CODEGEN_PATTERNS "inc/neg/sbb 7B" claim only holds for 2.0/4.1-era shapes |
+
 ## Verified negatives (in these binaries)
 
 The exact VC 6.0 /O2 signatures for `atoi_like`, `checksum`, `clamp8`,
@@ -203,6 +212,15 @@ as corpus validation negatives, not claims of absence elsewhere.
   1×) and `or_100000` (mspaint 1× + wordpad 1×) all hit.  **Negatives**:
   `or_1000` (the 5.0/6.0 byte-slot or) and `fill_nested` do not appear
   byte-exact in the scanned set — recorded as validation negatives.
+- Probe28 additions (decompedia DP + CODEGEN_PATTERNS sources): `cmp_ge1`/
+  `cmp_lt1` (guild 6-8× + server.dll 1× + pinball 2×), `cmp_gt0`/
+  `cmp_le0` (guild 6-12×), `m1idiom`/`m1alt` (the setne+neg -1 compare —
+  guild 6-8× + server.dll 1×), `fp4` (float const form — guild 3×),
+  `ret_int` (guild 8×) and `rot3`/`rot16` (shift-pair — TL 3×) all
+  hit.  **Negatives**: `fp1`/`fp2`/`fp3` (the fadd/fsub const forms —
+  the rel32 const address differs per binary, so byte-exact misses)
+  and `ret_char`/`ret_short` are not byte-exact in the scanned set —
+  recorded as validation negatives.
 - Probe26 additions: `er1` (the inline early-return signature — guild
   2× + CLIPBRD 1×), `er2`/`er4` (guild 14-19× + server.dll 4×) all
   hit — the inline early-return placement is the default shape in the

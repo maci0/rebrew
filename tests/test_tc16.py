@@ -108,15 +108,25 @@ class TestDosboxDriverSync:
         # Host side: the shared conf builder.
         host_conf = dosbox_mod._build_dosbox_conf(Path(sandbox), [autoexec])
 
-        # Image side: the wrapper's single printf builds the same config.
+        # Image side: the wrapper's printf pair (header + body) builds the
+        # same config; concatenate both single-quoted formats.
         import re
 
         m = re.search(
-            r"printf '(\[sdl\][^']*)' \\",
+            r"printf '(\[sdl\][^']*)'\n\s*printf '(mount c[^']*)' \\",
             wtext,
         )
         assert m, "wrapper-common.sh conf printf not found"
-        fmt = m.group(1).replace("\\n", "\n").replace("%s", "{}")
+        # Emulate shell printf escape handling: \\ -> backslash first, then
+        # \n -> newline (a plain \n replace would turn \\n into '\<NL>' and
+        # double every backslash before a newline).
+        fmt = (
+            (m.group(1) + m.group(2))
+            .replace("\\\\", "\x00")
+            .replace("\\n", "\n")
+            .replace("\x00", "\\")
+            .replace("%s", "{}")
+        )
         image_conf = fmt.format(sandbox, autoexec)
 
         assert host_conf == image_conf, (
