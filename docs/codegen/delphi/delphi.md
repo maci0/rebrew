@@ -153,6 +153,11 @@ plain Integer args too).  RTL functions use far `retf`/`retf N` (`ca`).
   (`case` chains, `LongInt` results in dx:ax, `ret N` cleanup
   already documented) — no new marker; verified negative.
 
+## Probe16: 64-bit division + C++ — not applicable (Pascal)
+
+- Delphi 1.0 has no 64-bit integer type and no C++ mode; the probe16
+  dimensions have no Pascal counterpart — verified negative.
+
 ## Verification
 
 Pascal probe `probe.dpr` compiled via `rebrew/delphi:1.0-win16`

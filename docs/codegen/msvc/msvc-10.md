@@ -112,6 +112,13 @@ the VC 7.0+ era marker; 10.0 SP1 is identical to RTM on this feature
 - **stdcall args load in REVERSE order** — the 5.0–9.0 form.
 - **SP spot-check** — 10.0 SP1 byte-identical on the probe15 set.
 
+## Probe16: 64-bit division — verified
+
+- **64-bit division = register-load + 4-push helper call** — the
+  5.0–10.0 form (`8b 44 24 10 … 51 52 50 e8`); /O1 uses the compact
+  4× memory-push in every version.  10.0 SP1 byte-identical on the
+  probe16 set.
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:10.0-win32`

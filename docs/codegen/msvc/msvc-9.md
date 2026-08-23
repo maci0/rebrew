@@ -108,6 +108,13 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
   complete: every MSVC SP probed is identical to its RTM except VC
   7.0 SP1's known 17 functions.
 
+## Probe16: 64-bit division — verified
+
+- **64-bit division = register-load + 4-push helper call** — the
+  5.0–10.0 form; /O1 uses the compact 4× memory-push in every
+  version.  The 9.0 SP1 (unblocked) is byte-identical to the 9.0 RTM
+  on the probe16 set too.
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:9.0-win32` (`msvc900_{O1,O2}.obj`);

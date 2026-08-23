@@ -119,6 +119,12 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
   [esp+4]; add eax,[esp+8]` (2.0/4.1 form; 5.0–9.0 reverse the order;
   11.0 returns to direct).
 
+## Probe16: 64-bit division — verified
+
+- **VC 2.0/4.x have no 64-bit integer type** — the probe16 i64
+  functions are absent from their objects (documented negative; the
+  type arrives in 5.0).
+
 ## Verification
 
 Probe compiled with `rebrew/msvc:4.0-win32`, `4.1-win32`, `4.2-win32` at

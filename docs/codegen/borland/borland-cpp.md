@@ -130,6 +130,17 @@ probe12 re-run via `rebrew/borland:5.5-win32` (`out12/bcc55*`).
 - **no stack cookies** — the buffer-copy function opens a plain
   frame; no `/GS`-style cookie (MSVC 8.0+ unique).
 
+## Probe16: 64-bit division + C++ — verified
+
+- **64-bit division calls `__lldiv`/`__llmod`** — the Borland helper
+  pair (vs MSVC `__alldiv`/`__allrem`); probe16 compiles cleanly at
+  -O2.
+- **C++ mode compiles cleanly** — the probe16.cpp class + vtable +
+  `new`/`delete` build succeeds; the visible vtable dispatch pushes
+  register-loaded args (ebp-frame), a similar shape to MSVC 5.0/6.0
+  (the C++ OMF object resists symbol extraction via the standard
+  path — recorded).
+
 ## Verification
 
 Probe `-O1` and `-O2` via `rebrew/borland:5.5-win32` (`probe.obj`,

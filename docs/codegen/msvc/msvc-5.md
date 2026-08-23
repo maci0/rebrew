@@ -160,6 +160,21 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
   [esp+8]; mov ecx,[esp+4]; add eax,ecx` — the 5.0–9.0 form
   (2.0/4.1 and 11.0 use direct order; Zig/LLVM also reverses).
 
+## Probe16: 64-bit division + C++ — verified
+
+- **64-bit division calls the helper with a register-load + 4-push**
+  — `i64 / i64` = `mov eax,[esp+0x10]; mov ecx,[esp+0xc]; mov
+  edx,[esp+8]; push eax; mov eax,[esp+8]; push ecx; push edx; push
+  eax; call __alldiv` (the divisor and dividend staged hi-first) —
+  the 5.0–10.0 form, identical across div/udiv/rem/urem (the target
+  differs: `__alldiv`/`__aulldiv`/`__allrem`/`__aullrem`).  At /O1
+  every version (including 5.0) uses the compact 4× memory-push
+  (`ff 74 24 10` ×4) instead.
+- **C++ `new` = call + `add esp,4`** — `new int[n]` = `lea ecx,
+  [eax*4]; push ecx; call <operator new>; add esp,4`; `new int` =
+  `push 4; call; add esp,4`; `delete` = call + `add esp,4`/`pop ecx`
+  (the 5.0/6.0 call+ret form; 7.0+ tail-jumps).
+
 ## Verification
 
 Probe at `/O1`/`/O2` via `rebrew/msvc:5.0-win32`

@@ -160,6 +160,16 @@ entries — the `shl bx,1` (`d1 e3`) scaling, same family trait as TC
   shl ax,1` (`mov cl,3; shl dx,cl` in Watcom16) — no `lea`-scale in
   the 8086 set.
 
+## Probe16: 64-bit division + C++ — verified
+
+- **64-bit division calls `__I8D`** (the documented helper) — the
+  probe16 i64 functions follow the earlier `__I8*` family record;
+  the call form differs from MSVC's 4-push `__alldiv` convention.
+- **wpp386 rejected the probe16.cpp class+`new` syntax**
+  (`E1009: Expecting ';' but found 'int'` at the virtual member
+  declaration) under the image's flags — C++-mode probe16 is a
+  documented negative for Watcom.
+
 ## Verification
 
 Probe via `rebrew/watcom:2.0-win32` (wcc386 entrypoint) `-fo=` `-zq`

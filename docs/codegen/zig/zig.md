@@ -90,6 +90,13 @@ eax,[ebp+0xc]` first — shared with MSVC 5.0–9.0).  Every probe15
 divergence from MinGW GCC is an LLVM-family trait, not a Zig
 identifier — the claim stands.
 
+## Probe16 re-verification — claim stands
+
+`probe16.c` + `probe16.cpp` (zig 0.16.0, -O2): 64-bit division
+libcalls (`__divdi3`-style, frame-staged like GCC); C++ mode
+compiles (`zig c++`) with LLVM-style vtable dispatch.  No new
+zig-vs-gcc byte marker in either dimension.
+
 ## Verification
 
 PDB module scan of a real Zig-built program (`.zig-cache` paths);

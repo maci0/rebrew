@@ -362,6 +362,33 @@
   now carries the caveat); the exact constant-size 64B `rep movsd`
   form absent (real memcpys use variable sizes); no VC8+ corpus
   binary exists to hit the `/GS` marker (stands on the probe).
+- **Probe16 64-bit division + C++ mode + 16-bit depth** — the last
+  two never-probed dimensions, swept across MSVC 5.0–11.0 at /O2 and
+  /O1 plus bcc32/GCC/Zig (C and C++).  **64-bit division**: 5.0–10.0
+  call the helper with a register-load + 4-push staging (`8b 44 24
+  10 … 51 52 50 e8`; uniform across `__alldiv`/`__aulldiv`/
+  `__allrem`/`__aullrem`); **VC 11.0 is the only version using the
+  4× memory-push form (`ff 74 24 10` ×4) at /O2** — the
+  push-from-memory trait in its third dimension (every version uses
+  the memory-push at /O1).  GCC stages `__divdi3` args on a stack
+  frame; bcc32 uses `__lldiv`/`__llmod`; Watcom `__I8D`.  **C++
+  mode**: `new`/`delete` are call+ret in 5.0/6.0 and **tail-jumps
+  from 7.0**; VC 11.0 adds the **checked array-size multiply** for
+  `new int[n]` (`mov edx,4; mul edx; seto cl; neg ecx; or ecx,eax`);
+  vtable dispatch is uniform `mov eax,[ecx]; call [eax]` (GCC adds a
+  null-vtable check; bcc32 pushes register-loaded args; Watcom's
+  wpp386 rejected the probe — recorded).  **16-bit depth**: MSVC
+  1.0/1.5/1.52 byte-identical on the probe13 set; TC 2.0 verified
+  against 3.1 — `mul dx` vs `imul dx` for char*7, memory-held vs
+  register-held loop pointers, and a TC 2.0 preprocessor quirk (no
+  `defined()` in `#if` — probe14/15 uncompileable on TC 2.0).
+  probe16 SP spot-check: 7.0/7.1/8.0/10.0 SP1 + the unblocked 9.0
+  SP1 all byte-identical to their RTMs.  Corpus round 4 (probe15
+  markers): the `/GS` cookie stays absent (no VC8+ corpus binary —
+  stands on the probe); the MSVC wide-compare `66 3b 4c 24` hits
+  guild (5× per binary, confirming guild is MSVC-family) and several
+  win2k binaries; the exact 8.0+ setcc memory-compare form is
+  correctly absent from the VC5/6 corpus (era boundary validated).
 - **GA pragma mutations** — five new operators in `matcher/mutator.py`
   (114 → 119) that explore codegen levers compiler flags cannot reach:
   `mut_add/remove_optimize_pragma` wrap the function in

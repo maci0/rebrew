@@ -200,6 +200,18 @@ inlining is unconditional.  Verified in a probe12 re-run with native
 - **stdcall args load in REVERSE order** — `mov eax,[esp+8]; add
   eax,[esp+4]` — shared with MSVC 5.0–9.0 and Zig.
 
+## Probe16: 64-bit division + C++ — verified negatives
+
+- **64-bit division stages the operands on a stack frame for
+  `__divdi3`** — `push ebp; mov ebp,esp; sub esp,0x10; mov eax,
+  [ebp+0x10]; mov edx,[ebp+0x14]; mov [esp+8],…` — NOT the MSVC
+  `__alldiv` register-load + 4-push form; the frame-staged libcall
+  has no MSVC counterpart here.
+- **C++ `delete` tail-jumps** (`jmp` to the deallocator) — shared
+  with MSVC 7.0+; vtable dispatch includes a null-vtable check
+  (`cmp eax,0; je`) absent from MSVC's bare `mov eax,[ecx]; call
+  [eax]`.
+
 ## Verification
 
 Probe `/O1`/`/O2`/`/O3` via native `i686-w64-mingw32-gcc` 16.1

@@ -179,6 +179,16 @@ first to post-shift division magic.
   GCC/Zig — family-level era marker.
 - **stdcall args load in REVERSE order** — the 5.0–9.0 form.
 
+## Probe16: 64-bit division + C++ — verified
+
+- **64-bit division = register-load + 4-push helper call** — the
+  5.0–10.0 form (`8b 44 24 10 … 51 52 50 e8`); /O1 uses the compact
+  4× memory-push in every version.
+- **C++ `new`/`delete` TAIL-JUMP from 7.0** — `new int` = `push 4;
+  jmp <operator new>`-style and `delete` = `jmp <operator delete>`
+  (the compiler reuses the incoming stack slot; 5.0/6.0 call + ret
+  instead).  Vtable dispatch is uniform `mov eax,[ecx]; call [eax]`.
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:7.0-win32` (`msvc700_{O1,O2}.obj`);
