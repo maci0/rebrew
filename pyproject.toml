@@ -179,5 +179,21 @@ dev = [
 
 [tool.mypy]
 strict = true
-ignore_missing_imports = true
 exclude = ["venv", ".venv"]
+
+# Per-module untyped-import allowances instead of a global flag: every other
+# third-party dep ships stubs, so a new dependency without type information
+# fails the strict gate and must be listed here deliberately (with the same
+# justification bar as the entries below).
+[[tool.mypy.overrides]]
+module = [
+    "capstone",
+    "capstone.*",  # no stubs / py.typed shipped upstream
+    "diskcache",
+    "diskcache.*",  # unsafe-pickle advisory noted in [project] dependencies; stubs still absent
+    "flirt",
+    "flirt.*",  # python-flirt ships no type information
+    "resembl",
+    "resembl.*",  # sibling-checkout path dep (see `similarity` extra); no stubs
+]
+ignore_missing_imports = true
