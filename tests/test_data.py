@@ -491,24 +491,24 @@ class TestFindDispatchTables:
 
 class TestEstimateTypeSize:
     def test_scalar_types(self) -> None:
-        from rebrew.data import _estimate_type_size
+        from rebrew.data_layout import estimate_type_size
 
-        assert _estimate_type_size("int") == 4
-        assert _estimate_type_size("char") == 1
-        assert _estimate_type_size("short") == 2
-        assert _estimate_type_size("double") == 8
+        assert estimate_type_size("int") == 4
+        assert estimate_type_size("char") == 1
+        assert estimate_type_size("short") == 2
+        assert estimate_type_size("double") == 8
 
     def test_array_and_pointer(self) -> None:
-        from rebrew.data import _estimate_type_size
+        from rebrew.data_layout import estimate_type_size
 
-        assert _estimate_type_size("char[32]") == 32
-        assert _estimate_type_size("int *") == 4
-        assert _estimate_type_size("char *[10]") == 40
+        assert estimate_type_size("char[32]") == 32
+        assert estimate_type_size("int *") == 4
+        assert estimate_type_size("char *[10]") == 40
 
     def test_unknown_defaults_int(self) -> None:
-        from rebrew.data import _estimate_type_size
+        from rebrew.data_layout import estimate_type_size
 
-        assert _estimate_type_size("my_custom_t") == 4
+        assert estimate_type_size("my_custom_t") == 4
 
 
 class TestVerifyBssLayoutGaps:

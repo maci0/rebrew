@@ -52,6 +52,7 @@ import os
 import re
 import shutil
 import subprocess
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -1248,6 +1249,10 @@ def build_linked_link_cmd(
         "run",
         "--rm",
         "--network=none",  # link-only container — no egress needed
+        # Named so the timeout path can kill it (a killed docker CLI leaves
+        # the container under dockerd — same discipline as run_toolchain).
+        "--name",
+        f"rebrew-link-{uuid.uuid4().hex[:12]}",
         "-v",
         f"{Path(workdir).resolve()}:/work",
         "-w",
@@ -1318,14 +1323,20 @@ def _link_obj_docker(
         out_name=Path(dll_path).name,
         workdir=workdir,
     )
+    timeout = getattr(cfg, "compile_timeout", 300) or 300
     try:
         r = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            timeout=getattr(cfg, "compile_timeout", 300) or 300,
+            timeout=timeout,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except subprocess.TimeoutExpired:
+        from rebrew.toolchain import _kill_container
+
+        _kill_container(cmd[cmd.index("--name") + 1])
+        return False, f"LINK.EXE timed out after {timeout}s"
+    except OSError as exc:
         return False, str(exc)
     if r.returncode != 0 or not Path(dll_path).exists():
         err = (r.stdout + "\n" + r.stderr).strip()

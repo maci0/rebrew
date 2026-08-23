@@ -427,15 +427,74 @@ def _parse_stub_globals(stub_file: Path) -> dict[str, tuple[str, int | None]]:
     return out
 
 
-def _type_size_for(base: str) -> int:
-    """Byte size of a simplified stub base type (linker COMDAT size)."""
-    if base in ("double",):
-        return 8
-    if base in ("char", "unsigned char", "signed char", "bool"):
-        return 1
-    if base in ("short", "unsigned short", "wchar_t"):
-        return 2
-    return 4
+#: Byte sizes for the C base types that appear in stub files and data
+#: metadata (32-bit target: pointers and ``long`` are 4).  The single
+#: authoritative table — data.py's coverage estimator sizes through it too,
+#: so the two size models cannot drift apart again.
+_TYPE_SIZES: dict[str, int] = {
+    "char": 1,
+    "unsigned char": 1,
+    "signed char": 1,
+    "bool": 1,
+    "BYTE": 1,
+    "BOOLEAN": 1,
+    "short": 2,
+    "unsigned short": 2,
+    "signed short": 2,
+    "wchar_t": 2,
+    "WORD": 2,
+    "int": 4,
+    "unsigned int": 4,
+    "signed int": 4,
+    "long": 4,
+    "unsigned long": 4,
+    "BOOL": 4,  # Windef.h: typedef int BOOL
+    "DWORD": 4,
+    "LONG": 4,
+    "ULONG": 4,
+    "float": 4,
+    "FLOAT": 4,
+    "double": 8,
+    "DOUBLE": 8,
+    "__int64": 8,
+    "unsigned __int64": 8,
+    "LONGLONG": 8,
+}
+
+_ARRAY_SUFFIX_RE = re.compile(r"\[\s*(0x[0-9a-fA-F]+|\d+)\s*\]")
+
+
+def c_type_size(ctype: str) -> int:
+    """Byte size of a C type on the 32-bit target (pointers are 4)."""
+    if "*" in ctype:
+        return 4
+    return _TYPE_SIZES.get(_ARRAY_SUFFIX_RE.sub("", ctype).strip(), 4)
+
+
+def estimate_type_size(type_str: str) -> int:
+    """Byte size of a declared C type string (pointer- and array-aware)."""
+    arr = _ARRAY_SUFFIX_RE.search(type_str)
+    elem_count = int(arr.group(1), 0) if arr else 1
+    return c_type_size(type_str) * elem_count
+
+
+def typed_array_literal(ctype: str, data: bytes) -> tuple[str, int]:
+    """C initializer text + element count for *data* read as *ctype* elements.
+
+    Byte-sized elements keep :func:`hex_list`'s raw-byte layout; wider
+    elements are formatted per element so ``int arr[3]`` emits three ints
+    instead of twelve bytes under an inflated dimension.
+    """
+    elemsize = c_type_size(ctype)
+    if elemsize <= 1:
+        return hex_list(data), len(data)
+    usable = len(data) - len(data) % elemsize
+    elems = [
+        _scalar_literal(data[off : off + elemsize], ctype, elemsize) or "0"
+        for off in range(0, usable, elemsize)
+    ]
+    lines = ["    " + ", ".join(elems[i : i + 16]) + "," for i in range(0, len(elems), 16)]
+    return "{\n" + "\n".join(lines) + "\n}", len(elems)
 
 
 def _scalar_literal(data: bytes, ctype: str, size: int) -> str | None:
@@ -506,16 +565,18 @@ def own_data_globals(
         addr = toml[name]
         if addr >= raw_end:
             continue  # BSS region — zero-init, nothing to materialize
-        base = ctype.replace("*", "").strip()
-        elemsize = _type_size_for(base)
+        base = _ARRAY_SUFFIX_RE.sub("", ctype).strip()
+        elemsize = c_type_size(base)
         cap = min(toml_next.get(name, raw_end), raw_end) - addr
         if cap <= 0:
             continue
         off = addr - data_base
+        dim = 0
         if decl_n is None:
-            # scalar placeholder (TYPE name = 0;)
+            # scalar placeholder (TYPE name = 0;); pointers read their full
+            # 4-byte value, not the pointee's size.
             size = elemsize
-            value = _scalar_literal(orig[off : off + size], ctype, size)
+            value = _scalar_literal(orig[off : off + size], base, size)
             if value is None:
                 skipped.append(name)
                 continue
@@ -535,13 +596,13 @@ def own_data_globals(
             if not data:
                 skipped.append(name)
                 continue
-            value = hex_list(data)
+            value, dim = typed_array_literal(base, data)
             is_array = True
         owner = owner_of([name], files)
         if owner is None:
             skipped.append(name)
             continue
-        if insert_definition(owner, name, ctype, size, value, dry_run, is_array=is_array):
+        if insert_definition(owner, name, ctype, dim, value, dry_run, is_array=is_array):
             owned += 1
     return {"owned": owned, "skipped": skipped}
 
@@ -683,13 +744,13 @@ def fix_ownership(
         if tu is None:
             continue
         if addr < raw_end:
-            base = typ.replace("*", "").strip()
-            elemsize = _type_size_for(base)
+            elemsize = c_type_size(typ)
             off = addr - data_base
             end = orig.find(b"\x00", off, off + 0x200)
             size = end - off + 1 if elemsize == 1 and 0 <= end < raw_end - data_base else elemsize
             data = orig[off : off + size]
-            def_line = f"{typ} {name}[{size}] = {hex_list(data)};"
+            init, count = typed_array_literal(typ, data)
+            def_line = f"{typ} {name}[{count}] = {init};"
         else:
             def_line = f"{typ} {name} = 0;"
         cur = original_owner.get(name)
