@@ -532,7 +532,11 @@ def load_ne_binary(path: Path) -> BinaryInfo:
     code_size = 0
     code_raw_offset: int | None = None
     for seg in segments:
-        raw_size = 0 if seg.is_iterated else min(seg.length, len(data) - seg.file_offset)
+        # Clamp at zero: a corrupt segment table can point past EOF, which
+        # would otherwise yield a negative raw_size that poisons downstream
+        # byte-extraction and coverage math.
+        raw_on_disk = max(0, len(data) - seg.file_offset)
+        raw_size = 0 if seg.is_iterated else min(seg.length, raw_on_disk)
         seg.is_code = probe_is_code(data, seg.file_offset, seg.length, seg.index)
         sections[f"SEG{seg.index}"] = SectionInfo(
             name=f"SEG{seg.index}",

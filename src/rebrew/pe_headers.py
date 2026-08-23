@@ -72,8 +72,9 @@ def read_pe_header_fields(data: bytes) -> PeHeaderFields | None:
         pos = lfanew + offset
         if pos + size > len(data):
             continue
-        (raw,) = struct.unpack_from("<I", data, pos)
-        values[label] = raw & ((1 << (8 * size)) - 1)
+        # Read exactly *size* bytes: a 4-byte unpack would raise struct.error
+        # when fewer than 4 bytes remain after *pos*.
+        values[label] = int.from_bytes(data[pos : pos + size], "little")
     return PeHeaderFields(values)
 
 
@@ -113,7 +114,11 @@ def patch_pe_headers(data: bytes, fields: dict[str, int]) -> bytes:
         pos = lfanew + offset
         if pos + size > len(out):
             continue
-        struct.pack_into("<I", out, pos, fields[label] & ((1 << (8 * size)) - 1))
+        # Write exactly *size* bytes: a 4-byte pack would clobber the
+        # adjacent fields (e.g. linker_version_major at 1 byte would zero
+        # linker_version_minor and spill into SizeOfCode).
+        value = fields[label] & ((1 << (8 * size)) - 1)
+        out[pos : pos + size] = value.to_bytes(size, "little")
     # Recompute checksum over the patched image.
     struct.pack_into("<I", out, lfanew + 0x58, _pe_checksum(bytes(out)))
     return bytes(out)
