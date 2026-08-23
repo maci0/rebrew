@@ -28,7 +28,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew rename` | Rename a function across the entire codebase (symbol, filename, cross-references) |
 | `rebrew split` | Break multi-function `.c` files into individual files; `--va` to extract one function |
 | `rebrew merge` | Combine single-function files into one multi-function file |
-| `rebrew lint` | Validate source marker correctness (E000–E017, W001–W022, incl. W019 inline-metadata and W020 asm-dump warnings) |
+| `rebrew lint` | Validate source marker correctness (E000–E023 errors, W003–W028 warnings, incl. W019 inline-metadata and W020 asm-dump warnings) |
 
 ### Analysis
 
@@ -256,7 +256,7 @@ python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me
 
 ### Flag Sweep Tiers
 
-The flag sweep uses compiler flag definitions synced from [decomp.me](https://github.com/decompme/decomp.me). The `generate_flag_combinations(tier)` function supports five effort levels: `quick` (~192 combos), `targeted` (~1.1K combos), `normal` (~21K combos), `thorough` (~1M combos), and `full` (~8.3M combos). The `msvc6` compiler profile automatically excludes incompatible MSVC 7.x+ flags.
+The flag sweep uses compiler flag definitions synced from [decomp.me](https://github.com/decompme/decomp.me). The `generate_flag_combinations(tier)` function supports five effort levels: `quick` (192 combos), `targeted` (~1.2K combos), `normal` (~5.4K combos), `thorough` (~258K combos), and `full` (~6.2M combos; stride-sampled down to a 100K memory bound). The `msvc6` compiler profile automatically excludes incompatible MSVC 7.x+ flags. See [docs/FLAG_SWEEP_TIERS.md](docs/FLAG_SWEEP_TIERS.md).
 
 ## 🌐 Ecosystem & Related Tools
 

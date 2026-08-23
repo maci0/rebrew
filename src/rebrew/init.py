@@ -155,7 +155,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "lang": "C89",
     },
     "msvc6": {
-        "runner": "wine",  # Alternative: "wibo" (faster, auto-downloadable via rebrew doctor)
+        "runner": "wine",
         "command": "wine toolchain/msvc/6.0-win32/source/VC98/Bin/CL.EXE",
         "includes": "toolchain/msvc/6.0-win32/source/VC98/Include",
         "libs": "toolchain/msvc/6.0-win32/source/VC98/Lib",
@@ -166,7 +166,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "lang": "C89",
     },
     "msvc7": {
-        "runner": "wine",  # Alternative: "wibo" (faster, auto-downloadable via rebrew doctor)
+        "runner": "wine",
         "command": "wine toolchain/msvc/7.0-win32/source/Bin/cl.exe",
         "includes": "toolchain/msvc/7.0-win32/source/Include",
         "libs": "toolchain/msvc/7.0-win32/source/Lib",
