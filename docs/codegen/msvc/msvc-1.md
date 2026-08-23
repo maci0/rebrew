@@ -134,6 +134,8 @@ DOSBox.  Emits 16-bit OMF objects.
   `s8_make`), extending the earlier probe4 identicality note to the
   full round-11 idiom set.  No codegen separates 1.0/1.5/1.52.
 
+- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
+
 ## Verification
 
 Probe `/O1` via `rebrew/msvc:1.52-win16` (`out16/probe.OBJ` and the

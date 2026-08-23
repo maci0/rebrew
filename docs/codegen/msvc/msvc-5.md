@@ -175,6 +175,8 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
   `push 4; call; add esp,4`; `delete` = call + `add esp,4`/`pop ecx`
   (the 5.0/6.0 call+ret form; 7.0+ tail-jumps).
 
+- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
+
 ## Verification
 
 Probe at `/O1`/`/O2` via `rebrew/msvc:5.0-win32`

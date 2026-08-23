@@ -170,6 +170,8 @@ entries — the `shl bx,1` (`d1 e3`) scaling, same family trait as TC
   declaration) under the image's flags — C++-mode probe16 is a
   documented negative for Watcom.
 
+- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
+
 ## Verification
 
 Probe via `rebrew/watcom:2.0-win32` (wcc386 entrypoint) `-fo=` `-zq`

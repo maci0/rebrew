@@ -97,6 +97,8 @@ libcalls (`__divdi3`-style, frame-staged like GCC); C++ mode
 compiles (`zig c++`) with LLVM-style vtable dispatch.  No new
 zig-vs-gcc byte marker in either dimension.
 
+- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
+
 ## Verification
 
 PDB module scan of a real Zig-built program (`.zig-cache` paths);

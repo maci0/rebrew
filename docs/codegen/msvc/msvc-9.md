@@ -99,21 +99,28 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 - **signed setcc** — `a < b` = `cmp ecx,[esp+8]` against MEMORY
   (`8b 4c 24 04 33 c0 3b 4c 24 08 0f 9c c0`), the 8.0+ form
   (5.0–7.1 load both operands; 2.0/4.x use branch + `mov eax,1`).
-- **VC 9.0 SP1 UNBLOCKED** — the previously-recorded sched.dll blocker
-  is resolved: the x86 `sched.dll` from the XP SP1 SDK cross-tools
-  (win2k-revival/downloads) is interface-compatible with the SP1
-  cl.exe.  With it mounted next to cl.exe, VC 9.0 SP1 compiled
-  probe13/14/15 at /O2 and /O1 and is **byte-identical to the 9.0 RTM
-  on every one of the 54 probe functions** — the SP record is now
-  complete: every MSVC SP probed is identical to its RTM except VC
-  7.0 SP1's known 17 functions.
+- **VC 9.0 SP1 — the blocker STANDS (workaround retracted)** — a
+  staged `sched.dll` from the XP SP1 SDK cross-tools
+  (win2k-revival/downloads, x86) makes the SP1 cl.exe RUN, but the
+  objects it emits are **IA64 machine-type** (COFF machine 0x200,
+  IA64 instruction bundles — verified in the section bytes) — the
+  DLL is the wrong build and the "compile" never produced x86 code.
+  The corpus generator surfaced this: the SP1 objects parse to zero
+  x86 symbols, so the earlier "byte-identical to RTM on 54 probe
+  functions" comparison was against empty parses and is **retracted**.
+  The 9.0 SP1 `/O1`/`/O2` codegen comparison remains **unverified /
+  blocked** until a genuine VS2008-SP1 x86 `sched.dll` is available;
+  the RTM-vs-SP1 relationship for 9.0 is NOT part of the verified SP
+  record.
 
 ## Probe16: 64-bit division — verified
 
 - **64-bit division = register-load + 4-push helper call** — the
   5.0–10.0 form; /O1 uses the compact 4× memory-push in every
-  version.  The 9.0 SP1 (unblocked) is byte-identical to the 9.0 RTM
-  on the probe16 set too.
+  version.  (The 9.0 SP1 comparison remains blocked — see the
+  Probe15 note above.)
+
+- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
 
 ## Verification
 

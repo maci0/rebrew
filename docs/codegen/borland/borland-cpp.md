@@ -141,6 +141,8 @@ probe12 re-run via `rebrew/borland:5.5-win32` (`out12/bcc55*`).
   (the C++ OMF object resists symbol extraction via the standard
   path — recorded).
 
+- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
+
 ## Verification
 
 Probe `-O1` and `-O2` via `rebrew/borland:5.5-win32` (`probe.obj`,

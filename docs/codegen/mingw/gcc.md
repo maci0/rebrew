@@ -212,6 +212,8 @@ inlining is unconditional.  Verified in a probe12 re-run with native
   (`cmp eax,0; je`) absent from MSVC's bare `mov eax,[ecx]; call
   [eax]`.
 
+- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
+
 ## Verification
 
 Probe `/O1`/`/O2`/`/O3` via native `i686-w64-mingw32-gcc` 16.1

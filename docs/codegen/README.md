@@ -34,6 +34,14 @@ One folder per compiler class; one file per version inside.
 | [delphi/delphi.md](delphi/delphi.md) | Delphi 1.0 (16-bit NE Pascal) | `delphi16` |
 | [zig/zig.md](zig/zig.md) | Zig (`zig cc` → MinGW-w64) | `gcc-pe` (structural) |
 
+Cross-cutting references: the **[rules catalog](RULES.md)** categorizes
+behavior-level codegen rules (calling conventions, register allocation,
+arithmetic, FP, memory ops, control flow, frames, 64-bit, C++, toolchain
+identity) across all toolchains with verification status; the
+**[uniqueness table](#uniqueness-table)** lists byte markers; and
+**[corpus.json](corpus.json)** holds the machine-readable per-function
+bytes (see below).
+
 ## Shared file template
 
 Every file follows the same sections: **Identity** (CL.EXE / Rich-header C1
@@ -242,6 +250,35 @@ the MSVC 8.0+ rotate idiom and Delphi 1.0's set-membership bit — the
 *context* discriminates (32-bit `rol eax,cl` as a shift-pair
 replacement vs 16-bit `rol ax,cl` in `x in s`), so neither is a
 standalone raw-byte marker.
+
+## Machine-readable corpus — `corpus.json`
+
+[`corpus.json`](corpus.json) is the machine-readable codegen corpus:
+**7892 records**, one per (toolchain, version, SP, flags, probe,
+function) with `{toolchain, version, sp, flags, probe, function,
+size, bytes}` — generated from every probe 1-16 object (all 13 MSVC
+versions 1.0-11.0 at /O2 and /O1 + all SP images, bcc32, Watcom
+32/16, TC 2.0/3.1, MinGW GCC, Zig, the 16-bit MSVC set).  Query
+examples:
+
+```python
+import json
+d = json.load(open("docs/codegen/corpus.json"))
+# every version's strlen bytes
+[r["version"] + " " + r["bytes"] for r in d["records"]
+ if r["function"] == "_str_len_lib" and r["flags"].startswith("/O2")]
+```
+
+The generator (`gen_codegen_corpus.py`), schema validator
+(`validate_corpus.py`) and mechanical sweep (`sweep_corpus.py`) live
+in the gitignored `.cache/fp_probe/` harness.  Sweep results: the
+per-toolchain uniqueness confirmed every hand-documented marker and
+surfaced no new cross-toolchain-unique ones; the **SP equivalence is
+machine-verified over 1957 SP rows — 1939 identical to their RTMs,
+18 mismatches, ALL of them VC 7.0 SP1** (the known set + probe14's
+`_s64_ret`, the 18th function).  The corpus also surfaced that the
+VC 9.0 SP1 "workaround" objects are IA64-typed (see msvc-9.md) —
+the 9.0 SP1 comparison remains blocked.
 
 ## Verification methodology
 
