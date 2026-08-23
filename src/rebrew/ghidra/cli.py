@@ -7,12 +7,18 @@ All network operations use httpx against the ReVa MCP endpoint.
 
 import json
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
 import httpx
 import typer
 from rich.console import Console
+
+try:
+    import fcntl
+except ImportError:  # non-POSIX (no advisory file locks)
+    fcntl = None  # type: ignore[assignment]
 
 from rebrew.catalog import (
     build_function_registry,
@@ -310,29 +316,42 @@ def _export_apply_ops(
         _record_pushed_hashes(cfg, {_op_hash(c) for c in commands})
 
 
+_PUSHED_HASH_THREAD_LOCK = threading.Lock()
+
+
 def _record_pushed_hashes(cfg: Any, hashes: set[str]) -> None:
     """Merge *hashes* into the pushed-state file (create on first push).
 
     The read-merge-write is guarded by an exclusive lock so two concurrent
-    pushes cannot lose each other's updates.
+    pushes cannot lose each other's updates: the thread lock serializes
+    in-process writers, and the advisory ``flock`` on a ``.lock`` sidecar
+    serializes concurrent processes.  Falls back to the thread lock alone
+    on platforms without ``fcntl``.
     """
-    import fcntl
-
     state_path = cfg.root / ".rebrew" / _SYNC_STATE_FILE
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = state_path.with_suffix(state_path.suffix + ".lock")
-    with lock_path.open("w", encoding="utf-8") as lock_fh:
-        fcntl.flock(lock_fh, fcntl.LOCK_EX)
-        try:
+    with _PUSHED_HASH_THREAD_LOCK:
+        if fcntl is None:
             existing = _load_pushed_hashes(cfg)
-            merged = existing | hashes
             atomic_write_text(
                 state_path,
-                json.dumps({"pushed": sorted(merged)}, indent=2),
+                json.dumps({"pushed": sorted(existing | hashes)}, indent=2),
                 encoding="utf-8",
             )
-        finally:
-            fcntl.flock(lock_fh, fcntl.LOCK_UN)
+            return
+        lock_path = state_path.with_suffix(state_path.suffix + ".lock")
+        with lock_path.open("w", encoding="utf-8") as lock_fh:
+            fcntl.flock(lock_fh, fcntl.LOCK_EX)
+            try:
+                existing = _load_pushed_hashes(cfg)
+                merged = existing | hashes
+                atomic_write_text(
+                    state_path,
+                    json.dumps({"pushed": sorted(merged)}, indent=2),
+                    encoding="utf-8",
+                )
+            finally:
+                fcntl.flock(lock_fh, fcntl.LOCK_UN)
 
 
 console = Console(stderr=True)

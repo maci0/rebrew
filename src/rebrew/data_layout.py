@@ -650,28 +650,41 @@ def _obj_to_source(obj: Path, root: Path, src_dir: Path) -> Path | None:
     return None
 
 
+def _iter_line_spans(text: str) -> Iterator[tuple[int, str]]:
+    """Yield ``(start_offset, line)`` for every ``\\n``-delimited line of *text*.
+
+    Offsets come from real newline positions, so CRLF files get byte-exact
+    spans (``split("\\n")`` + ``len(line) + 1`` accounting drifts one byte per
+    preceding CRLF line and misplaces every spliced edit after it).
+    """
+    pos = 0
+    while True:
+        nl = text.find("\n", pos)
+        if nl < 0:
+            yield pos, text[pos:]
+            return
+        yield pos, text[pos:nl]
+        pos = nl + 1
+
+
 def _find_definition(text: str, name: str) -> tuple[int, int, str, str] | None:
     """(start, end, type, size_suffix) of *name*'s definition in *text*, or None."""
     pat = re.compile(r"^[ \t]*([\w\s\*]+)\s+" + re.escape(name) + r"(\[\d+\])?\s*=\s*\{")
     start = None
     typ = ""
     sz = ""
-    pos = 0
-    for ln in text.split("\n"):
+    for pos, ln in _iter_line_spans(text):
         m = pat.match(ln)
         if m:
             start, typ, sz = pos, m.group(1).strip(), m.group(2) or ""
             break
-        pos += len(ln) + 1
     if start is None:
         pat2 = re.compile(r"^[ \t]*([\w\s\*]+\s*\*?)\s+" + re.escape(name) + r"\s*=\s*[^;]+;\s*$")
-        pos = 0
-        for ln in text.split("\n"):
+        for pos, ln in _iter_line_spans(text):
             m = pat2.match(ln)
             if m and m.group(1).strip():
                 start, typ, sz = pos, m.group(1).strip(), ""
                 break
-            pos += len(ln) + 1
     if start is None:
         return None
     depth = 0
