@@ -335,6 +335,54 @@ class TestPatchVerifyCacheEntries:
         )
         assert not (tmp_path / ".rebrew" / "verify_cache.json").exists()
 
+    def test_identity_swapped_under_lock_not_patched(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The identity guard must evaluate the document read INSIDE the lock.
+
+        A concurrent process (e.g. ``verify -t OTHER`` saving a full cache)
+        can swap verify_cache.json between a pre-lock identity check and the
+        locked read-modify-write; the patch must then be rejected instead of
+        writing this target's status into the other target's entry at the
+        same VA (the pre-fix code checked identity before acquiring the
+        lock and patched whatever it found inside).
+        """
+        from contextlib import contextmanager
+
+        import rebrew.verify as verify_mod
+        from rebrew.verify import patch_verify_cache_entries
+
+        cfg = _make_cfg(tmp_path)
+        cache_path = self._make_cache(tmp_path, cfg, status="STUB")
+        real_lock = verify_mod._verify_cache_write_lock
+
+        @contextmanager
+        def swapping_lock(path):  # type: ignore[no-untyped-def]
+            with real_lock(path):
+                # Concurrent writer holds the same lock first: by the time
+                # the patcher reads the file, it belongs to another target.
+                data = json.loads(cache_path.read_text(encoding="utf-8"))
+                data["target"] = "OTHER"
+                cache_path.write_text(json.dumps(data), encoding="utf-8")
+                yield
+
+        monkeypatch.setattr(verify_mod, "_verify_cache_write_lock", swapping_lock)
+        patch_verify_cache_entries(
+            cfg,
+            [
+                {
+                    "va": 0x1000,
+                    "status": "RELOC",
+                    "match_count": 8,
+                    "total": 8,
+                    "delta": 0,
+                }
+            ],
+        )
+        raw = json.loads(cache_path.read_text(encoding="utf-8"))
+        assert raw["target"] == "OTHER"  # the concurrent save is intact...
+        assert raw["entries"]["0x00001000"]["result"]["status"] == "STUB"  # ...and unpatched
+
     def test_save_and_round_trip(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         source_path = cfg.reversed_dir / "func_a.c"

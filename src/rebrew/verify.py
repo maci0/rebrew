@@ -733,6 +733,20 @@ def _verify_cache_write_lock(cache_path: Path) -> Iterator[None]:
                 fcntl.flock(lock_fh, fcntl.LOCK_UN)
 
 
+def _cache_identity_matches(raw: dict[str, Any], cfg: ProjectConfig) -> bool:
+    """True when a parsed verify-cache document belongs to *cfg*'s identity.
+
+    Single definition of the ``(target, compiler_hash)`` check shared by
+    :func:`verify_cache_matches_cfg` (whole-file predicate) and
+    :func:`patch_verify_cache_entries` (in-lock guard), so the two cannot
+    drift.
+    """
+    return bool(
+        raw.get("target") == cfg.target_name
+        and raw.get("compiler_hash") == _compiler_config_hash(cfg)
+    )
+
+
 def verify_cache_matches_cfg(cache_path: Path, cfg: ProjectConfig) -> bool:
     """True when the verify cache was written for this project's identity.
 
@@ -743,6 +757,12 @@ def verify_cache_matches_cfg(cache_path: Path, cfg: ProjectConfig) -> bool:
     otherwise patch the entries a previous ``verify -t SERVER`` wrote, and
     the next SERVER verify would accept the whole file and serve CLIENT's
     status for SERVER functions at the same VA.
+
+    NOTE: this reads the file WITHOUT the write lock — suitable for
+    diagnostics/predicates.  Patchers must re-check the identity inside
+    :func:`_verify_cache_write_lock` (as ``patch_verify_cache_entries``
+    does): a check performed before acquiring the lock can be invalidated
+    by a concurrent writer swapping the cache between check and patch.
     """
     if not cache_path.exists():
         return False
@@ -750,10 +770,7 @@ def verify_cache_matches_cfg(cache_path: Path, cfg: ProjectConfig) -> bool:
         data = json.loads(cache_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return False
-    return bool(
-        data.get("target") == cfg.target_name
-        and data.get("compiler_hash") == _compiler_config_hash(cfg)
-    )
+    return _cache_identity_matches(data, cfg)
 
 
 def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]) -> None:
@@ -767,9 +784,11 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
 
     Guards: the cache must belong to THIS project's identity (target +
     compiler_hash — a multi-target `test -t CLIENT` must not patch entries a
-    `verify -t SERVER` wrote), and the read-modify-write runs under the
-    shared cross-process lock so a concurrent ``verify --watch`` save cannot
-    interleave and drop the patch.
+    `verify -t SERVER` wrote), checked INSIDE the shared cross-process lock
+    so a concurrent verify's full-cache save cannot swap the file between an
+    outside check and the locked read-modify-write, and the read-modify-write
+    itself runs under that lock so a concurrent ``verify --watch`` save
+    cannot interleave and drop the patch.
 
     *patches*: list of dicts with ``va`` (int), ``status``, ``match_count``,
     ``total``, optional ``delta`` (int|None).
@@ -777,10 +796,11 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
     if not patches:
         return
     cache_path = cfg.root / ".rebrew" / "verify_cache.json"
-    if not verify_cache_matches_cfg(cache_path, cfg):
-        # Wrong identity (or absent) — patching would misattribute status to
-        # the wrong target/compiler.  Nothing to do; the next real verify
-        # writes a correct cache.
+    if not cache_path.exists():
+        # Absent — nothing to patch.  (Checked before locking because taking
+        # the lock would create the ``.lock`` sidecar in a possibly
+        # not-yet-existing directory; a cache created after this point simply
+        # gets patched by the next promotion.)
         return
     with _verify_cache_write_lock(cache_path):
         try:
@@ -789,6 +809,12 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             logging.warning(
                 "Could not read verify cache %s — status may be stale: %s", cache_path, exc
             )
+            return
+
+        if not _cache_identity_matches(raw, cfg):
+            # Wrong identity — patching would misattribute status to the
+            # wrong target/compiler.  Nothing to do; the next real verify
+            # writes a correct cache.
             return
 
         entries = raw.get("entries", {})
