@@ -26,6 +26,7 @@ import struct
 import subprocess
 import tomllib
 from collections import defaultdict
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -76,16 +77,19 @@ def link_objects(root: Path) -> list[Path]:
     return [Path(root / "build") / (a or b) for a, b in _OBJ_RE.findall(text)]
 
 
-def obj_data_symbols(obj: Path) -> tuple[int, int, set[str], set[str]]:
-    """``(dsize, bsize, .data symbols, .bss symbols)`` of one object file."""
+def _obj_sections(obj: Path) -> tuple[dict[int, str], int, int]:
+    """``(section index → name, .data size, .bss size)`` from ``objdump -h``."""
     h = _run_objdump(obj, "-h")
     secs = re.findall(r"^\s+(\d+)\s+(\S+)\s+([0-9a-f]+)\s", h, re.M)
     secname = {int(a): b for a, b, _ in secs}
     dsize = sum(int(c, 16) for a, b, c in secs if b == ".data")
     bsize = sum(int(c, 16) for a, b, c in secs if b == ".bss")
+    return secname, dsize, bsize
+
+
+def _iter_obj_symbols(obj: Path) -> Iterator[tuple[int, int, str]]:
+    """Yield ``(section index, value, raw name)`` for each ``objdump -t`` symbol line."""
     t = _run_objdump(obj, "-t")
-    dsyms: set[str] = set()
-    bsyms: set[str] = set()
     for line in t.splitlines():
         m = re.match(r"\[ *\d+\]\(sec +(-?\d+)\)", line)
         if not m:
@@ -93,10 +97,19 @@ def obj_data_symbols(obj: Path) -> tuple[int, int, set[str], set[str]]:
         vm = re.search(r"\s(?:0x)?([0-9a-f]{8})\s+(\S+)\s*$", line[m.end() :])
         if not vm:
             continue
-        sym = vm.group(2).lstrip("_")
-        if not sym or sym.startswith(".") or sym.startswith("@"):
+        yield int(m.group(1)), int(vm.group(1), 16), vm.group(2)
+
+
+def obj_data_symbols(obj: Path) -> tuple[int, int, set[str], set[str]]:
+    """``(dsize, bsize, .data symbols, .bss symbols)`` of one object file."""
+    secname, dsize, bsize = _obj_sections(obj)
+    dsyms: set[str] = set()
+    bsyms: set[str] = set()
+    for sec_idx, _value, raw_sym in _iter_obj_symbols(obj):
+        sym = raw_sym.lstrip("_")
+        if not sym or sym.startswith((".", "@")):
             continue
-        sname = secname.get(int(m.group(1)) - 1)
+        sname = secname.get(sec_idx - 1)
         if sname == ".data":
             dsyms.add(sym)
         elif sname == ".bss":
@@ -106,21 +119,11 @@ def obj_data_symbols(obj: Path) -> tuple[int, int, set[str], set[str]]:
 
 def obj_data_symbol_offsets(obj: Path) -> tuple[int, dict[str, int]]:
     """(obj .data size, {symbol: offset within the obj's .data})."""
-    h = _run_objdump(obj, "-h")
-    secs = re.findall(r"^\s+(\d+)\s+(\S+)\s+([0-9a-f]+)\s", h, re.M)
-    secname = {int(a): b for a, b, _ in secs}
-    dsize = sum(int(c, 16) for a, b, c in secs if b == ".data")
-    t = _run_objdump(obj, "-t")
+    secname, dsize, _bsize = _obj_sections(obj)
     syms: dict[str, int] = {}
-    for line in t.splitlines():
-        m = re.match(r"\[ *\d+\]\(sec +(-?\d+)\)", line)
-        if not m:
-            continue
-        vm = re.search(r"\s(?:0x)?([0-9a-f]{8})\s+(\S+)\s*$", line[m.end() :])
-        if not vm:
-            continue
-        if secname.get(int(m.group(1)) - 1) == ".data":
-            syms[vm.group(2).lstrip("_")] = int(vm.group(1), 16)
+    for sec_idx, value, raw_sym in _iter_obj_symbols(obj):
+        if secname.get(sec_idx - 1) == ".data":
+            syms[raw_sym.lstrip("_")] = value
     return dsize, syms
 
 

@@ -235,46 +235,16 @@ def _convention_stub(cfg: ProjectConfig, va: int, func_name: str) -> tuple[str |
     if arch not in ("x86_32", "x86_16"):
         return None, None
     try:
-        from rebrew.asm import calling_convention_at
+        from rebrew.asm import calling_convention, disassembled_extent_window
 
-        # The 48-byte flat window truncated longer functions mid-code (no
-        # `ret` visible → inference says "unknown" → wrong cdecl default).
-        # The shared extent-based helper (asm.calling_convention_at) uses
-        # the disassembly extent instead: exact when it terminated on a
-        # `ret`; padded past a branch-merge `jmp` so the true epilogue is
-        # visible.  Tiny jmp-terminated regions (≤16 B) are real tail-call
-        # thunks — kept exact.  We re-disassemble below for the epilogue's
-        # arg count only (calling_convention_at does not return the insns).
-        conv = calling_convention_at(cfg, va)
-        if conv == "unknown":
-            return None, None
-        from rebrew.binary_loader import extract_raw_bytes, function_extent_from_disasm
-
-        kind = None
-        extent: int | None = None
-        extent_kind = function_extent_from_disasm(cfg.target_binary, va, with_kind=True)
-        if extent_kind is not None:
-            extent, kind = extent_kind
-        if (
-            kind == "jmp"
-            and extent is not None
-            and extent <= 16
-            or kind == "ret"
-            and extent is not None
-        ):
-            window = extent
-        else:
-            window = min(max(extent or 0, 48) + 96, 256)
-        raw = extract_raw_bytes(cfg.target_binary, va, window)
-        if not raw:
-            return None, None
-        import capstone
-
-        mode = capstone.CS_MODE_32 if arch == "x86_32" else capstone.CS_MODE_16
-        md = capstone.Cs(capstone.CS_ARCH_X86, mode)
-        insns = list(md.disasm(raw, va))
+        # The shared extent-based window (asm.disassembled_extent_window)
+        # keeps the epilogue's `ret` visible so inference works; we
+        # disassemble once here and reuse the insns for the epilogue's
+        # arg count.
+        insns, _kind = disassembled_extent_window(cfg, va)
         if not insns:
             return None, None
+        conv = calling_convention(insns)
     except Exception:  # best-effort stub shape
         return None, None
 

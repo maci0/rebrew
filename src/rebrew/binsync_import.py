@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -68,6 +69,35 @@ def _is_meaningful(name: str) -> bool:
 
 def _strip_cdecl_prefix(name: str) -> str:
     return name[1:] if name.startswith("_") else name
+
+
+def _apply_binsync_func_name(
+    cfg: Any, va: int, local: Any, bs_name: str, local_filepath: str | None
+) -> bool:
+    """Rename the local function at *va* to the BinSync name, everywhere.
+
+    Returns False (nothing written) when the source file is missing or the
+    BinSync name is not a valid identifier.
+    """
+    from rebrew.rename_ops import rename_function_everywhere
+
+    fp = Path(cfg.reversed_dir) / local_filepath if local_filepath else None
+    if fp is None or not fp.exists():
+        return False
+    old_name = getattr(local, "name", "") or ""
+    old_sym = getattr(local, "symbol", "") or old_name
+    if not bs_name.isidentifier():
+        return False
+    rename_function_everywhere(
+        cfg=cfg,
+        filepath=fp,
+        old_name=old_name,
+        old_sym=old_sym,
+        target_func=bs_name,
+        rename_file=True,
+        dry_run=False,
+    )
+    return True
 
 
 @app.callback(invoke_without_command=True)
@@ -273,36 +303,16 @@ def main(
                 proposed.append(
                     {"va": f"0x{va:08x}", "field": "name", "local": local_name, "binsync": bs_name}
                 )
-            if not dry_run:
+                applied_names += 1
+            else:
                 try:
-                    from rebrew.rename_ops import rename_function_everywhere as _rename
-
-                    fp = Path(cfg.reversed_dir) / local_filepath if local_filepath else None
-                    if fp is None or not fp.exists():
+                    if _apply_binsync_func_name(cfg, va, local, bs_stripped, local_filepath):
+                        applied_names += 1
+                    else:
                         skipped += 1
-                        continue
-                    old_name = getattr(local, "name", "") or ""
-                    old_sym = getattr(local, "symbol", "") or old_name
-                    target_func = bs_stripped
-                    # Validate target name
-                    if not target_func.isidentifier():
-                        skipped += 1
-                        continue
-                    _rename(
-                        cfg=cfg,
-                        filepath=fp,
-                        old_name=old_name,
-                        old_sym=old_sym,
-                        target_func=target_func,
-                        rename_file=True,
-                        dry_run=False,
-                    )
-                    applied_names += 1
                 except Exception:
                     log.debug("rename apply failed for VA 0x%x", va, exc_info=True)
                     skipped += 1
-            else:
-                applied_names += 1
             continue
 
         # Both meaningful and different → conflict
@@ -327,28 +337,10 @@ def main(
                 )
             else:
                 try:
-                    from rebrew.rename_ops import rename_function_everywhere as _rename2
-
-                    fp = Path(cfg.reversed_dir) / local_filepath if local_filepath else None
-                    if fp is None or not fp.exists():
+                    if _apply_binsync_func_name(cfg, va, local, bs_stripped, local_filepath):
+                        applied_names += 1
+                    else:
                         skipped += 1
-                        continue
-                    old_name = getattr(local, "name", "") or ""
-                    old_sym = getattr(local, "symbol", "") or old_name
-                    target_func = bs_stripped
-                    if not target_func.isidentifier():
-                        skipped += 1
-                        continue
-                    _rename2(
-                        cfg=cfg,
-                        filepath=fp,
-                        old_name=old_name,
-                        old_sym=old_sym,
-                        target_func=target_func,
-                        rename_file=True,
-                        dry_run=False,
-                    )
-                    applied_names += 1
                 except Exception:
                     log.debug("rename apply failed for VA 0x%x", va, exc_info=True)
                     skipped += 1

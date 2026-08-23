@@ -68,7 +68,7 @@ This design allows:
 
 - **Lookup in any direction**: given `FUN_10001000` from a Ghidra script, find the matching function list or IDA name instantly via the shared VA.
 - **Name precedence**: user-assigned names from *any* tool override auto-generated names. The first non-generic name wins.
-- **Size arbitration**: when tools disagree on function size, `size_by_tool` records each tool's opinion and `canonical_size` picks the best (currently: Ghidra > function list, but configurable).
+- **Size arbitration**: when tools disagree on function size, `size_by_tool` records each tool's opinion and `canonical_size` resolves it (Ghidra wins on ties or when larger; a larger function-list size wins only when the extra bytes classify as jump table, padding, or out-of-line code — see `size_reason` in `catalog/registry.py`).
 
 ### Where This Lives
 
@@ -77,30 +77,38 @@ This design allows:
 | Intermediate JSON | `db/data_<target>.json` | `ghidra_name`, `list_name`, `detected_by`, `size_by_tool` |
 | SQLite DB | `db/coverage.db` → `functions` table | Same columns, queryable via SQL |
 | REST API | `GET /api/targets/<t>/functions/<va>` | Returns all tool names in response JSON |
-| reccmp CSV | `db/<target>_functions.csv` | Only emits user-assigned names; auto-names are left blank |
+| reccmp CSV | `db/<target>_functions.csv` (target lowercased) | Reversed functions emit their annotation name; unmatched functions leave the name blank when their only name is an auto-name (`FUN_`/`fcn.`/`sym.`) |
 
 ---
 
 ## Detecting Auto-Generated vs User-Assigned Names
 
-A name is considered **auto-generated** (generic) if it matches:
+A name is considered **auto-generated** (generic) if it matches the shared
+regex — `_GENERIC_NAME_RE` in `rebrew.ghidra.commands` (mirrored in
+`binsync_import.py` / `binsync_diff.py`):
 
 ```regex
-^(FUN_|func_|sub_|fcn\.|sym\.)[0-9a-fA-F]+$
+^_?(func_|FUN_)[0-9a-fA-F]+(@\d+)?$
 ```
 
-Everything else is treated as a **user-assigned** name and is always preserved.
+(`func_`/`FUN_` hex auto-names, with an optional leading underscore and an
+optional stdcall `@N` suffix.) Everything else is treated as a **user-assigned**
+name and is always preserved.
 
 > [!NOTE]
-> The canonical `normalize_name(name)` function lives in `rebrew.naming` and converts
-> any tool-specific auto-name to `func_<hex>` form. Use it everywhere instead of
-> duplicating the prefix-stripping logic locally.
+> In the current code the `func_<hex>` form is produced by
+> `rebrew.naming.sanitize_name()` (rewrites Ghidra `FUN_<hex>` names for C
+> filenames/identifiers) and `rebrew.catalog.loaders.parse_rizin_afl()`
+> (normalizes rizin `sub.*`/`loc`/`->` names to `fcn.<va>` at ingestion).
+> `rebrew.naming.normalize_name()` is unrelated to tool prefixes: it strips
+> `__imp_`, cdecl `_`, and stdcall `@N` decorations for cross-source symbol
+> matching (see `crt_match.py`).
 
 ### Implications
 
 - **`rebrew sync`**: only pushes labels to Ghidra for user-assigned names (skips generic `func_XXXXXXXX`).
-- **`rebrew catalog --csv`**: emits user-assigned names in the reccmp `name` column; leaves it blank for auto-names per the reccmp spec.
-- **`sanitize_name()`** in `skeleton.py`: normalizes any tool prefix to `func_<hex>` for C filenames and identifiers.
+- **`rebrew catalog --csv`**: reversed functions emit their annotation name; unmatched functions leave the `name` column blank for `FUN_`/`fcn.`/`sym.` auto-names per the reccmp spec.
+- **`sanitize_name()`** in `rebrew.naming` (moved from `skeleton.py`): rewrites Ghidra `FUN_<hex>` names to `func_<hex>` for C filenames and identifiers.
 
 ---
 
@@ -129,21 +137,21 @@ registry[va]["size_by_tool"]["<tool>"] = entry["size"]
 
 ### 3. Name Normalization
 
-Add the tool's auto-name prefix to the generic-name regex:
+Extend the generic-name regex `_GENERIC_NAME_RE` (`rebrew/ghidra/commands.py`,
+mirrored in `binsync_import.py`/`binsync_diff.py`) with the tool's prefix:
 
 ```diff
-- _GENERIC_NAME_RE = re.compile(r"^(func_|FUN_)[0-9a-fA-F]+$")
-+ _GENERIC_NAME_RE = re.compile(r"^(func_|FUN_|sub_|fcn\.)[0-9a-fA-F]+$")
+- _GENERIC_NAME_RE = re.compile(r"^_?(func_|FUN_)[0-9a-fA-F]+(@\d+)?$")
++ _GENERIC_NAME_RE = re.compile(r"^_?(func_|FUN_|sub_)[0-9a-fA-F]+(@\d+)?$")
 ```
 
-And to `sanitize_name()`:
+And teach `sanitize_name()` (`rebrew/naming.py`) to rewrite the new prefix —
+it currently handles only the Ghidra `FUN_` form:
 
 ```diff
   if name.startswith("FUN_"):
       return "func_" + name[4:].lower()
 + if name.startswith("sub_"):
-+     return "func_" + name[4:].lower()
-+ if name.startswith("fcn."):
 +     return "func_" + name[4:].lower()
 ```
 
@@ -173,4 +181,4 @@ The [reccmp CSV format](https://github.com/isledecomp/reccmp/blob/master/docs/cs
 > reccmp treats addresses as hex even without the `0x` prefix.
 > Auto-generated names should be omitted (left blank) — reccmp will use the PDB or its own analysis to resolve them.
 
-Rebrew's `generate_reccmp_csv()` already follows this convention: it skips `FUN_` and `fcn.` prefixes and only emits user-assigned names.
+Rebrew's `generate_reccmp_csv()` follows this: reversed functions emit their annotation name, and unmatched functions skip `FUN_`/`fcn.`/`sym.` auto-names (name left blank).

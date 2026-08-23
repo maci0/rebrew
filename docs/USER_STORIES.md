@@ -28,7 +28,7 @@ User stories for the Rebrew decompilation workbench, organized by persona and wo
 - `rebrew-project.toml` created with target binary, format, arch, and compiler settings
 - Source, bin, and output directories scaffolded
 - Compiler detected from PE Rich Header or CRT prologue patterns
-- Running `rebrew init` a second time changes nothing (idempotent)
+- Re-running `rebrew init` on an existing project is refused (`rebrew-project.toml` already exists)
 
 ```mermaid
 graph TD
@@ -89,7 +89,7 @@ graph TD
     F -->|Yes| G["Named STUB"]
     F -->|No| H["Anonymous STUB<br/>(FUN_XXXXXXXX)"]
     E --> I["Seed RAG database"]
-    G --> T["rebrew triage<br/>classify & prioritize"]
+    G --> T["rebrew todo<br/>classify & prioritize"]
     H --> T
     T --> J["rebrew todo --stats<br/>prioritize by size"]
 
@@ -110,7 +110,7 @@ graph TD
 - `rebrew todo` shows prioritized list of uncovered functions
 - `rebrew skeleton` creates annotated `.c` file
 - `rebrew test` classifies result as EXACT / RELOC / NEAR_MATCHING / MISMATCH
-- Annotation header updated with correct STATUS and BLOCKER (if any)
+- STATUS and BLOCKER (if any) updated in `rebrew-function.toml` metadata
 
 ```mermaid
 graph TD
@@ -122,10 +122,11 @@ graph TD
     Promote --> Done["✅ Done"]
     Test -->|RELOC| PromoteR["auto-promote<br/>→ STATUS: RELOC"]
     PromoteR --> DoneR["✅ Done"]
-    Test -->|MISMATCH| Diff["rebrew match --diff-only"]
+    Test -->|MISMATCH| Diff["rebrew diff"]
     Test -->|COMPILE ERROR| Write
     Diff --> Flags{"Unsure about<br/>compiler flags?"}
     Sweep --> Write
+    Flags -->|Yes| Sweep
     Flags -->|No| Write
 
     style Pick fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
@@ -145,7 +146,7 @@ graph TD
 
 ### Acceptance Criteria
 - GA accepts my `.c` file as seed
-- 120 mutation operators applied (if-swaps, loop transforms, operand commutation, code layout, expression rewriting, MSVC6-targeted stack/register/zero-extension mutations, parameter register toggling, loop break manipulation, call-arg ternary collapse, common-tail hoisting, pragma optimize, loop rotation, argument extraction)
+- 119 mutation operators applied (if-swaps, loop transforms, operand commutation, code layout, expression rewriting, MSVC6-targeted stack/register/zero-extension mutations, parameter register toggling, loop break manipulation, call-arg ternary collapse, common-tail hoisting, pragma optimize, loop rotation, argument extraction)
 - Results cached in SQLite `BuildCache` to prevent duplicate compilations
 - GA finds EXACT/RELOC or reports stagnation after N generations
 
@@ -332,7 +333,7 @@ graph TD
     B --> C["Function boundary<br/>detection"]
     C --> D["FLIRT signature<br/>matching"]
     D -->|"~20-40% matched"| E["Compile from<br/>reference source"]
-    D -->|"Unmatched"| F["rebrew triage<br/>classify functions"]
+    D -->|"Unmatched"| F["rebrew todo<br/>classify functions"]
     E --> G["Seed RAG database"]
     F --> H["rebrew todo<br/>sort by size"]
     H --> I["LLM generates<br/>tiny leaf functions"]
@@ -394,7 +395,7 @@ graph TD
 
 ### Acceptance Criteria
 - `rebrew lint` checks all annotation fields (FUNCTION, STATUS, SIZE, CFLAGS)
-- Error codes E000–E017 for hard errors, W001–W019 for warnings
+- Error codes E000–E023 for hard errors, W001–W028 for warnings
 - `rebrew lint --fix` auto-migrates old annotation formats
 - Running lint twice changes nothing (idempotent)
 
@@ -403,7 +404,7 @@ graph TD
     A["Write or edit a .c file"] --> B["rebrew lint"]
     B --> C{"Annotations valid?"}
     C -->|Yes| D["✅ Clean"]
-    C -->|No| E["Report errors<br/>(E000-E017, W001-W019)"]
+    C -->|No| E["Report errors<br/>(E000-E023, W001-W028)"]
     E --> F{"Auto-fixable?"}
     F -->|Yes| G["rebrew lint --fix"]
     G --> B
@@ -438,7 +439,7 @@ graph TD
     E -->|No matches| G["No library functions<br/>identified"]
     F --> H["Mark as LIBRARY<br/>in annotations"]
 
-    I["Custom .lib file"] --> J["python -m rebrew.gen_flirt_pat<br/>→ custom.pat"]
+    I["Custom .lib file"] --> J["rebrew gen-flirt-pat<br/>→ custom.pat"]
     J --> A
 
     style A fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f

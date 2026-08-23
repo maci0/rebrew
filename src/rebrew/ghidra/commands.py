@@ -349,6 +349,40 @@ def is_meaningful_name(name: str) -> bool:
     )
 
 
+def fetch_signature_only(
+    client: httpx.Client,
+    endpoint: str,
+    program_path: str,
+    va: int,
+    session_id: str,
+) -> str | None:
+    """Fetch one function signature via ``get-decompilation`` with ``signatureOnly``.
+
+    ReVa answers with a plain string, or a dict carrying either a
+    ``signature`` or a full ``decompilation``; anything else means no usable
+    signature.  Returns the trimmed signature string, or None.
+    """
+    res = fetch_mcp_tool_raw(
+        client,
+        endpoint,
+        "get-decompilation",
+        {
+            "programPath": program_path,
+            "functionNameOrAddress": f"0x{va:x}",
+            "signatureOnly": True,
+        },
+        va,
+        session_id=session_id,
+    )
+    if isinstance(res, str):
+        return res.strip()
+    if isinstance(res, dict):
+        sig = res.get("signature", res.get("decompilation"))
+        if isinstance(sig, str):
+            return sig
+    return None
+
+
 def ghidra_name_to_symbol(
     ghidra_name: str, entry: Annotation | dict[str, str], cfg: ProjectConfig | None = None
 ) -> str:
@@ -892,24 +926,7 @@ def pull_prototypes(
             sig = ghidra_sigs.get(va)
             if not sig:
                 # Fallback to get-decompilation if signature isn't in get-functions
-                res = fetch_mcp_tool_raw(
-                    client,
-                    endpoint,
-                    "get-decompilation",
-                    {
-                        "programPath": program_path,
-                        "functionNameOrAddress": f"0x{va:x}",
-                        "signatureOnly": True,
-                    },
-                    va,
-                    session_id=session_id,
-                )
-                if isinstance(res, str):
-                    sig = res.strip()
-                elif isinstance(res, dict) and "signature" in res:
-                    sig = res["signature"]
-                elif isinstance(res, dict) and "decompilation" in res:
-                    sig = res["decompilation"]
+                sig = fetch_signature_only(client, endpoint, program_path, va, session_id)
 
             if sig:
                 # Clean up the signature string
@@ -1006,23 +1023,8 @@ def pull_params(
             except OSError:
                 continue
 
-            res = fetch_mcp_tool_raw(
-                client,
-                endpoint,
-                "get-decompilation",
-                {
-                    "programPath": program_path,
-                    "functionNameOrAddress": f"0x{va:x}",
-                    "signatureOnly": True,
-                },
-                va,
-                session_id=session_id,
-            )
-            if isinstance(res, str):
-                sig = res.strip()
-            elif isinstance(res, dict) and "signature" in res:
-                sig = res["signature"]
-            else:
+            sig = fetch_signature_only(client, endpoint, program_path, va, session_id)
+            if not sig:
                 continue
             sig = sig.replace("\n", " ").strip().rstrip(";").strip()
 

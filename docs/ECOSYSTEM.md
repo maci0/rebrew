@@ -67,8 +67,9 @@ flowchart TB
 ### rebrew — the core workbench (this repo)
 
 Compiler-in-the-loop decompilation: annotated C source is compiled with the
-target's original compiler (MSVC 1.52–11.0, Borland, Watcom, Delphi 1.0,
-gcc-pe), byte-compared against the target binary, and the result drives
+target's original compiler (MSVC 1.0–11.0 — 16-bit 1.0/1.5/1.52 plus 32-bit
+2.0–11.0 — Borland C++ 5.5 / Turbo C 2.0/3.1, Watcom, Delphi 1.0, gcc-pe),
+byte-compared against the target binary, and the result drives
 `STATUS` promotion, diff analysis, and the GA matching engine. It is both
 the CLI workbench and a Python library (`rebrew.*`) that the sibling agent
 and service projects import. Internals: [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -92,8 +93,9 @@ live here — 32-bit images download verified sources at build time; the six
 
 The images are self-contained (runtime — wine/wibo/DOSBox — baked in, the
 wrapper is the entrypoint), so any tool can use them without rebrew itself.
-`rebrew toolchain build/pull/smoke` reads the Dockerfiles from the sibling
-checkout (`REBREW_TOOLCHAINS_DIR`, defaults to `../rebrew-toolchains`), and
+`rebrew toolchain build` (and `vendor`/`update`) reads the Dockerfiles from
+the sibling checkout (`REBREW_TOOLCHAINS_DIR`, defaults to
+`../rebrew-toolchains`); `pull`/`smoke` operate on the built images, and
 compilation shells out via `docker run`. The same images back the
 `recompile` service. See [TOOLCHAIN.md](TOOLCHAIN.md).
 
@@ -332,6 +334,9 @@ Decoupling is by stable contract, not shared code:
 ~/Desktop/Projects/relumea/
 ├── rebrew/              # the core workbench (this repo)
 ├── rebrew-toolchains/   # docker image build source (35 images)
+├── rebrew-flirt-sigs/   # FLIRT signatures merged into project flirt_sigs/
+├── rebrew-projects/     # *-rebrew project instances (win2k-*, skifree16/32,
+│                        #   test_*, bench, smygb, makehm, ...)
 ├── resembl/             # asm similarity search library
 ├── recoverage/          # coverage dashboard SPA
 ├── recompile/           # compiler-as-a-service API
@@ -339,16 +344,13 @@ Decoupling is by stable contract, not shared code:
 ├── relumea/             # SaaS workbench vision (Go backend + React frontend)
 ├── recondb/             # PyPI name placeholder
 ├── decompedia/          # community decomp wiki (markdown vault)
-├── objconv-fork/        # objconv fork used by rebrew's tools/
-├── win2k-*-rebrew/      # project instances: Windows 2000 system apps
-├── skifree{16,32}-rebrew/# project instances: SkiFree
-├── test_*-rebrew/       # synthetic test targets
-└── bench-*-rebrew/      # benchmark targets
+└── objconv-fork/        # objconv fork used by rebrew's tools/
 ```
 
-The `*-rebrew` directories are rebrew *project instances*, not code: each
-holds a target binary, the written C sources, its `rebrew-project.toml`,
-per-function metadata, and its own `db/` — one per binary being decompiled.
+The `*-rebrew` directories under `rebrew-projects/` are rebrew *project
+instances*, not code: each holds a target binary, the written C sources, its
+`rebrew-project.toml`, per-function metadata, and its own `db/` — one per
+binary being decompiled.
 
 ## Further reading
 

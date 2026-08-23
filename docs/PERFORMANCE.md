@@ -60,5 +60,5 @@ compiles), not `score_candidate`.
 ## Idempotency
 
 Every offline `--json` command is deterministic across runs — enforced by
-`tools/check_idempotency.py` (16 commands, run twice, byte-compared) as a CI
+`tools/check_idempotency.py` (17 commands, run twice, byte-compared) as a CI
 step; see `docs/CI.md`.

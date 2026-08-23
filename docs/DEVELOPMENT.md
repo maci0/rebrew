@@ -82,9 +82,9 @@ see [`AGENTS.md`](../AGENTS.md); for the CLI surface see [`CLI.md`](CLI.md).
   image — covered with stubs at the pure-helper level only.
 - `prove.py` needs `angr` (the `prove` extra).  `uv sync --all-extras` (the
   documented dev install) enables the full prove test classes for real
-  (62 tests, previously skipped when angr was absent).  The module-level
-  `_run_simulation` is patchable so tests can inject crafted states and still
-  exercise the real `_compare_state_pairs` logic.
+  (69 tests; the 36 angr-gated ones are skipped when angr is absent).  The
+  module-level `_run_simulation` is patchable so tests can inject crafted
+  states and still exercise the real `_compare_state_pairs` logic.
 - The FLIRT pipeline (`flirt.py`, `gen_flirt_pat.py`) needs real `.sig`/`.pat`
   files and COFF `.lib` archives; `tests/bin_util.py` now covers the COFF
   parsing side without MSVC, and `tests/test_property_parsers.py` fuzzes the
@@ -99,7 +99,8 @@ uv run pytest tests/ -q                 # full suite
 uv run ruff check src/ tests/ tools/    # lint
 uv run ruff format --check src/ tests/ tools/
 uv run mypy src/rebrew/                 # type check (0 issues expected)
-uv run pre-commit run --all-files       # all 15 hooks
+uv run pre-commit run --all-files       # 13 of 15 hooks — pytest (pre-push) and
+                                        # validate-skill-commands (manual) are stage-gated
 make build                              # sdist+wheel (deterministic wheels)
 uv run python -m slipcover -m pytest tests/ -q   # coverage (summary line)
 ```

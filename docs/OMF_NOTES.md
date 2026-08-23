@@ -2,8 +2,10 @@
 
 Watcom's `wcc386` emits **OMF** ("8086 relocatable (Microsoft)") objects by
 default — every `-bt=`/`-fo=`/`owcc` combination tested produced OMF, not
-COFF.  LIEF cannot parse OMF, so Watcom byte-matching needs an OMF parser
-in `matcher/parsers.py` (the README's "Object Parsing ⬜" for Watcom).
+COFF.  LIEF cannot parse OMF; Watcom byte-matching is handled via the
+objconv→COFF conversion in `matcher/parsers.py` and the built-in 16-bit
+parser in `matcher/omf16.py` (see the updates below — the README's
+"Object Parsing" is ✅ for Watcom).
 This file records the empirical findings from the 2026-08-11 investigation
 so the parser starts from ground truth.
 
@@ -57,6 +59,9 @@ compiled with `wcc386 -zq -fo=tg.o tg.c` (Open Watcom 2.0 beta, Aug 2026).
 
 ## Next steps (when implementing)
 
+*(All four steps were implemented in the 2026-08-11 updates below — kept
+for the historical record.)*
+
 1. Parse records into (segments → LEDATA32/A1 code bytes, publics, externals,
    fixups) following the framing above.
 2. Wire `matcher/parsers.py::parse_obj_symbol_and_relocs` to detect OMF
@@ -68,7 +73,7 @@ compiled with `wcc386 -zq -fo=tg.o tg.c` (Open Watcom 2.0 beta, Aug 2026).
 ## Update 2026-08-11 — objconv adopted (32-bit OMF)
 
 **objconv** (Agner Fog's object-file converter, vendored at
-`tools/objconv/objconv`, ~784 KB single binary) is the LIEF-like tool for
+`tools/objconv/objconv`, ~840 KB single binary) is the LIEF-like tool for
 OMF: `objconv -fcoff x.obj -o x.coff` converts OMF→COFF, which the
 existing LIEF path parses unchanged.  `matcher/parsers.py` now detects OMF
 (first record type 0x80..0xA0) and auto-converts before parsing.
@@ -87,8 +92,7 @@ The vendored `tools/objconv/objconv` is the **fixed build from the objconv
 fork** (16-bit relocation methods + COMDAT→COFF-section support, see the
 fork's PR-16BIT-OMF.md); rebrew prefers the vendored binary over a PATH
 objconv, and `parse_obj_symbol_and_relocs` falls through to it when the
-custom parser cannot decode a dialect (the /O1 and far-code COMDAT
-models).
+custom parser cannot decode a dialect.
 
 ## Update 2026-08-11 — MSVC 1.52 16-bit dialect (decoding deferred)
 
@@ -121,7 +125,8 @@ in the meantime.
 ## Update 2026-08-11 — 16-bit MSVC dialect: code extraction DONE
 
 `rebrew.matcher.omf16` now parses the MSVC 1.52 16-bit dialect (wired
-into `parse_obj_symbol_and_relocs` as the fallback when objconv crashes):
+into `parse_obj_symbol_and_relocs` as the primary 16-bit path — objconv
+remains the fallback for dialects the parser cannot decode):
 - `0xA0` records → concatenated code (`[seg:1][offset:2][code...]`)
 - `0x90` MODEND → public name/offset pairs (verified: `_main @ 0x1a`
   lands exactly at the second function in the code stream)

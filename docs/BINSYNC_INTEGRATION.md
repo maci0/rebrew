@@ -1,9 +1,10 @@
 # BinSync Integration
 
-`rebrew binsync-export` and `rebrew binsync-import` provide a bidirectional
-bridge between rebrew and any BinSync-aware decompiler plugin (IDA Pro, Binary
-Ninja, Ghidra via BinSync). The export now carries real global types and struct
-fields; the import closes the loop for names, prototypes, and global labels.
+`rebrew binsync-export`, `rebrew binsync-import`, and `rebrew binsync-diff`
+provide a bidirectional bridge between rebrew and any BinSync-aware decompiler
+plugin (IDA Pro, Binary Ninja, Ghidra via BinSync). The export now carries real
+global types and struct fields; the import closes the loop for names,
+prototypes, and global labels; `binsync-diff` reports divergence read-only.
 
 > For the planned full integration with `libbs` serialization, stack vars, enums,
 > and `rebrew binsync` push/pull umbrella, see [prd/09-binsync-full.md](prd/09-binsync-full.md).
@@ -55,8 +56,9 @@ structured comment at the function's address:
 [rebrew] STATUS=EXACT CFLAGS=/O1 /Gd/Oy
 ```
 
-If a NOTE or GHIDRA field is present in metadata, a separate comment is
-added at `va + 1` (offset, to avoid collision):
+If a NOTE field is present in metadata, a separate comment is added at
+`va + 1` (offset, to avoid collision); a GHIDRA name that differs from the
+exported symbol goes to `va + 2`:
 
 ```
 [rebrew:note] Stubbed via GlobalFree wrapper
@@ -133,7 +135,8 @@ and applies changes back into rebrew metadata/source:
 - **Names** — BinSync `functions/<hex>.toml` `[info].name` → rebrew symbols
   (via `rebrew rename` cross-reference rewriting). Generic→meaningful is applied
   directly; meaningful↔meaningful raises a conflict.
-- **Prototypes** — BinSync `[header].type` → `rebrew-function.toml` prototypes.
+- **Prototypes** — BinSync `[header].type` → `// PROTOTYPE:` inline annotations
+  in the local `.c` files (PROTOTYPE is a file-only key, not metadata).
 - **Globals** — BinSync `global_vars.toml` → `rebrew-data.toml` names.
 
 Conflict resolution mirrors `rebrew sync`:
@@ -167,14 +170,36 @@ rebrew binsync-import ./binsync_state --dry-run --json | jq .
 
 ---
 
+## Diff — `rebrew binsync-diff <state-dir>`
+
+Read-only divergence report between the local project (reversed annotations +
+catalog) and a BinSync state directory. Never writes; exits `1` when any
+divergence exists (CI-friendly). Same filtering semantics as
+`binsync-import --dry-run`.
+
+- **Names** — generic-vs-meaningful and meaningful↔meaningful conflicts
+- **Prototypes** — BinSync `[header].type` vs local prototype
+- **Globals** — `global_vars.toml` labels missing or renamed locally
+- **New in BinSync** — catalog-known functions present in BinSync but not yet
+  reversed locally (the same population import surfaces as `proposed_missing`)
+
+```bash
+rebrew binsync-diff ./binsync_state            # divergences (exit 1 if any)
+rebrew binsync-diff ./state --json | jq .      # machine-readable report
+rebrew binsync-diff ./state --module SERVER    # one module only
+```
+
+---
+
 ## Common Flags
 
-Both commands support the standard rebrew surface:
+All three commands support the standard rebrew surface (`binsync-diff` is
+read-only: no `--dry-run` or `--accept-*`; it exits `1` on divergence):
 
 | Flag | Effect |
 |---|---|
 | `--target NAME` | Operate on a specific target |
-| `--module NAME` | Only this module (export filters, import skips) |
+| `--module NAME` | Only this module (export filters, import/diff skip) |
 | `--dry-run` | Preview without writing |
 | `--json` | Machine-readable output |
 | `--git` (export only) | Stage + `git commit` the state directory after writing |
@@ -211,7 +236,7 @@ rebrew binsync-export ./binsync_state --json
 |--------|------|-----------|-----------------|
 | EXACT / RELOC / PROVEN | ✅ | ✅ (if annotated) | ✅ |
 | NEAR_MATCHING | ✅ | ✅ (if annotated) | ✅ |
-| STUB / EXACT_STUB | ✅ | ✅ (if annotated) | ✅ |
+| STUB | ✅ | ✅ (if annotated) | ✅ |
 | LIBRARY | ✅ | ✅ (if annotated) | ✅ |
 | (no STATUS) | ✅ | ✅ (if annotated) | omitted |
 
