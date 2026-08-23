@@ -52,8 +52,9 @@ rarely matches the original build's.  For an **identical import set** every
 byte of that region is derived from the set — only its order is
 linker-determined — so the fixer:
 
-1. verifies the import set matches the reference (DLLs + entries in IAT slot
-   order), refusing otherwise;
+1. verifies the import set matches the reference (DLLs + entries, sorted so
+   the comparison is order-insensitive — converging the IAT slot order is
+   exactly this fixer's job), refusing otherwise;
 2. rewrites `.text` operands that reference moved IAT slots (`call dword ptr
    [__imp_X]` addresses) to the reference's slot addresses;
 3. verifies the `.rdata` prefix between the IAT and the import directory

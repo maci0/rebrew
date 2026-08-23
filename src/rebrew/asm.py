@@ -399,20 +399,22 @@ def calling_convention(insns: list[Any]) -> str:
     return "unknown"
 
 
-def calling_convention_at(cfg: ProjectConfig, va: int) -> str:
-    """Infer the calling convention of the function at *va* (extent-based).
+def disassembled_extent_window(cfg: ProjectConfig, va: int) -> tuple[list[Any], str | None]:
+    """Disassemble an EXTENT-derived window at *va* for epilogue analysis.
 
-    Shared by ``rebrew describe`` and skeleton generation: disassembles an
-    EXTENT-derived window (not a flat 64-byte slice — a flat window
-    truncated longer functions mid-code, so the epilogue ``ret`` was never
-    visible and inference said "unknown"; see skeleton.py's `_convention_stub`
-    for the original diagnosis).  Works for 16-bit DOS/NE targets too (the
-    epilogue ``ret`` vs ``ret N`` rule is word-size-independent).  Returns
-    ``"unknown"`` on any failure.
+    Shared by ``calling_convention_at`` and skeleton generation.  The window
+    is exact when the extent terminated on a ``ret`` (or a tiny <=16 B
+    ``jmp`` thunk); otherwise it is padded past a branch-merge ``jmp`` so
+    the true epilogue stays visible (a flat 64-byte slice truncated longer
+    functions mid-code and inference said "unknown").  Works for 16-bit
+    DOS/NE targets too.
+
+    Returns ``(insns, extent_kind)`` — empty list and None kind on any
+    failure (unsupported arch, unreadable binary, capstone missing).
     """
     arch = getattr(cfg, "arch", "")
     if arch not in ("x86_32", "x86_16"):
-        return "unknown"
+        return [], None
     try:
         import capstone
 
@@ -435,15 +437,24 @@ def calling_convention_at(cfg: ProjectConfig, va: int) -> str:
             window = min(max(extent or 0, 48) + 96, 256)
         raw = extract_raw_bytes(cfg.target_binary, va, window)
         if not raw:
-            return "unknown"
+            return [], None
         mode = capstone.CS_MODE_32 if arch == "x86_32" else capstone.CS_MODE_16
         md = capstone.Cs(capstone.CS_ARCH_X86, mode)
-        insns = list(md.disasm(raw, va))
-        if not insns:
-            return "unknown"
-        return calling_convention(insns)
+        return list(md.disasm(raw, va)), kind
     except Exception:  # best-effort inference
+        return [], None
+
+
+def calling_convention_at(cfg: ProjectConfig, va: int) -> str:
+    """Infer the calling convention of the function at *va* (extent-based).
+
+    Shared by ``rebrew describe`` and skeleton generation.  Returns
+    ``"unknown"`` on any failure.
+    """
+    insns, _kind = disassembled_extent_window(cfg, va)
+    if not insns:
         return "unknown"
+    return calling_convention(insns)
 
 
 def _extract_hex_operand(op_str: str) -> int | None:

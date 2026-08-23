@@ -22,6 +22,10 @@ UNDOCUMENTED  →  STUB  →  NEAR_MATCHING  →  RELOC  →  EXACT
 | `PROVEN` | Semantic | `rebrew prove` | ✅ Yes |
 | `SKIP` | N/A | Manual (metadata) | ✅ Yes (excluded) |
 
+`rebrew test` / `rebrew verify` also persist machine verdicts — `SIZE_MISMATCH`,
+`COMPILE_ERROR`, `EXTRACT_ERROR`, `MISSING_SIZE`, `MISSING_FILE`, `INVALID_VA` —
+for outcomes that are not match statuses; they never count as matched.
+
 ---
 
 ## UNDOCUMENTED
@@ -42,8 +46,8 @@ No metadata entry exists yet. Coverage dashboard shows these as "untouched".
 ## STUB
 
 A `.c` file exists but the implementation is a placeholder — either empty, contains
-`TODO`, or compiles to something radically different from the target (< 60% byte match,
-or wrong size).
+`TODO`, or compiles to something radically different from the target (< 60% byte match).
+A size mismatch is its own verdict (`SIZE_MISMATCH`), not STUB.
 
 Also assigned automatically by `rebrew test` when a previously-matching function
 regresses below the 60% match threshold (demotion).
@@ -66,7 +70,7 @@ The compiled output is ≥ 60% byte-similar to the target but has structural dif
 that persist after relocation masking — different register allocation, different loop
 structure, different branch ordering.
 
-`rebrew match --fix-blocker` auto-classifies the difference type and writes it to the metadata:
+`rebrew near-diag --fix-blocker` auto-classifies the difference type and writes it to the metadata:
 
 ```toml
 ["SERVER.0x10008880"]
@@ -172,7 +176,7 @@ unmatchable or irrelevant to the decompilation effort:
 ```toml
 ["SERVER.0x10001234"]
 status = "SKIP"
-skip_reason = "IAT thunk — jmp [__imp_CreateFileA]"
+skip = "IAT thunk — jmp [__imp_CreateFileA]"
 ```
 
 SKIP functions are excluded from the "unmatched" count in coverage metrics — they
@@ -209,7 +213,7 @@ flowchart TD
    a. target_bytes == output_bytes               → EXACT
    b. masked_target == masked_output             → RELOC
    c. similarity >= 60%                          → NEAR_MATCHING
-   d. similarity < 60% or wrong size             → STUB (demotion)
+   d. similarity < 60%                          → STUB (demotion)
 ```
 
 ## Relocation Masking Details
@@ -228,6 +232,7 @@ out bytes that are expected to differ between compilations:
 | `mov reg, imm32` | `B8`-`BF` | bytes 1-4 | Only when value looks like an address |
 | `mov reg, [abs32]` | `8B 0D/15/1D/25/2D/35/3D` | bytes 2-5 | Global variable loads |
 | `mov [abs32], reg` | `89 0D/15/1D/25/2D/35/3D` | bytes 2-5 | Global variable stores |
+| `call/jmp dword ptr [abs32]` | `FF 15/25` | bytes 2-5 | Indirect call/jump through an IAT slot |
 
 After masking, if the bytes are identical, the code is structurally the same — only the
 linker-dependent addresses differ. This is the RELOC match.

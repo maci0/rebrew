@@ -1257,13 +1257,7 @@ def _gen_globals_header(
         "",
     ]
 
-    section_order = [".data", ".rdata", ".bss", ""]
-    emitted: set[str] = set()
-    for sec in section_order:
-        items = by_section.get(sec)
-        if not items:
-            continue
-        label = sec if sec else "(unknown section)"
+    def _emit_section(label: str, items: list[dict[str, Any]]) -> None:
         header_lines.append(f"/* {label} */")
         for row in items:
             note_parts = [f"0x{row['va']:08X}"]
@@ -1274,22 +1268,18 @@ def _gen_globals_header(
             decl = _emit_extern_decl(row)
             header_lines.append(f"{decl} /* {', '.join(note_parts)} */")
         header_lines.append("")
+
+    section_order = [".data", ".rdata", ".bss", ""]
+    emitted: set[str] = set()
+    for sec in section_order:
+        if sec not in by_section:
+            continue
+        _emit_section(sec or "(unknown section)", by_section[sec])
         emitted.add(sec)
 
     for sec in sorted(by_section):
-        if sec in emitted:
-            continue
-        items = by_section[sec]
-        header_lines.append(f"/* {sec or '(unknown)'} */")
-        for row in items:
-            note_parts = [f"0x{row['va']:08X}"]
-            if row["size"]:
-                note_parts.append(f"{row['size']} bytes")
-            if row["note"]:
-                note_parts.append(row["note"])
-            decl = _emit_extern_decl(row)
-            header_lines.append(f"{decl} /* {', '.join(note_parts)} */")
-        header_lines.append("")
+        if sec not in emitted:
+            _emit_section(sec or "(unknown)", by_section[sec])
 
     header_lines += ["#endif /* REBREW_GLOBALS_H */", ""]
 

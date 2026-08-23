@@ -2,7 +2,7 @@
 
 > **Scope:** This document covers the **TOML metadata files** (`rebrew-function.toml`,
 > `rebrew-data.toml`) that store volatile per-function fields (STATUS, CFLAGS, BLOCKER,
-> NOTE, GHIDRA) and data section metadata (SIZE, SECTION, NOTE).
+> NOTE, GHIDRA) and data section metadata (NAME, SIZE, SECTION, NOTE).
 > For the source-file marker format (`// FUNCTION: MODULE 0xVA`) and `library_*.h`
 > headers see [ANNOTATIONS.md](ANNOTATIONS.md).
 > For the **full store map** (canonical vs derived vs cache, who owns which
@@ -65,6 +65,7 @@ note = "register allocation differs in inner loop"
 | Function                    | Purpose                        |
 |-----------------------------|--------------------------------|
 | `update_source_status()`    | Set STATUS (with PROVEN guard) |
+| `update_statuses_batch(metadata_dir, updates)` | Bulk STATUS updates (`rebrew verify`) with the same promotion rules |
 | `update_field(key, value)`  | Set any non-STATUS field       |
 | `remove_field(key)`         | Delete a field                 |
 | `get_entry(directory, va, module)` | Read an entry                  |
@@ -82,6 +83,8 @@ size = 4
 section = ".bss"
 note = "player count"
 ```
+
+Owned fields per entry: `name`, `size`, `section`, `note`.
 
 Managed by `rebrew.data_metadata`.
 
@@ -101,6 +104,11 @@ STUB → NEAR_MATCHING → RELOC → EXACT → PROVEN
 | `EXACT`          | Byte-identical to target                         |
 | `PROVEN`         | Semantically verified via `rebrew prove`         |
 
+`rebrew test`/`rebrew verify` also persist machine verdicts outside this
+lifecycle: `SIZE_MISMATCH`, `COMPILE_ERROR`, `EXTRACT_ERROR`, `MISSING_SIZE`,
+`MISSING_FILE`, `INVALID_VA`, plus `SKIP` for user-skipped functions (see
+`rebrew.metadata.KNOWN_STATUSES`).
+
 ### PROVEN Guard
 
 `update_source_status()` **refuses to demote** a PROVEN function unless
@@ -116,5 +124,6 @@ rebrew lint --fix
 
 This will:
 1. Remove `// STATUS:`, `// CFLAGS:`, `// BLOCKER:`, etc. from `.c` files.
-2. Write the values to the appropriate `rebrew-function.toml` metadata.
+2. Write the values to the appropriate TOML (`rebrew-function.toml`, or
+   `rebrew-data.toml` for DATA/GLOBAL markers).
 3. Leave only the reccmp marker line (`// FUNCTION: MODULE 0xVA`) inline.
