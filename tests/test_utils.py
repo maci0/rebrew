@@ -239,6 +239,48 @@ class TestAtomicWriteParents:
         assert strip_comment_blocks(src) == "int x;"
 
 
+class TestMetadataWriteLock:
+    def test_fresh_directory_does_not_crash(self, tmp_path: Path) -> None:
+        """First-ever write into a nonexistent metadata root must not raise:
+        the ``.lock`` sidecar open happens before any data-write mkdir."""
+        from rebrew.utils import metadata_write_lock
+
+        target = tmp_path / "brand" / "new" / "rebrew-function.toml"
+        with metadata_write_lock(target.parent, target.name):
+            pass
+        assert not target.exists()  # lock only — no data file implied
+
+    def test_concurrent_writers_do_not_lose_updates(self, tmp_path: Path) -> None:
+        """N threads doing read-modify-write cycles under the shared lock must
+        all land: without serialization, last-writer-wins drops siblings."""
+        import threading
+        import tomllib
+
+        from rebrew.utils import atomic_write_text, metadata_write_lock, parse_metadata_doc
+
+        target = tmp_path / "rebrew-function.toml"
+        atomic_write_text(target, "")
+
+        def _write(i: int) -> None:
+            with metadata_write_lock(tmp_path, "rebrew-function.toml"):
+                doc = parse_metadata_doc(tomllib.loads(target.read_text(encoding="utf-8")))
+                doc[("M", i)] = {"note": str(i)}
+                lines = "".join(
+                    f'["M.0x{va:x}"]\nnote = "{entry["note"]}"\n'
+                    for (_, va), entry in sorted(doc.items(), key=lambda kv: kv[0])
+                )
+                atomic_write_text(target, lines)
+
+        threads = [threading.Thread(target=_write, args=(i,)) for i in range(16)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        doc = parse_metadata_doc(tomllib.loads(target.read_text(encoding="utf-8")))
+        assert {va for _, va in doc} == set(range(16))
+
+
 # ---------------------------------------------------------------------------
 # Source-encoding detection & preservation (R18)
 # ---------------------------------------------------------------------------
