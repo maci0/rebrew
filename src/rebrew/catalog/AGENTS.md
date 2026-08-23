@@ -6,8 +6,8 @@ Merges function sources (lists, Ghidra JSON, PE exports) into a unified registry
 
 | Module | Role | Key Exports |
 |--------|------|-------------|
-| `loaders.py` | I/O (Ghidra JSON, function lists, DLL bytes, source + library header scanning) | `load_function_structure()`, `load_ghidra_data_labels()`, `parse_function_list()`, `scan_reversed_dir()` |
-| `registry.py` | Merge sources, resolve canonical sizes | `build_function_registry()`, `make_func_entry()` |
+| `loaders.py` | I/O (Ghidra JSON, function lists, DLL bytes, source + library header scanning) | `load_function_structure()`, `load_ghidra_data_labels()`, `make_func_entry()`, `parse_function_list()`, `scan_reversed_dir()` |
+| `registry.py` | Merge sources, resolve canonical sizes | `build_function_registry()` |
 | `grid.py` | Coverage grid generation | `generate_data_json()` |
 | `export.py` | Output (CATALOG.md, reccmp CSV) | `generate_catalog()`, `generate_reccmp_csv()` |
 | `sections.py` | Section parsing, global scanning, x86 utils | `get_globals()`, `get_text_section_size()`, `trim_trailing_padding()`, `has_back_jumps()` |
@@ -25,7 +25,6 @@ cli.py (orchestrator — calls all others)
 └── annotation.py (external — parse_c_file_multi, update_size_annotation)
 
 loaders.py
-├── registry.py (make_func_entry)
 ├── annotation.py (external — parse_c_file_multi, parse_library_header)
 └── cli.py (external — iter_sources, iter_library_headers)
 

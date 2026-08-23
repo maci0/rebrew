@@ -167,7 +167,7 @@ def layout_geometry(project_toml: Path) -> tuple[int, int, int]:
     raise ValueError("no .data section in the layout metadata (run rebrew gen-layout first)")
 
 
-def _data_raw_from_binary(bin_path: Path) -> bytes:
+def data_raw_from_binary(bin_path: Path) -> bytes:
     """The reference's raw .data bytes."""
     info = load_binary(bin_path)
     sec = info.sections.get(".data")
@@ -353,7 +353,7 @@ def fill_data(
     Returns ``{"init_pads": n, "bss_pads": n}``.
     """
     data_base, raw_end, section_end = layout_geometry(root / "rebrew-project.toml")
-    orig = _data_raw_from_binary(bin_path)
+    orig = data_raw_from_binary(bin_path)
     toml = data_symbols(metadata)
     files = sorted(src_dir.rglob("*.c"))
     by_addr = sorted(toml.items(), key=lambda kv: kv[1])
@@ -545,7 +545,7 @@ def own_data_globals(
     (``rebrew gen-stubs``).
     """
     data_base, raw_end, _section_end = layout_geometry(root / "rebrew-project.toml")
-    orig = _data_raw_from_binary(bin_path)
+    orig = data_raw_from_binary(bin_path)
     toml = data_symbols(metadata)
     stub_resolved = stub_file.resolve()
     files = [f for f in sorted(src_dir.rglob("*.c")) if f.resolve() != stub_resolved]
@@ -706,7 +706,7 @@ def fix_ownership(
     """
     toml = _data_symbol_types(metadata)
     data_base, raw_end, _section_end = layout_geometry(root / "rebrew-project.toml")
-    orig = _data_raw_from_binary(bin_path)
+    orig = data_raw_from_binary(bin_path)
     files = sorted(src_dir.rglob("*.c"))
 
     def_re = re.compile(r"^[ \t]*[\w\s\*]+\s+(\w+)(?:\[\d+\])?\s*=")
@@ -831,7 +831,7 @@ def converge_layout(
     Returns per-round pad adjustments.
     """
     data_base, raw_end, _section_end = layout_geometry(root / "rebrew-project.toml")
-    orig = _data_raw_from_binary(bin_path)
+    orig = data_raw_from_binary(bin_path)
     toml = data_symbols(metadata)
     dll = root / "build" / "server.dll"
     if not dll.exists():

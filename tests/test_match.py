@@ -241,11 +241,11 @@ class TestComputeFitness:
         old code always ran the disk BuildCache round-trip first and only then
         found the memo.  Prefill the memo for every member and make any
         compile call explode."""
-        from rebrew.compile_cache import _source_digest
+        from rebrew.compile_cache import source_digest
 
         ga = _make_ga(tmp_path, num_generations=1, pop_size=4)
         for src in ga.population:
-            ga._fitness_memo[_source_digest(src)] = 5.0
+            ga._fitness_memo[source_digest(src)] = 5.0
         calls: list[str] = []
 
         def boom(src: str) -> Any:

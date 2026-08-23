@@ -22,7 +22,8 @@ truth.
 | Function **identity** (which VAs are functions) | merged registry (`catalog/registry.py`: functions.txt + `function_structure.json` + exports, minus IAT slots) | grid JSON, coverage.db `functions` table |
 | Function **size** | registry `canonical_size` (`+ size_reason`) — the compile contract is annotation/metadata `SIZE` | grid `size`, DB `functions.size` |
 | Function **name** | annotation name (the `// FUNCTION: MODULE 0xVA` line) | grid/DB `name`, plus `list_name`/`ghidra_name` columns preserving the other authorities |
-| Match **STATUS** | `rebrew-function.toml` — written **only** via `metadata.update_source_status` / `update_statuses_batch` (promotion gate, PROVEN sticky) | grid/DB snapshots; `.rebrew/verify_cache.json` measured-result overlay at report time |
+| Match **STATUS** | `rebrew-function.toml` — written **only** via `metadata.update_source_status` / `update_statuses_batch` (promotion gate, PROVEN sticky) — triggered by `rebrew test` / `rebrew verify` / `rebrew prove` | grid/DB snapshots; `.rebrew/verify_cache.json` measured-result overlay at report time |
+| **BLOCKER / BLOCKER_DELTA** | `rebrew-function.toml` — written **only** via `metadata.update_field` / `remove_field` through `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`, `rebrew document-unmatched` (never hand-edited) | `rebrew status`/`todo` counts; `lint` W005 when `STUB` lacks one |
 | **cflags / toolchain** | `rebrew-function.toml` (per-function) → `rebrew-library.toml` (per-library, walk-up) → project defaults, resolved by `resolve_compile_overrides` | grid `cflags`, DB column |
 | **Data symbols (globals)** | `rebrew-data.toml` | grid `globals`, DB `globals` table, `src/<target>/rebrew_globals.h` (`rebrew data --gen-header` — extern declarations for the build) |
 | Coverage presence | grid JSON (`db/data_<target>.json`) | coverage.db (pure function of the JSON) |
@@ -82,11 +83,15 @@ whenever the reference binary changes — the layout files carry
    `rebrew/utils.py` (`load_metadata_doc`, `parse_metadata_doc`,
    `metadata_write_lock`) — do not hand-roll a third copy.
 3. Writes to canonical stores go through the gated APIs:
-   `update_source_status` (STATUS), `update_field` (function metadata),
-   `set_data_field` (data metadata), `rebrew library set` (library
-   overrides).  No module-less metadata keys: the writers reject an empty
-   module (a bare `0xVA` key was once writable but never readable — the
-   guard now raises instead).
+   `update_source_status` / `update_statuses_batch` (STATUS),
+   `update_field` / `remove_field` (function metadata, incl. `rebrew blocker`
+   for BLOCKER), `set_data_field` (data metadata), `rebrew library set`
+   (library overrides).  **Do not hand-edit `rebrew-function.toml` or
+   `rebrew-data.toml`** — every write goes through `metadata_write_lock` +
+   `atomic_write_text` (see `rebrew/metadata.py`, `rebrew/data_metadata.py`).
+   No module-less metadata keys: the writers reject an empty module (a bare
+   `0xVA` key was once writable but never readable — the guard now raises
+   instead).
 4. Caches must be invalidation-correct: mtime-keyed or content-keyed, and
    written with the shared `atomic_write_text` / `metadata_write_lock`
    machinery.

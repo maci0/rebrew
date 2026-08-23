@@ -208,13 +208,13 @@ def main(
         if not cfg_path.exists():
             payload["cflags_write"] = "skipped: no rebrew-project.toml in cwd"
         else:
-            from rebrew.cfg import _load_toml, _save_toml
+            from rebrew.cfg import load_toml, save_toml
 
-            doc, toml_path = _load_toml(cfg_path.parent)
+            doc, toml_path = load_toml(cfg_path.parent)
             comp = doc.get("compiler")
             if isinstance(comp, dict):
                 comp["cflags"] = " ".join(info.flags)
-                _save_toml(doc, toml_path)
+                save_toml(doc, toml_path)
                 payload["cflags_write"] = " ".join(info.flags)
 
     if json_output:

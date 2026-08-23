@@ -228,7 +228,7 @@ def _wineprefix(spec: ToolchainSpec) -> Path:
     return Path.home() / ".cache" / f"rebrew-{spec.name}-wineprefix"
 
 
-def _kill_container(name: str, timeout: int = 30) -> None:
+def kill_container(name: str, timeout: int = 30) -> None:
     """Best-effort ``docker kill`` of a timed-out run container.
 
     Killing the docker CLI leaves the container running under dockerd; the
@@ -275,7 +275,7 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
                 timeout=300,
             )
         except subprocess.TimeoutExpired as exc:
-            _kill_container(name)
+            kill_container(name)
             error_exit(f"wineprefix init timed out after 300s ({prefix}): {exc}")
         if r.returncode != 0:
             # A half-initialized prefix makes every later compile fail with
@@ -334,7 +334,7 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
     except subprocess.TimeoutExpired:
         # Killing the CLI leaves the wine container running under dockerd —
         # kill it by name so a hung compile does not outlive the timeout.
-        _kill_container(str(cmd[cmd.index("--name") + 1]))
+        kill_container(str(cmd[cmd.index("--name") + 1]))
         raise
     sys.stdout.write((r.stdout + r.stderr).replace("\r", ""))
     sys.stdout.flush()

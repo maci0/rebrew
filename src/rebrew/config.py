@@ -180,7 +180,7 @@ class LinkConfig:
 #: flag routing (``ProjectConfig.posix_style``) and the ``base_cflags``
 #: config default — a posix profile's always-on flags must not default to
 #: the MSVC glue (``/nologo /c /MT``) or every compile breaks.
-_POSIX_PROFILES = frozenset(
+POSIX_PROFILES = frozenset(
     {"gcc", "gcc-pe", "clang", "watcom", "watcom16", "borlandc55", "tc20", "tc16"}
 )
 
@@ -272,7 +272,7 @@ class ProjectConfig:
         Single source of truth for compile/flag routing across compile.py,
         diff.py, match.py, and matcher/compiler.py.
         """
-        return self.compiler_profile in _POSIX_PROFILES
+        return self.compiler_profile in POSIX_PROFILES
 
     # --- Computed from arch ---
     pointer_size: int = 4
@@ -1148,7 +1148,7 @@ def load_config(
             # (gcc-pe/mingw, watcom, tc16/20, borland): /nologo /c /MT breaks
             # gcc.  init writes base_cflags = "" for those profiles; the
             # loader default must match so hand-written tomls work too.
-            "" if profile_val in _POSIX_PROFILES else "/nologo /c /MT",
+            "" if profile_val in POSIX_PROFILES else "/nologo /c /MT",
             "compiler.base_cflags",
         ),
         compile_timeout=_positive_int(compiler.get("timeout", 60), 60, "compiler.timeout"),

@@ -261,7 +261,7 @@ class _Import:
     ordinal: int | None
 
 
-def _parse_pe(
+def parse_pe(
     data: bytes,
 ) -> tuple[list[_Section], list[dict[str, Any]], list[_Import], dict[str, Any]]:
     """Return (sections, exports, imports, pe_params) from a PE image."""
@@ -469,9 +469,9 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
             timeout=60,
         )
     except subprocess.TimeoutExpired:
-        from rebrew.toolchain import _kill_container
+        from rebrew.toolchain import kill_container
 
-        _kill_container(name)
+        kill_container(name)
         return set()
     except OSError:
         return set()
@@ -777,7 +777,7 @@ def main(
         error_exit(f"binary not found: {cfg.target_binary}")
     data = cfg.target_binary.read_bytes()
     try:
-        sections, exports, imports_raw, pe = _parse_pe(data)
+        sections, exports, imports_raw, pe = parse_pe(data)
     except ValueError as exc:
         error_exit(f"{cfg.target_binary}: {exc}")
 

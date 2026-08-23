@@ -151,7 +151,7 @@ def _function_stats(
     return total, by_status, by_module, covered_bytes, matched_bytes
 
 
-def _resolve_db_dir(root_dir: Path, *, json_output: bool = False) -> Path:
+def resolve_db_dir(root_dir: Path, *, json_output: bool = False) -> Path:
     """Return the configured database directory, falling back when no config exists."""
     if not (root_dir / "rebrew-project.toml").exists():
         return root_dir / "db"
@@ -364,7 +364,7 @@ def build_db(
 ) -> None:
     """Aggregate ``data_*.json`` files into the configured coverage database."""
     root_dir = Path(project_root).resolve() if project_root else Path.cwd().resolve()
-    db_dir = _resolve_db_dir(root_dir, json_output=json_output)
+    db_dir = resolve_db_dir(root_dir, json_output=json_output)
     db_dir.mkdir(parents=True, exist_ok=True)
     db_path = db_dir / "coverage.db"
 

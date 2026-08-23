@@ -13,9 +13,9 @@ from rebrew.tc16 import Tc16Error, compile_c
 # sandbox; without the tree present (CI: trees are vendored into the
 # rebrew-toolchains checkout, not committed) the class can only fail at
 # staging, so skip rather than red.
-from rebrew.toolchain import _toolchains_repo
+from rebrew.toolchain import toolchains_repo
 
-_REPO_TC16 = _toolchains_repo() / "borland" / "3.1-win16" / "source"
+_REPO_TC16 = toolchains_repo() / "borland" / "3.1-win16" / "source"
 
 
 def _fake_tcc(monkeypatch, sandbox: Path) -> None:
@@ -84,7 +84,7 @@ class TestHeadlessDosbox:
         assert env.get("SDL_AUDIODRIVER") == "dummy"
 
     def test_wrapper_common_dosbox_is_headless(self) -> None:
-        wrapper = _toolchains_repo() / "base" / "wrapper-common.sh"
+        wrapper = toolchains_repo() / "base" / "wrapper-common.sh"
         text = wrapper.read_text(encoding="utf-8")
         assert "SDL_VIDEODRIVER=dummy" in text
         assert "SDL_AUDIODRIVER=dummy" in text
@@ -100,7 +100,7 @@ class TestDosboxDriverSync:
     def test_host_and_image_conf_templates_match(self) -> None:
         from rebrew import dosbox as dosbox_mod
 
-        wrapper = _toolchains_repo() / "base" / "wrapper-common.sh"
+        wrapper = toolchains_repo() / "base" / "wrapper-common.sh"
         wtext = wrapper.read_text(encoding="utf-8")
         sandbox = "/tmp/sbx"
         autoexec = "C:\\BIN\\TCC.EXE -c t.c"
@@ -283,7 +283,7 @@ def test_mz_fixture_main_matches_with_reloc() -> None:
     assert res.match_percent == 100.0
 
 
-_REPO_TC20 = _toolchains_repo() / "borland" / "2.0-win16" / "source"
+_REPO_TC20 = toolchains_repo() / "borland" / "2.0-win16" / "source"
 
 
 @pytest.mark.skipif(

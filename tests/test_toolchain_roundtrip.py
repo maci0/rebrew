@@ -62,11 +62,11 @@ def _cfg(root: Path, toolchain: str) -> SimpleNamespace:
 
 def _toolchain_available(toolchain: str) -> bool:
     """True when the toolchain's docker image is built locally."""
-    from rebrew.toolchain import TOOLCHAINS, _image_present
+    from rebrew.toolchain import TOOLCHAINS, image_present
 
     profile = _TOOLCHAIN_PROFILES.get(toolchain, "msvc6")
     spec = TOOLCHAINS[profile]
-    return spec.image is not None and _image_present(spec.image)
+    return spec.image is not None and image_present(spec.image)
 
 
 def _compile_extract_compare(tmp_path: Path, toolchain: str, cflags: list[str]) -> str:

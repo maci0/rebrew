@@ -808,9 +808,9 @@ def main(
     # Overlay verify cache on annotation statuses (same logic + target guard
     # as status.py — a different target's cache must not leak into this
     # project's coverage stats).
-    from rebrew.status import _load_verify_statuses
+    from rebrew.status import load_verify_statuses
 
-    verify_statuses = _load_verify_statuses(cfg)
+    verify_statuses = load_verify_statuses(cfg)
 
     status_counts: dict[str, int] = {}
     documented = 0

@@ -81,11 +81,12 @@ for `--compare` (not “better than EXACT”).
 | `rebrew status` | `status.py` | At-a-glance reversing progress overview (per-module coverage, status ladder counts) |
 | `rebrew similar` | `similar.py` | Find structurally similar functions in the target binary (clone detection) |
 | `rebrew binary-similarity` | `binary_similarity.py` | Whole-binary structural similarity vs another binary — per-function best matches aggregated into a byte-weighted score (versions/DLL+EXE) |
-| `rebrew near-diag` | `near_diag.py` | Classify why a `NEAR_MATCHING` function does not byte-match — categories: register / equivalent / reloc / structural, plus the `EFFECTIVE` verdict when the entire delta is register allocation (reccmp's 100% effective-match case); JSON carries a `frame` stack-comparison field |
+| `rebrew near-diag` | `near_diag.py` | Classify why a `NEAR_MATCHING` function does not byte-match — categories: register / equivalent / reloc / structural, plus the `EFFECTIVE` verdict when the entire delta is register allocation (reccmp's 100% effective-match case); JSON carries a `frame` stack-comparison field; `--fix-blocker` auto-writes BLOCKER |
 | `rebrew stack-cmp` | `stack_cmp.py` | Compare a compiled function's stack frame against the target (reccmp `stackcmp` without a PDB): frame size, ebp-vs-esp (/Oy), `ret N` popping, `[ebp±N]` slot layout — flag-focused hints for per-function CFLAGS tuning |
 | `rebrew verify-exports` | `exports.py` | Verify the recompiled binary's export table matches the original target (reccmp `verexp` equivalent; compares export names, exits 1 on missing/added) |
 | `rebrew round-trip` | `round_trip.py` | Splice matched functions back into the target PE and verify byte equality |
 | `rebrew skills` | `skills.py` | Discover and display AI agent skills bundled with rebrew (`list`, `show` subcommands) |
+| `rebrew blocker` | `blocker.py` | Manage `BLOCKER` / `BLOCKER_DELTA` in `rebrew-function.toml` (`set`/`clear`/`show` by file, VA, or symbol; `--delta`, `--va`, `--dry-run`, `--json`) — ad-hoc BLOCKER for STUBs `diff --fix-blocker` cannot classify; every write via `rebrew.metadata` (locked + atomic, never hand-edited) |
 
 ## Tool Flags
 
@@ -400,6 +401,22 @@ there, or that now points *inside* another function's span, is a stale
 annotation after a binary update (LIBRARY/DATA/GLOBAL markers are excluded
 so import stubs and data labels never false-positive).  Environment/setup
 health is `rebrew doctor`'s job, not lint's.
+
+### `rebrew blocker`
+
+```
+rebrew blocker set <target> <blocker> [--delta INT] [--va HEX] [--dry-run] [--json] [--target NAME]
+rebrew blocker clear <target> [--va HEX] [--dry-run] [--json] [--target NAME]
+rebrew blocker show <target> [--json] [--target NAME]
+```
+
+Manage `BLOCKER` / `BLOCKER_DELTA` in `rebrew-function.toml` for a single
+function (file, symbol, or hex VA).  `set` writes the blocker text and an
+optional `--delta`; `clear` removes both fields; `show` prints the current
+values.  This is the ad-hoc counterpart to the auto-writers (`rebrew diff
+--fix-blocker`, `rebrew near-diag --fix-blocker`, `rebrew
+document-unmatched`) for blockers they cannot classify.  Every write goes
+through `rebrew.metadata` (locked + atomic) — never hand-edit the toml.
 
 ### `rebrew gen-layout`
 
@@ -1516,7 +1533,8 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 | Module | Purpose |
 |--------|---------|
 | `annotation.py` | Canonical annotation parser (`parse_c_file`, `parse_c_file_multi`) |
-| `lint.py` | Source marker linter (E000–E023 / W001–W028); `--fix` auto-migrates old formats |
+| `lint.py` | Source marker linter (E000–E023 / W001–W029); `--fix` auto-migrates old formats; W005 points to `rebrew blocker set` for STUB BLOCKERs |
+| `blocker.py` | Programmatic BLOCKER writer — `rebrew blocker set/clear/show` (`--json`, `--dry-run`, `--delta`, `--va`); every write via `rebrew.metadata` (never hand-edit `rebrew-function.toml`) |
 | `ghidra/cli.py` | Sync annotations to Ghidra via ReVa MCP; skips generic `func_` labels by default |
 
 ### Binary Analysis
@@ -1547,6 +1565,7 @@ that returns a `CompareResult` dataclass used by both `rebrew test` and
 | `classify_compare_result` | `compile.py` | Pure helper: classifies raw byte comparison into a `CompareResult` |
 | `compile_and_compare` | `compile.py` | High-level: compile → extract → compare → `CompareResult` |
 | `update_source_status` | `metadata.py` | Canonical STATUS writer — promotes STATUS in `rebrew-function.toml`; never touches `.c` files |
+| `update_field` / `remove_field` | `metadata.py` | Canonical BLOCKER/CFLAGS/NOTE writers — `rebrew blocker set/clear` (BLOCKER), `rebrew diff --fix-blocker` / `near-diag --fix-blocker` (auto BLOCKER) — never hand-edit `rebrew-function.toml` |
 
 Both `rebrew test` (auto-promote after single test) and `rebrew verify`
 (always-on batch promotion) call `update_source_status`.  The `.c` file is **never modified**

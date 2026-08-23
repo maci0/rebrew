@@ -69,7 +69,7 @@ def _rebrew_comment(status: str, cflags: str) -> str:
     return f"[rebrew] {' '.join(parts)}" if parts else ""
 
 
-def _strip_body(prototype: str) -> str:
+def strip_body(prototype: str) -> str:
     """Return the function signature without the body (everything before ``{``).
 
     ``annotation.prototype`` includes the full C definition including its body.
@@ -278,7 +278,7 @@ def _write_function_toml(
     doc["info"] = info
 
     # [header] — C-level type/prototype (signature only, no body)
-    sig = _strip_body(prototype) if prototype else ""
+    sig = strip_body(prototype) if prototype else ""
     if sig:
         header = tomlkit.table()
         header["type"] = sig

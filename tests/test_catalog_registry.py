@@ -2,10 +2,10 @@
 
 import struct
 
+from rebrew.catalog.loaders import make_func_entry
 from rebrew.catalog.registry import (
     _resolve_canonical_size,
     is_jump_table,
-    make_func_entry,
 )
 
 

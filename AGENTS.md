@@ -385,6 +385,6 @@ Numeric constants need explicit operators: GA can't fix wrong offsets/magics/siz
 - **Source glob**: `source_glob(cfg)` from `sources.py` — respects `cfg.source_ext` (`.c`, `.cpp`)
 - **Don't reimplement**: if an imported library provides it, use it
 - **No backward compat**: one name per function — no aliases/shims/wrappers
-- **Volatile metadata**: fields `STATUS`, `CFLAGS`, `BLOCKER`, `NOTE`, `GHIDRA` live in per-directory `rebrew-function.toml` via `rebrew.metadata` — never edit manually
-- **STATUS promotion**: only via `rebrew.metadata` writers — `update_source_status(metadata_dir, new_status, module, va)` (single; `rebrew test`) or `update_statuses_batch(metadata_dir, updates)` (batch; `rebrew verify`) — never write `STATUS` in `.c` files.
+- **Volatile metadata**: fields `STATUS`, `CFLAGS`, `BLOCKER`, `NOTE`, `GHIDRA` live in per-directory `rebrew-function.toml` via `rebrew.metadata` — never edit manually (STATUS via `update_source_status`/`update_statuses_batch`; BLOCKER via `update_field`/`remove_field` through `rebrew blocker set/clear` or the auto-writers `rebrew diff --fix-blocker`/`near-diag --fix-blocker`/`document-unmatched`)
+- **STATUS promotion**: only via `rebrew.metadata` writers — `update_source_status(metadata_dir, new_status, module, va)` (single; `rebrew test`) or `update_statuses_batch(metadata_dir, updates)` (batch; `rebrew verify`) — never write `STATUS` in `.c` files. BLOCKER likewise only via `update_field`/`remove_field` (see above).
 - **Compile result**: `compile_and_compare` (`rebrew.compile`) / `verify_entry` (`rebrew.verify`) → `CompareResult`; use `.matched`, `.status`, `.delta`, `.match_percent` — never tuple-unpack.

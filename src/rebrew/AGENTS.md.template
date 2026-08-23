@@ -73,9 +73,12 @@ note   = "inline asm detected"
 ```
 
 > [!CAUTION]
-> **Never manually edit `rebrew-function.toml`.** It is managed exclusively by Rebrew
-> CLI tools (`rebrew test`, `rebrew match`, `rebrew diff --fix-blocker`, etc.).  Manual
-> edits will be lost or corrupt the file and break tool workflows.
+> **Never manually edit `rebrew-function.toml` or `rebrew-data.toml`.** They are managed
+> exclusively by Rebrew CLI tools (`rebrew test`/`verify`/`prove` for STATUS;
+> `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`,
+> `rebrew document-unmatched` for BLOCKER; `rebrew data` / `rebrew sync` for globals).
+> Every write goes through `rebrew.metadata` / `rebrew.data_metadata` (locked + atomic) —
+> hand-edits bypass the lock and get clobbered.
 
 **STATUS values**: `PROVEN` (semantically verified) > `EXACT` (byte-perfect) > `RELOC` (match after masking
 relocations) > `NEAR_MATCHING` (close) > `STUB` (incomplete)

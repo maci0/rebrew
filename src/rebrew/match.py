@@ -59,7 +59,7 @@ from rebrew.cli import (
     resolve_source_arg,
 )
 from rebrew.compile import resolve_compiler_env
-from rebrew.compile_cache import CompileCache, _source_digest
+from rebrew.compile_cache import CompileCache, source_digest
 from rebrew.config import ProjectConfig
 from rebrew.core import build_iat_region, smart_reloc_compare
 from rebrew.matcher import (
@@ -164,14 +164,14 @@ def _mutation_focus_weights(
     or ``"auto"``, which derives the category from *blocker* — the function's
     BLOCKER metadata written by ``near-diag --fix-blocker`` (verdict text like
     ``NEAR_MATCHING — REGISTER (57% of delta) — try: ...``).  The category's
-    suggested operators (``rebrew.near_diag._MUTATION_SUGGESTIONS``) get
+    suggested operators (``rebrew.near_diag.MUTATION_SUGGESTIONS``) get
     ``_MUTATION_FOCUS_WEIGHT``; unlisted operators keep weight 1.0.
 
     Returns None when there is nothing to bias (no focus, ``reloc`` — whose
     delta is relocation-masked, or ``auto`` with no derivable verdict) — the
     GA then samples mutations uniformly.
     """
-    from rebrew.near_diag import _MUTATION_SUGGESTIONS
+    from rebrew.near_diag import MUTATION_SUGGESTIONS
 
     if focus == "auto":
         if not blocker:
@@ -180,7 +180,7 @@ def _mutation_focus_weights(
         focus = m.group(1).lower() if m else None
     if focus not in _MUTATION_FOCUS_CATEGORIES:
         return None
-    ops = _MUTATION_SUGGESTIONS.get(focus) or []
+    ops = MUTATION_SUGGESTIONS.get(focus) or []
     if not ops:
         return None
     return {op: _MUTATION_FOCUS_WEIGHT for op in ops}
@@ -252,7 +252,7 @@ def _ga_cache_key(
     # candidate (src.encode() + joins), and the source hash was recomputed
     # every call despite being constant within a GA run (perf-review F3).
     h = hashlib.sha256()
-    h.update(_source_digest(src).encode())
+    h.update(source_digest(src).encode())
     h.update(b"\x00cflags=" + cflags.encode())
     h.update(b"\x00cmd=" + cl_cmd.encode())
     h.update(b"\x00inc=" + inc_dir.encode())
@@ -609,7 +609,7 @@ class BinaryMatchingGA:
                 # silently mixing scores of different sources.
                 futures: dict[Future[BuildResult], tuple[str, str]] = {}
                 for src in self.population:
-                    src_hash = _source_digest(src)
+                    src_hash = source_digest(src)
                     memoized = self._fitness_memo.get(src_hash)
                     if memoized is not None:
                         scored_pop.append((memoized, src))

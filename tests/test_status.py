@@ -727,7 +727,7 @@ class TestVerifyCacheHelpers:
         assert info.total == 2
 
     def test_verify_statuses_hex_and_decimal(self, tmp_path: Path) -> None:
-        from rebrew.status import _load_verify_statuses
+        from rebrew.status import load_verify_statuses
 
         self._write_cache(
             tmp_path,
@@ -742,7 +742,7 @@ class TestVerifyCacheHelpers:
                 },
             },
         )
-        statuses = _load_verify_statuses(self._cfg(tmp_path))
+        statuses = load_verify_statuses(self._cfg(tmp_path))
         assert statuses == {0x1000: "EXACT"}
 
     def test_verify_info_wrong_target_ignored(self, tmp_path: Path) -> None:
@@ -760,7 +760,7 @@ class TestVerifyCacheHelpers:
         assert _load_verify_info(self._cfg(tmp_path)) is None
 
     def test_verify_statuses_wrong_target_ignored(self, tmp_path: Path) -> None:
-        from rebrew.status import _load_verify_statuses
+        from rebrew.status import load_verify_statuses
 
         self._write_cache(
             tmp_path,
@@ -770,7 +770,7 @@ class TestVerifyCacheHelpers:
                 "entries": {"0x1": {"result": {"status": "EXACT"}}},
             },
         )
-        assert _load_verify_statuses(self._cfg(tmp_path)) == {}
+        assert load_verify_statuses(self._cfg(tmp_path)) == {}
 
     def test_verify_info_null_result_skipped_not_failed(self, tmp_path: Path) -> None:
         """Null/truthy-non-dict results are skipped, never counted as failures."""
@@ -802,15 +802,15 @@ class TestVerifyCacheHelpers:
         assert _load_verify_info(self._cfg(tmp_path)) is None
 
     def test_verify_statuses_entries_list_no_crash(self, tmp_path: Path) -> None:
-        from rebrew.status import _load_verify_statuses
+        from rebrew.status import load_verify_statuses
 
         self._write_cache(tmp_path, {"version": 1, "target": "T", "entries": ["0x1"]})
-        assert _load_verify_statuses(self._cfg(tmp_path)) == {}
+        assert load_verify_statuses(self._cfg(tmp_path)) == {}
 
     def test_verify_statuses_missing_file(self, tmp_path: Path) -> None:
-        from rebrew.status import _load_verify_statuses
+        from rebrew.status import load_verify_statuses
 
-        assert _load_verify_statuses(self._cfg(tmp_path)) == {}
+        assert load_verify_statuses(self._cfg(tmp_path)) == {}
 
     def test_compute_text_size_missing_binary(self, tmp_path: Path) -> None:
         from rebrew.status import _compute_text_size
@@ -827,29 +827,29 @@ class TestVerifyCacheHelpers:
 
 class TestStatusBranches:
     def test_verify_statuses_corrupt_json(self, tmp_path: Path) -> None:
-        from rebrew.status import _load_verify_statuses
+        from rebrew.status import load_verify_statuses
 
         cache = tmp_path / ".rebrew"
         cache.mkdir()
         (cache / "verify_cache.json").write_text("{broken", encoding="utf-8")
         cfg = SimpleNamespace(root=tmp_path)
-        assert _load_verify_statuses(cfg) == {}  # type: ignore[arg-type]
+        assert load_verify_statuses(cfg) == {}  # type: ignore[arg-type]
 
     def test_verify_statuses_non_dict_raw(self, tmp_path: Path) -> None:
         import json
 
-        from rebrew.status import _load_verify_statuses
+        from rebrew.status import load_verify_statuses
 
         cache = tmp_path / ".rebrew"
         cache.mkdir()
         (cache / "verify_cache.json").write_text(json.dumps([1, 2]), encoding="utf-8")
         cfg = SimpleNamespace(root=tmp_path)
-        assert _load_verify_statuses(cfg) == {}  # type: ignore[arg-type]
+        assert load_verify_statuses(cfg) == {}  # type: ignore[arg-type]
 
     def test_verify_statuses_non_dict_entry_skipped(self, tmp_path: Path) -> None:
         import json
 
-        from rebrew.status import _load_verify_statuses
+        from rebrew.status import load_verify_statuses
 
         cache = tmp_path / ".rebrew"
         cache.mkdir()
@@ -868,7 +868,7 @@ class TestStatusBranches:
             encoding="utf-8",
         )
         cfg = SimpleNamespace(root=tmp_path, target_name="T")
-        statuses = _load_verify_statuses(cfg)  # type: ignore[arg-type]
+        statuses = load_verify_statuses(cfg)  # type: ignore[arg-type]
         assert statuses == {0x2000: "EXACT"}
 
     def test_compute_text_size_import_error(self, tmp_path: Path, monkeypatch: object) -> None:

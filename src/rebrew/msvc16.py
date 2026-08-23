@@ -29,9 +29,9 @@ class Msvc16Result:
 
 
 def _find_vc152(version: str = "1.52-win16") -> Path:
-    from rebrew.toolchain import _toolchains_repo
+    from rebrew.toolchain import toolchains_repo
 
-    vc = _toolchains_repo() / "msvc" / version / "source"
+    vc = toolchains_repo() / "msvc" / version / "source"
     if (vc / "BIN" / "CL.EXE").exists():
         return vc
     raise Msvc16Error(

@@ -157,7 +157,7 @@ def _find_root(*, json_mode: bool = False) -> Path:
         )
 
 
-def _load_toml(
+def load_toml(
     root: Path | None = None, *, json_mode: bool = False
 ) -> tuple[tomlkit.TOMLDocument, Path]:
     """Load rebrew-project.toml as a tomlkit document, preserving formatting."""
@@ -177,7 +177,7 @@ def _load_toml(
     return doc, toml_path
 
 
-def _save_toml(doc: tomlkit.TOMLDocument, path: Path, *, dry_run: bool = False) -> None:
+def save_toml(doc: tomlkit.TOMLDocument, path: Path, *, dry_run: bool = False) -> None:
     """Write tomlkit document back, preserving formatting.
 
     With *dry_run*, prints what would change without touching the disk.
@@ -262,7 +262,7 @@ def list_targets(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """List all targets defined in rebrew-project.toml."""
-    doc, _ = _load_toml(json_mode=json_output)
+    doc, _ = load_toml(json_mode=json_output)
     targets = doc.get("targets", {})
     if not targets:
         if json_output:
@@ -307,7 +307,7 @@ def show(
     target: str | None = TargetOption,
 ) -> None:
     """Show the current config, or a specific key."""
-    doc, _ = _load_toml(json_mode=json_output)
+    doc, _ = load_toml(json_mode=json_output)
 
     if key is None:
         if json_output:
@@ -341,7 +341,7 @@ def raw(
     fmt: str = typer.Option("json", "--format", "-f", help="Output format: json, toml"),
 ) -> None:
     """Dump entire rebrew-project.toml as JSON or TOML (raw machine-readable output)."""
-    doc, _ = _load_toml()
+    doc, _ = load_toml()
     fmt = fmt.lower()
     if fmt not in {"json", "toml"}:
         error_exit(f"Unknown format: {fmt}. Use json or toml.")
@@ -403,7 +403,7 @@ def add_target(
     written and a warning is emitted).
     """
     root = _find_root()
-    doc, toml_path = _load_toml(root)
+    doc, toml_path = load_toml(root)
 
     # Ensure [targets] exists
     targets = doc.get("targets")
@@ -505,7 +505,7 @@ def add_target(
     tgt.add("origins", origin_list)
 
     targets[name] = tgt
-    _save_toml(doc, toml_path)
+    save_toml(doc, toml_path)
 
     console.print(f'[green]Added [targets."{name}"] to rebrew-project.toml[/green]')
     console.print(f"[green]  Format: {fmt}, Arch: {arch} (auto-detected)[/green]")
@@ -520,7 +520,7 @@ def remove_target(
     force: bool = typer.Option(False, "--force", help="Skip confirmation prompt"),
 ) -> None:
     """Remove a target section from rebrew-project.toml (idempotent)."""
-    doc, toml_path = _load_toml()
+    doc, toml_path = load_toml()
     targets = doc.get("targets", {})
     if name not in targets:
         console.print(f"[yellow]Target '{name}' not found (already removed).[/yellow]")
@@ -529,7 +529,7 @@ def remove_target(
     if not force:
         typer.confirm(f"Remove target '{name}' from rebrew-project.toml?", abort=True)
     del targets[name]
-    _save_toml(doc, toml_path)
+    save_toml(doc, toml_path)
     console.print(f'[green]Removed [targets."{name}"] from rebrew-project.toml[/green]')
     console.print("  [dim]Note: src/ and bin/ directories were NOT deleted.[/dim]")
 
@@ -543,7 +543,7 @@ def set_value(
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
 ) -> None:
     """Set a scalar config key."""
-    doc, toml_path = _load_toml()
+    doc, toml_path = load_toml()
 
     # Route bare target-scoped keys to the default target so `cfg set binary
     # foo.exe` writes [targets.<default>] instead of a top-level key that the
@@ -572,7 +572,7 @@ def set_value(
         console.print(f"[cyan]dry-run:[/cyan] would set {key} = {parsed_value!r}")
         return
     parent[final_key] = parsed_value
-    _save_toml(doc, toml_path)
+    save_toml(doc, toml_path)
     console.print(f"[green]Set {key} = {parsed_value!r}[/green]")
 
 
@@ -583,7 +583,7 @@ def add_module(
     target: str | None = TargetOption,
 ) -> None:
     """Add a module to a target's origins list."""
-    doc, toml_path = _load_toml()
+    doc, toml_path = load_toml()
     target = _resolve_target(doc, target)
     targets_table: Any = doc["targets"]
     tgt: Any = targets_table[target]
@@ -606,9 +606,9 @@ def add_module(
         return
     origins.append(module_upper)
     # tomlkit copies plain lists on assignment — re-assign so the mutation
-    # is visible to the document that _save_toml serializes.
+    # is visible to the document that save_toml serializes.
     tgt["origins"] = origins
-    _save_toml(doc, toml_path)
+    save_toml(doc, toml_path)
     console.print(
         f"[green]Added module '{module_upper}' to {target}. Modules: {list(origins)}[/green]"
     )
@@ -621,7 +621,7 @@ def remove_module(
     target: str | None = TargetOption,
 ) -> None:
     """Remove a module from a target's origins list (idempotent)."""
-    doc, toml_path = _load_toml()
+    doc, toml_path = load_toml()
     target = _resolve_target(doc, target)
     targets_table: Any = doc["targets"]
     tgt: Any = targets_table[target]
@@ -636,7 +636,7 @@ def remove_module(
     if not force:
         typer.confirm(f"Remove module '{module.upper()}' from target '{target}'?", abort=True)
     origins.remove(module.upper())
-    _save_toml(doc, toml_path)
+    save_toml(doc, toml_path)
     console.print(
         f"[green]Removed module '{module.upper()}' from {target}. Modules: {list(origins)}[/green]"
     )
@@ -655,7 +655,7 @@ def set_cflags(
     ),
 ) -> None:
     """Set cflags preset for a module."""
-    doc, toml_path = _load_toml()
+    doc, toml_path = load_toml()
 
     if target is not None:
         # Per-target cflags_presets — written under the target's COMPILER
@@ -692,7 +692,7 @@ def set_cflags(
             f"[cyan]dry-run:[/cyan] would set {scope}.cflags_presets.{module.upper()} = {flags!r}"
         )
         return
-    _save_toml(doc, toml_path)
+    save_toml(doc, toml_path)
     console.print(f'[green]Set {scope}.cflags_presets.{module.upper()} = "{flags}"[/green]')
 
 
@@ -714,7 +714,7 @@ def set_compiler(
     if profile not in COMPILER_DEFAULTS:
         error_exit(f"Unknown compiler profile '{profile}'. Valid profiles: {', '.join(known)}")
 
-    doc, toml_path = _load_toml()
+    doc, toml_path = load_toml()
     target_name = _resolve_target(doc, target)
 
     preset = COMPILER_DEFAULTS[profile]
@@ -738,7 +738,7 @@ def set_compiler(
     compiler_tbl["includes"] = preset["includes"]
     compiler_tbl["libs"] = preset["libs"]
 
-    _save_toml(doc, toml_path)
+    save_toml(doc, toml_path)
     console.print(f'[green]Set compiler profile "{profile}" on target "{target_name}".[/green]')
     console.print(f"  profile   = {profile}")
     console.print(f"  command  = {preset['command']}")
@@ -773,7 +773,7 @@ def detect_crt(
             json_print(result)
             return
         if write:
-            doc, toml_path = _load_toml(root, json_mode=True)
+            doc, toml_path = load_toml(root, json_mode=True)
             target_name = _resolve_target(doc, target)
             targets_table: Any = doc["targets"]
             tgt: Any = targets_table[target_name]
@@ -787,7 +787,7 @@ def detect_crt(
                     crt_sources[origin] = rel_path
                     written += 1
             if written:
-                _save_toml(doc, toml_path)
+                save_toml(doc, toml_path)
             result["target"] = target_name
             result["written"] = written
         json_print(result)
@@ -801,7 +801,7 @@ def detect_crt(
         console.print(f"  {origin} → {rel_path}")
 
     if write:
-        doc, toml_path = _load_toml(root)
+        doc, toml_path = load_toml(root)
         target_name = _resolve_target(doc, target)
         cfg_targets_table: Any = doc["targets"]
         cfg_tgt: Any = cfg_targets_table[target_name]
@@ -818,7 +818,7 @@ def detect_crt(
                 written += 1
 
         if written:
-            _save_toml(doc, toml_path)
+            save_toml(doc, toml_path)
             console.print(
                 f'[green]Wrote {written} crt_sources entries to [targets."{target_name}"].[/green]'
             )

@@ -16,24 +16,24 @@ _THREE_RETS = b"\xc3\xc3\xc3"  # ret; ret; ret
 
 class TestDisasmSignature:
     def test_ret(self) -> None:
-        sig = similar_mod._disasm_signature(_RET, 0x1000, "CS_ARCH_X86", "CS_MODE_32")
+        sig = similar_mod.disasm_signature(_RET, 0x1000, "CS_ARCH_X86", "CS_MODE_32")
         assert sig is not None
         assert sig["histogram"] == {"ret": 1}
         assert sig["calls"] == 0
         assert sig["branches"] == 0
 
     def test_call_and_branch_counts(self) -> None:
-        sig = similar_mod._disasm_signature(_CALL_RET, 0x1000, "CS_ARCH_X86", "CS_MODE_32")
+        sig = similar_mod.disasm_signature(_CALL_RET, 0x1000, "CS_ARCH_X86", "CS_MODE_32")
         assert sig is not None
         assert sig["calls"] == 1
         assert sig["histogram"]["ret"] == 1
 
-        jmp_sig = similar_mod._disasm_signature(_JMP_RET, 0x1000, "CS_ARCH_X86", "CS_MODE_32")
+        jmp_sig = similar_mod.disasm_signature(_JMP_RET, 0x1000, "CS_ARCH_X86", "CS_MODE_32")
         assert jmp_sig is not None
         assert jmp_sig["branches"] == 1
 
     def test_empty_returns_none(self) -> None:
-        assert similar_mod._disasm_signature(b"", 0x1000, "CS_ARCH_X86", "CS_MODE_32") is None
+        assert similar_mod.disasm_signature(b"", 0x1000, "CS_ARCH_X86", "CS_MODE_32") is None
 
 
 class TestCosine:
@@ -50,17 +50,17 @@ class TestCosine:
 
 class TestSimilarityScore:
     def test_identical_sigs_score_100(self) -> None:
-        sig = similar_mod._disasm_signature(_CALL_RET, 0, "CS_ARCH_X86", "CS_MODE_32")
+        sig = similar_mod.disasm_signature(_CALL_RET, 0, "CS_ARCH_X86", "CS_MODE_32")
         assert similar_mod.similarity_score(sig, sig) == 100.0
 
     def test_none_returns_zero(self) -> None:
-        sig = similar_mod._disasm_signature(_CALL_RET, 0, "CS_ARCH_X86", "CS_MODE_32")
+        sig = similar_mod.disasm_signature(_CALL_RET, 0, "CS_ARCH_X86", "CS_MODE_32")
         assert similar_mod.similarity_score(sig, None) == 0.0
         assert similar_mod.similarity_score(None, sig) == 0.0
 
     def test_different_sigs_score_lower(self) -> None:
-        a = similar_mod._disasm_signature(_CALL_RET, 0, "CS_ARCH_X86", "CS_MODE_32")
-        b = similar_mod._disasm_signature(_THREE_RETS, 0, "CS_ARCH_X86", "CS_MODE_32")
+        a = similar_mod.disasm_signature(_CALL_RET, 0, "CS_ARCH_X86", "CS_MODE_32")
+        b = similar_mod.disasm_signature(_THREE_RETS, 0, "CS_ARCH_X86", "CS_MODE_32")
         assert 0.0 < similar_mod.similarity_score(a, b) < 100.0
 
 
@@ -143,7 +143,7 @@ class TestFindSimilar:
 
 class TestFindSimilarEdgeCases:
     def test_query_extract_none_returns_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Empty bytes → _disasm_signature returns None → no results.
+        # Empty bytes → disasm_signature returns None → no results.
         run, _ = TestFindSimilar()._setup(monkeypatch, {0x1000: b""})
         assert run() == []
 
@@ -151,7 +151,7 @@ class TestFindSimilarEdgeCases:
         import rebrew.similar as similar_mod
 
         run, _ = TestFindSimilar()._setup(monkeypatch, {0x1000: b"\x90" * 6})
-        monkeypatch.setattr(similar_mod, "_disasm_signature", lambda *a, **k: None)
+        monkeypatch.setattr(similar_mod, "disasm_signature", lambda *a, **k: None)
         assert run() == []
 
     def test_zero_size_candidates_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -165,14 +165,14 @@ class TestFindSimilarEdgeCases:
         import rebrew.similar as similar_mod
 
         run, _ = TestFindSimilar()._setup(monkeypatch, {0x1000: b"\x90" * 6, 0x2000: b"\x90" * 6})
-        real_sig = similar_mod._disasm_signature
+        real_sig = similar_mod.disasm_signature
 
         def _sig(code, va, cs_arch, cs_mode):
             if va == 0x2000:
                 return None
             return real_sig(code, va, cs_arch, cs_mode)
 
-        monkeypatch.setattr(similar_mod, "_disasm_signature", _sig)
+        monkeypatch.setattr(similar_mod, "disasm_signature", _sig)
         results = run()
         assert all(r["va"] != "0x00002000" for r in results)
 
@@ -196,7 +196,7 @@ class TestDisasmSignatureIntConstants:
         """cfg.capstone_arch/capstone_mode return ints; Cs must accept them."""
         import capstone
 
-        sig = similar_mod._disasm_signature(
+        sig = similar_mod.disasm_signature(
             _CALL_RET, 0x1000, capstone.CS_ARCH_X86, capstone.CS_MODE_32
         )
         assert sig is not None

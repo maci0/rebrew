@@ -49,16 +49,6 @@ def _new_registry_entry(
     )
 
 
-# ---------------------------------------------------------------------------
-# Factory helpers
-# ---------------------------------------------------------------------------
-
-
-def make_func_entry(va: int, size: int, name: str) -> dict[str, int | str]:
-    """Create a normalized function-list record."""
-    return {"va": va, "size": size, "name": name}
-
-
 # VAs where radare2 reports spurious functions; projects customize via r2_bogus_vas config.
 _DEFAULT_R2_BOGUS_SIZES: set[int] = set()
 

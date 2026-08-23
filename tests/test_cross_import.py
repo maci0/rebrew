@@ -48,7 +48,7 @@ def _pe_b() -> bytes:
 
 
 def _sig(blob: bytes, va: int = 0) -> dict[str, Any]:
-    sig = ci._disasm_signature(blob, va, "CS_ARCH_X86", "CS_MODE_32")
+    sig = ci.disasm_signature(blob, va, "CS_ARCH_X86", "CS_MODE_32")
     assert sig is not None
     return sig
 

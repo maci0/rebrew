@@ -13,7 +13,7 @@ from rich.console import Console
 
 from rebrew.annotation import (
     NEW_FUNC_CAPTURE_RE,
-    _parse_c_file_text,
+    parse_c_file_text,
     split_annotation_sections,
 )
 from rebrew.cli import (
@@ -340,9 +340,7 @@ def main(
         if enc != "utf-8":
             out_encoding = enc
 
-        annotations = _parse_c_file_text(
-            text, file_path, target_marker(cfg), None, cfg.metadata_dir
-        )
+        annotations = parse_c_file_text(text, file_path, target_marker(cfg), None, cfg.metadata_dir)
         if not annotations:
             continue
 

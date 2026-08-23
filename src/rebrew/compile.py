@@ -554,7 +554,7 @@ def _dedupe_flags(flags: list[str]) -> list[str]:
     return out
 
 
-def _resolve_include_flags(flags: list[str], src_parent: Path, cfg_root: Path) -> list[str]:
+def resolve_include_flags(flags: list[str], src_parent: Path, cfg_root: Path) -> list[str]:
     """Resolve relative /I include paths against src_parent then cfg_root.
 
     The source file is copied into a Wine-compatible workdir, so relative /I
@@ -599,11 +599,11 @@ def _resolve_include_flags(flags: list[str], src_parent: Path, cfg_root: Path) -
     return resolved
 
 
-def _extract_include_dirs(flags: list[str]) -> list[str]:
+def extract_include_dirs(flags: list[str]) -> list[str]:
     """Return the include dirs named by ``/I``/``-I`` flags, in order.
 
     Handles the attached (``/Ipath``) and two-token (``/I path``) forms.
-    *flags* must already be include-resolved (see :func:`_resolve_include_flags`)
+    *flags* must already be include-resolved (see :func:`resolve_include_flags`)
     so relative paths are absolute.  These dirs participate in the compile
     cache key's header-dependency resolution: a dir only reachable through a
     flag's ``/I`` would otherwise have its headers untracked.
@@ -631,9 +631,9 @@ def _is_vendored_toolchain_tree(p: Path) -> bool:
     Those trees are baked into the docker images byte-identical, so the
     container needs no bind mount for them — CL/wcc resolve their own
     includes inside the image."""
-    from rebrew.toolchain import _toolchains_repo
+    from rebrew.toolchain import toolchains_repo
 
-    root = _toolchains_repo()
+    root = toolchains_repo()
     try:
         p.resolve().relative_to(root.resolve())
         return True
@@ -794,8 +794,8 @@ def compile_to_obj(
 
     src_parent = source_path.resolve().parent
 
-    base_flags = _resolve_include_flags(base_flags, src_parent, cfg.root)
-    resolved_cflags = _resolve_include_flags(cflags, src_parent, cfg.root)
+    base_flags = resolve_include_flags(base_flags, src_parent, cfg.root)
+    resolved_cflags = resolve_include_flags(cflags, src_parent, cfg.root)
     all_flags = _dedupe_flags(base_flags + resolved_cflags)
 
     # Per-target version defines (targets.<name>.defines → /DV2 or -DV2):
@@ -836,7 +836,7 @@ def compile_to_obj(
                     inc_path,
                     str(src_parent),
                     *(extra_include_dirs or []),
-                    *_extract_include_dirs(all_flags),
+                    *extract_include_dirs(all_flags),
                 ]
             )
             if d
@@ -1332,9 +1332,9 @@ def _link_obj_docker(
             timeout=timeout,
         )
     except subprocess.TimeoutExpired:
-        from rebrew.toolchain import _kill_container
+        from rebrew.toolchain import kill_container
 
-        _kill_container(cmd[cmd.index("--name") + 1])
+        kill_container(cmd[cmd.index("--name") + 1])
         return False, f"LINK.EXE timed out after {timeout}s"
     except OSError as exc:
         return False, str(exc)

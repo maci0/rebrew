@@ -244,7 +244,7 @@ def scan_references(
     return xrefs
 
 
-def _ne_code_segments(info: BinaryInfo) -> list[str]:
+def ne_code_segments(info: BinaryInfo) -> list[str]:
     """Section names of an NE binary's code segments (for scans)."""
     return [f"SEG{s.index}" for s in info.ne_segments if s.is_code]  # type: ignore[attr-defined]
 
@@ -252,7 +252,7 @@ def _ne_code_segments(info: BinaryInfo) -> list[str]:
 def _default_scan_sections(info: BinaryInfo) -> list[str]:
     """Sections scanned for references: code segments for NE, else .text."""
     if info.format == "ne":
-        return _ne_code_segments(info)
+        return ne_code_segments(info)
     return [".text"]
 
 

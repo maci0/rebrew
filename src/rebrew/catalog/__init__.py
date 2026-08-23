@@ -26,6 +26,9 @@ from rebrew.catalog.loaders import (
     load_ghidra_data_labels as load_ghidra_data_labels,
 )
 from rebrew.catalog.loaders import (
+    make_func_entry as make_func_entry,
+)
+from rebrew.catalog.loaders import (
     parse_function_list as parse_function_list,
 )
 from rebrew.catalog.loaders import (
@@ -51,9 +54,6 @@ from rebrew.catalog.registry import (
 )
 from rebrew.catalog.registry import (
     is_jump_table as is_jump_table,
-)
-from rebrew.catalog.registry import (
-    make_func_entry as make_func_entry,
 )
 from rebrew.catalog.sections import (
     get_globals as get_globals,

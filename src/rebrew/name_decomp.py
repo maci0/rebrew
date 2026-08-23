@@ -38,11 +38,11 @@ from rich.console import Console
 
 from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
 from rebrew.struct_recover import (
-    _PSEUDO_TYPES,
-    _TYPE_WIDTHS,
-    _type_width,
+    PSEUDO_TYPES,
+    TYPE_WIDTHS,
     parse_decomp_for_structs,
     pointer_element_widths,
+    type_width,
 )
 
 console = Console(stderr=True)
@@ -113,8 +113,8 @@ def struct_field_layout(definition: str) -> FieldLayout:
         width: int | None
         if m.group("ptr"):
             width = 4  # x86-32 pointer
-        elif base in _TYPE_WIDTHS:
-            width = _TYPE_WIDTHS[base]
+        elif base in TYPE_WIDTHS:
+            width = TYPE_WIDTHS[base]
         else:
             width = None
         if width is None:
@@ -250,7 +250,7 @@ def _rewrite_sig_type(m: re.Match[str], var_structs: dict[str, str]) -> str:
         return m.group(0)
     base = m.group("base")
     # Only primitive/pseudo bases are renamed; a named struct param stays.
-    if base not in _TYPE_WIDTHS and base not in _PSEUDO_TYPES:
+    if base not in TYPE_WIDTHS and base not in PSEUDO_TYPES:
         return m.group(0)
     return f"{struct} *{var}"
 
@@ -291,7 +291,7 @@ def _rewrite_access(
     name, width = field
 
     if form == "deref":
-        cast_w = _type_width(cast)
+        cast_w = type_width(cast)
         if cast_w is None:  # named cast type — leave the access untouched
             return m.group(0)
         if cast_w == width:

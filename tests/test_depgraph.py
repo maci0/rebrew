@@ -373,7 +373,7 @@ class TestBinaryCallEdges:
         from test_ne_loader import _build_ne
 
         from rebrew.binary_loader import load_binary
-        from rebrew.depgraph import _binary_call_edges
+        from rebrew.depgraph import binary_call_edges
         from rebrew.ne_loader import enumerate_ne_functions
 
         # Two functions: fn1 calls fn2 (near call), fn1 jumps to itself region.
@@ -389,7 +389,7 @@ class TestBinaryCallEdges:
         funcs = enumerate_ne_functions(info)
         assert len(funcs) >= 2
         ranges = [(f.va, f.va + f.size, f"fcn_{f.va:08x}") for f in funcs]
-        edges = _binary_call_edges(info, ranges)
+        edges = binary_call_edges(info, ranges)
         assert len(edges) == 1  # fn1 -> fn2
         assert edges[0][0] != edges[0][1]
         assert "fcn_" in edges[0][0] and "fcn_" in edges[0][1]

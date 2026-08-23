@@ -11,10 +11,10 @@ from rebrew.doctor import _FAIL, _PASS, _WARN, check_compiler, check_runner
 def _vendored_ok(profile: str) -> bool:
     """True when the profile's vendored host compiler is actually present
     (binaries are gitignored, so a fresh clone has the tree but not them)."""
-    from rebrew.toolchain import _vendored_binary, get_toolchain
+    from rebrew.toolchain import get_toolchain, vendored_binary
 
     try:
-        return _vendored_binary(get_toolchain(profile)) is not None
+        return vendored_binary(get_toolchain(profile)) is not None
     except Exception:
         return False
 
@@ -42,7 +42,7 @@ class TestCheckCompiler:
         """With the msvc1.52 profile configured, the compiler check must
         validate the docker image (execution is docker-only), not hand-wave
         with the stale 'future 16-bit profile' notice."""
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
         result = check_compiler(
             _cfg(
                 arch="x86_16",
@@ -54,7 +54,7 @@ class TestCheckCompiler:
         assert "not built" in result.message
         assert "toolchain build" in (result.fix or "")
         # and a built image passes
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
         result2 = check_compiler(
             _cfg(
                 arch="x86_16",
@@ -83,7 +83,7 @@ class TestCheckDelphi16Toolchain:
         from rebrew.doctor import _FAIL, check_delphi16_toolchain
 
         monkeypatch.setattr(
-            "rebrew.delphi16._find_dcc", lambda: (_ for _ in ()).throw(Delphi16Error("not found"))
+            "rebrew.delphi16.find_dcc", lambda: (_ for _ in ()).throw(Delphi16Error("not found"))
         )
         result = check_delphi16_toolchain(_cfg(arch="x86_16"))
         assert result.status == _FAIL
@@ -96,7 +96,7 @@ class TestCheckDelphi16Toolchain:
         dcc_dir.mkdir(parents=True)
         (dcc_dir / "DCC.EXE").write_bytes(b"MZ")
         (dcc_dir / "RTM.EXE").write_bytes(b"MZ")
-        monkeypatch.setattr("rebrew.delphi16._find_dcc", lambda: dcc_dir / "DCC.EXE")
+        monkeypatch.setattr("rebrew.delphi16.find_dcc", lambda: dcc_dir / "DCC.EXE")
         monkeypatch.setattr("rebrew.doctor.shutil.which", lambda *a, **k: "/usr/bin/dosbox")
         result = check_delphi16_toolchain(_cfg(arch="x86_16"))
         assert result.status == _PASS
@@ -626,7 +626,7 @@ class TestCheckToolchainBacked:
     def test_watcom_image_present_passes(self, monkeypatch) -> None:
         from rebrew.doctor import _PASS, check_toolchain_backed
 
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
         cfg = SimpleNamespace(compiler_profile="watcom", root=Path("/tmp"))
         result = check_toolchain_backed(cfg)
         assert result.status == _PASS
@@ -635,7 +635,7 @@ class TestCheckToolchainBacked:
     def test_missing_image_fails(self, monkeypatch) -> None:
         from rebrew.doctor import _FAIL, check_toolchain_backed
 
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
         cfg = SimpleNamespace(compiler_profile="watcom", root=Path("/tmp"))
         result = check_toolchain_backed(cfg)
         assert result.status == _FAIL
@@ -650,7 +650,7 @@ class TestCheckCompilerRelativeCommand:
     def test_relative_command_resolves(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.doctor import _PASS, check_compiler
 
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
         cl = tmp_path / "toolchain" / "msvc" / "1.52-win16" / "BIN" / "CL.EXE"
         cl.parent.mkdir(parents=True)
         cl.write_bytes(b"")  # presence is what matters
@@ -667,7 +667,7 @@ class TestCheckCompilerRelativeCommand:
     def test_missing_image_fails(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.doctor import _FAIL, check_compiler
 
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
         cfg = SimpleNamespace(
             root=tmp_path,
             arch="x86_16",
@@ -711,7 +711,7 @@ class TestToolchainDownloadHint:
     def test_missing_image_fix_has_build_hint(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.doctor import _FAIL, check_compiler
 
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
         cfg = SimpleNamespace(
             root=tmp_path,
             arch="x86_16",
@@ -728,7 +728,7 @@ class TestCheckToolchainBackedNewProfiles:
     def test_tc16_image_present_passes(self, monkeypatch) -> None:
         from rebrew.doctor import _PASS, check_toolchain_backed
 
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
         cfg = SimpleNamespace(compiler_profile="tc16", root=Path("/tmp"))
         result = check_toolchain_backed(cfg)
         assert result.status == _PASS
@@ -737,7 +737,7 @@ class TestCheckToolchainBackedNewProfiles:
     def test_borlandc55_image_present_passes(self, monkeypatch) -> None:
         from rebrew.doctor import _PASS, check_toolchain_backed
 
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
         cfg = SimpleNamespace(compiler_profile="borlandc55", root=Path("/tmp"))
         result = check_toolchain_backed(cfg)
         assert result.status == _PASS
@@ -759,7 +759,7 @@ class TestCheckCompiler16BitProfiles:
     detector for 32-bit profiles on 16-bit targets."""
 
     def test_tc16_profile_not_warned(self, monkeypatch) -> None:
-        monkeypatch.setattr("rebrew.toolchain._image_present", lambda tag: False)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
         result = check_compiler(_cfg(arch="x86_16", compiler_profile="tc16", compiler_command=""))
         assert result.status == _FAIL  # image not built -> real failure, not the 16-bit warn
         assert "16-bit" not in (result.message or "")

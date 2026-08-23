@@ -12,10 +12,15 @@ from typing import Any
 
 from rebrew.annotation import Annotation, parse_c_file_multi, parse_library_header
 from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
-from rebrew.catalog.registry import make_func_entry
 from rebrew.config import ProjectConfig
 from rebrew.sources import iter_library_headers, iter_sources, target_marker
 from rebrew.utils import read_source_text
+
+
+def make_func_entry(va: int, size: int, name: str) -> dict[str, int | str]:
+    """Create a normalized function-list record."""
+    return {"va": va, "size": size, "name": name}
+
 
 # ---------------------------------------------------------------------------
 # Ghidra function loader

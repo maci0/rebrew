@@ -50,7 +50,7 @@ def _is_meaningful(name: str) -> bool:
     )
 
 
-def _strip_body(prototype: str) -> str:
+def strip_body(prototype: str) -> str:
     brace = prototype.find("{")
     return prototype[:brace].strip() if brace != -1 else prototype.strip()
 
@@ -111,7 +111,7 @@ def main(
         # Existing annotation — check name + prototype
         local_name = getattr(local, "symbol", "") or getattr(local, "name", "") or ""
         raw_proto = getattr(local, "prototype", "") or ""
-        local_proto = _strip_body(raw_proto) if raw_proto else ""
+        local_proto = strip_body(raw_proto) if raw_proto else ""
         # prototype divergence
         if bs_proto and bs_proto != local_proto:
             # Local prototype with body stripped vs binsync header type

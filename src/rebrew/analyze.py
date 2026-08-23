@@ -197,7 +197,7 @@ def _collect_far_calls(binary: Path) -> list[dict[str, Any]] | None:
     """
     from collections import Counter
 
-    from rebrew.analysis import _ne_code_segments, extract_bytes, section_range
+    from rebrew.analysis import extract_bytes, ne_code_segments, section_range
     from rebrew.binary_loader import is_ne, load_binary
 
     if not is_ne(binary):
@@ -213,7 +213,7 @@ def _collect_far_calls(binary: Path) -> list[dict[str, Any]] | None:
     md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_16)
     md.detail = True
     targets: Counter[tuple[int, int]] = Counter()
-    for name in _ne_code_segments(info):
+    for name in ne_code_segments(info):
         rng = section_range(info, name)
         if rng is None:
             continue

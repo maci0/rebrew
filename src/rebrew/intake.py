@@ -36,7 +36,7 @@ from rich.console import Console
 from typer.testing import CliRunner
 
 from rebrew.cli import EXIT_OK, error_exit, json_print
-from rebrew.skeleton import _C89_STRICT_PROFILES
+from rebrew.skeleton import C89_STRICT_PROFILES
 from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
@@ -58,7 +58,7 @@ _TOOLCHAIN_LINKS: dict[str, tuple[str, str]] = {
     "tc20": ("borland/2.0-win16", "borland/2.0-win16"),
 }
 
-_REPO_TOOLS = Path(__file__).resolve().parents[2] / "tools"
+REPO_TOOLS = Path(__file__).resolve().parents[2] / "tools"
 
 
 @dataclass
@@ -201,7 +201,7 @@ def classify_all(
         reason = blocker_reason(family, size, hint)
         # C89-strict 16-bit profiles (Turbo C 2.0 etc.) reject `//` —
         # emit the block-comment marker form so the stub still compiles.
-        use_block = profile in _C89_STRICT_PROFILES
+        use_block = profile in C89_STRICT_PROFILES
         if use_block:
             stub = (
                 f"/* STUB: {marker} 0x{va:08x} */\n\n"
@@ -324,7 +324,7 @@ def _link_toolchain(project: Path, profile: str) -> str | None:
     tools = project / "tools"
     tools.mkdir(exist_ok=True)
     link = tools / link_name
-    src = _REPO_TOOLS / src_name
+    src = REPO_TOOLS / src_name
     if link.exists():
         return str(link)
     if not src.exists():
@@ -527,7 +527,7 @@ def main(
                 )
             elif profile != "gcc-pe":
                 console.print(
-                    f"[yellow]  toolchain: not found in {_REPO_TOOLS} — symlink "
+                    f"[yellow]  toolchain: not found in {REPO_TOOLS} — symlink "
                     "tools/ yourself or run rebrew doctor[/yellow]"
                 )
         for note in notes:

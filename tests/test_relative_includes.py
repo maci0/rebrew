@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from rebrew.compile import compile_and_compare, compile_to_obj
-from rebrew.toolchain import _toolchains_repo
+from rebrew.toolchain import toolchains_repo
 
 _REPO = Path(__file__).resolve().parents[1]
 
@@ -21,14 +21,14 @@ _REPO = Path(__file__).resolve().parents[1]
 #: docker layer skips bind-mounting these (the image bakes its own), so the
 #: relative-include machinery gets exercised without docker recreating
 #: stray host dirs.
-_INSTALL_INCLUDES = str(_toolchains_repo() / "msvc" / "6.0-win32" / "VC98" / "Include")
+_INSTALL_INCLUDES = str(toolchains_repo() / "msvc" / "6.0-win32" / "VC98" / "Include")
 
 
 def _image_available(profile: str) -> bool:
-    from rebrew.toolchain import TOOLCHAINS, _image_present
+    from rebrew.toolchain import TOOLCHAINS, image_present
 
     spec = TOOLCHAINS[profile]
-    return spec.image is not None and _image_present(spec.image)
+    return spec.image is not None and image_present(spec.image)
 
 
 def _project(name: str) -> tuple[Path, Path, Path]:

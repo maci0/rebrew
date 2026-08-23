@@ -3,7 +3,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from rebrew.compile import _resolve_include_flags, resolve_cl_command
+from rebrew.compile import resolve_cl_command, resolve_include_flags
 
 
 def _cfg(root: Path, **overrides: object) -> SimpleNamespace:
@@ -43,7 +43,7 @@ class TestResolveIncludeFlags:
         src_parent = tmp_path / "src"
         inc = src_parent / "inc"
         inc.mkdir(parents=True)
-        out = _resolve_include_flags(["/Iinc"], src_parent, tmp_path)
+        out = resolve_include_flags(["/Iinc"], src_parent, tmp_path)
         assert out == [f"/I{inc.resolve()}"]
 
     def test_relative_from_root(self, tmp_path: Path) -> None:
@@ -51,22 +51,22 @@ class TestResolveIncludeFlags:
         src_parent.mkdir()
         inc = tmp_path / "inc"
         inc.mkdir()
-        out = _resolve_include_flags(["/Iinc"], src_parent, tmp_path)
+        out = resolve_include_flags(["/Iinc"], src_parent, tmp_path)
         assert out == [f"/I{inc.resolve()}"]
 
     def test_missing_dir_keeps_flag(self, tmp_path: Path) -> None:
-        out = _resolve_include_flags(["/Imissing"], tmp_path, tmp_path)
+        out = resolve_include_flags(["/Imissing"], tmp_path, tmp_path)
         assert out == ["/Imissing"]
 
     def test_absolute_and_non_include_passthrough(self, tmp_path: Path) -> None:
-        out = _resolve_include_flags(["/I/abs/inc", "/O2", "/c"], tmp_path, tmp_path)
+        out = resolve_include_flags(["/I/abs/inc", "/O2", "/c"], tmp_path, tmp_path)
         assert out == ["/I/abs/inc", "/O2", "/c"]
 
     def test_dash_i_form(self, tmp_path: Path) -> None:
         src_parent = tmp_path / "src"
         inc = src_parent / "inc"
         inc.mkdir(parents=True)
-        out = _resolve_include_flags(["-Iinc"], src_parent, tmp_path)
+        out = resolve_include_flags(["-Iinc"], src_parent, tmp_path)
         assert out == [f"-I{inc.resolve()}"]
 
     def test_two_token_space_separated(self, tmp_path: Path) -> None:
@@ -76,24 +76,24 @@ class TestResolveIncludeFlags:
         src_parent = tmp_path / "src"
         inc = tmp_path / "Units"
         inc.mkdir(parents=True)
-        out = _resolve_include_flags(["/I", "../Units"], src_parent, tmp_path)
+        out = resolve_include_flags(["/I", "../Units"], src_parent, tmp_path)
         assert out == [f"/I{inc.resolve()}"]
 
     def test_two_token_dash_i(self, tmp_path: Path) -> None:
         src_parent = tmp_path / "src"
         inc = src_parent / "inc"
         inc.mkdir(parents=True)
-        out = _resolve_include_flags(["-I", "inc"], src_parent, tmp_path)
+        out = resolve_include_flags(["-I", "inc"], src_parent, tmp_path)
         assert out == [f"-I{inc.resolve()}"]
 
     def test_trailing_bare_i_left_alone(self, tmp_path: Path) -> None:
         """A lone trailing /I with no following token stays untouched."""
-        out = _resolve_include_flags(["/O2", "/I"], tmp_path, tmp_path)
+        out = resolve_include_flags(["/O2", "/I"], tmp_path, tmp_path)
         assert out == ["/O2", "/I"]
 
     def test_bare_i_before_flag_does_not_merge(self, tmp_path: Path) -> None:
         """/I followed by another flag (/I /O2) is not a path merge."""
-        out = _resolve_include_flags(["/I", "/O2"], tmp_path, tmp_path)
+        out = resolve_include_flags(["/I", "/O2"], tmp_path, tmp_path)
         assert out == ["/I", "/O2"]
 
 

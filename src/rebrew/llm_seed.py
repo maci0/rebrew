@@ -64,7 +64,7 @@ def extract_seeds(text: str) -> list[str]:
     return [b.strip() for b in blocks if b.strip()]
 
 
-def _valid_c_source(src: str) -> bool:
+def valid_c_source(src: str) -> bool:
     """True when *src* parses and defines a function (tree-sitter)."""
     from rebrew.c_parser import extract_function_name_and_proto
 
@@ -118,7 +118,7 @@ def _request(
     resp = client.post(conf["endpoint"], json=payload, headers=headers, timeout=90)
     resp.raise_for_status()
     text = _parse_response(resp.json())
-    return [s for s in extract_seeds(text) if _valid_c_source(s)]
+    return [s for s in extract_seeds(text) if valid_c_source(s)]
 
 
 def request_seeds(

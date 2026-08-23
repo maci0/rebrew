@@ -7,13 +7,13 @@ from pathlib import Path
 import pytest
 
 from rebrew.msvc16 import Msvc16Error, compile_c
-from rebrew.toolchain import _toolchains_repo
+from rebrew.toolchain import toolchains_repo
 
 # The compile_c path symlinks the read-only vendored toolchain into the DOSBox
 # sandbox; without rebrew-toolchains/msvc/1.52-win16 vendored (CI: the tree is
 # not committed) the whole class can only fail at staging, so skip rather than
 # red.
-_HAS_VENDORED_VC152 = (_toolchains_repo() / "msvc" / "1.52-win16" / "source" / "BIN").is_dir()
+_HAS_VENDORED_VC152 = (toolchains_repo() / "msvc" / "1.52-win16" / "source" / "BIN").is_dir()
 
 
 def _fake_cl(monkeypatch, sandbox: Path) -> None:

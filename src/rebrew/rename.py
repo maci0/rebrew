@@ -18,7 +18,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.rename_ops import _collect_matching_files, rename_function_everywhere
+from rebrew.rename_ops import collect_matching_files, rename_function_everywhere
 from rebrew.utils import rel_display_path
 
 # C89 keywords cannot be used as function names; `str.isidentifier()` alone
@@ -227,7 +227,7 @@ def main(
         if dry_run:
             console.print(f"[dim]Would update cross-references in {updated} files:[/dim]")
             pattern = re.compile(r"\b" + re.escape(actual_old_name) + r"\b")
-            for p in _collect_matching_files(cfg, filepath, pattern):
+            for p in collect_matching_files(cfg, filepath, pattern):
                 console.print(f"  [dim]- {rel_display_path(p, cfg.root)}[/dim]")
         else:
             console.print(f"Updated cross-references in {updated} files.")

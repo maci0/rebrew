@@ -324,7 +324,7 @@ class TestMatchHelpers:
 
 
 class TestCollectLibraryAnnotations:
-    """Tests for crt_match._collect_library_annotations (source scanning + module filter)."""
+    """Tests for crt_match.collect_library_annotations (source scanning + module filter)."""
 
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         src = tmp_path / "src" / "SERVER"
@@ -343,14 +343,14 @@ class TestCollectLibraryAnnotations:
         )
 
     def test_library_marker_target_module_collected(self, tmp_path: Path) -> None:
-        from rebrew.crt_match import _collect_library_annotations
+        from rebrew.crt_match import collect_library_annotations
 
         cfg = self._cfg(tmp_path)
         (cfg.reversed_dir / "lib.c").write_text(
             "// LIBRARY: SERVER 0x10001000\n// SYMBOL: _malloc\nint malloc(int n) { return n; }\n",
             encoding="utf-8",
         )
-        pairs = _collect_library_annotations(cfg)
+        pairs = collect_library_annotations(cfg)
         assert len(pairs) == 1
         _, ann = pairs[0]
         assert ann.marker_type == "LIBRARY"
@@ -359,19 +359,19 @@ class TestCollectLibraryAnnotations:
     def test_library_marker_cross_module_collected(self, tmp_path: Path) -> None:
         """LIBRARY markers of non-target modules (documented library_modules
         convention) must NOT be dropped by the parser's target filter."""
-        from rebrew.crt_match import _collect_library_annotations
+        from rebrew.crt_match import collect_library_annotations
 
         cfg = self._cfg(tmp_path)
         (cfg.reversed_dir / "lib.c").write_text(
             "// LIBRARY: MSVCRT 0x10002000\n// SYMBOL: _fflush\nint fflush(void) { return 0; }\n",
             encoding="utf-8",
         )
-        pairs = _collect_library_annotations(cfg)
+        pairs = collect_library_annotations(cfg)
         assert len(pairs) == 1
         assert pairs[0][1].module == "MSVCRT"
 
     def test_function_marker_in_library_module_collected(self, tmp_path: Path) -> None:
-        from rebrew.crt_match import _collect_library_annotations
+        from rebrew.crt_match import collect_library_annotations
 
         cfg = self._cfg(tmp_path)
         cfg.library_modules = ["ZLIB"]
@@ -379,24 +379,24 @@ class TestCollectLibraryAnnotations:
             "// FUNCTION: ZLIB 0x10003000\n// SYMBOL: _inflate\nint inflate(void) { return 0; }\n",
             encoding="utf-8",
         )
-        pairs = _collect_library_annotations(cfg)
+        pairs = collect_library_annotations(cfg)
         assert len(pairs) == 1
         assert pairs[0][1].va == 0x10003000
 
     def test_target_function_marker_excluded(self, tmp_path: Path) -> None:
         """Plain FUNCTION markers of the target module are not library code."""
-        from rebrew.crt_match import _collect_library_annotations
+        from rebrew.crt_match import collect_library_annotations
 
         cfg = self._cfg(tmp_path)
         (cfg.reversed_dir / "own.c").write_text(
             "// FUNCTION: SERVER 0x10004000\nint own(void) { return 0; }\n",
             encoding="utf-8",
         )
-        assert _collect_library_annotations(cfg) == []
+        assert collect_library_annotations(cfg) == []
 
     def test_global_and_data_markers_excluded(self, tmp_path: Path) -> None:
         """GLOBAL/DATA markers must never match against the CRT function index."""
-        from rebrew.crt_match import _collect_library_annotations
+        from rebrew.crt_match import collect_library_annotations
 
         cfg = self._cfg(tmp_path)
         cfg.library_modules = ["MSVCRT"]
@@ -408,7 +408,7 @@ class TestCollectLibraryAnnotations:
             "// DATA: MSVCRT 0x10005100\n// SYMBOL: g_tbl\nint g_tbl[4];\n",
             encoding="utf-8",
         )
-        assert _collect_library_annotations(cfg) == []
+        assert collect_library_annotations(cfg) == []
 
 
 class TestBuildIndexes:
