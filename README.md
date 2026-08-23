@@ -94,6 +94,13 @@ Five bundled skills for AI coding agent integration:
 
 ## 🚀 Quick Start
 
+> **Host requirements:** Linux with Docker. Every Windows/DOS compiler profile
+> executes inside its toolchain image (wine/DOSBox live in the image; there is
+> no host wine path) — build or pull it with `rebrew toolchain build <name>`
+> (see [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md)). Analysis-only commands
+> (`asm`, `analyze`, `flirt`, `catalog`, …) are pure Python 3.12+ and have no
+> host-OS requirement.
+
 ```bash
 # 1. Install
 uv tool install git+https://github.com/maci0/rebrew.git
