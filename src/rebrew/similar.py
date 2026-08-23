@@ -70,7 +70,7 @@ def _cosine(hist_a: dict[str, int], hist_b: dict[str, int]) -> float:
 
 
 def _ratio(a: int, b: int) -> float:
-    """1.0 when equal, min/max when both non-zero, 0.0 when one side is zero."""
+    """1.0 when equal (including both zero), min/max otherwise, 0.0 when exactly one side is zero."""
     if a == b:
         return 1.0
     if a == 0 or b == 0:

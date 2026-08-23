@@ -395,13 +395,13 @@ def sanitize_name(ghidra_name: str) -> str:
     - Maximum 64 characters
     """
     # Strip FUN_ prefix
-    name = ghidra_name
-    if name.startswith("FUN_"):
-        # Convert FUN_<hex> prefix to func_<hex>; sanitize the remainder too so
-        # a hostile Ghidra name cannot smuggle path separators into filenames.
-        return "func_" + _SANITIZE_NON_ALNUM_RE.sub("_", name[4:]).lower().strip("_")
+    if ghidra_name.startswith("FUN_"):
+        # Convert FUN_<hex> prefix to func_<hex>, then fall through to the
+        # shared pipeline so the remainder gets the same guarantees (no
+        # consecutive underscores, leading-digit guard, 64-char cap).
+        ghidra_name = "func_" + ghidra_name[4:].lower()
     # Clean up special chars
-    name = _SANITIZE_NON_ALNUM_RE.sub("_", name)
+    name = _SANITIZE_NON_ALNUM_RE.sub("_", ghidra_name)
     # Collapse consecutive underscores
     name = _SANITIZE_MULTI_UNDERSCORE_RE.sub("_", name)
     # Strip leading/trailing underscores
@@ -429,7 +429,12 @@ def make_filename(
     """
     # sanitize_name already converts FUN_<hex> to func_<hex> and strips
     # path-hostile characters, so the result is always a safe filename.
-    base = custom_name or sanitize_name(ghidra_name)
+    # A user-supplied custom name gets the same character restriction so
+    # it cannot carry path separators or dots into the output path.
+    if custom_name:
+        base = _SANITIZE_NON_ALNUM_RE.sub("_", custom_name).strip("_") or "unnamed"
+    else:
+        base = sanitize_name(ghidra_name)
 
     exts = source_exts(cfg)
     ext = exts[0] if exts else ".c"

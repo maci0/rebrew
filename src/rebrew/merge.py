@@ -55,14 +55,19 @@ _INCLUDE_RE = re.compile(r"^\s*#\s*include\s+")
 _EXTERN_RE = re.compile(r"^\s*extern\s+")
 _TYPEDEF_RE = re.compile(r"^\s*typedef\s+")
 _PRAGMA_INTRINSIC_RE = re.compile(r"^\s*#\s*pragma\s+intrinsic\s*\(")
-_GLOBAL_COMMENT_RE = re.compile(r"^\s*/\*\s*GLOBAL:")
+_GLOBAL_COMMENT_RE = re.compile(r"^\s*(?://|/\*)\s*GLOBAL:")
 
 
 def _extract_extern_name(decl: str) -> str | None:
     """The symbol name from an extern declaration."""
     d = decl.strip().rstrip(";").strip()
     d = re.sub(r"/\*.*?\*/", "", d).strip()
-    m = re.search(r"(\w+)\s*[\[;(]", d)
+    # function pointer: ``int (*fp)(void)`` — must be tested before the plain
+    # declarator rule or the base type matches instead of the symbol
+    m = re.search(r"\(\s*\*\s*(\w+)", d)
+    if m:
+        return m.group(1)
+    m = re.search(r"(\w+)\s*[\[(]", d)
     if m:
         return m.group(1)
     m = re.search(r"(\w+)\s*$", d)
@@ -114,6 +119,13 @@ def _pragma_funcs(pragmas: list[str]) -> set[str]:
     return funcs
 
 
+def _ends_declaration(line: str) -> bool:
+    """True if *line*'s code portion (comments stripped) ends a ``;``-terminated declaration."""
+    code = re.sub(r"/\*.*?\*/", "", line)
+    code = re.sub(r"//.*", "", code)
+    return code.rstrip().endswith(";")
+
+
 def consolidate_declarations(text: str) -> str:
     """Hoist unique includes/externs/typedefs/intrinsics to the top of *text*.
 
@@ -150,8 +162,23 @@ def consolidate_declarations(text: str) -> str:
             externs.append(stripped)
             lines_to_remove.add(i)
         elif _TYPEDEF_RE.match(stripped):
-            typedefs.append(stripped)
-            lines_to_remove.add(i)
+            # hoist multi-line typedefs (``typedef struct {...} X_t;``) whole:
+            # consume until braces balance and the closing semicolon appears,
+            # else leave them in place
+            chunk = [lines[i]]
+            j = i
+            depth = stripped.count("{") - stripped.count("}")
+            while depth > 0 or not _ends_declaration(chunk[-1]):
+                j += 1
+                if j >= len(lines):
+                    break
+                chunk.append(lines[j])
+                s2 = lines[j].strip()
+                depth += s2.count("{") - s2.count("}")
+            if depth == 0 and _ends_declaration(chunk[-1]):
+                typedefs.append("".join(chunk).strip())
+                lines_to_remove.update(range(i, j + 1))
+                i = j
         elif _PRAGMA_INTRINSIC_RE.match(stripped):
             pragmas.append(stripped)
             lines_to_remove.add(i)
