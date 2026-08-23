@@ -534,13 +534,25 @@ def remove_field(directory: Path, va: int, key: str, module: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+#: Canonical STATUS spelling: every persisted/compared status is upper-case.
+#: The validation layer (``metadata_model``) accepts any case via ``.upper()``,
+#: and hand-edited TOML or library-header KV lines may carry lower-case values;
+#: normalizing at every read/write keeps the exact-case consumers (dashboards,
+#: promotion policy) consistent instead of silently dropping such entries.
+def canonical_status(status: str) -> str:
+    """Return *status* in its canonical (upper-case, trimmed) spelling."""
+    return status.strip().upper()
+
+
 def is_status_sticky(current_status: str) -> bool:
     """True when *current_status* should never be demoted by test/verify.
 
     PROVEN is a post-verify promotion from ``rebrew prove`` — byte-level
     comparison cannot reproduce it, so test/verify must preserve it.
+    Comparison is case-insensitive so a hand-edited ``"proven"`` entry
+    keeps its stickiness.
     """
-    return current_status == "PROVEN"
+    return canonical_status(current_status) == "PROVEN"
 
 
 def should_promote_status(current_status: str, new_status: str) -> bool:
@@ -551,15 +563,18 @@ def should_promote_status(current_status: str, new_status: str) -> bool:
     (the writer layer).  Refuses to promote when the current status is
     sticky (PROVEN), when a STUB's placeholder size-mismatch would erase
     the user's STUB classification, or when the status did not change.
+    Both sides are compared case-insensitively.
     """
-    if is_status_sticky(current_status):
+    current = canonical_status(current_status)
+    new = canonical_status(new_status)
+    if is_status_sticky(current):
         return False
-    if current_status == "STUB" and new_status in ("SIZE_MISMATCH", "MISSING_SIZE"):
+    if current == "STUB" and new in ("SIZE_MISMATCH", "MISSING_SIZE"):
         # A documented STUB (typically blocker-documented) must not be
         # demoted by a placeholder size-mismatch or a missing-size
         # evaluation — that would erase the user's classification.
         return False
-    return current_status != new_status
+    return current != new
 
 
 def update_source_status(
@@ -649,7 +664,7 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
                 doc_dict[toml_key] = tomlkit.table()
             entry = typing.cast(dict[str, Any], doc_dict[toml_key])
 
-            new_status = u["new_status"]
+            new_status = canonical_status(u["new_status"])
             clear_blockers = u.get("clear_blockers", True)
             force = u.get("force", False)
 
@@ -735,7 +750,7 @@ def _apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
         ann.toolchain = str(entry["toolchain"])
 
     if "status" in entry:
-        ann.status = str(entry["status"])
+        ann.status = canonical_status(str(entry["status"]))
 
     if "blocker" in entry:
         ann.blocker = str(entry["blocker"])
