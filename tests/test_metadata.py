@@ -734,6 +734,59 @@ class TestUpdateStatusesBatchPromotionPolicy:
         assert entry.get("status") == "EXACT"
         assert "blocker" not in entry
 
+    def test_lowercase_new_status_normalized(self, tmp_path: Path) -> None:
+        """A lower-case status from any caller is persisted in canonical
+        upper-case so exact-case consumers never miss it."""
+        from rebrew.metadata import update_statuses_batch
+
+        changed = update_statuses_batch(
+            tmp_path, [{"module": "T", "va": 0x1000, "new_status": "exact"}]
+        )
+        assert changed == 1
+        assert self._read_status(tmp_path, 0x1000) == "EXACT"
+
+    def test_hand_edited_lowercase_proven_stays_sticky(self, tmp_path: Path) -> None:
+        """Validation accepts any STATUS case (metadata_model uses .upper()),
+        so a hand-edited ``status = "proven"`` must keep its stickiness —
+        case-sensitive comparison here would silently allow a demotion."""
+        from rebrew.metadata import update_statuses_batch
+
+        save_metadata(tmp_path, {("T", 0x1000): {"status": "proven"}})
+        changed = update_statuses_batch(
+            tmp_path, [{"module": "T", "va": 0x1000, "new_status": "NEAR_MATCHING"}]
+        )
+        assert changed == 0
+        assert self._read_status(tmp_path, 0x1000) == "proven"
+
+
+# ---------------------------------------------------------------------------
+# Case-insensitive promotion policy + canonical merge (design-review)
+# ---------------------------------------------------------------------------
+
+
+class TestStatusCasePolicy:
+    """The promotion policy and the metadata→annotation merge must be
+    robust to non-canonical (lower-case) stored statuses."""
+
+    def test_should_promote_is_case_insensitive(self) -> None:
+        from rebrew.metadata import should_promote_status
+
+        assert should_promote_status("proven", "EXACT") is False
+        assert should_promote_status("stub", "SIZE_MISMATCH") is False
+        assert should_promote_status("stub", "EXACT") is True
+        assert should_promote_status("near_matching", "RELOC") is True
+        # Same status differing only by case is a no-op.
+        assert should_promote_status("exact", "EXACT") is False
+
+    def test_merge_normalizes_metadata_status_case(self, tmp_path: Path) -> None:
+        from rebrew.annotation import Annotation
+        from rebrew.metadata import merge_into_annotation, save_metadata
+
+        save_metadata(tmp_path, {("T", 0x1000): {"status": "near_matching"}})
+        ann = Annotation(va=0x1000, size=10, module="T")
+        merge_into_annotation(ann, tmp_path)
+        assert ann.status == "NEAR_MATCHING"
+
 
 # ---------------------------------------------------------------------------
 # Cross-process metadata write safety (concurrency-review; error-review F6)
