@@ -162,6 +162,8 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
   24 08 51 52 50 e8`); /O1 uses the compact 4× memory-push in every
   version.
 
+- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:8.0-win32` (`msvc800_{O1,O2}.obj`);

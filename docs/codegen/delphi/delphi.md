@@ -158,6 +158,8 @@ plain Integer args too).  RTL functions use far `retf`/`retf N` (`ca`).
 - Delphi 1.0 has no 64-bit integer type and no C++ mode; the probe16
   dimensions have no Pascal counterpart — verified negative.
 
+- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
+
 ## Verification
 
 Pascal probe `probe.dpr` compiled via `rebrew/delphi:1.0-win16`

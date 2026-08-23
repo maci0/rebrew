@@ -125,6 +125,8 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
   functions are absent from their objects (documented negative; the
   type arrives in 5.0).
 
+- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
+
 ## Verification
 
 Probe compiled with `rebrew/msvc:4.0-win32`, `4.1-win32`, `4.2-win32` at

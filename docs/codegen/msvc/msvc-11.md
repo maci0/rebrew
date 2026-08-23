@@ -162,6 +162,8 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
   tail-jumps; vtable args are pushed from memory (`push dword ptr
   [esp+8]`).
 
+- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:11.0-win32` (`msvc1100_{O1,O2}.obj`);

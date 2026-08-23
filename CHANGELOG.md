@@ -256,10 +256,12 @@
   against the VC5/VC6/MinGW binaries (strong hits for `f3 a6`, `d9
   fa`, `dc 0d`, `0f 1f`, `0f a5 c2`, `83 e4 f8`; context-dependence
   notes for common instructions; two downgrade notes from VC6 hits);
-  and the **expanded VC 7.0 SP1 finding — SEVENTEEN differing
+  and the **expanded VC 7.0 SP1 finding — EIGHTEEN differing
   functions** (FP-equality structural, FP-libcall marshalling, FP
   loops + char-array + stack-probe functions in register
-  allocation/layout).  Full table in `docs/codegen/README.md`.
+  allocation/layout, plus probe14's `_s64_ret` stack-offset shift —
+  the 18th function surfaced by the mechanical corpus sweep).  Full
+  table in `docs/codegen/README.md`.
 - **Probe11 flag matrix** — `/G6` never enables `cmov` in VC 6.0
   (min/max/clamp stay branches; `/G5` vs `/G6` differ only in
   scheduling); VC 7.0 `/G5`≡`/G6` and 7.1 `/G5`≡`/G7`;
@@ -331,10 +333,10 @@
   absent (VC8-only trait); no Watcom-built corpus binary for the
   unsigned-char fold (stands on the probe).  **SP closure**: VC 6.0
   SP2/SP4/SP5, VC 7.0/7.1/8.0/10.0 SP1 and VC 5.0 SP1–SP3 at /O1 all
-  byte-identical to their RTMs on probe14; the VC 9.0 SP1 blocker is
-  now RESOLVED — see the Probe15 entry below.
-- **Probe15 function boundaries + VC 9.0 SP1 UNBLOCKED + corpus
-  round 3** — six function-boundary dimensions swept across every
+  byte-identical to their RTMs on probe14; the VC 9.0 SP1 comparison
+  remains blocked — see the Probe15 entry below.
+- **Probe15 function boundaries + corpus round 3** — six
+  function-boundary dimensions swept across every
   MSVC version at /O2 and /O1 plus bcc32/Watcom/GCC/Zig and the
   16-bit set.  New unique marker: **the `/GS` cookie-mix prologue
   (`a1 <cookie> 33 c4 89 44 24 40` — mov eax,[cookie]; xor eax,esp;
@@ -348,15 +350,19 @@
   `add reg,reg`+scale-8); stdcall reverse-arg-order in 5.0–9.0
   (2.0/4.1 + 11.0 direct; Zig also reverses); **VC 8.0's add-over-inc
   confirmed a FIFTH time** (`w_ge`, `/GS` copy loop); bcc32's
-  setcc+`and eax,1` tail.  **VC 9.0 SP1 UNBLOCKED**: the x86
-  `sched.dll` from the XP SP1 SDK cross-tools is interface-compatible
-  with the SP1 cl.exe — mounted next to cl.exe it compiles
-  probe13/14/15 and is **byte-identical to the 9.0 RTM on all 54
-  probe functions at /O2 and /O1**.  The SP record is now COMPLETE:
-  every MSVC SP probed (5.0 SP1–SP3, 6.0 SP1–SP6, 7.1 SP1, 8.0 SP1,
-  9.0 SP1, 10.0 SP1) is byte-identical to its RTM on probes 13–15;
-  the ONLY SP codegen difference anywhere remains VC 7.0 SP1's known
-  17 functions.  **Corpus round 3** (rebrew-projects + guild): the
+  setcc+`and eax,1` tail.  **CORRECTION — the "VC 9.0 SP1 unblock"
+  is retracted**: a staged `sched.dll` from the XP SP1 SDK cross-tools
+  made the SP1 cl.exe run, but the objects it emits are **IA64
+  machine-type** (COFF 0x200, IA64 bundles — surfaced by the corpus
+  generator, whose SP1 objects parse to zero x86 symbols).  The
+  earlier "byte-identical to the 9.0 RTM on 54 functions" comparison
+  was against empty parses and is withdrawn.  The 9.0 SP1 `/O1`/`/O2`
+  comparison remains BLOCKED until a genuine VS2008-SP1 x86
+  `sched.dll` is available; the verified SP record is: 5.0 SP1–SP3,
+  6.0 SP1–SP6, 7.1 SP1, 8.0 SP1 and 10.0 SP1 identical to their
+  RTMs on probes 13–15, 9.0 SP1 unverified, and VC 7.0 SP1's known
+  17 functions differing (18 with probe14's `_s64_ret` — see the
+  corpus entry below).  **Corpus round 3** (rebrew-projects + guild): the
   cmp-1 zero-compare marker correctly absent from VC5/6 binaries;
   `ff 05` present in VC5/6/guild (context-dependent — the bcc32 claim
   now carries the caveat); the exact constant-size 64B `rep movsd`
@@ -382,13 +388,34 @@
   against 3.1 — `mul dx` vs `imul dx` for char*7, memory-held vs
   register-held loop pointers, and a TC 2.0 preprocessor quirk (no
   `defined()` in `#if` — probe14/15 uncompileable on TC 2.0).
-  probe16 SP spot-check: 7.0/7.1/8.0/10.0 SP1 + the unblocked 9.0
-  SP1 all byte-identical to their RTMs.  Corpus round 4 (probe15
+  probe16 SP spot-check: 7.0/7.1/8.0/10.0 SP1 all byte-identical to
+  their RTMs (9.0 SP1 remains blocked — see the Probe15 correction
+  above).  Corpus round 4 (probe15
   markers): the `/GS` cookie stays absent (no VC8+ corpus binary —
   stands on the probe); the MSVC wide-compare `66 3b 4c 24` hits
   guild (5× per binary, confirming guild is MSVC-family) and several
   win2k binaries; the exact 8.0+ setcc memory-compare form is
   correctly absent from the VC5/6 corpus (era boundary validated).
+- **The massive codegen pattern corpus** — `docs/codegen/corpus.json`
+  now holds **7892 machine-readable records** (one per toolchain,
+  version, SP, flags, probe, function, with size + bytes), generated
+  from every probe 1-16 object via `.cache/fp_probe/
+  gen_codegen_corpus.py` and schema-validated by
+  `validate_corpus.py` (JSON parses, all fields present, coverage
+  spot-checked — CORPUS VALID).  The mechanical sweep
+  (`sweep_corpus.py`) confirmed every hand-documented per-toolchain
+  marker and surfaced no new cross-toolchain-unique ones; its **SP
+  equivalence check compared 1957 SP rows against their RTMs — 1939
+  identical, 18 mismatches, ALL VC 7.0 SP1**, including **probe14's
+  `_s64_ret` (64-byte struct return, stack-offset shift) — the 18th
+  SP1-differing function, missed by the hand-analysis and now
+  documented (msvc-7.md, the "17 functions" count corrected to 18
+  everywhere).  The corpus also exposed that the staged-sched.dll VC
+  9.0 SP1 objects are **IA64 machine-type** — the round-14/15 "9.0
+  SP1 byte-identical" claim is retracted (see msvc-9.md); the 9.0
+  SP1 comparison remains blocked.  Corpus pointer added to all 17
+  per-toolchain files; README gained a corpus section with query
+  examples.
 - **GA pragma mutations** — five new operators in `matcher/mutator.py`
   (114 → 119) that explore codegen levers compiler flags cannot reach:
   `mut_add/remove_optimize_pragma` wrap the function in

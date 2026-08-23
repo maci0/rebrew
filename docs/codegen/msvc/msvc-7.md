@@ -126,15 +126,24 @@ first to post-shift division magic.
 ## Service packs (probed for the first time)
 
 - **VC 7.0 SP1 is the ONLY service pack with verified codegen
-  differences — spanning NINE probe functions.**  (a) The `==`/`!=` FP
+  differences — spanning TEN probe functions (EIGHTEEN functions
+  total).**  (a) The `==`/`!=` FP
   family is structurally different: `fcmp2` (`a==b`), `fc5`
   (`a!=0.0`), `fc8` (`a!=b`), `fc9` (`a==0.0`) all switch from the
   two-load `fucompp` (`da e9`) to the single memory-operand
   `fcomp [mem]` (`dc 5c 24 0c`, 2 bytes shorter).  (b) The FP-loop
   functions `fs1`/`fs2`/`fs3`/`ff1` and the char-array `cb16` differ
   in register allocation (edx↔ecx swaps, same sizes) — scheduling
-  fixes, not structural.  The relational compares and everything else
-  are unchanged.  Verified in probes 5/7/8 at both /O1 and /O2.
+  fixes, not structural.  (c) The stack-probe functions
+  `sp1024`…`sp8192` differ in scheduling/layout.  (d) The FP-libcall
+  marshalling `fl`/`cl` and the probe10 64-bit `_cl`/`_fl` differ.
+  (e) **probe14's `_s64_ret` (64-byte struct return) differs in stack
+  offsets (`[esp+0x48]` vs `[esp+0x50]`, same size) — discovered by
+  the mechanical corpus sweep, missed by the hand-analysis.**  The
+  relational compares and everything else
+  are unchanged.  Verified in probes 5/7/8 at both /O1 and /O2;
+  the 18th function (`_s64_ret`) verified mechanically over the
+  corpus (docs/codegen/corpus.json).
   The fucompp style is shared by 7.1 (RTM+SP1) and 10.0 (RTM+SP1);
   the fcomp style by 2.0–6.0, 8.0 and 9.0 — so the RTM↔SP1 flip is a
   genuine SP-level fingerprint: `da e9` = 7.0 RTM, `dc 5c 24 0c` =
@@ -188,6 +197,8 @@ first to post-shift division magic.
   jmp <operator new>`-style and `delete` = `jmp <operator delete>`
   (the compiler reuses the incoming stack slot; 5.0/6.0 call + ret
   instead).  Vtable dispatch is uniform `mov eax,[ecx]; call [eax]`.
+
+- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
 
 ## Verification
 

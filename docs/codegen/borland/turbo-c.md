@@ -169,6 +169,8 @@ MSVC-1.5x-specific (see README).
   probe14/15 (`#if defined(...)` guards) do not — the probe13 idiom
   set is the TC 2.0 comparison surface.
 
+- **Corpus pointer** — machine-checked in `corpus.json` (7892 records; the mechanical sweep confirmed this file's records and surfaced no un-documented markers here).
+
 ## Verification
 
 Probes via `rebrew/borland:{3.1,2.0}-win16` — probe1 (`-O1`:
