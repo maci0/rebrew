@@ -1349,6 +1349,7 @@ def main(
             endpoint,
             json_output,
             dry_run=dry_run,
+            decomp_body=decomp_body,
             skip_fragments=skip_fragments,
         )
         return
@@ -1439,6 +1440,7 @@ def main(
             endpoint,
             json_output,
             dry_run=dry_run,
+            decomp_body=decomp_body,
         )
         return
 
@@ -1457,6 +1459,7 @@ def main(
         endpoint,
         json_output,
         dry_run=dry_run,
+        decomp_body=decomp_body,
     )
 
 

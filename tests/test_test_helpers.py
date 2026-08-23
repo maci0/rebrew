@@ -596,7 +596,7 @@ class TestMultiFixSize:
 
         writes: list[tuple[str, int, int]] = []
 
-        def _fake_compile(cfg_, src, cflags, workdir, obj_name=None):
+        def _fake_compile(cfg_, src, cflags, workdir, obj_name=None, toolchain=None):
             return str(tmp_path / "f.obj"), ""
 
         def _fake_parse(obj_path, sym):
@@ -660,7 +660,7 @@ class TestMultiFixSize:
 
         writes: list[tuple[str, int, int]] = []
 
-        def _fake_compile(cfg_, src, cflags, workdir, obj_name=None):
+        def _fake_compile(cfg_, src, cflags, workdir, obj_name=None, toolchain=None):
             return str(tmp_path / "f.obj"), ""
 
         def _fake_parse(obj_path, sym):

@@ -9,7 +9,7 @@
   "imm_store",
   "16bit"
  ],
- "record_count": 12852,
+ "record_count": 13127,
  "records": {
   "delphi|1.0||/O2|probe1|fn_0000": {
    "regs_written": [
@@ -145382,6 +145382,4408 @@
     "si": -1,
     "di": -1,
     "bp": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "borland-cpp|5.5||/O2|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 3,
+    "esi": 4,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "borland-cpp|5.5||/O2|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "borland-cpp|5.5||/O2|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 3,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "borland-cpp|5.5||/O2|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 3,
+    "esi": 4,
+    "edi": 5
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "borland-cpp|5.5||/O2|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 3,
+    "esi": 4,
+    "edi": 5
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "borland-cpp|5.5||/O2|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "borland-cpp|5.5||/O2|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "borland-cpp|5.5||/O2|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "mingw-gcc|16.1||/O2|probe27|_callee_defer": {
+   "regs_written": [
+    "eax",
+    "ebx"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "mingw-gcc|16.1||/O2|probe27|_fail_epi": {
+   "regs_written": [
+    "eax",
+    "ebx"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "mingw-gcc|16.1||/O2|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "mingw-gcc|16.1||/O2|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "mingw-gcc|16.1||/O2|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "mingw-gcc|16.1||/O2|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "mingw-gcc|16.1||/O2|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "mingw-gcc|16.1||/O2|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0||/O2|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 45,
+    "esi": 6,
+    "edi": 35
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0||/O2|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0||/O2|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": 25,
+    "edi": 35
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0||/O2|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 12,
+    "esi": 0,
+    "edi": 1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0||/O2|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 8,
+    "esi": 9,
+    "edi": 14
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0||/O2|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0||/O2|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0||/O2|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0||/O1|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0||/O1|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0||/O1|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0||/O1|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0||/O1|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": 13,
+    "edi": 14
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0||/O1|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0||/O1|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0||/O1|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0|sp1|/O2|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 45,
+    "esi": 6,
+    "edi": 35
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0|sp1|/O2|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0|sp1|/O2|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": 25,
+    "edi": 35
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0|sp1|/O2|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 12,
+    "esi": 0,
+    "edi": 1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0|sp1|/O2|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 8,
+    "esi": 9,
+    "edi": 14
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0|sp1|/O2|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0|sp1|/O2|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|10.0|sp1|/O2|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|11.0||/O2|probe27|___isa_available_default": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|11.0||/O2|probe27|__xmm@00000003000000030000000300000003": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|11.0||/O2|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 35,
+    "esi": 3,
+    "edi": 8
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|11.0||/O2|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|11.0||/O2|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 28,
+    "esi": 0,
+    "edi": 30
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|11.0||/O2|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 12,
+    "esi": 0,
+    "edi": 1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|11.0||/O2|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": 9,
+    "edi": 14
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|11.0||/O2|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|11.0||/O2|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|11.0||/O2|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|11.0||/O1|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": 29
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|11.0||/O1|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|11.0||/O1|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 23,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|11.0||/O1|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": 9
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|11.0||/O1|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 9,
+    "esi": 10,
+    "edi": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|11.0||/O1|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|11.0||/O1|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|11.0||/O1|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|2.0||/O2|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|2.0||/O2|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|2.0||/O2|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": true,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|2.0||/O2|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": 1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|2.0||/O2|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": 1,
+    "edi": 6
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|2.0||/O2|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|2.0||/O2|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|2.0||/O2|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|2.0||/O1|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|2.0||/O1|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|2.0||/O1|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": true,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|2.0||/O1|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": 1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|2.0||/O1|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": 1,
+    "edi": 6
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|2.0||/O1|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|2.0||/O1|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|2.0||/O1|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|4.1||/O2|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|4.1||/O2|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|4.1||/O2|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": true,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|4.1||/O2|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": 1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|4.1||/O2|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": 1,
+    "edi": 6
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|4.1||/O2|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|4.1||/O2|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|4.1||/O2|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|4.1||/O1|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|4.1||/O1|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|4.1||/O1|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": true,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|4.1||/O1|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": 1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|4.1||/O1|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": 1,
+    "edi": 6
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|4.1||/O1|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|4.1||/O1|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|4.1||/O1|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|5.0||/O2|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": 7
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|5.0||/O2|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|5.0||/O2|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 8,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|5.0||/O2|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 9,
+    "edi": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|5.0||/O2|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 14,
+    "esi": 9,
+    "edi": 8
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|5.0||/O2|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|5.0||/O2|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|5.0||/O2|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|5.0||/O1|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": 7
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|5.0||/O1|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|5.0||/O1|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|5.0||/O1|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 9,
+    "edi": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|5.0||/O1|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": 14,
+    "edi": 13
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|5.0||/O1|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|5.0||/O1|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|5.0||/O1|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0||/O2|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0||/O2|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0||/O2|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 31,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0||/O2|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 9,
+    "edi": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0||/O2|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 8,
+    "esi": 9,
+    "edi": 14
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0||/O2|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0||/O2|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0||/O2|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0||/O1|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0||/O1|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0||/O1|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0||/O1|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 9,
+    "edi": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0||/O1|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": 13,
+    "edi": 14
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0||/O1|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0||/O1|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0||/O1|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp1|/O2|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp1|/O2|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp1|/O2|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 31,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp1|/O2|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 9,
+    "edi": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp1|/O2|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 8,
+    "esi": 9,
+    "edi": 14
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp1|/O2|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp1|/O2|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp1|/O2|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp3|/O2|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp3|/O2|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp3|/O2|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 31,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp3|/O2|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 9,
+    "edi": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp3|/O2|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 8,
+    "esi": 9,
+    "edi": 14
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp3|/O2|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp3|/O2|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp3|/O2|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp6|/O2|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp6|/O2|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp6|/O2|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 31,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp6|/O2|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 9,
+    "edi": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp6|/O2|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 8,
+    "esi": 9,
+    "edi": 14
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp6|/O2|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp6|/O2|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|6.0|sp6|/O2|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0||/O2|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": 29
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0||/O2|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0||/O2|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 29,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0||/O2|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 12,
+    "esi": 0,
+    "edi": 1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0||/O2|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 8,
+    "esi": 9,
+    "edi": 14
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0||/O2|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0||/O2|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0||/O2|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0||/O1|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0||/O1|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0||/O1|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 27,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0||/O1|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0||/O1|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": 13,
+    "edi": 14
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0||/O1|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0||/O1|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0||/O1|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0|sp1|/O2|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": 29
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0|sp1|/O2|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0|sp1|/O2|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 29,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0|sp1|/O2|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 12,
+    "esi": 0,
+    "edi": 1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0|sp1|/O2|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 8,
+    "esi": 9,
+    "edi": 14
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0|sp1|/O2|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0|sp1|/O2|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.0|sp1|/O2|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1||/O2|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": 29
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1||/O2|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1||/O2|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 29,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1||/O2|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 12,
+    "esi": 0,
+    "edi": 1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1||/O2|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 8,
+    "esi": 9,
+    "edi": 14
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1||/O2|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1||/O2|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1||/O2|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1||/O1|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1||/O1|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1||/O1|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 27,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1||/O1|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1||/O1|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": 13,
+    "edi": 14
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1||/O1|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1||/O1|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1||/O1|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1|sp1|/O2|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": 29
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1|sp1|/O2|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1|sp1|/O2|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 29,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1|sp1|/O2|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 12,
+    "esi": 0,
+    "edi": 1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1|sp1|/O2|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 8,
+    "esi": 9,
+    "edi": 14
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1|sp1|/O2|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1|sp1|/O2|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|7.1|sp1|/O2|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0||/O2|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": 29
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0||/O2|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0||/O2|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 23,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0||/O2|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 12,
+    "esi": 0,
+    "edi": 1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0||/O2|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 8,
+    "esi": 9,
+    "edi": 14
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0||/O2|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0||/O2|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0||/O2|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0||/O1|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0||/O1|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0||/O1|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0||/O1|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0||/O1|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": 13,
+    "edi": 14
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0||/O1|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0||/O1|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0||/O1|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0|sp1|/O2|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": 29
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0|sp1|/O2|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0|sp1|/O2|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 23,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0|sp1|/O2|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 12,
+    "esi": 0,
+    "edi": 1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0|sp1|/O2|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 8,
+    "esi": 9,
+    "edi": 14
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0|sp1|/O2|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0|sp1|/O2|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|8.0|sp1|/O2|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|9.0||/O2|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 45,
+    "esi": 6,
+    "edi": 38
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|9.0||/O2|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|9.0||/O2|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": 28,
+    "edi": 35
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|9.0||/O2|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 12,
+    "esi": 0,
+    "edi": 1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|9.0||/O2|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 8,
+    "esi": 9,
+    "edi": 14
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|9.0||/O2|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|9.0||/O2|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|9.0||/O2|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|9.0||/O1|probe27|_callee_defer": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|9.0||/O1|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|9.0||/O1|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|9.0||/O1|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 0,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|9.0||/O1|probe27|_fill_nested": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": 13,
+    "edi": 14
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|9.0||/O1|probe27|_or_1000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|9.0||/O1|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|9.0||/O1|probe27|_or_2000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|2.0||-otexan|probe27|callee_defer_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|2.0||-otexan|probe27|fail_epi2_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|2.0||-otexan|probe27|fail_epi_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|2.0||-otexan|probe27|fill_iv_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|2.0||-otexan|probe27|fill_nested_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": 2,
+    "edi": 3
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|2.0||-otexan|probe27|or_100000_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|2.0||-otexan|probe27|or_1000_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|2.0||-otexan|probe27|or_2000_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "zig|0.16||-O2|probe27|_callee_defer": {
+   "regs_written": [
+    "eax",
+    "ebx"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 4,
+    "edi": 3
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "zig|0.16||-O2|probe27|_fail_epi": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 4,
+    "edi": 3
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "zig|0.16||-O2|probe27|_fail_epi2": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": true,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 4,
+    "edi": 3
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "zig|0.16||-O2|probe27|_fill_iv": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": 4,
+    "edi": 3
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "zig|0.16||-O2|probe27|_fill_nested": {
+   "regs_written": [
+    "eax",
+    "ebx"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 3,
+    "esi": 5,
+    "edi": 4
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "zig|0.16||-O2|probe27|_or_1000": {
+   "regs_written": [
+    "eax",
+    "ebx"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "zig|0.16||-O2|probe27|_or_100000": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "zig|0.16||-O2|probe27|_or_2000": {
+   "regs_written": [
+    "eax",
+    "ebx"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "msvc|1.52||/O1|probe27|_callee_defer": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": -1,
+    "di": 3,
+    "bp": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "msvc|1.52||/O1|probe27|_fail_epi": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": 4,
+    "di": 3,
+    "bp": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "msvc|1.52||/O1|probe27|_fail_epi2": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": -1,
+    "di": -1,
+    "bp": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "msvc|1.52||/O1|probe27|_fill_iv": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": 4,
+    "di": 3,
+    "bp": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "msvc|1.52||/O1|probe27|_fill_nested": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": 4,
+    "di": 3,
+    "bp": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "msvc|1.52||/O1|probe27|_or_1000": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": 5,
+    "di": 4,
+    "bp": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "msvc|1.52||/O1|probe27|_or_100000": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": -1,
+    "di": -1,
+    "bp": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "msvc|1.52||/O1|probe27|_or_2000": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": -1,
+    "di": -1,
+    "bp": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "borland-tc|3.1||/O1|probe27|_callee_defer": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": 3,
+    "di": 4,
+    "bp": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "borland-tc|3.1||/O1|probe27|_fail_epi": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": 3,
+    "di": 4,
+    "bp": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "borland-tc|3.1||/O1|probe27|_fail_epi2": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": 3,
+    "di": 4,
+    "bp": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "borland-tc|3.1||/O1|probe27|_fill_iv": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": 3,
+    "di": -1,
+    "bp": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "borland-tc|3.1||/O1|probe27|_fill_nested": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": true,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": 3,
+    "di": 4,
+    "bp": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "borland-tc|3.1||/O1|probe27|_or_1000": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": 3,
+    "di": -1,
+    "bp": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "borland-tc|3.1||/O1|probe27|_or_100000": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": 3,
+    "di": -1,
+    "bp": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "borland-tc|3.1||/O1|probe27|_or_2000": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": 3,
+    "di": -1,
+    "bp": 0
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "watcom|2.0||16-bit|probe27|callee_defer_": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": 9,
+    "di": -1,
+    "bp": 10
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "watcom|2.0||16-bit|probe27|fail_epi2_": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": 9,
+    "di": -1,
+    "bp": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "watcom|2.0||16-bit|probe27|fail_epi_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": -1,
+    "di": -1,
+    "bp": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "watcom|2.0||16-bit|probe27|fill_iv_": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": 10,
+    "di": -1,
+    "bp": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "watcom|2.0||16-bit|probe27|fill_nested_": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": 9,
+    "di": 10,
+    "bp": 11
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "watcom|2.0||16-bit|probe27|or_100000_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": -1,
+    "di": -1,
+    "bp": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "watcom|2.0||16-bit|probe27|or_1000_": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": -1,
+    "di": -1,
+    "bp": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "watcom|2.0||16-bit|probe27|or_2000_": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": -1,
+    "di": -1,
+    "bp": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": true
+  },
+  "watcom|2.0||16-bit|probe27|code_raw": {
+   "regs_written": [
+    "ax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "si": 43,
+    "di": 226,
+    "bp": 108
    },
    "esi_store": false,
    "imm_store": false,

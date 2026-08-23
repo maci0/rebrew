@@ -133,6 +133,15 @@ era).
 | Inline early-return blocks | `if (a) return -3; if (b) return -6; …` | `8b 4c 24 04 85 c9 75 06 b8 fd ff ff ff c3 8b 44 24 08 85 c0 75 06 b8 fa ff ff ff c3 03 c1` (`test; jne +6; mov eax,-3; ret` ×2) | **every MSVC version inlines the early-return block right after its check** (`jne` skips it) — the guild doc's Finding 45 tail-grouping is a register-pressure artifact; this is the default shape in the wild (guild 2-19×, server.dll 4×) |
 | Shared -1 epilogue | `… return -1;` tail | `83 c8 ff` (`or eax,-1`) | the B5 register form from 5.0 (2.0/4.1 `mov eax,-1`); 11.0 materializes small negative constants via `lea eax,[reg-N]` |
 
+## Findings 46-50 primitives (probe27)
+
+| Idiom | C shape | VC 6.0 /O2 signature | Look for |
+|---|---|---|---|
+| Shared fail epilogue | `if (a<0\|\|a>100) return 0; if (b==0) return 0; …` | `85 c0 7c 1c 83 f8 64 7f 17 … 33 c0 c3` (all fail checks jump FORWARD to one `xor eax,eax; ret`) | **same-constant fail paths merge into one tail in EVERY version** — distinct constants inline (F25), same constants merge; the reference's Finding 46 shape IS the MSVC default (guild 6×) |
+| Callee-save entry push | guards + callee-save use after | `56 8b 74 24 08 33 c0 85 f6 7d 05 83 c8 ff 5e c3 …` (`push esi` at entry; fail paths `mov eax,-1; pop esi; ret`) | **push at entry + fail-path pop in every version** — no deferral past guards in the simple shape (the doc's F48 region-split is context-specific) |
+| Fill-loop counter | `for (i=0;i<n;i++) p[i]=f();` | `57 … 56 … 6a 40 e8 … 89 06 83 c6 04 4f 75 eb` (running pointer + `dec edi; jne` countdown) | **counter KEPT (countdown) in every version** — the F49/F50 elimination needs the nested 768x768 context; 8.0/9.0 add-over-inc + sub-over-dec on the pair |
+| Byte-slot or `\|=0x1000` | `*p \|= 0x1000;` | `8b 44 24 04 8b 08 80 cd 10 89 08` (`or ch,0x10`) | **5.0/6.0-only byte-slot or** (the doc's `or dh,0x10`); 2.0/4.1 `or eax,0x1000` imm; 7.0/7.1 `or ecx,imm`; 8.0+ memory `or dword [mem],imm` |
+
 ## Verified negatives (in these binaries)
 
 The exact VC 6.0 /O2 signatures for `atoi_like`, `checksum`, `clamp8`,
@@ -187,6 +196,12 @@ as corpus validation negatives, not claims of absence elsewhere.
   `wze_add` signatures share the common `8b 44 24 04`-family prefix
   (counts inflated, 29-53×).  **Negatives**: `sz_disp` (the dec-chain
   exact bytes), `wand`, `bmask3` and the field-store fold do not appear
+  byte-exact in the scanned set — recorded as validation negatives.
+- Probe27 additions: `fail_epi` (the shared fail epilogue — guild 6×/5×),
+  `callee_defer` (entry-push + fail-pop — guild 1-4× + explorer 1× +
+  winmine 1×), `fill_iv` (countdown fill loop — TL 1× + np_recompiled
+  1×) and `or_100000` (mspaint 1× + wordpad 1×) all hit.  **Negatives**:
+  `or_1000` (the 5.0/6.0 byte-slot or) and `fill_nested` do not appear
   byte-exact in the scanned set — recorded as validation negatives.
 - Probe26 additions: `er1` (the inline early-return signature — guild
   2× + CLIPBRD 1×), `er2`/`er4` (guild 14-19× + server.dll 4×) all
