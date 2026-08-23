@@ -1,11 +1,14 @@
 """doctor.py – Diagnostic command for rebrew project health.
 
-Environment/setup health only: config file, target binary, compiler paths,
-include/lib directories, function list, and source files.  Prints a
-checklist with actionable fix suggestions.  Source-corpus checks (annotation
-markers, metadata placement, VA-vs-function-list consistency) live in
-``rebrew lint`` — doctor answers "can this project work?", not "is the
-decompiled corpus internally consistent?".
+Environment/setup health only (does not inspect the decompiled corpus):
+config file, target binary, arch/format, toolchain alignment, compiler
+image/executable, runner, include/lib paths, function-list existence,
+source-dir existence, metadata-file existence, and integration tooling
+(angr, FLIRT, Ghidra).  Source-corpus checks — annotation markers,
+metadata placement, VA-vs-function-list consistency, and per-function
+settings like cflags redundancy — live in ``rebrew lint``.  Doctor answers
+"can this project work?", not "is the decompiled corpus internally
+consistent?".
 
 Usage::
 
@@ -923,9 +926,12 @@ def run_doctor(target: str | None = None) -> DoctorReport:
     report.checks.append(check_target_binary(cfg))
     report.checks.append(check_arch_format(cfg))
     report.checks.append(check_toolchain_alignment(cfg))
+    # Project-level config vs binary fingerprints: CRT linkage + opt-level
+    # are kept in doctor because they diagnose "you configured the wrong
+    # toolchain shape" before any corpus exists.  Per-function metadata
+    # checks (e.g. redundant cflags) live in `rebrew lint` (W029).
     report.checks.append(check_crt_linkage(cfg))
     report.checks.append(check_opt_level(cfg))
-    report.checks.append(check_redundant_cflags(cfg))
     if getattr(cfg, "arch", "") == "x86_16":
         # Delphi 1.0 is a 16-bit-only path — don't show a noise row on
         # 32-bit targets where it structurally cannot apply.
@@ -955,8 +961,10 @@ _EPILOG = (
     "  rebrew doctor · · · · · · · · · Check default target\n\n"
     "  rebrew doctor --target mygame · · Check specific target\n\n"
     "  rebrew doctor --json · · · · · · Machine-readable output\n\n"
-    "[dim]Validates: rebrew-project.toml, target binary, compiler toolchain, include/lib "
-    "paths, function list, and source directory.[/dim]"
+    "[dim]Validates: rebrew-project.toml, target binary, arch/format, compiler "
+    "toolchain & runner, include/lib paths, function list, source dir, bin dir, "
+    "and metadata files.  Per-function/corpus checks (markers, VAs, metadata "
+    "fields, cflags redundancy) are `rebrew lint` instead.[/dim]"
 )
 
 _STATUS_ICONS = {
@@ -1366,77 +1374,4 @@ def check_opt_level(cfg: ProjectConfig) -> CheckResult:
         status=_WARN,
         message=f"binary fingerprint shows {detected}, project cflags is '{cflags or '(unset)'}'",
         fix=f'Set compiler cflags to "{detected}" in rebrew-project.toml (or per-function metadata)',
-    )
-
-
-def _cflags_key(cflags: str) -> frozenset[str]:
-    """Normalize a CFLAGS string for redundancy comparison.
-
-    Flag ORDER carries no meaning for MSVC (/O2 /Gd == /Gd /O2), so compare
-    as token sets — a lower-level entry only counts as redundant when its
-    whole flag set is what the higher level would already supply.
-    """
-    return frozenset(cflags.split())
-
-
-def check_redundant_cflags(cfg: ProjectConfig) -> CheckResult:
-    """Flag level-construct settings that only repeat a wider level's value.
-
-    The compile-settings ladder (most specific first) is: per-function
-    ``cflags`` in rebrew-function.toml → module preset
-    (``compiler.cflags_presets.<MODULE>``) → project ``compiler.cflags``.
-    A lower rung that repeats exactly the flag set a wider rung already
-    supplies is redundant: it pins the setting against future wider-level
-    changes without adding information, and multiplies the review surface
-    N times.  This check reports such entries so they can be dropped
-    (the compile fallback chain makes them no-ops anyway).
-
-    Entries that merely *include* the wider flags plus extras (e.g. a
-    per-function ``/DREBREW_ALLOW_NAKED`` on top of ``/O2 /Gd``) are NOT
-    redundant — they carry new information, so they are not flagged.
-    """
-    from rebrew.cli import resolve_cflags
-    from rebrew.metadata import load_metadata
-
-    project_cflags = str(getattr(cfg, "cflags", "") or "")
-    project_key = _cflags_key(project_cflags)
-    presets: dict[str, str] = getattr(cfg, "cflags_presets", {}) or {}
-
-    redundant: list[str] = []
-
-    # 1. Module presets that only repeat the project default.
-    for mod, preset_cflags in sorted(presets.items()):
-        if project_key and _cflags_key(str(preset_cflags)) == project_key:
-            redundant.append(f"cflags_presets.{mod} = '{preset_cflags}' (= project cflags)")
-
-    # 2. Per-function cflags that only repeat what the wider rungs already
-    # resolve to (module preset → project default → /O2 /Gd fallback) —
-    # compare against resolve_cflags with the function override absent.
-    metadata = load_metadata(cfg.metadata_dir)
-    for (module, va), meta in sorted(metadata.items(), key=lambda kv: kv[0][1]):
-        fn_cflags = str(meta.get("cflags") or "").strip()
-        if not fn_cflags:
-            continue
-        inherited = resolve_cflags(cfg, None, module)
-        if _cflags_key(fn_cflags) == _cflags_key(inherited):
-            redundant.append(f"{module} 0x{va:x}: cflags '{fn_cflags}' (= inherited '{inherited}')")
-
-    if redundant:
-        shown = redundant[:5]
-        suffix = f" (and {len(redundant) - 5} more)" if len(redundant) > 5 else ""
-        return CheckResult(
-            name="Redundant cflags",
-            status=_WARN,
-            message=f"{len(redundant)} setting(s) repeat a wider level: "
-            + "; ".join(shown)
-            + suffix,
-            fix=(
-                "Drop the redundant entry — the fallback chain (function → module "
-                "preset → project cflags) already supplies the same flags."
-            ),
-        )
-    return CheckResult(
-        name="Redundant cflags",
-        status=_PASS,
-        message="no level-construct cflags repeat a wider level's value",
     )

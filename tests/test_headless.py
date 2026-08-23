@@ -1,6 +1,8 @@
 """Tests for rebrew.headless — persistent Xvfb management for headless wine."""
 
 import os
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -166,6 +168,58 @@ class TestEnsureXvfb:
         assert ensure_xvfb() is None
         assert terminated
         assert reaped == [2]
+
+    def test_concurrent_callers_spawn_one_server(self, monkeypatch) -> None:
+        """Parallel compile workers calling ensure_xvfb must not double-spawn.
+
+        Without the init lock, two threads can both pass the env/orphan
+        checks before either records its display, pick the same free
+        display, and spawn two Xvfb processes (one dies with "server
+        already active").
+        """
+        from rebrew import headless
+
+        monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
+        monkeypatch.delenv("DISPLAY", raising=False)
+        monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {})
+        monkeypatch.setattr(headless, "_display_alive", lambda d: True)
+        monkeypatch.setattr(
+            headless.shutil, "which", lambda name: "/usr/bin/Xvfb" if name == "Xvfb" else None
+        )
+        monkeypatch.setattr(headless, "_wait_for_socket", lambda d, timeout=3.0, proc=None: True)
+        spawned: list[str] = []
+
+        class _FakeProc:
+            def terminate(self) -> None:
+                pass
+
+            def wait(self, timeout: float = 2) -> int:
+                return 0
+
+        def _fake_popen(argv: list[str], *a: Any, **k: Any) -> _FakeProc:
+            # Yield inside the spawn window: without the init lock every
+            # worker reaches this point before any of them records its
+            # display, and the spawn count explodes.
+            time.sleep(0.002)
+            spawned.append(argv[1])
+            return _FakeProc()
+
+        monkeypatch.setattr(headless.subprocess, "Popen", _fake_popen)
+        results: list[str | None] = []
+        barrier = threading.Barrier(4)
+
+        def _worker() -> None:
+            barrier.wait()
+            results.append(ensure_xvfb())
+
+        threads = [threading.Thread(target=_worker) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert len(results) == 4 and all(r is not None for r in results)
+        assert len(set(results)) == 1  # all callers agree on one display
+        assert len(spawned) == 1  # exactly one Xvfb was started
 
 
 class TestWaitForSocket:
