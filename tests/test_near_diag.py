@@ -841,7 +841,7 @@ class TestFixBlockerStatus:
     a blocker note implies the classification, and leaving the status
     missing/STUB made status reports count documented functions as stubs."""
 
-    def _invoke_fix(self, monkeypatch, tmp_path: Path) -> None:
+    def _invoke_fix(self, monkeypatch, tmp_path: Path, *extra_args: str) -> None:
         from types import SimpleNamespace as NS
 
         from typer.testing import CliRunner
@@ -876,7 +876,7 @@ class TestFixBlockerStatus:
             "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
             lambda *a, **k: (b"\x01\x02", {}, []),
         )
-        result = CliRunner().invoke(app, ["--fix-blocker", "--json", str(src)])
+        result = CliRunner().invoke(app, ["--fix-blocker", *extra_args, "--json", str(src)])
         assert result.exit_code == 0, result.output
 
     def test_fix_blocker_writes_status(self, monkeypatch, tmp_path: Path) -> None:
@@ -886,41 +886,6 @@ class TestFixBlockerStatus:
         assert "blocker" in meta
 
     def test_fix_blocker_dry_run_skips_status(self, monkeypatch, tmp_path: Path) -> None:
-        from types import SimpleNamespace as NS
-
-        from typer.testing import CliRunner
-
-        from rebrew.near_diag import app
-
-        cfg = NS(
-            root=tmp_path,
-            reversed_dir=tmp_path,
-            metadata_dir=tmp_path,
-            marker="S",
-            source_ext=".c",
-            target_name="S",
-            target_binary=tmp_path / "x.exe",
-        )
-        monkeypatch.setattr(
-            "rebrew.near_diag.require_config", lambda target=None, json_mode=False: cfg
-        )
-        monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, s: s)
-        src = tmp_path / "f.c"
-        src.write_text(
-            "// FUNCTION: S 0x1000\n// SIZE: 10\nint f(void) { return 0; }\n",
-            encoding="utf-8",
-        )
-        monkeypatch.setattr(
-            "rebrew.annotation.parse_c_file_multi",
-            lambda *a, **k: [NS(va=0x1000, size=10, symbol="_f", module="S", cflags="")],
-        )
-        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x01\x03")
-        monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
-        monkeypatch.setattr(
-            "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
-            lambda *a, **k: (b"\x01\x02", {}, []),
-        )
-        result = CliRunner().invoke(app, ["--fix-blocker", "--dry-run", "--json", str(src)])
-        assert result.exit_code == 0, result.output
+        self._invoke_fix(monkeypatch, tmp_path, "--dry-run")
         meta_path = tmp_path / "rebrew-function.toml"
         assert not meta_path.exists() or "status" not in meta_path.read_text(encoding="utf-8")

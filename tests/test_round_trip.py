@@ -242,87 +242,21 @@ class TestSplicePipeline:
         assert out.exists()
         assert out.read_bytes() == cfg.target_binary.read_bytes()
 
-    def test_catalog_gap_is_not_mismatch(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("strict_catalog", "expected_code"),
+        [
+            pytest.param(False, EXIT_OK, id="gap-is-not-mismatch"),
+            pytest.param(True, EXIT_MISMATCH, id="strict-catalog-fails-on-gap"),
+        ],
+    )
+    def test_unresolved_symbol_exit_code(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        strict_catalog: bool,
+        expected_code: int,
     ) -> None:
-        """Unresolved symbols are skipped_catalog; SHA still matches → exit 0."""
-        from rebrew.core.matching import UnresolvedSymbolError
-        from rebrew.matcher.parsers import CoffRelocRecord
-
-        cfg = _make_fake_cfg(tmp_path)
-        fn = SimpleNamespace(
-            symbol="_myfunc",
-            va=0x10000100,
-            size=5,
-            status="EXACT",
-            path=cfg.reversed_dir / "myfunc.c",
-            module="FAKE",
-            cflags=["/O2"],
-        )
-        original_slice = cfg.target_binary.read_bytes()[0x100:0x105]
-        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0))
-        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
-        monkeypatch.setattr(
-            "rebrew.round_trip._compile_and_extract",
-            lambda cfg, fn, work_dir: (
-                original_slice,
-                [CoffRelocRecord(offset=1, type=0x6, symbol="_missing")],
-                {},
-                {},
-                True,
-                "",
-            ),
-        )
-
-        def _boom(*_a: object, **_k: object) -> bytes:
-            raise UnresolvedSymbolError("_missing")
-
-        monkeypatch.setattr("rebrew.round_trip.apply_coff_relocations", _boom)
-        monkeypatch.setattr(
-            "rebrew.round_trip.load_binary", lambda p: SimpleNamespace(text_size=0x100)
-        )
-
-        code = _run_round_trip(cfg, out=None, no_write=True, symbol_filter=None, json_output=False)
-        assert code == EXIT_OK
-
-    def test_catalog_resolution_drift_exits_mismatch(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Patched bytes that diverge from the PE original must fail the run."""
-        cfg = _make_fake_cfg(tmp_path)
-        fn = SimpleNamespace(
-            symbol="_myfunc",
-            va=0x10000100,
-            size=5,
-            status="EXACT",
-            path=cfg.reversed_dir / "myfunc.c",
-            module="FAKE",
-            cflags=["/O2"],
-        )
-        # Compile returns different bytes than the PE slice at 0x100.
-        drifted = b"\xde\xad\xbe\xef\x00"
-        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0))
-        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
-        monkeypatch.setattr(
-            "rebrew.round_trip._compile_and_extract",
-            lambda cfg, fn, work_dir: (drifted, [], {}, {}, True, ""),
-        )
-        monkeypatch.setattr(
-            "rebrew.round_trip.apply_coff_relocations",
-            lambda text, relocs, resolve_va, **kw: text,
-        )
-        monkeypatch.setattr(
-            "rebrew.round_trip.load_binary", lambda p: SimpleNamespace(text_size=0x100)
-        )
-        monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
-
-        code = _run_round_trip(cfg, out=None, no_write=True, symbol_filter=None, json_output=False)
-        assert code == EXIT_MISMATCH
-
-    def test_strict_catalog_fails_on_gap(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """--strict-catalog exits non-zero when unresolved symbols block splicing."""
+        """Unresolved symbols are skipped by default; --strict-catalog exits non-zero."""
         from rebrew.core.matching import UnresolvedSymbolError
         from rebrew.matcher.parsers import CoffRelocRecord
 
@@ -365,8 +299,42 @@ class TestSplicePipeline:
             no_write=True,
             symbol_filter=None,
             json_output=False,
-            strict_catalog=True,
+            strict_catalog=strict_catalog,
         )
+        assert code == expected_code
+
+    def test_catalog_resolution_drift_exits_mismatch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Patched bytes that diverge from the PE original must fail the run."""
+        cfg = _make_fake_cfg(tmp_path)
+        fn = SimpleNamespace(
+            symbol="_myfunc",
+            va=0x10000100,
+            size=5,
+            status="EXACT",
+            path=cfg.reversed_dir / "myfunc.c",
+            module="FAKE",
+            cflags=["/O2"],
+        )
+        # Compile returns different bytes than the PE slice at 0x100.
+        drifted = b"\xde\xad\xbe\xef\x00"
+        monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([fn], [], 0))
+        monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
+        monkeypatch.setattr(
+            "rebrew.round_trip._compile_and_extract",
+            lambda cfg, fn, work_dir: (drifted, [], {}, {}, True, ""),
+        )
+        monkeypatch.setattr(
+            "rebrew.round_trip.apply_coff_relocations",
+            lambda text, relocs, resolve_va, **kw: text,
+        )
+        monkeypatch.setattr(
+            "rebrew.round_trip.load_binary", lambda p: SimpleNamespace(text_size=0x100)
+        )
+        monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
+
+        code = _run_round_trip(cfg, out=None, no_write=True, symbol_filter=None, json_output=False)
         assert code == EXIT_MISMATCH
 
 
