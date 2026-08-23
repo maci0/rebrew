@@ -75,7 +75,7 @@ class _LazyQuery:
         """Return the compiled query, compiling on first use.
 
         Typed ``Any`` because the tree-sitter type stubs do not declare
-        ``captures``/``matches``/``capture_names`` on ``Query`` even though
+        ``captures``/``matches`` on ``Query`` even though
         they exist at runtime.
         """
         if self._query is None:
@@ -87,10 +87,6 @@ class _LazyQuery:
 
     def matches(self, *args: object, **kwargs: object) -> Any:
         return self._get().matches(*args, **kwargs)
-
-    def capture_names(self) -> list[str]:
-        names: Any = getattr(self._get(), "capture_names", lambda: [])()
-        return list(names) if names is not None else []
 
 
 # Optional scope limiting GA mutations to the target function's byte range.

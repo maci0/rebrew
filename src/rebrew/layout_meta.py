@@ -154,11 +154,6 @@ class LayoutMetadata:
             "exp_rva": self.exp_rva,
         }
 
-    # -- sparse-map helpers (offset relative to .text raw start) ---------
-
-    def section_relative(self, name: str, file_offset: int) -> int:
-        return file_offset - self.section(name).raw_ptr
-
 
 # ---------------------------------------------------------------------------
 # Extraction from a binary

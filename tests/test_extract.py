@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 import typer
@@ -77,83 +77,77 @@ class TestLoadFunctions:
 
 
 # ---------------------------------------------------------------------------
-# E1 — --size override in cmd_extract
+# E1 — --size override through show_candidate (the injection lives there)
 # ---------------------------------------------------------------------------
 
 
-class TestCmdExtractSizeOverride:
-    def test_size_override_replaces_catalog_size(self, tmp_path: Path) -> None:
-        """When --size N is passed the override candidate entry is used."""
-        cfg = _make_cfg(tmp_path)
-        bin_dir = tmp_path / "bin"
+class TestShowCandidateSizeOverride:
+    """The --size override candidate injection lives in show_candidate
+    (extract.py), not cmd_extract — these tests must exercise that real
+    logic, not rebuild the override list by hand."""
 
-        # Candidates list: VA 0x1000 with catalog size 200
-        candidates = [(0x1000, 200, "func_a"), (0x2000, 50, "func_b")]
+    def _run_show(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        catalog: list[tuple[int, int, str]],
+        va: str,
+        size: int | None,
+    ) -> tuple[list[tuple[int, int]], Path]:
+        import rebrew.extract as ex
+
+        cfg = _make_cfg(tmp_path)
+
+        captured: list[list[tuple[int, int, str]]] = []
+
+        def _fake_setup(
+            *_args: object, **_kw: object
+        ) -> tuple[Any, list[tuple[int, int, str]], Path]:
+            captured.append(list(catalog))
+            return cfg, list(catalog), cfg.target_binary
 
         extracted: list[tuple[int, int]] = []
 
-        def _fake_extract(binary_info: Any, va: int, size: int) -> bytes:
-            extracted.append((va, size))
-            return b"\x55\x8b\xec" * (size // 3 or 1)
+        def _fake_extract(binary_info: Any, v: int, sz: int) -> bytes:
+            extracted.append((v, sz))
+            return b"\x55\x8b\xec" * (sz // 3 or 1)
 
-        mock_binary = MagicMock()
+        monkeypatch.setattr(ex, "_setup_candidates", _fake_setup)
+        monkeypatch.setattr(ex, "load_binary", lambda *_a: MagicMock())
+        monkeypatch.setattr(ex, "extract_bytes_at_va", _fake_extract)
+        monkeypatch.setattr(ex, "disasm_bytes", lambda code, v, cfg=None: "nop")
 
-        with (
-            patch("rebrew.extract.extract_bytes_at_va", side_effect=_fake_extract),
-            patch("rebrew.extract.disasm_bytes", return_value="nop"),
-        ):
-            # Build override candidates list the same way show_candidate does it
-            size_override = 42
-            target_va = 0x1000
-            override_candidates = [(target_va, size_override, f"0x{target_va:08X}")] + [
-                c for c in candidates if c[0] != target_va
-            ]
-            cmd_extract(
-                mock_binary,
-                override_candidates,
-                target_va,
-                bin_dir,
-                cfg=cfg,  # type: ignore[arg-type]
-            )
+        ex.show_candidate(va=va, size=size)
+        assert captured and captured[0] == catalog  # untouched input list
+        return extracted, cfg.bin_dir
 
-        # The override size (42) should have been used, not the catalog size (200)
+    def test_size_override_replaces_catalog_size(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--size 42 on a VA whose catalog entry says 200 must extract 42 bytes."""
+        catalog = [(0x1000, 200, "func_a"), (0x2000, 50, "func_b")]
+        extracted, bin_dir = self._run_show(tmp_path, monkeypatch, catalog, "0x1000", 42)
+
         assert extracted == [(0x1000, 42)]
+        assert (bin_dir / "func_0x00001000.bin").read_bytes() == b"\x55\x8b\xec" * 14
 
-    def test_size_override_allows_already_reversed_va(self, tmp_path: Path) -> None:
-        """With --size override, VA not in candidate list can still be extracted."""
-        cfg = _make_cfg(tmp_path)
-        bin_dir = tmp_path / "bin"
-
-        # Candidates list does NOT include 0x1000 (already reversed)
-        candidates: list[tuple[int, int, str]] = [(0x2000, 50, "func_b")]
-
-        extracted: list[tuple[int, int]] = []
-
-        def _fake_extract(binary_info: Any, va: int, size: int) -> bytes:
-            extracted.append((va, size))
-            return b"\x90" * size
-
-        mock_binary = MagicMock()
-
-        with (
-            patch("rebrew.extract.extract_bytes_at_va", side_effect=_fake_extract),
-            patch("rebrew.extract.disasm_bytes", return_value="nop"),
-        ):
-            # Inject override candidate (simulating what show_candidate does)
-            target_va = 0x1000
-            size_override = 64
-            override_candidates = [(target_va, size_override, f"0x{target_va:08X}")] + [
-                c for c in candidates if c[0] != target_va
-            ]
-            cmd_extract(
-                mock_binary,
-                override_candidates,
-                target_va,
-                bin_dir,
-                cfg=cfg,  # type: ignore[arg-type]
-            )
+    def test_size_override_allows_already_reversed_va(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--size lets a VA absent from the candidate list still be extracted."""
+        catalog: list[tuple[int, int, str]] = [(0x2000, 50, "func_b")]
+        extracted, _bin_dir = self._run_show(tmp_path, monkeypatch, catalog, "0x1000", 64)
 
         assert extracted == [(0x1000, 64)]
+
+    def test_no_size_flag_keeps_catalog_entry(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Without --size the catalog-recorded size is used as-is."""
+        catalog = [(0x1000, 200, "func_a"), (0x2000, 50, "func_b")]
+        extracted, _bin_dir = self._run_show(tmp_path, monkeypatch, catalog, "0x1000", None)
+
+        assert extracted == [(0x1000, 200)]
 
 
 class TestCmdExtractErrors:
