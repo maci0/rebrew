@@ -147,6 +147,8 @@ probe12 re-run via `rebrew/borland:5.5-win32` (`out12/bcc55*`).
 
 - **Probe17 verified-negative**: the convention markers (A5 promotion, register forms) hold for bcc32's shared conventions — no new bcc32 marker; corpus pointer.
 
+- **Decomp idioms** — the probe19/20 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](DECOMP_IDIOMS.md) and the corpus (`probe19`/`probe20` records).
+
 ## Verification
 
 Probe `-O1` and `-O2` via `rebrew/borland:5.5-win32` (`probe.obj`,

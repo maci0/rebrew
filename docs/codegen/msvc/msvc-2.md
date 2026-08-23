@@ -162,6 +162,8 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 
 - **Probe17 allocator/conventions**: `-1` stores use the IMMEDIATE `c7 05 <addr> ff ff ff ff` form (2.0/4.x era; 5.0–10.0 use `or eax,-1` + `a3`); no zero register is materialized (`cmp [mem],0` memory-immediate compares).  Varargs float→double promotion verified (`fld; sub esp,8; fstp qword [esp]`).  See RULES.md A5/B5.
 
+- **Decomp idioms** — the probe19/20 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](DECOMP_IDIOMS.md) and the corpus (`probe19`/`probe20` records).
+
 ## Verification
 
 Probe compiled with `rebrew/msvc:2.0-win32` at `/O1` and `/O2`

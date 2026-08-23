@@ -103,6 +103,8 @@ zig-vs-gcc byte marker in either dimension.
 
 - **Probe17 verified-negative**: the allocator/convention markers are MSVC-internal; Zig follows the shared conventions — no new zig-vs-gcc marker; corpus pointer.
 
+- **Decomp idioms** — the probe19/20 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](DECOMP_IDIOMS.md) and the corpus (`probe19`/`probe20` records).
+
 ## Verification
 
 PDB module scan of a real Zig-built program (`.zig-cache` paths);

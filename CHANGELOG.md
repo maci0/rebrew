@@ -1,5 +1,39 @@
 ## [Unreleased]
 ### Added
+- **`rebrew test --linked`** — the linker-resolved single-function oracle
+  (dll-rebuild's "padded link shell"): compile the function inside a
+  `#pragma data_seg(".text$A")` pad + `#pragma code_seg(".text$B")` shell so
+  its code lands at the exact .text offset it occupies in the target, LINK a
+  real DLL at the target's image base (`/DLL /NOENTRY /OPT:NOREF /OPT:NOICF`,
+  LINK.EXE runs inside the toolchain image via the shared wrapper), and
+  compare the bytes RAW — no relocation masking.  rel32 displacements are
+  linker-resolved and in-.text jump tables land in the window, so a match is
+  byte-identical output, not RELOC-level.  Requires a VA and a docker MSVC
+  toolchain; sources with externals (imports, cross-TU calls) fail the link
+  by design (`compile_and_compare_linked` in `rebrew.compile`).
+- **`rebrew asm --format nasm --inline-c` now emits an exact-bytes naked C
+  skeleton** — the intermediate for functions without a C implementation.
+  The target bytes are emitted verbatim (`__asm _emit 0xNN` on MSVC,
+  `__asm__(".byte ...")` on GCC — raw bytes, so no assembler-encoding risk
+  and no MASM syntax dependency) behind the `REBREW_ALLOW_NAKED` fence with
+  a plain-C fallback, plus `// FUNCTION`/`// SIZE`/symbol so the file is
+  self-contained for `rebrew test func.c --cflags /DREBREW_ALLOW_NAKED` —
+  compileable and iterable one function at a time through the normal
+  compile→compare loop; `rebrew round-trip --allow-naked` splices the naked
+  branch.  (Previously the inline-C output used NASM mnemonics, which MSVC's
+  inline assembler rejects — `dword [x]` vs `dword ptr [x]` — and whose
+  encodings were unverified.)
+- **`#pragma auto_inline` GA mutations** (`mut_add_auto_inline_pragma` /
+  `mut_remove_auto_inline_pragma`) — `auto_inline(off)` stops MSVC from
+  inlining helper stubs defined in the same TU into the target function, the
+  classic DllMain/entry-point lever; the pragma stays with the function body
+  across preamble/body splits like the other function-level pragmas.
+- **near-diag `encoding` delta class** — same instruction, same registers,
+  different opcode bytes (e.g. `mov reg,reg` as `89 /r` vs `8b /r`) is now
+  classified as its own category with an ENCODING-ONLY verdict ("byte-identity
+  needs the original compiler version, or `rebrew prove`"), instead of being
+  mislabeled as register-allocation churn.  Encoding deltas riding along with
+  register churn stay under the EFFECTIVE verdict.
 - **`.data` placement tooling** (`rebrew.data_layout` + `rebrew data
   --layout-audit` / `--fill-data`) — the per-TU span/order audit and the
   `_dpad_` pad emission (byte-exact raw region + BSS sizing), generalized
@@ -448,6 +482,44 @@
   were verified with the existing Open Watcom 2.0 instead.  RULES.md
   A2/A5/A8/B2-B7/B11 updated with the verified matrix; all 17
   per-toolchain files gained probe17 records.
+- **Probe19/20 decomp-project idioms + the DECOMP_IDIOMS cheat-sheet**
+  — 30 game/engine idiom shapes (PRNG/LCGs, fixed-point mul/div/lerp,
+  trig tables, sign/clamp/bounds, hex classifier, djb2 hash, atoi,
+  string walks, linked-list/ring/pool walks, command dispatch, va_list)
+  compiled through every MSVC version + SPs + all other toolchains and
+  folded into the corpus (**9670 records, CORPUS VALID**).  New
+  per-version idiom fingerprints: **LCG multipliers = `imul imm32`
+  from VC 7.0, shl/add decomposition in 2.0-6.0**; **`%360` magic
+  arrives at 8.0** (2.0-7.1 real `idiv`); **djb2 *33 = `imul eax,eax,
+  0x21` in 7.0/7.1 only**; **the sign idiom switches setl→sets
+  (`0f 98`) at 10.0**; **the hex classifier moves to lea-adjusted
+  range checks at 8.0+**; **the dense small-int switch
+  (`83 f8 N; ja; ff 24 85`) is uniform across ALL versions**;
+  **VC 8.0's add-over-inc confirmed 3 more times** (ring_next,
+  skip_ws, str_cat — 7 total).  **`docs/codegen/DECOMP_IDIOMS.md`**
+  is the decomp-facing cheat-sheet: each idiom's C shape, per-version
+  signature bytes, and disassembly look-for.  **Corpus validation**
+  (26 binaries): `array2d`, `lerp`, `bit_pack`, `ll_walk`,
+  `in_bounds`, `dist_sq`, `cmd_dispatch`, `sign`, `skip_ws` appear in
+  the wild (guild 33-49× for the 2D-index and lerp shapes); the LCG/
+  fixed-point/atoi signatures are absent from these binaries
+  (recorded negatives).  RULES.md gained idiom rows C19-C22, F11-F12,
+  E9; all 17 per-toolchain files point at the cheat-sheet.
+- **Corpus coverage + usability** — the corpus now carries **Delphi 1.0
+  records** (NE user-code segments from probe1/2/3/13, function
+  boundaries inferred at ret/retf — 6 records, probe13 split into 3
+  functions) and **raw-code records** for OMF dialects that resist
+  symbol listing (4 `code_raw` records incl. the bcc32 C++ object;
+  recovered watcom objects).  A **query CLI** (`corpus_query.py`:
+  `info`, `matrix <func>`, `unique <ver>`, `diff <v1> <v2>`,
+  `look <hex>`) makes the corpus directly queryable — `matrix
+  lcg_next` prints the per-version byte groups, `diff 7.1 8.0` lists
+  the 141 functions that changed, `look ff 24 85` finds the 50
+  jump-table records.  The matrix query **caught and corrected a
+  DECOMP_IDIOMS.md error**: the LCG imul-vs-decompose split is
+  **69069-specific** (2.0-6.0 decompose it; ×1103515245 and ×1664525
+  are uniform `imul` in every version).  Corpus at **9670 records**,
+  CORPUS VALID.
 - **GA pragma mutations** — five new operators in `matcher/mutator.py`
   (114 → 119) that explore codegen levers compiler flags cannot reach:
   `mut_add/remove_optimize_pragma` wrap the function in

@@ -41,6 +41,7 @@ from rebrew.cli import (
     json_print,
     parse_va,
     require_config,
+    resolve_cflags,
 )
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.decompiler import fetch_decompilation
@@ -1009,7 +1010,9 @@ def _run_batch_mode(
 
         symbol_val = "_" + sanitize_name(name_val)
         # User-facing cflags only — base_cflags (/nologo /c /MT) are prepended by compile_to_obj.
-        cflags_val = (getattr(cfg, "cflags", "") or "").strip() or "/O2 /Gd"
+        # resolve_cflags keeps the suggested TEST command in sync with what
+        # test/verify actually compile with (no MSVC fallback on posix profiles).
+        cflags_val = resolve_cflags(cfg, "")
         test_cmd = generate_test_command(rel_path, symbol_val, va_val, size_val, cflags_val)
         size_warning = _stale_size_note(cfg, va_val, size_val)
 
@@ -1210,7 +1213,9 @@ def _run_single_va_mode(
     # Compute test commands
     symbol_val = "_" + name if name else "_" + sanitize_name(ghidra_name)
     # User-facing cflags only — base_cflags (/nologo /c /MT) are prepended by compile_to_obj.
-    cflags_val = (getattr(cfg, "cflags", "") or "").strip() or "/O2 /Gd"
+    # resolve_cflags keeps the suggested TEST/DIFF commands in sync with what
+    # test/verify actually compile with (no MSVC fallback on posix profiles).
+    cflags_val = resolve_cflags(cfg, "")
 
     test_cmd = generate_test_command(str(rel_path_val), symbol_val, va_int, size, cflags_val)
     diff_cmd = generate_diff_command(str(rel_path_val), symbol_val, cflags_val)

@@ -90,35 +90,31 @@ class TestDisassembleToNasm:
 class TestGenerateInlineC:
     def test_msvc_default(self) -> None:
         cfg = _cfg(Path("/tmp"), compiler_profile="msvc")
-        out = generate_inline_c(
-            "bits 32\norg 0x1000\n\nmy_func:\n    push ebp ; comment\n    db 0x90\n",
-            cfg,
-            0x1000,
-            "_my_func",
-        )
+        out = generate_inline_c(b"\x55\x90", cfg, 0x1000, "_my_func")
         assert "// FUNCTION: SERVER 0x00001000" in out
+        assert "// SIZE: 2" in out
         assert "__declspec(naked) void my_func(void)" in out
         assert "__asm {" in out
-        assert "push ebp" in out
+        # Raw-byte emission — byte-exact by construction, no MASM syntax.
+        assert "_emit 0x55" in out
         assert "_emit 0x90" in out
-        # comment stripped from the mov line
-        assert "push ebp ; comment" not in out
+        # Mnemonics survive as comments.
+        assert "/* push ebp */" in out
 
     def test_gcc_clang(self) -> None:
         cfg = _cfg(Path("/tmp"), compiler_profile="clang")
-        out = generate_inline_c("bits 32\norg 0x1000\nlbl:\n    mov eax, 1\n", cfg, 0x1000, None)
+        out = generate_inline_c(b"\xb8\x01\x00\x00\x00", cfg, 0x1000, None)
         assert "__asm__(" in out
-        assert '"mov eax, 1\\n"' in out
+        assert '".byte 0xb8, 0x01, 0x00, 0x00, 0x00' in out
         assert "func_00001000" in out  # default symbol fallback
+        assert "// SIZE: 5" in out
 
     def test_naked_fenced_for_round_trip(self) -> None:
         """The naked reconstruction must sit behind the REBREW_ALLOW_NAKED
         fence: the exact-bytes branch for round-trip verification, an
         idiomatic C fallback for the comparison build.  Never a GA mutation."""
         cfg = _cfg(Path("/tmp"), compiler_profile="msvc")
-        out = generate_inline_c(
-            "bits 32\norg 0x1000\nmy_func:\n    mov eax, 1\n", cfg, 0x1000, "_my_func"
-        )
+        out = generate_inline_c(b"\xb8\x01\x00\x00\x00", cfg, 0x1000, "_my_func")
         assert "#ifdef REBREW_ALLOW_NAKED" in out
         assert "#else" in out
         assert "#endif" in out
@@ -134,8 +130,18 @@ class TestGenerateInlineC:
 
     def test_naked_gcc_attribute(self) -> None:
         cfg = _cfg(Path("/tmp"), compiler_profile="gcc-pe")
-        out = generate_inline_c("bits 32\norg 0x1000\nlbl:\n    mov eax, 1\n", cfg, 0x1000, None)
+        out = generate_inline_c(b"\xb8\x01\x00\x00\x00", cfg, 0x1000, None)
         assert "__attribute__((naked))" in out
+
+    def test_size_matches_emitted_bytes(self) -> None:
+        """SIZE must equal the emitted byte count so `rebrew test` extracts
+        exactly the bytes the naked branch produces."""
+        cfg = _cfg(Path("/tmp"), compiler_profile="msvc")
+        code = bytes.fromhex("558bec83ec08b801000000c9c3")  # _CODE
+        out = generate_inline_c(code, cfg, 0x1000, "_f")
+        assert f"// SIZE: {len(code)}" in out
+        emitted = sum(1 for line in out.splitlines() if "_emit 0x" in line)
+        assert emitted == len(code)
 
 
 class TestParseAnnotations:

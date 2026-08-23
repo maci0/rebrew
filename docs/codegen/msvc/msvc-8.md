@@ -168,6 +168,8 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 
 - **Probe17 allocator/conventions**: `-1` register form; zero in EAX; moffs (`a1`/`a3`) usage doubles from 8.0 across the corpus (fingerprint B11).  See RULES.md B5/B11.
 
+- **Decomp idioms** — the probe19/20 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](DECOMP_IDIOMS.md) and the corpus (`probe19`/`probe20` records).
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:8.0-win32` (`msvc800_{O1,O2}.obj`);

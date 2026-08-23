@@ -797,3 +797,167 @@ class TestCompileEdgeCases:
         obj, err = compile_to_obj(cfg, src, [], work, use_cache=False)
         assert obj is None
         assert "produced no object" in err
+
+
+# ---------------------------------------------------------------------------
+# Linked single-function compare (padded shell + LINK.EXE oracle)
+# ---------------------------------------------------------------------------
+
+
+class TestLinkedShell:
+    """Pure helpers of compile_and_compare_linked."""
+
+    SRC = "int f(void){\n    return 1;\n}\n"
+
+    def test_shell_source_with_pad(self) -> None:
+        from rebrew.compile import linked_shell_source
+
+        shell = linked_shell_source(self.SRC, 0x8320)
+        assert '#pragma data_seg(".text$A")' in shell
+        assert "__rebrew_linked_pad[33568]" in shell  # 0x8320 as a decimal array size
+        assert "#pragma data_seg()" in shell
+        assert '#pragma code_seg(".text$B")' in shell
+        assert "int f(void)" in shell
+        # The pad block precedes the function block.
+        assert shell.index(".text$A") < shell.index(".text$B")
+
+    def test_shell_source_no_pad(self) -> None:
+        from rebrew.compile import linked_shell_source
+
+        shell = linked_shell_source(self.SRC, 0)
+        assert "data_seg" not in shell  # MSVC rejects zero-length arrays
+        assert '#pragma code_seg(".text$B")' in shell
+        assert "int f(void)" in shell
+
+    def test_linked_pad_size(self) -> None:
+        from rebrew.compile import linked_pad_size
+
+        assert linked_pad_size(0x9320, 0x1000) == 0x8320
+        assert linked_pad_size(0x1000, 0x1000) == 0
+        assert linked_pad_size(0x900, 0x1000) == -1  # function precedes section
+
+    def test_extract_linked_slice(self) -> None:
+        from rebrew.compile import extract_linked_slice
+
+        dll = b"\x00" * 0x1000 + b"ABCDEF"  # .text raw offset 0x1000
+        assert extract_linked_slice(dll, 0x1000, 0, 3) == b"ABC"
+        assert extract_linked_slice(dll, 0x1000, 1, 3) == b"BCD"
+        # Window beyond the DLL end → truncated slice (SIZE_MISMATCH path).
+        assert extract_linked_slice(dll, 0x1000, 0, 99) == b"ABCDEF"
+        assert extract_linked_slice(dll, 0x1000, 99, 3) == b""
+
+    def test_section_for_va(self) -> None:
+        from rebrew.binary_loader import BinaryInfo, SectionInfo
+        from rebrew.compile import _section_for_va
+
+        info = BinaryInfo(
+            path=Path("/nonexistent.dll"),
+            format="pe",
+            image_base=0x10000000,
+            sections={
+                "text": SectionInfo(
+                    name="text",
+                    va=0x10001000,
+                    size=0x23000,
+                    file_offset=0x1000,
+                    raw_size=0x23000,
+                ),
+                "data": SectionInfo(
+                    name="data", va=0x10050000, size=0x1000, file_offset=0x24000, raw_size=0x1000
+                ),
+            },
+        )
+        assert _section_for_va(info, 0x10009320) is info.sections["text"]
+        assert _section_for_va(info, 0x10050FFF) is info.sections["data"]
+        assert _section_for_va(info, 0x10090000) is None
+
+
+class TestLinkedLinkCmd:
+    """build_linked_link_cmd docker argv construction (no docker required)."""
+
+    def _spec(self) -> Any:
+        from rebrew.toolchain import ToolchainSpec
+
+        return ToolchainSpec(
+            name="msvc6",
+            image="rebrew/msvc:6.0-win32",
+            binary="cl",
+            runtime="wine",
+            flags_style="msvc",
+            obj_ext=".obj",
+            tool_root="/opt/msvc6.0/VC98/Bin",
+            description="MSVC 6.0 (32-bit PE, C89) — docker image (wine inside)",
+        )
+
+    def test_cmd_shape_and_flags(self) -> None:
+        from rebrew.compile import build_linked_link_cmd
+
+        cmd, _script = build_linked_link_cmd(
+            self._spec(), base=0x10000000, obj_name="f.obj", out_name="out.dll", workdir="/tmp/w"
+        )
+        assert cmd[:6] == ["docker", "run", "--rm", "-v", "/tmp/w:/work", "-w"]
+        assert cmd[6] == "/work"
+        assert cmd[7:9] == ["--entrypoint", "sh"]
+        assert cmd[9] == "rebrew/msvc:6.0-win32"
+        # LINK flags: DLL / NOENTRY at the target base, /OPT:NOREF + /OPT:NOICF.
+        args = cmd[12:]
+        assert "/DLL" in args and "/NOENTRY" in args
+        assert "/BASE:0x10000000" in args
+        assert "/ALIGN:4096" in args and "/FILEALIGN:4096" in args
+        assert "/OPT:NOREF" in args and "/OPT:NOICF" in args
+        assert "/NODEFAULTLIB" in args
+        assert "/OUT:out.dll" in args and "f.obj" in args
+        assert args.index("/OUT:out.dll") < args.index("f.obj")
+
+    def test_script_exports_msvc_env_and_runs_link(self) -> None:
+        from rebrew.compile import build_linked_link_cmd
+
+        _cmd, script = build_linked_link_cmd(
+            self._spec(), base=0x10000000, obj_name="f.obj", out_name="out.dll", workdir="/tmp/w"
+        )
+        assert "wrapper-common.sh" in script
+        # Windows paths with escaped backslashes (wine Z: drive): the shell
+        # turns each \\ into one \, yielding Z:\opt\msvc6.0\VC98\Include.
+        assert 'INCLUDE="Z:\\\\opt\\\\msvc6.0\\\\VC98\\Include"' in script
+        assert 'LIB="Z:\\\\opt\\\\msvc6.0\\\\VC98\\Lib"' in script
+        assert 'rebrew_run /opt/msvc6.0/VC98/Bin/LINK.EXE "$@"' in script
+
+    def test_no_image_raises(self) -> None:
+        from rebrew.compile import build_linked_link_cmd
+        from rebrew.toolchain import ToolchainError, ToolchainSpec
+
+        native = ToolchainSpec(name="gcc-pe", image=None, binary="i686-w64-mingw32-gcc")
+        try:
+            build_linked_link_cmd(
+                native, base=0x10000000, obj_name="f.o", out_name="o.dll", workdir="/tmp/w"
+            )
+        except ToolchainError as exc:
+            assert "docker image" in str(exc)
+        else:
+            raise AssertionError("expected ToolchainError for image-less spec")
+
+
+class TestLinkedSpec:
+    def test_msvc_profile_resolves(self) -> None:
+        from rebrew.compile import _linked_spec
+
+        cfg: Any = SimpleNamespace(compiler_profile="msvc6")
+        spec, err = _linked_spec(cfg, None)
+        assert spec is not None and spec.name == "msvc6"
+        assert err == ""
+
+    def test_native_profile_rejected(self) -> None:
+        from rebrew.compile import _linked_spec
+
+        cfg: Any = SimpleNamespace(compiler_profile="gcc-pe")
+        spec, err = _linked_spec(cfg, None)
+        assert spec is None
+        assert "host-native" in err
+
+    def test_non_msvc_image_rejected(self) -> None:
+        from rebrew.compile import _linked_spec
+
+        cfg: Any = SimpleNamespace(compiler_profile="borlandc55")
+        spec, err = _linked_spec(cfg, None)
+        assert spec is None
+        assert "MSVC" in err

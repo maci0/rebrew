@@ -168,6 +168,8 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 
 - **Probe17 allocator/conventions**: varargs float→double via SSE (`movss; cvtss2sd; movsd [esp]`); `-1` stores emit the immediate form PLUS a dead `or eax,-1`; 12-byte sret built with SSE `movq`.  See RULES.md A5/A8/B5.
 
+- **Decomp idioms** — the probe19/20 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](DECOMP_IDIOMS.md) and the corpus (`probe19`/`probe20` records).
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:11.0-win32` (`msvc1100_{O1,O2}.obj`);

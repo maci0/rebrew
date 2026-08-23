@@ -418,7 +418,7 @@ live buffer and needs to unwind them.
 
 ---
 
-### 20. Pragma levers (`#pragma optimize` / `intrinsic` / `check_stack`)
+### 20. Pragma levers (`#pragma optimize` / `intrinsic` / `check_stack` / `auto_inline`)
 
 Source-level pragmas that change a single function's codegen — switches
 that compiler flags cannot reach, and a distinct search dimension for the
@@ -435,21 +435,25 @@ used in ~24k GitHub repos, a staple of MSVC decompilation):
 | `mut_add_intrinsic_pragma` | inserts `#pragma intrinsic(memcmp, memcpy, memset, strcmp, strcpy, strlen, abs, labs, fabs)` before the function | With `/Oi` (included in `/O2`, `/Ox`, `/O1`) the listed library calls become **inline instructions** — `memcpy` → `rep movs`, `memset` → `rep stos`, `strlen` → `repne scasb` — a big codegen difference for string/memory-heavy functions whose original was compiled with intrinsics.  Harmless when the function calls none of them (the pragma only affects listed functions). |
 | `mut_remove_intrinsic_pragma` | strips the `#pragma intrinsic(...)` line | `#pragma function(...)` (force calls) is the inverse lever; not mutated — remove covers the common direction. |
 | `mut_toggle_check_stack_pragma` | toggles `#pragma check_stack(off)` | Suppresses `/Gs` stack probes.  A target with a large stack frame compiled **without** probes needs the pragma; one compiled with probes does not. |
+| `mut_add_auto_inline_pragma` | wraps the function in `#pragma auto_inline(off)` … `#pragma auto_inline(on)` | `auto_inline(off)` stops MSVC from auto-inlining functions **defined after the pragma** into their callers.  In the usual single-function compile the target has no callers, so it only bites when the TU defines helper stubs the function calls (the classic DllMain shape: entry point + `sub_XXXX` shims) — without it MSVC inlines the helpers into the target, with it the calls stay `call` instructions.  The closing `("on")` restores auto-inlining for any following code. |
+| `mut_remove_auto_inline_pragma` | strips an existing `#pragma auto_inline(...)` wrapper | Reverts the above; the two form an add/remove pair. |
 
 **Why pragma mutations stay with the body**: `_split_preamble_body` keeps
-function-level pragmas (`optimize`/`intrinsic`/`function`/`check_stack`)
-attached to the function body rather than the file preamble, so add/remove
-mutations see the full wrapper — a removed pragma can never linger
-invisible in the preamble.  File-level pragmas (`pack`, `warning`, `once`)
-still belong to the preamble.
+function-level pragmas (`optimize`/`intrinsic`/`function`/`check_stack`/
+`auto_inline`) attached to the function body rather than the file preamble,
+so add/remove mutations see the full wrapper — a removed pragma can never
+linger invisible in the preamble.  File-level pragmas (`pack`, `warning`,
+`once`) still belong to the preamble.
 
 **Documented, deliberately not mutated**:
 
 - `#pragma pack` — changes struct member offsets; it is data layout, lives
   in headers/preamble, and affects all functions that touch the struct.
-- `#pragma auto_inline` / `#pragma inline_depth` — control *callers'*
-  inlining of this function, not its own bytes; useless for per-function
-  byte matching.
+- `#pragma inline_depth` / `#pragma inline_recursion` — control *callers'*
+  inlining depth of this function, not its own bytes; useless for
+  per-function byte matching (`auto_inline` *is* mutated — placed before
+  helper stubs in the same TU it stops them from being inlined INTO the
+  target, a real codegen lever).
 - `#pragma code_seg` / `#pragma data_seg` — section placement only; the
   function's bytes are unchanged.
 - `#pragma function(...)` — the intrinsic inverse; rare in matching

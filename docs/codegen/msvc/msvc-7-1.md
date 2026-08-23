@@ -124,6 +124,8 @@ feature (SP spot-check).  Verified in probe12 (`f1`/`f2`/`fl`).
 
 - **Probe17 allocator/conventions**: `-1` register form; zero in EAX; inline sret construction.  See RULES.md A8/B5.
 
+- **Decomp idioms** — the probe19/20 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](DECOMP_IDIOMS.md) and the corpus (`probe19`/`probe20` records).
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:7.1-win32` (`msvc710_{O1,O2}.obj`);

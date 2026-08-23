@@ -253,7 +253,12 @@ def resolve_cflags(
         # /O2 /Gd fallback applies only when the key is absent (config-review
         # F5: `cflags = ""` previously compiled with /O2 /Gd silently).
         if not (cfg is not None and getattr(cfg, "cflags_explicit", False)):
-            cfg_cflags = cfg_cflags or "/O2 /Gd"
+            # The /O2 /Gd fallback is MSVC-only: gcc/watcom/tcc reject "/O2"
+            # as a nonexistent input file.  Posix-style profiles fall back to
+            # no user flags instead — mirroring the base_cflags loader
+            # default in config.py, which fixed this same bug class there.
+            msvc_default = "" if getattr(cfg, "posix_style", False) else "/O2 /Gd"
+            cfg_cflags = cfg_cflags or msvc_default
         cflags = cfg_cflags
     return cflags
 
