@@ -65,11 +65,12 @@ def iter_sources(directory: Path, cfg: ProjectConfig | None = None) -> list[Path
     """Return all source files under *directory*, recursively, sorted by path.
 
     Uses :func:`source_exts` to determine the file extensions and ``rglob``
-    to descend into nested subdirectories.  Multi-extension configs (e.g.
-    ``source_ext = ".c,.cpp"``) are expanded by suffix filtering since
-    ``pathlib`` globs do not support brace alternation.  This is the single
-    entry point for discovering reversed source files — using it everywhere
-    ensures consistent support for both flat and nested directory layouts.
+    to descend into nested subdirectories.  Extension matching is
+    case-insensitive (``FOO.C`` counts as ``.c``), uniformly for single- and
+    multi-extension configs (e.g. ``source_ext = ".c,.cpp"``).  This is the
+    single entry point for discovering reversed source files — using it
+    everywhere ensures consistent support for both flat and nested directory
+    layouts.
 
     When *cfg* is provided and *directory* is the target's ``reversed_dir``,
     the project's shared-sources root (``cfg.shared_dir``, e.g.
@@ -78,13 +79,8 @@ def iter_sources(directory: Path, cfg: ProjectConfig | None = None) -> list[Path
     deltas driven by the per-target ``defines``.
     """
     exts = source_exts(cfg) or [".c"]
-    if len(exts) == 1:
-        base = sorted(directory.rglob(f"*{exts[0]}"))
-    else:
-        suffixes = {ext.lower() for ext in exts}
-        base = sorted(
-            p for p in directory.rglob("*") if p.is_file() and p.suffix.lower() in suffixes
-        )
+    wanted = {ext.lower() for ext in exts}
+    base = sorted(p for p in directory.rglob("*") if p.is_file() and p.suffix.lower() in wanted)
 
     if cfg is None:
         return base
