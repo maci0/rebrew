@@ -9,7 +9,6 @@ from rebrew.config import (
     _as_table,
     _parse_int_list,
     _parse_optional_int,
-    _parse_profiles,
     _parse_source_ext,
     _resolve,
     _split_compiler_runner,
@@ -33,17 +32,6 @@ class TestParseHelpers:
     def test_parse_int_list_unexpected_type_warns(self) -> None:
         with pytest.warns(UserWarning, match="Unexpected type"):
             assert _parse_int_list([1.5], "test") == []
-
-    def test_parse_profiles_non_mapping_warns(self) -> None:
-        with pytest.warns(UserWarning, match="Expected mapping"):
-            assert _parse_profiles("nope") == {}
-
-    def test_parse_profiles_invalid_entry_skipped(self) -> None:
-        with pytest.warns(UserWarning, match="invalid compiler profile"):
-            assert _parse_profiles({"GAME": "not-a-mapping"}) == {}
-
-    def test_parse_profiles_valid(self) -> None:
-        assert _parse_profiles({"GAME": {"cflags": "/O2"}}) == {"GAME": {"cflags": "/O2"}}
 
     def test_parse_source_ext_defaults(self) -> None:
         assert _parse_source_ext(None) == ".c"

@@ -18,6 +18,7 @@ from rich.table import Table
 
 from rebrew.binsync_state import index_local_and_catalog, load_binsync_state
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.utils import strip_body
 
 log = logging.getLogger(__name__)
 
@@ -48,11 +49,6 @@ def _is_meaningful(name: str) -> bool:
     return bool(name) and not (
         _GENERIC_RE.match(name) or _GHIDRA_GENERIC_RE.match(name) or _PLACEHOLDER_RE.match(name)
     )
-
-
-def strip_body(prototype: str) -> str:
-    brace = prototype.find("{")
-    return prototype[:brace].strip() if brace != -1 else prototype.strip()
 
 
 @app.callback(invoke_without_command=True)

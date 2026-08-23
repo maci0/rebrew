@@ -31,6 +31,7 @@ from rich.console import Console
 
 from rebrew.binsync_state import index_local_and_catalog, load_binsync_state
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.utils import strip_body
 
 log = logging.getLogger(__name__)
 
@@ -248,9 +249,7 @@ def main(
         local_name = getattr(local, "symbol", "") or getattr(local, "name", "") or ""
         raw_proto = getattr(local, "prototype", "") or ""
         # BinSync [header].type stores signature without body; local prototype may have body
-        from rebrew.binsync_export import strip_body as _sb  # local import to avoid cycle
-
-        local_proto = _sb(raw_proto) if raw_proto else ""
+        local_proto = strip_body(raw_proto) if raw_proto else ""
         local_filepath = getattr(local, "filepath", "")
 
         # Resolve BinSync name to a local symbol form (strip cdecl prefix for comparison)

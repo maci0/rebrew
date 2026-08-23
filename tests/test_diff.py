@@ -227,12 +227,10 @@ def test_cs_mode_for_16bit_target() -> None:
     """rebrew diff must disassemble 16-bit DOS code in 16-bit mode — a
     32-bit disasm renders `4a` (dec dx) as `dec edx` and mis-aligns the
     whole byte diff."""
-    from types import SimpleNamespace
-
     import capstone
 
-    from rebrew.diff import _cs_mode_for_cfg
+    from rebrew.analysis import capstone_mode_for_arch
 
-    assert _cs_mode_for_cfg(SimpleNamespace(arch="x86_16")) == capstone.CS_MODE_16
-    assert _cs_mode_for_cfg(SimpleNamespace(arch="x86_32")) == capstone.CS_MODE_32
-    assert _cs_mode_for_cfg(SimpleNamespace(arch="x86_64")) == capstone.CS_MODE_32
+    assert capstone_mode_for_arch("x86_16") == capstone.CS_MODE_16
+    assert capstone_mode_for_arch("x86_32") == capstone.CS_MODE_32
+    assert capstone_mode_for_arch("x86_64") == capstone.CS_MODE_32

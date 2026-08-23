@@ -389,7 +389,6 @@ Project-specific linting rules can be configured in `rebrew-project.toml` under 
 - `naming_convention`: "snake_case", "camelCase", or "none" (default)
 - `brace_style`: "same_line", "new_line", or "none" (default)
 - `indent_style`: "spaces", "tabs", or "none" (default)
-- `indent_size`: integer (default: 4)
 - `max_line_length`: integer (default: 200)
 
 See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–E023, W001–W028).
