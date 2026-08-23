@@ -28,7 +28,6 @@ from rich.panel import Panel
 from rich.table import Table
 
 from rebrew.cli import (
-    MATCHED_STATUSES,
     TargetOption,
     error_exit,
     json_print,
@@ -36,6 +35,7 @@ from rebrew.cli import (
 )
 from rebrew.compile import NEAR_MATCH_THRESHOLD
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
+from rebrew.metadata import MATCHED_STATUSES
 from rebrew.naming import (
     detect_unmatchable,
     estimate_difficulty,

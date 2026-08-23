@@ -1111,7 +1111,7 @@ def _list_size_for(cfg: ProjectConfig, va_int: int) -> int | None:
     func_list_path = getattr(cfg, "function_list", "")
     if not func_list_path or not Path(func_list_path).is_file():
         return None
-    from rebrew.catalog.loaders import parse_function_list
+    from rebrew.catalog import parse_function_list
 
     try:
         for f in parse_function_list(Path(func_list_path)):

@@ -31,7 +31,7 @@ import tomlkit
 import typer
 from rich.console import Console
 
-from rebrew.catalog.loaders import scan_reversed_dir
+from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
 from rebrew.utils import atomic_write_text
@@ -681,8 +681,7 @@ def main(
     try:
         import warnings
 
-        from rebrew.catalog.loaders import parse_function_list
-        from rebrew.catalog.registry import build_function_registry
+        from rebrew.catalog import build_function_registry, parse_function_list
         from rebrew.config import FUNCTION_STRUCTURE_JSON
 
         with warnings.catch_warnings():

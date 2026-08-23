@@ -53,7 +53,7 @@ class Discovery:
 
 def _rizin_functions(binary: Path, cmds: list[str]) -> list[tuple[int, int, str]]:
     """Run rizin with *cmds* and parse ``afl`` output (3- or 4-column)."""
-    from rebrew.catalog.loaders import parse_rizin_afl
+    from rebrew.catalog import parse_rizin_afl
 
     try:
         r = subprocess.run(

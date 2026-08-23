@@ -14,8 +14,7 @@ from pathlib import Path
 
 import tomlkit
 
-from rebrew.catalog.loaders import parse_function_list, scan_reversed_dir
-from rebrew.catalog.registry import build_function_registry
+from rebrew.catalog import build_function_registry, parse_function_list, scan_reversed_dir
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 
 log = logging.getLogger(__name__)

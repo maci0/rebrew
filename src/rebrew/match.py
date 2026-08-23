@@ -196,7 +196,7 @@ def _find_function_range(source: str, symbol: str) -> tuple[int, int] | None:
     be located — the caller then leaves mutations unscoped.
     """
     try:
-        from rebrew.matcher.ast_engine import parse_c_ast
+        from rebrew.matcher import parse_c_ast
     except Exception:  # tree-sitter unavailable: no scoping
         return None
     try:
@@ -380,7 +380,7 @@ class BinaryMatchingGA:
         self._target_range: tuple[int, int] | None = _find_function_range(seed_source, symbol)
 
         # Pre-compute target normalization and mnemonics once for scoring hot path
-        from rebrew.matcher.scoring import precompute_target
+        from rebrew.matcher import precompute_target
 
         self._pre_norm_target, self._pre_target_mnems = precompute_target(target_bytes)
 
@@ -581,7 +581,7 @@ class BinaryMatchingGA:
         only fires in the main thread) — it exists so parallel batch runs
         can bound each stub without signals.
         """
-        from rebrew.matcher.mutator import set_target_range
+        from rebrew.matcher import set_target_range
 
         if self._target_range is not None:
             set_target_range(*self._target_range)
@@ -731,7 +731,7 @@ class BinaryMatchingGA:
 
     def close(self) -> None:
         """Close the build cache (releases SQLite connection)."""
-        from rebrew.matcher.mutator import set_target_range
+        from rebrew.matcher import set_target_range
 
         set_target_range(None, None)  # safety: ensure no scope leaks
         self.cache.close()
@@ -1536,7 +1536,7 @@ def main(
     # Checked unconditionally — `rebrew match f.c --tier nonsense` silently
     # succeeded before (tier is only consulted in sweep paths, so the typo
     # went unnoticed instead of erroring at invocation time).
-    from rebrew.matcher.flag_data import MSVC_SWEEP_TIERS
+    from rebrew.matcher import MSVC_SWEEP_TIERS
 
     if tier not in MSVC_SWEEP_TIERS:
         error_exit(
@@ -2649,7 +2649,7 @@ def _save_solution(
     read-modify-write instead of N (the flag-sweep batch already does this).
     """
     try:
-        from rebrew.matcher.solutions import SolutionEntry, save_solution
+        from rebrew.matcher import SolutionEntry, save_solution
 
         entry = SolutionEntry(
             symbol=symbol,
@@ -2910,7 +2910,7 @@ def _show_ga_history(cfg: ProjectConfig, json_output: bool, *, target: str = "")
     """Summarize past GA runs (``.rebrew/ga_runs.jsonl``) for at-a-glance
     effectiveness triage: how many attempts, how many converged, score trends.
     """
-    from rebrew.matcher.solutions import load_ga_runs
+    from rebrew.matcher import load_ga_runs
 
     records = load_ga_runs(cfg.root, target=target, limit=100000)
     total = len(records)
@@ -2952,7 +2952,7 @@ def _filter_recently_run(
     """
     from datetime import UTC, datetime, timedelta
 
-    from rebrew.matcher.solutions import load_ga_runs
+    from rebrew.matcher import load_ga_runs
 
     cutoff = datetime.now(UTC) - timedelta(hours=hours)
     records = load_ga_runs(cfg.root, target=getattr(cfg, "target_name", ""), limit=100000)
@@ -3130,7 +3130,7 @@ def _run_all(
     seed_solutions: list[Any] = []
     if seed_from_solved:
         try:
-            from rebrew.matcher.solutions import load_solutions, load_solutions_file
+            from rebrew.matcher import load_solutions, load_solutions_file
 
             seed_solutions = load_solutions(cfg.root)
             if seed_solutions_path is not None:
@@ -3160,7 +3160,7 @@ def _run_all(
         seed_cflags: str | None = None
         if seed_from_solved:
             try:
-                from rebrew.matcher.solutions import find_similar
+                from rebrew.matcher import find_similar
 
                 similar = find_similar(
                     cfg.root,
@@ -3273,7 +3273,7 @@ def _run_all(
         # Persist the outcome for cross-run progress tracking (append-only
         # log; O_APPEND small-line writes are atomic across threads).
         try:
-            from rebrew.matcher.solutions import record_ga_run
+            from rebrew.matcher import record_ga_run
 
             record_ga_run(
                 cfg.root,
@@ -3343,7 +3343,7 @@ def _run_all(
     # solutions_out) — mirrors the batch flag-sweep path.
     if solutions_out:
         try:
-            from rebrew.matcher.solutions import save_solutions
+            from rebrew.matcher import save_solutions
 
             save_solutions(cfg.root, solutions_out)
         except Exception:
@@ -3367,7 +3367,7 @@ def _run_batch_flag_sweep(
     aggregation reports real numbers instead of a hardcoded ``(0, 0)``.
     """
     from rebrew.annotation import module_for_va
-    from rebrew.matcher.solutions import SolutionEntry, save_solutions
+    from rebrew.matcher import SolutionEntry, save_solutions
     from rebrew.metadata import update_source_status
     from rebrew.utils import rel_display_path
 

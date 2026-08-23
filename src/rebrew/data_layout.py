@@ -31,7 +31,6 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.binary_loader import load_binary
-from rebrew.cli import error_exit
 
 # ---------------------------------------------------------------------------
 # Link order + per-TU symbol inventory (objdump-based)
@@ -72,7 +71,9 @@ def link_objects(root: Path) -> list[Path]:
     """The build's object files in link order (build/CMakeFiles/*/objects*.rsp)."""
     rsps = sorted((root / "build/CMakeFiles").glob("*/objects*.rsp"))
     if not rsps:
-        error_exit("no build/CMakeFiles/*/objects*.rsp found — build the project first")
+        raise FileNotFoundError(
+            "no build/CMakeFiles/*/objects*.rsp found — build the project first"
+        )
     text = rsps[0].read_text(encoding="utf-8")
     return [Path(root / "build") / (a or b) for a, b in _OBJ_RE.findall(text)]
 

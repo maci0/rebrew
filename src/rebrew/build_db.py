@@ -17,12 +17,12 @@ from rich.console import Console
 
 from rebrew.cli import (
     EXIT_ERROR,
-    MATCHED_STATUSES,
     TargetOption,
     error_exit,
     json_print,
 )
 from rebrew.config import load_config
+from rebrew.metadata import MATCHED_STATUSES
 
 console = Console(stderr=True)
 

@@ -798,6 +798,11 @@ KNOWN_STATUSES: frozenset[str] = frozenset(
     }
 )
 
+# Statuses that count as matched work (byte-identical or proven-equivalent),
+# in canonical display order.  Single source of truth: use these instead of
+# re-spelling the tuple locally.
+MATCHED_STATUSES: tuple[str, ...] = ("EXACT", "RELOC", "PROVEN")
+
 
 def coerce_metadata_value(key: str, value: Any) -> Any:
     """Coerce *value* to the canonical type for metadata field *key* (lower-case TOML key).

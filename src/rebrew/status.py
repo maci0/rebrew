@@ -24,13 +24,13 @@ from rich.table import Table
 from rich.text import Text
 
 from rebrew.cli import (
-    MATCHED_STATUSES,
     STATUS_COLORS,
     TargetOption,
     json_print,
     require_config,
 )
 from rebrew.config import ProjectConfig
+from rebrew.metadata import MATCHED_STATUSES
 from rebrew.sources import iter_sources
 
 # Regex that matches an inline metadata comment line (``// STATUS: EXACT``,
@@ -311,7 +311,7 @@ def _compute_text_size(cfg: ProjectConfig) -> int:
     if not cfg.target_binary.exists():
         return 0
     try:
-        from rebrew.catalog.sections import get_text_section_size
+        from rebrew.catalog import get_text_section_size
 
         return get_text_section_size(cfg.target_binary)
     except (ImportError, OSError, ValueError):

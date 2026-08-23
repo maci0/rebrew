@@ -31,9 +31,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from rebrew.catalog.registry import RegistryEntry
+from rebrew.catalog import RegistryEntry
 from rebrew.cli import (
-    MATCHED_STATUSES,
     TargetOption,
     error_exit,
     json_print,
@@ -41,6 +40,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import ProjectConfig
+from rebrew.metadata import MATCHED_STATUSES
 from rebrew.similar import _DEFAULT_CS_ARCH, _DEFAULT_CS_MODE, _disasm_signature, similarity_score
 
 console = Console(stderr=True)
@@ -131,8 +131,7 @@ def _annotations_by_va(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
 
 def _registry(cfg: ProjectConfig) -> dict[int, RegistryEntry]:
     """The target's function catalog (VA -> entry with ``canonical_size``)."""
-    from rebrew.catalog.loaders import parse_function_list
-    from rebrew.catalog.registry import build_function_registry
+    from rebrew.catalog import build_function_registry, parse_function_list
     from rebrew.config import FUNCTION_STRUCTURE_JSON
 
     funcs = parse_function_list(cfg.function_list)

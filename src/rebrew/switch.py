@@ -275,7 +275,7 @@ def _scan_all(cfg: Any, window: int, json_output: bool) -> None:
     dispatches?" question — each function is disassembled up to *window*
     bytes and checked for an indirect jump-table jmp.
     """
-    from rebrew.catalog.loaders import parse_function_list
+    from rebrew.catalog import parse_function_list
 
     func_list_path = getattr(cfg, "function_list", "")
     if not func_list_path or not Path(func_list_path).is_file():

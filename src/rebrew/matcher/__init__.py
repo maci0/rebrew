@@ -3,6 +3,9 @@
 Re-exports the public API from all matcher submodules.
 """
 
+from .ast_engine import (
+    parse_c_ast as parse_c_ast,
+)
 from .compiler import (
     build_candidate as build_candidate,
 )
@@ -43,6 +46,9 @@ from .flags import Checkbox as Checkbox
 from .flags import Flags as Flags
 from .flags import FlagSet as FlagSet
 from .mutator import *  # noqa: F403 — mutator.py defines __all__
+from .mutator import (
+    set_target_range as set_target_range,
+)
 from .parsers import (
     extract_function_from_binary as extract_function_from_binary,
 )
@@ -50,7 +56,16 @@ from .parsers import (
     list_obj_symbols as list_obj_symbols,
 )
 from .parsers import (
+    parse_obj_relocs_full as parse_obj_relocs_full,
+)
+from .parsers import (
+    parse_obj_symbol_and_relocs as parse_obj_symbol_and_relocs,
+)
+from .parsers import (
     parse_obj_symbol_bytes as parse_obj_symbol_bytes,
+)
+from .scoring import (
+    code_similarity as code_similarity,
 )
 from .scoring import (
     diff_functions as diff_functions,
@@ -77,10 +92,16 @@ from .solutions import (
     load_solutions as load_solutions,
 )
 from .solutions import (
+    load_solutions_file as load_solutions_file,
+)
+from .solutions import (
     record_ga_run as record_ga_run,
 )
 from .solutions import (
     save_solution as save_solution,
+)
+from .solutions import (
+    save_solutions as save_solutions,
 )
 
 __all__ = [
@@ -106,10 +127,17 @@ __all__ = [
     "list_obj_symbols",
     "load_ga_runs",
     "load_solutions",
+    "load_solutions_file",
+    "parse_c_ast",
+    "parse_obj_relocs_full",
+    "parse_obj_symbol_and_relocs",
     "parse_obj_symbol_bytes",
     "precompute_target",
     "record_ga_run",
     "save_solution",
+    "save_solutions",
     "score_candidate",
+    "code_similarity",
+    "set_target_range",
     "structural_similarity",
 ]

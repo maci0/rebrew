@@ -32,7 +32,7 @@ app = typer.Typer(
 
 def _collect_solutions(cfg: Any) -> list[dict[str, Any]]:
     """List winning solution fingerprints."""
-    from rebrew.matcher.solutions import load_solutions
+    from rebrew.matcher import load_solutions
 
     out: list[dict[str, Any]] = []
     for e in load_solutions(cfg.root):
@@ -53,7 +53,7 @@ def _collect_solutions(cfg: Any) -> list[dict[str, Any]]:
 
 def _collect_best(cfg: Any) -> list[dict[str, Any]]:
     """Best-known GA outcome per function (latest score wins on ties)."""
-    from rebrew.matcher.solutions import load_ga_runs
+    from rebrew.matcher import load_ga_runs
 
     best: dict[tuple[str, str], dict[str, Any]] = {}
     for rec in load_ga_runs(cfg.root, limit=100000):

@@ -29,6 +29,9 @@ from rebrew.catalog.loaders import (
     parse_function_list as parse_function_list,
 )
 from rebrew.catalog.loaders import (
+    parse_rizin_afl as parse_rizin_afl,
+)
+from rebrew.catalog.loaders import (
     scan_reversed_dir as scan_reversed_dir,
 )
 from rebrew.catalog.models import (
@@ -61,6 +64,9 @@ from rebrew.catalog.sections import (
 from rebrew.catalog.sections import (
     sections_from_info as sections_from_info,
 )
+from rebrew.catalog.sections import (
+    trim_trailing_padding as trim_trailing_padding,
+)
 
 __all__ = [
     "FunctionEntry",
@@ -83,5 +89,7 @@ __all__ = [
     "main_entry",
     "make_func_entry",
     "parse_function_list",
+    "parse_rizin_afl",
     "scan_reversed_dir",
+    "trim_trailing_padding",
 ]

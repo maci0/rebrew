@@ -46,7 +46,6 @@ from rebrew.catalog import (
 )
 from rebrew.cli import (
     EXIT_MISMATCH,
-    MATCHED_STATUSES,
     STATUS_COLORS,
     TargetOption,
     error_exit,
@@ -57,7 +56,7 @@ from rebrew.compile import (
     is_matched,
 )
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
-from rebrew.metadata import should_promote_status
+from rebrew.metadata import MATCHED_STATUSES, should_promote_status
 from rebrew.utils import atomic_write_text
 
 log = logging.getLogger(__name__)
@@ -215,7 +214,7 @@ def verify_entry(
         # but never produced, so every row was NULL).  Best-effort: any
         # disassembly failure leaves it None.
         try:
-            from rebrew.matcher.scoring import diff_functions
+            from rebrew.matcher import diff_functions
 
             d = diff_functions(
                 target_bytes,
@@ -256,7 +255,7 @@ def verify_entry(
     # failure leaves it None rather than failing the run).
     if result.obj_bytes:
         try:
-            from rebrew.matcher.scoring import code_similarity
+            from rebrew.matcher import code_similarity
 
             result.similarity = code_similarity(target_bytes, result.obj_bytes)
         except Exception:  # similarity is best-effort

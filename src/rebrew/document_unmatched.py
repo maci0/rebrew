@@ -24,7 +24,7 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from rebrew.catalog.loaders import parse_function_list
+from rebrew.catalog import parse_function_list
 from rebrew.cli import (
     TargetOption,
     error_exit,

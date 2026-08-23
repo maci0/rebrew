@@ -42,7 +42,7 @@ from rebrew.analysis import (
 )
 from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.binary_loader import BinaryInfo, load_binary
-from rebrew.catalog.loaders import parse_function_list
+from rebrew.catalog import parse_function_list
 from rebrew.cli import (
     TargetOption,
     error_exit,

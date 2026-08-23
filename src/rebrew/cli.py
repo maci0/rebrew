@@ -27,6 +27,7 @@ import typer
 from rich.console import Console
 
 from rebrew.config import ProjectConfig, load_config
+from rebrew.metadata import MATCHED_STATUSES
 from rebrew.sources import iter_sources, target_marker
 
 # ---------------------------------------------------------------------------
@@ -54,11 +55,6 @@ STATUS_COLORS: dict[str, str] = {
     "INTERNAL_ERROR": "red",
     "SKIP": "dim",
 }
-
-# Statuses that count as matched work (byte-identical or proven-equivalent),
-# in canonical display order.  Single source of truth: use these instead of
-# re-spelling the tuple locally.
-MATCHED_STATUSES: tuple[str, ...] = ("EXACT", "RELOC", "PROVEN")
 
 # User-visible classification statuses, in canonical display order.
 DISPLAY_STATUSES: tuple[str, ...] = (*MATCHED_STATUSES, "NEAR_MATCHING", "STUB")

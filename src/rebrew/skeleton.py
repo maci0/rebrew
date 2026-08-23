@@ -831,8 +831,7 @@ def list_uncovered(
     # "." — so guard on is_file(); never parse an unset/missing list.
     if func_list_path and Path(func_list_path).is_file():
         try:
-            from rebrew.catalog.loaders import parse_function_list
-            from rebrew.catalog.registry import build_function_registry
+            from rebrew.catalog import build_function_registry, parse_function_list
 
             reg = build_function_registry(
                 parse_function_list(Path(func_list_path)),
@@ -1376,8 +1375,7 @@ def main(
         # Fall back to the function list (r2/radare2) — many real functions
         # (e.g. recently added CRT ones) exist only there, not in the Ghidra
         # cache.  Use the registry's canonical size when available.
-        from rebrew.catalog.loaders import parse_function_list
-        from rebrew.catalog.registry import build_function_registry
+        from rebrew.catalog import build_function_registry, parse_function_list
 
         func_list_path = getattr(cfg, "function_list", "")
         try:

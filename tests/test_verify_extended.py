@@ -203,7 +203,7 @@ class TestVerifyEntryBranches:
         byte-identical, but the cause is register allocation)."""
         import rebrew.binary_loader
         import rebrew.compile
-        import rebrew.matcher.scoring
+        import rebrew.matcher
         import rebrew.verify as verify_mod
 
         cfg = _cfg(tmp_path)
@@ -224,7 +224,7 @@ class TestVerifyEntryBranches:
 
         monkeypatch.setattr(rebrew.compile, "compile_and_compare", _unmatched)
         monkeypatch.setattr(
-            rebrew.matcher.scoring,
+            rebrew.matcher,
             "diff_functions",
             lambda *a, **k: {
                 "summary": {"exact": 2, "reloc": 0, "reg": 2, "structural": 0, "total": 4},
@@ -244,7 +244,7 @@ class TestVerifyEntryBranches:
         """Structural deltas must NOT get the effective-match note."""
         import rebrew.binary_loader
         import rebrew.compile
-        import rebrew.matcher.scoring
+        import rebrew.matcher
         import rebrew.verify as verify_mod
 
         cfg = _cfg(tmp_path)
@@ -265,7 +265,7 @@ class TestVerifyEntryBranches:
 
         monkeypatch.setattr(rebrew.compile, "compile_and_compare", _unmatched)
         monkeypatch.setattr(
-            rebrew.matcher.scoring,
+            rebrew.matcher,
             "diff_functions",
             lambda *a, **k: {
                 "summary": {"exact": 1, "reloc": 0, "reg": 0, "structural": 3, "total": 4},
@@ -325,7 +325,7 @@ class TestVerifyEntryBranches:
             return {"summary": {"structural": 2, "reg": 0}}
 
         monkeypatch.setattr(rebrew.compile, "compile_and_compare", _unmatched)
-        monkeypatch.setattr(rebrew.matcher.scoring, "diff_functions", _fake_diff)
+        monkeypatch.setattr(rebrew.matcher, "diff_functions", _fake_diff)
         result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
         assert result.diff_lines == 2
         assert result.reg_delta == 0
@@ -347,7 +347,7 @@ class TestVerifyEntryBranches:
 
         monkeypatch.setattr(rebrew.compile, "compile_and_compare", _compare)
         monkeypatch.setattr(
-            rebrew.matcher.scoring,
+            rebrew.matcher,
             "diff_functions",
             lambda *a, **k: (
                 calls.__setitem__("n", calls["n"] + 1) or {"summary": {"structural": 1}}

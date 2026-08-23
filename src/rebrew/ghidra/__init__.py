@@ -4,6 +4,9 @@ Public API: CLI app, MCP operations, sync command builders, and pull results.
 """
 
 from rebrew.ghidra.cli import app as app
+from rebrew.ghidra.cli_backend import (
+    resolve_ghidra_cli as resolve_ghidra_cli,
+)
 from rebrew.ghidra.client import (
     apply_commands_via_mcp as apply_commands_via_mcp,
 )
@@ -31,4 +34,5 @@ __all__ = [
     "build_size_sync_commands",
     "build_sync_commands",
     "pull_ghidra_renames",
+    "resolve_ghidra_cli",
 ]
