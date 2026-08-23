@@ -69,7 +69,9 @@ def run_dosbox(
 
     *autoexec* lines execute after ``mount c <sandbox>; C:; cd \\`` and
     before ``exit``.  Raises :class:`DosboxError` when dosbox is not on
-    PATH or the subprocess fails/times out.
+    PATH, the subprocess fails/times out, or dosbox exits nonzero (the
+    compiler never ran, so callers must see why instead of hunting an
+    empty output log).
     """
     if shutil.which("dosbox") is None:
         raise DosboxError(
@@ -87,7 +89,7 @@ def run_dosbox(
     env.setdefault("SDL_VIDEODRIVER", "dummy")
     env.setdefault("SDL_AUDIODRIVER", "dummy")
     try:
-        subprocess.run(
+        r = subprocess.run(
             ["dosbox", "-conf", str(conf), "-noconsole"],
             capture_output=True,
             text=True,
@@ -97,6 +99,17 @@ def run_dosbox(
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise DosboxError(f"DOSBox invocation failed: {exc}") from exc
+    if r.returncode != 0:
+        # DOSBox exits 0 even when the DOS compiler fails (errors land in the
+        # redirected log), so a nonzero exit means the emulator itself died
+        # before running anything.  Surface its output — without this the
+        # caller reports "produced no object" with an empty log and no hint
+        # that dosbox never started.
+        tail = "\n".join((r.stdout + r.stderr).splitlines()[-15:])
+        raise DosboxError(
+            f"DOSBox exited with code {r.returncode} before completing "
+            f"(autoexec: {autoexec!r}); output tail:\n{tail.strip() or '(none)'}"
+        )
 
 
 def read_uppercase(sandbox: Path, name: str) -> str:
