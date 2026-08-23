@@ -268,3 +268,18 @@ class TestEnumerateFunctions:
         info = load_binary(p)
         funcs = enumerate_ne_functions(info)
         assert any(f.va == 0x10000 for f in funcs), [hex(f.va) for f in funcs]
+
+    def test_segment_past_eof_clamps_raw_size(self, tmp_path: Path) -> None:
+        """Regression: a corrupt segment-table entry pointing past EOF made
+        ``min(length, len(data) - file_offset)`` negative, poisoning raw-size
+        math downstream.  The loader must clamp to 0 instead."""
+        from rebrew.binary_loader import load_binary
+
+        raw = bytearray(_build_ne(segments=[(_CODE, 0x01), (_DATA, 0x00)]))
+        # Point segment 1 at sector 0xFFFF (file offset 0xFFFF0 — past EOF).
+        struct.pack_into("<H", raw, 0x100 + 0x40, 0xFFFF)
+        p = tmp_path / "corrupt.ne"
+        p.write_bytes(bytes(raw))
+        info = load_binary(p)
+        assert info.sections["SEG1"].raw_size == 0
+        assert info.sections["SEG2"].raw_size == len(_DATA)

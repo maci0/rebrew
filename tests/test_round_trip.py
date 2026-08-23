@@ -1340,3 +1340,45 @@ class TestFixHeaders:
         assert fields["linker_version_minor"] == 12
         assert fields["subsystem_version_major"] == 4
         assert fields["subsystem_version_minor"] == 0
+
+
+class TestPeHeaderFieldWidths:
+    """Header fields are 1, 2, or 4 bytes wide — reads and writes must use
+    the declared width (numeric-review: a 4-byte pack clobbered adjacent
+    narrow fields; a 4-byte unpack crashed near EOF)."""
+
+    def test_patch_narrow_field_writes_exact_width(self) -> None:
+        """Patching linker_version_major (1 byte at +0x1A) must not touch
+        linker_version_minor (+0x1B) or spill into SizeOfCode."""
+        from bin_util import make_pe
+
+        from rebrew.pe_headers import patch_pe_headers, read_pe_header_fields
+
+        original = make_pe(b"\x55\x8b\xec\xc3", text_va=0x1000, image_base=0x400000)
+        orig_fields = read_pe_header_fields(original)
+        assert orig_fields is not None
+        patched = patch_pe_headers(original, {"linker_version_major": 7})
+        new_fields = read_pe_header_fields(patched)
+        assert new_fields is not None
+        assert new_fields.values["linker_version_major"] == 7
+        for label, value in orig_fields.values.items():
+            if label in ("linker_version_major", "checksum"):
+                continue
+            assert new_fields.values[label] == value, label
+
+    def test_read_truncated_header_returns_partial(self) -> None:
+        """A buffer ending one byte into the optional header must yield the
+        readable prefix of fields rather than raise struct.error (the old
+        code unpacked '<I' after bounds-checking only *size* bytes)."""
+        from rebrew.pe_headers import read_pe_header_fields
+
+        lfanew = 0x40
+        data = bytearray(lfanew + 0x1B)  # exactly 1 byte past linker_major
+        data[0:2] = b"MZ"
+        data[0x3C:0x40] = lfanew.to_bytes(4, "little")
+        data[lfanew : lfanew + 4] = b"PE\x00\x00"
+        fields = read_pe_header_fields(bytes(data))
+        assert fields is not None
+        assert "timestamp" in fields.values
+        assert "linker_version_major" in fields.values
+        assert "linker_version_minor" not in fields.values
