@@ -103,6 +103,21 @@ class TestQueryLayer:
     def test_targets(self, dashboard: Dashboard) -> None:
         assert dashboard.targets() == ["server_dll"]
 
+    def test_conn_closes_on_success_and_error(self, dashboard: Dashboard) -> None:
+        """The connection must be released on every exit path — under the
+        threaded HTTP server a GC-only release pins one handle per request."""
+        import sqlite3
+
+        with dashboard._conn() as conn:
+            conn.execute("SELECT 1")
+        with pytest.raises(sqlite3.ProgrammingError):
+            conn.execute("SELECT 1")
+
+        with pytest.raises(RuntimeError), dashboard._conn() as conn2:
+            raise RuntimeError("boom")
+        with pytest.raises(sqlite3.ProgrammingError):
+            conn2.execute("SELECT 1")
+
     def test_summary(self, dashboard: Dashboard) -> None:
         s = dashboard.summary("server_dll")
         assert s is not None

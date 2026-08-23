@@ -140,7 +140,8 @@ class TestEnsureXvfb:
         assert ensure_xvfb() is None
 
     def test_socket_timeout_terminates_proc(self, monkeypatch) -> None:
-        """Xvfb spawned but never comes up → terminated, returns None."""
+        """Xvfb spawned but never comes up → terminated AND reaped (no
+        zombie), returns None."""
         from rebrew import headless
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
@@ -151,14 +152,20 @@ class TestEnsureXvfb:
         )
         monkeypatch.setattr(headless, "_wait_for_socket", lambda d, timeout=3.0, proc=None: False)
         terminated: list[bool] = []
+        reaped: list[float | None] = []
 
         class _FakeProc:
             def terminate(self) -> None:
                 terminated.append(True)
 
+            def wait(self, timeout: float = 2) -> int:
+                reaped.append(timeout)
+                return 0
+
         monkeypatch.setattr(headless.subprocess, "Popen", lambda *a, **k: _FakeProc())
         assert ensure_xvfb() is None
         assert terminated
+        assert reaped == [2]
 
 
 class TestWaitForSocket:
