@@ -142,7 +142,9 @@ you what to attack next.
   directory. `--dry-run`, `--force` available.
 - `merge SRCS... -o OUTPUT` (inputs may be files or directories)
   deduplicates preambles (includes, typedefs) and keeps each function's
-  `// FUNCTION:` marker. `--delete` removes the source files on success.
+  `// FUNCTION:` marker. `--consolidate` hoists unique
+  includes/externs/typedefs/intrinsics to the top of the merged TU.
+  `--delete` removes the source files on success.
 - `rename TARGET NEW` accepts a function name, file path, or VA, and
   updates the FUNCTION marker, definition, extern declarations, and
   cross-references. `--file NAME` renames the underlying file.
@@ -271,6 +273,7 @@ rebrew split [SOURCE]
 
 rebrew merge [SOURCES...]
   -o, --output TEXT (required)
+      --consolidate
       --dry-run
       --force
       --delete

@@ -55,7 +55,8 @@ finicky installer — build once, share).
   vendored tree, docker image, and a slot in the byte-reproducibility
   smoke gate (6/6 images).  The model was subsequently completed — every
   registry toolchain now has a pinned source shared by image and host
-  tree, and all eleven toolchains are smoke-gated (see
+  tree, and every toolchain in the registry (now the full MSVC
+  1.0–11.0 matrix plus the non-MSVC families) is smoke-gated (see
   [ADR-007](007-complete-containerization-reproducibility.md)).
 
 ## Consequences

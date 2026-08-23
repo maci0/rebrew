@@ -106,9 +106,10 @@ Every `fail` line names its fix.  The common ones after a fresh intake:
   the configured profile: switch the profile (e.g. `rebrew cfg set
   compiler.profile msvc6`) or document it as a blocker.
 - **`Include path`/`Lib path`** — for docker-backed profiles these are
-  provided *by the image* (it is built from the vendored toolchain), so a
-  dangling host path is informational, not a failure.  Native profiles
-  (gcc-pe) still require the real paths.
+  provided *by the image* (it is built from the vendored toolchain source in
+  the sibling `rebrew-toolchains` checkout), so a dangling host path is
+  informational, not a failure.  Native profiles (gcc-pe) still require the
+  real paths.
 
 ### 4. See where you stand
 

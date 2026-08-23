@@ -63,7 +63,10 @@ per ADR-011 and is no longer xfail).
 
 - A fresh clone can rebuild or vendor EVERY toolchain from pinned,
   checksum-verified sources; the smoke gate proves byte reproducibility
-  for all eleven toolchains (image and host paths alike).
+  for every registry toolchain (image and host paths alike). *(Written
+  when the registry held eleven toolchains; the MSVC matrix has since
+  expanded to the full 1.0–11.0 set — all entries remain smoke-gated via
+  `_SMOKE_GOLDEN`.)*
 - The msvc line (4.0/4.2/5.0/6.0-sp3/sp6/7.0) is now a first-class,
   gated, roundtrip-tested set (compile → parse → compare → EXACT), with
   `--sweep-toolchain` covering the full range.
