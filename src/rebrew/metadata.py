@@ -45,6 +45,16 @@ a function's STATUS.  ``rebrew test`` calls it directly; the bulk tool
 ``rebrew verify`` goes through :func:`update_statuses_batch`, which enforces
 the same promotion rules.  Neither ever touches the ``.c`` file.
 
+BLOCKER writes
+--------------
+``BLOCKER`` / ``BLOCKER_DELTA`` are equally programmatic — use
+``rebrew blocker set/clear`` (or ``rebrew diff --fix-blocker`` /
+``rebrew near-diag --fix-blocker`` / ``rebrew document-unmatched`` for
+auto-classified cases).  The Python gate is :func:`update_field` /
+:func:`remove_field` with *key* ``"blocker"`` / ``"blocker_delta"``.
+No hand-edits to ``rebrew-function.toml`` — every write goes through the
+lock + ``atomic_write_text``.
+
 Merge semantics
 ---------------
 When a rebrew tool reads an ``Annotation`` from ``parse_c_file_multi()``, it

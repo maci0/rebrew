@@ -71,7 +71,9 @@ note = "register allocation differs in inner loop"
 | `get_entry(directory, va, module)` | Read an entry                  |
 
 > **Never write `rebrew-function.toml` manually** — always go through the
-> `rebrew.metadata` API.
+> `rebrew.metadata` API or the CLI gate `rebrew blocker set/clear`
+> (other BLOCKER writers: `rebrew diff --fix-blocker`, `rebrew near-diag
+> --fix-blocker`, `rebrew document-unmatched`).
 
 ### `rebrew-data.toml`
 

@@ -131,7 +131,7 @@ Format: `// MARKER: MODULE 0xVA`
 | `SIZE` | Metadata-owned | — | Function size in bytes from the original binary; lives in rebrew-function.toml, not inline |
 | `CFLAGS` | Optional | W018 | Per-function compiler flag override. Falls back to the target's `base_cflags` in `rebrew-project.toml`. Only needed for functions compiled with non-default flags (e.g. a static lib linked with `/O1` into an `/O2` binary). |
 | `SOURCE` | Conditional | W006 | **Required for library modules** — reference file (e.g. `SBHEAP.C:195`, `deflate.c`). Use `rebrew crt-match --fix-source` to auto-populate. |
-| `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet. Now lives in `rebrew-function.toml` metadata; auto-written by `rebrew diff --fix-blocker`. |
+| `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet. Lives in `rebrew-function.toml` metadata; set via `rebrew blocker set <file|0xVA> "<reason>"` or auto-written by `rebrew diff --fix-blocker` — never hand-edit the TOML. |
 | `NOTE` | Optional | — | Freeform notes (e.g. `NOTE: uses SSE2 intrinsics`) — lives in metadata |
 | `GHIDRA` | Optional | — | The Ghidra name, added by `rebrew sync --pull --accept-local` to prevent conflict loops — lives in metadata |
 | `STRUCT` | Optional | — | Linked structs for this file |
@@ -143,8 +143,9 @@ Format: `// MARKER: MODULE 0xVA`
 > [!CAUTION]
 > **Never manually edit `rebrew-function.toml`.** This metadata file stores volatile metadata
 > (STATUS, CFLAGS, SIZE, BLOCKER, NOTE, GHIDRA, etc.) and is managed exclusively by
-> Rebrew CLI tools (`rebrew test`, `rebrew match`, `rebrew diff --fix-blocker`, `rebrew sync`, etc.).
-> Manual edits will be silently lost or may corrupt the file.
+> Rebrew CLI tools (`rebrew blocker`, `rebrew test`, `rebrew match`, `rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`, `rebrew document-unmatched`, `rebrew sync`, etc.).
+> Every BLOCKER/BLOCKER_DELTA write must go through those CLIs (or the `rebrew.metadata` API).
+> Manual edits bypass the write-lock/atomicity and will be silently lost or may corrupt the file.
 
 > [!TIP]
 > **Rule of thumb**: Only the marker line is enforced as a linter error (E001). STATUS and

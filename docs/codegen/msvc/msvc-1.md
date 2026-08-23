@@ -140,7 +140,7 @@ DOSBox.  Emits 16-bit OMF objects.
 
 - **Probe17 conventions**: 16-bit struct-return (A8) — MSVC 1.52's `s12_caller`/`s12_make` decode partially in the /O1 object (recorded partial); `__fastcall` is absent from the 1.5x keyword set (same as TC).  See RULES.md A8.
 
-- **Decomp idioms** — the probe19-24 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe24` records).
+- **Decomp idioms** — the probe19-25 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe25` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -155,6 +155,11 @@ DOSBox.  Emits 16-bit OMF objects.
 ## Probe24: Findings 37-43 primitives (round 21)
 
 - **Probe24 (16-bit)**: compiled; word ops fold into the 16-bit forms; records folded.  See RULES.md C29.
+
+
+## Probe25: Finding 44 primitives (round 22)
+
+- **Probe25 (16-bit)**: compiled; records folded.  See RULES.md C30.
 
 
 ## Verification

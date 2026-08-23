@@ -125,7 +125,7 @@ the VC 7.0+ era marker; 10.0 SP1 is identical to RTM on this feature
 
 - **Probe17 allocator/conventions**: `-1` register form; **address-taken params force FOUR callee-saves (ebx/ebp/esi/edi)** — the most aggressive of any version.  See RULES.md B7.
 
-- **Decomp idioms** — the probe19-24 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe24` records).
+- **Decomp idioms** — the probe19-25 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe25` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -140,6 +140,11 @@ the VC 7.0+ era marker; 10.0 SP1 is identical to RTM on this feature
 ## Probe24: Findings 37-43 primitives (round 21)
 
 - **Probe24 (10.0)**: size-dispatch dec-chain (not sub — 8.0/9.0 only); word compares movzx; SP1 byte-identical.  See RULES.md F24/F23.
+
+
+## Probe25: Finding 44 primitives (round 22)
+
+- **Probe25 (10.0)**: clamp setle+neg; `clamp_lt0` uses `sets` (`0f 98` — sign-flag preference); byte-arg movzx.  See RULES.md C30/C22.
 
 
 ## Verification

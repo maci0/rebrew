@@ -158,7 +158,17 @@ STATUS, SIZE, and CFLAGS all live in the metadata.
 For NEAR_MATCHING functions, auto-classify and write the BLOCKER:
 
 ```bash
-rebrew diff --fix-blocker src/target_name/my_func.c
+rebrew diff --fix-blocker src/target_name/my_func.c   # auto-classified
+rebrew near-diag --fix-blocker src/target_name/my_func.c
+```
+
+For blocked STUBs that diff cannot classify (needs structs, SEH helper,
+reference library, etc.), set the BLOCKER programmatically:
+
+```bash
+rebrew blocker set src/target_name/my_func.c "needs RE structs -- see struct_recover"
+rebrew blocker set 0x401000 "SEH helper -- not matchable from C"
+rebrew blocker clear src/target_name/my_func.c          # remove it again
 ```
 
 This writes to `rebrew-function.toml`:
@@ -171,6 +181,10 @@ blocker_delta = 3
 > [!CAUTION]
 > **Never manually edit `rebrew-function.toml`.** Volatile metadata (STATUS, CFLAGS,
 > SIZE, BLOCKER, NOTE, GHIDRA) is managed exclusively by Rebrew CLI tools.
+> In particular, `BLOCKER`/`BLOCKER_DELTA` must be written via
+> `rebrew blocker set/clear` or the auto-writers
+> (`rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`,
+> `rebrew document-unmatched`) — never by hand.
 
 ### 9. If still NEAR_MATCHING — prove semantic equivalence
 
