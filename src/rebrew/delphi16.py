@@ -87,8 +87,9 @@ def compile_ne(
 
     Args:
         dpr_source: Path to the Pascal source (or the source text).
-        workdir: Optional working directory (default: a fresh temp dir that
-            is created and left in place for inspection).
+        workdir: Optional working directory (default: a fresh temp dir under
+            the user home, removed when the process exits — pass an explicit
+            directory to keep the sandbox for inspection).
         timeout: DOSBox subprocess timeout.
         units_dir: Directory of extracted RTL/VCL units (``UNITS.PAK`` +
             ``LIB.PAK`` output, e.g. ``DELPHI/LIB``).  Defaults to the

@@ -17,6 +17,7 @@ from rebrew.cmake_tc import (
     _TOOL_MODES,
     _docker_run,
     _docker_user_args,
+    _ensure_wineprefix,
     _exclusive_lock,
     _find_project_root,
     _rewrite_args,
@@ -169,6 +170,71 @@ def test_docker_run_builds_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     # Both critical sections take their sidecar lock under the prefix.
     assert (prefix / ".init.lock").exists()
     assert (prefix / ".run.lock").exists()
+
+
+def _chdir_project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    proj = tmp_path / "proj"
+    (proj / "build").mkdir(parents=True)
+    (proj / "rebrew-project.toml").write_text("", encoding="utf-8")
+    monkeypatch.chdir(proj / "build")
+    prefix = tmp_path / "prefix"
+    monkeypatch.setenv("REBREW_WINEPREFIX", str(prefix))
+    return prefix
+
+
+def test_docker_run_timeout_kills_container(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A timed-out wine compile is killed by container name: killing the
+    docker CLI alone leaves the container running under dockerd, leaking one
+    hung wine process per timeout."""
+    import subprocess as sp
+
+    _chdir_project(monkeypatch, tmp_path)
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(list(cmd))
+        if "wineboot" not in cmd:
+            raise sp.TimeoutExpired(cmd, 3600)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("rebrew.cmake_tc.subprocess.run", fake_run)
+
+    spec = TOOLCHAINS["msvc6"]
+    with pytest.raises(sp.TimeoutExpired):
+        _docker_run(spec, "cl", ["/c", "x.c"])
+
+    init_cmd, run_cmd, kill_cmd = calls
+    assert init_cmd[-2:] == ["wineboot", "-u"]
+    assert kill_cmd[:2] == ["docker", "kill"]
+    assert kill_cmd[2] == run_cmd[run_cmd.index("--name") + 1]
+
+
+def test_wineprefix_init_timeout_kills_container(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A hung wineboot is killed by container name before the error exit."""
+    import subprocess as sp
+
+    import typer
+
+    _chdir_project(monkeypatch, tmp_path)
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(list(cmd))
+        if "wineboot" in cmd:
+            raise sp.TimeoutExpired(cmd, 300)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("rebrew.cmake_tc.subprocess.run", fake_run)
+
+    with pytest.raises(typer.Exit):
+        _ensure_wineprefix(Path(os.environ["REBREW_WINEPREFIX"]), TOOLCHAINS["msvc6"])
+
+    assert len(calls) == 2
+    assert calls[1][:2] == ["docker", "kill"]
 
 
 def test_generate_toolchain_file(tmp_path: Path) -> None:
