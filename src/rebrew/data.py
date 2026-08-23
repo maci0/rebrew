@@ -730,6 +730,7 @@ def _generate_bss_fix(
     *,
     metadata_dir: Path | None = None,
     dry_run: bool = False,
+    json_output: bool = False,
 ) -> None:
     """Generate a bss_padding.c file with dummy arrays for all detected BSS gaps.
 
@@ -771,6 +772,22 @@ def _generate_bss_fix(
                 existing_decls[int(m.group(1), 16)] = int(m.group(2))
 
     if not report.gaps and not existing_decls:
+        if json_output:
+            json_print(
+                {
+                    "action": "fix_bss",
+                    "file": out_file.name,
+                    "dry_run": dry_run,
+                    "existing_arrays": 0,
+                    "new_arrays": 0,
+                    "message": (
+                        "No BSS gaps detected. Layout is perfect!"
+                        if report.known_entries
+                        else "No annotated BSS globals — nothing to verify."
+                    ),
+                }
+            )
+            return
         if report.known_entries:
             console.print("No BSS gaps detected. Layout is perfect!")
         else:
@@ -800,6 +817,18 @@ def _generate_bss_fix(
         lines.append(f"char gap_{gap.offset:08x}[{gap.size}];\n")
 
     if dry_run:
+        if json_output:
+            json_print(
+                {
+                    "action": "fix_bss",
+                    "file": out_file.name,
+                    "dry_run": True,
+                    "existing_arrays": len(existing_decls),
+                    "new_arrays": len(new_gaps),
+                    "declarations": [line for line in lines if line.startswith("// DATA")],
+                }
+            )
+            return
         console.print(
             f"[dim]Dry run:[/dim] would write {out_file.name} with "
             f"{len(existing_decls)} existing + {len(new_gaps)} new padding array(s):"
@@ -830,6 +859,17 @@ def _generate_bss_fix(
     else:
         console.print(
             f"{out_file.name} is up to date ({len(existing_decls)} padding array(s) already declared)."
+        )
+    if json_output:
+        json_print(
+            {
+                "action": "fix_bss",
+                "file": out_file.name,
+                "dry_run": False,
+                "existing_arrays": len(existing_decls),
+                "new_arrays": len(new_gaps),
+                "up_to_date": not new_gaps,
+            }
         )
 
 
@@ -1568,6 +1608,7 @@ def main(
                 getattr(cfg, "marker", ""),
                 metadata_dir=cfg.metadata_dir,
                 dry_run=dry_run,
+                json_output=json_output,
             )
             return
 

@@ -11,6 +11,29 @@
   release-check` dropped the bash-only `set -o pipefail` (the recipe has
   no pipelines; `/bin/sh` is dash on stock Debian).
 ### Added
+- **Codegen corpus round 24 — guild Findings 46-50 primitives
+  (probe27)** — `docs/codegen/corpus.json` grows 12852 → **13127
+  records** (probe27 adds 275: 10 MSVC versions × /O2+/O1, 7 SPs,
+  bcc32/Watcom/GCC/Zig, and the 16-bit set).  Added to RULES.md:
+  - **F25 refined (F46)** — same-constant fail paths MERGE into one
+    shared `xor eax,eax; ret` tail in every version (distinct
+    constants inline, same constants merge — the doc's Finding 46
+    reference shape IS the MSVC default).
+  - **C32 VERIFIED** — the byte-slot or (`or ch,0x10` for `|= 0x1000`)
+    is a **5.0/6.0-only trait** (the doc's `or dh,0x10` form); 2.0/4.1
+    immediate `0d`, 7.0/7.1 `81 c9`, 8.0+ memory `81 08` — extends
+    F15's AH-slot family to the memory-store context.
+  - **E23 VERIFIED** — callee-saves push at ENTRY + fail-path pop in
+    every version (no deferral past guards in the simple shape — the
+    F48 region-split is context-specific); fill-loop counters stay
+    KEPT (countdown) in every version (the F49/F50 elimination is
+    also context-specific; 8.0/9.0 add-over-inc + sub-over-dec).
+  - `corpus-matrix.json` index 460 → **469 functions**; idiom sweep
+    validates (`fail_epi` guild 6×, `callee_defer` 1-4×, `fill_iv` 2×,
+    `or_100000` 2×; exact `or_1000`/`fill_nested` negatives recorded).
+    Docs: RULES.md (+2 rows + F25 refinement), DECOMP_IDIOMS.md (+4
+    idioms), 17 per-toolchain files, README.  See the round-24 spec
+    `.cache/goal_probe27.md`.
 - **Codegen corpus round 23 — guild Finding 45 early-return placement
   (probe26)** — `docs/codegen/corpus.json` grows 12715 → **12852
   records** (probe26 adds 137: 10 MSVC versions × /O2+/O1, 7 SPs,

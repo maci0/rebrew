@@ -168,7 +168,7 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 
 - **Probe17 allocator/conventions**: varargs float→double via SSE (`movss; cvtss2sd; movsd [esp]`); `-1` stores emit the immediate form PLUS a dead `or eax,-1`; 12-byte sret built with SSE `movq`.  See RULES.md A5/A8/B5.
 
-- **Decomp idioms** — the probe19-26 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe26` records).
+- **Decomp idioms** — the probe19-27 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe27` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -193,6 +193,11 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 ## Probe26: Finding 45 early-return placement (round 23)
 
 - **Probe26 (11.0)**: inline early returns; negative constants via `lea eax,[reg-N]` (`8d 41 fd`); cmov-era tails.  See RULES.md F25.
+
+
+## Probe27: Findings 46-50 primitives (round 24)
+
+- **Probe27 (11.0)**: memory-operand or; `cmov`-era guard tails; frame-based prologues.  See RULES.md C32.
 
 
 ## Verification

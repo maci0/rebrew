@@ -405,6 +405,7 @@ def main(
                 dry_run=dry_run,
                 json_output=json_output,
                 fix_size=fix_size,
+                toolchain=toolchain,
             )
             return
 
@@ -919,6 +920,7 @@ def _test_multi(
     dry_run: bool = False,
     json_output: bool = False,
     fix_size: bool = False,
+    toolchain: str | None = None,
 ) -> None:
     """Test all functions in a multi-function .c file.
 
@@ -926,16 +928,24 @@ def _test_multi(
     symbol independently.
     """
 
-    # Per-function cflags can differ in a multi-function file (metadata
-    # overrides) — compiling once with the FIRST annotation's flags silently
-    # mis-compiled the others (false statuses + wrong promotions).  Group by
-    # effective cflags and compile once per group.
-    def _effective_cflags(ann: Annotation) -> str:
-        if cflags_override:
-            return cflags_override
-        from rebrew.cli import resolve_cflags
+    # Per-function cflags AND toolchains can differ in a multi-function file
+    # (metadata overrides) — compiling once with the FIRST annotation's flags
+    # silently mis-compiled the others (false statuses + wrong promotions).
+    # Group by effective (toolchain, cflags) via the shared fallback chain
+    # (annotation → per-library rebrew-library.toml → preset → project
+    # default) so this path compiles each function exactly like verify_entry
+    # and the single-function path do; an explicit --toolchain / --cflags
+    # wins over the annotation value.
+    def _effective_overrides(ann: Annotation) -> tuple[str | None, str]:
+        from rebrew.cli import resolve_compile_overrides
 
-        return resolve_cflags(cfg, ann.cflags, getattr(ann, "module", ""))
+        return resolve_compile_overrides(
+            cfg,
+            Path(source).resolve().parent,
+            toolchain or getattr(ann, "toolchain", ""),
+            cflags_override or getattr(ann, "cflags", "") or None,
+            getattr(ann, "module", ""),
+        )
 
     results_list: list[dict[str, Any]] = []
     # Tracks whether ANY function came back unmatched — the documented exit
@@ -951,17 +961,25 @@ def _test_multi(
 
     workdir = writable_temp_dir("test_multi_")
     try:
-        objs: dict[str, Any] = {}
-        for cf in {_effective_cflags(a) for a in annotations}:
-            # Distinct obj name per cflags group — compile_to_obj derives the
-            # .obj name from the source stem, so without this every group
-            # would overwrite the same obj and all but the last would compare
-            # against the wrong bytes.
-            obj_name = f"{Path(source).stem}_{hashlib.sha256(cf.encode()).hexdigest()[:8]}.obj"
-            obj_path, err = compile_to_obj(cfg, source, cf.split(), workdir, obj_name=obj_name)
+        objs: dict[tuple[str | None, str], Any] = {}
+        for tc_name, cf in {_effective_overrides(a) for a in annotations}:
+            # Distinct obj name per (toolchain, cflags) group — compile_to_obj
+            # derives the .obj name from the source stem, so without this every
+            # group would overwrite the same obj and all but the last would
+            # compare against the wrong bytes.
+            group_key = f"{tc_name or ''}\x00{cf}"
+            obj_name = (
+                f"{Path(source).stem}_{hashlib.sha256(group_key.encode()).hexdigest()[:8]}.obj"
+            )
+            obj_path, err = compile_to_obj(
+                cfg, source, cf.split(), workdir, obj_name=obj_name, toolchain=tc_name
+            )
             if obj_path is None:
-                error_exit(f"COMPILE ERROR (cflags {cf}):\n{err}", json_mode=json_output)
-            objs[cf] = obj_path
+                error_exit(
+                    f"COMPILE ERROR (toolchain {tc_name}, cflags {cf}):\n{err}",
+                    json_mode=json_output,
+                )
+            objs[(tc_name, cf)] = obj_path
 
         for ann in annotations:
             sym = ann.symbol
@@ -1012,7 +1030,7 @@ def _test_multi(
                     console.print(f"[red]EXTRACT_ERROR[/red] {sym} — cannot extract target bytes")
                 continue
             try:
-                obj_path = objs[_effective_cflags(ann)]
+                obj_path = objs[_effective_overrides(ann)]
                 # Single LIEF parse for symbol bytes + typed relocs.
                 obj_bytes, reloc_dict, full_relocs = parse_obj_symbol_and_relocs(obj_path, sym)
 

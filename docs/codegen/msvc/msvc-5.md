@@ -181,7 +181,7 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 
 - **Probe17 allocator/conventions**: `-1` stores use the REGISTER form `or eax,-1` (`83 c8 ff`) + `a3` store (5.0–10.0 era); varargs float→double via `fld; sub esp,8; fstp qword [esp]` (`dd 1c 24`).  See RULES.md A5/B5.
 
-- **Decomp idioms** — the probe19-26 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe26` records).
+- **Decomp idioms** — the probe19-27 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe27` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -206,6 +206,11 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 ## Probe26: Finding 45 early-return placement (round 23)
 
 - **Probe26 (5.0)**: inline early returns; the -1 tail becomes `or eax,-1` (B5).  See RULES.md F25/B5.
+
+
+## Probe27: Findings 46-50 primitives (round 24)
+
+- **Probe27 (5.0)**: **byte-slot or begins (`or ch,0x10` for |=0x1000)**; shared fail epilogue; entry-push callee-saves.  See RULES.md C32/F25.
 
 
 ## Verification

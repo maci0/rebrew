@@ -168,7 +168,7 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 
 - **Probe17 allocator/conventions**: `-1` register form; zero in EAX; moffs (`a1`/`a3`) usage doubles from 8.0 across the corpus (fingerprint B11).  See RULES.md B5/B11.
 
-- **Decomp idioms** — the probe19-26 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe26` records).
+- **Decomp idioms** — the probe19-27 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe27` records).
 
 ## Probe22: guild-rule verification (round 19)
 
@@ -193,6 +193,11 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 ## Probe26: Finding 45 early-return placement (round 23)
 
 - **Probe26 (8.0)**: inline early returns with MEMORY-operand checks (`cmp dword [esp+4],0`); -1 tail or.  See RULES.md F25.
+
+
+## Probe27: Findings 46-50 primitives (round 24)
+
+- **Probe27 (8.0)**: `|=0x1000` memory-operand `or dword [mem],0x1000` (`81 08`); fill loops `add-over-inc` + `sub-over-dec`.  See RULES.md C32/B10.
 
 
 ## Verification
