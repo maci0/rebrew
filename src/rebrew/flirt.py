@@ -141,7 +141,6 @@ def match_text(
     """
     matches: list[dict[str, Any]] = []
     for offset in iter_match_offsets(len(code_data), stride=stride, min_window=_MIN_MATCH_WINDOW):
-        size = find_func_size(code_data, offset)
         hits = matcher.match(code_data[offset : offset + 1024])
         if not hits:
             continue
@@ -155,7 +154,9 @@ def match_text(
             continue
         if len(names) > max_ambiguous:
             continue  # ambiguous — never guess
-        matches.append({"va": base_va + offset, "size": size, "name": names[0]})
+        matches.append(
+            {"va": base_va + offset, "size": find_func_size(code_data, offset), "name": names[0]}
+        )
     return matches
 
 
@@ -258,15 +259,11 @@ def main(
         report "no match" because the scan heuristic suppressed it.
         """
         nonlocal found, skipped
-        func_size = find_func_size(code_data, offset)
-        if not force and func_size < min_size:
+        hits = matcher.match(code_data[offset : offset + 1024])
+        if not hits:
             return
-        matches = matcher.match(code_data[offset : offset + 1024])
-        if not matches:
-            return
-        va = base_va + offset
         names: list[str] = []
-        for m in matches:
+        for m in hits:
             for n in m.names:
                 # n is (name, type, offset) tuple
                 label = n[0] if isinstance(n, tuple) else str(n)
@@ -274,6 +271,10 @@ def main(
                     names.append(label)
         if not names:
             return
+        func_size = find_func_size(code_data, offset)
+        if not force and func_size < min_size:
+            return
+        va = base_va + offset
         if len(names) > max_ambiguous:
             # Broad signatures (e.g. crc_len=0 patterns) can match many
             # candidates at once.  Skipped by default; --show-ambiguous keeps

@@ -96,13 +96,22 @@ def _capstone(skipdata: bool = False, info: BinaryInfo | None = None) -> Any:
     return md
 
 
+_OP_CONSTANTS: tuple[Any, Any, Any] | None = None
+
+
 def _op_constants() -> tuple[Any, Any, Any]:
-    """Return ``(CS_OP_REG, CS_OP_IMM, CS_OP_MEM)`` from capstone."""
-    try:
-        from capstone import CS_OP_IMM, CS_OP_MEM, CS_OP_REG
-    except ImportError as exc:
-        raise RuntimeError("capstone not installed") from exc
-    return CS_OP_REG, CS_OP_IMM, CS_OP_MEM
+    """Return ``(CS_OP_REG, CS_OP_IMM, CS_OP_MEM)`` from capstone (cached).
+
+    ``_classify_insn`` runs per disassembled instruction over whole code
+    sections, so the import machinery must not run per call."""
+    global _OP_CONSTANTS
+    if _OP_CONSTANTS is None:
+        try:
+            from capstone import CS_OP_IMM, CS_OP_MEM, CS_OP_REG
+        except ImportError as exc:
+            raise RuntimeError("capstone not installed") from exc
+        _OP_CONSTANTS = (CS_OP_REG, CS_OP_IMM, CS_OP_MEM)
+    return _OP_CONSTANTS
 
 
 def iter_instructions(

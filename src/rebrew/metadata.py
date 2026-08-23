@@ -924,6 +924,14 @@ def apply_library_presets(meta: dict[str, Any]) -> tuple[dict[str, Any], tuple[s
     return merged, (name,)
 
 
+_LIBRARY_WALK_CACHE: dict[tuple[str, str], Path | None] = {}
+
+
+def clear_library_override_cache() -> None:
+    """Forget cached ``rebrew-library.toml`` walk results (call after writes)."""
+    _LIBRARY_WALK_CACHE.clear()
+
+
 def find_library_override(
     start_dir: str | Path, root: str | Path | None = None
 ) -> LibraryOverride | None:
@@ -931,24 +939,42 @@ def find_library_override(
 
     The walk stops at *root* (project root — ``cfg.root``) inclusive.  Returns
     the merged override (explicit fields + known-library presets) or ``None``
-    when no library file exists on the path."""
+    when no library file exists on the path.
+
+    The located path is memoized per ``(start_dir, root)`` so bulk callers
+    (verify/match over thousands of functions) pay the directory walk once;
+    field values still re-parse through :func:`parse_library_metadata`, whose
+    mtime/size validation picks up content edits."""
     cur = Path(start_dir).resolve()
     root_p = Path(root).resolve() if root is not None else None
-    while True:
-        candidate = cur / LIBRARY_METADATA_FILE
-        if candidate.exists():
-            meta = parse_library_metadata(candidate)
-            merged, presets = apply_library_presets(meta)
-            return LibraryOverride(
-                path=candidate,
-                toolchain=str(merged.get("toolchain") or "").strip(),
-                cflags=str(merged.get("cflags") or "").strip(),
-                library=str(merged.get("library") or "").strip(),
-                presets=presets,
-            )
-        if root_p is not None and cur == root_p:
-            break
-        if cur.parent == cur:
-            break
-        cur = cur.parent
-    return None
+    key = (str(cur), str(root_p) if root_p is not None else "")
+    cached = _LIBRARY_WALK_CACHE.get(key)
+    if cached is not None and not cached.exists():
+        del _LIBRARY_WALK_CACHE[key]  # deleted since the walk — re-walk
+        cached = None
+    if key not in _LIBRARY_WALK_CACHE:
+        found: Path | None = None
+        walk = cur
+        while True:
+            candidate = walk / LIBRARY_METADATA_FILE
+            if candidate.exists():
+                found = candidate
+                break
+            if root_p is not None and walk == root_p:
+                break
+            if walk.parent == walk:
+                break
+            walk = walk.parent
+        _LIBRARY_WALK_CACHE[key] = found
+        cached = found
+    if cached is None:
+        return None
+    meta = parse_library_metadata(cached)
+    merged, presets = apply_library_presets(meta)
+    return LibraryOverride(
+        path=cached,
+        toolchain=str(merged.get("toolchain") or "").strip(),
+        cflags=str(merged.get("cflags") or "").strip(),
+        library=str(merged.get("library") or "").strip(),
+        presets=presets,
+    )

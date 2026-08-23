@@ -49,6 +49,13 @@ console = Console(stderr=True)
 # Pre-compiled regex for sanitizing NASM labels (used in disassemble_to_nasm).
 _NASM_LABEL_RE = re.compile(r"[^a-zA-Z0-9_]")
 
+# Per-instruction hint patterns (_hint_for runs for every disassembled insn).
+_ESP_HINT_OPS = frozenset({"lea", "cmp", "add", "sub", "mov", "push", "and", "or", "xor", "test"})
+_ESP_REF_RE = re.compile(r"\[esp")
+_IAT_ABS_RE = re.compile(r"dword ptr \[0x[0-9a-fA-F]+\]")
+_JMP_TABLE_RE = re.compile(r"dword ptr \[[a-z0-9]+\s*\*\s*4")
+_BYTE_TABLE_FETCH_RE = re.compile(r"byte ptr \[[a-z0-9]+\s*\+\s*0x")
+
 # ---------------------------------------------------------------------------
 # Shared disassembly helper
 # ---------------------------------------------------------------------------
@@ -167,9 +174,7 @@ def _hint_for(insns: list[Any], i: int) -> str | None:
     # into short/disp8 encodings that do NOT match MSVC's `8d 44 24 XX`
     # disp8 forms — force the bytes with _emit (a recurring naked-asm
     # mismatch in the mspaint corpus).
-    if m in ("lea", "cmp", "add", "sub", "mov", "push", "and", "or", "xor", "test") and re.search(
-        r"\[esp", ops
-    ):
+    if m in _ESP_HINT_OPS and _ESP_REF_RE.search(ops):
         return (
             "esp-relative disp8 in naked asm — MASM folds to a short form; "
             "force the exact encoding with _emit if the bytes differ"
@@ -211,7 +216,7 @@ def _hint_for(insns: list[Any], i: int) -> str | None:
     # imported (usually stdcall) function.  The forwarder's own convention
     # is cdecl (plain ret) while the callee cleans — declare a __stdcall
     # function pointer for the call or MSVC emits a spurious `add esp,N`.
-    if m == "call" and re.search(r"dword ptr \[0x[0-9a-fA-F]+\]", ops):
+    if m == "call" and _IAT_ABS_RE.search(ops):
         push_count = 0
         # Scan BACKWARD from the call: count the contiguous reversed-push
         # sequence (`mov reg,[esp+X]; push reg` pairs) right before it.
@@ -227,7 +232,7 @@ def _hint_for(insns: list[Any], i: int) -> str | None:
             )
 
     # Jump-table switch dispatch: jmp dword ptr [reg*4 + 0x...]
-    if m == "jmp" and re.search(r"dword ptr \[[a-z0-9]+\s*\*\s*4", ops):
+    if m == "jmp" and _JMP_TABLE_RE.search(ops):
         # Two-level (byte-compressed) form: the index is fetched from a
         # byte table first (mov dl, byte ptr [reg + 0x...]) — MSVC uses
         # this for sparse switches with shared handlers, and a plain C
@@ -236,7 +241,7 @@ def _hint_for(insns: list[Any], i: int) -> str | None:
         # lowering difference after writing the obvious switch.
         for j in range(max(0, i - 5), i):
             prev = insns[j]
-            if prev.mnemonic == "mov" and re.search(r"byte ptr \[[a-z0-9]+\s*\+\s*0x", prev.op_str):
+            if prev.mnemonic == "mov" and _BYTE_TABLE_FETCH_RE.search(prev.op_str):
                 return (
                     "byte-compressed switch (two-level dispatch) — decode with "
                     "`rebrew switch <va>`; a plain C switch may not reproduce this"

@@ -26,6 +26,7 @@ from rebrew.metadata import (
     _LIBRARY_PRESETS,
     LIBRARY_METADATA_FILE,
     apply_library_presets,
+    clear_library_override_cache,
     find_library_override,
     parse_library_metadata,
 )
@@ -155,6 +156,7 @@ def set_cmd(
     if cflags is not None:
         doc["cflags"] = cflags
     path.write_text(tomlkit.dumps(doc), encoding="utf-8")
+    clear_library_override_cache()
     merged, presets = apply_library_presets({k: doc[k] for k in doc})
     if json_output:
         json_print(
@@ -191,6 +193,7 @@ def rm_cmd(
             console.print(f"[yellow]{msg}[/yellow]")
         return
     path.unlink()
+    clear_library_override_cache()
     if json_output:
         json_print({"removed": True, "file": str(path)})
     else:
