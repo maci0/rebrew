@@ -307,6 +307,7 @@ def main(
     # --force (renaming/overwriting).  Two-phase: report every conflict up
     # front, write nothing on any conflict (rename.py's pattern).
     conflicts: list[Path] = []
+    planned_paths: dict[Path, int] = {}
     for block in blocks:
         meta = _block_metadata(block)
         if meta is None:
@@ -318,6 +319,18 @@ def main(
         symbol = meta["symbol"]
         out_name = _build_output_name(symbol, block_va, cfg.source_ext)
         out_path = out_dir / out_name
+
+        # Two blocks can sanitize to the same filename (same C symbol after
+        # lstrip/sanitization); writing both would silently destroy the first.
+        prior_va = planned_paths.get(out_path)
+        if prior_va is not None:
+            error_exit(
+                f"Duplicate output filename '{out_name}': VAs 0x{prior_va:08x} and "
+                f"0x{block_va:08x} both map to it — nothing was written. Fix the "
+                "duplicate annotation first (lint E013) or extract one block via --va.",
+                json_mode=json_output,
+            )
+        planned_paths[out_path] = block_va
 
         if not force and (out_path.exists() or out_path in existing_sources):
             conflicts.append(out_path)

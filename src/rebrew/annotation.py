@@ -187,14 +187,27 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
     """
     lines = text.splitlines(keepends=True)
     marker_indexes: list[int] = []
+    in_block_comment = False
     for idx, line in enumerate(lines):
         # Marker regex accepts `//` and `/*` (C89-strict 16-bit skeletons
         # emit `/* FUNCTION: ... */`) — quick reject avoids the `.strip()`
         # + regex on the vast majority of source lines.
-        stripped = line.lstrip()
+        stripped = line.strip()
+        # Track /* */ comments so a marker inside one (e.g. an old disabled
+        # copy of a function) does not create a phantom block — mirrors
+        # parse_c_file_multi, which skips them.  This must run before the
+        # `//`-or-`/*` pre-filter or a bare ``*/`` closing line is rejected
+        # too early and the comment state never clears.
+        if in_block_comment:
+            if "*/" in stripped:
+                in_block_comment = False
+            continue
         if not (stripped.startswith("//") or stripped.startswith("/*")):
             continue
-        if NEW_FUNC_CAPTURE_RE.match(stripped.rstrip()):
+        if stripped.startswith("/*") and "*/" not in stripped:
+            in_block_comment = True
+            continue
+        if NEW_FUNC_CAPTURE_RE.match(stripped):
             marker_indexes.append(idx)
 
     if not marker_indexes:
