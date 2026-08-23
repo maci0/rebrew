@@ -1,4 +1,15 @@
 ## [Unreleased]
+### Fixed
+- **`rebrew-cmake-*` only translated paths under `/home`, `/tmp`,
+  `/gamatcher`** — `_rewrite_args` (`cmake_tc.py`) decided which argv
+  tokens were absolute host paths by matching a hardcoded prefix list, so
+  a project checked out anywhere else (e.g. `/srv/decomp`) got raw
+  POSIX paths handed to CL.EXE/LINK.EXE, which parse them as options.
+  The prefixes are replaced by `_is_host_path`, a structural probe (a
+  second slash marks a path; MSVC flags are single-segment), so any
+  absolute project location converts to wine `Z:\` form.  `make
+  release-check` dropped the bash-only `set -o pipefail` (the recipe has
+  no pipelines; `/bin/sh` is dash on stock Debian).
 ### Added
 - **Codegen corpus round 23 — guild Finding 45 early-return placement
   (probe26)** — `docs/codegen/corpus.json` grows 12715 → **12852

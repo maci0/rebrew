@@ -143,6 +143,21 @@ def _to_w(p: str) -> str:
     return p
 
 
+def _is_host_path(arg: str) -> bool:
+    """True when *arg* is an absolute POSIX path wine must see as ``Z:\\``.
+
+    Capability probe rather than a hardcoded directory list (/home, /tmp,
+    ...): any second slash after the leading one marks a multi-segment path,
+    while MSVC option flags (``/O2``, ``/Gd``, ``/nologo``) are a single
+    slash plus one flag word and never contain another.  A root-level
+    ``/name`` counts only when it exists on the host.
+    """
+    if not arg.startswith("/") or len(arg) < 2:
+        return False
+    rest = arg[1:]
+    return "/" in rest or os.path.exists(arg)
+
+
 def _rewrite_args(mode: str, args: list[str]) -> list[str]:
     out: list[str] = []
     for arg in args:
@@ -179,10 +194,7 @@ def _rewrite_args(mode: str, args: list[str]) -> list[str]:
             if arg.startswith(("/*.c", "/*.cpp", "/*.cc", "/*.cxx")):
                 out.append(_to_w(arg))
                 continue
-            if arg.startswith(("/home/", "/tmp/", "/gamatcher/")):
-                out.append(_to_w(arg))
-                continue
-            out.append(arg)
+            out.append(_to_w(arg) if _is_host_path(arg) else arg)
         elif mode == "link":
             for flag, name in (
                 ("/OUT:", "OUT"),
@@ -197,9 +209,7 @@ def _rewrite_args(mode: str, args: list[str]) -> list[str]:
                     out.append(f"/{name}:" + _to_w(arg.split(":", 1)[1]))
                     break
             else:
-                if arg.startswith(("/home/", "/tmp/", "/gamatcher/")) or arg.startswith(
-                    ("/*.obj", "/*.lib")
-                ):
+                if _is_host_path(arg) or arg.startswith(("/*.obj", "/*.lib")):
                     out.append(_to_w(arg))
                 else:
                     out.append(arg)
@@ -207,9 +217,7 @@ def _rewrite_args(mode: str, args: list[str]) -> list[str]:
             if arg.upper().startswith("/OUT:/"):
                 out.append("/OUT:" + _to_w(arg[len("/OUT:") :]))
                 continue
-            if arg.startswith(("/home/", "/tmp/", "/gamatcher/")) or arg.startswith(
-                ("/*.obj", "/*.lib")
-            ):
+            if _is_host_path(arg) or arg.startswith(("/*.obj", "/*.lib")):
                 out.append(_to_w(arg))
                 continue
             out.append(arg)

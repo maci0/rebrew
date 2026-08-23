@@ -46,7 +46,7 @@ all: format-check lint test
 # is actually being prepared: __version__ bumped past the last tag, a matching
 # [Unreleased]-style section present, and a clean tree to tag.
 release-check:
-	@set -euo pipefail; \
+	@set -eu; \
 	V=$$(uv run python -c "from rebrew import __version__; print(__version__)"); \
 	LAST=$$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0); \
 	LASTV=$${LAST#v}; \

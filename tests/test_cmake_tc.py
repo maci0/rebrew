@@ -20,6 +20,7 @@ from rebrew.cmake_tc import (
     _ensure_wineprefix,
     _exclusive_lock,
     _find_project_root,
+    _is_host_path,
     _rewrite_args,
     _to_w,
     generate_toolchain_file,
@@ -52,6 +53,33 @@ class TestRewriteArgsCl:
         out = _rewrite_args("cl", ["/O2", "/Gd", "/DREBREW_ALLOW_NAKED", "/c"])
         assert out == ["/O2", "/Gd", "/DREBREW_ALLOW_NAKED", "/c"]
 
+    def test_absolute_path_outside_legacy_prefixes(self) -> None:
+        """Any absolute host path converts — not just /home, /tmp, /gamatcher."""
+        out = _rewrite_args("cl", ["/nologo", "/c", "/srv/decomp/src.c"])
+        assert out == ["/nologo", "/c", r"Z:\srv\decomp\src.c"]
+
+
+class TestIsHostPath:
+    def test_multi_segment_paths_always_convert(self) -> None:
+        assert _is_host_path("/srv/build/x.obj")
+        assert _is_host_path("/mnt/data/inc/header.h")
+
+    def test_single_segment_flag_is_not_a_path(self) -> None:
+        assert not _is_host_path("/O2")
+        assert not _is_host_path("/c")
+        assert not _is_host_path("/INCREMENTAL:NO")
+
+    def test_root_level_needs_existence(self, tmp_path: Path) -> None:
+        assert not _is_host_path("/definitely-not-a-real-file")
+        existing = tmp_path / "marker"
+        existing.write_text("", encoding="utf-8")
+        assert _is_host_path(str(existing))
+
+    def test_relative_and_empty_pass_through(self) -> None:
+        assert not _is_host_path("x.c")
+        assert not _is_host_path("")
+        assert not _is_host_path("/")
+
 
 class TestRewriteArgsLink:
     def test_output_and_libpaths(self) -> None:
@@ -62,6 +90,11 @@ class TestRewriteArgsLink:
         assert "/OUT:" + r"Z:\home\maci\server.dll" in out
         assert "/LIBPATH:" + r"Z:\opt\lib" in out
         assert r"Z:\home\maci\a.obj" in out
+
+    def test_absolute_path_outside_legacy_prefixes(self) -> None:
+        """Inputs outside /home,/tmp,/gamatcher still convert (any project root)."""
+        out = _rewrite_args("link", ["/MACHINE:X86", "/srv/decomp/b.obj"])
+        assert out == ["/MACHINE:X86", r"Z:\srv\decomp\b.obj"]
 
     def test_case_insensitive_flags(self) -> None:
         out = _rewrite_args("link", ["/out:/home/x.dll", "/pdb:/home/x.pdb"])
