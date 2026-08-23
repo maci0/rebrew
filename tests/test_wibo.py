@@ -11,7 +11,7 @@ import pytest
 
 import rebrew.wibo as wibo_mod
 from rebrew.doctor import _PASS, _WARN, check_runner
-from rebrew.wibo import _WIBO_API_URL, _wibo_asset_name, download_wibo, ensure_wibo, find_wibo
+from rebrew.wibo import _WIBO_API_URL, _wibo_asset_name, download_wibo, find_wibo
 
 
 class _FakeHTTPResponse:
@@ -187,34 +187,6 @@ class TestDownloadWibo:
         assert closed_fds
         assert not dest.exists()
         assert not list(dest.parent.glob(".wibo_*"))
-
-
-class TestEnsureWibo:
-    def test_already_exists_returns_path(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        existing = tmp_path / "tools" / "wibo"
-        existing.parent.mkdir(parents=True)
-        existing.write_bytes(b"binary")
-
-        monkeypatch.setattr("rebrew.wibo.find_wibo", lambda _root: existing)
-        assert ensure_wibo(tmp_path) == existing
-
-    def test_downloads_when_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("rebrew.wibo.find_wibo", lambda _root: None)
-        calls: list[Path] = []
-
-        def _fake_download(dest: Path, *, quiet: bool = False) -> str:
-            del quiet
-            calls.append(dest)
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(b"binary")
-            return "v0.9.0"
-
-        monkeypatch.setattr("rebrew.wibo.download_wibo", _fake_download)
-        result = ensure_wibo(tmp_path)
-        assert result == tmp_path / "tools" / "wibo"
-        assert calls == [tmp_path / "tools" / "wibo"]
 
 
 class TestDoctorCheckRunner:

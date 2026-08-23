@@ -141,14 +141,3 @@ def find_wibo(project_root: Path | None = None) -> Path | None:
     if local_wibo.exists() and local_wibo.is_file():
         return local_wibo
     return None
-
-
-def ensure_wibo(project_root: Path) -> Path:
-    """Find wibo or download it to project_root/tools/wibo."""
-    found = find_wibo(project_root)
-    if found is not None:
-        return found
-
-    dest = project_root / _WIBO_DEFAULT_PATH
-    download_wibo(dest)
-    return dest

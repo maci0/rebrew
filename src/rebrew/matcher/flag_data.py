@@ -68,9 +68,6 @@ MSVC6_FLAGS: Flags = [
     Checkbox(id="msvc_fp_consistency", flag="/Op"),
 ]
 
-# Flag IDs only available in MSVC 7.x+
-MSVC7_ONLY_IDS = {"msvc_disable_buffer_security_checks", "msvc_fp"}
-
 # Sweep tiers — which flag IDs to include per effort level.
 # quick:    core code-affecting axes (~fast)
 # targeted: core + specific codegen-altering flags (/Oy, /Op)

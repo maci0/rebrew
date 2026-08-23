@@ -378,7 +378,7 @@ Numeric constants need explicit operators: GA can't fix wrong offsets/magics/siz
 ### Key Architectural Rules
 
 - **Config-driven**: all tools read `rebrew-project.toml` — never hardcode paths
-- **ADRs**: record decisions (new formats/profiles/backends, contract changes, trade-offs) in `docs/adr/NNN-short-title.md` (Nygard: Status/Context/Decision/Consequences), listed in `docs/adr/README.md`; keep current. Small fixes → `CHANGELOG.md`, not an ADR.
+- **ADRs**: record decisions (new formats/profiles/backends, contract changes, trade-offs) in `docs/adr/NNN-short-title.md` (Nygard: Status/Context/Decision/Consequences), listed in `docs/adr/README.md`; keep current. Small fixes → `CHANGELOG.md`, not an ADR. Statuses are `Accepted` / `Amended by NNN` / `Superseded by NNN` — a decision still being made is an RFC, not a proposed ADR.
 - **Idempotent**: every tool safe to re-run
 - **Source discovery**: `iter_sources(directory, cfg)` from `sources.py`; `iter_library_headers(directory)` for `library_*.h`
 - **Batch annotations**: `iter_annotations(sources, target=...)` from `cli.py` — wraps `parse_c_file_multi` with silent errors → `[(path, [Annotation])]`

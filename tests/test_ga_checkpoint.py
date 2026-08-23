@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rebrew.match import BinaryMatchingGA, _ga_args_hash, load_ga_checkpoint, read_ga_checkpoint
+from rebrew.match import BinaryMatchingGA, _ga_args_hash, read_ga_checkpoint
 from rebrew.matcher.core import GACheckpoint
 
 _SOURCE = "int f(void) { return 0; }"
@@ -63,13 +63,6 @@ class TestCheckpointIO:
         loaded = read_ga_checkpoint(tmp_path / "out", "_f")
         assert loaded is not None
         assert loaded.generation == 2
-
-    def test_load_validates_args_hash(self, tmp_path: Path) -> None:
-        ga = _make_ga(tmp_path)
-        ga._save_checkpoint(2)
-        out = tmp_path / "out"
-        assert load_ga_checkpoint(out, "_f", ga.args_hash) is not None
-        assert load_ga_checkpoint(out, "_f", "stale-hash") is None
 
     def test_missing_checkpoint_returns_none(self, tmp_path: Path) -> None:
         assert read_ga_checkpoint(tmp_path / "out", "_nope") is None

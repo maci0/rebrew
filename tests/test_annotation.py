@@ -8,8 +8,6 @@ import pytest
 from rebrew.annotation import (
     Annotation,
     make_func_entry,
-    normalize_cflags,
-    normalize_status,
     parse_c_file,
     parse_library_header,
     parse_new_format,
@@ -235,28 +233,6 @@ class TestAnnotationValidation:
 # ---------------------------------------------------------------------------
 # Parser tests
 # ---------------------------------------------------------------------------
-
-
-class TestNormalizeHelpers:
-    def test_normalize_status_exact(self) -> None:
-        assert normalize_status("EXACT MATCH") == "EXACT"
-        assert normalize_status("exact") == "EXACT"
-
-    def test_normalize_status_reloc(self) -> None:
-        assert normalize_status("RELOC MATCH") == "RELOC"
-
-    def test_normalize_status_matching(self) -> None:
-        assert normalize_status("NEAR_MATCHING") == "NEAR_MATCHING"
-
-    def test_normalize_status_matching_reloc(self) -> None:
-        # Regression: must NOT mangle RELOC → RELOC (substring order bug)
-        assert normalize_status("RELOC") == "RELOC"
-
-    def test_normalize_status_stub(self) -> None:
-        assert normalize_status("STUB") == "STUB"
-
-    def test_normalize_cflags(self) -> None:
-        assert normalize_cflags("  /O2 /Gd , ") == "/O2 /Gd"
 
 
 class TestParseNewFormat:
@@ -910,14 +886,6 @@ class TestParseLibraryHeader:
 class TestAuditAnnotation:
     """Tests for annotation edge cases and regression coverage."""
 
-    # normalize_status: PROVEN branch — old-format variants must normalise to "PROVEN"
-    def test_normalize_status_proven(self) -> None:
-        """'PROVEN' must map to the canonical status string, not pass through verbatim."""
-        assert normalize_status("PROVEN") == "PROVEN"
-        # Old-format variants containing the word should also normalise
-        assert normalize_status("proven_match") == "PROVEN"
-        assert normalize_status("PROVEN_OK") == "PROVEN"
-
     # update_size_annotation: target_va parameter routes size to metadata, not .c file
     def test_update_size_annotation_target_va_match(self, tmp_path: Path) -> None:
         """When target_va is provided, size is written to metadata (not .c file)."""
@@ -1243,20 +1211,6 @@ class TestSplitAnnotationSectionsRescue:
         preamble, blocks = split_annotation_sections(text)
         assert preamble == ""
         assert len(blocks) == 1
-
-
-class TestNormalizeStatusProven:
-    def test_proven_passthrough(self) -> None:
-        from rebrew.annotation import normalize_status
-
-        assert normalize_status("PROVEN") == "PROVEN"
-
-    def test_exact_wins_over_proven_substring(self) -> None:
-        from rebrew.annotation import normalize_status
-
-        # "PROVEN" alone hits the PROVEN branch; a string containing EXACT
-        # wins earlier.
-        assert normalize_status("EXACT_MATCH_PROVEN") == "EXACT"
 
 
 class TestAnnotationValidateBranches:

@@ -1515,7 +1515,7 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 
 | Module | Purpose |
 |--------|---------|
-| `annotation.py` | Canonical annotation parser (`parse_c_file`, `parse_c_file_multi`, `normalize_status`) |
+| `annotation.py` | Canonical annotation parser (`parse_c_file`, `parse_c_file_multi`) |
 | `lint.py` | Source marker linter (E000–E023 / W001–W028); `--fix` auto-migrates old formats |
 | `ghidra/cli.py` | Sync annotations to Ghidra via ReVa MCP; skips generic `func_` labels by default |
 

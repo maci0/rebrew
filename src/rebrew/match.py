@@ -762,18 +762,6 @@ def _ga_args_hash(
     return h.hexdigest()
 
 
-def load_ga_checkpoint(out_dir: Path, symbol: str, args_hash: str) -> GACheckpoint | None:
-    """Load + validate the checkpoint for *symbol*; None when missing/stale.
-
-    A checkpoint whose ``args_hash`` differs (source/params changed) is
-    rejected — resume must never continue from incompatible state.
-    """
-    checkpoint = read_ga_checkpoint(out_dir, symbol)
-    if checkpoint is None or checkpoint.args_hash != args_hash:
-        return None
-    return checkpoint
-
-
 def read_ga_checkpoint(out_dir: Path, symbol: str) -> GACheckpoint | None:
     """Parse the checkpoint for *symbol* without hash validation.
 

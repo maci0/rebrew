@@ -750,6 +750,7 @@ def smoke_cmd(
                             "docker",
                             "run",
                             "--rm",
+                            "--network=none",  # compile-only container
                             "-v",
                             f"{workdir}:/work",
                             "-w",
@@ -935,6 +936,7 @@ def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
                 "docker",
                 "run",
                 "--rm",
+                "--network=none",  # compile-only container
                 "-v",
                 f"{workdir}:/work",
                 "-w",

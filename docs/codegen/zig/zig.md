@@ -103,10 +103,15 @@ zig-vs-gcc byte marker in either dimension.
 
 - **Probe17 verified-negative**: the allocator/convention markers are MSVC-internal; Zig follows the shared conventions — no new zig-vs-gcc marker; corpus pointer.
 
-- **Decomp idioms** — the probe19/20 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](DECOMP_IDIOMS.md) and the corpus (`probe19`/`probe20` records).
+- **Decomp idioms** — the probe19-22 game-idiom signatures for this toolchain are in [DECOMP_IDIOMS.md](../DECOMP_IDIOMS.md) and the corpus (`probe19`-`probe22` records).
+
+## Probe22: guild-rule verification (round 19)
+
+- **Probe22 (Zig/LLVM)**: C24 negation via `cmove` (`0f 44 c1`); switch preamble `movzx`-based (`0f b6 08; 83 c1 fd; 83 f9 66`); flags use dword `test` (`f7 c2`) — no AH-slot ops.  See RULES.md F15/C24.
+
 
 ## Verification
 
 PDB module scan of a real Zig-built program (`.zig-cache` paths);
 codegen claims intentionally absent.  Matching caveat documented in
-[TOOLCHAIN.md](../TOOLCHAIN.md).
+[TOOLCHAIN.md](../../TOOLCHAIN.md).

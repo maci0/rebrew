@@ -256,9 +256,9 @@ standalone raw-byte marker.
 ## Machine-readable corpus — `corpus.json`
 
 [`corpus.json`](corpus.json) is the machine-readable codegen corpus:
-**10073 records**, one per (toolchain, version, SP, flags, probe,
+**11182 records**, one per (toolchain, version, SP, flags, probe,
 function) with `{toolchain, version, sp, flags, probe, function,
-size, bytes}` — generated from every probe 1-16 object (all 13 MSVC
+size, bytes}` — generated from every probe 1-22 object (all 13 MSVC
 versions 1.0-11.0 at /O2 and /O1 + all SP images, bcc32, Watcom
 32/16, TC 2.0/3.1, MinGW GCC, Zig, the 16-bit MSVC set).  Query
 examples:
@@ -276,7 +276,7 @@ The generator (`gen_codegen_corpus.py`), schema validator
 **query CLI** (`corpus_query.py` — `info` / `matrix <func>` /
 `unique <ver>` / `diff <v1> <v2>` / `look <hex>`) live in the
 gitignored `.cache/fp_probe/` harness.  `matrix`/`diff`/`unique` read
-the precomputed **`corpus-matrix.json`** index (386 functions × their
+the precomputed **`corpus-matrix.json`** index (411 functions × their
 per-version byte groups) for O(1) lookups.  `matrix lcg_next` prints the
 per-version byte groups for a function; `look ff 24 85` finds every
 record containing a byte pattern.  The corpus also carries Delphi 1.0
@@ -285,9 +285,13 @@ records (NE user-code segments, function boundaries inferred at
 listing (e.g. the bcc32 C++ object).  Sweep results: the
 per-toolchain uniqueness confirmed every hand-documented marker and
 surfaced no new cross-toolchain-unique ones; the **SP equivalence is
-machine-verified over 1957 SP rows — 1939 identical to their RTMs,
-18 mismatches, ALL of them VC 7.0 SP1** (the known set + probe14's
-`_s64_ret`, the 18th function).  The corpus also surfaced that the
+machine-verified over 2697 SP rows (matching each SP against its RTM
+twin by toolchain/version/flags/probe/function)** — the known VC 7.0
+SP1 delta set (18 functions incl. probe14's `_s64_ret`) now extends
+with probe22's `_arr_counter`/`_struct_counter` (7.0 SP1 emits
+`rep stosd` where RTM unrolls the 36B memset — the only probe22 SP
+delta; 6.0 SP1–SP6, 7.1 SP1, 8.0 SP1, 10.0 SP1 are byte-identical on
+all 26 probe22 functions).  The corpus also surfaced that the
 VC 9.0 SP1 "workaround" objects are IA64-typed (see msvc-9.md) —
 the 9.0 SP1 comparison remains blocked.
 

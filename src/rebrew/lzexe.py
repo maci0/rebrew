@@ -836,18 +836,3 @@ def _unpack_impl(data: bytes, version: int) -> LzexeResult:
         header_words=ohead,
         relocs=relocs,
     )
-
-
-def unpack_to_file(path: str | Path, out: str | Path | None = None) -> Path:
-    """Unpack an LZEXE file to disk, returning the output path.
-
-    The default output path replaces the extension with ``.unpacked.exe``
-    (or appends it when the source has no extension).
-    """
-    path = Path(path)
-    result = unpack_lzexe(path)
-    if out is None:
-        out = path.with_suffix(path.suffix + ".unpacked.exe")
-    out = Path(out)
-    out.write_bytes(result.to_bytes())
-    return out
