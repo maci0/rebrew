@@ -1,5 +1,9 @@
 ## [Unreleased]
 ### Added
+- *(nothing yet)*
+
+## [0.5.0] - 2026-08-23
+### Added
 - **`// SOURCE: naked` honest-status split** (ct-recomp's NAKED_REQUIRED vs
   PURE_C_EXACT distinction, generalized) — `rebrew asm --inline-c` skeletons
   now carry a `// SOURCE: naked` marker, and `rebrew status`/`rebrew todo`
