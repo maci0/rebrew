@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import difflib
 import functools
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,7 @@ from rebrew.cli import (
 from rebrew.stack_cmp import analyze_frame, compare_frames
 
 console = Console(stderr=True)
+logger = logging.getLogger(__name__)
 
 _DEFAULT_CS_ARCH = "CS_ARCH_X86"
 _DEFAULT_CS_MODE = "CS_MODE_32"
@@ -495,6 +497,7 @@ def _cfg_score(
 
         return cfg_similarity(target_bytes, compiled_bytes, va, mode)
     except Exception:  # cfg info is best-effort
+        logger.debug("CFG similarity failed at 0x%08x", va, exc_info=True)
         return None
 
 
@@ -522,6 +525,7 @@ def _frame_comparison(
             analyze_frame(compiled_bytes, va, mode),
         )
     except Exception:  # frame info is best-effort
+        logger.debug("frame comparison failed at 0x%08x", va, exc_info=True)
         return None
 
 

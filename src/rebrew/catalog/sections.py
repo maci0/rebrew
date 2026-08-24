@@ -5,6 +5,7 @@ scanning from annotated source files, and shared x86 code-analysis
 utilities (back-jump detection, padding trimming).
 """
 
+import logging
 import re
 import struct
 from pathlib import Path
@@ -12,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 
 from rebrew.config import ProjectConfig
 from rebrew.sources import iter_sources
+
+logger = logging.getLogger(__name__)
 
 
 def _default_padding() -> tuple[int, ...]:
@@ -178,7 +181,7 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
                     elif p.name not in globals_dict[va]["files"]:
                         globals_dict[va]["files"].append(p.name)
         except (OSError, KeyError, ValueError):
-            pass
+            logger.debug("global scan failed for %s", p, exc_info=True)
     return globals_dict
 
 

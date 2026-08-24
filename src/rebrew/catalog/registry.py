@@ -4,12 +4,15 @@ Merges function list and Ghidra function lists into a unified registry with
 smart size resolution (jump table detection, padding absorption, etc.).
 """
 
+import logging
 import struct
 from pathlib import Path
 from typing import Any, TypedDict
 
 from rebrew.catalog.sections import has_back_jumps, trim_trailing_padding
 from rebrew.config import ProjectConfig
+
+logger = logging.getLogger(__name__)
 
 
 class RegistryEntry(TypedDict, total=False):
@@ -258,7 +261,7 @@ def build_function_registry(
                 text_size_val = sec.size
                 text_data = info.data[sec.file_offset : sec.file_offset + sec.size]
         except (OSError, KeyError, ValueError):
-            pass
+            logger.debug(".text section load failed for %s", bin_path, exc_info=True)
 
     # --- Resolve canonical size: smart resolution ---
     for va, entry in registry.items():

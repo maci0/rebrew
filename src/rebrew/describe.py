@@ -58,6 +58,7 @@ from rebrew.sources import (
 )
 
 console = Console(stderr=True)
+logger = logging.getLogger(__name__)
 
 # Xref kinds that count as a caller of the probe function.
 _CALLER_KINDS = frozenset({"call", "jmp"})
@@ -182,7 +183,7 @@ def _function_range(info: BinaryInfo, va: int, size: int | None) -> tuple[int, i
             if insn.mnemonic == "ret":
                 break
     except Exception:  # best-effort fallback sizing
-        pass
+        logger.debug("extent fallback walk failed at 0x%08x", va, exc_info=True)
     return va, end
 
 
@@ -205,6 +206,7 @@ def _import_table(cfg: ProjectConfig) -> dict[int, str]:
     try:
         return parse_import_table(cfg.target_binary)
     except Exception:  # import parsing is best-effort
+        logger.debug("import table parse failed for %s", cfg.target_binary, exc_info=True)
         return {}
 
 
@@ -213,6 +215,7 @@ def _safe_section(compute: Any, default: Any) -> Any:
     try:
         return compute()
     except Exception:  # a failing section must not kill the dossier
+        logger.debug("dossier section failed (degraded to default)", exc_info=True)
         return default
 
 
@@ -340,6 +343,9 @@ def build_dossier(cfg: ProjectConfig, info: BinaryInfo, va: int) -> dict[str, An
     try:
         annotations, names, ranges = _build_lookup(cfg)
     except Exception:  # lookup failures degrade to empty lookups
+        logger.debug(
+            "annotation lookup build failed for %s", getattr(cfg, "target_name", "?"), exc_info=True
+        )
         annotations, names, ranges = {}, {}, []
     ann = annotations.get(va)
     if ann is None:
@@ -371,6 +377,7 @@ def build_dossier(cfg: ProjectConfig, info: BinaryInfo, va: int) -> dict[str, An
 
             pattern = detect_function_pattern(cfg, va)
         except Exception:  # best-effort tag
+            logger.debug("pattern detection failed at 0x%08x", va, exc_info=True)
             pattern = None
         # Extent-based inference (shared helper) — the old flat 64-byte
         # window truncated longer functions mid-code, so the epilogue `ret`
@@ -381,6 +388,7 @@ def build_dossier(cfg: ProjectConfig, info: BinaryInfo, va: int) -> dict[str, An
 
             convention = calling_convention_at(cfg, va) or None
         except Exception:  # best-effort tag
+            logger.debug("calling-convention inference failed at 0x%08x", va, exc_info=True)
             convention = None
 
     return {

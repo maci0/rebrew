@@ -26,6 +26,7 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import re
 import subprocess
 import tempfile
@@ -53,6 +54,7 @@ from rebrew.sources import (
 )
 
 console = Console(stderr=True)
+logger = logging.getLogger(__name__)
 
 # Pre-compiled regex for sanitizing NASM labels (used in disassemble_to_nasm).
 _NASM_LABEL_RE = re.compile(r"[^a-zA-Z0-9_]")
@@ -134,6 +136,7 @@ def _build_import_map(bin_path: Path) -> dict[int, str]:
 
         return parse_import_table(bin_path)
     except Exception:  # recon aid, never block disasm
+        logger.debug("import map build failed for %s", bin_path, exc_info=True)
         return {}
 
 
@@ -151,6 +154,7 @@ def _build_string_map(bin_path: Path) -> dict[int, str]:
             strings = iter_strings(info, min_len=4, section_names=[".text"])
         return {s.va: s.text for s in strings}
     except Exception:
+        logger.debug("string map build failed for %s", bin_path, exc_info=True)
         return {}
 
 
@@ -323,6 +327,7 @@ def detect_function_pattern(cfg: ProjectConfig, va: int) -> str | None:
             if pushes >= 3:
                 return f"IAT forwarder ({pushes}-arg) — stdcall callee; the forwarder is cdecl"
     except Exception:  # best-effort pattern tag
+        logger.debug("pattern scan failed at 0x%08x", va, exc_info=True)
         return None
     return None
 
@@ -450,6 +455,7 @@ def disassembled_extent_window(cfg: ProjectConfig, va: int) -> tuple[list[Any], 
         md = capstone.Cs(capstone.CS_ARCH_X86, mode)
         return list(md.disasm(raw, va)), kind
     except Exception:  # best-effort inference
+        logger.debug("instruction window read failed at 0x%08x", va, exc_info=True)
         return [], None
 
 
@@ -527,7 +533,7 @@ def _run_hex_mode(
                     ne_seg_name = "code" if s.is_code else "data"
                     break
     except Exception:  # segment context is cosmetic
-        pass
+        logger.debug("NE segment context lookup failed at 0x%x", va_int, exc_info=True)
 
     import_map: dict[int, str] = {}
     string_map: dict[int, str] = {}
@@ -570,6 +576,7 @@ def _run_hex_mode(
                     text_start = rng[0] if rng else 0
                     pre_va = max(text_start, va_int - 12)
                 except Exception:  # lookbehind is best-effort
+                    logger.debug("lookbehind window probe failed", exc_info=True)
                     pre_va = va_int - 12
             pre_data = extract_raw_bytes(cfg.target_binary, pre_va, size + (va_int - pre_va))
             insn_list = list(md.disasm(pre_data, pre_va))

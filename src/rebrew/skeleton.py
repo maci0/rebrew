@@ -18,6 +18,7 @@ Usage:
 from __future__ import annotations
 
 import importlib
+import logging
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -60,6 +61,7 @@ from rebrew.utils import (
 )
 
 console = Console(stderr=True)
+logger = logging.getLogger(__name__)
 
 #: 16-bit DOS profiles whose C compiler rejects ``//`` comments (C89-strict).
 #: Their skeleton markers are emitted as ``/* ... */`` instead.
@@ -267,6 +269,7 @@ def _convention_stub(
             return None, None
         conv = calling_convention(insns)
     except Exception:  # best-effort stub shape
+        logger.debug("stub-shape probe failed at 0x%08x", va, exc_info=True)
         return None, None
 
     # 16-bit targets: word-sized stack args (2 bytes) and the Borland
@@ -359,6 +362,7 @@ def _tail_call_arg_count(
 
                 lazy_lookup = build_function_lookup(cfg)
             except Exception:  # best-effort resolution
+                logger.debug("function lookup build failed", exc_info=True)
                 return 0, ""
         name, _status = lazy_lookup.get(target, ("", ""))
         dm = re.search(r"@(\d+)\s*$", name)
@@ -625,11 +629,12 @@ def _stale_size_note(cfg: ProjectConfig, va: int, size: int) -> str | None:
                     "entry; split into per-function files (each has its own VA/size)"
                 )
     except Exception:  # best-effort advisory
-        pass
+        logger.debug("merged-region check failed at 0x%08x", va, exc_info=True)
 
     try:
         extent = function_extent_from_disasm(cfg.target_binary, va)
     except Exception:  # best-effort advisory
+        logger.debug("extent disassembly failed at 0x%08x", va, exc_info=True)
         return None
     if extent is not None and size < extent:
         return (
@@ -785,6 +790,7 @@ def _looks_like_fragment(cfg: ProjectConfig, va: int) -> bool:
 
         raw = extract_raw_bytes(cfg.target_binary, va, 2)
     except Exception:  # best-effort
+        logger.debug("prologue byte probe failed at 0x%08x", va, exc_info=True)
         return False
     if len(raw) < 2:
         return False
@@ -816,6 +822,7 @@ def _is_thunk(cfg: ProjectConfig, va: int) -> bool:
         if i0.mnemonic == "call" and len(insns) > 1 and insns[1].mnemonic == "jmp":
             return True  # call thunk (hotpatch / chained stub)
     except Exception:  # best-effort filter
+        logger.debug("thunk probe failed at 0x%08x", va, exc_info=True)
         return False
     return False
 
