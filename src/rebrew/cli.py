@@ -25,6 +25,7 @@ from typing import Any, NoReturn
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from rebrew.config import ProjectConfig, load_config
 from rebrew.metadata import MATCHED_STATUSES
@@ -133,11 +134,14 @@ def error_exit(msg: str, *, json_mode: bool = False, code: int = EXIT_ERROR) -> 
     In JSON mode the envelope is ``{"error": <msg>, "code": <exit_code>}`` so
     callers can distinguish mismatch (1) from infrastructure errors (2) without
     relying solely on the process exit status.
+
+    *msg* is rendered literally (Rich markup escaped): error text often
+    embeds file contents and paths that must not be interpreted as markup.
     """
     if json_mode:
         print(json.dumps({"error": msg, "code": code}, indent=2))
     else:
-        _err_console.print(f"[red bold]error:[/red bold] {msg}")
+        _err_console.print(f"[red bold]error:[/red bold] {escape(msg)}")
     raise typer.Exit(code=code)
 
 

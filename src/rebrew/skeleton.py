@@ -66,6 +66,18 @@ console = Console(stderr=True)
 C89_STRICT_PROFILES = frozenset({"tc20", "msvc1.52", "watcom16"})
 
 
+def c_comment_safe(text: str) -> str:
+    """Make *text* safe to embed inside a generated ``/* ... */`` comment.
+
+    Ghidra/symbol names derive from the analyzed binary, so an attacker can
+    plant ``*/`` in a function name to close the comment early and inject
+    arbitrary C into the generated skeleton (which ``rebrew test`` compiles).
+    Splitting ``*/`` keeps the text readable while defusing the breakout;
+    other control characters become spaces.
+    """
+    return "".join(" " if not ch.isprintable() else ch for ch in text.replace("*/", "* /"))
+
+
 def _render_annotation_block(
     marker: str,
     cfg_marker: str,
@@ -153,9 +165,11 @@ def _render_annotation_block(
                 lines.append(f"    /* TODO: {todo_text} */\n")
                 if convention_note:
                     lines.append(f"    /* {convention_note} */\n")
-                lines.append(f"    /* Ghidra name: {ghidra_name} */\n")
+                lines.append(f"    /* Ghidra name: {c_comment_safe(ghidra_name)} */\n")
             else:
-                lines.append(f"    /* TODO: Implement — Ghidra name: {ghidra_name} */\n")
+                lines.append(
+                    f"    /* TODO: Implement — Ghidra name: {c_comment_safe(ghidra_name)} */\n"
+                )
             lines.append("    return 0;\n")
             lines.append("}\n")
     return "".join(lines)
@@ -532,10 +546,10 @@ def fetch_xref_context(
 
             lines: list[str] = [f"/* === Cross-references ({len(callers)} callers) ===", " *"]
             for idx, (caller_name, caller_addr, caller_context) in enumerate(callers, start=1):
-                lines.append(f" * Caller {idx}: {caller_name} ({caller_addr})")
+                lines.append(f" * Caller {idx}: {c_comment_safe(caller_name)} ({caller_addr})")
                 if caller_context:
                     lines.extend(
-                        f" *   {ctx_line.strip()}"
+                        f" *   {c_comment_safe(ctx_line.strip())}"
                         for ctx_line in caller_context.splitlines()
                         if ctx_line.strip()
                     )
@@ -546,15 +560,19 @@ def fetch_xref_context(
             if data_rows:
                 lines.append(f" * Data references: {len(data_rows)}")
                 for data_name, data_addr, data_type in data_rows:
-                    lines.append(f" *   {data_name} ({data_addr}) [{data_type}]")
+                    lines.append(
+                        f" *   {c_comment_safe(data_name)} ({data_addr}) [{c_comment_safe(data_type)}]"
+                    )
                 lines.append(" *")
 
             for caller_name, caller_addr, _ in callers:
                 ctext = decomp_by_address.get(caller_addr)
                 if not ctext:
                     continue
-                lines.append(f" * === Caller: {caller_name} ({caller_addr}) - decompilation ===")
-                lines.extend(f" * {dec_line}" for dec_line in ctext.splitlines())
+                lines.append(
+                    f" * === Caller: {c_comment_safe(caller_name)} ({caller_addr}) - decompilation ==="
+                )
+                lines.extend(f" * {c_comment_safe(dec_line)}" for dec_line in ctext.splitlines())
                 lines.append(" *")
 
             lines.append(" * === End cross-references ===")

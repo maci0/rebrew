@@ -578,6 +578,14 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body_bytes)))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
+        # The app is inline-JS/CSS only and fetches same-origin JSON — this
+        # keeps any future escaping of API data from loading external
+        # resources or phoning home.
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+            "connect-src 'self'; img-src 'self'; form-action 'none'; base-uri 'none'",
+        )
         if status == 405:
             self.send_header("Allow", "GET, HEAD")
         self.end_headers()
@@ -601,7 +609,10 @@ class _Handler(BaseHTTPRequestHandler):
         self._respond("DELETE")
 
     def log_message(self, fmt: str, *args: Any) -> None:  # quiet default logging
-        console.print(f"  {self.address_string()} {fmt % args}")
+        # markup=False: the logged request line is remote-controlled text; a
+        # path like "/[bold]x" must not be interpreted as Rich markup (log
+        # tampering / terminal escape injection).
+        console.print(f"  {self.address_string()} {fmt % args}", markup=False)
 
 
 app = typer.Typer(
