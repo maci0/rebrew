@@ -671,7 +671,10 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
             # Idempotency guard — avoid a write when nothing changed
             current_status = entry.get("status", "")
             current_blocker = entry.get("blocker", "")
-            if current_status == new_status and (not clear_blockers or not current_blocker):
+            current_blocker_delta = entry.get("blocker_delta")
+            if current_status == new_status and (
+                not clear_blockers or (not current_blocker and current_blocker_delta is None)
+            ):
                 continue
 
             # Canonical promotion policy — only consulted for actual status

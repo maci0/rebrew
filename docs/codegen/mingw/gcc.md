@@ -273,3 +273,9 @@ cmov/`2e`-nop findings; corpus: cpubench, test_sse2 (MinGW 16 —
   matching the 8.0+ MSVC form), `0f 1f` nop padding everywhere.  The
   `0f 4c`/`0f 4f` cmov + GNU-nop padding pair is the gcc fingerprint.
   See RULES.md C39/A11.
+## Probe30: round-30 markers (MinGW GCC 16.1)
+
+- **gcc-pe**: `jmp strlen` tail-call (`e9 rel32` — no inline loop,
+  E26), lea-pair muls (`8d 14 80 8d 04 50` ×11), magic /3 with its
+  own tail (`b8 56 55 55 55 f7 e9 c1 f9 1f`), `a1 [g] 8d 50 01 89 15`
+  global RMW, `0f 1f` nops.  See RULES.md E26.

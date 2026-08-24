@@ -34,15 +34,6 @@ from rebrew.config import ProjectConfig
 
 console = Console(stderr=True)
 
-# ---------------------------------------------------------------------------
-# Binary helpers
-# ---------------------------------------------------------------------------
-
-
-def extract_bytes(binary_info: BinaryInfo, va: int, size: int) -> bytes:
-    """Extract raw bytes from binary at given VA, returning empty bytes on failure."""
-    return extract_bytes_at_va(binary_info, va, size) or b""
-
 
 # ---------------------------------------------------------------------------
 # Auto-detect reversed VAs

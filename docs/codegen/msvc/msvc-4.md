@@ -184,3 +184,8 @@ confirmed identical across the three minors and vs VC 2.0.
   `sub eax,min` + a small `movzx`-indexed table (shared 2.0).  Shares
   the 2.0 cdq-abs, fild-dance cvt_i2d, hidden-pointer s8_ret and real
   `%10` idiv.  See RULES.md C35-C40/D12/D13/G7/A11.
+## Probe30: round-30 era markers (4.1)
+
+- **4.1 mirrors 2.0** on the new shapes (real-idiv %, lea-chain mul,
+  repne-scasb strlen, fild-stack i64→d, __allmul ×5) with the 4.1
+  register-order variants.  See RULES.md C42-C46/E26-E28.

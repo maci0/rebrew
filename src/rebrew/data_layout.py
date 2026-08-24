@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.binary_loader import load_binary
+from rebrew.data_metadata import iter_data_symbols
 
 # ---------------------------------------------------------------------------
 # Link order + per-TU symbol inventory (objdump-based)
@@ -138,15 +139,7 @@ def data_symbols(metadata: Path) -> dict[str, int]:
     """``{name: full VA}`` for every ``.data`` symbol in the metadata."""
     with open(metadata, "rb") as fh:
         db = tomllib.load(fh)
-    out: dict[str, int] = {}
-    for key, val in db.items():
-        if val.get("section") != ".data" or not val.get("name"):
-            continue
-        try:
-            out[str(val["name"])] = int(key.rsplit(".", 1)[1], 16)
-        except (IndexError, ValueError):
-            continue
-    return out
+    return {str(val["name"]): va for _, va, val in iter_data_symbols(db) if val.get("name")}
 
 
 def layout_geometry(project_toml: Path) -> tuple[int, int, int]:
@@ -717,16 +710,11 @@ def _data_symbol_types(metadata: Path) -> dict[str, tuple[int, str]]:
     """``{name: (full VA, type)}`` for the .data symbols in the metadata."""
     with open(metadata, "rb") as fh:
         db = tomllib.load(fh)
-    out: dict[str, tuple[int, str]] = {}
-    for key, val in db.items():
-        if val.get("section") != ".data" or not val.get("name"):
-            continue
-        try:
-            addr = int(key.rsplit(".", 1)[1], 16)
-        except (IndexError, ValueError):
-            continue
-        out[str(val["name"])] = (addr, str(val.get("type", "int")))
-    return out
+    return {
+        str(val["name"]): (va, str(val.get("type", "int")))
+        for _, va, val in iter_data_symbols(db)
+        if val.get("name")
+    }
 
 
 def fix_ownership(

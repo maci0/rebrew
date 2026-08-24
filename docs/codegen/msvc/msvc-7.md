@@ -258,3 +258,14 @@ see [msvc-6.md](msvc-6.md) for the padding caveat).
   eax,N; mov ecx,eax; shr ecx,31; add eax,ecx` vs RTM's `sar edx`),
   `fpcmp_eq0` swaps FP operand order — 4 new shapes join the known
   SP1-difference set.  See RULES.md.
+## Probe30: round-30 era markers (7.0)
+
+- **7.0 opens the inline-strlen era** (E26: `8d 50 01 8a 08 40 84 c9
+  75 f9` — repne scasb dropped), the **7.0+ magic tails** (C42:
+  `sar edx`-form `d1 fa`), **imul for mul11/13/100/1000** (C44), the
+  **memory-operand cmp_chain** (F53), `movzx`-adjacent 16-bit bitfield
+  still `and 0xffff` (E28 — the 16-bit movzx boundary is 8.0),
+  loop-body `lea esp,[esp]` alignment (G8).  **7.0 SP1 adds 5 more
+  diffs** (C41/C44): div3/5/6/9 magic-tail register-role swaps +
+  **mul17 `imul eax,eax,17` (`6b c0 11`) where RTM does `shl 4; add`**.
+  See RULES.md.

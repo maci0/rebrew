@@ -241,7 +241,7 @@ def _type_name_from_var(var: str) -> str:
     return var[m.end() :] if m else var
 
 
-def _offset_value(off: str) -> int:
+def offset_value(off: str) -> int:
     """Parse a hex (``0x10``) or decimal (``3``) offset literal."""
     return int(off, 16) if off.lower().startswith("0x") else int(off, 10)
 
@@ -337,7 +337,7 @@ def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) ->
         off_str = m.group("off1") or m.group("off2")
         if var is None or off_str is None:
             continue
-        _record(var, _offset_value(off_str), width)
+        _record(var, offset_value(off_str), width)
 
     # Array-index accesses (``*(int *)&a0[10]`` / ``v2[10]``) — Kuna types
     # struct pointers as primitive arrays; byte offset = index × element

@@ -30,6 +30,7 @@ from rich.table import Table
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
+from rebrew.data_metadata import iter_data_symbols
 from rebrew.utils import atomic_write_text, read_source_text
 
 console = Console(stderr=True)
@@ -1064,14 +1065,10 @@ def annotate_globals(
     with open(metadata, "rb") as fh:
         db = tomllib.load(fh)
     symbols: dict[str, tuple[str, int]] = {}
-    for key, val in db.items():
+    for module, addr, val in iter_data_symbols(db, section=None):
         if not val.get("name"):
             continue
-        try:
-            mod, _, addr = key.partition(".")
-            symbols[str(val["name"])] = (mod, int(addr, 16))
-        except ValueError:
-            continue
+        symbols[str(val["name"])] = (module, addr)
 
     marker_re = re.compile(r"^\s*//\s*GLOBAL:\s*\S+\s+0x([0-9a-fA-F]+)")
     decl_cache: dict[str, re.Pattern[str]] = {}

@@ -218,3 +218,8 @@ them (unreferenced functions are dead-stripped by the linker).
   push-bp frames + the `9a` far-call staging).  Delphi 1.0 16-bit
   LongInt codegen keeps the documented 16-bit style; the corpus
   delphi rows stay heuristic (ret-boundary split).
+## Probe30: round-30 markers (Delphi 1.0)
+
+- probe30.dpr built (div3/div5, mod7, mul7, g_inc, bf1_get) — NE
+  user-segment row folded; 16-bit LongInt codegen keeps the push-bp
+  frames + real idiv.

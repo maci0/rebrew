@@ -23,6 +23,7 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
+from rebrew.data_metadata import iter_data_symbols
 
 console = Console(stderr=True)
 
@@ -38,16 +39,10 @@ def load_data_symbols(metadata: Path) -> list[tuple[int, str, str]]:
     """Sorted ``(address, name, type)`` of the ``.data`` symbols in *metadata*."""
     with open(metadata, "rb") as f:
         doc = tomllib.load(f)
-    out: list[tuple[int, str, str]] = []
-    for key, val in doc.items():
-        if val.get("section") != ".data":
-            continue
-        try:
-            addr = int(key.rsplit(".", 1)[1], 16)
-        except (IndexError, ValueError):
-            continue
-        name = val.get("name") or f"g_data_{addr:x}"
-        out.append((addr, str(name), str(val.get("type", "int"))))
+    out = [
+        (va, str(val.get("name") or f"g_data_{va:x}"), str(val.get("type", "int")))
+        for _, va, val in iter_data_symbols(doc)
+    ]
     out.sort()
     return out
 

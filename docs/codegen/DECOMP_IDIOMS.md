@@ -271,3 +271,26 @@ as corpus validation negatives, not claims of absence elsewhere.
   the known 7.0-sp1 set grows by 4 probe29 shapes (`div7_`, `div12_`,
   `div1000_` magic-tail register-role swap, `fpcmp_eq0` operand
   order) — recorded as RULES.md C41.
+- Probe30 additions (round 30 — new shapes across four categories):
+  **integer magic** `div3/5/6/9/16`, `udiv3/5/6/9/16`, `mod7/12/360/1000`,
+  `umod7/12/360/1000`, `mul7/11/13/17/100/1000`; **globals/string/
+  bitfield** `g_inc/rmw/load/store/aindex`, `s_libcpy/cmp/len`,
+  `bf1/bf4/bf16_get/set`; **nested control** `tern_nest`, `cmp_chain`,
+  `sw_fall`, `loop_cont/brk`; **64-bit** (probe3064, `64` flag rows)
+  `add64_`, `sub64_`, `mul64c_`, `cmp64_`, `shl64_/shr64_`, `mod64_`,
+  `cvt_i64d`, `cvt_di64`; **thiscall** (probe30cpp, `C++` rows)
+  `cpp_thiscall`, `cpp_nested`, `cpp_static`.  Swept against the same
+  27 MSVC-built win2k/guild binaries: the **strlen `repne scasb`
+  form (2.0–6.0) and the `__allmul`-call ×5 staging (2.0–9.0) match
+  the era of the older binaries**; the 7.0+ inline strlen loop and
+  10.0+ inline shld decomposition match the newer ones; the 11.0-only
+  SSE2 markers are absent (no 11.0-built binary in the set, as
+  expected).  Cross-toolchain uniqueness: **572 probe30 byte-groups
+  appear in exactly one toolchain** (the C42-C46 / E26-E28 / F52-F53 /
+  G8 / H5-H6 / I9 era markers + the non-MSVC toolchains' own forms —
+  bcc32 ebp-frames + real idiv for the new divisors, Watcom real-idiv
+  + `ret 8` FP cleanup, gcc-pe/zig `jmp strlen` tail-calls, TC/MSVC-16
+  16-bit forms).  **SP scan**: 4466 rows compared, 33 mismatches — the
+  known 7.0-sp1 set grows by 5 probe30 shapes (`div3_/div5_/div6_/div9_`
+  magic-tail register-role swaps + `mul17_` switching from `shl 4; add`
+  to `imul eax,eax,17`) — recorded as RULES.md C41/C44.

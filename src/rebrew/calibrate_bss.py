@@ -31,6 +31,7 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
+from rebrew.config import walk_up_to_root
 
 console = Console(stderr=True)
 
@@ -38,13 +39,6 @@ app = typer.Typer(
     help="Calibrate a BSS tail pad so the raw link's .data VirtualSize matches the reference.",
     rich_markup_mode="rich",
 )
-
-
-def find_project_root(cwd: Path) -> Path | None:
-    for p in (cwd, *cwd.parents):
-        if (p / "rebrew-project.toml").is_file():
-            return p
-    return None
 
 
 def _layout_data_vs(root: Path) -> int | None:
@@ -108,7 +102,7 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Calibrate *symbol* in *stub* so the raw link's .data VirtualSize == *target*."""
-    root = find_project_root(Path.cwd())
+    root = walk_up_to_root(Path.cwd())
     if root is None:
         error_exit("no rebrew-project.toml found above the cwd")
     stub = stub if stub.is_absolute() else root / stub

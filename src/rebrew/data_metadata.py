@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -94,6 +95,7 @@ __all__ = [
     "DATA_METADATA_FILENAME",
     "DATA_METADATA_FIELDS",
     "load_data_metadata",
+    "iter_data_symbols",
     "get_data_entry",
     "set_data_field",
     "merge_into_data_annotation",
@@ -103,6 +105,45 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Raw-document iteration
+# ---------------------------------------------------------------------------
+
+
+def iter_data_symbols(
+    doc: dict[str, Any], section: str | None = ".data"
+) -> Iterator[tuple[str, int, dict[str, Any]]]:
+    """Yield ``(module, va, fields)`` for every entry in a parsed ``rebrew-data.toml``.
+
+    The canonical key parser for raw (string-keyed) data-metadata documents:
+    keys are ``"MODULE.0xVA"`` with the module possibly containing dots, so
+    the VA is everything after the *last* dot.  Entries whose key has no dot
+    or a non-hex VA are skipped.
+
+    Args:
+        doc: Parsed ``rebrew-data.toml`` content (string keys → field dicts).
+        section: Keep only entries whose ``section`` field equals this;
+            ``None`` keeps every entry.
+
+    Yields:
+        ``(module, va, fields)`` triples.
+
+    """
+    for key, val in doc.items():
+        if not isinstance(val, dict):
+            continue
+        if section is not None and val.get("section") != section:
+            continue
+        module, sep, addr_text = str(key).rpartition(".")
+        if not sep:
+            continue
+        try:
+            va = int(addr_text, 16)
+        except ValueError:
+            continue
+        yield module, va, val
 
 
 # ---------------------------------------------------------------------------

@@ -229,3 +229,9 @@ probe (`leave` counts: 0 vs 25).
   `fld; …; ret` with x87 staging, branchy min/max/ternary, byte ops
   via `8a` loads.  TC 2.0 vs 3.1 differ on `arr_fwd` loop staging and
   `mul5_` imul sign — consistent with the C16 finding.  See RULES.md.
+## Probe30: round-30 markers (TC 2.0/3.1, 16-bit)
+
+- **TC real-idiv for the new divisors** (`bb N 99 f7 fb`), `f7 e2`/
+  `f7 ea` unsigned imul for ×11/×13 (the 2.0-mul vs 3.1-imul
+  signedness split again), byte ops via `8a` loads, branchy
+  everything.  See RULES.md.

@@ -227,3 +227,9 @@ verified negative) at both opt levels; smoke `msvc1100/t.obj`.  Census:
   `udiv7_` lea-tail; `mod10_` stages via esi (`56 8b 74 24 08`);
   `s16_ret` register staging; `cvt_i2d` stays x87 roundtrip
   (`fild; fstp; fld` — D13).  See RULES.md.
+## Probe30: round-30 era markers (11.0)
+
+- **11.0**: magic-division staging via esi (`56 8b 74 24 08`, C43);
+  `(double)i64` x87 roundtrip `fild; fstp; fld` (H5); `a*5` inline
+  shld (H6); `tern_nest` **cmov** (C46); 64-bit add memory-operand.
+  See RULES.md.

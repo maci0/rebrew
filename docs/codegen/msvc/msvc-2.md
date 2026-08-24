@@ -216,3 +216,12 @@ All patterns above reproduced from those objects.
   loads; `sw_dense` bounds check `77 07` short jump; `%10` real idiv
   (`b9 0a … f7 f9`, C35/C36); `min_ii` loads the second arg first
   (`mov eax,[esp+8]`).  See RULES.md A11/C35-C40/D12-D16/E24-E25/F51/G7.
+## Probe30: round-30 era markers (2.0)
+
+- **2.0/4.1 open the pre-7.0 lines**: `%7/%12/%360/%1000` real idiv
+  (`b9 N … 99 f7 f9` — the % boundary is 8.0, C43); `mul11/13/100/1000`
+  lea-chains (C44); strlen `repne scasb` (`57 b9 ff ff ff ff f2 ae`,
+  E26); strcmp direct `8a 10 3a 11`; 16-bit bitfield `and eax,0xffff`
+  (E28); `(double)i64` store-to-stack + `fild qword [esp]` (H5);
+  `a*5` `__allmul` 2-push staging (H6); fallthrough switch cmp-chain
+  (F52).  See RULES.md C42-C46/E26-E28/F52-F53/G8/H5-H6/I9.

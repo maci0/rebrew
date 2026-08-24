@@ -255,3 +255,10 @@ in explorer-adjacent builds.
   gets the `lea eax,[ecx+edx]`-first folding (6.0-7.1 form, A11).
   SPs sp1-sp6 verified byte-identical on all 42 probe29 shapes
   (SP-equivalence scan, 3777 rows).  See RULES.md C35-C40/D14/D16/G7.
+## Probe30: round-30 era markers (6.0)
+
+- **6.0 stays in the 5.0/6.0 pair**: magic /3 /5 /6 /9 with the
+  5.0/6.0 tail, real-idiv %7/%360/%1000, repne-scasb strlen,
+  lea-chain muls, direct fild i64→d, __allmul ×5, register-pair
+  thiscall body.  SPs sp1-sp6 verified byte-identical on all 53
+  probe30 shapes (SP-equivalence scan, 4466 rows).  See RULES.md.
