@@ -317,6 +317,28 @@ def _setup_candidates(
 
         candidates.append((va, size, name))
 
+    # The function list (functions.txt) can be stale relative to the
+    # Ghidra/RE-tool structure cache (function_structure.json) — the same
+    # universe `rebrew status` counts.  Functions in the structure cache that
+    # are NOT in functions.txt and have no source coverage are invisible to
+    # extract otherwise (fleet sweep: smygb had 15 such functions and
+    # extract returned 0 candidates).  Merge them in.
+    try:
+        from rebrew.catalog import load_function_structure
+        from rebrew.config import FUNCTION_STRUCTURE_JSON
+
+        ghidra_json = cfg.reversed_dir / FUNCTION_STRUCTURE_JSON
+        existing = {c[0] for c in candidates}
+        for fe in load_function_structure(ghidra_json):
+            if fe.va in reversed_vas or fe.va in existing:
+                continue
+            if fe.size <= 0 or fe.size < min_size or fe.size > max_size:
+                continue
+            candidates.append((fe.va, fe.size, fe.name or fe.tool_name or f"fcn.{fe.va:08x}"))
+            existing.add(fe.va)
+    except Exception:
+        pass  # structure-cache enrichment is best-effort — never block the list
+
     candidates.sort(key=lambda x: x[1])  # Sort by size
     return cfg, candidates, exe_path
 

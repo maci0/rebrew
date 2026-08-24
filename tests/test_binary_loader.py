@@ -530,3 +530,53 @@ def test_mz_file_size_exact_512_multiple(tmp_path: Path) -> None:
     info = load_binary(exe)
     code = extract_bytes_at_va(info, 0, 5)
     assert code == bytes.fromhex("55 8b ec 5d c3")
+
+
+# -------------------------------------------------------------------------
+# LIEF logger silencing (round: tooling sweep)
+# -------------------------------------------------------------------------
+
+
+class TestLiefLoggingSilenced:
+    """rebrew must silence LIEF's internal logger: LIEF logs recoverable
+    conditions (e.g. "Can't read delay_imports.names_table[0]") at
+    CRITICAL level to stderr on every parse of such binaries, polluting
+    tool output even though the parse succeeds."""
+
+    def test_lief_logger_disabled(self) -> None:
+        import lief
+
+        import rebrew.binary_loader  # noqa: F401  (module import silences LIEF)
+
+        assert lief.logging.get_level() == lief.logging.LEVEL.OFF
+
+    def test_load_pe_stderr_clean(self, tmp_path) -> None:
+        """Loading a PE must not leak LIEF stderr noise."""
+        import contextlib
+        import io
+        import struct
+
+        from rebrew.binary_loader import load_binary
+
+        # minimal PE that LIEF parses cleanly
+        data = bytearray(0x400)
+        data[0:2] = b"MZ"
+        struct.pack_into("<I", data, 0x3C, 0x80)
+        pe = 0x80
+        data[pe : pe + 4] = b"PE\x00\x00"
+        struct.pack_into("<H", data, pe + 4, 0x14C)  # i386
+        struct.pack_into("<H", data, pe + 6, 1)  # sections
+        struct.pack_into("<I", data, pe + 8, 0x1111)  # timestamp
+        struct.pack_into("<H", data, pe + 0x18, 0x20)  # optional header size
+        struct.pack_into("<H", data, pe + 0x1C, 0x010F)  # characteristics
+        opt = pe + 0x18
+        struct.pack_into("<H", data, opt, 0x10B)  # PE32
+        struct.pack_into("<I", data, opt + 0x1C, 0x1000)  # image base
+        struct.pack_into("<I", data, opt + 0x38, 0x1000)  # entry
+        exe = tmp_path / "mini.exe"
+        exe.write_bytes(bytes(data))
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            load_binary(exe)
+        assert "Can't read" not in err.getvalue()
+        assert "delay_imports" not in err.getvalue()

@@ -1,5 +1,70 @@
 ## [Unreleased]
 ### Fixed
+- **`rebrew extract list` no longer reports 0 candidates on stale
+  `functions.txt` projects** — the candidate universe was the list file
+  only; VAs present in the `function_structure.json` cache but missing
+  from the list are now merged in (smygb's 15 uncovered functions were
+  invisible).
+- **doctor/analyze era-map the CL version hint** — "MSVC 11.00.0" for
+  VC 5.0-era binaries is now reported as "MSVC 5.0 (cl 11.00.0)".
+- **`rebrew verify --json` fills the `symbol` field** — batch results
+  previously emitted an empty `symbol` for every record.
+- **`rebrew gen-layout` errors cleanly instead of `StopIteration`** on
+  binaries without `.reloc`/`.rdata` (Win2K notepad/pinball), naming the
+  missing section.
+- **`rebrew diff` no longer raises `CsError` on relocated functions** —
+  the register-aware relocation mask now disassembles with operand detail.
+- **LIEF logging silenced** — parsing binaries with unresolvable
+  delay-import tables no longer spews "Can't read
+  delay_imports.names_table[0]" CRITICAL noise to stderr on every load.
+- **`verify --fix-sizes` no longer backfills garbage sizes from rizin
+  alias lines** — `parse_function_list` accepted afl alias entries
+  (`0x00401040 -> 8512`) as functions, so the registry reported a bogus
+  8512-byte canonical size for a 6-byte thunk and `verify --fix-sizes`
+  would have written it into metadata.  `->`-named entries are now
+  skipped (mirroring `parse_rizin_afl`).
+- **`rebrew verify-placement --built <path>`** — the tool hardcoded
+  `build/server.dll`, so it errored "build/server.dll not found — build
+  the project first" on any project whose built binary has another name
+  (e.g. notepad's `np_recompiled.exe`).  A `--built` option points it at
+  the real output; the default is unchanged.
+- **`rebrew asm --size` validates positivity** — a negative `--size`
+  made `extract_raw_bytes` return an empty slice and surfaced as the
+  misleading "No code at VA ... outside the binary image" for a valid VA.
+  It now errors `--size must be a positive integer`.
+- **`rebrew cfg set` routes project-scoped bare keys to `[project]`** —
+  `cfg set jobs 8` previously wrote `jobs = 8` at the TOML document top
+  level, which the config reader rejects ("unrecognized top-level keys")
+  on every later tool run while `[project].jobs` stayed untouched.
+  Bare keys from `_KNOWN_PROJECT_KEYS` now write `project.<key>`,
+  mirroring the existing target-scoped routing.
+- **`py.typed` shipped (PEP 561)** — `src/rebrew` was fully strictly typed
+  (mypy strict, 134 files) but carried no marker, so every downstream
+  consumer — and this repo's own `tools/` scripts — resolved `rebrew` as an
+  untyped dependency and silently lost all checking at the import boundary.
+  The marker ships via `[tool.setuptools.package-data]`.
+- **`tools/` now type-checked** — the mypy gate covered `src/rebrew/` only,
+  so the repo's own dev scripts (fixture generator, baseline gate, flag
+  sync, benchmark) drifted: 17 strict errors across 7 of 9 scripts,
+  including a broken `ModuleSpec | None` unwrap and a benchmark passing a
+  `SimpleNamespace` where `collect_status` requires a real `ProjectConfig`.
+  All fixed (the benches now construct the dataclass; `metadata_dir`
+  resolves through its property as in production).  Gate widened to
+  `files = ["src/rebrew", "tools"]`; plain `uv run mypy` is the one entry
+  point (pre-commit hook + CI lint step + docs updated to match), and
+  `mypy_path = ["tests"]` makes `tools/gen_fixtures.py`'s runtime import of
+  `tests/bin_util.py` visible (that helper is now checked too — it had a
+  `bytearray`-vs-`bytes` return defect).
+### Changed
+- **Ruff rule set widened by ten correctness-leaning groups** — C4
+  (comprehensions), DTZ (naive-datetime), RSE, EXE, Q, NPY, ICN, G, PGH,
+  YTT join E/F/W/I/UP/B/SIM/RUF100.  Enabled after fixing their combined
+  findings (9 sites): four bare `raise X()` → `raise X`, a naive
+  `fromtimestamp` in `status.py` now UTC-aware (house style per the
+  generated-headers convention), two redundant comprehensions, a
+  `dict()`-call literal, and `tools/sync_decomp_flags.py` missing its
+  executable bit.  Groups with real debt (PL/ARG/FBT/SLF/PT/S/TRY/EM/TC)
+  stay off until the tree passes — no red gates.
 - **`rebrew-cmake-*` only translated paths under `/home`, `/tmp`,
   `/gamatcher`** — `_rewrite_args` (`cmake_tc.py`) decided which argv
   tokens were absolute host paths by matching a hardcoded prefix list, so

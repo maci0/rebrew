@@ -637,3 +637,38 @@ class TestCodeSimilarity:
         far = code_similarity(TestCodeSimilarity.FUNC_A, TestCodeSimilarity.FUNC_UNRELATED)
         assert far < close - 30.0
         assert far < 90.0
+
+
+# -------------------------------------------------------------------------
+# diff_functions: register-aware + reloc offsets (tooling sweep round)
+# -------------------------------------------------------------------------
+
+
+class TestDiffRegisterAwareWithRelocs:
+    """`diff_functions(reloc_offsets=..., register_aware=True)` crashed with
+    ``CsError: Details are unavailable (CS_ERR_DETAIL)`` — the reloc path
+    disassembled WITHOUT detail, but the register mask needs modrm/opcode
+    detail attributes.  The reloc path now uses a detail disassembler when
+    register_aware is set."""
+
+    def test_register_aware_with_relocs_does_not_crash(self) -> None:
+        from rebrew.matcher.scoring import diff_functions
+
+        target = bytes.fromhex("8b 44 24 04 8b 4c 24 08 03 c1 83 c0 05 c3")
+        cand = bytes.fromhex("8b 44 24 04 8b 4c 24 08 03 c1 83 c0 06 c3")
+        result = diff_functions(target, cand, reloc_offsets=[5], register_aware=True, as_dict=True)
+        assert result is not None
+        # the `add eax,5` vs `add eax,6` byte diff stays structural
+        assert result["summary"]["structural"] == 1
+        assert result["summary"]["exact"] >= 4
+
+    def test_register_aware_with_relocs_masks_register_diffs(self) -> None:
+        """A register-only diff (mov eax vs mov ecx) at a NON-reloc site must
+        be masked when register_aware — proving the mask ran on detail insns."""
+        from rebrew.matcher.scoring import diff_functions
+
+        target = bytes.fromhex("8b 44 24 04 8b 4c 24 08 03 c1 c3")  # mov eax,[..] mov ecx,[..] add
+        cand = bytes.fromhex("8b 44 24 04 8b 4c 24 08 03 c8 c3")  # ... add eax,ecx vs add ecx,eax
+        result = diff_functions(target, cand, reloc_offsets=[1], register_aware=True, as_dict=True)
+        assert result is not None
+        assert result["summary"]["reg"] > 0  # register-aware masking classified it

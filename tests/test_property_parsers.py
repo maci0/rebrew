@@ -648,7 +648,7 @@ def test_extract_string_symbols_content_in_section(
     # make_coff_obj pads the section data to 4-byte alignment; the first NUL
     # (and hence the extracted content) may live in that padding.
     padded = code + b"\x00" * ((4 - len(code) % 4) % 4)
-    by_value = {name: value for name, value in section_symbols}
+    by_value = dict(section_symbols)
     for name, content in out.items():
         value = by_value[name]
         assert content

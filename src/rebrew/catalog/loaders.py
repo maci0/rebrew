@@ -161,6 +161,13 @@ def parse_function_list(path: Path) -> list[dict[str, Any]]:
                 # They are data, not functions; skip (see build_function_registry
                 # for the VA-based guard that catches non-`sym.imp.` names too).
                 continue
+            if m1.group(3) == "->":
+                # rizin afl alias marker ("0x1000 5 -> 0x2000"): the target
+                # is its own entry, so nothing to record here.  Treating the
+                # trailing number as a size fed garbage extents (e.g. an
+                # 8512-byte "size" for a 6-byte thunk) into the registry and
+                # verify --fix-sizes.  Mirrors parse_rizin_afl's handling.
+                continue
             funcs.append(
                 make_func_entry(
                     va=int(m1.group(1), 16),
@@ -173,6 +180,9 @@ def parse_function_list(path: Path) -> list[dict[str, Any]]:
         m2 = _FUNC_LINE_RE_NAME_FIRST.match(line)
         if m2:
             if m2.group(2).startswith("sym.imp."):
+                continue
+            if m2.group(2) == "->":
+                # rizin afl alias marker ("0x1000 -> 0x2000") — see above.
                 continue
             funcs.append(
                 make_func_entry(

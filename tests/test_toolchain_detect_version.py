@@ -66,10 +66,14 @@ class TestVersionTables:
 
 class TestMsvcVersionHint:
     def test_with_profiles(self) -> None:
-        assert _msvc_version_hint("12.00.8168", ("msvc6",)) == "MSVC 12.00.8168 — matches msvc6"
+        assert (
+            _msvc_version_hint("12.00.8168", ("msvc6",))
+            == "MSVC 6.0 (cl 12.00.8168) — matches msvc6"
+        )
 
     def test_without_profiles(self) -> None:
         assert _msvc_version_hint("9.00", None) == "MSVC 9.00"
+        assert _msvc_version_hint("11.00.0", ("msvc5",)) == "MSVC 5.0 (cl 11.00.0) — matches msvc5"
 
 
 class TestDetectWithPeMeta:

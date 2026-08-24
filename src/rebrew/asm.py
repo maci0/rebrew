@@ -1213,6 +1213,8 @@ def main(
         error_exit("Specify VA as a positional argument or --bin FILE", json_mode=json_output)
 
     va_int = parse_va(va_str, json_mode=json_output) if va_str else None
+    if size is not None and size <= 0:
+        error_exit("--size must be a positive integer", json_mode=json_output)
     # Default to the known canonical size (function list) when no --size is
     # given — 32 is only a fallback for functions the list does not know.
     effective_size = size or (_list_size_for(cfg, va_int) if va_int else None) or 32

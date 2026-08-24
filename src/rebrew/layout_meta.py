@@ -231,10 +231,16 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
     )
     bookkeeping = region(imp_rva, exp_rva - imp_rva) if imp_rva else b""
 
-    data_sec = next(s for s in sections if s.name == ".data")
-    reloc_sec = next(s for s in sections if s.name == ".reloc")
-    rdata_sec = next(s for s in sections if s.name == ".rdata")
-    text_sec = next(s for s in sections if s.name == ".text")
+    def find_sec(name: str) -> SectionMeta:
+        for s in sections:
+            if s.name == name:
+                return s
+        raise ValueError(f"missing section {name!r} (layout needs .text/.data/.rdata/.reloc)")
+
+    data_sec = find_sec(".data")
+    reloc_sec = find_sec(".reloc")
+    rdata_sec = find_sec(".rdata")
+    text_sec = find_sec(".text")
 
     # .data raw content, verbatim
     data_bytes = data[data_sec.raw_ptr : data_sec.raw_ptr + data_sec.raw]

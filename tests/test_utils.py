@@ -150,7 +150,7 @@ class TestWatchFiles:
             elif sleeps["n"] == 2:
                 f.write_text("v3", encoding="utf-8")  # second change → ok run
             else:
-                raise KeyboardInterrupt()
+                raise KeyboardInterrupt
 
         monkeypatch.setattr(time, "sleep", _sleep)
         # watch_files catches KeyboardInterrupt itself ("Watch stopped.").

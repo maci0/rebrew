@@ -1674,3 +1674,60 @@ class TestVerifyEntry16BitFloor:
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
         result = verify_entry(_ann(0x42E, size=38), cfg)  # type: ignore[arg-type]
         assert result.status == "INVALID_VA"
+
+
+class TestVerifySymbolField:
+    """`rebrew verify --json` records carry an empty `symbol` for every
+    function (`rebrew test --json` fills it) — the batch result dict never
+    set the key.  The record must include the decorated symbol (the
+    annotation's symbol, else `_name`), matching verify_entry's own
+    fallback."""
+
+    def test_batch_record_carries_symbol(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.verify as verify_mod
+        from rebrew.compile import CompareResult
+
+        cfg = _cfg(tmp_path)
+        entry = _ann(0x1000)
+        entry.symbol = "_my_func"  # explicit symbol  # type: ignore[attr-defined]
+        ok = CompareResult(
+            matched=True,
+            status="EXACT",
+            match_percent=100.0,
+            delta=0,
+            obj_bytes=b"\x90" * 8,
+            reloc_offsets=[],
+        )
+        monkeypatch.setattr(verify_mod, "verify_entry", lambda e, c, **kw: ok)
+
+        _passed, _failed, _details, results, _fixes = verify_mod.run_verification(
+            [entry], cfg, jobs=1, total=1, cached_count=0, json_output=True
+        )
+        assert len(results) == 1
+        assert results[0]["symbol"] == "_my_func"
+
+    def test_symbol_falls_back_to_underscore_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.verify as verify_mod
+        from rebrew.compile import CompareResult
+
+        cfg = _cfg(tmp_path)
+        entry = _ann(0x1000)
+        entry.symbol = ""  # no decorated symbol  # type: ignore[attr-defined]
+        ok = CompareResult(
+            matched=False,
+            status="STUB",
+            match_percent=0.0,
+            delta=8,
+            obj_bytes=b"\x90" * 8,
+            reloc_offsets=[],
+        )
+        monkeypatch.setattr(verify_mod, "verify_entry", lambda e, c, **kw: ok)
+
+        _passed, _failed, _details, results, _fixes = verify_mod.run_verification(
+            [entry], cfg, jobs=1, total=1, cached_count=0, json_output=True
+        )
+        assert results[0]["symbol"] == "_my_func"

@@ -172,3 +172,47 @@ class TestCmdExtractErrors:
         payload = json.loads(captured.out)
         assert payload["code"] == 1
         assert "0x00001000" in payload["error"]
+
+
+# -------------------------------------------------------------------------
+# _setup_candidates: function-structure-cache merge (tooling sweep round)
+# -------------------------------------------------------------------------
+
+
+class TestSetupCandidatesStructureMerge:
+    """`rebrew extract list` returned 0 candidates on projects whose
+    functions.txt is stale relative to the Ghidra/RE-tool structure cache
+    (function_structure.json) — the universe `rebrew status` counts.
+    Uncovered structure-cache VAs must surface as candidates."""
+
+    def test_uncovered_structure_vas_are_candidates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        import rebrew.extract as ex
+        from rebrew.extract import _setup_candidates
+
+        src = tmp_path / "src" / "SERVER"
+        src.mkdir(parents=True, exist_ok=True)
+        cfg = _make_cfg(tmp_path, reversed_dir=src, metadata_dir=tmp_path)
+        monkeypatch.setattr(ex, "require_config", lambda target=None, **kw: cfg)
+        # functions.txt lists ONE covered function (with a .c annotation);
+        # the structure cache adds a second function with no source file.
+        (src / "func_a.c").write_text(
+            "// STUB: TEST 0x1000\nint func_a(void) { return 0; }\n", encoding="utf-8"
+        )
+        (tmp_path / "functions.txt").write_text("0x00001000 48 func_a\n", encoding="utf-8")
+        (src / "function_structure.json").write_text(
+            json.dumps(
+                [
+                    {"va": 0x1000, "size": 48, "name": "func_a", "tool_name": "FUN_00001000"},
+                    {"va": 0x2000, "size": 120, "name": "func_b", "tool_name": "FUN_00002000"},
+                ]
+            ),
+            encoding="utf-8",
+        )
+        _cfg, candidates, _exe = _setup_candidates(None, True, None, 0, 10_000_000)
+        assert [c[0] for c in candidates] == [0x2000]  # only the uncovered one
+        assert candidates[0][1] == 120
+        assert "func_b" in candidates[0][2]

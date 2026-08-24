@@ -71,7 +71,7 @@ class TestMainEntry:
     def test_keyboard_interrupt_exit_130(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class _InterruptApp:
             def __call__(self, *a: object, **k: object) -> None:
-                raise KeyboardInterrupt()
+                raise KeyboardInterrupt
 
         monkeypatch.setattr(main_mod, "app", _InterruptApp())
         with pytest.raises(SystemExit) as exc:

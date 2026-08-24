@@ -15,8 +15,11 @@ import importlib.util
 import subprocess
 import sys
 import tempfile
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 from rebrew.matcher.flags import Checkbox, FlagSet
 
@@ -99,19 +102,21 @@ def clone_decomp_me(tmp_dir: str) -> Path:
     return repo_dir
 
 
-def load_flags_module(repo_dir: Path):
+def load_flags_module(repo_dir: Path) -> ModuleType:
     """Import decomp.me's flags.py as a module."""
     flags_file = repo_dir / FLAGS_PATH
     if not flags_file.exists():
         raise FileNotFoundError(f"flags.py not found at {flags_file}")
 
     spec = importlib.util.spec_from_file_location("decomp_flags", str(flags_file))
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load module from {flags_file}")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
 
 
-def format_flags_list(var_name: str, flag_list) -> str:
+def format_flags_list(var_name: str, flag_list: list[Any]) -> str:
     """Format a decomp.me Flags list as Python source using rebrew's classes."""
     lines = [f"{var_name}: Flags = ["]
     for item in flag_list:
@@ -137,7 +142,7 @@ def format_flags_list(var_name: str, flag_list) -> str:
     return "\n".join(lines)
 
 
-def count_combos(flag_list, tier_ids=None) -> int:
+def count_combos(flag_list: list[Any], tier_ids: Sequence[str] | None = None) -> int:
     """Count flag combinations for a given tier."""
     total = 1
     for item in flag_list:
@@ -153,7 +158,7 @@ def count_combos(flag_list, tier_ids=None) -> int:
     return total
 
 
-def generate_flag_data_py(msvc_flags, msvc6_flags, timestamp: str) -> str:
+def generate_flag_data_py(msvc_flags: list[Any], msvc6_flags: list[Any], timestamp: str) -> str:
     """Generate the flag_data.py source code."""
     header = f'''\
 """Auto-generated compiler flag axes from decomp.me.
@@ -193,7 +198,7 @@ from rebrew.matcher.flags import Checkbox, Flags, FlagSet
     return header + body + "\n".join(tiers_lines)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Sync flags from decomp.me")
     parser.add_argument("--dry-run", action="store_true", help="Print to stdout only")
     parser.add_argument(

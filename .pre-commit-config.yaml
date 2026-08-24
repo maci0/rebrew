@@ -58,7 +58,7 @@ repos:
 
       - id: mypy
         name: Mypy type check
-        entry: uv run mypy src/rebrew/
+        entry: uv run mypy
         language: system
         pass_filenames: false
         always_run: true

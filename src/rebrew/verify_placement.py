@@ -34,6 +34,11 @@ def main(
     data_metadata: Path = typer.Option(
         Path("src/rebrew-data.toml"), "--data-metadata", help="Data metadata toml path"
     ),
+    built: Path = typer.Option(
+        Path("build/server.dll"),
+        "--built",
+        help="Built binary to inspect (default: build/server.dll)",
+    ),
     limit: int = typer.Option(15, "--limit", help="Max misplaced symbols to print"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
@@ -42,9 +47,9 @@ def main(
     metadata = data_metadata if data_metadata.is_absolute() else root / data_metadata
     if not metadata.exists():
         error_exit(f"data metadata not found: {metadata}")
-    dll = root / "build" / "server.dll"
+    dll = built if built.is_absolute() else root / built
     if not dll.exists():
-        error_exit("build/server.dll not found — build the project first")
+        error_exit(f"{dll} not found — build the project first (or pass --built <path>)")
     from rebrew.data_layout import data_symbols, link_objects, obj_data_symbol_offsets
 
     data_va = built_data_va(dll)

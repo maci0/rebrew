@@ -70,7 +70,44 @@ class TestVerifyPlacement:
         (tmp_path / "src" / "rebrew-data.toml").write_text("", encoding="utf-8")
         result = CliRunner().invoke(app, [])
         assert result.exit_code == 2
-        assert "build/server.dll not found" in result.output
+        # Rich wraps the long absolute path; match the pieces, not the wrap.
+        assert "server.dll" in result.output
+        assert "not found — build the project first" in result.output
+
+    def test_custom_built_path_honored(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--built must point the tool at a differently-named build output
+        (e.g. notepad's np_recompiled.exe) instead of hardcoded
+        build/server.dll — regression: the tool errored 'build/server.dll not
+        found' on any project whose built binary had another name."""
+        import rebrew.verify_placement as vp
+        from rebrew.verify_placement import app
+
+        monkeypatch.chdir(_project(tmp_path))
+        (tmp_path / "build" / "other.dll").write_bytes(b"MZ")
+        _patch_layout(monkeypatch, objects=[(16, {"sym_a": 0})])
+        seen: list[Path] = []
+
+        def _capture(dll: Path) -> int:
+            seen.append(dll)
+            return FAKE_DATA_VA
+
+        monkeypatch.setattr(vp, "built_data_va", _capture)
+        result = CliRunner().invoke(app, ["--built", "build/other.dll", "--json"])
+        assert result.exit_code == 0
+        assert seen == [tmp_path / "build" / "other.dll"]
+
+    def test_custom_built_missing_errors(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.verify_placement import app
+
+        monkeypatch.chdir(_project(tmp_path))
+        result = CliRunner().invoke(app, ["--built", "build/nope.dll"])
+        assert result.exit_code == 2
+        assert "nope.dll" in result.output
+        assert "not found" in result.output
 
     def test_object_inventory_failure_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

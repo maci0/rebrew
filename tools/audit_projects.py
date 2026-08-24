@@ -64,7 +64,7 @@ def check_metadata(meta: Path) -> list[str]:
 
 
 def check_data_metadata(meta: Path) -> list[str]:
-    issues = []
+    issues: list[str] = []
     try:
         entries = load_data_metadata(meta.parent)
     except Exception as e:

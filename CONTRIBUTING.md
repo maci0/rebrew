@@ -22,7 +22,7 @@ make setup                    # uv sync --frozen --all-extras + pre-commit insta
 # or: uv sync --frozen --all-extras
 uv run pytest tests/ -q       # full suite (~3000 tests)
 uv run ruff check src/ tests/ tools/
-uv run mypy src/rebrew/
+uv run mypy
 uv run pre-commit run --all-files
 make build                    # reproducible sdist+wheel (SOURCE_DATE_EPOCH, TZ=UTC)
 ```

@@ -98,7 +98,8 @@ make setup                              # frozen lock + pre-commit install
 uv run pytest tests/ -q                 # full suite
 uv run ruff check src/ tests/ tools/    # lint
 uv run ruff format --check src/ tests/ tools/
-uv run mypy src/rebrew/                 # type check (0 issues expected)
+uv run mypy                             # type check (0 issues expected; strict,
+                                        # covers src/rebrew + tools)
 uv run pre-commit run --all-files       # 13 of 15 hooks — pytest (pre-push) and
                                         # validate-skill-commands (manual) are stage-gated
 make build                              # sdist+wheel (deterministic wheels)

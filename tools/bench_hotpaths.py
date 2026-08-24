@@ -30,7 +30,6 @@ import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -367,6 +366,7 @@ def bench_registry_build() -> dict[str, float]:
 
 def bench_status_aggregation() -> dict[str, float]:
     """collect_status over a synthetic 500-function project (no verify cache)."""
+    from rebrew.config import ProjectConfig
     from rebrew.status import collect_status
 
     with tempfile.TemporaryDirectory() as d:
@@ -386,13 +386,12 @@ def bench_status_aggregation() -> dict[str, float]:
             va = 0x10001000 + i * 0x100
             meta_lines += [f'["SERVER.0x{va:x}"]', 'status = "STUB"', "size = 64"]
         (root / "rebrew-function.toml").write_text("\n".join(meta_lines), encoding="utf-8")
-        cfg = SimpleNamespace(
+        cfg = ProjectConfig(
             target_name="SERVER",
             target_binary=root / "nope.exe",
             arch="x86_32",
             root=root,
             reversed_dir=src_dir,
-            metadata_dir=root,
             function_list=src_dir / "functions.txt",
             marker="SERVER",
             source_ext=".c",
@@ -429,6 +428,7 @@ def bench_compile_cache() -> dict[str, float]:
 def bench_verify_cached() -> dict[str, float]:
     """The incremental verify cache-hit check over 500 sources (source hash +
     header fingerprint — the per-entry cost of an incremental `rebrew verify`)."""
+    from rebrew.config import ProjectConfig
     from rebrew.verify import _entry_headers_fp, _source_hash
 
     with tempfile.TemporaryDirectory() as d:
@@ -441,7 +441,7 @@ def bench_verify_cached() -> dict[str, float]:
                 f"// STUB: SERVER 0x{0x10001000 + i * 0x100:x}\nint f_{i}(void) {{ return 0; }}\n"
             )
             paths.append(p)
-        cfg = SimpleNamespace(compiler_includes=src_dir, root=Path(d))
+        cfg = ProjectConfig(root=Path(d), compiler_includes=src_dir)
 
         def run() -> None:
             for p in paths:

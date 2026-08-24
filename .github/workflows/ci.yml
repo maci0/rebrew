@@ -41,7 +41,7 @@ jobs:
       - name: Ruff format check
         run: uv run ruff format --check src/ tests/ tools/
       - name: Mypy type check
-        run: uv run mypy src/rebrew/
+        run: uv run mypy
       - name: Dependency vulnerability audit
         # Advisory gate: `uv audit` exits 1 on known-vulnerable packages
         # (deps-review F1 — the lock previously pinned 35 CVEs and --frozen

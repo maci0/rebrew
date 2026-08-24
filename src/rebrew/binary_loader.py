@@ -14,6 +14,7 @@ Usage::
     code = extract_bytes_at_va(info, va=0x10001000, size=64)
 """
 
+import contextlib
 import logging
 import threading
 from dataclasses import dataclass, field
@@ -21,6 +22,14 @@ from pathlib import Path
 from typing import Any, Literal, overload
 
 import lief
+
+# LIEF logs recoverable conditions (e.g. a delay-import names table that
+# fails to resolve — "Can't read delay_imports.names_table[0]") at
+# CRITICAL level, spewing to stderr on EVERY parse of such binaries even
+# though the parse succeeds.  rebrew has its own logging; silence LIEF's
+# internal logger so tool output stays clean.
+with contextlib.suppress(Exception):
+    lief.logging.disable()
 
 log = logging.getLogger(__name__)
 

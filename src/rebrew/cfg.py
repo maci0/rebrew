@@ -77,6 +77,21 @@ _TARGET_SCOPED_KEYS: frozenset[str] = frozenset(
     }
 )
 
+#: Keys that live under ``[project]``.  Kept in sync with
+#: ``config._KNOWN_PROJECT_KEYS``; bare ``cfg set <key>`` routes these to the
+#: ``[project]`` table (writing them at the document top level produced keys
+#: the config reader rejects with an "unrecognized top-level keys" warning).
+_PROJECT_SCOPED_KEYS: frozenset[str] = frozenset(
+    {
+        "name",
+        "jobs",
+        "db_dir",
+        "output_dir",
+        "default_target",
+        "lint",
+    }
+)
+
 
 def _resolve_dotted_key(
     doc: dict[str, Any], key: str, *, create_missing: bool = False, json_mode: bool = False
@@ -547,11 +562,19 @@ def set_value(
 
     # Route bare target-scoped keys to the default target so `cfg set binary
     # foo.exe` writes [targets.<default>] instead of a top-level key that the
-    # config reader ignores (a silent no-op that confused users).
-    if "." not in key and key in _TARGET_SCOPED_KEYS and "targets" in doc:
+    # config reader ignores (a silent no-op that confused users).  Bare
+    # project-scoped keys route to [project] the same way — `cfg set jobs 8`
+    # previously wrote `jobs = 8` at the document top level, which the
+    # reader rejects with an "unrecognized top-level keys" warning on every
+    # later tool run while leaving [project].jobs untouched.
+    if "." not in key and "targets" in doc and key in _TARGET_SCOPED_KEYS:
         target = _resolve_target(doc, None)
         routed = f"targets.{target}.{key}"
         console.print(f"[dim]note: {key} is target-scoped → setting {routed}[/dim]")
+        key = routed
+    elif "." not in key and key in _PROJECT_SCOPED_KEYS:
+        routed = f"project.{key}"
+        console.print(f"[dim]note: {key} is project-scoped → setting {routed}[/dim]")
         key = routed
 
     # Resolve dotted key path (creates intermediate tables as needed)
