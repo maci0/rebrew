@@ -226,3 +226,14 @@ constants) disassembled and diffed against every other version; smoke
 `msvc500sp1/sp2/sp3/t.obj`; corpus:
 win2k-* binaries (linker 5.12, VC 5.0 — `rep movs/stos` counts, frame
 prologues, magic `0x66666667`/`0xCCCCCCCD` hits).
+## Probe29: round-29 era markers (5.0)
+
+- **5.0/6.0 open the branchy-abs era**: `abs_i` `test eax,eax; jns;
+  neg eax` (`85 c0 7d 02 f7 d8` — 5.0 through 9.0, C38); `sat_add`
+  `mov`+`and 0xff` pair (`25 ff 00 00 00 81 e1 ff 00 00 00`, C40);
+  `%10` still real idiv (C35/C36); `fpcmp_lt0` the const-based
+  `fcomp [−0.0]` + `test ah,1` form (`dc 1d … f6 c4 01`, D14); the
+  5.0/6.0 magic-division tail (`mul; mov edx,eax; add eax,ecx; sar
+  eax,2`, C37); `d*2.0` folds to `fadd st0,st0` (`dc c0`, D16);
+  `s8_ret` returns in `eax:edx` (`8d 50 01 c3` — the 5.0+ ABI, G7);
+  `bitf_get` `xor; mov al`.  See RULES.md.

@@ -205,3 +205,14 @@ Probe compiled with `rebrew/msvc:2.0-win32` at `/O1` and `/O2`
 (`.cache/fp_probe/out/msvc200_{O1,O2}.obj`), disassembled via objconv and
 capstone; smoke object `.cache/smoke/msvc200/t.obj` (unoptimized `add`).
 All patterns above reproduced from those objects.
+## Probe29: round-29 era markers (2.0)
+
+- **2.0-only forms in the new shapes**: `abs_i` uses the branchless
+  `cdq; xor; sub` (`99 33 c2 2b c2` — shared with 4.1 and 10.0+, NOT
+  5.0-9.0); `cvt_i2d` `fild` + dead `sub esp,4; add esp,4` dance;
+  `s8_ret` hidden-pointer stack store (`83 ec 08 89 44 24 00` — the
+  pre-5.0 struct-return ABI, G7); `bitf_get` `mov al,[mem]; and
+  eax,0xff` (`8a 40 01 25 ff 00 00 00`); `ld24_combine` all-`8a` byte
+  loads; `sw_dense` bounds check `77 07` short jump; `%10` real idiv
+  (`b9 0a … f7 f9`, C35/C36); `min_ii` loads the second arg first
+  (`mov eax,[esp+8]`).  See RULES.md A11/C35-C40/D12-D16/E24-E25/F51/G7.

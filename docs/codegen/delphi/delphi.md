@@ -209,3 +209,12 @@ disassembled with capstone (16-bit) through `rebrew.binary_loader`.
 The five user functions were located by their `push bp; mov bp,sp`
 prologues without the RTL's `push ds`; `begin..end` references retain
 them (unreferenced functions are dead-stripped by the linker).
+
+## Probe29: round-29 markers (Delphi 1.0)
+
+- First probe29 Pascal build (`delphi29/probe29.dpr`, via
+  `rebrew/delphi:1.0-win16`): integer div/mod, abs, min/max, FP
+  neg/×2, bitfield — NE user-segment row folded (fn_0000, `55 89 e5`
+  push-bp frames + the `9a` far-call staging).  Delphi 1.0 16-bit
+  LongInt codegen keeps the documented 16-bit style; the corpus
+  delphi rows stay heuristic (ret-boundary split).

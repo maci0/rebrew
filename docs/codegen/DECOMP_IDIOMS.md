@@ -160,7 +160,7 @@ rebrew-projects win2k set or guild's server.dll (either the idiom is
 unused there or the surrounding context changes the bytes) — recorded
 as corpus validation negatives, not claims of absence elsewhere.
 
-## Validation summary (idiom_sweep.py, VC 6.0 /O2 signatures × 26 binaries)
+## Validation summary (idiom_sweep.py, VC 6.0 /O2 signatures × 27 binaries)
 
 - Present in the wild: `array2d` (guild 33-49×/EXE, 8 win2k binaries),
   `lerp` (33-49×, 8 win2k), `bit_pack` (34-41×, 5 win2k),
@@ -234,3 +234,40 @@ as corpus validation negatives, not claims of absence elsewhere.
   raw-byte push exact bytes) and the 7.0+ `imul` ×589 form do not
   appear byte-exact in the scanned set — recorded as validation
   negatives.
+- Probe26-r additions (round 26/27 — commercial Watcom 10.0a/10.5/
+  10.5a/10.6/11.0 `-otexan` rows): all 35 signatures (`add`, `mul`,
+  `div10`, `udiv10`, `fmul`, `idx7`, `callit`) swept against the same
+  27 MSVC-built win2k/guild binaries → **0 hits** (expected — these
+  are cross-toolchain negatives; the Watcom forms, incl. the
+  `bb 0a…f7 fb` ebx-divisor / `f7 f9` ecx-divisor magic-division
+  shapes and `01 d0 c3` add, do not appear in MSVC-compiled code).
+  The two shared-eras exceptions (Open Watcom 2.0 × 11.0 `udiv10_`,
+  Open Watcom 2.0 × 10.x `idx7_`) are internal to the Watcom family
+  and equally absent from the MSVC binaries.  The `msvc6.5pp` /
+  `msvc8.0p` rows are verified negatives (byte-identical to stock
+  SP5 / 8.0) and add no new signatures to sweep.
+- Probe29 additions (round 29 — new decomp shapes across four
+  categories): **integer magic** `div7/12/1000/4/8`, `udiv7/12/4`,
+  `mod10`, `umod10`, `mul5/9/256/65537`, `muladd3`, `abs_i`,
+  `min/max_ii`, `sat_add`, `sgn_i`; **FP/SSE** `cvt_d2i`, `cvt_i2d`,
+  `fpcmp_lt0/eq0`, `fp_neg`, `fp_mul2`, `fp_f2d`; **control flow**
+  `sw_dense`, `sw_sparse`, `dw_loop`, `tern_sel`, `sc_and/sc_or`,
+  `and_bit`; **string/mem/struct** `ld16/24_combine`, `st16_split`,
+  `strlen_l`, `arr_fwd`, `memcp8`, `bitf_get/set`, `s4/s8/s16_ret`;
+  plus the `cc` convention set `stdcall5_`, `fastcall4_`, `cdecl4_`.
+  Swept against the same 27 MSVC-built win2k/guild binaries: the
+  **11.0-only SSE2 markers** (`cvttsd2si` cvt_d2i, `comisd` fpcmp,
+  `xorpd` fp_neg, `mulsd` fp_mul2, `cmovl/g` min/max) are expected
+  **absent** (no binary is 11.0-built) — the era markers are for
+  fingerprinting binaries, not for presence; the long-lived forms
+  (magic-division tails, `fld; call __ftol`, x87 `fchs`) match the
+  MSVC-built binaries' own codegen families.  Cross-toolchain
+  uniqueness on the expanded corpus: **595 probe29 byte-groups appear
+  in exactly one toolchain** (the per-version era markers C35-C41 /
+  D12-D16 / E24-E25 / F51 / G7 + every non-Microsoft toolchain's own
+  forms — bcc32's ebp-framed `/O2`, Watcom's real-idiv + `ret 8` FP
+  cleanup, gcc-pe's cmov min/max, zig's ebp + cmov, TC/MSVC-16's
+  16-bit forms).  **SP scan**: 3777 SP rows compared, 28 mismatches —
+  the known 7.0-sp1 set grows by 4 probe29 shapes (`div7_`, `div12_`,
+  `div1000_` magic-tail register-role swap, `fpcmp_eq0` operand
+  order) — recorded as RULES.md C41.

@@ -11,6 +11,71 @@
   release-check` dropped the bash-only `set -o pipefail` (the recipe has
   no pipelines; `/bin/sh` is dash on stock Debian).
 ### Added
+- **Codegen corpus round 29 — probe29 (new decomp shapes across four
+  categories)** — `docs/codegen/corpus.json` grows 13762 → **15745
+  records** (+1983), CORPUS VALID, matrix 487 → **532 functions**.
+  42 new C shapes + a `cc` calling-convention set (`stdcall5_`,
+  `fastcall4_`, `cdecl4_`), built across every MSVC version × SP
+  image (10 versions × /O2+/O1 + 14 SP rows), bcc32, Watcom 2.0
+  32/16-bit, MinGW, Zig, the 16-bit set, and a first-ever probe29
+  Delphi 1.0 NE row:
+  - **14 new era markers in RULES.md**: C35/C36 (`%10` real-idiv
+    2.0-7.1 → magic `0x66666667`/`0xCCCCCCCD` at **8.0** — the
+    idiv→magic boundary one version later than `/`), C37 (/7 magic
+    tails — 5.0/6.0 vs 7.0+ vs **11.0 mul-from-memory**), C38 (abs
+    U-shape: branchless cdq 2.0/4.1+10.0/11.0, branchy 5.0-9.0 —
+    decompedia refined), C39 (min/max **cmov at 11.0 only** —
+    decompedia verified), C40 (sat_add mov→and-0xff→movzx eras),
+    **C41 (VC 7.0 SP1 re-schedules magic-division tails + FP-compare
+    operand order — 4 new shapes join the known SP1-difference set;
+    28 total SP mismatches)**, D12 (`cvttsd2si` 11.0), D13 (cvt_i2d
+    dance/fild-ret/roundtrip), D14 (4-form FP-compare: fldz /
+    **5.0-7.1 const `fcomp [−0.0]`** / fldz-jne / comisd), D15
+    (`fchs` → xorpd), D16 (`d*2.0` const-fmul → **fadd st0,st0** →
+    mulsd), E24/E25 (bitfield + 24-bit-combine movzx eras),
+    F51 (jump-table bounds-jump length 2.0/4.1 vs 5.0+), G7 (8-byte
+    struct return: hidden-pointer 2.0/4.1 → **eax:edx from 5.0**),
+    A11 (fastcall4_ arg-load order — five distinct forms 2.0→11.0).
+  - **Uniqueness sweep**: 595 probe29 byte-groups appear in exactly
+    one toolchain; each non-MSVC toolchain's probe29 forms are its own
+    fingerprint (bcc32 ebp-frames, Watcom real-idiv + `ret 8` FP
+    cleanup, gcc-pe cmov, zig ebp+SSE2).
+  - SP-equivalence scan re-run: 3777 SP rows, 28 mismatches (27 =
+    known 7.0-sp1 set + 1 pre-existing 8.0-sp1; 4 NEW probe29 rows).
+  - **msvc900sp1 remains unbuildable** (image lacks `sched.dll` —
+    C1350; pre-existing, recorded skip, corpus never had 9.0-sp1 rows).
+  - Fleet-gap acquisition re-checked: MSVC 3.0 / commercial Watcom
+    8-9 / Borland 4.x confirmed absent from decomp.me values.yaml,
+    OmniBlade releases, itsmattkc archives and archaic-msvc — recorded
+    unreachable (stop rule), nothing fabricated.
+- **Codegen corpus round 26/27 — decomp.me fleet gaps closed (the
+  full commercial Watcom line + msvc6.5pp + msvc8.0p)** —
+  `docs/codegen/corpus.json` grows 13727 → **13762 records**.  The
+  gaps from the fleet research were acquired (tarball URLs from
+  decomp.me `values.yaml`, into the gitignored harness) and probed:
+  - **A2 RESOLVED** — commercial Watcom 10.5 `wcc386` has **NO
+    `__fastcall` keyword**; the AF-table-5 4-register convention is
+    `#pragma aux parm [eax] [edx] [ebx] [ecx]` and VERIFIES
+    `eax,edx,ebx,ecx` (4th arg in ecx, not the stack) — the
+    commercial-10.x-specific question is confirmed.  Folded as 35
+    `watcom/<ver>` corpus rows (`-otexan`, via wibo): real `idiv` for
+    `/10` (no magic — a Watcom family trait), 32-bit FP `ret 0x10`
+    self-cleanup, cdecl args in eax/edx, lea-×8−1 idx7.  **Per-version
+    matrix**: 10.0a/10.5/10.5a/10.6 byte-identical; **11.0 differs**
+    (idiv divisor in ecx `b9 0a … f7 f9` vs 10.x ebx `bb 0a … f7 fb`).
+    Cross-toolchain uniqueness: 34/35 rows byte-unique across the
+    corpus; `udiv10_` 11.0 shares the ecx-divisor form with Open
+    Watcom 2.0.  16-bit `wcc.exe` is a launcher stub referencing a
+    missing `binw/wcc.exe` (recorded).
+  - **msvc6.5pp** = cl 12.00.8804 (SP5 + Processor Pack): `/O2`
+    byte-identical to stock SP5 on the probe shapes, `/arch:SSE`
+    rejected (D4002) — the PP changes CPU detection/runtime, not
+    default instruction selection → verified-negative (J2 extended).
+  - **msvc8.0p** (patched 8.0): standard VC8-era codegen (FP reload
+    dance, `add eax,1`) → verified-negative.
+  - RULES.md A2/J2 updated; `watcom/open-watcom.md` gains a
+    commercial-10.5 section; corpus CORPUS VALID (13,734, matrix
+    487).  See the round spec `.cache/goal_fleet_gaps.md`.
 - **Codegen corpus round 25 — decompedia + CODEGEN_PATTERNS claims
   (probe28)** — `docs/codegen/corpus.json` grows 13127 → **13727
   records** (probe28 adds 600: 10 MSVC versions × /O2+/O1, 7 SPs,

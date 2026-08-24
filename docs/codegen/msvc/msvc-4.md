@@ -174,3 +174,13 @@ Probe compiled with `rebrew/msvc:4.0-win32`, `4.1-win32`, `4.2-win32` at
 `/O1` and `/O2` (`probe_4.0.obj`, `probe_4.1.obj`/`msvc410_O2.obj`,
 `probe_4.2.obj`); smoke `msvc410/t.obj`.  Object sizes and disassembly
 confirmed identical across the three minors and vs VC 2.0.
+## Probe29: round-29 era markers (4.1)
+
+- **4.1 vs 2.0 within the shared pre-5.0 line**: `bitf_get` uses
+  `xor eax,eax; mov al,[mem]` (`33 c0 8b 4c 24 04 8a 41 01` — 2.0
+  masks instead); `min_ii`/`max_ii` load the FIRST arg first (2.0
+  loads the second); `fastcall4_` shuffles the stack args via esi
+  (`8b 44 24 08 56 … 5e`, A11); the sparse switch normalizes with
+  `sub eax,min` + a small `movzx`-indexed table (shared 2.0).  Shares
+  the 2.0 cdq-abs, fild-dance cvt_i2d, hidden-pointer s8_ret and real
+  `%10` idiv.  See RULES.md C35-C40/D12/D13/G7/A11.

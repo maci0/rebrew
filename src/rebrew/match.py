@@ -993,7 +993,7 @@ def find_all_stubs(
 ) -> list[StubInfo]:
     """Find all STUB files in reversed/ and return sorted by size."""
     md = cfg.metadata_dir if cfg is not None else None
-    min_va = min_valid_va_for(cfg) if cfg is not None else 0x1000
+    min_va = min_valid_va_for(cfg)
     return _collect_with_dedup(
         reversed_dir,
         cfg,
@@ -1012,7 +1012,7 @@ def find_near_miss(
 ) -> list[StubInfo]:
     """Find NEAR_MATCHING functions with small byte deltas, sorted by delta ascending."""
     md = cfg.metadata_dir if cfg is not None else None
-    min_va = min_valid_va_for(cfg) if cfg is not None else 0x1000
+    min_va = min_valid_va_for(cfg)
     return _collect_with_dedup(
         reversed_dir,
         cfg,
@@ -1036,7 +1036,7 @@ def find_all_matching(
 ) -> list[StubInfo]:
     """Find all NEAR_MATCHING functions, sorted by byte delta then size."""
     md = cfg.metadata_dir if cfg is not None else None
-    min_va = min_valid_va_for(cfg) if cfg is not None else 0x1000
+    min_va = min_valid_va_for(cfg)
     return _collect_with_dedup(
         reversed_dir,
         cfg,

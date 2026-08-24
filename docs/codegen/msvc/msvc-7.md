@@ -247,3 +247,14 @@ Probe `/O1`/`/O2` via `rebrew/msvc:7.0-win32` (`msvc700_{O1,O2}.obj`);
 smoke `msvc700/t.obj` and `msvc700sp1/t.obj`.  Census: `lea esp,[esp]`
 = 3 at /O2 (0 for every VC ≤6.0 probe), `8b ff` = 2 (operand noise —
 see [msvc-6.md](msvc-6.md) for the padding caveat).
+## Probe29: round-29 era markers (7.0)
+
+- **7.0 opens the movzx era**: `bitf_get` `movzx eax,byte ptr [mem]`
+  (`0f b6 40 01`, E24); `sat_add` `movzx` pair (C40); `ld24_combine`
+  partial movzx (byte 0 only, `0f b6 10`, E25); the 7.0+ magic-division
+  tail (`mul; add edx,ecx; sar edx,2`, C37); `fpcmp_lt0` still the
+  const-based form.  **7.0 SP1 re-schedules the arithmetic tails**
+  (C41): `/7` `/12` `/1000` swap register roles (`mov edx,eax; sar
+  eax,N; mov ecx,eax; shr ecx,31; add eax,ecx` vs RTM's `sar edx`),
+  `fpcmp_eq0` swaps FP operand order — 4 new shapes join the known
+  SP1-difference set.  See RULES.md.

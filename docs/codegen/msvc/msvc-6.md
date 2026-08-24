@@ -232,6 +232,11 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 - **Probe28 (6.0)**: FP const `fadd qword [+1.0]` (`dc 05`); `<=0` test+setle 2B vs `<1` cmp+setl 3B; `x==-1` setne+neg; short return `mov ax`.  See RULES.md D10/C33/C34.
 
 
+
+## Probe26-r: msvc6.5pp (fleet-gap round)
+
+- **msvc6.5pp** (decomp.me id, VC 6.0 SP5 + Processor Pack) = cl **12.00.8804**: `/O2` and `/O2 /G6` codegen byte-identical to stock SP5 on the probe shapes; `/arch:SSE` is REJECTED (D4002 unknown option) — the Processor Pack changes CPU detection/runtime, not default instruction selection.  Verified-negative: no new corpus rows (extends J2).
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:6.0-win32` (`msvc600_{O1,O2}.obj`);
@@ -241,3 +246,12 @@ probe2 at `/O2` across **all six SP images** (`out2/msvc600sp{1..6}_O2.obj`)
 corpus: rt63, rt7, skifree32, tcmd (VC 6.0) — rep string ops, frame
 prologues, `mov edi,edi` counts, magic constants, `/O1`-style wrappers
 in explorer-adjacent builds.
+## Probe29: round-29 era markers (6.0)
+
+- **6.0 stays in the 5.0/6.0 pair for the new shapes**: branchy abs,
+  `and 0xff`-pair sat_add, real `%10` idiv, const-based fpcmp
+  (`dc 1d … f6 c4 01`), 5.0-form magic tails, `fadd st0,st0` ×2,
+  eax:edx struct returns, `xor; mov al` bitfield loads.  `fastcall4_`
+  gets the `lea eax,[ecx+edx]`-first folding (6.0-7.1 form, A11).
+  SPs sp1-sp6 verified byte-identical on all 42 probe29 shapes
+  (SP-equivalence scan, 3777 rows).  See RULES.md C35-C40/D14/D16/G7.

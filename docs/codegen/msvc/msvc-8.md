@@ -205,8 +205,23 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 - **Probe28 (8.0)**: compares switch to MEMORY operands (`39 44 24 04`); float const reload dance; short return `mov ax`.  See RULES.md C33/D10.
 
 
+
+## Probe26-r: msvc8.0p (fleet-gap round)
+
+- **msvc8.0p** (decomp.me id, patched 8.0 — widberg repo commit 52c8293): codegen is standard VC8-era (FP reload dance `d9 5c 24 04 …`, `add eax,1` for inc) — verified-negative, no new corpus rows vs our 8.0 RTM/SP1.
+
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:8.0-win32` (`msvc800_{O1,O2}.obj`);
 smoke `msvc800/t.obj`, `msvc800sp1/t.obj`.  `/GS` cookie pattern
 reproduced in `bigstack` at /O2.
+## Probe29: round-29 era markers (8.0)
+
+- **8.0 is the %10 magic boundary** (C35/C36): signed `%10` switches
+  from real idiv to `0x66666667` (`b8 67 66 66 66 f7 e9`), unsigned to
+  `0xCCCCCCCD` (`b8 cd cc cc cc f7 e1`) — one version later than the
+  `/` division (C20).  `fpcmp_lt0` returns to the fldz-based form but
+  with a jne sense (`f6 c4 41 75 06`, D14); `fastcall4_` folds
+  `lea [ecx+edx]` + memory-operand adds (`03 44 24 04`, A11);
+  `sw_dense` bounds jump lengthens to `77 37` (F51).  `msvc8.0p` =
+  this line (verified-negative, round 26/27).  See RULES.md.
