@@ -195,3 +195,8 @@ probe3 `out16b/probe3.OBJ` — `enter`, `fld tbyte`, real `div`,
   struct returns.  The 16-bit rows are the odd ones out in the
   cross-toolchain sweep (each single-toolchain-unique).  See
   RULES.md C2/G4.
+## Probe30: round-30 markers (1.0/1.5/1.52, 16-bit)
+
+- probe30 built for MSVC 1.52: `55 8b ec` frames, real idiv for the
+  new divisors, byte-register zero-extension, `__aNchkstk` staging.
+  See RULES.md C2.

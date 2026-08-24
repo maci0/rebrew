@@ -37,6 +37,7 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
+from rebrew.config import walk_up_to_root
 from rebrew.toolchain import TOOLCHAINS, ToolchainSpec
 
 try:
@@ -98,14 +99,6 @@ def _docker_user_args() -> list[str]:
     if hasattr(os, "getuid") and hasattr(os, "getgid"):
         return ["--user", f"{os.getuid()}:{os.getgid()}"]
     return []
-
-
-def _find_project_root(cwd: Path) -> Path | None:
-    """Walk up from *cwd* for ``rebrew-project.toml`` (the mount root)."""
-    for p in (cwd, *cwd.parents):
-        if (p / "rebrew-project.toml").is_file():
-            return p
-    return None
 
 
 def _load_profile(root: Path) -> str:
@@ -293,7 +286,7 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
 
 
 def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
-    root = _find_project_root(Path.cwd())
+    root = walk_up_to_root(Path.cwd())
     if root is None:
         error_exit(
             "rebrew-cmake-*: no rebrew-project.toml found above the cwd — run "
@@ -354,7 +347,7 @@ def tc_main() -> None:
     mode = _TOOL_MODES.get(Path(sys.argv[0]).name)
     if mode is None:
         error_exit(f"rebrew-cmake-*: unknown invocation name {Path(sys.argv[0]).name!r}")
-    root = _find_project_root(Path.cwd())
+    root = walk_up_to_root(Path.cwd())
     if root is None:
         error_exit(
             "rebrew-cmake-*: no rebrew-project.toml found above the cwd — run "

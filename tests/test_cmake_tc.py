@@ -19,12 +19,12 @@ from rebrew.cmake_tc import (
     _docker_user_args,
     _ensure_wineprefix,
     _exclusive_lock,
-    _find_project_root,
     _is_host_path,
     _rewrite_args,
     _to_w,
     generate_toolchain_file,
 )
+from rebrew.config import walk_up_to_root
 from rebrew.toolchain import TOOLCHAINS
 
 
@@ -113,9 +113,16 @@ def test_find_project_root(tmp_path: Path) -> None:
     proj = tmp_path / "proj"
     (proj / "build").mkdir(parents=True)
     (proj / "rebrew-project.toml").write_text("", encoding="utf-8")
-    assert _find_project_root(proj / "build") == proj
-    assert _find_project_root(proj) == proj
-    assert _find_project_root(tmp_path / "elsewhere") is None
+    assert walk_up_to_root(proj / "build") == proj
+    assert walk_up_to_root(proj) == proj
+    assert walk_up_to_root(tmp_path / "elsewhere") is None
+
+
+def test_find_project_root_rejects_directory_marker(tmp_path: Path) -> None:
+    """A directory named like the marker file must not satisfy the search —
+    the marker has to be a regular file."""
+    (tmp_path / "rebrew-project.toml").mkdir()
+    assert walk_up_to_root(tmp_path) is None
 
 
 def test_tool_modes_dispatch() -> None:

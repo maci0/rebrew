@@ -176,3 +176,9 @@ smoke `msvc900/t.obj`.  `/GS` + unrolling reproduced at /O2.
   8.0 %10 magic, fldz jne fpcmp and memory-add fastcall.  (9.0 sp1
   remains unbuildable — the image lacks `sched.dll`, C1350; recorded
   skip, corpus never had 9.0-sp1 rows.)  See RULES.md.
+## Probe30: round-30 era markers (9.0)
+
+- **9.0 shares the 8.0 lines** (% magic, movzx bitfield, memory-add
+  64-bit, sub-chain switch, `a*5` still __allmul — the inline shld
+  comes at 10.0, H6).  (9.0 sp1 remains unbuildable — sched.dll,
+  recorded skip.)  See RULES.md.

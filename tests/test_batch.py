@@ -1,19 +1,19 @@
-"""Tests for rebrew.extract — extract_bytes, detect_reversed_vas, cmd_list."""
+"""Tests for rebrew.extract — byte extraction, detect_reversed_vas, cmd_list."""
 
 from pathlib import Path
 
 import pytest
 
-from rebrew.binary_loader import BinaryInfo, SectionInfo
-from rebrew.extract import cmd_list, detect_reversed_vas, extract_bytes
+from rebrew.binary_loader import BinaryInfo, SectionInfo, extract_bytes_at_va
+from rebrew.extract import cmd_list, detect_reversed_vas
 
 # ---------------------------------------------------------------------------
-# extract_bytes
+# extract_bytes_at_va (the production byte-extraction path used by extract)
 # ---------------------------------------------------------------------------
 
 
 class TestExtractBytes:
-    """Tests for extract_bytes() wrapper."""
+    """Tests for extract_bytes_at_va() behind the extract tooling."""
 
     def _make_binary_info(
         self, data: bytes, tmp_path: Path, va_start: int = 0x10001000
@@ -41,22 +41,22 @@ class TestExtractBytes:
         """Extracts bytes at the given VA."""
         data = b"\x55\x8b\xec\x83\xec\x08\xc3"
         bi = self._make_binary_info(data, tmp_path)
-        result = extract_bytes(bi, 0x10001000, 4)
+        result = extract_bytes_at_va(bi, 0x10001000, 4)
         assert result == b"\x55\x8b\xec\x83"
 
     def test_full_size(self, tmp_path: Path) -> None:
         """Extracts full function bytes."""
         data = b"\x55\x8b\xec\xc3"
         bi = self._make_binary_info(data, tmp_path)
-        result = extract_bytes(bi, 0x10001000, len(data))
+        result = extract_bytes_at_va(bi, 0x10001000, len(data))
         assert result == data
 
-    def test_va_not_in_section_returns_empty(self, tmp_path: Path) -> None:
-        """VA outside any section returns empty bytes."""
+    def test_va_not_in_section_returns_none(self, tmp_path: Path) -> None:
+        """VA outside any section returns None."""
         data = b"\x55\x8b\xec\xc3"
         bi = self._make_binary_info(data, tmp_path)
-        result = extract_bytes(bi, 0x20000000, 4)
-        assert result == b""
+        result = extract_bytes_at_va(bi, 0x20000000, 4)
+        assert result is None
 
 
 # ---------------------------------------------------------------------------

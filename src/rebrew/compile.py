@@ -2,7 +2,7 @@
 
 Provides a single, consistent interface for compiling C source to .obj files
 through the configured toolchain (docker images for every Windows/DOS
-compiler — wine runs inside the image; native binaries for Linux compilers
+compiler - wine runs inside the image; native binaries for Linux compilers
 such as gcc-pe/watcom16). All tools (rebrew test, rebrew match, rebrew
 verify) use these functions instead of building compile commands
 independently.
@@ -12,21 +12,21 @@ Architecture
 Entry points in order of abstraction:
 
 ``resolve_cl_command(cfg)``
-    Lowest level — builds the base compiler command list from the config's
+    Lowest level - builds the base compiler command list from the config's
     ``compiler_command`` string.  Returns ``[]`` for docker-only configs
     (empty host command; the image is the compiler).
 
 ``compile_to_obj(cfg, source_path, cflags, workdir)``
-    Mid-level — compiles a source file inside the toolchain's docker image
+    Mid-level - compiles a source file inside the toolchain's docker image
     (or natively for Linux-hosted compilers) and produces a ``.obj`` file.
     Returns ``(obj_path, error_msg)``.
 
 ``compile_and_compare(cfg, source_path, symbol, target_bytes, cflags)``
-    High-level — compile, extract symbol bytes, compare to *target_bytes*,
+    High-level - compile, extract symbol bytes, compare to *target_bytes*,
     and return a :class:`CompareResult`.
 
 ``classify_compare_result(matched, msg, target_bytes, obj_bytes, reloc_offsets, inv_reloc_offsets=None)``
-    Pure helper — classifies raw comparison outputs into a :class:`CompareResult`
+    Pure helper - classifies raw comparison outputs into a :class:`CompareResult`
     (status string, match %, delta).  Used internally by ``compile_and_compare``.
 
 :class:`CompareResult`
@@ -39,12 +39,12 @@ Configuration
 ~~~~~~~~~~~~~
 All functions read from ``cfg`` (a ``ProjectConfig`` instance):
 
-- ``cfg.compiler_command`` — host compiler command, e.g. ``"wine CL.EXE"``;
+- ``cfg.compiler_command`` - host compiler command, e.g. ``"wine CL.EXE"``;
   empty for docker-only profiles (the image provides the compiler)
-- ``cfg.compiler_includes`` — path to MSVC include directory
-- ``cfg.base_cflags`` — always-on flags (e.g. ``/nologo /c /MT``)
-- ``cfg.compile_timeout`` — seconds before subprocess is killed
-- ``msvc_env_from_config(cfg)`` — environment dict with ``LIB`` / ``INCLUDE`` etc.
+- ``cfg.compiler_includes`` - path to MSVC include directory
+- ``cfg.base_cflags`` - always-on flags (e.g. ``/nologo /c /MT``)
+- ``cfg.compile_timeout`` - seconds before subprocess is killed
+- ``msvc_env_from_config(cfg)`` - environment dict with ``LIB`` / ``INCLUDE`` etc.
 """
 
 import contextlib
@@ -53,6 +53,7 @@ import re
 import shutil
 import subprocess
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -90,7 +91,7 @@ class CompareResult:
         matched: ``True`` when compiled bytes equal target after reloc masking.
         status: One of ``EXACT``, ``RELOC``, ``NEAR_MATCHING``, ``STUB``,
             ``SIZE_MISMATCH``, ``COMPILE_ERROR``, ``MISSING_SIZE``, ``MISSING_FILE``.
-        match_percent: Percentage of bytes that match (0–100).  On mismatch,
+        match_percent: Percentage of bytes that match (0-100).  On mismatch,
             computed as a raw byte-by-byte comparison without reloc masking.
         delta: Absolute byte difference (mismatch count + size delta).
         obj_bytes: Compiled bytes extracted from the ``.obj`` file, or ``None``
@@ -107,7 +108,7 @@ class CompareResult:
         full_obj_bytes: Full compiled ``.obj`` bytes (untruncated) on the
             SIZE_MISMATCH path, else ``None``.  Lets ``--fix-size`` verify
             the bytes beyond the annotated slice before declaring the SIZE
-            annotation stale — a false fix would otherwise write a size
+            annotation stale - a false fix would otherwise write a size
             that hides unreproduced code.
         message: Human-readable detail string (compiler error, mismatch counts, …).
 
@@ -128,19 +129,19 @@ class CompareResult:
     #: unmatched functions so the recoverage-consumed ``verify_results``
     #: ``diff_lines`` column carries real data instead of NULL (db-review F2).
     diff_lines: int | None = None
-    #: Structural code-similarity score (0–100) between the compiled and
+    #: Structural code-similarity score (0-100) between the compiled and
     #: target bytes, computed via the optional ``resembl`` scoring core
     #: (``None`` when not computed, e.g. the extra is not installed).  Populated
     #: best-effort by ``rebrew verify`` for every verified function so the
     #: ``verify_results`` ``similarity`` column carries real data.
     similarity: float | None = None
     #: Number of register-encoding-only differing instructions (the ``RR``
-    #: class of the register-aware diff) — the delta size of an *effective
+    #: class of the register-aware diff) - the delta size of an *effective
     #: match*.  ``None`` when the register-aware diff was not computed
     #: (non-x86-32 targets).
     reg_delta: int | None = None
     #: True when the function is an *effective match* (reccmp's 100% class):
-    #: the byte delta is ENTIRELY register allocation — same instructions,
+    #: the byte delta is ENTIRELY register allocation - same instructions,
     #: different registers.  Not byte-identical; PROVEN or register-nudging C
     #: tweaks are the paths forward.
     effective_match: bool = False
@@ -282,7 +283,7 @@ def classify_compare_result(
     # Compute delta and match_percent for partial matches.
     # Use target length as the denominator and mask known relocation
     # slots so size mismatches don't unfairly drop match% below the
-    # NEAR_MATCHING threshold (60%) — matches rebrew test's truncation
+    # NEAR_MATCHING threshold (60%) - matches rebrew test's truncation
     # behavior and treats reloc bytes as matches.
     match_percent = 0.0
     delta = 0
@@ -302,13 +303,13 @@ def classify_compare_result(
                     reloc_mask[r:end] = True
             diff_mask = diff_mask & ~reloc_mask
         mismatches = int(np.count_nonzero(diff_mask))
-        # abs(len diff) already counts every missing/extra byte — adding
+        # abs(len diff) already counts every missing/extra byte - adding
         # `missing` again would double-count short objects (skewing delta,
         # and with it verify/status/todo metrics).
         match_percent = ((cmp_len - mismatches) / target_len) * 100 if target_len else 0.0
         # abs(len diff) counts every missing/extra byte at THIS call's lengths.
         # The SIZE_MISMATCH caller truncates both sides before classifying, so
-        # it passes the pre-truncation length difference via size_delta —
+        # it passes the pre-truncation length difference via size_delta -
         # otherwise a 10B vs 5B mismatch with 1 byte diff would report
         # delta=1 instead of 6, skewing verify/todo regression metrics.
         delta = abs(len(target_bytes) - len(obj_bytes)) + mismatches + size_delta
@@ -338,7 +339,7 @@ def classify_compare_result(
         ):
             status = "STUB"
             msg = (
-                f"candidate is a minimal {orig_cand}B stub body — the target is "
+                f"candidate is a minimal {orig_cand}B stub body - the target is "
                 f"{orig_tgt}B; the skeleton default was never implemented"
             )
         else:
@@ -378,7 +379,7 @@ _WINE_NOISE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"^wineserver:.*\n?", re.MULTILINE),
     re.compile(r"^Could not find Wine Gecko.*\n?", re.MULTILINE),
     re.compile(r"^err:.*\n?", re.MULTILINE),
-    # Display/GL init noise from headless Xvfb compiles (no [hex]: prefix —
+    # Display/GL init noise from headless Xvfb compiles (no [hex]: prefix -
     # emitted by Mesa/wine's EGL probe when DRI3 is unavailable).  These
     # lines drown the real compiler error, e.g. "libEGL warning: DRI3 error:
     # Could not get DRI3 device" + "Ensure your X server supports DRI3...".
@@ -407,7 +408,7 @@ _STUB_TARGET_MIN_BYTES = 12
 
 # Wine prefixes configured with "Emulate a virtual desktop" (winecfg) pop a
 # window on every compiler invocation, and bare `wine` fails outright under
-# CI with no DISPLAY.  We point wine at a persistent Xvfb (headless.py) —
+# CI with no DISPLAY.  We point wine at a persistent Xvfb (headless.py) -
 # invisible AND cheap: xvfb-run's wrapper costs ~3 s per invocation, a
 # persistent server pays ~200 ms once and amortizes over a whole batch.
 _XVFB_SERVER_ARGS = "-screen 0 1280x1024x24"
@@ -460,7 +461,7 @@ def resolve_cl_command(cfg: ProjectConfig) -> list[str]:
     cmd_parts = safe_shlex_split(cfg.compiler_command)
     if not cmd_parts:
         # Docker-only configs (empty host command; the image is the
-        # compiler) — nothing to resolve.
+        # compiler) - nothing to resolve.
         return []
 
     runner = str(getattr(cfg, "compiler_runner", "")).strip()
@@ -478,7 +479,7 @@ def resolve_cl_command(cfg: ProjectConfig) -> list[str]:
         and "\\" not in cmd_parts[0]
         and not runner
     ):
-        # Bare executable name (e.g. a gcc-pe/mingw toolchain on PATH) —
+        # Bare executable name (e.g. a gcc-pe/mingw toolchain on PATH) -
         # resolve via PATH instead of the project root.
         found = shutil.which(cmd_parts[0])
         cl_abs = found or str(cfg.root / cl_rel)
@@ -506,7 +507,7 @@ def resolve_compiler_env(
 ) -> tuple[str, str, dict[str, str] | None, CompileCache | None]:
     """Resolve compiler command, include dir, MSVC env, and compile cache from config.
 
-    Returns ``(cl_cmd, inc_dir, msvc_env, compile_cache)`` — the four values
+    Returns ``(cl_cmd, inc_dir, msvc_env, compile_cache)`` - the four values
     typically needed for compilation workflows.
 
     Args:
@@ -542,7 +543,7 @@ def _dedupe_flags(flags: list[str]) -> list[str]:
     """Drop duplicate flags, keeping first occurrence (identical flags are
     interchangeable, so this is semantics-preserving).
 
-    Base + per-function cflags often repeat (``/O2 /Gd /O2 /Gd /Oy-``) —
+    Base + per-function cflags often repeat (``/O2 /Gd /O2 /Gd /Oy-``) -
     dedup keeps compile lines readable without changing the result.
     """
     seen: set[str] = set()
@@ -554,6 +555,36 @@ def _dedupe_flags(flags: list[str]) -> list[str]:
     return out
 
 
+def _merged_include_tokens(flags: list[str]) -> Iterator[str]:
+    """Yield *flags* with the two-token include form merged.
+
+    ``("/I", "../Units")`` becomes ``"/I../Units"``; every other flag passes
+    through unchanged.  A lone trailing ``/I`` (or one followed by another
+    flag) stays a separate token.
+    """
+    i = 0
+    while i < len(flags):
+        flag = flags[i]
+        if flag in ("/I", "-I"):
+            nxt = flags[i + 1] if i + 1 < len(flags) else None
+            if nxt is not None and not nxt.startswith("/") and not nxt.startswith("-"):
+                yield flag + nxt
+                i += 2
+                continue
+        yield flag
+        i += 1
+
+
+def _include_dir_of(flag: str) -> str | None:
+    """The path named by an include flag, or ``None`` for any other flag.
+
+    Strips the surrounding quotes CL-style flags may carry.
+    """
+    if not flag.startswith(("/I", "-I")):
+        return None
+    return flag[2:].strip('"').strip("'")
+
+
 def resolve_include_flags(flags: list[str], src_parent: Path, cfg_root: Path) -> list[str]:
     """Resolve relative /I include paths against src_parent then cfg_root.
 
@@ -561,41 +592,22 @@ def resolve_include_flags(flags: list[str], src_parent: Path, cfg_root: Path) ->
     paths must be made absolute before passing to the compiler.
     """
     resolved: list[str] = []
-    i = 0
-    while i < len(flags):
-        flag = flags[i]
-        if flag in ("/I", "-I"):
-            # Space-separated two-token form ("/I ../Units"): merge the
-            # following path so it is resolved as one include flag.  A lone
-            # trailing /I is left untouched (CL will report it itself).
-            nxt = flags[i + 1] if i + 1 < len(flags) else None
-            if nxt is not None and not nxt.startswith("/") and not nxt.startswith("-"):
-                flag = flag + nxt
-                i += 1
-        if flag.startswith(("/I", "-I")):
-            prefix = flag[:2]
-            inc_dir = flag[2:].strip('"').strip("'")
-            if not inc_dir:
-                # A bare /I with no path (e.g. a trailing or flag-adjacent
-                # token) is not an include dir - pass it through untouched.
-                resolved.append(flag)
-                i += 1
-                continue
-            p = Path(inc_dir)
-            if not p.is_absolute():
-                from_src = (src_parent / p).resolve()
-                from_root = (cfg_root / p).resolve()
-                if from_src.is_dir():
-                    resolved.append(f"{prefix}{from_src}")
-                elif from_root.is_dir():
-                    resolved.append(f"{prefix}{from_root}")
-                else:
-                    resolved.append(flag)
-            else:
-                resolved.append(flag)
-        else:
+    for flag in _merged_include_tokens(flags):
+        inc_dir = _include_dir_of(flag)
+        # A bare /I with no path (e.g. a trailing or flag-adjacent token) is
+        # not an include dir - pass it through untouched (CL reports it).
+        if not inc_dir:
             resolved.append(flag)
-        i += 1
+            continue
+        p = Path(inc_dir)
+        if not p.is_absolute():
+            from_src = (src_parent / p).resolve()
+            from_root = (cfg_root / p).resolve()
+            if from_src.is_dir():
+                flag = f"{flag[:2]}{from_src}"
+            elif from_root.is_dir():
+                flag = f"{flag[:2]}{from_root}"
+        resolved.append(flag)
     return resolved
 
 
@@ -608,28 +620,14 @@ def extract_include_dirs(flags: list[str]) -> list[str]:
     cache key's header-dependency resolution: a dir only reachable through a
     flag's ``/I`` would otherwise have its headers untracked.
     """
-    out: list[str] = []
-    i = 0
-    while i < len(flags):
-        flag = flags[i]
-        if flag in ("/I", "-I"):
-            nxt = flags[i + 1] if i + 1 < len(flags) else None
-            if nxt is not None and not nxt.startswith("/") and not nxt.startswith("-"):
-                flag = flag + nxt
-                i += 1
-        if flag.startswith(("/I", "-I")) and len(flag) > 2:
-            d = flag[2:].strip('"').strip("'")
-            if d:
-                out.append(d)
-        i += 1
-    return out
+    return [inc_dir for flag in _merged_include_tokens(flags) if (inc_dir := _include_dir_of(flag))]
 
 
 def _is_vendored_toolchain_tree(p: Path) -> bool:
     """True when *p* lives under the rebrew-toolchains checkout.
 
     Those trees are baked into the docker images byte-identical, so the
-    container needs no bind mount for them — CL/wcc resolve their own
+    container needs no bind mount for them - CL/wcc resolve their own
     includes inside the image."""
     from rebrew.toolchain import toolchains_repo
 
@@ -651,7 +649,7 @@ def _docker_include_rewrite(
     (they resolve inside /work).  Absolute host dirs are bind-mounted at
     their **absolute host path** (same-path mount) and the flag is left
     untouched: a relative ``#include "../../x.h"`` then resolves exactly
-    as it does on the host (wine's Z: mapping did this implicitly) — a
+    as it does on the host (wine's Z: mapping did this implicitly) - a
     container-root mount (``/incN``) would let ``../..`` escape to ``/``.
     Returns ``(rewritten_flags, mounts)``."""
     mounts: list[tuple[str, str]] = []
@@ -723,7 +721,7 @@ def compile_to_obj(
     Execution is docker-only for every Windows/DOS toolchain (all MSVC
     versions, Borland, Watcom, the 16-bit DOS compilers): the image
     encapsulates the runtime (wine / DOSBox) and the host never calls
-    CL.EXE / DCC.EXE / TCC.EXE / bcc32.exe directly — there is no host
+    CL.EXE / DCC.EXE / TCC.EXE / bcc32.exe directly - there is no host
     wine/wibo/dosbox fallback.  Native-Linux toolchains without an image
     (gcc-pe, watcom16 wcc) run through the standardized native backend.
 
@@ -747,14 +745,14 @@ def compile_to_obj(
             and *use_cache* is True, a shared instance is obtained
             automatically from the project root.
         use_cache: Set to ``False`` to bypass the cache entirely.
-        toolchain: Per-function toolchain override (metadata TOOLCHAIN) —
+        toolchain: Per-function toolchain override (metadata TOOLCHAIN) -
             compile with THAT toolchain's docker image.
         extra_include_dirs: Additional absolute include dirs (e.g. the GA/
-            diff source's parent, for relative #include resolution) —
+            diff source's parent, for relative #include resolution) -
             same-path mounted into the container like the other /I dirs.
 
     Returns:
-        (obj_path, error_msg) — obj_path is ``None`` on failure;
+        (obj_path, error_msg) - obj_path is ``None`` on failure;
         error_msg is an empty string on success."""
     source_path = Path(source_path)
     workdir = Path(workdir)
@@ -767,13 +765,13 @@ def compile_to_obj(
     obj_name = obj_name or (source_path.stem + ".obj")
     if obj_name != Path(obj_name).name:
         # A separator would write the object outside the workdir (and the
-        # docker mount) — reject it instead of silently losing the output.
+        # docker mount) - reject it instead of silently losing the output.
         return None, f"obj_name must be a plain filename, got {obj_name!r}"
     inc_path = str(cfg.compiler_includes)
     profile = getattr(cfg, "compiler_profile", "")
     # Per-function toolchain override (metadata TOOLCHAIN, e.g. "msvc5"):
     # compile with THAT toolchain's image.  Every compile runs through the
-    # standardized runner — there is no host wine path.
+    # standardized runner - there is no host wine path.
     tc_spec = None
     if toolchain:
         tc_spec = TOOLCHAINS.get(toolchain)
@@ -783,7 +781,7 @@ def compile_to_obj(
             )
         if tc_spec.image is None and tc_spec.runtime != "native":
             return None, (
-                f"per-function toolchain {toolchain!r} has no docker image — "
+                f"per-function toolchain {toolchain!r} has no docker image - "
                 "all compiles run through their docker images; "
                 f"run `rebrew toolchain build {toolchain}` first"
             )
@@ -822,7 +820,7 @@ def compile_to_obj(
             toolchain_id = _toolchain_cache_id(spec)
         else:
             toolchain_id = " ".join(resolve_cl_command(cfg))
-        # extra_include_dirs feed the /I flags and bind mounts — they are
+        # extra_include_dirs feed the /I flags and bind mounts - they are
         # compile inputs and must shape the key (two functions whose
         # relative #include resolves differently would otherwise share
         # a cache entry and one would get the other's object).  The /I dirs
@@ -858,7 +856,7 @@ def compile_to_obj(
             return str(obj_file), ""
 
     # The compiler is the only consumer of the workdir source copy, so it
-    # is made here (miss path only) — a cache hit above never needs it.
+    # is made here (miss path only) - a cache hit above never needs it.
     # A source already inside the workdir (compile in place) is not copied:
     # copy2 would fail with "same file".  The docker mount / workdir then
     # serves the source directly.
@@ -890,7 +888,7 @@ def compile_to_obj(
             # outside the vendored toolchain trees are bind-mounted; the
             # toolchain's own include tree ships inside the image (byte-identical
             # to the vendored tree it was built from) and needs no mount.  The
-            # 16-bit DOSBox wrappers stage their own include tree — follow the
+            # 16-bit DOSBox wrappers stage their own include tree - follow the
             # ACTIVE spec (a per-function TOOLCHAIN override may swap in a
             # 16-bit toolchain under a 32-bit project profile).
             if spec.name not in ("msvc1.52", "msvc15", "msvc10", "tc16", "tc20"):
@@ -908,7 +906,7 @@ def compile_to_obj(
                     rewritten, extra_mounts = _docker_include_rewrite([f"{prefix}{d}"], workdir)
                     mounts += extra_mounts
                     all_flags += rewritten
-                # Same-path mounts may repeat across dirs — docker rejects
+                # Same-path mounts may repeat across dirs - docker rejects
                 # duplicate -v targets.
                 mounts = list(dict.fromkeys(mounts))
         if spec.name in ("msvc1.52", "msvc15", "msvc10", "tc16", "tc20"):
@@ -955,7 +953,7 @@ def compile_to_obj(
     # Unknown/unregistered profile: nothing to run.  Execution is docker-
     # (or native-runner-)only; a plain command string cannot be exec'd.
     return None, (
-        f"profile {profile!r} is not a docker/native toolchain — every compile "
+        f"profile {profile!r} is not a docker/native toolchain - every compile "
         "runs through the standardized runner; "
         "run `rebrew toolchain list` for the available profiles"
     )
@@ -981,7 +979,7 @@ def _extract_and_compare(
     if obj_bytes is None:
         # Post-compile extraction failure: the .obj compiled fine but the
         # symbol is absent (wrong --symbol, optimized-away function).  Must
-        # NOT masquerade as COMPILE_ERROR — downstream (rebrew test, verify)
+        # NOT masquerade as COMPILE_ERROR - downstream (rebrew test, verify)
         # would blame the .c source and hard-exit with EXIT_ERROR.
         return classify_compare_result(
             False, f"EXTRACT_ERROR: Symbol '{symbol}' not found in .obj", target_bytes, None, None
@@ -991,7 +989,7 @@ def _extract_and_compare(
 
     size_mismatch = len(obj_bytes) != len(target_bytes)
     orig_obj_len = len(obj_bytes)
-    orig_obj_bytes = obj_bytes  # full bytes — the truncated view loses the tail
+    orig_obj_bytes = obj_bytes  # full bytes - the truncated view loses the tail
     orig_tgt_len = len(target_bytes)
     if size_mismatch:
         # Truncate longer side so smart_reloc_compare can still
@@ -1010,7 +1008,7 @@ def _extract_and_compare(
         iat_region=iat_region,
     )
     if size_mismatch:
-        # Length differs even if the common prefix matches — never EXACT/RELOC.
+        # Length differs even if the common prefix matches - never EXACT/RELOC.
         # The hint uses the VA when known (rebrew diff resolves VAs);
         # otherwise the generic source placeholder.
         va_hint = f"0x{section_va:08x}" if section_va else "<source>"
@@ -1018,7 +1016,7 @@ def _extract_and_compare(
             False,
             (
                 f"SIZE_MISMATCH: Size {orig_obj_len}B vs {orig_tgt_len}B "
-                f"({_total - _match_count} byte diffs in common prefix) — "
+                f"({_total - _match_count} byte diffs in common prefix) - "
                 f"run 'rebrew diff {va_hint}' to see the byte differences"
             ),
             target_bytes,
@@ -1082,7 +1080,7 @@ def compile_and_compare(
 
     workdir: Path | None = None
     try:
-        # A real-disk, container-visible workdir (writable_temp_dir) — the
+        # A real-disk, container-visible workdir (writable_temp_dir) - the
         # docker runner mounts it at /work, so a system-temp sandbox
         # (tmpfs / docker-invisible under sandboxed environments) would
         # compile an empty dir.  Cleaned up in finally.
@@ -1113,7 +1111,7 @@ def compile_and_compare(
                 iat_region=build_iat_region(cfg),
             )
         except (ValueError, OSError) as exc:
-            # Post-compile object extraction/compare failure — the source
+            # Post-compile object extraction/compare failure - the source
             # compiled fine, so this is NOT a COMPILE_ERROR.  Label the
             # stage so downstream (todo, verify, GA) does not blame the
             # .c file for a malformed .obj / toolchain issue.
@@ -1140,7 +1138,7 @@ def compile_and_compare(
 # takes the opposite route (the dll-rebuild experiment's "padded link shell"):
 # compile the function inside a shell that pads .text$A so the code lands at
 # the exact .text offset it occupies in the target, LINK a real DLL at the
-# target's image base, and compare the resulting bytes RAW — rel32
+# target's image base, and compare the resulting bytes RAW - rel32
 # displacements are resolved by the linker, in-.text jump tables are included
 # in the window, and no relocation masking is needed.
 
@@ -1174,7 +1172,7 @@ def linked_pad_size(fn_rva: int, section_rva: int) -> int:
 
     The function is *section_rva* bytes into the code section in the target;
     the shell reproduces that offset with a zero pad of the same length.
-    Returns -1 when the function precedes the section start (unsupported —
+    Returns -1 when the function precedes the section start (unsupported -
     the linked shell cannot move the section's own RVA).
     """
     pad = fn_rva - section_rva
@@ -1185,7 +1183,7 @@ def extract_linked_slice(dll_bytes: bytes, text_raw_offset: int, pad: int, size:
     """Slice *size* bytes of the linked DLL at the padded function offset.
 
     ``text_raw_offset`` is the linked DLL's .text raw offset (read back from
-    its headers — LINK may place sections anywhere), and *pad* is the same
+    its headers - LINK may place sections anywhere), and *pad* is the same
     value fed to :func:`linked_shell_source`.  Returns fewer than *size*
     bytes (possibly none) when the DLL does not cover the window.
     """
@@ -1205,13 +1203,13 @@ def build_linked_link_cmd(
 
     The image ENTRYPOINT is the CL wrapper, so the link goes through
     ``sh -c`` that sources the shared wrapper helpers and runs
-    ``rebrew_run $tool_root/LINK.EXE`` — the exact wine environment the CL
+    ``rebrew_run $tool_root/LINK.EXE`` - the exact wine environment the CL
     wrapper uses (INCLUDE/LIB exported the same way).  Flags mirror the
     bit-exact-rebuild recipe: /DLL /NOENTRY at the target's image base,
     /ALIGN:4096 + /FILEALIGN:4096, /OPT:NOREF + /OPT:NOICF keep every
     segment and block, /NODEFAULTLIB avoids pulling CRT import libs.
 
-    Returns ``(cmd, script)`` — the docker argv and the shell script, split
+    Returns ``(cmd, script)`` - the docker argv and the shell script, split
     so tests can assert either without docker.
     """
     if spec.image is None or spec.tool_root is None:
@@ -1248,9 +1246,9 @@ def build_linked_link_cmd(
         "docker",
         "run",
         "--rm",
-        "--network=none",  # link-only container — no egress needed
+        "--network=none",  # link-only container - no egress needed
         # Named so the timeout path can kill it (a killed docker CLI leaves
-        # the container under dockerd — same discipline as run_toolchain).
+        # the container under dockerd - same discipline as run_toolchain).
         "--name",
         f"rebrew-link-{uuid.uuid4().hex[:12]}",
         "-v",
@@ -1273,7 +1271,7 @@ def _linked_spec(cfg: ProjectConfig, toolchain: str | None) -> tuple[ToolchainSp
 
     Same profile / per-function TOOLCHAIN resolution as :func:`compile_to_obj`,
     plus the linked-compare eligibility checks: a docker image with a real
-    MSVC LINK.EXE (``binary == "cl"`` — 32-bit MSVC; the 16-bit DOSBox and
+    MSVC LINK.EXE (``binary == "cl"`` - 32-bit MSVC; the 16-bit DOSBox and
     Borland/Watcom toolchains have different linkers and flag dialects).
     """
     profile = getattr(cfg, "compiler_profile", "")
@@ -1284,7 +1282,7 @@ def _linked_spec(cfg: ProjectConfig, toolchain: str | None) -> tuple[ToolchainSp
         return None, f"no toolchain spec for profile {profile!r}"
     if spec.image is None:
         return None, (
-            f"toolchain {spec.name!r} is host-native (no docker image) — linked "
+            f"toolchain {spec.name!r} is host-native (no docker image) - linked "
             "compare runs LINK.EXE inside the toolchain image"
         )
     if spec.binary != "cl":
@@ -1311,7 +1309,7 @@ def _link_obj_docker(
 ) -> tuple[bool, str]:
     """Run LINK.EXE in the toolchain image on *obj_path*.
 
-    Returns ``(ok, error_msg)`` — ``ok`` False with the linker's stderr on
+    Returns ``(ok, error_msg)`` - ``ok`` False with the linker's stderr on
     failure (unresolved externals are the common case: the source references
     symbols outside the shell, which only the object-level catalog compare
     can validate).
@@ -1359,14 +1357,14 @@ def compile_and_compare_linked(
     The dll-rebuild "linked" oracle: wrap the function source in a
     ``.text$A`` pad + ``.text$B`` shell, compile it, LINK a real DLL at the
     target's image base (/DLL /NOENTRY /OPT:NOREF /OPT:NOICF), and compare
-    the bytes at *va* against *target_bytes* RAW — no relocation masking.
+    the bytes at *va* against *target_bytes* RAW - no relocation masking.
     The linker resolves rel32 displacements and in-.text jump tables land in
     the window, so a match here is byte-identical output, not RELOC-level.
 
     Requires a VA (the target's section geometry is derived from
     ``cfg.target_binary``) and a docker MSVC toolchain (LINK.EXE runs inside
     the image; see :func:`_linked_spec`).  Sources with externals (imports,
-    cross-TU calls) fail the link — only self-contained sources (direct-
+    cross-TU calls) fail the link - only self-contained sources (direct-
     address calls, same-TU stubs) are eligible; that is the documented
     trade-off of the linker-resolved oracle.
 
@@ -1397,7 +1395,7 @@ def compile_and_compare_linked(
     if pad < 0:
         return classify_compare_result(
             False,
-            f"EXTRACT_ERROR: function 0x{va:08x} precedes its section start — "
+            f"EXTRACT_ERROR: function 0x{va:08x} precedes its section start - "
             "the linked shell cannot reproduce the offset",
             target_bytes,
             None,
@@ -1437,7 +1435,7 @@ def compile_and_compare_linked(
             return classify_compare_result(
                 False,
                 (
-                    "COMPILE_ERROR: link failed — the source references externals "
+                    "COMPILE_ERROR: link failed - the source references externals "
                     "the shell cannot resolve, or LINK.EXE failed: "
                     f"{link_err[:200]}"
                 ),
@@ -1453,7 +1451,7 @@ def compile_and_compare_linked(
         if len(linked_bytes) != len(target_bytes):
             # Built directly (not classify_compare_result's size path) so the
             # skeleton-stub heuristic can't mislabel a short linked slice as
-            # an unimplemented stub — a geometry mismatch is a SIZE_MISMATCH,
+            # an unimplemented stub - a geometry mismatch is a SIZE_MISMATCH,
             # period.
             common = min(len(linked_bytes), len(target_bytes))
             mismatches = (

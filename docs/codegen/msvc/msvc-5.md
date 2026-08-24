@@ -237,3 +237,13 @@ prologues, magic `0x66666667`/`0xCCCCCCCD` hits).
   eax,2`, C37); `d*2.0` folds to `fadd st0,st0` (`dc c0`, D16);
   `s8_ret` returns in `eax:edx` (`8d 50 01 c3` — the 5.0+ ABI, G7);
   `bitf_get` `xor; mov al`.  See RULES.md.
+## Probe30: round-30 era markers (5.0)
+
+- **5.0/6.0 open the magic-division era on the new divisors**: `/3 /5
+  /6 /9` → magic from 5.0 (`0x55555556`/`0x66666667`/`0xAAAAAAAB`/
+  `0x38E38E39`) with the 5.0/6.0 mul-then-sar-eax tail (C42); `%7
+  %360 %1000` STILL real idiv (the % boundary is 8.0, C43); strlen
+  still `repne scasb` (E26); `mul11/13/100` lea-chains (C44);
+  `mul17_` shl4-add; `(double)i64` direct `fild qword [esp+4]` (H5);
+  `a*5` __allmul (H6); thiscall 5.0/6.0 register-pair member-body
+  (I9).  See RULES.md.

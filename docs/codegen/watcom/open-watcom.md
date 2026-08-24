@@ -266,3 +266,9 @@ objconv (OMF-386).
   byte combines (`52 0f b6 50 01 c1 e2 08`).  The 16-bit wcc forms
   (stack-arg `50 b8 N e8 …` staging) are distinct corpus rows.  See
   RULES.md C2/D16.
+## Probe30: round-30 markers (Watcom 2.0)
+
+- **Watcom 2.0 real-idiv for every new divisor** (the `51 52 b9 N 99
+  f7 f9 5a 59` push-staging signature), lea-based muls, `movzx`-heavy
+  byte handling, `ret 8` FP self-cleanup; 64-bit via `__I8` helpers.
+  See RULES.md C2.

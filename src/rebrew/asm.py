@@ -332,6 +332,19 @@ def detect_function_pattern(cfg: ProjectConfig, va: int) -> str | None:
     return None
 
 
+def ret_pop_count(op_str: str) -> int:
+    """The immediate of a ``ret N`` operand as a byte-pop count (0 on garbage).
+
+    Capstone renders the operand in hex with a ``0x`` prefix (or plain
+    decimal for small values); a bare ``ret`` yields 0.
+    """
+    try:
+        n = int(op_str, 16) if op_str.startswith(("0x", "0X")) else int(op_str)
+    except ValueError:
+        return 0
+    return max(0, n)
+
+
 def calling_convention(insns: list[Any]) -> str:
     """Infer the calling convention from a disassembled function.
 
@@ -399,11 +412,7 @@ def calling_convention(insns: list[Any]) -> str:
             return "tail call"
         return "tail-call thunk"
     if m.startswith("ret"):
-        raw = last.op_str
-        try:
-            n = int(raw, 16) if raw.startswith(("0x", "0X")) else int(raw)
-        except ValueError:
-            n = 0
+        n = ret_pop_count(last.op_str)
         if n == 0:
             # Plain ret: cdecl, or thiscall with NO stack args (ecx=this only
             # the caller has nothing to clean).

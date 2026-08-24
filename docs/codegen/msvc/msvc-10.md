@@ -174,3 +174,9 @@ magic, cdq-abs, `jns` clamp) diffed against 9.0 and 11.0; smoke
   U-shape, C38, sharing with 2.0/4.1 and 11.0); `fp_f2d` roundtrip;
   fldz-jne fpcmp; %10 magic; `movzx`-chain ld24; memory-add fastcall.
   See RULES.md.
+## Probe30: round-30 era markers (10.0)
+
+- **10.0 opens the inline shld era**: `a*5` → `shld`-decomposition
+  (`0f a4 ce 02 …`, H6 — the __allmul→inline boundary), while keeping
+  the 8.0-era lines (% magic, memory-add 64-bit add, movzx bitfield).
+  See RULES.md.

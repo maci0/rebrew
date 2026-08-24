@@ -201,3 +201,10 @@ levels; `__llmul`/`__lldiv`/`__llshl` calls in the 64-bit functions;
   ebp-framed everything is itself the bcc32 fingerprint (595 probe29
   single-toolchain byte-groups).  `fastcall4_`/`stdcall5_` frame +
   `ret N` (`c2 08 00`/`c2 14 00`).  See RULES.md A11.
+## Probe30: round-30 markers (bcc32 5.5)
+
+- **bcc32 keeps real `idiv` for every new divisor** (`b9 07 … f7 f9`
+  for /3 /5 /6 /9 — no magic), `ebp` frames at /O2 on every new shape,
+  branchy min/ternary, `mov al`-based byte handling, `fld`-staged FP.
+  The ebp + real-idiv combination is the bcc32 fingerprint (572
+  probe30 single-toolchain byte-groups).  See RULES.md C42.

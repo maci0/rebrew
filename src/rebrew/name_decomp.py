@@ -40,6 +40,7 @@ from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_c
 from rebrew.struct_recover import (
     PSEUDO_TYPES,
     TYPE_WIDTHS,
+    offset_value,
     parse_decomp_for_structs,
     pointer_element_widths,
     type_width,
@@ -194,10 +195,6 @@ class NamingResult:
     applied: list[dict[str, Any]]  # {var, struct, offsets: [...]}
 
 
-def _offset_value(off: str) -> int:
-    return int(off, 16) if off.lower().startswith("0x") else int(off, 10)
-
-
 def apply_known_names(text: str, definitions: dict[str, str]) -> NamingResult:
     """Rewrite *text* to use known structs for anonymous pointer variables.
 
@@ -262,7 +259,7 @@ def _rewrite_access(
     elem_widths: dict[str, int],
 ) -> str:
     if m.group("cvar") is not None:
-        var, off, cast = m.group("cvar"), _offset_value(m.group("coff")), m.group("cast")
+        var, off, cast = m.group("cvar"), offset_value(m.group("coff")), m.group("cast")
         form = "deref"
     elif m.group("avar") is not None:
         var, cast = m.group("avar"), m.group("cast2")
@@ -279,7 +276,7 @@ def _rewrite_access(
         off = int(m.group("bidx")) * elem
         form = "bare_index"
     else:
-        var, off = m.group("pvar"), _offset_value(m.group("poff"))
+        var, off = m.group("pvar"), offset_value(m.group("poff"))
         form = "bare"
 
     struct = var_structs.get(var)

@@ -153,3 +153,8 @@ codegen claims intentionally absent.  Matching caveat documented in
   `imul` staging (`ba 93 24 49 92 89 c8 f7 ea`), `0f 1f` nops.  The
   ebp + SSE2 + imul-staged magic combination fingerprints Zig-built
   code.  See RULES.md C39/D12.
+## Probe30: round-30 markers (Zig 0.16)
+
+- **zig**: ebp frames + `jmp strlen` tail-call, branchless cmov
+  ternaries (C46), magic division with `imul` staging (`ba … 89 c8
+  f7 ea`), SSE2 FP.  See RULES.md.

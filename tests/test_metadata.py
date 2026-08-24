@@ -734,6 +734,24 @@ class TestUpdateStatusesBatchPromotionPolicy:
         assert entry.get("status") == "EXACT"
         assert "blocker" not in entry
 
+    def test_same_status_still_clears_stale_blocker_delta(self, tmp_path: Path) -> None:
+        """An entry carrying only a stale ``blocker_delta`` (no blocker text)
+        is cleaned up too — the idempotency guard must not treat the delta as
+        invisible state and leave it behind after clear_blockers."""
+        from rebrew.metadata import set_field, update_statuses_batch
+
+        update_statuses_batch(tmp_path, [{"module": "T", "va": 0x1000, "new_status": "EXACT"}])
+        set_field(tmp_path, 0x1000, "blocker_delta", 12, module="T")
+        changed = update_statuses_batch(
+            tmp_path,
+            [{"module": "T", "va": 0x1000, "new_status": "EXACT", "clear_blockers": True}],
+        )
+        assert changed == 1
+        entry = load_metadata(tmp_path).get(("T", 0x1000), {})
+        assert entry.get("status") == "EXACT"
+        assert "blocker" not in entry
+        assert "blocker_delta" not in entry
+
     def test_lowercase_new_status_normalized(self, tmp_path: Path) -> None:
         """A lower-case status from any caller is persisted in canonical
         upper-case so exact-case consumers never miss it."""

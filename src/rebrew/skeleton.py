@@ -377,13 +377,11 @@ def _ret_arg_count(insns: list[Any], word_size: int = 4) -> int:
     *word_size* is 4 for x86-32 targets, 2 for 16-bit DOS/NE targets
     (word-sized stack args).
     """
+    from rebrew.asm import ret_pop_count
+
     for insn in reversed(insns):
         if insn.mnemonic.startswith("ret"):
-            raw = insn.op_str
-            try:
-                n = int(raw, 16) if raw.startswith(("0x", "0X")) else int(raw)
-            except ValueError:
-                return 0
+            n = ret_pop_count(insn.op_str)
             return max(0, n // word_size) if n else 0
     return 0
 

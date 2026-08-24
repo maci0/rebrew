@@ -172,3 +172,8 @@ unoptimized `_add`, byte-identical).
   7.0-form magic tails, const-based fpcmp, `lea [ecx+edx]` fastcall)
   with no SP1-style re-schedule (7.1 sp1 ≡ 7.1 RTM on all 42 shapes).
   See RULES.md C37/C40/E24/A11.
+## Probe30: round-30 era markers (7.1)
+
+- **7.1 mirrors 7.0** on the new shapes (inline strlen, sar-edx magic
+  tails, imul muls, memory cmp_chain, loop alignment) with 7.1 sp1 ≡
+  7.1 RTM.  See RULES.md.

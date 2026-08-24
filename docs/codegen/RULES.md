@@ -38,6 +38,11 @@ Sources: [Agner Fog, calling conventions manual](https://www.agner.org/optimize/
 PLACEHOLDER_A Name mangling schemes differ per compiler family: **Microsoft `?name@@Y...` verified** against the probe16 C++ objects (`??2@YAPAXI@Z` operator new, `??3@YAXPAX@Z` operator delete — matches AF §8.1); Borland `@name$q...` and Watcom schemes remain documented-only (their C++ OMF objects resist symbol extraction) | C++ mode | V+D (probe16 objects + AF §8) |
 
 | A11 | 32-bit `__fastcall` 4-arg form (probe29cc `fastcall4_`): args in **ecx,edx + 2 stack slots**, callee pops the stack args (`c2 08 00` — ret 8) in EVERY version; the arg-LOAD ORDER fingerprints the version — **2.0 combines the stack args into edx first, then `lea eax,[edx+ecx]`; 4.1/5.0 shuffle via esi** (`8b 44 24 08 56 … 5e`); **6.0/7.0/7.1 `lea eax,[ecx+edx]` first, then register loads of the stack args** (`8b 54 24 04 8b 4c 24 08`); **8.0+ `lea eax,[ecx+edx]` + memory-operand adds** (`03 44 24 04 03 44 24 08`) — gcc-pe/zig match the 8.0+ form, bcc32 keeps `ebp` frames.  `__stdcall` 5-arg (`stdcall5_`) → `ret 20` (`c2 14 00`) everywhere; `__cdecl` 4-arg (`cdecl4_`) → plain `ret` with per-version load order (2.0 stack-last-first, 6.0+ chain) | MSVC + gcc/zig/bcc | V (probe29cc) |
+| C42 | `/3 /5 /9` magic constants + tails (extends C20/C28/C37): real `idiv` in 2.0/4.1 (`b9 N … 99 f7 f9`); magic from 5.0 — `/3`=`0x55555556`, `/5`=`0x66666667`, `/9`=`0x38E38E39` — with the tail eras: 5.0/6.0 mul-then-sar-eax form, 7.0+ `sar edx`-form (`d1 fa`), **10.0/11.0 `mul dword [esp+4]` from memory** (`f7 6c 24 04`) | MSVC | V (probe30 `div3_`/`div5_`/`div6_`/`div9_`) |
+| C43 | `%7 %12 %360 %1000` (and every non-power modulus): **real `idiv` in 2.0–7.1, reciprocal-magic from 8.0** — %7=`0x92492493`, %12=`0xAAAAAAAB`, %360=`0xB60B60B7`, %1000=`0x10624DD3` (extends C35/C36: the %→magic boundary is uniformly 8.0, one version later than `/`); **11.0 stages the arg via esi** (`56 8b 74 24 08`) | MSVC | V (probe30 `mod7_`/`mod12_`/`mod360_`/`mod1000_` + unsigned) |
+| C44 | multiply decomposition (extends C19/C21/C31): `x*11`/`x*13` → lea-pair (`8d 0c 80 8d 04 48` ×11, `8d 0c 40 8d 04 88` ×13) in 2.0–6.0, **`imul reg,reg,N` from 7.0** (`6b c0 0b`/`6b c0 0d`); `x*100`/`x*1000` → lea-chains (2.0/4.1), lea+shl (5.0/6.0), **`imul imm32` from 7.0** (`69 c0 64…`/`69 c0 e8 03…`); `x*7` → lea-×8−1 (2.0/4.1/6.0/8.0+), shl3-sub (5.0 only `c1 e0 03 2b c1`), **imul 7.0/7.1 only** (matches C27 idx7); `x*17` → `shl 4; add` in every version **except 7.0 SP1 which switches to `imul eax,eax,17` (`6b c0 11`)** | MSVC | V (probe30 `mul7_`/`mul11_`/`mul13_`/`mul17_`/`mul100_`/`mul1000_`) |
+| C45 | global RMW `g++`: `mov ecx,[g]; mov eax,ecx; inc ecx; mov [g],ecx` uniform — **8.0 uses `add ecx,1` (`83 c1 01`)** (the B10 add-over-inc trait); `g += 5`/`g load`/`g[i]` uniform `a1/a3/8b 04 85` direct-global access everywhere | MSVC | V (probe30 `g_inc`/`g_rmw`/`g_load`/`g_aindex`) |
+| C46 | nested ternary `a?(b?c:b):(c?a:b)`: branchy everywhere; 5.0–10.0 `neg; sbb` select (`f7 d8 1b c0`), **8.0+ and-form (`23 44 24 0c`), 11.0 `cmov` (`0f 45 44 24 0c` — the only cmov)**; zig emits branchless cmov selects | MSVC/Zig | V (probe30 `tern_nest`) |
 ## B. Register allocation & assignment
 
 | ID | Rule | Scope | Status |
@@ -156,6 +161,9 @@ PLACEHOLDER_A Name mangling schemes differ per compiler family: **Microsoft `?na
 
 | E24 | Bitfield load (8-bit field of a byte struct): **2.0 `mov al,[mem]; and eax,0xff` (`8a 40 01 25 ff 00 00 00`), 4.1–6.0 `xor eax,eax; mov al,[mem]` (`33 c0 … 8a 41 01`), 7.0+ `movzx eax,byte ptr [mem]` (`0f b6 40 01`)** — the same three eras as C4 char-zext | MSVC | V (probe29 `bitf_get`) |
 | E25 | 24-bit little-endian combine `p[0]|p[1]<<8|p[2]<<16`: **2.0–6.0 `8a`-based byte loads (no movzx), 7.0–8.0 partial `movzx` (byte 0 only, `0f b6 10`), 9.0+ full `movzx` chain (`0f b6 41 02 0f b6 51 01 0f b6 09`) — 11.0 reorders to load byte 2 first** — the byte-load style tracks the char-zext eras (C4/E24) | MSVC | V (probe29 `ld24_combine`) |
+| E26 | strlen: **`repne scasb` + `not` (`57 b9 ff ff ff ff f2 ae f7 d1 5f 8d 41 ff`) in 2.0–6.0, inline byte loop from 7.0** (`8d 50 01 8a 08 40 84 c9 75 f9 2b c2`; 8.0 `83 c0 01` add-variant) — the scasb→inline boundary at 7.0; gcc-pe/zig emit a tail-call `jmp strlen` (`e9 rel32`) | MSVC/GCC/Zig | V (probe30 `s_liblen`) |
+| E27 | strcmp staging: 2.0/4.1 direct `mov al,[esi]; cmp al,[edi]` (`8a 10 3a 11`); 5.0–7.1 esi/edi via `push ebx/esi` staging; **8.0+ `mov al,[ecx]; cmp al,[edx]` order** (`8a 01 3a 02`); 11.0 reversed loads | MSVC | V (probe30 `s_libcmp`) |
+| E28 | bitfield-width zext: 1-bit/4-bit fields → `mov eax,[mem]; and eax,1/0xf` in EVERY version (uniform); **16-bit field → `and eax,0xffff` 2.0–7.1, `movzx eax,word ptr [mem]` from 8.0** (`0f b7 00` — the 16-bit movzx boundary is 8.0, one version later than the byte-field 7.0 boundary of E24); 1-bit store → setcc forms (2.0–6.0 `test/setz` staging, **7.0+ `sete cl; and` `0f 95 c1`**, 8.0+ memory-operand compare `39 4c 24 08`) | MSVC | V (probe30 `bf1/bf4/bf16_get/set`) |
 ## F. Control flow & switches
 
 | ID | Rule | Scope | Status |
@@ -187,6 +195,8 @@ PLACEHOLDER_A Name mangling schemes differ per compiler family: **Microsoft `?na
 | F25 | Early-return block placement (F45): `if (a) return -3; if (b) return -6; …` keeps the early-return blocks **INLINE right after their conditional checks in EVERY version** (`test; jne +6; mov reg,-3; ret` — the `jne` skips the 6-byte block) — the doc's Finding 45 tail-grouping is a register-pressure context artifact, not general MSVC behavior.  The shared-epilogue `-1` tail materializes `or eax,-1` (`83 c8 ff`) from 5.0 (2.0/4.1 `mov eax,-1` — the B5 trait); 11.0 materializes the -3 constant via `lea eax,[reg-3]`.  **Refinement (F46, probe27 `fail_epi`)**: same-constant fail paths (`return 0` ×3) MERGE into one shared `xor eax,eax; ret` tail in every version (`jl/jg/je` all jump forward to it) — distinct constants inline, same constants merge.  **`x == -1` compare form (DP, probe28)**: `if (x==-1) return -1;` and `(x!=-1)-1` BOTH compile to `cmp reg,-1; setne al; neg eax` in 5.0–11.0 (the DP "inc/neg/sbb 7B" claim NOT reproduced); **2.0/4.1 use the inc/sbb family** (`inc eax; cmp eax,1; sbb eax,eax`) | MSVC | V (probe26 `er1`–`er4`, probe27 `fail_epi`, probe28 `m1idiom`/`m1alt`; GD findings 45/46 + DP claim corrected) |
 
 | F51 | Dense switch `{0..7}` → **jump table + bounds check in EVERY version** (`83 f8 07` + `ff 24 85 [table]`); the bounds-jump length discriminates: **2.0/4.1 `77 07` (short jump), 5.0–7.1 `77 27`, 8.0+ `77 37`**.  Sparse switch `{3,7,11,19,37}` → compare chain, never a table: **2.0/4.1 normalize by subtracting the min case then index a small table** (`83 e8 03 … 8a 88`), 5.0+ compare chains (`83 f8 03 74 …`), 11.0 stages the min via `push 3; pop eax` (`6a 03 58`) | MSVC | V (probe29 `sw_dense`/`sw_sparse`) |
+| F52 | fallthrough switch (probe30 `sw_fall`): **cmp-chain 2.0/4.1 (`83 f9 01 74 0e`), dec-chain 5.0–7.1 + 10.0/11.0 (`49 74 0f`), `sub eax,1`-chain 8.0/9.0 (`83 e8 01` — the B10 sub-over-dec trait, matching F24)** — the fallthrough dispatch is a 4-era chain | MSVC | V (probe30 `sw_fall`) |
+| F53 | comparison chain `a<b && b<c`: register compares 2.0–6.0 (`3b c8`/`3b c1`), **memory-operand compare from 7.0** (`39 44 24 04` — extends the C33 memory-compare era) | MSVC | V (probe30 `cmp_chain`) |
 ## G. Frames, prologues, epilogues, stack
 
 | ID | Rule | Scope | Status |
@@ -199,6 +209,7 @@ PLACEHOLDER_A Name mangling schemes differ per compiler family: **Microsoft `?na
 | G6 | 16-bit stack check: `mov ax,<size>; call __aNchkstk` (MSVC 1.5x); `mov ax,<size>; lcall` RTL probe (Delphi); `__CHK` with amount pushed (Watcom) | 16-bit | V (probes) |
 
 | G7 | 8-byte struct return ABI: **hidden-pointer + stack store in 2.0/4.1 (`83 ec 08; mov [esp],eax; …`), registers `eax:edx` from 5.0 (`lea edx,[eax+1]; ret`)** — the 5.0 register-return boundary; 4-byte structs return in eax in every version (2.0/4.1 with a dead `sub esp,4; add esp,4` dance); 16-byte structs use the hidden pointer in every version, with the fill style evolving (2.0/4.1 stack round-trip, 5.0+ register staging, 7.0+ direct sret stores) | MSVC | V (probe29 `s4_ret`/`s8_ret`/`s16_ret`) |
+| G8 | loop-body alignment: `lea esp,[esp]` (`8d 64 24 00`) appears INSIDE loop bodies from 7.0 (loop_cont/loop_brk — the G3 head-alignment marker extended to loop bodies); 8.0 uses the `7e 12`/`7e 0e` branch-displacement variant | MSVC | V (probe30 `loop_cont`/`loop_brk`) |
 ## H. 64-bit support
 
 | ID | Rule | Scope | Status |
@@ -208,6 +219,8 @@ PLACEHOLDER_A Name mangling schemes differ per compiler family: **Microsoft `?na
 | H3 | 64-bit multiply-high inlined from VC 6.0 (`mul [mem]; mov eax,edx`); `__allmul` call before | MSVC | V (probe) |
 | H4 | Helper symbol families: MSVC `__all*`; Borland `__ll*`; Watcom `__I8*`; GCC inline + `__divdi3` | all | V (probes) |
 
+| H5 | 64-bit conversions: `(double)i64` → **2.0/4.1 store-to-stack + `fild qword [esp]` (`89 44 24 00 … df 6c 24`), 5.0–10.0 direct `fild qword [esp+4]` (`df 6c 24 04 c3`), 11.0 `fild; fstp; fld` roundtrip**; `(i64)d` → `fld; call __ftol`-family in EVERY version (uniform) | MSVC | V (probe30 64-bit `cvt_i64d`/`cvt_di64`) |
+| H6 | 64-bit arithmetic boundary (extends C10-C13): `a+b` is **inline in every version** (register pairs + `adc`, with **memory-operand `add`/`adc` from 8.0**); `a*5` → **`__allmul` call with 2-push staging (`6a 00 6a 05 51 50 e8`) in 2.0–9.0, inline `shld`-decomposition from 10.0** (`0f a4 ce 02 …`) — the allmul→inline boundary at 10.0 | MSVC | V (probe30 64-bit `add64_`/`mul64c_`) |
 ## I. Object model (C++)
 
 | ID | Rule | Scope | Status |
@@ -217,6 +230,7 @@ PLACEHOLDER_A Name mangling schemes differ per compiler family: **Microsoft `?na
 | I3 | Vtable dispatch uniform `mov eax,[ecx]; call [eax]` in MSVC; GCC adds a null-vtable check; bcc32 pushes register-loaded args | MSVC/GCC/bcc32 | V (probe16) |
 | I4 | Watcom `wpp386` rejects the probe16 class+`new` syntax under the image's flags | Watcom | V (probe16 negative) |
 
+| I9 | thiscall (probe30cpp): trivial make-and-call shapes CONSTANT-FOLD in every version (`mov eax,15; ret`); the param-based member call inlines the body — **2.0/4.1/7.0+ `mov eax,[ecx+4]; add eax,[ecx]` (memory add) vs 5.0/6.0 register-pair `mov edx,[ecx]; add eax,edx`**; static member `x*3` → `lea eax,[eax+eax*2]` uniform | MSVC | V (probe30cpp `cpp_thiscall`/`cpp_static`) |
 ## J. Toolchain identity & packaging
 
 | ID | Rule | Scope | Status |

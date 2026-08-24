@@ -225,3 +225,11 @@ reproduced in `bigstack` at /O2.
   `lea [ecx+edx]` + memory-operand adds (`03 44 24 04`, A11);
   `sw_dense` bounds jump lengthens to `77 37` (F51).  `msvc8.0p` =
   this line (verified-negative, round 26/27).  See RULES.md.
+## Probe30: round-30 era markers (8.0)
+
+- **8.0 is the % boundary**: `%7 %12 %360 %1000` all switch from real
+  idiv to magic (`0x92492493`/`0xAAAAAAAB`/`0xB60B60B7`/`0x10624DD3`,
+  C43); **8.0 also opens**: the 16-bit bitfield `movzx` (E28),
+  memory-operand 64-bit add/adc (H6), strcmp `8a 01 3a 02` order
+  (E27), `add ecx,1` g_inc (C45), the sub-chain fallthrough switch
+  (F52), the strlen add-variant `83 c0 01` (E26).  See RULES.md.

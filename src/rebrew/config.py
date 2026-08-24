@@ -696,6 +696,22 @@ def detect_crt_sources(root: Path) -> dict[str, str]:
     return found
 
 
+def walk_up_to_root(start: Path) -> Path | None:
+    """Walk up from *start* (inclusive) looking for ``rebrew-project.toml``.
+
+    Returns the directory containing the marker file, or ``None`` when the
+    walk reaches the filesystem root without finding one.  The marker must
+    be a regular file, so a directory named ``rebrew-project.toml`` does not
+    satisfy the search.
+    """
+    candidate = start.resolve()
+    while candidate != candidate.parent:
+        if (candidate / "rebrew-project.toml").is_file():
+            return candidate
+        candidate = candidate.parent
+    return None
+
+
 def find_root(start: Path | None = None) -> Path:
     """Walk up from cwd to find rebrew-project.toml.
 
@@ -709,15 +725,13 @@ def find_root(start: Path | None = None) -> Path:
     """
     if start is not None:
         return start
-    candidate = Path.cwd().resolve()
-    while candidate != candidate.parent:
-        if (candidate / "rebrew-project.toml").exists():
-            return candidate
-        candidate = candidate.parent
-    raise FileNotFoundError(
-        "Could not find rebrew-project.toml in any parent of the current directory. "
-        "Run rebrew commands from within a project that contains rebrew-project.toml."
-    )
+    found = walk_up_to_root(Path.cwd())
+    if found is None:
+        raise FileNotFoundError(
+            "Could not find rebrew-project.toml in any parent of the current directory. "
+            "Run rebrew commands from within a project that contains rebrew-project.toml."
+        )
+    return found
 
 
 # ---------------------------------------------------------------------------
