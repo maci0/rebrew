@@ -50,6 +50,7 @@ Usage::
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -61,6 +62,8 @@ from typing import Any, cast
 import lief
 
 from rebrew.binary_loader import load_binary
+
+logger = logging.getLogger(__name__)
 
 
 def _rich_compiler_build(entries: list[Any]) -> int:
@@ -822,7 +825,7 @@ def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
                 msvcp_version = _MSVCP_IMPORT_VERSIONS[name]
                 break
     except Exception:
-        pass
+        logger.debug("msvcp import scan failed for %s", path, exc_info=True)
     if msvcp_version:
         info.add(f"msvcp import names MSVC {msvcp_version} CRT")
 
@@ -1010,9 +1013,7 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
     except Exception:
         # Best-effort packer probe — a failure must not break detection,
         # but should be visible when debugging why packed: is absent.
-        import logging
-
-        logging.getLogger(__name__).debug("LZEXE probe failed for %s", path, exc_info=True)
+        logger.debug("LZEXE probe failed for %s", path, exc_info=True)
         lz_ver = None
     if lz_ver is not None:
         info.packed = f"lzexe 0.{lz_ver}"
@@ -1175,7 +1176,8 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
                 if dll:
                     imports.add(dll)
         except Exception:
-            pass  # import scan is best-effort — string evidence still applies
+            logger.debug("import-table scan failed for %s", path, exc_info=True)
+            # import scan is best-effort — string evidence still applies
 
     # --- section-level signals ---
     has_buildid = any(n.lower() == ".buildid" for n in sections)
@@ -1264,7 +1266,7 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
         const_hoists = _count_const_hoists(text_bytes)
         signals = _count_codegen_signals(text_bytes)
     except Exception:
-        pass
+        logger.debug("codegen scan failed for %s", path, exc_info=True)
 
     if gnu_nops:
         info.add(f"{gnu_nops} GNU-style 0f 1f nops")

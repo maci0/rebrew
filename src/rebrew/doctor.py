@@ -17,6 +17,7 @@ Usage::
     rebrew doctor --json
 """
 
+import logging
 import os
 import shlex
 import shutil
@@ -34,6 +35,7 @@ from rebrew.cli import EXIT_MISMATCH, TargetOption, json_print, require_config
 from rebrew.config import ProjectConfig, load_config
 
 console = Console(stderr=True)
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Check result data
@@ -286,7 +288,7 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
             if guess:
                 hint = guess
         except Exception:
-            pass  # best-effort recommendation
+            logger.debug("profile suggestion failed", exc_info=True)  # best-effort recommendation
         return CheckResult(
             name="Compiler",
             status=_WARN,

@@ -4,6 +4,7 @@ Usage:
     rebrew init [--target NAME] [--binary FILENAME] [--compiler PROFILE]
 """
 
+import logging
 import re
 import shutil
 import subprocess
@@ -21,6 +22,7 @@ from rebrew.toolchain_detect import ToolchainInfo
 from rebrew.utils import atomic_write_text, toolchain_link_candidates
 
 console = Console(stderr=True)
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(
     help="Initialize a new rebrew project directory.",
@@ -701,14 +703,15 @@ def _detect_binary_format(path: Path) -> tuple[str, str] | None:
         if fmt and arch:
             return fmt, arch
     except Exception:
-        pass  # not PE/ELF/Mach-O — try NE next
+        logger.debug("PE/ELF/Mach-O detection failed for %s", path, exc_info=True)
+    # not PE/ELF/Mach-O — try NE next
     try:
         if is_ne(path):
             return "ne", "x86_16"
         if is_mz(path):
             return "mz", "x86_16"
     except Exception:
-        pass
+        logger.debug("NE/MZ probe failed for %s", path, exc_info=True)
     return None
 
 
@@ -1283,7 +1286,9 @@ def main(
             tc = detect_toolchain(binary_path)
             _warn_profile_family_mismatch(compiler_profile, tc)
         except Exception:
-            pass  # detection is best-effort; keep the profile default
+            logger.debug(
+                "toolchain detection failed for %s", binary_path, exc_info=True
+            )  # detection is best-effort; keep the profile default
 
     # Auto-detect CRT linkage when the binary is already in place: a dynamic
     # CRT (msvcrt.dll import) requires /MD rather than the /MT default.

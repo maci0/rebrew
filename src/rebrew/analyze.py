@@ -17,6 +17,7 @@ and one broken backend (e.g. diec missing) never aborts the others.
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,8 @@ from rich.table import Table
 
 from rebrew.cli import TargetOption, json_print
 from rebrew.config import load_config
+
+logger = logging.getLogger(__name__)
 
 console = Console(stderr=True)
 
@@ -87,6 +90,7 @@ def _collect_toolchain(binary: Path) -> dict[str, Any] | None:
     try:
         info = detect_toolchain(binary)
     except Exception:  # best-effort dossier section
+        logger.debug("toolchain detection failed for %s", binary, exc_info=True)
         return None
     return {
         "family": info.family,
@@ -154,6 +158,7 @@ def _collect_imports(binary: Path) -> dict[str, Any]:
     try:
         stubs = find_import_stubs(binary)
     except Exception:  # stub scan is best-effort
+        logger.debug("IAT stub scan failed for %s", binary, exc_info=True)
         stubs = {}
     return {
         "count": len(imports),
@@ -181,6 +186,7 @@ def _collect_references(info: Any) -> dict[str, Any]:
     try:
         refs = scan_references(info)
     except Exception:  # disassembly is best-effort
+        logger.debug("reference scan failed for %s", getattr(info, "path", "?"), exc_info=True)
         return {"total": 0, "by_kind": {}}
     kinds = Counter(r.kind for r in refs)
     return {"total": len(refs), "by_kind": dict(kinds.most_common())}
@@ -205,6 +211,7 @@ def _collect_far_calls(binary: Path) -> list[dict[str, Any]] | None:
     try:
         info = load_binary(binary)
     except Exception:  # best-effort dossier section
+        logger.debug("NE load failed for %s", binary, exc_info=True)
         return None
 
     seg_count = info.ne_header.segment_count  # type: ignore[attr-defined]
@@ -255,6 +262,7 @@ def _collect_functions(cfg: Any) -> dict[str, Any] | None:
     try:
         ghidra_funcs, existing, _covered = load_data(cfg)
     except Exception:  # coverage needs the function list
+        logger.debug("coverage load failed for %s", getattr(cfg, "name", "?"), exc_info=True)
         return None
     if ghidra_funcs:
         total = len(ghidra_funcs)
@@ -293,6 +301,7 @@ def _collect_near_match(cfg: Any) -> list[dict[str, Any]] | None:
                     }
                 )
     except Exception:  # best-effort dossier section
+        logger.debug("metadata load failed for %s", metadata_dir, exc_info=True)
         return None
     items.sort(key=lambda i: i["va"])
     return items
@@ -307,6 +316,7 @@ def _collect_dispatch(info: Any) -> list[dict[str, Any]]:
             info.data, _section_dicts(info), {}, ptr_size=4, min_entries=3, info=info
         )
     except Exception:  # best-effort
+        logger.debug("dispatch-table scan failed", exc_info=True)
         return []
     return [
         {
@@ -369,6 +379,7 @@ def _collect_library(cfg: Any) -> list[dict[str, Any]]:
     try:
         candidates = collect_candidates(cfg)
     except Exception:  # best-effort section
+        logger.debug("library candidate scan failed", exc_info=True)
         return []
     return [
         {
