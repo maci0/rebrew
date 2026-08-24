@@ -21,7 +21,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
-from rebrew.binary_loader import BinaryInfo
+from rebrew.binary_loader import BinaryInfo, va_to_file_offset
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -173,15 +173,9 @@ def extract_bytes(info: BinaryInfo, va: int, size: int) -> bytes:
     """Return *size* file bytes at virtual address *va* (clamped to the file)."""
     data = info.data
     offset = va_to_file_offset(info, va)
+    if offset < 0:
+        return b""
     return data[offset : offset + size]
-
-
-def va_to_file_offset(info: BinaryInfo, va: int) -> int:
-    """Translate *va* to a file offset using section bounds, else a raw guess."""
-    for section in info.sections.values():
-        if section.va <= va < section.va + section.size:
-            return section.file_offset + (va - section.va)
-    return va - info.image_base
 
 
 def section_range(info: BinaryInfo, name: str) -> tuple[int, int] | None:

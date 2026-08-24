@@ -9,7 +9,7 @@
   "imm_store",
   "16bit"
  ],
- "record_count": 13727,
+ "record_count": 13762,
  "records": {
   "delphi|1.0||/O2|probe1|fn_0000": {
    "regs_written": [
@@ -145109,6 +145109,526 @@
    "16bit": false
   },
   "watcom|2.0||-otexan|probe26|er4_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.0a||-otexan|probe26|add_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.0a||-otexan|probe26|callit_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.0a||-otexan|probe26|div10_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.0a||-otexan|probe26|fmul_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.0a||-otexan|probe26|idx7_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.0a||-otexan|probe26|mul_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.0a||-otexan|probe26|udiv10_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.5||-otexan|probe26|add_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.5||-otexan|probe26|callit_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.5||-otexan|probe26|div10_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.5||-otexan|probe26|fmul_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.5||-otexan|probe26|idx7_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.5||-otexan|probe26|mul_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.5||-otexan|probe26|udiv10_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.5a||-otexan|probe26|add_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.5a||-otexan|probe26|callit_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.5a||-otexan|probe26|div10_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.5a||-otexan|probe26|fmul_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.5a||-otexan|probe26|idx7_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.5a||-otexan|probe26|mul_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.5a||-otexan|probe26|udiv10_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.6||-otexan|probe26|add_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.6||-otexan|probe26|callit_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.6||-otexan|probe26|div10_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.6||-otexan|probe26|fmul_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.6||-otexan|probe26|idx7_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.6||-otexan|probe26|mul_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|10.6||-otexan|probe26|udiv10_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|11.0||-otexan|probe26|add_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|11.0||-otexan|probe26|callit_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": 0,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|11.0||-otexan|probe26|div10_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|11.0||-otexan|probe26|fmul_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|11.0||-otexan|probe26|idx7_": {
+   "regs_written": [
+    "eax"
+   ],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|11.0||-otexan|probe26|mul_": {
+   "regs_written": [],
+   "moffs": false,
+   "xor_zero": false,
+   "mov_zero": false,
+   "callee_pushes": {
+    "ebx": -1,
+    "esi": -1,
+    "edi": -1
+   },
+   "esi_store": false,
+   "imm_store": false,
+   "16bit": false
+  },
+  "watcom|11.0||-otexan|probe26|udiv10_": {
    "regs_written": [],
    "moffs": false,
    "xor_zero": false,

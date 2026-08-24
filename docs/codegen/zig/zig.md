@@ -145,3 +145,11 @@ zig-vs-gcc byte marker in either dimension.
 PDB module scan of a real Zig-built program (`.zig-cache` paths);
 codegen claims intentionally absent.  Matching caveat documented in
 [TOOLCHAIN.md](../../TOOLCHAIN.md).
+## Probe29: round-29 markers (Zig 0.16)
+
+- **zig keeps `ebp` frames at /O2** (`55 89 e5 … 5d c3`) and emits
+  `cmov` for min/max (`39 c1 0f 4c c1` — like gcc/11.0), SSE2 FP
+  (cvttsd2si/comisd/xorpd — the 11.0-family FP), magic division with
+  `imul` staging (`ba 93 24 49 92 89 c8 f7 ea`), `0f 1f` nops.  The
+  ebp + SSE2 + imul-staged magic combination fingerprints Zig-built
+  code.  See RULES.md C39/D12.

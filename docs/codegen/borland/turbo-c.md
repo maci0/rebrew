@@ -220,3 +220,12 @@ source: `out3/tc31/probe3_notc.OBJ`, `out3/tc20/probe3_notc.OBJ`; TC
 3.1 also at `-O2`), disassembled with objconv and diffed
 instruction-by-instruction; census compared against the MSVC 1.52
 probe (`leave` counts: 0 vs 25).
+## Probe29: round-29 markers (TC 2.0/3.1, 16-bit)
+
+- **TC keeps the `idiv`-with-`bx` divisor on the new shapes**
+  (`bb 07 00 99 f7 fb` — real division for /7 /12 /1000, mirroring
+  Watcom), `f7 e2`/`f7 ea` unsigned imul for `*5`/`*9` (TC 2.0 `mul`
+  vs 3.1 `imul` — the C16 signedness split again), FP via
+  `fld; …; ret` with x87 staging, branchy min/max/ternary, byte ops
+  via `8a` loads.  TC 2.0 vs 3.1 differ on `arr_fwd` loop staging and
+  `mul5_` imul sign — consistent with the C16 finding.  See RULES.md.

@@ -262,3 +262,14 @@ Probe `/O1`/`/O2`/`/O3` via native `i686-w64-mingw32-gcc` 16.1
 probe3 (`out3/gccpe_O2.o`) for the i64/`shld`/`__divdi3`/`fld tbyte`/
 cmov/`2e`-nop findings; corpus: cpubench, test_sse2 (MinGW 16 —
 `0f 1f`=278/308, `f3 c3`=1, SSE2 FP, magic division present).
+## Probe29: round-29 markers (MinGW GCC 16.1)
+
+- **gcc-pe emits `cmov` for min/max at /O2** (`39 d0 0f 4c c2` /
+  `0f 4f` — shared with 11.0, unlike every other MSVC version), the
+  branchless `test; jns; neg`-free abs via `test; setl; neg; cmovs`
+  (`85 d2 0f 9f c0 c1 ea 1f 29 d0`-family), magic division with its
+  own tails (`b8 93 24 49 92 f7 e9 8d 04 0a c1 f9 1f`), `lea`-based
+  arg folding for fastcall (`8d 04 11 03 44 24 04 … c2 08 00` —
+  matching the 8.0+ MSVC form), `0f 1f` nop padding everywhere.  The
+  `0f 4c`/`0f 4f` cmov + GNU-nop padding pair is the gcc fingerprint.
+  See RULES.md C39/A11.

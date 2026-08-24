@@ -215,3 +215,15 @@ handoff in `fadd1`) and probe3 (`msvc1100.obj` — `movq` copies,
 verified negative) at both opt levels; smoke `msvc1100/t.obj`.  Census:
 `f2 0f 58`=1, `f2 0f 59`=1, `f3 0f
 58`=1 at /O2 — vs 0 for every other MSVC object.
+## Probe29: round-29 era markers (11.0)
+
+- **11.0 is the SSE2 boundary on the new shapes — every FP shape flips
+  to SSE**: `(int)d` → `cvttsd2si eax,[esp+4]` (`f2 0f 2c`, D12);
+  `d<0.0` → `xorps; comisd; seta` (`0f 57 c0 33 c0 66 0f 2f 44 24 04
+  0f 97 c0`, D14); `-d` → `movsd; xorpd [sign-const]; movsd` (D15);
+  `d*2.0` → `mulsd [const]` (D16); min/max → **`cmovl`/`cmovg` — the
+  only version with conditional moves** (`0f 4c`/`0f 4f`, C39).
+  Integer side: `div7_` `mul dword [esp+4]` from memory (C37);
+  `udiv7_` lea-tail; `mod10_` stages via esi (`56 8b 74 24 08`);
+  `s16_ret` register staging; `cvt_i2d` stays x87 roundtrip
+  (`fild; fstp; fld` — D13).  See RULES.md.

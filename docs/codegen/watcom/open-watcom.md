@@ -212,6 +212,36 @@ entries — the `shl bx,1` (`d1 e3`) scaling, same family trait as TC
 
 - **Probe28 (Watcom)**: 16-bit `wcc` compiled; 32-bit object resists symbol listing (raw fold).  See RULES.md D10.
 
+## Probe26-r: commercial Watcom 10.5 (fleet-gap round)
+
+The commercial Watcom line (decomp.me fleet tarballs, run via wibo —
+decomp.me's own runner) is folded: `out26/wcc{10.0a,10.5,10.5a,10.6,
+11.0}.obj` → **35 corpus rows** under `watcom/<ver>` / `-otexan`.
+Key findings:
+
+- **A2 resolved**: wcc386 has NO `__fastcall` keyword; the 4-register
+  convention is `#pragma aux parm [eax] [edx] [ebx] [ecx]` — the
+  wrapper loads eax, edx, ebx, ecx (4th arg in ecx, not the stack),
+  confirming AF table 5.  `__fastcall` is an Open-Watcom-era keyword.
+- **Per-version matrix**: 10.0a/10.5/10.5a/10.6 are **byte-identical**
+  across the probe set (patch-line equivalence); **11.0 differs** —
+  the `idiv` divisor loads into **ecx** (`b9 0a … f7 f9`) where 10.x
+  uses **ebx** (`bb 0a … f7 fb`), and `idx7` swaps the register roles
+  — the 11.0 ecx-divisor is a within-line discriminator (RULES.md A2).
+- `/10` uses REAL `idiv` (signed `cdq; idiv ebx`, unsigned
+  `xor edx,edx; div ebx`) — no reciprocal magic (same as 16-bit wcc,
+  a Watcom family trait vs MSVC).
+- 32-bit FP functions clean their own stack (`ret 0x10` on a
+  two-double function) — a commercial-32-bit Watcom trait.
+- **Cross-toolchain uniqueness**: 34 of the 35 commercial-Watcom rows
+  are byte-unique across the whole corpus (100% markers); `udiv10_`
+  11.0 shares its ecx-divisor form with Open Watcom 2.0 (Open Watcom
+  descends from commercial 11.0).
+- cdecl args load into eax/edx (`add eax,edx`, `imul eax,edx`).
+- `idx7` uses the lea-×8−1 trick (shared with the MSVC family).
+- 16-bit `wcc.exe` is a launcher stub referencing a missing
+  `binw/wcc.exe` in this tarball (recorded; the 16-bit line needs the
+  other release tarballs).
 
 ## Verification
 
@@ -224,3 +254,15 @@ probed via the image's `/opt/watcom/binl/wcc`** (`out4/wcc16_p3.o` —
 `push bx; push dx; div bx` saves); fixture `tests/fixtures/tg_watcom.o`
 (`push 4; call __CHK`).  Disassembly via
 objconv (OMF-386).
+## Probe29: round-29 markers (Watcom 2.0, 32-bit + 16-bit)
+
+- **Watcom 2.0 keeps real `idiv` for every new divisor** (`51 52 b9 07
+  00 00 00 99 f7 f9 5a 59 c3` — the `push ecx; push edx; cdq; idiv;
+  pop edx; pop ecx` staging is a wcc386 signature), `f7 fb`-family
+  `div` in the 16-bit wcc; **32-bit FP functions self-clean with
+  `ret 8`** (`fp_f2d_: dd 44 24 04 c2 08 00` — the wcc386 FP ABI),
+  `fchs`/`fadd st0,st0` x87 forms; branchless min/max via
+  `cmp; jge/jle` + cmov-less select (`39 d0 7d 01 c3`); `movzx`-based
+  byte combines (`52 0f b6 50 01 c1 e2 08`).  The 16-bit wcc forms
+  (stack-arg `50 b8 N e8 …` staging) are distinct corpus rows.  See
+  RULES.md C2/D16.

@@ -191,3 +191,13 @@ Probe `-O1` and `-O2` via `rebrew/borland:5.5-win32` (`probe.obj`,
 objconv.  Division: real `div`/`idiv` in every function of both opt
 levels; `__llmul`/`__lldiv`/`__llshl` calls in the 64-bit functions;
 `fld tbyte` in `ldadd`; 18× `55 8b ec` frames.
+## Probe29: round-29 markers (bcc32 5.5)
+
+- **bcc32 keeps `ebp` frames at /O2 on every new shape** (`55 8b ec …
+  5d c3` — even `mul5_`/`udiv4_` one-liners), real `idiv` for `%10`/`/7`
+  (`b9 0a … f7 f9` — no reciprocal magic for the new divisors),
+  `fld [arg]; call __ftol`-style helpers for cvt (own symbol),
+  branchy `test; jns; neg` abs, `mov al`-based byte handling.  The
+  ebp-framed everything is itself the bcc32 fingerprint (595 probe29
+  single-toolchain byte-groups).  `fastcall4_`/`stdcall5_` frame +
+  `ret N` (`c2 08 00`/`c2 14 00`).  See RULES.md A11.

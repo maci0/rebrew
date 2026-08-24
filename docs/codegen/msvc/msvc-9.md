@@ -167,3 +167,12 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 
 Probe `/O1`/`/O2` via `rebrew/msvc:9.0-win32` (`msvc900_{O1,O2}.obj`);
 smoke `msvc900/t.obj`.  `/GS` + unrolling reproduced at /O2.
+## Probe29: round-29 era markers (9.0)
+
+- **9.0 opens the full-movzx combine era** (E25): `ld24_combine` uses
+  a full `movzx` chain (`0f b6 41 02 0f b6 51 01 0f b6 09`) vs the
+  partial 7.0-8.0 form; `fp_f2d` (double→float) gains the
+  `fld; fstp dword; fld dword` roundtrip (10.0-family).  Shares the
+  8.0 %10 magic, fldz jne fpcmp and memory-add fastcall.  (9.0 sp1
+  remains unbuildable — the image lacks `sched.dll`, C1350; recorded
+  skip, corpus never had 9.0-sp1 rows.)  See RULES.md.

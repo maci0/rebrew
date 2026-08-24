@@ -168,3 +168,9 @@ Probe `/O1`/`/O2` via `rebrew/msvc:10.0-win32`
 (`msvc1000_{O1,O2}.obj`); probe2 (`msvc1000_O2.obj` — memory-imul div
 magic, cdq-abs, `jns` clamp) diffed against 9.0 and 11.0; smoke
 `msvc1000/t.obj`, `msvc1000sp1/t.obj`.
+## Probe29: round-29 era markers (10.0)
+
+- **10.0 returns to the branchless cdq-abs** (`99 33 c2 2b c2` — the
+  U-shape, C38, sharing with 2.0/4.1 and 11.0); `fp_f2d` roundtrip;
+  fldz-jne fpcmp; %10 magic; `movzx`-chain ld24; memory-add fastcall.
+  See RULES.md.

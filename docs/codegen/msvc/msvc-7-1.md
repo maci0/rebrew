@@ -166,3 +166,9 @@ feature (SP spot-check).  Verified in probe12 (`f1`/`f2`/`fl`).
 Probe `/O1`/`/O2` via `rebrew/msvc:7.1-win32` (`msvc710_{O1,O2}.obj`);
 smoke `msvc710/t.obj`, `msvc710sp1/t.obj`, `msvc7/t.obj` (all
 unoptimized `_add`, byte-identical).
+## Probe29: round-29 era markers (7.1)
+
+- **7.1 mirrors 7.0** on the new shapes (movzx bitfield/sat_add,
+  7.0-form magic tails, const-based fpcmp, `lea [ecx+edx]` fastcall)
+  with no SP1-style re-schedule (7.1 sp1 ≡ 7.1 RTM on all 42 shapes).
+  See RULES.md C37/C40/E24/A11.

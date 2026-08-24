@@ -185,3 +185,13 @@ probe3 `out16b/probe3.OBJ` — `enter`, `fld tbyte`, real `div`,
 `rebrew.matcher.omf16`); fixtures `tests/fixtures/tg_msvc16.obj`,
 `tg_msvc16_o1.obj`, `tg_msvc16_far.obj` (near/far models,
 `__aNchkstk`).
+
+## Probe29: round-29 markers (1.0/1.5/1.52, 16-bit)
+
+- probe29 built for MSVC 1.52 (`out29_16/msvc152`): the new shapes
+  stay in the 16-bit byte-op style — `55 8b ec` frames, `f7 f9`
+  real idiv for `/7` `/12` `/1000` with `mov ecx,N` divisors, `and`
+  + byte-register zero-extension, `fild`-staged FP, hidden-pointer
+  struct returns.  The 16-bit rows are the odd ones out in the
+  cross-toolchain sweep (each single-toolchain-unique).  See
+  RULES.md C2/G4.
