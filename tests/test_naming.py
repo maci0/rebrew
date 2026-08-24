@@ -107,6 +107,36 @@ class TestMakeFilename:
         assert make_filename("FUN_10001000", cfg=cfg) == "func_10001000.cpp"
 
 
+class TestMakeFilenameWindowsReserved:
+    """Windows reserves device basenames on every directory: ``aux.c`` etc.
+    cannot be created there, so generated filenames get a trailing underscore
+    (README claims analysis tooling has no host-OS requirement).  Symbol names
+    from sanitize_name are untouched — byte matching needs binary fidelity."""
+
+    def test_aux_gets_underscore(self) -> None:
+        assert make_filename("aux") == "aux_.c"
+
+    def test_reserved_is_case_insensitive(self) -> None:
+        assert make_filename("AUX") == "AUX_.c"
+        assert make_filename("Con") == "Con_.c"
+
+    def test_all_reserved_families(self) -> None:
+        for name in ("con", "prn", "aux", "nul", "com1", "com9", "lpt1", "lpt9"):
+            assert make_filename(name) == f"{name}_.c"
+
+    def test_near_misses_unchanged(self) -> None:
+        assert make_filename("console") == "console.c"
+        assert make_filename("aux_buffer") == "aux_buffer.c"
+        assert make_filename("com10") == "com10.c"
+        assert make_filename("lpt0") == "lpt0.c"
+
+    def test_custom_name_guarded(self) -> None:
+        assert make_filename("FUN_10001000", custom_name="nul") == "nul_.c"
+
+    def test_symbol_sanitization_not_guarded(self) -> None:
+        assert sanitize_name("aux") == "aux"
+
+
 class TestDetectUnmatchablePatterns:
     def _run(self, monkeypatch, raw: bytes, size: int, name: str = "") -> str | None:
         from rebrew.naming import detect_unmatchable

@@ -40,7 +40,7 @@ _FUNC_RE = re.compile(r"^//\s*FUNCTION:\s+\S+\s+0x([0-9A-Fa-f]+)", re.M)
 def file_va(path: Path) -> int | None:
     """Lowest ``// FUNCTION:`` VA in *path* (None when the file has none)."""
     try:
-        text = path.read_text(errors="replace")
+        text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return None
     vas = [int(m.group(1), 16) for m in _FUNC_RE.finditer(text)]

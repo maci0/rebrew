@@ -48,6 +48,27 @@ _SEH_FS = bytes([0x64, 0xA1, 0x00, 0x00, 0x00, 0x00])
 _SANITIZE_NON_ALNUM_RE = re.compile(r"[^a-zA-Z0-9_]")
 _SANITIZE_MULTI_UNDERSCORE_RE = re.compile(r"_+")
 
+#: Windows reserves these device basenames on every directory (case-insensitive,
+#: even with an extension appended): creating ``aux.c`` or ``nul.c`` fails there
+#: although every character is legal.  Generated files get a trailing underscore
+#: instead so a project checked out on both hosts keeps working.
+_WINDOWS_RESERVED_BASENAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{n}" for n in range(1, 10)}
+    | {f"LPT{n}" for n in range(1, 10)}
+)
+
+
+def avoid_windows_reserved(name: str) -> str:
+    """Append ``_`` when *name* is a Windows reserved device basename.
+
+    Applied to generated *filenames* (:func:`make_filename`, binsync_import);
+    symbol names keep their binary fidelity for byte matching.
+    """
+    if name.upper() in _WINDOWS_RESERVED_BASENAMES:
+        return name + "_"
+    return name
+
 
 @functools.lru_cache(maxsize=4)
 def _get_capstone(arch: int, mode: int) -> capstone.Cs:
@@ -426,7 +447,10 @@ def make_filename(
 
     Uses the first configured source extension (``cfg.source_ext`` may be a
     comma-separated list for mixed C/C++ projects — skeletons always use the
-    first extension as the canonical one).
+    first extension as the canonical one).  The base is additionally guarded
+    against Windows reserved device basenames (``aux`` -> ``aux_.c``): those
+    names cannot be created on Windows, so a project generated on Linux would
+    not even check out there.
     """
     # sanitize_name already converts FUN_<hex> to func_<hex> and strips
     # path-hostile characters, so the result is always a safe filename.
@@ -439,4 +463,4 @@ def make_filename(
 
     exts = source_exts(cfg)
     ext = exts[0] if exts else ".c"
-    return base + ext
+    return avoid_windows_reserved(base) + ext
