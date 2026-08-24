@@ -176,6 +176,7 @@ src/rebrew/
 ├── compile_cache.py     # Disk-backed compile cache (diskcache, SHA-256 keyed)
 ├── metadata.py          # Per-directory rebrew-function.toml loader/writer; update_source_status is canonical STATUS writer; is_status_sticky / should_promote_status promotion rules
 ├── metadata_model.py    # Typed metadata schema helpers (file-only vs metadata-only routing)
+├── blocker.py           # Programmatic BLOCKER management for rebrew-function.toml
 ├── data_metadata.py     # Per-directory data metadata (global/BSS annotations)
 ├── crt_match.py         # CRT cross-reference matcher (index, match, ASM detection)
 ├── cache_cli.py         # `rebrew cache stats` / `rebrew cache clear` CLI
@@ -203,14 +204,25 @@ src/rebrew/
 ├── skeleton.py          # Generate skeleton C files (convention-aware stubs; --batch --skip-fragments; stale-size warnings)
 ├── fixup.py             # `rebrew fix` — DecBench-style compilability fixup for decompiler output
 ├── struct_recover.py    # `rebrew recover-structs` — struct typedefs from decompiler offset evidence
+├── name_decomp.py       # Apply known struct names to decompiler output
 ├── document_unmatched.py# STUB skeletons + blockers for remaining functions (`rebrew document-unmatched`)
 ├── postlink.py          # `rebrew postlink` — normalize built-binary layout onto the reference
+├── layout_meta.py       # Text-only layout metadata for byte-identical post-linking
+├── calibrate_bss.py     # `calibrate-bss` — size the BSS tail pad so raw-link .data VirtualSize matches
+├── gen_layout.py        # `gen-layout` — linker-script scaffolding from a target binary
+├── gen_link_stubs.py    # `gen-link-stubs` — BSS placeholder TU from the data metadata
+├── gen_stubs.py         # `gen-stubs` — stub TU for unresolved linker symbols
+├── inline_strings.py    # `inline-strings` — materialize string-literal globals from the original binary
+├── order_sources.py     # `order-sources` — order source files by their first function's original VA
+├── link_sweep.py        # `link-sweep` — find which LINK options reproduce the reference PE header
+├── verify_placement.py  # `verify-placement` — post-edit check: .data symbol VAs vs the metadata
 ├── cmake_tc.py          # `rebrew cmake-toolchain` + rebrew-cmake-{cl,link,lib} — CMake
 │                        # bridge: run the toolchain image's tools via docker from CMake
 ├── cross_import.py      # `rebrew cross-import` — import functions matched in another target
 ├── lzexe_cli.py         # `rebrew unpack-lzexe` — unpack LZEXE 0.90/0.91 DOS executables
 ├── binsync_import.py    # Import a BinSync state dir into rebrew metadata
 ├── binsync_diff.py      # Read-only BinSync divergence report
+├── binsync_state.py     # Shared BinSync-state readers for the binsync CLIs
 ├── lint.py              # Lint C annotations + corpus consistency (W028: markers vs function list)
 ├── llm_seed.py          # LLM alternative-implementation seeding for GA (--llm-seed)
 ├── near_diag.py         # Classify why NEAR_MATCHING doesn't byte-match (register/equiv/reloc/structural + EFFECTIVE)
@@ -245,6 +257,7 @@ src/rebrew/
 ├── cfg.py               # Multi-command: list-targets, show, add-target, set, set-cflags, etc.
 ├── skills.py            # Skill discovery CLI: list, show (multi-command)
 ├── solutions_db.py      # GA solutions DB (cross-function cflags seeding)
+├── refactor.py          # Refactoring recommendations for the rebrew codebase (dev tool)
 │
 ├── catalog/             # Function catalog (see catalog/AGENTS.md)
 │   ├── __init__.py      # Re-exports all public names
@@ -272,6 +285,8 @@ src/rebrew/
 │   ├── models.py        # Types (PullResult, PullChange, etc.)
 │   ├── client.py        # MCP HTTP (httpx)
 │   ├── commands.py      # Sync builders (push, pull, rename, size-sync)
+│   ├── cli_backend.py   # ghidra-cli subprocess backend for sync push (alternative to ReVa)
+│   ├── params.py        # Apply Ghidra parameter names to local C signatures
 │   └── cli.py           # Typer CLI (`rebrew sync`)
 ├── core/                # Matching + toolchain utilities
 │   ├── __init__.py      # Re-exports: smart_reloc_compare, msvc_env_from_config
