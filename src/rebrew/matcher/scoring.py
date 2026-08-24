@@ -667,9 +667,11 @@ def diff_functions(
 
     if reloc_offsets is not None:
         # Disassemble at base 0 so instruction addresses equal byte offsets
-        # in the human-readable diff output.
-        target_insns = list(md.disasm(target_bytes, 0))
-        cand_insns = list(md.disasm(candidate_bytes, 0))
+        # in the human-readable diff output.  register_aware needs detail
+        # attributes (modrm/opcode) for _mask_registers_inplace below.
+        md_use = _get_cs(cs_arch, cs_mode, detail=True) if register_aware else md
+        target_insns = list(md_use.disasm(target_bytes, 0))
+        cand_insns = list(md_use.disasm(candidate_bytes, 0))
         norm_target = _normalize_with_reloc_offsets(target_bytes, reloc_offsets, pointer_size)
         norm_cand = _normalize_with_reloc_offsets(candidate_bytes, reloc_offsets, pointer_size)
     else:

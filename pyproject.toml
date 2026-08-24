@@ -126,7 +126,7 @@ Repository = "https://github.com/maci0/rebrew"
 version = { attr = "rebrew.__version__" }
 
 [tool.setuptools.package-data]
-rebrew = ["agent-skills/**/*.md", "*.template", "PRINCIPLES.md"]
+rebrew = ["agent-skills/**/*.md", "*.template", "PRINCIPLES.md", "py.typed"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -154,7 +154,9 @@ line-length = 100
 [tool.ruff.lint]
 # RUF100 keeps suppression hygiene: a `noqa` for a rule that does not fire
 # (wrong code, stale after a fix) fails lint instead of silently rotting.
-select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF100"]
+# C4/DTZ/RSE/EXE/Q/NPY/ICN/G/PGH/YTT are correctness-leaning groups the tree
+# already passes (enabled after fixing their 9 findings; see CHANGELOG).
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "DTZ", "RSE", "EXE", "Q", "NPY", "ICN", "G", "PGH", "YTT", "RUF100"]
 ignore = ["E501", "B008", "B904"]
 
 [tool.uv]
@@ -179,7 +181,14 @@ dev = [
 
 [tool.mypy]
 strict = true
+# src/ is the shipped library; tools/ are the repo's own dev scripts (CI and
+# the pre-commit hook both run plain `uv run mypy`, which checks both).
+files = ["src/rebrew", "tools"]
 exclude = ["venv", ".venv"]
+# tools/gen_fixtures.py imports the COFF builders from tests/bin_util.py at
+# runtime (sys.path.insert); this makes that import resolvable to mypy too,
+# so the shared helper is type-checked alongside its callers.
+mypy_path = ["tests"]
 
 # Per-module untyped-import allowances instead of a global flag: every other
 # third-party dep ships stubs, so a new dependency without type information

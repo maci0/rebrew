@@ -122,7 +122,7 @@ def outputs_identical(cmd: str, cwd: Path) -> bool:
     if code1 != code2:
         return False
     try:
-        return _normalize(json.loads(out1)) == _normalize(json.loads(out2))
+        return bool(_normalize(json.loads(out1)) == _normalize(json.loads(out2)))
     except json.JSONDecodeError:
         # Non-JSON output: compare bytes verbatim.
         return out1 == out2

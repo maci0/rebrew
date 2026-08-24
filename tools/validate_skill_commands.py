@@ -187,7 +187,7 @@ def validate(*, quiet: bool = False) -> bool:
 
     errors: list[str] = []
     checked = 0
-    for skill_name, subcommand, flags in combos:
+    for skill_name, subcommand, combo_flags in combos:
         checked += 1
         ok, output = help_cache[subcommand]
 
@@ -198,7 +198,7 @@ def validate(*, quiet: bool = False) -> bool:
                 print(f"FAIL  {err}")
             continue
 
-        for flag in flags:
+        for flag in combo_flags:
             if flag not in output:
                 err = f"{skill_name}: rebrew {subcommand} {flag} — flag not in --help output"
                 errors.append(err)

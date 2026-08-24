@@ -288,6 +288,28 @@ class TestSetScalarCLI:
         assert doc["compiler"]["cflags"] == "/O2"
         assert "binary" not in doc
 
+    def test_bare_project_scoped_key_routes_to_project(self, tmp_path: Path, monkeypatch) -> None:
+        """`cfg set jobs 8` must write [project].jobs, not a top-level `jobs`
+        key — the top-level write was rejected by the config reader
+        ('unrecognized top-level keys: {\'jobs\'}') on every later tool run
+        while leaving [project].jobs untouched."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set", "jobs", "8"])
+        assert result.exit_code == 0
+        doc, _ = load_toml(tmp_path)
+        assert doc["project"]["jobs"] == 8
+        assert "jobs" not in doc  # no stray top-level key
+
+    def test_bare_project_scoped_key_routes_name(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set", "db_dir", "db2"])
+        assert result.exit_code == 0
+        doc, _ = load_toml(tmp_path)
+        assert doc["project"]["db_dir"] == "db2"
+        assert "db_dir" not in doc
+
 
 class TestCommentsPreserved:
     def test_comments_survive_all_operations(self, tmp_path: Path) -> None:

@@ -1919,6 +1919,7 @@ def run_verification(
                         {
                             "va": f"0x{entry.va:08x}",
                             "name": name,
+                            "symbol": getattr(entry, "symbol", "") or "_" + name,
                             "filepath": getattr(entry, "filepath", ""),
                             "size": getattr(entry, "size", 0),
                             "status": result.status,

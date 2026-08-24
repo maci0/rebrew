@@ -253,10 +253,10 @@ class TestGenerateSkeletonModules:
     """Verify generate_skeleton and generate_annotation_block use library_modules."""
 
     def _make_cfg(self, **overrides: Any) -> ProjectConfig:
-        defaults: dict[str, Any] = dict(
-            marker="SERVER",
-            library_modules={"DIRECTX"},
-        )
+        defaults: dict[str, Any] = {
+            "marker": "SERVER",
+            "library_modules": {"DIRECTX"},
+        }
         defaults.update(overrides)
         return ProjectConfig(root=Path("/tmp"), **defaults)
 

@@ -1440,7 +1440,7 @@ def mut_duplicate_loop_body(s: str, rng: random.Random) -> str | None:
 
         inner = body[1:-1].strip()
         if not inner:
-            raise ValueError()
+            raise ValueError
         return b"while " + cond + b" {\n    " + inner + b"\n    " + inner + b"\n}"
 
     try:

@@ -104,7 +104,7 @@ def make_pe(
     hdrs = dos + b"PE\x00\x00" + coff + opt + sec
     assert len(hdrs) <= sizeof_headers
     hdrs += b"\x00" * (sizeof_headers - len(hdrs))
-    return hdrs + raw
+    return bytes(hdrs + raw)
 
 
 def _build_import_directory(

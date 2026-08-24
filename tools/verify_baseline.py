@@ -21,9 +21,10 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 
-def _read_report(project_root: Path) -> dict:
+def _read_report(project_root: Path) -> dict[str, Any]:
     """Load the latest verify report (db/verify_results.json)."""
     candidates = [
         project_root / "db" / "verify_results.json",
@@ -37,7 +38,7 @@ def _read_report(project_root: Path) -> dict:
     return {}
 
 
-def snapshot(report: dict) -> dict:
+def snapshot(report: dict[str, Any]) -> dict[str, Any]:
     """Reduce a verify report to the baseline-relevant numbers."""
     return {
         "byte_matched": int(report.get("byte_matched", 0)),

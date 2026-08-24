@@ -184,7 +184,7 @@ def _mutation_focus_weights(
     ops = MUTATION_SUGGESTIONS.get(focus) or []
     if not ops:
         return None
-    return {op: _MUTATION_FOCUS_WEIGHT for op in ops}
+    return dict.fromkeys(ops, _MUTATION_FOCUS_WEIGHT)
 
 
 def _find_function_range(source: str, symbol: str) -> tuple[int, int] | None:

@@ -65,7 +65,7 @@ def _version_callback(value: bool) -> None:
         from importlib.metadata import version
 
         _stdout_console.print(f"rebrew {version('rebrew')}")
-        raise typer.Exit()
+        raise typer.Exit
 
 
 @app.callback()

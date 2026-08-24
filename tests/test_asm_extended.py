@@ -477,6 +477,23 @@ timeout = 60
         assert payload["size"] == 10
         assert "may be stale" in result.stderr
 
+    def test_negative_size_errors_cleanly(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A negative --size must error cleanly instead of surfacing as the
+        misleading 'No code at VA ... outside the binary image' (the negative
+        length made extract_raw_bytes return nothing for a valid VA)."""
+        from typer.testing import CliRunner
+
+        from rebrew.main import app
+
+        root = self._project(tmp_path)
+        monkeypatch.chdir(root)
+        result = CliRunner().invoke(app, ["asm", "0x401000", "--size", "-5", "--json"])
+        assert result.exit_code == 2
+        assert "--size must be a positive integer" in result.output
+        assert "outside the binary image" not in result.output
+
     def test_accurate_size_no_warning(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -13,7 +13,7 @@ Usage::
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -237,7 +237,7 @@ def _load_verify_info(cfg: ProjectConfig) -> VerifyInfo | None:
     # Try to get a last-modified timestamp from the file
     try:
         mtime = cache_path.stat().st_mtime
-        timestamp = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+        timestamp = datetime.fromtimestamp(mtime, tz=UTC).strftime("%Y-%m-%d %H:%M")
     except OSError:
         timestamp = ""
 
