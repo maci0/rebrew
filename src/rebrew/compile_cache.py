@@ -465,7 +465,8 @@ def _flag_group_ids() -> dict[str, str]:
     Flags within one group are **last-wins** (MSVC uses the last occurrence);
     flags across groups set distinct options and commute.
     """
-    from rebrew.matcher import COMMON_MSVC_FLAGS, MSVC6_FLAGS, Checkbox
+    from rebrew.matcher.flag_data import COMMON_MSVC_FLAGS, MSVC6_FLAGS
+    from rebrew.matcher.flags import Checkbox
 
     lookup: dict[str, str] = {}
     for flags in (MSVC6_FLAGS, COMMON_MSVC_FLAGS):
