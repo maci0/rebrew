@@ -1,4 +1,4 @@
-## [Unreleased]
+## [0.6.0] - 2026-08-24
 ### Fixed
 - **`rebrew extract list` no longer reports 0 candidates on stale
   `functions.txt` projects** — the candidate universe was the list file
