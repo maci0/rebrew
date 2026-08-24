@@ -325,3 +325,19 @@ class TestCli:
         assert result.exit_code == 0, result.output
         assert "int g_counter = 0;" in out.read_text(encoding="utf-8")
         assert stub.read_text(encoding="utf-8") == "int something = 1;\n"
+
+
+class TestUnsafeSymbolFilter:
+    """Non-identifier names (from linker output / the binary's symbol tables)
+    must never be emitted verbatim into generated C."""
+
+    def test_non_ident_skipped(self) -> None:
+        content = generate_stubs(["_good_func", "evil;int injected=1;", "?mangled@x@@YAXXZ"], {})
+        assert "int good_func = 0;" in content
+        assert "injected" not in content
+        assert "mangled" not in content
+
+    def test_ident_names_still_emitted(self) -> None:
+        content = generate_stubs(["_write_log", "_thread_proc@4"], {})
+        assert "int __cdecl write_log(void)" in content
+        assert "int thread_proc = 0;" in content

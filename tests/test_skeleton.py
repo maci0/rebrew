@@ -991,3 +991,45 @@ def test_convention_stub_16bit_pascal(tmp_path: Path) -> None:
     cfg2 = SimpleNamespace(arch="x86_16", target_binary=exe, compiler_profile="msvc1.52")
     stub2, _ = _convention_stub(cfg2, func_va, "add")
     assert stub2 == "int __stdcall add(int a1, int a2)"
+
+
+# -------------------------------------------------------------------------
+# comment-injection safety (binary-derived names in generated comments)
+# -------------------------------------------------------------------------
+
+
+class TestCCommentSafe:
+    def test_neutralizes_comment_close(self) -> None:
+        from rebrew.skeleton import c_comment_safe
+
+        assert c_comment_safe("evil*/ system(); /*") == "evil* / system(); /*"
+
+    def test_plain_name_untouched(self) -> None:
+        from rebrew.skeleton import c_comment_safe
+
+        assert c_comment_safe("FUN_10001000") == "FUN_10001000"
+
+    def test_control_chars_become_spaces(self) -> None:
+        from rebrew.skeleton import c_comment_safe
+
+        assert c_comment_safe("a\r\nb\x00c") == "a  b c"
+
+
+class TestSkeletonNameInjection:
+    """A hostile symbol name must not be able to close the generated comment
+    and inject C into the skeleton (which `rebrew test` compiles)."""
+
+    def _make_cfg(self) -> ProjectConfig:
+        return ProjectConfig(root=Path("/tmp"), marker="SERVER")
+
+    def test_ghidra_name_cannot_break_comment(self) -> None:
+        hostile = 'x */ #include "/etc/passwd" /*'
+        content = generate_skeleton(self._make_cfg(), 0x10001000, hostile, "SERVER")
+        assert "*/ #include" not in content
+        assert "* / #include" in content
+
+    def test_annotation_block_keeps_single_comment(self) -> None:
+        hostile = "name*/ int injected; /*"
+        block = generate_annotation_block(self._make_cfg(), 0x10001000, hostile, "SERVER")
+        # The only comment closers are the ones the generator itself wrote.
+        assert block.count("*/") <= 1

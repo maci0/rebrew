@@ -117,6 +117,11 @@ def _page(title: str, target: str, active: str, body: str) -> str:
     return (
         "<!DOCTYPE html>\n<html lang='en'>\n<head>\n"
         "<meta charset='utf-8'>\n"
+        # The site has no JS and no external assets; the CSP keeps any
+        # escaping of binary-derived content (strings, symbol names) inert —
+        # nothing may execute or load off-site.
+        "<meta http-equiv='Content-Security-Policy' "
+        "content=\"default-src 'none'; style-src 'unsafe-inline'\">\n"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>\n"
         f"<title>{html.escape(title)} - {html.escape(target)}</title>\n"
         f"<style>{_CSS}</style>\n"

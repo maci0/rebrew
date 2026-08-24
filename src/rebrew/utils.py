@@ -289,32 +289,6 @@ def toolchain_link_candidates(profile: str) -> list[str]:
     return ["/".join(cl.split("/")[1:3]) for cl, _, _ in _MSVC_LAYOUTS.get(profile, ())]
 
 
-#: Vendored toolchain subdir per compiler profile, shared by ``rebrew init
-#: --link-tools-from`` (fallback when :func:`toolchain_link_candidates` has
-#: no entry) and ``rebrew intake`` (repo ``tools/`` symlink).  One table so
-#: the two flows cannot drift apart.
-TOOLCHAIN_LINK_DIRS: dict[str, str] = {
-    "msvc400": "MSVC400",
-    "msvc420": "msvc/4.2-win32",
-    "msvc5": "msvc/5.0-win32",
-    "msvc6": "msvc/6.0-win32",
-    "msvc600sp1": "msvc/6.0-sp1-win32",
-    "msvc600sp2": "msvc/6.0-sp2-win32",
-    "msvc600sp3": "msvc/6.0-sp3-win32",
-    "msvc600sp4": "msvc/6.0-sp4-win32",
-    "msvc600sp6": "msvc/6.0-sp6-win32",
-    "msvc900sp1": "msvc/9.0-sp1-win32",
-    "msvc1100": "msvc/11.0-win32",
-    "msvc7": "msvc/7.0-win32",
-    "msvc1.52": "msvc/1.52-win16",
-    "borlandc55": "borland/5.5-win32",
-    "watcom": "watcom/2.0-win32",
-    "watcom16": "watcom/2.0-win32",
-    "tc20": "borland/2.0-win16",
-    "tc16": "borland/3.1-win16",
-}
-
-
 # Candidate encodings for C sources, most strict first.  MSVC6-era sources
 # are often CP1252 (Western) or Shift-JIS (Japanese games) — the exact
 # audience this tool targets.  UTF-8 first keeps the common case
