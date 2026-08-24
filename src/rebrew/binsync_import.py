@@ -31,6 +31,7 @@ from rich.console import Console
 
 from rebrew.binsync_state import index_local_and_catalog, load_binsync_state
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.naming import avoid_windows_reserved
 from rebrew.utils import strip_body
 
 log = logging.getLogger(__name__)
@@ -193,7 +194,9 @@ def main(
                         )
                         cat = catalog_by_va.get(va)
                         size_hint = int(getattr(cat, "size", 0) or 0) if cat else 0
-                        out_path = cfg.reversed_dir / f"{target_func}.c"
+                        # Filename guard: ``aux`` is a legal C identifier but a
+                        # reserved device basename on Windows (see naming.py).
+                        out_path = cfg.reversed_dir / f"{avoid_windows_reserved(target_func)}.c"
                         if out_path.exists():
                             skipped += 1
                             continue
