@@ -192,11 +192,12 @@ def refresh_all() -> dict[str, int]:
         toolchain,
         toolchain_detect,
     )
-    from rebrew.matcher import compiler
+    from rebrew.matcher import compiler, mutator
 
     counts: dict[str, int] = {}
     counts["toolchains"] = len(toolchain.refresh_toolchain_registry())
     counts["decompiler_backends"] = len(decompiler.refresh_backends())
+    counts["mutations"] = len(mutator.refresh_mutations())
     counts["flag_sets"] = len(compiler.refresh_flag_sets()[0])
     counts["library_presets"] = len(metadata.refresh_library_presets())
     toolchain_detect.refresh_detection_tables()

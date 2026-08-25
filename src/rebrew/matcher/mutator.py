@@ -5768,6 +5768,18 @@ def _merge_entry_point_mutations() -> list[Callable[..., str | None]]:
 
 ALL_MUTATIONS = _merge_entry_point_mutations()
 
+
+def refresh_mutations() -> list[Callable[..., str | None]]:
+    """Re-run discovery and refresh the :data:`ALL_MUTATIONS` snapshot.
+
+    Long-lived GA runs can pick up mutation plugins installed after startup
+    without a restart."""
+    global ALL_MUTATIONS
+
+    ALL_MUTATIONS = _merge_entry_point_mutations()
+    return ALL_MUTATIONS
+
+
 __all__ = [
     "ALL_MUTATIONS",
     "MutationLog",

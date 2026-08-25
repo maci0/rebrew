@@ -198,6 +198,30 @@ from rebrew.matcher.flags import Checkbox, Flags, FlagSet
     return header + body + "\n".join(tiers_lines)
 
 
+#: Marker comment separating the auto-generated MSVC sections from the
+#: hand-maintained flag families below (see flag_data.py).
+_PRESERVED_TAIL_MARKER = "# --- Hand-maintained flag families below"
+
+
+def splice_preserved_tail(generated: str, output_path: Path) -> str:
+    """Re-append the hand-maintained tail of an existing flag_data.py.
+
+    ``generate_flag_data_py`` rebuilds only the MSVC sections; the Watcom /
+    Borland / MSVC152 / GCC flag families are written by hand below the
+    marker comment and must survive a sync.  Returns *generated* with the
+    existing tail (from the marker onward) re-attached, or *generated*
+    unchanged when the file is absent or has no marker."""
+    try:
+        existing = output_path.read_text(encoding="utf-8")
+    except OSError:
+        return generated
+    marker = existing.find(_PRESERVED_TAIL_MARKER)
+    if marker < 0:
+        return generated
+    tail = existing[marker:]
+    return generated.rstrip("\n") + "\n\n" + tail
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Sync flags from decomp.me")
     parser.add_argument("--dry-run", action="store_true", help="Print to stdout only")
@@ -244,6 +268,9 @@ def main() -> None:
 
         timestamp = datetime.now(UTC).strftime("%Y-%m-%d")
         source = generate_flag_data_py(msvc_flags, msvc6_flags, timestamp)
+        # Preserve the hand-maintained flag families (Watcom/Borland/MSVC152/
+        # GCC …): everything from the marker comment to EOF survives a sync.
+        source = splice_preserved_tail(source, output_path)
 
         if args.dry_run:
             print("\n--- Generated flag_data.py ---")
