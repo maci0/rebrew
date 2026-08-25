@@ -729,7 +729,7 @@ def _copy_agent_skills(dest: Path, target_name: str) -> None:
     dest_skills = dest / ".agents" / "skills"
     shutil.copytree(_AGENT_SKILLS_SRC, dest_skills, dirs_exist_ok=True)
 
-    from rebrew.skills import _parse_frontmatter, _user_skills_dir
+    from rebrew.skills import _parse_frontmatter, _safe_skill_name, _user_skills_dir
 
     user_skills = _user_skills_dir()
     if user_skills is not None and user_skills.is_dir():
@@ -741,7 +741,9 @@ def _copy_agent_skills(dest: Path, target_name: str) -> None:
             # the same key `rebrew skills list` uses, so a user skill named
             # "rebrew-workflow" overrides the packaged one in place.
             fm = _parse_frontmatter(skill_md.read_text(encoding="utf-8"))
-            name = fm.get("name") or skill_dir.name
+            name = _safe_skill_name(fm.get("name") or skill_dir.name)
+            if not name:
+                continue
             shutil.copytree(skill_dir, dest_skills / name, dirs_exist_ok=True)
 
     # Replace <target> placeholder with the actual target name

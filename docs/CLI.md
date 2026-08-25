@@ -86,7 +86,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew stack-cmp` | `stack_cmp.py` | Compare a compiled function's stack frame against the target (reccmp `stackcmp` without a PDB): frame size, ebp-vs-esp (/Oy), `ret N` popping, `[ebp±N]` slot layout — flag-focused hints for per-function CFLAGS tuning |
 | `rebrew verify-exports` | `exports.py` | Verify the recompiled binary's export table matches the original target (reccmp `verexp` equivalent; compares export names, exits 1 on missing/added) |
 | `rebrew round-trip` | `round_trip.py` | Splice matched functions back into the target PE and verify byte equality |
-| `rebrew skills` | `skills.py` | Discover and display AI agent skills bundled with rebrew (`list`, `show` subcommands) |
+| `rebrew skills` | `skills.py` | Discover and manage AI agent skills (`list`, `show`, `install`, `remove` — the latter two manage the `REBREW_SKILLS_DIR` overlay) |
 | `rebrew blocker` | `blocker.py` | Manage `BLOCKER` / `BLOCKER_DELTA` in `rebrew-function.toml` (`set`/`clear`/`show` by file, VA, or symbol; `--delta`, `--va`, `--dry-run`, `--json`) — ad-hoc BLOCKER for STUBs `diff --fix-blocker` cannot classify; every write via `rebrew.metadata` (locked + atomic, never hand-edited) |
 
 ## Component Registration (Plugins)
@@ -140,7 +140,7 @@ a 32/64-bit compiler.
 Community/user agent skills extend the packaged `agent-skills/` tree through
 the `REBREW_SKILLS_DIR` environment variable — a directory of SKILL.md
 directories merged over the packaged set (a user skill with the same name
-wins; unset means packaged-only).  `rebrew skills install <dir>` /
+wins; unset means packaged-only).  `rebrew skills install <dir|git-url>` /
 `rebrew skills remove <name>` manage that overlay, `rebrew skills list`
 marks user skills (`origin` in JSON, a `(user)` suffix in the table), and
 `rebrew init` renders both the packaged and the community skills into a

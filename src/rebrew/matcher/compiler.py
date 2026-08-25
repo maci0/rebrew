@@ -29,6 +29,8 @@ from .flag_data import (
     BORLAND_FLAGS,
     BORLAND_SWEEP_TIERS,
     COMMON_MSVC_FLAGS,
+    GCC_FLAGS,
+    GCC_SWEEP_TIERS,
     MSVC6_FLAGS,
     MSVC152_FLAGS,
     MSVC152_SWEEP_TIERS,
@@ -101,11 +103,15 @@ _FLAGS_MAP: dict[str, Flags] = {
     "tc16": BORLAND_FLAGS,
     "tc20": BORLAND_FLAGS,
     "borlandc55": BORLAND_FLAGS,
+    "gcc": GCC_FLAGS,
+    "clang": GCC_FLAGS,
 }
 
 #: Packaged sweep-tier dispatch: profile → {tier: [flag-axis ids]}.  Profiles
 #: without an entry fall back to MSVC_SWEEP_TIERS (the historic default).
 _PACKAGED_FLAG_TIERS: dict[str, dict[str, list[str] | None]] = {
+    "gcc": GCC_SWEEP_TIERS,
+    "clang": GCC_SWEEP_TIERS,
     "watcom": WATCOM_SWEEP_TIERS,
     "watcom16": WATCOM_SWEEP_TIERS,
     "msvc1.52": MSVC152_SWEEP_TIERS,

@@ -68,6 +68,16 @@ def _parse_frontmatter(text: str) -> dict[str, str]:
     return result
 
 
+def _safe_skill_name(name: str) -> str:
+    """A skill name usable as a directory component.
+
+    Frontmatter ``name`` is attacker-influenced (community skills); a value
+    like ``../../evil`` or ``/abs`` must never escape the skills directory.
+    Non-identifier characters are folded to ``-``."""
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-")
+    return safe
+
+
 def _scan_skills_dir(skills_dir: Path, origin: str = "packaged") -> list[dict[str, Any]]:
     """All skills under one directory (keys: name, description, path, origin)."""
     skills: list[dict[str, Any]] = []
@@ -207,9 +217,10 @@ def install_skill(
 ) -> None:
     """Install a community skill into the REBREW_SKILLS_DIR overlay.
 
-    Copies *source* (a directory with a SKILL.md) into the user skills dir,
-    creating it if needed.  A skill with the same name overrides the
-    packaged one — the same semantics ``rebrew skills list`` serves."""
+    Copies *source* (a directory with a SKILL.md, or a git/https URL to
+    clone) into the user skills dir, creating it if needed.  A skill with
+    the same name overrides the packaged one — the same semantics
+    ``rebrew skills list`` serves."""
     user_dir = _user_skills_dir()
     if user_dir is None:
         error_exit(
@@ -217,14 +228,57 @@ def install_skill(
             "community skills, then re-run install",
             json_mode=json_output,
         )
+    if user_dir.exists() and not user_dir.is_dir():
+        error_exit(
+            f"{REBREW_SKILLS_DIR_ENV}={user_dir} is a file, not a directory",
+            json_mode=json_output,
+        )
+
+    tmp_clone: Path | None = None
     src = Path(source)
+    if source.startswith(("http://", "https://", "git@", "git://")):
+        if shutil.which("git") is None:
+            error_exit("git is required to install a skill from a URL", json_mode=json_output)
+        import subprocess
+        import tempfile
+
+        tmp_clone = Path(tempfile.mkdtemp(prefix="rebrew_skill_"))
+        repo_dir = tmp_clone / "repo"
+        result = subprocess.run(
+            ["git", "clone", "--depth", "1", source, str(repo_dir)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            shutil.rmtree(tmp_clone, ignore_errors=True)
+            error_exit(
+                f"git clone failed: {(result.stderr or result.stdout).strip()[:200]}",
+                json_mode=json_output,
+            )
+        # The skill is the repo root or a subdirectory carrying a SKILL.md.
+        candidates = [repo_dir] + [d.parent for d in sorted(repo_dir.rglob("SKILL.md"))]
+        src = next((c for c in candidates if (c / "SKILL.md").is_file()), repo_dir)
+
     if not (src / "SKILL.md").is_file():
+        if tmp_clone is not None:
+            shutil.rmtree(tmp_clone, ignore_errors=True)
         error_exit(f"{source} is not a skill directory (no SKILL.md inside)", json_mode=json_output)
     fm = _parse_frontmatter((src / "SKILL.md").read_text(encoding="utf-8"))
-    name = fm.get("name") or src.name
+    name = _safe_skill_name(fm.get("name") or src.name)
+    if not name:
+        if tmp_clone is not None:
+            shutil.rmtree(tmp_clone, ignore_errors=True)
+        error_exit(
+            f"skill name {fm.get('name') or src.name!r} is not a usable directory name",
+            json_mode=json_output,
+        )
     dest = user_dir / name
     user_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(src, dest, dirs_exist_ok=True)
+    try:
+        shutil.copytree(src, dest, dirs_exist_ok=True)
+    finally:
+        if tmp_clone is not None:
+            shutil.rmtree(tmp_clone, ignore_errors=True)
     if json_output:
         json_print({"installed": name, "path": str(dest), "origin": "user"})
         return
@@ -284,11 +338,16 @@ def show_skill(
 
     if json_output:
         fm = _parse_frontmatter(text)
+        user_dir = _user_skills_dir()
+        origin = (
+            "user" if (user_dir is not None and skill_path.is_relative_to(user_dir)) else "packaged"
+        )
         json_print(
             {
                 "name": fm.get("name", name),
                 "description": fm.get("description", ""),
                 "path": str(skill_path),
+                "origin": origin,
                 "content": text,
             }
         )
