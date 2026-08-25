@@ -5,10 +5,17 @@ exposes two subcommands:
 
 ``rebrew skills list`` — table of skill name + first line of description.
 ``rebrew skills show NAME`` — pretty-print the full SKILL.md for NAME.
+
+Community/user skills extend the packaged set through the
+``REBREW_SKILLS_DIR`` environment variable: a directory of SKILL.md
+directories, merged over the packaged tree (a user skill with the same name
+as a packaged one wins — skills are docs, and the user's copy is the one
+they want served).
 """
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -27,6 +34,10 @@ _stdout_console = Console()
 # ---------------------------------------------------------------------------
 
 _SKILLS_DIR = Path(__file__).parent / "agent-skills"
+
+#: Env var naming a directory of user/community skills (one SKILL.md dir per
+#: skill).  Unset → packaged skills only.
+REBREW_SKILLS_DIR_ENV = "REBREW_SKILLS_DIR"
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
@@ -47,12 +58,12 @@ def _parse_frontmatter(text: str) -> dict[str, str]:
     return result
 
 
-def _list_skills() -> list[dict[str, Any]]:
-    """Return a list of dicts with keys: name, description, path."""
+def _scan_skills_dir(skills_dir: Path) -> list[dict[str, Any]]:
+    """All skills under one directory (keys: name, description, path)."""
     skills: list[dict[str, Any]] = []
-    if not _SKILLS_DIR.is_dir():
+    if not skills_dir.is_dir():
         return skills
-    for skill_dir in sorted(_SKILLS_DIR.iterdir()):
+    for skill_dir in sorted(skills_dir.iterdir()):
         skill_md = skill_dir / "SKILL.md"
         if not skill_md.is_file():
             continue
@@ -72,21 +83,41 @@ def _list_skills() -> list[dict[str, Any]]:
     return skills
 
 
+def _user_skills_dir() -> Path | None:
+    """The user/community skills dir from ``REBREW_SKILLS_DIR``, or None."""
+    env = os.environ.get(REBREW_SKILLS_DIR_ENV)
+    return Path(env) if env else None
+
+
+def _list_skills() -> list[dict[str, Any]]:
+    """Return a list of dicts with keys: name, description, path.
+
+    Packaged skills first; a user skill (``REBREW_SKILLS_DIR``) with the
+    same name overrides the packaged one."""
+    skills: dict[str, dict[str, Any]] = {}
+    for root in (r for r in (_SKILLS_DIR, _user_skills_dir()) if r is not None):
+        for entry in _scan_skills_dir(root):
+            skills[entry["name"]] = entry
+    return [skills[name] for name in sorted(skills)]
+
+
 def _find_skill(name: str) -> Path | None:
-    """Return the SKILL.md path for the given skill name (by frontmatter name or dir name)."""
-    if not _SKILLS_DIR.is_dir():
-        return None
-    for skill_dir in _SKILLS_DIR.iterdir():
-        skill_md = skill_dir / "SKILL.md"
-        if not skill_md.is_file():
-            continue
-        # Match by directory name or frontmatter name
-        if skill_dir.name == name:
-            return skill_md
-        text = skill_md.read_text(encoding="utf-8")
-        fm = _parse_frontmatter(text)
-        if fm.get("name") == name:
-            return skill_md
+    """Return the SKILL.md path for the given skill name (by frontmatter name or dir name).
+
+    User skills are searched first so they override packaged ones."""
+    roots = [r for r in (_user_skills_dir(), _SKILLS_DIR) if r is not None]
+    for root in roots:
+        for skill_dir in sorted(root.iterdir()) if root.is_dir() else []:
+            skill_md = skill_dir / "SKILL.md"
+            if not skill_md.is_file():
+                continue
+            # Match by directory name or frontmatter name
+            if skill_dir.name == name:
+                return skill_md
+            text = skill_md.read_text(encoding="utf-8")
+            fm = _parse_frontmatter(text)
+            if fm.get("name") == name:
+                return skill_md
     return None
 
 
@@ -102,7 +133,8 @@ app = typer.Typer(
         "  rebrew skills list · · · · · · · · · · List all available skills\n\n"
         "  rebrew skills show rebrew-workflow · · Show the rebrew-workflow skill guide\n\n"
         "  rebrew skills list --json · · · · · · Machine-readable skill list\n\n"
-        "[dim]Skills live in src/rebrew/agent-skills/. "
+        "[dim]Skills live in src/rebrew/agent-skills/ (community skills merge "
+        "in via $REBREW_SKILLS_DIR). "
         "Each directory contains a SKILL.md with YAML frontmatter.[/dim]"
     ),
 )

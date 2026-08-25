@@ -811,12 +811,15 @@ def _generate_bss_fix(
     # Preserve existing declarations first (stable ordering by offset).
     for offset in sorted(existing_decls):
         size = existing_decls[offset]
-        lines.append(f"// DATA: {origin} 0x{offset:08x}")
-        lines.append(f"char gap_{offset:08x}[{size}];\n")
+        if size > 0:
+            lines.append(f"// DATA: {origin} 0x{offset:08x}")
+            lines.append(f"char gap_{offset:08x}[{size}];")
     # Then the newly detected gaps.
     for gap in sorted(new_gaps, key=lambda g: g.offset):
+        if gap.size <= 0:
+            continue
         lines.append(f"// DATA: {origin} 0x{gap.offset:08x}")
-        lines.append(f"char gap_{gap.offset:08x}[{gap.size}];\n")
+        lines.append(f"char gap_{gap.offset:08x}[{gap.size}];")
 
     if dry_run:
         if json_output:
@@ -1054,18 +1057,26 @@ def _render_summary(
 
 def annotate_globals(
     src_dir: Path, metadata: Path, marker: str, dry_run: bool = False
-) -> dict[str, int]:
+) -> tuple[dict[str, int], int]:
     """Insert ``// GLOBAL: <marker> 0x<VA>`` markers from the data metadata.
 
     For every symbol in ``rebrew-data.toml``, insert the marker immediately
     above the first declaration/definition of that name in each source file
     that mentions it (extern or definition).  Declarations already carrying a
-    ``GLOBAL:`` or ``DATA:`` marker are skipped.  Returns ``{file: markers}``.
+    ``GLOBAL:`` or ``DATA:`` marker are skipped.
+
+    Returns ``(per_file, skipped_unnamed)`` — *skipped_unnamed* is the count
+    of metadata entries dropped because they carry no ``name`` field (the
+    marker anchors on the source declaration, so an unnamed entry cannot be
+    placed); a project whose data metadata is entirely unnamed (e.g. notepad)
+    previously produced a silent 0-marker no-op.
     """
     with open(metadata, "rb") as fh:
         db = tomllib.load(fh)
+    total_entries = 0
     symbols: dict[str, tuple[str, int]] = {}
     for module, addr, val in iter_data_symbols(db, section=None):
+        total_entries += 1
         if not val.get("name"):
             continue
         symbols[str(val["name"])] = (module, addr)
@@ -1074,7 +1085,7 @@ def annotate_globals(
     decl_cache: dict[str, re.Pattern[str]] = {}
     total = 0
     per_file: dict[str, int] = {}
-    for f in sorted(src_dir.rglob("*.c")):
+    for f in sorted(p for p in src_dir.rglob("*.c") if not p.is_symlink()):
         text = f.read_text(encoding="utf-8", errors="replace")
         lines = text.splitlines()
         existing = {int(m.group(1), 16) for m in (marker_re.match(ln) for ln in lines) if m}
@@ -1103,13 +1114,14 @@ def annotate_globals(
             insertions.append((hit, f"// GLOBAL: {marker} 0x{sym_addr:08x}"))
         if not insertions:
             continue
+        insertions.sort(key=lambda x: x[0])
         for shift, (hit, marker_line) in enumerate(insertions):
             lines.insert(hit + shift, marker_line)
         total += len(insertions)
         per_file[str(f.relative_to(src_dir))] = len(insertions)
         if not dry_run:
             f.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return per_file
+    return per_file, total_entries - len(symbols)
 
 
 app = typer.Typer(
@@ -1541,12 +1553,18 @@ def main(
         if not metadata.exists():
             error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
         marker = cfg.marker or cfg.target_name.upper()
-        per_file = annotate_globals(src_dir, metadata, marker, dry_run=dry_run)
+        per_file, skipped_unnamed = annotate_globals(src_dir, metadata, marker, dry_run=dry_run)
         total = sum(per_file.values())
         if json_output:
-            json_print({"markers": total, "files": per_file})
+            json_print({"markers": total, "files": per_file, "skipped_unnamed": skipped_unnamed})
         else:
             console.print(f"[green]data annotate:[/green] {total} markers")
+            if skipped_unnamed:
+                console.print(
+                    f"[yellow]{skipped_unnamed} metadata entr{'y' if skipped_unnamed == 1 else 'ies'}"
+                    " skipped — no `name` field in rebrew-data.toml (markers anchor on"
+                    " the declaration)[/yellow]"
+                )
             for f, n in sorted(per_file.items()):
                 console.print(f"  {f}: {n}")
         return

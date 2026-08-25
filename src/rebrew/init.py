@@ -716,13 +716,33 @@ def _detect_binary_format(path: Path) -> tuple[str, str] | None:
 
 
 def _copy_agent_skills(dest: Path, target_name: str) -> None:
-    """Copy bundled agent-skills/ into the project under .agents/skills, substituting <target>."""
+    """Copy agent-skills into the project under .agents/skills, substituting <target>.
+
+    Packaged skills first, then user/community skills from
+    ``REBREW_SKILLS_DIR`` (a user skill with the same name overrides the
+    packaged one — the same overlay semantics ``rebrew skills list``
+    serves), then the ``<target>`` substitution runs over all of them."""
     if not _AGENT_SKILLS_SRC.is_dir():
         console.print("[yellow]warning:[/yellow] agent-skills not found in package; skipping.")
         return
 
     dest_skills = dest / ".agents" / "skills"
     shutil.copytree(_AGENT_SKILLS_SRC, dest_skills, dirs_exist_ok=True)
+
+    from rebrew.skills import _parse_frontmatter, _user_skills_dir
+
+    user_skills = _user_skills_dir()
+    if user_skills is not None and user_skills.is_dir():
+        for skill_dir in sorted(user_skills.iterdir()):
+            skill_md = skill_dir / "SKILL.md"
+            if not skill_md.is_file():
+                continue
+            # Merge by canonical skill name (frontmatter name or dir name) —
+            # the same key `rebrew skills list` uses, so a user skill named
+            # "rebrew-workflow" overrides the packaged one in place.
+            fm = _parse_frontmatter(skill_md.read_text(encoding="utf-8"))
+            name = fm.get("name") or skill_dir.name
+            shutil.copytree(skill_dir, dest_skills / name, dirs_exist_ok=True)
 
     # Replace <target> placeholder with the actual target name
     for md_file in dest_skills.rglob("*.md"):

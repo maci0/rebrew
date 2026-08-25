@@ -105,7 +105,11 @@ def _build_invalid_reloc_mask(
         return []
     mask = [False] * len(code)
     for ro in invalid_relocs:
-        start = max(0, ro)
+        # Capstone insn addresses are offsets into code; negative reloc offsets
+        # are nonsensical for the mask and must not wrap via max(0, ro).
+        if ro < 0:
+            continue
+        start = ro
         end = min(ro + pointer_size, len(code))
         if start < end:
             for i in range(start, end):
@@ -125,6 +129,8 @@ def _zero_reloc_fields(insn: capstone.CsInsn, out: bytearray) -> None:
     5 bytes can never carry one — those return before any attribute access
     (capstone attribute reads are the per-instruction cost).
     """
+    if not insn.opcode:
+        return
     size = insn.size
     if size < 5:
         return  # no room for a 32-bit relocatable field
@@ -381,6 +387,8 @@ def _mask_registers_inplace(insns: list[capstone.CsInsn], buf: bytearray) -> Non
             if offset < len(buf):
                 buf[offset] &= 0xC0
 
+        if not insn.opcode:
+            continue
         op0 = insn.opcode[0]
         if (
             (0x40 <= op0 <= 0x5F)  # inc/dec/push/pop reg

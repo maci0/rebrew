@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import hashlib
 import re
-import shutil
 import struct
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -313,8 +312,11 @@ def _resolve_string_symbols_in_target(
                     # high-ASCII (0x80-0xfe) are string content, so a probe
                     # matching there is a substring of a longer string — e.g.
                     # "at\x00" inside "Sat\x00" (the day-name table).
+                    if pos == file_off:
+                        found[sym_name] = sec_va + (pos - file_off)
+                        break
                     prev = target_bytes[pos - 1]
-                    if pos == file_off or prev < 0x20 or prev == 0xFF:
+                    if prev < 0x20 or prev == 0xFF:
                         found[sym_name] = sec_va + (pos - file_off)
                         break
                     pos += 1
@@ -422,7 +424,12 @@ def _make_resolver(
         va = _resolve(symbol)
         if va is not None:
             return va
-        return _local.get(symbol) or _local.get(symbol.lstrip("_")) or _name_encoded_va(symbol)
+        if symbol in _local:
+            return _local[symbol]
+        stripped = symbol.lstrip("_")
+        if stripped in _local:
+            return _local[stripped]
+        return _name_encoded_va(symbol)
 
     return resolve_va
 
@@ -497,7 +504,7 @@ def _run_round_trip(
     spliced_vas: set[str] = set()
     spliced_actual_bytes = 0
     extra_string_syms: dict[str, int] = {}
-    from rebrew.utils import writable_temp_dir
+    from rebrew.utils import remove_temp_dir, writable_temp_dir
 
     work_dir = writable_temp_dir("rebrew-rt-")
     try:
@@ -543,6 +550,9 @@ def _run_round_trip(
             if info is None:
                 info = load_binary(cfg.target_binary)
             offset = va_to_file_offset(info, fn.va)
+            if offset < 0 or offset >= len(reasm):
+                mismatches.append(_mismatch(fn, "oversize", f"VA 0x{fn.va:08x} outside image"))
+                continue
             end = offset + fn.size
             if end > len(reasm):
                 mismatches.append(_mismatch(fn, "oversize", None))
@@ -613,7 +623,7 @@ def _run_round_trip(
             spliced_vas.add(f"0x{fn.va:08x}")
             spliced_actual_bytes += trimmed_size
     finally:
-        shutil.rmtree(work_dir, ignore_errors=True)
+        remove_temp_dir(work_dir)
 
     # --fix-headers: patch the reasm PE header (linker/OS/subsystem versions,
     # TSAWARE, stack/heap, timestamp, checksum) so the byte-identical goal is

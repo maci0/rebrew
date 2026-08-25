@@ -166,3 +166,49 @@ class TestSkillsEdgeCases:
         md.write_text("no frontmatter", encoding="utf-8")
         monkeypatch.setattr(skills, "_SKILLS_DIR", tmp_path)
         assert skills._find_skill("myname") == md
+
+
+class TestUserSkillsDir:
+    """REBREW_SKILLS_DIR overlay: community/user skills merge over packaged."""
+
+    def _user_skill(self, tmp_path, name: str, fm_name: str | None = None) -> None:
+        d = tmp_path / name
+        d.mkdir(parents=True, exist_ok=True)
+        label = fm_name or name
+        (d / "SKILL.md").write_text(
+            f"---\nname: {label}\ndescription: A community skill.\n---\n# {label}\n",
+            encoding="utf-8",
+        )
+
+    def test_user_skill_listed(self, tmp_path, monkeypatch) -> None:
+        from rebrew.skills import REBREW_SKILLS_DIR_ENV
+
+        self._user_skill(tmp_path, "my-skill")
+        monkeypatch.setenv(REBREW_SKILLS_DIR_ENV, str(tmp_path))
+        names = [s["name"] for s in _list_skills()]
+        assert "my-skill" in names
+        assert "rebrew-workflow" in names  # packaged intact
+
+    def test_user_skill_overrides_packaged(self, tmp_path, monkeypatch) -> None:
+        from rebrew.skills import REBREW_SKILLS_DIR_ENV
+
+        self._user_skill(tmp_path, "override", fm_name="rebrew-workflow")
+        monkeypatch.setenv(REBREW_SKILLS_DIR_ENV, str(tmp_path))
+        skills = {s["name"]: s for s in _list_skills()}
+        assert "override" in skills["rebrew-workflow"]["path"]  # user wins
+
+    def test_find_skill_prefers_user(self, tmp_path, monkeypatch) -> None:
+        from rebrew.skills import REBREW_SKILLS_DIR_ENV
+
+        self._user_skill(tmp_path, "my-skill")
+        monkeypatch.setenv(REBREW_SKILLS_DIR_ENV, str(tmp_path))
+        path = _find_skill("my-skill")
+        assert path is not None and "my-skill" in str(path)
+
+    def test_unset_env_returns_packaged_only(self, tmp_path, monkeypatch) -> None:
+        from rebrew.skills import REBREW_SKILLS_DIR_ENV
+
+        monkeypatch.delenv(REBREW_SKILLS_DIR_ENV, raising=False)
+        paths = [s["path"] for s in _list_skills()]
+        assert "rebrew-workflow" in {s["name"] for s in _list_skills()}
+        assert all("agent-skills" in p for p in paths)  # packaged dir only

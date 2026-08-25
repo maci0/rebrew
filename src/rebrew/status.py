@@ -242,8 +242,9 @@ def _load_verify_info(cfg: ProjectConfig) -> VerifyInfo | None:
         timestamp = ""
 
     # Freshness: a source newer than the cache means the summary is stale.
+    # stat inside the loop races vs a write that races vs another writer —
+    # read once, compare against that snapshot.
     stale = False
-    cache_mtime_ns = 0
     try:
         cache_mtime_ns = cache_path.stat().st_mtime_ns
     except OSError:

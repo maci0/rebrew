@@ -44,11 +44,16 @@ _SQLITE_TIMEOUT_SECONDS = 30.0
 
 def _parse_int(value: Any, default: int = 0) -> int:
     """Parse an integer from JSON-ish input, returning *default* on invalid values."""
+    if isinstance(value, bool):
+        return default
     if isinstance(value, int):
         return value
     if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return default
         try:
-            return int(value, 0)
+            return int(s, 0)
         except ValueError:
             return default
     return default

@@ -30,7 +30,7 @@ def collect_matching_files(
             text, _ = read_source_text(src)
             if pattern.search(text):
                 matched.append(src)
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             continue
     return matched
 
@@ -61,11 +61,18 @@ def rename_function_everywhere(
     # collision must abort the rename with nothing mutated on disk (the old
     # order renamed references in every file, then hit the unguarded
     # parse_c_file_multi and left a half-applied rename behind).
+    if not target_func.isidentifier():
+        raise ValueError(f"target function name {target_func!r} is not a valid C identifier")
     rename_target: Path | None = None
     if rename_file and not dry_run:
         try:
             multi_function_file = (
-                len(parse_c_file_multi(filepath, metadata_dir=filepath.parent)) > 1
+                len(
+                    parse_c_file_multi(
+                        filepath, metadata_dir=getattr(cfg, "metadata_dir", filepath.parent)
+                    )
+                )
+                > 1
             )
         except Exception as exc:  # abort before mutating anything
             raise ValueError(f"cannot rename {filepath}: annotation parse failed: {exc}")
@@ -73,11 +80,16 @@ def rename_function_everywhere(
             rename_file = False  # auto-rename unsafe for multi-function files
         if rename_file:  # re-check: the multi-function guard may have disabled renaming
             if new_filename:
-                if not new_filename.endswith(filepath.suffix):
+                if Path(new_filename).suffix != filepath.suffix:
                     new_filename = new_filename + filepath.suffix
                 # Preserve original directory unless caller passes a path
                 if "/" in new_filename or "\\" in new_filename:
-                    target_file = cfg.reversed_dir / new_filename
+                    candidate = (cfg.reversed_dir / new_filename).resolve()
+                    try:
+                        candidate.relative_to(cfg.reversed_dir.resolve())
+                    except ValueError:
+                        raise ValueError(f"new filename escapes reversed_dir: {new_filename!r}")
+                    target_file = candidate
                 else:
                     target_file = filepath.with_name(new_filename)
             else:
@@ -147,6 +159,10 @@ def rename_function_everywhere(
     # 4. Rename file if needed — skip when file has multiple annotations
     #    (renaming would disassociate the other functions from their file).
     if rename_target is not None:
-        filepath.rename(rename_target)
+        try:
+            filepath.rename(rename_target)
+        except OSError as exc:
+            logger.error("Failed to rename %s -> %s: %s", filepath, rename_target, exc)
+            raise
 
     return updated_files

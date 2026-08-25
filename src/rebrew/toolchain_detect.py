@@ -221,6 +221,81 @@ _LINKER_ERA_PROFILES: dict[tuple[int, int], tuple[str, ...]] = {
     (17, 0): ("msvc1100",),
 }
 
+#: Entry-point group whose members declare which exact MSVC builds/linker
+#: eras their toolchains byte-match.  A member returns
+#: ``dict[str, list[profile]]`` keyed ``"build:<n>"`` (Rich-header C1/C2
+#: build, e.g. ``"build:8168"``) or ``"linker:<M>.<m>"`` (e.g.
+#: ``"linker:12.0"``) → profiles.  Merged into the packaged version tables
+#: below (union per key — a build number is detection evidence, and a
+#: plugin adds the profiles that match it, e.g. an MSVC-derivative plugin
+#: declaring ``{"build:8168": ["mytc"]}`` so the version-exact check in
+#: ``profile_matches_detection`` accepts it for that exact build).
+MSVC_VERSION_ENTRY_POINT_GROUP = "rebrew.msvc_versions"
+
+
+def _merged_msvc_version_tables() -> tuple[
+    dict[int, tuple[str, ...]], dict[tuple[int, int], tuple[str, ...]]
+]:
+    """Version-exact tables: packaged + ``rebrew.msvc_versions`` providers.
+
+    Packaged tuples keep their order; a provider appends its profiles after
+    them (order matters — ``suggest_profile`` prefers earlier names)."""
+    from rebrew.registry import RegistryError, entry_point_registrations, import_registration
+
+    rich = {k: tuple(v) for k, v in _RICH_BUILD_PROFILES.items()}
+    eras = {k: tuple(v) for k, v in _LINKER_ERA_PROFILES.items()}
+    for reg in entry_point_registrations(MSVC_VERSION_ENTRY_POINT_GROUP):
+        provider = import_registration(reg)
+        try:
+            provided = provider()
+        except Exception as exc:
+            raise RegistryError(
+                f"bad {reg.group} provider from {reg.origin}: {type(exc).__name__}: {exc}"
+            ) from exc
+        if not isinstance(provided, dict):
+            raise RegistryError(
+                f"bad {reg.group} provider from {reg.origin}: expected "
+                f"dict['build:<n>' | 'linker:<M>.<m>', list[profile]], "
+                f"got {type(provided).__name__}"
+            )
+        for key, profiles in provided.items():
+            if not isinstance(profiles, (list, tuple, set)) or not profiles:
+                raise RegistryError(
+                    f"bad {reg.group} provider from {reg.origin}: {key!r} must map "
+                    f"to a non-empty list of profiles"
+                )
+            names = tuple(str(p) for p in profiles)
+            if key.startswith("build:"):
+                try:
+                    build = int(key[len("build:") :])
+                except ValueError:
+                    raise RegistryError(
+                        f"bad {reg.group} provider from {reg.origin}: {key!r} is not "
+                        f"'build:<integer>'"
+                    ) from None
+                existing = rich.get(build)
+                rich[build] = existing + names if existing else names
+            elif key.startswith("linker:"):
+                try:
+                    major, minor = (int(x) for x in key[len("linker:") :].split("."))
+                except ValueError:
+                    raise RegistryError(
+                        f"bad {reg.group} provider from {reg.origin}: {key!r} is not "
+                        f"'linker:<M>.<m>'"
+                    ) from None
+                mm = (major, minor)
+                existing = eras.get(mm)
+                eras[mm] = existing + names if existing else names
+            else:
+                raise RegistryError(
+                    f"bad {reg.group} provider from {reg.origin}: key {key!r} must be "
+                    f"'build:<n>' or 'linker:<M>.<m>'"
+                )
+    return rich, eras
+
+
+_RICH_BUILD_PROFILES_ALL, _LINKER_ERA_PROFILES_ALL = _merged_msvc_version_tables()
+
 #: CRT import names -> MSVC version binder (msvcp60.dll = VC 6.0, etc.).
 #: The msvcpX.dll import is written by the /MD CRT of that toolchain; a
 #: strong secondary signal when the Rich header is absent (some linkers
@@ -271,6 +346,41 @@ _BACKEND_DISPLAY: dict[str, str] = {
 def backend_display_name(detected_by: str) -> str:
     """Human-readable name for a detection backend id, or the id itself."""
     return _BACKEND_DISPLAY.get(detected_by, detected_by)
+
+
+# ---------------------------------------------------------------------------
+# Plugin binary detectors — compiler families the packaged backends don't know
+# ---------------------------------------------------------------------------
+
+#: setuptools entry-point group whose members detect compiler families the
+#: packaged backends (DIE/PDB/PE-meta/heuristics) do not recognize.  A
+#: member is a callable ``(path: Path) -> ToolchainInfo | None``; the first
+#: non-None result supplies the family when the packaged pipeline left it
+#: unknown, so a genuinely novel compiler becomes detectable end-to-end:
+#: its family flows into ``_PROFILE_COMPAT_ALL`` (extensible via
+#: ``rebrew.toolchain_detectors``) for doctor/init profile alignment.
+BINARY_DETECTOR_ENTRY_POINT_GROUP = "rebrew.binary_detectors"
+
+
+def _discover_binary_detectors() -> list[tuple[str, Any]]:
+    """Every ``rebrew.binary_detectors`` entry-point member, as ``(name, fn)``.
+
+    A member that is not callable raises :class:`RegistryError`."""
+    from rebrew.registry import RegistryError, entry_point_registrations, import_registration
+
+    detectors: list[tuple[str, Any]] = []
+    for reg in entry_point_registrations(BINARY_DETECTOR_ENTRY_POINT_GROUP):
+        fn = import_registration(reg)
+        if not callable(fn):
+            raise RegistryError(
+                f"bad {reg.group} registration {reg.name!r} from {reg.origin}: "
+                f"expected a callable detector, got {type(fn).__name__}"
+            )
+        detectors.append((reg.name, fn))
+    return detectors
+
+
+_PLUGIN_DETECTORS: list[tuple[str, Any]] = _discover_binary_detectors()
 
 
 # ---------------------------------------------------------------------------
@@ -839,7 +949,9 @@ def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
         info.family = "msvc"
         info.confidence = "high"
         build = _rich_compiler_build(rich_entries)  # the C1/C2 pair (mode)
-        profiles = _RICH_BUILD_PROFILES.get(build) or _LINKER_ERA_PROFILES.get(linker_mm or (12, 0))
+        profiles = _RICH_BUILD_PROFILES_ALL.get(build) or _LINKER_ERA_PROFILES_ALL.get(
+            linker_mm or (12, 0)
+        )
         mm = linker_mm or (12, 0)  # unknown linker -> VC6-era fallback
         version = f"{mm[0]}.{mm[1]:02d}.{build}"
         info.msvc_version = version
@@ -858,7 +970,7 @@ def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
     if linker_mm is not None:
         version = f"{linker_mm[0]}.{linker_mm[1]:02d}"
         info.msvc_version = version
-        info.suggested_profiles = list(_LINKER_ERA_PROFILES.get(linker_mm, ()))
+        info.suggested_profiles = list(_LINKER_ERA_PROFILES_ALL.get(linker_mm, ()))
         if linker_mm == (9, 0):
             info.add(f"linker {linker_ver} (MSVC 2.0 or MinGW GNU ld)")
             if msvcp_version:
@@ -882,18 +994,12 @@ def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
     return info
 
 
-def detect_toolchain(path: Path | str) -> ToolchainInfo:
-    """Detect the compiler family behind *path*.
+def _detect_toolchain_core(path: Path | str) -> ToolchainInfo:
+    """The packaged detection pipeline (DIE/PDB/PE-meta/heuristics).
 
-    Backends run best-first and their evidence merges:
-    DIE (``diec``) -> PDB (``llvm-pdbutil``) -> structural heuristics.
-    A backend that fails or is unavailable is skipped silently; the family
-    decision uses the first backend that identifies one, enriched by the
-    version/flags evidence of the others.
-
-    Never raises: an unreadable or unrecognized binary yields
-    ``ToolchainInfo(family="unknown", confidence="low")``.
-    """
+    Public entry is :func:`detect_toolchain`, which runs the plugin binary
+    detectors on top of this when the packaged backends leave the family
+    unknown."""
     path = Path(path)
     info = ToolchainInfo()
 
@@ -1451,9 +1557,70 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
     return info
 
 
+def detect_toolchain(path: Path | str) -> ToolchainInfo:
+    """Detect the compiler family behind *path*.
+
+    Backends run best-first and their evidence merges:
+    DIE (``diec``) -> PDB (``llvm-pdbutil``) -> PE metadata -> structural
+    heuristics.  A backend that fails or is unavailable is skipped silently;
+    the family decision uses the first backend that identifies one, enriched
+    by the version/flags evidence of the others.
+
+    When every packaged backend leaves the family unknown, the
+    ``rebrew.binary_detectors`` plugin detectors run in discovery order; the
+    first non-None result supplies the family (``detected_by`` is recorded
+    as ``plugin-<name>``).
+
+    Never raises: an unreadable or unrecognized binary yields
+    ``ToolchainInfo(family="unknown", confidence="low")``.
+    """
+    info = _detect_toolchain_core(path)
+    if info.family != "unknown" or not _PLUGIN_DETECTORS:
+        return info
+    path = Path(path)
+    for name, fn in _PLUGIN_DETECTORS:
+        try:
+            plugin_info = fn(path)
+        except Exception:
+            logger.debug("plugin detector %r failed for %s", name, path, exc_info=True)
+            continue
+        if plugin_info is None:
+            continue
+        if not isinstance(plugin_info, ToolchainInfo):
+            logger.warning(
+                "plugin detector %r returned %s (expected ToolchainInfo | None)",
+                name,
+                type(plugin_info).__name__,
+            )
+            continue
+        info.evidence.extend(plugin_info.evidence)
+        if plugin_info.family and plugin_info.family != "unknown":
+            info.family = plugin_info.family
+            info.confidence = plugin_info.confidence or "medium"
+            info.version_hint = plugin_info.version_hint
+            info.arch = plugin_info.arch or info.arch
+            info.detected_by = f"plugin-{name}"
+            break
+    return info
+
+
 #: 16-bit-capable profiles for byte-matching DOS/NE targets (used by
-#: profile_matches_detection's arch alignment check).
+#: profile_matches_detection's arch alignment check).  The packaged set; a
+#: registered toolchain with ``bits = 16`` joins it via
+#: :func:`_bitness16_profiles`.
 _BITNESS_16_PROFILES = frozenset({"msvc1.52", "msvc15", "msvc10", "tc16", "tc20", "watcom16"})
+
+
+def _bitness16_profiles() -> tuple[str, ...]:
+    """16-bit-capable profiles: the packaged set + registry ``bits = 16``.
+
+    A plugin toolchain declaring ``bits = 16`` (entry-point or
+    ``REBREW_TOOLCHAIN_OVERLAY_DIR`` TOML) is then allowed on x86_16
+    DOS/NE targets instead of being flagged as a 32/64-bit compiler."""
+    from rebrew.toolchain import TOOLCHAINS
+
+    registry16 = {n for n, s in TOOLCHAINS.items() if s.bits == 16}
+    return tuple(sorted(_BITNESS_16_PROFILES | registry16))
 
 
 #: Compiler profiles that can byte-match each detected family.
@@ -1506,6 +1673,53 @@ _PROFILE_COMPAT: dict[str, set[str] | None] = {
     "unknown": None,
 }
 
+#: Entry-point group whose members declare which detected families their
+#: toolchains can byte-match.  A member is a zero-arg callable returning
+#: ``dict[family, list[profile_name]]`` — e.g. a plugin MSVC-derivative
+#: toolchain declaring ``{"msvc": ["mytc"]}`` so detection, doctor, and
+#: ``rebrew init --guess-compiler`` treat it as family-aligned.  Merged
+#: into :data:`_PROFILE_COMPAT` below; a family the packaged table marks
+#: un-matchable (``None``) becomes matchable when a plugin declares
+#: profiles for it.
+TOOLCHAIN_DETECTOR_ENTRY_POINT_GROUP = "rebrew.toolchain_detectors"
+
+
+def _merged_profile_compat() -> dict[str, set[str] | None]:
+    """The byte-match compatibility table: packaged + plugin declarations.
+
+    Packaged family sets are the base; a provider extends a family's
+    profile set (union).  A provider that fails to load or yields a non-dict
+    raises :class:`RegistryError`."""
+    from rebrew.registry import RegistryError, entry_point_registrations, import_registration
+
+    compat = {k: (set(v) if v is not None else None) for k, v in _PROFILE_COMPAT.items()}
+    for reg in entry_point_registrations(TOOLCHAIN_DETECTOR_ENTRY_POINT_GROUP):
+        provider = import_registration(reg)
+        try:
+            provided = provider()
+        except Exception as exc:
+            raise RegistryError(
+                f"bad {reg.group} provider from {reg.origin}: {type(exc).__name__}: {exc}"
+            ) from exc
+        if not isinstance(provided, dict):
+            raise RegistryError(
+                f"bad {reg.group} provider from {reg.origin}: expected "
+                f"dict[family, list[profile]], got {type(provided).__name__}"
+            )
+        for family, profiles in provided.items():
+            if not isinstance(profiles, (set, list, tuple)) or not profiles:
+                raise RegistryError(
+                    f"bad {reg.group} provider from {reg.origin}: family {family!r} "
+                    f"must map to a non-empty list of profiles"
+                )
+            names = {str(p) for p in profiles}
+            existing = compat.get(family)
+            compat[family] = names if existing is None else (existing | names)
+    return compat
+
+
+_PROFILE_COMPAT_ALL: dict[str, set[str] | None] = _merged_profile_compat()
+
 
 def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, str | None]:
     """Return ``(aligned, explanation)`` for *profile* vs a detection.
@@ -1513,7 +1727,7 @@ def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, 
     *aligned* is True when the configured profile can plausibly byte-match
     the detected family; *explanation* carries a fix hint when not.
     """
-    compatible = _PROFILE_COMPAT.get(info.family)
+    compatible = _PROFILE_COMPAT_ALL.get(info.family)
     if compatible is None:
         if info.family == "unknown":
             return True, None  # unknown family: don't second-guess the user
@@ -1552,14 +1766,14 @@ def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, 
     # explicit (msvc1.52 = NE/DOS, tc16/tc20/watcom16 = DOS); watcom's
     # wcc386 is a 32-bit compiler (Open Watcom 2.0 x86-32) and must NOT be
     # flagged as 16-bit.
-    if info.arch == "x86_16" and profile not in _BITNESS_16_PROFILES:
+    if info.arch == "x86_16" and profile not in _bitness16_profiles():
         return (
             False,
             f"detected 16-bit binary but profile '{profile}' is a 32/64-bit "
-            f"compiler — switch to one of: {', '.join(sorted(_BITNESS_16_PROFILES))} "
+            f"compiler — switch to one of: {', '.join(_bitness16_profiles())} "
             "(e.g. msvc1.52 / tc16 / tc20) or document the functions as blockers",
         )
-    if info.arch and info.arch != "x86_16" and profile in _BITNESS_16_PROFILES:
+    if info.arch and info.arch != "x86_16" and profile in _bitness16_profiles():
         return (
             False,
             f"profile '{profile}' is a 16-bit compiler but the binary is "
@@ -1607,7 +1821,7 @@ def suggest_profile(info: ToolchainInfo, binary: Path | None = None) -> str | No
     16-bit profile when the binary is 16-bit (NE x86_16 or a plain DOS MZ
     executable).  Returns ``None`` when no rebrew profile can match.
     """
-    compatible = _PROFILE_COMPAT.get(info.family)
+    compatible = _PROFILE_COMPAT_ALL.get(info.family)
     if not compatible:
         return None
     # Version-exact: the PE metadata pinned the compiler build — prefer a
@@ -1617,7 +1831,12 @@ def suggest_profile(info: ToolchainInfo, binary: Path | None = None) -> str | No
             if p in compatible and not _is_16bit_target(info, binary):
                 return p
     if _is_16bit_target(info, binary):
+        # Prefer the established 16-bit profiles, then plugin-registered
+        # bits=16 toolchains (sorted for determinism).
         for p in ("msvc1.52", "tc16", "watcom16"):
+            if p in compatible:
+                return p
+        for p in _bitness16_profiles():
             if p in compatible:
                 return p
     for p in ("msvc6", "borlandc55", "watcom", "gcc-pe", "clang", "gcc"):

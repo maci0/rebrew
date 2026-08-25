@@ -425,7 +425,7 @@ def _apply_arg_constraints(
     import claripy
 
     for key, spec in constraints.items():
-        m = re.match(r"arg(\d+)", key)
+        m = re.match(r"arg(\d+)$", key)
         if not m or int(m.group(1)) >= len(sym_args):
             continue
         idx = int(m.group(1))
@@ -546,7 +546,7 @@ def _parse_prototype(proto: str) -> tuple[str, int, int]:
 
     # Detect 64-bit return types
     _64BIT_RETURN_TOKENS = ("long long", "__int64", "int64_t", "uint64_t", "long double")
-    return_width = 64 if any(tok in ret_type for tok in _64BIT_RETURN_TOKENS) else 32
+    return_width = 64 if any(tok in ret_type.lower() for tok in _64BIT_RETURN_TOKENS) else 32
 
     if not args_str or args_str.lower() == "void":
         return cc, 0, return_width
@@ -903,24 +903,28 @@ def prove_equivalence(
                     patched_orig[offset : offset + 4] = struct.pack("<I", va)
 
     # Slice to target range if specified
-    if end_offset > 0:
-        if start_offset >= len(patched_orig) or end_offset > len(patched_orig):
+    if end_offset > 0 or start_offset > 0:
+        eff_end = end_offset if end_offset > 0 else len(patched_orig)
+        eff_end_comp = end_offset if end_offset > 0 else len(patched_comp)
+        if start_offset < 0 or eff_end <= start_offset:
+            return False, f"Slice [{start_offset}:{eff_end}] is empty or inverted"
+        if start_offset >= len(patched_orig) or eff_end > len(patched_orig):
             return (
                 False,
-                f"Slice [{start_offset}:{end_offset}] out of range for original ({len(patched_orig)}B)",
+                f"Slice [{start_offset}:{eff_end}] out of range for original ({len(patched_orig)}B)",
             )
-        if start_offset >= len(patched_comp) or end_offset > len(patched_comp):
+        if start_offset >= len(patched_comp) or eff_end_comp > len(patched_comp):
             return (
                 False,
-                f"Slice [{start_offset}:{end_offset}] out of range for compiled ({len(patched_comp)}B)",
+                f"Slice [{start_offset}:{eff_end_comp}] out of range for compiled ({len(patched_comp)}B)",
             )
-        patched_orig = bytearray(patched_orig[start_offset:end_offset])
-        patched_comp = bytearray(patched_comp[start_offset:end_offset])
+        patched_orig = bytearray(patched_orig[start_offset:eff_end])
+        patched_comp = bytearray(patched_comp[start_offset:eff_end_comp])
         # Filter and adjust reloc_offsets to only include relocations within the slice
         if reloc_offsets:
             adjusted_relocs: dict[int, str] = {}
             for off, sym in reloc_offsets.items():
-                if start_offset <= off < end_offset:
+                if start_offset <= off < eff_end:
                     adjusted_relocs[off - start_offset] = sym
             reloc_offsets = adjusted_relocs if adjusted_relocs else None
         # Stub hooks all point at the external STUB_BASE region (never inside

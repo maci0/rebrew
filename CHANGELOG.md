@@ -1,3 +1,74 @@
+## [Unreleased]
+### Added
+- **Declarative component registration** — toolchains, decompiler backends,
+  CLI commands, and GA mutations now accept registrations from outside the
+  host source tree via setuptools entry-point groups (`rebrew.toolchains`,
+  `rebrew.decompiler_backends`, `rebrew.commands`, `rebrew.multicommands`,
+  `rebrew.mutations`), plus the `REBREW_TOOLCHAIN_OVERLAY_DIR` TOML overlay
+  for project-local toolchains (`src/rebrew/registry.py`).  A duplicate name
+  between any two sources is a `RegistryError` (single-source discipline);
+  broken CLI plugins degrade to stub commands like built-ins with missing
+  optional dependencies.  Built-in behavior is unchanged.
+- **`rebrew diagnose`** — explains why a function compiles with its
+  toolchain+flags: prints the resolution chain (per-function metadata →
+  nearest `rebrew-library.toml` → project defaults) and validates the
+  declarations (unknown toolchains, preset contradictions, function-vs-
+  library family drift); `--json` emits the structured trace.
+- **Plugin toolchains are first-class profiles** — a registered toolchain
+  (entry-point or `REBREW_TOOLCHAIN_OVERLAY_DIR`) is selectable as a project
+  `[compiler] profile` without being rewritten to msvc6, and `posix_style` /
+  `base_cflags` routing consult the spec's `flags_style` instead of a
+  hardcoded profile-name set.  Companion groups complete the story:
+  `rebrew.flag_sets` (GA sweep axes), `rebrew.toolchain_detectors`
+  (detection-family alignment for doctor/init), `rebrew.binary_detectors`
+  (recognition of novel compiler families — runs when the packaged
+  backends leave the family unknown), `rebrew.library_presets`
+  (known-library build settings), `rebrew.msvc_versions` (version-exact
+  MSVC build/linker matching for plugin MSVC-derivatives),
+  `rebrew.binary_loaders` (parsing novel container formats), `REBREW_SKILLS_DIR`
+  (community agent skills overlay), a `bits = 16` spec field that joins the
+  16-bit arch-alignment set, a `Plugins` help panel for plugin CLI
+  commands, pluggable compile-cache backends (`rebrew.cache_backends`,
+  selected via `[cache] backend` — the store is a component, the keying is
+  not), `rebrew toolchain list` provenance (`origin` per toolchain),
+  `rebrew init` rendering `REBREW_SKILLS_DIR` community skills into the
+  project, and a `rebrew doctor` Cache check that reports an unregistered
+  `[cache] backend` up front.
+
+### Fixed
+- **`rebrew postlink X X` reproduces X byte-for-byte** — the data fixer
+  trimmed `.text` to the reference's VirtualSize, zeroing the reference's
+  own file padding (cpubench: 239 bytes of 0xCC corrupted); it now trims
+  to the reference's raw extent and preserves the padding.
+- **`binsync-export` no longer fabricates declarations** — a `// DATA:`
+  marker above `#include <windows.h>` (notepad's 0xDEADBEEF link stub)
+  produced `name = "<windows.h>"` / `type = "#include"`; preprocessor
+  directives and non-identifier "names" are skipped, falling back to
+  `g_<hex>`.
+- **`data --annotate` reports skipped unnamed entries** — projects whose
+  `rebrew-data.toml` has no `name` fields (notepad's 31 data symbols)
+  previously got a silent 0-marker no-op; the run now reports how many
+  entries were skipped and why.
+- **`extract list` surfaces `// STUB:` pre-skeletons as candidates** —
+  bare STUB placeholders (win2k-*, test_*) counted as "reversed", so
+  stub-only projects showed zero candidates; they are now candidates
+  (win2k-notepad: 0 → 63) while `// FUNCTION:` files with STUB status
+  stay reversed.
+- **`parse_function_list` accepts size-less `VA NAME` lines** — rizin afl
+  can omit sizes; the whole line was dropped, hiding the function from
+  the universe.  Size-less entries parse with size 0; bare `VA DIGITS`
+  lines stay rejected.
+- **`rebrew switch` decodes MSVC memcpy byte-tail dispatches** —
+  `and reg, mask` index bounds are recognized and the dead leading table
+  slot (never dereferenced, overlapping the preceding jmp) is skipped —
+  these reported `entries: 0` (found across win2k-sndrec32/pinball/
+  sndvol32).
+- **`link_objects` falls back to Makefile-style builds** —
+  `verify-placement`/`data --layout-audit` errored "no
+  build/CMakeFiles/*/objects*.rsp found — build the project first" on
+  Makefile-built projects (notepad's `out/*.obj`); objects now resolve
+  from `out/`/`build/` in make's sorted link order.
+
 ## [0.6.0] - 2026-08-24
 ### Fixed
 - **`rebrew extract list` no longer reports 0 candidates on stale

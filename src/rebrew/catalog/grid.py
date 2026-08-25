@@ -196,6 +196,9 @@ def generate_data_json(
     """
     by_va: dict[int, list[Annotation]] = {}
     for e in entries:
+        # GLOBAL/DATA markers describe data globals, not code functions
+        if e.marker_type in ("GLOBAL", "DATA"):
+            continue
         by_va.setdefault(e.va, []).append(e)
 
     unique_vas = set(by_va)
@@ -254,7 +257,7 @@ def generate_data_json(
         # Capture raw .text section bytes for padding detection
         if ".text" in _bin_info.sections:
             sec = _bin_info.sections[".text"]
-            text_data = _bin_data[sec.file_offset : sec.file_offset + sec.size]
+            text_data = _bin_data[sec.file_offset : sec.file_offset + sec.raw_size]
 
     # Fallback if LIEF fails to populate .text section
     if ".text" not in sections:
@@ -311,7 +314,10 @@ def generate_data_json(
 
         fn_hash = ""
         if _bin_data is not None:
-            raw = _bin_data[file_off : file_off + canonical_size]
+            # Clamp to avoid overlapping next function
+            raw = _bin_data[
+                file_off : file_off + min(canonical_size, _bin_data.__len__() - file_off)
+            ]
             # Trim trailing CC/90 padding (same as extract_dll_bytes)
             raw = raw[: trim_trailing_padding(raw)] if raw else b""
             if raw:

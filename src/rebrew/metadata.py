@@ -240,6 +240,7 @@ def load_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
     # Resolve so cache keys are stable across relative/absolute call sites.
     path = (directory / METADATA_FILENAME).resolve()
     if not path.exists():
+        _metadata_cache.pop(path, None)
         return {}
 
     return load_metadata_doc(path, _metadata_cache, "metadata")
@@ -371,7 +372,10 @@ def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
             module = u.get("module") or ""
             if not module:
                 continue
-            toml_key = qualified_key(module, u["va"])
+            va = u.get("va")
+            if va is None:
+                continue
+            toml_key = qualified_key(module, int(va))
             if toml_key not in doc_dict:
                 doc_dict[toml_key] = tomlkit.table()
             entry = typing.cast(dict[str, Any], doc_dict[toml_key])
@@ -386,7 +390,7 @@ def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
                 changed_entries += 1
         if changed_entries:
             atomic_write_text(path, tomlkit.dumps(doc))
-    _metadata_cache.pop(path, None)
+        _metadata_cache.pop(path, None)
     return changed_entries
 
 
@@ -404,9 +408,9 @@ def _mutate_entry_doc(
     Returns True if the file was modified.
     """
     path = (directory / METADATA_FILENAME).resolve()
+    _require_module(module)
     if not path.exists():
         return False
-    _require_module(module)
     toml_key = qualified_key(module, va)
 
     with _metadata_write_lock(directory):
@@ -669,7 +673,7 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
             force = u.get("force", False)
 
             # Idempotency guard — avoid a write when nothing changed
-            current_status = entry.get("status", "")
+            current_status = canonical_status(str(entry.get("status", "")))
             current_blocker = entry.get("blocker", "")
             current_blocker_delta = entry.get("blocker_delta")
             if current_status == new_status and (
@@ -698,7 +702,7 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
         # Single write for the whole batch
         if changed:
             atomic_write_text(path, tomlkit.dumps(doc))
-    _metadata_cache.pop(path, None)
+        _metadata_cache.pop(path, None)
     return changed
 
 
@@ -886,6 +890,8 @@ class LibraryOverride:
 #: knows what the shipped runtimes were built with (the standard MSVC /MT
 #: vs /MD shapes, the 16-bit models, Borland/Watcom defaults), so users
 #: declare ``library = "msvcrt-static"`` instead of handwriting flags.
+#: This is the packaged base; ``rebrew.library_presets`` entry-point
+#: providers extend/override it per name (see :func:`all_library_presets`).
 LIBRARY_PRESETS: dict[str, dict[str, str]] = {
     # MSVC shipped CRT: libc.lib (static single-thread), libcmt.lib (static
     # multi-thread = /MT), msvcrt.lib (dynamic = /MD) — the classic /O2 /Gd
@@ -895,6 +901,50 @@ LIBRARY_PRESETS: dict[str, dict[str, str]] = {
     "borland-runtime": {"toolchain": "tc16", "cflags": "-O2"},
     "watcom-runtime": {"toolchain": "watcom", "cflags": "-ot"},
 }
+
+#: setuptools entry-point group whose members register library presets.  A
+#: member is a zero-arg callable returning ``dict[name, {toolchain, cflags}]``
+#: — e.g. a toolchain plugin declaring "this shipped library is built with
+#: my compiler".  Presets are tuning data: a provider may override a
+#: packaged name (the plugin's knowledge wins).
+LIBRARY_PRESET_ENTRY_POINT_GROUP = "rebrew.library_presets"
+
+
+def _merged_library_presets() -> dict[str, dict[str, str]]:
+    """Packaged presets + ``rebrew.library_presets`` providers (override)."""
+    from rebrew.registry import RegistryError, entry_point_registrations, import_registration
+
+    presets = dict(LIBRARY_PRESETS)
+    for reg in entry_point_registrations(LIBRARY_PRESET_ENTRY_POINT_GROUP):
+        provider = import_registration(reg)
+        try:
+            provided = provider()
+        except Exception as exc:
+            raise RegistryError(
+                f"bad {reg.group} provider from {reg.origin}: {type(exc).__name__}: {exc}"
+            ) from exc
+        if not isinstance(provided, dict):
+            raise RegistryError(
+                f"bad {reg.group} provider from {reg.origin}: expected "
+                "dict[name, {toolchain, cflags}], got "
+                f"{type(provided).__name__}"
+            )
+        for name, fields in provided.items():
+            if not isinstance(fields, dict):
+                raise RegistryError(
+                    f"bad {reg.group} provider from {reg.origin}: preset {name!r} "
+                    f"must be a table, got {type(fields).__name__}"
+                )
+            presets[name] = {str(k): str(v) for k, v in fields.items()}
+    return presets
+
+
+_LIBRARY_PRESETS_ALL: dict[str, dict[str, str]] = _merged_library_presets()
+
+
+def all_library_presets() -> dict[str, dict[str, str]]:
+    """The full library-preset registry (packaged + plugin-provided)."""
+    return _LIBRARY_PRESETS_ALL
 
 
 #: Process-level memo for :func:`parse_library_metadata`, keyed by file path.
@@ -945,9 +995,10 @@ def apply_library_presets(meta: dict[str, Any]) -> tuple[dict[str, Any], tuple[s
     """Fill missing toolchain/cflags from the known-library presets.
 
     Returns ``(merged, preset_names_used)``.  Explicit fields always win.
-    """
+    The preset table is the merged registry (:func:`all_library_presets`),
+    so plugin-provided presets apply here too."""
     name = str(meta.get("library") or "").strip()
-    preset = LIBRARY_PRESETS.get(name, {})
+    preset = _LIBRARY_PRESETS_ALL.get(name, {})
     if not preset:
         return meta, ()
     merged = {**meta}

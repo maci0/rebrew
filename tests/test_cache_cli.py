@@ -40,7 +40,7 @@ class TestStats:
         _patch_cfg(monkeypatch, tmp_path)
         stats_called: list[bool] = []
 
-        def fake_cache(_dir: Path) -> SimpleNamespace:
+        def fake_cache(_root: Path, backend: str = "diskcache") -> SimpleNamespace:
             return SimpleNamespace(
                 stats=lambda: (
                     stats_called.append(True)
@@ -56,7 +56,7 @@ class TestStats:
                 close=lambda: None,
             )
 
-        monkeypatch.setattr(cache_cli, "CompileCache", fake_cache)
+        monkeypatch.setattr(cache_cli, "get_compile_cache", fake_cache)
         r = runner.invoke(cache_cli.app, ["stats"])
         assert r.exit_code == 0
         assert stats_called == [True]
@@ -77,14 +77,14 @@ class TestClear:
         _patch_cfg(monkeypatch, tmp_path)
         cleared: list[str] = []
 
-        def fake_cache(_dir: Path) -> SimpleNamespace:
+        def fake_cache(_root: Path, backend: str = "diskcache") -> SimpleNamespace:
             return SimpleNamespace(
                 count=4,
                 clear=lambda: cleared.append("clear"),
                 close=lambda: None,
             )
 
-        monkeypatch.setattr(cache_cli, "CompileCache", fake_cache)
+        monkeypatch.setattr(cache_cli, "get_compile_cache", fake_cache)
         r = runner.invoke(cache_cli.app, ["clear", "--force"])
         assert r.exit_code == 0
         assert cleared == ["clear"]
@@ -96,14 +96,14 @@ class TestClear:
         _patch_cfg(monkeypatch, tmp_path)
         cleared: list[str] = []
 
-        def fake_cache(_dir: Path) -> SimpleNamespace:
+        def fake_cache(_root: Path, backend: str = "diskcache") -> SimpleNamespace:
             return SimpleNamespace(
                 count=2,
                 clear=lambda: cleared.append("clear"),
                 close=lambda: None,
             )
 
-        monkeypatch.setattr(cache_cli, "CompileCache", fake_cache)
+        monkeypatch.setattr(cache_cli, "get_compile_cache", fake_cache)
         r = runner.invoke(cache_cli.app, ["clear"], input="y\n")
         assert r.exit_code == 0
         assert cleared == ["clear"]

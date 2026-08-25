@@ -391,9 +391,25 @@ def strip_body(prototype: str) -> str:
 
     ``annotation.prototype`` includes the full C definition including its body.
     BinSync's ``[header].type`` expects only the declaration/signature line.
+    Brace detection is quote-aware — a ``{`` inside a string literal (e.g.
+    ``const char *s = "{"``) must not be mistaken for the body delimiter.
     """
-    brace = prototype.find("{")
-    return prototype[:brace].strip() if brace != -1 else prototype.strip()
+    in_str = False
+    escaped = False
+    for i, ch in enumerate(prototype):
+        if in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            return prototype[:i].strip()
+    return prototype.strip()
 
 
 def preserve_corrupt(path: Path) -> Path | None:
@@ -406,6 +422,11 @@ def preserve_corrupt(path: Path) -> Path | None:
     gone or unwritable), in which case the caller has nothing to preserve.
     """
     backup = path.with_name(path.name + ".corrupt")
+    if backup.exists():
+        # Avoid clobbering a previous .corrupt snapshot — keep both.
+        import time
+
+        backup = path.with_name(f"{path.name}.{int(time.time())}.corrupt")
     try:
         os.replace(path, backup)
     except OSError:
@@ -463,13 +484,23 @@ def metadata_write_lock(directory: Path, filename: str) -> Iterator[None]:
         fcntl = None  # type: ignore[assignment]
 
     path = (directory / filename).resolve()
+    # Reject directory-traversal filenames (e.g. "../../etc/passwd") — the
+    # lock file is derived from this path and would otherwise escape the
+    # project root.
+    if Path(filename).name != filename or "/" in filename or "\\" in filename:
+        raise ValueError(f"invalid metadata filename: {filename!r}")
     # Create the target directory before opening the ``.lock`` sidecar: the
     # first-ever write into a fresh metadata root would otherwise crash with
     # FileNotFoundError inside the lock acquisition (the data write itself
     # only runs later, inside atomic_write_text's own mkdir).  exist_ok
     # keeps concurrent creators safe.
     path.parent.mkdir(parents=True, exist_ok=True)
-    with _METADATA_WRITE_LOCKS.setdefault(filename, threading.Lock()):
+    # Use setdefault atomically — double-checked to avoid creating a lock
+    # object that is never stored due to a race.
+    lock = _METADATA_WRITE_LOCKS.get(filename)
+    if lock is None:
+        lock = _METADATA_WRITE_LOCKS.setdefault(filename, threading.Lock())
+    with lock:
         if fcntl is None:
             yield
             return
@@ -502,6 +533,7 @@ def load_metadata_doc(
     """
     path = path.resolve()
     if not path.exists():
+        cache.pop(path, None)
         return {}
 
     try:
@@ -510,7 +542,7 @@ def load_metadata_doc(
         current_mtime = 0
     cached = cache.get(path)
     if cached is not None and cached[0] == current_mtime:
-        return cached[1]
+        return dict(cached[1])
 
     try:
         doc = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -520,7 +552,7 @@ def load_metadata_doc(
 
     result = parse_metadata_doc(doc)
     cache[path] = (current_mtime, result)
-    return result
+    return dict(result)
 
 
 def qualified_key(module: str | None, va: int) -> str:
@@ -699,11 +731,15 @@ def strip_comment_blocks(text: str) -> str:
     """
     out: list[str] = []
     in_block = False
+    in_string_global = False
     for line in text.splitlines():
         stripped = line.strip()
         if stripped == "*/":
             # Closes an open comment block (or a harmless orphan).
+            # Also reset global string state — we are outside any string on a new line
+            # after a block comment close; the per-line scanner handles the rest.
             in_block = False
+            in_string_global = False
             continue
         if stripped.startswith("* ") and not in_block:
             # Orphaned comment-continuation lines (malformed /* */ nesting).
@@ -712,7 +748,10 @@ def strip_comment_blocks(text: str) -> str:
             # followed by code) is honoured instead of leaving the block open.
             continue
         buf: list[str] = []
-        in_string = False
+        in_string = in_string_global
+        # Handle single-quoted char literals and multi-line strings: carry
+        # in_string across lines when the previous line left a string open
+        # without a closing quote.
         i = 0
         n = len(line)
         while i < n:
@@ -733,7 +772,7 @@ def strip_comment_blocks(text: str) -> str:
                     buf.append(line[i + 1])
                     i += 2
                     continue
-                if ch == '"':
+                if ch in ('"', "'"):
                     in_string = False
                 i += 1
                 continue
@@ -754,9 +793,10 @@ def strip_comment_blocks(text: str) -> str:
                     i = n
                 continue
             buf.append(ch)
-            if ch == '"':
+            if ch in ('"', "'"):
                 in_string = True
             i += 1
+        in_string_global = in_string
         joined = "".join(buf)
         # Keep blank lines (collapse handles runs) and any code; drop
         # comment-only lines entirely.

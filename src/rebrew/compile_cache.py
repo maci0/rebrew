@@ -51,9 +51,10 @@ import hashlib
 import logging
 import re
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from functools import lru_cache
 from pathlib import Path
+from typing import Protocol
 
 import diskcache
 
@@ -165,22 +166,34 @@ class CompileCache:
     @property
     def volume(self) -> int:
         """Total bytes used by the cache on disk."""
-        return int(self._cache.volume()) if self._cache is not None else 0
+        try:
+            return int(self._cache.volume()) if self._cache is not None else 0
+        except Exception:
+            return 0
 
     @property
     def count(self) -> int:
         """Number of entries in the cache."""
-        return len(self._cache) if self._cache is not None else 0
+        try:
+            return len(self._cache) if self._cache is not None else 0
+        except Exception:
+            return 0
 
     def clear(self) -> None:
         """Remove all cached entries."""
         if self._cache is not None:
-            self._cache.clear()
+            try:
+                self._cache.clear()
+            except Exception as exc:
+                _warn_cache_failure("clear", exc)
 
     def close(self) -> None:
         """Close the underlying diskcache store."""
         if self._cache is not None:
-            self._cache.close()
+            try:
+                self._cache.close()
+            except Exception as exc:
+                _warn_cache_failure("close", exc)
 
     def stats(self) -> dict[str, int | float]:
         """Return cache statistics as a dict.
@@ -201,6 +214,80 @@ class CompileCache:
             "session_misses": self.misses,
             "session_hit_rate_pct": hit_rate,
         }
+
+
+# ---------------------------------------------------------------------------
+# Cache backend registry — the store is a component, the keying is not
+# ---------------------------------------------------------------------------
+
+
+#: Minimal store interface a cache backend must satisfy.  ``CompileCache``
+#: (the packaged diskcache backend) implements it; a plugin backend plugs in
+#: through the ``rebrew.cache_backends`` entry-point group.
+#:
+#: The *keying* (what makes a hit valid — source/flags/toolchain digests)
+#: lives in the shared key functions below and is deliberately NOT part of
+#: the contract: a different caching mechanism may store the bytes wherever
+#: it likes, but it must not reinterpret what the keys mean.
+class CacheBackend(Protocol):
+    """Store interface for compile-cache backends."""
+
+    hits: int
+    misses: int
+
+    def get(self, key: str) -> bytes | None: ...
+    def put(self, key: str, obj_bytes: bytes) -> None: ...
+
+    @property
+    def volume(self) -> int: ...
+    @property
+    def count(self) -> int: ...
+
+    def clear(self) -> None: ...
+    def close(self) -> None: ...
+    def stats(self) -> dict[str, int | float]: ...
+
+
+#: setuptools entry-point group whose members register compile-cache
+#: backends.  A member is a factory ``(cache_dir: Path, size_limit: int) ->
+#: CacheBackend``; the packaged ``diskcache`` backend is the default, and a
+#: project selects one through ``[cache] backend`` in rebrew-project.toml.
+#: The factory contract takes the cache directory + size cap even for
+#: remote/shared stores — the directory doubles as the per-project
+#: namespace the backend keys under.
+CACHE_BACKEND_ENTRY_POINT_GROUP = "rebrew.cache_backends"
+
+
+def _discover_cache_backends() -> dict[str, Callable[[Path, int], CacheBackend]]:
+    """The backend registry: packaged ``diskcache`` + entry-point members.
+
+    A duplicate name (including a plugin claiming ``diskcache``) raises
+    :class:`RegistryError` — a cache backend name has one provider."""
+    from rebrew.registry import (
+        RegistryError,
+        entry_point_registrations,
+        import_registration,
+        merge_into,
+    )
+
+    backends: dict[str, Callable[[Path, int], CacheBackend]] = {"diskcache": CompileCache}
+    for reg in entry_point_registrations(CACHE_BACKEND_ENTRY_POINT_GROUP):
+        factory = import_registration(reg)
+        if not callable(factory):
+            raise RegistryError(
+                f"bad {reg.group} registration {reg.name!r} from {reg.origin}: "
+                f"expected a callable factory, got {type(factory).__name__}"
+            )
+        merge_into(backends, reg.name, factory, reg.origin, group=reg.group)
+    return backends
+
+
+_CACHE_BACKENDS: dict[str, Callable[[Path, int], CacheBackend]] = _discover_cache_backends()
+
+
+def available_cache_backends() -> list[str]:
+    """Names of every registered cache backend (packaged + plugin)."""
+    return sorted(_CACHE_BACKENDS)
 
 
 # ---------------------------------------------------------------------------
@@ -327,8 +414,12 @@ def _find_in_dirs(name: Path, dirs: list[Path]) -> Path | None:
     Exact match first; falls back to a case-insensitive scan per directory
     (wine/Windows resolution is case-insensitive while the host FS is not —
     a header included with different case than on disk would otherwise go
-    untracked and risk a stale hit).
+    untracked and risk a stale hit).  Rejects path-traversal components
+    (``..`` / absolute paths) to avoid escaping the include roots.
     """
+    # Reject traversal — otherwise ``#include "../../etc/passwd"`` would escape.
+    if name.is_absolute() or ".." in name.parts:
+        return None
     for d in dirs:
         try:
             candidate = (d / name).resolve()
@@ -339,6 +430,10 @@ def _find_in_dirs(name: Path, dirs: list[Path]) -> Path | None:
     for d in dirs:
         try:
             if not d.is_dir():
+                continue
+            # Only try case-insensitive fallback for single-component names;
+            # sub-path includes need exact directory structure.
+            if len(name.parts) != 1:
                 continue
             for child in d.iterdir():
                 if child.is_file() and child.name.lower() == name.name.lower():
@@ -649,21 +744,36 @@ def compile_cache_key(
 # Module-level cache registry (avoids re-opening SQLite on every call)
 # ---------------------------------------------------------------------------
 
-_caches: dict[str, CompileCache] = {}
+_caches: dict[tuple[str, str], CacheBackend] = {}
 _caches_lock = threading.Lock()
 
 
-def get_compile_cache(project_root: Path) -> CompileCache:
-    """Return a shared ``CompileCache`` instance for a project root.
+def get_compile_cache(project_root: Path, backend: str = "diskcache") -> CacheBackend:
+    """Return a shared cache instance for a project root and backend.
 
-    The cache is stored at ``{project_root}/.rebrew/compile_cache/``.
-    Multiple calls with the same root return the same instance.
+    The diskcache backend stores at ``{project_root}/.rebrew/compile_cache/``.
+    Multiple calls with the same ``(root, backend)`` return the same instance.
+
+    Args:
+        project_root: The project root (cache namespace).
+        backend: Name of a registered cache backend (``[cache] backend`` in
+            rebrew-project.toml; default ``diskcache``).
+
+    Raises:
+        ValueError: When *backend* is not a registered backend.
     """
-    cache_dir = str(project_root / ".rebrew" / "compile_cache")
+    factory = _CACHE_BACKENDS.get(backend)
+    if factory is None:
+        raise ValueError(
+            f"unknown cache backend {backend!r} (known: {available_cache_backends()}) — "
+            f"set [cache] backend in rebrew-project.toml"
+        )
+    cache_dir = str((project_root / ".rebrew" / "compile_cache").resolve())
+    key = (backend, cache_dir)
     with _caches_lock:
-        if cache_dir not in _caches:
-            _caches[cache_dir] = CompileCache(cache_dir)
-        return _caches[cache_dir]
+        if key not in _caches:
+            _caches[key] = factory(Path(cache_dir), _DEFAULT_SIZE_LIMIT)
+        return _caches[key]
 
 
 def close_all_caches() -> None:

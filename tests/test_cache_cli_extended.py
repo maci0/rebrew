@@ -48,7 +48,10 @@ def _patch_cache(
         def close(self) -> None:
             return None
 
-    monkeypatch.setattr("rebrew.cache_cli.CompileCache", _FakeCache)
+    monkeypatch.setattr(
+        "rebrew.cache_cli.get_compile_cache",
+        lambda root, backend="diskcache": _FakeCache(root),
+    )
 
 
 class TestCacheCli:

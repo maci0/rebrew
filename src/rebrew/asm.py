@@ -497,7 +497,10 @@ def _annotation_for_operand(op_str: str, lookup: dict[int, str]) -> str | None:
         return None
     # Skip register-relative forms: any '[' that is not a bare [0x...].
     if "[" in op_str:
-        inner = op_str[op_str.index("[") + 1 : op_str.index("]")]
+        try:
+            inner = op_str[op_str.index("[") + 1 : op_str.index("]")]
+        except ValueError:
+            return None
         if inner.startswith("0x") and "+" not in inner and "-" not in inner:
             addr = _extract_hex_operand(inner)
             return lookup.get(addr) if addr is not None else None

@@ -64,14 +64,24 @@ def _rizin_functions(binary: Path, cmds: list[str]) -> list[tuple[int, int, str]
         )
     except (OSError, subprocess.TimeoutExpired):
         return []
+    if r.returncode != 0:
+        logging.debug("rizin %s failed (rc=%d): %s", cmds, r.returncode, r.stderr[:500])
+        return []
     return parse_rizin_afl(r.stdout)
 
 
 def _capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
     """Linear-sweep candidates from .text: post-padding starts, frame prologues, call targets."""
-    info = load_binary(binary)
+    try:
+        info = load_binary(binary)
+    except (OSError, ValueError):
+        return []
     text = next((s for s in info.sections.values() if s.name.lower() == ".text"), None)
     if text is None:
+        return []
+    if text.size <= 0 or text.file_offset < 0:
+        return []
+    if text.file_offset + text.size > len(info.data):
         return []
     data = info.data
     raw = data[text.file_offset : text.file_offset + text.size]

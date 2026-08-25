@@ -70,14 +70,28 @@ def _run_objdump(obj: Path, flag: str) -> str:
 
 
 def link_objects(root: Path) -> list[Path]:
-    """The build's object files in link order (build/CMakeFiles/*/objects*.rsp)."""
+    """The build's object files in link order.
+
+    CMake builds are read from ``build/CMakeFiles/*/objects*.rsp``, which
+    preserves the link order.  Makefile-style builds (no rsp) fall back to
+    the object directory (``out/`` then ``build/``) sorted by name — GNU
+    make expands ``$(wildcard ...)``/``$(SRCS)`` in sorted order, so a plain
+    Makefile links objects in exactly that order.
+    """
     rsps = sorted((root / "build/CMakeFiles").glob("*/objects*.rsp"))
-    if not rsps:
-        raise FileNotFoundError(
-            "no build/CMakeFiles/*/objects*.rsp found — build the project first"
-        )
-    text = rsps[0].read_text(encoding="utf-8")
-    return [Path(root / "build") / (a or b) for a, b in _OBJ_RE.findall(text)]
+    if rsps:
+        text = rsps[0].read_text(encoding="utf-8")
+        return [Path(root / "build") / (a or b) for a, b in _OBJ_RE.findall(text)]
+    for obj_dir in ("out", "build"):
+        obj_path = root / obj_dir
+        if not obj_path.is_dir():
+            continue
+        objs = sorted(p for p in obj_path.iterdir() if p.is_file() and p.suffix in (".obj", ".o"))
+        if objs:
+            return objs
+    raise FileNotFoundError(
+        "no build/CMakeFiles/*/objects*.rsp or out|build/*.obj found — build the project first"
+    )
 
 
 def _obj_sections(obj: Path) -> tuple[dict[int, str], int, int]:
@@ -349,7 +363,7 @@ def fill_data(
     data_base, raw_end, section_end = layout_geometry(root / "rebrew-project.toml")
     orig = data_raw_from_binary(bin_path)
     toml = data_symbols(metadata)
-    files = sorted(src_dir.rglob("*.c"))
+    files = sorted(p for p in src_dir.rglob("*.c") if not p.is_symlink())
     by_addr = sorted(toml.items(), key=lambda kv: kv[1])
     if not by_addr:
         return {"init_pads": 0, "bss_pads": 0}
@@ -735,7 +749,7 @@ def fix_ownership(
     toml = _data_symbol_types(metadata)
     data_base, raw_end, _section_end = layout_geometry(root / "rebrew-project.toml")
     orig = data_raw_from_binary(bin_path)
-    files = sorted(src_dir.rglob("*.c"))
+    files = sorted(p for p in src_dir.rglob("*.c") if not p.is_symlink())
 
     def_re = re.compile(r"^[ \t]*[\w\s\*]+\s+(\w+)(?:\[\d+\])?\s*=")
     owner: dict[str, Path] = {}

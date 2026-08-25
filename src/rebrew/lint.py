@@ -1392,7 +1392,9 @@ def main(
         c_files = sorted(Path.cwd().rglob(f"*{ext}"))
 
     # Cross-file duplicate tracking: VAs (E013) and global names (W021).
-    seen_vas: dict[int, str] = {}
+    # seen_vas keys are (module, va) tuples — bare int would falsely flag
+    # cross-module files that legitimately share a VA in different targets.
+    seen_vas: dict[Any, str] = {}
     seen_globals: dict[str, str] = {}
 
     # Pre-load metadata once for the whole batch (avoids per-file I/O).

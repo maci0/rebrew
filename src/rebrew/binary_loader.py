@@ -33,6 +33,34 @@ with contextlib.suppress(Exception):
 
 log = logging.getLogger(__name__)
 
+#: setuptools entry-point group whose members parse binary formats the
+#: packaged loaders cannot (LIEF covers PE/ELF/Mach-O; NE/MZ are native).
+#: A member is a callable ``(path: Path, fmt: str) -> BinaryInfo | None``,
+#: run when LIEF parsing fails, in discovery order; the first non-None
+#: result is used.  A failing plugin loader is logged and skipped.
+BINARY_LOADER_ENTRY_POINT_GROUP = "rebrew.binary_loaders"
+
+
+def _discover_binary_loaders() -> list[tuple[str, Any]]:
+    """Every ``rebrew.binary_loaders`` entry-point member, as ``(name, fn)``.
+
+    A member that is not callable raises :class:`RegistryError`."""
+    from rebrew.registry import RegistryError, entry_point_registrations, import_registration
+
+    loaders: list[tuple[str, Any]] = []
+    for reg in entry_point_registrations(BINARY_LOADER_ENTRY_POINT_GROUP):
+        fn = import_registration(reg)
+        if not callable(fn):
+            raise RegistryError(
+                f"bad {reg.group} registration {reg.name!r} from {reg.origin}: "
+                f"expected a callable loader, got {type(fn).__name__}"
+            )
+        loaders.append((reg.name, fn))
+    return loaders
+
+
+_PLUGIN_LOADERS: list[tuple[str, Any]] = _discover_binary_loaders()
+
 _MAX_BINARY_SIZE = 512 * 1024 * 1024  # 512 MB safety limit
 
 # Guards the lazy ``BinaryInfo.data`` fill.  One global lock rather than a
@@ -87,6 +115,10 @@ class BinaryInfo:
 
     # Raw file bytes (lazy-loaded)
     _data: bytes | None = field(default=None, repr=False)
+
+    # Cache validation (set by load_binary)
+    _cache_mtime_ns: int = field(default=0, repr=False)
+    _cache_fsize: int = field(default=0, repr=False)
 
     @property
     def data(self) -> bytes:
@@ -331,19 +363,30 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
         raise FileNotFoundError(f"Binary not found: {path}")
 
     # Bounded cache keyed on resolved path + format to avoid re-parsing.
-    # Lock protects concurrent reads/writes from multiple workers.  This
-    # covers NE binaries too — without it every extract_raw_bytes call
-    # re-parsed the 16-bit target (0.18s each → minutes for a 1783-function
-    # similar scan).
-    cache_key = (str(path.resolve()), fmt)
+    # Also track mtime/size to invalidate stale entries when binary is rebuilt.
+    resolved = str(path.resolve())
+    cache_key = (resolved, fmt)
+    try:
+        stat = path.stat()
+        mtime_ns = stat.st_mtime_ns
+        fsize = stat.st_size
+    except OSError:
+        mtime_ns = 0
+        fsize = 0
     with _load_binary_lock:
         cached = _load_binary_cache.get(cache_key)
         if cached is not None:
-            # LRU refresh: pop and re-insert so this entry moves to the end.
-            # Python 3.7+ dicts are insertion-ordered; next(iter(...)) always
-            # yields the oldest entry.  Re-inserting makes this the newest.
-            _load_binary_cache[cache_key] = _load_binary_cache.pop(cache_key)
-            return cached
+            # Check if cached entry is still valid (compare mtime via path stat cache)
+            # We store mtime alongside; if file changed, treat as miss
+            cached_mtime = getattr(cached, "_cache_mtime_ns", None)
+            cached_fsize = getattr(cached, "_cache_fsize", None)
+            if cached_mtime == mtime_ns and cached_fsize == fsize:
+                # LRU refresh
+                _load_binary_cache[cache_key] = _load_binary_cache.pop(cache_key)
+                return cached
+            else:
+                # Stale entry — remove it
+                _load_binary_cache.pop(cache_key, None)
 
     # 16-bit Windows NE executables are parsed natively (Borland Delphi /
     # Turbo Pascal Windows targets) — segments become sections with synthetic
@@ -358,10 +401,34 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
         # at the CS segment base (the entry's segment).
         result = _load_mz(path)
     else:
-        result = _parse_regular(path, fmt)
+        try:
+            result = _parse_regular(path, fmt)
+        except ValueError:
+            # LIEF cannot parse it — a plugin binary loader (novel container
+            # format) gets the fallback before we give up.
+            if not _PLUGIN_LOADERS:
+                raise
+            result = None
+            for name, fn in _PLUGIN_LOADERS:
+                try:
+                    candidate = fn(path, fmt)
+                except Exception:
+                    log.debug("plugin loader %r failed for %s", name, path, exc_info=True)
+                    continue
+                if candidate is not None:
+                    result = candidate
+                    break
+            if result is None:
+                raise
 
-    # Store in cache under the lock (double-checked; another thread may have
-    # populated it while we parsed).
+    # Every branch above either assigned a BinaryInfo or raised; narrow for
+    # the cache tagging below (mypy cannot see through the bare `raise`).
+    assert result is not None
+
+    # Tag with mtime for stale-check on next lookup
+    result._cache_mtime_ns = mtime_ns
+    result._cache_fsize = fsize
+    # Store in cache under the lock
     with _load_binary_lock:
         if cache_key not in _load_binary_cache:
             # Evict oldest entry when cache is full.
@@ -468,11 +535,21 @@ def extract_bytes_at_va(
         or scoring, pass ``trim_padding=False``.
 
     """
+    if size <= 0:
+        return b"" if size == 0 else None
+    if size > _MAX_BINARY_SIZE:
+        raise ValueError(f"Requested size too large: {size}")
     for section in info.sections.values():
-        if section.va <= va < section.va + section.raw_size:
+        if section.va <= va < section.va + section.size:
             offset = va - section.va
             file_pos = section.file_offset + offset
-            max_read = min(size, section.raw_size - offset)
+            # Clamp to raw_size for file-backed bytes (BSS tail has no bytes)
+            avail = section.raw_size - offset
+            if avail <= 0:
+                return b""
+            max_read = min(size, avail)
+            if file_pos < 0 or file_pos + max_read > len(info.data):
+                return None
             data = info.data[file_pos : file_pos + max_read]
             if trim_padding:
                 # Trim trailing linker padding (single slice instead of per-byte)
@@ -628,7 +705,14 @@ def iat_slot_vas(binary_path: Path | str) -> set[int]:
     path = Path(binary_path)
     if not path.exists():
         return set()
-    cache_key = str(path.resolve())
+    try:
+        st = path.stat()
+        mtime_ns = st.st_mtime_ns
+        fsize = st.st_size
+    except OSError:
+        mtime_ns = 0
+        fsize = 0
+    cache_key = f"{path.resolve()}:{mtime_ns}:{fsize}"
     with _iat_slot_lock:
         cached = _iat_slot_cache.get(cache_key)
         if cached is not None:

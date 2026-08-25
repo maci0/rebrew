@@ -148,6 +148,29 @@ class TestParseFunctionList:
             {"va": 0x10001070, "size": 200, "name": "_func_b"},
         ]
 
+    def test_size_less_name_only_lines_parsed(self, tmp_path: Path) -> None:
+        """`VA NAME` (no size) lines must still parse as functions (size 0):
+        rizin afl can omit sizes, and the whole line was previously dropped,
+        hiding the function from the universe (status/extract/registry)."""
+        p = tmp_path / "functions.txt"
+        p.write_text(
+            "0x10001000 64 _func_a\n0x10001040 _func_b\n0x10001070 200 _func_c\n",
+            encoding="utf-8",
+        )
+        funcs = parse_function_list(p)
+        assert funcs == [
+            {"va": 0x10001000, "size": 64, "name": "_func_a"},
+            {"va": 0x10001040, "size": 0, "name": "_func_b"},
+            {"va": 0x10001070, "size": 200, "name": "_func_c"},
+        ]
+
+    def test_bare_va_number_line_skipped(self, tmp_path: Path) -> None:
+        """`VA DIGITS` (no name) is malformed, not a size-less entry."""
+        p = tmp_path / "functions.txt"
+        p.write_text("0x10001000 8512\n0x10002000 _ok 32\n", encoding="utf-8")
+        funcs = parse_function_list(p)
+        assert funcs == [{"va": 0x10002000, "size": 32, "name": "_ok"}]
+
 
 class TestLoadGhidraDataLabelsMore:
     def test_non_list_entries_warns(self, tmp_path: Path) -> None:

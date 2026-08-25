@@ -107,7 +107,10 @@ class TestVerifyPlacement:
         result = CliRunner().invoke(app, ["--built", "build/nope.dll"])
         assert result.exit_code == 2
         assert "nope.dll" in result.output
-        assert "not found" in result.output
+        # Rich wraps the message at 80 columns; the path length varies with
+        # the pytest tmp dir, so normalize whitespace before the substring
+        # check (the "not found" can land on a wrapped line).
+        assert "not found" in " ".join(result.output.split())
 
     def test_object_inventory_failure_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -29,11 +29,14 @@ import contextlib
 import os
 import shutil
 import subprocess
+import tomllib
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from rebrew.registry import RegistryError, merge_provider_dict
 
 _RUN_TIMEOUT = 300
 
@@ -64,6 +67,10 @@ class ToolchainSpec:
     # (e.g. "/opt/msvc6.0/VC98/Bin"); the CMake toolchain wrapper
     # (rebrew-cmake-cl/link/lib) calls the tools there directly via `wine` and
     # derives the Include/Lib dirs from it
+    bits: int | None = None  # target code model: 16 / 32 / 64; None = unknown
+    # (assumed 32-bit by detection's arch-alignment check).  A toolchain
+    # registered with bits=16 is allowed on x86_16 DOS/NE targets instead of
+    # being flagged as a 32/64-bit compiler.
     description: str = ""
 
     @property
@@ -137,7 +144,8 @@ def require_toolchains_repo() -> Path:
 
 
 def _vendored(sub: str) -> Path:
-    return REPO_TOOLS / sub
+    # Resolve at call time so REBREW_TOOLCHAINS_DIR changes are honored
+    return toolchains_repo() / sub
 
 
 @dataclass(frozen=True)
@@ -502,7 +510,11 @@ _SOURCES: dict[str, ToolchainSource] = {
 }
 
 
-TOOLCHAINS: dict[str, ToolchainSpec] = {
+#: Packaged (built-in) toolchain registry — the base every discovered
+#: toolchain merges on top of.  The public :data:`TOOLCHAINS` is built from
+#: this plus entry-point providers and the project-level TOML overlay; keep
+#: the distinction so "packaged specs" and "user components" never blur.
+_BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
     "msvc400": ToolchainSpec(
         name="msvc400",
         image="rebrew/msvc:4.0-win32",
@@ -550,6 +562,7 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
         binary="DCC.EXE",
         image_binary=None,  # the image ENTRYPOINT is the dcc wrapper
         runtime="dosbox",
+        bits=16,  # 16-bit target (arch-alignment check)
         flags_style="msvc",
         obj_ext=".exe",  # DCC emits a linked NE, not an object
         host_path=_vendored("delphi/1.0-win16"),
@@ -582,6 +595,7 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
         binary="CL.EXE",
         image_binary=None,  # the image ENTRYPOINT is the cl16 wrapper
         runtime="dosbox",
+        bits=16,  # 16-bit target (arch-alignment check)
         flags_style="msvc",
         obj_ext=".obj",  # 16-bit OMF — see docs/OMF_NOTES.md
         host_path=_vendored("msvc/1.52-win16") if _vendored("msvc/1.52-win16").exists() else None,
@@ -876,6 +890,7 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
         binary="CL.EXE",
         image_binary=None,  # the image ENTRYPOINT is the cl15 wrapper
         runtime="dosbox",
+        bits=16,  # 16-bit target (arch-alignment check)
         flags_style="msvc",
         obj_ext=".obj",  # 16-bit OMF — parses via rebrew.matcher.omf16
         host_path=_vendored("msvc/1.5-win16") if _vendored("msvc/1.5-win16").exists() else None,
@@ -888,6 +903,7 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
         binary="CL.EXE",
         image_binary=None,  # the image ENTRYPOINT is the cl10 wrapper
         runtime="dosbox",
+        bits=16,  # 16-bit target (arch-alignment check)
         flags_style="msvc",
         obj_ext=".obj",  # 16-bit OMF — parses via rebrew.matcher.omf16
         host_path=_vendored("msvc/1.0-win16") if _vendored("msvc/1.0-win16").exists() else None,
@@ -899,6 +915,7 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
         image="rebrew/borland:2.0-win16",
         binary="TCC.EXE",
         runtime="dosbox",
+        bits=16,  # 16-bit target (arch-alignment check)
         flags_style="posix",
         obj_ext=".obj",  # Borland 16-bit OMF — parses via rebrew.matcher.omf16
         host_path=_vendored("borland/2.0-win16")
@@ -912,6 +929,7 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
         image="rebrew/borland:3.1-win16",
         binary="TCC.EXE",
         runtime="dosbox",
+        bits=16,  # 16-bit target (arch-alignment check)
         flags_style="posix",
         obj_ext=".obj",  # Borland 16-bit OMF — parses via rebrew.matcher.omf16
         host_path=_vendored("borland/3.1-win16")
@@ -937,6 +955,7 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
         image=None,  # host-only: wcc runs natively from the watcom snapshot
         binary="wcc",
         runtime="native",
+        bits=16,  # 16-bit target (arch-alignment check)
         flags_style="posix",
         obj_ext=".obj",  # 16-bit OMF — parses via omf16/objconv
         host_path=_vendored("watcom/2.0-win32") if _vendored("watcom/2.0-win32").exists() else None,
@@ -944,6 +963,151 @@ TOOLCHAINS: dict[str, ToolchainSpec] = {
         description="Open Watcom 2.0 wcc (16-bit DOS, OMF) — native Linux wcc",
     ),
 }
+
+# ---------------------------------------------------------------------------
+# Registry assembly — built-ins + entry points + project-level overlay
+# ---------------------------------------------------------------------------
+
+#: setuptools entry-point group whose providers yield toolchain specs.  A
+#: provider is a zero-arg callable returning ``dict[str, ToolchainSpec]``.
+TOOLCHAIN_ENTRY_POINT_GROUP = "rebrew.toolchains"
+
+#: Env var pointing at a directory of project-level toolchain ``*.toml``
+#: files.  Each file is one or more ``name = { … }`` tables of
+#: :class:`ToolchainSpec` fields — the project-level overlay that adds
+#: custom compilers without touching rebrew source.
+TOOLCHAIN_OVERLAY_ENV = "REBREW_TOOLCHAIN_OVERLAY_DIR"
+
+
+def toolchain_from_toml(name: str, table: dict[str, Any], source: str) -> ToolchainSpec:
+    """Build a :class:`ToolchainSpec` from a declarative TOML table.
+
+    Only known spec fields are accepted — a typo'd key is a declaration
+    error rather than a silent fallback to the field default."""
+    known = set(ToolchainSpec.__dataclass_fields__) - {"name"}
+    unknown = set(table) - known
+    if unknown:
+        raise RegistryError(
+            f"bad toolchain {name!r} in {source}: unknown field(s) {sorted(unknown)}"
+        )
+    host_path = table.get("host_path")
+    bits_raw = table.get("bits")
+    return ToolchainSpec(
+        name=name,
+        image=table.get("image"),
+        binary=str(table.get("binary") or ""),
+        image_binary=table.get("image_binary"),
+        runtime=str(table.get("runtime") or "native"),
+        flags_style=str(table.get("flags_style") or "msvc"),
+        obj_ext=str(table.get("obj_ext") or ".obj"),
+        host_path=Path(host_path) if host_path else None,
+        host_bin=str(table.get("host_bin") or "Bin"),
+        tool_root=table.get("tool_root"),
+        bits=int(bits_raw) if bits_raw else None,
+        description=str(table.get("description") or ""),
+    )
+
+
+def toolchain_to_toml(spec: ToolchainSpec) -> dict[str, Any]:
+    """Serialize a :class:`ToolchainSpec` into a TOML table.
+
+    Defaults are dropped, so ``toolchain_from_toml`` round-trips it."""
+    table: dict[str, Any] = {}
+    for field in (
+        "image",
+        "binary",
+        "image_binary",
+        "runtime",
+        "flags_style",
+        "obj_ext",
+        "host_bin",
+        "tool_root",
+        "description",
+    ):
+        value = getattr(spec, field)
+        if value:
+            table[field] = value
+    if spec.host_path is not None:
+        table["host_path"] = str(spec.host_path)
+    if spec.bits is not None:
+        table["bits"] = spec.bits
+    return table
+
+
+def _merge_entry_point_toolchains(registry: dict[str, ToolchainSpec]) -> None:
+    """Merge every ``rebrew.toolchains`` entry-point provider into *registry*."""
+    from rebrew.registry import entry_point_registrations, import_registration
+
+    for reg in entry_point_registrations(TOOLCHAIN_ENTRY_POINT_GROUP):
+        before = set(registry)
+        merge_provider_dict(registry, import_registration(reg), reg.origin, group=reg.group)
+        for name in set(registry) - before:
+            TOOLCHAIN_ORIGINS[name] = "entry-point"
+
+
+def _toolchain_overlay_dir() -> Path | None:
+    """The project-level toolchain overlay dir, or None when unset."""
+    env = os.environ.get(TOOLCHAIN_OVERLAY_ENV)
+    if not env:
+        return None
+    path = Path(env)
+    if not path.is_dir():
+        raise ToolchainError(f"{TOOLCHAIN_OVERLAY_ENV}={env} is not a directory")
+    return path
+
+
+def _merge_toolchain_overlay(registry: dict[str, ToolchainSpec]) -> None:
+    """Merge project-level ``*.toml`` toolchain files into *registry*."""
+    from rebrew.registry import merge_into
+
+    overlay = _toolchain_overlay_dir()
+    if overlay is None:
+        return
+    for path in sorted(overlay.glob("*.toml")):
+        try:
+            raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError) as exc:
+            raise ToolchainError(f"bad toolchain overlay {path}: {exc}") from exc
+        if not isinstance(raw, dict):
+            raise ToolchainError(f"bad toolchain overlay {path}: must be a TOML table")
+        for name, table in raw.items():
+            if not isinstance(table, dict):
+                raise ToolchainError(f"bad toolchain overlay {path}: {name!r} must be a table")
+            spec = toolchain_from_toml(name, table, str(path))
+            merge_into(registry, name, spec, f"data-file {path}", group="toolchains")
+            TOOLCHAIN_ORIGINS[name] = f"data-file {path}"
+
+
+def build_toolchain_registry() -> dict[str, ToolchainSpec]:
+    """The full registry: packaged built-ins + entry points + TOML overlay.
+
+    Merging order: built-ins first, then ``rebrew.toolchains`` entry-point
+    providers, then the ``REBREW_TOOLCHAIN_OVERLAY_DIR`` TOML files.  A
+    duplicate name between any two sources raises :class:`RegistryError`
+    (single-source discipline — a compiler must never be ambiguous).
+
+    Also repopulates :data:`TOOLCHAIN_ORIGINS` with each name's provenance
+    (``"packaged"`` / ``"entry-point"`` / ``"data-file <path>"``), so
+    ``rebrew toolchain list`` can show where a toolchain came from."""
+    global TOOLCHAIN_ORIGINS
+    registry = dict(_BUILTIN_TOOLCHAINS)
+    TOOLCHAIN_ORIGINS = dict.fromkeys(registry, "packaged")
+    _merge_entry_point_toolchains(registry)
+    _merge_toolchain_overlay(registry)
+    return registry
+
+
+#: Provenance of each registered toolchain name (built alongside
+#: :func:`build_toolchain_registry`): "packaged", "entry-point", or
+#: "data-file <path>".  A name not present is packaged (defensive default).
+TOOLCHAIN_ORIGINS: dict[str, str] = {}
+
+
+#: The canonical toolchain registry.  Profiles in config.py map to these by
+#: name; ``rebrew toolchain list`` shows them.  Built from
+#: :func:`build_toolchain_registry` so entry-point providers and the
+#: project-level TOML overlay extend it without touching host source.
+TOOLCHAINS: dict[str, ToolchainSpec] = build_toolchain_registry()
 
 
 def get_toolchain(name: str) -> ToolchainSpec:
@@ -985,9 +1149,9 @@ def kill_container(name: str, timeout: int = 30) -> None:
         subprocess.run(["docker", "kill", name], capture_output=True, timeout=timeout)
 
 
-def image_present(tag: str) -> bool:
+def image_present(tag: str, use_cache: bool = True) -> bool:
     """True when a docker image for *tag* is present locally (cached)."""
-    if tag in _image_presence:
+    if use_cache and tag in _image_presence:
         return _image_presence[tag]
     if not docker_available():
         return False
@@ -1275,6 +1439,7 @@ def list_toolchains() -> list[dict[str, Any]]:
             "obj_ext": s.obj_ext,
             "host_path": str(s.host_path) if s.host_path else None,
             "description": s.description,
+            "origin": TOOLCHAIN_ORIGINS.get(s.name, "packaged"),
             "docker": docker_available(),
         }
         for s in TOOLCHAINS.values()
@@ -1299,6 +1464,7 @@ def pull_toolchain(name: str, timeout: int = 1200) -> tuple[str, bool]:
     image = spec.image  # narrowed local — mypy does not narrow into the closure
     if not docker_available():
         raise ToolchainError("docker is not available — cannot pull images")
+    _image_presence.pop(image, None)
     if image_present(image):
         return image, True
 

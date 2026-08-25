@@ -453,6 +453,82 @@ concrete fix hint ("switch to msvc1.52 / tc16 / tc20 or document as
 blockers").  See
 `src/rebrew/toolchain_detect.py` and `profile_matches_detection`.
 
+### Extending the registry (third-party / project-local toolchains)
+
+The toolchain registry is not closed: `rebrew.toolchains` is a setuptools
+entry-point group whose members are zero-arg callables returning
+`dict[str, ToolchainSpec]` — an installed package can add compilers without
+editing rebrew source.  The packaged profiles are the base registry; a
+duplicate name between any two sources raises `RegistryError`
+(`src/rebrew/registry.py`).
+
+Project-local toolchains that are not packaged declare themselves as TOML
+files in the directory named by `REBREW_TOOLCHAIN_OVERLAY_DIR` — each file
+is one or more `name = { … }` tables of `ToolchainSpec` fields:
+
+```toml
+# /path/to/overlay/mytc.toml
+[mytc]
+image = "rebrew/custom:1.0-win32"
+binary = "mycc"
+flags_style = "posix"
+obj_ext = ".o"
+```
+
+Unknown spec fields are a declaration error; a name colliding with a
+packaged toolchain raises `RegistryError`.  Once registered (by either
+mechanism) the toolchain is a first-class profile: usable in
+`rebrew-library.toml`, per-function metadata, and `rebrew test --toolchain`.
+`rebrew toolchain list` reports each toolchain's provenance (`origin`:
+`packaged`, `entry-point`, or `data-file <path>`; the human table shows the
+column only when a non-packaged toolchain exists), and `rebrew doctor`'s
+Cache check reports an unregistered `[cache] backend` before the first
+compile.
+
+Three companion extension points make a plugin toolchain fully first-class:
+
+- **`rebrew.flag_sets`** — sweep axes for the GA.  A zero-arg callable
+  returning `dict[profile, (Flags, tiers)]` (tiers = `{tier: [axis ids]}`
+  with `"full": None` meaning all axes).  Without one, a plugin toolchain
+  compiles but `rebrew match --sweep` falls back to the MSVC flag space.
+- **`rebrew.toolchain_detectors`** — detection-family alignment.  A zero-arg
+  callable returning `dict[family, list[profile]]`; the profile is then
+  accepted by `rebrew doctor`'s family check and `rebrew init
+  --guess-compiler` for that family (e.g. an MSVC-derivative plugin
+  declaring `{"msvc": ["mytc"]}`), and a family the packaged table marks
+  un-matchable becomes matchable when a plugin declares profiles for it.
+- **`rebrew.binary_detectors`** — recognition of genuinely novel compiler
+  families.  A callable `(path) -> ToolchainInfo | None` runs when every
+  packaged backend (DIE/PDB/PE metadata/heuristics) leaves the family
+  unknown; the first non-None result supplies the family, which then flows
+  through the alignment table above.  Together the two groups make a novel
+  compiler detectable end-to-end: `rebrew toolchain detect` names it and
+  doctor/init accept its profiles.
+- **`rebrew.library_presets`** — known-library build settings.  A zero-arg
+  callable returning `dict[name, {toolchain, cflags}]`; `library = "<name>"`
+  in a `rebrew-library.toml` then fills missing fields from it.
+- **`rebrew.msvc_versions`** — version-exact MSVC matching.  A zero-arg
+  callable returning `dict["build:<n>" | "linker:<M>.<m>", list[profile]]`
+  (e.g. `{"build:8168": ["mytc"]}`); the profiles join the version-exact
+  `suggested_profiles` for that build/linker era, so the doctor's
+  "different compiler build" check accepts an MSVC-derivative plugin for
+  the exact build it matches (union per key — a build number is evidence,
+  not an identity).
+- **`rebrew.binary_loaders`** — parsing of novel container formats.  A
+  callable `(path, fmt) -> BinaryInfo | None` runs when LIEF cannot parse
+  the file (NE/MZ are already native); the first non-None result is used.
+
+A registered toolchain may declare `bits = 16` in its spec (entry-point or
+overlay TOML) to join the 16-bit arch-alignment set — it is then accepted on
+x86_16 DOS/NE targets and flagged on 32/64-bit binaries, exactly like the
+packaged 16-bit profiles.  Plugin CLI commands (entry-point groups
+`rebrew.commands` / `rebrew.multicommands`) group under a dedicated
+`Plugins` help panel, separate from the packaged command panels.
+
+`rebrew.flag_sets` and `rebrew.library_presets` are tuning data — a provider
+may override a packaged name.  `rebrew.toolchain_detectors` extends the
+packaged family sets (union).
+
 ### Archived MSVC Toolchains (additional MSVC versions)
 
 The most complete collection is the **`archaic-msvc`** GitHub org — one repo

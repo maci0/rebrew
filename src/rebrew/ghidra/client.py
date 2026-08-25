@@ -28,9 +28,10 @@ MCP_REQUEST_TIMEOUT_S = 30
 def _parse_sse_response(text: str) -> JsonRpcResponse | None:
     """Extract JSON-RPC result from an SSE (text/event-stream) response body."""
     for line in text.splitlines():
-        if line.startswith("data:"):
+        stripped = line.lstrip()
+        if stripped.startswith("data:"):
             try:
-                return JsonRpcResponse.from_dict(json.loads(line[5:].lstrip()))
+                return JsonRpcResponse.from_dict(json.loads(stripped[5:].lstrip()))
             except json.JSONDecodeError:
                 continue
     return None
@@ -54,7 +55,17 @@ def _call_mcp_tool(
     headers = dict(MCP_HEADERS)
     if session_id:
         headers["Mcp-Session-Id"] = session_id
-    resp = client.post(endpoint, json=payload, headers=headers, timeout=MCP_REQUEST_TIMEOUT_S)
+    try:
+        resp = client.post(endpoint, json=payload, headers=headers, timeout=MCP_REQUEST_TIMEOUT_S)
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "MCP tool %s request %s failed with HTTP error %s from %s",
+            tool_name,
+            request_id,
+            exc,
+            endpoint,
+        )
+        return None
     if resp.status_code != 200:
         logger.warning(
             "MCP tool %s request %s failed with HTTP %s from %s",
@@ -64,7 +75,7 @@ def _call_mcp_tool(
             endpoint,
         )
         return None
-    ct = resp.headers.get("content-type", "")
+    ct = resp.headers.get("content-type", "").lower()
     if "text/event-stream" in ct:
         data = _parse_sse_response(resp.text)
     else:
@@ -79,7 +90,7 @@ def _call_mcp_tool(
             return None
         try:
             data = JsonRpcResponse.from_dict(resp.json())
-        except (ValueError, UnicodeDecodeError):
+        except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
             logger.warning(
                 "MCP tool %s request %s returned invalid JSON from %s",
                 tool_name,
@@ -253,6 +264,8 @@ def fetch_all_symbols(
     Similar to ``fetch_all_functions`` but uses ``get-symbols``.
     Returns dicts with ``address`` and ``name`` keys.
     """
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
     all_syms: list[dict[str, Any]] = []
     start = 0
     request_id = 200
@@ -287,8 +300,14 @@ def fetch_all_symbols(
 
         if metadata is None or len(page_syms) == 0:
             break
-        total = metadata.get("totalCount", 0)
-        next_start = metadata.get("nextStartIndex", start + batch_size)
+        try:
+            total = int(metadata.get("totalCount", 0))
+        except (ValueError, TypeError):
+            total = 0
+        try:
+            next_start = int(metadata.get("nextStartIndex", start + batch_size))
+        except (ValueError, TypeError):
+            next_start = start + batch_size
         # Guard against a server that echoes nextStartIndex without advancing
         # (previously looped forever, one 30s HTTP call per iteration).
         if next_start <= start:
@@ -313,6 +332,8 @@ def fetch_all_functions(
     This helper pages through the full list and normalises the field names
     to the format expected by ``pull_ghidra_renames`` (``va``, ``tool_name``, ``size``).
     """
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
     all_funcs: list[dict[str, Any]] = []
     start = 0
     request_id = 100
@@ -354,8 +375,14 @@ def fetch_all_functions(
 
         if metadata is None or len(page_funcs) == 0:
             break
-        total = metadata.get("totalCount", 0)
-        next_start = metadata.get("nextStartIndex", start + batch_size)
+        try:
+            total = int(metadata.get("totalCount", 0))
+        except (ValueError, TypeError):
+            total = 0
+        try:
+            next_start = int(metadata.get("nextStartIndex", start + batch_size))
+        except (ValueError, TypeError):
+            next_start = start + batch_size
         # Guard against a server that echoes nextStartIndex without advancing
         # (previously looped forever, one 30s HTTP call per iteration — the
         # same guard fetch_all_symbols has).
@@ -396,13 +423,16 @@ def apply_commands_via_mcp(
         if session_id:
             headers["Mcp-Session-Id"] = session_id
 
-        # Send initialized notification
-        client.post(
-            endpoint,
-            json={"jsonrpc": "2.0", "method": "notifications/initialized"},
-            headers=headers,
-            timeout=MCP_REQUEST_TIMEOUT_S,
-        ).raise_for_status()
+        # Send initialized notification (best-effort — not fatal if it fails)
+        try:
+            client.post(
+                endpoint,
+                json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+                headers=headers,
+                timeout=MCP_REQUEST_TIMEOUT_S,
+            ).raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("Failed to send initialized notification to %s: %s", endpoint, exc)
 
         def _send_cmd(
             cmd: dict[str, Any],
@@ -419,16 +449,17 @@ def apply_commands_via_mcp(
                 endpoint, json=payload, headers=headers, timeout=MCP_REQUEST_TIMEOUT_S
             )
             resp.raise_for_status()
+            # Read body once to avoid double-decode on non-UTF8 responses.
             body = resp.text.strip()
             if not body:
                 return False, "empty MCP response body"
-            ct = resp.headers.get("content-type", "")
+            ct = resp.headers.get("content-type", "").lower()
             if "text/event-stream" in ct:
                 data = _parse_sse_response(body)
             else:
                 try:
                     data = JsonRpcResponse.from_dict(resp.json())
-                except (ValueError, UnicodeDecodeError):
+                except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
                     return False, "invalid MCP JSON-RPC response"
             if not data:
                 return False, "missing MCP JSON-RPC response"

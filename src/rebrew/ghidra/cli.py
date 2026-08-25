@@ -553,7 +553,9 @@ def main(
             error_exit("--watch requires --push", json_mode=json_output)
         from rebrew.utils import watch_files
 
-        watch_paths = list(iter_sources(reversed_dir, cfg)) + [cfg.root / "rebrew-function.toml"]
+        watch_paths = list(iter_sources(reversed_dir, cfg)) + [
+            cfg.metadata_dir / "rebrew-function.toml"
+        ]
 
         def _retest() -> None:
             # Re-run the push path with a fresh scan (no recursive main() —
@@ -749,7 +751,7 @@ def main(
             json_output,
             program_path=program_path,
             do_export=True,
-            do_apply=(push or apply),
+            do_apply=bool(push),
         )
     elif apply:
         _export_apply_ops(
@@ -869,9 +871,15 @@ def _refresh_structure_cache(
     for f in raw_funcs:
         # Parse VA — Ghidra MCP may return hex strings like "0x10001000"
         raw_va = f.get("va", 0)
-        va = int(raw_va, 0) if isinstance(raw_va, str) else int(raw_va)
+        try:
+            va = int(raw_va, 0) if isinstance(raw_va, str) else int(raw_va)
+        except (ValueError, TypeError):
+            continue
         raw_size = f.get("size", 0)
-        size = int(raw_size, 0) if isinstance(raw_size, str) else int(raw_size)
+        try:
+            size = int(raw_size, 0) if isinstance(raw_size, str) else int(raw_size)
+        except (ValueError, TypeError):
+            size = 0
 
         entry: dict[str, Any] = {"va": va, "size": size}
         # Preserve tool-assigned name as optional hint

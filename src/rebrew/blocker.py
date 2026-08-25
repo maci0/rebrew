@@ -75,12 +75,13 @@ def _resolve_target(
         # Bare VA without a file — module comes from config marker.
         module = getattr(cfg, "marker", "") or ""
         if not module:
-            # Fall back to first marker-like config, or require --target that has one.
             error_exit(
                 "Cannot determine module for bare VA — pass a file path or set a marker",
                 json_mode=json_mode,
             )
         if va_int is not None:
+            if va_int == 0:
+                error_exit("VA must be non-zero", json_mode=json_mode)
             return module, va_int
 
     resolved = str(resolve_source_arg(cfg, raw))
@@ -125,6 +126,9 @@ def _resolve_target(
             # where the annotation VA won't match the override).
             pass
 
+    if va_int is not None and va_int == 0:
+        error_exit("VA must be non-zero", json_mode=json_mode)
+
     if va_from_flag and va_int is not None:
         # Use the explicit VA as target; keep module from matched ann if any,
         # else from first annotation.
@@ -151,6 +155,10 @@ def blocker_set(
     cfg = require_config(target=target_name, json_mode=json_output)
     if not blocker.strip():
         error_exit("BLOCKER text must be non-empty", json_mode=json_output)
+    if len(blocker) > 2000:
+        error_exit("BLOCKER text too long (max 2000 chars)", json_mode=json_output)
+    if "\n" in blocker or "\r" in blocker:
+        error_exit("BLOCKER text must be a single line", json_mode=json_output)
     delta_int: int | None = None
     if delta is not None:
         try:
@@ -181,11 +189,12 @@ def blocker_set(
             )
         return
 
-    from rebrew.metadata import update_field
+    from rebrew.metadata import _set_fields
 
-    update_field(cfg.metadata_dir, va_int, "blocker", blocker, module=module)
+    fields: dict[str, object] = {"blocker": blocker}
     if delta_int is not None:
-        update_field(cfg.metadata_dir, va_int, "blocker_delta", delta_int, module=module)
+        fields["blocker_delta"] = delta_int
+    _set_fields(cfg.metadata_dir, va_int, fields, module=module)
 
     if json_output:
         payload["written"] = True

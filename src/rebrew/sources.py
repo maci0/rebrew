@@ -58,7 +58,7 @@ def target_marker(cfg: ProjectConfig | None) -> str | None:
 
 def iter_library_headers(directory: Path) -> list[Path]:
     """Return all library_*.h files under *directory*, recursively."""
-    return sorted(directory.rglob("library_*.h"))
+    return sorted(p for p in directory.rglob("library_*.h") if not p.is_symlink())
 
 
 def iter_sources(directory: Path, cfg: ProjectConfig | None = None) -> list[Path]:
@@ -80,7 +80,26 @@ def iter_sources(directory: Path, cfg: ProjectConfig | None = None) -> list[Path
     """
     exts = source_exts(cfg) or [".c"]
     wanted = {ext.lower() for ext in exts}
-    base = sorted(p for p in directory.rglob("*") if p.is_file() and p.suffix.lower() in wanted)
+    # Exclude common non-source dirs that rglob would otherwise descend into
+    _EXCLUDE_DIRS = {
+        ".git",
+        ".hg",
+        "__pycache__",
+        ".venv",
+        "venv",
+        "build",
+        "dist",
+        ".tox",
+        "node_modules",
+    }
+    base = sorted(
+        p
+        for p in directory.rglob("*")
+        if p.is_file()
+        and p.suffix.lower() in wanted
+        and not any(part in _EXCLUDE_DIRS for part in p.relative_to(directory).parts[:-1])
+        and not p.is_symlink()
+    )
 
     if cfg is None:
         return base

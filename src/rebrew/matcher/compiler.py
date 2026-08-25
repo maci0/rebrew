@@ -20,7 +20,7 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-from rebrew.compile_cache import CompileCache, compile_cache_key
+from rebrew.compile_cache import CacheBackend, compile_cache_key
 from rebrew.config import POSIX_PROFILES
 from rebrew.utils import safe_shlex_split
 
@@ -88,7 +88,9 @@ def _map_symbol_re(symbol: str) -> re.Pattern[str]:
     )
 
 
-# Map of profiles → synced Flags lists
+# Map of profiles → synced Flags lists (the packaged base; entry-point
+# providers in rebrew.flag_sets extend/override per profile — see
+# _merged_flag_sets below).
 _FLAGS_MAP: dict[str, Flags] = {
     "msvc": COMMON_MSVC_FLAGS,
     "msvc7": COMMON_MSVC_FLAGS,
@@ -101,15 +103,72 @@ _FLAGS_MAP: dict[str, Flags] = {
     "borlandc55": BORLAND_FLAGS,
 }
 
+#: Packaged sweep-tier dispatch: profile → {tier: [flag-axis ids]}.  Profiles
+#: without an entry fall back to MSVC_SWEEP_TIERS (the historic default).
+_PACKAGED_FLAG_TIERS: dict[str, dict[str, list[str] | None]] = {
+    "watcom": WATCOM_SWEEP_TIERS,
+    "watcom16": WATCOM_SWEEP_TIERS,
+    "msvc1.52": MSVC152_SWEEP_TIERS,
+    "tc16": BORLAND_SWEEP_TIERS,
+    "tc20": BORLAND_SWEEP_TIERS,
+    "borlandc55": BORLAND_SWEEP_TIERS,
+}
+
+#: setuptools entry-point group whose members register sweep flag sets.  A
+#: member is a zero-arg callable returning ``dict[profile, (Flags, tiers)]``
+#: where *tiers* is ``{tier: [axis ids]}`` (``"full": None`` = all axes).
+#: Flag sets are tuning data, not identity-critical components: unlike
+#: toolchains/decompilers (where a duplicate name is a RegistryError), a
+#: provider may override a packaged profile's axes — that is the point of a
+#: sweep-tuning plugin.
+FLAG_SET_ENTRY_POINT_GROUP = "rebrew.flag_sets"
+
+
+def _merged_flag_sets() -> tuple[dict[str, Flags], dict[str, dict[str, list[str] | None]]]:
+    """The (flags, tiers) registries: packaged defs + ``rebrew.flag_sets``.
+
+    Packaged profiles are the base; entry-point providers override per
+    profile name in discovery order (last provider wins).  A provider that
+    fails to load or yields a non-dict raises :class:`RegistryError`."""
+    from rebrew.registry import RegistryError, entry_point_registrations, import_registration
+
+    flags = dict(_FLAGS_MAP)
+    tiers = dict(_PACKAGED_FLAG_TIERS)
+    for reg in entry_point_registrations(FLAG_SET_ENTRY_POINT_GROUP):
+        provider = import_registration(reg)
+        try:
+            provided = provider()
+        except Exception as exc:
+            raise RegistryError(
+                f"bad {reg.group} provider from {reg.origin}: {type(exc).__name__}: {exc}"
+            ) from exc
+        if not isinstance(provided, dict):
+            raise RegistryError(
+                f"bad {reg.group} provider from {reg.origin}: expected "
+                f"dict[profile, (Flags, tiers)], got {type(provided).__name__}"
+            )
+        for name, (profile_flags, profile_tiers) in provided.items():
+            flags[name] = profile_flags
+            tiers[name] = profile_tiers
+    return flags, tiers
+
+
+_FLAGS_MAP, _TIERS_MAP = _merged_flag_sets()
+
 
 def _ensure_wine_env(env: dict[str, str] | None, cmd: list[str]) -> dict[str, str]:
     """Return an env dict with WINEDEBUG=-all when running under Wine/wibo.
 
-    If *env* is already provided, returns it unchanged.  Otherwise copies
-    ``os.environ`` and suppresses Wine diagnostic noise when the first
-    command token is ``wine`` or ``wibo``.
+    If *env* is already provided, returns it unchanged (but ensures
+    WINEDEBUG is set when the command is a Wine/wibo invocation, since
+    callers may supply an env that does not yet carry it).
+    Otherwise copies ``os.environ`` and suppresses Wine diagnostic noise
+    when the first command token is ``wine`` or ``wibo``.
     """
     if env is not None:
+        cmd_head = Path(cmd[0]).name.lower() if cmd else ""
+        if cmd_head in {"wine", "wibo"} and "WINEDEBUG" not in env:
+            env = {**env, "WINEDEBUG": "-all"}
         return env
     env = {**os.environ}
     cmd_head = Path(cmd[0]).name.lower() if cmd else ""
@@ -139,7 +198,7 @@ def _compiler_cmd_parts(cl_cmd: str, env: dict[str, str] | None) -> list[str]:
     runner = ""
     if env is not None:
         runner = env.get("REBREW_COMPILER_RUNNER", "").strip()
-    if runner and (not parts or parts[0].lower() != runner.lower()):
+    if runner and (not parts or Path(parts[0]).name.lower() != Path(runner).name.lower()):
         parts = [runner, *parts]
     return parts
 
@@ -219,16 +278,11 @@ def generate_flag_combinations(tier: str = "targeted", profile: str = "msvc6") -
         profile: Compiler profile name — "msvc6", "msvc7", or "msvc".
 
     """
-    # Use synced Flags for this profile, falling back to msvc6
+    # Use synced Flags for this profile, falling back to msvc6.  Sweep tiers
+    # come from the merged registry (packaged dispatch + rebrew.flag_sets
+    # providers); an unknown profile falls back to the MSVC tiers.
     flags = _FLAGS_MAP.get(profile, _FLAGS_MAP["msvc6"])
-    if profile in ("watcom", "watcom16"):
-        tiers = WATCOM_SWEEP_TIERS
-    elif profile == "msvc1.52":
-        tiers = MSVC152_SWEEP_TIERS
-    elif profile in ("tc16", "tc20", "borlandc55"):
-        tiers = BORLAND_SWEEP_TIERS
-    else:
-        tiers = MSVC_SWEEP_TIERS
+    tiers = _TIERS_MAP.get(profile, MSVC_SWEEP_TIERS)
     if tier not in tiers:
         raise ValueError(f"Unknown sweep tier {tier!r}, valid: {list(tiers)}")
     tier_ids = tiers[tier]  # None = all axes
@@ -269,7 +323,7 @@ def build_candidate_obj_only(
     symbol: str,
     env: dict[str, str] | None = None,
     source_ext: str = ".c",
-    cache: CompileCache | None = None,
+    cache: CacheBackend | None = None,
     timeout: int = 60,
     extra_include_dirs: list[str] | None = None,
     posix_style: bool = False,
@@ -362,10 +416,12 @@ def build_candidate_obj_only(
     # workdir, so a relative include path would resolve against the wrong
     # directory and fail on functions that #include those headers. Mirror the
     # resolution compile_to_obj performs for toolchain-backed profiles.
-    if extra_inc and any(f.startswith(("/I", "-I")) for f in all_flags):
+    if any(f.startswith(("/I", "-I")) for f in all_flags):
         from rebrew.compile import resolve_include_flags
 
-        src_parent = Path(extra_inc[0])
+        # extra_inc carries the source's parent dir for relative #include resolution;
+        # fall back to cwd when no extra inc dirs were supplied.
+        src_parent = Path(extra_inc[0]) if extra_inc else Path.cwd()
         cfg_root = getattr(cfg, "root", Path.cwd()) if cfg is not None else Path.cwd()
         all_flags = resolve_include_flags(all_flags, src_parent, cfg_root)
 
@@ -542,7 +598,7 @@ def flag_sweep(
     tier: str = "targeted",
     env: dict[str, str] | None = None,
     source_ext: str = ".c",
-    cache: CompileCache | None = None,
+    cache: CacheBackend | None = None,
     timeout: int = 60,
     extra_include_dirs: list[str] | None = None,
     posix_style: bool = False,
@@ -562,7 +618,7 @@ def flag_sweep(
         tier: Sweep effort level — "quick", "targeted", "normal", "thorough", or "full".
         env: MSVC environment.
         source_ext: Extension of the source file.
-        cache: Optional ``CompileCache`` for cross-run persistence.
+        cache: Optional ``CacheBackend`` for cross-run persistence.
         timeout: Subprocess timeout in seconds.
         profile: Compiler profile id ("msvc6", "watcom", "msvc1.52", ...) —
             selects the flag set and (for toolchain-backed profiles) the
@@ -594,7 +650,10 @@ def flag_sweep(
 
     # First compiler error(s) collected from workers — surfaced when the whole
     # sweep fails so a broken toolchain is visible, not a silent empty result.
+    import threading as _thr
+
     _compile_errors: list[str] = []
+    _compile_errors_lock = _thr.Lock()
 
     def _eval_flags(flags: str) -> tuple[float, str]:
         full_flags = f"{base_cflags} {flags}"
@@ -622,8 +681,10 @@ def flag_sweep(
                 _pre_target_mnems=pre_target_mnems,
             )
             return score.total, flags
-        if res.error_msg and len(_compile_errors) < 3:
-            _compile_errors.append(res.error_msg.strip()[:300])
+        if res.error_msg:
+            with _compile_errors_lock:
+                if len(_compile_errors) < 3:
+                    _compile_errors.append(res.error_msg.strip()[:300])
         return float("inf"), flags
 
     with ThreadPoolExecutor(max_workers=n_jobs) as executor:

@@ -134,6 +134,7 @@ _COMMAND_PANELS: dict[str, str] = {
     "describe": "Analysis",
     "analyze": "Analysis",
     "report": "Analysis",
+    "diagnose": "Analysis",
     "crt-match": "Analysis",
     "refactor": "Analysis",
     # Matching — solving byte-level differences
@@ -308,6 +309,11 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "rebrew.report",
         "Generate a static HTML documentation site for the project.",
     ),
+    (
+        "diagnose",
+        "rebrew.diagnose",
+        "Explain why a function compiles with its toolchain+flags (resolution trace).",
+    ),
     ("flirt", "rebrew.flirt", "FLIRT signature scanning."),
     (
         "identify-library",
@@ -422,42 +428,128 @@ def _make_stub_app(mod_name: str, err: Exception) -> typer.Typer:
     return stub
 
 
+#: Entry-point groups for third-party CLI commands (see registry.py).  A
+#: ``rebrew.commands`` member is a single-command module (``module`` or
+#: ``module:callable``); a ``rebrew.multicommands`` member is a Typer group
+#: (``module`` or ``module:app``).  Built-ins register through the packaged
+#: lists below; third parties register through these groups without editing
+#: host source.
+_COMMANDS_ENTRY_POINT_GROUP = "rebrew.commands"
+_MULTI_COMMANDS_ENTRY_POINT_GROUP = "rebrew.multicommands"
+
+
+def _register_single_module(name: str, module: str, fallback_help: str, panel: str | None) -> None:
+    """Register a single-command module as a flat ``app.command()``.
+
+    Help text and epilog are pulled from the module's own Typer app (single
+    source of truth); *fallback_help* is used only for the stub that stands
+    in when the module cannot be imported (missing optional dependency)."""
+    try:
+        _mod = importlib.import_module(module)
+        _mod_help = getattr(_mod.app.info, "help", None) or fallback_help
+        _epilog = getattr(_mod.app.info, "epilog", None)
+        if not isinstance(_epilog, str):
+            _epilog = None
+        app.command(name=name, help=_mod_help, epilog=_epilog, rich_help_panel=panel)(_mod.main)
+    except (ImportError, AttributeError) as exc:
+        app.command(name=name, help=f"[unavailable] {fallback_help}", rich_help_panel=panel)(
+            _make_stub_cmd(module, exc)
+        )
+
+
+def _register_multi_module(name: str, module: str, fallback_help: str, panel: str | None) -> None:
+    """Register a multi-command module as a Typer group (sub-app)."""
+    try:
+        _mod = importlib.import_module(module)
+        _mod_help = getattr(_mod.app.info, "help", None) or fallback_help
+        app.add_typer(_mod.app, name=name, help=_mod_help, rich_help_panel=panel)
+    except (ImportError, AttributeError) as exc:
+        app.add_typer(
+            _make_stub_app(module, exc),
+            name=name,
+            help=f"[unavailable] {fallback_help}",
+            rich_help_panel=panel,
+        )
+
+
+def _register_discovered_commands() -> None:
+    """Register third-party commands from the entry-point groups.
+
+    Runs after the built-in lists, so the packaged commands always win the
+    name space.  A plugin module that cannot be imported degrades to a stub
+    command (same as a built-in with a missing optional dependency); a name
+    that collides with an already-registered command is a configuration
+    error — :class:`RegistryError` names both origins (single-source
+    discipline: a command name has exactly one provider)."""
+    from rebrew.registry import RegistryError, entry_point_registrations, import_registration
+
+    existing = {_name for _name, _module, _help in _SINGLE_COMMANDS} | {
+        _name for _name, _module, _help in _MULTI_COMMANDS
+    }
+    for group, is_multi in (
+        (_COMMANDS_ENTRY_POINT_GROUP, False),
+        (_MULTI_COMMANDS_ENTRY_POINT_GROUP, True),
+    ):
+        for reg in entry_point_registrations(group):
+            if reg.name in existing:
+                raise RegistryError(
+                    f"duplicate CLI command {reg.name!r} from {reg.origin}: "
+                    f"'{reg.name}' is already registered (single-source discipline)"
+                )
+            # Third-party commands group under a dedicated help panel, so
+            # plugin commands are discoverable and clearly separated from
+            # the packaged ones.
+            _plugin_panel = "Plugins"
+            try:
+                obj = import_registration(reg)
+            except RegistryError as exc:
+                # A plugin that cannot be imported degrades to a stub, like
+                # a built-in with a missing optional dependency.
+                if is_multi:
+                    app.add_typer(
+                        _make_stub_app(reg.module, exc),
+                        name=reg.name,
+                        help=f"[unavailable] {reg.name}",
+                        rich_help_panel=_plugin_panel,
+                    )
+                else:
+                    app.command(
+                        name=reg.name,
+                        help=f"[unavailable] {reg.name}",
+                        rich_help_panel=_plugin_panel,
+                    )(_make_stub_cmd(reg.module, exc))
+                existing.add(reg.name)
+                continue
+            if reg.attr:
+                # module:attr form — the object is the command callable / app.
+                if is_multi:
+                    app.add_typer(obj, name=reg.name, help=reg.name, rich_help_panel=_plugin_panel)
+                else:
+                    cmd_help = getattr(obj, "__doc__", None) or reg.name
+                    app.command(name=reg.name, help=cmd_help, rich_help_panel=_plugin_panel)(obj)
+            elif is_multi:
+                _register_multi_module(reg.name, reg.module, reg.name, _plugin_panel)
+            else:
+                _register_single_module(reg.name, reg.module, reg.name, _plugin_panel)
+            existing.add(reg.name)
+
+
 # Register single-command modules as flat commands.
 # Help text and epilog are pulled from each module's own Typer app so there is
 # a single source of truth.  The _help string in the registry is only used as a
 # fallback when the module cannot be imported (stub commands).
 for _name, _module, _help in _SINGLE_COMMANDS:
-    try:
-        _mod = importlib.import_module(_module)
-        _mod_help = getattr(_mod.app.info, "help", None) or _help
-        _epilog = getattr(_mod.app.info, "epilog", None)
-        if not isinstance(_epilog, str):
-            _epilog = None
-        _panel = _COMMAND_PANELS.get(_name)
-        app.command(name=_name, help=_mod_help, epilog=_epilog, rich_help_panel=_panel)(_mod.main)
-    except (ImportError, AttributeError) as _exc:
-        _panel = _COMMAND_PANELS.get(_name)
-        app.command(name=_name, help=f"[unavailable] {_help}", rich_help_panel=_panel)(
-            _make_stub_cmd(_module, _exc)
-        )
+    _register_single_module(_name, _module, _help, _COMMAND_PANELS.get(_name))
 
 # Register multi-command modules as groups (Typer sub-apps).
 # help= is intentionally passed here because add_typer() does not inherit the
 # child app's help attribute automatically.
 for _name, _module, _help in _MULTI_COMMANDS:
-    try:
-        _mod = importlib.import_module(_module)
-        _mod_help = getattr(_mod.app.info, "help", None) or _help
-        _panel = _COMMAND_PANELS.get(_name)
-        app.add_typer(_mod.app, name=_name, help=_mod_help, rich_help_panel=_panel)
-    except (ImportError, AttributeError) as _exc:
-        _panel = _COMMAND_PANELS.get(_name)
-        app.add_typer(
-            _make_stub_app(_module, _exc),
-            name=_name,
-            help=f"[unavailable] {_help}",
-            rich_help_panel=_panel,
-        )
+    _register_multi_module(_name, _module, _help, _COMMAND_PANELS.get(_name))
+
+# Third-party commands (entry-point groups) — must run last so the packaged
+# command lists always win the name space.
+_register_discovered_commands()
 
 
 def _json_requested(argv: list[str] | None = None) -> bool:

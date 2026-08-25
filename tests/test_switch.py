@@ -114,3 +114,50 @@ class TestScanAll:
         sw = find_switches(_cfg(pe), TEXT_VA)[0]
         assert sw["entries"] == 2
         assert sw["cases"] == [(0, 0x401020), (1, 0x401025)]
+
+
+class TestMaskBoundedDispatch:
+    """MSVC memcpy/memmove byte-tail dispatches bound the index with
+    `and reg, mask` (not `cmp`) and leave slot 0 of the table dead (the
+    alignment guard makes the index >= 1) — the slot overlaps the preceding
+    jmp's displacement and reads as an out-of-image pointer."""
+
+    def _mask_pe(self, mask: int, dead_slot: int) -> bytes:
+        code = bytearray()
+        code += bytes([0x83, 0xE0, mask])  # and eax, <mask>
+        table_va = TEXT_VA + 0x0A  # table right after the jmp
+        code += bytes([0xFF, 0x24, 0x85]) + struct.pack("<I", table_va)
+        # table: dead slot 0 + three real handlers (code right after the table)
+        handlers = [TEXT_VA + 0x1A, TEXT_VA + 0x1B, TEXT_VA + 0x1C]
+        code += struct.pack("<I", dead_slot)
+        for h in handlers:
+            code += struct.pack("<I", h)
+        for _ in range(3):
+            code += bytes([0xC3])  # handlers: ret
+        return make_pe(bytes(code))
+
+    def test_mask_bounds_decode_dead_slot_zero(self, tmp_path: Path) -> None:
+        """`and eax, 3` bounds the table and the dead leading slot is
+        skipped, not treated as the end of the table.  Regression: these
+        dispatches reported `entries: 0` (found across win2k-sndrec32,
+        win2k-pinball, win2k-sndvol32)."""
+        pe = tmp_path / "mask.exe"
+        pe.write_bytes(self._mask_pe(3, 0x900100D1))
+        sw = find_switches(_cfg(pe), TEXT_VA)[0]
+        assert sw["bounds"] == 3
+        assert sw["entries"] == 3
+        assert sw["cases"] == [
+            (1, TEXT_VA + 0x1A),
+            (2, TEXT_VA + 0x1B),
+            (3, TEXT_VA + 0x1C),
+        ]
+
+    def test_non_mask_and_not_a_bound(self, tmp_path: Path) -> None:
+        """`and eax, 0x40` (a flag test, not an index mask) must not bound
+        the dispatch — the table read stays unbounded and stops at the
+        out-of-image dead slot."""
+        pe = tmp_path / "flag.exe"
+        pe.write_bytes(self._mask_pe(0x40, 0x900100D1))
+        sw = find_switches(_cfg(pe), TEXT_VA)[0]
+        assert sw["bounds"] is None
+        assert sw["entries"] == 0

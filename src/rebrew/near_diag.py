@@ -67,7 +67,7 @@ _EQUIV_FAMILIES: dict[str, tuple[str, ...]] = {
 
 # x86-32 general-purpose register names, collapsed to ``R`` when comparing operands.
 _REGISTER_RE = re.compile(
-    r"\b(eax|ebx|ecx|edx|esi|edi|ebp|esp|al|bl|cl|dl|ah|bh|ch|dh)\b",
+    r"\b(eax|ebx|ecx|edx|esi|edi|ebp|esp|ax|bx|cx|dx|si|di|bp|sp|al|bl|cl|dl|ah|bh|ch|dh)\b",
 )
 
 
@@ -94,8 +94,8 @@ def _resolve_capstone(value: str | int) -> int:
     try:
         return int(getattr(capstone, value))
     except (AttributeError, TypeError):
-        # A numeric string ("3") is a valid capstone constant.
-        return int(value)
+        # A numeric string ("3" or "0x3") is a valid capstone constant.
+        return int(value, 0)
 
 
 @functools.lru_cache(maxsize=8)
@@ -174,7 +174,7 @@ def align_and_classify(
     neutralised and counted as ``reloc``.  Unpaired target instructions
     (insertion/deletion) count as structural.
     """
-    base = target_insns[0].va if target_insns else 0
+    base = target_insns[0].va if target_insns else (compiled_insns[0].va if compiled_insns else 0)
     match = difflib.SequenceMatcher(
         a=[i.mnemonic for i in compiled_insns],
         b=[i.mnemonic for i in target_insns],

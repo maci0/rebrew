@@ -61,13 +61,18 @@ def build_symbol_resolver(
     by_name = {name: va for va, name in funcs_by_va.items()}
     # Also index by stripped form for tolerant lookup across leading underscore
     # mangling variants (MSVC adds `_` to __cdecl names; C source-level `__ftol`
-    # appears in the COFF symbol table as `___ftol`).
+    # appears in the COFF symbol table as `___ftol`).  Skip empty keys that
+    # would collide with bare-underscore symbols.
     by_stripped: dict[str, int] = {}
     for name, va in by_name.items():
-        by_stripped[name.lstrip("_")] = va
+        stripped = name.lstrip("_")
+        if stripped:
+            by_stripped[stripped] = va
     data_by_stripped: dict[str, int] = {}
     for name, va in data_by_name.items():
-        data_by_stripped[name.lstrip("_")] = va
+        stripped = name.lstrip("_")
+        if stripped:
+            data_by_stripped[stripped] = va
 
     def resolve(symbol: str) -> int | None:
         # Functions win over data labels; within each, the exact spelling
@@ -236,8 +241,10 @@ def _resolve_exact_then_stripped(name_to_va: dict[str, int], sym_name: str) -> i
     """
     if sym_name in name_to_va:
         return name_to_va[sym_name]
+    # Guard against empty/bare-underscore queries — lstrip("_") on "__" yields ""
+    # which may collide with a data label named "" or cause confusion in the caller.
     stripped = sym_name.lstrip("_")
-    if stripped != sym_name and stripped in name_to_va:
+    if stripped and stripped != sym_name and stripped in name_to_va:
         return name_to_va[stripped]
     return None
 
@@ -420,6 +427,8 @@ def smart_reloc_compare(
         # Zero-reloc objects: candidate slots are 4-aligned zero dwords in
         # the object that differ from the target.  Skip the byte-by-byte
         # scan entirely when no zero dword exists — common for leaf functions.
+        # Only consider slots that are 4-byte aligned in the section image;
+        # unaligned zero dwords are coincidental data, not linker-filled reloc slots.
         if min_len >= 4 and b"\x00\x00\x00\x00" in obj_bytes[:min_len]:
             i = 0
             while i <= min_len - 4:

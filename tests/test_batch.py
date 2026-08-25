@@ -141,6 +141,36 @@ class TestDetectReversedVas:
         result = detect_reversed_vas(tmp_path)
         assert 0x10005000 not in result
 
+    def test_stub_marker_not_reversed(self, tmp_path: Path) -> None:
+        """A bare `// STUB:` pre-skeleton placeholder is not a reversed
+        function — it stays an extract candidate.  Regression: stub-heavy
+        projects (win2k-*, test_*) reported zero extract candidates even
+        though every function was an unreversed pre-skeleton."""
+        src = tmp_path / "stub.c"
+        src.write_text(
+            "// STUB: test.dll 0x10001000\n"
+            "void fcn_0x10001000(void)\n"
+            "{\n"
+            "    /* pending per-function decompilation */\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        assert detect_reversed_vas(tmp_path) == set()
+
+    def test_function_marker_stub_status_still_reversed(self, tmp_path: Path) -> None:
+        """A `// FUNCTION:` file whose metadata STATUS is STUB is a real
+        (incomplete) attempt and stays reversed — only the bare STUB marker
+        form is a pre-skeleton."""
+        src = tmp_path / "func.c"
+        src.write_text(
+            "// FUNCTION: test.dll 0x10001000\n"
+            "// STATUS: STUB\n"
+            "// SIZE: 32\n"
+            "void my_func(void) {}\n",
+            encoding="utf-8",
+        )
+        assert 0x10001000 in detect_reversed_vas(tmp_path)
+
 
 # ---------------------------------------------------------------------------
 # cmd_list

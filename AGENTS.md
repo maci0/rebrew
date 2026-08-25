@@ -189,6 +189,8 @@ src/rebrew/
 ├── dosbox.py            # Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads)
 ├── toolchain.py         # Toolchain abstraction: spec registry, docker-only runner (images for Windows/DOS, native for Linux compilers)
 ├── toolchain_cli.py     # `rebrew toolchain` CLI (list/status/detect/pull/build)
+├── registry.py          # Declarative component registration: entry-point groups + data-file overlays, single-source conflict policy
+├── diagnose.py          # `rebrew diagnose` — compile-config resolution trace (why a function compiles with its toolchain+flags)
 ├── cu_map.py            # Compilation-unit boundary inference (contiguity + call graph)
 ├── todo.py              # Prioritized action list
 ├── similar.py           # Find structurally similar functions
@@ -381,6 +383,12 @@ Numeric constants need explicit operators: GA can't fix wrong offsets/magics/siz
 
 4. **Document** — add row to category table in [`docs/GA_MUTATIONS.md`](docs/GA_MUTATIONS.md)
 
+Third-party packages can register mutations **without editing host source**: a
+`module:attr` entry point in the `rebrew.mutations` group (see
+[`registry.py`](src/rebrew/registry.py)) whose attribute is a
+`(s, rng) -> str | None` callable.  Discovered mutations join `ALL_MUTATIONS`
+alongside the packaged ones; a duplicate name is a `RegistryError`.
+
 ### Test Patterns
 
 - No conftest.py — each file self-contained
@@ -399,6 +407,7 @@ Numeric constants need explicit operators: GA can't fix wrong offsets/magics/siz
 - **Batch annotations**: `iter_annotations(sources, target=...)` from `cli.py` — wraps `parse_c_file_multi` with silent errors → `[(path, [Annotation])]`
 - **Source glob**: `source_glob(cfg)` from `sources.py` — respects `cfg.source_ext` (`.c`, `.cpp`)
 - **Don't reimplement**: if an imported library provides it, use it
+- **Declarative component registration**: toolchains, decompiler backends, CLI commands, GA mutations, sweep flag sets, library presets, detection-family alignment, binary-family detectors, binary loaders, MSVC version-exact tables, and compile-cache backends register through `rebrew.registry` — setuptools entry-point groups (`rebrew.toolchains`, `rebrew.decompiler_backends`, `rebrew.commands`, `rebrew.multicommands`, `rebrew.mutations`, `rebrew.flag_sets`, `rebrew.library_presets`, `rebrew.toolchain_detectors`, `rebrew.binary_detectors`, `rebrew.binary_loaders`, `rebrew.msvc_versions`, `rebrew.cache_backends`) plus the `REBREW_TOOLCHAIN_OVERLAY_DIR` TOML overlay for project-local toolchains (a spec may declare `bits = 16` to join the arch-alignment set) and the `REBREW_SKILLS_DIR` overlay for community skills.  Built-ins are the packaged base registry; a duplicate name between any two sources is a `RegistryError` (single-source discipline) — except tuning-data registries (`rebrew.flag_sets`, `rebrew.library_presets`, `rebrew.msvc_versions`), where a provider extends/overrides packaged knowledge.  CLI import failures degrade to stub commands; a broken non-CLI registration is reported where it loads.  Adding a component must not require editing host source.
 - **No backward compat**: one name per function — no aliases/shims/wrappers
 - **Volatile metadata**: fields `STATUS`, `CFLAGS`, `BLOCKER`, `NOTE`, `GHIDRA` live in per-directory `rebrew-function.toml` via `rebrew.metadata` — never edit manually (STATUS via `update_source_status`/`update_statuses_batch`; BLOCKER via `update_field`/`remove_field` through `rebrew blocker set/clear` or the auto-writers `rebrew diff --fix-blocker`/`near-diag --fix-blocker`/`document-unmatched`)
 - **STATUS promotion**: only via `rebrew.metadata` writers — `update_source_status(metadata_dir, new_status, module, va)` (single; `rebrew test`) or `update_statuses_batch(metadata_dir, updates)` (batch; `rebrew verify`) — never write `STATUS` in `.c` files. BLOCKER likewise only via `update_field`/`remove_field` (see above).

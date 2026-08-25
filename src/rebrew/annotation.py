@@ -18,7 +18,7 @@ import re
 import warnings
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, ClassVar, Final
 
 from rebrew.utils import atomic_write_text, read_source_text, rel_display_path
 
@@ -376,7 +376,7 @@ class Annotation:
             raise KeyError(key)
 
     # Class-level cache for field names — computed once, not per __contains__ call.
-    _field_names: frozenset[str] | None = None
+    _field_names: ClassVar[frozenset[str] | None] = None
 
     def __contains__(self, key: str) -> bool:
         """Return True if *key* (or its alias) is a field of this Annotation."""
@@ -832,8 +832,12 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
             module = m.group("module")
             in_annotation_block = True
 
-            # If there's inline stuff after the VA, stash it in a special internal field to lint later
-            if stripped.count("//") > 1:
+            # If there's non-whitespace after the VA on the same line, stash as inline error
+            _rest = stripped[m.end() :].strip()
+            # Strip trailing block-comment closer if present
+            if _rest.endswith("*/"):
+                _rest = _rest[:-2].strip()
+            if _rest:
                 kv["_INLINE_ERROR"] = stripped
             continue
 
@@ -984,7 +988,10 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
             pending_kv = {}
             seen_code_after_marker = False
 
-            if stripped.count("//") > 1:
+            _rest2 = stripped[m.end() :].strip()
+            if _rest2.endswith("*/"):
+                _rest2 = _rest2[:-2].strip()
+            if _rest2:
                 current_kv["_INLINE_ERROR"] = stripped
             continue
 
@@ -1100,7 +1107,7 @@ def parse_c_file_multi(
     # overlay writes scalars only, so a shallow copy carries it safely.
     try:
         st = filepath.stat()
-        key = (str(filepath), st.st_mtime_ns, st.st_size)
+        key = (str(filepath.resolve()), st.st_mtime_ns, st.st_size)
     except OSError:
         key = None
     structural = _PARSE_MEMO.get(key) if key is not None else None
@@ -1147,7 +1154,7 @@ def _finalize_entries(
         return []
     rel = rel_display_path(filepath, base_dir)
     filtered_entries = [
-        copy.copy(entry)
+        copy.deepcopy(entry)
         for entry in structural
         if not (target_name and entry.module and entry.module.lower() != target_name.lower())
     ]
@@ -1509,10 +1516,7 @@ def _strip_key_lines(filepath: Path, va: int, key: str, text: str, encoding: str
             found_va = int(marker_match.group(2), 16)
             # If we're in the target block and hit a different VA, we've crossed
             # into a sibling block — stop removal.  Otherwise match on VA.
-            if in_target_block and found_va != va:  # noqa: SIM108
-                in_target_block = False
-            else:
-                in_target_block = found_va == va
+            in_target_block = False if in_target_block and found_va != va else found_va == va
 
         if in_target_block and _key_pattern.search(line):
             modified = True
