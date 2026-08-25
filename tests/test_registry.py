@@ -228,12 +228,14 @@ class TestDecompilerRegistry:
                 **{"rebrew.decompiler_backends": [("plugdec", "backend_provider_test:backend")]}
             ),
         )
-        merged = _merge_entry_point_backends()
+        merged, _auto = _merge_entry_point_backends()
         assert "plugdec" in merged
         assert merged["plugdec"] is _fake_backend
         assert "r2ghidra" in merged  # packaged backends intact
 
-    def test_entry_point_conflict_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_entry_point_conflict_skipped_with_warning(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
         from rebrew.decompiler import _merge_entry_point_backends
 
         def _fake_backend(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
@@ -246,8 +248,10 @@ class TestDecompilerRegistry:
                 **{"rebrew.decompiler_backends": [("r2ghidra", "backend_provider_dup:backend")]}
             ),
         )
-        with pytest.raises(RegistryError, match="duplicate.*r2ghidra"):
-            _merge_entry_point_backends()
+        with caplog.at_level("WARNING", logger="rebrew.decompiler"):
+            merged, _auto = _merge_entry_point_backends()
+        assert "r2ghidra" in merged  # packaged backend survives
+        assert any("duplicate" in r.message for r in caplog.records)
 
 
 class TestMutationRegistry:
@@ -268,7 +272,9 @@ class TestMutationRegistry:
         assert any(m is _mut_plugin for m in merged)
         assert len(merged) > 100  # packaged operators still present
 
-    def test_entry_point_conflict_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_entry_point_conflict_skipped_with_warning(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
         from rebrew.matcher.mutator import _merge_entry_point_mutations
 
         def _mut_plugin(s: str, rng: Any) -> str | None:
@@ -285,10 +291,13 @@ class TestMutationRegistry:
                 }
             ),
         )
-        with pytest.raises(RegistryError, match="duplicate.*mut_hoist_repeated_deref"):
-            _merge_entry_point_mutations()
+        with caplog.at_level("WARNING", logger="rebrew.matcher.mutator"):
+            merged = _merge_entry_point_mutations()
+        assert not any(m is _mut_plugin for m in merged)  # skipped
+        assert len(merged) > 100  # packaged operators intact
+        assert any("duplicate" in r.message for r in caplog.records)
 
-    def test_module_without_attr_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_module_without_attr_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.matcher.mutator import _merge_entry_point_mutations
 
         _install_fake_module("mutation_provider_mod")
@@ -296,8 +305,8 @@ class TestMutationRegistry:
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.mutations": [("mut_x", "mutation_provider_mod")]}),
         )
-        with pytest.raises(RegistryError, match="expected 'module:attr'"):
-            _merge_entry_point_mutations()
+        merged = _merge_entry_point_mutations()
+        assert not any(m.__name__ == "mut_x" for m in merged)
 
 
 class TestCliRegistry:
@@ -404,7 +413,7 @@ class TestFlagSetRegistry:
         assert "-O1" in combos and "-O2" in combos
         assert not any("/O2" in c for c in combos)  # not the MSVC axes
 
-    def test_bad_provider_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_bad_provider_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.matcher import compiler
 
         _install_fake_module("flag_provider_bad", provider=lambda: [1, 2])
@@ -412,8 +421,8 @@ class TestFlagSetRegistry:
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.flag_sets": [("p", "flag_provider_bad:provider")]}),
         )
-        with pytest.raises(RegistryError, match="expected dict"):
-            compiler._merged_flag_sets()
+        flags, tiers = compiler._merged_flag_sets()
+        assert "msvc6" in flags  # packaged axes intact
 
 
 class TestLibraryPresetRegistry:
@@ -486,7 +495,7 @@ class TestToolchainDetectorRegistry:
         aligned, _ = td.profile_matches_detection("mytc", info)
         assert aligned
 
-    def test_bad_provider_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_bad_provider_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.toolchain_detect import _merged_profile_compat
 
         _install_fake_module("detector_provider_bad", provider=lambda: {"msvc": "nope"})
@@ -496,8 +505,8 @@ class TestToolchainDetectorRegistry:
                 **{"rebrew.toolchain_detectors": [("p", "detector_provider_bad:provider")]}
             ),
         )
-        with pytest.raises(RegistryError, match="non-empty list"):
-            _merged_profile_compat()
+        compat = _merged_profile_compat()
+        assert "msvc6" in compat["msvc"]  # packaged family table intact
 
 
 class TestPluginToolchainConfig:
@@ -589,7 +598,7 @@ class TestBinaryDetectorRegistry:
         monkeypatch.setattr(td, "_PLUGIN_DETECTORS", [])
         assert td.detect_toolchain(junk).family == "unknown"
 
-    def test_non_callable_detector_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_non_callable_detector_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.toolchain_detect as td
 
         _install_fake_module("detector_fn_bad", detect="not-callable")
@@ -597,8 +606,7 @@ class TestBinaryDetectorRegistry:
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.binary_detectors": [("bad", "detector_fn_bad:detect")]}),
         )
-        with pytest.raises(RegistryError, match="expected a callable detector"):
-            td._discover_binary_detectors()
+        assert td._discover_binary_detectors() == []
 
 
 class TestSixteenBitAlignment:
@@ -673,7 +681,7 @@ class TestMsvcVersionRegistry:
         assert eras[(12, 0)][0] == "msvc6"
         assert rich[3077] == ("msvc7", "msvc710")  # untouched packaged key
 
-    def test_bad_key_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_bad_key_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.toolchain_detect as td
 
         _install_fake_module("msvc_ver_bad", provider=lambda: {"8168": ["mytc"]})
@@ -681,10 +689,10 @@ class TestMsvcVersionRegistry:
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.msvc_versions": [("p", "msvc_ver_bad:provider")]}),
         )
-        with pytest.raises(RegistryError, match="'build:<n>' or 'linker:<M>.<m>'"):
-            td._merged_msvc_version_tables()
+        rich, eras = td._merged_msvc_version_tables()
+        assert rich[8168]  # packaged build table intact
 
-    def test_empty_profiles_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_empty_profiles_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.toolchain_detect as td
 
         _install_fake_module("msvc_ver_empty", provider=lambda: {"build:8168": []})
@@ -692,8 +700,8 @@ class TestMsvcVersionRegistry:
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.msvc_versions": [("p", "msvc_ver_empty:provider")]}),
         )
-        with pytest.raises(RegistryError, match="non-empty list"):
-            td._merged_msvc_version_tables()
+        rich, eras = td._merged_msvc_version_tables()
+        assert rich[8168]  # packaged build table intact
 
     def test_plugin_passes_version_exact_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.toolchain_detect as td
@@ -746,7 +754,7 @@ class TestBinaryLoaderRegistry:
         with pytest.raises(ValueError, match="unknown format"):
             bl.load_binary(junk)
 
-    def test_non_callable_loader_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_non_callable_loader_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.binary_loader as bl
 
         _install_fake_module("loader_plugin_bad", load="nope")
@@ -754,8 +762,7 @@ class TestBinaryLoaderRegistry:
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.binary_loaders": [("bad", "loader_plugin_bad:load")]}),
         )
-        with pytest.raises(RegistryError, match="expected a callable loader"):
-            bl._discover_binary_loaders()
+        assert bl._discover_binary_loaders() == []
 
 
 class TestPluginHelpPanel:
@@ -838,7 +845,7 @@ class TestCacheBackendRegistry:
         assert cache.get("k") == b"obj"
         assert cache.count == 1
 
-    def test_plugin_conflict_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_plugin_conflict_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.compile_cache as cc
 
         _install_fake_module("cache_backend_dup", factory=lambda *a, **k: None)
@@ -848,8 +855,8 @@ class TestCacheBackendRegistry:
                 **{"rebrew.cache_backends": [("diskcache", "cache_backend_dup:factory")]}
             ),
         )
-        with pytest.raises(RegistryError, match="duplicate.*diskcache"):
-            cc._discover_cache_backends()
+        backends = cc._discover_cache_backends()
+        assert backends["diskcache"] is cc.CompileCache  # packaged backend survives
 
     def test_unknown_backend_errors(self, tmp_path: Path) -> None:
         import rebrew.compile_cache as cc
@@ -948,3 +955,169 @@ class TestInitSkillsOverlay:
         init._copy_agent_skills(dest, "BENCH")
         rendered = dest / ".agents" / "skills" / "rebrew-workflow" / "SKILL.md"
         assert "overridden" in rendered.read_text(encoding="utf-8")
+
+
+class TestRealEntryPointMetadata:
+    """Discovery through real importlib.metadata dist-info — no monkeypatch.
+
+    The rest of the suite fakes ``entry_points()``; this test builds an
+    installed-style distribution (a ``*.dist-info`` dir with an
+    ``entry_points.txt`` + a module on sys.path) and exercises the actual
+    discovery path, proving the mechanism works against real metadata."""
+
+    def test_mutation_discovered_via_real_dist_info(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        dist = tmp_path / "rebrew_plugin_demo-0.1.dist-info"
+        dist.mkdir(parents=True)
+        (dist / "METADATA").write_text(
+            "Metadata-Version: 2.1\nName: rebrew-plugin-demo\nVersion: 0.1\n",
+            encoding="utf-8",
+        )
+        (dist / "entry_points.txt").write_text(
+            "[rebrew.mutations]\nmut_demo = rebrew_plugin_demo:mut_demo\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "rebrew_plugin_demo.py").write_text(
+            "def mut_demo(s, rng):\n    return None\n",
+            encoding="utf-8",
+        )
+        monkeypatch.syspath_prepend(str(tmp_path))
+
+        from rebrew.matcher.mutator import _merge_entry_point_mutations
+
+        merged = _merge_entry_point_mutations()
+        assert any(m.__name__ == "mut_demo" for m in merged)
+
+    def test_command_discovered_via_real_dist_info(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.main
+
+        dist = tmp_path / "rebrew_plugin_cmd-0.1.dist-info"
+        dist.mkdir(parents=True)
+        (dist / "METADATA").write_text(
+            "Metadata-Version: 2.1\nName: rebrew-plugin-cmd\nVersion: 0.1\n",
+            encoding="utf-8",
+        )
+        (dist / "entry_points.txt").write_text(
+            "[rebrew.commands]\ndemo-cmd = rebrew.diagnose\n",
+            encoding="utf-8",
+        )
+        monkeypatch.syspath_prepend(str(tmp_path))
+
+        fresh = typer.Typer()
+        monkeypatch.setattr(rebrew.main, "app", fresh)
+        rebrew.main._register_discovered_commands()
+        assert "demo-cmd" in [c.name for c in fresh.registered_commands]
+
+
+class TestLegacyProfileAliases:
+    """msvc6.3/msvc6.6 migrate to their modern registry names at config load."""
+
+    @pytest.mark.parametrize(
+        ("legacy", "modern"),
+        [("msvc6.3", "msvc600sp3"), ("msvc6.6", "msvc600sp6")],
+    )
+    def test_legacy_alias_migrates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, legacy: str, modern: str
+    ) -> None:
+        import warnings
+
+        from rebrew.config import load_config
+
+        (tmp_path / "rebrew-project.toml").write_text(
+            f'[project]\nroot = "{tmp_path}"\ndefault_target = "T"\n'
+            f'[targets.T]\nbinary = "{tmp_path}/t.exe"\n'
+            f'[compiler]\nprofile = "{legacy}"\n',
+            encoding="utf-8",
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cfg = load_config(root=tmp_path)
+        assert cfg.compiler_profile == modern
+
+    def test_unknown_profile_still_falls_back(self, tmp_path: Path) -> None:
+        import warnings
+
+        from rebrew.config import load_config
+
+        (tmp_path / "rebrew-project.toml").write_text(
+            f'[project]\nroot = "{tmp_path}"\ndefault_target = "T"\n'
+            f'[targets.T]\nbinary = "{tmp_path}/t.exe"\n'
+            f'[compiler]\nprofile = "not-a-real-toolchain"\n',
+            encoding="utf-8",
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cfg = load_config(root=tmp_path)
+        assert cfg.compiler_profile == "msvc6"
+
+
+class TestDecompilerAutoProbe:
+    """A plugin backend opts into --auto probing via __rebrew_auto_probe__."""
+
+    def _patch(self, monkeypatch: pytest.MonkeyPatch, marked: bool) -> None:
+        def _fake_backend(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
+            return None
+
+        if marked:
+            _fake_backend.__rebrew_auto_probe__ = True  # type: ignore[attr-defined]
+        _install_fake_module("backend_auto_test", backend=_fake_backend)
+        monkeypatch.setattr(
+            "rebrew.registry.entry_points",
+            _fake_entry_points(
+                **{"rebrew.decompiler_backends": [("auto-dec", "backend_auto_test:backend")]}
+            ),
+        )
+
+    def test_marked_backend_joins_auto_probe(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.decompiler import _merge_entry_point_backends
+
+        self._patch(monkeypatch, marked=True)
+        _map, auto = _merge_entry_point_backends()
+        assert "auto-dec" in auto
+        assert auto[:3] == ("r2ghidra", "r2dec", "kuna")  # curated order first
+
+    def test_unmarked_backend_stays_name_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.decompiler import _merge_entry_point_backends
+
+        self._patch(monkeypatch, marked=False)
+        _map, auto = _merge_entry_point_backends()
+        assert "auto-dec" not in auto
+        assert "auto-dec" in _map  # still selectable by name
+
+
+class TestEntryPointProvenance:
+    """Entry-point toolchains record their provider module in the origin."""
+
+    def test_origin_names_provider_module(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.toolchain as toolchain
+        from rebrew.toolchain import ToolchainSpec
+
+        monkeypatch.delenv("REBREW_TOOLCHAIN_OVERLAY_DIR", raising=False)
+        _install_fake_module(
+            "prov_module_test",
+            provider=lambda: {"plugtc": ToolchainSpec(name="plugtc", image=None, binary="pcc")},
+        )
+        monkeypatch.setattr(
+            "rebrew.registry.entry_points",
+            _fake_entry_points(**{"rebrew.toolchains": [("plugtc", "prov_module_test:provider")]}),
+        )
+        monkeypatch.setattr(toolchain, "TOOLCHAINS", toolchain.build_toolchain_registry())
+        assert toolchain.TOOLCHAIN_ORIGINS["plugtc"] == "entry-point:prov_module_test"
+
+
+class TestSkillsDirWarning:
+    def test_missing_skills_dir_warns_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from rebrew.skills import REBREW_SKILLS_DIR_ENV, _list_skills
+
+        monkeypatch.setenv(REBREW_SKILLS_DIR_ENV, str(tmp_path / "nope"))
+        with caplog.at_level("WARNING", logger="rebrew.skills"):
+            _list_skills()
+            _list_skills()  # second call must not re-warn
+        assert sum("is not a directory" in r.message for r in caplog.records) == 1

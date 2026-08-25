@@ -239,58 +239,82 @@ def _merged_msvc_version_tables() -> tuple[
     """Version-exact tables: packaged + ``rebrew.msvc_versions`` providers.
 
     Packaged tuples keep their order; a provider appends its profiles after
-    them (order matters — ``suggest_profile`` prefers earlier names)."""
-    from rebrew.registry import RegistryError, entry_point_registrations, import_registration
+    them (order matters — ``suggest_profile`` prefers earlier names).  An
+    optional registry: a broken provider or a malformed key is skipped with
+    a warning (the packaged tables stand)."""
+    from rebrew.registry import entry_point_registrations, load_registration_optional
 
     rich = {k: tuple(v) for k, v in _RICH_BUILD_PROFILES.items()}
     eras = {k: tuple(v) for k, v in _LINKER_ERA_PROFILES.items()}
     for reg in entry_point_registrations(MSVC_VERSION_ENTRY_POINT_GROUP):
-        provider = import_registration(reg)
+        provider = load_registration_optional(reg, logger)
+        if provider is None:
+            continue
         try:
             provided = provider()
         except Exception as exc:
-            raise RegistryError(
-                f"bad {reg.group} provider from {reg.origin}: {type(exc).__name__}: {exc}"
-            ) from exc
-        if not isinstance(provided, dict):
-            raise RegistryError(
-                f"bad {reg.group} provider from {reg.origin}: expected "
-                f"dict['build:<n>' | 'linker:<M>.<m>', list[profile]], "
-                f"got {type(provided).__name__}"
+            logger.warning(
+                "skipping %s provider %r: %s: %s",
+                reg.group,
+                reg.name,
+                type(exc).__name__,
+                exc,
             )
+            continue
+        if not isinstance(provided, dict):
+            logger.warning(
+                "skipping %s provider %r: expected dict['build:<n>' | "
+                "'linker:<M>.<m>', list[profile]], got %s",
+                reg.group,
+                reg.name,
+                type(provided).__name__,
+            )
+            continue
         for key, profiles in provided.items():
             if not isinstance(profiles, (list, tuple, set)) or not profiles:
-                raise RegistryError(
-                    f"bad {reg.group} provider from {reg.origin}: {key!r} must map "
-                    f"to a non-empty list of profiles"
+                logger.warning(
+                    "skipping %s provider %r: %r must map to a non-empty list of profiles",
+                    reg.group,
+                    reg.name,
+                    key,
                 )
+                continue
             names = tuple(str(p) for p in profiles)
             if key.startswith("build:"):
                 try:
                     build = int(key[len("build:") :])
                 except ValueError:
-                    raise RegistryError(
-                        f"bad {reg.group} provider from {reg.origin}: {key!r} is not "
-                        f"'build:<integer>'"
-                    ) from None
+                    logger.warning(
+                        "skipping %s provider %r: %r is not 'build:<integer>'",
+                        reg.group,
+                        reg.name,
+                        key,
+                    )
+                    continue
                 existing = rich.get(build)
                 rich[build] = existing + names if existing else names
             elif key.startswith("linker:"):
                 try:
                     major, minor = (int(x) for x in key[len("linker:") :].split("."))
                 except ValueError:
-                    raise RegistryError(
-                        f"bad {reg.group} provider from {reg.origin}: {key!r} is not "
-                        f"'linker:<M>.<m>'"
-                    ) from None
+                    logger.warning(
+                        "skipping %s provider %r: %r is not 'linker:<M>.<m>'",
+                        reg.group,
+                        reg.name,
+                        key,
+                    )
+                    continue
                 mm = (major, minor)
                 existing = eras.get(mm)
                 eras[mm] = existing + names if existing else names
             else:
-                raise RegistryError(
-                    f"bad {reg.group} provider from {reg.origin}: key {key!r} must be "
-                    f"'build:<n>' or 'linker:<M>.<m>'"
+                logger.warning(
+                    "skipping %s provider %r: key %r must be 'build:<n>' or 'linker:<M>.<m>'",
+                    reg.group,
+                    reg.name,
+                    key,
                 )
+                continue
     return rich, eras
 
 
@@ -365,22 +389,43 @@ BINARY_DETECTOR_ENTRY_POINT_GROUP = "rebrew.binary_detectors"
 def _discover_binary_detectors() -> list[tuple[str, Any]]:
     """Every ``rebrew.binary_detectors`` entry-point member, as ``(name, fn)``.
 
-    A member that is not callable raises :class:`RegistryError`."""
-    from rebrew.registry import RegistryError, entry_point_registrations, import_registration
+    An optional registry: a broken or non-callable member is skipped with a
+    warning (novel-family detection degrades to the packaged backends)."""
+    from rebrew.registry import entry_point_registrations, load_registration_optional
 
     detectors: list[tuple[str, Any]] = []
     for reg in entry_point_registrations(BINARY_DETECTOR_ENTRY_POINT_GROUP):
-        fn = import_registration(reg)
+        fn = load_registration_optional(reg, logger)
+        if fn is None:
+            continue
         if not callable(fn):
-            raise RegistryError(
-                f"bad {reg.group} registration {reg.name!r} from {reg.origin}: "
-                f"expected a callable detector, got {type(fn).__name__}"
+            logger.warning(
+                "skipping %s registration %r: expected a callable detector, got %s",
+                reg.group,
+                reg.name,
+                type(fn).__name__,
             )
+            continue
         detectors.append((reg.name, fn))
     return detectors
 
 
 _PLUGIN_DETECTORS: list[tuple[str, Any]] = _discover_binary_detectors()
+
+
+def refresh_detection_tables() -> None:
+    """Re-run discovery and refresh the detection registries.
+
+    Refreshes :data:`_PROFILE_COMPAT_ALL`, the MSVC version-exact tables
+    (:data:`_RICH_BUILD_PROFILES_ALL` / :data:`_LINKER_ERA_PROFILES_ALL`),
+    and :data:`_PLUGIN_DETECTORS` — long-lived processes can pick up
+    detection plugins installed after startup without a restart."""
+    global _PROFILE_COMPAT_ALL, _RICH_BUILD_PROFILES_ALL
+    global _LINKER_ERA_PROFILES_ALL, _PLUGIN_DETECTORS
+
+    _PROFILE_COMPAT_ALL = _merged_profile_compat()
+    _RICH_BUILD_PROFILES_ALL, _LINKER_ERA_PROFILES_ALL = _merged_msvc_version_tables()
+    _PLUGIN_DETECTORS = _discover_binary_detectors()
 
 
 # ---------------------------------------------------------------------------
@@ -1688,30 +1733,43 @@ def _merged_profile_compat() -> dict[str, set[str] | None]:
     """The byte-match compatibility table: packaged + plugin declarations.
 
     Packaged family sets are the base; a provider extends a family's
-    profile set (union).  A provider that fails to load or yields a non-dict
-    raises :class:`RegistryError`."""
-    from rebrew.registry import RegistryError, entry_point_registrations, import_registration
+    profile set (union).  An optional registry: a broken provider is
+    skipped with a warning (the packaged table stands)."""
+    from rebrew.registry import entry_point_registrations, load_registration_optional
 
     compat = {k: (set(v) if v is not None else None) for k, v in _PROFILE_COMPAT.items()}
     for reg in entry_point_registrations(TOOLCHAIN_DETECTOR_ENTRY_POINT_GROUP):
-        provider = import_registration(reg)
+        provider = load_registration_optional(reg, logger)
+        if provider is None:
+            continue
         try:
             provided = provider()
         except Exception as exc:
-            raise RegistryError(
-                f"bad {reg.group} provider from {reg.origin}: {type(exc).__name__}: {exc}"
-            ) from exc
-        if not isinstance(provided, dict):
-            raise RegistryError(
-                f"bad {reg.group} provider from {reg.origin}: expected "
-                f"dict[family, list[profile]], got {type(provided).__name__}"
+            logger.warning(
+                "skipping %s provider %r: %s: %s",
+                reg.group,
+                reg.name,
+                type(exc).__name__,
+                exc,
             )
+            continue
+        if not isinstance(provided, dict):
+            logger.warning(
+                "skipping %s provider %r: expected dict[family, list[profile]], got %s",
+                reg.group,
+                reg.name,
+                type(provided).__name__,
+            )
+            continue
         for family, profiles in provided.items():
             if not isinstance(profiles, (set, list, tuple)) or not profiles:
-                raise RegistryError(
-                    f"bad {reg.group} provider from {reg.origin}: family {family!r} "
-                    f"must map to a non-empty list of profiles"
+                logger.warning(
+                    "skipping %s provider %r: family %r must map to a non-empty list of profiles",
+                    reg.group,
+                    reg.name,
+                    family,
                 )
+                continue
             names = {str(p) for p in profiles}
             existing = compat.get(family)
             compat[family] = names if existing is None else (existing | names)

@@ -128,25 +128,36 @@ def _merged_flag_sets() -> tuple[dict[str, Flags], dict[str, dict[str, list[str]
     """The (flags, tiers) registries: packaged defs + ``rebrew.flag_sets``.
 
     Packaged profiles are the base; entry-point providers override per
-    profile name in discovery order (last provider wins).  A provider that
-    fails to load or yields a non-dict raises :class:`RegistryError`."""
-    from rebrew.registry import RegistryError, entry_point_registrations, import_registration
+    profile name in discovery order (last provider wins).  An optional
+    registry: a broken provider is skipped with a warning (the packaged
+    sweep axes stand)."""
+    from rebrew.registry import entry_point_registrations, load_registration_optional
 
     flags = dict(_FLAGS_MAP)
     tiers = dict(_PACKAGED_FLAG_TIERS)
     for reg in entry_point_registrations(FLAG_SET_ENTRY_POINT_GROUP):
-        provider = import_registration(reg)
+        provider = load_registration_optional(reg, log)
+        if provider is None:
+            continue
         try:
             provided = provider()
         except Exception as exc:
-            raise RegistryError(
-                f"bad {reg.group} provider from {reg.origin}: {type(exc).__name__}: {exc}"
-            ) from exc
-        if not isinstance(provided, dict):
-            raise RegistryError(
-                f"bad {reg.group} provider from {reg.origin}: expected "
-                f"dict[profile, (Flags, tiers)], got {type(provided).__name__}"
+            log.warning(
+                "skipping %s provider %r: %s: %s",
+                reg.group,
+                reg.name,
+                type(exc).__name__,
+                exc,
             )
+            continue
+        if not isinstance(provided, dict):
+            log.warning(
+                "skipping %s provider %r: expected dict[profile, (Flags, tiers)], got %s",
+                reg.group,
+                reg.name,
+                type(provided).__name__,
+            )
+            continue
         for name, (profile_flags, profile_tiers) in provided.items():
             flags[name] = profile_flags
             tiers[name] = profile_tiers
@@ -154,6 +165,17 @@ def _merged_flag_sets() -> tuple[dict[str, Flags], dict[str, dict[str, list[str]
 
 
 _FLAGS_MAP, _TIERS_MAP = _merged_flag_sets()
+
+
+def refresh_flag_sets() -> tuple[dict[str, Flags], dict[str, dict[str, list[str] | None]]]:
+    """Re-run discovery and refresh the ``_FLAGS_MAP``/``_TIERS_MAP`` snapshots.
+
+    Long-lived processes can pick up sweep-flag plugins installed after
+    startup without a restart."""
+    global _FLAGS_MAP, _TIERS_MAP
+
+    _FLAGS_MAP, _TIERS_MAP = _merged_flag_sets()
+    return _FLAGS_MAP, _TIERS_MAP
 
 
 def _ensure_wine_env(env: dict[str, str] | None, cmd: list[str]) -> dict[str, str]:

@@ -261,28 +261,48 @@ CACHE_BACKEND_ENTRY_POINT_GROUP = "rebrew.cache_backends"
 def _discover_cache_backends() -> dict[str, Callable[[Path, int], CacheBackend]]:
     """The backend registry: packaged ``diskcache`` + entry-point members.
 
-    A duplicate name (including a plugin claiming ``diskcache``) raises
-    :class:`RegistryError` — a cache backend name has one provider."""
+    An optional registry: a broken or conflicting member is skipped with a
+    warning (the store falls back to ``diskcache``; a configured backend
+    name that never registered still errors at ``get_compile_cache``)."""
     from rebrew.registry import (
         RegistryError,
         entry_point_registrations,
-        import_registration,
+        load_registration_optional,
         merge_into,
     )
 
     backends: dict[str, Callable[[Path, int], CacheBackend]] = {"diskcache": CompileCache}
     for reg in entry_point_registrations(CACHE_BACKEND_ENTRY_POINT_GROUP):
-        factory = import_registration(reg)
+        factory = load_registration_optional(reg, logger)
+        if factory is None:
+            continue
         if not callable(factory):
-            raise RegistryError(
-                f"bad {reg.group} registration {reg.name!r} from {reg.origin}: "
-                f"expected a callable factory, got {type(factory).__name__}"
+            logger.warning(
+                "skipping %s registration %r: expected a callable factory, got %s",
+                reg.group,
+                reg.name,
+                type(factory).__name__,
             )
-        merge_into(backends, reg.name, factory, reg.origin, group=reg.group)
+            continue
+        try:
+            merge_into(backends, reg.name, factory, reg.origin, group=reg.group)
+        except RegistryError as exc:
+            logger.warning("skipping %s registration %r: %s", reg.group, reg.name, exc)
     return backends
 
 
 _CACHE_BACKENDS: dict[str, Callable[[Path, int], CacheBackend]] = _discover_cache_backends()
+
+
+def refresh_cache_backends() -> dict[str, Callable[[Path, int], CacheBackend]]:
+    """Re-run discovery and refresh the :data:`_CACHE_BACKENDS` snapshot.
+
+    Long-lived processes can pick up cache-backend plugins installed after
+    startup without a restart."""
+    global _CACHE_BACKENDS
+
+    _CACHE_BACKENDS = _discover_cache_backends()
+    return _CACHE_BACKENDS
 
 
 def available_cache_backends() -> list[str]:

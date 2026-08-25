@@ -911,35 +911,62 @@ LIBRARY_PRESET_ENTRY_POINT_GROUP = "rebrew.library_presets"
 
 
 def _merged_library_presets() -> dict[str, dict[str, str]]:
-    """Packaged presets + ``rebrew.library_presets`` providers (override)."""
-    from rebrew.registry import RegistryError, entry_point_registrations, import_registration
+    """Packaged presets + ``rebrew.library_presets`` providers (override).
+
+    An optional registry: a broken provider is skipped with a warning (the
+    packaged presets stand) instead of bricking metadata resolution."""
+    from rebrew.registry import entry_point_registrations, load_registration_optional
 
     presets = dict(LIBRARY_PRESETS)
     for reg in entry_point_registrations(LIBRARY_PRESET_ENTRY_POINT_GROUP):
-        provider = import_registration(reg)
+        provider = load_registration_optional(reg, logger)
+        if provider is None:
+            continue
         try:
             provided = provider()
         except Exception as exc:
-            raise RegistryError(
-                f"bad {reg.group} provider from {reg.origin}: {type(exc).__name__}: {exc}"
-            ) from exc
-        if not isinstance(provided, dict):
-            raise RegistryError(
-                f"bad {reg.group} provider from {reg.origin}: expected "
-                "dict[name, {toolchain, cflags}], got "
-                f"{type(provided).__name__}"
+            logger.warning(
+                "skipping %s provider %r: %s: %s",
+                reg.group,
+                reg.name,
+                type(exc).__name__,
+                exc,
             )
+            continue
+        if not isinstance(provided, dict):
+            logger.warning(
+                "skipping %s provider %r: expected dict[name, {toolchain, cflags}], got %s",
+                reg.group,
+                reg.name,
+                type(provided).__name__,
+            )
+            continue
         for name, fields in provided.items():
             if not isinstance(fields, dict):
-                raise RegistryError(
-                    f"bad {reg.group} provider from {reg.origin}: preset {name!r} "
-                    f"must be a table, got {type(fields).__name__}"
+                logger.warning(
+                    "skipping %s provider %r: preset %r must be a table, got %s",
+                    reg.group,
+                    reg.name,
+                    name,
+                    type(fields).__name__,
                 )
+                continue
             presets[name] = {str(k): str(v) for k, v in fields.items()}
     return presets
 
 
 _LIBRARY_PRESETS_ALL: dict[str, dict[str, str]] = _merged_library_presets()
+
+
+def refresh_library_presets() -> dict[str, dict[str, str]]:
+    """Re-run discovery and refresh the :data:`_LIBRARY_PRESETS_ALL` snapshot.
+
+    Long-lived processes can pick up library-preset plugins installed after
+    startup without a restart."""
+    global _LIBRARY_PRESETS_ALL
+
+    _LIBRARY_PRESETS_ALL = _merged_library_presets()
+    return _LIBRARY_PRESETS_ALL
 
 
 def all_library_presets() -> dict[str, dict[str, str]]:
