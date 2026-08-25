@@ -200,7 +200,8 @@ class TestSetupCandidatesStructureMerge:
         # functions.txt lists ONE covered function (with a .c annotation);
         # the structure cache adds a second function with no source file.
         (src / "func_a.c").write_text(
-            "// STUB: TEST 0x1000\nint func_a(void) { return 0; }\n", encoding="utf-8"
+            "// FUNCTION: TEST 0x1000\n// SIZE: 48\nint func_a(void) { return 0; }\n",
+            encoding="utf-8",
         )
         (tmp_path / "functions.txt").write_text("0x00001000 48 func_a\n", encoding="utf-8")
         (src / "function_structure.json").write_text(

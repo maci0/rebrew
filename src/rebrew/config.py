@@ -143,7 +143,10 @@ class LinkConfig:
             return None
         try:
             major, minor = ver.split(".", 1)
-            return int(major), int(minor)
+            maj, mn = int(major), int(minor)
+            if not (0 <= maj <= 65535 and 0 <= mn <= 65535):
+                raise ValueError("out of range")
+            return maj, mn
         except ValueError:
             _config_warn(
                 f"link.{label} = {ver!r} is not a valid 'N.N' version — "
@@ -180,9 +183,27 @@ class LinkConfig:
 #: flag routing (``ProjectConfig.posix_style``) and the ``base_cflags``
 #: config default — a posix profile's always-on flags must not default to
 #: the MSVC glue (``/nologo /c /MT``) or every compile breaks.
+#:
+#: This set names profiles WITHOUT a registry spec (e.g. ``gcc``/``clang``
+#: for ELF targets, which never enter the toolchain registry).  For profiles
+#: that ARE registry toolchains, :func:`_profile_flags_style` consults the
+#: spec's ``flags_style`` instead — a plugin toolchain registered with
+#: ``flags_style = "posix"`` routes correctly without touching this set.
 POSIX_PROFILES = frozenset(
     {"gcc", "gcc-pe", "clang", "watcom", "watcom16", "borlandc55", "tc20", "tc16"}
 )
+
+
+def _profile_flags_style(profile: str) -> str | None:
+    """The registered toolchain spec's ``flags_style`` for *profile*.
+
+    ``None`` when *profile* is not a registry toolchain (then the caller
+    falls back to :data:`POSIX_PROFILES`).  Lazy import keeps config load
+    free of the registry unless the profile is actually queried."""
+    from rebrew.toolchain import TOOLCHAINS
+
+    spec = TOOLCHAINS.get(profile)
+    return getattr(spec, "flags_style", None) if spec is not None else None
 
 
 @dataclass
@@ -258,6 +279,7 @@ class ProjectConfig:
     # REBREW_LLM_ENDPOINT/REBREW_LLM_API_KEY are the fallback.
     llm_endpoint: str = ""
     llm_api_key: str = ""
+    cache_backend: str = "diskcache"  # compile-cache store ([cache] backend)
 
     @property
     def posix_style(self) -> bool:
@@ -272,7 +294,10 @@ class ProjectConfig:
         Single source of truth for compile/flag routing across compile.py,
         diff.py, match.py, and matcher/compiler.py.
         """
-        return self.compiler_profile in POSIX_PROFILES
+        return (
+            self.compiler_profile in POSIX_PROFILES
+            or _profile_flags_style(self.compiler_profile) == "posix"
+        )
 
     # --- Computed from arch ---
     pointer_size: int = 4
@@ -724,6 +749,13 @@ def find_root(start: Path | None = None) -> Path:
     (no walk-up); load_config(root=X) expects X to contain the toml.
     """
     if start is not None:
+        # Treat as explicit project root only when it looks like one
+        if (start / "rebrew-project.toml").is_file():
+            return start
+        if not start.is_dir():
+            return start
+        # Bare temp dir without toml: legacy callers (e.g. find_root(tmp_path))
+        # expect pass-through; let load_config raise the proper error
         return start
     found = walk_up_to_root(Path.cwd())
     if found is None:
@@ -738,7 +770,9 @@ def find_root(start: Path | None = None) -> Path:
 # Known TOML keys — validated at load time to catch typos
 # ---------------------------------------------------------------------------
 
-_KNOWN_TOP_KEYS = {"targets", "compiler", "project", "link", "llm"}
+_KNOWN_TOP_KEYS = {"targets", "compiler", "project", "link", "llm", "cache"}
+
+_KNOWN_CACHE_KEYS = {"backend"}
 
 _KNOWN_LINK_KEYS = {
     "file_align",
@@ -974,12 +1008,18 @@ def load_config(
         arch_name = "x86_32"
 
     # Unknown profiles are kept only as a warning elsewhere historically; store
-    # a known default so flag sweeps / doctor report a real profile.
+    # a known default so flag sweeps / doctor report a real profile.  A name is
+    # valid when it is a packaged profile OR a registered toolchain (plugins add
+    # toolchains via rebrew.registry — they must be selectable as a project
+    # default without editing config.py).
+    from rebrew.toolchain import TOOLCHAINS
+
+    _known_profiles = _KNOWN_PROFILES | set(TOOLCHAINS)
     profile_val = compiler.get("profile", "msvc6")
-    if not isinstance(profile_val, str) or profile_val not in _KNOWN_PROFILES:
+    if not isinstance(profile_val, str) or profile_val not in _known_profiles:
         _config_warn(
             f"rebrew-project.toml [compiler]: unknown profile {profile_val!r} "
-            f"(known: {', '.join(sorted(_KNOWN_PROFILES))}); falling back to msvc6",
+            f"(known: {', '.join(sorted(_known_profiles))}); falling back to msvc6",
         )
         profile_val = "msvc6"
 
@@ -1124,7 +1164,9 @@ def load_config(
             # (gcc-pe/mingw, watcom, tc16/20, borland): /nologo /c /MT breaks
             # gcc.  init writes base_cflags = "" for those profiles; the
             # loader default must match so hand-written tomls work too.
-            "" if profile_val in POSIX_PROFILES else "/nologo /c /MT",
+            ""
+            if (profile_val in POSIX_PROFILES or _profile_flags_style(profile_val) == "posix")
+            else "/nologo /c /MT",
             "compiler.base_cflags",
         ),
         compile_timeout=_positive_int(compiler.get("timeout", 60), 60, "compiler.timeout"),
@@ -1213,6 +1255,17 @@ def load_config(
     llm_raw = _as_table(raw.get("llm", {}), "llm")
     cfg.llm_endpoint = _as_str(llm_raw.get("endpoint"), "", "llm.endpoint")
     cfg.llm_api_key = _as_str(llm_raw.get("api_key"), "", "llm.api_key")
+
+    # --- [cache] section: compile-cache backend selection ---
+    # The store is a pluggable component (rebrew.cache_backends entry-point
+    # group); the keying semantics are shared and fixed.  Unknown cache
+    # keys warn like the other sections; an unknown *backend name* is
+    # reported where the cache is opened (get_compile_cache), not here.
+    cache_raw = _as_table(raw.get("cache", {}), "cache")
+    unknown_cache = set(cache_raw) - _KNOWN_CACHE_KEYS
+    if unknown_cache:
+        _config_warn(f"rebrew-project.toml [cache]: unrecognized keys: {sorted(unknown_cache)}")
+    cfg.cache_backend = _as_str(cache_raw.get("backend"), "diskcache", "cache.backend")
 
     if cfg.game_range_end is not None:
         # Legacy/no-op key: parsed and stored but never read by any tool

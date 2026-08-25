@@ -50,7 +50,8 @@ def msvc_env_from_config(cfg: "ProjectConfig") -> dict[str, str]:
     if runner:
         env["REBREW_COMPILER_RUNNER"] = resolve_runner_path(runner, cfg.root)
     # Skip the runner prefix (wine/wibo) to find the CL.EXE path
-    cl_parts = [p for p in parts if p.lower() not in {"wine", "wibo"}]
+    # (match basenames so "tools/wibo /vc/CL.EXE" is handled correctly)
+    cl_parts = [p for p in parts if Path(p).name.lower() not in {"wine", "wibo"}]
     if cl_parts:
         cl_path = Path(cl_parts[0])
         if not cl_path.is_absolute():
@@ -66,8 +67,12 @@ def msvc_env_from_config(cfg: "ProjectConfig") -> dict[str, str]:
     env["LIB"] = lib_dir
 
     # Ensure Wine can find C1.DLL, C2.DLL etc. alongside CL.EXE
-    existing_path = env.get("WINEPATH", "")
-    env["WINEPATH"] = f"{bin_dir};{existing_path}" if existing_path else bin_dir
-    env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+    # Avoid spurious empty segment / broken separator when either side is empty
+    existing_winepath = env.get("WINEPATH", "")
+    if bin_dir:
+        env["WINEPATH"] = f"{bin_dir};{existing_winepath}" if existing_winepath else bin_dir
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+    elif existing_winepath:
+        env["WINEPATH"] = existing_winepath
 
     return env

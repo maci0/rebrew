@@ -263,6 +263,66 @@ def resolve_cflags(
     return cflags
 
 
+def _resolve_overrides_steps(
+    cfg: ProjectConfig | None,
+    source_dir: str | Path,
+    per_function_toolchain: str | None,
+    per_function_cflags: str | None,
+    module: str = "",
+) -> tuple[str | None, str, list[dict[str, Any]]]:
+    """Resolve the effective (toolchain, cflags) and record the decision chain.
+
+    Core of :func:`resolve_compile_overrides` — same fallback chain, plus a
+    list of *steps* documenting every decision point so ``rebrew diagnose``
+    can explain *why* a function compiles with the compiler+flags it does.
+    Each step is a dict with a ``source`` key: ``"function"`` (per-function
+    metadata), ``"library"`` (nearest ``rebrew-library.toml`` + presets), or
+    ``"project"`` (project defaults and which fallbacks applied)."""
+    steps: list[dict[str, Any]] = []
+    toolchain = (per_function_toolchain or "").strip() or None
+    cflags = (per_function_cflags or "").strip()
+    steps.append({"source": "function", "toolchain": toolchain or "", "cflags": cflags})
+    if toolchain is None or not cflags:
+        from rebrew.metadata import find_library_override
+
+        root = getattr(cfg, "root", None) if cfg is not None else None
+        ovr = find_library_override(source_dir, root)
+        if ovr is not None:
+            if toolchain is None and ovr.toolchain:
+                toolchain = ovr.toolchain
+            if not cflags and ovr.cflags:
+                cflags = ovr.cflags
+            steps.append(
+                {
+                    "source": "library",
+                    "path": str(ovr.path),
+                    "toolchain": ovr.toolchain,
+                    "cflags": ovr.cflags,
+                    "presets": list(ovr.presets),
+                }
+            )
+        else:
+            steps.append({"source": "library", "path": None})
+    final_cflags = resolve_cflags(cfg, cflags or None, module)
+    steps.append(
+        {
+            "source": "project",
+            "profile": getattr(cfg, "compiler_profile", "") if cfg is not None else "",
+            "cflags": getattr(cfg, "cflags", "") if cfg is not None else "",
+            "cflags_explicit": bool(getattr(cfg, "cflags_explicit", False))
+            if cfg is not None
+            else False,
+            "posix_style": bool(getattr(cfg, "posix_style", False)) if cfg is not None else False,
+            "module_preset": (
+                getattr(cfg, "cflags_presets", {}).get(module.upper(), "")
+                if cfg is not None
+                else ""
+            ),
+        }
+    )
+    return toolchain, final_cflags, steps
+
+
 def resolve_compile_overrides(
     cfg: ProjectConfig | None,
     source_dir: str | Path,
@@ -283,19 +343,10 @@ def resolve_compile_overrides(
     compile every function of a library with the same compiler + flags.
     Returns ``(toolchain, cflags)`` — toolchain is ``None`` when no override
     names a compiler (project default profile applies)."""
-    toolchain = (per_function_toolchain or "").strip() or None
-    cflags = (per_function_cflags or "").strip()
-    if toolchain is None or not cflags:
-        from rebrew.metadata import find_library_override
-
-        root = getattr(cfg, "root", None) if cfg is not None else None
-        ovr = find_library_override(source_dir, root)
-        if ovr is not None:
-            if toolchain is None and ovr.toolchain:
-                toolchain = ovr.toolchain
-            if not cflags and ovr.cflags:
-                cflags = ovr.cflags
-    return toolchain, resolve_cflags(cfg, cflags or None, module)
+    toolchain, cflags, _steps = _resolve_overrides_steps(
+        cfg, source_dir, per_function_toolchain, per_function_cflags, module
+    )
+    return toolchain, cflags
 
 
 def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:

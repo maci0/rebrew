@@ -163,13 +163,22 @@ class GACheckpoint:
 
         The ``random`` state's inner ``internalstate`` tuple survives JSON as
         a list; ``setstate`` requires tuples, so nested lists are converted
-        back recursively.
+        back recursively.  The versioned state tuple is (version, internalstate,
+        gauss_next) where internalstate is a tuple of 625 ints — JSON roundtrip
+        turns it into a list of lists, so we recursively restore tuples.
         """
+
+        def _to_tuple(v: Any) -> Any:
+            if isinstance(v, list):
+                return tuple(_to_tuple(x) for x in v)
+            return v
+
+        raw_state = d.get("rng_state", [])
         return cls(
             generation=int(d["generation"]),
             best_score=float(d["best_score"]),
             best_source=d.get("best_source"),
             population=list(d.get("population", [])),
-            rng_state=tuple(tuple(x) if isinstance(x, list) else x for x in d.get("rng_state", [])),
+            rng_state=_to_tuple(raw_state) if isinstance(raw_state, list) else raw_state,
             args_hash=str(d.get("args_hash", "")),
         )

@@ -67,9 +67,17 @@ class GhidraDataLabel:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "GhidraDataLabel":
         """Build from a Ghidra export dict. All fields have safe defaults."""
+        try:
+            va = _parse_int(d["va"]) if "va" in d else 0
+        except (ValueError, TypeError):
+            va = 0
+        try:
+            size = _parse_int(d["size"]) if "size" in d else 0
+        except (ValueError, TypeError):
+            size = 0
         return cls(
-            va=d.get("va", 0),
-            size=d.get("size", 0),
+            va=va,
+            size=size,
             label=d.get("label", ""),
             state=d.get("state", "data"),
         )

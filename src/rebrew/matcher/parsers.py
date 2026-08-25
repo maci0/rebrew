@@ -198,8 +198,11 @@ def _parse_coff(
 
 def _detect_obj_format(obj_path: str) -> str:
     """Detect object file format from magic bytes."""
-    with open(obj_path, "rb") as f:
-        magic = f.read(4)
+    try:
+        with open(obj_path, "rb") as f:
+            magic = f.read(4)
+    except OSError:
+        return "unknown"
     return _detect_obj_format_data(magic)
 
 

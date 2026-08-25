@@ -1211,7 +1211,7 @@ def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
     # Inline replacement: tmp = call(); var = tmp;
     inline_repl = b"tmp = " + call + b";\n    " + var + b" = tmp;"
 
-    if b"tmp" in b_source:
+    if re.search(rb"\btmp\b", b_source):
         # 'tmp' already declared somewhere — just use it, no hoisting needed
         res = replace_node(b_source, target_node, inline_repl)
         return res.decode("utf-8") if res else None
@@ -5576,7 +5576,7 @@ def mut_remove_auto_inline_pragma(s: str, rng: random.Random) -> str | None:
     return _AUTO_INLINE_PRAGMA_RE.sub("", s) or None
 
 
-ALL_MUTATIONS = [
+_BUILTIN_MUTATIONS = [
     mut_hoist_repeated_deref,
     mut_tweak_integer_literal,
     mut_flip_eq_zero,
@@ -5709,6 +5709,47 @@ ALL_MUTATIONS = [
     mut_add_auto_inline_pragma,
     mut_remove_auto_inline_pragma,
 ]
+
+# ---------------------------------------------------------------------------
+# Registry assembly — packaged mutations + entry-point mutations
+# ---------------------------------------------------------------------------
+
+#: setuptools entry-point group whose members register extra GA mutations.
+#: A member is ``module:attr`` naming a callable with the mutator signature
+#: ``(source: str, rng: random.Random) -> str | None`` (see the ``mut_*``
+#: operators).  Discovered mutations join ``ALL_MUTATIONS`` alongside the
+#: packaged ones; a duplicate name is a :class:`RegistryError` (single-source
+#: discipline — the GA must never pick between two operators of one name).
+MUTATION_ENTRY_POINT_GROUP = "rebrew.mutations"
+
+
+def _merge_entry_point_mutations() -> list[Callable[..., str | None]]:
+    """The full mutation list: packaged operators + ``rebrew.mutations``."""
+    from rebrew.registry import (
+        RegistryError,
+        entry_point_registrations,
+        import_registration,
+        merge_into,
+    )
+
+    merged: dict[str, Callable[..., str | None]] = {m.__name__: m for m in _BUILTIN_MUTATIONS}
+    for reg in entry_point_registrations(MUTATION_ENTRY_POINT_GROUP):
+        if not reg.attr:
+            raise RegistryError(
+                f"bad {reg.group} registration {reg.name!r} from {reg.origin}: "
+                f"expected 'module:attr' naming a mutation function"
+            )
+        mut_fn = import_registration(reg)
+        if not callable(mut_fn):
+            raise RegistryError(
+                f"bad {reg.group} registration {reg.name!r} from {reg.origin}: "
+                f"expected a callable mutation, got {type(mut_fn).__name__}"
+            )
+        merge_into(merged, reg.name, mut_fn, reg.origin, group=reg.group)
+    return list(merged.values())
+
+
+ALL_MUTATIONS = _merge_entry_point_mutations()
 
 __all__ = [
     "ALL_MUTATIONS",

@@ -170,7 +170,10 @@ def load_data_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]
 
     # Shared loader: tomllib reads (fast), mtime-keyed cache — same
     # mechanism as rebrew-function.toml (metadata.py).
-    return load_metadata_doc(path, _data_metadata_cache, "data metadata")
+    cached = load_metadata_doc(path, _data_metadata_cache, "data metadata")
+    # Return a shallow copy of outer dict + each entry dict so callers cannot
+    # mutate the cached object and corrupt subsequent reads.
+    return {k: dict(v) for k, v in cached.items()}
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +192,8 @@ def get_data_entry(directory: Path, va: int, module: str) -> dict[str, Any]:
         module: Target module name (e.g. ``"SERVER"``).
 
     """
-    return load_data_metadata(directory).get((module, va), {})
+    entry = load_data_metadata(directory).get((module, va))
+    return dict(entry) if entry is not None else {}
 
 
 def set_data_field(directory: Path, va: int, key: str, value: Any, module: str) -> None:
@@ -208,6 +212,10 @@ def set_data_field(directory: Path, va: int, key: str, value: Any, module: str) 
     """
     if not module:
         raise ValueError("data metadata writes require a non-empty module")
+    if not key or not key.isidentifier():
+        raise ValueError(f"invalid data metadata key {key!r}")
+    if va < 0:
+        raise ValueError(f"VA must be non-negative, got {va:#x}")
     path = directory / DATA_METADATA_FILENAME
     toml_key = qualified_key(module, va)
 

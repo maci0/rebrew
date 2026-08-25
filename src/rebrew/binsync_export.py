@@ -154,14 +154,29 @@ def _extract_global_name_and_type(
                     cand_decl = lines[j].strip()
                     if not cand_decl or cand_decl.startswith("//"):
                         continue
+                    if cand_decl.startswith("#"):
+                        # Preprocessor directive (#include/#define/#pragma) is
+                        # not a declaration.  A DATA marker placed above one
+                        # (synthetic link-stub VAs like notepad's 0xDEADBEEF)
+                        # must fall through to the g_<hex> fallback instead of
+                        # fabricating a name/type from the directive.
+                        continue
                     ext_vars = _find_extern(cand_decl)
                     if ext_vars:
                         return ext_vars[0].name, ext_vars[0].type_str
-                    # Bare declaration (no extern) — try regex extraction
+                    # Bare declaration (no extern) — try regex extraction.
+                    # The extracted name must be a plain C identifier: a
+                    # function-definition line ('void f(void) {}') or other
+                    # non-declaration yields '{}'/'{' and must be skipped,
+                    # not fabricated into a name/type.
                     decl_name = (
                         cand_decl.split(";")[0].split()[-1].split("[")[0].split("*")[-1].strip()
                     )
-                    if decl_name and decl_name != cand_decl:
+                    if (
+                        decl_name
+                        and decl_name != cand_decl
+                        and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", decl_name)
+                    ):
                         t = _type_from_declaration(cand_decl, decl_name)
                         if t:
                             return decl_name, t

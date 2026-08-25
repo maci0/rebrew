@@ -78,12 +78,14 @@ class StringEntry:
 def capstone_mode_for_arch(arch: str) -> int:
     """Return the capstone mode for a target arch string.
 
-    16-bit for DOS/NE (``x86_16``), 32-bit otherwise.  Single definition of
-    the arch→mode mapping shared by the diff/compare layers.
+    16-bit for DOS/NE (``x86_16``), 32-bit otherwise.  Single
+    definition of the arch→mode mapping shared by the diff/compare layers.
     """
     from capstone import CS_MODE_16, CS_MODE_32
 
-    return int(CS_MODE_16 if arch == "x86_16" else CS_MODE_32)
+    if arch == "x86_16":
+        return int(CS_MODE_16)
+    return int(CS_MODE_32)
 
 
 # Capstone ``Cs`` objects wrap a libcapstone handle mutated on every
@@ -153,8 +155,10 @@ def iter_instructions(
     semantics).  *section_names* is accepted for API symmetry but unused — the
     caller already restricts *va*/*size* to the section it wants.
     """
+    if size <= 0:
+        return []
     raw = extract_bytes(info, va, size)
-    md = _capstone(skipdata=True)
+    md = _capstone(skipdata=True, info=info)
     out: list[Insn] = []
     for insn in md.disasm(raw, va):
         out.append(
@@ -171,9 +175,13 @@ def iter_instructions(
 
 def extract_bytes(info: BinaryInfo, va: int, size: int) -> bytes:
     """Return *size* file bytes at virtual address *va* (clamped to the file)."""
+    if size <= 0:
+        return b""
     data = info.data
     offset = va_to_file_offset(info, va)
     if offset < 0:
+        return b""
+    if offset >= len(data):
         return b""
     return data[offset : offset + size]
 
@@ -188,6 +196,8 @@ def section_range(info: BinaryInfo, name: str) -> tuple[int, int] | None:
 
 def is_inside(info: BinaryInfo, va: int) -> bool:
     """Whether *va* falls inside any mapped section of the binary."""
+    if va < 0:
+        return False
     return any(section.va <= va < section.va + section.size for section in info.sections.values())
 
 
@@ -382,6 +392,8 @@ def iter_strings(
     prefixed) strings are recognized in addition to plain ASCII runs —
     Borland Delphi stores its UI strings as Pascal strings.
     """
+    if min_len < 1:
+        min_len = 1
     if info.format == "ne":
         data_segs = [s for s in info.ne_segments if not s.is_code]  # type: ignore[attr-defined]
         names = section_names if section_names is not None else [f"SEG{s.index}" for s in data_segs]
@@ -495,6 +507,8 @@ def _scan_utf16(raw: bytes, va: int, section: str, min_len: int) -> list[StringE
 
 def string_refs(info: BinaryInfo, strings: list[StringEntry]) -> dict[int, list[Xref]]:
     """Map string VA -> references, using *strings* as the target set."""
+    if not strings:
+        return {}
     targets = {s.va for s in strings}
     refs: dict[int, list[Xref]] = {}
     for xref in scan_references(info):

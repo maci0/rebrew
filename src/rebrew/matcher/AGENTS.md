@@ -110,6 +110,12 @@ Serializable GA state for resume: `generation`, `best_score`, `best_source`, `po
 
 Selected uniformly by default; `mutate_code()` accepts optional `mutation_weights` for bias.
 
+Third-party packages can register mutations without editing this file: a
+`module:attr` entry point in the `rebrew.mutations` group (see
+`src/rebrew/registry.py`) whose attribute is a `(source, rng) -> str | None`
+callable joins `ALL_MUTATIONS` at import; a duplicate name raises
+`RegistryError`.
+
 ## Consumers
 
 - **`match.py`** — Single-function GA CLI; imports `BuildCache`, `build_candidate`, `score_candidate`, `mutate_code`, `crossover`, `diff_functions`, `structural_similarity` + `flag_sweep` from `compiler.py` for batch (`--all`).

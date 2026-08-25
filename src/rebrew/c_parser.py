@@ -38,10 +38,16 @@ _CALLING_CONVENTIONS = frozenset(
 )
 
 # Pre-compiled regex for stripping calling conventions (used by _strip_cc).
-_CC_PATTERN = re.compile(r"\b(" + "|".join(re.escape(cc) for cc in _CALLING_CONVENTIONS) + r")\b")
+_CC_PATTERN = re.compile(
+    r"\b("
+    + "|".join(re.escape(cc) for cc in sorted(_CALLING_CONVENTIONS, key=len, reverse=True))
+    + r")\b"
+)
 # Strip whole __declspec(...) constructs (e.g. __declspec(naked),
-# __declspec(dllimport)) — tree-sitter's standard C grammar doesn't know them.
-_DECLSPEC_PATTERN = re.compile(r"__declspec\s*\(\s*[a-zA-Z_][a-zA-Z0-9_]*\s*\)")
+# __declspec(dllimport), __declspec(align(16))) — tree-sitter's standard C
+# grammar doesn't know them.  Allow any content up to the matching ')',
+# including a nested (...) such as align(16).
+_DECLSPEC_PATTERN = re.compile(r"__declspec\s*\((?:[^()]*|\([^)]*\))*\)")
 
 # ---------------------------------------------------------------------------
 # Lazy tree-sitter initialisation
@@ -96,7 +102,14 @@ def _parse(source: str | bytes) -> Any:
     """Parse C source and return (tree, source_bytes) as a tuple."""
     parser, _ = _get_parser()
     if isinstance(source, str):
-        source = source.encode("utf-8", errors="surrogatepass")
+        source = source.encode("utf-8", errors="replace")
+    elif isinstance(source, bytes):
+        # Tree-sitter expects UTF-8; replace invalid sequences so a latin-1
+        # source file does not produce a garbled tree with ERROR nodes.
+        try:
+            source.decode("utf-8")
+        except UnicodeDecodeError:
+            source = source.decode("utf-8", errors="replace").encode("utf-8")
     return parser.parse(source), source
 
 
@@ -275,6 +288,9 @@ def extract_function_name_and_proto(source: str) -> tuple[str, str] | None:
             if compound:
                 proto_bytes = src_bytes[node.start_byte : compound.start_byte].strip()
                 proto = proto_bytes.decode("utf-8", errors="replace").strip()
+                # Normalise CRLF prototypes to LF so the returned proto is
+                # stable regardless of the source file's line endings.
+                proto = proto.replace("\r\n", "\n").replace("\r", "\n")
             else:
                 proto = _node_text(node, src_bytes)
 
@@ -293,6 +309,10 @@ def extract_function_name_and_proto(source: str) -> tuple[str, str] | None:
                 return name, proto
             return None
 
+        # Skip ERROR nodes (tree-sitter marks unparseable fragments as ERROR);
+        # recursing into them produces spurious matches.
+        if node.type == "ERROR":
+            return None
         for child in node.children:
             result = walk(child)
             if result:
@@ -311,6 +331,9 @@ def extract_function_name_from_line(line: str) -> tuple[str, str] | None:
     Returns ``(name, prototype)`` or ``None``.  The *prototype* is the cleaned
     original line (with calling conventions preserved) without trailing ``{``.
     """
+    # Strip BOM if present (files saved with UTF-8 BOM have it on the first line).
+    if line.startswith("\ufeff"):
+        line = line.lstrip("\ufeff")
     stripped = line.strip().rstrip("{;").strip()
     if not stripped:
         return None
@@ -328,6 +351,8 @@ def find_c_function_definitions(source: str) -> list[tuple[str, int]]:
 
     *line* is 1-based.
     """
+    if not source or not source.strip():
+        return []
     try:
         tree, src_bytes = _parse(_strip_cc(source))
     except ImportError:
@@ -356,6 +381,8 @@ def find_extern_function_names(source: str) -> list[str]:
 
     Returns a list of function names.
     """
+    if not source or not source.strip():
+        return []
     try:
         tree, src_bytes = _parse(_strip_cc(source))
     except ImportError:
@@ -412,6 +439,8 @@ def find_extern_variables(source: str) -> list[ExternVar]:
     ``function_declarator`` nodes) from variable declarations (which have
     plain ``identifier`` or ``pointer_declarator`` + ``identifier``).
     """
+    if not source or not source.strip():
+        return []
     try:
         tree, src_bytes = _parse(_strip_cc(source))
     except ImportError:

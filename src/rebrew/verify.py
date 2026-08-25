@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from rebrew.compile import CompareResult
-    from rebrew.compile_cache import CompileCache
+    from rebrew.compile_cache import CacheBackend
 
 import typer
 from rich.console import Console
@@ -117,7 +117,7 @@ def _fenced_naked_note(cfile: Path) -> str:
 def verify_entry(
     entry: Annotation,
     cfg: ProjectConfig,
-    cache: "CompileCache | None" = None,
+    cache: "CacheBackend | None" = None,
     *,
     name_to_va: dict[str, int] | None = None,
 ) -> "CompareResult":
@@ -161,7 +161,16 @@ def verify_entry(
         getattr(entry, "cflags", ""),
         getattr(entry, "module", ""),
     )
-    symbol = entry.symbol if entry.symbol else "_" + entry.name
+    # Symbol mangling must stay consistent with the COFF symbol lookup in
+    # parsers._parse_coff (which handles _/name_/_name variants).  Keep the
+    # annotation symbol as-is when present; only synthesize "_" + name for
+    # legacy entries lacking a symbol field.  Do not double-prefix.
+    if entry.symbol:
+        symbol = entry.symbol
+    elif entry.name and not entry.name.startswith("_"):
+        symbol = "_" + entry.name
+    else:
+        symbol = entry.name or entry.symbol or ""
 
     from rebrew.binary_loader import extract_raw_bytes
 
@@ -183,8 +192,13 @@ def verify_entry(
                     "current function list — stale annotation? re-run "
                     "`rebrew intake` or edit the marker VA)"
                 )
-        except Exception:  # best-effort hint only
-            pass
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+            # Best-effort hint: narrow the catch so a broken cache or config
+            # parse surfaces as a real error instead of silently swallowing
+            # the diagnostic worse than no hint at all.
+            import logging as _logging  # local to except
+
+            _logging.getLogger(__name__).debug("verify hint lookup failed: %s", exc)
         return _failed_result("EXTRACT_ERROR", "Cannot extract DLL bytes" + hint)
 
     result = compile_and_compare(
@@ -380,6 +394,11 @@ def _compare_logic_hash() -> str:
 
 
 def _compiler_config_hash(cfg: ProjectConfig) -> str:
+    # Do NOT inline target binary mtime/size here — compiler config is an
+    # input to the cache predicate, not a per-call probe of the binary.  The
+    # binary identity is guarded separately via VerifyCache.binary_id and
+    # _verify_cache_matches_identity; mixing it in would bust the cache on
+    # every run that touches the binary even when nothing relevant changed.
     parts = [
         cfg.compiler_command,
         getattr(cfg, "compiler_runner", ""),
@@ -1819,7 +1838,7 @@ def run_verification(
     try:
         from rebrew.compile_cache import get_compile_cache
 
-        compile_cache = get_compile_cache(cfg.root)
+        compile_cache = get_compile_cache(cfg.root, getattr(cfg, "cache_backend", "diskcache"))
     except (ImportError, OSError):
         compile_cache = None
 

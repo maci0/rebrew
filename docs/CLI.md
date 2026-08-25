@@ -82,11 +82,67 @@ for `--compare` (not “better than EXACT”).
 | `rebrew similar` | `similar.py` | Find structurally similar functions in the target binary (clone detection) |
 | `rebrew binary-similarity` | `binary_similarity.py` | Whole-binary structural similarity vs another binary — per-function best matches aggregated into a byte-weighted score (versions/DLL+EXE) |
 | `rebrew near-diag` | `near_diag.py` | Classify why a `NEAR_MATCHING` function does not byte-match — categories: register / equivalent / reloc / structural, plus the `EFFECTIVE` verdict when the entire delta is register allocation (reccmp's 100% effective-match case); JSON carries a `frame` stack-comparison field; `--fix-blocker` auto-writes BLOCKER |
+| `rebrew diagnose` | `diagnose.py` | Explain why a function compiles with its toolchain+flags: prints the resolution chain (per-function metadata → nearest `rebrew-library.toml` → project defaults) and validates the declarations (unknown toolchains, preset contradictions, function-vs-library family drift); `--json` |
 | `rebrew stack-cmp` | `stack_cmp.py` | Compare a compiled function's stack frame against the target (reccmp `stackcmp` without a PDB): frame size, ebp-vs-esp (/Oy), `ret N` popping, `[ebp±N]` slot layout — flag-focused hints for per-function CFLAGS tuning |
 | `rebrew verify-exports` | `exports.py` | Verify the recompiled binary's export table matches the original target (reccmp `verexp` equivalent; compares export names, exits 1 on missing/added) |
 | `rebrew round-trip` | `round_trip.py` | Splice matched functions back into the target PE and verify byte equality |
 | `rebrew skills` | `skills.py` | Discover and display AI agent skills bundled with rebrew (`list`, `show` subcommands) |
 | `rebrew blocker` | `blocker.py` | Manage `BLOCKER` / `BLOCKER_DELTA` in `rebrew-function.toml` (`set`/`clear`/`show` by file, VA, or symbol; `--delta`, `--va`, `--dry-run`, `--json`) — ad-hoc BLOCKER for STUBs `diff --fix-blocker` cannot classify; every write via `rebrew.metadata` (locked + atomic, never hand-edited) |
+
+## Component Registration (Plugins)
+
+Rebrew's component registries — toolchains, decompiler backends, CLI
+subcommands, and GA mutations — accept registrations from outside the host
+source tree (see `src/rebrew/registry.py`).  The packaged built-ins form the
+base registry; discovered components merge on top, and a duplicate name
+between any two sources raises a `RegistryError` (single-source discipline:
+a component name has exactly one provider).
+
+| Component | Entry-point group | Registration shape |
+|-----------|-------------------|--------------------|
+| Toolchain | `rebrew.toolchains` | `module:attr` — a zero-arg callable returning `dict[str, ToolchainSpec]` |
+| Decompiler backend | `rebrew.decompiler_backends` | `module:attr` — `fn(binary, va, root, **kwargs) -> str \| None`; selectable by name but never part of the curated `BACKENDS` auto-probe order |
+| CLI single command | `rebrew.commands` | `module` (uses `main`/`app` help, like built-ins) or `module:callable` |
+| CLI multi-command group | `rebrew.multicommands` | `module` (a Typer app) or `module:app` |
+| GA mutation | `rebrew.mutations` | `module:attr` — `(source, rng) -> str \| None` |
+| Sweep flag set | `rebrew.flag_sets` | `module:attr` — zero-arg callable returning `dict[profile, (Flags, tiers)]`; tuning data — may override a packaged profile's axes |
+| Library preset | `rebrew.library_presets` | `module:attr` — zero-arg callable returning `dict[name, {toolchain, cflags}]`; tuning data — may override a packaged preset |
+| Detection alignment | `rebrew.toolchain_detectors` | `module:attr` — zero-arg callable returning `dict[family, list[profile]]`; lets a plugin toolchain align with a detected family (or open an un-matchable one) |
+| Binary family detector | `rebrew.binary_detectors` | `module:attr` — `(path) -> ToolchainInfo \| None`; runs when the packaged backends (DIE/PDB/PE-meta/heuristics) leave the family unknown, so a novel compiler is detectable end-to-end (`detected_by` = `plugin-<name>`) |
+| Binary loader | `rebrew.binary_loaders` | `module:attr` — `(path, fmt) -> BinaryInfo \| None`; runs when LIEF cannot parse the file, so a novel container format can be loaded |
+| MSVC version table | `rebrew.msvc_versions` | `module:attr` — zero-arg callable returning `dict["build:<n>" \| "linker:<M>.<m>", list[profile]]`; a plugin MSVC-derivative declares which exact builds it byte-matches, joining the version-exact `suggested_profiles` (union per key) |
+| Compile-cache backend | `rebrew.cache_backends` | `module:attr` — factory `(cache_dir, size_limit) -> CacheBackend` (get/put/volume/count/clear/close/stats); selected via `[cache] backend` in `rebrew-project.toml`; the keying semantics are shared and not pluggable |
+
+A CLI plugin whose module cannot be imported degrades to a stub command that
+reports the missing dependency (exit 2) — the same fallback built-ins get
+when an optional dependency is absent.  A non-CLI registration that fails to
+load raises `RegistryError` naming its origin.
+
+Project-local toolchains (not packaged) declare themselves as TOML files in
+the directory named by `REBREW_TOOLCHAIN_OVERLAY_DIR`; each file is one or
+more `name = { … }` tables of `ToolchainSpec` fields:
+
+```toml
+# mytoolchain.toml
+[mytc]
+image = "rebrew/custom:1.0-win32"
+binary = "mycc"
+flags_style = "posix"
+obj_ext = ".o"
+```
+
+Unknown spec fields in an overlay file are a declaration error, and a name
+that collides with a packaged toolchain raises `RegistryError`.  A spec may
+declare `bits = 16` (or `32`/`64`) — the arch-alignment check then treats a
+16-bit toolchain as valid on x86_16 DOS/NE targets instead of flagging it as
+a 32/64-bit compiler.
+
+Community/user agent skills extend the packaged `agent-skills/` tree through
+the `REBREW_SKILLS_DIR` environment variable — a directory of SKILL.md
+directories merged over the packaged set (a user skill with the same name
+wins; unset means packaged-only).  `rebrew init` renders both the packaged
+and the community skills into a project's `.agents/skills/` (same override
+semantics), so an initialized project carries the full skill set.
 
 ## Tool Flags
 
@@ -1045,6 +1101,30 @@ aborting the batch).
 | `--fix-blocker` | Write each verdict as `BLOCKER` metadata (skipped on a match) |
 | `--json` | JSON structured output (per-function results with `--all`) |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
+
+### `rebrew diagnose`
+
+`rebrew diagnose <source|dir|symbol|VA> [--json] [--target NAME]`
+
+Explain why a function compiles with the toolchain+flags it does.  Prints
+the resolution chain — per-function metadata (`rebrew-function.toml`
+`TOOLCHAIN`/`CFLAGS`) → nearest `rebrew-library.toml` (walk-up, presets
+applied) → project defaults (`[compiler]` profile, cflags fallbacks) — and
+validates the declarations along it:
+
+- an unknown toolchain name (function or library) is reported against the
+  registry,
+- a library preset contradicted by the resolved toolchain is flagged
+  (the preset's flags may be invalid for the winning compiler),
+- a per-function toolchain whose family disagrees with the enclosing
+  library's is flagged as possible drift.
+
+The chain is acyclic by construction (resolution always walks toward the
+project root), so what the model would call a dependency conflict appears
+here as a declaration warning instead of a cycle.  Accepts a file, a
+directory (every source under it), a symbol name, or a hex VA; `--json`
+emits the structured trace (`steps` + `effective` + `warnings` per
+function).
 
 ### `rebrew stack-cmp`
 

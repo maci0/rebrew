@@ -66,8 +66,12 @@ def is_jump_table(data: bytes, section_va: int, section_size: int) -> bool:
 
     Skips leading alignment bytes (NOP 0x90, INT3 0xCC, ``mov edi,edi`` 0x8BFF)
     before checking for a run of at least 2 consecutive .text pointers.
+    Validates 4-byte alignment of pointer array.
     """
     if len(data) < 8:
+        return False
+    # Jump table must be 4-byte aligned worth of pointers
+    if len(data) % 4 != 0:
         return False
     # Skip alignment prefix
     off = 0
@@ -76,6 +80,9 @@ def is_jump_table(data: bytes, section_va: int, section_size: int) -> bool:
     # Also skip ``mov edi, edi`` (8B FF) — common MSVC hotpatch 2-byte NOP
     if off + 1 < len(data) and data[off] == 0x8B and data[off + 1] == 0xFF:
         off += 2
+        # Re-check alignment after skipping hotpatch bytes
+        if (len(data) - off) % 4 != 0:
+            return False
     remaining = data[off:]
     if len(remaining) < 8:
         return False
@@ -129,7 +136,7 @@ def _resolve_canonical_size(
     ghidra_end = func_offset + ghidra_size
     list_end = func_offset + list_size
 
-    if func_offset < 0 or ghidra_end < 0 or list_end > len(text_data):
+    if func_offset < 0 or ghidra_end < 0 or list_end > len(text_data) or list_end <= ghidra_end:
         return ghidra_size, "ghidra (extra bytes out of range)"
 
     extra = text_data[ghidra_end:list_end]
@@ -259,7 +266,8 @@ def build_function_registry(
                 sec = info.sections[".text"]
                 text_va = sec.va
                 text_size_val = sec.size
-                text_data = info.data[sec.file_offset : sec.file_offset + sec.size]
+                raw = getattr(sec, "raw_size", sec.size)
+                text_data = info.data[sec.file_offset : sec.file_offset + raw]
         except (OSError, KeyError, ValueError):
             logger.debug(".text section load failed for %s", bin_path, exc_info=True)
 

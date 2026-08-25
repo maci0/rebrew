@@ -60,7 +60,7 @@ from pathlib import Path
 import numpy as np
 
 from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary
-from rebrew.compile_cache import CompileCache, compile_cache_key, get_compile_cache
+from rebrew.compile_cache import CacheBackend, compile_cache_key, get_compile_cache
 from rebrew.config import ProjectConfig
 from rebrew.core import (
     build_iat_region,
@@ -465,9 +465,19 @@ def resolve_cl_command(cfg: ProjectConfig) -> list[str]:
         return []
 
     runner = str(getattr(cfg, "compiler_runner", "")).strip()
-    if runner and cmd_parts and cmd_parts[0].lower() == runner.lower() and len(cmd_parts) > 1:
+    if (
+        runner
+        and cmd_parts
+        and Path(cmd_parts[0]).name.lower() == Path(runner).name.lower()
+        and len(cmd_parts) > 1
+    ):
         cmd_parts = cmd_parts[1:]
-    if not runner and cmd_parts and cmd_parts[0] in {"wine", "wibo"} and len(cmd_parts) > 1:
+    if (
+        not runner
+        and cmd_parts
+        and Path(cmd_parts[0]).name.lower() in {"wine", "wibo"}
+        and len(cmd_parts) > 1
+    ):
         runner = cmd_parts[0]
         cmd_parts = cmd_parts[1:]
 
@@ -504,7 +514,7 @@ def resolve_cl_command(cfg: ProjectConfig) -> list[str]:
 
 def resolve_compiler_env(
     cfg: ProjectConfig,
-) -> tuple[str, str, dict[str, str] | None, CompileCache | None]:
+) -> tuple[str, str, dict[str, str] | None, CacheBackend | None]:
     """Resolve compiler command, include dir, MSVC env, and compile cache from config.
 
     Returns ``(cl_cmd, inc_dir, msvc_env, compile_cache)`` - the four values
@@ -527,9 +537,9 @@ def resolve_compiler_env(
 
     env = msvc_env_from_config(cfg)
 
-    cc: CompileCache | None = None
+    cc: CacheBackend | None = None
     with contextlib.suppress(OSError):
-        cc = get_compile_cache(cfg.root)
+        cc = get_compile_cache(cfg.root, getattr(cfg, "cache_backend", "diskcache"))
 
     return cl_cmd, inc_dir, env, cc
 
@@ -560,14 +570,32 @@ def _merged_include_tokens(flags: list[str]) -> Iterator[str]:
 
     ``("/I", "../Units")`` becomes ``"/I../Units"``; every other flag passes
     through unchanged.  A lone trailing ``/I`` (or one followed by another
-    flag) stays a separate token.
+    flag) stays a separate token — but an orphan ``/I`` followed by a path-like
+    absolute (``/usr/include``) IS merged so stray includes are not dropped.
     """
     i = 0
     while i < len(flags):
         flag = flags[i]
         if flag in ("/I", "-I"):
             nxt = flags[i + 1] if i + 1 < len(flags) else None
-            if nxt is not None and not nxt.startswith("/") and not nxt.startswith("-"):
+            if nxt is not None and nxt not in ("/I", "-I"):
+                # Two-token form: "/I path" — path may be absolute or relative.
+                # Flags starting with "-" (e.g. "-Ifoo") are not paths.
+                # For "/"-prefixed tokens, short "/O2"/"/Fo" patterns are flags,
+                # longer absolute paths with additional "/" segments are dirs.
+                if nxt.startswith("-"):
+                    yield flag
+                    i += 1
+                    continue
+                if nxt.startswith("/"):
+                    # Heuristic: "/O2", "/Ox", "/Fo" are flags; "/usr/include" is a path.
+                    is_short_flag = (
+                        len(nxt) <= 4 and len(nxt) >= 2 and nxt[1].isalpha() and "/" not in nxt[1:]
+                    )
+                    if is_short_flag:
+                        yield flag
+                        i += 1
+                        continue
                 yield flag + nxt
                 i += 2
                 continue
@@ -710,7 +738,7 @@ def compile_to_obj(
     cflags: list[str],
     workdir: str | Path,
     *,
-    cache: CompileCache | None = None,
+    cache: CacheBackend | None = None,
     use_cache: bool = True,
     obj_name: str | None = None,
     toolchain: str | None = None,
@@ -809,7 +837,7 @@ def compile_to_obj(
     cc = cache
     if cc is None and use_cache:
         try:
-            cc = get_compile_cache(cfg.root)
+            cc = get_compile_cache(cfg.root, getattr(cfg, "cache_backend", "diskcache"))
         except OSError:
             cc = None
 
@@ -1046,7 +1074,7 @@ def compile_and_compare(
     target_bytes: bytes,
     cflags: str | list[str],
     *,
-    cache: CompileCache | None = None,
+    cache: CacheBackend | None = None,
     use_cache: bool = True,
     name_to_va: dict[str, int] | None = None,
     section_va: int | None = None,

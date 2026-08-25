@@ -83,8 +83,15 @@ def _apply_binsync_func_name(
     """
     from rebrew.rename_ops import rename_function_everywhere
 
-    fp = Path(cfg.reversed_dir) / local_filepath if local_filepath else None
-    if fp is None or not fp.exists():
+    if not local_filepath:
+        return False
+    fp = Path(cfg.reversed_dir) / local_filepath
+    try:
+        if not fp.resolve().is_relative_to(Path(cfg.reversed_dir).resolve()):
+            return False
+    except (OSError, ValueError):
+        return False
+    if not fp.exists():
         return False
     old_name = getattr(local, "name", "") or ""
     old_sym = getattr(local, "symbol", "") or old_name
@@ -129,10 +136,15 @@ def main(
             "--accept-binsync and --accept-local are mutually exclusive", json_mode=json_output
         )
 
-    if not state_dir.exists():
+    try:
+        resolved = state_dir.resolve()
+    except OSError as exc:
+        error_exit(f"Cannot resolve state directory {state_dir}: {exc}", json_mode=json_output)
+    if not resolved.exists():
         error_exit(f"State directory not found: {state_dir}", json_mode=json_output)
-    if not state_dir.is_dir():
+    if not resolved.is_dir():
         error_exit(f"Not a directory: {state_dir}", json_mode=json_output)
+    state_dir = resolved
 
     cfg = require_config(target=target, json_mode=json_output)
 
@@ -263,7 +275,7 @@ def main(
         )
 
         # Prototype import (independent of name)
-        if bs_proto and bs_proto != local_proto:
+        if bs_proto and bs_proto.strip() != local_proto.strip():
             if dry_run:
                 proposed.append(
                     {
@@ -279,17 +291,23 @@ def main(
                 try:
                     from rebrew.annotation import update_annotation_key as _uak
 
-                    fp = Path(cfg.reversed_dir) / local_filepath if local_filepath else None
-                    if fp is not None and fp.exists():
-                        _uak(fp, va, "PROTOTYPE", bs_proto, metadata_dir=cfg.metadata_dir)
-                        applied_protos += 1
-                    else:
-                        # No file to write — record but can't apply
+                    if not local_filepath:
                         skipped += 1
+                    else:
+                        fp = Path(cfg.reversed_dir) / local_filepath
+                        try:
+                            inside = fp.resolve().is_relative_to(Path(cfg.reversed_dir).resolve())
+                        except (OSError, ValueError):
+                            inside = False
+                        if not inside or not fp.exists():
+                            skipped += 1
+                        else:
+                            _uak(fp, va, "PROTOTYPE", bs_proto, metadata_dir=cfg.metadata_dir)
+                            applied_protos += 1
                 except Exception:
                     log.debug("prototype apply failed for VA 0x%x", va, exc_info=True)
                     skipped += 1
-            else:
+            elif dry_run:
                 applied_protos += 1
 
         if not bs_name or not _is_meaningful(bs_name):
@@ -352,9 +370,14 @@ def main(
                 try:
                     from rebrew.annotation import update_annotation_key as _uak2
 
-                    fp = Path(cfg.reversed_dir) / local_filepath if local_filepath else None
-                    if fp is not None and fp.exists():
-                        _uak2(fp, va, "GHIDRA", bs_name, metadata_dir=cfg.metadata_dir)
+                    if local_filepath:
+                        fp = Path(cfg.reversed_dir) / local_filepath
+                        try:
+                            inside = fp.resolve().is_relative_to(Path(cfg.reversed_dir).resolve())
+                        except (OSError, ValueError):
+                            inside = False
+                        if inside and fp.exists():
+                            _uak2(fp, va, "GHIDRA", bs_name, metadata_dir=cfg.metadata_dir)
                 except Exception:
                     log.debug("GHIDRA annotation apply failed for VA 0x%x", va, exc_info=True)
                     skipped += 1
@@ -386,7 +409,7 @@ def main(
         # For DATA/GLOBAL, update rebrew-data.toml
         if local is not None:
             local_name = getattr(local, "name", "") or getattr(local, "symbol", "") or ""
-            if local_name == bs_name:
+            if local_name.strip() == bs_name.strip():
                 continue
             if dry_run:
                 proposed.append(

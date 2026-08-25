@@ -329,14 +329,21 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
     report.changed = report.changed or rel32 > 0
 
     # ---- 3. trim the extra .text tail + fix .text VirtualSize ----
-    text_end = meta.section(".text").raw_ptr + meta.section(".text").vs  # reference content end
-    if text_end < text.file_offset + text.raw_size:
-        built[text_end : text.file_offset + text.raw_size] = b"\x00" * (
-            text.file_offset + text.raw_size - text_end
+    # The reference's own padding beyond VirtualSize (real linkers emit INT3
+    # 0xCC in the .text tail — cpubench: vs 0x29d11 < raw 0x29e00) is part
+    # of the reference and must be preserved: `postlink X X` reproduces X
+    # byte-for-byte.  Only bytes BEYOND the reference's raw extent are
+    # trimmed.  (The fixer deliberately carries no reference .text bytes —
+    # operands/calls are sparse maps — so the reference's tail region is
+    # left as the built binary's, which for X X is the reference itself.)
+    text_m = meta.section(".text")
+    ref_raw_end = text_m.raw_ptr + text_m.raw
+    if ref_raw_end < text.file_offset + text.raw_size:
+        built[ref_raw_end : text.file_offset + text.raw_size] = b"\x00" * (
+            text.file_offset + text.raw_size - ref_raw_end
         )
-        struct.pack_into(
-            "<I", built, _section_header_offset(info_b, ".text") + 8, meta.section(".text").vs
-        )
+        struct.pack_into("<I", built, _section_header_offset(info_b, ".text") + 16, text_m.raw)
+        struct.pack_into("<I", built, _section_header_offset(info_b, ".text") + 8, text_m.vs)
         report.changed = True
 
     # ---- 4. grow .data to the reference raw size and copy it ----

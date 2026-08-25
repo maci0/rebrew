@@ -287,7 +287,7 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
             guess = suggest_profile(info, cfg.target_binary)
             if guess:
                 hint = guess
-        except Exception:
+        except (OSError, ValueError, ImportError, AttributeError):
             logger.debug("profile suggestion failed", exc_info=True)  # best-effort recommendation
         return CheckResult(
             name="Compiler",
@@ -642,6 +642,33 @@ def check_toolchain_backed(cfg: ProjectConfig) -> CheckResult:
     return CheckResult(name="Toolchain", status=status, message=message, fix=fix)
 
 
+def check_cache_backend(cfg: ProjectConfig) -> CheckResult:
+    """The configured compile-cache backend must be a registered backend.
+
+    An unknown ``[cache] backend`` only surfaces when the cache is opened
+    (compile time); doctor reports it up front, before the first compile."""
+    backend = str(getattr(cfg, "cache_backend", "diskcache"))
+    from rebrew.compile_cache import available_cache_backends
+
+    known = available_cache_backends()
+    if backend in known:
+        return CheckResult(
+            name="Cache",
+            status=_PASS,
+            message=f"[cache] backend = {backend}",
+            fix="",
+        )
+    return CheckResult(
+        name="Cache",
+        status=_FAIL,
+        message=f"[cache] backend = {backend!r} is not a registered backend",
+        fix=(
+            f"Known backends: {', '.join(known)} — set [cache] backend in "
+            "rebrew-project.toml or install the plugin that provides it"
+        ),
+    )
+
+
 def check_runner(cfg: ProjectConfig) -> CheckResult:
     """Check the execution runner.  Docker-backed profiles run through
     their docker image (wine/wibo config is obsolete for them); native-Linux
@@ -928,6 +955,7 @@ def run_doctor(target: str | None = None) -> DoctorReport:
     report.checks.append(check_target_binary(cfg))
     report.checks.append(check_arch_format(cfg))
     report.checks.append(check_toolchain_alignment(cfg))
+    report.checks.append(check_cache_backend(cfg))
     # Project-level config vs binary fingerprints: CRT linkage + opt-level
     # are kept in doctor because they diagnose "you configured the wrong
     # toolchain shape" before any corpus exists.  Per-function metadata

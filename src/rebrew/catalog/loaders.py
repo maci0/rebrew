@@ -4,6 +4,7 @@ Loads Ghidra function JSON, function lists, Ghidra data labels,
 and scans reversed directories for annotated source files.
 """
 
+import contextlib
 import json
 import re
 import warnings
@@ -104,7 +105,8 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, GhidraDataLabel]:
         gdl = GhidraDataLabel.from_dict(entry)
         if gdl.label:
             gdl.state = _classify_ghidra_label(gdl.label)
-        if gdl.va and gdl.size:
+        # VA 0 is reserved/null — skip duplicates
+        if gdl.va and gdl.size and gdl.va != 0 and gdl.va not in result:
             result[gdl.va] = gdl
     return result
 
@@ -113,8 +115,11 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, GhidraDataLabel]:
 # Function list parser
 # ---------------------------------------------------------------------------
 
-_FUNC_LINE_RE_SIZE_FIRST = re.compile(r"^\s*(0x[0-9a-fA-F]+)\s+(\d+)\s+(\S+)")
-_FUNC_LINE_RE_NAME_FIRST = re.compile(r"^\s*(0x[0-9a-fA-F]+)\s+(\S+)\s+(\d+)\s*$")
+_FUNC_LINE_RE_SIZE_FIRST = re.compile(r"^\s*(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+|\d+)\s+(\S+)")
+_FUNC_LINE_RE_NAME_FIRST = re.compile(r"^\s*(0x[0-9a-fA-F]+)\s+(\S+)\s+(0x[0-9a-fA-F]+|\d+)\s*$")
+# `VA NAME` with no size (rizin afl may omit sizes).  The name must not be
+# pure digits — a bare `VA NUMBER` line is malformed, not a size-less entry.
+_FUNC_LINE_RE_NAME_ONLY = re.compile(r"^\s*(0x[0-9a-fA-F]+)\s+(\S+)\s*$")
 
 # Path-keyed cache of parsed function lists (multiple projects per process).
 _function_list_cache: dict[str, list[dict[str, Any]]] = {}
@@ -128,15 +133,27 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
     scaffold.  Returns ``[]`` when the list is unset, missing, or corrupt.
     """
     path = str(getattr(cfg, "function_list", ""))
-    funcs = _function_list_cache.get(path)
+    # Include mtime in cache key to avoid stale entries after file rewrites
+    mtime_key = ""
+    with contextlib.suppress(OSError):
+        mtime_key = str(Path(path).stat().st_mtime_ns)
+    cache_key = f"{path}:{mtime_key}" if path else ""
+    funcs = _function_list_cache.get(cache_key)
     if funcs is None:
+        # Also check bare path entry for backward compat
+        bare = _function_list_cache.get(path)
+        if bare is not None and not mtime_key:
+            return list(bare)
         try:
             p = Path(path)
             funcs = parse_function_list(p) if p.is_file() else []
         except (OSError, ValueError, KeyError):
             funcs = []
-        _function_list_cache[path] = funcs
-    return funcs
+        _function_list_cache[cache_key] = funcs
+        # Evict stale bare entry if we migrated
+        if mtime_key and path in _function_list_cache and cache_key != path:
+            _function_list_cache.pop(path, None)
+    return list(funcs)
 
 
 def parse_function_list(path: Path) -> list[dict[str, Any]]:
@@ -148,6 +165,7 @@ def parse_function_list(path: Path) -> list[dict[str, Any]]:
         warnings.warn(f"Cannot read {path}: {exc}", stacklevel=2)
         return funcs
 
+    seen_vas: set[int] = set()
     for line in text.splitlines():
         if not line.strip() or line.strip().startswith("#"):
             continue
@@ -168,10 +186,14 @@ def parse_function_list(path: Path) -> list[dict[str, Any]]:
                 # 8512-byte "size" for a 6-byte thunk) into the registry and
                 # verify --fix-sizes.  Mirrors parse_rizin_afl's handling.
                 continue
+            va1 = int(m1.group(1), 16)
+            if va1 in seen_vas:
+                continue
+            seen_vas.add(va1)
             funcs.append(
                 make_func_entry(
-                    va=int(m1.group(1), 16),
-                    size=int(m1.group(2)),
+                    va=va1,
+                    size=int(m1.group(2), 0),
                     name=m1.group(3),
                 )
             )
@@ -184,11 +206,35 @@ def parse_function_list(path: Path) -> list[dict[str, Any]]:
             if m2.group(2) == "->":
                 # rizin afl alias marker ("0x1000 -> 0x2000") — see above.
                 continue
+            va2 = int(m2.group(1), 16)
+            if va2 in seen_vas:
+                continue
+            seen_vas.add(va2)
             funcs.append(
                 make_func_entry(
-                    va=int(m2.group(1), 16),
-                    size=int(m2.group(3)),
+                    va=va2,
+                    size=int(m2.group(3), 0),
                     name=m2.group(2),
+                )
+            )
+            continue
+
+        m3 = _FUNC_LINE_RE_NAME_ONLY.match(line)
+        if m3 and not m3.group(2).isdigit():
+            # `VA NAME` with no size (rizin afl can omit sizes): record the
+            # function with size 0 so it stays visible in the universe
+            # (registry/status/extract); sizing tools fall back elsewhere.
+            if m3.group(2).startswith("sym.imp."):
+                continue
+            va3 = int(m3.group(1), 16)
+            if va3 in seen_vas:
+                continue
+            seen_vas.add(va3)
+            funcs.append(
+                make_func_entry(
+                    va=va3,
+                    size=0,
+                    name=m3.group(2),
                 )
             )
 

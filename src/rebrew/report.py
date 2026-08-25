@@ -165,12 +165,16 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
     reversed_dir = getattr(cfg, "reversed_dir", None)
     if reversed_dir is None:
         return []
+    reversed_path = Path(reversed_dir)
+    if not reversed_path.exists():
+        return []
     functions: list[dict[str, Any]] = []
-    sources = iter_sources(Path(reversed_dir), cfg)
+    metadata_dir = getattr(cfg, "metadata_dir", None)
+    sources = iter_sources(reversed_path, cfg)
     for src, annos in iter_annotations(
         sources,
         target=target_marker(cfg),
-        metadata_dir=getattr(cfg, "metadata_dir", None),
+        metadata_dir=metadata_dir,
     ):
         for ann in annos:
             if ann.marker_type in ("GLOBAL", "DATA"):
@@ -178,9 +182,11 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
             if ann.va < min_valid_va_for(cfg):
                 continue
             md = {}
-            metadata_dir = getattr(cfg, "metadata_dir", None)
             if isinstance(metadata_dir, Path):
-                md = get_entry(metadata_dir, ann.va, ann.module)
+                try:
+                    md = get_entry(metadata_dir, ann.va, ann.module)
+                except (OSError, ValueError, KeyError):
+                    md = {}
             functions.append(
                 {
                     "name": _display_name(ann, src),
@@ -189,8 +195,8 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
                     "size": ann.size,
                     "cflags": ann.cflags,
                     "module": ann.module,
-                    "file": rel_display_path(src, Path(reversed_dir)),
-                    "blocker": md.get("blocker", ""),
+                    "file": rel_display_path(src, reversed_path),
+                    "blocker": str(md.get("blocker", "")),
                 }
             )
     functions.sort(key=lambda fn: (fn["va"], fn["name"]))
@@ -214,7 +220,10 @@ def _target_binary(cfg: ProjectConfig) -> Path | None:
 def _ne_summary(cfg: ProjectConfig) -> dict[str, Any] | None:
     """16-bit NE summary for the report index (None for non-NE targets)."""
     bin_path = getattr(cfg, "target_binary", None)
-    if not bin_path or not Path(bin_path).exists():
+    if not bin_path:
+        return None
+    bin_p = Path(bin_path)
+    if not bin_p.exists() or not bin_p.is_file():
         return None
     try:
         from rebrew.binary_loader import load_binary, section_dict
@@ -390,8 +399,19 @@ def _render_imports(cfg: ProjectConfig) -> str:
             "imports.html",
             "<p class='note'>Target binary not found - nothing to report.</p>",
         )
-    imports: list[dict[str, Any]] = parse_imports(binary)
-    stubs = find_import_stubs(binary)
+    try:
+        imports: list[dict[str, Any]] = parse_imports(binary)
+    except (OSError, ValueError):
+        return _page(
+            "Imports",
+            target,
+            "imports.html",
+            "<p class='note'>Failed to parse imports from the target binary.</p>",
+        )
+    try:
+        stubs = find_import_stubs(binary)
+    except (OSError, ValueError):
+        stubs = {}
     if not imports:
         return _page(
             "Imports",
@@ -499,13 +519,24 @@ def _adjacency_list(
 ) -> str:
     """Plain-text adjacency list over *nodes*: ``name [status] va -> callees``."""
     lines = [f"{len(nodes)} nodes, {len(edges)} direct edges, {len(dispatch_edges)} dispatch edges"]
+    # Build callee sets once instead of scanning the full edge list per node.
+    callees_by_src: dict[str, list[str]] = {}
+    for a, b in edges:
+        callees_by_src.setdefault(a, []).append(b)
+    for v in callees_by_src.values():
+        v.sort()
+    dispatch_by_src: dict[str, list[str]] = {}
+    for a, b in dispatch_edges:
+        dispatch_by_src.setdefault(a, []).append(b)
+    for v in dispatch_by_src.values():
+        v.sort()
     for name in sorted(nodes):
         info = nodes[name]
         status = info.get("status", "")
         va = info.get("va", 0)
         va_str = f"0x{va:08x}" if va else "-"
-        callees = sorted(b for a, b in edges if a == name)
-        dispatch = sorted(b for a, b in dispatch_edges if a == name)
+        callees = callees_by_src.get(name, [])
+        dispatch = dispatch_by_src.get(name, [])
         if not callees and not dispatch:
             lines.append(f"{name} [{status}] {va_str}")
             continue

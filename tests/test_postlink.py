@@ -98,8 +98,14 @@ def make_full_pe(
     checksum: int = 0,
     e_lfanew: int = 0x80,
     reloc_bytes: bytes = b"",
+    text_pad_byte: int = 0x00,
 ) -> bytes:
-    """Build a four-section PE mirroring the MSVC6 server.dll layout."""
+    """Build a four-section PE mirroring the MSVC6 server.dll layout.
+
+    *text_pad_byte* fills the .text raw tail beyond the code (the VirtualSize
+    is set to ``len(code)``, so a non-zero pad simulates real linkers' INT3
+    padding — used to prove the fixers preserve the reference's padding).
+    """
     imports = imports or []
     record_order = record_order or [api for _, apis in imports for api in apis]
 
@@ -131,7 +137,7 @@ def make_full_pe(
     iat_rva, iat_size = _RDATA_VA, 0x80
     imp_rva = _RDATA_VA + 0x80 + 0x40
 
-    text_raw = code.ljust(0x1000, b"\x00")[:0x1000]
+    text_raw = code.ljust(0x1000, bytes([text_pad_byte]))[:0x1000]
     rdata_raw = rdata[:0x200]
     data_raw = data.ljust(0x200, b"\x00")[:0x200]
     reloc_raw = reloc_bytes.ljust(0x200, b"\x00")[:0x200]
@@ -178,7 +184,7 @@ def make_full_pe(
 
     secs = b""
     for name, vsz, va, raw_sz, raw_off, chars in (
-        (b".text\x00\x00\x00", len(text_raw), _TEXT_VA, len(text_raw), _HEADERS, _TEXT_CHARS),
+        (b".text\x00\x00\x00", len(code), _TEXT_VA, len(text_raw), _HEADERS, _TEXT_CHARS),
         (b".rdata\x00\x00", len(rdata_raw), _RDATA_VA, len(rdata_raw), _RDATA_VA, _RDATA_CHARS),
         (b".data\x00\x00\x00", len(data_raw), _DATA_VA, len(data_raw), _DATA_VA, _DATA_CHARS),
         (b".reloc\x00\x00", len(reloc_raw), _RELOC_VA, len(reloc_raw), _RELOC_VA, _RELOC_CHARS),
@@ -261,6 +267,16 @@ class TestDataFixer:
         patched, reports = run_fixers(built, ref, ["data"])
         assert patched == ref.read_bytes()
         assert reports[0].stats["data_operands"] >= 1
+
+    def test_preserves_reference_text_padding(self, tmp_path: Path) -> None:
+        """`postlink X X` must reproduce X byte-for-byte: the data fixer
+        trimmed .text to the reference's VirtualSize, zeroing the reference's
+        own file padding.  Regression: cpubench .text vs 0x29d11 < raw
+        0x29e00 — 239 bytes of 0xCC padding were corrupted."""
+        ref = _write(tmp_path, "ref.dll", make_full_pe(code=b"\xc3", text_pad_byte=0xCC))
+        patched, reports = run_fixers(ref, ref, ["data"])
+        assert patched == ref.read_bytes()
+        assert patched[0x1001:0x1008] == b"\xcc" * 7  # padding untouched
 
 
 class TestPeMetadataFixer:

@@ -8,7 +8,11 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-import flirt
+try:
+    import flirt
+except ImportError:  # optional dependency
+    flirt = None
+
 import typer
 from rich.console import Console
 
@@ -51,11 +55,14 @@ def _sig_files(dirs: list[Path]) -> list[Path]:
 
 def _parse_sig_files(files: list[Path]) -> list[Any]:
     """Parse each FLIRT signature file, warning (not aborting) on bad ones."""
+    if flirt is None:
+        warnings.warn("python-flirt not installed — skipping signature scan", stacklevel=2)
+        return []
     sigs: list[Any] = []
     for filepath in files:
         try:
             content = filepath.read_bytes()
-            if filepath.suffix == ".sig":
+            if filepath.suffix.lower() == ".sig":
                 parsed = flirt.parse_sig(content)
             else:
                 parsed = flirt.parse_pat(content.decode("utf-8", errors="ignore"))
@@ -75,8 +82,8 @@ def load_signatures(sig_dir: str) -> list[Any]:
     console.print(f"Loading signatures from {sig_dir}...")
 
     sig_path = Path(sig_dir)
-    if not sig_path.exists():
-        console.print(f"Signature directory {sig_dir} not found.")
+    if not sig_path.is_dir():
+        console.print(f"Signature directory {sig_dir} not found or not a directory.")
         return []
 
     return _parse_sig_files(sorted(sig_path.glob("*.sig")) + sorted(sig_path.glob("*.pat")))
@@ -103,7 +110,9 @@ def load_signatures_merged(project_dir: Path, repo_dir: Path) -> list[Any]:
 def find_func_size(code_data: bytes, offset: int) -> int:
     """Estimate function size by scanning for common end patterns."""
     # Look for ret (0xC3), ret imm16 (0xC2), or int3 padding (0xCC)
-    max_scan = min(_MAX_FUNC_SCAN, len(code_data) - offset)
+    if offset < 0:
+        offset = 0
+    max_scan = min(_MAX_FUNC_SCAN, max(0, len(code_data) - offset))
     scan_end = offset + max_scan
     for i in range(offset, scan_end):
         b = code_data[i]
@@ -211,6 +220,8 @@ def main(
         repo_dir = _flirt_sigs_repo()
         sigs = load_signatures_merged(project_dir, repo_dir)
         sig_sources = [str(project_dir), str(repo_dir)]
+    if flirt is None:
+        error_exit("python-flirt is not installed", json_mode=json_output)
     if not sigs:
         error_exit("No signatures loaded", json_mode=json_output)
 
@@ -227,7 +238,8 @@ def main(
         error_exit("Could not find .text section", json_mode=json_output)
 
     text_sec = info.sections[text_name]
-    code_data = info.data[text_sec.file_offset : text_sec.file_offset + text_sec.raw_size]
+    end = min(text_sec.file_offset + text_sec.raw_size, len(info.data))
+    code_data = info.data[text_sec.file_offset : end]
     base_va = text_sec.va
 
     sig_count = len(sigs)

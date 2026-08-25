@@ -49,17 +49,24 @@ def list_cmd(
         json_print({"toolchains": rows, "docker_available": docker_available()})
         return
     table = Table(title="Toolchains", header_style="bold")
-    for col in ("Name", "Image", "Binary", "Runtime", "Flags", "Obj"):
+    show_origin = any(r.get("origin", "packaged") != "packaged" for r in rows)
+    columns = ["Name", "Image", "Binary", "Runtime", "Flags", "Obj"]
+    if show_origin:
+        columns.append("Origin")
+    for col in columns:
         table.add_column(col)
     for r in rows:
-        table.add_row(
+        row = [
             r["name"],
             r["image"] or "host-only",
             r["binary"],
             r["runtime"],
             r["flags_style"],
             r["obj_ext"],
-        )
+        ]
+        if show_origin:
+            row.append(r.get("origin", "packaged"))
+        table.add_row(*row)
     console.print(table)
     console.print(f"[dim]docker: {'available' if docker_available() else 'NOT available'}[/dim]")
 

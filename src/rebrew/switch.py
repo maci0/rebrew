@@ -47,6 +47,19 @@ _INDIRECT_JMP_RE = re.compile(r"dword ptr \[([a-z0-9]+)\s*\*\s*4\s*\+\s*0x([0-9a
 #: ``cmp ecx, 0xb`` — the bounds check preceding the dispatch.
 _CMP_IMM_RE = re.compile(r"([a-z0-9]+),\s*(?:0x)?([0-9a-fA-F]+)")
 
+#: ``and eax, 3`` — a register-index mask used as a bounds check by MSVC's
+#: memcpy/memmove byte-tail dispatches (``and reg, N; jmp [reg*4 + table]``).
+_MASK_RE = re.compile(r"^(eax|ecx|edx|esi|edi|ebx),\s*(?:0x)?([0-9a-fA-F]+)$")
+
+
+def _is_index_mask(value: int) -> bool:
+    """True when *value* is a power-of-two-minus-1 (1, 3, 7, 15, ...).
+
+    A register index mask bounds a jump-table index; a non-mask ``and reg, N``
+    (e.g. a flag test like ``and eax, 0x40``) must not be read as a bound.
+    """
+    return value >= 1 and (value & (value + 1)) == 0
+
 
 def find_switches(cfg: Any, va: int, window: int = 512) -> list[dict[str, Any]]:
     """Locate jump-table dispatches in the function at *va*.
@@ -95,21 +108,33 @@ def find_switches(cfg: Any, va: int, window: int = 512) -> list[dict[str, Any]]:
         # immediate.  The index register often differs (MSVC copies the
         # index into the scaled register between the cmp and the jmp), so
         # any register is accepted; a large immediate (an address compare,
-        # not a switch bound) is rejected.
+        # not a switch bound) is rejected.  MSVC's memcpy/memmove byte-tail
+        # dispatches bound the index with `and reg, mask` instead — recognize
+        # a power-of-two-minus-1 mask on the index register as a bound too.
         bounds: int | None = None
         for prev in insns[max(0, idx - 8) : idx]:
-            if prev.mnemonic != "cmp":
-                continue
-            cm = _CMP_IMM_RE.search(prev.op_str)
-            if cm is None:
-                continue
-            try:
-                value = int(cm.group(2), 16)
-            except ValueError:
-                continue
-            if 0 <= value <= 0xFFFF:
-                bounds = value
-                break
+            if prev.mnemonic == "cmp":
+                cm = _CMP_IMM_RE.search(prev.op_str)
+                if cm is None:
+                    continue
+                try:
+                    value = int(cm.group(2), 16)
+                except ValueError:
+                    continue
+                if 0 <= value <= 0xFFFF:
+                    bounds = value
+                    break
+            elif prev.mnemonic == "and":
+                am = _MASK_RE.match(prev.op_str)
+                if am is None or am.group(1) != index_reg:
+                    continue
+                try:
+                    value = int(am.group(2), 16)
+                except ValueError:
+                    continue
+                if _is_index_mask(value):
+                    bounds = value
+                    break
 
         cases = _read_table(cfg, table_va, bounds)
         results.append(
@@ -157,7 +182,14 @@ def _read_table(cfg: Any, table_va: int, bounds: int | None) -> list[tuple[int, 
         # Every dispatch entry points into the image (a case handler) —
         # stop at the first that doesn't.  The bounds check is an upper
         # bound; the real table may be shorter (sparse/misread bounds).
+        # With a known bound, an invalid leading slot is NOT the end of the
+        # table: MSVC's memcpy/memmove byte-tail tables leave slot 0 unused
+        # (the alignment guard makes the index >= 1), so it holds leftover
+        # bytes that overlap the preceding jmp — skip invalid entries and
+        # keep the valid ones at their true indices.
         if not _va_in_image(info, target):
+            if bounds is not None:
+                continue
             break
         entries.append((i, target))
     return entries

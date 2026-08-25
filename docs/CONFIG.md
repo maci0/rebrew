@@ -227,6 +227,27 @@ profile = "msvc7"
 
 Only the keys you specify in the per-target `[compiler]` section override the global `[compiler]`. Unspecified keys fall back to the global defaults.
 
+## Compile Cache Backend
+
+The compile-cache **store** is a pluggable component: `[cache] backend` in
+`rebrew-project.toml` selects which registered backend `get_compile_cache()`
+opens.  The default is the packaged `diskcache` backend (SQLite +
+filesystem at `{project_root}/.rebrew/compile_cache/`); a plugin registers a
+new backend through the `rebrew.cache_backends` entry-point group (a factory
+`(cache_dir: Path, size_limit: int) -> CacheBackend` — the directory doubles
+as the per-project namespace even for remote/shared stores).
+
+```toml
+[cache]
+backend = "diskcache"   # or any registered rebrew.cache_backends member
+```
+
+The **keying** is deliberately NOT pluggable: what makes a cache hit valid
+(source/flags/toolchain/include digests) is shared semantics every backend
+must respect — a backend stores and retrieves bytes; it never reinterprets
+the keys.  `rebrew cache stats` / `clear` operate on the configured backend.
+An unknown `backend` name is a `ValueError` where the cache is opened.
+
 ## Environment Variables
 
 Configuration precedence is: CLI flags > per-function metadata > `rebrew-project.toml` > environment variables > defaults.

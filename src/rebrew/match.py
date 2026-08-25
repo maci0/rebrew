@@ -60,7 +60,7 @@ from rebrew.cli import (
     resolve_source_arg,
 )
 from rebrew.compile import resolve_compiler_env
-from rebrew.compile_cache import CompileCache, source_digest
+from rebrew.compile_cache import CacheBackend, source_digest
 from rebrew.config import ProjectConfig
 from rebrew.core import build_iat_region, smart_reloc_compare
 from rebrew.matcher import (
@@ -210,8 +210,13 @@ def _find_function_range(source: str, symbol: str) -> tuple[int, int] | None:
             if declarator is None:
                 continue
             name_node: Any = declarator
-            # function_declarator -> declarator -> identifier
+            # function_declarator -> declarator -> identifier (guard against cycles)
+            visited: set[int] = set()
             while name_node is not None and name_node.type != "identifier":
+                nid = id(name_node)
+                if nid in visited:
+                    break
+                visited.add(nid)
                 name_node = name_node.child_by_field_name("declarator") or name_node.named_child(0)
             if (
                 name_node is not None
@@ -291,7 +296,7 @@ class BinaryMatchingGA:
         link_cmd: str | None = None,
         ldflags: str | None = None,
         env: dict[str, str] | None = None,
-        compile_cache: CompileCache | None = None,
+        compile_cache: CacheBackend | None = None,
         compile_timeout: int = 60,
         extra_seeds: list[str] | None = None,
         collect_pairs_path: Path | None = None,
@@ -938,10 +943,15 @@ def parse_size_mismatch_all(
     filepath: Path,
     ignored: set[str] | None = None,
     metadata_dir: Path | None = None,
+    min_va: int = 0x1000,
 ) -> list[StubInfo]:
     """Extract all SIZE_MISMATCH annotations (no delta filter)."""
     return _parse_annotations(
-        filepath, status_filter={"SIZE_MISMATCH"}, ignored=ignored, metadata_dir=metadata_dir
+        filepath,
+        status_filter={"SIZE_MISMATCH"},
+        ignored=ignored,
+        metadata_dir=metadata_dir,
+        min_va=min_va,
     )
 
 
@@ -1057,10 +1067,13 @@ def find_size_mismatch(
     ``--all`` matches STUBs, ``--improve``/``--near-miss`` NEAR_MATCHING —
     leaving SIZE_MISMATCH functions unreachable by any batch mode."""
     md = cfg.metadata_dir if cfg is not None else None
+    min_va = min_valid_va_for(cfg)
     return _collect_with_dedup(
         reversed_dir,
         cfg,
-        lambda cfile: parse_size_mismatch_all(cfile, ignored=ignored, metadata_dir=md),
+        lambda cfile: parse_size_mismatch_all(
+            cfile, ignored=ignored, metadata_dir=md, min_va=min_va
+        ),
         sort_key=lambda x: x.size,
         warn_duplicates=warn_duplicates,
     )
@@ -1877,7 +1890,7 @@ class _BuildParams:
     va_int: int
     target_size: int
     msvc_env: dict[str, str] | None
-    cc: Any  # CompileCache | None
+    cc: Any  # CacheBackend | None
 
 
 def _select_annotation(annos: list[Annotation], symbol: str | None) -> Annotation | None:
@@ -2955,14 +2968,12 @@ def _filter_recently_run(
     for rec in records:
         ts = rec.get("ts", "")
         try:
-            if datetime.fromisoformat(ts) >= cutoff:
+            dt = datetime.fromisoformat(ts)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=UTC)
+            if dt >= cutoff:
                 recent_vas.add(str(rec.get("va")))
-        except ValueError:
-            continue
-        except TypeError:
-            # Naive timestamp (no offset) can't compare against the aware UTC
-            # cutoff; treat like any other unparseable line instead of
-            # aborting the batch filter.
+        except (ValueError, TypeError):
             continue
     if not recent_vas:
         return stubs

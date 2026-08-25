@@ -234,7 +234,7 @@ def build_sync_commands(
 
         # Skip labels for VAs where set-function-prototype already set the name
         # (avoids creating secondary LABEL symbols that trigger DuplicateNameException).
-        if va in sig_vas or skip_generic_labels and is_generic_name(name):
+        if (va in sig_vas) or (skip_generic_labels and is_generic_name(name)):
             skipped_labels += 1
         else:
             commands.append(_label_cmd(program_path, va_hex, name))

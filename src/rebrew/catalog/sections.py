@@ -139,7 +139,10 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
     globals_dict: dict[int, dict[str, Any]] = {}
     for p in iter_sources(src_dir, cfg):
         try:
-            lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()
+            from rebrew.utils import read_source_text
+
+            text, _ = read_source_text(p)
+            lines = text.splitlines()
             for i, line in enumerate(lines):
                 m = _GLOBAL_COMMENT_RE.search(line)
                 if m:

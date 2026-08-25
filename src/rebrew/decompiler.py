@@ -29,6 +29,8 @@ from typing import Any
 
 import httpx
 
+from rebrew.registry import RegistryError
+
 # ANSI escape code stripper
 _ANSI_RE = re.compile(r"\x1B\[[0-9;]*[a-zA-Z]")
 
@@ -227,6 +229,35 @@ _BACKEND_MAP: dict[str, Callable[..., str | None]] = {
     "ghidra": fetch_ghidra,
     "kuna": fetch_kuna,
 }
+
+#: setuptools entry-point group whose members register extra decompiler
+#: backends.  A member is a callable with the backend signature — ``fn(
+#: binary, va, root, **kwargs) -> str | None`` — keyed by its entry-point
+#: name.  Discovered backends are selectable by name but never join the
+#: ``BACKENDS`` auto-probe order (that is a curated built-in list).
+DECOMPILER_ENTRY_POINT_GROUP = "rebrew.decompiler_backends"
+
+
+def _merge_entry_point_backends() -> dict[str, Callable[..., str | None]]:
+    """The backend map: packaged backends + ``rebrew.decompiler_backends``.
+
+    Merging order: packaged backends first, then entry-point providers in
+    discovery order.  A duplicate name raises :class:`RegistryError`."""
+    from rebrew.registry import entry_point_registrations, import_registration, merge_into
+
+    merged = dict(_BACKEND_MAP)
+    for reg in entry_point_registrations(DECOMPILER_ENTRY_POINT_GROUP):
+        backend_fn = import_registration(reg)
+        if not callable(backend_fn):
+            raise RegistryError(
+                f"bad {reg.group} registration {reg.name!r} from {reg.origin}: "
+                f"expected a callable backend, got {type(backend_fn).__name__}"
+            )
+        merge_into(merged, reg.name, backend_fn, reg.origin, group=reg.group)
+    return merged
+
+
+_BACKEND_MAP = _merge_entry_point_backends()
 
 
 def fetch_decompilation(

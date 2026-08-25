@@ -174,3 +174,113 @@ auto-updates in the non-git projects (bench, skifree16 — the tools'
 documented auto-write path, same class as the round-1 caches);
 `output/ga_runs/best.c` was rewritten by the single-function GA run on
 notepad (untracked).  No tracked fleet files modified.
+
+---
+
+# Round 3 (2026-08-25) — gaps + fresh depth
+
+Round 3 worked two tracks: closing the gaps recorded in rounds 1+2, and
+fresh-depth sweeps of areas the earlier rounds only touched at the surface
+(GA/matcher internals, decompiler backends, the CMake bridge, binsync
+workflows, toolchain CLI).  The round-3 goal bar was 20 fixes; the well
+yielded 7 genuine bugs and then ran dry — a final full pass (bench diffs,
+doctor/todo, skeleton batch, merge/split duplicates, data layout modes,
+NE extract, `match --all` on real stubs, link-sweep, `decompile --named`,
+imports/analyze on all win2k projects, rename --file, 16-bit batch
+compile) surfaced no new actionable bug.  Reported well-dry at 7/20.
+
+## Bugs fixed (7, each with a regression test)
+
+| # | Bug | Root cause | Fix | Test |
+|---|-----|-----------|-----|------|
+| 11 | `verify-placement`/`data --layout-audit` errored "no build/CMakeFiles/*/objects*.rsp found — build the project first" on Makefile-built projects (notepad's `out/*.obj`) | `data_layout.link_objects` only read CMake rsp files | fall back to `out/`/`build/` objects sorted (GNU make links `$(wildcard)` in sorted order) | `test_data_layout.py` (4 tests) |
+| 12 | MSVC memcpy/memmove byte-tail dispatches reported `entries: 0` — the `and reg, mask` bound was unrecognized AND the dead slot 0 (overlapping the preceding jmp, never dereferenced) broke the table walk | `switch` only scanned `cmp reg, N` bounds and broke at the first out-of-image entry | recognize power-of-two-minus-1 `and reg, mask` bounds; skip invalid entries within a known bound | `test_switch.py::TestMaskBoundedDispatch` (2 tests) |
+| 13 | Size-less `VA NAME` function-list lines were silently dropped, hiding functions from the universe | `parse_function_list` required a trailing size | parse `VA NAME` as size-0 entries (bare `VA DIGITS` still rejected) | `test_catalog_loaders.py` (2 tests) |
+| 14 | `extract list` reported 0 candidates on stub-only projects — every `// STUB:` pre-skeleton counted as "reversed" | `detect_reversed_vas` only excluded GLOBAL/DATA markers | exclude bare `// STUB:` placeholders (a `// FUNCTION:` file with STUB status stays reversed) | `test_batch.py` (2 tests) — win2k-notepad went 0 → 63 candidates |
+| 15 | `data --annotate` silently no-oped on projects whose data metadata has no `name` fields (notepad's 31 data symbols) | unnamed entries skipped with zero feedback | return/report the skipped count ("N metadata entries skipped — no `name` field") | `test_data_annotate.py::test_annotate_reports_skipped_unnamed` |
+| 16 | `binsync-export` fabricated `name = "<windows.h>"` / `type = "#include"` for a `// DATA:` marker above `#include` (notepad's 0xDEADBEEF link stub) | declaration scan accepted preprocessor directives and function-definition lines as declarations | skip `#` lines; require the extracted name to be a valid C identifier | `test_binsync_export.py::test_data_marker_above_include_not_misparsed` |
+| 17 | `postlink X X` did not reproduce X — the data fixer zeroed the reference's own .text file padding (cpubench: vs 0x29d11 < raw 0x29e00, 239 bytes of 0xCC corrupted) | `.text` trim used the reference VirtualSize instead of its raw extent | trim to the reference's raw extent; keep its padding | `test_postlink.py::test_preserves_reference_text_padding` (+ `make_full_pe` `text_pad_byte`) |
+
+## Sweep results by area
+
+1. **Track A — recorded gaps.** Five of the recorded gaps turned out to be
+   fixable bugs (#11-#15); the rest stayed recorded: gen-layout's
+   4-section hard requirement and NE round-trip splicing (both clean
+   errors, feature work), plus the round-3 discovery that MSVC memcpy's
+   small-tail `jmp [ecx*4+table]` dispatches reference tables that overlap
+   the handler region (decodes as garbage; `entries: 0` is honest — gap).
+2. **GA/matcher internals** — all 121 mutation operators run clean over a
+   real corpus (0 exceptions); `score_candidate`/`structural_similarity`/
+   `diff_functions` handle empty/truncated/junk bytes and out-of-range
+   reloc offsets; `generate_flag_combinations` across all tiers+profiles;
+   `mutate_code`/`MutationLog` edge inputs; the flag sweep ran end-to-end
+   (quick + targeted tiers, clean JSON); `match --all` on smygb's 98 sized
+   stubs ran the batch GA without incident.
+3. **Decompiler backends** — r2ghidra decompiles real functions
+   (notepad's AddDefaultExtension, incl. `--named`); kuna/r2dec/ghidra
+   error cleanly (backend unavailable); prove needs angr (not installed —
+   guarded error).
+4. **CMake bridge** — `cmake-toolchain` generates the msvc6 toolchain
+   file; `rebrew-cmake-cl` compiles an in-project file through the docker
+   translation; other profiles error cleanly (no tool_root / no image).
+   Out-of-project paths surface as a raw wine-drive CL error (minor UX
+   note, recorded).
+5. **Binsync** — export/import/diff cycle clean (bug #16 fixed); the
+   import conflict flags and dry-run paths behave.
+6. **Toolchain CLI + library + skills** — `toolchain list/status/detect`
+   correct (notepad's msvc6-vs-VC5 misalignment flagged); `library
+   set/show/rm` round-trips; `skills list/show`; `lint --fix` migrates
+   inline metadata.
+7. **Linking family** — `postlink` fixers run on cpubench (bug #17 fixed;
+   now byte-identical on `postlink X X`); `link-sweep` runs with a docker
+   link command; round-trip splices byte-identically on notepad/bench/
+   smygb; `data --layout-audit` works on the Makefile build via #11.
+8. **16-bit/NE** — `extract list` on skifree16 now shows 136 candidates
+   (via #14); `extract batch` disassembles NE functions; the msvc1.52
+   DOSBox compile path works end-to-end (the synthetic tc16 project; the
+   mini_ne fixture is degenerate — zero segments — so its `test --all`
+   EXTRACT_ERROR is honest).
+
+## Recorded gaps (rounds 1+2 stand; new)
+
+- **`switch` can't decode MSVC memcpy small-tail dispatches** —
+  `jmp [ecx*4 + table]` after `sub ecx, 4; jb` reads the handler region as
+  a table (garbage); `entries: 0` is reported honestly.  The decodable
+  byte-tail dispatches are fixed (#12).
+- **Linking family still requires a CMake build for its link commands** —
+  `calibrate-bss`, `link-sweep`, and postlink's converge path need
+  `build/CMakeFiles/*/link.txt` or a `--link-cmd`; Makefile builds get
+  objects inventory (via #11) but not the link template.
+- **`rebrew crt-match` needs vendored CRT sources** — the rebrew-toolchains
+  checkout carries Dockerfiles but not the `<version>/source` trees;
+  projects have no `crt_sources` configured (clean error).
+- **`rebrew prove` needs angr** (optional extra, not installed; guarded).
+- **`data --annotate` is declaration-anchor-driven** — unnamed metadata
+  entries can't be marked (now reported, #15); markers need a name in
+  `rebrew-data.toml` or a matching declaration in source.
+- **gen-layout / NE splicing / postlink-data-drift** — rounds 1+2 gaps
+  stand (clean errors, feature work).
+
+## Project-state findings (correctly reported, not rebrew bugs)
+
+- notepad `rebrew-data.toml` entries are unnamed (31 symbols) — `data
+  --annotate` now says so instead of a silent 0-marker no-op.
+- notepad's `// DATA: NP 0xDEADBEEF` link-stub marker sits above
+  `#include <windows.h>` — export now yields `g_deadbeef`, not the
+  fabricated `<windows.h>`/`#include`.
+- win2k-* / test_* remain pre-skeleton `// STUB:` files (no SIZE) —
+  `verify` reports MISSING_SIZE without compiling; `extract list` now
+  surfaces them (63+ candidates per project).
+- smygb has 98 sized STUBs — a viable `match --all` batch target.
+- `tests/fixtures/mini_ne.exe` has zero NE segments — fine for
+  format-detection tests, unusable for end-to-end 16-bit compile
+  comparisons (the tc16 EXTRACT_ERROR is a fixture artifact).
+- cpubench `.text` VirtualSize (0x29d11) < raw size (0x29e00) with 0xCC
+  padding — the layout postlink now preserves (bug #17).
+
+## Runtime state from round 3 (fleet untouched)
+
+All file-writing ran on `/tmp/r2-*` copies.  Fleet-side runtime state from
+`match --all` on smygb: `.rebrew/ga_runs.jsonl` + `output/ga_runs/**`
+(build caches, checkpoints, best.c) — untracked, same class as the
+documented round-1/2 caches; no tracked fleet files modified.

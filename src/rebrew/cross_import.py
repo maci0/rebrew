@@ -499,7 +499,7 @@ def main(
     cache = None
     if not dry_run:
         try:
-            cache = get_compile_cache(cfg.root)
+            cache = get_compile_cache(cfg.root, getattr(cfg, "cache_backend", "diskcache"))
         except OSError:
             cache = None
 

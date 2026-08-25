@@ -238,6 +238,29 @@ class TestBinsyncExportGlobals:
         entry = cast(dict[str, Any], doc[str(0x01008000)])
         assert entry["addr"] == 0x01008000
 
+    def test_data_marker_above_include_not_misparsed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A `// DATA:` marker placed above `#include <windows.h>` (synthetic
+        link-stub VAs like notepad's 0xDEADBEEF) must not fabricate
+        name='<windows.h>' / type='#include' in global_vars.toml — it falls
+        back to the g_<hex> name instead."""
+        _make_project(
+            tmp_path,
+            {
+                "stub.c": "// DATA: SERVER 0xDEADBEEF\n#include <windows.h>\n\nvoid f(void) {}\n",
+            },
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0
+        gv_path = outdir / "global_vars.toml"
+        assert gv_path.exists()
+        doc = tomlkit.loads(gv_path.read_text())
+        entry = cast(dict[str, Any], doc["3735928559"])  # 0xDEADBEEF
+        assert entry["name"] == "g_deadbeef"
+        assert entry["type"] != "#include"
+        assert "<windows.h>" not in entry["name"]
+
     def test_no_global_vars_toml_when_no_globals(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -457,3 +457,62 @@ def test_find_definition_crlf_scalar_form() -> None:
     r = _find_definition(text, "g_z")
     assert r is not None
     assert text[r[0] : r[1]] == "int g_z = 7;"
+
+
+def test_link_objects_cmake_rsp(tmp_path: Path) -> None:
+    """CMake builds keep link order via build/CMakeFiles/*/objects*.rsp."""
+    from rebrew.data_layout import link_objects
+
+    rsp_dir = tmp_path / "build/CMakeFiles/game.dir"
+    rsp_dir.mkdir(parents=True)
+    (rsp_dir / "objects1.rsp").write_text(
+        'CMakeFiles/game.dir/src/zed.c.obj "CMakeFiles/game.dir/src/alpha.c.obj" '
+        "CMakeFiles/game.dir/src/mid.c.obj\n",
+        encoding="utf-8",
+    )
+    objs = link_objects(tmp_path)
+    assert objs == [
+        tmp_path / "build" / "CMakeFiles/game.dir/src/zed.c.obj",
+        tmp_path / "build" / "CMakeFiles/game.dir/src/alpha.c.obj",
+        tmp_path / "build" / "CMakeFiles/game.dir/src/mid.c.obj",
+    ]
+
+
+def test_link_objects_makefile_out_fallback(tmp_path: Path) -> None:
+    """Makefile builds (no rsp) fall back to out/*.obj in make's sorted order.
+
+    Regression: verify-placement --built np_recompiled.exe on notepad's
+    Makefile build errored 'no build/CMakeFiles/*/objects*.rsp found — build
+    the project first' even though the project was built."""
+    from rebrew.data_layout import link_objects
+
+    out = tmp_path / "out"
+    out.mkdir()
+    for name in ("AddDefaultExtension", "AlertUser", "bss_padding"):
+        (out / f"{name}.obj").write_bytes(b"")
+
+    objs = link_objects(tmp_path)
+    assert objs == [
+        out / "AddDefaultExtension.obj",
+        out / "AlertUser.obj",
+        out / "bss_padding.obj",
+    ]
+
+
+def test_link_objects_makefile_build_fallback(tmp_path: Path) -> None:
+    """build/*.obj is tried after out/ (and only when out/ has no objects)."""
+    from rebrew.data_layout import link_objects
+
+    build = tmp_path / "build"
+    build.mkdir()
+    (build / "zeta.obj").write_bytes(b"")
+    (build / "alpha.obj").write_bytes(b"")
+    objs = link_objects(tmp_path)
+    assert objs == [build / "alpha.obj", build / "zeta.obj"]
+
+
+def test_link_objects_missing_raises(tmp_path: Path) -> None:
+    from rebrew.data_layout import link_objects
+
+    with pytest.raises(FileNotFoundError, match="build the project first"):
+        link_objects(tmp_path)
