@@ -566,7 +566,7 @@ def main(
     fix: str = typer.Option(
         "all",
         "--fix",
-        help="Fixer(s) to run: all, imports, data, pe-metadata (repeatable; defaults to all)",
+        help="Fixer to run: all, imports, data, pe-metadata (defaults to all)",
     ),
     output: Path | None = typer.Option(
         None, "--output", "-o", help="Write the result here instead of in place"

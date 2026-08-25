@@ -1,7 +1,7 @@
 """inline-strings — materialize string-literal globals from the original binary.
 
 Decompiled call sites often reference 1-byte placeholder globals
-(``s_<hint>_<0xADDR>``, defined in a link-stubs TU) instead of the actual
+(``s_<hint>_<ADDR>``, defined in a link-stubs TU) instead of the actual
 string.  Each placeholder name encodes the string's original .data address;
 this command reads the string bytes from the reference binary at that address
 and rewrites the use-site to an inline C literal, so the compiler emits the
@@ -39,7 +39,7 @@ from rebrew.data_layout import data_raw_from_binary, layout_geometry
 console = Console(stderr=True)
 
 app = typer.Typer(
-    help="Inline string-literal globals (s_<hint>_<0xADDR>) from the reference binary.",
+    help="Inline string-literal globals (s_<hint>_<ADDR>) from the reference binary.",
     rich_markup_mode="rich",
 )
 
@@ -239,7 +239,7 @@ def main(
         None, "--binary", help="Reference binary (default: config target_binary)"
     ),
     token_prefix: str = typer.Option(
-        "s_", "--token-prefix", help="Placeholder token prefix (s_<hint>_<0xADDR>)"
+        "s_", "--token-prefix", help="Placeholder token prefix (s_<hint>_<ADDR>)"
     ),
     inline_only: bool = typer.Option(False, "--inline-only", help="Skip --define materialization"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),

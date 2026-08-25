@@ -125,9 +125,12 @@ def _discover_link_cmd() -> tuple[Path, str] | None:
     if not hits:
         return None
     txt = hits[0].read_text(encoding="utf-8").strip()
-    # redirect /out: to {out}; strip /pdb: (wine link may reject a dup pdb)
-    txt = re.sub(r"/out:[^ ]+", "/out:{out}", txt)
-    txt = re.sub(r"/pdb:[^ ]+", "/pdb:{out}.pdb", txt)
+    # redirect /out: to {out}; strip /pdb: (wine link may reject a dup pdb).
+    # Case-insensitive — calibrate_bss.find_link_cmd matches /OUT: and /PDB:
+    # with IGNORECASE and the two parsers must agree on the same link line
+    # (link-review F4).
+    txt = re.sub(r"/out:[^ ]+", "/out:{out}", txt, flags=re.IGNORECASE)
+    txt = re.sub(r"/pdb:[^ ]+", "/pdb:{out}.pdb", txt, flags=re.IGNORECASE)
     txt = f"{txt} {{options}}"
     return Path("build"), txt
 
@@ -265,9 +268,11 @@ def main(
 
     # render
     stamp_only = set(ref)
+    linked_any = False
     for r in results:
         if r.get("link_failed"):
             continue
+        linked_any = True
         stamp_only &= set(r["diffs"])
     table = Table(title="link-sweep — header fields differing from the reference")
     table.add_column("candidate")
@@ -280,6 +285,13 @@ def main(
         names = ", ".join(r["diffs"]) if r["diffs"] else "(none)"
         table.add_row(r["candidate"], str(r["diff_count"]), names)
     console.print(table)
+    if not linked_any:
+        # Every candidate failed to link — "differ in every candidate" would
+        # wrongly blame all fields on the metadata/objects (link-review F3).
+        console.print("\n[yellow]No candidate linked — field classification skipped.[/]")
+        if keep:
+            console.print(f"\n[dim]Scratch DLLs kept in: {scratch_dir}[/]")
+        return
     # classify the stamp-only set: section-derived fields are fixed by the
     # *objects* (data-restore/BSS work), not by link options or header stamps.
     _SECTION_DERIVED = {
@@ -309,6 +321,7 @@ def main(
 
 
 def main_entry() -> None:
+    """Run the Typer CLI application."""
     app()
 
 

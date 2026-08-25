@@ -616,14 +616,27 @@ def _stale_size_note(cfg: ProjectConfig, va: int, size: int) -> str | None:
             import capstone
 
             md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
-            rets = [x for x in md.disasm(raw, va) if x.mnemonic.startswith("ret")]
-            if len(rets) >= 2:
-                # Only report when the second ret is a distinct function end
-                # (a mid-function early return would be a jcc-target ret that
-                # the linear walk sees; two linear rets = two epilogues).
+            insns = list(md.disasm(raw, va))
+            # A ret that is the target of a conditional jump is an early
+            # return (if/switch exit), NOT a function end — counting every
+            # linear ret flagged single functions with early returns as
+            # "merged" (sync-review F9).  Only rets that are not jcc targets
+            # count as epilogues: a merged discovery entry has >= 2 such
+            # epilogues, a single function with early returns exactly 1.
+            jcc_targets: set[int] = set()
+            for ins in insns:
+                mnemonic = ins.mnemonic
+                if mnemonic.startswith("j") and not mnemonic.startswith("jmp"):
+                    for op in ins.operands:
+                        if op.type == capstone.x86.X86_OP_IMM:
+                            jcc_targets.add(op.imm)
+            epilogues = {
+                ins.address for ins in insns if ins.mnemonic.startswith("ret")
+            } - jcc_targets
+            if len(epilogues) >= 2:
                 return (
                     f"declared size {size}B spans multiple functions "
-                    f"({len(rets)} ret-terminated epilogues) — a merged discovery "
+                    f"({len(epilogues)} ret-terminated epilogues) — a merged discovery "
                     "entry; split into per-function files (each has its own VA/size)"
                 )
     except Exception:  # best-effort advisory

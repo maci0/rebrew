@@ -197,10 +197,10 @@ def _inject_from_errors(source: str, errors: str) -> tuple[str, list[str]]:
     if not injections:
         return source, []
     # Prepend the injections after the header comments (keeps the file
-    # readable); a simple prepend at the top is safe for C89.
-    return injections[0] + "\n" + injections[1] + "\n\n" + source if len(injections) > 1 else (
-        injections[0] + "\n\n" + source
-    ), injections
+    # readable); a simple prepend at the top is safe for C89.  All pending
+    # injections are emitted — the old code only prepended the first two and
+    # silently dropped the rest (sync-review F4).
+    return "\n".join(injections) + "\n\n" + source, injections
 
 
 def fixup_source(source: str, compile_errors: str | None = None) -> FixupResult:

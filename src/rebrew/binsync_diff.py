@@ -162,9 +162,9 @@ def main(
         if local is not None and module is not None and getattr(local, "module", "") != module:
             skipped += 1
             continue
-        local_name = (
-            getattr(local, "name", "") or getattr(local, "symbol", "") or "" if local else ""
-        )
+        # The trailing ternary was dead — getattr defaults already yield ""
+        # for None, so the conditional never changed the result (sync-review F14).
+        local_name = getattr(local, "name", "") or getattr(local, "symbol", "") or ""
         if local is None:
             divergences.append(
                 {

@@ -322,7 +322,10 @@ def _scan_all(cfg: Any, window: int, json_output: bool) -> None:
         if not va:
             continue
         try:
-            va_int = int(str(va), 16) if isinstance(va, str) else int(va)
+            # int(x, 0) accepts 0x-prefixed hex AND decimal strings — a
+            # decimal string ("4198400") forced through base 16 scanned the
+            # wrong address (68 MB instead of 0x401000).
+            va_int = int(str(va), 0)
         except ValueError:
             continue
         switches = find_switches(cfg, va_int, window=window)

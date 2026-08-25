@@ -158,13 +158,18 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
 
                     origin = m.group("target")  # MODULE from // GLOBAL: MODULE 0xVA
 
-                    # Estimate size from declaration type
+                    # Estimate size from declaration type.  Pointer types
+                    # (incl. char *) are pointer-sized — the old ordering let
+                    # the `elif "char" in decl` branch misclassify `char *p`
+                    # as a 1-byte global (code-review F2).
                     size = 4  # default pointer-sized
                     if decl:
                         if "char" in decl and "[" in decl:
                             arr_m = _ARRAY_SIZE_RE.search(decl)
                             if arr_m:
                                 size = int(arr_m.group(1))
+                        elif "*" in decl:
+                            size = 4
                         elif "short" in decl:
                             size = 2
                         elif "char" in decl:

@@ -3094,6 +3094,13 @@ def mut_reorder_register_vars(s: str, rng: random.Random) -> str | None:
     n1_text = b_source[n1.start_byte : n1.end_byte]
     n2_text = b_source[n2.start_byte : n2.end_byte]
     mid_text = b_source[n1.end_byte : n2.start_byte]
+    if mid_text.strip():
+        # Statements between the two declarations (e.g. a use of n1's
+        # variable: `register int a = 0; use(a); register int b = 0;`)
+        # would leave the moved declaration after the use — undeclared
+        # identifier, a guaranteed wasted compile.  Only swap ADJACENT
+        # declarations.
+        return None
 
     result = b_source[: n1.start_byte] + n2_text + mid_text + n1_text + b_source[n2.end_byte :]
     return result.decode("utf-8")
@@ -5375,13 +5382,6 @@ def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
 
     hoisted_decl = b"\n    int " + var_name + b";"
     inline_assign = var_name + b" = " + extract_text + b";\n    "
-
-    # Replace the extracted expression with the temp var in the original call
-    new_stmt = (
-        b_source[stmt.start_byte : extract_node.start_byte]
-        + var_name
-        + b_source[extract_node.end_byte : stmt.end_byte]
-    )
 
     # Insert hoisted decl at function body top
     out = b_source[:insert_pos] + hoisted_decl + b_source[insert_pos:]

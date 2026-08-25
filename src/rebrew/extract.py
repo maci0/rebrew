@@ -12,6 +12,7 @@ Usage:
 """
 
 import json
+import logging
 from pathlib import Path
 from typing import Any, cast
 
@@ -31,6 +32,8 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import ProjectConfig
+
+log = logging.getLogger(__name__)
 
 console = Console(stderr=True)
 
@@ -339,8 +342,10 @@ def _setup_candidates(
                 continue
             candidates.append((fe.va, fe.size, fe.name or fe.tool_name or f"fcn.{fe.va:08x}"))
             existing.add(fe.va)
-    except Exception:
-        pass  # structure-cache enrichment is best-effort — never block the list
+    except Exception as exc:
+        # structure-cache enrichment is best-effort — never block the list,
+        # but a corrupt function_structure.json must be visible at DEBUG.
+        log.debug("structure-cache enrichment skipped for %s: %s", exe_path, exc, exc_info=True)
 
     candidates.sort(key=lambda x: x[1])  # Sort by size
     return cfg, candidates, exe_path

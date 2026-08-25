@@ -63,6 +63,8 @@ _NASM_LABEL_RE = re.compile(r"[^a-zA-Z0-9_]")
 _ESP_HINT_OPS = frozenset({"lea", "cmp", "add", "sub", "mov", "push", "and", "or", "xor", "test"})
 _ESP_REF_RE = re.compile(r"\[esp")
 _IAT_ABS_RE = re.compile(r"dword ptr \[0x[0-9a-fA-F]+\]")
+# `mov reg, [esp+X]` — the load half of the IAT-forwarder push pair.
+_ESP_LOAD_RE = re.compile(r"^[a-z0-9]+, dword ptr \[esp")
 _JMP_TABLE_RE = re.compile(r"dword ptr \[[a-z0-9]+\s*\*\s*4")
 _BYTE_TABLE_FETCH_RE = re.compile(r"byte ptr \[[a-z0-9]+\s*\+\s*0x")
 
@@ -230,13 +232,23 @@ def _hint_for(insns: list[Any], i: int) -> str | None:
     # function pointer for the call or MSVC emits a spurious `add esp,N`.
     if m == "call" and _IAT_ABS_RE.search(ops):
         push_count = 0
-        # Scan BACKWARD from the call: count the contiguous reversed-push
-        # sequence (`mov reg,[esp+X]; push reg` pairs) right before it.
-        for j in range(i - 1, max(0, i - 16) - 1, -1):
-            if insns[j].mnemonic == "push":
-                push_count += 1
-            elif insns[j].mnemonic != "mov":
-                break
+        # An IAT forwarder pushes ARGUMENTS RELOADED FROM THE STACK
+        # (`mov reg,[esp+X]; push reg` — including final bare pushes of
+        # registers loaded earlier).  A plain `push imm` / `push reg`
+        # argument call is not a forwarder and must not be labeled.
+        run: list[tuple[str, str]] = []
+        j = i - 1
+        while j >= 0 and j >= i - 16 and insns[j].mnemonic in ("mov", "push"):
+            run.append((insns[j].mnemonic, insns[j].op_str))
+            j -= 1
+        run.reverse()  # forward order
+        loaded: set[str] = set()
+        for mn, op in run:
+            if mn == "push":
+                if op.strip() in loaded:
+                    push_count += 1
+            elif _ESP_LOAD_RE.search(op):
+                loaded.add(op.split(",")[0].strip())
         if push_count >= 3:
             return (
                 f"{push_count}-arg IAT forwarder — declare a __stdcall function "
@@ -314,16 +326,26 @@ def detect_function_pattern(cfg: ProjectConfig, va: int) -> str | None:
             for x in insns
         ):
             return "switch dispatch (jump table)"
-        # IAT forwarder: ≥3 reversed pushes + call [IAT] (+ ret after).
+        # IAT forwarder: ≥3 pushes of stack-loaded args + call [IAT]
+        # (+ ret after).  A plain `push imm`/`push reg` argument call is
+        # not a forwarder and must not be labeled.
         call = next((x for x in reversed(insns) if x.mnemonic == "call"), None)
         if call and re.search(r"dword ptr \[0x[0-9a-fA-F]+\]", call.op_str):
             ci = insns.index(call)
+            run: list[tuple[str, str]] = []
+            j = ci - 1
+            while j >= 0 and j >= ci - 12 and insns[j].mnemonic in ("mov", "push"):
+                run.append((insns[j].mnemonic, insns[j].op_str))
+                j -= 1
+            run.reverse()  # forward order
+            loaded: set[str] = set()
             pushes = 0
-            for j in range(ci - 1, max(0, ci - 12) - 1, -1):
-                if insns[j].mnemonic == "push":
-                    pushes += 1
-                elif insns[j].mnemonic != "mov":
-                    break
+            for mn, op in run:
+                if mn == "push":
+                    if op.strip() in loaded:
+                        pushes += 1
+                elif _ESP_LOAD_RE.search(op):
+                    loaded.add(op.split(",")[0].strip())
             if pushes >= 3:
                 return f"IAT forwarder ({pushes}-arg) — stdcall callee; the forwarder is cdecl"
     except Exception:  # best-effort pattern tag

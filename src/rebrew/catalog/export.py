@@ -7,7 +7,7 @@ from parsed annotations and function registries.
 from typing import TYPE_CHECKING, Any
 
 from rebrew.annotation import Annotation
-from rebrew.catalog.grid import count_statuses
+from rebrew.catalog.grid import count_statuses, covered_bytes
 from rebrew.config import ProjectConfig
 
 if TYPE_CHECKING:
@@ -34,19 +34,15 @@ def generate_catalog(
     near_count = counts["NEAR_MATCHING"]
     stub_count = counts["STUB"]
 
-    # Coverage bytes
-    funcs_by_va = {f["va"]: f for f in funcs}
-    covered_bytes = 0
-    for va in unique_vas:
-        if va in funcs_by_va:
-            covered_bytes += funcs_by_va[va]["size"]
-        else:
-            # va came from by_va keys, so by_va[va] is always non-empty here.
-            covered_bytes += by_va[va][0]["size"]
+    # Coverage bytes — shared helper keeps CATALOG.md and the CLI summary
+    # denominator identical (registry/function-list size preferred, annotation
+    # size as fallback).
+    sizes_by_va = {f["va"]: f["size"] for f in funcs}
+    covered = covered_bytes(by_va, sizes_by_va)
 
     total_funcs = len(funcs)
     matched_count = len(unique_vas)
-    coverage_pct = (covered_bytes / text_size * 100.0) if text_size else 0.0
+    coverage_pct = (covered / text_size * 100.0) if text_size else 0.0
 
     lines = []
     lines.append("# Reversed Functions Catalog\n")
@@ -55,9 +51,7 @@ def generate_catalog(
         f"({exact_count} exact, {reloc_count} reloc-normalized, "
         f"{near_count} near-matching, {stub_count} stubs)  "
     )
-    lines.append(
-        f"Coverage: {coverage_pct:.1f}% of .text section ({covered_bytes}/{text_size} bytes)\n"
-    )
+    lines.append(f"Coverage: {coverage_pct:.1f}% of .text section ({covered}/{text_size} bytes)\n")
 
     # Group by module (discovered dynamically from data, excluding GLOBAL/DATA)
     by_module: dict[str, list[Annotation]] = {}
@@ -124,6 +118,12 @@ def generate_reccmp_csv(
     """
     by_va: dict[int, Annotation] = {}
     for e in entries:
+        # GLOBAL/DATA markers take no C-definition name and are not
+        # functions — every other consumer (generate_catalog, grid, build_db,
+        # dashboard) filters them; emitting them here yields a bogus
+        # `0x00001000|||function|0` row that reccmp treats as a function.
+        if e.marker_type in ("GLOBAL", "DATA"):
+            continue
         if e.va not in by_va:
             by_va[e.va] = e
 

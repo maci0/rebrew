@@ -260,7 +260,10 @@ def _extract_array_suffix(declarator: Any, source_bytes: bytes) -> str:
             node = inner
         else:
             break
-    return "".join(parts)
+    # tree-sitter nests array_declarators outermost-bracket-first, so
+    # ``foo[10][5]`` collects "[5]" then "[10]" — the source spells
+    # "[10][5]" and the suffix must match (infra-review F1).
+    return "".join(reversed(parts))
 
 
 # ---------------------------------------------------------------------------
@@ -268,20 +271,23 @@ def _extract_array_suffix(declarator: Any, source_bytes: bytes) -> str:
 # ---------------------------------------------------------------------------
 
 
-def extract_function_name_and_proto(source: str) -> tuple[str, str] | None:
-    """Extract the first function definition's name and prototype from C source.
+def iter_function_name_and_proto(source: str) -> list[tuple[str, str]]:
+    """Return ``(name, prototype)`` for every function definition in *source*.
 
-    Returns ``(name, prototype_string)`` or ``None`` if no function definition
-    is found.  The prototype includes the return type, calling convention, name,
-    and parameter list (without the body).
-
+    The prototype includes the return type, calling convention, name, and
+    parameter list (without the body).  Definitions inside ERROR fragments are
+    skipped.  This is the shared primitive behind
+    :func:`extract_function_name_and_proto` (first match) and the
+    per-function rewrites in ``ghidra/params.py``.
     """
     try:
         tree, src_bytes = _parse(source)
     except ImportError:
-        return None
+        return []
 
-    def walk(node: Any) -> tuple[str, str] | None:
+    results: list[tuple[str, str]] = []
+
+    def walk(node: Any) -> None:
         if node.type == "function_definition":
             # Find the compound_statement (body) to extract prototype
             compound = _find_child(node, "compound_statement")
@@ -296,30 +302,40 @@ def extract_function_name_and_proto(source: str) -> tuple[str, str] | None:
 
             # Find function name from the declarator
             declarator = _find_child(node, "function_declarator", "pointer_declarator")
-            if declarator is None:
+            name: str | None = None
+            if declarator is not None:
+                name = _find_function_name(declarator, src_bytes)
+            else:
                 # Try deeper: sometimes the declarator is nested
                 for child in node.children:
                     name = _find_function_name(child, src_bytes)
                     if name:
-                        return name, proto
-                return None
-
-            name = _find_function_name(declarator, src_bytes)
+                        break
             if name:
-                return name, proto
-            return None
+                results.append((name, proto))
+            return
 
         # Skip ERROR nodes (tree-sitter marks unparseable fragments as ERROR);
         # recursing into them produces spurious matches.
         if node.type == "ERROR":
-            return None
+            return
         for child in node.children:
-            result = walk(child)
-            if result:
-                return result
-        return None
+            walk(child)
 
-    return walk(tree.root_node)
+    walk(tree.root_node)
+    return results
+
+
+def extract_function_name_and_proto(source: str) -> tuple[str, str] | None:
+    """Extract the first function definition's name and prototype from C source.
+
+    Returns ``(name, prototype_string)`` or ``None`` if no function definition
+    is found.  The prototype includes the return type, calling convention, name,
+    and parameter list (without the body).
+
+    """
+    results = iter_function_name_and_proto(source)
+    return results[0] if results else None
 
 
 def extract_function_name_from_line(line: str) -> tuple[str, str] | None:

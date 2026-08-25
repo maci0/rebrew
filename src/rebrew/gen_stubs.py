@@ -310,11 +310,13 @@ def ensure_param_names(params_str: str) -> str:
         tokens = part.split()
         has_name = False
         if len(tokens) >= 2:
-            last = tokens[-1]
+            # A trailing token like "*p" or "**pp" DOES carry a name — strip
+            # the pointer stars before the identifier check, otherwise
+            # "int *p" was "named" with the garbage suffix "int *p a"
+            # (link-review F1).
+            last = tokens[-1].lstrip("*")
             if re.match(r"^[a-zA-Z_]\w*$", last) and last not in _C_PRIMITIVES | {"struct"}:
                 has_name = True
-            if last.startswith("*"):
-                has_name = False
         if part.endswith("*"):
             has_name = False
         if not has_name:
@@ -540,6 +542,10 @@ def _run_build(
             cwd=root,
         )
         return result.stdout + result.stderr
+    except subprocess.TimeoutExpired:
+        # A hung build must surface as a clean error, not a raw traceback
+        # (link-review F5).
+        error_exit(f"build timed out after 600s: {build_cmd}", json_mode=False)
     finally:
         if patched_cmake is not None and original_cmake is not None:
             cmake_path.write_text(original_cmake, encoding="utf-8")

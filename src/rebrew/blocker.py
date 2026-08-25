@@ -167,6 +167,11 @@ def blocker_set(
             error_exit(
                 f"Invalid --delta value: {delta!r} (expected integer)", json_mode=json_output
             )
+        # metadata_model.MetadataEntry.problems() flags blocker_delta < 0 as
+        # invalid; todo consumes it as a byte delta, so a negative value
+        # would render as "−5B diff — try flag sweep".
+        if delta_int < 0:
+            error_exit(f"Invalid --delta value: {delta!r} (must be >= 0)", json_mode=json_output)
     module, va_int = _resolve_target(cfg, target, va, json_output)
 
     payload: dict[str, Any] = {

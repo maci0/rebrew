@@ -84,6 +84,7 @@ class NodeInfo(TypedDict):
 
     status: str
     va: int
+    size: int
     file: str
 
 
@@ -194,6 +195,7 @@ def build_graph(
             nodes[display] = {
                 "status": entry.status,
                 "va": entry.va,
+                "size": entry.size,
                 "file": rel_name,
             }
             # Map both the raw symbol and display name
@@ -212,6 +214,7 @@ def build_graph(
                 nodes[callee_display] = {
                     "status": "UNKNOWN",
                     "va": 0,
+                    "size": 0,
                     "file": "",
                 }
             if caller != callee_display:  # no self-edges
@@ -228,6 +231,7 @@ def build_graph(
             nodes[dispatch_node] = {
                 "status": "DISPATCH",
                 "va": tbl.va,
+                "size": 0,
                 "file": "",
             }
             for entry in tbl.entries:
@@ -244,6 +248,7 @@ def build_graph(
                     nodes[target_name] = {
                         "status": entry.status or "UNKNOWN",
                         "va": entry.target_va,
+                        "size": 0,
                         "file": "",
                     }
                 dispatch_edges.append((dispatch_node, target_name))
@@ -285,8 +290,14 @@ def _focus_graph(
                     focus_name = name
                     break
     if not focus_name:
+        # The substring pass must not shadow a VA lookup with a placeholder:
+        # when the focus looks like a VA and no real node matched it, skip
+        # `fn_0x..._*` placeholder names (their hex is a fragment, not the
+        # function the user asked about).
         for name in nodes:
             if focus_lower in name.lower():
+                if va_int is not None and re.match(r"fn_0x[0-9a-f]+_", name.lower()):
+                    continue
                 focus_name = name
                 break
     if not focus_name:
@@ -649,7 +660,11 @@ def main(
                 for name, n in nodes.items():
                     va = int(n["va"]) if n.get("va") else 0
                     if va:
-                        ranges.append((va, va + 1, name))
+                        # Size the range from the annotated function size —
+                        # a 1-byte span would never contain the call sites
+                        # inside the body, so every edge resolved to None.
+                        size = max(int(n.get("size") or 0), 1)
+                        ranges.append((va, va + size, name))
             edges.extend(binary_call_edges(info, ranges))
         except (ImportError, OSError, ValueError) as exc:
             error_exit(f"Failed to scan binary call edges: {exc}", json_mode=json_output)

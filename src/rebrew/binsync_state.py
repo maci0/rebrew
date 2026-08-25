@@ -48,7 +48,7 @@ def load_binsync_state(
                 except ValueError:
                     continue
             try:
-                va = int(addr)
+                va = int(str(addr), 0)  # "0x1000" or decimal string/int (sync-review F12)
             except (TypeError, ValueError):
                 continue
             entry: dict[str, str] = {}
@@ -77,7 +77,7 @@ def load_binsync_state(
                     except ValueError:
                         continue
                 try:
-                    va = int(addr)
+                    va = int(str(addr), 0)  # hex-aware like the key fallback
                 except (TypeError, ValueError):
                     continue
                 gname = entry.get("name")

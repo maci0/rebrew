@@ -654,19 +654,38 @@ def pull_ghidra_renames(
                                 old_sym = old_name
                             target_func = ghidra_name.lstrip("_")
 
-                            rename_function_everywhere(
-                                cfg=cfg,
-                                filepath=filepath,
-                                old_name=old_name,
-                                old_sym=old_sym,
-                                target_func=target_func,
-                                rename_file=True,
-                                dry_run=dry_run,
-                            )
+                            try:
+                                rename_function_everywhere(
+                                    cfg=cfg,
+                                    filepath=filepath,
+                                    old_name=old_name,
+                                    old_sym=old_sym,
+                                    target_func=target_func,
+                                    rename_file=True,
+                                    dry_run=dry_run,
+                                )
+                            except (ValueError, FileExistsError) as exc:
+                                # A single unrenameable name (bad identifier,
+                                # destination collision, …) must not abort the
+                                # whole pull — record the skip and move on
+                                # (sync-review F6).
+                                if not json_output:
+                                    console.print(
+                                        f"  SKIP rename 0x{va:08x} "
+                                        f"({local_name} -> {ghidra_name}): {exc}"
+                                    )
+                                skip_name_update = True
                         else:
-                            # DATA/GLOBAL entries — write name to rebrew-data.toml metadata
-                            module = entry.get("module", "")
-                            if module and not dry_run:
+                            # DATA/GLOBAL entries — write name to
+                            # rebrew-data.toml metadata.  Module-less entries
+                            # fall back to the project marker / SERVER so the
+                            # name is written instead of being silently
+                            # dropped while still counted as updated
+                            # (sync-review F8).
+                            module = (
+                                entry.get("module", "") or getattr(cfg, "marker", "") or "SERVER"
+                            )
+                            if not dry_run:
                                 from rebrew.data_metadata import set_data_field
 
                                 set_data_field(
@@ -940,7 +959,11 @@ def pull_prototypes(
                     if not fp.exists():
                         continue
 
-                    if not dry_run:
+                    if dry_run:
+                        # Dry-run must not report or count an update that did
+                        # not happen (sync-review F10).
+                        console.print(f"  Would update prototype 0x{va:x}: {sig}")
+                    else:
                         update_annotation_key(
                             fp, va, "PROTOTYPE", sig, metadata_dir=cfg.metadata_dir
                         )
@@ -972,8 +995,8 @@ def pull_prototypes(
                                         f"for 0x{va:x} in {src_file}: {e}"
                                     )
 
-                    console.print(f"  [green]Updated prototype[/green] 0x{va:x}: {sig}")
-                    updated_count += 1
+                        console.print(f"  [green]Updated prototype[/green] 0x{va:x}: {sig}")
+                        updated_count += 1
 
         console.print(f"Successfully pulled {updated_count} prototypes.")
 

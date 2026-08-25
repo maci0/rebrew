@@ -28,7 +28,11 @@ def _build_dosbox_conf(sandbox: Path, autoexec: list[str]) -> str:
     """
     body = "\n".join(
         [
-            "mount c " + str(sandbox),
+            # Quote the path: DOSBox would split a sandbox whose path holds
+            # spaces into multiple mount args (infra-review F6).  The image
+            # wrapper's rebrew_dosbox_run must stay byte-identical
+            # (TestDosboxDriverSync).
+            f'mount c "{sandbox}"',
             "C:",
             "cd \\",
             *autoexec,

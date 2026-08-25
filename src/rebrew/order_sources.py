@@ -25,7 +25,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from rebrew.cli import json_print
+from rebrew.cli import error_exit, json_print
 
 console = Console(stderr=True)
 
@@ -93,8 +93,21 @@ def main(
     """Print *files* ordered by their first function's original VA."""
     table: dict[str, int] = {}
     for entry in first_va:
-        name, _, va = entry.partition("=")
-        table[name] = int(va, 0)
+        name, sep, va = entry.partition("=")
+        if not sep or not name or not va:
+            # "file=0xVA" without a '=' (or an empty side) would feed "" to
+            # int("", 0) → a raw ValueError (link-review F8).
+            error_exit(
+                f"--first-va {entry!r}: expected FILE=0xVA (e.g. zlib/adler32.c=0x10001000)",
+                json_mode=json_output,
+            )
+        try:
+            table[name] = int(va, 0)
+        except ValueError:
+            error_exit(
+                f"--first-va {entry!r}: cannot parse VA {va!r} as an integer",
+                json_mode=json_output,
+            )
     ordered, excluded = order_sources(files, table, set(exclude))
     if json_output:
         json_print({"ordered": [str(f) for f in ordered], "excluded": excluded})

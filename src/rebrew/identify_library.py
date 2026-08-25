@@ -395,15 +395,30 @@ def _iter_libs(libs_dir: Path) -> Iterator[Path]:
 def _resolve_lib_dir(cfg: Any, lib_dir: Path | None) -> Path | None:
     """Locate the toolchain's .lib directory (for --build-sigs).
 
-    Order: explicit --lib-dir → ``toolchain/msvc/6.0-win32/source/VC98/Lib`` → first directory
-    under ``tools/`` containing ``*.lib`` files.
+    Order: explicit --lib-dir → ``toolchain/msvc/6.0-win32/source/VC98/Lib``
+    (the vendored tree in the rebrew-toolchains checkout) → ``tools/``
+    directories containing ``*.lib`` files.
     """
     if lib_dir is not None:
         return lib_dir if lib_dir.is_dir() else None
     candidates: list[Path] = [cfg.root / "tools" / "msvc-6.0-win32" / "VC98" / "Lib"]
     if getattr(cfg, "root", None):
-        for pattern in ("tools/*/Lib", "tools/*/*/Lib"):
+        # Deeper globs too: tools/msvc6.3/VC98/Lib sits one level beyond
+        # tools/*/VC98/Lib and never matched (infra-review F8).
+        for pattern in (
+            "tools/*/Lib",
+            "tools/*/*/Lib",
+            "tools/*/*/*/Lib",
+            "tools/*/VC98/Lib",
+            "tools/*/*/VC98/Lib",
+        ):
             candidates.extend(sorted(cfg.root.glob(pattern)))
+    # The vendored toolchain tree — the path the docstring always promised
+    # but never probed.  toolchains_repo() never raises; a missing checkout
+    # just yields a nonexistent candidate that is skipped below.
+    from rebrew.toolchain import toolchains_repo
+
+    candidates.append(toolchains_repo() / "msvc" / "6.0-win32" / "source" / "VC98" / "Lib")
     for cand in candidates:
         if cand.is_dir() and list(_iter_libs(cand)):
             return cand

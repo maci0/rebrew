@@ -106,9 +106,27 @@ def load_solutions_file(path: Path) -> list[SolutionEntry]:
             continue
         try:
             known = {f.name for f in dataclasses.fields(SolutionEntry)}
-            entries.append(SolutionEntry(**{k: v for k, v in item.items() if k in known}))
+            entry = SolutionEntry(**{k: v for k, v in item.items() if k in known})
         except TypeError:
+            continue  # missing required field
+        # Type-check the fields the readers rely on: a malformed record
+        # (e.g. {"size": "abc"}) constructs fine but would raise TypeError
+        # inside find_similar's abs(e.size - size), which the per-stub
+        # except Exception turns into "Solution lookup failed" for the whole
+        # batch.  Skip bad records instead.
+        if (
+            not isinstance(entry.symbol, str)
+            or not isinstance(entry.cflags, str)
+            or not isinstance(entry.source_file, str)
+            or not isinstance(entry.target, str)
+            or not isinstance(entry.size, int)
+            or isinstance(entry.size, bool)
+            or not isinstance(entry.score, (int, float))
+            or isinstance(entry.score, bool)
+        ):
+            log.warning("skipping malformed solution entry in %s: %r", path, item)
             continue
+        entries.append(entry)
     return entries
 
 

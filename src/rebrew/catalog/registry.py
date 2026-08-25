@@ -77,6 +77,10 @@ def is_jump_table(data: bytes, section_va: int, section_size: int) -> bool:
     off = 0
     while off < len(data) and data[off] in (0x90, 0xCC):
         off += 1
+    # The prefix must keep the remaining pointer array 4-byte aligned —
+    # 1–3 NOP/INT3 bytes before the table would misalign every read below.
+    if (len(data) - off) % 4 != 0:
+        return False
     # Also skip ``mov edi, edi`` (8B FF) — common MSVC hotpatch 2-byte NOP
     if off + 1 < len(data) and data[off] == 0x8B and data[off + 1] == 0xFF:
         off += 2

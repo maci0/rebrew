@@ -104,6 +104,7 @@ _FLAGS_MAP: dict[str, Flags] = {
     "tc20": BORLAND_FLAGS,
     "borlandc55": BORLAND_FLAGS,
     "gcc": GCC_FLAGS,
+    "gcc-pe": GCC_FLAGS,  # MinGW accepts the same GCC flag family
     "clang": GCC_FLAGS,
 }
 
@@ -111,6 +112,7 @@ _FLAGS_MAP: dict[str, Flags] = {
 #: without an entry fall back to MSVC_SWEEP_TIERS (the historic default).
 _PACKAGED_FLAG_TIERS: dict[str, dict[str, list[str] | None]] = {
     "gcc": GCC_SWEEP_TIERS,
+    "gcc-pe": GCC_SWEEP_TIERS,
     "clang": GCC_SWEEP_TIERS,
     "watcom": WATCOM_SWEEP_TIERS,
     "watcom16": WATCOM_SWEEP_TIERS,
@@ -323,6 +325,17 @@ def generate_flag_combinations(tier: str = "targeted", profile: str = "msvc6") -
     total = math.prod(len(a) for a in axes)
     if total > _MAX_SWEEP_COMBOS:
         step = max(1, math.ceil(total / _MAX_SWEEP_COMBOS))
+        # A fixed stride over the lexicographic product is biased: with an
+        # even stride, a 2-option trailing axis (e.g. /Op on/off) is only
+        # ever sampled at one parity, silently dropping one of its values
+        # (e.g. MSVC6 `full`: total ≈ 6.19M → step 62 → /Op never tried).
+        # Adjust the step to be coprime to every axis length so all values
+        # of every axis appear in the sample.
+        axis_lcm = 1
+        for _axis in axes:
+            axis_lcm = axis_lcm * len(_axis) // math.gcd(axis_lcm, len(_axis))
+        while math.gcd(step, axis_lcm) != 1:
+            step += 1
         combos = set()
         for combo in itertools.islice(itertools.product(*axes), None, None, step):
             flags_str = " ".join(f for f in combo if f)
@@ -658,16 +671,17 @@ def flag_sweep(
 
     from .scoring import precompute_target, score_candidate
 
-    if posix_style or profile in POSIX_PROFILES:
-        # The sweep explores MSVC flag combos (/O1, /MT, /Gd...); a posix
-        # compiler (gcc-pe/mingw, watcom, tc16/20, borland) treats /flags as
-        # files and every combo would fail — and there is no posix flag
-        # database to sweep.  Refuse loudly instead of silently wasting
-        # compiles (a sweep on gcc-pe only ever "matched" via the empty
-        # extra-flag combo, which the plain GA already tries).
+    if (posix_style or profile in POSIX_PROFILES) and profile not in _TIERS_MAP:
+        # The sweep needs a flag database for the profile.  Posix profiles
+        # WITHOUT one (a plugin toolchain that declared no flag sets) would
+        # get the MSVC fallback — every combo invalid for the compiler, so
+        # refuse loudly instead of silently wasting compiles.  Profiles with
+        # posix tiers (watcom, msvc1.52, tc16/20, borlandc55, gcc, clang)
+        # sweep normally.
         raise ValueError(
-            f"flag sweep is MSVC-only (profile {profile!r} uses posix-style "
-            "flags) — run the GA without --flag-sweep-only"
+            f"flag sweep: profile {profile!r} uses posix-style flags but has no "
+            "registered flag set (rebrew.flag_sets) — run the GA without "
+            "--flag-sweep-only, or provide flag axes for the profile"
         )
 
     combos = generate_flag_combinations(tier=tier, profile=profile)

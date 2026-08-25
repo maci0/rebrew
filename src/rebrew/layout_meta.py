@@ -299,6 +299,8 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
                 dll = "?"
                 if dll_off is not None:
                     end = data.find(b"\0", dll_off)
+                    if end < 0:
+                        end = len(data)  # unterminated — read to EOF
                     dll = data[dll_off:end].decode("latin1", "replace")
                 oo = off(oft)
                 j = 0
@@ -312,6 +314,8 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
                         no = off(nm)
                         if no is not None:
                             end = data.find(b"\0", no + 2)
+                            if end < 0:
+                                end = len(data)  # unterminated — read to EOF
                             imports.append(
                                 ImportMeta(
                                     dll,

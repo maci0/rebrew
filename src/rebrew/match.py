@@ -388,11 +388,28 @@ class BinaryMatchingGA:
         # Pre-compute target normalization and mnemonics once for scoring hot path
         from rebrew.matcher import precompute_target
 
-        self._pre_norm_target, self._pre_target_mnems = precompute_target(target_bytes)
+        # Score in the SAME disassembly mode as the candidate: a 16-bit
+        # target precomputed in 32-bit mode has instruction boundaries and
+        # mnemonics that differ from the candidate's 16-bit disassembly.
+        self._pre_norm_target, self._pre_target_mnems = precompute_target(
+            target_bytes, cs_mode=self.cs_mode
+        )
 
         # Stable fingerprint of the GA parameters — rejects stale checkpoints.
         self.args_hash = _ga_args_hash(
-            seed_source, target_bytes, symbol, cflags, pop_size, num_generations, rng_seed
+            seed_source,
+            target_bytes,
+            symbol,
+            cflags,
+            pop_size,
+            num_generations,
+            rng_seed,
+            mutation_weights=mutation_weights,
+            mutation_prob=mutation_prob,
+            crossover_prob=crossover_prob,
+            elitism=elitism,
+            num_jobs=num_jobs,
+            stagnation_limit=stagnation_limit,
         )
         self._start_generation = 0
 
@@ -537,6 +554,9 @@ class BinaryMatchingGA:
             _pre_norm_target=self._pre_norm_target,
             _pre_target_mnems=self._pre_target_mnems,
             cs_mode=self.cs_mode,
+            # 16-bit targets carry 2-byte reloc slots (omf16 rel16/disp16) —
+            # the 4-byte default would mask the bytes after every slot.
+            pointer_size=getattr(self.cfg, "pointer_size", 4) if self.cfg else 4,
         )
         excess_penalty = excess * 1500.0  # per-byte penalty comparable to byte_score weight
         total = sc.total + excess_penalty
@@ -547,6 +567,11 @@ class BinaryMatchingGA:
         # the field existed.
         res.fitness = total
         self._fitness_memo[src_hash] = total
+        # Persist the scored result back into the disk cache: _compile_source
+        # already wrote the pre-fitness result, so a later process would load
+        # fitness=None and never take the warm-cache skip.  Overwriting the
+        # same key with the fitness attached enables cross-process warm runs.
+        self.cache.put(src_hash, res)
         _log(
             f"[{src_hash[:8]}] SUCCESS. Score={total:.2f} (len_bytes={len(obj_bytes)}, excess={excess})"
         )
@@ -757,14 +782,39 @@ def _ga_args_hash(
     pop_size: int,
     num_generations: int,
     rng_seed: int | None,
+    mutation_weights: dict[str, float] | None = None,
+    mutation_prob: float = 0.85,
+    crossover_prob: float = 0.7,
+    elitism: int = 4,
+    num_jobs: int = 4,
+    stagnation_limit: int = 40,
 ) -> str:
-    """Stable fingerprint of the GA parameters — invalidates stale checkpoints."""
+    """Stable fingerprint of the GA parameters — invalidates stale checkpoints.
+
+    Every tuning parameter that shapes the search is folded in: resuming
+    after changing --mutation-focus / --generations / --elitism etc. must
+    reject the old checkpoint instead of silently continuing the previous
+    population with stale RNG state."""
     h = hashlib.sha256()
     h.update(seed_source.encode("utf-8", errors="replace"))
     h.update(target_bytes)
     h.update(symbol.encode())
     h.update(cflags.encode())
-    h.update(str((pop_size, num_generations, rng_seed)).encode())
+    h.update(
+        str(
+            (
+                pop_size,
+                num_generations,
+                rng_seed,
+                mutation_weights,
+                mutation_prob,
+                crossover_prob,
+                elitism,
+                num_jobs,
+                stagnation_limit,
+            )
+        ).encode()
+    )
     return h.hexdigest()
 
 
@@ -2343,7 +2393,14 @@ def _run_single_toolchain_sweep(
             results.append((float("inf"), False, 0, 0, profile))
             continue
         obj = res.obj_bytes
-        score = score_candidate(p.target_bytes, obj, res.reloc_offsets)
+        # 16-bit targets must be scored in 16-bit mode with 2-byte reloc
+        # slots (omf16 emits rel16/disp16); the 32-bit defaults would
+        # produce wrong mnemonics and mask the bytes after every reloc.
+        _cs_mode = capstone_mode_for_arch(getattr(p.cfg, "arch", ""))
+        _ptr_size = getattr(p.cfg, "pointer_size", 4)
+        score = score_candidate(
+            p.target_bytes, obj, res.reloc_offsets, cs_mode=_cs_mode, pointer_size=_ptr_size
+        )
         score_val: float = score.total
         matched, count, total, _relocs, _inv = smart_reloc_compare(
             obj[: len(p.target_bytes)],
@@ -2591,6 +2648,7 @@ def _run_single_ga(
         posix_style=getattr(p.cfg, "posix_style", False),
         mutation_weights=mutation_weights,
         profile=getattr(p.cfg, "compiler_profile", ""),
+        cs_mode=capstone_mode_for_arch(getattr(p.cfg, "arch", "")),
         cfg=p.cfg,
     )
     try:
@@ -2844,6 +2902,17 @@ def _run_one_stub_ga(
                         spliced_ok = update_stub_to_matched(
                             filepath, best_src, stub, metadata_dir=cfg.metadata_dir
                         )
+                        if matched and not spliced_ok:
+                            # Distinguish "not confirmed" (reloc validation
+                            # rejected it) from "splice failed": a confirmed
+                            # match that could not be spliced would otherwise
+                            # vanish from the report as a bare "No match".
+                            log.warning(
+                                "GA match for %s not spliced: the stub's function "
+                                "definition could not be located (unrecognized "
+                                "return type or no marker) — the .c still holds a stub",
+                                stub.symbol,
+                            )
                         # Under --sweep-then-ga the GA ran with swept flags that
                         # differ from stub.cflags — persist them or the next
                         # test/verify (which compiles with metadata CFLAGS)
@@ -3416,7 +3485,9 @@ def _run_batch_flag_sweep(
             result_entry["delta"] = stub.delta
 
         cflags_updated = False
-        if is_exact:
+        confirmed = False
+        resolved = ""
+        if is_exact and fix_cflags and best_flags and name_to_va:
             # The sweep's reloc-masked score alone cannot certify a match:
             # score_candidate masks every reloc slot, so a candidate that
             # differs ONLY in a call/mov displacement scores 0.0 without
@@ -3425,94 +3496,98 @@ def _run_batch_flag_sweep(
             # targets against the catalog) immediately demotes
             # (functionality-review F3).  Re-verify with the authoritative
             # predicate before touching STATUS.
-            confirmed = False
-            if fix_cflags and best_flags and name_to_va:
-                try:
-                    from rebrew.binary_loader import extract_raw_bytes
-                    from rebrew.cli import resolve_cflags
-                    from rebrew.compile import compile_and_compare
+            try:
+                from rebrew.binary_loader import extract_raw_bytes
+                from rebrew.cli import resolve_cflags
+                from rebrew.compile import compile_and_compare
 
-                    target_bytes = extract_raw_bytes(cfg.target_binary, int(stub.va, 16), stub.size)
-                    if target_bytes:
-                        # Same effective flags the sweep used: resolved stub
-                        # cflags (per-function → preset → compiler.cflags)
-                        # PLUS the winning combo.  compile_and_compare prepends
-                        # cfg.base_cflags itself, so pass the raw resolved set —
-                        # bare best_flags would drop the stub's own cflags and
-                        # validate a DIFFERENT compile than the sweep scored.
-                        resolved = resolve_cflags(cfg, stub.cflags, getattr(stub, "module", ""))
-                        cmp_res = compile_and_compare(
-                            cfg,
-                            stub.filepath,
-                            stub.symbol,
-                            target_bytes,
-                            f"{resolved} {best_flags}".strip(),
-                            name_to_va=name_to_va,
-                            section_va=int(stub.va, 16),
-                        )
-                        confirmed = cmp_res.matched
-                        if not confirmed and not json_output:
-                            console.print(
-                                f"  [yellow]sweep exact not confirmed:[/] {stub.symbol} "
-                                f"({cmp_res.status}: {cmp_res.message[:80]}) — not promoting"
-                            )
-                except Exception as exc:  # validation is best-effort
-                    log.warning(
-                        "Match validation failed for %s — not promoting: %s",
-                        stub.symbol,
-                        exc,
-                    )
-            if not confirmed:
-                # Not promoted: the reported exact flag was reloc-masked only.
-                result_entry["exact"] = False
-                is_exact = False
-            else:
-                exact_count += 1
-                cflags_updated = update_cflags_annotation(
-                    stub.filepath, best_flags, metadata_dir=cfg.metadata_dir
-                )
-                result_entry["cflags_updated"] = cflags_updated
-                update_source_status(
-                    cfg.metadata_dir,
-                    "EXACT",
-                    module=module_for_va(stub.filepath, int(stub.va, 16)),
-                    va=int(stub.va, 16),
-                    clear_blockers=True,
-                )
-                # Keep status/todo in sync with the fresh EXACT metadata (the
-                # verify cache may hold a stale NEAR_MATCHING entry).
-                try:
-                    from rebrew.verify import patch_verify_cache_entries
-
-                    patch_verify_cache_entries(
+                target_bytes = extract_raw_bytes(cfg.target_binary, int(stub.va, 16), stub.size)
+                if target_bytes:
+                    # Same effective flags the sweep used: resolved stub
+                    # cflags (per-function → preset → compiler.cflags)
+                    # PLUS the winning combo.  compile_and_compare prepends
+                    # cfg.base_cflags itself, so pass the raw resolved set —
+                    # bare best_flags would drop the stub's own cflags and
+                    # validate a DIFFERENT compile than the sweep scored.
+                    resolved = resolve_cflags(cfg, stub.cflags, getattr(stub, "module", ""))
+                    cmp_res = compile_and_compare(
                         cfg,
-                        [
-                            {
-                                "va": int(stub.va, 16),
-                                "status": "EXACT",
-                                "match_count": stub.size or 0,
-                                "total": stub.size or 0,
-                                "delta": 0,
-                            }
-                        ],
-                    )
-                except Exception:  # cache patch is best-effort
-                    log.warning(
-                        "Verify-cache patch failed for %s (status may be stale)",
+                        stub.filepath,
                         stub.symbol,
-                        exc_info=True,
+                        target_bytes,
+                        f"{resolved} {best_flags}".strip(),
+                        name_to_va=name_to_va,
+                        section_va=int(stub.va, 16),
                     )
-                solved_entries.append(
-                    SolutionEntry(
-                        symbol=stub.symbol,
-                        cflags=best_flags,
-                        size=stub.size,
-                        source_file=str(stub.filepath),
-                        target=cfg.target_name,
-                        score=0.0,
-                        generations=1,
-                    )
+                    confirmed = cmp_res.matched
+                    if not confirmed and not json_output:
+                        console.print(
+                            f"  [yellow]sweep exact not confirmed:[/] {stub.symbol} "
+                            f"({cmp_res.status}: {cmp_res.message[:80]}) — not promoting"
+                        )
+            except Exception as exc:  # validation is best-effort
+                log.warning(
+                    "Match validation failed for %s — not promoting: %s",
+                    stub.symbol,
+                    exc,
                 )
+        # The report's `exact` field is the sweep's score-based finding and is
+        # NEVER downgraded — the console marks every score<0.1 row EXACT, so
+        # the JSON must agree.  Promotion is the separate, gated action below.
+        result_entry["promoted"] = bool(confirmed)
+        if confirmed:
+            exact_count += 1
+            # Persist the FULL effective flag set the sweep validated — bare
+            # best_flags would drop the stub's own non-axis cflags (/GX, /Zp)
+            # and the next test/verify would compile different flags and
+            # demote the match.
+            cflags_updated = update_cflags_annotation(
+                stub.filepath,
+                f"{resolved} {best_flags}".strip(),
+                metadata_dir=cfg.metadata_dir,
+            )
+            result_entry["cflags_updated"] = cflags_updated
+            update_source_status(
+                cfg.metadata_dir,
+                "EXACT",
+                module=module_for_va(stub.filepath, int(stub.va, 16)),
+                va=int(stub.va, 16),
+                clear_blockers=True,
+            )
+            # Keep status/todo in sync with the fresh EXACT metadata (the
+            # verify cache may hold a stale NEAR_MATCHING entry).
+            try:
+                from rebrew.verify import patch_verify_cache_entries
+
+                patch_verify_cache_entries(
+                    cfg,
+                    [
+                        {
+                            "va": int(stub.va, 16),
+                            "status": "EXACT",
+                            "match_count": stub.size or 0,
+                            "total": stub.size or 0,
+                            "delta": 0,
+                        }
+                    ],
+                )
+            except Exception:  # cache patch is best-effort
+                log.warning(
+                    "Verify-cache patch failed for %s (status may be stale)",
+                    stub.symbol,
+                    exc_info=True,
+                )
+            solved_entries.append(
+                SolutionEntry(
+                    symbol=stub.symbol,
+                    cflags=best_flags,
+                    size=stub.size,
+                    source_file=str(stub.filepath),
+                    target=cfg.target_name,
+                    score=0.0,
+                    generations=1,
+                )
+            )
 
         if best_score < float("inf"):
             improved_count += 1
@@ -3529,6 +3604,12 @@ def _run_batch_flag_sweep(
                     console.print(f"  [bold green]EXACT MATCH[/] with flags: {best_flags}")
                     if cflags_updated:
                         console.print(f"  [bold]Updated CFLAGS → {best_flags}[/]")
+                    elif confirmed:
+                        console.print("  [dim](flags unchanged — already exact)[/dim]")
+                    else:
+                        console.print(
+                            "  [dim](not promoted — unconfirmed or --fix-cflags not set)[/dim]"
+                        )
 
         sweep_results.append(result_entry)
 

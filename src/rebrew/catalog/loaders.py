@@ -43,7 +43,14 @@ def load_function_structure(path: Path) -> list[FunctionEntry]:
             raise ValueError(
                 f"Corrupt structure JSON at {path.name}: Expected a JSON array, got {type(data).__name__}"
             )
-        return [FunctionEntry.from_dict(d) for d in data if isinstance(d, dict)]
+        # Entries stamped `_generated_by: "rebrew catalog"` are the catalog's
+        # OWN compatibility export — consuming them as Ghidra evidence on the
+        # next run would inflate detection stats with our own output.
+        return [
+            FunctionEntry.from_dict(d)
+            for d in data
+            if isinstance(d, dict) and d.get("_generated_by") != "rebrew catalog"
+        ]
     except json.JSONDecodeError as e:
         raise ValueError(f"Corrupt structure JSON at {path.name}: {e}") from e
 
@@ -140,19 +147,12 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
     cache_key = f"{path}:{mtime_key}" if path else ""
     funcs = _function_list_cache.get(cache_key)
     if funcs is None:
-        # Also check bare path entry for backward compat
-        bare = _function_list_cache.get(path)
-        if bare is not None and not mtime_key:
-            return list(bare)
         try:
             p = Path(path)
             funcs = parse_function_list(p) if p.is_file() else []
         except (OSError, ValueError, KeyError):
             funcs = []
         _function_list_cache[cache_key] = funcs
-        # Evict stale bare entry if we migrated
-        if mtime_key and path in _function_list_cache and cache_key != path:
-            _function_list_cache.pop(path, None)
     return list(funcs)
 
 
