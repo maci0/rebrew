@@ -1,4 +1,4 @@
-## [Unreleased]
+## [0.7.0] - 2026-08-25
 ### Added
 - **Declarative component registration** — toolchains, decompiler backends,
   CLI commands, and GA mutations now accept registrations from outside the
