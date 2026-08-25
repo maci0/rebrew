@@ -328,7 +328,18 @@ def fetch_decompilation(
     if backend == "auto":
         for name in _AUTO_PROBE_BACKENDS:
             fn = _BACKEND_MAP[name]
-            result = fn(binary_path, va, root=root, endpoint=endpoint, program_path=program_path)
+            try:
+                result = fn(
+                    binary_path, va, root=root, endpoint=endpoint, program_path=program_path
+                )
+            except Exception:
+                # A raising backend must not abort the probe — degrade to
+                # the next one (a plugin backend is optional; the packaged
+                # backends return None on failure).
+                logger.debug(
+                    "auto-probe backend %r raised for %s", name, binary_path, exc_info=True
+                )
+                result = None
             if result:
                 return result, name
         return None, "auto"

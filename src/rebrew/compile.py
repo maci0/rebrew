@@ -846,6 +846,10 @@ def compile_to_obj(
         source_content = source_path.read_bytes().decode("utf-8", errors="surrogateescape")
         if spec is not None and spec.image is not None:
             toolchain_id = _toolchain_cache_id(spec)
+        elif spec is not None:
+            # Native (host) spec: the compiler binary IS the toolchain — two
+            # native compilers (gcc vs clang) must never share a cache entry.
+            toolchain_id = f"native:{spec.binary}"
         else:
             toolchain_id = " ".join(resolve_cl_command(cfg))
         # extra_include_dirs feed the /I flags and bind mounts - they are

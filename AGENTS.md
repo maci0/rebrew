@@ -13,7 +13,7 @@ Install editable (`uv pip install -e .`) inside a workspace containing binaries,
   The 16-bit media tarballs are user-supplied next to their Dockerfile in that checkout; the vendored host trees (assemble via `rebrew toolchain vendor`) land in `<family>/<version>-<arch>/source` there too.
 - **`gcc-pe`**: `i686-w64-mingw32-gcc` — POSIX flags (`-I`, `-o`, `-c`), a native Linux binary (no wine), PATH-resolved toolchain, empty `includes`/`libs` allowed. For MinGW GCC / Zig-built PE/x86_32 targets (`.buildid` section, `0f 1f` GNU nops, call-based `___chkstk_ms` probe, few/no CRT imports).
   See `docs/TOOLCHAIN.md` for the codegen-version caveat: byte-exact matching requires the author's exact GCC version; old builds usually match only structurally (document semantic decomp + blocker).
-- **`gcc` / `clang`**: ELF/x86_64 targets.
+- **`gcc` / `clang`**: ELF/x86_64 targets — native PATH specs (compile via the host `gcc`/`clang` binary; minimal posix flag-sweep axes in `flag_data.py`).
 - **`borlandc55`**: Borland C++ 5.5 free tools (bcc32) — image `rebrew/borland:5.5-win32` (wine inside the image). For Borland-built PE/x86_32 targets (family `borlandc`).
 - **`watcom16`**: Open Watcom 2.0 `wcc` (16-bit DOS, native Linux binary — no image, runs directly). Same snapshot as `watcom`. For 16-bit DOS/Watcom targets (family `watcom`).
 - **`tc16`**: Turbo C++ 3.1 `TCC.EXE` (16-bit DOS) — image `rebrew/borland:3.1-win16` (DOSBox inside the image). Classic DOS-game compiler. 16-bit OMF via `rebrew.matcher.omf16`.

@@ -1121,3 +1121,137 @@ class TestSkillsDirWarning:
             _list_skills()
             _list_skills()  # second call must not re-warn
         assert sum("is not a directory" in r.message for r in caplog.records) == 1
+
+
+class TestNativeElfToolchains:
+    """gcc/clang are native PATH specs — an ELF profile must actually compile."""
+
+    def test_gcc_clang_in_registry(self) -> None:
+        from rebrew.toolchain import TOOLCHAINS
+
+        for name in ("gcc", "clang"):
+            spec = TOOLCHAINS.get(name)
+            assert spec is not None
+            assert spec.image is None
+            assert spec.runtime == "native"
+            assert spec.flags_style == "posix"
+            assert spec.obj_ext == ".o"
+
+    @pytest.mark.parametrize("profile", ["gcc", "clang"])
+    def test_elf_profile_compiles(self, tmp_path: Path, profile: str) -> None:
+        import warnings
+
+        from rebrew.compile import compile_to_obj
+        from rebrew.config import load_config
+
+        (tmp_path / "rebrew-project.toml").write_text(
+            f'[project]\nroot = "{tmp_path}"\ndefault_target = "T"\n'
+            f'[targets.T]\nbinary = "{tmp_path}/t.elf"\nformat = "elf"\n'
+            f'[compiler]\nprofile = "{profile}"\n',
+            encoding="utf-8",
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cfg = load_config(root=tmp_path)
+        src = tmp_path / "f.c"
+        src.write_text("int f(int a){return a+1;}\n", encoding="utf-8")
+        obj, err = compile_to_obj(cfg, src, "", tmp_path, obj_name="f.o")
+        assert obj is not None, err
+
+
+class TestRefreshAll:
+    """refresh_all() re-runs discovery and refreshes every registry snapshot."""
+
+    def test_refresh_all_counts(self) -> None:
+        from rebrew.registry import refresh_all
+
+        counts = refresh_all()
+        assert counts["toolchains"] >= 37
+        assert counts["decompiler_backends"] >= 4
+        assert counts["cache_backends"] >= 1
+        assert counts["library_presets"] >= 5
+
+    def test_refresh_picks_up_installed_plugin(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import rebrew.compile_cache as cc
+        from rebrew.registry import refresh_all
+
+        self._patch_plugin(monkeypatch)
+        assert "mem2" not in cc._CACHE_BACKENDS
+        counts = refresh_all()
+        assert counts["cache_backends"] >= 2
+        assert "mem2" in cc._CACHE_BACKENDS  # snapshot refreshed in place
+
+    def _patch_plugin(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def _factory(cache_dir: Path, size_limit: int = 0) -> object:
+            return None
+
+        _install_fake_module("cache_backend_refresh", factory=_factory)
+        monkeypatch.setattr(
+            "rebrew.registry.entry_points",
+            _fake_entry_points(
+                **{"rebrew.cache_backends": [("mem2", "cache_backend_refresh:factory")]}
+            ),
+        )
+
+
+class TestNativeCacheKey:
+    """Native specs must key the compile cache by their binary, not the
+    config's MSVC compiler_command (gcc vs clang would otherwise collide)."""
+
+    def test_gcc_and_clang_get_distinct_ids(self, tmp_path: Path) -> None:
+        import warnings
+
+        from rebrew.compile_cache import compile_cache_key
+        from rebrew.config import load_config
+
+        def _id(profile: str) -> str:
+            (tmp_path / "rebrew-project.toml").write_text(
+                f'[project]\nroot = "{tmp_path}"\ndefault_target = "T"\n'
+                f'[targets.T]\nbinary = "{tmp_path}/t.elf"\nformat = "elf"\n'
+                f'[compiler]\nprofile = "{profile}"\n',
+                encoding="utf-8",
+            )
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                cfg = load_config(root=tmp_path)
+            from rebrew.toolchain import TOOLCHAINS
+
+            spec = TOOLCHAINS[cfg.compiler_profile]
+            return f"native:{spec.binary}"
+
+        k_gcc = compile_cache_key("int f(){}", "f.c", [], [], _id("gcc"))
+        k_clang = compile_cache_key("int f(){}", "f.c", [], [], _id("clang"))
+        assert k_gcc != k_clang
+        assert "wine" not in _id("gcc")  # not the MSVC default
+
+
+class TestSkillNameSanitization:
+    """A skill's frontmatter name must never escape the skills directory."""
+
+    def test_install_sanitizes_traversal_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.skills import REBREW_SKILLS_DIR_ENV, app
+
+        user_dir = tmp_path / "skills"
+        user_dir.mkdir()
+        monkeypatch.setenv(REBREW_SKILLS_DIR_ENV, str(user_dir))
+
+        evil = tmp_path / "evil"
+        evil.mkdir()
+        (evil / "SKILL.md").write_text(
+            "---\nname: ../../escape\ndescription: malicious.\n---\n# Evil\n",
+            encoding="utf-8",
+        )
+        r = CliRunner().invoke(app, ["install", str(evil), "--json"])
+        assert r.exit_code == 0
+        assert not (tmp_path / "escape").exists()  # nothing escaped the overlay
+        assert (user_dir / "..-..-escape").is_dir()  # folded into the dir
+
+    def test_safe_name_helper(self) -> None:
+        from rebrew.skills import _safe_skill_name
+
+        assert _safe_skill_name("../../evil") == "..-..-evil"
+        assert _safe_skill_name("/abs/path") == "abs-path"
+        assert _safe_skill_name("rebrew-workflow") == "rebrew-workflow"
+        assert _safe_skill_name("!!!") == ""

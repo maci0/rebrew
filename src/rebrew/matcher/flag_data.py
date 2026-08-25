@@ -209,3 +209,25 @@ BORLAND_SWEEP_TIERS: dict[str, list[str] | None] = {
     "thorough": ["borland_opt", "borland_unsigned_char", "borland_redundant_loads"],
     "full": None,
 }
+
+
+# GCC / Clang (ELF/x86_64) — native PATH compilers.  A minimal posix flag
+# space so `rebrew match --flag-sweep` emits flags these compilers accept
+# (the MSVC fallback would produce /O2 etc. that gcc rejects).  Clang
+# accepts the same opt levels and frame-pointer switch.
+GCC_FLAGS: Flags = [
+    FlagSet(
+        id="gcc_opt",
+        flags=("-O0", "-O1", "-O2", "-O3", "-Os"),
+    ),
+    Checkbox(id="gcc_fomit_frame_pointer", flag="-fomit-frame-pointer"),
+    Checkbox(id="gcc_fno_builtin", flag="-fno-builtin"),
+]
+
+GCC_SWEEP_TIERS: dict[str, list[str] | None] = {
+    "quick": ["gcc_opt"],
+    "targeted": ["gcc_opt"],
+    "normal": ["gcc_opt", "gcc_fomit_frame_pointer"],
+    "thorough": ["gcc_opt", "gcc_fomit_frame_pointer", "gcc_fno_builtin"],
+    "full": None,
+}

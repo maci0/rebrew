@@ -48,6 +48,13 @@ author's *exact* GCC version.  Modern GCC (e.g. 16.x) differs from older GCC
 match only *structurally* (use `rebrew diff` structural ratio) — document the
 semantic decomp and blocker the byte delta rather than forcing a pass.
 
+**ELF/x86_64 targets:** `gcc` and `clang` are first-class native PATH specs
+(no image, posix flags, `.o` objects) — the same profile-aware pipeline as
+`gcc-pe`, resolving the bare `gcc`/`clang` binary from PATH.  Both carry a
+minimal posix flag-sweep axis set (`flag_data.GCC_FLAGS`), so
+`rebrew match --flag-sweep` emits flags these compilers accept rather than
+the MSVC fallback.
+
 **Analysis note:** rizin's `aaa` mis-merges functions on this toolchain —
 use `aa; aap` (function-prelude analysis) for the function list.  Ghidra
 headless gives correct boundaries but is slow on loaded machines.
