@@ -1166,8 +1166,9 @@ class TestRefreshAll:
         from rebrew.registry import refresh_all
 
         counts = refresh_all()
-        assert counts["toolchains"] >= 37
+        assert counts["toolchains"] >= 39
         assert counts["decompiler_backends"] >= 4
+        assert counts["mutations"] > 100
         assert counts["cache_backends"] >= 1
         assert counts["library_presets"] >= 5
 
