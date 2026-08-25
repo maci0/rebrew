@@ -1255,3 +1255,29 @@ class TestSkillNameSanitization:
         assert _safe_skill_name("/abs/path") == "abs-path"
         assert _safe_skill_name("rebrew-workflow") == "rebrew-workflow"
         assert _safe_skill_name("!!!") == ""
+
+
+class TestFlagDataSyncPreservation:
+    """A sync run must not wipe the hand-maintained flag families."""
+
+    def test_splice_preserves_tail(self, tmp_path: Path) -> None:
+        from tools.sync_decomp_flags import splice_preserved_tail
+
+        generated = '"""Auto-generated..."""\n\nCOMMON_MSVC_FLAGS = []\n'
+        existing = (
+            '"""Auto-generated..."""\nCOMMON_MSVC_FLAGS = []\n'
+            "# --- Hand-maintained flag families below ---\n"
+            "WATCOM_FLAGS = []\nGCC_FLAGS = []\n"
+        )
+        p = tmp_path / "flag_data.py"
+        p.write_text(existing, encoding="utf-8")
+        out = splice_preserved_tail(generated, p)
+        assert "WATCOM_FLAGS" in out and "GCC_FLAGS" in out
+        assert "COMMON_MSVC_FLAGS = []" in out
+
+    def test_splice_no_existing_file(self, tmp_path: Path) -> None:
+        from tools.sync_decomp_flags import splice_preserved_tail
+
+        generated = '"""gen"""\n'
+        out = splice_preserved_tail(generated, tmp_path / "missing.py")
+        assert out == generated

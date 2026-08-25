@@ -106,6 +106,10 @@ MSVC_SWEEP_TIERS = {
     "full": None,
 }
 
+# --- Hand-maintained flag families below -------------------------------------
+# Everything from this marker to EOF is preserved by tools/sync_decomp_flags.py
+# (the sync regenerates only the MSVC sections above).  Do not edit the MSVC
+# sections by hand — re-run tools/sync_decomp_flags.py.
 
 # Open Watcom wcc386 — 32-bit OMF codegen.  Flags are wcc386's own:
 # -o{space|time|all} optimization, -5/-6 codegen, -zp packing, -bm memory.
