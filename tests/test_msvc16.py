@@ -99,7 +99,7 @@ class TestDosboxRunner:
         monkeypatch.setattr("rebrew.dosbox.subprocess.run", _run)
         run_dosbox(tmp_path, ["C:\\DCC.EXE hello.dpr"])
         conf = (tmp_path / "run.conf").read_text(encoding="utf-8")
-        assert "mount c " + str(tmp_path) in conf
+        assert f'mount c "{tmp_path}"' in conf
         assert "C:\\DCC.EXE hello.dpr" in conf
         assert calls[0][0] == "dosbox"
 

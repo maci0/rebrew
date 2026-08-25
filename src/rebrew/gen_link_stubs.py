@@ -24,6 +24,7 @@ from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
 from rebrew.data_metadata import iter_data_symbols
+from rebrew.gen_stubs import is_safe_c_ident
 
 console = Console(stderr=True)
 
@@ -62,7 +63,12 @@ def gen_link_stubs(metadata: Path) -> str:
         "",
         "/* .data symbol placeholders (zero-init -> .data BSS) */",
     ]
-    for _addr, name, _type in symbols:
+    for addr, name, _type in symbols:
+        if not is_safe_c_ident(name):
+            # Non-identifier names (mangled/corrupt metadata) emitted verbatim
+            # would produce an uncompilable TU — fall back to an
+            # address-derived identifier (link-review F9).
+            name = f"g_data_{addr:x}"
         lines.append(f"char {name}[1] = {{0}};")
     lines.append("")
     lines.append("/* BSS tail pad: grows .data VS toward the reference (calibrate-bss) */")

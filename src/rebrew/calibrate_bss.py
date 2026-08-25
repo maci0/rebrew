@@ -47,11 +47,20 @@ def _layout_data_vs(root: Path) -> int | None:
             cfg = tomllib.load(f)
     except (OSError, tomllib.TOMLDecodeError):
         return None
-    for _target, tcfg in cfg.get("targets", {}).items():
-        lay = tcfg.get("layout", {})
-        for s in lay.get("sections", []):
-            if s.get("name") == ".data":
-                return int(s.get("vs", 0))
+    targets = cfg.get("targets", {})
+    if not isinstance(targets, dict) or not targets:
+        return None
+    # Pick the DEFAULT target only — scanning every target and returning the
+    # first .data VS silently calibrated against the wrong binary when the
+    # project has several targets (link-review F7).
+    default = cfg.get("default_target")
+    if default is None or default not in targets:
+        default = next(iter(targets))
+    tcfg = targets[default]
+    lay = tcfg.get("layout", {}) if isinstance(tcfg, dict) else {}
+    for s in lay.get("sections", []):
+        if s.get("name") == ".data":
+            return int(s.get("vs", 0))
     return None
 
 

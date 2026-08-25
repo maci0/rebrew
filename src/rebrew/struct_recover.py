@@ -544,7 +544,7 @@ def _collect_functions(
                 continue
             seen.add(a.va)
             out.append((a.va, a.name or f"0x{a.va:x}"))
-    if all_funcs is False and not functions:
+    if all_funcs is False and not functions and not out:
         error_exit(
             "pass --functions VA,VA, --all, or --filter SUBSTR to select functions",
             json_mode=json_output,
@@ -615,10 +615,15 @@ def main(
             console.print(f"[red]error:[/red] {msg}")
         raise typer.Exit(code=EXIT_ERROR)
 
-    # Existing structs in the project, for the merge report.
-    from rebrew.sources import iter_sources
+    # Existing structs in the project, for the merge report.  Library headers
+    # are included too — name_decomp.py scans them and recover_structs must
+    # agree, or its "new" structs would duplicate ones already defined
+    # (sync-review F15).
+    from rebrew.sources import iter_library_headers, iter_sources
 
-    existing = existing_structs(list(iter_sources(cfg.reversed_dir, cfg)))
+    sources = list(iter_sources(cfg.reversed_dir, cfg))
+    sources += list(iter_library_headers(cfg.reversed_dir))
+    existing = existing_structs(sources)
     # Offsets ≥ the image base are absolute addresses (Kuna folds
     # global_base + index into ``var + 0xADDR``) — never member offsets.
     max_offset = _MAX_MEMBER_OFFSET

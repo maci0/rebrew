@@ -243,6 +243,7 @@ def _compute_callees(
     end: int,
     names: dict[int, str],
     import_table: dict[int, str],
+    ranges: list[tuple[int, int, str]],
 ) -> list[dict[str, Any]]:
     """Direct calls and IAT calls/jumps inside the function range."""
     out: list[dict[str, Any]] = []
@@ -256,7 +257,14 @@ def _compute_callees(
         if key in seen:
             continue
         seen.add(key)
-        name = import_table.get(xref.to_va) if xref.kind in _IAT_KINDS else names.get(xref.to_va)
+        # Resolve the target like the caller side does — an exact function
+        # start wins, otherwise the enclosing function range (thunks /
+        # mid-function targets would otherwise show name=None).
+        name = (
+            import_table.get(xref.to_va)
+            if xref.kind in _IAT_KINDS
+            else _containing_name(xref.to_va, names, ranges)
+        )
         out.append({"to_va": xref.to_va, "name": name, "kind": xref.kind})
     out.sort(key=lambda c: (c["to_va"], c["kind"]))
     return out
@@ -403,7 +411,7 @@ def build_dossier(cfg: ProjectConfig, info: BinaryInfo, va: int) -> dict[str, An
         "convention": convention,
         "callers": _safe_section(lambda: _compute_callers(all_refs, va, names, ranges), []),
         "callees": _safe_section(
-            lambda: _compute_callees(all_refs, start, end, names, import_table), []
+            lambda: _compute_callees(all_refs, start, end, names, import_table, ranges), []
         ),
         "strings": _safe_section(lambda: _compute_strings(info, start, end, all_refs), []),
         "globals": _safe_section(lambda: _compute_globals(info, all_refs, start, end), []),

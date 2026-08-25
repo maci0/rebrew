@@ -194,7 +194,7 @@ def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool =
                 stored_version = json.loads(row[0])
             except (json.JSONDecodeError, TypeError):
                 stored_version = str(row[0])
-    except sqlite3.OperationalError as exc:
+    except sqlite3.Error as exc:
         if "locked" in str(exc).lower():
             # A live DB under contention (concurrent build-db, recoverage
             # regen) must NEVER be deleted — that is silent data loss.
@@ -204,6 +204,9 @@ def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool =
                 json_mode=json_output,
                 code=EXIT_ERROR,
             )
+        # OperationalError covers the missing-metadata case; a garbage file
+        # raises DatabaseError ("file is not a database") — both mean the DB
+        # is unusable and the delete-and-rebuild path below applies.
         # Metadata table missing — either a never-written file (a failed
         # build rolls back its DDL and leaves an empty DB behind) or debris.
         stored_version = "<missing>"
@@ -664,23 +667,34 @@ def build_db(
                 va_start_text = str(fn.get("vaStart") or (f"0x{va_int:08x}" if va_int else ""))
                 # build_db CHECK constraints reject negative fileOffset/
                 # textOffset/blockerDelta — a stray negative would abort the
-                # entire rebuild, so clamp defensively.
+                # entire rebuild, so clamp defensively.  size (CHECK >= 0),
+                # similarity (CHECK 0..1) and markerType (CHECK IN …) are
+                # clamped the same way.
                 file_off = fn.get("fileOffset")
                 text_off = fn.get("textOffset")
                 blocker_delta = fn.get("blockerDelta")
+                fn_size = fn.get("size")
+                fn_similarity = fn.get("similarity")
+                fn_marker = str(fn.get("markerType") or "FUNCTION")
+                if fn_marker not in ("FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"):
+                    fn_marker = "FUNCTION"
+                if isinstance(fn_similarity, (int, float)) and not isinstance(fn_similarity, bool):
+                    fn_similarity = max(0.0, min(1.0, float(fn_similarity)))
+                else:
+                    fn_similarity = None
                 fn_rows.append(
                     (
                         target_name,
                         va_int,
                         str(fn.get("name") or ""),
                         va_start_text,
-                        fn.get("size"),
+                        fn_size if not isinstance(fn_size, int) or fn_size >= 0 else 0,
                         file_off if not isinstance(file_off, int) or file_off >= 0 else 0,
                         str(fn.get("status") or "UNKNOWN"),
                         str(fn.get("module") or fn.get("origin") or ""),
                         fn.get("cflags"),
                         fn.get("symbol"),
-                        str(fn.get("markerType") or "FUNCTION"),
+                        fn_marker,
                         fn.get("ghidra_name"),
                         fn.get("list_name"),
                         int(bool(fn.get("is_thunk", False))),
@@ -695,7 +709,7 @@ def build_db(
                         if not isinstance(blocker_delta, int) or blocker_delta >= 0
                         else 0,
                         fn.get("size_reason", ""),
-                        fn.get("similarity"),
+                        fn_similarity,
                     )
                 )
 

@@ -167,6 +167,7 @@ def main(
 
 def main_entry() -> None:
     """Run the Typer CLI application."""
+    app()
 
 
 if __name__ == "__main__":

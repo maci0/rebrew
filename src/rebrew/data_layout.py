@@ -916,8 +916,13 @@ def converge_layout(
                 off = (exp - new_size) - data_base
                 data = orig[off : off + new_size]
                 line = f"unsigned char {pad_name}[{new_size}] = {hex_list(data)};"
-            else:
+            elif new_size > 0:
                 line = f"unsigned char {pad_name}[{new_size}];"
+            else:
+                # The pad shrank to nothing — emit NO declaration.  `[0]` is
+                # not valid C89 and would break the very build this tool
+                # converges.
+                line = ""
             if m:
                 text = text[: m.start()] + line + text[m.end() :]
             else:

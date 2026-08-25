@@ -50,9 +50,26 @@ class TestEnsureXvfb:
     def test_reuses_env_display_when_alive(self, monkeypatch) -> None:
         from rebrew import headless
 
+        # A stale REBREW_XVFB_DISPLAY (socket present, no live Xvfb process)
+        # must NOT be reused — only a process-backed display qualifies
+        # (infra-review F5).
         monkeypatch.setattr(headless, "_display_alive", lambda d: d == ":99")
+        monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {":99": 1234})
         monkeypatch.setenv("REBREW_XVFB_DISPLAY", ":99")
         assert ensure_xvfb() == ":99"
+
+    def test_env_display_stale_process_ignored(self, monkeypatch) -> None:
+        """Socket exists but no Xvfb process owns it → not reused."""
+        from rebrew import headless
+
+        monkeypatch.setattr(headless, "_display_alive", lambda d: True)
+        monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {})
+        monkeypatch.setenv("REBREW_XVFB_DISPLAY", ":99")
+        monkeypatch.setenv("DISPLAY", "")
+        # No live displays, so ensure_xvfb would spawn; with no Xvfb binary
+        # available it must return None rather than the stale ":99".
+        monkeypatch.setattr(headless.shutil, "which", lambda name: None)
+        assert ensure_xvfb() is None
 
     def test_reuses_current_display_when_xvfb(self, monkeypatch) -> None:
         """DISPLAY owned by an Xvfb (already headless) is reused as-is."""
@@ -206,7 +223,15 @@ class TestEnsureXvfb:
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.delenv("DISPLAY", raising=False)
-        monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {})
+        # Stateful /proc scan: once a worker spawns Xvfb, later workers must
+        # see the live process (the env-display reuse now requires process
+        # liveness, not just a socket — infra-review F5).
+        spawned_displays: list[str] = []
+
+        def _fake_running() -> dict[str, int]:
+            return dict.fromkeys(spawned_displays, 1)
+
+        monkeypatch.setattr(headless, "_running_xvfb_displays", _fake_running)
         monkeypatch.setattr(headless, "_display_alive", lambda d: True)
         monkeypatch.setattr(
             headless.shutil, "which", lambda name: "/usr/bin/Xvfb" if name == "Xvfb" else None
@@ -227,6 +252,7 @@ class TestEnsureXvfb:
             # display, and the spawn count explodes.
             time.sleep(0.002)
             spawned.append(argv[1])
+            spawned_displays.append(argv[1])
             return _FakeProc()
 
         monkeypatch.setattr(headless.subprocess, "Popen", _fake_popen)

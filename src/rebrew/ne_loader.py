@@ -179,6 +179,11 @@ def _segment_content_start(raw: bytes, index: int) -> int:
         off = 2
         while _looks_like_name_string(raw, off):
             off += 1 + raw[off]
+            if off + 1 >= len(raw):
+                # Truncated length-prefixed name string — the content offset
+                # is unrecoverable; clamp so callers never index past the
+                # segment end (same guard as probe_is_code, infra-review F2).
+                break
         return off
     return 0
 
@@ -433,10 +438,16 @@ def parse_imports(data: bytes, ne_offset: int, header: NeHeader) -> list[NeImpor
     impnames_end = h + header.entry_table_offset  # names table ends at the entry table
 
     modules: list[NeImportModule] = []
-    for i in range(header.module_reference_count):
-        name_off = _u16(data, modtab + i * 2)
-        name, _ = _pascal_string(data, impnames + name_off)
-        modules.append(NeImportModule(module=name))
+    try:
+        for i in range(header.module_reference_count):
+            name_off = _u16(data, modtab + i * 2)
+            name, _ = _pascal_string(data, impnames + name_off)
+            modules.append(NeImportModule(module=name))
+    except (struct.error, IndexError):
+        # A malformed module reference table must not propagate — the import
+        # detail below is already best-effort, so degrade to no module names
+        # (infra-review F3).
+        modules = []
 
     # The named-import region must be within the imported names table.
     def _name_ok(off: int) -> bool:
@@ -500,16 +511,21 @@ def parse_exports(data: bytes, ne_offset: int, header: NeHeader) -> list[NeExpor
         default=len(data),
     )
     exports: list[NeExport] = []
-    while pos < end:
-        ln = data[pos]
-        if ln == 0 or ln > 63:
-            break  # empty name or implausible length ends the table
-        if pos + 1 + ln + 2 > end:
-            break
-        name, pos = _pascal_string(data, pos)
-        ordinal = _u16(data, pos)
-        pos += 2
-        exports.append(NeExport(name=name, ordinal=ordinal))
+    try:
+        while pos < end and pos + 2 <= len(data):
+            ln = data[pos]
+            if ln == 0 or ln > 63:
+                break  # empty name or implausible length ends the table
+            if pos + 1 + ln + 2 > min(end, len(data)):
+                break
+            name, pos = _pascal_string(data, pos)
+            ordinal = _u16(data, pos)
+            pos += 2
+            exports.append(NeExport(name=name, ordinal=ordinal))
+    except (struct.error, IndexError) as exc:
+        # A corrupt resident name table must surface as a parse error, not a
+        # raw traceback (infra-review F4).
+        raise NeParseError(f"corrupt resident name table at 0x{pos:x}") from exc
     return exports
 
 

@@ -237,10 +237,6 @@ class Dashboard:
                 "SELECT value FROM metadata WHERE target = ? AND key = 'function_stats'",
                 (target,),
             ).fetchone()
-            total_bytes = conn.execute(
-                "SELECT value FROM metadata WHERE target = ? AND key = 'summary'",
-                (target,),
-            ).fetchone()
         if row is None:
             return None
         try:
@@ -259,13 +255,10 @@ class Dashboard:
         # (incl. stubs) stays available as a separate field.
         covered = int(stats.get("matched_bytes") or 0)
         identified = int(stats.get("covered_bytes") or 0)
+        # total_b comes solely from function_stats — the old fallback read a
+        # second metadata row (key='summary') and probed its ".text" size, but
+        # nothing writes a ".text" key there, so the branch never fired.
         total_b = int(stats.get("total_bytes") or 0)
-        if total_bytes is not None:
-            try:
-                summary = json.loads(total_bytes[0])
-                total_b = int(summary.get(".text", {}).get("size") or total_b)
-            except (json.JSONDecodeError, TypeError):
-                pass
         return {
             "target": target,
             "function_stats": stats,

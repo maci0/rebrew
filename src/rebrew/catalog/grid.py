@@ -69,6 +69,27 @@ def count_statuses(by_va: dict[int, list[Annotation]]) -> dict[str, int]:
     return counters
 
 
+def covered_bytes(by_va: dict[int, list[Annotation]], sizes: dict[int, int]) -> int:
+    """Sum covered bytes for annotated function VAs.
+
+    Uses the *sizes* lookup (registry canonical sizes in the CLI, the
+    disassembler function list in the catalog export) when the VA is present,
+    falling back to the annotation's own size.  Both callers previously
+    diverged — the CLI counted 0 for registry-missing VAs while CATALOG.md
+    counted the annotation size — so the summary and report disagreed
+    (catalog-review F9).  GLOBAL/DATA markers are excluded.
+    """
+    total = 0
+    for va, vas in by_va.items():
+        if not any(e.get("marker_type") not in ("GLOBAL", "DATA") for e in vas):
+            continue
+        canonical = sizes.get(va)
+        if not canonical:
+            canonical = vas[0]["size"]
+        total += canonical
+    return total
+
+
 def _build_section_index(
     sections: dict[str, Any],
 ) -> tuple[list[int], list[tuple[str, int, int, int]]]:
@@ -275,6 +296,10 @@ def generate_data_json(
     # are tallied from what is actually emitted.
     emitted_fn_count = 0
     emitted_matched = 0
+    # Functions skipped because there is no binary layout at all (missing/
+    # unloadable binary ⇒ image_base 0) — without sections every annotated VA
+    # would land outside the fallback section and be silently dropped.
+    layout_omitted = 0
 
     functions = {}
     for va in sorted(unique_vas):
@@ -296,6 +321,7 @@ def generate_data_json(
         # the binary from a negative index reads from the file END.  Skip it.
         if not found_in_section:
             if not image_base:
+                layout_omitted += 1
                 continue
             file_off = va - image_base
             text_off = file_off - text_raw_offset
@@ -351,6 +377,14 @@ def generate_data_json(
             if e["status"] in MATCHED_STATUSES:
                 emitted_matched += 1
 
+    if layout_omitted:
+        log.warning(
+            "%d annotated function%s omitted from the coverage grid — no binary "
+            "layout (missing or unloadable target binary)",
+            layout_omitted,
+            "s" if layout_omitted != 1 else "",
+        )
+
     # Generate cells for each section
     for sec_name, sec_data in sections.items():
         sec_va = sec_data["va"]
@@ -378,10 +412,10 @@ def generate_data_json(
                 off = va - sec_va
                 if 0 <= off < sec_size:
                     items_by_off[off] = {
-                        "size": 4,
+                        "size": gdata.get("size", 4),
                         "status": "EXACT",
                         "name": gdata["name"],
-                    }  # Default size 4 for globals
+                    }  # Estimated from the declaration type (pointer-sized default)
 
         item_starts = sorted(items_by_off)
         segments: list[tuple[int, int, str, list[str], str | None, str | None]] = []

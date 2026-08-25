@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 
-from rebrew.c_parser import extract_function_name_and_proto
+from rebrew.c_parser import iter_function_name_and_proto
 
 _TYPE_KEYWORDS = frozenset(
     {
@@ -108,43 +108,43 @@ def apply_param_names(source: str, func_name: str, ghra_names: list[str]) -> str
 
     Returns the rewritten source, or None when the function is not found,
     the arity differs, or the signature is unsafe to rewrite.  Named
-    parameters are preserved verbatim.
+    parameters are preserved verbatim.  Multi-function files are walked —
+    every definition is matched by name, not just the first
+    (sync-review F11).
     """
-    result = extract_function_name_and_proto(source)
-    if result is None:
-        return None
-    name, proto = result
-    if name != func_name:
-        return None
-    local_names = param_names_from_proto(proto)
-    if local_names is None:
-        return None
-    if len(local_names) != len(ghra_names):
-        return None  # arity mismatch — do not guess
+    for name, proto in iter_function_name_and_proto(source):
+        if name != func_name:
+            continue
+        local_names = param_names_from_proto(proto)
+        if local_names is None:
+            return None
+        if len(local_names) != len(ghra_names):
+            return None  # arity mismatch — do not guess
 
-    # Nothing to do when every param already has a name.
-    if all(n for n in local_names):
-        return None
+        # Nothing to do when every param already has a name.
+        if all(n for n in local_names):
+            return None
 
-    # Build the named param list from the original proto's paren group.
-    start = proto.rfind("(")
-    end = proto.rfind(")")
-    old_inner = proto[start + 1 : end]
-    new_parts: list[str] = []
-    for i, part in enumerate(_split_top_level(old_inner)):
-        part = part.strip()
-        if _param_name(part) is None:
-            # Unnamed → append the Ghidra name.
-            new_parts.append(f"{part} {ghra_names[i]}")
-        else:
-            new_parts.append(part)
-    new_inner = ", ".join(new_parts)
-    if new_inner == old_inner:
-        return None
-    new_proto = proto[: start + 1] + new_inner + proto[end:]
+        # Build the named param list from the original proto's paren group.
+        start = proto.rfind("(")
+        end = proto.rfind(")")
+        old_inner = proto[start + 1 : end]
+        new_parts: list[str] = []
+        for i, part in enumerate(_split_top_level(old_inner)):
+            part = part.strip()
+            if _param_name(part) is None:
+                # Unnamed → append the Ghidra name.
+                new_parts.append(f"{part} {ghra_names[i]}")
+            else:
+                new_parts.append(part)
+        new_inner = ", ".join(new_parts)
+        if new_inner == old_inner:
+            return None
+        new_proto = proto[: start + 1] + new_inner + proto[end:]
 
-    # Replace the prototype in the source.  extract_function_name_and_proto
-    # returns the definition's verbatim text, so a direct replace is exact.
-    if proto in source and new_proto != proto:
-        return source.replace(proto, new_proto, 1)
+        # Replace the prototype in the source.  iter_function_name_and_proto
+        # returns the definition's verbatim text, so a direct replace is exact.
+        if proto in source and new_proto != proto:
+            return source.replace(proto, new_proto, 1)
+        return None
     return None

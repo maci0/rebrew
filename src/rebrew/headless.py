@@ -155,11 +155,15 @@ def ensure_xvfb() -> str | None:
 
 def _ensure_xvfb_locked() -> str | None:
     """Body of :func:`ensure_xvfb`; caller must hold ``_XVFB_INIT_LOCK``."""
+    displays = _running_xvfb_displays()
     env_display = os.environ.get(_XVFB_DISPLAY_ENV, "")
-    if env_display and _display_alive(env_display):
+    # The env display is trusted only when a LIVE Xvfb process owns it — a
+    # socket check alone can resurrect a stale REBREW_XVFB_DISPLAY whose
+    # server died (or whose socket was reused by a non-Xvfb X server),
+    # sending every compile into a dead display (infra-review F5).
+    if env_display and env_display in displays and _display_alive(env_display):
         return env_display
 
-    displays = _running_xvfb_displays()
     current = os.environ.get("DISPLAY", "")
     if current and current in displays:
         return current

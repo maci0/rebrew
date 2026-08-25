@@ -945,6 +945,12 @@ def _save_verify_cache(
         file_info = filepath_info.get(filepath)
         if file_info is None:
             continue
+        # A tooling crash is not a verification verdict — never cache it: a
+        # transient worker failure would otherwise be re-served forever as a
+        # phantom failure (status count, coverage overlay, todo "0B diff"
+        # quick-win) until a --full re-verify.
+        if result.get("status") == "INTERNAL_ERROR":
+            continue
         mtime, source_hash = file_info
 
         # Ensure result has default fields present
@@ -1833,7 +1839,9 @@ def run_verification(
     deferred_fixes: list[tuple[Annotation, str, int]] = []
 
     fresh_count = len(entries_to_verify)
-    effective_jobs = min(jobs, fresh_count) if fresh_count else 1
+    # The CLI -j flag bypasses config's _positive_int validation — clamp
+    # here so `-j 0` (or negative) cannot crash ThreadPoolExecutor.
+    effective_jobs = max(1, min(jobs, fresh_count)) if fresh_count else 1
 
     try:
         from rebrew.compile_cache import get_compile_cache

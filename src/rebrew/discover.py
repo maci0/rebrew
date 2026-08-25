@@ -99,11 +99,16 @@ def _capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
             j = i
             while j < n and raw[j] in (0xCC, 0x90, 0x0F, 0x1F):
                 j += 1
-            # a padding run of >= 3 bytes: the byte after it starts a function
+            # a padding run of >= 3 bytes: the byte after it starts a function.
+            # The inner loop stops at a multi-byte nop's MODRM byte
+            # (0f 1f 40 xx / 0f 1f 00 / 0f 1f 44 xx xx) — skip the whole nop
+            # so the start lands after it, not on the 0x40.
             if j - i >= 3 and j < n:
-                # skip trailing 0f 1f 40 xx / 0f 1f 00 (multi-byte nops) precisely-ish:
-                k = j
-                starts.add(va_base + k)
+                if j + 1 < n and raw[j] == 0x0F and raw[j + 1] == 0x1F:
+                    modrm = raw[j + 2] if j + 2 < n else 0
+                    nop_len = {0x00: 3, 0x40: 4, 0x44: 5, 0x84: 7, 0xC0: 3, 0xC4: 4}.get(modrm, 3)
+                    j = min(n, j + nop_len)
+                starts.add(va_base + j)
             i = j
         else:
             i += 1
@@ -306,9 +311,16 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
         return d
 
     if is_mz(binary):
-        # Sizes are unknown in a bare MZ sweep (no symbol table) — keep 0.
+        # Sizes are unknown in a bare MZ sweep (no symbol table) — estimate
+        # each candidate's extent as the gap to the next candidate so
+        # --min-size is honored (a size-0 filter would drop everything).
+        funcs = sorted(_mz_capstone_sweep(binary))
+        sized: list[tuple[int, int, str]] = []
+        for idx, (va, _size, name) in enumerate(funcs):
+            nxt = funcs[idx + 1][0] if idx + 1 < len(funcs) else va + 0x100
+            sized.append((va, max(1, nxt - va), name))
         d = Discovery()
-        d.functions = list(_mz_capstone_sweep(binary))
+        d.functions = [f for f in sized if f[1] >= min_size]
         d.sources = {"mz sweep": len(d.functions)}
         return d
 

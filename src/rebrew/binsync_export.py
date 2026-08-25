@@ -365,6 +365,12 @@ def _parse_struct_fields(typedef_text: str) -> list[dict[str, str]]:
             def _node_text(node: object, src: bytes) -> str:
                 return src[node.start_byte : node.end_byte].decode("utf-8", errors="replace")  # type: ignore[attr-defined]
 
+            def _count_field_declarations(node: object) -> int:
+                n = 1 if getattr(node, "type", None) == "field_declaration" else 0
+                for child in getattr(node, "children", []):
+                    n += _count_field_declarations(child)
+                return n
+
             def _walk(node: object) -> None:
                 if getattr(node, "type", None) == "field_declaration":
                     # Collect type parts + declarator name
@@ -384,6 +390,16 @@ def _parse_struct_fields(typedef_text: str) -> list[dict[str, str]]:
                             type_parts.append(_node_text(child, b))
                         elif ctype == "field_identifier":
                             field_name = _node_text(child, b)
+                        elif ctype == "pointer_declarator":
+                            # field char *name; — the '*' belongs in the type,
+                            # the identifier is the name.  Without this branch
+                            # pointer fields were silently dropped from mixed
+                            # structs (sync-review F3).
+                            for sub in getattr(child, "children", []):
+                                if getattr(sub, "type", None) == "field_identifier":
+                                    field_name = _node_text(sub, b)
+                                    break
+                            type_parts.append("*")
                         elif ctype == "array_declarator":
                             # field int name[4];
                             for sub in getattr(child, "children", []):
@@ -416,7 +432,11 @@ def _parse_struct_fields(typedef_text: str) -> list[dict[str, str]]:
                         _walk(child)
 
             _walk(tree.root_node)
-            if fields:
+            # Only trust the walk when it captured every field declaration —
+            # a partially-parsed struct (unrecognized declarator form) must
+            # fall through to the regex path, which handles pointers/arrays,
+            # rather than returning a truncated field list (sync-review F3).
+            if fields and len(fields) == _count_field_declarations(tree.root_node):
                 return fields
     except Exception:
         logger.debug("tree-sitter struct field parse failed, falling back to regex", exc_info=True)
@@ -742,6 +762,12 @@ def main(
             f"[yellow]warning:[/] catalog scan failed ({exc.__class__.__name__}: {exc}); "
             "export includes annotations only, no catalog-only functions"
         )
+
+    if module is not None:
+        # Catalog-only entries carry no module attribution (""), so under a
+        # --module filter they would all be exported unconditionally,
+        # violating the filter contract (sync-review F7).
+        catalog_func_entries = []
 
     # Nothing at all to export?
     if not func_entries and not catalog_func_entries and not global_entries:

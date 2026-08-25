@@ -285,8 +285,12 @@ def main(
                         "binsync": bs_proto,
                     }
                 )
+                if not json_output:
+                    # Was an `elif` to the dry_run branch — real runs printed
+                    # "(dry-run)" while actually writing (sync-review F2).
+                    console.print(f"  Would update prototype 0x{va:08x} (dry-run)")
             elif not json_output:
-                console.print(f"  Would update prototype 0x{va:08x} (dry-run)")
+                console.print(f"  Updating prototype 0x{va:08x}")
             if not dry_run:
                 try:
                     from rebrew.annotation import update_annotation_key as _uak

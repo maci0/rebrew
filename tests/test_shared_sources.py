@@ -380,14 +380,16 @@ class TestDefinesCompile:
         )
 
     def test_flag_sweep_refused_for_posix(self) -> None:
-        """The flag sweep explores MSVC flag combos — for a posix compiler
-        every combo would fail; it must refuse loudly instead of silently
-        wasting compiles."""
+        """The flag sweep needs a registered flag database for the profile —
+        a posix-style plugin toolchain without one would get the MSVC combo
+        fallback (every combo invalid for that compiler); it must refuse
+        loudly instead of silently wasting compiles.  (gcc/clang/gcc-pe now
+        sweep normally — they ship posix flag axes.)"""
         import pytest
 
         from rebrew.matcher.compiler import flag_sweep
 
-        with pytest.raises(ValueError, match="MSVC-only"):
+        with pytest.raises(ValueError, match="no registered flag set"):
             flag_sweep(
                 "int f(void){ return 1; }\n",
                 b"\xb8\x01\x00\x00\x00\xc3",
@@ -396,7 +398,7 @@ class TestDefinesCompile:
                 "",
                 "_f",
                 posix_style=True,
-                profile="gcc-pe",
+                profile="plugin-posix-tc",
                 cfg=None,
             )
 

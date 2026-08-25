@@ -599,6 +599,8 @@ def main(
         or pull
         or pull_signatures
         or pull_structs
+        or pull_datatypes
+        or pull_params
         or pull_comments
         or pull_data
         or apply

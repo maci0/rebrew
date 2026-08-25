@@ -66,7 +66,7 @@ class StringEntry:
     va: int
     size: int  # bytes on disk (includes terminator for ascii)
     text: str  # decoded text (without terminator)
-    kind: str  # "ascii" | "utf16"
+    kind: str  # "ascii" | "utf16" | "pascal" (16-bit NE length-prefixed)
     section: str
 
 
@@ -302,6 +302,18 @@ def _classify_insn(info: BinaryInfo, insn: Any) -> tuple[str, int, int] | None:
                 # target already.
                 return mnemonic, from_va, int(op.imm)
             return None
+        if mnemonic in ("push", "mov"):
+            # `push 0x0D000` / `mov reg, 0x0D000` push/load a 16-bit absolute
+            # (usually a string/global address in the autodata segment) —
+            # mirror the 32-bit path so NE string/global references are
+            # found, not just [imm16] memory operands.
+            op = ops[0] if mnemonic == "push" else (ops[1] if len(ops) >= 2 else None)
+            if op is not None and op.type == op_imm:
+                disp = int(op.imm)
+                if 0 <= disp <= 0xFFFF:
+                    autodata = getattr(info, "ne_header", None)
+                    data_seg = autodata.autodata_segment if autodata is not None else 1
+                    return mnemonic, from_va, (data_seg << 16) | disp
         # Absolute [imm16] operands: a1/a3 (mov), and generic [abs] memory ops
         for op in ops:
             if (

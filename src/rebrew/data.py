@@ -1619,7 +1619,9 @@ def main(
             _generate_bss_fix(
                 bss_report,
                 src_dir,
-                getattr(cfg, "marker", ""),
+                # Match --annotate's marker fallback: an empty origin would
+                # emit `// DATA:  0x...` which the annotation parser rejects.
+                getattr(cfg, "marker", "") or cfg.target_name.upper(),
                 metadata_dir=cfg.metadata_dir,
                 dry_run=dry_run,
                 json_output=json_output,

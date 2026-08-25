@@ -319,7 +319,10 @@ def import_function(
         from rebrew.annotation import parse_c_file_multi
 
         existing = parse_c_file_multi(dst_path, target_name=module)
-        if existing and existing[0].va != dst_va:
+        # Any annotation on a DIFFERENT VA — not just the first one — makes
+        # the destination file off-limits (sync-review F13).
+        conflicting = next((e for e in existing if e.va != dst_va), None)
+        if conflicting is not None:
             return {
                 "dst_va": f"0x{dst_va:08x}",
                 "src_va": f"0x{src_va:08x}",
@@ -329,7 +332,7 @@ def import_function(
                 "filepath": rel_dst,
                 "message": (
                     f"destination {rel_dst} already annotates VA "
-                    f"0x{existing[0].va:x} — remove/rename it or import "
+                    f"0x{conflicting.va:x} — remove/rename it or import "
                     "to a different file"
                 ),
             }

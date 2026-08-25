@@ -107,7 +107,7 @@ def test_toolchain_sweep_orders_best_first(monkeypatch, capsys) -> None:
     monkeypatch.setattr("rebrew.match.build_candidate_obj_only", _fake_build)
     monkeypatch.setattr(
         "rebrew.match.score_candidate",
-        lambda t, obj, rel: SimpleNamespace(total=0.0 if obj == good else 50.0),
+        lambda t, obj, rel, **kw: SimpleNamespace(total=0.0 if obj == good else 50.0),
     )
     monkeypatch.setattr(
         "rebrew.match.smart_reloc_compare",

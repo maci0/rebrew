@@ -17,9 +17,8 @@ from rich.console import Console
 
 from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.catalog.export import generate_catalog, generate_reccmp_csv
-from rebrew.catalog.grid import count_statuses, generate_data_json
-from rebrew.catalog.loaders import load_function_structure, parse_function_list, scan_reversed_dir
-from rebrew.catalog.models import FunctionEntry
+from rebrew.catalog.grid import count_statuses, covered_bytes, generate_data_json
+from rebrew.catalog.loaders import parse_function_list, scan_reversed_dir
 from rebrew.catalog.registry import build_function_registry, count_detection_sources
 from rebrew.catalog.sections import get_text_section_size
 from rebrew.cli import (
@@ -179,16 +178,9 @@ def main(
             return parse_function_list(Path(func_list_path))
         return []
 
-    def load_func_struct() -> list[FunctionEntry]:
-        if ghidra_json_path.exists():
-            return load_function_structure(ghidra_json_path)
-        return []
-
     with ThreadPoolExecutor(max_workers=jobs) as pool:
         future_funcs = pool.submit(load_func_list)
-        future_struct = pool.submit(load_func_struct)
         funcs = future_funcs.result()
-        future_struct.result()  # structure load (read again below by build_function_registry)
 
     # The .text size drives the coverage percentage.  A missing binary used
     # to fall back to a fabricated 0x24000 (92160B) section — coverage was
@@ -206,7 +198,12 @@ def main(
             style="dim",
         )
 
-    registry = build_function_registry(funcs, cfg, ghidra_json_path, bin_path)
+    try:
+        registry = build_function_registry(funcs, cfg, ghidra_json_path, bin_path)
+    except ValueError as exc:
+        # A corrupt function_structure.json must fail with a clean message,
+        # not a raw traceback (skeleton.py guards the identical load).
+        error_exit(f"Corrupt {ghidra_json_path}: {exc}", json_mode=json_output)
 
     unique_vas = {e["va"] for e in entries}
     ghidra_count, list_count, both_count, thunk_count = count_detection_sources(registry)
@@ -229,11 +226,8 @@ def main(
         if any(e["marker_type"] not in ("GLOBAL", "DATA") for e in vas)
     }
 
-    covered_bytes = 0
-    for va in fn_vas:
-        if va in registry:
-            covered_bytes += registry[va]["canonical_size"]
-    coverage_pct = (covered_bytes / text_size * 100.0) if text_size else 0.0
+    covered = covered_bytes(by_va, {va: reg["canonical_size"] for va, reg in registry.items()})
+    coverage_pct = (covered / text_size * 100.0) if text_size else 0.0
 
     if summary:
         counts = count_statuses(by_va)
@@ -261,9 +255,7 @@ def main(
         for module in sorted(module_counts):
             console.print(f"  {module}: {module_counts[module]}")
 
-        covered = covered_bytes
-        pct = coverage_pct
-        console.print(f"Coverage: {pct:.1f}% ({covered}/{text_size} bytes)")
+        console.print(f"Coverage: {coverage_pct:.1f}% ({covered}/{text_size} bytes)")
 
         console.print()
         console.print("=== Tool Detection ===")
@@ -395,7 +387,7 @@ def main(
             "unique_vas": len({e["va"] for e in entries}),
             "registry": len(registry),
             "total_functions": len(registry),
-            "covered_bytes": covered_bytes,
+            "covered_bytes": covered,
             "text_size": text_size,
             "coverage_pct": round(coverage_pct, 1),
             "wrote_data_json": gen_data_json,
