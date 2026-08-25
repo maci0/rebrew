@@ -194,9 +194,16 @@ def _fix_imports(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> 
     sig_b = _built_import_signature(bytes(built))
     sig_r = _import_signature(meta.imports)
     if sig_b != sig_r:
+        _entry_diff = {}
+        for _d in sorted({d for d, _ in sig_b} | {d for d, _ in sig_r}):
+            _eb = dict(sig_b).get(_d, [])
+            _er = dict(sig_r).get(_d, [])
+            _only_b = sorted(set(_eb) - set(_er))
+            _only_r = sorted(set(_er) - set(_eb))
+            if _only_b or _only_r:
+                _entry_diff[_d] = (f"built-only={_only_b}", f"ref-only={_only_r}")
         raise ValueError(
-            "import sets differ — refusing to copy bookkeeping "
-            f"(only-in-built={[d for d, _ in sig_b if d not in {n for n, _ in sig_r}]})"
+            f"import sets differ — refusing to copy bookkeeping (entries={_entry_diff})"
         )
 
     pe_b = _pe(bytes(built))

@@ -1042,7 +1042,7 @@ def _merge_entry_point_toolchains(registry: dict[str, ToolchainSpec]) -> None:
         before = set(registry)
         merge_provider_dict(registry, import_registration(reg), reg.origin, group=reg.group)
         for name in set(registry) - before:
-            TOOLCHAIN_ORIGINS[name] = "entry-point"
+            TOOLCHAIN_ORIGINS[name] = f"entry-point:{reg.module}"
 
 
 def _toolchain_overlay_dir() -> Path | None:
@@ -1098,8 +1098,8 @@ def build_toolchain_registry() -> dict[str, ToolchainSpec]:
 
 
 #: Provenance of each registered toolchain name (built alongside
-#: :func:`build_toolchain_registry`): "packaged", "entry-point", or
-#: "data-file <path>".  A name not present is packaged (defensive default).
+#: :func:`build_toolchain_registry`): "packaged", "entry-point:<module>",
+#: or "data-file <path>".  A name not present is packaged (defensive default).
 TOOLCHAIN_ORIGINS: dict[str, str] = {}
 
 
@@ -1108,6 +1108,18 @@ TOOLCHAIN_ORIGINS: dict[str, str] = {}
 #: :func:`build_toolchain_registry` so entry-point providers and the
 #: project-level TOML overlay extend it without touching host source.
 TOOLCHAINS: dict[str, ToolchainSpec] = build_toolchain_registry()
+
+
+def refresh_toolchain_registry() -> dict[str, ToolchainSpec]:
+    """Re-run discovery and refresh the :data:`TOOLCHAINS` snapshot.
+
+    Long-lived processes (a dashboard, an agent harness) can pick up
+    toolchains installed after startup without a restart.  Also refreshes
+    :data:`TOOLCHAIN_ORIGINS` (built alongside the registry)."""
+    global TOOLCHAINS
+
+    TOOLCHAINS = build_toolchain_registry()
+    return TOOLCHAINS
 
 
 def get_toolchain(name: str) -> ToolchainSpec:

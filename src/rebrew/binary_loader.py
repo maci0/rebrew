@@ -44,22 +44,40 @@ BINARY_LOADER_ENTRY_POINT_GROUP = "rebrew.binary_loaders"
 def _discover_binary_loaders() -> list[tuple[str, Any]]:
     """Every ``rebrew.binary_loaders`` entry-point member, as ``(name, fn)``.
 
-    A member that is not callable raises :class:`RegistryError`."""
-    from rebrew.registry import RegistryError, entry_point_registrations, import_registration
+    An optional registry: a broken or non-callable member is skipped with a
+    warning (loading degrades to the packaged NE/MZ/LIEF path)."""
+    from rebrew.registry import entry_point_registrations, load_registration_optional
 
     loaders: list[tuple[str, Any]] = []
     for reg in entry_point_registrations(BINARY_LOADER_ENTRY_POINT_GROUP):
-        fn = import_registration(reg)
+        fn = load_registration_optional(reg, log)
+        if fn is None:
+            continue
         if not callable(fn):
-            raise RegistryError(
-                f"bad {reg.group} registration {reg.name!r} from {reg.origin}: "
-                f"expected a callable loader, got {type(fn).__name__}"
+            log.warning(
+                "skipping %s registration %r: expected a callable loader, got %s",
+                reg.group,
+                reg.name,
+                type(fn).__name__,
             )
+            continue
         loaders.append((reg.name, fn))
     return loaders
 
 
 _PLUGIN_LOADERS: list[tuple[str, Any]] = _discover_binary_loaders()
+
+
+def refresh_loaders() -> list[tuple[str, Any]]:
+    """Re-run discovery and refresh the :data:`_PLUGIN_LOADERS` snapshot.
+
+    Long-lived processes can pick up binary-loading plugins installed after
+    startup without a restart."""
+    global _PLUGIN_LOADERS
+
+    _PLUGIN_LOADERS = _discover_binary_loaders()
+    return _PLUGIN_LOADERS
+
 
 _MAX_BINARY_SIZE = 512 * 1024 * 1024  # 512 MB safety limit
 

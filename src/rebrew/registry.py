@@ -21,11 +21,21 @@ merge on top.  Conflict policy (single-source discipline): a name may be
 registered by exactly one source.  A duplicate raises :class:`RegistryError`
 naming both origins — the "no two fibers of one registry whose provisions
 meet" rule of the spatiotemporal-composability model this mirrors.
+
+Failure policy: how a broken plugin registration is handled depends on the
+registry's role.  **Identity-critical** registries (toolchains — a wrong
+compiler produces wrong bytes; CLI commands — a colliding command name is
+a config error) keep the loud ``RegistryError``.  **Optional/tuning**
+registries (decompiler backends, GA mutations, flag sets, library presets,
+detectors, binary loaders, cache backends) skip the broken entry with a
+warning — a bad plugin must not brick the importing module, matching the
+CLI's stub-degradation for broken command plugins.
 """
 
 from __future__ import annotations
 
 import importlib
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from importlib.metadata import entry_points
@@ -103,6 +113,22 @@ def import_registration(reg: Registration) -> Any:
         ) from exc
 
 
+def load_registration_optional(reg: Registration, log: logging.Logger) -> Any | None:
+    """Import a registration for an optional registry, skipping on failure.
+
+    Optional registries (decompiler backends, GA mutations, flag sets,
+    library presets, detectors, binary loaders, cache backends) must not
+    brick the importing module when a plugin is broken: the entry is
+    skipped with a warning and ``None`` returned.  Identity-critical
+    registries (toolchains, CLI commands) use :func:`import_registration`
+    directly and keep the loud :class:`RegistryError`."""
+    try:
+        return import_registration(reg)
+    except RegistryError as exc:
+        log.warning("skipping broken %s registration %r: %s", reg.group, reg.name, exc)
+        return None
+
+
 def merge_into(
     registry: dict[str, Any],
     name: str,
@@ -147,3 +173,34 @@ def merge_provider_dict(
         )
     for name, value in provided.items():
         merge_into(registry, name, value, origin, group=group)
+
+
+def refresh_all() -> dict[str, int]:
+    """Re-run discovery for every registry module and refresh its snapshot.
+
+    Registration is import-time by default; a long-lived process (a
+    dashboard, an agent harness) that installs a plugin after startup calls
+    this to pick it up without a restart.  Returns ``{registry: entry
+    count}``.  Each module also exposes a single-registry ``refresh_*``
+    (e.g. :func:`rebrew.toolchain.refresh_toolchain_registry`).
+    """
+    from rebrew import (
+        binary_loader,
+        compile_cache,
+        decompiler,
+        metadata,
+        toolchain,
+        toolchain_detect,
+    )
+    from rebrew.matcher import compiler
+
+    counts: dict[str, int] = {}
+    counts["toolchains"] = len(toolchain.refresh_toolchain_registry())
+    counts["decompiler_backends"] = len(decompiler.refresh_backends())
+    counts["flag_sets"] = len(compiler.refresh_flag_sets()[0])
+    counts["library_presets"] = len(metadata.refresh_library_presets())
+    toolchain_detect.refresh_detection_tables()
+    counts["detectors"] = len(toolchain_detect._PLUGIN_DETECTORS)
+    counts["binary_loaders"] = len(binary_loader.refresh_loaders())
+    counts["cache_backends"] = len(compile_cache.refresh_cache_backends())
+    return counts

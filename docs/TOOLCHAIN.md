@@ -480,10 +480,10 @@ packaged toolchain raises `RegistryError`.  Once registered (by either
 mechanism) the toolchain is a first-class profile: usable in
 `rebrew-library.toml`, per-function metadata, and `rebrew test --toolchain`.
 `rebrew toolchain list` reports each toolchain's provenance (`origin`:
-`packaged`, `entry-point`, or `data-file <path>`; the human table shows the
-column only when a non-packaged toolchain exists), and `rebrew doctor`'s
-Cache check reports an unregistered `[cache] backend` before the first
-compile.
+`packaged`, `entry-point:<module>`, or `data-file <path>`; the human table
+shows the column only when a non-packaged toolchain exists), and `rebrew
+doctor`'s Cache check reports an unregistered `[cache] backend` before the
+first compile.
 
 Three companion extension points make a plugin toolchain fully first-class:
 
@@ -634,9 +634,11 @@ Notes:
 - **VC 11.0**: `msvc1100` (VS 2012, cl.exe 17.00.50522) is the newest
   compiler the `archaic-msvc` org carries.
 - **Legacy aliases**: the old `msvc6.3` / `msvc6.6` names are retired — the
-  registry names are `msvc600sp3` / `msvc600sp6` (the legacy names linger
-  only in config's known-profile list and doctor's legacy-path download
-  hints, and no longer resolve to a toolchain spec); `msvc7` keeps its
+  registry names are `msvc600sp3` / `msvc600sp6`.  A config that still says
+  `profile = "msvc6.3"` / `"msvc6.6"` is migrated to the modern name at load
+  (with a warning), so an old project keeps the right compiler instead of
+  falling back to msvc6 RTM or failing with "unknown toolchain"; the legacy
+  names also linger in doctor's legacy-path download hints.  `msvc7` keeps its
   historical 13.10.3077 compiler (the canonical `7.0-win32` dir), while
   `msvc700` is the true VC 7.0 build in `7.0-rtm-win32`.
 

@@ -9,6 +9,7 @@ mutation.  When ``track_mutation=True``, returns ``(mutated_source, mutation_nam
 instead of just str.  Returns original source unchanged if all attempts fail.
 """
 
+import logging
 import random
 import re
 import threading
@@ -19,6 +20,8 @@ from typing import Any, Literal, overload
 import tree_sitter as ts
 
 from rebrew.matcher.ast_engine import _C_LANGUAGE, parse_c_ast, replace_node
+
+logger = logging.getLogger(__name__)
 
 
 def _capture(match_or_captures: Any, name: str) -> Any:
@@ -5724,28 +5727,42 @@ MUTATION_ENTRY_POINT_GROUP = "rebrew.mutations"
 
 
 def _merge_entry_point_mutations() -> list[Callable[..., str | None]]:
-    """The full mutation list: packaged operators + ``rebrew.mutations``."""
+    """The full mutation list: packaged operators + ``rebrew.mutations``.
+
+    An optional registry: a broken or conflicting plugin mutation is
+    skipped with a warning (the GA keeps the packaged operators) instead of
+    bricking ``rebrew match``."""
     from rebrew.registry import (
         RegistryError,
         entry_point_registrations,
-        import_registration,
+        load_registration_optional,
         merge_into,
     )
 
     merged: dict[str, Callable[..., str | None]] = {m.__name__: m for m in _BUILTIN_MUTATIONS}
     for reg in entry_point_registrations(MUTATION_ENTRY_POINT_GROUP):
         if not reg.attr:
-            raise RegistryError(
-                f"bad {reg.group} registration {reg.name!r} from {reg.origin}: "
-                f"expected 'module:attr' naming a mutation function"
+            logger.warning(
+                "skipping %s registration %r: expected 'module:attr' naming a mutation function",
+                reg.group,
+                reg.name,
             )
-        mut_fn = import_registration(reg)
+            continue
+        mut_fn = load_registration_optional(reg, logger)
+        if mut_fn is None:
+            continue
         if not callable(mut_fn):
-            raise RegistryError(
-                f"bad {reg.group} registration {reg.name!r} from {reg.origin}: "
-                f"expected a callable mutation, got {type(mut_fn).__name__}"
+            logger.warning(
+                "skipping %s registration %r: expected a callable mutation, got %s",
+                reg.group,
+                reg.name,
+                type(mut_fn).__name__,
             )
-        merge_into(merged, reg.name, mut_fn, reg.origin, group=reg.group)
+            continue
+        try:
+            merge_into(merged, reg.name, mut_fn, reg.origin, group=reg.group)
+        except RegistryError as exc:
+            logger.warning("skipping %s registration %r: %s", reg.group, reg.name, exc)
     return list(merged.values())
 
 
@@ -5759,7 +5776,11 @@ __all__ = [
     "mutate_chain",
     "mutate_code",
     "quick_validate",
-    *[m.__name__ for m in ALL_MUTATIONS],
+    # Only the PACKAGED operators are re-exported: their names are module
+    # attributes of mutator.py, so `from .mutator import *` can bind them.
+    # A plugin mutation (via rebrew.mutations) lives in the plugin's module,
+    # not here — it joins ALL_MUTATIONS but must not leak into __all__.
+    *[m.__name__ for m in _BUILTIN_MUTATIONS],
 ]
 
 

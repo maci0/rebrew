@@ -842,8 +842,6 @@ _KNOWN_PROFILES = {
     "msvc420",
     "msvc5",
     "msvc6",
-    "msvc6.3",
-    "msvc6.6",
     "msvc7",
     "msvc700",
     "msvc700sp1",
@@ -1016,6 +1014,18 @@ def load_config(
 
     _known_profiles = _KNOWN_PROFILES | set(TOOLCHAINS)
     profile_val = compiler.get("profile", "msvc6")
+    # Retired legacy aliases (docs/TOOLCHAIN.md): migrate to the modern
+    # registry names at load so an old config keeps the right compiler
+    # instead of silently falling back to msvc6 RTM or failing late with
+    # "unknown toolchain" at compile time.
+    _LEGACY_PROFILE_ALIASES = {"msvc6.3": "msvc600sp3", "msvc6.6": "msvc600sp6"}
+    if profile_val in _LEGACY_PROFILE_ALIASES:
+        migrated = _LEGACY_PROFILE_ALIASES[profile_val]
+        _config_warn(
+            f"rebrew-project.toml [compiler]: profile {profile_val!r} is a retired "
+            f"legacy alias — using {migrated!r} instead",
+        )
+        profile_val = migrated
     if not isinstance(profile_val, str) or profile_val not in _known_profiles:
         _config_warn(
             f"rebrew-project.toml [compiler]: unknown profile {profile_val!r} "

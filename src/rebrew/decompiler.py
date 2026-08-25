@@ -18,6 +18,7 @@ Usage (internal)::
 """
 
 import importlib
+import logging
 import re
 import shutil
 import subprocess
@@ -238,26 +239,63 @@ _BACKEND_MAP: dict[str, Callable[..., str | None]] = {
 DECOMPILER_ENTRY_POINT_GROUP = "rebrew.decompiler_backends"
 
 
-def _merge_entry_point_backends() -> dict[str, Callable[..., str | None]]:
-    """The backend map: packaged backends + ``rebrew.decompiler_backends``.
+logger = logging.getLogger(__name__)
+
+
+def _merge_entry_point_backends() -> tuple[dict[str, Callable[..., str | None]], tuple[str, ...]]:
+    """The backend map + auto-probe order: packaged + ``rebrew.decompiler_backends``.
 
     Merging order: packaged backends first, then entry-point providers in
-    discovery order.  A duplicate name raises :class:`RegistryError`."""
-    from rebrew.registry import entry_point_registrations, import_registration, merge_into
+    discovery order.  An optional registry: a broken or conflicting plugin
+    backend is skipped with a warning (backends degrade to the packaged
+    set) instead of bricking ``rebrew skeleton --decomp``.
+
+    The second element is the ``--auto`` probe order: the curated packaged
+    ``BACKENDS`` plus every plugin backend whose callable carries the
+    ``__rebrew_auto_probe__ = True`` marker (a plugin backend may opt into
+    auto-probing; without the marker it stays name-selectable only)."""
+    from rebrew.registry import (
+        entry_point_registrations,
+        load_registration_optional,
+        merge_into,
+    )
 
     merged = dict(_BACKEND_MAP)
+    auto_probe: list[str] = []
     for reg in entry_point_registrations(DECOMPILER_ENTRY_POINT_GROUP):
-        backend_fn = import_registration(reg)
+        backend_fn = load_registration_optional(reg, logger)
+        if backend_fn is None:
+            continue
         if not callable(backend_fn):
-            raise RegistryError(
-                f"bad {reg.group} registration {reg.name!r} from {reg.origin}: "
-                f"expected a callable backend, got {type(backend_fn).__name__}"
+            logger.warning(
+                "skipping %s registration %r: expected a callable backend, got %s",
+                reg.group,
+                reg.name,
+                type(backend_fn).__name__,
             )
-        merge_into(merged, reg.name, backend_fn, reg.origin, group=reg.group)
-    return merged
+            continue
+        try:
+            merge_into(merged, reg.name, backend_fn, reg.origin, group=reg.group)
+        except RegistryError as exc:
+            logger.warning("skipping %s registration %r: %s", reg.group, reg.name, exc)
+            continue
+        if getattr(backend_fn, "__rebrew_auto_probe__", False):
+            auto_probe.append(reg.name)
+    return merged, (*BACKENDS, *auto_probe)
 
 
-_BACKEND_MAP = _merge_entry_point_backends()
+_BACKEND_MAP, _AUTO_PROBE_BACKENDS = _merge_entry_point_backends()
+
+
+def refresh_backends() -> dict[str, Callable[..., str | None]]:
+    """Re-run discovery and refresh the :data:`_BACKEND_MAP` snapshot.
+
+    Long-lived processes can pick up decompiler backends installed after
+    startup without a restart."""
+    global _BACKEND_MAP, _AUTO_PROBE_BACKENDS
+
+    _BACKEND_MAP, _AUTO_PROBE_BACKENDS = _merge_entry_point_backends()
+    return _BACKEND_MAP
 
 
 def fetch_decompilation(
@@ -288,7 +326,7 @@ def fetch_decompilation(
 
     """
     if backend == "auto":
-        for name in BACKENDS:
+        for name in _AUTO_PROBE_BACKENDS:
             fn = _BACKEND_MAP[name]
             result = fn(binary_path, va, root=root, endpoint=endpoint, program_path=program_path)
             if result:

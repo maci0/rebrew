@@ -35,6 +35,30 @@
   project, and a `rebrew doctor` Cache check that reports an unregistered
   `[cache] backend` up front.
 
+### Changed
+- **Broken optional plugins are skipped with a warning** instead of
+  bricking the importing module: decompiler backends, GA mutations, flag
+  sets, library presets, detectors, binary loaders, and cache backends
+  degrade to the packaged set when a plugin registration fails or
+  conflicts; toolchains (identity-critical) and CLI commands keep their
+  loud error/stub behavior.
+- **`rebrew skills install` / `remove`** manage the `REBREW_SKILLS_DIR`
+  overlay; `skills list` reports each skill's `origin` (JSON) and marks
+  user skills `(user)` in the table; a missing `REBREW_SKILLS_DIR` path
+  warns once.
+- **Single-registry `refresh_*` functions + `rebrew.registry.refresh_all()`**
+  — long-lived processes (a dashboard, an agent harness) can pick up
+  plugins installed after startup without a restart.
+- **Decompiler plugin backends can opt into `--auto` probing** via a
+  `__rebrew_auto_probe__ = True` marker on the callable (probed after the
+  curated packaged order); without it they stay name-selectable only.
+- **`msvc6.3` / `msvc6.6` legacy aliases migrate at config load** to
+  `msvc600sp3` / `msvc600sp6` (with a warning) instead of falling back to
+  msvc6 RTM or failing late with "unknown toolchain".
+- **Toolchain provenance names the provider module** (`origin` =
+  `entry-point:<module>`), and `cli_helps.txt` is regenerated from the
+  live CLI (71 commands).
+
 ### Fixed
 - **`rebrew postlink X X` reproduces X byte-for-byte** — the data fixer
   trimmed `.text` to the reference's VirtualSize, zeroing the reference's

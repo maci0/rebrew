@@ -101,7 +101,7 @@ a component name has exactly one provider).
 | Component | Entry-point group | Registration shape |
 |-----------|-------------------|--------------------|
 | Toolchain | `rebrew.toolchains` | `module:attr` — a zero-arg callable returning `dict[str, ToolchainSpec]` |
-| Decompiler backend | `rebrew.decompiler_backends` | `module:attr` — `fn(binary, va, root, **kwargs) -> str \| None`; selectable by name but never part of the curated `BACKENDS` auto-probe order |
+| Decompiler backend | `rebrew.decompiler_backends` | `module:attr` — `fn(binary, va, root, **kwargs) -> str \| None`; selectable by name, and joins the `--auto` probe order when the callable carries `__rebrew_auto_probe__ = True` |
 | CLI single command | `rebrew.commands` | `module` (uses `main`/`app` help, like built-ins) or `module:callable` |
 | CLI multi-command group | `rebrew.multicommands` | `module` (a Typer app) or `module:app` |
 | GA mutation | `rebrew.mutations` | `module:attr` — `(source, rng) -> str \| None` |
@@ -140,9 +140,13 @@ a 32/64-bit compiler.
 Community/user agent skills extend the packaged `agent-skills/` tree through
 the `REBREW_SKILLS_DIR` environment variable — a directory of SKILL.md
 directories merged over the packaged set (a user skill with the same name
-wins; unset means packaged-only).  `rebrew init` renders both the packaged
-and the community skills into a project's `.agents/skills/` (same override
-semantics), so an initialized project carries the full skill set.
+wins; unset means packaged-only).  `rebrew skills install <dir>` /
+`rebrew skills remove <name>` manage that overlay, `rebrew skills list`
+marks user skills (`origin` in JSON, a `(user)` suffix in the table), and
+`rebrew init` renders both the packaged and the community skills into a
+project's `.agents/skills/` (same override semantics).  A missing
+`REBREW_SKILLS_DIR` path warns once instead of silently disabling community
+skills.
 
 ## Tool Flags
 
