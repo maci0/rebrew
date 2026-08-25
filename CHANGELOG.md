@@ -1,3 +1,27 @@
+## [Unreleased]
+### Added
+- **`gcc` / `clang` are native PATH toolchains** (ELF/x86_64) — previously
+  accepted profiles that could not compile; now first-class specs with
+  minimal posix flag-sweep axes (`flag_data.GCC_FLAGS`).
+- **`rebrew skills install` accepts git/https URLs** (git clone) and
+  `rebrew skills show --json` reports the skill's `origin`.
+
+### Changed
+- **`refresh_all()` also refreshes the GA mutation registry**
+  (`mutator.refresh_mutations`) — the one import-time snapshot it missed.
+- **`tools/sync_decomp_flags.py` preserves the hand-maintained flag
+  families** (Watcom/Borland/MSVC152/GCC) across syncs via a marker +
+  `splice_preserved_tail` — previously a sync overwrote the whole file and
+  would have silently wiped them.
+- **Decompiler `--auto` probing degrades past a raising backend** instead
+  of aborting the probe; the compile-cache key for native specs uses the
+  spec binary (`native:gcc` vs `native:clang`) rather than the config's
+  MSVC `compiler_command` default (two native compilers previously shared
+  cache entries); skill frontmatter names are sanitized so `../../`
+  traversal cannot escape the `REBREW_SKILLS_DIR` overlay (install +
+  `rebrew init` rendering); `rebrew skills install` guards a
+  `REBREW_SKILLS_DIR` pointing at a file.
+
 ## [0.7.0] - 2026-08-25
 ### Added
 - **Declarative component registration** — toolchains, decompiler backends,
