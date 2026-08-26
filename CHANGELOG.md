@@ -1,4 +1,4 @@
-## [Unreleased]
+## [0.8.0] - 2026-08-26
 ### Added
 - **`rebrew report --decomp-dev`** — emits an objdiff-format `report.json`
   (report.proto v2) for decomp.dev ingestion: per-unit function lists with
