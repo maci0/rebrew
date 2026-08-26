@@ -401,6 +401,11 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "rebrew.objdiff_project",
         "Generate an objdiff project (target objects + objdiff.json) for GUI diffing.",
     ),
+    (
+        "decompme",
+        "rebrew.decompme",
+        "Upload a function to decomp.me as a collaborative scratch (claim URL returned).",
+    ),
 ]
 
 # Multi-command modules – registered as groups via app.add_typer().

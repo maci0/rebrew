@@ -247,6 +247,8 @@ src/rebrew/
 ├── context.py           # `rebrew context` — universal decompiler context (types + prototypes)
 ├── objdiff_project.py   # `rebrew objdiff` + rebrew-objdiff-build — objdiff GUI diffing bridge
 │                        #   (synthesized target COFF objects + objdiff.json; minimal COFF writer)
+├── decompme.py          # `rebrew decompme` — upload a function to decomp.me as a scratch
+│                        #   (target COFF object + C seed + context; anonymous claim-token flow)
 ├── doctor.py            # Project health diagnostics
 ├── status.py            # Reversing progress overview
 ├── toolchain_detect.py  # Compiler/version detection (diec → PDB → heuristics)

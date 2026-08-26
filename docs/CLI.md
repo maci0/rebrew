@@ -1396,6 +1396,21 @@ in the objdiff GUI; it rebuilds base objects on demand via
 back to its source and compiles it with the same per-file toolchain/flag
 resolution as `rebrew test`/`verify`.
 
+### `rebrew decompme`
+
+`rebrew decompme SOURCE.c [--va HEX] [--size N] [--compiler ID] [--platform ID] [--flags "..."] [--context FILE] [--no-context] [--api URL] [--dry-run] [--json]`
+
+Upload a function to decomp.me as a collaborative scratch: the target
+function's bytes synthesized into a COFF object (`target_obj`), the
+function's C as `source_code`, the universal context file (`rebrew
+context`) as `context`, and the resolved toolchain/flags mapped to a
+decomp.me compiler (`msvc6` → `msvc6.0`, ...) and platform (`pe` → `win32`,
+`mz`/`ne` → `msdos`).  Override the mapping with `--compiler`/`--platform`
+for anything else (console targets, gcc-pe).  Anonymous create (like
+objdiff's integration): the printed claim URL
+(`/scratch/<slug>/claim?token=...`) keeps the scratch.  `--dry-run` prints
+the payload without uploading.
+
 ### `rebrew switch`
 
 `rebrew switch <VA> [--window N] [--json] [--target NAME]`
