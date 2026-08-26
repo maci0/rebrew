@@ -1,5 +1,28 @@
 ## [Unreleased]
 ### Added
+- **`rebrew report --decomp-dev`** — emits an objdiff-format `report.json`
+  (report.proto v2) for decomp.dev ingestion: per-unit function lists with
+  `fuzzy_match_percent` (EXACT/RELOC/PROVEN → 100, NEAR_MATCHING → cached
+  `match_percent`, else 0) and whole-binary measures.  Upload as a GitHub
+  Actions artifact named `<version>_report`, register at decomp.dev.
+- **`rebrew objdiff`** — objdiff GUI diffing bridge: synthesizes one target
+  COFF object per annotated source file (function bytes at their original
+  VAs, minimal hand-rolled i386 COFF writer — machine type is a parameter
+  for future arches) and writes `objdiff.json`; `rebrew-objdiff-build`
+  rebuilds base objects with the per-file toolchain/flag resolution.
+- **`rebrew context`** — universal decompiler context file (m2c-style):
+  structs, typedefs, enums, function signatures and prototypes from all
+  headers/sources, deduplicated; `signature_parser.extract_function_prototypes`
+  (plain prototypes only — function-pointer variables/typedefs skipped).
+- **`rebrew symbol-addrs`** — splat-style `symbol_addrs.csv` export
+  (`0xVA,name` lines) for Ghidra/tooling interop.
+- **`rebrew fix --compile-check`** — compiles the fixed source before
+  writing; on failure the decisive first compiler error is banner-commented
+  into the output and the exit code is 2 (never silently ship an
+  uncompilable fix).
+- **`rebrew near-diag`** — `first_mismatch` field + console line: the
+  earliest differing instruction with its category and both sides' text
+  (dtk `dol diff`-style decisive diagnosis).
 - **`gcc` / `clang` are native PATH toolchains** (ELF/x86_64) — previously
   accepted profiles that could not compile; now first-class specs with
   minimal posix flag-sweep axes (`flag_data.GCC_FLAGS`).

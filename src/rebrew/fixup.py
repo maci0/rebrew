@@ -35,7 +35,7 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print
+from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print, require_config
 
 console = Console(stderr=True)
 
@@ -229,6 +229,40 @@ app = typer.Typer(
 )
 
 
+def _compile_check(cfg: Any, source_text: str, src_hint: Path) -> str | None:
+    """Compile *source_text* with the project's default flags.
+
+    Returns the first compile error (or a generic failure message) when the
+    source does not compile, None on success.  This is the honest-fallback
+    gate for :func:`fixup_source`: fixup can leave a file uncompilable and
+    the old CLI silently shipped it (m2c's ``--valid-syntax`` goal is
+    compilable output; the equivalent for rebrew is *proving* the fixed
+    source compiles before writing it).
+    """
+    import shutil
+
+    from rebrew.cli import resolve_cflags
+    from rebrew.compile import compile_to_obj
+    from rebrew.utils import writable_temp_dir
+
+    workdir = writable_temp_dir("rebrew_fixup_")
+    try:
+        tmp_src = workdir / src_hint.name
+        tmp_src.write_text(source_text, encoding="utf-8")
+        obj_path, err = compile_to_obj(
+            cfg,
+            tmp_src,
+            resolve_cflags(cfg, "", "").split(),
+            workdir,
+            use_cache=False,
+        )
+        if obj_path is None:
+            return (err or "compile failed").strip()
+        return None
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 @app.callback(invoke_without_command=True)
 def main(
     source_file: Path = typer.Argument(..., help="Path to the pseudo-C file to fix"),
@@ -237,6 +271,11 @@ def main(
     ),
     out: Path | None = typer.Option(
         None, "--out", help="Write the fixed source to this path (default: <file>.fixed.c)"
+    ),
+    compile_check: bool = typer.Option(
+        False,
+        "--compile-check",
+        help="Compile the fixed source before writing; refuse to ship uncompilable output.",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -247,14 +286,33 @@ def main(
     text = source_file.read_text(encoding="utf-8", errors="replace")
     result = fixup_source(text)
 
+    cfg: Any = None
+    compile_error: str | None = None
+    if compile_check:
+        cfg = require_config(target=target, json_mode=json_output)
+        compile_error = _compile_check(cfg, result.source, source_file)
+        if compile_error:
+            first_line = compile_error.splitlines()[0] if compile_error else "compile failed"
+            # Never silently ship a fix that does not compile: banner the
+            # decisive error into the output and exit nonzero.
+            result.source = (
+                "// fixup: --compile-check failed — the fixed source still does not compile.\n"
+                f"// first error: {first_line}\n"
+            ) + result.source
+
     if json_output:
         payload = result.to_dict()
         payload["file"] = str(source_file)
+        payload["compile_check"] = bool(compile_check)
+        if compile_error:
+            payload["compile_error"] = compile_error.splitlines()[0]
         if not dry_run and not result.error:
             dest = out or source_file.with_suffix(source_file.suffix + ".fixed.c")
             dest.write_text(result.source, encoding="utf-8")
             payload["wrote"] = str(dest)
         json_print(payload)
+        if compile_error:
+            raise typer.Exit(code=EXIT_ERROR)
         return
 
     if result.error:
@@ -269,9 +327,17 @@ def main(
     if not result.changes and not result.injected:
         console.print("  [dim]already compilable — no fixes applied[/dim]")
 
+    if compile_check:
+        if compile_error:
+            console.print(f"[red]error:[/red] fixed source still does not compile: {compile_error}")
+        else:
+            console.print("  [green]compile check passed[/green]")
+
     if dry_run:
         console.print("\n[bold]Fixed source:[/bold]")
         print(result.source)
+        if compile_error:
+            raise typer.Exit(code=EXIT_ERROR)
         return
     dest = out or source_file.with_suffix(source_file.suffix + ".fixed.c")
     dest.write_text(result.source, encoding="utf-8")
@@ -279,6 +345,8 @@ def main(
         f"\n[green]Wrote {dest}[/green] ({len(result.changes)} fix(es), "
         f"{len(result.injected)} injection(s))"
     )
+    if compile_error:
+        raise typer.Exit(code=EXIT_ERROR)
 
 
 def main_entry() -> None:

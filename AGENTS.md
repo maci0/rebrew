@@ -241,7 +241,12 @@ src/rebrew/
 ├── strings.py           # Extract printable strings from data sections + xrefs
 ├── xrefs.py             # Cross-reference explorer for an address
 ├── describe.py          # Per-function dossier (callers, callees, strings, imports)
-├── report.py            # Static HTML site (index, strings, imports, call graph)
+├── report.py            # Static HTML site (index, strings, imports, call graph);
+│                        #   --decomp-dev emits objdiff-format report.json for decomp.dev
+├── symbol_addrs.py      # `rebrew symbol-addrs` — splat-style 0xVA,name CSV export
+├── context.py           # `rebrew context` — universal decompiler context (types + prototypes)
+├── objdiff_project.py   # `rebrew objdiff` + rebrew-objdiff-build — objdiff GUI diffing bridge
+│                        #   (synthesized target COFF objects + objdiff.json; minimal COFF writer)
 ├── doctor.py            # Project health diagnostics
 ├── status.py            # Reversing progress overview
 ├── toolchain_detect.py  # Compiler/version detection (diec → PDB → heuristics)

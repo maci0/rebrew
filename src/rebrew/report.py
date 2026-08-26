@@ -23,6 +23,7 @@ Usage:
 """
 
 import html
+import json
 from pathlib import Path
 from typing import Any
 
@@ -587,6 +588,193 @@ def generate_report(cfg: ProjectConfig, out: Path) -> dict[str, Any]:
     return {"out": str(out), "pages": [name for name, _ in pages], "summary": summary}
 
 
+def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, Any]:
+    """Write an objdiff-format ``report.json`` for decomp.dev ingestion.
+
+    decomp.dev (the decomp-scene progress hub) polls a GitHub Actions
+    artifact named ``<version>_report`` containing a ``report.json`` in the
+    objdiff report format (``objdiff-core/protos/report.proto``, version 2,
+    JSON-serialized).  This emits that file from rebrew's existing status
+    data:
+
+    - ``EXACT``/``RELOC``/``PROVEN`` functions count as fully matched
+      (``fuzzy_match_percent`` 100) — a byte-matched function is placed
+      correctly by construction when the binary is relinked;
+    - ``NEAR_MATCHING`` functions carry their cached ``match_percent`` when
+      the verify cache has one, else 0;
+    - everything else (STUB, unannotated registry functions) is 0.
+
+    ``total_functions``/``total_code`` come from the function registry and
+    the binary's ``.text`` size (the catalog's denominators), so progress is
+    measured against the whole binary, not just the annotated subset.
+
+    Returns the machine-readable summary dict.
+    """
+    from rebrew.catalog.loaders import parse_function_list
+    from rebrew.catalog.registry import build_function_registry
+    from rebrew.catalog.sections import get_text_section_size
+    from rebrew.cli import iter_annotations
+    from rebrew.config import FUNCTION_STRUCTURE_JSON
+    from rebrew.metadata import MATCHED_STATUSES
+    from rebrew.sources import iter_sources, target_marker
+
+    sources = list(iter_sources(cfg.reversed_dir, cfg))
+    marker = target_marker(cfg)
+    annos_by_file: list[tuple[str, list[Any]]] = []
+    for path, annos in iter_annotations(sources, target=marker, metadata_dir=cfg.metadata_dir):
+        annos_by_file.append((rel_display_path(path), annos))
+
+    # Registry = the whole-binary function set (denominator); the ghidra
+    # export / function list may be missing — degrade to annotated VAs then.
+    funcs: list[dict[str, Any]] = []
+    ghidra_json = cfg.reversed_dir / FUNCTION_STRUCTURE_JSON
+    try:
+        if cfg.function_list and Path(cfg.function_list).exists():
+            funcs = list(parse_function_list(Path(cfg.function_list)))
+        registry = build_function_registry(funcs, cfg, ghidra_json, cfg.target_binary)
+    except (OSError, KeyError, ValueError, TypeError):
+        registry = {}
+
+    # Cached match_percent for NEAR_MATCHING (the fuzzy measure).
+    cached_pct: dict[int, float] = {}
+    try:
+        from rebrew.verify import _load_verify_cache
+
+        cache = _load_verify_cache(cfg.root / ".rebrew" / "verify_cache.json", cfg)
+        if cache is not None:
+            for key, entry in cache.entries.items():
+                mp = entry.result.match_percent
+                if mp is not None and isinstance(key, int):
+                    cached_pct[key] = float(mp)
+    except (OSError, ValueError, TypeError):
+        pass
+
+    def fuzzy_for(status: str, va: int) -> float:
+        if status in MATCHED_STATUSES:
+            return 100.0
+        if status == "NEAR_MATCHING":
+            return cached_pct.get(va, 0.0)
+        return 0.0
+
+    matched_statuses = set(MATCHED_STATUSES)
+    units: list[dict[str, Any]] = []
+    total_code = 0
+    matched_code = 0
+    fuzzy_code = 0.0
+    total_functions = 0
+    matched_functions = 0
+    for file_rel, annos in annos_by_file:
+        items: list[dict[str, Any]] = []
+        unit_code = 0
+        unit_matched = 0
+        unit_fuzzy = 0.0
+        unit_fns = 0
+        for a in annos:
+            if a.marker_type in ("GLOBAL", "DATA"):
+                continue
+            size = int(a.size or 0)
+            if size <= 0:
+                continue
+            va = int(a.va)
+            fuzzy = fuzzy_for(a.status, va)
+            items.append(
+                {
+                    "name": a.name or a.symbol or f"func_{va:08x}",
+                    "size": size,
+                    "fuzzy_match_percent": round(fuzzy, 2),
+                    "address": va,
+                }
+            )
+            unit_code += size
+            unit_fuzzy += size * fuzzy / 100.0
+            unit_fns += 1
+            if a.status in matched_statuses:
+                unit_matched += size
+                matched_functions += 1
+        if not items:
+            continue
+        units.append(
+            {
+                "name": file_rel,
+                "measures": {
+                    "total_code": unit_code,
+                    "matched_code": unit_matched,
+                    "fuzzy_match_percent": round(unit_fuzzy / unit_code * 100.0, 2)
+                    if unit_code
+                    else 0.0,
+                    "total_functions": unit_fns,
+                    "matched_functions": sum(1 for i in items if i["fuzzy_match_percent"] >= 100.0),
+                },
+                "functions": items,
+            }
+        )
+        total_code += unit_code
+        matched_code += unit_matched
+        fuzzy_code += unit_fuzzy
+        total_functions += unit_fns
+
+    registry_total = len(registry) if registry else total_functions
+    if registry_total < total_functions:
+        registry_total = total_functions
+    text_size = get_text_section_size(cfg.target_binary) or total_code
+
+    # Data measures: rebrew places data rather than "matching" it, so report
+    # the totals honestly and leave matched/complete data at 0.
+    data_size = 0
+    try:
+        from rebrew.binary_loader import load_binary
+
+        info = load_binary(cfg.target_binary)
+        for name in (".data", ".rdata", ".bss"):
+            sec = info.sections.get(name)
+            if sec is not None:
+                data_size += int(getattr(sec, "virtual_size", 0) or 0)
+    except (ImportError, OSError, KeyError, ValueError, RuntimeError):
+        pass
+
+    measures = {
+        "fuzzy_match_percent": round(fuzzy_code / text_size * 100.0, 2) if text_size else 0.0,
+        "total_code": text_size,
+        "matched_code": matched_code,
+        "matched_code_percent": round(matched_code / text_size * 100.0, 2) if text_size else 0.0,
+        "total_data": data_size,
+        "matched_data": 0,
+        "matched_data_percent": 0.0,
+        "total_functions": registry_total,
+        "matched_functions": matched_functions,
+        "matched_functions_percent": round(matched_functions / registry_total * 100.0, 2)
+        if registry_total
+        else 0.0,
+        # A byte-matched rebrew function is byte-identical, hence "linked"
+        # by construction when the rebuilt binary is relinked — map
+        # complete_* onto matched_* for the decomp.dev "fully linked" bar.
+        "complete_code": matched_code,
+        "complete_code_percent": round(matched_code / text_size * 100.0, 2) if text_size else 0.0,
+        "complete_data": 0,
+        "complete_data_percent": 0.0,
+        "total_units": len(units),
+        "complete_units": sum(
+            1
+            for u in units
+            if u["measures"]["matched_functions"] == u["measures"]["total_functions"]
+        ),
+    }
+
+    report_doc = {"version": 2, "measures": measures, "units": units}
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(out_path, json.dumps(report_doc, indent=2), encoding="utf-8")
+
+    return {
+        "out": str(out_path),
+        "total_functions": registry_total,
+        "matched_functions": matched_functions,
+        "total_code": text_size,
+        "matched_code": matched_code,
+        "fuzzy_match_percent": measures["fuzzy_match_percent"],
+        "units": len(units),
+    }
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -595,9 +783,13 @@ _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
     "  rebrew report · · · · · · · · · · · · · · Write site to <output_dir>/report\n\n"
     "  rebrew report --out site · · · · · · · · · Write site to ./site\n\n"
+    "  rebrew report --decomp-dev report.json · · Write an objdiff-format\n"
+    "                                            report.json for decomp.dev\n\n"
     "  rebrew report --json · · · · · · · · · · · Machine-readable summary\n\n"
     "[dim]Generates a self-contained static HTML site (function index, strings, "
-    "imports, call graph) with all styling inlined — no external assets.[/dim]"
+    "imports, call graph) with all styling inlined — no external assets.  "
+    "`--decomp-dev` instead emits the objdiff report v2 JSON the decomp.dev "
+    "progress hub ingests from a GitHub Actions artifact.[/dim]"
 )
 
 app = typer.Typer(
@@ -612,11 +804,33 @@ def main(
     out: Path | None = typer.Option(
         None, "--out", help="Output directory (default: <output_dir>/report)"
     ),
+    decomp_dev: Path | None = typer.Option(
+        None,
+        "--decomp-dev",
+        help="Write an objdiff-format report.json for decomp.dev (path to report.json).",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Generate a static HTML documentation site for a decomp project."""
     cfg = require_config(target=target, json_mode=json_output)
+
+    if decomp_dev is not None:
+        result = generate_decomp_dev_report(cfg, decomp_dev)
+        if json_output:
+            json_print(result)
+            return
+        console.print(f"[bold green]decomp.dev report written to:[/bold green] {result['out']}")
+        console.print(
+            f"  [dim]{result['matched_functions']}/{result['total_functions']} functions "
+            f"matched ({result['fuzzy_match_percent']:.1f}% fuzzy of "
+            f"{result['total_code']} code bytes)[/dim]"
+        )
+        console.print(
+            "[dim]Upload it as a GitHub Actions artifact named `<version>_report` "
+            "containing `report.json`, then register the repo at decomp.dev/manage/new.[/dim]"
+        )
+        return
 
     if out is None:
         output_dir = getattr(cfg, "output_dir", None) or Path("output")

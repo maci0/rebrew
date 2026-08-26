@@ -1085,7 +1085,10 @@ instructions with different registers, not byte-identical, so `rebrew prove`
 suggests whether the delta is likely solvable via C-level changes, and lists
 the GA mutation operators most likely to fix the dominant category.  JSON
 output also carries a `frame` field: the stack-frame comparison (see
-`rebrew stack-cmp`) between the compiled and target bytes.
+`rebrew stack-cmp`) between the compiled and target bytes, plus a
+`first_mismatch` field — the earliest differing instruction with its
+category and both sides' text (dtk `dol diff`-style decisive diagnosis:
+fix the first mismatch and the rest usually follows).
 `--fix-blocker` writes the verdict as `BLOCKER` metadata (skipped on a
 match), closing the classify → document loop in one command.  The written
 blocker text includes the top GA mutation operators to try next (the
@@ -1155,7 +1158,7 @@ functions per-function.  Exits 1 when the frames differ, 2 on build failure.
 
 ### `rebrew fix`
 
-`rebrew fix SOURCE.c [--dry-run] [--out PATH] [--json]`
+`rebrew fix SOURCE.c [--dry-run] [--out PATH] [--compile-check] [--json]`
 
 Make raw decompiler output (Ghidra, r2ghidra, r2dec, Kuna, angr) compilable
 so rebrew can byte-match it — the DecBench fairness pass:
@@ -1170,6 +1173,11 @@ so rebrew can byte-match it — the DecBench fairness pass:
 
 Writes `<file>.fixed.c` by default (`--out` to override, `--dry-run` to
 print instead).  Also used internally by `rebrew match --kuna-seed`.
+
+`--compile-check` compiles the fixed source with the project's default
+flags before writing: on failure the decisive first compiler error is
+banner-commented into the output and the exit code is 2 — never silently
+shipping a fix that does not compile.
 
 ### `rebrew recover-structs`
 
@@ -1336,10 +1344,57 @@ command line) — feeds toolchain detection and per-function CFLAGS discovery.
 ### `rebrew report`
 
 `rebrew report [OPTIONS] [--out DIR] [--json]`
+`rebrew report --decomp-dev report.json [--json]`
 
 Generate a static self-contained HTML documentation site (`index.html`,
 `strings.html`, `imports.html`, `graph.html`). The function index table
 includes a `Blocker` column carrying near-diag/diff blocker guidance.
+
+`--decomp-dev <path>` instead emits an objdiff-format progress report
+(`report.proto` v2, JSON-serialized) for decomp.dev ingestion: per-unit
+function lists with `fuzzy_match_percent` (EXACT/RELOC/PROVEN → 100,
+NEAR_MATCHING → cached `match_percent`, else 0) and whole-binary measures
+(`total_code` from `.text`, `total_functions` from the function registry,
+`complete_*` mapped onto matched bytes — a byte-matched function is placed
+correctly by construction).  Upload the file as a GitHub Actions artifact
+named `<version>_report` containing `report.json`, then register the repo
+at decomp.dev/manage/new.
+
+### `rebrew symbol-addrs`
+
+`rebrew symbol-addrs [--out symbol_addrs.csv] [--json]`
+
+Export every annotated function as a splat-style `symbol_addrs.csv`
+(`0xVA,name` lines, sorted by VA; GLOBAL/DATA markers and unnamed entries
+excluded).  The splat ecosystem's interchange format — importable by
+Ghidra and third-party tooling that expect the two-column CSV.
+
+### `rebrew context`
+
+`rebrew context [--out ctx.c] [--sources-only] [--json]`
+
+Emit a universal C context file for the decompiler backends (m2c-style):
+structs, typedefs, enums, and function signatures (definitions AND
+prototypes) collected from every library header and reversed source,
+deduplicated by text.  Function-pointer variables/typedefs are skipped
+(the Ghidra normalization mangles them); pointer-returning prototypes are
+kept.  Feed the output to a decompiler backend's context pane or include
+it from a stub TU.
+
+### `rebrew objdiff`
+
+`rebrew objdiff [--out objdiff.json] [--target-dir build/objdiff/target] [--json]`
+
+Generate an objdiff project for GUI byte-diffing: one synthesized target
+COFF object per annotated source file (function bytes from the reference
+binary at their original VAs, annotation symbols, i386 machine — the
+multi-arch path is a `write_coff_object(machine=...)` parameter), plus an
+`objdiff.json` with one unit per file, `custom_make:
+rebrew-objdiff-build`, and `custom_args: [<target>]`.  Open `objdiff.json`
+in the objdiff GUI; it rebuilds base objects on demand via
+`rebrew-objdiff-build <target> <base-object>`, which maps the object path
+back to its source and compiles it with the same per-file toolchain/flag
+resolution as `rebrew test`/`verify`.
 
 ### `rebrew switch`
 

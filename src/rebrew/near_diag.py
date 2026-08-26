@@ -164,7 +164,7 @@ def align_and_classify(
     target_insns: list[Insn],
     compiled_insns: list[Insn],
     reloc_offsets: set[int],
-) -> dict[str, int]:
+) -> tuple[dict[str, int], dict[str, Any] | None]:
     """Align both instruction streams and classify every byte.
 
     The mnemonic LCS only decides *pairing*; every aligned pair is then
@@ -173,6 +173,11 @@ def align_and_classify(
     anything else → structural).  Target bytes at relocation sites are
     neutralised and counted as ``reloc``.  Unpaired target instructions
     (insertion/deletion) count as structural.
+
+    Returns ``(byte_counts, first_mismatch)`` — *first_mismatch* is the
+    earliest non-match (dtk ``dol diff``-style decisive diagnosis): the
+    ``offset`` of the first differing instruction with its ``category`` and
+    the target/compiled text, or ``None`` when everything matches.
     """
     base = target_insns[0].va if target_insns else (compiled_insns[0].va if compiled_insns else 0)
     match = difflib.SequenceMatcher(
@@ -188,6 +193,20 @@ def align_and_classify(
         "reloc": 0,
         "structural": 0,
     }
+    first_mismatch: dict[str, Any] | None = None
+
+    def _fmt(insn: Insn) -> str:
+        return f"{insn.mnemonic} {insn.op_str}".strip()
+
+    def _note(offset: int, category: str, target_text: str, compiled_text: str) -> None:
+        nonlocal first_mismatch
+        if first_mismatch is None:
+            first_mismatch = {
+                "offset": offset,
+                "category": category,
+                "target": target_text,
+                "compiled": compiled_text,
+            }
 
     for _op, a0, a1, b0, b1 in match.get_opcodes():
         comp_span = compiled_insns[a0:a1]
@@ -197,13 +216,21 @@ def align_and_classify(
                 if _insn_reloc_bytes(t, base, reloc_offsets):
                     byte_counts["reloc"] += t.size
                 else:
-                    byte_counts[classify_pair(t, c)] += t.size
+                    cat = classify_pair(t, c)
+                    byte_counts[cat] += t.size
+                    if cat != "match":
+                        _note(t.va, cat, _fmt(t), _fmt(c))
         elif tgt_span or comp_span:
             # Insertion/deletion: the longer side's extra bytes are structural.
-            extra = tgt_span if len(tgt_span) > len(comp_span) else comp_span
+            if len(tgt_span) > len(comp_span):
+                extra = tgt_span
+                _note(extra[0].va, "structural", _fmt(extra[0]), "")
+            else:
+                extra = comp_span
+                _note(extra[0].va, "structural", "", _fmt(extra[0]))
             byte_counts["structural"] += sum(i.size for i in extra)
 
-    return byte_counts
+    return byte_counts, first_mismatch
 
 
 #: Per-category actionable suggestion text — module-level so the symptom
@@ -431,7 +458,7 @@ def analyze(
     target_insns = disasm_insns(target_bytes, va, cs_arch, cs_mode)
     compiled_insns = disasm_insns(compiled_bytes, va, cs_arch, cs_mode)
     reloc_set = set(reloc_offsets or {})
-    counts = align_and_classify(target_insns, compiled_insns, reloc_set)
+    counts, first_mismatch = align_and_classify(target_insns, compiled_insns, reloc_set)
     raw_total = sum(counts.values())
     label, suggestion = _verdict(counts, raw_total)
     total = raw_total or 1
@@ -471,6 +498,7 @@ def analyze(
         "verdict": label,
         "suggestion": suggestion,
         "mutations": mutations,
+        "first_mismatch": first_mismatch,
         "frame": _frame_comparison(target_bytes, compiled_bytes, va, cs_arch, cs_mode),
         "cfg": _cfg_score(target_bytes, compiled_bytes, va, cs_mode),
     }
@@ -647,6 +675,31 @@ def _diagnose_one(
     return result
 
 
+def _print_first_mismatch(
+    console: Console, first: dict[str, Any] | None, indent: str = "  "
+) -> None:
+    """Render the decisive first-mismatch diagnosis (dtk ``dol diff`` style).
+
+    The earliest differing instruction is the one to look at first — the
+    category it carries is usually the dominant one, and fixing it often
+    fixes the whole function.
+    """
+    if not first:
+        return
+    offset = f"0x{first['offset']:x}"
+    cat = first["category"]
+    if first["compiled"]:
+        console.print(
+            f"{indent}[dim]first mismatch:[/dim] {offset} [{cat}] "
+            f"target: {first['target']}  vs  compiled: {first['compiled']}"
+        )
+    else:
+        console.print(
+            f"{indent}[dim]first mismatch:[/dim] {offset} [{cat}] "
+            f"target has extra instruction: {first['target']}"
+        )
+
+
 def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool = False) -> None:
     """Classify every NEAR_MATCHING function in the project (--all).
 
@@ -723,6 +776,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
         classified += 1
         if not json_output:
             console.print(f"  [bold]{result['verdict']}[/bold] — {result['suggestion'][:60]}")
+            _print_first_mismatch(console, result.get("first_mismatch"), indent="    ")
             if result.get("mutations"):
                 console.print(
                     "    [dim]GA mutations to try:[/dim] " + ", ".join(result["mutations"])
@@ -732,6 +786,7 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
                 "verdict": result["verdict"],
                 "suggestion": result["suggestion"],
                 "mutations": result.get("mutations", []),
+                "first_mismatch": result.get("first_mismatch"),
                 "blocker_written": result["blocker_written"],
             }
         )
@@ -900,6 +955,7 @@ def main(
     console.print(table)
     console.print(f"[bold]{result['verdict']}[/bold]")
     console.print(result["suggestion"])
+    _print_first_mismatch(console, result.get("first_mismatch"))
     if result.get("mutations"):
         console.print("[dim]GA mutations to try:[/dim] " + ", ".join(result["mutations"]))
     if blocker_written:

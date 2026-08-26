@@ -261,6 +261,20 @@ rebrew catalog --data-json              # write db/data_<target>.json
 rebrew build-db                         # build SQLite coverage database
 ```
 
+### Interchange & Progress Hub
+
+```bash
+rebrew symbol-addrs --out symbol_addrs.csv   # splat-style 0xVA,name CSV (Ghidra/tooling interop)
+rebrew context --out ctx.c                   # universal decompiler context (structs+typedefs+prototypes)
+rebrew report --decomp-dev report.json       # objdiff-format progress report for decomp.dev
+```
+
+`rebrew context` feeds the decompiler backends (kuna/r2ghidra) one deduplicated
+context file (m2c-style), so decompiled output arrives with real type/function
+names. `rebrew report --decomp-dev` emits the objdiff report v2 JSON the
+decomp.dev hub ingests: upload it as a GitHub Actions artifact named
+`<version>_report`, then register the repo at decomp.dev/manage/new.
+
 ### Regression Detection
 
 `rebrew verify --compare` compares the current run against `db/verify_results.json`.
