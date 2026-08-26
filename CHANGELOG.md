@@ -23,6 +23,12 @@
 - **`rebrew near-diag`** — `first_mismatch` field + console line: the
   earliest differing instruction with its category and both sides' text
   (dtk `dol diff`-style decisive diagnosis).
+- **`rebrew decompme`** — upload a function to decomp.me as a collaborative
+  scratch: target bytes synthesized into a COFF object, the function's C as
+  the seed, the `rebrew context` output as context, toolchain mapped to a
+  decomp.me compiler (`msvc6` → `msvc6.0`, `pe` → `win32`/`msdos` platforms);
+  anonymous claim-token flow prints a shareable URL (same contract as
+  objdiff's decomp.me integration).
 - **`gcc` / `clang` are native PATH toolchains** (ELF/x86_64) — previously
   accepted profiles that could not compile; now first-class specs with
   minimal posix flag-sweep axes (`flag_data.GCC_FLAGS`).

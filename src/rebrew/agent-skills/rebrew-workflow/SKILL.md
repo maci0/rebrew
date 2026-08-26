@@ -274,6 +274,9 @@ context file (m2c-style), so decompiled output arrives with real type/function
 names. `rebrew report --decomp-dev` emits the objdiff report v2 JSON the
 decomp.dev hub ingests: upload it as a GitHub Actions artifact named
 `<version>_report`, then register the repo at decomp.dev/manage/new.
+`rebrew decompme <file>.c` uploads a function to decomp.me as a collaborative
+scratch (target object + C seed + context, toolchain mapped to a decomp.me
+compiler) and prints the claim URL to share.
 
 ### Regression Detection
 
