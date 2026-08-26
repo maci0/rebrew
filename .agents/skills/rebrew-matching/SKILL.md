@@ -40,7 +40,14 @@ rebrew diff src/bench/<file>.c -m --json      # mismatches only (** lines)
 rebrew diff src/bench/<file>.c -r --json      # register-aware (mark RR encoding diffs)
 rebrew diff src/bench/<file>.c --format csv   # CSV for spreadsheet analysis
 rebrew diff 0x10009310 --json                    # resolve a VA directly (no .c path needed)
+rebrew near-diag src/bench/<file>.c --json    # classify WHY it doesn't match (first-mismatch diagnosis)
+rebrew objdiff --out objdiff.json                # GUI diffing project (objdiff) from target objects
 ```
+
+`rebrew objdiff` synthesizes one target COFF object per annotated source file
+from the reference binary and writes an objdiff project config — open
+`objdiff.json` in the objdiff GUI for instruction-level diffing of every
+function at once (objdiff rebuilds base objects via `rebrew-objdiff-build`).
 
 > **VA on a multi-function file**: `rebrew diff/match/prove/test 0x<va>` targets the
 > annotation whose VA matches, NOT the first function in the file. When the

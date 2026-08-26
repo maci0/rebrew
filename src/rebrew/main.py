@@ -386,6 +386,21 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "rebrew.refactor",
         "Analyse the source tree and suggest refactoring opportunities.",
     ),
+    (
+        "symbol-addrs",
+        "rebrew.symbol_addrs",
+        "Export function symbols as a splat-style symbol_addrs.csv.",
+    ),
+    (
+        "context",
+        "rebrew.context",
+        "Emit a universal C context file (types + signatures) for decompiler backends.",
+    ),
+    (
+        "objdiff",
+        "rebrew.objdiff_project",
+        "Generate an objdiff project (target objects + objdiff.json) for GUI diffing.",
+    ),
 ]
 
 # Multi-command modules – registered as groups via app.add_typer().

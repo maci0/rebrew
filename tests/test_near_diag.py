@@ -69,11 +69,22 @@ class TestAlignAndClassify:
     def _run(
         self, target: bytes, compiled: bytes, relocs: set[int] | None = None
     ) -> dict[str, int]:
-        return nd.align_and_classify(
+        counts, _first = nd.align_and_classify(
             nd.disasm_insns(target, 0x1000, "CS_ARCH_X86", "CS_MODE_32"),
             nd.disasm_insns(compiled, 0x1000, "CS_ARCH_X86", "CS_MODE_32"),
             relocs or set(),
         )
+        return counts
+
+    def _run_first(
+        self, target: bytes, compiled: bytes, relocs: set[int] | None = None
+    ) -> dict[str, Any] | None:
+        _counts, first = nd.align_and_classify(
+            nd.disasm_insns(target, 0x1000, "CS_ARCH_X86", "CS_MODE_32"),
+            nd.disasm_insns(compiled, 0x1000, "CS_ARCH_X86", "CS_MODE_32"),
+            relocs or set(),
+        )
+        return first
 
     def test_identical_blobs_all_match(self) -> None:
         counts = self._run(MOV_EAX_EBX + RET, MOV_EAX_EBX + RET)
@@ -107,6 +118,29 @@ class TestAlignAndClassify:
         counts = self._run(MOV_EAX_1 + RET, MOV_EAX_1 + RET, relocs={1})
         assert counts["reloc"] == 5
         assert counts["match"] == 1
+
+    def test_first_mismatch_register_pair(self) -> None:
+        # The decisive diagnosis points at the FIRST differing instruction
+        # (dtk dol diff-style): the mov at 0x1000, classified register, with
+        # both sides' text.
+        first = self._run_first(MOV_EAX_EBX + RET, MOV_EAX_ECX + RET)
+        assert first is not None
+        assert first["offset"] == 0x1000
+        assert first["category"] == "register"
+        assert "ebx" in first["target"]
+        assert "ecx" in first["compiled"]
+
+    def test_first_mismatch_none_when_identical(self) -> None:
+        assert self._run_first(MOV_EAX_EBX + RET, MOV_EAX_EBX + RET) is None
+
+    def test_first_mismatch_extra_instruction(self) -> None:
+        # Insertion: the extra compiled instruction is the first mismatch and
+        # carries no target-side counterpart.
+        first = self._run_first(MOV_EAX_1 + RET, MOV_EAX_1 + XOR_EAX_EAX + RET)
+        assert first is not None
+        assert first["category"] == "structural"
+        assert first["target"] == ""
+        assert "xor" in first["compiled"]
 
 
 class TestAnalyzeVerdict:

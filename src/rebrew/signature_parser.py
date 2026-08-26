@@ -103,3 +103,76 @@ def extract_function_signatures(filepath: Path) -> Iterator[tuple[str, str]]:
                 yield from walk(child)
 
     yield from walk(tree.root_node)
+
+
+def extract_function_prototypes(filepath: Path) -> Iterator[str]:
+    """Parse a C file and yield function prototype signatures.
+
+    Prototypes are *declarations without bodies* (``void draw(int);``) —
+    the m2c-style universal context file needs them alongside the
+    definition signatures, but :func:`extract_function_signatures` only
+    walks ``function_definition`` nodes.  Normalized identically, so a
+    prototype and a definition of the same function deduplicate by text.
+    """
+    result = get_ts_parser()
+    if result is None:
+        return
+    parser, _ = result
+    try:
+        code_bytes = filepath.read_bytes()
+    except OSError:
+        return
+    encoding = detect_source_encoding(code_bytes)
+    tree = parser.parse(code_bytes)
+
+    def _is_plain_prototype(node: Any) -> bool:
+        """True when *node* is a declaration with a plain function
+        prototype.  Walk the declarator chain: a function_declarator reached
+        without a parenthesized_declarator is a prototype (``int *f(void);``
+        returns a pointer — keep it), while a function-pointer variable or
+        typedef (``int (*cb)(void);``) passes through a
+        parenthesized_declarator and is skipped — the Ghidra normalization
+        mangles those into plain ``void *``, poisoning the context."""
+
+        def chain(n: Any) -> bool:
+            t = getattr(n, "type", None)
+            if t == "parenthesized_declarator":
+                return False
+            if t == "function_declarator":
+                # Plain only when no parenthesized_declarator (function
+                # pointer) nests in the declarator chain OUTSIDE the
+                # parameter list (pointer params live inside parameter_list
+                # and are fine).
+                for child in getattr(n, "children", []):
+                    cty = getattr(child, "type", None)
+                    if cty == "parameter_list":
+                        continue
+                    if cty == "parenthesized_declarator":
+                        return False
+                    if cty in ("pointer_declarator", "declarator"):
+                        return chain(child)
+                return True
+            for child in getattr(n, "children", []):
+                if getattr(child, "type", None) in (
+                    "pointer_declarator",
+                    "function_declarator",
+                    "parenthesized_declarator",
+                    "declarator",
+                ):
+                    return chain(child)
+            return False
+
+        return chain(node)
+
+    def walk(node: Any) -> Iterator[str]:
+        if node.type == "declaration" and _is_plain_prototype(node):
+            text = (
+                code_bytes[node.start_byte : node.end_byte]
+                .decode(encoding, errors="replace")
+                .strip()
+            )
+            yield _normalize_signature(text)
+        for child in getattr(node, "children", []):
+            yield from walk(child)
+
+    yield from walk(tree.root_node)

@@ -2,7 +2,9 @@
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
 from typer.testing import CliRunner
 
 from rebrew.fixup import app, fixup_source, sanitize_tokens
@@ -104,6 +106,60 @@ class TestFixupCli:
         assert data["changed"] is True
         assert any("undefined4" in c for c in data["changes"])
         assert "wrote" in data
+
+    def test_compile_check_passed(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """--compile-check compiles the fixed source; success writes and
+        reports the green pass."""
+        import rebrew.fixup as fixup
+
+        p = self._write(tmp_path, "undefined4 x;\n")
+        monkeypatch.setattr(
+            fixup, "require_config", lambda target=None, json_mode=False: SimpleNamespace()
+        )
+        monkeypatch.setattr(fixup, "_compile_check", lambda cfg, text, hint: None)
+        result = CliRunner().invoke(app, ["--compile-check", str(p)])
+        assert result.exit_code == 0
+        assert "compile check passed" in result.output
+
+    def test_compile_check_failure_banners_and_exits(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A fix that still does not compile must never be shipped silently:
+        the decisive error is banner-commented into the output and the exit
+        code is nonzero."""
+        import rebrew.fixup as fixup
+
+        p = self._write(tmp_path, "undefined4 x;\n")
+        monkeypatch.setattr(
+            fixup, "require_config", lambda target=None, json_mode=False: SimpleNamespace()
+        )
+        monkeypatch.setattr(
+            fixup, "_compile_check", lambda cfg, text, hint: "syntax error before ';'\nline 3"
+        )
+        result = CliRunner().invoke(app, ["--compile-check", str(p)])
+        assert result.exit_code == 2
+        assert "still does not compile" in result.output
+        fixed = tmp_path / "out.c.fixed.c"
+        text = fixed.read_text(encoding="utf-8")
+        assert "first error: syntax error before ';'" in text
+
+    def test_compile_check_failure_json(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.fixup as fixup
+
+        p = self._write(tmp_path, "undefined4 x;\n")
+        monkeypatch.setattr(
+            fixup, "require_config", lambda target=None, json_mode=False: SimpleNamespace()
+        )
+        monkeypatch.setattr(
+            fixup, "_compile_check", lambda cfg, text, hint: "error C2065: 'x': undeclared"
+        )
+        result = CliRunner().invoke(app, ["--compile-check", "--json", str(p)])
+        assert result.exit_code == 2
+        data = json.loads(result.output)
+        assert data["compile_check"] is True
+        assert data["compile_error"] == "error C2065: 'x': undeclared"
 
     def test_missing_file_errors(self, tmp_path: Path) -> None:
         result = CliRunner().invoke(app, [str(tmp_path / "nope.c")])
