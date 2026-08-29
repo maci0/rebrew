@@ -112,7 +112,7 @@ timeout = 60                         # compile subprocess timeout (seconds)
 [compiler.cflags_presets]
 GAME = "{cflags}"
 
-# Per-directory overrides — rebrew-library.toml at a library root can
+# Per-directory overrides — rebrew-libraries.toml at a library root can
 # declare toolchain + flags for a whole subtree; per-function TOOLCHAIN/CFLAGS
 # metadata wins.  See docs/TOOLCHAIN.md.
 # [compiler.profiles.clang]

@@ -465,7 +465,7 @@ def main(
 
     _mod = (sel_ann or lint_annos[0]).module if lint_annos else ""
     # Shared fallback chain (per-function metadata → per-library
-    # rebrew-library.toml → preset → compiler.cflags); an explicit
+    # rebrew-libraries.toml → preset → compiler.cflags); an explicit
     # --toolchain / --cflags wins over the metadata value.
     toolchain_name, cflags_str = resolve_compile_overrides(
         cfg,
@@ -937,7 +937,7 @@ def _test_multi(
     # (metadata overrides) — compiling once with the FIRST annotation's flags
     # silently mis-compiled the others (false statuses + wrong promotions).
     # Group by effective (toolchain, cflags) via the shared fallback chain
-    # (annotation → per-library rebrew-library.toml → preset → project
+    # (annotation → per-library rebrew-libraries.toml → preset → project
     # default) so this path compiles each function exactly like verify_entry
     # and the single-function path do; an explicit --toolchain / --cflags
     # wins over the annotation value.

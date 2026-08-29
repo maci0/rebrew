@@ -417,7 +417,7 @@ _MULTI_COMMANDS: list[tuple[str, str, str]] = [
     ("cache", "rebrew.cache_cli", "Manage the compile result cache."),
     ("skills", "rebrew.skills", "Discover and display agent skills bundled with rebrew."),
     ("resource", "rebrew.resource", "Compare / extract PE resource (.rsrc) sections."),
-    ("library", "rebrew.library", "Per-library toolchain/flags overrides (rebrew-library.toml)."),
+    ("library", "rebrew.library", "Per-library toolchain/flags overrides (rebrew-libraries.toml)."),
     (
         "toolchain",
         "rebrew.toolchain_cli",

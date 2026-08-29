@@ -73,7 +73,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew graph` | `depgraph.py` | Function dependency graph (mermaid, DOT, summary); `--cu-map` infers compilation unit boundaries |
 | `rebrew doctor` | `doctor.py` | Diagnostic checks for project health (config, compiler, binary, paths); Delphi 1.0 toolchain readiness for 16-bit targets; `--install-wibo`; `--json` |
 | `rebrew toolchain` | `toolchain_cli.py` | Standardized toolchain management (`list`, `status`, `detect`, `pull`, `build`, `vendor`, `smoke`, `check-updates`, `update`) — docker-only execution for Windows/DOS toolchains |
-| `rebrew library` | `library.py` | Per-library toolchain/flags overrides (`set`/`show`/`list`/`rm` — writes/reads `rebrew-library.toml`, walk-up from any function dir; `list` enumerates every override under a project root; `--preset` fills known shipped-library settings like `msvcrt-static`) |
+| `rebrew library` | `library.py` | Per-library toolchain/flags overrides (`set`/`show`/`list`/`rm` — writes/reads `rebrew-libraries.toml`, walk-up from any function dir; `list` enumerates every override under a project root; `--preset` fills known shipped-library settings like `msvcrt-static`) |
 | `rebrew binsync-export` | `binsync_export.py` | Export source markers and metadata to BinSync state directory (prototype, STATUS/CFLAGS, globals with real types, structs with fields; `--module`, `--git`) |
 | `rebrew binsync-import` | `binsync_import.py` | Import a BinSync state directory into rebrew metadata (names, prototypes, globals; `--accept-binsync`/`--accept-local`, `--module`) |
 | `rebrew binsync-diff` | `binsync_diff.py` | Read-only divergence report between rebrew and a BinSync state directory (`--module`, `--target`; exits 1 on any divergence) |
@@ -82,7 +82,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew similar` | `similar.py` | Find structurally similar functions in the target binary (clone detection) |
 | `rebrew binary-similarity` | `binary_similarity.py` | Whole-binary structural similarity vs another binary — per-function best matches aggregated into a byte-weighted score (versions/DLL+EXE) |
 | `rebrew near-diag` | `near_diag.py` | Classify why a `NEAR_MATCHING` function does not byte-match — categories: register / equivalent / reloc / structural, plus the `EFFECTIVE` verdict when the entire delta is register allocation (reccmp's 100% effective-match case); JSON carries a `frame` stack-comparison field; `--fix-blocker` auto-writes BLOCKER |
-| `rebrew diagnose` | `diagnose.py` | Explain why a function compiles with its toolchain+flags: prints the resolution chain (per-function metadata → nearest `rebrew-library.toml` → project defaults) and validates the declarations (unknown toolchains, preset contradictions, function-vs-library family drift); `--json` |
+| `rebrew diagnose` | `diagnose.py` | Explain why a function compiles with its toolchain+flags: prints the resolution chain (per-function metadata → nearest `rebrew-libraries.toml` → project defaults) and validates the declarations (unknown toolchains, preset contradictions, function-vs-library family drift); `--json` |
 | `rebrew stack-cmp` | `stack_cmp.py` | Compare a compiled function's stack frame against the target (reccmp `stackcmp` without a PDB): frame size, ebp-vs-esp (/Oy), `ret N` popping, `[ebp±N]` slot layout — flag-focused hints for per-function CFLAGS tuning |
 | `rebrew verify-exports` | `exports.py` | Verify the recompiled binary's export table matches the original target (reccmp `verexp` equivalent; compares export names, exits 1 on missing/added) |
 | `rebrew round-trip` | `round_trip.py` | Splice matched functions back into the target PE and verify byte equality |
@@ -979,7 +979,7 @@ history (`.rebrew/ga_runs.jsonl`).  Read-only.
 
 Per-library toolchain/flags overrides — the right abstraction for "most of
 the codebase is one build, some parts were built with other flags".  A
-`rebrew-library.toml` at a library root (any source subtree, e.g.
+`rebrew-libraries.toml` at a library root (any source subtree, e.g.
 `references/zlib/`, a shipped runtime) applies to every function under it,
 resolved by walking up from each function's directory (per-function
 `TOOLCHAIN`/`CFLAGS` metadata still wins; then the library file; then
@@ -989,12 +989,12 @@ project defaults).  Known shipped libraries can be declared by name via
 
 | Flag | Description |
 |------|-------------|
-| `set DIR [--toolchain X] [--cflags Y] [--preset NAME] [--library NAME]` | Write/update `DIR/rebrew-library.toml`; explicit fields always win over a preset |
+| `set DIR [--toolchain X] [--cflags Y] [--preset NAME] [--library NAME]` | Write/update `DIR/rebrew-libraries.toml`; explicit fields always win over a preset |
 | `show DIR` | Show the effective override for DIR (nearest file walking up; `--json`) |
-| `rm DIR` | Remove `DIR/rebrew-library.toml` (revert to project defaults) |
+| `rm DIR` | Remove `DIR/rebrew-libraries.toml` (revert to project defaults) |
 
 ```toml
-# refs/zlib/rebrew-library.toml
+# refs/zlib/rebrew-libraries.toml
 library = "msvcrt-static"   # known-library preset
 toolchain = "msvc600sp6"     # compiler profile (docker image)
 cflags = "/O2 /Gd /MT"       # compiler flags
@@ -1115,7 +1115,7 @@ aborting the batch).
 
 Explain why a function compiles with the toolchain+flags it does.  Prints
 the resolution chain — per-function metadata (`rebrew-functions.toml`
-`TOOLCHAIN`/`CFLAGS`) → nearest `rebrew-library.toml` (walk-up, presets
+`TOOLCHAIN`/`CFLAGS`) → nearest `rebrew-libraries.toml` (walk-up, presets
 applied) → project defaults (`[compiler]` profile, cflags fallbacks) — and
 validates the declarations along it:
 

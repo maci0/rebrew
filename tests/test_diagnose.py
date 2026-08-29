@@ -1,7 +1,7 @@
 """Tests for `rebrew diagnose` — the compile-config resolution trace.
 
 Walks the declared-dependency chain (per-function metadata → nearest
-rebrew-library.toml → project defaults) for a source file and validates the
+rebrew-libraries.toml → project defaults) for a source file and validates the
 declarations (unknown toolchains, preset contradictions, family drift).
 """
 
@@ -37,7 +37,7 @@ def _src(tmp_path: Path, name: str, body: str) -> Path:
 def _lib(tmp_path: Path, body: str) -> Path:
     lib = tmp_path / "lib"
     lib.mkdir(exist_ok=True)
-    (lib / "rebrew-library.toml").write_text(body, encoding="utf-8")
+    (lib / "rebrew-libraries.toml").write_text(body, encoding="utf-8")
     return lib
 
 
@@ -152,7 +152,7 @@ class TestWarningsHelper:
             {"source": "function", "toolchain": "", "cflags": ""},
             {
                 "source": "library",
-                "path": str(lib / "rebrew-library.toml"),
+                "path": str(lib / "rebrew-libraries.toml"),
                 "toolchain": "msvc9",
                 "cflags": "",
                 "presets": [],

@@ -338,7 +338,7 @@ class TestPrepareEntriesCache:
     def test_cflags_order_only_change_keeps_cache(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A rebrew-library.toml edit that only reorders flags compiles
+        """A rebrew-libraries.toml edit that only reorders flags compiles
         identically — the canonicalized equivalence class matches, so the
         entry is served (observational equivalence: material-change
         classification rather than raw-string comparison)."""

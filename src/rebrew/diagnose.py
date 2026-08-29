@@ -4,7 +4,7 @@ For each function in a source file, prints the declared-dependency chain
 that determined its toolchain + CFLAGS:
 
     per-function metadata (rebrew-functions.toml / annotations)
-      → nearest rebrew-library.toml (walk-up, presets applied)
+      → nearest rebrew-libraries.toml (walk-up, presets applied)
       → project defaults ([compiler] profile + cflags fallbacks)
 
 and validates the declarations along the chain — an unknown toolchain name,
@@ -159,7 +159,7 @@ def _print_trace(entry: dict[str, Any]) -> None:
                         f"  cflags={step['cflags'] or '(inherit)'}{presets}"
                     )
                 else:
-                    console.print("    library:            (no rebrew-library.toml found)")
+                    console.print("    library:            (no rebrew-libraries.toml found)")
             else:  # project
                 mod_preset = (
                     f"  module preset={step['module_preset']!r}" if step["module_preset"] else ""

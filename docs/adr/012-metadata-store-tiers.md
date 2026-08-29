@@ -7,7 +7,7 @@
 
 Rebrew accumulated many persistence surfaces over time: `.c` annotation
 markers, three TOML stores (`rebrew-functions.toml`, `rebrew-data.toml`,
-`rebrew-library.toml`), `functions.txt`, a coverage grid JSON, a SQLite
+`rebrew-libraries.toml`), `functions.txt`, a coverage grid JSON, a SQLite
 coverage DB, a verify cache, compile caches, and GA solutions/history
 files.  New contributors (and the agent docs) repeatedly asked "why are
 there so many places, and which one is the truth?"

@@ -29,12 +29,12 @@ console scripts: they translate CMake's invocations into `docker run` calls
 file with `rebrew cmake-toolchain --toolchain msvc6 --out cmake/` and pass
 `--toolchain cmake/toolchain-msvc6-docker.cmake` to `cmake -B build`.
 
-**Per-library toolchain/flags overrides** (`rebrew-library.toml` at a library
+**Per-library toolchain/flags overrides** (`rebrew-libraries.toml` at a library
 root, managed by `rebrew library set/show/rm`): a source subtree whose
 functions were all built with one compiler + flags declares them once — every
 function under it compiles with that docker image + flags instead of
 per-function metadata.  Resolution (most specific first): per-function
-`TOOLCHAIN`/`CFLAGS` (`rebrew-functions.toml`) → nearest `rebrew-library.toml`
+`TOOLCHAIN`/`CFLAGS` (`rebrew-functions.toml`) → nearest `rebrew-libraries.toml`
 (walk-up) → project default.  Known shipped libraries (e.g. `msvcrt-static` =
 MSVC static CRT, `/MT /O2 /Gd`) fill missing fields via presets.  See
 `docs/TOOLCHAIN.md`.
@@ -185,7 +185,7 @@ src/rebrew/
 ├── msvc16.py            # MSVC 1.52 (16-bit) compile support — DOSBox + OMF object
 ├── tc16.py              # Turbo C 2.0/C++ 3.1 (16-bit) compile support — DOSBox + tiny-model output
 ├── lzexe.py             # LZEXE 0.90/0.91 DOS unpacker core (CLI in lzexe_cli.py)
-├── library.py           # rebrew-library.toml per-library overrides + `rebrew library` CLI group
+├── library.py           # rebrew-libraries.toml per-library overrides + `rebrew library` CLI group
 ├── dosbox.py            # Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads)
 ├── toolchain.py         # Toolchain abstraction: spec registry, docker-only runner (images for Windows/DOS, native for Linux compilers)
 ├── toolchain_cli.py     # `rebrew toolchain` CLI (list/status/detect/pull/build)
