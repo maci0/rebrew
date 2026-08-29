@@ -58,7 +58,7 @@ from rich.console import Console
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.layout_meta import LayoutMetadata, extract_layout, write_package
-from rebrew.utils import atomic_write_text, load_toml_for_write
+from rebrew.utils import atomic_write_text, container_runtime, load_toml_for_write
 
 console = Console(stderr=True)
 
@@ -353,7 +353,7 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
     try:
         r = subprocess.run(
             [
-                "docker",
+                container_runtime(),
                 "run",
                 "--rm",
                 "--network=none",  # read-only grep inside the image

@@ -22,6 +22,16 @@ logger = logging.getLogger(__name__)
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def container_runtime() -> str:
+    """The container runtime used for docker-shipped tools.
+
+    Configurable via ``REBREW_CONTAINER_RUNTIME`` so podman (crun-backed,
+    daemonless) or nerdctl can be used instead of dockerd — same knob the Go
+    port honors.  Defaults to ``docker``.
+    """
+    return os.environ.get("REBREW_CONTAINER_RUNTIME", "docker")
+
+
 def find_install_tool(rel: str | Path) -> Path | None:
     """Resolve *rel* (a project-relative ``tools/...`` path) against the
     rebrew install's own vendored tree, or None when absent.

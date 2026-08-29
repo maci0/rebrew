@@ -72,7 +72,7 @@ from rebrew.headless import ensure_xvfb
 from rebrew.matcher import parse_obj_symbol_and_relocs
 from rebrew.metadata import MATCHED_STATUSES
 from rebrew.toolchain import TOOLCHAINS, ToolchainError, ToolchainSpec, run_toolchain
-from rebrew.utils import safe_shlex_split
+from rebrew.utils import container_runtime, safe_shlex_split
 
 # ---------------------------------------------------------------------------
 # Shared result type
@@ -719,7 +719,7 @@ def _toolchain_cache_id(spec: "ToolchainSpec") -> str:
         digest = ""
         try:
             r = subprocess.run(
-                ["docker", "image", "inspect", "--format", "{{.Id}}", image],
+                [container_runtime(), "image", "inspect", "--format", "{{.Id}}", image],
                 capture_output=True,
                 text=True,
                 timeout=15,
@@ -1275,7 +1275,7 @@ def build_linked_link_cmd(
         obj_name,
     ]
     cmd = [
-        "docker",
+        container_runtime(),
         "run",
         "--rm",
         "--network=none",  # link-only container - no egress needed
