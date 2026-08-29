@@ -1,3 +1,18 @@
+## [Unreleased]
+### Added
+- **Metadata write-lock (mode 0444)**: `rebrew-functions.toml`,
+  `rebrew-data.toml`, and the binsync exports (`functions/*.toml`,
+  `global_vars.toml`, `structs/*.toml`) are written read-only by the tool
+  via the new `atomic_write_locked` helper — chmod writable before touching,
+  write, chmod read-only after (also required on Windows, where `os.replace`
+  over a read-only target fails).  Direct edits by hand fail with Permission
+  denied; the sanctioned path is the CLI, which chmods, updates, re-locks.
+- **`metadata: warning` for stale PROVEN claims**: `rebrew verify` now flags
+  a PROVEN metadata claim whose byte compile cannot support it (COMPILE_ERROR/
+  STUB/EXTRACT_ERROR/MISSING_FILE) — the claim is demoted to the real byte
+  result and a `metadata: warning` names the VA and the compiled status.
+  Status is earned, never claimed.
+
 ## [0.8.0] - 2026-08-26
 ### Added
 - **`rebrew report --decomp-dev`** — emits an objdiff-format `report.json`

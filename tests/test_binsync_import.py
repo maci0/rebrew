@@ -242,8 +242,11 @@ class TestBinsyncRoundTrip:
         out = runner.invoke(app, ["binsync-export", str(tmp_path / "state"), "--json"])
         assert out.exit_code == 0
 
-        # Simulate IDA renaming by editing the exported TOML
+        # Simulate IDA renaming by editing the exported TOML.  The export is
+        # write-locked (0444) — a collaborator's tool chmods writable first
+        # (the same discipline the rebrew CLI uses), then re-locks.
         p = tmp_path / "state" / "functions" / "10001000.toml"
+        p.chmod(0o644)
         doc = tomlkit.parse(p.read_text(encoding="utf-8"))
         doc["info"]["name"] = "_RenamedFromIDA"  # type: ignore[index]
         p.write_text(tomlkit.dumps(doc), encoding="utf-8")
@@ -269,8 +272,10 @@ class TestBinsyncRoundTrip:
         )
         monkeypatch.chdir(tmp_path)
         runner.invoke(app, ["binsync-export", str(tmp_path / "state")])
-        # Edit prototype in BinSync state
+        # Edit prototype in BinSync state (chmod writable first — exports are
+        # write-locked 0444).
         p = tmp_path / "state" / "functions" / "10001000.toml"
+        p.chmod(0o644)
         doc = tomlkit.parse(p.read_text(encoding="utf-8"))
         if "header" not in doc:
             doc["header"] = tomlkit.table()
@@ -293,9 +298,11 @@ class TestBinsyncRoundTrip:
         )
         monkeypatch.chdir(tmp_path)
         runner.invoke(app, ["binsync-export", str(tmp_path / "state")])
-        # Rename global in BinSync state
+        # Rename global in BinSync state (chmod writable first — exports are
+        # write-locked 0444).
         gv = tmp_path / "state" / "global_vars.toml"
         if gv.exists():
+            gv.chmod(0o644)
             doc = tomlkit.parse(gv.read_text(encoding="utf-8"))
             for _k, entry in doc.items():
                 if isinstance(entry, dict) and "name" in entry:

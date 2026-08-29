@@ -1202,6 +1202,10 @@ class TestProvenOverlay:
         assert data["results"][0]["passed"] is False
         assert data["summary"]["proven"] == 0
         assert data["summary"]["failed"] == 1
+        # The stale claim is flagged with a metadata: warning — unbacked
+        # PROVEN is demoted to the real byte result, never silently honored.
+        assert "metadata: warning:" in result.output
+        assert "PROVEN claim" in result.output
 
     def test_proven_cache_stores_raw_byte_result(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

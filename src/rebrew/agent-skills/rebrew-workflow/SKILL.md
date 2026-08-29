@@ -108,6 +108,15 @@ void my_func() {}
 > (deliberate demotion: `rebrew test <file> --force-status`). Use
 > `rebrew lint --fix` to migrate any leftover inline `// STATUS:`-style keys.
 > **Never manually edit `rebrew-functions.toml` or `rebrew-data.toml`.**
+> **The metadata files are write-locked (mode 0444):** `rebrew-functions.toml`,
+> `rebrew-data.toml`, and the binsync exports (`functions/*.toml`,
+> `global_vars.toml`, `structs/*.toml`) are written read-only by the tool —
+> direct edits fail with Permission denied. To change anything there, run the
+> CLI (e.g. `rebrew verify` for STATUS, `rebrew blocker set/clear`, `rebrew
+> rename`) — it chmods writable, updates, and re-locks. Status is *earned*,
+> never claimed: a hand-written `STATUS: PROVEN` is honored only when a verify
+> byte-compare supports it, otherwise demoted to the real byte result with a
+> `metadata: warning`.
 
 ## 4. Implement and Test
 

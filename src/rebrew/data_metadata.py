@@ -51,7 +51,7 @@ from typing import TYPE_CHECKING, Any
 import tomlkit
 
 from rebrew.utils import (
-    atomic_write_text,
+    atomic_write_locked,
     load_metadata_doc,
     load_toml_for_write,
     metadata_write_lock,
@@ -226,7 +226,7 @@ def set_data_field(directory: Path, va: int, key: str, value: Any, module: str) 
             doc[toml_key] = tomlkit.table()
 
         doc[toml_key][key] = value  # type: ignore[index]
-        atomic_write_text(path, tomlkit.dumps(doc))
+        atomic_write_locked(path, tomlkit.dumps(doc))
         _invalidate_data_cache(path)
 
 

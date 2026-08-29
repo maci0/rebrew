@@ -1358,6 +1358,23 @@ def main(
         # the overlay must not hide its diagnostic.
         fail_details = [(e, m) for e, m in fail_details if f"0x{e.va:08x}" not in overlaid_vas]
 
+        # Flag stale PROVEN claims: metadata says PROVEN but the byte compile
+        # cannot support it (source no longer builds, annotation changed, or
+        # the status was hand-claimed).  The real byte result stands and a
+        # metadata: warning is emitted — a claimed PROVEN is only honored
+        # over the byte states a proven function legitimately produces
+        # (metadata-review F2).
+        stale_proven = sorted(
+            r["va"] for r in results if r["va"] in proven_vas and r["va"] not in overlaid_vas
+        )
+        for va in stale_proven:
+            status = next(r["status"] for r in results if r["va"] == va)
+            console.print(
+                f"  [yellow]metadata: warning:[/yellow] PROVEN claim for {va} not "
+                f"backed by a byte-match (compiled: {status}) — demoted to the "
+                "real byte result; re-run rebrew verify once the code byte-matches"
+            )
+
     timestamp = datetime.now(UTC).isoformat()
     # Single-pass status counting instead of 7 separate iterations.
     _status_counts: dict[str, int] = {}

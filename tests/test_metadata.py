@@ -542,6 +542,21 @@ class TestMetadataEdgeCases:
 
 
 class TestWritePathsCorruptToml:
+    def test_metadata_file_write_locked_readonly(self, tmp_path: Path) -> None:
+        """rebrew-functions.toml is left 0444 after every tool write — hand
+        edits fail with Permission denied; the sanctioned CLI path chmods
+        writable, updates, re-locks (metadata-review F1)."""
+        from rebrew.metadata import METADATA_FILENAME, get_entry, update_field, update_source_status
+
+        update_field(tmp_path, 0x1000, "size", 42, "SERVER")
+        path = tmp_path / METADATA_FILENAME
+        assert path.exists()
+        assert (path.stat().st_mode & 0o777) == 0o444
+        # The sanctioned path keeps working through the lock.
+        update_source_status(tmp_path, "EXACT", "SERVER", 0x1000)
+        assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == "EXACT"
+        assert (path.stat().st_mode & 0o777) == 0o444
+
     def test_update_field_recovers_from_corrupt(self, tmp_path: Path) -> None:
         from rebrew.metadata import METADATA_FILENAME, get_entry, update_field
 
