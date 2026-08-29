@@ -478,6 +478,15 @@ wheels = [
 ]
 
 [[package]]
+name = "graphviz"
+version = "0.20.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/fa/83/5a40d19b8347f017e417710907f824915fba411a9befd092e52746b63e9f/graphviz-0.20.3.zip", hash = "sha256:09d6bc81e6a9fa392e7ba52135a9d49f1ed62526f96499325930e87ca1b5925d", size = 256455, upload-time = "2024-03-21T07:50:45.772Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/00/be/d59db2d1d52697c6adc9eacaf50e8965b6345cc143f671e1ed068818d5cf/graphviz-0.20.3-py3-none-any.whl", hash = "sha256:81f848f2904515d8cd359cc611faba817598d2feaac4027b266aa3eda7b3dde5", size = 47126, upload-time = "2024-03-21T07:50:43.091Z" },
+]
+
+[[package]]
 name = "greenlet"
 version = "3.5.5"
 source = { registry = "https://pypi.org/simple" }
@@ -803,6 +812,14 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/3d/82/53d7f684baeefd15dead88ad294915b51d5e3aab3760cf67f25e443bb6b0/lmdb-2.1.1-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:5c548a1f2503bd97ed0c4894bec99f1139287d69394b7d142ca782ee61dca613", size = 327115, upload-time = "2026-03-19T13:56:11.083Z" },
     { url = "https://files.pythonhosted.org/packages/aa/1f/b8083287ecca1a117de4dcb23f01f35f6e4bba316a01913cf4a7087464d2/lmdb-2.1.1-cp314-cp314-win_amd64.whl", hash = "sha256:e8b6e9f87718b05ba62ce9319465312a756aa5ddc76358a7f9c3d2a54ec98fe6", size = 106611, upload-time = "2026-03-19T13:56:12.491Z" },
     { url = "https://files.pythonhosted.org/packages/a5/aa/d639ae379e6b7baa83c63f3589e100d5035e231495ca1b944ab02ef606b1/lmdb-2.1.1-cp314-cp314-win_arm64.whl", hash = "sha256:d5d32993b3b74320e1ebc7688ff48c258ab4a484cdb96fcfb0c570c9cabaa606", size = 101454, upload-time = "2026-03-19T13:56:13.843Z" },
+]
+
+[[package]]
+name = "m2c"
+version = "0.1.0"
+source = { git = "https://github.com/matt-kempster/m2c.git#0985fe2497ce399060e168a80eb7545a73f0b065" }
+dependencies = [
+    { name = "graphviz" },
 ]
 
 [[package]]
@@ -1540,6 +1557,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+m2c = [
+    { name = "m2c" },
+]
 prove = [
     { name = "angr" },
     { name = "claripy" },
@@ -1572,6 +1592,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28" },
     { name = "idna", specifier = ">=3.15" },
     { name = "lief", specifier = ">=0.17.4,<1" },
+    { name = "m2c", marker = "extra == 'm2c'", git = "https://github.com/matt-kempster/m2c.git" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "python-flirt", specifier = ">=0.9.10" },
     { name = "rapidfuzz", marker = "extra == 'similarity'", specifier = ">=3.13" },
@@ -1582,7 +1603,7 @@ requires-dist = [
     { name = "tree-sitter-c", specifier = ">=0.24.1" },
     { name = "typer", specifier = ">=0.10" },
 ]
-provides-extras = ["prove", "similarity"]
+provides-extras = ["prove", "similarity", "m2c"]
 
 [package.metadata.requires-dev]
 dev = [

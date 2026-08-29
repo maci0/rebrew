@@ -682,28 +682,34 @@ def function_extent_from_disasm(
 
     import capstone
 
-    # Per-arch walker config (multi-arch P0): disassembler arch/mode and the
-    # function-end terminators.  Unconditional-jump mnemonics are treated as
-    # tail calls (like x86 `jmp`); conditional branches (x86 `j*`, MIPS
+    # Per-arch walker config (multi-arch P0): the disassembler arch/mode
+    # comes from the shared arch/endianness table; the function-end
+    # terminators follow the arch.  Unconditional-jump mnemonics are treated
+    # as tail calls (like x86 `jmp`); conditional branches (x86 `j*`, MIPS
     # `b*`, PPC `bc*`, ARM `b<c>`, SH `bt/bf/bra`) continue the walk.
     arch = getattr(info, "arch", "") or ""
+    cs_arch, mode = capstone_config_for(info)
 
     def _walk(
         md: capstone.Cs,
         rets: set[str],
         jmps: set[str],
+        delay_slot: int = 0,
     ) -> int | tuple[int, str] | None:
         offset = 0
         for insn in md.disasm(data, va):
             mnem = insn.mnemonic
             if mnem in rets:
-                extent = offset + insn.size
+                # MIPS terminator instructions are followed by a delay-slot
+                # instruction that is part of the function (a `nop`, or the
+                # sp restore in the epilogue) — include it.
+                extent = min(offset + insn.size + delay_slot, len(data))
                 return (extent, "ret") if with_kind else extent
             if mnem in jmps:
                 # Unconditional jump: tail call / thunk terminator (a backward
                 # loop jump underestimates the extent — callers refuse, which is
                 # the safe direction).
-                extent = offset + insn.size
+                extent = min(offset + insn.size + delay_slot, len(data))
                 return (extent, "jmp") if with_kind else extent
             if mnem in ("ud2", "hlt"):
                 extent = offset + insn.size
@@ -712,21 +718,24 @@ def function_extent_from_disasm(
         return None
 
     if arch in ("mips32", "mips64"):
-        # capstone 5 decodes MIPS branch/jump words only in big-endian mode;
-        # some MIPS targets (PlayStation) are little-endian, so try the file's
-        # own endianness first and fall back to the other.
+        # capstone 5 decodes MIPS branch/jump words only in the matching
+        # endianness; some MIPS targets (PlayStation) are little-endian, so
+        # try the file's own endianness first and fall back to the other.
         rets, jmps = {"jr", "jrc"}, {"j"}
         base = capstone.CS_MODE_MIPS64 if arch == "mips64" else capstone.CS_MODE_MIPS32
         modes = [
-            base | capstone.CS_MODE_BIG_ENDIAN,
-            base | capstone.CS_MODE_LITTLE_ENDIAN,
+            mode,
+            base
+            | (
+                capstone.CS_MODE_LITTLE_ENDIAN
+                if mode & capstone.CS_MODE_BIG_ENDIAN
+                else capstone.CS_MODE_BIG_ENDIAN
+            ),
         ]
-        if getattr(info, "endian", "") == "little":
-            modes.reverse()
-        for mode in modes:
-            md = capstone.Cs(capstone.CS_ARCH_MIPS, mode)
+        for cs_mode in modes:
+            md = capstone.Cs(capstone.CS_ARCH_MIPS, cs_mode)
             md.skipdata = False
-            result = _walk(md, rets, jmps)
+            result = _walk(md, rets, jmps, delay_slot=4)
             if result is not None:
                 return result
         return None
@@ -750,25 +759,18 @@ def function_extent_from_disasm(
         return None
 
     if arch == "arm32":
-        md = capstone.Cs(capstone.CS_ARCH_ARM, capstone.CS_MODE_ARM)
+        md = capstone.Cs(cs_arch, mode)
         md.skipdata = False
         return _walk(md, {"bx"}, {"b"})
 
     if arch == "sh2":
-        md = capstone.Cs(capstone.CS_ARCH_SH, capstone.CS_MODE_SH2)
+        md = capstone.Cs(cs_arch, mode)
         md.skipdata = False
         return _walk(md, {"rts"}, {"bra", "jmp"})
 
     # x86_16/x86_32/x86_64 (and unknown arches — default to the historical
     # x86 walker).
-    fmt = getattr(info, "format", "")
-    if arch == "x86_16" or fmt in ("mz", "ne"):
-        mode = capstone.CS_MODE_16
-    elif arch == "x86_64":
-        mode = capstone.CS_MODE_64
-    else:
-        mode = capstone.CS_MODE_32
-    md = capstone.Cs(capstone.CS_ARCH_X86, mode)
+    md = capstone.Cs(cs_arch, mode)
     md.skipdata = False
     return _walk(md, {"ret", "retf", "iret", "iretd", "int3"}, {"jmp"})
 
@@ -984,6 +986,41 @@ def _elf_endian(identity_data: Any) -> str:
     if hasattr(cls, "MSB"):
         msb = cls.MSB
     return "big" if identity_data == msb else "little"
+
+
+def capstone_config_for(info: BinaryInfo) -> tuple[int, int]:
+    """Capstone ``(cs_arch, mode)`` for the binary's detected arch/endianness.
+
+    Shared by the arch-aware extent walker and the m2c decompiler backend
+    (multi-arch P0).  MIPS follows the file's own endianness (big-endian by
+    default — the console targets); PPC/SH2 are big-endian ISAs; x86 picks
+    16/32/64-bit by arch and container format (NE/MZ → 16-bit).
+    """
+    import capstone
+
+    arch = getattr(info, "arch", "") or ""
+    if arch in ("mips32", "mips64"):
+        base = capstone.CS_MODE_MIPS64 if arch == "mips64" else capstone.CS_MODE_MIPS32
+        endian = capstone.CS_MODE_BIG_ENDIAN
+        if getattr(info, "endian", "") == "little":
+            endian = capstone.CS_MODE_LITTLE_ENDIAN
+        return capstone.CS_ARCH_MIPS, base | endian
+    if arch in ("ppc32", "ppc64"):
+        mode = capstone.CS_MODE_64 if arch == "ppc64" else capstone.CS_MODE_32
+        return capstone.CS_ARCH_PPC, mode
+    if arch == "arm32":
+        return capstone.CS_ARCH_ARM, capstone.CS_MODE_ARM
+    if arch == "arm64":
+        return capstone.CS_ARCH_ARM64, capstone.CS_MODE_ARM
+    if arch == "sh2":
+        return capstone.CS_ARCH_SH, capstone.CS_MODE_SH2
+    if arch == "x86_16":
+        return capstone.CS_ARCH_X86, capstone.CS_MODE_16
+    if arch == "x86_64":
+        return capstone.CS_ARCH_X86, capstone.CS_MODE_64
+    if getattr(info, "format", "") in ("mz", "ne"):
+        return capstone.CS_ARCH_X86, capstone.CS_MODE_16
+    return capstone.CS_ARCH_X86, capstone.CS_MODE_32
 
 
 def detect_format_and_arch(path: Path) -> tuple[str, str | None]:

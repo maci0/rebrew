@@ -61,6 +61,13 @@ similarity = [
     "resembl",
     "rapidfuzz>=3.13",  # direct import in matcher/scoring.py code_similarity (resembl only declares it transitively)
 ]
+# m2c decompiler backend (decompiler.py fetch_m2c): decompiles MIPS/PPC/ARM/SH
+# assembly into C that byte-matches the original compiler (IDO/MWCC).  The
+# real decompiler is NOT on PyPI (the `m2c` name there is an unrelated
+# OpenAPI package) — it installs from git per the upstream README.
+m2c = [
+    "m2c @ git+https://github.com/matt-kempster/m2c.git",
+]
 
 [project.scripts]
 rebrew = "rebrew.main:main"
