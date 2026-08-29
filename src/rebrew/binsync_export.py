@@ -34,7 +34,7 @@ from rich.console import Console
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
-from rebrew.utils import atomic_write_text, strip_body
+from rebrew.utils import atomic_write_locked, strip_body
 
 app = typer.Typer(
     help="Export rebrew annotations to a BinSync state directory.",
@@ -310,7 +310,7 @@ def _write_function_toml(
             tbl[str(addr)] = text
         doc["comments"] = tbl
 
-    atomic_write_text(path, tomlkit.dumps(doc), encoding="utf-8")
+    atomic_write_locked(path, tomlkit.dumps(doc), encoding="utf-8")
 
 
 def _write_global_vars_toml(
@@ -337,7 +337,7 @@ def _write_global_vars_toml(
             entry["size"] = size
         entry["type"] = type_str
         doc[str(va)] = entry
-    atomic_write_text(path, tomlkit.dumps(doc), encoding="utf-8")
+    atomic_write_locked(path, tomlkit.dumps(doc), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -550,7 +550,7 @@ def _write_struct_toml(
                 f_tbl["size"] = f["size"]
             fields_tbl[f["name"]] = f_tbl
         doc["fields"] = fields_tbl
-    atomic_write_text(path, tomlkit.dumps(doc), encoding="utf-8")
+    atomic_write_locked(path, tomlkit.dumps(doc), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------

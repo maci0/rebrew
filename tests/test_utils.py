@@ -40,6 +40,41 @@ def test_atomic_write_text_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert list(tmp_path.iterdir()) == []
 
 
+class TestAtomicWriteLocked:
+    def test_leaves_file_readonly(self, tmp_path: Path) -> None:
+        from rebrew.utils import atomic_write_locked
+
+        f = tmp_path / "meta.toml"
+        atomic_write_locked(f, 'status = "EXACT"\n')
+        assert f.read_text() == 'status = "EXACT"\n'
+        assert (f.stat().st_mode & 0o777) == 0o444
+
+    def test_rewrite_works_via_chmod_before(self, tmp_path: Path) -> None:
+        """Repeated tool writes chmod writable before touching, so the lock
+        never blocks the sanctioned path."""
+        from rebrew.utils import atomic_write_locked
+
+        f = tmp_path / "meta.toml"
+        for i in range(3):
+            atomic_write_locked(f, f"n = {i}\n")
+            assert f.read_text() == f"n = {i}\n"
+            assert (f.stat().st_mode & 0o777) == 0o444
+
+    def test_direct_edit_fails_permission_denied(self, tmp_path: Path) -> None:
+        """A hand edit of a locked file fails with Permission denied — the
+        guard that stops agents from touching metadata directly."""
+        import os
+
+        if os.name != "posix":
+            pytest.skip("permission semantics are POSIX-specific")
+        from rebrew.utils import atomic_write_locked
+
+        f = tmp_path / "meta.toml"
+        atomic_write_locked(f, 'status = "EXACT"\n')
+        with pytest.raises(PermissionError):
+            f.write_text('status = "STUB"\n')
+
+
 # ---------------------------------------------------------------------------
 # filter_wine_stderr (canonical implementation in rebrew.compile)
 # ---------------------------------------------------------------------------

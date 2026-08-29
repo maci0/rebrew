@@ -386,6 +386,29 @@ def atomic_write_bytes(filepath: Path, data: bytes) -> None:
         raise
 
 
+def atomic_write_locked(filepath: Path | str, text: str, encoding: str = "utf-8") -> None:
+    """Write *text* atomically, leaving the file read-only (mode 0444).
+
+    The metadata write-lock discipline for tool-owned files
+    (``rebrew-functions.toml``, ``rebrew-data.toml``, the binsync
+    ``functions/*.toml`` / ``global_vars.toml`` / ``structs/*.toml``
+    exports): **chmod writable before touching, write, chmod read-only
+    after** (metadata-review F1).  Direct edits by hand fail with
+    Permission denied; the only sanctioned path is the CLI, which chmods
+    writable, updates, and re-locks.
+
+    The chmod-before is also required on Windows, where ``os.replace`` over
+    a read-only target fails — un-readonlying first keeps the atomic
+    replace working.
+    """
+    filepath = Path(filepath)
+    with contextlib.suppress(OSError):
+        os.chmod(filepath, 0o644)  # chmod before touching the file
+    atomic_write_text(filepath, text, encoding=encoding)
+    with contextlib.suppress(OSError):
+        os.chmod(filepath, 0o444)  # chmod after touching — direct edits now fail
+
+
 def strip_body(prototype: str) -> str:
     """Return the function signature without the body (everything before ``{``).
 

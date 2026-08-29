@@ -92,6 +92,19 @@ class TestSetDataField:
         entry = get_data_entry(tmp_path, 0x10025000, "SERVER")
         assert entry["size"] == 256
 
+    def test_file_left_readonly(self, tmp_path: Path) -> None:
+        """rebrew-data.toml is write-locked (0444) after a tool write —
+        hand edits fail with Permission denied; the CLI chmods, updates,
+        re-locks."""
+        set_data_field(tmp_path, 0x10025000, "size", 256, "SERVER")
+        path = tmp_path / "rebrew-data.toml"
+        assert path.exists()
+        assert (path.stat().st_mode & 0o777) == 0o444
+        # The sanctioned path still works (chmod-before + re-lock).
+        set_data_field(tmp_path, 0x10025000, "size", 512, "SERVER")
+        assert get_data_entry(tmp_path, 0x10025000, "SERVER")["size"] == 512
+        assert (path.stat().st_mode & 0o777) == 0o444
+
     def test_overwrites_field(self, tmp_path: Path) -> None:
         set_data_field(tmp_path, 0x10025000, "size", 128, "SERVER")
         set_data_field(tmp_path, 0x10025000, "size", 256, "SERVER")

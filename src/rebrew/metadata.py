@@ -89,7 +89,7 @@ from typing import TYPE_CHECKING, Any
 import tomlkit
 
 from rebrew.utils import (
-    atomic_write_text,
+    atomic_write_locked,
     build_metadata_doc,
     load_metadata_doc,
     load_toml_for_write,
@@ -260,7 +260,7 @@ def save_metadata(
     path = (directory / METADATA_FILENAME).resolve()
     doc = build_metadata_doc(data, _CANONICAL_ORDER)
     with _metadata_write_lock(directory):
-        atomic_write_text(path, tomlkit.dumps(doc))
+        atomic_write_locked(path, tomlkit.dumps(doc))
         _metadata_cache.pop(path, None)
 
 
@@ -314,7 +314,7 @@ def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> N
             doc[toml_key] = tomlkit.table()
 
         doc[toml_key][key] = value  # type: ignore[index]
-        atomic_write_text(path, tomlkit.dumps(doc))
+        atomic_write_locked(path, tomlkit.dumps(doc))
         _metadata_cache.pop(path, None)
 
 
@@ -348,7 +348,7 @@ def _set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) -
                 entry[key] = value
                 changed = True
         if changed:
-            atomic_write_text(path, tomlkit.dumps(doc))
+            atomic_write_locked(path, tomlkit.dumps(doc))
             _metadata_cache.pop(path, None)
 
 
@@ -389,7 +389,7 @@ def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
             if changed:
                 changed_entries += 1
         if changed_entries:
-            atomic_write_text(path, tomlkit.dumps(doc))
+            atomic_write_locked(path, tomlkit.dumps(doc))
         _metadata_cache.pop(path, None)
     return changed_entries
 
@@ -426,7 +426,7 @@ def _mutate_entry_doc(
             return False
         if not mutate(doc_dict, toml_key):
             return False
-        atomic_write_text(path, tomlkit.dumps(doc))
+        atomic_write_locked(path, tomlkit.dumps(doc))
         _metadata_cache.pop(path, None)
         return True
 
@@ -701,7 +701,7 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
 
         # Single write for the whole batch
         if changed:
-            atomic_write_text(path, tomlkit.dumps(doc))
+            atomic_write_locked(path, tomlkit.dumps(doc))
         _metadata_cache.pop(path, None)
     return changed
 

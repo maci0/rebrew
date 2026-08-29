@@ -379,6 +379,36 @@ class TestBinsyncGhidraComment:
         content = out.read_text(encoding="utf-8")
         assert "[rebrew:ghidra] ghidra_name" in content
 
+    def test_export_toml_left_readonly(self, tmp_path: Path) -> None:
+        """binsync exports (functions/*.toml, global_vars.toml, structs/*.toml)
+        are write-locked 0444 — direct edits fail, tools chmod+update+re-lock."""
+        from rebrew.binsync_export import (
+            _write_function_toml,
+            _write_global_vars_toml,
+            _write_struct_toml,
+        )
+
+        fn = tmp_path / "functions" / "1000.toml"
+        fn.parent.mkdir(parents=True)
+        _write_function_toml(
+            fn,
+            name="f",
+            va=0x1000,
+            size=4,
+            prototype="",
+            status="EXACT",
+            cflags="",
+            note="",
+            ghidra="",
+        )
+        gv = tmp_path / "global_vars.toml"
+        _write_global_vars_toml(gv, [(0x2000, "g_var", 4)])
+        st = tmp_path / "structs" / "S.toml"
+        st.parent.mkdir(parents=True)
+        _write_struct_toml(st, "S", fields=[{"name": "x", "type": "int"}])
+        for path in (fn, gv, st):
+            assert (path.stat().st_mode & 0o777) == 0o444, path
+
     def test_ghidra_name_matching_symbol_omitted(self, tmp_path: Path) -> None:
         from rebrew.binsync_export import _write_function_toml
 
