@@ -119,6 +119,8 @@ class BinaryInfo:
 
     path: Path
     format: str  # "pe", "elf", "macho"
+    arch: str = ""  # "x86_32", "mips32", "ppc32", ... (multi-arch P0)
+    endian: str = ""  # "little" / "big" / "" = unknown (multi-arch P0)
 
     # Base address
     image_base: int = 0
@@ -202,6 +204,8 @@ def _load_pe(binary: lief.PE.Binary, path: Path) -> BinaryInfo:
     return BinaryInfo(
         path=path,
         format="pe",
+        arch=_PE_MACHINE_TO_ARCH.get(binary.header.machine, ""),
+        endian="little",
         image_base=image_base,
         text_va=text_va,
         text_size=text_size,
@@ -247,6 +251,8 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
     return BinaryInfo(
         path=path,
         format="elf",
+        arch=_ELF_MACHINE_TO_ARCH.get(binary.header.machine_type, ""),
+        endian=_elf_endian(binary.header.identity_data),
         image_base=image_base,
         text_va=text_va,
         text_size=text_size,
@@ -311,6 +317,11 @@ def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: P
     return BinaryInfo(
         path=path,
         format="macho",
+        arch=_MACHO_CPU_TO_ARCH.get(binary.header.cpu_type, ""),
+        endian="big"
+        if binary.header.cpu_type
+        in (lief.MachO.Header.CPU_TYPE.POWERPC, lief.MachO.Header.CPU_TYPE.POWERPC64)
+        else "little",
         image_base=image_base,
         text_va=text_va,
         text_size=text_size,
@@ -413,11 +424,13 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
         from rebrew.ne_loader import load_ne_binary
 
         result = load_ne_binary(path)
+        result.arch = "x86_16"
     elif is_mz(path):
         # Plain DOS MZ executables: one pseudo code section spanning the
         # code region, VAs as linear segment*16+offset addresses starting
         # at the CS segment base (the entry's segment).
         result = _load_mz(path)
+        result.arch = "x86_16"
     else:
         try:
             result = _parse_regular(path, fmt)
@@ -669,35 +682,95 @@ def function_extent_from_disasm(
 
     import capstone
 
-    # 16-bit DOS/NE code must disassemble in 16-bit mode — parsing it as
-    # 32-bit mis-decodes instructions and hits a bogus early `ret` (the
-    # extent then truncates every DOS function at ~20 bytes).
-    mode = (
-        capstone.CS_MODE_16 if getattr(info, "format", "") in ("mz", "ne") else capstone.CS_MODE_32
-    )
+    # Per-arch walker config (multi-arch P0): disassembler arch/mode and the
+    # function-end terminators.  Unconditional-jump mnemonics are treated as
+    # tail calls (like x86 `jmp`); conditional branches (x86 `j*`, MIPS
+    # `b*`, PPC `bc*`, ARM `b<c>`, SH `bt/bf/bra`) continue the walk.
+    arch = getattr(info, "arch", "") or ""
+
+    def _walk(
+        md: capstone.Cs,
+        rets: set[str],
+        jmps: set[str],
+    ) -> int | tuple[int, str] | None:
+        offset = 0
+        for insn in md.disasm(data, va):
+            mnem = insn.mnemonic
+            if mnem in rets:
+                extent = offset + insn.size
+                return (extent, "ret") if with_kind else extent
+            if mnem in jmps:
+                # Unconditional jump: tail call / thunk terminator (a backward
+                # loop jump underestimates the extent — callers refuse, which is
+                # the safe direction).
+                extent = offset + insn.size
+                return (extent, "jmp") if with_kind else extent
+            if mnem in ("ud2", "hlt"):
+                extent = offset + insn.size
+                return (extent, "ud2") if with_kind else extent
+            offset += insn.size
+        return None
+
+    if arch in ("mips32", "mips64"):
+        # capstone 5 decodes MIPS branch/jump words only in big-endian mode;
+        # some MIPS targets (PlayStation) are little-endian, so try the file's
+        # own endianness first and fall back to the other.
+        rets, jmps = {"jr", "jrc"}, {"j"}
+        base = capstone.CS_MODE_MIPS64 if arch == "mips64" else capstone.CS_MODE_MIPS32
+        modes = [
+            base | capstone.CS_MODE_BIG_ENDIAN,
+            base | capstone.CS_MODE_LITTLE_ENDIAN,
+        ]
+        if getattr(info, "endian", "") == "little":
+            modes.reverse()
+        for mode in modes:
+            md = capstone.Cs(capstone.CS_ARCH_MIPS, mode)
+            md.skipdata = False
+            result = _walk(md, rets, jmps)
+            if result is not None:
+                return result
+        return None
+
+    if arch in ("ppc32", "ppc64"):
+        # capstone 5 ships no working PPC engine (it misdecodes `blr`), so
+        # walk the fixed-width 4-byte words directly for the terminator
+        # encodings.  Big-endian only — console PPC (GameCube/Wii) is BE;
+        # little-endian PPC is not a Phase-0 target.
+        for offset in range(0, len(data) - 3, 4):
+            word = int.from_bytes(data[offset : offset + 4], "big")
+            if word == 0x4E800020:  # blr
+                extent = offset + 4
+                return (extent, "ret") if with_kind else extent
+            if word == 0x4E800420:  # bctr — indirect tail jump
+                extent = offset + 4
+                return (extent, "jmp") if with_kind else extent
+            if (word & 0xFC000001) == 0x48000000:  # b (unconditional, no link)
+                extent = offset + 4
+                return (extent, "jmp") if with_kind else extent
+        return None
+
+    if arch == "arm32":
+        md = capstone.Cs(capstone.CS_ARCH_ARM, capstone.CS_MODE_ARM)
+        md.skipdata = False
+        return _walk(md, {"bx"}, {"b"})
+
+    if arch == "sh2":
+        md = capstone.Cs(capstone.CS_ARCH_SH, capstone.CS_MODE_SH2)
+        md.skipdata = False
+        return _walk(md, {"rts"}, {"bra", "jmp"})
+
+    # x86_16/x86_32/x86_64 (and unknown arches — default to the historical
+    # x86 walker).
+    fmt = getattr(info, "format", "")
+    if arch == "x86_16" or fmt in ("mz", "ne"):
+        mode = capstone.CS_MODE_16
+    elif arch == "x86_64":
+        mode = capstone.CS_MODE_64
+    else:
+        mode = capstone.CS_MODE_32
     md = capstone.Cs(capstone.CS_ARCH_X86, mode)
     md.skipdata = False
-    offset = 0
-    for insn in md.disasm(data, va):
-        mnem = insn.mnemonic
-        if mnem in ("ret", "retf", "iret", "iretd", "int3"):
-            extent = offset + insn.size
-            return (extent, "ret") if with_kind else extent
-        if mnem == "jmp":
-            # Unconditional jump: tail call / thunk terminator (a backward
-            # loop jmp underestimates the extent — callers refuse, which is
-            # the safe direction).
-            extent = offset + insn.size
-            return (extent, "jmp") if with_kind else extent
-        if mnem.startswith("j"):
-            # Conditional jumps continue the walk.
-            offset += insn.size
-            continue
-        if mnem in ("ud2", "hlt"):
-            extent = offset + insn.size
-            return (extent, "ud2") if with_kind else extent
-        offset += insn.size
-    return None
+    return _walk(md, {"ret", "retf", "iret", "iretd", "int3"}, {"jmp"})
 
 
 def iat_slot_vas(binary_path: Path | str) -> set[int]:
@@ -872,6 +945,7 @@ _PE_MACHINE_TO_ARCH: dict[lief.PE.Header.MACHINE_TYPES, str] = {
     lief.PE.Header.MACHINE_TYPES.AMD64: "x86_64",
     lief.PE.Header.MACHINE_TYPES.ARM: "arm32",
     lief.PE.Header.MACHINE_TYPES.ARM64: "arm64",
+    lief.PE.Header.MACHINE_TYPES.MIPS16: "mips32",
 }
 
 _ELF_MACHINE_TO_ARCH: dict[lief.ELF.ARCH, str] = {
@@ -879,6 +953,11 @@ _ELF_MACHINE_TO_ARCH: dict[lief.ELF.ARCH, str] = {
     lief.ELF.ARCH.X86_64: "x86_64",
     lief.ELF.ARCH.ARM: "arm32",
     lief.ELF.ARCH.AARCH64: "arm64",
+    lief.ELF.ARCH.MIPS: "mips32",
+    lief.ELF.ARCH.MIPS_X: "mips32",
+    lief.ELF.ARCH.PPC: "ppc32",
+    lief.ELF.ARCH.PPC64: "ppc64",
+    lief.ELF.ARCH.SH: "sh2",
 }
 
 _MACHO_CPU_TO_ARCH: dict[lief.MachO.Header.CPU_TYPE, str] = {
@@ -886,7 +965,25 @@ _MACHO_CPU_TO_ARCH: dict[lief.MachO.Header.CPU_TYPE, str] = {
     lief.MachO.Header.CPU_TYPE.X86_64: "x86_64",
     lief.MachO.Header.CPU_TYPE.ARM: "arm32",
     lief.MachO.Header.CPU_TYPE.ARM64: "arm64",
+    lief.MachO.Header.CPU_TYPE.POWERPC: "ppc32",
+    lief.MachO.Header.CPU_TYPE.POWERPC64: "ppc64",
 }
+
+
+def _elf_endian(identity_data: Any) -> str:
+    """ELF endianness from the ident EI_DATA byte (``ELF_DATA.MSB`` = big).
+
+    ``header.identity_data`` is an ``ELF_DATA`` enum (not reachable as a
+    named ``lief.ELF`` attribute — access the members through its type);
+    MSB marks big-endian files (MIPS/PPC console targets), everything else
+    is little-endian.  For malformed headers LIEF falls back to a raw int
+    (``ELFDATA2MSB == 2``), which we treat the same way.
+    """
+    msb = 2  # ELFDATA2MSB
+    cls = type(identity_data)
+    if hasattr(cls, "MSB"):
+        msb = cls.MSB
+    return "big" if identity_data == msb else "little"
 
 
 def detect_format_and_arch(path: Path) -> tuple[str, str | None]:

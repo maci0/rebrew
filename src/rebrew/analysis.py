@@ -106,20 +106,53 @@ def _capstone(skipdata: bool = False, info: BinaryInfo | None = None) -> Any:
     Instances are cached per thread keyed on (mode, skipdata).
     """
     try:
-        from capstone import CS_ARCH_X86, CS_MODE_16, CS_MODE_32, Cs
+        from capstone import (
+            CS_ARCH_ARM,
+            CS_ARCH_ARM64,
+            CS_ARCH_MIPS,
+            CS_ARCH_PPC,
+            CS_ARCH_SH,
+            CS_ARCH_X86,
+            CS_MODE_16,
+            CS_MODE_32,
+            CS_MODE_64,
+            CS_MODE_ARM,
+            CS_MODE_MIPS32,
+            CS_MODE_MIPS64,
+            CS_MODE_SH2,
+            Cs,
+        )
     except ImportError as exc:
         raise RuntimeError("capstone not installed") from exc
 
-    mode_16 = info is not None and info.format == "ne"
-    mode = CS_MODE_16 if mode_16 else CS_MODE_32
+    # Arch-aware (multi-arch P0): the binary's detected arch selects the
+    # disassembler; x86 stays the 16/32-bit default (NE/MZ → 16-bit).
+    arch = getattr(info, "arch", "") if info is not None else ""
+    if arch == "mips32":
+        cs_arch, mode = CS_ARCH_MIPS, CS_MODE_MIPS32
+    elif arch == "mips64":
+        cs_arch, mode = CS_ARCH_MIPS, CS_MODE_MIPS64
+    elif arch == "ppc32":
+        cs_arch, mode = CS_ARCH_PPC, CS_MODE_32
+    elif arch == "ppc64":
+        cs_arch, mode = CS_ARCH_PPC, CS_MODE_64
+    elif arch == "arm32":
+        cs_arch, mode = CS_ARCH_ARM, CS_MODE_ARM
+    elif arch == "arm64":
+        cs_arch, mode = CS_ARCH_ARM64, CS_MODE_ARM
+    elif arch == "sh2":
+        cs_arch, mode = CS_ARCH_SH, CS_MODE_SH2
+    else:
+        mode_16 = info is not None and info.format in ("ne", "mz")
+        cs_arch, mode = CS_ARCH_X86, CS_MODE_16 if mode_16 else CS_MODE_32
     cache = getattr(_capstone_tls, "cache", None)
     if cache is None:
         cache = {}
         _capstone_tls.cache = cache
-    key = (mode_16, skipdata)
+    key = (cs_arch, mode, skipdata)
     md = cache.get(key)
     if md is None:
-        md = Cs(CS_ARCH_X86, mode)
+        md = Cs(cs_arch, mode)
         md.detail = True
         if skipdata:
             md.skipdata = True

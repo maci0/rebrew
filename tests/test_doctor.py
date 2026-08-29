@@ -154,7 +154,7 @@ class TestCheckArchFormat:
         assert result.status == _PASS
 
     def test_unknown_arch(self, tmp_path: Path) -> None:
-        cfg = _make_cfg(tmp_path, arch="mips64")
+        cfg = _make_cfg(tmp_path, arch="riscv32")
         result = check_arch_format(cfg)
         assert result.status == _WARN
 

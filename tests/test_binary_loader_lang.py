@@ -26,6 +26,7 @@ def _make_pe_stub(path: Path, machine: int = 0x14C) -> Path:
 class TestLoadMacho:
     def test_thin_binary(self, tmp_path: Path) -> None:
         macho = SimpleNamespace(
+            header=SimpleNamespace(cpu_type=0),
             segments=[
                 SimpleNamespace(name="__TEXT", virtual_address=0x1000),
                 SimpleNamespace(name="__DATA", virtual_address=0x2000),
@@ -57,6 +58,7 @@ class TestLoadMacho:
 
     def test_no_text_section(self, tmp_path: Path) -> None:
         macho = SimpleNamespace(
+            header=SimpleNamespace(cpu_type=0),
             segments=[SimpleNamespace(name="__DATA", virtual_address=0x2000)],
             sections=[
                 SimpleNamespace(

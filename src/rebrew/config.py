@@ -108,6 +108,41 @@ _ARCH_PRESETS: dict[str, _ArchPreset] = {
         "padding_bytes": [0x00],
         "symbol_prefix": "",
     },
+    "mips32": {
+        "capstone_arch": "CS_ARCH_MIPS",
+        "capstone_mode": "CS_MODE_MIPS32",
+        "pointer_size": 4,
+        "padding_bytes": [0x00],
+        "symbol_prefix": "",
+    },
+    "mips64": {
+        "capstone_arch": "CS_ARCH_MIPS",
+        "capstone_mode": "CS_MODE_MIPS64",
+        "pointer_size": 8,
+        "padding_bytes": [0x00],
+        "symbol_prefix": "",
+    },
+    "ppc32": {
+        "capstone_arch": "CS_ARCH_PPC",
+        "capstone_mode": "CS_MODE_32",
+        "pointer_size": 4,
+        "padding_bytes": [0x60, 0x00, 0x00, 0x00],  # `nop`
+        "symbol_prefix": "",
+    },
+    "ppc64": {
+        "capstone_arch": "CS_ARCH_PPC",
+        "capstone_mode": "CS_MODE_64",
+        "pointer_size": 8,
+        "padding_bytes": [0x60, 0x00, 0x00, 0x00],
+        "symbol_prefix": "",
+    },
+    "sh2": {
+        "capstone_arch": "CS_ARCH_SH",
+        "capstone_mode": "CS_MODE_SH2",
+        "pointer_size": 4,
+        "padding_bytes": [0x00],
+        "symbol_prefix": "",
+    },
 }
 
 

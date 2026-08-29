@@ -71,7 +71,14 @@ def _rizin_functions(binary: Path, cmds: list[str]) -> list[tuple[int, int, str]
 
 
 def _capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
-    """Linear-sweep candidates from .text: post-padding starts, frame prologues, call targets."""
+    """Linear-sweep candidates from .text: post-padding starts, frame prologues, call targets.
+
+    x86-32/64 uses the full heuristic set (int3/nop padding runs, ``push
+    ebp; mov ebp,esp`` prologues, ``e8 rel32`` call targets).  Other arches
+    (multi-arch P0) use a minimal sweep — the .text base plus direct call
+    targets via the arch-aware disassembler — until arch-specific padding
+    and prologue patterns land with the first real target.
+    """
     try:
         info = load_binary(binary)
     except (OSError, ValueError):
@@ -86,6 +93,20 @@ def _capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
     data = info.data
     raw = data[text.file_offset : text.file_offset + text.size]
     va_base = text.va
+
+    arch = getattr(info, "arch", "") or ""
+    if arch and not arch.startswith("x86"):
+        # Minimal non-x86 sweep: .text base + direct call targets.
+        nstarts: set[int] = {va_base}
+        for insn in iter_instructions(info, text.va, text.size):
+            if insn.mnemonic in ("call", "jal", "bl") and insn.op_str.startswith("0x"):
+                try:
+                    tgt = int(insn.op_str, 16)
+                except ValueError:
+                    continue
+                if text.va <= tgt < text.va + text.size:
+                    nstarts.add(tgt)
+        return [(va, 0, f"fcn.{va:08x}") for va in sorted(nstarts)]
 
     starts: set[int] = set()
     # 1. the .text base is always a candidate
