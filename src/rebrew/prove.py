@@ -9,7 +9,7 @@ Architecture
 ~~~~~~~~~~~~
 1. Extract target bytes from the DLL and compiled bytes from the .obj
 2. Load both into separate angr Projects using the ``blob`` backend
-3. Read the ``PROTOTYPE`` field from rebrew-function.toml metadata for calling convention + arg count
+3. Read the ``PROTOTYPE`` field from rebrew-functions.toml metadata for calling convention + arg count
 4. Hook IAT-indirect calls with Win32 API-aware SimProcedures (constrained
    return values) to prevent path explosion from API calls.  Falls back to
    ``ReturnUnconstrained`` for unknown APIs.
@@ -17,7 +17,9 @@ Architecture
    metadata (e.g. "arg3 is a pointer to a 24-byte struct")
 6. Run symbolic execution on both with ``LoopSeer`` and timeout limits
 7. Compare EAX (return register) formulas via Z3 — if no satisfying
-   assignment makes them differ, the functions are proven equivalent
+   assignment makes them differ, the functions are proven equivalent.
+   ``void`` functions leave EAX undefined at exit, so the register
+   comparison is skipped for them and only watched-VA memory is compared.
 
 angr is an optional dependency.  Import is guarded with a clear error
 message directing users to ``uv pip install -e ".[prove]"``.
@@ -527,33 +529,37 @@ _PROTO_RE = re.compile(
 )
 
 
-def _parse_prototype(proto: str) -> tuple[str, int, int]:
-    """Parse a C prototype string into (calling_convention, arg_count, return_width_bits).
+def _parse_prototype(proto: str) -> tuple[str, int, int, bool]:
+    """Parse a C prototype string into (calling_convention, arg_count, return_width_bits, is_void).
 
-    Returns ("cdecl", 0, 32) as default if parsing fails.
+    Returns ("cdecl", 0, 32, False) as default if parsing fails.
 
     ``return_width_bits`` is 64 when the return type is a 64-bit integer
     (``long long``, ``__int64``, ``int64_t``, ``uint64_t``, or
-    ``long double`` — conservative), 32 otherwise.
+    ``long double`` — conservative), 32 otherwise.  ``is_void`` is True when
+    the return type is ``void`` — a void function leaves EAX (and EDX)
+    undefined at exit, so those registers must not be compared.
     """
     m = _PROTO_RE.match(proto.strip())
     if not m:
-        return "cdecl", 0, 32
+        return "cdecl", 0, 32, False
 
     cc = (m.group("cc") or "__cdecl").lstrip("_").lower()
     args_str = m.group("args").strip()
     ret_type = (m.group("ret") or "").strip()
+
+    is_void = ret_type.lower() == "void"
 
     # Detect 64-bit return types
     _64BIT_RETURN_TOKENS = ("long long", "__int64", "int64_t", "uint64_t", "long double")
     return_width = 64 if any(tok in ret_type.lower() for tok in _64BIT_RETURN_TOKENS) else 32
 
     if not args_str or args_str.lower() == "void":
-        return cc, 0, return_width
+        return cc, 0, return_width, is_void
 
     # Count args by splitting on commas (handles pointer types with *)
     args = [a.strip() for a in args_str.split(",") if a.strip()]
-    return cc, len(args), return_width
+    return cc, len(args), return_width, is_void
 
 
 # ---------------------------------------------------------------------------
@@ -578,6 +584,7 @@ def _compare_state_pairs(
     states_comp: list[Any],
     check_edx: bool,
     watched_vas: list[int],
+    check_eax: bool = True,
 ) -> tuple[bool, str]:
     """Check return registers (EAX, optionally EDX) and watched memory equal.
 
@@ -588,28 +595,38 @@ def _compare_state_pairs(
     bytes of memory at the same address on both sides; an address unmapped in
     both states is skipped (nothing to compare), unmapped in exactly one is a
     real difference.
+
+    ``check_eax=False`` skips the EAX/EDX comparison entirely — used for
+    ``void`` functions, where the return register is undefined at exit and
+    the compiled value is arbitrary junk.  Callers must supply ``watched_vas``
+    in that case (see :func:`prove_equivalence`), otherwise there is nothing
+    to compare and the proof would be trivially true.
     """
     import claripy
 
-    regs_label = "EAX+EDX" if check_edx else "EAX"
+    regs_label = ""
+    if check_eax:
+        regs_label = "EAX+EDX" if check_edx else "EAX"
     mem_label = f"+mem({len(watched_vas)} VA)" if watched_vas else ""
+    both_label = f"{regs_label}{mem_label}".lstrip("+") or "nothing"
 
     for s_orig in states_orig:
-        eax_orig = s_orig.regs.eax
-        edx_orig = s_orig.regs.edx
+        eax_orig = s_orig.regs.eax if check_eax else None
+        edx_orig = s_orig.regs.edx if check_eax else None
         mem_orig = [_mem_value(s_orig, va) for va in watched_vas]
         can_differ = False
         diff_desc = ""
         for s_comp in states_comp:
-            eax_comp = s_comp.regs.eax
-            edx_comp = s_comp.regs.edx
+            eax_comp = s_comp.regs.eax if check_eax else None
+            edx_comp = s_comp.regs.edx if check_eax else None
             mem_comp = [_mem_value(s_comp, va) for va in watched_vas]
 
             diff_terms: list[Any] = []
-            if check_edx:
-                diff_terms.append(claripy.Or(eax_orig != eax_comp, edx_orig != edx_comp))
-            else:
-                diff_terms.append(eax_orig != eax_comp)
+            if check_eax:
+                if check_edx:
+                    diff_terms.append(claripy.Or(eax_orig != eax_comp, edx_orig != edx_comp))
+                else:
+                    diff_terms.append(eax_orig != eax_comp)
             for m_orig, m_comp in zip(mem_orig, mem_comp, strict=True):
                 if m_orig is None and m_comp is None:
                     continue  # unmapped on both sides — nothing to compare
@@ -617,6 +634,9 @@ def _compare_state_pairs(
                     diff_terms.append(claripy.BoolV(True))  # mapped on one side only
                     break
                 diff_terms.append(m_orig != m_comp)
+
+            if not diff_terms:
+                continue  # nothing compared in this pair
 
             solver = claripy.Solver()  # type: ignore[no-untyped-call]
             for expr in s_orig.solver.constraints:
@@ -632,9 +652,11 @@ def _compare_state_pairs(
                     # come from a single satisfying assignment, so the message
                     # is internally consistent (no independent solves).
                     mem_pairs = list(zip(watched_vas, mem_orig, mem_comp, strict=True))
-                    exprs: list[Any] = [eax_orig, eax_comp]
-                    if check_edx:
-                        exprs += [edx_orig, edx_comp]
+                    exprs: list[Any] = []
+                    if check_eax:
+                        exprs += [eax_orig, eax_comp]
+                        if check_edx:
+                            exprs += [edx_orig, edx_comp]
                     for _va, m_o, m_c in mem_pairs:
                         if m_o is not None:
                             exprs.append(m_o)
@@ -642,43 +664,45 @@ def _compare_state_pairs(
                             exprs.append(m_c)
                     vals = solver.batch_eval(exprs, 1)[0]  # type: ignore[no-untyped-call]
                     it = iter(vals)
-                    eax_o, eax_c = next(it), next(it)
-                    if check_edx:
-                        edx_o, edx_c = next(it), next(it)
-                        regs_same = eax_o == eax_c and edx_o == edx_c
-                        reg_part = f"EAX={eax_o} vs {eax_c}, EDX={edx_o} vs {edx_c}"
-                    else:
-                        regs_same = eax_o == eax_c
-                        reg_part = f"EAX={eax_o} vs {eax_c}"
-                    if regs_same and watched_vas:
-                        # Registers agree — the difference is in memory; show the
-                        # first watched VA that differs under the model.
-                        mem_part = ""
+                    desc_parts: list[str] = []
+                    if check_eax:
+                        eax_o, eax_c = next(it), next(it)
+                        if check_edx:
+                            edx_o, edx_c = next(it), next(it)
+                            regs_same = eax_o == eax_c and edx_o == edx_c
+                            reg_part = f"EAX={eax_o} vs {eax_c}, EDX={edx_o} vs {edx_c}"
+                        else:
+                            regs_same = eax_o == eax_c
+                            reg_part = f"EAX={eax_o} vs {eax_c}"
+                        if not regs_same:
+                            desc_parts.append(reg_part)
+                    # Show the first watched VA that differs under the model
+                    # (when EAX is compared and differs, memory is skipped —
+                    # same as before).
+                    if watched_vas and (not check_eax or regs_same):
                         for va, m_o, m_c in mem_pairs:
                             if m_o is None and m_c is None:
                                 continue  # unmapped on both sides — not a difference
                             if m_o is None or m_c is None:
-                                mem_part = f", mem[0x{va:x}] mapped on one side only"
+                                desc_parts.append(f"mem[0x{va:x}] mapped on one side only")
                                 break
                             v_o, v_c = next(it), next(it)
                             if v_o != v_c:
-                                mem_part = f", mem[0x{va:x}]={v_o} vs {v_c}"
+                                desc_parts.append(f"mem[0x{va:x}]={v_o} vs {v_c}")
                                 break
-                        diff_desc = f"; {reg_part}{mem_part}"
-                    else:
-                        diff_desc = f"; {reg_part}"
+                    diff_desc = f"; {', '.join(desc_parts)}" if desc_parts else ""
                 except Exception:  # model extraction is best-effort
                     diff_desc = ""
                 break
 
         if can_differ:
             return False, (
-                f"Z3 found a satisfying assignment where {regs_label}{mem_label} differs "
+                f"Z3 found a satisfying assignment where {both_label} differs "
                 f"(checked {len(states_orig)} x {len(states_comp)} state pairs){diff_desc}"
             )
 
     return True, (
-        f"Proven equivalent ({regs_label}{mem_label}; {len(states_orig)} original state(s), "
+        f"Proven equivalent ({both_label}; {len(states_orig)} original state(s), "
         f"{len(states_comp)} compiled state(s))"
     )
 
@@ -725,6 +749,41 @@ def _run_simulation(
     return terminal
 
 
+def _find_call_sites(blob: bytes) -> list[int]:
+    """Return offsets of direct external (``E8 rel32``) calls in *blob*.
+
+    These are the calls that correspond to the compiled blob's reloc'd call
+    sites and therefore need stub patching.  The filter excludes:
+      * indirect calls (``FF /2``, e.g. IAT calls) — handled separately via
+        the seeded IAT stubs;
+      * intra-blob calls whose target lands inside the blob — these are
+        internal control flow (same-TU helpers) and must not be stubbed;
+      * a bare byte scan for 0xE8, which would also match the byte inside
+        register-relative immediates (e.g. ``lea eax,[ebp-0x118]`` decodes
+        as ``8d 85 e8 fe ff ff``).
+
+    Linear disassembly from offset 0 uses capstone's instruction boundaries
+    so only genuine ``call`` opcodes are considered; failures degrade to no
+    patching rather than risking a corrupted displacement write.
+    """
+    import struct as _struct
+
+    try:
+        from capstone import CS_ARCH_X86, CS_MODE_32, Cs
+    except ImportError:
+        return []
+    md = Cs(CS_ARCH_X86, CS_MODE_32)
+    sites: list[int] = []
+    for insn in md.disasm(blob, 0):
+        if insn.mnemonic != "call" or not insn.bytes or insn.bytes[0] != 0xE8:
+            continue
+        disp = _struct.unpack("<i", blob[insn.address + 1 : insn.address + 5])[0]
+        target = (insn.address + 5 + disp) & 0xFFFFFFFF
+        if not (0 <= target < len(blob)):
+            sites.append(insn.address)
+    return sites
+
+
 def prove_equivalence(
     original_bytes: bytes,
     compiled_bytes: bytes,
@@ -738,6 +797,7 @@ def prove_equivalence(
     start_offset: int = 0,
     end_offset: int = 0,
     check_edx: bool = False,
+    check_eax: bool = True,
     watched_vas: list[int] | None = None,
     dir32_watched: dict[int, int] | None = None,
 ) -> tuple[bool, str]:
@@ -757,18 +817,30 @@ def prove_equivalence(
         check_edx: Also compare EDX register in addition to EAX.  Auto-enabled
             when the prototype's return type is 64-bit (``long long``, ``__int64``,
             ``int64_t``, ``uint64_t``, ``long double``).
+        check_eax: Compare the EAX return register.  Set to False for ``void``
+            functions, whose EAX at exit is undefined junk.  When False, at
+            least one ``watched_vas`` is required — otherwise the proof has
+            nothing to compare and is refused (it would be trivially true).
         watched_vas: Optional list of virtual addresses whose first 4 bytes must
             also compare equal across state pairs (memory side effects).  VAs
             unmapped in both states are skipped; unmapped in one is a difference.
         dir32_watched: DIR32 relocation offsets in the compiled blob that must be
             patched to absolute target VAs (offsets whose symbol resolved into
-            ``watched_vas``).  Patching both blobs makes the compiled side read
-            and write the same watched globals as the original.
+            ``watched_vas``).  Each offset is patched to ``symbol_va + addend``
+            so the compiled side reads and writes the same watched globals as the
+            original (whose linked operands are already correct).
 
     Returns:
         (proven, message) — proven is True if semantic equivalence was proved.
 
     """
+    if not check_eax and not watched_vas:
+        return False, (
+            "Function returns void and no --watch-va was given — there is nothing to "
+            "compare (EAX is undefined at exit for void functions). Pass --watch-va for "
+            "each global the function writes."
+        )
+
     import angr
     import claripy
 
@@ -795,7 +867,7 @@ def prove_equivalence(
         except Exception:
             log.debug("LIEF import scan failed (best-effort)", exc_info=True)
 
-    cc, arg_count, return_width = _parse_prototype(prototype)
+    cc, arg_count, return_width, _is_void = _parse_prototype(prototype)
 
     # Auto-enable EDX check when the return type is 64-bit (EDX:EAX pair)
     check_edx = check_edx or (return_width == 64)
@@ -870,14 +942,49 @@ def prove_equivalence(
     # (unrelocated) blob, those displacements resolve to arbitrary addresses
     # that may fall inside the blob or outside — causing path explosion.
     #
-    # Fix: patch each displacement in BOTH blobs so calls resolve to the same
-    # unique stub address in a harmless region (STUB_BASE + i*4), then hook
-    # those stubs as ReturnUnconstrained on both projects.  This neutralises
-    # relocation-only differences so structural near-matches can be proven.
+    # Fix: patch each displacement so calls resolve to a unique stub address
+    # in a harmless region (STUB_BASE + i*4), then hook those stubs as
+    # ReturnUnconstrained on both projects.  This neutralises relocation-only
+    # differences so structural near-matches can be proven.
+    #
+    # The compiled blob is patched at its own reloc offsets (authoritative
+    # COFF data).  The original blob is patched depending on how closely its
+    # external call sites correspond to the compiled blob's reloc'd calls:
+    #
+    #  * Order-paired: when the original blob's direct external (E8) calls
+    #    are exactly as numerous as the compiled blob's reloc'd calls, every
+    #    external call is present on both sides in the same execution order,
+    #    so pairing call #k of each side to the same stub makes both observe
+    #    the same unconstrained return value for the same logical call.
+    #    Writing the compiled offsets into the original blob instead would
+    #    corrupt its instruction stream (a REL32 displacement landing in the
+    #    middle of a push immediate) and produce bogus "EAX differs"
+    #    counterexamples — e.g. m_AllocTracked, where the g_array_ptr==0
+    #    fatal path was reported as returning the malloc stub value vs 0.
+    #
+    #  * Offset-based (historical): when the counts differ (the original
+    #    reaches helpers via IAT or intra-blob calls that the compiled
+    #    version relocates, or vice versa), fall back to patching the
+    #    original blob at the compiled offsets.  The stray writes can corrupt
+    #    instructions, but for value-independent call sites the corruption
+    #    never reaches the compared output, and this preserves the proven
+    #    behaviour of functions like CrashDumpUnhandledExceptionFilter.
     patched_comp = bytearray(compiled_bytes)
     patched_orig = bytearray(original_bytes)
 
     if reloc_offsets:
+        # Direct relative calls whose target falls outside the blob — these
+        # correspond to the compiled blob's reloc'd calls.  Indirect IAT
+        # calls (FF /2) are handled by the seeded IAT stubs and intra-blob
+        # calls must not be stubbed.
+        orig_call_sites = _find_call_sites(original_bytes)
+        reloc_call_offsets = [
+            off
+            for off in sorted(reloc_offsets)
+            if 1 <= off <= len(compiled_bytes) - 4 and compiled_bytes[off - 1] == 0xE8
+        ]
+        order_pair = len(orig_call_sites) == len(reloc_call_offsets)
+        orig_call_k = 0  # next orig call site to pair by order
         for i, (offset, _sym_name) in enumerate(sorted(reloc_offsets.items())):
             if 0 <= offset <= len(compiled_bytes) - 4:
                 stub_addr = (STUB_BASE + (stub_offset_base + i) * 4) & 0xFFFFFFFF
@@ -885,22 +992,48 @@ def prove_equivalence(
                 # => displacement = stub_addr - (offset + 4)  (mod 2^32)
                 disp = (stub_addr - (offset + 4)) & 0xFFFFFFFF
                 patched_comp[offset : offset + 4] = struct.pack("<I", disp)
-                # Also patch the original blob at the same offset so both
-                # sides call the same stub — neutralises reloc-site differences.
-                if offset <= len(original_bytes) - 4:
+                if offset >= 1 and compiled_bytes[offset - 1] == 0xE8:
+                    if order_pair:
+                        # Order-paired mode: patch the original blob's k-th
+                        # external call with the same stub.  Capstone reports
+                        # the call opcode address; the REL32 displacement
+                        # follows one byte later.
+                        if orig_call_k < len(orig_call_sites):
+                            o_off = orig_call_sites[orig_call_k] + 1
+                            if o_off + 4 <= len(original_bytes):
+                                o_disp = (stub_addr - (o_off + 4)) & 0xFFFFFFFF
+                                patched_orig[o_off : o_off + 4] = struct.pack("<I", o_disp)
+                            orig_call_k += 1
+                    else:
+                        # Offset-based mode: historical behaviour — patch the
+                        # original blob at the same displacement offset.
+                        if offset + 4 <= len(original_bytes):
+                            o_disp = (stub_addr - (offset + 4)) & 0xFFFFFFFF
+                            patched_orig[offset : offset + 4] = struct.pack("<I", o_disp)
+                elif not order_pair and offset + 4 <= len(original_bytes):
+                    # DIR32 data reference — historical behaviour also patches
+                    # the original blob at the same offset.  Order-paired mode
+                    # leaves data refs untouched: real-VA reads zero-fill and
+                    # pushed string operands are ignored by the stubs.
                     patched_orig[offset : offset + 4] = struct.pack("<I", disp)
                 stub_hooks.append(stub_addr)
 
     # DIR32 data references whose symbol resolved into watched_vas must point
     # at the real target VA (memory side effects).  Apply after the stub pass
-    # above so watched sites override the neutralisation.  The original blob's
-    # native operand already holds the same VA, so the patch is a no-op there.
+    # above so watched sites override the neutralisation.
+    #
+    # The compiled blob's obj operand holds the *addend* (e.g. 0x38 for
+    # ``g_office_slots + 0x38``) — the linked value is symbol_va + addend,
+    # so the addend must be preserved or every g+offset store would be
+    # rewritten to the symbol base.  The original blob's native operand
+    # already holds the linked absolute address, so it needs no patch —
+    # writing compiled-blob offsets into it would corrupt the instruction
+    # stream whenever the two layouts differ (e.g. 334B vs 372B).
     if dir32_watched:
         for offset, va in sorted(dir32_watched.items()):
             if 0 <= offset <= len(compiled_bytes) - 4:
-                patched_comp[offset : offset + 4] = struct.pack("<I", va)
-                if offset <= len(original_bytes) - 4:
-                    patched_orig[offset : offset + 4] = struct.pack("<I", va)
+                addend = struct.unpack("<I", compiled_bytes[offset : offset + 4])[0]
+                patched_comp[offset : offset + 4] = struct.pack("<I", (va + addend) & 0xFFFFFFFF)
 
     # Slice to target range if specified
     if end_offset > 0 or start_offset > 0:
@@ -1035,7 +1168,7 @@ def prove_equivalence(
     # Compare return register(s) and (optionally) watched-VA memory across all
     # terminal state pairs — see _compare_state_pairs for the equivalence rule.
     watched = list(watched_vas or [])
-    return _compare_state_pairs(states_orig, states_comp, check_edx, watched)
+    return _compare_state_pairs(states_orig, states_comp, check_edx, watched, check_eax=check_eax)
 
 
 # ---------------------------------------------------------------------------
@@ -1188,7 +1321,7 @@ def main(
         return
 
     # Parse annotation — use multi-parser with metadata_dir so STATUS/CFLAGS/SIZE
-    # are read from rebrew-function.toml (where volatile metadata lives).
+    # are read from rebrew-functions.toml (where volatile metadata lives).
     annotations = parse_c_file_multi(
         source_path,
         target_name=target_marker(cfg),
@@ -1305,7 +1438,11 @@ def main(
         )
         console.print(f"  Prototype: {prototype or '(none — assuming void f(void))'}")
         console.print(f"  Timeout: {timeout}s, loop bound: {loop_bound}")
-        if effective_check_edx:
+        if inputs.skip_regs:
+            console.print(
+                "  Registers: none [dim](void — EAX undefined at exit; watching memory only)[/dim]"
+            )
+        elif effective_check_edx:
             note = " [dim](auto-detected 64-bit return)[/dim]" if edx_auto_detected else ""
             console.print(f"  Registers: EAX+EDX{note}")
         if start_offset or end_offset:
@@ -1325,6 +1462,7 @@ def main(
         start_offset=start_offset,
         end_offset=end_offset,
         check_edx=check_edx,
+        check_eax=not inputs.skip_regs,
         watched_vas=inputs.watched_vas,
         dir32_watched=inputs.dir32_watched,
     )
@@ -1342,6 +1480,7 @@ def main(
         "target_bytes_len": len(target_bytes),
         "compiled_bytes_len": len(obj_bytes),
         "check_edx": effective_check_edx,
+        "skip_regs": inputs.skip_regs,
     }
     if edx_auto_detected:
         result["auto_detected"] = True
@@ -1352,6 +1491,7 @@ def main(
         from rebrew.metadata import update_source_status
 
         update_source_status(cfg.metadata_dir, "PROVEN", ann.module, va)
+        _clear_prove_counterexample(cfg, ann)
         result["action"] = "updated"
         result["new_status"] = "PROVEN"
     elif proven and dry_run:
@@ -1395,7 +1535,10 @@ def _resolve_watched_dir32(
 
     Only DIR32 (IMAGE_REL_I386_DIR32, 0x06) absolute data references can point
     at watched globals.  Symbol lookup tolerates the MSVC leading underscore.
-    Best-effort: any failure yields ``{}`` (no watching, current behaviour).
+    The caller patches each offset with ``VA + addend`` (the obj operand is
+    the addend), and the original blob needs no patch — its linked operand
+    already holds the absolute address.  Best-effort: any failure yields
+    ``{}`` (no watching, current behaviour).
     """
     if not watched_set:
         return {}
@@ -1446,6 +1589,7 @@ class _ProveInputs:
     arg_constraints: dict[str, Any] | None
     effective_check_edx: bool
     edx_auto_detected: bool
+    skip_regs: bool
     watched_vas: list[int]
 
 
@@ -1552,9 +1696,13 @@ def _prepare_prove_inputs(
     arg_constraints = ann.prove_constraints if ann.prove_constraints else None
 
     # Determine whether EDX will be checked — also detect from prototype.
-    _cc, _nargs, return_width = _parse_prototype(prototype)
+    _cc, _nargs, return_width, is_void = _parse_prototype(prototype)
     edx_auto_detected = (return_width == 64) and not check_edx
     effective_check_edx = check_edx or (return_width == 64)
+
+    # void functions leave EAX undefined at exit — skip the register
+    # comparison entirely and rely on watched-VA memory only.
+    skip_regs = is_void
 
     return _ProveInputs(
         symbol=symbol,
@@ -1568,6 +1716,7 @@ def _prepare_prove_inputs(
         arg_constraints=arg_constraints,
         effective_check_edx=effective_check_edx,
         edx_auto_detected=edx_auto_detected,
+        skip_regs=skip_regs,
         watched_vas=watched_vas,
     )
 
@@ -1604,6 +1753,7 @@ def _prove_single(
             from rebrew.metadata import update_source_status
 
             update_source_status(cfg.metadata_dir, m.new_status, ann.module, ann.va)
+            _clear_prove_counterexample(cfg, ann)
         # Sentinel prefix so batch mode can count this separately from failures.
         return False, f"ALREADY_MATCHED:{m.new_status}"
     except _ProveError as e:
@@ -1621,6 +1771,7 @@ def _prove_single(
         start_offset=start_offset,
         end_offset=end_offset,
         check_edx=inputs.effective_check_edx,
+        check_eax=not inputs.skip_regs,
         watched_vas=inputs.watched_vas,
         dir32_watched=inputs.dir32_watched,
     )
@@ -1629,10 +1780,29 @@ def _prove_single(
         from rebrew.metadata import update_source_status
 
         update_source_status(cfg.metadata_dir, "PROVEN", ann.module, ann.va)
+        _clear_prove_counterexample(cfg, ann)
     elif not proven and not dry_run:
         _record_prove_counterexample(cfg, ann, message)
 
     return proven, message
+
+
+def _clear_prove_counterexample(cfg: Any, ann: Any) -> None:
+    """Drop a prove-generated counterexample NOTE once the function is PROVEN.
+
+    ``_record_prove_counterexample`` persists failed proves as a NOTE; when a
+    later prove succeeds, that stale "EAX differs" note would contradict the
+    new PROVEN status.  Only notes this module wrote (prefixed ``prove: ``)
+    are removed — a reverser's own note is never touched.
+    """
+    try:
+        from rebrew.metadata import load_metadata, remove_field
+
+        existing = load_metadata(cfg.metadata_dir).get((ann.module, ann.va), {})
+        if str(existing.get("note", "")).startswith("prove: "):
+            remove_field(cfg.metadata_dir, ann.va, "note", module=ann.module)
+    except Exception:  # best-effort; never fail the prove flow
+        return
 
 
 def _record_prove_counterexample(cfg: Any, ann: Any, message: str) -> None:
