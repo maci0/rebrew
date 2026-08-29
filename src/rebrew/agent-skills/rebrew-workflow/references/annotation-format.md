@@ -30,7 +30,7 @@ int stub(void) { return 0; }
 ```
 
 > [!CAUTION]
-> **Never manually edit `rebrew-function.toml`.** All volatile metadata (STATUS, SIZE, CFLAGS,
+> **Never manually edit `rebrew-functions.toml`.** All volatile metadata (STATUS, SIZE, CFLAGS,
 > BLOCKER, NOTE, GHIDRA) is managed exclusively by Rebrew CLI tools:
 > - `rebrew test` → STATUS (auto-promotes on EXACT/RELOC; use `--no-promote` to skip)
 > - `rebrew blocker set/clear` → BLOCKER / BLOCKER_DELTA (ad-hoc; for STUBs diff cannot classify)
@@ -38,7 +38,7 @@ int stub(void) { return 0; }
 > - `rebrew document-unmatched` → STUB skeletons + BLOCKER for every unmatched function
 > - `rebrew sync --pull` → NOTE, GHIDRA
 
-## What goes in `rebrew-function.toml` metadata file
+## What goes in `rebrew-functions.toml` metadata file
 
 ```toml
 ["SERVER.0x10008880"]
@@ -80,7 +80,7 @@ void my_func() {}
 Each target has its own metadata file entry, keyed by `MODULE.0xVA`:
 
 ```toml
-# A single rebrew-function.toml at cfg.metadata_dir (e.g. src/ for src/server.dll/):
+# A single rebrew-functions.toml at cfg.metadata_dir (e.g. src/ for src/server.dll/):
 ["LEGO1.0x1009a8c0"]
 status = "EXACT"
 size = 42
@@ -99,7 +99,7 @@ marker line.
 ## Data Annotations
 
 DATA/GLOBAL metadata lives in a **`rebrew-data.toml` metadata file** — the data
-analogue of `rebrew-function.toml`. Only the stable marker line stays in
+analogue of `rebrew-functions.toml`. Only the stable marker line stays in
 the `.c` file:
 
 **`.c` file:**

@@ -142,7 +142,7 @@ class TestMatchAllDryRunIdempotent:
         for va, symbol in ((0x10001000, "_func_a"), (0x10002000, "_func_b")):
             _write(tmp_path / f"func_{va:08x}.c", _single(va, symbol))
         _write(
-            tmp_path / "rebrew-function.toml",
+            tmp_path / "rebrew-functions.toml",
             '["SERVER.0x10001000"]\nsize = 64\n["SERVER.0x10002000"]\nsize = 128\n',
         )
         monkeypatch.setattr(

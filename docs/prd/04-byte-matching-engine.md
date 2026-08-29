@@ -82,7 +82,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
 - `--tier quick|targeted|normal|thorough|full` (default `targeted`).
 - Auto-detects symbol/VA/size/CFLAGS like `rebrew test`/`rebrew diff`.
 - On success, prints the winning flag combination and (in `--all` mode)
-  can write it back to `rebrew-function.toml`.
+  can write it back to `rebrew-functions.toml`.
 
 ### `rebrew match --all` (batch)
 
@@ -91,7 +91,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
 - `--near-miss` runs only on NEAR_MATCHING with delta ≤ `--threshold`
   (default 10 bytes).
 - `--flag-sweep` runs the flag sweep instead of GA on NEAR_MATCHING set;
-  `--fix-cflags` writes wins back to `rebrew-function.toml`.
+  `--fix-cflags` writes wins back to `rebrew-functions.toml`.
 - `-j JOBS` parallelism, `--dry-run` previews changes without running.
 
 ### `rebrew prove`
@@ -108,7 +108,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
 - `--all` proves all NEAR_MATCHING/SIZE_MISMATCH functions;
   `--max-delta N` limits the batch to those with recorded byte delta ≤ N.
 - `--dry-run` leaves metadata untouched even on success.
-- On success, promotes STATUS → PROVEN in `rebrew-function.toml`.
+- On success, promotes STATUS → PROVEN in `rebrew-functions.toml`.
 
 ## User Stories / Workflows
 
@@ -128,14 +128,14 @@ prover that promotes NEAR_MATCHING → PROVEN.
    approximated from r2dec).
 2. `rebrew match bar.c -g 200 -p 96 --seed 42` runs for ~20 minutes;
    final candidate hits RELOC.
-3. `rebrew test bar.c` promotes STATUS in `rebrew-function.toml`.
+3. `rebrew test bar.c` promotes STATUS in `rebrew-functions.toml`.
 
 ### Story 3 — Batch flag sweep
 
 1. `rebrew match --all --flag-sweep --fix-cflags --dry-run` lists 38
    NEAR_MATCHING functions.
 2. The user removes the `--dry-run`; the sweep runs in parallel with
-   `-j 8` and writes per-function CFLAGS into `rebrew-function.toml`.
+   `-j 8` and writes per-function CFLAGS into `rebrew-functions.toml`.
 3. `rebrew verify` afterwards shows 22 new EXACT/RELOC promotions.
 
 ### Story 4 — Proving the remainder

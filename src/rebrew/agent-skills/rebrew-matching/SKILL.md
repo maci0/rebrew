@@ -79,7 +79,7 @@ Use `-r` / `--register-aware` to see if remaining `**` diffs are register alloca
 
 `rebrew diff` auto-classifies systemic compiler differences from `**` / `RR` lines
 (e.g. "register allocation", "loop rotation / branch layout", "stack frame choice").
-Use `--fix-blocker` to auto-write these to the `rebrew-function.toml` metadata file:
+Use `--fix-blocker` to auto-write these to the `rebrew-functions.toml` metadata file:
 
 ```bash
 rebrew diff --fix-blocker src/<target>/<file>.c        # auto-write BLOCKER to metadata file
@@ -90,7 +90,7 @@ rebrew blocker clear src/<target>/<file>.c
 ```
 
 When no structural diffs remain, `--fix-blocker` clears existing BLOCKER/BLOCKER_DELTA.
-**Never hand-edit `rebrew-function.toml` for BLOCKER — use `rebrew blocker set/clear` or the `--fix-blocker` writers.**
+**Never hand-edit `rebrew-functions.toml` for BLOCKER — use `rebrew blocker set/clear` or the `--fix-blocker` writers.**
 
 Use this to quickly rule out structural issues before running the GA.
 
@@ -298,7 +298,7 @@ the job.
 
 ## 6. Blocker Tracking
 
-When a function is NEAR_MATCHING but not byte-perfect, blockers live in the `rebrew-function.toml` metadata file (managed programmatically — never hand-edit):
+When a function is NEAR_MATCHING but not byte-perfect, blockers live in the `rebrew-functions.toml` metadata file (managed programmatically — never hand-edit):
 
 ```toml
 ["SERVER.0x<VA>"]

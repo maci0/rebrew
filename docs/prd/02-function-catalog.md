@@ -84,7 +84,7 @@ CATALOG.md, JSON, CSV, and a SQLite coverage DB.
     refuses `--json`).
   - `--export-ghidra-labels` writes `ghidra_data_labels.json` from detected
     jump tables / dispatch tables.
-  - `--fix-sizes` rewrites `SIZE` in `rebrew-function.toml` when the catalog's
+  - `--fix-sizes` rewrites `SIZE` in `rebrew-functions.toml` when the catalog's
     canonical size differs; `--force` skips its confirmation prompt (and is
     required to combine it with `--json`).
 - `--json` produces machine-readable output.
@@ -166,7 +166,7 @@ Output `.bin` files land in the configured `bin_dir`.
 1. `rebrew catalog --summary` prints a warning that `_my_func` has
    annotation size 42 but Ghidra reports 47.
 2. User runs `rebrew catalog --fix-sizes` to write the canonical 47 to
-   `rebrew-function.toml`.
+   `rebrew-functions.toml`.
 3. Next `rebrew verify` no longer fails the size check.
 
 ### Story 4 — Dashboard refresh

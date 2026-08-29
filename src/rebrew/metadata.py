@@ -1,7 +1,7 @@
 """metadata.py — Per-directory metadata store for rebrew.
 
 Volatile annotation fields (STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA, …)
-are stored in a single ``rebrew-function.toml`` metadata file at the
+are stored in a single ``rebrew-functions.toml`` metadata file at the
 ``metadata_dir`` root (``cfg.metadata_dir``, i.e. ``reversed_dir.parent``),
 rather than as comment annotations inside ``.c`` source files.
 
@@ -19,7 +19,7 @@ The metadata is keyed by *qualified module+VA string*::
     status = "EXACT"
     size   = 42
 
-This allows a single ``rebrew-function.toml`` to hold metadata for **multiple
+This allows a single ``rebrew-functions.toml`` to hold metadata for **multiple
 targets** (e.g. ``SERVER`` and ``CLIENT``) that share a directory or ``.c``
 file — the full key is unambiguous even if two targets happen to have a
 function at the same VA.  The format mirrors the ``// FUNCTION: SERVER
@@ -52,7 +52,7 @@ BLOCKER writes
 ``rebrew near-diag --fix-blocker`` / ``rebrew document-unmatched`` for
 auto-classified cases).  The Python gate is :func:`update_field` /
 :func:`remove_field` with *key* ``"blocker"`` / ``"blocker_delta"``.
-No hand-edits to ``rebrew-function.toml`` — every write goes through the
+No hand-edits to ``rebrew-functions.toml`` — every write goes through the
 lock + ``atomic_write_text``.
 
 Merge semantics
@@ -136,7 +136,7 @@ def clear_metadata_cache() -> None:
 # Constants
 # ---------------------------------------------------------------------------
 
-METADATA_FILENAME = "rebrew-function.toml"
+METADATA_FILENAME = "rebrew-functions.toml"
 
 # Canonical TOML key order when writing an entry; unlisted fields follow, in
 # insertion order.  Mirrors ``data_metadata._CANONICAL_ORDER``.
@@ -173,7 +173,7 @@ METADATA_FIELDS: frozenset[str] = frozenset(
         "SOURCE",
         "PROVE_CONSTRAINTS",
         # NOTE: SECTION is intentionally absent — it is owned by data_metadata.py
-        # for DATA/GLOBAL annotations and must not be written to rebrew-function.toml.
+        # for DATA/GLOBAL annotations and must not be written to rebrew-functions.toml.
     }
 )
 
@@ -207,7 +207,7 @@ def is_metadata_key(key: str) -> bool:
 
 
 def metadata_path(directory: Path) -> Path:
-    """Return the ``rebrew-function.toml`` path for the metadata root directory.
+    """Return the ``rebrew-functions.toml`` path for the metadata root directory.
 
     Args:
         directory: The metadata root directory (``cfg.metadata_dir``).
@@ -222,10 +222,10 @@ def metadata_path(directory: Path) -> Path:
 
 
 def load_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
-    """Load ``rebrew-function.toml`` from *directory*.
+    """Load ``rebrew-functions.toml`` from *directory*.
 
     *directory* must be the metadata root (``cfg.metadata_dir``).  There is
-    no walk-up — the file is expected at exactly ``directory / rebrew-function.toml``.
+    no walk-up — the file is expected at exactly ``directory / rebrew-functions.toml``.
 
     Returns a mapping of ``{(module, va_int): {field_name: value}}``.
     Returns an empty dict if no metadata file is found or it cannot be parsed.
@@ -250,7 +250,7 @@ def save_metadata(
     directory: Path,
     data: dict[tuple[str, int], dict[str, Any]],
 ) -> None:
-    """Atomically write *data* to ``rebrew-function.toml`` in *directory*.
+    """Atomically write *data* to ``rebrew-functions.toml`` in *directory*.
 
     Args:
         directory: The directory to write into.
@@ -300,7 +300,7 @@ def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> N
     """Set one field for *(module, va)* in the metadata.  **Private** — use
     :func:`update_field` or :func:`update_source_status` instead.
 
-    Writes directly to ``directory / rebrew-function.toml``.  No walk-up.
+    Writes directly to ``directory / rebrew-functions.toml``.  No walk-up.
     Uses in-place ``tomlkit`` editing to preserve formatting and comments.
     """
     _require_module(module)
@@ -402,7 +402,7 @@ def _mutate_entry_doc(
 ) -> bool:
     """Apply *mutate*(doc_dict, toml_key) to the entry for *(module, va)*.
 
-    Opens ``directory / rebrew-function.toml`` under the metadata write lock,
+    Opens ``directory / rebrew-functions.toml`` under the metadata write lock,
     hands the parsed document and the qualified key to *mutate*, and writes
     the document back only when *mutate* returns True.  No walk-up.
     Returns True if the file was modified.
@@ -435,7 +435,7 @@ def _delete_field(directory: Path, va: int, key: str, module: str) -> bool:
     """Remove *key* from the metadata entry for *(module, va)*.  **Private** —
     use :func:`remove_field` instead.
 
-    Reads/writes directly at ``directory / rebrew-function.toml``.  No walk-up.
+    Reads/writes directly at ``directory / rebrew-functions.toml``.  No walk-up.
     Returns True if removed.
     """
 
@@ -468,7 +468,7 @@ def update_field(directory: Path, va: int, key: str, value: Any, module: str) ->
     """Central gatekeeper for all metadata field writes.
 
     All external callers must use this function (or :func:`update_source_status`
-    for STATUS changes) to write to ``rebrew-function.toml``.
+    for STATUS changes) to write to ``rebrew-functions.toml``.
 
     Business rules enforced here:
     - STATUS writes are blocked; callers must use :func:`update_source_status`.
@@ -513,7 +513,7 @@ def remove_field(directory: Path, va: int, key: str, module: str) -> bool:
     """Central gatekeeper for metadata field deletes.
 
     All external callers must use this function to remove fields from
-    ``rebrew-function.toml``.
+    ``rebrew-functions.toml``.
 
     Args:
         directory: The metadata root directory (``cfg.metadata_dir``).
@@ -856,7 +856,7 @@ def coerce_metadata_value(key: str, value: Any) -> Any:
 # A library is a source-directory subtree whose functions were all built with
 # the same compiler + flags (the normal case — one codebase, one toolchain).
 # Declaring a ``rebrew-library.toml`` at the library root applies to every
-# function under it, instead of tagging each function's rebrew-function.toml.
+# function under it, instead of tagging each function's rebrew-functions.toml.
 # Discovery is walk-up (nearest ancestor file wins), unlike the function
 # metadata which lives only at cfg.metadata_dir.
 

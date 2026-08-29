@@ -70,7 +70,7 @@ in VCS (it is plain text) so later fixes never need `original/` around.
 Then place the binary at the path specified in `rebrew-project.toml` (default: `original/<filename>`).
 
 `rebrew init` creates `rebrew-project.toml`, `AGENTS.md`, `original/`, `src/<target>/`, and
-empty `src/rebrew-function.toml` + `src/rebrew-data.toml` metadata files. Prefer
+empty `src/rebrew-functions.toml` + `src/rebrew-data.toml` metadata files. Prefer
 `--install-wibo` from a fresh environment so compiles run through wibo (a lightweight Win32
 PE loader) instead of full Wine — it also writes `runner = "tools/wibo"` into the config.
 
@@ -157,7 +157,7 @@ rebrew cfg list-targets                 # confirm target is configured
 
 Run `rebrew doctor` before anything else. It checks that `rebrew-project.toml` parses, the
 target binary loads, the compiler (CL.EXE) + runner (wine/wibo) are reachable, include/lib
-paths exist, `flirt_sigs/` parses, and `rebrew-function.toml`/`rebrew-data.toml` exist.
+paths exist, `flirt_sigs/` parses, and `rebrew-functions.toml`/`rebrew-data.toml` exist.
 
 - **Exit code is 1 if any check failed** — treat `fail` checks as blockers, not warnings.
 - `--json` prints `{"target", "passed", "summary": {"pass","fail","warn"}, "checks": [{name, status, message, fix}]}`.
@@ -210,7 +210,7 @@ since the original source is often available.
 ```bash
 rebrew catalog --data-json              # write db/data_<target>.json
 rebrew catalog --export-ghidra-labels   # write ghidra_data_labels.json (switch tables etc.)
-rebrew catalog --fix-sizes              # backfill SIZE in rebrew-function.toml from catalog
+rebrew catalog --fix-sizes              # backfill SIZE in rebrew-functions.toml from catalog
 rebrew build-db                         # build SQLite coverage database (db/coverage.db)
 ```
 

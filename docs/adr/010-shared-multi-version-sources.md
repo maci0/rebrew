@@ -22,7 +22,7 @@ between them by copying the `.c` per target.  But two scenarios need the
 rebrew already has most of the primitives: per-target config with
 `reversed_dir = src/<TARGET>`, per-target compiler flags, the same
 `// FUNCTION: <target> <va>` marker syntax, and per-target metadata keyed by
-`module.va` in one `src/rebrew-function.toml`.  What was missing was a way
+`module.va` in one `src/rebrew-functions.toml`.  What was missing was a way
 for one source file to be discovered and compiled for every target, plus a
 per-target compile-time define.
 
@@ -35,7 +35,7 @@ per-target compile-time define.
    sees only its own marker.  The stored `filepath` is relative to the
    target's `reversed_dir` (`../shared/f.c`), which resolves back to the
    shared file for compile/verify without touching the resolution code.
-   Metadata (STATUS/SIZE/…) lives in the shared `rebrew-function.toml`
+   Metadata (STATUS/SIZE/…) lives in the shared `rebrew-functions.toml`
    under per-target keys, so each target tracks its own status for the same
    source.
 2. **`[targets.<name>] defines = ["V2"]`**: per-target compile-time defines,

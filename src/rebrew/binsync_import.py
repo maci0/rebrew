@@ -222,7 +222,7 @@ def main(
                             bs_proto = bs_proto[:-1].strip()
                         body_proto = bs_proto if bs_proto else f"void {target_func}(void)"
                         # Marker line only — STATUS/SIZE/NOTE are metadata-owned
-                        # keys and go to rebrew-function.toml (inline forms are
+                        # keys and go to rebrew-functions.toml (inline forms are
                         # deprecated: lint W019 flags them).
                         stub = (
                             f"// FUNCTION: {cfg.marker or 'SERVER'} 0x{va:08x}\n{body_proto} {{}}\n"

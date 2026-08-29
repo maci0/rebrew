@@ -3,7 +3,7 @@
 The decomp-scene's splat ecosystem uses a flat two-column CSV (``0xVA,name``)
 as the interchange format between the binary splitter, m2c, and the diff
 tooling.  Rebrew keeps the same information in per-directory
-``rebrew-function.toml`` + annotations, but there is no portable export —
+``rebrew-functions.toml`` + annotations, but there is no portable export —
 Ghidra imports, splat-style tooling, and third-party viewers all expect the
 CSV.  This command writes it.
 

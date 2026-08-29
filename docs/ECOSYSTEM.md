@@ -23,7 +23,7 @@ flowchart TB
     end
 
     subgraph L1["Core workbench"]
-        RB["rebrew<br/>compile → compare → STATUS<br/>GA engine · FLIRT · catalog<br/>db/coverage.db · rebrew-function.toml"]
+        RB["rebrew<br/>compile → compare → STATUS<br/>GA engine · FLIRT · catalog<br/>db/coverage.db · rebrew-functions.toml"]
         PRJ["*-rebrew workspaces<br/>target binary + C sources +<br/>rebrew-project.toml"]
     end
 
@@ -76,7 +76,7 @@ and service projects import. Internals: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 What rebrew *produces* for the ecosystem:
 
-- matched C sources + per-function `rebrew-function.toml` / `rebrew-data.toml`
+- matched C sources + per-function `rebrew-functions.toml` / `rebrew-data.toml`
   metadata (the durable output),
 - `db/coverage.db` — the SQLite coverage database consumed by recoverage
   ([DB_FORMAT.md](DB_FORMAT.md)),
@@ -236,7 +236,7 @@ in [prd/09-binsync-full.md](prd/09-binsync-full.md).
 ```mermaid
 flowchart LR
     subgraph RBS["rebrew project"]
-        ANN["annotations + metadata<br/>(rebrew-function.toml,<br/>rebrew-data.toml)"]
+        ANN["annotations + metadata<br/>(rebrew-functions.toml,<br/>rebrew-data.toml)"]
         SRC["C source trees"]
         CAT["catalog + coverage data"]
     end
@@ -283,7 +283,7 @@ section.
 flowchart LR
     SRC["annotated C sources"] --> CMP["compile_and_compare<br/>in a toolchain container"]
     BIN["target binary PE/ELF"] --> CMP
-    CMP --> MET["rebrew-function.toml<br/>STATUS promotion"]
+    CMP --> MET["rebrew-functions.toml<br/>STATUS promotion"]
     CMP --> VFY["rebrew verify<br/>similarity column"]
     RES["resembl scoring core"] --> VFY
     CMP --> CAT["rebrew catalog"]

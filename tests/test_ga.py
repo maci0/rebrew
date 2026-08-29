@@ -41,7 +41,7 @@ class TestParseStubInfo:
             encoding="utf-8",
         )
         # SIZE lives in metadata, not inline
-        metadata_toml = tmp_path / "rebrew-function.toml"
+        metadata_toml = tmp_path / "rebrew-functions.toml"
         existing = metadata_toml.read_text(encoding="utf-8") if metadata_toml.exists() else ""
         metadata_toml.write_text(
             existing + f'["SERVER.0x{va:08X}"]\nsize = {size}\n',
@@ -101,7 +101,7 @@ class TestFindAllStubs:
             encoding="utf-8",
         )
         # SIZE in metadata
-        metadata_toml = d / "rebrew-function.toml"
+        metadata_toml = d / "rebrew-functions.toml"
         existing = metadata_toml.read_text(encoding="utf-8") if metadata_toml.exists() else ""
         metadata_toml.write_text(
             existing + f'["SERVER.0x{va:08X}"]\nsize = {size}\n',
@@ -186,10 +186,10 @@ class TestParseMatchingAll:
         lines.append(f"int __cdecl {name}(void) {{ return 0; }}")
         path = d / f"{name}.c"
         path.write_text("\n".join(lines), encoding="utf-8")
-        # Write metadata-owned fields to rebrew-function.toml
+        # Write metadata-owned fields to rebrew-functions.toml
         import re
 
-        metadata_toml = d / "rebrew-function.toml"
+        metadata_toml = d / "rebrew-functions.toml"
         existing = metadata_toml.read_text(encoding="utf-8") if metadata_toml.exists() else ""
         entry = f'["SERVER.0x{va:08x}"]\nstatus = "{status}"\nsize = 100\ncflags = "{cflags}"\n'
         if blocker:
@@ -263,10 +263,10 @@ class TestFindAllMatching:
             f"int __cdecl {name}(void) {{ return 0; }}",
         ]
         (d / f"{name}.c").write_text("\n".join(lines), encoding="utf-8")
-        # Write metadata-owned fields to rebrew-function.toml
+        # Write metadata-owned fields to rebrew-functions.toml
         import re
 
-        metadata_toml = d / "rebrew-function.toml"
+        metadata_toml = d / "rebrew-functions.toml"
         existing = metadata_toml.read_text(encoding="utf-8") if metadata_toml.exists() else ""
         entry = f'["SERVER.0x{va:08x}"]\nstatus = "{status}"\nsize = {size}\ncflags = "/O2 /Gd"\n'
         if blocker:
@@ -348,7 +348,7 @@ class TestUpdateCflagsAnnotation:
         changed = update_cflags_annotation(f, "/O1 /Gz")
         assert changed is True
         # Verify metadata was written
-        metadata_toml = tmp_path / "rebrew-function.toml"
+        metadata_toml = tmp_path / "rebrew-functions.toml"
         assert metadata_toml.exists()
         content = metadata_toml.read_text(encoding="utf-8")
         assert "/O1 /Gz" in content
@@ -385,7 +385,7 @@ class TestUpdateCflagsAnnotation:
 
 class TestStubMetadataDir:
     """Stub discovery must read SIZE/STATUS from cfg.metadata_dir, which is
-    the reversed_dir PARENT in the standard layout (rebrew-function.toml at
+    the reversed_dir PARENT in the standard layout (rebrew-functions.toml at
     src/, not next to each .c file)."""
 
     def _make(self, tmp_path: Path) -> tuple[Path, Path, Any]:
@@ -396,7 +396,7 @@ class TestStubMetadataDir:
             "// STUB: SERVER 0x10001000\nvoid __cdecl func(void) {}\n",
             encoding="utf-8",
         )
-        meta = tmp_path / "src" / "rebrew-function.toml"
+        meta = tmp_path / "src" / "rebrew-functions.toml"
         meta.write_text('["SERVER.0x10001000"]\nsize = 64\nstatus = "STUB"\n', encoding="utf-8")
         cfg = SimpleNamespace(
             reversed_dir=reversed_dir,

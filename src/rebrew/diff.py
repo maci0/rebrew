@@ -417,7 +417,7 @@ _EPILOG = (
     "  1   Structural differences found (** lines)\n\n"
     "  2   Build failed\n\n"
     "[dim]Compiles source with MSVC6 (CFLAGS from metadata) and diffs against the target binary. "
-    "Symbol, VA, and size are auto-detected from // FUNCTION markers and rebrew-function.toml metadata.[/dim]"
+    "Symbol, VA, and size are auto-detected from // FUNCTION markers and rebrew-functions.toml metadata.[/dim]"
 )
 
 app = typer.Typer(

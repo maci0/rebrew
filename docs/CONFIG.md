@@ -57,7 +57,7 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `text_raw_offset` | Auto-detected from PE | `.text` section raw file offset |
 | `reversed_dir` | `[targets.<name>].reversed_dir` | Where `.c` files are stored |
 | `shared_dir` | `[project].shared_dir` | Project-level shared-sources root (`src/shared` by default); sources here are scanned for every target and may carry one `// FUNCTION: <target> <va>` marker per target. Empty value disables shared sources |
-| `metadata_dir` | Derived: parent of `reversed_dir` | Canonical home of `rebrew-function.toml` / `rebrew-data.toml`; callers must pass it explicitly (no walk-up) |
+| `metadata_dir` | Derived: parent of `reversed_dir` | Canonical home of `rebrew-functions.toml` / `rebrew-data.toml`; callers must pass it explicitly (no walk-up) |
 | `capstone_arch` / `capstone_mode` | Derived from `arch` | Capstone disassembly constants |
 | `padding_bytes` | Derived from `arch` | `(0xCC, 0x90)` for x86_32/x86_64 (see Architecture Presets) |
 | `symbol_prefix` | Derived from `arch` | `_` for x86_16/x86_32, empty for x86_64/arm |
@@ -114,7 +114,7 @@ A multi-target source file might look like:
 void __cdecl MyFunc(void) { ... }
 ```
 
-Each target's `rebrew-function.toml` metadata holds the metadata (STATUS, SIZE, CFLAGS) for the
+Each target's `rebrew-functions.toml` metadata holds the metadata (STATUS, SIZE, CFLAGS) for the
 corresponding VA.
 
 Running `rebrew test --target server_dll` processes only the `SERVER` marker block. Running `rebrew test --target client_exe` processes only the `CLIENT` block.
@@ -150,7 +150,7 @@ Compiler settings are resolved in layers. Each layer overrides the previous:
 1. **Built-in defaults** — empty host `command` for docker-backed profiles (the docker image is the compiler; `wine CL.EXE` is only a legacy fallback for hand-written configs), `/nologo /c /MT` base flags, 60s timeout
 2. **`[compiler]`** — Global settings shared across all targets
 3. **`[targets.<name>.compiler]`** — Per-target overrides (partial — only keys present override)
-4. **`rebrew-function.toml` metadata** — Per-function CFLAGS override in the function's entry (highest priority for cflags)
+4. **`rebrew-functions.toml` metadata** — Per-function CFLAGS override in the function's entry (highest priority for cflags)
 
 ```toml
 # Global defaults — all targets inherit these

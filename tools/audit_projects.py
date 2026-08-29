@@ -135,7 +135,7 @@ def main() -> int:
                         issues.append(f"[{t}] functions.txt: {b}")
                 # Metadata
                 meta_root = cfg.metadata_dir
-                fn_meta = meta_root / "rebrew-function.toml"
+                fn_meta = meta_root / "rebrew-functions.toml"
                 if fn_meta.exists():
                     for b in check_metadata(fn_meta):
                         issues.append(f"[{t}] metadata: {b}")

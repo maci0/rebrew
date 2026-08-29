@@ -258,7 +258,7 @@ class TestFindNearMissNested:
             blocker="5B diff: off at offsets 0, 1, 2, 3, 4",
         )
         # Write blocker_delta to metadata so _parse_annotations picks it up
-        md = tmp_path / "game" / "rebrew-function.toml"
+        md = tmp_path / "game" / "rebrew-functions.toml"
         md.write_text(
             '["SERVER.0x10001000"]\nblocker_delta = 5\n',
             encoding="utf-8",

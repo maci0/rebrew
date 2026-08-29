@@ -3,7 +3,7 @@
 For each function in a source file, prints the declared-dependency chain
 that determined its toolchain + CFLAGS:
 
-    per-function metadata (rebrew-function.toml / annotations)
+    per-function metadata (rebrew-functions.toml / annotations)
       → nearest rebrew-library.toml (walk-up, presets applied)
       → project defaults ([compiler] profile + cflags fallbacks)
 

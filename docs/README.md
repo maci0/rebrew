@@ -17,7 +17,7 @@
 | [CLI.md](CLI.md) | All CLI commands (umbrella `rebrew` + multi-command groups) — flags, examples, internal modules |
 | [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, config loader, arch presets, compiler profiles |
 | [ANNOTATIONS.md](ANNOTATIONS.md) | Source-file marker format (`// FUNCTION:` / `library_*.h`) and linter codes E000–E023 / W001–W028 |
-| [METADATA_FORMAT.md](METADATA_FORMAT.md) | TOML metadata files (`rebrew-function.toml`, `rebrew-data.toml`) — volatile fields, status lifecycle |
+| [METADATA_FORMAT.md](METADATA_FORMAT.md) | TOML metadata files (`rebrew-functions.toml`, `rebrew-data.toml`) — volatile fields, status lifecycle |
 | [METADATA.md](METADATA.md) | The full store map — canonical vs derived vs cache tiers, who owns which fact, precedence rules |
 | [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / NEAR_MATCHING / PROVEN / SKIP — byte-level examples and relocation masking |
 | [GA_MUTATIONS.md](GA_MUTATIONS.md) | All 119 GA mutation operators — categories, rationale, discovery origins |

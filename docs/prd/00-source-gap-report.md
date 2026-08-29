@@ -247,7 +247,7 @@ workflows, and limitations.
 
 ### Gap: `rebrew status` reads source files at runtime; no warning when annotations are stale relative to metadata
 
-- **Gap:** Status reports STATUS from `rebrew-function.toml`, but if a user has
+- **Gap:** Status reports STATUS from `rebrew-functions.toml`, but if a user has
   inline STATUS markers (legacy), they will not match the displayed value.
 - **Evidence:** `src/rebrew/status.py` and `src/rebrew/lint.py` W019 warning for
   inline metadata.
@@ -284,15 +284,15 @@ workflows, and limitations.
 
 ## Feature: 06 — Data Section Analysis
 
-### Gap: `rebrew data --fix-bss` writes to `rebrew-data.toml`, but the SKILL.md still mentions `rebrew-function.toml`
+### Gap: `rebrew data --fix-bss` writes to `rebrew-data.toml`, but the SKILL.md still mentions `rebrew-functions.toml`
 
 - **Gap:** Help epilogue mentions metadata writes; both the workflow skill and PRD
-  reference `rebrew-function.toml`. The actual writes for DATA/GLOBAL metadata go to
+  reference `rebrew-functions.toml`. The actual writes for DATA/GLOBAL metadata go to
   `rebrew-data.toml` (`DATA_METADATA_FILENAME` in `src/rebrew/data_metadata.py:64`).
 - **Evidence:** `src/rebrew/data_metadata.py:21` says "All rebrew-specific metadata
   lives in `rebrew-data.toml`"; `src/rebrew/agent-skills/rebrew-data-analysis/SKILL.md`
   references `rebrew-data.toml` correctly, but PRD 03 / 05 broadly say "metadata in
-  rebrew-function.toml" without distinguishing.
+  rebrew-functions.toml" without distinguishing.
 - **Severity:** nit (fixed)
 - **Fixed:** both skills now make the split explicit — data metadata lives in
   `rebrew-data.toml` at `cfg.metadata_dir` (`rebrew-data-analysis/SKILL.md:103`,
@@ -369,7 +369,7 @@ workflows, and limitations.
 
 - **Previously:** PRD listed this as a known limitation. There was no `binsync-import` command.
 - **Now:** `src/rebrew/binsync_import.py` provides `rebrew binsync-import <state-dir>` (reads
-  `functions/*.toml` + `global_vars.toml` back into `rebrew-function.toml` / `rebrew-data.toml`
+  `functions/*.toml` + `global_vars.toml` back into `rebrew-functions.toml` / `rebrew-data.toml`
   for names/prototypes/globals, with `--accept-binsync`/`--accept-local` conflict handling,
   `--module` filter, `--dry-run`/`--json`). The exporter also now writes real global types
   and struct fields, and supports `--module` + `--git` (opt-in commit). Full `libbs`/stack-var

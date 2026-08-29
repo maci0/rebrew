@@ -10,7 +10,7 @@ truth.
 
 | Tier | Stores | Contract |
 |---|---|---|
-| **Canonical (user-owned)** | `.c` marker lines, `rebrew-function.toml`, `rebrew-data.toml`, `rebrew-library.toml`, `rebrew-project.toml` | The only stores you hand-edit or that hold non-derivable facts.  Everything below is regenerable from these (plus the binary). |
+| **Canonical (user-owned)** | `.c` marker lines, `rebrew-functions.toml`, `rebrew-data.toml`, `rebrew-library.toml`, `rebrew-project.toml` | The only stores you hand-edit or that hold non-derivable facts.  Everything below is regenerable from these (plus the binary). |
 | **Derived, VCS-intended** | `functions.txt`, `src/<target>/CATALOG.md`, `<target>.def`, `crt_region/*.c`, `src/link_stubs.c`, `src/<target>/bss_padding.c`, `src/<target>/rebrew_globals.h`, `layout/<target>/`, `[targets.<t>.layout]` + `[link]` config blocks, `flirt_sigs/*.pat`, `cmake/toolchain-*.cmake` | Build scaffolding generated from the binary / binary-derived facts (gen-layout, discover, catalog, link-stubs, `rebrew data --fix-bss` / `--gen-header`, flirt).  Committed to git so a rebuild never needs `original/` around; regenerable via the generating command.  Never hand-edit. |
 | **Derived, gitignored (build output)** | `db/data_<target>.json`, `db/coverage.db`, `db/verify_results.json`, `db/<target>_functions.csv`, `bin/<target>/*.bin`, `output/report/` | Rebuildable via `rebrew catalog` / `rebrew build-db` / `rebrew verify` / `rebrew extract` / `rebrew report`.  Treat as build output. |
 | **Cache (delete-safe)** | `.rebrew/verify_cache.json`, `.rebrew/ghidra_sync_state.json`, `.rebrew/compile_cache/`, `output/ga_runs/*/build_cache*`, `output/ga_runs/*/checkpoints/*.json`, `output/ga_runs/*/best.c`, in-memory mtime caches | Regenerated on demand.  Deleting costs a recompile/re-verify/resync at most.  The exception: `.rebrew/solutions.json` and `.rebrew/ga_runs.jsonl` are *history*, not caches — they accumulate knowledge re-running GA would not reproduce. |
@@ -22,9 +22,9 @@ truth.
 | Function **identity** (which VAs are functions) | merged registry (`catalog/registry.py`: functions.txt + `function_structure.json` + exports, minus IAT slots) | grid JSON, coverage.db `functions` table |
 | Function **size** | registry `canonical_size` (`+ size_reason`) — the compile contract is annotation/metadata `SIZE` | grid `size`, DB `functions.size` |
 | Function **name** | annotation name (the `// FUNCTION: MODULE 0xVA` line) | grid/DB `name`, plus `list_name`/`ghidra_name` columns preserving the other authorities |
-| Match **STATUS** | `rebrew-function.toml` — written **only** via `metadata.update_source_status` / `update_statuses_batch` (promotion gate, PROVEN sticky) — triggered by `rebrew test` / `rebrew verify` / `rebrew prove` | grid/DB snapshots; `.rebrew/verify_cache.json` measured-result overlay at report time |
-| **BLOCKER / BLOCKER_DELTA** | `rebrew-function.toml` — written **only** via `metadata.update_field` / `remove_field` through `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`, `rebrew document-unmatched` (never hand-edited) | `rebrew status`/`todo` counts; `lint` W005 when `STUB` lacks one |
-| **cflags / toolchain** | `rebrew-function.toml` (per-function) → `rebrew-library.toml` (per-library, walk-up) → project defaults, resolved by `resolve_compile_overrides` | grid `cflags`, DB column |
+| Match **STATUS** | `rebrew-functions.toml` — written **only** via `metadata.update_source_status` / `update_statuses_batch` (promotion gate, PROVEN sticky) — triggered by `rebrew test` / `rebrew verify` / `rebrew prove` | grid/DB snapshots; `.rebrew/verify_cache.json` measured-result overlay at report time |
+| **BLOCKER / BLOCKER_DELTA** | `rebrew-functions.toml` — written **only** via `metadata.update_field` / `remove_field` through `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`, `rebrew document-unmatched` (never hand-edited) | `rebrew status`/`todo` counts; `lint` W005 when `STUB` lacks one |
+| **cflags / toolchain** | `rebrew-functions.toml` (per-function) → `rebrew-library.toml` (per-library, walk-up) → project defaults, resolved by `resolve_compile_overrides` | grid `cflags`, DB column |
 | **Data symbols (globals)** | `rebrew-data.toml` | grid `globals`, DB `globals` table, `src/<target>/rebrew_globals.h` (`rebrew data --gen-header` — extern declarations for the build) |
 | Coverage presence | grid JSON (`db/data_<target>.json`) | coverage.db (pure function of the JSON) |
 | **Layout / PE normalization** | `layout/<target>/` package — `layout.txt` (sections, exports, imports, export_stamp, link_options, image_base), `header.hex` (full PE header block: SizeOfImage/CheckSum/TimeDateStamp/section table), `iat.hex`, `data.hex`, `reloc.hex`, `operands.txt`, `calls.txt` | `[targets.<t>.layout]` config copy (editor/UI + bss calibration), `[link]` block (`file_align`, `stack_*`, `tsaware`, `timestamp`) consumed by `round_trip --fix-headers` |
@@ -86,7 +86,7 @@ whenever the reference binary changes — the layout files carry
    `update_source_status` / `update_statuses_batch` (STATUS),
    `update_field` / `remove_field` (function metadata, incl. `rebrew blocker`
    for BLOCKER), `set_data_field` (data metadata), `rebrew library set`
-   (library overrides).  **Do not hand-edit `rebrew-function.toml` or
+   (library overrides).  **Do not hand-edit `rebrew-functions.toml` or
    `rebrew-data.toml`** — every write goes through `metadata_write_lock` +
    `atomic_write_text` (see `rebrew/metadata.py`, `rebrew/data_metadata.py`).
    No module-less metadata keys: the writers reject an empty module (a bare

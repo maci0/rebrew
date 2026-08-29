@@ -90,7 +90,7 @@ class TestBuildDossier:
 
     def test_near_match_section(self, tmp_path: Path) -> None:
         """The dossier's near_match section carries blockers + mutations."""
-        (tmp_path / "rebrew-function.toml").write_text(
+        (tmp_path / "rebrew-functions.toml").write_text(
             '["T.0x10002000"]\n'
             'status = "NEAR_MATCHING"\n'
             'blocker = "NEAR_MATCHING — REGISTER (57% of delta) — try: mut_swap_register_keywords"\n',

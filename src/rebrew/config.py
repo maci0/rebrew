@@ -358,7 +358,7 @@ class ProjectConfig:
 
     @property
     def metadata_dir(self) -> Path:
-        """Directory for rebrew-function.toml and rebrew-data.toml.
+        """Directory for rebrew-functions.toml and rebrew-data.toml.
 
         This is the parent of ``reversed_dir`` — e.g. ``src/`` when
         ``reversed_dir`` is ``src/NP``.  All metadata reads/writes must

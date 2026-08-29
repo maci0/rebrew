@@ -966,11 +966,11 @@ class TestFixBlockerStatus:
 
     def test_fix_blocker_writes_status(self, monkeypatch, tmp_path: Path) -> None:
         self._invoke_fix(monkeypatch, tmp_path)
-        meta = (tmp_path / "rebrew-function.toml").read_text(encoding="utf-8")
+        meta = (tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8")
         assert 'status = "NEAR_MATCHING"' in meta
         assert "blocker" in meta
 
     def test_fix_blocker_dry_run_skips_status(self, monkeypatch, tmp_path: Path) -> None:
         self._invoke_fix(monkeypatch, tmp_path, "--dry-run")
-        meta_path = tmp_path / "rebrew-function.toml"
+        meta_path = tmp_path / "rebrew-functions.toml"
         assert not meta_path.exists() or "status" not in meta_path.read_text(encoding="utf-8")

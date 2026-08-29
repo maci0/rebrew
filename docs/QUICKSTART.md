@@ -102,7 +102,7 @@ rebrew test src/server.dll/my_func.c
 ```
 
 `rebrew test` compiles your source, byte-compares it against the target, and
-auto-promotes STATUS in `rebrew-function.toml` on an EXACT or RELOC match.
+auto-promotes STATUS in `rebrew-functions.toml` on an EXACT or RELOC match.
 
 If the result is MISMATCH, inspect what differs:
 

@@ -111,7 +111,7 @@ def _signature_for(cfg: ProjectConfig, code: bytes, va: int) -> dict[str, Any] |
 def _annotations_by_va(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
     """``va -> (status, filepath)`` from the target's sources + metadata.
 
-    Status comes from the metadata overlay (``rebrew-function.toml`` via
+    Status comes from the metadata overlay (``rebrew-functions.toml`` via
     ``cfg.metadata_dir``); filepath is relative to ``cfg.reversed_dir``.
     """
     from rebrew.annotation import parse_c_file_multi

@@ -229,7 +229,7 @@ class TestCollectStatus:
         assert report.to_dict()["decompiled_pct"] == 0.0
 
     def test_unresolved_blockers_counted(self, tmp_path: Path) -> None:
-        """Functions with a non-empty BLOCKER in rebrew-function.toml are counted."""
+        """Functions with a non-empty BLOCKER in rebrew-functions.toml are counted."""
         cfg = _make_cfg(tmp_path)
         src = tmp_path / "src"
         src.mkdir()
@@ -245,7 +245,7 @@ class TestCollectStatus:
 
         # metadata_dir points at tmp_path (parent of reversed_dir); the metadata
         # file lives there with a per-module table keyed "MODULE.0xVA".
-        (tmp_path / "rebrew-function.toml").write_text(
+        (tmp_path / "rebrew-functions.toml").write_text(
             '["TEST.0x1000"]\nblocker = "register allocation (eax/ecx swap)"\n',
             encoding="utf-8",
         )
@@ -268,7 +268,7 @@ class TestCollectStatus:
             "// FUNCTION: TEST 0x1000\n// STATUS: STUB\nvoid func_a(void) {}\n",
             encoding="utf-8",
         )
-        (tmp_path / "rebrew-function.toml").write_text(
+        (tmp_path / "rebrew-functions.toml").write_text(
             '["TEST.0x1000"]\nblocker = ""\n',
             encoding="utf-8",
         )
@@ -592,7 +592,7 @@ class TestInlineMetadataWarning:
         assert report.inline_metadata_warning == 0
 
     def test_metadata_backed_inline_not_counted(self, tmp_path: Path) -> None:
-        """An inline key already owned by rebrew-function.toml is not counted."""
+        """An inline key already owned by rebrew-functions.toml is not counted."""
         from rebrew.metadata import set_field
 
         cfg = _make_cfg(tmp_path)

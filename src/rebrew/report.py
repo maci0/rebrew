@@ -159,7 +159,7 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
     the table stays consistent with the summary cards: same annotation source,
     same GLOBAL/DATA skip, same ``MIN_VALID_VA`` floor.  The blocker text
     (written by ``near-diag --fix-blocker`` / ``diff --fix-blocker``) comes
-    from ``rebrew-function.toml`` metadata.
+    from ``rebrew-functions.toml`` metadata.
     """
     from rebrew.metadata import get_entry
 

@@ -6,7 +6,7 @@
 ## Context
 
 Rebrew accumulated many persistence surfaces over time: `.c` annotation
-markers, three TOML stores (`rebrew-function.toml`, `rebrew-data.toml`,
+markers, three TOML stores (`rebrew-functions.toml`, `rebrew-data.toml`,
 `rebrew-library.toml`), `functions.txt`, a coverage grid JSON, a SQLite
 coverage DB, a verify cache, compile caches, and GA solutions/history
 files.  New contributors (and the agent docs) repeatedly asked "why are
@@ -88,7 +88,7 @@ Single-source rules enforced by code where cheap:
 **Trade-offs accepted**
 
 - We deliberately did **not** merge `rebrew-data.toml` into
-  `rebrew-function.toml` or drop `coverage.db`: distinct key spaces
+  `rebrew-functions.toml` or drop `coverage.db`: distinct key spaces
   (functions vs data symbols) and a real query consumer (dashboard,
   recoverage) justify the split.  Simplification came from shared
   mechanics and documented tiers, not fewer files.  The layout package

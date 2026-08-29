@@ -16,8 +16,8 @@ def _make_c(d, name, va, status, blocker="", skip=False) -> None:
         f"int __cdecl {name}(void) {{ return 0; }}",
     ]
     (d / f"{name}.c").write_text("\n".join(lines), encoding="utf-8")
-    # Write metadata-owned fields to rebrew-function.toml
-    metadata_toml = d / "rebrew-function.toml"
+    # Write metadata-owned fields to rebrew-functions.toml
+    metadata_toml = d / "rebrew-functions.toml"
     existing = metadata_toml.read_text(encoding="utf-8") if metadata_toml.exists() else ""
     entry = f'["SERVER.0x{va:08x}"]\nstatus = "{status}"\nsize = 100\ncflags = "/O2 /Gd"\n'
     if blocker:

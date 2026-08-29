@@ -332,7 +332,7 @@ class TestCheckMetadataFiles:
     def test_present_metadata_passes(self, tmp_path: Path) -> None:
         from rebrew.doctor import _PASS, check_metadata_files
 
-        (tmp_path / "rebrew-function.toml").write_text("", encoding="utf-8")
+        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
         (tmp_path / "rebrew-data.toml").write_text("", encoding="utf-8")
         cfg = SimpleNamespace(metadata_dir=tmp_path)
         result = check_metadata_files(cfg)  # type: ignore[arg-type]

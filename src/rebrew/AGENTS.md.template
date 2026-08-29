@@ -61,7 +61,7 @@ void __cdecl function_name(void)
 ```
 
 Volatile metadata (status, size, compiler flags, notes, blockers) is stored
-**outside** the `.c` file in a per-directory `rebrew-function.toml` metadata file:
+**outside** the `.c` file in a per-directory `rebrew-functions.toml` metadata file:
 
 ```toml
 ["{target_name}.0x10001234"]
@@ -73,7 +73,7 @@ note   = "inline asm detected"
 ```
 
 > [!CAUTION]
-> **Never manually edit `rebrew-function.toml` or `rebrew-data.toml`.** They are managed
+> **Never manually edit `rebrew-functions.toml` or `rebrew-data.toml`.** They are managed
 > exclusively by Rebrew CLI tools (`rebrew test`/`verify`/`prove` for STATUS;
 > `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`,
 > `rebrew document-unmatched` for BLOCKER; `rebrew data` / `rebrew sync` for globals).

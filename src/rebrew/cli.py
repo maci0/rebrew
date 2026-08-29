@@ -210,7 +210,7 @@ def iter_annotations(
     :param sources: List of paths returned by :func:`iter_sources`.
     :param target:  Optional marker string passed through to
         ``parse_c_file_multi`` (use :func:`target_marker` to obtain it).
-    :param metadata_dir: Parent of ``reversed_dir`` where ``rebrew-function.toml``
+    :param metadata_dir: Parent of ``reversed_dir`` where ``rebrew-functions.toml``
         lives.  When ``None``, metadata is not merged (only source annotations
         are parsed).
     """
@@ -334,7 +334,7 @@ def resolve_compile_overrides(
 
     Fallback chain, most specific first:
 
-    1. per-function metadata (rebrew-function.toml TOOLCHAIN / CFLAGS),
+    1. per-function metadata (rebrew-functions.toml TOOLCHAIN / CFLAGS),
     2. the nearest per-library ``rebrew-library.toml`` (walk-up from
        *source_dir*; its known-library presets fill missing fields),
     3. project defaults (``[compiler]`` profile/cflags via ``resolve_cflags``).

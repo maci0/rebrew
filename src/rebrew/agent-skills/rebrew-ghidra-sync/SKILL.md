@@ -103,7 +103,7 @@ Notes:
 - `--types-out` and `--by-module` are mutually exclusive (error, exit non-zero).
 - `--pull` with `--json` prints `{"updated", "skipped", "conflicts", "changes": [{"va", "field", "local", "ghidra", "file", "action", "reason?"}]}` to stdout. `action: "conflict"` entries need a decision — re-run with `--accept-ghidra` or `--accept-local`, or resolve the function manually.
 - `--pull` reports conflicts but continues and does NOT fail the command.
-- Metadata-owned results (NOTE/ANALYSIS/GHIDRA in `rebrew-function.toml`, DATA/GLOBAL `name`/`note` in `rebrew-data.toml`) are written under the metadata dir — never inline in `.c` files.
+- Metadata-owned results (NOTE/ANALYSIS/GHIDRA in `rebrew-functions.toml`, DATA/GLOBAL `name`/`note` in `rebrew-data.toml`) are written under the metadata dir — never inline in `.c` files.
 
 ## 3. Where Results Land
 
@@ -111,7 +111,7 @@ Notes:
 - `ghidra_size_commands.json` — size/new-function ops (project root)
 - `function_structure.json`, `ghidra_data_labels.json` — MCP caches refreshed by `--refresh-cache` (`cfg.reversed_dir`)
 - `types.h` / `types_<module>.h` / `enums_types.h` / `rebrew_globals.h` — pulled headers (`cfg.reversed_dir`)
-- `rebrew-function.toml` — per-function STATUS/NOTE/GHIDRA/ANALYSIS metadata (`cfg.metadata_dir`)
+- `rebrew-functions.toml` — per-function STATUS/NOTE/GHIDRA/ANALYSIS metadata (`cfg.metadata_dir`)
 - `rebrew-data.toml` — DATA/GLOBAL `name`/`note` metadata (`cfg.metadata_dir`)
 - `.rebrew/ghidra_sync_state.json` — push idempotency state (project root)
 
@@ -120,7 +120,7 @@ Notes:
 **Push -> Ghidra:**
 - Function labels (skips generic `func_XXXXXXXX` unless `--no-skip-generic`)
 - Plate comments with `[rebrew]` metadata (marker type, status, module, size, cflags, symbol, files)
-- Pre-comments from NOTE metadata (rebrew-function.toml)
+- Pre-comments from NOTE metadata (rebrew-functions.toml)
 - Bookmarks by status category (`rebrew/exact`, `rebrew/reloc`, `rebrew/matching`, `rebrew/stub`)
 - Struct definitions -> Ghidra Data Type Manager under `/rebrew` (typedefs pushed before structs so CParser resolves them)
 - Function prototypes (parsed from local C files; `set-function-prototype` runs before labels to avoid duplicate-name errors)
@@ -130,12 +130,12 @@ Notes:
 **Pull <- Ghidra:**
 - Function renames (updates the function name, renames the `.c` file; `--accept-ghidra` also rewrites `extern` cross-references across the codebase)
 - Data label names -> `rebrew-data.toml` `name` field (not inline)
-- Plate + pre comments -> NOTE in `rebrew-function.toml` (not inline)
+- Plate + pre comments -> NOTE in `rebrew-functions.toml` (not inline)
 - Data label comments -> `rebrew-data.toml` `note` field
 - `--pull-signatures` -> inline `// PROTOTYPE:` annotations on the function. It does NOT rewrite `extern` declarations — Ghidra types (`uint`, `byte`) are not valid C89/MSVC6, so treat the annotation as a hint and hand-clean it.
 - `--pull-structs` -> `types.h` (or per-module files with `--by-module`)
 - `--pull-datatypes` -> `enums_types.h` manifest (name/size/category only — ReVa MCP does not expose enum member values; define enums in source and `--push` them into Ghidra)
-- `--pull-comments` -> ANALYSIS in `rebrew-function.toml`; only comments falling inside a known function's `[va, va+size)` range are pulled
+- `--pull-comments` -> ANALYSIS in `rebrew-functions.toml`; only comments falling inside a known function's `[va, va+size)` range are pulled
 - `--pull-data` -> `rebrew_globals.h` with typed extern declarations grouped by `.data` / `.rdata` / `.bss`
 
 ## 5. Safety Guarantees

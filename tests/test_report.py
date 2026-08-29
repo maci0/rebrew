@@ -84,7 +84,7 @@ class TestReportCli:
         """The function table's Blocker column surfaces near-diag blockers."""
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
         # Metadata at the project root (the default metadata_dir).
-        (tmp_path / "rebrew-function.toml").write_text(
+        (tmp_path / "rebrew-functions.toml").write_text(
             '["SERVER.0x10002000"]\n'
             'blocker = "NEAR_MATCHING — REGISTER (57% of delta) — try: mut_swap_register_keywords"\n',
             encoding="utf-8",

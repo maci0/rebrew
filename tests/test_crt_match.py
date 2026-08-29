@@ -646,7 +646,7 @@ class TestCrtMatchCli:
         # reversed_dir parent), not in a stray toml next to the .c file.
         entry = get_entry(tmp_path, 0x10001000, "MSVCRT")
         assert entry.get("source") == "MALLOC.C:1"
-        assert not (src / "rebrew-function.toml").exists()
+        assert not (src / "rebrew-functions.toml").exists()
 
     def test_no_matches_message(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from typer.testing import CliRunner

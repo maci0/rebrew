@@ -139,7 +139,7 @@ _EPILOG = (
     "  1   NEAR_MATCHING or STUB (code needs improvement)\n\n"
     "  2   Build error (compilation failed)\n\n"
     "[dim]Parameters are auto-detected from // FUNCTION markers in source, "
-    "plus STATUS, SIZE, and CFLAGS from rebrew-function.toml metadata.[/dim]"
+    "plus STATUS, SIZE, and CFLAGS from rebrew-functions.toml metadata.[/dim]"
 )
 
 app = typer.Typer(

@@ -78,7 +78,7 @@ rebrew skeleton 0x<VA> --force                     # overwrite if the file alrea
 ```
 
 The skeleton writes the `// FUNCTION:` marker + a stub body and records SIZE in
-`rebrew-function.toml` automatically (SIZE is required for test/verify to extract target
+`rebrew-functions.toml` automatically (SIZE is required for test/verify to extract target
 bytes). It prints the exact `rebrew test` command to run next — use it.
 
 ## 3. Review Disassembly
@@ -99,7 +99,7 @@ void my_func() {}
 ```
 
 > [!CAUTION]
-> **All volatile metadata lives in `rebrew-function.toml` at `cfg.metadata_dir`
+> **All volatile metadata lives in `rebrew-functions.toml` at `cfg.metadata_dir`
 > (the parent of `reversed_dir`, e.g. `src/` for `src/server.dll/`), never inline
 > in the `.c` file — and never by hand-editing the TOML.** Metadata-owned keys: STATUS, SIZE, CFLAGS, BLOCKER/BLOCKER_DELTA,
 > NOTE, GHIDRA, ORIGIN, SOURCE, SECTION, SKIP, GLOBALS, prove_constraints.
@@ -107,7 +107,7 @@ void my_func() {}
 > `metadata.update_source_status`); PROVEN is sticky — never silently demoted
 > (deliberate demotion: `rebrew test <file> --force-status`). Use
 > `rebrew lint --fix` to migrate any leftover inline `// STATUS:`-style keys.
-> **Never manually edit `rebrew-function.toml` or `rebrew-data.toml`.**
+> **Never manually edit `rebrew-functions.toml` or `rebrew-data.toml`.**
 
 ## 4. Implement and Test
 
@@ -142,7 +142,7 @@ compiling. `rebrew match --dry-run` is **batch-only** (`--all`); a single-file
 `rebrew prove --dry-run` previews the STATUS promotion; `rebrew verify
 --dry-run` previews STATUS sync and skips cache/report writes.
 
-`rebrew test` always syncs STATUS in `rebrew-function.toml` after each run (`--no-promote` skips):
+`rebrew test` always syncs STATUS in `rebrew-functions.toml` after each run (`--no-promote` skips):
 - **EXACT / RELOC** → STATUS updated; BLOCKER/BLOCKER_DELTA cleared
 - **NEAR_MATCHING** (≥60% byte match) → STATUS updated; user-set BLOCKERs preserved
 - **STUB** (<60%) → STATUS demoted to STUB
@@ -157,7 +157,7 @@ For a byte diff of the current state:
 rebrew diff src/bench/<file>.c                # byte diff vs target
 rebrew diff src/bench/<file>.c -m             # mismatches only (** lines)
 rebrew diff src/bench/<file>.c -r             # register-aware (mark RR encoding diffs)
-rebrew diff src/bench/<file>.c --fix-blocker  # auto-write BLOCKER to rebrew-function.toml
+rebrew diff src/bench/<file>.c --fix-blocker  # auto-write BLOCKER to rebrew-functions.toml
 rebrew diff src/bench/<file>.c --format csv   # CSV for spreadsheet analysis
 rebrew diff 0x<VA> --json                        # JSON diff + structural similarity + blockers
 rebrew blocker set src/bench/<file>.c "needs RE structs"   # programmatic BLOCKER for STUBs diff cannot classify
@@ -239,7 +239,7 @@ rebrew verify --watch                   # re-verify all sources on every file ch
 rebrew verify --full --json             # ignore cache, force full re-verification
 rebrew lint src/bench/<file>.c       # lint one file (files are POSITIONAL args)
 rebrew lint --json                      # check annotation correctness
-rebrew lint --fix                       # auto-migrate inline metadata to rebrew-function.toml
+rebrew lint --fix                       # auto-migrate inline metadata to rebrew-functions.toml
 rebrew lint --fix --dry-run             # preview migrations without writing
 rebrew lint --summary                   # status/origin breakdown table
 rebrew lint --quiet                     # errors only, suppress warnings
@@ -300,7 +300,7 @@ rebrew round-trip --out <path>          # override output path
 - Compiles every EXACT/RELOC function, applies COFF relocations against the function +
   data catalogs, splices the patched bytes into a byte copy of the target PE, SHA-256s the
   result, and writes `<binary>.reasm` next to the original.
-- **Every EXACT/RELOC function needs SIZE in `rebrew-function.toml`** — a legacy
+- **Every EXACT/RELOC function needs SIZE in `rebrew-functions.toml`** — a legacy
   inline-only `// SIZE:` makes round-trip report `oversize (size <= 0 in metadata)` and
   fail the splice. Run `rebrew lint --fix` first to migrate inline SIZE/CFLAGS/STATUS
   keys into the metadata file (dry-run with `--dry-run`).

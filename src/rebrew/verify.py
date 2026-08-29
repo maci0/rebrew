@@ -5,7 +5,7 @@ target binary.  Results are classified by :class:`~rebrew.compile.CompareResult`
 (EXACT, RELOC, STUB, COMPILE_ERROR, …).
 
 After verification, STATUS is always promoted/demoted in
-``rebrew-function.toml`` via :func:`~rebrew.metadata.update_statuses_batch`
+``rebrew-functions.toml`` via :func:`~rebrew.metadata.update_statuses_batch`
 — the ``.c`` files are **never modified**.  PROVEN status is sticky and
 never demoted.
 
@@ -607,7 +607,7 @@ class VerifyCacheEntry:
     cflags: str = ""
     """Per-function CFLAGS used for the cached run.
 
-    CFLAGS live in ``rebrew-function.toml``, not in the ``.c`` file, so the
+    CFLAGS live in ``rebrew-functions.toml``, not in the ``.c`` file, so the
     source hash alone cannot detect a flag change (``rebrew match
     --fix-cflags`` rewrites metadata and leaves the source untouched).
     Entries written before this field existed carry ``""`` and are re-verified
@@ -616,7 +616,7 @@ class VerifyCacheEntry:
     size: int = -1
     """Annotation SIZE at cache time.
 
-    SIZE is metadata-only (``rebrew-function.toml``) — editing it via
+    SIZE is metadata-only (``rebrew-functions.toml``) — editing it via
     ``rebrew catalog --fix-sizes`` never touches the ``.c`` mtime, so the
     source hash cannot detect it either.  Entries written before this field
     existed carry ``-1`` (unknown) and are re-verified once."""
@@ -634,7 +634,7 @@ class VerifyCacheEntry:
     toolchain: str = ""
     """Resolved per-function toolchain override at cache time (e.g. ``watcom``).
 
-    The TOOLCHAIN field lives in ``rebrew-function.toml`` / ``rebrew-library.toml``,
+    The TOOLCHAIN field lives in ``rebrew-functions.toml`` / ``rebrew-library.toml``,
     not in the ``.c`` file, so the source hash cannot detect a toolchain
     change.  Only the resolved *cflags* were stored before this field, so a
     library ``TOOLCHAIN`` override edit served stale EXACT/RELOC for every
@@ -1667,7 +1667,7 @@ def prepare_entries(
         if cached_entry.filepath != getattr(entry, "filepath", ""):
             continue
 
-        # CFLAGS/TOOLCHAIN come from rebrew-function.toml AND the config
+        # CFLAGS/TOOLCHAIN come from rebrew-functions.toml AND the config
         # fallback chain (per-function → per-library rebrew-library.toml →
         # preset → [compiler].cflags), so a metadata edit is invisible to the
         # source hash below.  The entry stores the RESOLVED effective values
@@ -1937,7 +1937,7 @@ def run_verification(
 
                     # An INTERNAL_ERROR is a tooling failure, not a verification
                     # verdict — never let it overwrite the function's real STATUS
-                    # in rebrew-function.toml (previously EXACT/NEAR_MATCHING were
+                    # in rebrew-functions.toml (previously EXACT/NEAR_MATCHING were
                     # permanently demoted to COMPILE_ERROR).
                     if not is_internal_error:
                         deferred_fixes.append((entry, result.status, result.delta))

@@ -25,7 +25,7 @@ flowchart LR
     subgraph Sources
         C[".c source files<br/>FUNCTION:/STUB: markers"]
         TOML["rebrew-project.toml<br/>targets, compiler, paths"]
-        META["rebrew-function.toml<br/>STATUS/SIZE/CFLAGS/…"]
+        META["rebrew-functions.toml<br/>STATUS/SIZE/CFLAGS/…"]
     end
 
     C --> ANNOT["annotation.py<br/>parse_c_file_multi"]
@@ -68,7 +68,7 @@ flowchart LR
 | `rebrew/sources.py` | Source-tree discovery: `source_exts`, `source_glob`, `target_marker`, `iter_sources`, `iter_library_headers` (pure pathlib/config logic, importable by library modules) |
 | `rebrew/config.py` | `ProjectConfig` dataclass + `rebrew-project.toml` loader (multi-target) |
 | `rebrew/annotation.py` | Marker/KV annotation parsing (`// FUNCTION: MOD 0xVA`), key classification (file-only vs metadata) |
-| `rebrew/metadata.py` | `rebrew-function.toml` store + routing (`METADATA_FIELDS`, `update_source_status` / `update_field` / `remove_field`); typed facade in `metadata_model.py` (`MetadataEntry`) |
+| `rebrew/metadata.py` | `rebrew-functions.toml` store + routing (`METADATA_FIELDS`, `update_source_status` / `update_field` / `remove_field`); typed facade in `metadata_model.py` (`MetadataEntry`) |
 | `rebrew/compile.py` | Compile (docker image or native backend) + compare → `CompareResult` |
 | `rebrew/binary_loader.py` | PE/ELF/Mach-O loading via LIEF → `BinaryInfo` (sections, VAs, raw bytes) |
 | `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (119 tree-sitter mutations), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
@@ -104,7 +104,7 @@ flowchart LR
 ## The compile → compare → STATUS/BLOCKER loop
 
 1. `parse_c_file_multi()` reads markers + inline keys from a `.c` file.
-2. `merge_into_annotation()` overlays `rebrew-function.toml` values (metadata
+2. `merge_into_annotation()` overlays `rebrew-functions.toml` values (metadata
    wins for owned fields: STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA, …).
 3. `compile_and_compare()` compiles the source in the pinned toolchain
    image (`toolchain.py` — docker-only for every Windows/DOS compiler, built
@@ -113,13 +113,13 @@ flowchart LR
 4. `update_source_status()` writes STATUS to the metadata file only — the
    `.c` marker lines are never rewritten. `update_field` / `remove_field`
    (via `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, etc.) do the
-   same for BLOCKER/BLOCKER_DELTA — never hand-edit `rebrew-function.toml`.
+   same for BLOCKER/BLOCKER_DELTA — never hand-edit `rebrew-functions.toml`.
 
 ## Metadata routing rules (file-only vs metadata-only)
 
 - **metadata-owned**: STATUS, SIZE, CFLAGS, TOOLCHAIN, BLOCKER, BLOCKER_DELTA,
   NOTE, GHIDRA, ANALYSIS, SKIP, GLOBALS, SOURCE, PROVE_CONSTRAINTS — live in
-  `rebrew-function.toml`; inline use fires lint W019.
+  `rebrew-functions.toml`; inline use fires lint W019.
 - **file-only**: MARKER, VA, MODULE, SYMBOL — live in the `.c` block.
 - **legacy**: ORIGIN (derived from module), SECTION (owned by
   `rebrew-data.toml`) — inline → W019, never stored in function metadata.

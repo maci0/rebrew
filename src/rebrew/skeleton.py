@@ -6,7 +6,7 @@ Given a VA address, generates a properly annotated .c file skeleton with:
 - Prints the exact rebrew test command to verify it
 
 All volatile metadata (STATUS, SIZE, CFLAGS, BLOCKER) is written to the
-``rebrew-function.toml`` metadata by this generator, not into the .c file.
+``rebrew-functions.toml`` metadata by this generator, not into the .c file.
 
 Usage:
     rebrew skeleton 0x10003da0                    # Generate skeleton
@@ -912,7 +912,7 @@ _EPILOG = (
     "  rebrew skeleton --batch 10 · · · · · · · · Generate 10 skeletons at once\n\n"
     "[bold]What it creates:[/bold]\n\n"
     "  A .c file with a FUNCTION marker and placeholder body. All volatile metadata "
-    "(STATUS, SIZE, CFLAGS, BLOCKER) is written to rebrew-function.toml, not into "
+    "(STATUS, SIZE, CFLAGS, BLOCKER) is written to rebrew-functions.toml, not into "
     "the file itself. With --append, the marker block is appended to an existing "
     ".c file for multi-function compilation units.\n\n"
     "[dim]See also: 'rebrew todo' for a prioritized action list with ROI scoring. "

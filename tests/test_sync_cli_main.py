@@ -772,7 +772,7 @@ class TestWatchMode:
 
         monkeypatch.setattr("rebrew.utils.watch_files", fake_watch)
         runner.invoke(app, ["--watch", "--push"])
-        assert any("rebrew-function.toml" in p for p in captured["paths"])
+        assert any("rebrew-functions.toml" in p for p in captured["paths"])
 
 
 class TestCliBackendWiring:

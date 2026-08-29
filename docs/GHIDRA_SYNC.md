@@ -13,7 +13,7 @@ graph TD
     Push -->|--sync-sizes · --sync-structs<br/>--sync-signatures · --sync-data| DTM[push sizes / structs / sigs / data]
     Sync --> Pull[Pull Ghidra → local]
     Pull -->|--pull| Renames[pull renames + pre/post comments<br/>DATA/GLOBAL name+note → rebrew-data.toml]
-    Pull -->|--pull-structs · --pull-datatypes<br/>--pull-signatures · --pull-comments| Headers[types.h · enums_types.h<br/>PROTOTYPE → .c inline · ANALYSIS → rebrew-function.toml]
+    Pull -->|--pull-structs · --pull-datatypes<br/>--pull-signatures · --pull-comments| Headers[types.h · enums_types.h<br/>PROTOTYPE → .c inline · ANALYSIS → rebrew-functions.toml]
     Pull -->|--pull-data| GlobalsH[rebrew_globals.h]
     Renames --> Conflict{conflict?}
     Conflict -->|yes| Decide[--accept-ghidra / --accept-local]
@@ -51,9 +51,9 @@ graph TD
 | Validate `programPath` against Ghidra project | — | ✅ Done | `validate_program_path()` queries `get-current-program` via ReVa MCP and warns on mismatch |
 | XREF context in skeleton generation | Ghidra → Local | ✅ Done | `skeleton --xrefs` |
 | Ghidra decompilation backend for skeleton | Ghidra → Local | ✅ Done | `skeleton --decomp --decomp-backend ghidra` |
-| Metadata-aware linting | Local | ✅ Done | `rebrew lint` reads `rebrew-function.toml` before validation |
+| Metadata-aware linting | Local | ✅ Done | `rebrew lint` reads `rebrew-functions.toml` before validation |
 | Incremental / dirty-only sync | Both | ✅ Done | Dedup tracking (below) makes re-pushes incremental automatically — only content-changed operations are re-applied |
-| Watch mode (live file-change sync) | Local → Ghidra | ✅ Done | `--watch` (requires `--push`): watches sources + `rebrew-function.toml`, re-pushes on change |
+| Watch mode (live file-change sync) | Local → Ghidra | ✅ Done | `--watch` (requires `--push`): watches sources + `rebrew-functions.toml`, re-pushes on change |
 | Deduplication / idempotency tracking | — | ✅ Done | `.rebrew/ghidra_sync_state.json` records applied op hashes; `--export`/`--push` skip them (`--force` re-pushes) |
 
 For improvement ideas related to Ghidra sync, see [IDEAS.md](IDEAS.md) (#5–#9, #11).

@@ -205,7 +205,7 @@ class TestSizePersistence:
             ["test", "src/x/f.c", "--va", "0x1000", "--size", "4", "--symbol", "_f"],
         )
         assert result.exit_code == 0, result.output
-        meta = (tmp_path / "src" / "rebrew-function.toml").read_text()
+        meta = (tmp_path / "src" / "rebrew-functions.toml").read_text()
         assert "size = 4" in meta
 
     def test_va_promotes_under_selected_module_not_first(
@@ -255,7 +255,7 @@ class TestSizePersistence:
             ["test", "src/x/multi.c", "--va", "0x2000", "--size", "8", "--symbol", "_f2"],
         )
         assert result.exit_code == 0, result.output
-        meta = (tmp_path / "src" / "rebrew-function.toml").read_text()
+        meta = (tmp_path / "src" / "rebrew-functions.toml").read_text()
         # The CLIENT entry got the SIZE + EXACT status; no phantom SERVER.0x2000.
         assert "CLIENT.0x00002000" in meta
         assert "size = 8" in meta
@@ -311,7 +311,7 @@ class TestSizePersistence:
             ],
         )
         assert result.exit_code == 0, result.output
-        meta_path = tmp_path / "src" / "rebrew-function.toml"
+        meta_path = tmp_path / "src" / "rebrew-functions.toml"
         assert not meta_path.exists() or "size = 4" not in meta_path.read_text()
 
 
@@ -387,7 +387,7 @@ class TestFixSize:
             ],
         )
         assert result.exit_code == 0, result.output
-        meta = (tmp_path / "src" / "rebrew-function.toml").read_text()
+        meta = (tmp_path / "src" / "rebrew-functions.toml").read_text()
         assert "size = 12" in meta
         assert 'status = "RELOC"' in meta
 
@@ -422,7 +422,7 @@ class TestFixSize:
             ],
         )
         assert result.exit_code == 1, result.output
-        meta_path = tmp_path / "src" / "rebrew-function.toml"
+        meta_path = tmp_path / "src" / "rebrew-functions.toml"
         assert not meta_path.exists() or "size = 12" not in meta_path.read_text()
 
     def test_dry_run_previews_without_writing(self, tmp_path: Path, monkeypatch: Any) -> None:
@@ -456,7 +456,7 @@ class TestFixSize:
         )
         assert result.exit_code == 0, result.output
         assert "would fix SIZE 9 → 12" in result.output
-        meta_path = tmp_path / "src" / "rebrew-function.toml"
+        meta_path = tmp_path / "src" / "rebrew-functions.toml"
         assert not meta_path.exists() or "size = 12" not in meta_path.read_text()
 
 
@@ -504,12 +504,12 @@ class TestCflagsPersistence:
 
     def test_persists_explicit_cflags(self, tmp_path: Path, monkeypatch: Any) -> None:
         self._run(tmp_path, monkeypatch, "--cflags", "/O1")
-        meta = (tmp_path / "src" / "rebrew-function.toml").read_text()
+        meta = (tmp_path / "src" / "rebrew-functions.toml").read_text()
         assert 'cflags = "/O1"' in meta
 
     def test_no_cflags_no_persist(self, tmp_path: Path, monkeypatch: Any) -> None:
         self._run(tmp_path, monkeypatch)
-        meta = (tmp_path / "src" / "rebrew-function.toml").read_text()
+        meta = (tmp_path / "src" / "rebrew-functions.toml").read_text()
         assert "cflags" not in meta
 
 
