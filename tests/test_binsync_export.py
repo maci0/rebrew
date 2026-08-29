@@ -155,9 +155,12 @@ class TestBinsyncExportPrototype:
 
 
 class TestBinsyncExportComments:
-    def test_status_and_cflags_in_comment(
+    def test_status_and_cflags_not_exported(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """STATUS/CFLAGS have no BinSync counterpart — the old write-only
+        ``[rebrew] STATUS=… CFLAGS=…`` comment was removed (metadata-review
+        R2): the function TOML carries only BinSync-native fields."""
         _make_project(
             tmp_path,
             {
@@ -173,11 +176,8 @@ class TestBinsyncExportComments:
         result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
         doc = tomlkit.loads((outdir / "functions" / "10010000.toml").read_text())
-        assert "comments" in doc
-        comments = cast(dict[str, Any], doc["comments"])
-        assert str(0x10010000) in comments
-        assert "STATUS=RELOC" in comments[str(0x10010000)]
-        assert "CFLAGS=/O1 /Gd" in comments[str(0x10010000)]
+        comments = doc.get("comments")
+        assert comments is None or not any("[rebrew] STATUS=" in str(v) for v in comments.values())
 
     def test_note_written_at_va_plus_one(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -202,15 +202,6 @@ class TestBinsyncExportComments:
         assert note_key in comments
         assert "worth double-checking" in comments[note_key]
         assert comments[note_key].startswith("[rebrew:note]")
-
-    def test_rebrew_comment_helper_empty_when_no_status(self) -> None:
-        """_rebrew_comment returns empty string when both status and cflags are empty."""
-        from rebrew.binsync_export import _rebrew_comment
-
-        assert _rebrew_comment("", "") == ""
-        assert _rebrew_comment("EXACT", "") == "[rebrew] STATUS=EXACT"
-        assert _rebrew_comment("", "/O1") == "[rebrew] CFLAGS=/O1"
-        assert _rebrew_comment("RELOC", "/O2") == "[rebrew] STATUS=RELOC CFLAGS=/O2"
 
 
 # ---------------------------------------------------------------------------
@@ -371,8 +362,6 @@ class TestBinsyncGhidraComment:
             va=0x1000,
             size=10,
             prototype="",
-            status="EXACT",
-            cflags="",
             note="",
             ghidra="ghidra_name",
         )
@@ -396,8 +385,6 @@ class TestBinsyncGhidraComment:
             va=0x1000,
             size=4,
             prototype="",
-            status="EXACT",
-            cflags="",
             note="",
             ghidra="",
         )
@@ -419,8 +406,6 @@ class TestBinsyncGhidraComment:
             va=0x1000,
             size=10,
             prototype="",
-            status="EXACT",
-            cflags="",
             note="",
             ghidra="same_name",
         )

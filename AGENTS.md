@@ -289,14 +289,13 @@ src/rebrew/
 │   ├── flags.py         # FlagSet/Checkbox primitives (decomp.me compatible)
 │   ├── flag_data.py     # Auto-synced MSVC flag defs
 │   └── solutions.py     # GA solution transfer DB (cross-function cflags seeding)
-├── ghidra/              # Ghidra sync (ReVa MCP)
+├── ghidra/              # Ghidra sync — BinSync-primary field sync + MCP structural ops
 │   ├── __init__.py      # Re-exports public API
 │   ├── models.py        # Types (PullResult, PullChange, etc.)
 │   ├── client.py        # MCP HTTP (httpx)
-│   ├── commands.py      # Sync builders (push, pull, rename, size-sync)
-│   ├── cli_backend.py   # ghidra-cli subprocess backend for sync push (alternative to ReVa)
-│   ├── params.py        # Apply Ghidra parameter names to local C signatures
-│   └── cli.py           # Typer CLI (`rebrew sync`)
+│   ├── commands.py      # MCP structural op builders (create-function, bookmarks, data pull)
+│   ├── cli_backend.py   # ghidra-cli subprocess backend for MCP ops (alternative to ReVa)
+│   └── cli.py           # Typer CLI (`rebrew sync` — push/pull via --state-dir, MCP ops)
 ├── core/                # Matching + toolchain utilities
 │   ├── __init__.py      # Re-exports: smart_reloc_compare, msvc_env_from_config
 │   ├── matching.py      # smart_reloc_compare (relocation-aware byte compare)

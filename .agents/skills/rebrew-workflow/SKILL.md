@@ -207,7 +207,7 @@ rebrew graph --cu-map --json                         # infer TU boundaries
 If the function references globals, use the `rebrew-data-analysis` skill for
 `// GLOBAL:` / `// DATA:` annotations and the `rebrew data` tool. Global metadata
 lives in the **`rebrew-data.toml`** metadata file at `cfg.metadata_dir`, managed
-automatically by `rebrew data`, `rebrew data --fix-bss`, and `rebrew sync --pull`.
+automatically by `rebrew data`, `rebrew data --fix-bss`, and `rebrew sync --pull --state-dir <dir>`.
 
 ## 7. Prove Stubborn NEAR_MATCHING Functions
 

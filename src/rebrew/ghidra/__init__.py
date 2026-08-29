@@ -1,6 +1,8 @@
-"""ghidra — Bidirectional sync between rebrew annotations and Ghidra via ReVa MCP.
+"""ghidra — Sync rebrew annotations with Ghidra.
 
-Public API: CLI app, MCP operations, sync command builders, and pull results.
+Field-level sync is BinSync-primary (the state dir + the BinSync Ghidra
+plugin); the ReVa MCP surface here covers the structural ops BinSync cannot
+express: function creation, bookmarks, and data pulls.
 """
 
 from rebrew.ghidra.cli import app as app
@@ -11,28 +13,16 @@ from rebrew.ghidra.client import (
     apply_commands_via_mcp as apply_commands_via_mcp,
 )
 from rebrew.ghidra.commands import (
+    build_bookmark_commands as build_bookmark_commands,
+)
+from rebrew.ghidra.commands import (
     build_new_function_commands as build_new_function_commands,
 )
-from rebrew.ghidra.commands import (
-    build_size_sync_commands as build_size_sync_commands,
-)
-from rebrew.ghidra.commands import (
-    build_sync_commands as build_sync_commands,
-)
-from rebrew.ghidra.commands import (
-    pull_ghidra_renames as pull_ghidra_renames,
-)
-from rebrew.ghidra.models import PullChange as PullChange
-from rebrew.ghidra.models import PullResult as PullResult
 
 __all__ = [
-    "PullChange",
-    "PullResult",
     "app",
     "apply_commands_via_mcp",
+    "build_bookmark_commands",
     "build_new_function_commands",
-    "build_size_sync_commands",
-    "build_sync_commands",
-    "pull_ghidra_renames",
     "resolve_ghidra_cli",
 ]

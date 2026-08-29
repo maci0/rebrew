@@ -217,7 +217,7 @@ def fetch_pull_data_via_cli(
     timeout: int = 600,
 ) -> dict[str, list[dict[str, Any]]]:
     """Fetch functions/symbols/comments from Ghidra via ghidra-cli, shaped for
-    the pull pipeline (``pull_ghidra_renames``).
+    the MCP data-pull pipeline.
 
     Returns ``{"functions": [...], "symbols": [...], "plate": [...], "pre": [...]}``
     with VAs as ints (the pull path's ``parse_ghidra_va`` accepts both).

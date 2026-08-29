@@ -36,6 +36,9 @@ Variants for different marker types:
 ### What stays inline
 
 - `// FUNCTION: MODULE 0xVA`  (and LIBRARY/STUB/GLOBAL/DATA)
+- `// SIZE: N` — the **reccmp-native** compile contract (reccmp reads it
+  from the `.c`).  The TOML `SIZE` is an *override*; lint W019 warns only
+  when the two disagree.
 
 ### What does **not** stay inline
 
@@ -44,7 +47,7 @@ The following keys are **metadata-only** and must not appear in source files.
 `rebrew lint --fix` migrates them to the correct TOML.
 
 `STATUS`, `CFLAGS`, `TOOLCHAIN`, `SKIP`, `GLOBALS`, `BLOCKER`, `BLOCKER_DELTA`,
-`SOURCE`, `NOTE`, `SECTION`, `GHIDRA`, `ANALYSIS`, `ORIGIN`, `SIZE`,
+`SOURCE`, `NOTE`, `SECTION`, `GHIDRA`, `ANALYSIS`, `ORIGIN`,
 `PROVE_CONSTRAINTS`
 
 ## Layer 2: Metadata TOML Files

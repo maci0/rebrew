@@ -88,10 +88,10 @@ class TestOpToArgs:
         assert _op_to_args({"tool": "nope", "args": {}}) is None
 
     def test_real_producer_output_translates(self) -> None:
-        """Integration: real build_sync_commands output must translate to
-        non-empty ghidra-cli argv (regression for the addressOrSymbol/labelName
-        key mismatch that broke 3 of 6 ops)."""
-        from rebrew.ghidra.commands import build_sync_commands
+        """Integration: the kept structural-op producers (bookmarks, function
+        creation) must translate to non-empty ghidra-cli argv (regression for
+        the addressOrSymbol/labelName key mismatch)."""
+        from rebrew.ghidra.commands import build_bookmark_commands, build_new_function_commands
 
         entry = {
             "va": 0x10001000,
@@ -103,17 +103,17 @@ class TestOpToArgs:
             "cflags": "/O2",
             "marker_type": "FUNCTION",
         }
-        ops = build_sync_commands([entry], "/x.dll")
-        assert ops, "producer must emit operations"
-        translated = [argv for op in ops if (argv := _op_to_args(op)) is not None]
-        # Every produced op translates, and none has an empty address slot.
-        assert len(translated) == len(ops)
-        for argv in translated:
+        bookmark_ops = build_bookmark_commands([entry], "/x.dll")
+        assert bookmark_ops, "bookmark producer must emit operations"
+        translated = [argv for op in bookmark_ops if (argv := _op_to_args(op)) is not None]
+        assert len(translated) == len(bookmark_ops)
+        for op, argv in zip(bookmark_ops, translated, strict=False):
             assert argv, "empty argv"
-        # The label/comment/bookmark ops must carry a real address.
-        for op, argv in zip(ops, translated, strict=False):
-            if op["tool"] in ("create-label", "set-comment", "set-bookmark"):
-                assert argv[2] not in ("", "None"), f"empty address for {op['tool']}"
+            assert argv[2] not in ("", "None"), f"empty address for {op['tool']}"
+
+        # create-function ops translate too (empty registry → no ops).
+        ops = build_new_function_commands({}, "/x.dll")
+        assert ops == []
 
 
 class TestApplyCommandsViaCli:

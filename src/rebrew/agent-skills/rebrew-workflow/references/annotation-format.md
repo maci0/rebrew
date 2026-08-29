@@ -36,7 +36,7 @@ int stub(void) { return 0; }
 > - `rebrew blocker set/clear` → BLOCKER / BLOCKER_DELTA (ad-hoc; for STUBs diff cannot classify)
 > - `rebrew diff --fix-blocker` / `rebrew near-diag --fix-blocker` → BLOCKER / BLOCKER_DELTA (auto-classified)
 > - `rebrew document-unmatched` → STUB skeletons + BLOCKER for every unmatched function
-> - `rebrew sync --pull` → NOTE, GHIDRA
+> - `rebrew sync --pull --state-dir <dir>` → NOTE, GHIDRA
 
 ## What goes in `rebrew-functions.toml` metadata file
 
@@ -119,12 +119,12 @@ note    = "lookup table for sprite indices"
 ```
 
 > [!NOTE]
-> `name` is the primary Ghidra interop field. When `rebrew sync --pull`
+> `name` is the primary Ghidra interop field. When `rebrew sync --pull --state-dir <dir>`
 > receives a renamed data label from Ghidra it writes the name here (not inline).
 
 > [!CAUTION]
 > **Never manually edit `rebrew-data.toml`.** It is managed automatically by
-> `rebrew data`, `rebrew data --fix-bss`, and `rebrew sync --pull`.
+> `rebrew data`, `rebrew data --fix-bss`, and `rebrew sync --pull --state-dir <dir>`.
 
 ## Global Annotations
 
