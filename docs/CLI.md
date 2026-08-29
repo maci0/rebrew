@@ -630,7 +630,7 @@ state dir cannot express — function creation, bookmarks, data pulls.
 
 | Flag | Description |
 |------|-------------|
-| `--state-dir DIR` | BinSync state directory (required for `--push`/`--pull`) |
+| `--state-dir DIR` | BinSync state directory (defaults to `targets.<name>.binsync_state_dir` when configured) |
 | `--push` | Export annotations to the BinSync state dir |
 | `--pull` | Import the BinSync state dir into rebrew (renames, `// PROTOTYPE:`, notes, globals, structs) |
 | `--create-functions` | With `--pull`: create the imported VAs in Ghidra (MCP chain). Standalone: create list-only functions in Ghidra |

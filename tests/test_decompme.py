@@ -236,3 +236,52 @@ class TestCli:
         r = runner.invoke(decompme.app, [str(src)])
         assert r.exit_code == 2
         assert "Unknown platform" in r.output
+
+
+class TestVerifyCompiler:
+    def test_known_compiler_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import httpx
+
+        def _fake_get(url, timeout):
+            return SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "compilers": {"msvc6.0": {"platform": "win32"}},
+                    "platforms": {"win32": {}},
+                },
+            )
+
+        monkeypatch.setattr(httpx, "get", _fake_get)
+        decompme.verify_compiler("msvc6.0")  # must not raise
+
+    def test_unknown_compiler_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import httpx
+
+        def _fake_get(url, timeout):
+            return SimpleNamespace(
+                status_code=200,
+                json=lambda: {"compilers": {"msvc6.0": {}, "msvc7.1": {}}, "platforms": {}},
+            )
+
+        monkeypatch.setattr(httpx, "get", _fake_get)
+        with pytest.raises(RuntimeError, match="not in the decomp.me registry"):
+            decompme.verify_compiler("gcc-pe")
+        with pytest.raises(RuntimeError, match="msvc6.0"):
+            decompme.verify_compiler("nope")  # suggestion lists known ids
+
+    def test_transport_failure_degrades(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import httpx
+
+        def _fake_get(url, timeout):
+            raise httpx.ConnectError("cf")
+
+        monkeypatch.setattr(httpx, "get", _fake_get)
+        decompme.verify_compiler("msvc6.0")  # warning, no raise
+
+    def test_http_error_degrades(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import httpx
+
+        monkeypatch.setattr(
+            httpx, "get", lambda url, timeout: SimpleNamespace(status_code=403, text="cf")
+        )
+        decompme.verify_compiler("msvc6.0")  # warning, no raise

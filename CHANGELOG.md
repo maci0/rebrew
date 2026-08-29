@@ -1,4 +1,17 @@
 ## [Unreleased]
+### Added
+- **`targets.<name>.binsync_state_dir` config** — the BinSync state dir for
+  field sync; `rebrew sync --push/--pull` default `--state-dir` to it.
+- **`rebrew doctor` BinSync sync check** — validates the configured state
+  dir: missing dir, non-git state, or no commit in 14+ days (the BinSync
+  Ghidra plugin is not relaying) each warn, surfacing the "state exported
+  but Ghidra never sees it" failure mode.
+- **`rebrew decompme` compiler-registry check** — verifies the compiler id
+  against decomp.me's `GET /api/compiler` registry before uploading
+  (best-effort: degrades to a warning when the registry is unreachable);
+  unknown ids error with the available ones as suggestions — the friendly
+  path for non-MSVC toolchains that previously relied on `--compiler`.
+
 ### Changed
 - **`rebrew sync` is BinSync-primary** (metadata-review R1, destructive):
   field-level sync (names, comments/notes, prototypes, structs, globals)
