@@ -151,7 +151,7 @@ def verify_entry(
     from rebrew.cli import resolve_compile_overrides
 
     # Shared fallback chain (per-function metadata → per-library
-    # rebrew-library.toml → preset → compiler.cflags) so verify compiles
+    # rebrew-libraries.toml → preset → compiler.cflags) so verify compiles
     # every function of a library with the same toolchain + flags as
     # match/diff/test.
     toolchain, cflags = resolve_compile_overrides(
@@ -634,7 +634,7 @@ class VerifyCacheEntry:
     toolchain: str = ""
     """Resolved per-function toolchain override at cache time (e.g. ``watcom``).
 
-    The TOOLCHAIN field lives in ``rebrew-functions.toml`` / ``rebrew-library.toml``,
+    The TOOLCHAIN field lives in ``rebrew-functions.toml`` / ``rebrew-libraries.toml``,
     not in the ``.c`` file, so the source hash cannot detect a toolchain
     change.  Only the resolved *cflags* were stored before this field, so a
     library ``TOOLCHAIN`` override edit served stale EXACT/RELOC for every
@@ -1685,7 +1685,7 @@ def prepare_entries(
             continue
 
         # CFLAGS/TOOLCHAIN come from rebrew-functions.toml AND the config
-        # fallback chain (per-function → per-library rebrew-library.toml →
+        # fallback chain (per-function → per-library rebrew-libraries.toml →
         # preset → [compiler].cflags), so a metadata edit is invisible to the
         # source hash below.  The entry stores the RESOLVED effective values
         # the compile used; compare against the freshly-resolved ones so a
@@ -1724,7 +1724,7 @@ def prepare_entries(
 
         if cached_entry.cflags != _cf2:
             # Raw strings differ — but only a change that could alter the
-            # compiled object is material.  A rebrew-library.toml edit that
+            # compiled object is material.  A rebrew-libraries.toml edit that
             # merely reorders flags (e.g. preset vs override ordering) or
             # deduplicates them compiles identically, so compare the
             # canonicalized equivalence class (observational equivalence:

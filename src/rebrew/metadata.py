@@ -850,12 +850,12 @@ def coerce_metadata_value(key: str, value: Any) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# Per-library toolchain/flags overrides (rebrew-library.toml)
+# Per-library toolchain/flags overrides (rebrew-libraries.toml)
 # ---------------------------------------------------------------------------
 #
 # A library is a source-directory subtree whose functions were all built with
 # the same compiler + flags (the normal case — one codebase, one toolchain).
-# Declaring a ``rebrew-library.toml`` at the library root applies to every
+# Declaring a ``rebrew-libraries.toml`` at the library root applies to every
 # function under it, instead of tagging each function's rebrew-functions.toml.
 # Discovery is walk-up (nearest ancestor file wins), unlike the function
 # metadata which lives only at cfg.metadata_dir.
@@ -863,7 +863,7 @@ def coerce_metadata_value(key: str, value: Any) -> Any:
 
 #: File name of the per-library override (looked up by walking up from the
 #: function's directory toward the project root).
-LIBRARY_METADATA_FILE = "rebrew-library.toml"
+LIBRARY_METADATA_FILE = "rebrew-libraries.toml"
 
 
 class LibraryOverrideError(RuntimeError):
@@ -878,7 +878,7 @@ class LibraryOverride:
     *presets* lists any known-library defaults that were merged in.
     """
 
-    path: Path  # the rebrew-library.toml that matched (nearest ancestor)
+    path: Path  # the rebrew-libraries.toml that matched (nearest ancestor)
     toolchain: str = ""  # override compiler profile, e.g. "msvc6"
     cflags: str = ""  # override flags, e.g. "/O2 /Gd /MT"
     library: str = ""  # declared library name (may drive presets)
@@ -886,7 +886,7 @@ class LibraryOverride:
 
 
 #: Known shipped-library build settings.  ``library = "<name>"`` in a
-#: rebrew-library.toml fills the *missing* fields from this table — rebrew
+#: rebrew-libraries.toml fills the *missing* fields from this table — rebrew
 #: knows what the shipped runtimes were built with (the standard MSVC /MT
 #: vs /MD shapes, the 16-bit models, Borland/Watcom defaults), so users
 #: declare ``library = "msvcrt-static"`` instead of handwriting flags.
@@ -983,7 +983,7 @@ _LIBRARY_META_CACHE_MAX = 64
 
 
 def parse_library_metadata(path: Path) -> dict[str, Any]:
-    """Parse a ``rebrew-library.toml`` into a plain dict.
+    """Parse a ``rebrew-libraries.toml`` into a plain dict.
 
     Returns ``{}`` for an absent file.  Raises :class:`LibraryOverrideError`
     on malformed TOML or a non-dict document.
@@ -1039,14 +1039,14 @@ _LIBRARY_WALK_CACHE: dict[tuple[str, str], Path | None] = {}
 
 
 def clear_library_override_cache() -> None:
-    """Forget cached ``rebrew-library.toml`` walk results (call after writes)."""
+    """Forget cached ``rebrew-libraries.toml`` walk results (call after writes)."""
     _LIBRARY_WALK_CACHE.clear()
 
 
 def find_library_override(
     start_dir: str | Path, root: str | Path | None = None
 ) -> LibraryOverride | None:
-    """Find the nearest ``rebrew-library.toml`` by walking up from *start_dir*.
+    """Find the nearest ``rebrew-libraries.toml`` by walking up from *start_dir*.
 
     The walk stops at *root* (project root — ``cfg.root``) inclusive.  Returns
     the merged override (explicit fields + known-library presets) or ``None``

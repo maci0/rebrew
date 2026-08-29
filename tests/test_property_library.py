@@ -5,7 +5,7 @@ a composed system is a function of the *final configuration alone*, not of
 the order in which the components were assembled.  Rebrew's analog: the
 resolved ``(toolchain, cflags)`` for a source must depend only on the final
 set of override declarations (per-function metadata, per-library
-``rebrew-library.toml`` files, known-library presets, project defaults) —
+``rebrew-libraries.toml`` files, known-library presets, project defaults) —
 never on the order the fields were written, the order the files were
 created, or the order the presets were merged in.
 """
@@ -66,7 +66,7 @@ class TestPresetMergeFixedPoint:
 
 class TestTomlFieldOrderIndependence:
     """The resolved override is independent of the order fields are written
-    in the rebrew-library.toml file."""
+    in the rebrew-libraries.toml file."""
 
     def test_field_permutation_same_resolution(self, tmp_path: Path) -> None:
         import itertools

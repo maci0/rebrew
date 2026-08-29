@@ -2027,7 +2027,7 @@ def resolve_build_params(
     # and discarded the helper's copy).
     cl_resolved, inc_resolved, msvc_env, cc = resolve_compiler_env(cfg)
     # Per-library / per-function toolchain override: the nearest
-    # rebrew-library.toml (walk-up from the source dir) or the function's
+    # rebrew-libraries.toml (walk-up from the source dir) or the function's
     # own TOOLCHAIN metadata selects the docker image.  Every compile runs
     # through docker images — there is no host wine/wibo path.
     from rebrew.cli import resolve_compile_overrides
@@ -2084,7 +2084,7 @@ def resolve_build_params(
 
     if not cflags:
         # Single source of truth: per-function CFLAGS → per-library
-        # rebrew-library.toml → cflags_presets → [compiler].cflags →
+        # rebrew-libraries.toml → cflags_presets → [compiler].cflags →
         # "/O2 /Gd" (shared with verify/test/prove so every tool compiles
         # the same function with the same flags).
         cflags = _lib_cflags

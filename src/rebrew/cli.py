@@ -276,7 +276,7 @@ def _resolve_overrides_steps(
     list of *steps* documenting every decision point so ``rebrew diagnose``
     can explain *why* a function compiles with the compiler+flags it does.
     Each step is a dict with a ``source`` key: ``"function"`` (per-function
-    metadata), ``"library"`` (nearest ``rebrew-library.toml`` + presets), or
+    metadata), ``"library"`` (nearest ``rebrew-libraries.toml`` + presets), or
     ``"project"`` (project defaults and which fallbacks applied)."""
     steps: list[dict[str, Any]] = []
     toolchain = (per_function_toolchain or "").strip() or None
@@ -335,7 +335,7 @@ def resolve_compile_overrides(
     Fallback chain, most specific first:
 
     1. per-function metadata (rebrew-functions.toml TOOLCHAIN / CFLAGS),
-    2. the nearest per-library ``rebrew-library.toml`` (walk-up from
+    2. the nearest per-library ``rebrew-libraries.toml`` (walk-up from
        *source_dir*; its known-library presets fill missing fields),
     3. project defaults (``[compiler]`` profile/cflags via ``resolve_cflags``).
 

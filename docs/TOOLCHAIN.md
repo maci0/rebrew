@@ -77,13 +77,13 @@ analysis-side support matrix.
 
 ---
 
-## Per-library overrides (rebrew-library.toml)
+## Per-library overrides (rebrew-libraries.toml)
 
 Most codebases are one codebase: all functions were built with the same
 compiler and flags.  Per-function `TOOLCHAIN`/`CFLAGS` metadata (the
 `rebrew-functions.toml` escape hatch for rare mixed builds) stays, but the
 right abstraction for "some parts of the codebase were built with other
-flags" is a **per-library** override: a `rebrew-library.toml` at a library
+flags" is a **per-library** override: a `rebrew-libraries.toml` at a library
 root directory (e.g. `references/zlib/`, a shipped runtime, or any source
 subtree) applies to every function under it.  `rebrew library` manages it:
 
@@ -95,14 +95,14 @@ rebrew library rm refs/zlib
 ```
 
 ```toml
-# refs/zlib/rebrew-library.toml
+# refs/zlib/rebrew-libraries.toml
 library = "msvcrt-static"   # optional: known-library preset fills missing fields
 toolchain = "msvc600sp6"     # optional: compiler profile (docker image)
 cflags = "/O2 /Gd /MT"       # optional: compiler flags
 ```
 
 Resolution (most specific first): per-function `TOOLCHAIN`/`CFLAGS` → the
-nearest `rebrew-library.toml` walking up from the function's directory →
+nearest `rebrew-libraries.toml` walking up from the function's directory →
 project defaults.  **Known-library presets** cover the shipped runtimes
 rebrew knows the build settings for — e.g. `msvcrt-static` expands to
 `msvc6` + `/O2 /Gd /MT` (the MSVC static CRT), `msvcrt-dynamic` to
@@ -430,7 +430,7 @@ honor a per-function toolchain:
   GA, flag sweeps — transparently uses the overridden compiler.
 - CLI `--toolchain`/`--cflags` still take precedence over the metadata
   value; the override fills the fallback chain (per-function metadata →
-  nearest `rebrew-library.toml` → project defaults).
+  nearest `rebrew-libraries.toml` → project defaults).
 - The compile cache keys on the toolchain image id + flags + include-dir
   closure, so functions compiled under different toolchains never share
   cache entries.
@@ -485,7 +485,7 @@ obj_ext = ".o"
 Unknown spec fields are a declaration error; a name colliding with a
 packaged toolchain raises `RegistryError`.  Once registered (by either
 mechanism) the toolchain is a first-class profile: usable in
-`rebrew-library.toml`, per-function metadata, and `rebrew test --toolchain`.
+`rebrew-libraries.toml`, per-function metadata, and `rebrew test --toolchain`.
 `rebrew toolchain list` reports each toolchain's provenance (`origin`:
 `packaged`, `entry-point:<module>`, or `data-file <path>`; the human table
 shows the column only when a non-packaged toolchain exists), and `rebrew
@@ -513,7 +513,7 @@ Three companion extension points make a plugin toolchain fully first-class:
   doctor/init accept its profiles.
 - **`rebrew.library_presets`** — known-library build settings.  A zero-arg
   callable returning `dict[name, {toolchain, cflags}]`; `library = "<name>"`
-  in a `rebrew-library.toml` then fills missing fields from it.
+  in a `rebrew-libraries.toml` then fills missing fields from it.
 - **`rebrew.msvc_versions`** — version-exact MSVC matching.  A zero-arg
   callable returning `dict["build:<n>" | "linker:<M>.<m>", list[profile]]`
   (e.g. `{"build:8168": ["mytc"]}`); the profiles join the version-exact

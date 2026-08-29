@@ -1,4 +1,4 @@
-"""Tests for per-library toolchain/flags overrides (rebrew-library.toml)."""
+"""Tests for per-library toolchain/flags overrides (rebrew-libraries.toml)."""
 
 from __future__ import annotations
 

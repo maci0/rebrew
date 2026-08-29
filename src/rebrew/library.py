@@ -1,8 +1,8 @@
-"""library.py — per-library toolchain/flags overrides (rebrew-library.toml).
+"""library.py — per-library toolchain/flags overrides (rebrew-libraries.toml).
 
 A library is a source-directory subtree whose functions were all built
 with the same compiler + flags (the normal case — one codebase, one
-toolchain).  `rebrew library set <dir>` writes a ``rebrew-library.toml``
+toolchain).  `rebrew library set <dir>` writes a ``rebrew-libraries.toml``
 at the library root; every tool (verify/test/match/prove) resolves it by
 walking up from each function's directory, so the whole library compiles
 with the declared toolchain + flags without per-function metadata.
@@ -47,10 +47,10 @@ def show_cmd(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Show the effective library override for a directory (nearest
-    rebrew-library.toml walking up toward the project root)."""
+    rebrew-libraries.toml walking up toward the project root)."""
     ovr = find_library_override(directory)
     if ovr is None:
-        msg = f"no rebrew-library.toml found from {Path(directory).resolve()} upward"
+        msg = f"no rebrew-libraries.toml found from {Path(directory).resolve()} upward"
         if json_output:
             json_print({"found": False, "directory": str(Path(directory).resolve())})
         else:
@@ -78,10 +78,10 @@ def show_cmd(
 
 @app.command("list")
 def list_cmd(
-    root: str = typer.Argument(".", help="Project root (recursively finds rebrew-library.toml)"),
+    root: str = typer.Argument(".", help="Project root (recursively finds rebrew-libraries.toml)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
-    """List every rebrew-library.toml under *root* (all library overrides)."""
+    """List every rebrew-libraries.toml under *root* (all library overrides)."""
     base = Path(root).resolve()
     found = []
     for p in sorted(base.rglob(LIBRARY_METADATA_FILE)):
@@ -111,7 +111,7 @@ def list_cmd(
 @app.command("set")
 def set_cmd(
     directory: str = typer.Argument(
-        ".", help="Library directory (writes rebrew-library.toml here)"
+        ".", help="Library directory (writes rebrew-libraries.toml here)"
     ),
     toolchain: str | None = typer.Option(
         None, "--toolchain", help="Compiler profile, e.g. msvc6 / msvc600sp6"
@@ -125,7 +125,7 @@ def set_cmd(
 ) -> None:
     """Declare (or update) the per-library toolchain/flags override.
 
-    Writes ``rebrew-library.toml`` at *directory*.  Explicit --toolchain /
+    Writes ``rebrew-libraries.toml`` at *directory*.  Explicit --toolchain /
     --cflags always win; a --preset fills the fields rebrew knows for a
     shipped library (e.g. the MSVC CRT)."""
     target = _resolve_root(directory)
@@ -179,11 +179,11 @@ def set_cmd(
 @app.command("rm")
 def rm_cmd(
     directory: str = typer.Argument(
-        ".", help="Library directory (removes rebrew-library.toml here)"
+        ".", help="Library directory (removes rebrew-libraries.toml here)"
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
-    """Remove a rebrew-library.toml (revert to project defaults)."""
+    """Remove a rebrew-libraries.toml (revert to project defaults)."""
     path = _resolve_root(directory) / LIBRARY_METADATA_FILE
     if not path.exists():
         msg = f"no {LIBRARY_METADATA_FILE} at {path.parent}"
