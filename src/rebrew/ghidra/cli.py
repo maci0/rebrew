@@ -80,21 +80,52 @@ def _probe_program_path(cfg: Any, endpoint: str, program_path: str, json_output:
         )
 
 
-def _mcp_apply(ops: list[dict[str, Any]], endpoint: str, json_output: bool) -> None:
-    """Apply *ops* via ReVa MCP and report (success, error) counts."""
-    from rebrew.ghidra.client import apply_commands_via_mcp
+def _mcp_apply(
+    ops: list[dict[str, Any]],
+    endpoint: str,
+    program_path: str,
+    json_output: bool,
+    cfg: Any = None,
+) -> None:
+    """Apply *ops* and report (success, error) counts.
 
+    ReVa MCP is the default transport; when the config names ``ghidra_backend
+    = "cli"`` (or MCP is unreachable), the ghidra-cli binary backend applies
+    the same structural ops — the no-MCP escape hatch for the ops that remain.
+    """
     if not ops:
         if not json_output:
             console.print("[dim]No operations to apply.[/dim]")
         return
-    ok, err = apply_commands_via_mcp(ops, endpoint)
-    if json_output:
-        json_print({"applied": ok, "errors": err, "operations": len(ops)})
+
+    def _report(ok: int, err: int) -> None:
+        if json_output:
+            json_print({"applied": ok, "errors": err, "operations": len(ops)})
+            return
+        console.print(f"[green]Applied {ok} operation(s)[/green]")
+        if err:
+            console.print(f"[red]{err} error(s)[/red]")
+
+    def _apply_cli() -> tuple[int, int]:
+        from rebrew.ghidra.cli_backend import apply_commands_via_cli, resolve_ghidra_cli
+
+        ghidra_cli = resolve_ghidra_cli(cfg) or "ghidra-cli"
+        return apply_commands_via_cli(ops, program=program_path, ghidra_cli=ghidra_cli)
+
+    if cfg is not None and getattr(cfg, "ghidra_backend", "reva") == "cli":
+        _report(*_apply_cli())
         return
-    console.print(f"[green]Applied {ok} operation(s)[/green]")
-    if err:
-        console.print(f"[red]{err} error(s)[/red]")
+
+    from rebrew.ghidra.client import apply_commands_via_mcp
+
+    try:
+        ok, err = apply_commands_via_mcp(ops, endpoint)
+    except Exception:
+        # MCP transport failure — fall back to the ghidra-cli binary backend.
+        log.debug("MCP apply failed; falling back to ghidra-cli", exc_info=True)
+        _report(*_apply_cli())
+        return
+    _report(ok, err)
 
 
 @app.callback(invoke_without_command=True)
@@ -204,7 +235,7 @@ def main(
                     }
                     for va in touched
                 ]
-                _mcp_apply(ops, endpoint, json_output)
+                _mcp_apply(ops, endpoint, program_path, json_output, cfg)
             elif not json_output:
                 console.print("[dim]Nothing imported — no functions to create.[/dim]")
         return
@@ -226,7 +257,7 @@ def main(
             funcs, cfg, cfg.reversed_dir / FUNCTION_STRUCTURE_JSON, cfg.target_binary
         )
         ops = build_new_function_commands(registry, program_path, iat_thunks=set(cfg.iat_thunks))
-        _mcp_apply(ops, endpoint, json_output)
+        _mcp_apply(ops, endpoint, program_path, json_output, cfg)
         return
 
     if bookmarks:
@@ -237,7 +268,7 @@ def main(
             for e in scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
         ]
         ops = build_bookmark_commands(entries, program_path)
-        _mcp_apply(ops, endpoint, json_output)
+        _mcp_apply(ops, endpoint, program_path, json_output, cfg)
         return
 
     if pull_data:
@@ -246,8 +277,17 @@ def main(
 
 
 def main_entry() -> None:
-    """Run the Typer CLI application."""
-    app()
+    """Run the Typer CLI application.
+
+    The callback is registered as a plain command on a fresh app: the
+    group-style ``invoke_without_command`` callback fails to parse
+    positional-then-option invocations (``rebrew-<cmd> ARG --opt`` — click
+    treats the positional as a command name), while the umbrella's command
+    registration parses both orderings (cli-review F1).
+    """
+    _standalone = typer.Typer()
+    _standalone.command()(main)
+    _standalone()
 
 
 if __name__ == "__main__":

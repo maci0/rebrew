@@ -604,17 +604,15 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
       the verify cache has one, else 0;
     - everything else (STUB, unannotated registry functions) is 0.
 
-    ``total_functions``/``total_code`` come from the function registry and
-    the binary's ``.text`` size (the catalog's denominators), so progress is
-    measured against the whole binary, not just the annotated subset.
+    ``total_functions``/``total_code`` come from the SHARED progress model
+    (``rebrew.status.collect_status`` — ghidra-functions ∪ annotated set and
+    the binary's ``.text`` size), so progress is measured against the whole
+    binary and matches what ``rebrew status`` reports (cli-review F4).
 
     Returns the machine-readable summary dict.
     """
-    from rebrew.catalog.loaders import parse_function_list
-    from rebrew.catalog.registry import build_function_registry
     from rebrew.catalog.sections import get_text_section_size
     from rebrew.cli import iter_annotations
-    from rebrew.config import FUNCTION_STRUCTURE_JSON
     from rebrew.metadata import MATCHED_STATUSES
     from rebrew.sources import iter_sources, target_marker
 
@@ -623,17 +621,6 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     annos_by_file: list[tuple[str, list[Any]]] = []
     for path, annos in iter_annotations(sources, target=marker, metadata_dir=cfg.metadata_dir):
         annos_by_file.append((rel_display_path(path), annos))
-
-    # Registry = the whole-binary function set (denominator); the ghidra
-    # export / function list may be missing — degrade to annotated VAs then.
-    funcs: list[dict[str, Any]] = []
-    ghidra_json = cfg.reversed_dir / FUNCTION_STRUCTURE_JSON
-    try:
-        if cfg.function_list and Path(cfg.function_list).exists():
-            funcs = list(parse_function_list(Path(cfg.function_list)))
-        registry = build_function_registry(funcs, cfg, ghidra_json, cfg.target_binary)
-    except (OSError, KeyError, ValueError, TypeError):
-        registry = {}
 
     # Cached match_percent for NEAR_MATCHING (the fuzzy measure).
     cached_pct: dict[int, float] = {}
@@ -658,11 +645,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
 
     matched_statuses = set(MATCHED_STATUSES)
     units: list[dict[str, Any]] = []
-    total_code = 0
-    matched_code = 0
     fuzzy_code = 0.0
-    total_functions = 0
-    matched_functions = 0
     for file_rel, annos in annos_by_file:
         items: list[dict[str, Any]] = []
         unit_code = 0
@@ -690,7 +673,6 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
             unit_fns += 1
             if a.status in matched_statuses:
                 unit_matched += size
-                matched_functions += 1
         if not items:
             continue
         units.append(
@@ -708,15 +690,19 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
                 "functions": items,
             }
         )
-        total_code += unit_code
-        matched_code += unit_matched
         fuzzy_code += unit_fuzzy
-        total_functions += unit_fns
 
-    registry_total = len(registry) if registry else total_functions
-    if registry_total < total_functions:
-        registry_total = total_functions
-    text_size = get_text_section_size(cfg.target_binary) or total_code
+    # Top-level measures come from the SHARED progress model
+    # (rebrew.status.collect_status) so the decomp.dev report, `rebrew
+    # status`, and the HTML report all agree on the same numbers — the
+    # status counts are verify-overlaid (a verify cache that demoted a
+    # metadata EXACT is reflected here) and the denominator is the
+    # ghidra-functions ∪ annotated set (cli-review F4).
+    status = collect_status(cfg)
+    registry_total = status.total_functions or 0
+    matched_functions = sum(status.status_counts.get(s, 0) for s in ("EXACT", "RELOC", "PROVEN"))
+    matched_code = status.matched_bytes
+    text_size = status.total_text_bytes or get_text_section_size(cfg.target_binary) or 0
 
     # Data measures: rebrew places data rather than "matching" it, so report
     # the totals honestly and leave matched/complete data at 0.
@@ -848,8 +834,17 @@ def main(
 
 
 def main_entry() -> None:
-    """Run the Typer CLI application."""
-    app()
+    """Run the Typer CLI application.
+
+    The callback is registered as a plain command on a fresh app: the
+    group-style ``invoke_without_command`` callback fails to parse
+    positional-then-option invocations (``rebrew-<cmd> ARG --opt`` — click
+    treats the positional as a command name), while the umbrella's command
+    registration parses both orderings (cli-review F1).
+    """
+    _standalone = typer.Typer()
+    _standalone.command()(main)
+    _standalone()
 
 
 if __name__ == "__main__":

@@ -81,8 +81,17 @@ def main(
 
 
 def main_entry() -> None:
-    """Run the Typer CLI application."""
-    app()
+    """Run the Typer CLI application.
+
+    The callback is registered as a plain command on a fresh app: the
+    group-style ``invoke_without_command`` callback fails to parse
+    positional-then-option invocations (``rebrew-<cmd> ARG --opt`` — click
+    treats the positional as a command name), while the umbrella's command
+    registration parses both orderings (cli-review F1).
+    """
+    _standalone = typer.Typer()
+    _standalone.command()(main)
+    _standalone()
 
 
 if __name__ == "__main__":

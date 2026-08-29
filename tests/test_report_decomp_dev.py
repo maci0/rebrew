@@ -49,8 +49,6 @@ class TestDecompDevReport:
             "rebrew.cli.iter_annotations",
             lambda sources, target=None, metadata_dir=None: [(src_file, annos)],
         )
-        monkeypatch.setattr("rebrew.catalog.loaders.parse_function_list", lambda _p: [])
-        monkeypatch.setattr("rebrew.catalog.registry.build_function_registry", lambda *a, **k: {})
         monkeypatch.setattr("rebrew.catalog.sections.get_text_section_size", lambda _p: 0x1000)
         monkeypatch.setattr("rebrew.verify._load_verify_cache", lambda _p, _c: None)
         # No data sections → data measures stay 0 without erroring.
@@ -61,6 +59,22 @@ class TestDecompDevReport:
         )
         return cfg
 
+    def _mock_progress(self, monkeypatch: pytest.MonkeyPatch, **fields: object) -> None:
+        """Stub the shared collect_status progress model for the measures."""
+        from rebrew.status import StatusReport
+
+        monkeypatch.setattr(
+            report,
+            "collect_status",
+            lambda cfg: StatusReport(
+                target=cfg.target_name,
+                total_functions=int(fields.get("total_functions", 3)),
+                status_counts=dict(fields.get("status_counts") or {"EXACT": 1}),
+                matched_bytes=int(fields.get("matched_bytes", 64)),
+                total_text_bytes=int(fields.get("total_text_bytes", 0x1000)),
+            ),
+        )
+
     def test_report_shape_and_status_mapping(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -70,6 +84,7 @@ class TestDecompDevReport:
             _fake_ann(0x3000, 16, "stub_fn", "STUB"),
         ]
         cfg = self._setup(tmp_path, monkeypatch, annos)
+        self._mock_progress(monkeypatch)
         out = tmp_path / "report.json"
         result = report.generate_decomp_dev_report(cfg, out)
         assert out.exists()
@@ -101,6 +116,7 @@ class TestDecompDevReport:
     ) -> None:
         annos = [_fake_ann(0x2000, 32, "near_fn", "NEAR_MATCHING")]
         self._setup(tmp_path, monkeypatch, annos)
+        self._mock_progress(monkeypatch, total_functions=1, status_counts={})
 
         class _Result:
             match_percent = 72.5
@@ -118,15 +134,16 @@ class TestDecompDevReport:
         fn = doc["units"][0]["functions"][0]
         assert fn["fuzzy_match_percent"] == 72.5
 
-    def test_registry_denominator(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_shared_progress_denominator(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The top-level measures come from the shared collect_status model —
+        the binary has a second function nobody has annotated yet, so the
+        denominator is the model's total, not the annotated total."""
         annos = [_fake_ann(0x1000, 64, "exact_fn", "EXACT")]
         self._setup(tmp_path, monkeypatch, annos)
-        # The binary has a second function nobody has annotated yet.
-        monkeypatch.setattr(
-            "rebrew.catalog.registry.build_function_registry",
-            lambda *a, **k: {0x1000: {"canonical_size": 64}, 0x4000: {"canonical_size": 128}},
-        )
+        self._mock_progress(monkeypatch, total_functions=2, status_counts={"EXACT": 1})
         out = tmp_path / "report.json"
         result = report.generate_decomp_dev_report(_cfg(tmp_path), out)
-        assert result["total_functions"] == 2  # registry total, not annotated total
+        assert result["total_functions"] == 2
         assert result["matched_functions"] == 1

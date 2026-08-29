@@ -86,3 +86,42 @@ def test_every_script_main_has_callback_decorator() -> None:
             f"{mod}.py wires no callback and no subcommands — the standalone "
             "rebrew-{mod} script fails at runtime"
         )
+
+
+def test_every_project_script_resolves() -> None:
+    """Every ``[project.scripts]`` entry resolves to a live module attribute.
+
+    The scripts are the standalone entry points (``rebrew-<cmd>``); a
+    deleted module, a renamed entry point, or a stale ``main_entry`` would
+    make the script fail at runtime while the umbrella still works — the
+    same drift class the callback-decorator test catches, at the attribute
+    level (cli-review F3).
+    """
+    import importlib
+
+    toml = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    entries = re.findall(r'^rebrew-[\w-]+ = "rebrew\.([\w.]+):([\w]+)"$', toml, re.M)
+    assert entries, "no [project.scripts] entries found"
+    for mod_path, attr in entries:
+        mod = importlib.import_module(f"rebrew.{mod_path}")
+        assert hasattr(mod, attr), (
+            f"rebrew-{mod_path} script points at rebrew.{mod_path}:{attr} "
+            "which does not exist — update pyproject.toml"
+        )
+
+
+def test_every_registered_command_module_resolves() -> None:
+    """Every ``_SINGLE_COMMANDS`` module in main.py imports and exposes ``main``."""
+    import importlib
+
+    src = (ROOT / "src" / "rebrew" / "main.py").read_text(encoding="utf-8")
+    mods = re.findall(r'\(\s*"[a-z-]+",\s*"rebrew\.([\w.]+)",', src)
+    assert mods, "no registered commands found — the regex may be stale"
+    for mod_path in sorted(set(mods)):
+        mod = importlib.import_module(f"rebrew.{mod_path}")
+        # Single-command modules expose main (the callback); multi-command
+        # modules expose app (with @app.command subcommands).
+        assert hasattr(mod, "main") or hasattr(mod, "app"), (
+            f"registered command module rebrew.{mod_path} has neither a main "
+            "callback nor an app with subcommands"
+        )

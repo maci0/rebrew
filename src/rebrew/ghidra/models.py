@@ -1,51 +1,7 @@
 """models.py - Data models for Ghidra/ReVa MCP responses and JSON-RPC protocol."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
-
-
-@dataclass
-class PullChange:
-    """A single proposed change from a pull operation."""
-
-    va: int
-    field: str
-    local_value: str
-    ghidra_value: str
-    filepath: str
-    action: str  # "update", "conflict", "skip"
-    reason: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize to a plain dict for JSON output."""
-        d: dict[str, Any] = {
-            "va": f"0x{self.va:08x}",
-            "field": self.field,
-            "local": self.local_value,
-            "ghidra": self.ghidra_value,
-            "file": self.filepath,
-            "action": self.action,
-        }
-        if self.reason:
-            d["reason"] = self.reason
-        return d
-
-
-@dataclass
-class PullResult:
-    """Aggregated result of a pull operation."""
-
-    changes: list[PullChange] = field(default_factory=list)
-    updated: int = 0
-    conflicts: int = 0
-
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize to a plain dict for JSON output."""
-        return {
-            "updated": self.updated,
-            "conflicts": self.conflicts,
-            "changes": [c.to_dict() for c in self.changes],
-        }
 
 
 @dataclass
