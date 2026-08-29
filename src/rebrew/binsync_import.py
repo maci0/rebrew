@@ -31,6 +31,7 @@ from rich.console import Console
 
 from rebrew.binsync_state import index_local_and_catalog, load_binsync_state
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.config import ProjectConfig
 from rebrew.naming import avoid_windows_reserved
 from rebrew.utils import strip_body
 
@@ -148,6 +149,39 @@ def main(
 
     cfg = require_config(target=target, json_mode=json_output)
 
+    result = import_state(
+        cfg,
+        state_dir,
+        dry_run=dry_run,
+        json_output=json_output,
+        module=module,
+        accept_binsync=accept_binsync,
+        accept_local=accept_local,
+        create_missing=create_missing,
+    )
+
+    # --- Output ---
+    _print_import_result(result, json_output=json_output, dry_run=dry_run)
+    return
+
+
+def import_state(
+    cfg: ProjectConfig,
+    state_dir: Path,
+    *,
+    dry_run: bool,
+    json_output: bool,
+    module: str | None = None,
+    accept_binsync: bool = False,
+    accept_local: bool = False,
+    create_missing: bool = False,
+) -> dict[str, object]:
+    """Import a BinSync state directory into rebrew metadata (programmatic).
+
+    Returns the result dict (counts plus ``touched_vas`` — the VAs the import
+    applied names/prototypes/globals to or created stubs for, so callers like
+    ``rebrew sync --pull --create-functions`` can push them to Ghidra).
+    """
     funcs_by_va, globals_by_va = load_binsync_state(state_dir)
 
     if not funcs_by_va and not globals_by_va:
@@ -165,6 +199,7 @@ def main(
     applied_protos = 0
     applied_globals = 0
     skipped = 0
+    touched_vas: list[int] = []
 
     # --- Function names + prototypes ---
     for va, bs_entry in sorted(funcs_by_va.items()):
@@ -244,6 +279,7 @@ def main(
                             mod,
                         )
                         applied_names += 1
+                        touched_vas.append(va)
                     except Exception:
                         log.debug("stub write failed for VA 0x%x", va, exc_info=True)
                         skipped += 1
@@ -308,6 +344,7 @@ def main(
                         else:
                             _uak(fp, va, "PROTOTYPE", bs_proto, metadata_dir=cfg.metadata_dir)
                             applied_protos += 1
+                            touched_vas.append(va)
                 except Exception:
                     log.debug("prototype apply failed for VA 0x%x", va, exc_info=True)
                     skipped += 1
@@ -332,6 +369,7 @@ def main(
                 try:
                     if _apply_binsync_func_name(cfg, local, bs_stripped, local_filepath):
                         applied_names += 1
+                        touched_vas.append(va)
                     else:
                         skipped += 1
                 except Exception:
@@ -363,6 +401,7 @@ def main(
                 try:
                     if _apply_binsync_func_name(cfg, local, bs_stripped, local_filepath):
                         applied_names += 1
+                        touched_vas.append(va)
                     else:
                         skipped += 1
                 except Exception:
@@ -431,6 +470,7 @@ def main(
                     mod = getattr(local, "module", "") or "SERVER"
                     _sdf(cfg.metadata_dir, va, "name", bs_name, mod)
                     applied_globals += 1
+                    touched_vas.append(va)
                 except Exception:
                     log.debug("global name apply failed for VA 0x%x", va, exc_info=True)
                     skipped += 1
@@ -450,38 +490,69 @@ def main(
                     mod = module or getattr(cfg, "marker", "") or "SERVER"
                     _sdf2(cfg.metadata_dir, va, "name", bs_name, mod)
                     applied_globals += 1
+                    touched_vas.append(va)
                 except Exception:
                     log.debug("global name apply failed for VA 0x%x", va, exc_info=True)
                     skipped += 1
             else:
                 applied_globals += 1
 
-    # --- Output ---
+    return {
+        "state_dir": str(state_dir),
+        "dry_run": dry_run,
+        "applied_names": applied_names,
+        "applied_prototypes": applied_protos,
+        "applied_globals": applied_globals,
+        "conflicts": len(conflicts),
+        "skipped": skipped,
+        "touched_vas": sorted(set(touched_vas)),
+        "proposed": proposed,
+        "conflict_details": conflicts,
+        "module": module,
+        "accept_binsync": accept_binsync,
+        "accept_local": accept_local,
+    }
+
+
+def _print_import_result(result: dict[str, object], *, json_output: bool, dry_run: bool) -> None:
+    """Render an :func:`import_state` result (the CLI summary/exit path)."""
+    from typing import cast
+
+    state_dir = str(result["state_dir"])
+    applied_names = int(cast(int, result["applied_names"]))
+    applied_protos = int(cast(int, result["applied_prototypes"]))
+    applied_globals = int(cast(int, result["applied_globals"]))
+    conflicts = int(cast(int, result["conflicts"]))
+    proposed = list(cast(list[Any], result.get("proposed") or []))
+    conflict_details = list(cast(list[Any], result.get("conflict_details") or []))
+    module = result.get("module")
+    accept_binsync = bool(result.get("accept_binsync"))
+    accept_local = bool(result.get("accept_local"))
     if json_output:
-        result: dict[str, object] = {
-            "state_dir": str(state_dir),
+        payload: dict[str, object] = {
+            "state_dir": state_dir,
             "dry_run": dry_run,
             "applied_names": applied_names,
             "applied_prototypes": applied_protos,
             "applied_globals": applied_globals,
-            "conflicts": len(conflicts),
-            "skipped": skipped,
+            "conflicts": conflicts,
+            "skipped": int(cast(int, result.get("skipped", 0))),
         }
         if proposed:
-            result["proposed"] = proposed
-        if conflicts:
-            result["conflict_details"] = conflicts
+            payload["proposed"] = proposed
+        if conflict_details:
+            payload["conflict_details"] = conflict_details
         if module is not None:
-            result["module"] = module
-        json_print(result)
+            payload["module"] = module
+        json_print(payload)
         if conflicts and not accept_binsync and not accept_local:
             raise typer.Exit(code=1)
         return
 
     if dry_run:
-        if proposed or conflicts:
+        if proposed or conflict_details:
             console.print(
-                f"[dim]Would apply {len(proposed)} change(s), {len(conflicts)} conflict(s)[/dim]"
+                f"[dim]Would apply {len(proposed)} change(s), {len(conflict_details)} conflict(s)[/dim]"
             )
             for p in proposed[:20]:
                 console.print(
@@ -489,7 +560,7 @@ def main(
                 )
             if len(proposed) > 20:
                 console.print(f"  ... and {len(proposed) - 20} more")
-            for c in conflicts[:10]:
+            for c in conflict_details[:10]:
                 console.print(f"  CONFLICT {c['va']}: {c['local']!r} vs {c['binsync']!r}")
         else:
             console.print("[green]No changes to import (already in sync or all generic).[/green]")
@@ -506,10 +577,10 @@ def main(
     if conflicts:
         if accept_binsync or accept_local:
             mode = "accept-binsync" if accept_binsync else "accept-local"
-            console.print(f"[dim]{len(conflicts)} conflict(s) resolved via --{mode}[/dim]")
+            console.print(f"[dim]{conflicts} conflict(s) resolved via --{mode}[/dim]")
         else:
             console.print(
-                f"[yellow]{len(conflicts)} conflict(s)[/yellow] — re-run with "
+                f"[yellow]{conflicts} conflict(s)[/yellow] — re-run with "
                 "[cyan]--accept-binsync[/cyan] or [cyan]--accept-local[/cyan] to resolve"
             )
             raise typer.Exit(code=1)

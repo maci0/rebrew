@@ -516,11 +516,17 @@ def _check_W019_inline_metadata(
     module: str = "",
     va_int: int | None = None,
     marker: str = "",
+    metadata_size: str | None = None,
 ) -> None:
     """Warn when metadata-owned keys appear as inline // KEY: comments.
 
     These keys should live exclusively in rebrew-functions.toml (or rebrew-data.toml
     for DATA/GLOBAL markers).  Inline occurrences are deprecated.
+
+    ``SIZE`` is exempt — ``// SIZE:`` is the reccmp-native contract in the
+    ``.c`` (reccmp reads it there) and the TOML value is an override, not a
+    migration target.  The only SIZE warning is a disagreement between the
+    inline and the metadata value.
     """
     for key in found_keys:
         if key == "SOURCE" and found_keys[key].strip().lower() == "naked":
@@ -529,6 +535,16 @@ def _check_W019_inline_metadata(
             # /DREBREW_ALLOW_NAKED naked-guard convention, it must travel
             # with the file (self-clears when the C body replaces it) —
             # not a metadata-migration candidate.
+            continue
+        if key == "SIZE":
+            if metadata_size and metadata_size != found_keys[key].strip():
+                result.warning(
+                    result.marker_line,
+                    "W019",
+                    f"Inline '// SIZE: {found_keys[key].strip()}' disagrees with "
+                    f"metadata SIZE {metadata_size} — the compile contract is "
+                    "ambiguous; align them",
+                )
             continue
         if key in METADATA_KEYS and key not in metadata_sourced_keys:
             result.warning(
@@ -1179,10 +1195,12 @@ def lint_file(
         # that is correctly metadata-only.
         _metadata_sourced_keys: set[str] = set()
         _va_int: int | None = None
+        _metadata_size: str | None = None
         if mod and va_str:
             try:
                 _va_int = int(va_str, 16)
                 _metadata_override = _metadata_entries.get((mod, _va_int), {})
+                _metadata_size = str(_metadata_override.get("SIZE", "")).strip() or None
                 for _toml_key, _found_key in _METADATA_TO_FOUND.items():
                     if _toml_key in _metadata_override:
                         if _found_key not in found_keys:
@@ -1259,6 +1277,7 @@ def lint_file(
                 module=mod,
                 va_int=_va_int if mod else None,
                 marker=marker,
+                metadata_size=_metadata_size,
             )
 
     result.context_prefix = ""

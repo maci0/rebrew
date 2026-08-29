@@ -621,36 +621,37 @@ missing_typing, for_loops, while_loops, suggestions}]}`.
 | `--root DIR` | Project root directory (auto-detected if omitted) |
 ### `rebrew sync`
 
+`rebrew sync` synchronizes annotations with Ghidra. **Field-level sync
+(names, comments/notes, prototypes, structs, globals) is BinSync-primary**
+(metadata-review R1): `--push`/`--pull` go through the shared BinSync state
+dir, and the BinSync Ghidra plugin (or a collaborator's tool) relays the
+state to and from Ghidra.  ReVa MCP remains only for the structural ops the
+state dir cannot express — function creation, bookmarks, data pulls.
+
 | Flag | Description |
 |------|-------------|
-| `--export` | Export Ghidra commands to `ghidra_commands.json` |
-| `--summary` | Show sync summary without exporting |
-| `--apply` | Apply `ghidra_commands.json` to Ghidra via ReVa MCP |
-| `--push` | Export and apply in one step |
-| `--force` | With `--export`/`--push`: re-export already-applied operations (skip the dedup state) |
-| `--watch` | With `--push`: watch sources + `rebrew-functions.toml` and re-push on every change |
-| `--create-functions` | Create functions at annotated VAs before labeling |
-| `--skip-generic` / `--no-skip-generic` | Skip/include generic `func_` labels (default: skip) |
-| `--sync-sizes` | Sync function sizes to Ghidra |
-| `--sync-new-functions` | Create functions for newly discovered VAs |
-| `--sync-structs` / `--no-sync-structs` | Push struct definitions to DTM (default: sync) |
-| `--sync-signatures` / `--no-sync-signatures` | Push function prototypes (default: sync) |
-| `--sync-data` / `--no-sync-data` | Push data segment labels (default: sync) |
-| `--pull` | Fetch Ghidra renames and comments and update local `.c` files |
-| `--accept-ghidra` | With `--pull`, accept Ghidra renames for all conflicts (updates cross-references) |
-| `--accept-local` | With `--pull`, keep local names for all conflicts (records GHIDRA in metadata) |
-| `--pull-signatures` | Pull function prototypes from Ghidra and update extern declarations |
-| `--pull-params` | Pull Ghidra parameter names into unnamed parameters of local `.c` files (merge-safe: named params never overwritten, arity mismatch / function-pointer params skipped) |
-| `--pull-datatypes` | Pull enum/typedef inventory from Ghidra into enums_types.h (ReVa exposes names/sizes/categories, not enum members) |
-| `--pull-structs` | Pull struct definitions from Ghidra into `types.h` (single file, default) |
-| `--types-out PATH` | With `--pull-structs`: override the output path (single-file mode; mutually exclusive with `--by-module`) |
-| `--by-module` | With `--pull-structs`: split into per-module files (e.g. `types_server.h`, `types_shared.h`) |
-| `--pull-comments` | Pull Ghidra analysis comments into source files |
-| `--pull-data` | Fetch Ghidra data labels via MCP, generate `rebrew_globals.h` with typed extern declarations |
-| `--refresh-cache` | Re-fetch all function structure and data labels from Ghidra MCP (invalidates cached data) |
-| `--dry-run` | Preview any sync operation without applying changes |
-| `--endpoint URL` | ReVa MCP endpoint URL |
+| `--state-dir DIR` | BinSync state directory (required for `--push`/`--pull`) |
+| `--push` | Export annotations to the BinSync state dir |
+| `--pull` | Import the BinSync state dir into rebrew (renames, `// PROTOTYPE:`, notes, globals, structs) |
+| `--create-functions` | With `--pull`: create the imported VAs in Ghidra (MCP chain). Standalone: create list-only functions in Ghidra |
+| `--accept-binsync` | With `--pull`: accept BinSync names on conflicts |
+| `--accept-local` | With `--pull`: keep local names on conflicts (records provenance) |
+| `--create-missing` | With `--pull`: STUB files for BinSync functions not in the catalog |
+| `--bookmarks` | Set status bookmarks in Ghidra via MCP (rebrew/exact\|reloc\|matching\|stub) |
+| `--pull-data` | Pull Ghidra data labels into `rebrew_globals.h` (MCP) |
+| `--summary` | Preview the push (dry-run export) without writing |
+| `--watch` | With `--push --state-dir`: re-export on every source change |
+| `--dry-run` | Preview any operation without applying changes |
+| `--endpoint URL` | ReVa MCP endpoint URL (structural ops) |
 | `--json` | Output results as JSON |
+
+Removed in R1: `--export`/`--apply`/`--force` (op file + dedup state —
+binsync export is idempotent), `--pull-signatures`/`--pull-params`/
+`--pull-structs`/`--pull-datatypes`/`--pull-comments` (field pulls — now via
+the state dir), `--sync-sizes`/`--sync-new-functions`/`--sync-structs`/
+`--sync-signatures`/`--sync-data`/`--skip-generic` (field push — now via the
+state dir), `--types-out`/`--by-module` (struct output — structs go to the
+state dir), `--refresh-cache` (cache deleted).
 
 ### `rebrew flirt`
 

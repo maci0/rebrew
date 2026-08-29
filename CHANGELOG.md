@@ -1,4 +1,25 @@
 ## [Unreleased]
+### Changed
+- **`rebrew sync` is BinSync-primary** (metadata-review R1, destructive):
+  field-level sync (names, comments/notes, prototypes, structs, globals)
+  goes through the shared BinSync state dir — `--push --state-dir D` exports
+  (binsync-export), `--pull --state-dir D` imports (binsync-import);
+  `--pull --create-functions` chains the MCP create op over the imported VAs
+  so new functions appear in Ghidra without an external plugin.  ReVa MCP
+  remains only for the structural ops the state dir cannot express:
+  `--create-functions`, `--bookmarks`, `--pull-data`.  Deleted: the MCP
+  field-level push/pull (labels, comments, prototypes, structs, params,
+  sizes), `ghidra/params.py`, the `ghidra_sync_state.json` dedup cache, and
+  the `--export/--apply/--pull-*/--sync-*/--refresh-cache/--types-out/
+  --by-module/--force` flags.  `binsync_export.export_state` and
+  `binsync_import.import_state` are now callable (used by the sync CLI and
+  the create-functions chain).
+- **`// SIZE:` stays inline** (R3, reccmp contract): lint W019 no longer
+  flags inline SIZE — it warns only when inline and metadata SIZE disagree.
+- **BinSync exports drop the write-only `[rebrew] STATUS=… CFLAGS=…`
+  comment** (R2) — the state carries BinSync-native fields only; STATUS
+  stays verify-earned in `rebrew-functions.toml`.
+
 ### Added
 - **Metadata write-lock (mode 0444)**: `rebrew-functions.toml`,
   `rebrew-data.toml`, and the binsync exports (`functions/*.toml`,

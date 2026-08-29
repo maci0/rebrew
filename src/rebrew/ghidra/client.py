@@ -330,7 +330,7 @@ def fetch_all_functions(
 
     ReVa's ``get-functions`` returns at most *maxCount* entries per call.
     This helper pages through the full list and normalises the field names
-    to the format expected by ``pull_ghidra_renames`` (``va``, ``tool_name``, ``size``).
+    to the format expected by the data-pull path (``va``, ``tool_name``, ``size``).
     """
     if batch_size <= 0:
         raise ValueError("batch_size must be positive")

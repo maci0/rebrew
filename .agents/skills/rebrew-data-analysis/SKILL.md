@@ -121,14 +121,14 @@ note    = "lookup table for sprite indices"
 
 | Field | Purpose |
 |-------|---------|
-| `name` | Preferred variable label — overrides C stem; written by `rebrew sync --pull` from Ghidra |
+| `name` | Preferred variable label — overrides C stem; written by `rebrew sync --pull --state-dir <dir>` from Ghidra |
 | `size` | Size in bytes |
 | `section` | PE section (`.data`, `.rdata`, `.bss`) |
-| `note` | Description; written by `rebrew sync --pull` from Ghidra comments |
+| `note` | Description; written by `rebrew sync --pull --state-dir <dir>` from Ghidra comments |
 
 > [!CAUTION]
 > **Never manually edit `rebrew-data.toml`.** It is managed automatically by `rebrew data`,
-> `rebrew data --fix-bss`, and `rebrew sync --pull`. Entries are keyed `"MODULE.0xVA"`
+> `rebrew data --fix-bss`, and `rebrew sync --pull --state-dir <dir>`. Entries are keyed `"MODULE.0xVA"`
 > (qualified, same scheme as `rebrew-functions.toml`).
 
 ## GLOBAL Annotations

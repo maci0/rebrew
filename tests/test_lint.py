@@ -525,7 +525,8 @@ class TestLintFileBranches:
         )
         result = lint_file(f)
         w019 = [m for _, c, m in result.warnings if c == "W019"]
-        assert any("'// SIZE:'" in m for m in w019), w019
+        # SIZE is reccmp-native and stays inline (R3) — only CFLAGS is flagged.
+        assert not any("'// SIZE:'" in m for m in w019), w019
         assert any("'// CFLAGS:'" in m for m in w019), w019
 
     def test_w019_silent_for_source_naked_marker(self, tmp_path: Path) -> None:
@@ -738,10 +739,11 @@ class TestLintFix:
         assert result.exit_code == 0
         text = f.read_text(encoding="utf-8")
         assert "// STATUS:" not in text
-        assert "// SIZE:" not in text
+        # SIZE is reccmp-native and stays inline (R3) — --fix leaves it.
+        assert "// SIZE: 42" in text
         entry = get_entry(tmp_path, 0x1000, "SERVER")
         assert entry.get("status") == "EXACT"
-        assert entry.get("size") == 42  # coerced to int
+        assert entry.get("size") is None  # SIZE is not migrated to metadata
 
     def test_fix_metadata_sourced_status_not_migrated(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -759,7 +761,7 @@ class TestLintFix:
         result = CliRunner().invoke(app, ["--fix", "--dry-run", str(f)])
         assert result.exit_code == 0
         assert "STATUS" not in result.output  # overlay marks it metadata-sourced
-        assert "SIZE" in result.output  # only the inline SIZE is migrated
+        assert "SIZE" not in result.output  # SIZE stays inline (reccmp-native, R3)
 
     def test_fix_duplicate_va_second_file_already_migrated(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -785,14 +787,15 @@ class TestLintFix:
         result = CliRunner().invoke(app, ["--fix", str(a), str(b)])
         assert result.exit_code == 1  # E013 duplicate VA is an error
         assert "E013" in result.output
-        # Both inline copies stripped; metadata owns the fields exactly once.
+        # STATUS stripped from both inline copies; metadata owns it once.
+        # SIZE stays inline (reccmp-native, R3).
         for f in (a, b):
             text = f.read_text(encoding="utf-8")
             assert "// STATUS:" not in text
-            assert "// SIZE:" not in text
+            assert "// SIZE: 42" in text
         entry = get_entry(tmp_path, 0x1000, "SERVER")
         assert entry.get("status") == "EXACT"
-        assert entry.get("size") == 42
+        assert entry.get("size") is None
 
 
 class TestLintFixConvergence:
@@ -830,7 +833,9 @@ class TestLintFixConvergence:
         assert not any(e[1] == "W019" for e in again.warnings + again.errors)
         entry = get_entry(tmp_path, 0x1000, "SERVER")
         assert entry.get("status") == "EXACT"
-        assert entry.get("size") == 42
+        # SIZE stays inline (reccmp-native, R3) — not migrated to metadata.
+        assert entry.get("size") is None
+        assert "// SIZE: 42" in f.read_text(encoding="utf-8")
 
 
 class TestW020AsmDump:

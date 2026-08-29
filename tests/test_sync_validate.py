@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from typing import Any
 
 from rebrew.config import load_config
-from rebrew.ghidra.cli import _refresh_data_labels_cache, _refresh_structure_cache
 from rebrew.ghidra.commands import resolve_program_path, validate_program_path
 
 
@@ -51,113 +50,6 @@ class TestValidateProgramPath:
                 "programPath": "/server.dll",
                 "language": "x86:LE:32:default",
             }
-
-        monkeypatch.setattr("rebrew.ghidra.commands.fetch_mcp_tool_raw", mock_fetch)
-        result = validate_program_path(None, "http://localhost:8080/mcp/message", "/server.dll", "")
-        assert result == "/server.dll"
-
-
-class TestRefreshCacheJson:
-    def test_structure_cache_json_still_writes(
-        self, tmp_path: Path, monkeypatch: Any, capsys: Any
-    ) -> None:
-        """--json must not suppress the cache write (regression: it used to
-        make `sync --refresh-cache --json` a silent no-op with exit 0)."""
-        cfg = SimpleNamespace(reversed_dir=tmp_path)
-
-        monkeypatch.setattr("rebrew.ghidra.cli.httpx.Client", _FakeClient)
-        monkeypatch.setattr("rebrew.ghidra.cli.init_mcp_session", lambda client, endpoint: "sid")
-        monkeypatch.setattr(
-            "rebrew.ghidra.cli.fetch_all_functions",
-            lambda client, endpoint, program_path, session_id: [
-                {"va": "0x10001000", "size": "0x20", "tool_name": "FUN_10001000"}
-            ],
-        )
-
-        result = _refresh_structure_cache(
-            cfg,
-            "http://fake/mcp",
-            "/server.dll",
-            dry_run=False,
-            json_output=True,
-        )
-
-        assert result == [{"va": 0x10001000, "size": 0x20, "tool_name": "FUN_10001000"}]
-        assert (tmp_path / "function_structure.json").exists()
-
-    def test_data_labels_cache_json_still_writes(
-        self, tmp_path: Path, monkeypatch: Any, capsys: Any
-    ) -> None:
-        """--json must not suppress the cache write (see structure test)."""
-        cfg = SimpleNamespace(reversed_dir=tmp_path)
-        symbols = [{"address": "0x10002000", "name": "g_value"}]
-
-        monkeypatch.setattr("rebrew.ghidra.cli.httpx.Client", _FakeClient)
-        monkeypatch.setattr("rebrew.ghidra.cli.init_mcp_session", lambda client, endpoint: "sid")
-        monkeypatch.setattr(
-            "rebrew.ghidra.client.fetch_all_symbols",
-            lambda client, endpoint, program_path, session_id: symbols,
-        )
-
-        result = _refresh_data_labels_cache(
-            cfg,
-            "http://fake/mcp",
-            "/server.dll",
-            dry_run=False,
-            json_output=True,
-        )
-
-        assert result == symbols
-        assert (tmp_path / "ghidra_data_labels.json").exists()
-
-    def test_validate_mismatch_warns_and_uses_ghidra_path(
-        self, monkeypatch: Any, capsys: Any
-    ) -> None:
-        def mock_fetch(
-            client: Any,
-            endpoint: str,
-            tool_name: str,
-            args: dict[str, Any],
-            request_id: int,
-            session_id: str = "",
-        ) -> dict[str, str]:
-            return {
-                "programPath": "/Server/server.dll",
-                "language": "x86:LE:32:default",
-            }
-
-        monkeypatch.setattr("rebrew.ghidra.commands.fetch_mcp_tool_raw", mock_fetch)
-        result = validate_program_path(None, "http://localhost:8080/mcp/message", "/server.dll", "")
-        captured = capsys.readouterr()
-        assert result == "/Server/server.dll"
-        assert "Ghidra has '/Server/server.dll' open" in captured.err
-        assert 'ghidra_program_path = "/Server/server.dll"' in captured.err
-
-    def test_validate_mcp_error_returns_original(self, monkeypatch: Any) -> None:
-        def mock_fetch(
-            client: Any,
-            endpoint: str,
-            tool_name: str,
-            args: dict[str, Any],
-            request_id: int,
-            session_id: str = "",
-        ) -> dict[str, Any]:
-            raise RuntimeError("mcp unavailable")
-
-        monkeypatch.setattr("rebrew.ghidra.commands.fetch_mcp_tool_raw", mock_fetch)
-        result = validate_program_path(None, "http://localhost:8080/mcp/message", "/server.dll", "")
-        assert result == "/server.dll"
-
-    def test_validate_none_result_returns_original(self, monkeypatch: Any) -> None:
-        def mock_fetch(
-            client: Any,
-            endpoint: str,
-            tool_name: str,
-            args: dict[str, Any],
-            request_id: int,
-            session_id: str = "",
-        ) -> None:
-            return None
 
         monkeypatch.setattr("rebrew.ghidra.commands.fetch_mcp_tool_raw", mock_fetch)
         result = validate_program_path(None, "http://localhost:8080/mcp/message", "/server.dll", "")

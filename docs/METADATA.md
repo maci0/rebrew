@@ -49,14 +49,18 @@ truth.
 
 ## Sync stores (external)
 
-- **Ghidra** (ReVa MCP): the Ghidra program is the store; sync edits `.c`
-  markers + TOML metadata.  Pulls land as renames, `NOTE:`/`GHIDRA:`
-  metadata, `// PROTOTYPE:` markers.  `src/<target>/function_structure.json`
-  and `ghidra_data_labels.json` are Ghidra exports (input provenance);
-  `.rebrew/ghidra_sync_state.json` is a pushed-op-hash cache.
-- **BinSync**: export writes rebrew-only fields as `[rebrew]` comment
-  strings in the state dir; import applies back through `.c` files and
-  `rebrew-data.toml` — STATUS via `update_source_status` (never inline).
+- **BinSync state dir** (the field-level sync interchange, metadata-review
+  R1): `functions/*.toml`, `global_vars.toml`, `structs/*.toml` carry
+  BinSync-native fields (name, prototype, size, notes, globals, structs);
+  rebrew exports via `rebrew sync --push --state-dir D` (binsync-export) and
+  imports via `--pull` (binsync-import).  The BinSync Ghidra plugin relays
+  the state to/from Ghidra.  STATUS/CFLAGS are NOT in the state — they stay
+  verify-earned in `rebrew-functions.toml` (the old `[rebrew] STATUS=…`
+  comment was write-only and removed).
+- **Ghidra** (ReVa MCP): only the structural ops the state dir cannot
+  express — `rebrew sync --create-functions`, `--bookmarks`, `--pull-data`.
+  `src/<target>/function_structure.json` and `ghidra_data_labels.json` are
+  Ghidra exports used as **registry inputs** (not sync outputs).
 - **rebrew-flirt-sigs checkout** (sibling repo, `REBREW_FLIRT_SIGS_DIR`
   overrides): standard-library `.pat` signature sources, merged with the
   project's own `flirt_sigs/` at load time (project sigs win).  Read-only

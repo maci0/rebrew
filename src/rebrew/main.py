@@ -163,7 +163,11 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ("test", "rebrew.test", "Compile, byte-compare, and auto-update STATUS annotation."),
     ("verify", "rebrew.verify", "Validate compiled bytes against target binary."),
     ("skeleton", "rebrew.skeleton", "Generate skeleton C files for matching."),
-    ("sync", "rebrew.ghidra.cli", "Sync annotations between decomp C files and Ghidra."),
+    (
+        "sync",
+        "rebrew.ghidra.cli",
+        "Sync with Ghidra: BinSync state dir field sync + MCP structural ops.",
+    ),
     ("lint", "rebrew.lint", "Lint C annotations."),
     (
         "fix",

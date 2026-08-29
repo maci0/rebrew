@@ -13,10 +13,10 @@ Layout produced::
         structs/
             <name>.toml  -- one per struct definition (with fields when available)
 
-Rebrew-specific fields (STATUS, CFLAGS) have no BinSync counterpart, so they
-are stored as structured comments at the function VA::
-
-    [rebrew] STATUS=EXACT CFLAGS=/O1 /Gd
+The export carries only BinSync-native fields — rebrew's STATUS/CFLAGS
+stay in ``rebrew-functions.toml`` (STATUS is verify-earned; an old
+``[rebrew] STATUS=… CFLAGS=…`` comment was write-only and was removed,
+metadata-review R2).
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ import logging
 import re
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import tomlkit
 import typer
@@ -46,8 +47,9 @@ app = typer.Typer(
         "  rebrew binsync-export ./state --json · · · · · · · Machine-readable output\n\n"
         "  rebrew binsync-export ./state --module SERVER · · Export one module only\n\n"
         "  rebrew binsync-export ./state --git · · · · · · · Export + git commit\n\n"
-        "[dim]Produces BinSync-compatible TOML layout: functions/, global_vars.toml. "
-        "Rebrew-specific metadata (STATUS, CFLAGS) is preserved in [rebrew] comments.[/dim]"
+        "[dim]Produces BinSync-compatible TOML layout: functions/, global_vars.toml, "
+        "structs/ — BinSync-native fields only (STATUS/CFLAGS stay in "
+        "rebrew-functions.toml).[/dim]"
     ),
 )
 
@@ -57,16 +59,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _rebrew_comment(status: str, cflags: str) -> str:
-    """Build the ``[rebrew] STATUS=… CFLAGS=…`` metadata comment string."""
-    parts = []
-    if status:
-        parts.append(f"STATUS={status}")
-    if cflags:
-        parts.append(f"CFLAGS={cflags}")
-    return f"[rebrew] {' '.join(parts)}" if parts else ""
 
 
 # ---------------------------------------------------------------------------
@@ -266,12 +258,17 @@ def _write_function_toml(
     va: int,
     size: int,
     prototype: str,
-    status: str,
-    cflags: str,
     note: str,
     ghidra: str,
 ) -> None:
-    """Serialise one function's metadata to a BinSync function TOML file."""
+    """Serialise one function's metadata to a BinSync function TOML file.
+
+    Only BinSync-native fields are written (name, addr, size, prototype,
+    notes) — rebrew's STATUS/CFLAGS stay in rebrew-functions.toml; the old
+    ``[rebrew] STATUS=… CFLAGS=…`` comment was write-only (nothing parsed it
+    back) and duplicated metadata, so it was removed (metadata-review R2).
+    STATUS is verify-earned and cannot be restored from a shared state.
+    """
     doc = tomlkit.document()
 
     # [info] — identity
@@ -292,10 +289,6 @@ def _write_function_toml(
     # [comments] — rebrew metadata + analyst notes
     # BinSync uses integer keys (addresses) mapped to comment strings.
     comments: dict[int, str] = {}
-
-    rebrew_meta = _rebrew_comment(status, cflags)
-    if rebrew_meta:
-        comments[va] = rebrew_meta
 
     if note:
         comments[va + 1] = f"[rebrew:note] {note}"
@@ -689,6 +682,35 @@ def main(
     """
     cfg = require_config(target=target, json_mode=json_output)
 
+    result = export_state(
+        cfg,
+        outdir,
+        dry_run=dry_run,
+        json_output=json_output,
+        module=module,
+        git_commit=git_commit,
+        clean=clean,
+    )
+    _print_export_result(result, json_output=json_output, dry_run=dry_run)
+    return
+
+
+def export_state(
+    cfg: ProjectConfig,
+    outdir: Path,
+    *,
+    dry_run: bool,
+    json_output: bool,
+    module: str | None = None,
+    git_commit: bool = False,
+    clean: bool = False,
+) -> dict[str, object]:
+    """Export rebrew annotations to a BinSync state directory (programmatic).
+
+    Returns the result dict (counts + written paths + warnings).  ``empty``
+    is True when there was nothing to export — the CLI turns that into an
+    error, programmatic callers decide.
+    """
     entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
     # Optional module filter applies to both annotations and catalog entries
     if module is not None:
@@ -771,7 +793,17 @@ def main(
 
     # Nothing at all to export?
     if not func_entries and not catalog_func_entries and not global_entries:
-        error_exit("No annotations found.", json_mode=json_output)
+        return {
+            "outdir": str(outdir),
+            "dry_run": dry_run,
+            "functions": 0,
+            "globals": 0,
+            "structs": 0,
+            "function_files": [],
+            "global_vars_file": None,
+            "struct_files": [],
+            "empty": True,
+        }
 
     # Collect global vars with real names + types
     va_to_name = _resolve_global_names(cfg, global_entries)  # type: ignore[arg-type]
@@ -811,8 +843,6 @@ def main(
                 va=va,
                 size=getattr(entry, "size", 0),
                 prototype=getattr(entry, "prototype", ""),
-                status=getattr(entry, "status", ""),
-                cflags=getattr(entry, "cflags", ""),
                 note=getattr(entry, "note", ""),
                 ghidra=getattr(entry, "ghidra", ""),
             )
@@ -875,33 +905,63 @@ def main(
         for w in warnings_list:
             console.print(f"[yellow]warning:[/yellow] {w}")
 
-    # --- Output ---
+    return {
+        "outdir": str(outdir),
+        "dry_run": dry_run,
+        "functions": len(written_funcs),
+        "globals": len(globals_list),
+        "structs": len(written_structs),
+        "function_files": written_funcs,
+        "global_vars_file": written_globals or None,
+        "struct_files": written_structs,
+        "warnings": warnings_list,
+        "cleaned": cleaned,
+        "commit": commit_hash,
+        "module": module,
+        "empty": False,
+    }
+
+
+def _print_export_result(result: dict[str, object], *, json_output: bool, dry_run: bool) -> None:
+    """Render an :func:`export_state` result (the CLI summary path)."""
+    if bool(result.get("empty")):
+        error_exit("No annotations found.", json_mode=json_output)
+    from typing import cast
+
+    outdir = str(result["outdir"])
+    written_funcs = int(cast(int, result["functions"]))
+    globals_list = int(cast(int, result["globals"]))
+    written_structs = int(cast(int, result["structs"]))
+    warnings_list = list(cast(list[Any], result.get("warnings") or []))
+    cleaned = list(cast(list[Any], result.get("cleaned") or []))
+    commit_hash = result.get("commit")
+    module = result.get("module")
     if json_output:
-        result: dict[str, object] = {
-            "outdir": str(outdir),
+        payload: dict[str, object] = {
+            "outdir": outdir,
             "dry_run": dry_run,
-            "functions": len(written_funcs),
-            "globals": len(globals_list),
-            "structs": len(written_structs),
-            "function_files": written_funcs,
-            "global_vars_file": written_globals or None,
-            "struct_files": written_structs,
+            "functions": written_funcs,
+            "globals": globals_list,
+            "structs": written_structs,
+            "function_files": list(cast(list[Any], result.get("function_files") or [])),
+            "global_vars_file": result.get("global_vars_file"),
+            "struct_files": list(cast(list[Any], result.get("struct_files") or [])),
         }
         if warnings_list:
-            result["warnings"] = warnings_list
+            payload["warnings"] = warnings_list
         if cleaned:
-            result["cleaned"] = cleaned
+            payload["cleaned"] = cleaned
         if commit_hash:
-            result["commit"] = commit_hash
+            payload["commit"] = commit_hash
         if module is not None:
-            result["module"] = module
-        json_print(result)
+            payload["module"] = module
+        json_print(payload)
     else:
         action = "[dim]would write[/dim]" if dry_run else "Wrote"
         console.print(
-            f"{action} [bold]{len(written_funcs)}[/bold] functions, "
-            f"[bold]{len(globals_list)}[/bold] globals, "
-            f"[bold]{len(written_structs)}[/bold] structs "
+            f"{action} [bold]{written_funcs}[/bold] functions, "
+            f"[bold]{globals_list}[/bold] globals, "
+            f"[bold]{written_structs}[/bold] structs "
             f"to [cyan]{outdir}[/cyan]"
         )
 
