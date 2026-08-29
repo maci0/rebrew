@@ -699,6 +699,20 @@ _SMOKE_GOLDEN: dict[
             (57, 58),
         ],  # Borland COMENT run-timestamp (sub-second ticks) + record checksum
     ),
+    "ido5.3": (
+        ["-c", "-O2", "-o", "t.o", "t.c"],
+        "t.o",
+        "23d42a2d1b2bf56d013a803db6d0d458c693e48f932d1859ad9ec5df881018a6",
+        "t.c",
+        None,  # ELF object — no timestamp; src path/mtime are fixed by the gate
+    ),
+    "ido7.1": (
+        ["-c", "-O2", "-o", "t.o", "t.c"],
+        "t.o",
+        "6af67c000618e1acb476b58ff8dae30e727934ad78e819bc87305d7e2ebc8672",
+        "t.c",
+        None,  # ELF object — no timestamp; src path/mtime are fixed by the gate
+    ),
 }
 
 

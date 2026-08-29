@@ -444,6 +444,24 @@ _SOURCES: dict[str, ToolchainSource] = {
         layout="tar",
         host_dir="delphi/1.0-win16",
     ),
+    "ido5.3": ToolchainSource(
+        # decompals/ido-static-recomp v1.2 — statically recompiled SGI IDO 5.3
+        # (MIPS-II big-endian, N64).  Native Linux x86_64 binaries; the same
+        # sha256 the rebrew/ido:5.3-linux image downloads at build time.
+        url="https://github.com/decompals/ido-static-recomp/releases/download/v1.2/ido-5.3-recomp-linux.tar.gz",
+        sha256="ab5c741561f80913d58c8b074771f23941a3edd312505a8ebed6d1dfeb65e506",
+        layout="tar",
+        host_dir="ido/5.3-linux",
+    ),
+    "ido7.1": ToolchainSource(
+        # decompals/ido-static-recomp v1.2 — statically recompiled SGI IDO 7.1
+        # (MIPS-II big-endian, N64).  Native Linux x86_64 binaries; the same
+        # sha256 the rebrew/ido:7.1-linux image downloads at build time.
+        url="https://github.com/decompals/ido-static-recomp/releases/download/v1.2/ido-7.1-recomp-linux.tar.gz",
+        sha256="0d411696e178fcca34c31c3bf02011b928d7fd9c1fa7f8bf45070e0781b58e15",
+        layout="tar",
+        host_dir="ido/7.1-linux",
+    ),
     "borlandc55": ToolchainSource(
         url="https://archive.org/download/BorlandC55/Borland%20C%2B%2B%205.5.zip",
         sha256="12affb942db2b9823292697faaa6f465b18c381ba347f9f4bf8efae6ff34cca1",
@@ -594,6 +612,24 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         flags_style="posix",
         obj_ext=".o",
         description="Clang (ELF/x86_64) — native PATH binary",
+    ),
+    "ido5.3": ToolchainSpec(
+        name="ido5.3",
+        image="rebrew/ido:5.3-linux",
+        binary="cc",
+        runtime="native",  # ido-static-recomp binaries run natively on Linux
+        flags_style="posix",
+        obj_ext=".o",  # ELF MIPS object
+        description="IDO 5.3 reimplementation (MIPS-II BE, N64) — docker image (native Linux)",
+    ),
+    "ido7.1": ToolchainSpec(
+        name="ido7.1",
+        image="rebrew/ido:7.1-linux",
+        binary="cc",
+        runtime="native",  # ido-static-recomp binaries run natively on Linux
+        flags_style="posix",
+        obj_ext=".o",  # ELF MIPS object
+        description="IDO 7.1 reimplementation (MIPS-II BE, N64) — docker image (native Linux)",
     ),
     "watcom": ToolchainSpec(
         name="watcom",
