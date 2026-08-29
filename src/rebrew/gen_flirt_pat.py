@@ -1,8 +1,14 @@
-"""Generate FLIRT .pat files from COFF .lib archives.
+"""Generate FLIRT .pat files from COFF .lib and ELF .a archives.
 
-This reads the object files inside a .lib archive, extracts every
-public function symbol with its COFF relocations, and emits a
-.pat-format line for each one with relocation bytes masked as '..'.
+This reads the object files inside an archive, extracts every public
+function symbol with its relocations, and emits a .pat-format line for
+each one with relocation bytes masked as '..'.
+
+MSVC COFF objects (``.lib``) are parsed via LIEF's COFF module; console-era
+IDO/MWCC archives (ELF ``.a``) via LIEF's ELF module — ELF objects carry
+exact function sizes in the symbol table, so no next-symbol heuristic is
+needed.  MIPS relocations mask the whole 4-byte instruction word (the fixup
+target field shares the word with the opcode).
 """
 
 import bisect
@@ -20,20 +26,27 @@ from rebrew.utils import atomic_write_text
 console = Console(stderr=True)
 
 app = typer.Typer(
-    help="Generate FLIRT .pat files from COFF .lib archives.",
+    help="Generate FLIRT .pat files from COFF .lib and ELF .a archives.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew gen-flirt-pat toolchain/msvc/6.0-win32/VC98/Lib/LIBCMT.LIB\n\n"
-        "  rebrew gen-flirt-pat LIBCMT.LIB -o flirt_sigs/libcmt_vc6.pat\n\n"
-        "[dim]Reads COFF .obj members from a .lib archive, extracts public function "
-        "symbols with relocations, and emits FLIRT .pat-format signatures.[/dim]"
+        "  rebrew gen-flirt-pat LIBCMT.LIB -o flirt_sigs/libcmt.pat\n\n"
+        "  rebrew gen-flirt-pat libultra.a -o flirt_sigs/libultra.pat\n\n"
+        "[dim]Reads COFF .obj or ELF .o members from an ar archive, extracts public "
+        "function symbols with relocations, and emits FLIRT .pat-format "
+        "signatures.[/dim]"
     ),
 )
 
 
 def parse_archive(lib_path: str) -> Iterator[tuple[str, bytes]]:
-    """Parse a COFF archive (.lib) and yield (member_name, obj_data) tuples."""
+    """Parse an ar archive (.lib / .a) and yield (member_name, obj_data).
+
+    The ``!<arch>`` layout is shared by MSVC COFF .lib files and GNU/IDO
+    ELF .a archives; the special ``/`` (symbol index) and ``//`` (long-name
+    table) members are skipped.
+    """
     data = Path(lib_path).read_bytes()
 
     if not data.startswith(b"!<arch>\n"):
@@ -139,6 +152,84 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
 
         if len(code) >= 4:
             yield str(sym.name), code, reloc_offsets
+
+
+def parse_elf_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
+    """Parse an ELF .o member (console .a archives) → (name, code, reloc_offsets).
+
+    ELF objects carry exact function sizes in the symbol table (unlike
+    COFF), so each external FUNC symbol's bytes are
+    ``section.content[value:value+size]`` — no next-symbol heuristic.  Fixup
+    widths come from LIEF's per-type size (reliable for ELF, unlike MSVC6
+    COFF).  MIPS relocations mask the whole containing 4-byte instruction
+    word: the fixup target field shares the word with the opcode, and the
+    object's reloc slots differ from the linked binary's.
+    """
+    import tempfile
+
+    import lief
+
+    if len(obj_data) < 20:
+        return
+
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".o", delete=False) as f:
+            f.write(obj_data)
+            tmp_path = Path(f.name)
+        elf = lief.ELF.parse(str(tmp_path))
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+
+    if elf is None:
+        return
+
+    is_mips = elf.header.machine_type in (lief.ELF.ARCH.MIPS, lief.ELF.ARCH.MIPS_X)
+
+    for sym in elf.symbols:
+        if sym.type != lief.ELF.Symbol.TYPE.FUNC:
+            continue
+        if sym.binding not in (lief.ELF.Symbol.BINDING.GLOBAL, lief.ELF.Symbol.BINDING.WEAK):
+            continue
+        section = sym.section
+        if section is None or sym.size <= 0:
+            continue
+        if not (section.flags & 0x4):  # SHF_EXECINSTR
+            continue
+
+        content = bytes(section.content)
+        func_start = sym.value
+        func_end = func_start + sym.size
+        if func_start >= func_end or func_end > len(content):
+            continue
+        code = content[func_start:func_end]
+        if len(code) < 4:
+            continue
+
+        # Only relocations whose owning section is this function's section —
+        # in ET_REL, reloc addresses are section-relative, so a raw .rela.text
+        # offset could collide with an .eh_frame address.
+        reloc_offsets: set[int] = set()
+        for reloc in elf.relocations:
+            if not reloc.has_section or reloc.section is not section:
+                continue
+            rva = reloc.address
+            if not (func_start <= rva < func_end):
+                continue
+            func_rel = rva - func_start
+            if is_mips:
+                # Mask the whole 4-byte instruction word containing the fixup.
+                word_start = func_rel - (func_rel % 4)
+                for k in range(word_start, min(word_start + 4, len(code))):
+                    reloc_offsets.add(k)
+            else:
+                width = max(int(reloc.size) // 8, 1)
+                for k in range(width):
+                    if func_rel + k < len(code):
+                        reloc_offsets.add(func_rel + k)
+
+        yield str(sym.name), code, reloc_offsets
 
 
 # x86 COFF fixup widths by relocation type (bytes).  LIEF reports
@@ -264,7 +355,11 @@ def _is_weak_signature(line: str) -> bool:
 
 
 def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int]:
-    """Generate a FLIRT .pat file from one COFF .lib archive.
+    """Generate a FLIRT .pat file from one COFF .lib or ELF .a archive.
+
+    Members are dispatched by their magic: ELF objects (``\\x7fELF``) go
+    through :func:`parse_elf_obj` (IDO/MWCC console archives), everything
+    else through :func:`parse_coff_obj` (MSVC .lib).
 
     Returns ``{"signatures": n, "skipped_members": n, "skipped_weak": n}``.
     Shared by ``rebrew gen-flirt-pat`` and ``rebrew identify-library
@@ -278,8 +373,12 @@ def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int]:
     skipped = 0
     weak_skipped = 0
     for _member_name, obj_data in parse_archive(str(lib_file)):
+        if obj_data.startswith(b"\x7fELF"):
+            obj_iter = parse_elf_obj(obj_data)
+        else:
+            obj_iter = parse_coff_obj(obj_data)
         try:
-            for sym_name, code, relocs in parse_coff_obj(obj_data):
+            for sym_name, code, relocs in obj_iter:
                 if not sym_name.strip():
                     # A .pat line's trailing field is the symbol name; a
                     # nameless line is malformed and poisons the whole file
@@ -314,13 +413,13 @@ def main(
     output: str | None = typer.Option(None, "--output", "-o", help="Output .pat file path"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
-    """Generate FLIRT .pat files from COFF .lib archives."""
+    """Generate FLIRT .pat files from COFF .lib and ELF .a archives."""
     lib_file = Path(lib_path)
     if not lib_file.exists():
         error_exit(f"{lib_file} not found", json_mode=json_output)
 
     lib_name = lib_file.stem.lower()
-    out_path = Path(output) if output else Path(f"flirt_sigs/{lib_name}_vc6.pat")
+    out_path = Path(output) if output else Path(f"flirt_sigs/{lib_name}.pat")
 
     stats = generate_pat(lib_file, out_path)
     skipped = stats["skipped_members"]

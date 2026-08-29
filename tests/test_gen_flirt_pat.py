@@ -1,6 +1,7 @@
 """Tests for rebrew.gen_flirt_pat — archive parsing and PAT line generation."""
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from bin_util import make_coff_obj, make_lib_archive
@@ -526,3 +527,125 @@ class TestWeakSignatureBoundary:
 
         line = "558BEC83EC00 08 1234 000F :0000 _ok"
         assert _is_weak_signature(line) is False
+
+
+_HAS_GCC = bool(__import__("shutil").which("gcc"))
+
+
+def _compile_elf_object(tmp_path: Path) -> Path:
+    """Compile a small C file to an ET_REL object with gcc (test fixture)."""
+    src = tmp_path / "fixture.c"
+    src.write_text(
+        "extern int ext_fn(int);\n"
+        "int helper_add(int a, int b) { return a + b; }\n"
+        "int helper_mul(int a, int b) { return a * b; }\n"
+        "int sum_array(const int *a, int n) {\n"
+        "    int s = 0;\n"
+        "    for (int i = 0; i < n; i++) s += a[i];\n"
+        "    return s + ext_fn(s);\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    obj = tmp_path / "fixture.o"
+    import subprocess
+
+    subprocess.run(
+        ["gcc", "-c", "-O1", "-fno-asynchronous-unwind-tables", str(src), "-o", str(obj)],
+        check=True,
+        capture_output=True,
+    )
+    return obj
+
+
+class TestParseElfObjReal:
+    @pytest.mark.skipif(not _HAS_GCC, reason="gcc not available")
+    def test_yields_functions_with_relocs(self, tmp_path: Path) -> None:
+        from rebrew.gen_flirt_pat import parse_elf_obj
+
+        obj_data = _compile_elf_object(tmp_path).read_bytes()
+        results = {name: (code, relocs) for name, code, relocs in parse_elf_obj(obj_data)}
+        assert "helper_add" in results
+        assert "helper_mul" in results
+        assert "sum_array" in results
+        # ELF symbol sizes are exact — no next-symbol heuristic.
+        assert len(results["helper_add"][0]) == 4
+        # The ext_fn call yields a PLT32 fixup (4 bytes) inside sum_array.
+        assert results["sum_array"][1]
+        assert all(0 <= r < len(results["sum_array"][0]) for r in results["sum_array"][1])
+
+    @pytest.mark.skipif(not _HAS_GCC, reason="gcc not available")
+    def test_generate_pat_elf_archive(self, tmp_path: Path) -> None:
+        import subprocess
+
+        from rebrew.gen_flirt_pat import generate_pat
+
+        obj = _compile_elf_object(tmp_path)
+        lib = tmp_path / "libfixture.a"
+        subprocess.run(["ar", "rcs", str(lib), str(obj)], check=True, capture_output=True)
+        out = tmp_path / "out.pat"
+        stats = generate_pat(lib, out)
+        assert stats["signatures"] == 1  # sum_array; tiny funcs are weak-skipped
+        assert stats["skipped_members"] == 0
+        text = out.read_text(encoding="utf-8")
+        assert "sum_array" in text
+        assert text.endswith("---\n")
+
+    def test_mips_word_masking(self, monkeypatch) -> None:
+        """R_MIPS fixups mask the whole 4-byte instruction word."""
+        import lief
+
+        from rebrew.gen_flirt_pat import parse_elf_obj
+
+        section = SimpleNamespace(flags=0x4, content=b"\x00\x00\x00\x00\x00\x00\x00\x00")
+        sym = SimpleNamespace(
+            name="mips_fn",
+            type=lief.ELF.Symbol.TYPE.FUNC,
+            binding=lief.ELF.Symbol.BINDING.GLOBAL,
+            section=section,
+            value=0,
+            size=8,
+        )
+        reloc = SimpleNamespace(
+            has_section=True,
+            section=section,
+            address=2,
+            size=26,  # R_MIPS_26-ish
+        )
+        fake = SimpleNamespace(
+            header=SimpleNamespace(machine_type=lief.ELF.ARCH.MIPS),
+            symbols=[sym],
+            relocations=[reloc],
+        )
+        monkeypatch.setattr(lief.ELF, "parse", lambda path: fake)
+        results = list(parse_elf_obj(b"\x7fELF" + b"\x00" * 40))
+        assert len(results) == 1
+        _name, code, relocs = results[0]
+        # Fixup at byte 2 sits inside word 0 — the whole word is masked.
+        assert {0, 1, 2, 3} <= relocs
+
+    def test_non_mips_uses_reloc_size(self, monkeypatch) -> None:
+        import lief
+
+        from rebrew.gen_flirt_pat import parse_elf_obj
+
+        section = SimpleNamespace(flags=0x4, content=b"\x00" * 16)
+        sym = SimpleNamespace(
+            name="x86_fn",
+            type=lief.ELF.Symbol.TYPE.FUNC,
+            binding=lief.ELF.Symbol.BINDING.GLOBAL,
+            section=section,
+            value=0,
+            size=16,
+        )
+        reloc = SimpleNamespace(has_section=True, section=section, address=4, size=32)
+        fake = SimpleNamespace(
+            header=SimpleNamespace(machine_type=lief.ELF.ARCH.X86_64),
+            symbols=[sym],
+            relocations=[reloc],
+        )
+        monkeypatch.setattr(lief.ELF, "parse", lambda path: fake)
+        results = list(parse_elf_obj(b"\x7fELF" + b"\x00" * 40))
+        assert len(results) == 1
+        _name, code, relocs = results[0]
+        assert {4, 5, 6, 7} <= relocs
+        assert 0 not in relocs

@@ -113,9 +113,11 @@ Byte-exact for N64/PS1/GC requires the actual compilers:
    for MIPS/ARM/SH targets.  PPC is still blocked: capstone 5 has no working
    PPC engine to feed m2c (word-scan extent only), so `fetch_m2c` returns None
    for PPC until a capstone ≥6 or rizin-based disassembler lands.
-3. **FLIRT for console libs**: `gen_flirt_pat` gains ELF archive support (IDO/MWCC
-   `.a`); signature DBs for libultra / PSX libc / DOL runtime; `identify_library`
-   library presets (e.g. `n64-libultra`, `psx-libc`).
+3. **FLIRT for console libs**: ~~`gen_flirt_pat` gains ELF archive support~~ *(DONE)* —
+   ``rebrew gen-flirt-pat`` now dispatches on member magic (COFF ``.lib`` vs ELF
+   ``.a``); ELF objects use exact symbol sizes and MIPS fixups mask the whole
+   instruction word.  Remaining: signature DBs for libultra / PSX libc / DOL
+   runtime and `identify_library` presets (e.g. `n64-libultra`, `psx-libc`).
 4. `imports.py`/`asm --imports`: ELF import reading (`.dynsym`/PLT) for MIPS/PPC
    — the current import path is PE/IAT-centric.
 
