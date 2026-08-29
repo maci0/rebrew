@@ -29,68 +29,70 @@ has_angr = importlib.util.find_spec("angr") is not None
 
 class TestParsePrototype:
     def test_cdecl_no_args(self) -> None:
-        cc, n, w = _parse_prototype("int __cdecl foo(void)")
+        cc, n, w, is_void = _parse_prototype("int __cdecl foo(void)")
         assert cc == "cdecl"
         assert n == 0
         assert w == 32
 
     def test_cdecl_with_args(self) -> None:
-        cc, n, w = _parse_prototype("int __cdecl foo(int a, int b, char *c)")
+        cc, n, w, is_void = _parse_prototype("int __cdecl foo(int a, int b, char *c)")
         assert cc == "cdecl"
         assert n == 3
         assert w == 32
 
     def test_stdcall(self) -> None:
-        cc, n, w = _parse_prototype("BOOL __stdcall WinFunc(HWND hWnd, int nShowCmd)")
+        cc, n, w, is_void = _parse_prototype("BOOL __stdcall WinFunc(HWND hWnd, int nShowCmd)")
         assert cc == "stdcall"
         assert n == 2
         assert w == 32
 
     def test_thiscall(self) -> None:
-        cc, n, w = _parse_prototype("int __thiscall CClass::Method(int x)")
+        cc, n, w, is_void = _parse_prototype("int __thiscall CClass::Method(int x)")
         assert cc == "thiscall"
         assert n == 1
         assert w == 32
 
     def test_fastcall(self) -> None:
-        cc, n, w = _parse_prototype("void __fastcall fast_func(int a, int b, int c)")
+        cc, n, w, is_void = _parse_prototype("void __fastcall fast_func(int a, int b, int c)")
         assert cc == "fastcall"
         assert n == 3
         assert w == 32
 
     def test_no_calling_convention_defaults_to_cdecl(self) -> None:
-        cc, n, w = _parse_prototype("int foo(int x)")
+        cc, n, w, is_void = _parse_prototype("int foo(int x)")
         assert cc == "cdecl"
         assert n == 1
         assert w == 32
 
     def test_empty_args(self) -> None:
-        cc, n, w = _parse_prototype("void __cdecl bar()")
+        cc, n, w, is_void = _parse_prototype("void __cdecl bar()")
         assert cc == "cdecl"
         assert n == 0
         assert w == 32
 
     def test_pointer_args_counted_correctly(self) -> None:
-        cc, n, w = _parse_prototype("int __cdecl baz(int *p, char *q)")
+        cc, n, w, is_void = _parse_prototype("int __cdecl baz(int *p, char *q)")
         assert cc == "cdecl"
         assert n == 2
         assert w == 32
 
     def test_invalid_prototype_returns_defaults(self) -> None:
-        cc, n, w = _parse_prototype("this is not a prototype")
+        cc, n, w, is_void = _parse_prototype("this is not a prototype")
         assert cc == "cdecl"
         assert n == 0
         assert w == 32
+        assert is_void is False
 
     def test_empty_string_returns_defaults(self) -> None:
-        cc, n, w = _parse_prototype("")
+        cc, n, w, is_void = _parse_prototype("")
         assert cc == "cdecl"
         assert n == 0
         assert w == 32
+        assert is_void is False
 
     def test_prototype_with_class_scope(self) -> None:
         """C++ style class::method prototype."""
-        cc, n, w = _parse_prototype("int __cdecl Ns::Cls::Method(int a, int b)")
+        cc, n, w, is_void = _parse_prototype("int __cdecl Ns::Cls::Method(int a, int b)")
         assert cc == "cdecl"
         assert n == 2
         assert w == 32
@@ -98,37 +100,76 @@ class TestParsePrototype:
     # --- 64-bit return type detection ---
 
     def test_long_long_return_is_64bit(self) -> None:
-        _cc, _n, w = _parse_prototype("long long __cdecl foo(int a)")
+        _cc, _n, w, is_void = _parse_prototype("long long __cdecl foo(int a)")
         assert w == 64
 
     def test_int64_t_return_is_64bit(self) -> None:
-        _cc, _n, w = _parse_prototype("int64_t __cdecl foo(void)")
+        _cc, _n, w, is_void = _parse_prototype("int64_t __cdecl foo(void)")
         assert w == 64
 
     def test_uint64_t_return_is_64bit(self) -> None:
-        _cc, _n, w = _parse_prototype("uint64_t __cdecl foo(void)")
+        _cc, _n, w, is_void = _parse_prototype("uint64_t __cdecl foo(void)")
         assert w == 64
 
     def test___int64_return_is_64bit(self) -> None:
-        _cc, _n, w = _parse_prototype("__int64 __cdecl foo(int x, int y)")
+        _cc, _n, w, is_void = _parse_prototype("__int64 __cdecl foo(int x, int y)")
         assert w == 64
 
     def test_long_double_return_is_64bit(self) -> None:
         """long double is conservatively marked 64-bit (returned via st0, but flagged)."""
-        _cc, _n, w = _parse_prototype("long double __cdecl foo(void)")
+        _cc, _n, w, is_void = _parse_prototype("long double __cdecl foo(void)")
         assert w == 64
 
     def test_void_return_is_32bit(self) -> None:
-        _cc, _n, w = _parse_prototype("void __cdecl foo(void)")
+        _cc, _n, w, is_void = _parse_prototype("void __cdecl foo(void)")
         assert w == 32
+        assert is_void is True
 
     def test_char_ptr_return_is_32bit(self) -> None:
-        _cc, _n, w = _parse_prototype("char * __cdecl foo(int n)")
+        _cc, _n, w, is_void = _parse_prototype("char * __cdecl foo(int n)")
         assert w == 32
+        assert is_void is False
+
+    def test_void_pointer_return_is_not_void(self) -> None:
+        """``void*`` returns a pointer (EAX is meaningful) — not a void function."""
+        _cc, _n, w, is_void = _parse_prototype("void * __cdecl foo(void)")
+        assert w == 32
+        assert is_void is False
 
     def test_struct_ptr_return_is_32bit(self) -> None:
-        _cc, _n, w = _parse_prototype("struct Foo * __cdecl foo(void)")
+        _cc, _n, w, is_void = _parse_prototype("struct Foo * __cdecl foo(void)")
         assert w == 32
+
+
+class TestVoidFunctionGuard:
+    """void functions leave EAX undefined — prove must not compare it.
+
+    ``check_eax=False`` with no watched VAs would make the equivalence check
+    trivially true (an empty disjunction is unsatisfiable), so it must be
+    refused up front; with watched VAs it proceeds and compares memory only.
+    """
+
+    def test_void_without_watch_vas_refused(self) -> None:
+        proven, msg = prove_equivalence(
+            b"\xc3", b"\xc3", None, "void __cdecl foo(void)", check_eax=False
+        )
+        assert proven is False
+        assert "no --watch-va" in msg
+
+    def test_void_with_watch_vas_not_refused(self) -> None:
+        # Guard passes; angr executes and reports what it compared (the exact
+        # equivalence verdict depends on the blobs, but the refusal message
+        # must be absent and the label must mention the watched memory).
+        proven, msg = prove_equivalence(
+            b"\xc3",
+            b"\xc3",
+            None,
+            "void __cdecl foo(void)",
+            check_eax=False,
+            watched_vas=[0x1000],
+        )
+        assert "no --watch-va" not in msg
+        assert not (proven is False and "nothing to compare" in msg)
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +202,7 @@ class TestProveCLIStatusGuard:
         src.write_text("// FUNCTION: GAME 0x00001000\nint __cdecl foo(void) { return 0; }\n")
         # Write status to metadata — cfg.metadata_dir is reversed_dir.parent,
         # i.e. the project root for reversed_dir="src".
-        metadata_toml = tmp_path / "rebrew-function.toml"
+        metadata_toml = tmp_path / "rebrew-functions.toml"
         metadata_toml.write_text(f'["GAME.0x00001000"]\nstatus = "{status}"\nsize = 16\n')
         # Real PE fixture (parseable) — downstream needs a valid binary.
         import shutil
@@ -944,7 +985,7 @@ class TestWatchVaHexParsing:
         f.write_text(
             "// FUNCTION: GAME 0x1000\nint __cdecl foo(void) { return 0; }\n", encoding="utf-8"
         )
-        (src / "rebrew-function.toml").write_text(
+        (src / "rebrew-functions.toml").write_text(
             '["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n', encoding="utf-8"
         )
         cfg = SimpleNamespace(
@@ -984,7 +1025,7 @@ class TestWatchVaValidation:
         f.write_text(
             "// FUNCTION: GAME 0x1000\nint __cdecl foo(void) { return 0; }\n", encoding="utf-8"
         )
-        (src / "rebrew-function.toml").write_text(
+        (src / "rebrew-functions.toml").write_text(
             '["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n', encoding="utf-8"
         )
         cfg = SimpleNamespace(
@@ -1047,7 +1088,7 @@ class TestWatchVaValidation:
         f.write_text(
             "// FUNCTION: GAME 0x1000\nint __cdecl foo(void) { return 0; }\n", encoding="utf-8"
         )
-        (src / "rebrew-function.toml").write_text(
+        (src / "rebrew-functions.toml").write_text(
             '["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n', encoding="utf-8"
         )
         cfg = SimpleNamespace(
@@ -1161,7 +1202,7 @@ class TestWatchVaDecimal:
         f.write_text(
             "// FUNCTION: GAME 0x1000\nint __cdecl foo(void) { return 0; }\n", encoding="utf-8"
         )
-        (src / "rebrew-function.toml").write_text(
+        (src / "rebrew-functions.toml").write_text(
             '["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n', encoding="utf-8"
         )
         cfg = SimpleNamespace(
