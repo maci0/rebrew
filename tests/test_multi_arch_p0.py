@@ -186,6 +186,37 @@ class TestRelocTables:
                 reloc_table="elf-mips",
             )
 
+    def test_real_ido_reloc_types_mask_in_compare(self) -> None:
+        """IDO 7.1 objects carry HI16/LO16 (global data) and GOT16/CALL16
+        (external calls, O32 GOT convention) — the *compare* path must mask
+        these slots (they hold link-time addresses), never raise.  Verified
+        against a real `rebrew/ido:7.1-linux` object: relocs at 0x0/0x4
+        (sym 6), 0xc (sym 3), 0x28 (sym 5), 0x3c (sym 3)."""
+        from rebrew.core.matching import CoffRelocRecord, smart_reloc_compare
+
+        obj = bytearray(0x40)
+        target = bytearray(0x40)
+        for off in (0x0, 0x4, 0xC, 0x28, 0x3C):
+            target[off : off + 4] = b"\x12\x34\x56\x78"  # link-time addresses
+        relocs = [
+            CoffRelocRecord(0x0, 5, "g_counter"),  # R_MIPS_HI16
+            CoffRelocRecord(0x4, 6, "g_counter"),  # R_MIPS_LO16
+            CoffRelocRecord(0xC, 9, "ext_fn"),  # R_MIPS_GOT16
+            CoffRelocRecord(0x28, 11, "ext_fn"),  # R_MIPS_CALL16
+            CoffRelocRecord(0x3C, 9, "ext_fn"),  # R_MIPS_GOT16
+        ]
+        matched, _mcount, _total, valid, invalid = smart_reloc_compare(
+            bytes(obj),
+            bytes(target),
+            relocs,
+            name_to_va={"g_counter": 0x80001000, "ext_fn": 0x80002000},
+            section_va=0x80000100,
+            reloc_table="elf-mips",
+        )
+        assert matched
+        assert len(valid) == 5
+        assert invalid == []
+
 
 class TestNonX86Gates:
     def test_discover_non_x86_minimal_sweep(
