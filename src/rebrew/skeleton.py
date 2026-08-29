@@ -1326,7 +1326,7 @@ def main(
     decomp_backend: str = typer.Option(
         "auto",
         "--decomp-backend",
-        help="Decompiler backend: auto, r2ghidra, r2dec, ghidra",
+        help="Decompiler backend: auto, r2ghidra, r2dec, ghidra, kuna, m2c",
     ),
     xrefs: bool = typer.Option(
         False,

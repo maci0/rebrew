@@ -1,5 +1,6 @@
 """Tests for rebrew.decompiler backend dispatch and helpers."""
 
+import importlib.util
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -634,3 +635,166 @@ class TestKunaBackend:
 
         monkeypatch.setattr(dc, "fetch_kuna", lambda b, va, root: None)
         assert dc.kuna_seed_source(tmp_path / "x.exe", 0x401000, tmp_path) is None
+
+
+# Synthetic MIPS function (big-endian) used across the m2c tests:
+#   beq $zero, $zero, +4 ; nop (delay slot) ; li $v0, 1 ; jr $ra ; addiu $sp, $sp, 8
+_MIPS_BE_BYTES = bytes.fromhex("10000001000000002402000103e0000827bd0008")
+
+
+def _mips_info(raw: bytes = _MIPS_BE_BYTES) -> SimpleNamespace:
+    return SimpleNamespace(
+        arch="mips32",
+        endian="big",
+        format="elf",
+        image_base=0,
+        sections={},
+        text_va=0x1000,
+        text_size=len(raw),
+        text_raw_offset=0,
+        data=raw,
+    )
+
+
+class TestM2CBackend:
+    def test_backends_list(self) -> None:
+        assert "m2c" in BACKENDS  # auto-probed last
+        assert "m2c" in _BACKEND_MAP  # registered for explicit use
+
+    def test_target_map(self) -> None:
+        from rebrew.decompiler import _m2c_target
+
+        assert _m2c_target(SimpleNamespace(arch="mips32", endian="big")) == "mips-ido-c"
+        assert _m2c_target(SimpleNamespace(arch="mips32", endian="little")) == "mipsel-gcc-c"
+        assert _m2c_target(SimpleNamespace(arch="mips32")) == "mips-ido-c"  # BE default
+        assert _m2c_target(SimpleNamespace(arch="mips64")) == "mipsee-gcc-c"
+        assert _m2c_target(SimpleNamespace(arch="ppc32")) == "ppc-mwcc-c"
+        assert _m2c_target(SimpleNamespace(arch="sh2")) == "sh2-gcc-c"
+        assert _m2c_target(SimpleNamespace(arch="x86_32")) is None
+
+    def test_render_mips_asm_labels_and_noreorder(self) -> None:
+        from rebrew.decompiler import _render_m2c_asm
+
+        asm = _render_m2c_asm(_mips_info(), 0x1000, _MIPS_BE_BYTES)
+        assert asm is not None
+        lines = asm.splitlines()
+        assert lines[0] == ".set noat"
+        assert lines[1] == ".set noreorder"
+        assert lines[2] == "func_1000:"
+        # Branch target inside the function becomes a local label.
+        assert "b loc_1008" in asm
+        assert "loc_1008:" in asm
+        # Jump terminator keeps its delay slot in the body.
+        assert "jr $ra" in asm
+        assert "addiu $sp, $sp, 8" in asm
+
+    def test_render_external_call_symbol(self) -> None:
+        from rebrew.decompiler import _render_m2c_asm
+
+        # jal 0x1234 (outside the function) → func_1234 symbol, not a literal.
+        raw = bytes.fromhex("0c0480000000000003e0000800000000")  # jal 0x12000; nop; jr $ra; nop
+        info = _mips_info(raw)
+        asm = _render_m2c_asm(info, 0x1000, raw)
+        assert asm is not None
+        assert "func_12000" in asm
+        assert "func_1000:" in asm
+
+    def test_m2c_not_installed_returns_none(self, tmp_path: Path, monkeypatch) -> None:
+
+        from rebrew.decompiler import fetch_m2c
+
+        bin_path = tmp_path / "x.elf"
+        bin_path.write_bytes(b"\x7fELF")
+        monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+        assert fetch_m2c(bin_path, 0x1000, tmp_path) is None
+
+    def test_x86_returns_none(self, tmp_path: Path, monkeypatch) -> None:
+        import rebrew.binary_loader as bl
+        from rebrew.decompiler import fetch_m2c
+
+        bin_path = tmp_path / "x.exe"
+        bin_path.write_bytes(b"MZ")
+        monkeypatch.setattr(
+            bl,
+            "load_binary",
+            lambda p: SimpleNamespace(arch="x86_32", endian="little", format="pe"),
+        )
+        assert fetch_m2c(bin_path, 0x1000, tmp_path) is None
+
+    def test_fetch_runs_m2c_with_stdin_asm(self, tmp_path: Path, monkeypatch) -> None:
+
+        import rebrew.binary_loader as bl
+        from rebrew.decompiler import fetch_m2c
+
+        bin_path = tmp_path / "x.elf"
+        bin_path.write_bytes(b"\x7fELF")
+        monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())
+        monkeypatch.setattr(bl, "load_binary", lambda p: _mips_info())
+        monkeypatch.setattr(bl, "extract_bytes_at_va", lambda info, va, size, **kw: _MIPS_BE_BYTES)
+        monkeypatch.setattr(
+            bl, "function_extent_from_disasm", lambda p, va, **kw: len(_MIPS_BE_BYTES)
+        )
+
+        captured: dict[str, Any] = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            captured["input"] = kwargs.get("input")
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="s32 func_1000(void) { return 1; }\n", stderr=""
+            )
+
+        monkeypatch.setattr("rebrew.decompiler.subprocess.run", fake_run)
+        code = fetch_m2c(bin_path, 0x1000, tmp_path)
+        assert code == "s32 func_1000(void) { return 1; }"
+        assert "--target" in captured["cmd"]
+        assert captured["cmd"][captured["cmd"].index("--target") + 1] == "mips-ido-c"
+        assert captured["cmd"][-1] == "-"  # asm piped on stdin
+        assert ".set noreorder" in captured["input"]
+        assert "func_1000:" in captured["input"]
+
+    def test_fetch_passes_ctx_when_present(self, tmp_path: Path, monkeypatch) -> None:
+
+        import rebrew.binary_loader as bl
+        from rebrew.decompiler import fetch_m2c
+
+        (tmp_path / "ctx.c").write_text("struct Foo { int x; };\n", encoding="utf-8")
+        bin_path = tmp_path / "x.elf"
+        bin_path.write_bytes(b"\x7fELF")
+        monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())
+        monkeypatch.setattr(bl, "load_binary", lambda p: _mips_info())
+        monkeypatch.setattr(bl, "extract_bytes_at_va", lambda info, va, size, **kw: _MIPS_BE_BYTES)
+        monkeypatch.setattr(
+            bl, "function_extent_from_disasm", lambda p, va, **kw: len(_MIPS_BE_BYTES)
+        )
+
+        captured: dict[str, Any] = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="s32 f(void) { return 1; }\n", stderr=""
+            )
+
+        monkeypatch.setattr("rebrew.decompiler.subprocess.run", fake_run)
+        assert fetch_m2c(bin_path, 0x1000, tmp_path) == "s32 f(void) { return 1; }"
+        assert "--context" in captured["cmd"]
+
+    @pytest.mark.skipif(importlib.util.find_spec("m2c") is None, reason="m2c extra not installed")
+    def test_m2c_end_to_end(self, tmp_path: Path, monkeypatch) -> None:
+        """Real m2c subprocess on a synthetic MIPS function (integration)."""
+
+        import rebrew.binary_loader as bl
+        from rebrew.decompiler import fetch_m2c
+
+        bin_path = tmp_path / "x.elf"
+        bin_path.write_bytes(b"\x7fELF")
+        monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())
+        monkeypatch.setattr(bl, "load_binary", lambda p: _mips_info())
+        monkeypatch.setattr(bl, "extract_bytes_at_va", lambda info, va, size, **kw: _MIPS_BE_BYTES)
+        monkeypatch.setattr(
+            bl, "function_extent_from_disasm", lambda p, va, **kw: len(_MIPS_BE_BYTES)
+        )
+        code = fetch_m2c(bin_path, 0x1000, tmp_path)
+        assert code is not None
+        assert "func_1000" in code

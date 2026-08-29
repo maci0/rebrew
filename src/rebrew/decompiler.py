@@ -1,12 +1,15 @@
 """decompiler.py - Pluggable decompiler backend for skeleton generation.
 
 Provides a unified interface to fetch pseudo-C decompilation from multiple
-backends (r2ghidra/rz-ghidra, r2dec/rz-dec, Ghidra via ReVa MCP).  Used by
-rebrew skeleton when the ``--decomp`` flag is set.
+backends (r2ghidra/rz-ghidra, r2dec/rz-dec, Ghidra via ReVa MCP, and m2c for
+MIPS/PPC/ARM/SH targets).  Used by rebrew skeleton when the ``--decomp``
+flag is set.
 
 Both radare2 (``r2``) and rizin (``rz``) are supported transparently —
 the first one found on PATH is used.  The ``ghidra`` backend connects to a
-running Ghidra instance through the ReVa MCP bridge.
+running Ghidra instance through the ReVa MCP bridge.  The ``m2c`` backend
+decompiles console-era MIPS/PPC/ARM/SH assembly (optional dependency, see
+:func:`fetch_m2c`).
 
 Usage (internal)::
 
@@ -37,9 +40,10 @@ _ANSI_RE = re.compile(r"\x1B\[[0-9;]*[a-zA-Z]")
 
 # Auto-probe order when backend="auto" (ghidra is available for explicit
 # use but not auto-probed; use backend='ghidra' with MCP configuration).
-# kuna (the agent-first Ghidra-port decompiler) is probed last — a separate
-# binary, slower to start than r2's in-process plugins.
-BACKENDS = ("r2ghidra", "r2dec", "kuna")
+# kuna (the agent-first Ghidra-port decompiler) is probed before m2c; m2c is
+# last — an optional dependency that only serves MIPS/PPC/ARM/SH binaries
+# (it degrades to None fast on x86 or when not installed).
+BACKENDS = ("r2ghidra", "r2dec", "kuna", "m2c")
 
 _DEFAULT_MCP_ENDPOINT = "http://localhost:8080/mcp/message"
 _MCP_TIMEOUT_S = 30.0
@@ -222,6 +226,197 @@ def kuna_seed_source(binary: Path, va: int, root: Path) -> str | None:
     return fixed if valid_c_source(fixed) else None
 
 
+# ---------------------------------------------------------------------------
+# m2c backend (multi-arch P2) — MIPS/PPC/ARM/SH decompilation
+# ---------------------------------------------------------------------------
+
+#: m2c (github.com/matt-kempster/m2c) decompiles GNU-as assembly into C that
+#: byte-matches the original compiler (IDO for N64, MWCC for GC/Wii).  It is
+#: installed from git, not PyPI (``pip install "m2c @ git+..."``) — hence the
+#: ``find_spec`` guard below rather than a hard dependency.
+_M2C_RUN_CMD = "from m2c.main import main; main()"
+
+#: m2c ``--target`` per rebrew arch.  PPC in m2c is always big-endian;
+#: MIPS big-endian is IDO by default (little-endian MIPS — PlayStation — is
+#: selected from the binary's own endianness in :func:`_m2c_target`).
+_M2C_TARGETS: dict[str, str] = {
+    "mips64": "mipsee-gcc-c",  # m2c's only 64-bit MIPS target (eabi64, LE)
+    "ppc32": "ppc-mwcc-c",
+    "ppc64": "ppc-mwcc-c",
+    "arm32": "arm-gcc-c",
+    "sh2": "sh2-gcc-c",
+}
+
+#: Call mnemonics whose target operand is an immediate address.  Branch/jump
+#: mnemonics are caught generically via the capstone ``CS_GRP_JUMP`` group
+#: (universal across arches); calls are NOT in that group on every arch
+#: (MIPS ``jal`` is group 137, not ``CS_GRP_CALL``=2 — that id is x86-only),
+#: so they are listed here per-arch-invariant.  Register-indirect calls
+#: (``jalr $t9``, ``blr``, ...) have no immediate operand and are skipped by
+#: the operand scan regardless.
+_M2C_CALL_MNEMONICS = frozenset({"jal", "jalrc", "bl", "blx", "bsr", "jsr", "bcl", "bctrl"})
+
+
+def _m2c_target(info: Any) -> str | None:
+    """m2c ``--target`` string for the binary's arch/endianness, or ``None``.
+
+    ``None`` means m2c has no target for the arch (x86 — use r2ghidra/kuna).
+    """
+    arch = getattr(info, "arch", "") or ""
+    if arch == "mips32":
+        if getattr(info, "endian", "") == "little":
+            return "mipsel-gcc-c"
+        return "mips-ido-c"
+    return _M2C_TARGETS.get(arch)
+
+
+def _m2c_fn_name(va: int) -> str:
+    """The ``func_<hex>`` label used for the function (matches decomp.me)."""
+    return f"func_{va:x}"
+
+
+def _m2c_is_ctrl_flow(insn: Any) -> bool:
+    """True for branch/jump/call instructions (those with a target operand).
+
+    Branches/jumps carry the universal ``CS_GRP_JUMP`` group in capstone 5
+    (group id 1 on every arch); calls are arch-specific (MIPS ``jal`` is
+    group 137, not ``CS_GRP_CALL``=2), so their mnemonics are listed in
+    :data:`_M2C_CALL_MNEMONICS`.
+    """
+    return bool(insn.group(1)) or insn.mnemonic in _M2C_CALL_MNEMONICS
+
+
+def _render_m2c_asm(info: Any, va: int, raw: bytes) -> str | None:
+    """Render a function's bytes as m2c's expected GNU-as text.
+
+    Capstone disassembly (arch-aware via
+    ``rebrew.binary_loader.capstone_config_for``) is re-rendered with
+    symbolic labels: branch/jump/call targets inside the function become
+    ``loc_<addr>`` labels, external call/tail targets become ``func_<addr>``
+    symbols (m2c emits their prototypes under ``--globals=used``).  MIPS
+    functions are prefixed with ``.set noreorder`` so branch delay slots are
+    honored.  Returns ``None`` when the region does not cleanly disassemble.
+    """
+    import capstone
+
+    from rebrew.binary_loader import capstone_config_for
+
+    cs_arch, mode = capstone_config_for(info)
+    md = capstone.Cs(cs_arch, mode)
+    md.detail = True
+    md.skipdata = False
+    insns = list(md.disasm(raw, va))
+    if not insns:
+        return None
+
+    # Collect jump/branch/call targets that land inside the function — those
+    # become labels; anything else stays a literal or an external symbol.
+    end = va + len(raw)
+    targets: set[int] = set()
+    for insn in insns:
+        if _m2c_is_ctrl_flow(insn):
+            for op in insn.operands:
+                if op.type == capstone.CS_OP_IMM and va <= op.imm < end:
+                    targets.add(op.imm)
+
+    labels = {addr: f"loc_{addr:x}" for addr in sorted(targets)}
+    lines: list[str] = []
+    if getattr(info, "arch", "") in ("mips32", "mips64"):
+        lines += [".set noat", ".set noreorder"]
+    lines.append(f"{_m2c_fn_name(va)}:")
+    for insn in insns:
+        if insn.address in labels:
+            lines.append(f"{labels[insn.address]}:")
+        ops = insn.op_str
+        if _m2c_is_ctrl_flow(insn):
+            parts = [part.strip() for part in ops.split(",")]
+            for i in range(len(parts) - 1, -1, -1):
+                try:
+                    val = int(parts[i], 0)
+                except ValueError:
+                    continue
+                if val in labels:
+                    parts[i] = labels[val]
+                else:
+                    # A jump/call to an address outside this function is an
+                    # external call or tail target — a bare immediate would
+                    # be treated as a literal, so name it like a function.
+                    parts[i] = _m2c_fn_name(val)
+                break
+            ops = ", ".join(parts)
+        lines.append(f"    {insn.mnemonic} {ops}".rstrip())
+    return "\n".join(lines) + "\n"
+
+
+def fetch_m2c(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
+    """Fetch decompilation from m2c — MIPS/PPC/ARM/SH targets (multi-arch P2).
+
+    The function is disassembled arch-aware, rendered in m2c's GNU-as format
+    (``func_<va>``/``loc_<va>`` labels), and piped to m2c on stdin with the
+    ``rebrew context`` output as ``--context`` when a ``ctx.c`` exists in the
+    project root (run ``rebrew context`` first to populate it).
+
+    Requires the ``m2c`` package — extra ``pip install 'rebrew[m2c]'`` (the
+    real decompiler is installed from git, not PyPI).  Returns ``None`` when
+    m2c is unavailable, the arch has no m2c target (x86), the function does
+    not cleanly disassemble, or m2c fails.  PPC currently also returns
+    ``None``: capstone 5 ships no working PPC engine, so there is no
+    disassembler to feed m2c yet (Phase 3).
+    """
+    if not binary.exists():
+        return None
+    if importlib.util.find_spec("m2c") is None:
+        return None
+    from rebrew.binary_loader import (
+        extract_bytes_at_va,
+        function_extent_from_disasm,
+        load_binary,
+    )
+
+    info = load_binary(binary)
+    target = _m2c_target(info)
+    if target is None:
+        return None
+    extent = function_extent_from_disasm(binary, va)
+    if not extent:
+        return None
+    raw = extract_bytes_at_va(info, va, extent)
+    if not raw:
+        return None
+    asm = _render_m2c_asm(info, va, raw)
+    if not asm:
+        return None
+
+    args = [
+        "--target",
+        target,
+        "--valid-syntax",
+        "--no-cache",
+        "-f",
+        _m2c_fn_name(va),
+        "-",
+    ]
+    ctx = Path(root) / "ctx.c"
+    if ctx.exists():
+        args += ["--context", str(ctx)]
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", _M2C_RUN_CMD] + args,
+            input=asm,
+            capture_output=True,
+            text=True,
+            cwd=root,
+            timeout=180,
+        )
+        if result.returncode == 0 and result.stdout:
+            return _clean_output(result.stdout)
+    except subprocess.TimeoutExpired:
+        warnings.warn(f"m2c timed out decompiling 0x{va:08x}", stacklevel=2)
+    except (OSError, subprocess.SubprocessError) as e:
+        warnings.warn(f"m2c failed decompiling 0x{va:08x}: {e}", stacklevel=2)
+    return None
+
+
 # Backends share the (binary, va, root) core plus optional keyword args;
 # fetch_ghidra ignores root (the MCP server holds its own project).
 _BACKEND_MAP: dict[str, Callable[..., str | None]] = {
@@ -229,6 +424,7 @@ _BACKEND_MAP: dict[str, Callable[..., str | None]] = {
     "r2dec": fetch_r2dec,
     "ghidra": fetch_ghidra,
     "kuna": fetch_kuna,
+    "m2c": fetch_m2c,
 }
 
 #: setuptools entry-point group whose members register extra decompiler
