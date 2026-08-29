@@ -39,6 +39,7 @@ from rich.console import Console
 from rebrew.cli import error_exit, json_print
 from rebrew.config import walk_up_to_root
 from rebrew.toolchain import TOOLCHAINS, ToolchainSpec
+from rebrew.utils import container_runtime
 
 try:
     import fcntl
@@ -238,7 +239,7 @@ def kill_container(name: str, timeout: int = 30) -> None:
     the original timeout.
     """
     with suppress(OSError, subprocess.SubprocessError):
-        subprocess.run(["docker", "kill", name], capture_output=True, timeout=timeout)
+        subprocess.run([container_runtime(), "kill", name], capture_output=True, timeout=timeout)
 
 
 def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
@@ -255,7 +256,7 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
         try:
             r = subprocess.run(
                 [
-                    "docker",
+                    container_runtime(),
                     "run",
                     "--rm",
                     "--network=none",  # wineboot needs no network
@@ -301,7 +302,7 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
     lib = "Z:" + str(tool_root.parent / "Lib").replace("/", "\\")
 
     cmd = [
-        "docker",
+        container_runtime(),
         "run",
         "--rm",
         "--network=none",  # compile-only containers — no egress needed

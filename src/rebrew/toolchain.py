@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.registry import RegistryError, merge_provider_dict
+from rebrew.utils import container_runtime
 
 _RUN_TIMEOUT = 300
 
@@ -1191,7 +1192,7 @@ def docker_available() -> bool:
     if _docker_available_cache is None:
         try:
             r = subprocess.run(
-                ["docker", "info"],
+                [container_runtime(), "info"],
                 capture_output=True,
                 text=True,
                 timeout=15,
@@ -1213,7 +1214,7 @@ def kill_container(name: str, timeout: int = 30) -> None:
     kill race must not mask the original timeout with a secondary failure.
     """
     with contextlib.suppress(OSError, subprocess.SubprocessError):
-        subprocess.run(["docker", "kill", name], capture_output=True, timeout=timeout)
+        subprocess.run([container_runtime(), "kill", name], capture_output=True, timeout=timeout)
 
 
 def image_present(tag: str, use_cache: bool = True) -> bool:
@@ -1224,7 +1225,7 @@ def image_present(tag: str, use_cache: bool = True) -> bool:
         return False
     try:
         r = subprocess.run(
-            ["docker", "image", "inspect", tag],
+            [container_runtime(), "image", "inspect", tag],
             capture_output=True,
             text=True,
             timeout=30,
@@ -1247,7 +1248,7 @@ def _image_id(tag: str) -> str | None:
         return None
     try:
         r = subprocess.run(
-            ["docker", "image", "inspect", "--format", "{{.Id}}", tag],
+            [container_runtime(), "image", "inspect", "--format", "{{.Id}}", tag],
             capture_output=True,
             text=True,
             timeout=30,
@@ -1261,7 +1262,9 @@ def _image_id(tag: str) -> str | None:
 
 def _retag_image(src: str, dst: str) -> None:
     """Point the *dst* tag at *src* (an image id or tag)."""
-    r = subprocess.run(["docker", "tag", src, dst], capture_output=True, text=True, timeout=60)
+    r = subprocess.run(
+        [container_runtime(), "tag", src, dst], capture_output=True, text=True, timeout=60
+    )
     if r.returncode != 0:
         raise ToolchainError(f"docker tag {src} -> {dst} failed: {r.stderr[-300:]}")
 
@@ -1439,7 +1442,7 @@ def run_toolchain(
                 f"run `rebrew toolchain build {spec.name}`"
             )
         cmd = [
-            "docker",
+            container_runtime(),
             "run",
             "--rm",
             "--network=none",  # compile-only containers — no egress needed

@@ -398,6 +398,10 @@ def build_candidate_obj_only(
                 compiler_includes=inc_dir,
                 base_cflags="",
                 compile_timeout=timeout,
+                # build_name_to_va / scan_globals read these — without them
+                # DIR32 reloc validation degrades to a silent no-op warning.
+                reversed_dir=Path.cwd(),
+                metadata_dir=Path.cwd(),
             )
         from rebrew.compile import compile_to_obj
 

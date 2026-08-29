@@ -24,6 +24,7 @@ from rebrew.toolchain import (
     list_toolchains,
     pull_toolchain,
 )
+from rebrew.utils import container_runtime
 
 console = Console(stderr=True)
 
@@ -105,7 +106,7 @@ def status_cmd(
     image_ok: bool | None = None
     if spec.image is not None and docker_available():
         r = __import__("subprocess").run(
-            ["docker", "image", "inspect", spec.image],
+            [container_runtime(), "image", "inspect", spec.image],
             capture_output=True,
             text=True,
             timeout=30,
@@ -749,7 +750,7 @@ def smoke_cmd(
     ok = True
     # A real-disk, docker-visible workdir (the system temp dir may be
     # tmpfs or docker-invisible in sandboxed environments).
-    from rebrew.utils import remove_temp_dir, writable_temp_dir
+    from rebrew.utils import container_runtime, remove_temp_dir, writable_temp_dir
 
     workdir = writable_temp_dir("rebrew_smoke_")
     try:
@@ -768,7 +769,7 @@ def smoke_cmd(
                 try:
                     r = subprocess.run(
                         [
-                            "docker",
+                            container_runtime(),
                             "run",
                             "--rm",
                             "--network=none",  # compile-only container
@@ -892,7 +893,7 @@ def build_cmd(
         base_dockerfile = base_dir / "Dockerfile"
         if base_dockerfile.exists():
             r = subprocess.run(
-                ["docker", "build", "-t", base_tag, str(base_dir)],
+                [container_runtime(), "build", "-t", base_tag, str(base_dir)],
                 capture_output=True,
                 text=True,
                 timeout=3600,
@@ -906,7 +907,7 @@ def build_cmd(
     # the swap verifies that and restores it if the tag was ever left dangling.
     def _build_image() -> None:
         r = subprocess.run(
-            ["docker", "build", "-t", image, str(build_dir)],
+            [container_runtime(), "build", "-t", image, str(build_dir)],
             capture_output=True,
             text=True,
             timeout=3600,
@@ -966,7 +967,7 @@ def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
     try:
         subprocess.run(
             [
-                "docker",
+                container_runtime(),
                 "run",
                 "--rm",
                 "--network=none",  # compile-only container

@@ -2054,9 +2054,13 @@ def resolve_build_params(
         # the compile config at its profile (compile_to_obj resolves the
         # image from the profile).  The cl/inc/env fields stay as resolved
         # for the default profile; image-backed compiles ignore them.
-        from types import SimpleNamespace
+        # Shallow-copy (not vars→SimpleNamespace): ProjectConfig carries
+        # computed properties (metadata_dir, posix_style, capstone_*), and
+        # ``vars()`` only copies stored fields — a SimpleNamespace copy
+        # would silently drop them and break DIR32 name resolution.
+        import copy
 
-        compile_cfg = SimpleNamespace(**vars(compile_cfg))
+        compile_cfg = copy.copy(compile_cfg)
         compile_cfg.compiler_profile = toolchain_name
     if cl is not None:
         # Caller override: resolve paths relative to root
