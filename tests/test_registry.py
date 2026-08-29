@@ -679,7 +679,7 @@ class TestMsvcVersionRegistry:
         assert rich[8168][0] == "msvc6"
         assert "mytc" in eras[(12, 0)]
         assert eras[(12, 0)][0] == "msvc6"
-        assert rich[3077] == ("msvc7", "msvc710")  # untouched packaged key
+        assert rich[3077] == ("msvc710",)  # msvc7 is a deprecated alias of msvc710
 
     def test_bad_key_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.toolchain_detect as td
