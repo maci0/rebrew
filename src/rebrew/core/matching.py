@@ -40,6 +40,11 @@ _RELOC_TABLES: dict[str, dict[int, str]] = {
         3: "rel32",  # R_MIPS_REL32
         # R_MIPS_26 (jump), R_MIPS_HI16/LO16 (pair) are not maskable with the
         # simple addend model — Phase 1 (MIPS object parsing) extends this.
+        # Real IDO 7.1 objects additionally emit GOT16/CALL16 (O32 GOT
+        # calling convention) for external calls; the *compare* path masks
+        # any type absent from a table (test_multi_arch_p0 pins this), so
+        # IDO-built MIPS verification is safe — only the round-trip patch
+        # path (apply_coff_relocations) raises for these.
     },
     "elf-ppc": {
         1: "abs32",  # R_PPC_ADDR32
