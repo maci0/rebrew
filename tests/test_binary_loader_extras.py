@@ -1,11 +1,19 @@
 """Tests for binary_loader.py internals — PE/ELF loaders and size guard."""
 
+import enum
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 import rebrew.binary_loader as bl
+
+
+class _FakeELFData(enum.Enum):
+    """Stand-in for the LIEF ``ELF_DATA`` enum (not importable by name)."""
+
+    LSB = 1
+    MSB = 2
 
 
 def _mock_section(
@@ -30,9 +38,21 @@ def _mock_elf_section(name: str, va: int, size: int, offset: int) -> SimpleNames
     )
 
 
+class _FakeELFData(enum.Enum):
+    """Stand-in for the LIEF ``ELF_DATA`` enum (not importable by name)."""
+
+    LSB = 1
+    MSB = 2
+
+
+def _mock_elf_header() -> SimpleNamespace:
+    return SimpleNamespace(machine_type=0, identity_data=_FakeELFData.LSB)
+
+
 class TestLoadPe:
     def test_sections_and_text(self) -> None:
         pe = SimpleNamespace(
+            header=SimpleNamespace(machine=0),
             optional_header=SimpleNamespace(imagebase=0x400000),
             sections=[
                 _mock_section(".text", 0x1000, 0x200, 0x400, 0x200),
@@ -50,6 +70,7 @@ class TestLoadPe:
 
     def test_no_text_section(self) -> None:
         pe = SimpleNamespace(
+            header=SimpleNamespace(machine=0),
             optional_header=SimpleNamespace(imagebase=0x400000),
             sections=[_mock_section(".data", 0x2000, 0x100, 0x600, 0x100)],
         )
@@ -61,6 +82,7 @@ class TestLoadPe:
 class TestLoadElf:
     def test_sections_and_image_base(self) -> None:
         elf = SimpleNamespace(
+            header=_mock_elf_header(),
             segments=[SimpleNamespace(type=1, virtual_address=0x1000)],  # PT_LOAD
             sections=[_mock_elf_section(".text", 0x1000, 0x200, 0x400)],
         )
@@ -72,6 +94,7 @@ class TestLoadElf:
 
     def test_load_segment_image_base(self) -> None:
         elf = SimpleNamespace(
+            header=_mock_elf_header(),
             segments=[
                 SimpleNamespace(type=2, virtual_address=0x1000),  # PT_DYNAMIC, not LOAD
                 SimpleNamespace(type=1, virtual_address=0x5000),  # PT_LOAD
@@ -83,6 +106,7 @@ class TestLoadElf:
 
     def test_empty_name_section_skipped(self) -> None:
         elf = SimpleNamespace(
+            header=_mock_elf_header(),
             segments=[],
             sections=[SimpleNamespace(name="", virtual_address=0, size=0, offset=0)],
         )

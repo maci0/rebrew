@@ -22,17 +22,38 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# IMAGE_REL_I386_*
+# IMAGE_REL_I386_* (the historical default reloc table)
 _REL_DIR32 = 0x0006
 _REL_REL32 = 0x0014
+
+# Per-format/arch relocation semantics (multi-arch P0): a reloc type maps to
+# how its patched value is computed.  ``abs32`` = target VA + addend;
+# ``rel32`` = target VA + addend - pc.  Types absent from a table are
+# unsupported by the masking path (raise NotImplementedError).
+_RELOC_TABLES: dict[str, dict[int, str]] = {
+    "coff-i386": {
+        _REL_DIR32: "abs32",
+        _REL_REL32: "rel32",
+    },
+    "elf-mips": {
+        2: "abs32",  # R_MIPS_32
+        3: "rel32",  # R_MIPS_REL32
+        # R_MIPS_26 (jump), R_MIPS_HI16/LO16 (pair) are not maskable with the
+        # simple addend model — Phase 1 (MIPS object parsing) extends this.
+    },
+    "elf-ppc": {
+        1: "abs32",  # R_PPC_ADDR32
+        # R_PPC_REL24 (call) needs 24-bit extraction — Phase 1.
+    },
+}
 
 
 @dataclass(frozen=True)
 class CoffRelocRecord:
-    """One COFF relocation entry with its IMAGE_REL_I386_* type preserved."""
+    """One relocation entry with its format's type preserved."""
 
     offset: int  # byte offset inside the function's .text slice
-    type: int  # IMAGE_REL_I386_* (0x06=DIR32, 0x14=REL32, ...)
+    type: int  # e.g. IMAGE_REL_I386_* (0x06=DIR32, 0x14=REL32), or ELF-MIPS/PPC reloc type
     symbol: str  # target symbol name (with leading underscore on MSVC)
 
 
@@ -192,6 +213,7 @@ def apply_coff_relocations(
     resolve_va: Callable[[str], int | None],
     *,
     section_va: int,
+    reloc_table: str = "coff-i386",
 ) -> bytes:
     """Apply COFF relocations to a .text byte blob.
 
@@ -208,20 +230,24 @@ def apply_coff_relocations(
     :raises NotImplementedError: Unsupported relocation type.
     """
     buf = bytearray(text)
+    table = _RELOC_TABLES.get(reloc_table, _RELOC_TABLES["coff-i386"])
     for r in relocs:
         sym = r.symbol.lstrip("_")
         target_va = resolve_va(r.symbol) or resolve_va(sym)
         if target_va is None:
             raise UnresolvedSymbolError(r.symbol)
 
+        kind = table.get(r.type)
+        if kind is None:
+            raise NotImplementedError(f"reloc type 0x{r.type:04x} not supported ({reloc_table})")
         addend = struct.unpack_from("<I", buf, r.offset)[0]
-        if r.type == _REL_DIR32:
+        if kind == "abs32":
             value = (target_va + addend) & 0xFFFFFFFF
-        elif r.type == _REL_REL32:
+        elif kind == "rel32":
             pc = section_va + r.offset + 4
             value = (target_va + addend - pc) & 0xFFFFFFFF
         else:
-            raise NotImplementedError(f"IMAGE_REL_I386_* type 0x{r.type:04x} not supported")
+            raise NotImplementedError(f"reloc kind {kind!r} not supported")
 
         struct.pack_into("<I", buf, r.offset, value)
 
@@ -318,6 +344,7 @@ def smart_reloc_compare(
     *,
     section_va: int | None = None,
     iat_region: set[int] | None = None,
+    reloc_table: str = "coff-i386",
 ) -> tuple[bool, int, int, list[int], list[int]]:
     """Compare bytes with relocation masking and target validation.
 
@@ -375,13 +402,15 @@ def smart_reloc_compare(
             and isinstance(coff_relocs[0], CoffRelocRecord)
         ):
             typed_relocs = cast(Sequence[CoffRelocRecord], coff_relocs)
+            table = _RELOC_TABLES.get(reloc_table, _RELOC_TABLES["coff-i386"])
             for rec in typed_relocs:
                 r = rec.offset
                 if r + 4 > min_len:
                     continue
                 valid = True
                 if name_to_va:
-                    if rec.type == _REL_DIR32:
+                    kind = table.get(rec.type)
+                    if kind == "abs32":
                         valid = _validate_dir32(
                             obj_bytes,
                             target_bytes,
@@ -391,7 +420,7 @@ def smart_reloc_compare(
                             catalog_va_set,
                             iat_region,
                         )
-                    elif rec.type == _REL_REL32 and section_va is not None:
+                    elif kind == "rel32" and section_va is not None:
                         valid = _validate_rel32(
                             obj_bytes, target_bytes, r, rec.symbol, name_to_va, section_va
                         )

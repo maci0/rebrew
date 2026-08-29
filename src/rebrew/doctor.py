@@ -115,7 +115,18 @@ class DoctorReport:
 # ---------------------------------------------------------------------------
 
 _KNOWN_FORMATS = {"pe", "elf", "macho", "ne"}
-_KNOWN_ARCHES = {"x86_16", "x86_32", "x86_64", "arm32", "arm64"}
+_KNOWN_ARCHES = {
+    "x86_16",
+    "x86_32",
+    "x86_64",
+    "arm32",
+    "arm64",
+    "mips32",
+    "mips64",
+    "ppc32",
+    "ppc64",
+    "sh2",
+}
 
 
 def check_config_parse(target: str | None) -> tuple[CheckResult, ProjectConfig | None]:

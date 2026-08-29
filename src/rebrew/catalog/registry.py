@@ -61,28 +61,34 @@ _DEFAULT_R2_BOGUS_SIZES: set[int] = set()
 # ---------------------------------------------------------------------------
 
 
-def is_jump_table(data: bytes, section_va: int, section_size: int) -> bool:
+def is_jump_table(data: bytes, section_va: int, section_size: int, arch: str = "x86_32") -> bool:
     """Check if *data* looks like a jump/switch table (array of .text pointers).
 
     Skips leading alignment bytes (NOP 0x90, INT3 0xCC, ``mov edi,edi`` 0x8BFF)
     before checking for a run of at least 2 consecutive .text pointers.
     Validates 4-byte alignment of pointer array.
+
+    The x86 alignment-prefix heuristics apply only to x86 arches; other
+    arches (multi-arch P0) get the plain aligned-pointer-array check until
+    their own jump-table conventions land (Phase 1).
     """
+    is_x86 = arch.startswith("x86")
     if len(data) < 8:
         return False
     # Jump table must be 4-byte aligned worth of pointers
     if len(data) % 4 != 0:
         return False
-    # Skip alignment prefix
+    # Skip alignment prefix (x86-only: NOP 0x90 / INT3 0xCC).
     off = 0
-    while off < len(data) and data[off] in (0x90, 0xCC):
-        off += 1
+    if is_x86:
+        while off < len(data) and data[off] in (0x90, 0xCC):
+            off += 1
     # The prefix must keep the remaining pointer array 4-byte aligned —
     # 1–3 NOP/INT3 bytes before the table would misalign every read below.
     if (len(data) - off) % 4 != 0:
         return False
     # Also skip ``mov edi, edi`` (8B FF) — common MSVC hotpatch 2-byte NOP
-    if off + 1 < len(data) and data[off] == 0x8B and data[off + 1] == 0xFF:
+    if is_x86 and off + 1 < len(data) and data[off] == 0x8B and data[off + 1] == 0xFF:
         off += 2
         # Re-check alignment after skipping hotpatch bytes
         if (len(data) - off) % 4 != 0:

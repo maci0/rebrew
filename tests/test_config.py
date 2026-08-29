@@ -237,7 +237,7 @@ default_target = "main"
 
 [targets.main]
 binary = "test.exe"
-arch = "mips32"
+arch = "riscv32"
 """
         root = _make_project(tmp_path, toml)
         with pytest.warns(UserWarning, match="unknown arch"):
