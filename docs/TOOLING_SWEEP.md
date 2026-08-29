@@ -60,7 +60,7 @@ fixtures, bench/cpubench/dhrystone, errlook/guidgen/makehm/smygb,
 
 Running the tools legitimately updates project runtime state:
 `.rebrew/compile_cache/cache.db`, `.rebrew/verify_cache.json`,
-`rebrew-function.toml.lock`, `db/coverage.db` (untouched), and
+`rebrew-functions.toml.lock`, `db/coverage.db` (untouched), and
 `status`-generated `CATALOG.md`/`function_structure.json`.  No tracked
 project files were modified by this sweep; the one generated artifact
 created during testing (`notepad/src/link_stubs.c` from
@@ -125,7 +125,7 @@ the linking family, and malformed-input edge cases.
 5. **Malformed-input edge cases** — battery across bad TOML, missing
    binary, truncated/garbage binaries, invalid VAs (`banana`, `0xZZZ`,
    out-of-image), negative/zero sizes, empty/comment-only `.c`, missing
-   `functions.txt`, corrupt/empty `rebrew-function.toml`, syntax-error
+   `functions.txt`, corrupt/empty `rebrew-functions.toml`, syntax-error
    sources, unknown targets, CLI misuse: every tool errors cleanly
    (JSON `{"error": ..., "code": 2}` in `--json` mode), zero tracebacks in
    a 32-invocation battery plus the fleet-wide diff sweep.

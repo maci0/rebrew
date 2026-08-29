@@ -37,7 +37,7 @@ bodies need real decompilation before the GA can converge).
 
 **Toolchain fixes this campaign:**
 - E015 lint rule: FUNCTION marker + STUB status is the documented convention
-  (status lives in rebrew-function.toml); E015 now only fires on library-
+  (status lives in rebrew-functions.toml); E015 now only fires on library-
   module marker mismatches.  Fixes lint errors on every freshly-intaked
   corpus project (smygb: 144 errors → 0).
 - `tools/corpus_sweep.py` now includes `lint --json` so this class of

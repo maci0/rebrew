@@ -1,4 +1,4 @@
-"""metadata_model.py — typed facade over ``rebrew-function.toml`` entries.
+"""metadata_model.py — typed facade over ``rebrew-functions.toml`` entries.
 
 The raw metadata layer (:mod:`rebrew.metadata`) stores entries as plain
 ``dict[str, Any]`` keyed by ``(module, va)``.  Field routing bugs live in the
@@ -147,7 +147,7 @@ class MetadataEntry:
         if unknown:
             raise MetadataValidationError(
                 f"not metadata-owned fields: {unknown} — file-only keys "
-                "belong in the .c annotation, not rebrew-function.toml"
+                "belong in the .c annotation, not rebrew-functions.toml"
             )
         # Normalize key case (callers may pass "SIZE" or "size") and coerce.
         coerced = {k.lower(): _coerce(k.lower(), v) for k, v in fields.items()}

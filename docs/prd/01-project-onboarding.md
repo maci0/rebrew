@@ -76,7 +76,7 @@ Project Onboarding solves all of this with `rebrew init`, `rebrew doctor`, and t
 - Creates `rebrew-project.toml` in the current working directory; refuses to run
   when one already exists ("A rebrew-project.toml already exists").
 - Creates `original/`, `src/<target>/`, and `bin/<target>/` subdirectories, an
-  empty `src/<target>/functions.txt`, and `src/rebrew-function.toml` +
+  empty `src/<target>/functions.txt`, and `src/rebrew-functions.toml` +
   `src/rebrew-data.toml` metadata files.
 - Writes an `AGENTS.md` from the bundled template so AI agents have project
   context, copies the bundled `agent-skills/` into `.agents/skills/` (with

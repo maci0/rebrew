@@ -436,7 +436,7 @@ int func_b(void) { return 1; }
         f = tmp_path / "multi.c"
         f.write_text(content, encoding="utf-8")
         # SIZE lives in metadata
-        metadata_toml = tmp_path / "rebrew-function.toml"
+        metadata_toml = tmp_path / "rebrew-functions.toml"
         metadata_toml.write_text(
             '["SERVER.0x10001000"]\nsize = 42\n',
             encoding="utf-8",
@@ -713,7 +713,7 @@ class TestHasSkipAnnotation:
 
         f = tmp_path / "skipped.c"
         f.write_text("// FUNCTION: SERVER 0x10001000\nint x() {}\n", encoding="utf-8")
-        meta = tmp_path / "rebrew-function.toml"
+        meta = tmp_path / "rebrew-functions.toml"
         meta.write_text('["SERVER.0x10001000"]\nskip = "not matchable"\n', encoding="utf-8")
         assert has_skip_annotation(f, metadata_dir=tmp_path) is True
 
@@ -722,7 +722,7 @@ class TestHasSkipAnnotation:
 
         f = tmp_path / "normal.c"
         f.write_text("// FUNCTION: SERVER 0x10001000\nint x() {}\n", encoding="utf-8")
-        meta = tmp_path / "rebrew-function.toml"
+        meta = tmp_path / "rebrew-functions.toml"
         meta.write_text('["SERVER.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8")
         assert has_skip_annotation(f, metadata_dir=tmp_path) is False
 
@@ -739,7 +739,7 @@ class TestHasSkipAnnotation:
         f = tmp_path / "skipped.c"
         f.write_text("// FUNCTION: SERVER 0x10001000\nint x() {}\n", encoding="utf-8")
         for val in ("0", "false", "no", ""):
-            meta = tmp_path / "rebrew-function.toml"
+            meta = tmp_path / "rebrew-functions.toml"
             meta.write_text(f'["SERVER.0x10001000"]\nskip = "{val}"\n', encoding="utf-8")
             assert has_skip_annotation(f, metadata_dir=tmp_path) is False
 
@@ -983,7 +983,7 @@ class TestAuditAnnotation:
     # --- P1-01 regression: update_annotation_key must not bleed into next block ---
 
     def test_update_annotation_key_no_bleed_into_next_block(self, tmp_path: Path) -> None:
-        """BLOCKER is a metadata key — update_annotation_key writes to rebrew-function.toml.
+        """BLOCKER is a metadata key — update_annotation_key writes to rebrew-functions.toml.
 
         The .c file must remain completely untouched. VA2 is never affected.
         """
@@ -1020,7 +1020,7 @@ class TestAuditAnnotation:
     # --- P1-02 regression: remove_annotation_key must not bleed into next block ---
 
     def test_remove_annotation_key_no_bleed_into_next_block(self, tmp_path: Path) -> None:
-        """BLOCKER is a metadata key — remove_annotation_key deletes from rebrew-function.toml.
+        """BLOCKER is a metadata key — remove_annotation_key deletes from rebrew-functions.toml.
 
         The .c file must remain untouched. VA2's metadata entry is not affected.
         """

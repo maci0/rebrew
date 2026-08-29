@@ -145,7 +145,7 @@ rebrew match --all --near-miss --threshold 5
 ### 8. Update metadata
 
 `rebrew test` auto-promotes STATUS on EXACT or RELOC matches, writing atomically to
-`rebrew-function.toml`:
+`rebrew-functions.toml`:
 
 ```bash
 rebrew test src/target_name/my_func.c           # compile + update STATUS
@@ -171,7 +171,7 @@ rebrew blocker set 0x401000 "SEH helper -- not matchable from C"
 rebrew blocker clear src/target_name/my_func.c          # remove it again
 ```
 
-This writes to `rebrew-function.toml`:
+This writes to `rebrew-functions.toml`:
 ```toml
 ["SERVER.0x<VA>"]
 blocker = "register allocation, jump condition swap"
@@ -179,7 +179,7 @@ blocker_delta = 3
 ```
 
 > [!CAUTION]
-> **Never manually edit `rebrew-function.toml`.** Volatile metadata (STATUS, CFLAGS,
+> **Never manually edit `rebrew-functions.toml`.** Volatile metadata (STATUS, CFLAGS,
 > SIZE, BLOCKER, NOTE, GHIDRA) is managed exclusively by Rebrew CLI tools.
 > In particular, `BLOCKER`/`BLOCKER_DELTA` must be written via
 > `rebrew blocker set/clear` or the auto-writers
@@ -382,9 +382,9 @@ for the full format reference.
 
 Only the marker line is enforced as a linter error (E001): `FUNCTION`/`LIBRARY`/`STUB`
 with MODULE and VA. STATUS and SIZE are metadata-only — they live in
-`rebrew-function.toml` and are no longer validated inline. Optional: CFLAGS
+`rebrew-functions.toml` and are no longer validated inline. Optional: CFLAGS
 (metadata; falls back to project config default). Conditional: SOURCE (for
-CRT/ZLIB), BLOCKER (for NEAR_MATCHING/STUB — stored in `rebrew-function.toml`).
+CRT/ZLIB), BLOCKER (for NEAR_MATCHING/STUB — stored in `rebrew-functions.toml`).
 
 A file may contain **multiple marker blocks** for multi-function compilation. See
 [ANNOTATIONS.md](ANNOTATIONS.md#multi-function-files) for details.

@@ -34,7 +34,7 @@ root, managed by `rebrew library set/show/rm`): a source subtree whose
 functions were all built with one compiler + flags declares them once — every
 function under it compiles with that docker image + flags instead of
 per-function metadata.  Resolution (most specific first): per-function
-`TOOLCHAIN`/`CFLAGS` (`rebrew-function.toml`) → nearest `rebrew-library.toml`
+`TOOLCHAIN`/`CFLAGS` (`rebrew-functions.toml`) → nearest `rebrew-library.toml`
 (walk-up) → project default.  Known shipped libraries (e.g. `msvcrt-static` =
 MSVC static CRT, `/MT /O2 /Gd`) fill missing fields via presets.  See
 `docs/TOOLCHAIN.md`.
@@ -174,9 +174,9 @@ src/rebrew/
 ├── headless.py          # Headless X server management for wine compiler invocations
 ├── wibo.py              # Auto-download + verify wibo (lightweight Wine alternative)
 ├── compile_cache.py     # Disk-backed compile cache (diskcache, SHA-256 keyed)
-├── metadata.py          # Per-directory rebrew-function.toml loader/writer; update_source_status is canonical STATUS writer; is_status_sticky / should_promote_status promotion rules
+├── metadata.py          # Per-directory rebrew-functions.toml loader/writer; update_source_status is canonical STATUS writer; is_status_sticky / should_promote_status promotion rules
 ├── metadata_model.py    # Typed metadata schema helpers (file-only vs metadata-only routing)
-├── blocker.py           # Programmatic BLOCKER management for rebrew-function.toml
+├── blocker.py           # Programmatic BLOCKER management for rebrew-functions.toml
 ├── data_metadata.py     # Per-directory data metadata (global/BSS annotations)
 ├── crt_match.py         # CRT cross-reference matcher (index, match, ASM detection)
 ├── cache_cli.py         # `rebrew cache stats` / `rebrew cache clear` CLI
@@ -416,6 +416,6 @@ alongside the packaged ones; a duplicate name is a `RegistryError`.
 - **Don't reimplement**: if an imported library provides it, use it
 - **Declarative component registration**: toolchains, decompiler backends, CLI commands, GA mutations, sweep flag sets, library presets, detection-family alignment, binary-family detectors, binary loaders, MSVC version-exact tables, and compile-cache backends register through `rebrew.registry` — setuptools entry-point groups (`rebrew.toolchains`, `rebrew.decompiler_backends`, `rebrew.commands`, `rebrew.multicommands`, `rebrew.mutations`, `rebrew.flag_sets`, `rebrew.library_presets`, `rebrew.toolchain_detectors`, `rebrew.binary_detectors`, `rebrew.binary_loaders`, `rebrew.msvc_versions`, `rebrew.cache_backends`) plus the `REBREW_TOOLCHAIN_OVERLAY_DIR` TOML overlay for project-local toolchains (a spec may declare `bits = 16` to join the arch-alignment set) and the `REBREW_SKILLS_DIR` overlay for community skills.  Built-ins are the packaged base registry; a duplicate name between any two sources is a `RegistryError` (single-source discipline) — except tuning-data registries (`rebrew.flag_sets`, `rebrew.library_presets`, `rebrew.msvc_versions`), where a provider extends/overrides packaged knowledge.  CLI import failures degrade to stub commands; a broken non-CLI registration is reported where it loads.  Adding a component must not require editing host source.  Long-lived processes pick up plugins installed after startup via `rebrew.registry.refresh_all()` (each module also exposes a single-registry `refresh_*`).
 - **No backward compat**: one name per function — no aliases/shims/wrappers
-- **Volatile metadata**: fields `STATUS`, `CFLAGS`, `BLOCKER`, `NOTE`, `GHIDRA` live in per-directory `rebrew-function.toml` via `rebrew.metadata` — never edit manually (STATUS via `update_source_status`/`update_statuses_batch`; BLOCKER via `update_field`/`remove_field` through `rebrew blocker set/clear` or the auto-writers `rebrew diff --fix-blocker`/`near-diag --fix-blocker`/`document-unmatched`)
+- **Volatile metadata**: fields `STATUS`, `CFLAGS`, `BLOCKER`, `NOTE`, `GHIDRA` live in per-directory `rebrew-functions.toml` via `rebrew.metadata` — never edit manually (STATUS via `update_source_status`/`update_statuses_batch`; BLOCKER via `update_field`/`remove_field` through `rebrew blocker set/clear` or the auto-writers `rebrew diff --fix-blocker`/`near-diag --fix-blocker`/`document-unmatched`)
 - **STATUS promotion**: only via `rebrew.metadata` writers — `update_source_status(metadata_dir, new_status, module, va)` (single; `rebrew test`) or `update_statuses_batch(metadata_dir, updates)` (batch; `rebrew verify`) — never write `STATUS` in `.c` files. BLOCKER likewise only via `update_field`/`remove_field` (see above).
 - **Compile result**: `compile_and_compare` (`rebrew.compile`) / `verify_entry` (`rebrew.verify`) → `CompareResult`; use `.matched`, `.status`, `.delta`, `.match_percent` — never tuple-unpack.

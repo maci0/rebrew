@@ -102,7 +102,7 @@ verification, and `rebrew_globals.h` generation.
   comment.
 - Writes SIZE/SECTION/NOTE metadata back to `rebrew-data.toml` (the data
   metadata file at `cfg.metadata_dir`, distinct from the per-directory
-  `rebrew-function.toml` which tracks function status).
+  `rebrew-functions.toml` which tracks function status).
 - Idempotent on re-run: previously generated declarations are merged with
   newly detected gaps instead of being deleted.
 

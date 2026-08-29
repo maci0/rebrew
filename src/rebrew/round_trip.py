@@ -1,6 +1,6 @@
 """``rebrew round-trip`` — splice matched function bytes back into the target PE.
 
-Pipeline: enumerate every EXACT/RELOC function from rebrew-function.toml,
+Pipeline: enumerate every EXACT/RELOC function from rebrew-functions.toml,
 compile each via the existing compile_and_compare path, apply COFF relocations
 against the active target's function + data catalogs, splice the patched
 bytes into a byte copy of the original PE at each function's file offset,

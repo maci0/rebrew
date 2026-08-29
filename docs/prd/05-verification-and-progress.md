@@ -75,12 +75,12 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 - `-j JOBS` parallel compile jobs.
 - `--json` machine-readable.
 - Exit codes: 0=all passed, 1=failures or regressions.
-- Calls `update_source_status` per file to keep `rebrew-function.toml`
+- Calls `update_source_status` per file to keep `rebrew-functions.toml`
   authoritative.
 
 ### `rebrew status`
 
-- Reads `rebrew-function.toml` (STATUS lives in per-function metadata via
+- Reads `rebrew-functions.toml` (STATUS lives in per-function metadata via
   `rebrew.metadata`), source markers, and function structure; no
   compilation.  Inline `// STATUS:` comments in `.c` files are legacy —
   they are counted as a W019 warning and `rebrew lint` migrates them to
@@ -121,7 +121,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 
 ### `rebrew round-trip`
 
-- Splice every function marked EXACT or RELOC (from `rebrew-function.toml`
+- Splice every function marked EXACT or RELOC (from `rebrew-functions.toml`
   metadata) back into a copy of the original PE binary.
 - Apply COFF relocations per the `.obj` relocation records.
 - Skip PROVEN functions (their bytes are semantically equivalent but not

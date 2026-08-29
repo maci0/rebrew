@@ -439,7 +439,7 @@ class TestLoadCatalogs:
             "// FUNCTION: SERVER 0x10001000\nint func_a(void) { return 1; }\n",
             encoding="utf-8",
         )
-        (cfg.reversed_dir / "rebrew-function.toml").write_text(
+        (cfg.reversed_dir / "rebrew-functions.toml").write_text(
             '["SERVER.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8"
         )
         funcs, data = _load_catalogs(cfg)
@@ -524,7 +524,7 @@ class TestCollectSpliceSet:
     ) -> Path:
         """Write a .c file with a FUNCTION annotation plus its metadata entry.
 
-        STATUS always lives in ``rebrew-function.toml`` (never the .c file);
+        STATUS always lives in ``rebrew-functions.toml`` (never the .c file);
         SIZE/CFLAGS may live in either, mirroring production layouts.
         """
         from rebrew.metadata import update_field, update_source_status

@@ -588,7 +588,7 @@ def main(
             source_path, ann = pair
             # SOURCE is metadata-routed: without an explicit metadata_dir,
             # update_annotation_key falls back to filepath.parent and would
-            # create a stray rebrew-function.toml next to the library header.
+            # create a stray rebrew-functions.toml next to the library header.
             if dry_run:
                 from rebrew.metadata import get_entry
 

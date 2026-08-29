@@ -81,7 +81,7 @@ analysis-side support matrix.
 
 Most codebases are one codebase: all functions were built with the same
 compiler and flags.  Per-function `TOOLCHAIN`/`CFLAGS` metadata (the
-`rebrew-function.toml` escape hatch for rare mixed builds) stays, but the
+`rebrew-functions.toml` escape hatch for rare mixed builds) stays, but the
 right abstraction for "some parts of the codebase were built with other
 flags" is a **per-library** override: a `rebrew-library.toml` at a library
 root directory (e.g. `references/zlib/`, a shipped runtime, or any source
@@ -421,7 +421,7 @@ honor a per-function toolchain:
 
 - `rebrew test <va> --toolchain msvc5` compiles that one function with
   MSVC 5.0 (the `rebrew/msvc:5.0-win32` image) and **persists** the choice
-  to `rebrew-function.toml` (the `toolchain` field, same lifecycle as
+  to `rebrew-functions.toml` (the `toolchain` field, same lifecycle as
   `cflags`), so `verify` and batch `test --all` recompile with the same
   compiler that produced the match.
 - The metadata value is read through the normal annotation pipeline

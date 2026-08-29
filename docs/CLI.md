@@ -87,7 +87,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew verify-exports` | `exports.py` | Verify the recompiled binary's export table matches the original target (reccmp `verexp` equivalent; compares export names, exits 1 on missing/added) |
 | `rebrew round-trip` | `round_trip.py` | Splice matched functions back into the target PE and verify byte equality |
 | `rebrew skills` | `skills.py` | Discover and manage AI agent skills (`list`, `show`, `install`, `remove` — the latter two manage the `REBREW_SKILLS_DIR` overlay) |
-| `rebrew blocker` | `blocker.py` | Manage `BLOCKER` / `BLOCKER_DELTA` in `rebrew-function.toml` (`set`/`clear`/`show` by file, VA, or symbol; `--delta`, `--va`, `--dry-run`, `--json`) — ad-hoc BLOCKER for STUBs `diff --fix-blocker` cannot classify; every write via `rebrew.metadata` (locked + atomic, never hand-edited) |
+| `rebrew blocker` | `blocker.py` | Manage `BLOCKER` / `BLOCKER_DELTA` in `rebrew-functions.toml` (`set`/`clear`/`show` by file, VA, or symbol; `--delta`, `--va`, `--dry-run`, `--json`) — ad-hoc BLOCKER for STUBs `diff --fix-blocker` cannot classify; every write via `rebrew.metadata` (locked + atomic, never hand-edited) |
 
 ## Component Registration (Plugins)
 
@@ -233,7 +233,7 @@ function. On a multi-function file, `--va` selects the annotation AT that VA
 (symbol and fallback size come from it); pass `--symbol` too to override the
 symbol explicitly. With no `--va`/`--symbol`/`--size`, every annotated
 function in the file is tested.  A resolved size and any explicit `--cflags`
-override are persisted to `rebrew-function.toml` alongside STATUS, so
+override are persisted to `rebrew-functions.toml` alongside STATUS, so
 `rebrew diff` / `rebrew near-diag` can resolve them later without re-supplying
 them, and `rebrew verify` recompiles with the flags that produced the match.
 
@@ -347,7 +347,7 @@ build the recomp binary with `-DREBREW_ALLOW_NAKED=1`) — the mismatch is the
 build matrix, not the decompilation.
 
 Status promotion is always-on: after verification, STATUS is promoted/demoted in
-`rebrew-function.toml` metadata. PROVEN status is sticky and never silently
+`rebrew-functions.toml` metadata. PROVEN status is sticky and never silently
 demoted — deliberately reclassify a stale PROVEN with `rebrew test <file> --force-status`.
 
 Output prefixes for unambiguous parsing:
@@ -469,7 +469,7 @@ rebrew blocker clear <target> [--va HEX] [--dry-run] [--json] [--target NAME]
 rebrew blocker show <target> [--json] [--target NAME]
 ```
 
-Manage `BLOCKER` / `BLOCKER_DELTA` in `rebrew-function.toml` for a single
+Manage `BLOCKER` / `BLOCKER_DELTA` in `rebrew-functions.toml` for a single
 function (file, symbol, or hex VA).  `set` writes the blocker text and an
 optional `--delta`; `clear` removes both fields; `show` prints the current
 values.  This is the ad-hoc counterpart to the auto-writers (`rebrew diff
@@ -617,7 +617,7 @@ missing_typing, for_loops, while_loops, suggestions}]}`.
 | `--csv` | Generate reccmp-compatible CSV |
 | `--export-ghidra` | Cache Ghidra function list |
 | `--export-ghidra-labels` | Generate `ghidra_data_labels.json` from detected tables |
-| `--fix-sizes` | Update `SIZE` entries in `rebrew-function.toml` metadata to match canonical sizes — fixes both stale sizes (false `SIZE_MISMATCH`) and missing sizes (`MISSING_SIZE` stubs that `rebrew test` refuses) |
+| `--fix-sizes` | Update `SIZE` entries in `rebrew-functions.toml` metadata to match canonical sizes — fixes both stale sizes (false `SIZE_MISMATCH`) and missing sizes (`MISSING_SIZE` stubs that `rebrew test` refuses) |
 | `--root DIR` | Project root directory (auto-detected if omitted) |
 ### `rebrew sync`
 
@@ -628,7 +628,7 @@ missing_typing, for_loops, while_loops, suggestions}]}`.
 | `--apply` | Apply `ghidra_commands.json` to Ghidra via ReVa MCP |
 | `--push` | Export and apply in one step |
 | `--force` | With `--export`/`--push`: re-export already-applied operations (skip the dedup state) |
-| `--watch` | With `--push`: watch sources + `rebrew-function.toml` and re-push on every change |
+| `--watch` | With `--push`: watch sources + `rebrew-functions.toml` and re-push on every change |
 | `--create-functions` | Create functions at annotated VAs before labeling |
 | `--skip-generic` / `--no-skip-generic` | Skip/include generic `func_` labels (default: skip) |
 | `--sync-sizes` | Sync function sizes to Ghidra |
@@ -913,7 +913,7 @@ For the "keep the same `.c` for multiple target versions" workflow (binary versi
   // FUNCTION: V2 0x501000
   int common(void) { ... }
   ```
-  Each target's scan/verify sees only its own marker; `STATUS` is tracked per target in `rebrew-function.toml`.  Each marker block carries its own `SIZE` key-value (or rely on metadata `SIZE` from `rebrew catalog --fix-sizes`); the function name is resolved automatically — with one C definition per file, every block gets it.
+  Each target's scan/verify sees only its own marker; `STATUS` is tracked per target in `rebrew-functions.toml`.  Each marker block carries its own `SIZE` key-value (or rely on metadata `SIZE` from `rebrew catalog --fix-sizes`); the function name is resolved automatically — with one C definition per file, every block gets it.
 - **`[targets.<name>] defines = ["V2"]`**: per-target compile-time defines (`/DV2` for MSVC, `-DV2` for gcc/posix) — the switch that makes `#ifdef V2` deltas in the shared file work:
   ```c
   int common(void) {
@@ -1114,7 +1114,7 @@ aborting the batch).
 `rebrew diagnose <source|dir|symbol|VA> [--json] [--target NAME]`
 
 Explain why a function compiles with the toolchain+flags it does.  Prints
-the resolution chain — per-function metadata (`rebrew-function.toml`
+the resolution chain — per-function metadata (`rebrew-functions.toml`
 `TOOLCHAIN`/`CFLAGS`) → nearest `rebrew-library.toml` (walk-up, presets
 applied) → project defaults (`[compiler]` profile, cflags fallbacks) — and
 validates the declarations along it:
@@ -1687,7 +1687,7 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 |--------|---------|
 | `annotation.py` | Canonical annotation parser (`parse_c_file`, `parse_c_file_multi`) |
 | `lint.py` | Source marker linter (E000–E023 / W001–W029); `--fix` auto-migrates old formats; W005 points to `rebrew blocker set` for STUB BLOCKERs |
-| `blocker.py` | Programmatic BLOCKER writer — `rebrew blocker set/clear/show` (`--json`, `--dry-run`, `--delta`, `--va`); every write via `rebrew.metadata` (never hand-edit `rebrew-function.toml`) |
+| `blocker.py` | Programmatic BLOCKER writer — `rebrew blocker set/clear/show` (`--json`, `--dry-run`, `--delta`, `--va`); every write via `rebrew.metadata` (never hand-edit `rebrew-functions.toml`) |
 | `ghidra/cli.py` | Sync annotations to Ghidra via ReVa MCP; skips generic `func_` labels by default |
 
 ### Binary Analysis
@@ -1717,8 +1717,8 @@ that returns a `CompareResult` dataclass used by both `rebrew test` and
 | `CompareResult` | `compile.py` | Structured result for compile+compare operations (`matched`, `status`, `match_percent`, `delta`, `obj_bytes`, `message`) |
 | `classify_compare_result` | `compile.py` | Pure helper: classifies raw byte comparison into a `CompareResult` |
 | `compile_and_compare` | `compile.py` | High-level: compile → extract → compare → `CompareResult` |
-| `update_source_status` | `metadata.py` | Canonical STATUS writer — promotes STATUS in `rebrew-function.toml`; never touches `.c` files |
-| `update_field` / `remove_field` | `metadata.py` | Canonical BLOCKER/CFLAGS/NOTE writers — `rebrew blocker set/clear` (BLOCKER), `rebrew diff --fix-blocker` / `near-diag --fix-blocker` (auto BLOCKER) — never hand-edit `rebrew-function.toml` |
+| `update_source_status` | `metadata.py` | Canonical STATUS writer — promotes STATUS in `rebrew-functions.toml`; never touches `.c` files |
+| `update_field` / `remove_field` | `metadata.py` | Canonical BLOCKER/CFLAGS/NOTE writers — `rebrew blocker set/clear` (BLOCKER), `rebrew diff --fix-blocker` / `near-diag --fix-blocker` (auto BLOCKER) — never hand-edit `rebrew-functions.toml` |
 
 Both `rebrew test` (auto-promote after single test) and `rebrew verify`
 (always-on batch promotion) call `update_source_status`.  The `.c` file is **never modified**

@@ -949,7 +949,7 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
 - New tests/test_pull_prototypes_comments.py (15 tests): pull_prototypes
   (annotation write, get-decompilation string/dict fallbacks, replace_externs
   rewriting externs.c, dry-run, DATA-entry skip, 2-page pagination, connect
-  failure → RuntimeError) and pull_comments (ANALYSIS into rebrew-function.toml
+  failure → RuntimeError) and pull_comments (ANALYSIS into rebrew-functions.toml
   — discovered ANALYSIS is a metadata key, not a file annotation; [rebrew]
   prefix skip; out-of-range comment ignore; empty response; no-VA early
   return; connect failure).
@@ -1294,7 +1294,7 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
 
 ### Slice 111 — metadata.py 90% → 96% — DONE
 - +7 tests in tests/test_metadata.py: write-path recovery from corrupt
-  rebrew-function.toml (update_field/update_source_status start fresh,
+  rebrew-functions.toml (update_field/update_source_status start fresh,
   remove_field returns False); merge_into_annotation edges (non-numeric
   blocker_delta → None, analysis fills empty note but never overrides a
   manual note, globals list merge).
@@ -1782,7 +1782,7 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
   JSON payload, typer-flag wiring via CliRunner).
 - Full suite **3041 passed / 26 skipped**; ruff + mypy clean.
 
-### Slice 155 — typed metadata facade over rebrew-function.toml — DONE
+### Slice 155 — typed metadata facade over rebrew-functions.toml — DONE
 - New typed layer in rebrew/metadata.py:
   - `field_kind(key)` — single routing table for the file-only vs
     metadata-only distinction ("metadata" | "file" | "legacy" |
@@ -1986,7 +1986,7 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
 - Real-workspace verification (../guild-rebrew, MSVC6 + wibo + real PE)
   found a genuine bug: `rebrew match --all --dry-run` reported 0 stubs
   because `_parse_annotations` hardcoded `metadata_dir=filepath.parent`,
-  but the standard layout keeps rebrew-function.toml at reversed_dir.parent
+  but the standard layout keeps rebrew-functions.toml at reversed_dir.parent
   — SIZE never overlaid, every stub dropped by the size>=10 filter.
 - Fix: `parse_stub_info`/`parse_matching_info`/`parse_matching_all`/
   `_parse_annotations` gained an optional `metadata_dir` (default
@@ -2127,7 +2127,7 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
     already individually bounded by compile_timeout.
   - `_run_one_stub_ga` no longer uses signals; metadata/solution writes are
     serialized by a module-level `_metadata_lock` (read-modify-write of
-    rebrew-function.toml isn't thread-safe).
+    rebrew-functions.toml isn't thread-safe).
   - `_run_all` processes stubs via ThreadPoolExecutor(jobs) with order
     preserved (executor.map); seeding precomputed on the main thread;
     intra-GA compiles serialized (num_jobs=1) so total concurrency stays at
@@ -2230,11 +2230,11 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
 
 ### Slice 24 (16h goal) — crt-match --fix-source metadata-routing bug — DONE
 - `crt-match --fix-source --all` (now usable with 10 real matches) wrote the
-  SOURCE annotations to a STRAY rebrew-function.toml next to the library
+  SOURCE annotations to a STRAY rebrew-functions.toml next to the library
   header: update_annotation_key defaults metadata_dir to filepath.parent.
   Fixed by passing cfg.metadata_dir explicitly. The existing test asserted
   the buggy location; corrected to assert metadata_dir + no stray toml.
-- Workspace: merged the 6 stray entries into src/rebrew-function.toml,
+- Workspace: merged the 6 stray entries into src/rebrew-functions.toml,
   deleted the stray file, re-ran the fix — CRT functions now carry real
   SOURCE attribution (free → DBGHEAP.C:952, __tzset → TZSET.C:96).
 - Full suite **3155 passed / 26 skipped**; ruff + mypy clean.
@@ -3248,7 +3248,7 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
 - Real-data finding: the exit.c skeleton (slice 91) showed MISSING_SIZE —
   skeletons create the file but never record SIZE, so they can't be verified
   until the user adds it manually.
-- Fix: _write_skeleton_metadata() records SIZE in rebrew-function.toml when
+- Fix: _write_skeleton_metadata() records SIZE in rebrew-functions.toml when
   absent (never overwrites an existing SIZE, never touches STATUS), called
   after both single-VA and --append creation. Workspace: exit@0x1001a670 now
   has size 17 and verifies as SIZE_MISMATCH (was MISSING_SIZE). +2 tests
@@ -3921,7 +3921,7 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
   slices 177/178, live sync is incremental: only content-changed operations
   re-push.
 - Added `rebrew sync --watch` (requires --push): watches all source files +
-  rebrew-function.toml via the shared watch_files helper; on change re-runs
+  rebrew-functions.toml via the shared watch_files helper; on change re-runs
   the full push path (recursive main() with push-relevant flags; --watch must
   not nest). The "No action specified" guard still fires for --watch alone
   (before the --push requirement check, which fires for --watch --apply).
@@ -4471,7 +4471,7 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
   default; removing an absent metadata key returns False; same-value update
   returns False; non-metadata keys round-trip through the .c file (insert →
   strip → byte-identical); remove_inline_annotation_key never creates or
-  writes rebrew-function.toml.
+  writes rebrew-functions.toml.
 - Suite 3460 passed / 0 skipped. ruff/mypy/pre-commit green.
 
 ### Slice 211 (16h goal) — stale docs + round-trip fallback docs — DONE
@@ -4513,7 +4513,7 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
   Found 2 HIGH + 2 MEDIUM + 4 LOW; fixed all actionable ones:
   1. (HIGH) `rebrew catalog --fix-sizes` read/wrote SIZE metadata to
      cfile.parent instead of cfg.metadata_dir — every SIZE fix was silently
-     lost to a stray rebrew-function.toml. Now routes both the read
+     lost to a stray rebrew-functions.toml. Now routes both the read
      (parse_c_file_multi) and the write (update_size_annotation) through
      cfg.metadata_dir.
   2. (HIGH) `rebrew data --fix-bss` wrote SIZE/SECTION/NOTE to
@@ -5616,7 +5616,7 @@ Re-ran `rebrew verify` in np-rebrew against the TOOLCHAIN_BUGS.md baseline.
 PROVEN count dropped 14→12, STUB 3→5; report now 44 passed / 23 failed
 (doc baseline 45/22). Investigation: this is the restricted PROVEN-overlay
 fix (NEAR_MATCHING/SIZE_MISMATCH only) working as intended — two functions
-whose committed `src/rebrew-function.toml` says `PROVEN` no longer match
+whose committed `src/rebrew-functions.toml` says `PROVEN` no longer match
 their sources and now surface as `STUB`:
 
 - `FormatString1` 0x01002c93 — `rebrew test` → STUB 35/98; compiled
@@ -5755,7 +5755,7 @@ and missing-file both exit 2 (EXIT_ERROR).
 
 One real blast-radius finding: `apply_status_updates` called
 `update_source_status` unguarded in the verify main thread BEFORE report
-build — a read-only/unwritable rebrew-function.toml raised OSError,
+build — a read-only/unwritable rebrew-functions.toml raised OSError,
 crashing the run and losing the report. Fixed: per-entry write guarded,
 failure → warning, batch + report continue (applies to verify AND
 test --all). Test:
@@ -6267,7 +6267,7 @@ Closed the last substantive findings from the two review rounds:
   name (error-review F9)
 
 Also cleaned smygb: removed 2 redundant inline CFLAGS/BLOCKER comments
-(already authoritative in rebrew-function.toml — status's fast regex warned
+(already authoritative in rebrew-functions.toml — status's fast regex warned
 about them although lint correctly treats metadata-sourced keys as fine).
 0x004024b0 re-verified EXACT from the metadata cflags.
 
@@ -6335,7 +6335,7 @@ Commits: e187f15 (perf F2/F3/F4). Full suite green (4013 passed).
   monkeypatch.setitem (auto-restores).  Full suite: 4015 green.
 - **error-review F6**: metadata read-modify-writes are now guarded by a
   combined thread lock + fcntl flock on a sidecar
-  `rebrew-function.toml.lock` (all 6 write helpers).  Validated with two
+  `rebrew-functions.toml.lock` (all 6 write helpers).  Validated with two
   concurrent processes × 20 writes each: both landed, no lost updates.
   Lockfile gitignored (rebrew + smygb + guild).
 - **functionality-review F11**: parse_va exits EXIT_ERROR (2) for invalid
@@ -6784,7 +6784,7 @@ per-target defines.
   get `filepath` `../shared/...` relative to each target's `reversed_dir`
   (via `_relative_filepath`'s relpath fallback), which resolves back to the
   shared file for compile/verify.  Metadata stays per-target: the shared
-  `rebrew-function.toml` keys by `module.va`.
+  `rebrew-functions.toml` keys by `module.va`.
 - **`[targets.<name>] defines = ["V2"]`**: per-target compile-time defines,
   `/DV2` (MSVC) or `-DV2` (posix), appended in `compile_to_obj` — they
   shape the compile-cache key and the verify cache stores them per entry

@@ -5,7 +5,7 @@ suite's pure-Python tail), so optimizations are driven by numbers instead of
 guesswork:
 
 1. annotation parsing   — ``parse_c_file_multi`` over a synthetic multi-function .c
-2. metadata loading     — ``load_metadata`` over a generated rebrew-function.toml
+2. metadata loading     — ``load_metadata`` over a generated rebrew-functions.toml
 3. catalog grid build   — the real ``catalog --data-json`` pipeline on the fixture binary
 4. verify-cache I/O     — save + load of a large VerifyCache
 5. near-diag classify   — ``analyze()`` on synthetic byte pairs
@@ -95,7 +95,7 @@ def bench_annotation_parsing() -> dict[str, float]:
 
 
 def bench_metadata_load() -> dict[str, float]:
-    """load_metadata over a generated 500-entry rebrew-function.toml."""
+    """load_metadata over a generated 500-entry rebrew-functions.toml."""
     from rebrew.metadata import clear_metadata_cache, load_metadata
 
     lines: list[str] = []
@@ -106,7 +106,7 @@ def bench_metadata_load() -> dict[str, float]:
         lines.append(f"size = {64 + i % 8}")
         lines.append('cflags = "/O2"')
     with tempfile.TemporaryDirectory() as d:
-        toml = Path(d) / "rebrew-function.toml"
+        toml = Path(d) / "rebrew-functions.toml"
         toml.write_text("\n".join(lines), encoding="utf-8")
         meta_dir = Path(d)
 
@@ -315,7 +315,7 @@ def bench_parse_tree() -> dict[str, float]:
         for i in range(1000):
             va = 0x10001000 + i * 0x100
             meta_lines += [f'["SERVER.0x{va:x}"]', 'status = "STUB"', "size = 64"]
-        (meta_dir / "rebrew-function.toml").write_text("\n".join(meta_lines), encoding="utf-8")
+        (meta_dir / "rebrew-functions.toml").write_text("\n".join(meta_lines), encoding="utf-8")
 
         def run() -> None:
             _PARSE_MEMO.clear()
@@ -385,7 +385,7 @@ def bench_status_aggregation() -> dict[str, float]:
         for i in range(500):
             va = 0x10001000 + i * 0x100
             meta_lines += [f'["SERVER.0x{va:x}"]', 'status = "STUB"', "size = 64"]
-        (root / "rebrew-function.toml").write_text("\n".join(meta_lines), encoding="utf-8")
+        (root / "rebrew-functions.toml").write_text("\n".join(meta_lines), encoding="utf-8")
         cfg = ProjectConfig(
             target_name="SERVER",
             target_binary=root / "nope.exe",

@@ -27,7 +27,7 @@ All rebrew-specific metadata lives in ``rebrew-data.toml``::
 
 Key format
 ----------
-Identical to ``rebrew-function.toml``: ``"MODULE.0xVA"`` (qualified key).
+Identical to ``rebrew-functions.toml``: ``"MODULE.0xVA"`` (qualified key).
 This makes the metadata unambiguous across multi-target projects.
 
 Owned fields per entry::
@@ -65,7 +65,7 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # In-memory cache for load_data_metadata() — mirrors metadata.py's cache for
-# rebrew-function.toml.  Without it, batch paths that read data metadata per
+# rebrew-functions.toml.  Without it, batch paths that read data metadata per
 # file (lint) or per function (smart_reloc_compare's global-name resolution)
 # re-parse the TOML on every call.  Keyed by resolved Path; invalidated by
 # mtime_ns change or by the write helpers below.
@@ -169,7 +169,7 @@ def load_data_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]
         return {}
 
     # Shared loader: tomllib reads (fast), mtime-keyed cache — same
-    # mechanism as rebrew-function.toml (metadata.py).
+    # mechanism as rebrew-functions.toml (metadata.py).
     cached = load_metadata_doc(path, _data_metadata_cache, "data metadata")
     # Return a shallow copy of outer dict + each entry dict so callers cannot
     # mutate the cached object and corrupt subsequent reads.

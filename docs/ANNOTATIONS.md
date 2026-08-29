@@ -2,7 +2,7 @@
 
 > **Scope:** This document covers inline source-file markers (`// FUNCTION: MODULE 0xVA`)
 > and the `library_*.h` header format.  For the TOML metadata files
-> (`rebrew-function.toml`, `rebrew-data.toml`) see [METADATA_FORMAT.md](METADATA_FORMAT.md).
+> (`rebrew-functions.toml`, `rebrew-data.toml`) see [METADATA_FORMAT.md](METADATA_FORMAT.md).
 
 Rebrew annotations are built on the [reccmp](https://github.com/isledecomp/reccmp) annotation format — the standard used by the LEGO Island decompilation project.
 
@@ -79,14 +79,14 @@ Every `.c` file containing a reversed function must begin with a **marker line**
 ```
 
 That's it. All metadata (STATUS, SIZE, CFLAGS, BLOCKER, etc.) lives in the
-`rebrew-function.toml` file at `cfg.metadata_dir` — the parent of `reversed_dir`
+`rebrew-functions.toml` file at `cfg.metadata_dir` — the parent of `reversed_dir`
 (e.g. `src/` for sources under `src/<module>/`). There is no walk-up: callers must
 pass the correct metadata root. Metadata is managed automatically by the CLI tools.
 
 > [!CAUTION]
 > **Never manually add STATUS, SIZE, or CFLAGS to a `.c` file.** These are managed
 > by `rebrew test`, `rebrew verify`, `rebrew match`, and `rebrew sync`.
-> Manual edits to `rebrew-function.toml` or volatile annotation lines in `.c` files
+> Manual edits to `rebrew-functions.toml` or volatile annotation lines in `.c` files
 > will be overwritten or ignored.
 
 ### Example
@@ -100,7 +100,7 @@ int __cdecl bit_reverse(int x)
 }
 ```
 
-`rebrew-function.toml` (at `cfg.metadata_dir`, managed by tools):
+`rebrew-functions.toml` (at `cfg.metadata_dir`, managed by tools):
 ```toml
 ["SERVER.0x10008880"]
 status = "EXACT"
@@ -127,11 +127,11 @@ Format: `// MARKER: MODULE 0xVA`
 | Key | Required? | Linter | Description |
 |-----|:---------:|--------|-------------|
 | Marker line | **Mandatory** | E001 | `// FUNCTION:`, `// LIBRARY:`, or `// STUB:` with MODULE and VA |
-| `STATUS` | Metadata-owned | — | Match quality (see below); lives in rebrew-function.toml, not inline |
-| `SIZE` | Metadata-owned | — | Function size in bytes from the original binary; lives in rebrew-function.toml, not inline |
+| `STATUS` | Metadata-owned | — | Match quality (see below); lives in rebrew-functions.toml, not inline |
+| `SIZE` | Metadata-owned | — | Function size in bytes from the original binary; lives in rebrew-functions.toml, not inline |
 | `CFLAGS` | Optional | W018 | Per-function compiler flag override. Falls back to the target's `base_cflags` in `rebrew-project.toml`. Only needed for functions compiled with non-default flags (e.g. a static lib linked with `/O1` into an `/O2` binary). |
 | `SOURCE` | Conditional | W006 | **Required for library modules** — reference file (e.g. `SBHEAP.C:195`, `deflate.c`). Use `rebrew crt-match --fix-source` to auto-populate. |
-| `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet. Lives in `rebrew-function.toml` metadata; set via `rebrew blocker set <file|0xVA> "<reason>"` or auto-written by `rebrew diff --fix-blocker` — never hand-edit the TOML. |
+| `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet. Lives in `rebrew-functions.toml` metadata; set via `rebrew blocker set <file|0xVA> "<reason>"` or auto-written by `rebrew diff --fix-blocker` — never hand-edit the TOML. |
 | `NOTE` | Optional | — | Freeform notes (e.g. `NOTE: uses SSE2 intrinsics`) — lives in metadata |
 | `GHIDRA` | Optional | — | The Ghidra name, added by `rebrew sync --pull --accept-local` to prevent conflict loops — lives in metadata |
 | `STRUCT` | Optional | — | Linked structs for this file |
@@ -141,7 +141,7 @@ Format: `// MARKER: MODULE 0xVA`
 | `ANALYSIS` | Optional | — | Freeform analysis notes from decompiler or reverse engineer |
 
 > [!CAUTION]
-> **Never manually edit `rebrew-function.toml`.** This metadata file stores volatile metadata
+> **Never manually edit `rebrew-functions.toml`.** This metadata file stores volatile metadata
 > (STATUS, CFLAGS, SIZE, BLOCKER, NOTE, GHIDRA, etc.) and is managed exclusively by
 > Rebrew CLI tools (`rebrew blocker`, `rebrew test`, `rebrew match`, `rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`, `rebrew document-unmatched`, `rebrew sync`, etc.).
 > Every BLOCKER/BLOCKER_DELTA write must go through those CLIs (or the `rebrew.metadata` API).
@@ -149,7 +149,7 @@ Format: `// MARKER: MODULE 0xVA`
 
 > [!TIP]
 > **Rule of thumb**: Only the marker line is enforced as a linter error (E001). STATUS and
-> SIZE are metadata-only — they live in `rebrew-function.toml` and are no longer validated
+> SIZE are metadata-only — they live in `rebrew-functions.toml` and are no longer validated
 > inline. CFLAGS is optional and falls back to the target default from config.
 > `SOURCE` and `BLOCKER` are enforced as warnings only for specific origins/statuses. Function
 > name and symbol are derived automatically from the C function definition.
@@ -235,7 +235,7 @@ Global variables, dispatch tables, const arrays, and string tables live in the d
 
 The **reccmp-compatible marker line** stays in the `.c` file.  All rebrew-specific
 metadata (SIZE, SECTION, NOTE) lives in the **`rebrew-data.toml` metadata file** — the
-data analogue of `rebrew-function.toml` (also at `cfg.metadata_dir`).
+data analogue of `rebrew-functions.toml` (also at `cfg.metadata_dir`).
 
 **`.c` file** (only the stable identity):
 ```c
@@ -352,7 +352,7 @@ The linter (W007) will warn if a file defining structs lacks the `// SIZE 0xNN` 
 
 The linter validates annotation headers in all `.c` files under the reversed source directory. It enforces the format described above and catches common mistakes.
 
-Before running validation, the linter loads the **`rebrew-function.toml`** metadata file for each directory and overlays any fields it contains into the annotation being checked. This means that files whose STATUS, SIZE, CFLAGS etc. live only in the metadata file (no inline annotation) will still pass validation correctly — metadata values count just as much as inline values.
+Before running validation, the linter loads the **`rebrew-functions.toml`** metadata file for each directory and overlays any fields it contains into the annotation being checked. This means that files whose STATUS, SIZE, CFLAGS etc. live only in the metadata file (no inline annotation) will still pass validation correctly — metadata values count just as much as inline values.
 
 ```
 Usage:  rebrew lint [OPTIONS]
@@ -430,7 +430,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 |------|-------------|--------------|
 | W008 | *(not implemented)* | Reserved for CFLAGS preset validation |
 | W018 | Missing CFLAGS with no config fallback | No CFLAGS in metadata **and** no `base_cflags` in project config — compile may use wrong flags |
-| W019 | Inline metadata annotation | `// STATUS:`, `// ORIGIN:`, `// SIZE:`, `// CFLAGS:`, `// BLOCKER:`, `// NOTE:`, `// GHIDRA:`, etc. inline — run `--fix` to move to `rebrew-function.toml` |
+| W019 | Inline metadata annotation | `// STATUS:`, `// ORIGIN:`, `// SIZE:`, `// CFLAGS:`, `// BLOCKER:`, `// NOTE:`, `// GHIDRA:`, etc. inline — run `--fix` to move to `rebrew-functions.toml` |
 | W010 | Unknown annotation key | `// FOOBAR: value` — key not in the known set |
 | W015 | Mixed-case VA hex digits | `0x10003Da0` — prefer consistent `0x10003da0` or `0x10003DA0` |
 | W020 | Asm-dump placeholder | Body uses `__asm`/`__emit` — pasted disassembly, not real C.  Does **not** fire for whole-function `__declspec(naked)` + asm (that is **E023** — error).  **Escalates** when the file's `STATUS` claims a non-stub match (`EXACT`/`RELOC`/...): an asm dump cannot be a byte-match, so the metadata status is wrong (fix it or mark `BLOCKER`).  `STATUS: STUB` + asm dump is an expected documented placeholder and gets the base message only |
@@ -442,7 +442,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | W026 | Line indent style | Line indent style does not match project configuration (`lint_indent_style` in config) |
 | W027 | Line too long | Line exceeds `lint_max_line_length` characters |
 | W028 | Stale annotation VA | FUNCTION/STUB marker VA has no function in the current `functions.txt` (removed/shifted) or points inside another function's span (moved/merged) — re-annotate or refresh the list; LIBRARY/DATA/GLOBAL markers excluded |
-| W029 | Redundant cflags | Per-function `cflags` in `rebrew-function.toml` or `compiler.cflags_presets.<MODULE>` that only repeat the inherited value (`resolve_cflags` ladder: function → module preset → project `compiler.cflags`) — flagged by `rebrew lint` (project-level `check_redundant_cflags` moved from `rebrew doctor`). Drop it; the fallback chain already supplies the same flags |
+| W029 | Redundant cflags | Per-function `cflags` in `rebrew-functions.toml` or `compiler.cflags_presets.<MODULE>` that only repeat the inherited value (`resolve_cflags` ladder: function → module preset → project `compiler.cflags`) — flagged by `rebrew lint` (project-level `check_redundant_cflags` moved from `rebrew doctor`). Drop it; the fallback chain already supplies the same flags |
 
 #### Data Annotation Warnings
 

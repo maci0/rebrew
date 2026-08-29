@@ -43,11 +43,11 @@ you what to attack next.
   - Compiles via MSVC6 (or configured compiler).
   - Byte-compares against the target.
   - Auto-promotes STATUS (EXACT / RELOC / NEAR_MATCHING / STUB) in
-    `rebrew-function.toml`.
+    `rebrew-functions.toml`.
 - A `diff` command that classifies mismatches into structural / relocation /
   register / invalid-relocation and can auto-write BLOCKER metadata.
 - A `lint` command that enforces marker discipline and migrates legacy
-  inline metadata into `rebrew-function.toml`.
+  inline metadata into `rebrew-functions.toml`.
 - File operations (`split`, `merge`, `rename`) that are dry-run-friendly
   and never lose annotations.
 - A `todo` ranker that scores every actionable item by ROI and groups
@@ -85,7 +85,7 @@ you what to attack next.
 - `--xrefs --endpoint URL` fetches cross-references from Ghidra and
   injects them as comments.
 - All volatile metadata (STATUS=STUB, SIZE, CFLAGS, BLOCKER) is written to
-  `rebrew-function.toml`, never inlined into the `.c` file.
+  `rebrew-functions.toml`, never inlined into the `.c` file.
 
 ### `rebrew test`
 
@@ -93,7 +93,7 @@ you what to attack next.
   profile's docker image (execution is docker-only, ADR-008),
   extracts the named COFF symbol, and byte-compares against the target.
 - Auto-detects symbol, VA, size from `// FUNCTION:` markers, and STATUS/
-  SIZE/CFLAGS from `rebrew-function.toml`.
+  SIZE/CFLAGS from `rebrew-functions.toml`.
 - `--va`, `--symbol`, `--size`, `--target-bin`, `--cflags`, `--toolchain`
   override values.
 - `--no-promote` disables STATUS auto-update (also auto-skipped for files
@@ -111,7 +111,7 @@ you what to attack next.
 - `-r` normalises register encodings.
 - `--format csv` emits CSV.
 - `--fix-blocker` writes the inferred BLOCKER/BLOCKER_DELTA to
-  `rebrew-function.toml`.
+  `rebrew-functions.toml`.
 - `--ignore-lint` runs even when annotation lint errors exist.
 - Exit codes: 0=no structural diff, 1=structural diff, 2=build failure.
 
@@ -124,13 +124,13 @@ you what to attack next.
   `__declspec(naked)` + `__asm`/`__emit` block instead of real C).
 - Warnings: `W005` (STUB without BLOCKER), `W016` (DATA/GLOBAL missing
   SECTION), `W010` (unknown marker key), `W018` (missing CFLAGS), `W019`
-  (inline metadata should be in `rebrew-function.toml`), `W020` (asm-dump
+  (inline metadata should be in `rebrew-functions.toml`), `W020` (asm-dump
   placeholder instead of real C source), `W021` (duplicate global symbol
   across files), `W022` (zero-initializer forces `.data` not `.bss`),
   `W023` (default function name), `W024` (name violates naming convention),
   `W025` (brace style mismatch), `W026` (indent style mismatch), `W027`
   (line too long).
-- `--fix` migrates inline metadata into `rebrew-function.toml` and removes
+- `--fix` migrates inline metadata into `rebrew-functions.toml` and removes
   it from source.
 - `--summary` prints a STATUS/origin breakdown table.
 - `--quiet` errors-only, `--json` machine-readable.
@@ -188,7 +188,7 @@ you what to attack next.
 2. `rebrew rename old_helper new_helper --file new_helper.c` renames the
    function across files.
 3. `rebrew lint --fix` migrates any leftover inline metadata to
-   `rebrew-function.toml`.
+   `rebrew-functions.toml`.
 
 ### Story 3 — Quick action triage
 
@@ -299,7 +299,7 @@ rebrew todo
 - `rebrew test` round-trip (no cache) under 1 s on a 50-line C file.
 - With cache hits, `rebrew test --all` over a 500-function project runs in
   under 5 s.
-- STATUS in `rebrew-function.toml` always reflects the latest test result;
+- STATUS in `rebrew-functions.toml` always reflects the latest test result;
   no out-of-band STATUS writes from the source file.
 - `rebrew lint --fix --dry-run` is safe to suggest to humans — never
   surfaces a destructive change unless `--fix` is given without `--dry-run`.

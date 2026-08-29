@@ -2,7 +2,7 @@
 
 Check that all .c files in the reversed directory have proper reccmp-style
 annotations (``// FUNCTION: MODULE 0xVA`` markers) and that volatile metadata
-(STATUS, SIZE, CFLAGS, etc.) lives in ``rebrew-function.toml``.  Also
+(STATUS, SIZE, CFLAGS, etc.) lives in ``rebrew-functions.toml``.  Also
 cross-checks FUNCTION/STUB marker VAs against the target's function list
 (W028), flags redundant per-function / preset cflags that only repeat an
 inherited value (W029), and otherwise catches stale annotations at lint time
@@ -410,7 +410,7 @@ def _check_E015_marker_consistency(
     # E015's intent is library-module attribution: a FUNCTION marker on a
     # module configured as library should be LIBRARY.  A STUB-status function
     # may legitimately keep either its STUB marker or the FUNCTION marker
-    # (status lives in rebrew-function.toml per the metadata convention), so
+    # (status lives in rebrew-functions.toml per the metadata convention), so
     # both are allowed; anything else is inconsistent.
     lib_modules = cfg.library_modules if cfg and cfg.library_modules is not None else set()
     if module in lib_modules:
@@ -448,7 +448,7 @@ def _check_E017_contradictory(result: LintResult, status: str, marker: str) -> N
 
 
 def _check_W005_blocker(result: LintResult, status: str, found_keys: dict[str, str]) -> None:
-    # BLOCKER lives in rebrew-function.toml metadata; the metadata overlay already injects it
+    # BLOCKER lives in rebrew-functions.toml metadata; the metadata overlay already injects it
     # into found_keys before this check runs, so this fires only when absent from both.
     if status == "STUB" and "BLOCKER" not in found_keys:
         result.warning(
@@ -519,7 +519,7 @@ def _check_W019_inline_metadata(
 ) -> None:
     """Warn when metadata-owned keys appear as inline // KEY: comments.
 
-    These keys should live exclusively in rebrew-function.toml (or rebrew-data.toml
+    These keys should live exclusively in rebrew-functions.toml (or rebrew-data.toml
     for DATA/GLOBAL markers).  Inline occurrences are deprecated.
     """
     for key in found_keys:
@@ -534,7 +534,7 @@ def _check_W019_inline_metadata(
             result.warning(
                 result.marker_line,
                 "W019",
-                f"Inline '// {key}:' is deprecated — use rebrew-function.toml instead",
+                f"Inline '// {key}:' is deprecated — use rebrew-functions.toml instead",
             )
             # Record for --fix migration (marker type routes the write to the
             # function vs data metadata store).
@@ -563,7 +563,7 @@ def _check_E023_naked_asm(
     # The project's byte-identity guard: a naked body gated by
     # ``REBREW_ALLOW_NAKED`` — either fenced in ``#ifdef REBREW_ALLOW_NAKED``
     # (with a C fallback in ``#else``) or compiled via ``cflags`` carrying
-    # ``/DREBREW_ALLOW_NAKED`` (in rebrew-function.toml, or a remaining
+    # ``/DREBREW_ALLOW_NAKED`` (in rebrew-functions.toml, or a remaining
     # inline ``// CFLAGS:`` annotation) — is the documented workflow for
     # reproducing a compiler whose codegen the available toolchains cannot
     # emit (see AGENTS.md / the naked-guard convention).  That is
@@ -1039,7 +1039,7 @@ def check_redundant_cflags(
     + config logic — no .c file I/O.  Order-invariant flag comparison via
     ``_cflags_key``.
 
-    The level ladder is: per-function cflags (rebrew-function.toml) →
+    The level ladder is: per-function cflags (rebrew-functions.toml) →
     module preset (``compiler.cflags_presets.<MODULE>``) → project
     ``compiler.cflags``.
     """
@@ -1160,7 +1160,7 @@ def lint_file(
     # non-STUB claim on an asm-dump body is a metadata error).
     _file_statuses: set[str] = set()
     # CFLAGS from metadata/inline annotations (for the E023 REBREW_ALLOW_NAKED
-    # guard — the flag lives in rebrew-function.toml, not in source lines).
+    # guard — the flag lives in rebrew-functions.toml, not in source lines).
     _file_cflags: set[str] = set()
 
     for found_keys, flags in all_headers:
@@ -1325,7 +1325,7 @@ app = typer.Typer(
         "  W016   DATA/GLOBAL missing SECTION metadata\n\n"
         "  W010   Unknown marker key\n\n"
         "  W018   Missing CFLAGS with no config fallback\n\n"
-        "  W019   Inline metadata key (STATUS, SIZE, etc.) should be in rebrew-function.toml\n\n"
+        "  W019   Inline metadata key (STATUS, SIZE, etc.) should be in rebrew-functions.toml\n\n"
         "  W020   Asm-dump placeholder (__emit / __asm block) instead of real C source\n\n"
         "  E023   Whole-function __declspec(naked) + __asm/__emit (only 1-2 nop/0x90/0xCC padding bytes allowed)\n\n"
         "  W021   Duplicate global symbol annotated in multiple files\n\n"
@@ -1342,7 +1342,7 @@ app = typer.Typer(
         "         the inherited value (project cflags / module preset) — drop it\n"
         "         (the fallback chain already supplies the same flags)\n\n"
         "[dim]Checks for reccmp-style markers in each .c file, plus project-level\n"
-        "corpus hygiene (W029 cflags redundancy via rebrew-function.toml / presets).[/dim]"
+        "corpus hygiene (W029 cflags redundancy via rebrew-functions.toml / presets).[/dim]"
     ),
 )
 
@@ -1352,7 +1352,7 @@ def main(
     fix: bool = typer.Option(
         False,
         "--fix",
-        help="Migrate inline metadata to rebrew-function.toml and remove from source",
+        help="Migrate inline metadata to rebrew-functions.toml and remove from source",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Only show errors, suppress warnings"),
@@ -1483,7 +1483,7 @@ def main(
                 else:
                     unattributed.append(msg)
             if unattributed:
-                syn2 = LintResult(Path("rebrew-function.toml"))
+                syn2 = LintResult(Path("rebrew-functions.toml"))
                 for msg in unattributed:
                     syn2.warning(1, "W029", f"redundant cflags: {msg}")
                 all_results.append(syn2)
@@ -1516,7 +1516,7 @@ def main(
         if summary:
             _print_summary(all_results)
 
-    # Apply --fix: migrate inline metadata to rebrew-function.toml /
+    # Apply --fix: migrate inline metadata to rebrew-functions.toml /
     # rebrew-data.toml (the destination depends on the marker type).
     # Without a loaded config the migration has nowhere to write — say so
     # instead of silently doing nothing (functionality-review: a user running
@@ -1560,7 +1560,7 @@ def main(
                     present = toml_key in existing
                 if not present:
                     if dry_run:
-                        store = "rebrew-data.toml" if is_data_marker else "rebrew-function.toml"
+                        store = "rebrew-data.toml" if is_data_marker else "rebrew-functions.toml"
                         console.print(
                             f"  [dim]Would migrate[/dim] {r.filepath.name} "
                             f"// {key}: {value!r} → {store}"
@@ -1598,7 +1598,7 @@ def main(
                 )
             elif fix_count > 0:
                 console.print(
-                    f"\n[green]Fixed:[/green] migrated {fix_count} inline annotations to rebrew-function.toml"
+                    f"\n[green]Fixed:[/green] migrated {fix_count} inline annotations to rebrew-functions.toml"
                 )
 
     if error_count > 0:

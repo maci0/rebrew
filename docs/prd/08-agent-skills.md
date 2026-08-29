@@ -13,7 +13,7 @@ discover the workflow on the fly:
 - Burns context tokens reading help output.
 - Picks suboptimal command orderings.
 - Mixes up edges that humans tolerate but cause silent failures (e.g.
-  forgetting `--json`, editing `rebrew-function.toml` directly).
+  forgetting `--json`, editing `rebrew-functions.toml` directly).
 
 PRD 08 bundles five skill packs that load only when relevant (via
 keyword triggers in their frontmatter) and provide focused command
@@ -204,7 +204,7 @@ rebrew skills show <name> --json  # name/description/path + raw content
 
 - An agent presented with a fresh project completes intake purely from
   `rebrew-intake` instructions.
-- An agent never edits `rebrew-function.toml` by hand because every
+- An agent never edits `rebrew-functions.toml` by hand because every
   skill emphasises `update_source_status` / the CLI tools.
 - Skill files stay <250 lines so the agent always loads them in one
   fetch.

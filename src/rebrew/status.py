@@ -114,7 +114,7 @@ class StatusReport:
     # 0 means no issues found (or scan not yet run).
     inline_metadata_warning: int = 0
 
-    # Number of functions with a non-empty BLOCKER in rebrew-function.toml —
+    # Number of functions with a non-empty BLOCKER in rebrew-functions.toml —
     # i.e. work that is currently understood-blocked and needs attention.
     unresolved_blockers: int = 0
 
@@ -540,7 +540,7 @@ def _w019_key_backed(
 
     Mirrors lint's metadata overlay: for DATA/GLOBAL blocks only
     size/section/note are sourced from rebrew-data.toml; everything else comes
-    from rebrew-function.toml.
+    from rebrew-functions.toml.
     """
     marker_type, module, va = block
     mod_va = (module, va)
@@ -699,7 +699,7 @@ def _render_terminal(report: StatusReport) -> None:
         n = report.inline_metadata_warning
         summary_lines.append(
             f"  [yellow]Warning:[/yellow] {n} file(s) contain inline STATUS/CFLAGS/SIZE comments"
-            " — run [bold]rebrew lint[/bold] to migrate to rebrew-function.toml"
+            " — run [bold]rebrew lint[/bold] to migrate to rebrew-functions.toml"
         )
 
     # --- Assemble panel ---

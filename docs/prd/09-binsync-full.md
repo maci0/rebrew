@@ -101,7 +101,7 @@ For each function in the BinSync state:
 
 - **Name** → if generic (FUN_/SUB_/sub_), skip. If meaningful and rebrew already has a meaningful different name, report CONFLICT. Else update `ann.name` (writes `// FUNCTION: <module> 0x<va>` doesn't change; symbol declaration in `.c` does change, plus cross-references like `rebrew rename` does today).
 - **Prototype** → update the C function declaration via `rebrew sync --pull-signatures`'s existing prototype-rewrite path.
-- **Stack frame / locals** → write to a new `[locals]` block in `rebrew-function.toml`. See F4.
+- **Stack frame / locals** → write to a new `[locals]` block in `rebrew-functions.toml`. See F4.
 - **Per-instruction comments** → write as `// ANALYSIS:` style markers in the C body (matches existing `rebrew sync --pull-comments` shape).
 - **Struct** → write field-by-field into `types.h` (or per-module `types_<module>.h` per E16).
 - **Enum / typedef** → write into `types.h` (or `enums.h` if the user wants split).
@@ -113,7 +113,7 @@ For each function in the BinSync state:
 
 Today rebrew has no local-variable annotation concept. To round-trip with BinSync, add the smallest possible surface:
 
-- A new `[locals]` block in `rebrew-function.toml`:
+- A new `[locals]` block in `rebrew-functions.toml`:
   ```toml
   ["SERVER.0x10008880"]
   status = "EXACT"
@@ -213,7 +213,7 @@ A reverser uses rebrew as their primary workspace. Once a function is `EXACT`, t
 rebrew binsync push ./binsync_state              # export + commit
 # (in IDA Pro: load binsync_state directory via the BinSync plugin)
 # (analyst adds local variable name "loop_counter" in IDA)
-rebrew binsync pull ./binsync_state              # pulls "loop_counter" into rebrew-function.toml [locals] block
+rebrew binsync pull ./binsync_state              # pulls "loop_counter" into rebrew-functions.toml [locals] block
 ```
 
 ### Story 2 — Team collaboration via shared git repo
@@ -273,7 +273,7 @@ rebrew binsync diff git@team:binsync-state.git --json > diff.json
 | **P1** — Foundation | Add `libbs` optional dep; rewrite struct export via libbs; replace existing `binsync-export` internals (no behavioural change for users yet). | ~1 day |
 | **P2** — Bidirectional core | `binsync push` (with optional git commit), `binsync pull` (with git pull + name/prototype application), `binsync summary`, `binsync diff`. Function + struct names only — no locals, no enums. | ~2 days |
 | **P3** — Type-system depth | Real struct field serialization, enum export + import, typedef export + import. | ~1 day |
-| **P4** — Locals | New `[locals]` block in `rebrew-function.toml`. Pull writes; push reads. No source-level validation yet. | ~1.5 days |
+| **P4** — Locals | New `[locals]` block in `rebrew-functions.toml`. Pull writes; push reads. No source-level validation yet. | ~1.5 days |
 | **P5** — Conflict + comments | Conflict detection on pull; `--accept-binsync` / `--accept-local`; per-instruction comments round-trip. | ~1 day |
 | **P6** — Polish | `binsync init`, `--module` filter, JSON-mode improvements, retry on network failures, docs + skill updates. | ~1 day |
 

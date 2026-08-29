@@ -1,6 +1,6 @@
 # Rebrew Metadata Format
 
-> **Scope:** This document covers the **TOML metadata files** (`rebrew-function.toml`,
+> **Scope:** This document covers the **TOML metadata files** (`rebrew-functions.toml`,
 > `rebrew-data.toml`) that store volatile per-function fields (STATUS, CFLAGS, BLOCKER,
 > NOTE, GHIDRA) and data section metadata (NAME, SIZE, SECTION, NOTE).
 > For the source-file marker format (`// FUNCTION: MODULE 0xVA`) and `library_*.h`
@@ -51,7 +51,7 @@ The following keys are **metadata-only** and must not appear in source files.
 
 All mutable metadata lives in per-directory TOML metadata files.
 
-### `rebrew-function.toml`
+### `rebrew-functions.toml`
 
 Keyed by `MODULE.0xVA`:
 
@@ -73,7 +73,7 @@ note = "register allocation differs in inner loop"
 | `get_entry(directory, va, module)` | Read an entry — via `rebrew blocker show` |
 | `rebrew diff --fix-blocker` / `rebrew near-diag --fix-blocker` / `rebrew document-unmatched` | Auto-classified BLOCKER writers (same gated API underneath) |
 
-> **Never write `rebrew-function.toml` manually** — every BLOCKER, STATUS,
+> **Never write `rebrew-functions.toml` manually** — every BLOCKER, STATUS,
 > CFLAGS, and NOTE write must go through the API above or its CLI gate
 > (`rebrew blocker set/clear` for BLOCKER, `rebrew test`/`verify`/`prove`
 > for STATUS, etc.). Hand-edits bypass the lock and get clobbered.
@@ -131,6 +131,6 @@ rebrew lint --fix
 
 This will:
 1. Remove `// STATUS:`, `// CFLAGS:`, `// BLOCKER:`, etc. from `.c` files.
-2. Write the values to the appropriate TOML (`rebrew-function.toml`, or
+2. Write the values to the appropriate TOML (`rebrew-functions.toml`, or
    `rebrew-data.toml` for DATA/GLOBAL markers).
 3. Leave only the reccmp marker line (`// FUNCTION: MODULE 0xVA`) inline.

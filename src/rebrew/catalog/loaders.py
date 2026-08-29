@@ -293,7 +293,7 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
     Supports multi-function files: a single source file may contain multiple
     ``// FUNCTION:`` blocks, each generating a separate entry.
 
-    When *cfg* is provided, merges each directory's ``rebrew-function.toml``
+    When *cfg* is provided, merges each directory's ``rebrew-functions.toml``
     metadata so that volatile fields (STATUS, CFLAGS, SIZE, BLOCKER, etc.)
     are visible to catalog tools.  When *cfg* is None, volatile metadata is
     not loaded.

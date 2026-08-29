@@ -5,7 +5,7 @@ so that there is a single source of truth for the decomp annotation format.
 
 Annotation format (reccmp-compatible):
    ``// FUNCTION: SERVER 0x10008880`` marker line in ``.c`` files.
-   Volatile metadata (STATUS, SIZE, CFLAGS, etc.) lives in ``rebrew-function.toml``.
+   Volatile metadata (STATUS, SIZE, CFLAGS, etc.) lives in ``rebrew-functions.toml``.
 """
 
 from __future__ import annotations
@@ -76,7 +76,7 @@ VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"}
 
 # OPTIONAL_KEYS: only reccmp-compatible keys that are permitted inline.
 # All rebrew-specific keys (ORIGIN, CFLAGS, SKIP, GLOBALS, BLOCKER, SOURCE,
-# NOTE, SECTION, GHIDRA, BLOCKER_DELTA) must live in rebrew-function.toml
+# NOTE, SECTION, GHIDRA, BLOCKER_DELTA) must live in rebrew-functions.toml
 # see METADATA_KEYS.
 OPTIONAL_KEYS = {
     "ANALYSIS",  # reccmp compatibility (structural analysis note)
@@ -125,7 +125,7 @@ NEW_FUNC_CAPTURE_RE = re.compile(
 )
 # Key-value comment lines (``// KEY: value``) — used by library headers
 # (``// STATUS: EXACT``, ``// SIZE: 120``).  Metadata-owned fields are
-# written to ``rebrew-function.toml``, not inline.
+# written to ``rebrew-functions.toml``, not inline.
 # Value capture strips a trailing ``*/`` for block-comment KVs
 # (``/* SIZE: 64 */`` → "64", not "64 */").
 NEW_KV_RE = re.compile(r"(?://|/\*)\s*(?P<key>[A-Z_]+):\s*(?P<value>.*?)\s*(?:\*/)?\s*$")
@@ -289,7 +289,7 @@ def marker_for_module(module: str, status: str, library_modules: set[str] | None
 def has_skip_annotation(filepath: Path, metadata_dir: Path | None = None) -> bool:
     """Return True if a function in *filepath* is marked as skippable.
 
-    Checks ``rebrew-function.toml`` metadata for a ``skip`` field on THIS
+    Checks ``rebrew-functions.toml`` metadata for a ``skip`` field on THIS
     file's own (module, va) entries only — a skip anywhere else in the
     project must not empty ``match --all``'s stub collection.
     Returns ``False`` immediately when *metadata_dir* is ``None``.
@@ -464,7 +464,7 @@ class Annotation:
 
         # Check marker consistency against module name.  A STUB-status function
         # may keep either its STUB or FUNCTION marker (status lives in
-        # rebrew-function.toml); only library-module mismatches are flagged.
+        # rebrew-functions.toml); only library-module mismatches are flagged.
         _lib = library_modules or set()
         if self.module in _lib:
             expected_marker = "LIBRARY"
@@ -560,7 +560,7 @@ def update_size_annotation(
 ) -> bool:
     """Update the SIZE for a function — always writes to the metadata.
 
-    Writes *new_size* to the ``rebrew-function.toml`` metadata at *metadata_dir*
+    Writes *new_size* to the ``rebrew-functions.toml`` metadata at *metadata_dir*
     (only increasing, never shrinking).
 
     *target_va* is required for multi-function files; for single-function files
@@ -572,7 +572,7 @@ def update_size_annotation(
         filepath: Path to the .c source file.
         new_size: New SIZE value.
         target_va: VA of the specific function to update.
-        metadata_dir: Root directory for ``rebrew-function.toml``.
+        metadata_dir: Root directory for ``rebrew-functions.toml``.
             When ``None``, falls back to ``filepath.parent``.
 
     """
@@ -887,7 +887,7 @@ def parse_c_file(
     """Parse a decomp .c file for annotations.
 
     Parses ``// FUNCTION: MODULE 0xVA`` marker lines from the first 20 lines.
-    Does **not** merge metadata from ``rebrew-function.toml`` — use
+    Does **not** merge metadata from ``rebrew-functions.toml`` — use
     ``parse_c_file_multi()`` with *metadata_dir* for metadata overlay.
 
     Sets ``filepath`` on the returned Annotation for downstream use.
@@ -1084,7 +1084,7 @@ def parse_c_file_multi(
     Returns an empty list if no annotations are found.
 
     When *metadata_dir* is provided each returned Annotation is overlaid with
-    values from that directory's ``rebrew-function.toml`` (metadata wins for volatile
+    values from that directory's ``rebrew-functions.toml`` (metadata wins for volatile
     fields like STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA).  Pass the real
     metadata root (``cfg.metadata_dir`` — the parent of ``reversed_dir``) as
     *metadata_dir*; ``filepath.parent`` only works for single-source layouts
@@ -1204,7 +1204,7 @@ def parse_source_metadata(
 
     Args:
         source_path: Path to the ``.c`` source file.
-        metadata_dir: Directory containing ``rebrew-function.toml``.
+        metadata_dir: Directory containing ``rebrew-functions.toml``.
             When ``None``, metadata merging is skipped.
 
     """
@@ -1250,7 +1250,7 @@ def update_annotation_key(
     """Update or add an annotation key for a specific VA.
 
     For metadata-owned keys (STATUS, SIZE, CFLAGS, BLOCKER, NOTE,
-    GHIDRA, …) the value is written to the ``rebrew-function.toml`` metadata
+    GHIDRA, …) the value is written to the ``rebrew-functions.toml`` metadata
     at *metadata_dir*, leaving the ``.c`` file untouched.
 
     Args:
@@ -1258,7 +1258,7 @@ def update_annotation_key(
         va: Virtual address integer.
         key: Annotation key (e.g. ``"STATUS"``, ``"CFLAGS"``).
         new_value: New value string.
-        metadata_dir: Directory containing ``rebrew-function.toml``.
+        metadata_dir: Directory containing ``rebrew-functions.toml``.
             Required for metadata-owned keys.
 
     Returns True if any write was made, False otherwise.
@@ -1467,14 +1467,14 @@ def remove_annotation_key(
 ) -> bool:
     """Remove an annotation key for a specific VA.
 
-    For metadata-owned keys the matching field is deleted from ``rebrew-function.toml``.
+    For metadata-owned keys the matching field is deleted from ``rebrew-functions.toml``.
     For non-metadata keys the existing in-file removal logic applies.
 
     Args:
         filepath: Path to the ``.c`` source file.
         va: Virtual address integer.
         key: Annotation key to remove.
-        metadata_dir: Directory containing ``rebrew-function.toml``.
+        metadata_dir: Directory containing ``rebrew-functions.toml``.
             Required for metadata-owned keys.
 
     Returns True if any change was made, False otherwise.
@@ -1533,7 +1533,7 @@ def remove_inline_annotation_key(filepath: Path, va: int, key: str) -> bool:
     """Remove an inline ``// KEY:`` comment from the source file only.
 
     Unlike :func:`remove_annotation_key`, this never touches
-    ``rebrew-function.toml`` — the caller is responsible for metadata.
+    ``rebrew-functions.toml`` — the caller is responsible for metadata.
     Used by ``rebrew lint --fix`` to strip deprecated inline metadata keys
     after they have been migrated (removing them via the metadata-routing
     path would either delete the freshly written field or, for STATUS,

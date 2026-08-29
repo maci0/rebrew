@@ -129,7 +129,7 @@ note    = "lookup table for sprite indices"
 > [!CAUTION]
 > **Never manually edit `rebrew-data.toml`.** It is managed automatically by `rebrew data`,
 > `rebrew data --fix-bss`, and `rebrew sync --pull`. Entries are keyed `"MODULE.0xVA"`
-> (qualified, same scheme as `rebrew-function.toml`).
+> (qualified, same scheme as `rebrew-functions.toml`).
 
 ## GLOBAL Annotations
 

@@ -110,7 +110,7 @@ graph TD
 - `rebrew todo` shows prioritized list of uncovered functions
 - `rebrew skeleton` creates annotated `.c` file
 - `rebrew test` classifies result as EXACT / RELOC / NEAR_MATCHING / MISMATCH
-- STATUS and BLOCKER (if any) updated in `rebrew-function.toml` metadata
+- STATUS and BLOCKER (if any) updated in `rebrew-functions.toml` metadata
 
 ```mermaid
 graph TD

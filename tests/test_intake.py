@@ -61,7 +61,7 @@ class TestIntake:
         stub = (tmp_path / "src" / "game" / "fcn_00401000.c").read_text()
         assert "// STUB: GAME 0x00401000" in stub
         # metadata has blocker + STUB
-        meta = (tmp_path / "src" / "rebrew-function.toml").read_text()
+        meta = (tmp_path / "src" / "rebrew-functions.toml").read_text()
         assert "blocker" in meta
         assert 'status = "STUB"' in meta
         # documented stubs carry the disassembly-derived SIZE so rebrew test
@@ -167,7 +167,7 @@ class TestIntake:
         assert not (tmp_path / "src" / "game" / "fcn_00402000.c").exists()
         assert (tmp_path / "src" / "game" / "fcn_00403000.c").exists()
         # Metadata entry for the vanished function is gone too.
-        meta = (tmp_path / "src" / "rebrew-function.toml").read_text()
+        meta = (tmp_path / "src" / "rebrew-functions.toml").read_text()
         assert "0x00402000" not in meta
         assert "0x00403000" in meta
 
@@ -243,7 +243,7 @@ class TestIntake:
 
         out2 = runner.invoke(main_mod.app, ["intake", "game.exe", "--json"])
         assert out2.exit_code == 0, out2.output
-        meta = (tmp_path / "src" / "rebrew-function.toml").read_text()
+        meta = (tmp_path / "src" / "rebrew-functions.toml").read_text()
         # The matched function is NOT demoted back to STUB.
         assert 'status = "RELOC"' in meta
         assert "0x00402000" in meta

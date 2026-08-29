@@ -1402,11 +1402,11 @@ def main(
 
     # 5. Create metadata TOML files (in src/, not src/<target>/)
     metadata_parent = src_dir.parent  # src/
-    func_toml = metadata_parent / "rebrew-function.toml"
+    func_toml = metadata_parent / "rebrew-functions.toml"
     func_toml.touch(exist_ok=True)
     data_toml = metadata_parent / "rebrew-data.toml"
     data_toml.touch(exist_ok=True)
-    console.print("[green]Created src/rebrew-function.toml[/]")
+    console.print("[green]Created src/rebrew-functions.toml[/]")
     console.print("[green]Created src/rebrew-data.toml[/]")
 
     # 6. Copy agent-skills directory (bundled with the package)

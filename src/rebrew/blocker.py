@@ -1,4 +1,4 @@
-"""blocker.py – Programmatic BLOCKER management for rebrew-function.toml.
+"""blocker.py – Programmatic BLOCKER management for rebrew-functions.toml.
 
 Every BLOCKER/BLOCKER_DELTA write must go through the metadata store
 (``rebrew.metadata``) under ``metadata_write_lock`` + ``atomic_write_text`` —
@@ -43,7 +43,7 @@ _EPILOG = (
 )
 
 app = typer.Typer(
-    help="Manage BLOCKER metadata in rebrew-function.toml (programmatic only).",
+    help="Manage BLOCKER metadata in rebrew-functions.toml (programmatic only).",
     rich_markup_mode="rich",
     epilog=_EPILOG,
 )

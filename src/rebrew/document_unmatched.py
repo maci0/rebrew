@@ -5,7 +5,7 @@ runs during onboarding (it used to be a per-project classify script —
 bench/cpubench/makehm/openmiles each carried a near-duplicate).  For an
 existing project this is the re-discovery workflow: new functions added to
 the function list get a STUB ``.c`` skeleton plus a BLOCKER + STATUS=STUB
-in ``rebrew-function.toml``, without re-running init/toolchain-link/rizin.
+in ``rebrew-functions.toml``, without re-running init/toolchain-link/rizin.
 
 Already-documented functions are left untouched: a VA is considered
 documented when a ``fcn_<va>.c`` file exists in the reversed dir or any

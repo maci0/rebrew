@@ -554,7 +554,7 @@ def main(
         from rebrew.utils import watch_files
 
         watch_paths = list(iter_sources(reversed_dir, cfg)) + [
-            cfg.metadata_dir / "rebrew-function.toml"
+            cfg.metadata_dir / "rebrew-functions.toml"
         ]
 
         def _retest() -> None:

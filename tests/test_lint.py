@@ -329,7 +329,7 @@ class TestVAHexCase:
 class TestW016Section:
     def test_w016_global_missing_section(self, tmp_path: Path) -> None:
         """GLOBAL without SECTION in metadata fires W016."""
-        metadata_toml = tmp_path / "rebrew-function.toml"
+        metadata_toml = tmp_path / "rebrew-functions.toml"
         metadata_toml.write_text('["SERVER.0x10050000"]\nsize = 4\n', encoding="utf-8")
         content = "// GLOBAL: SERVER 0x10050000\nint g_foo;\n"
         f = _write_c(tmp_path, "g_foo.c", content)
@@ -338,7 +338,7 @@ class TestW016Section:
 
     def test_w016_data_missing_section(self, tmp_path: Path) -> None:
         """DATA without SECTION in metadata fires W016."""
-        metadata_toml = tmp_path / "rebrew-function.toml"
+        metadata_toml = tmp_path / "rebrew-functions.toml"
         metadata_toml.write_text('["SERVER.0x10050000"]\nsize = 10\n', encoding="utf-8")
         content = '// DATA: SERVER 0x10050000\nchar s_hello[] = "hello";\n'
         f = _write_c(tmp_path, "s_hello.c", content)
@@ -347,7 +347,7 @@ class TestW016Section:
 
     def test_w016_global_with_section_no_warning(self, tmp_path: Path) -> None:
         """SECTION from the metadata should suppress W016 without inline SECTION."""
-        metadata_toml = tmp_path / "rebrew-function.toml"
+        metadata_toml = tmp_path / "rebrew-functions.toml"
         metadata_toml.write_text(
             '["SERVER.0x10050000"]\nsize = 4\nsection = ".bss"\n', encoding="utf-8"
         )
@@ -943,8 +943,8 @@ class TestE023NakedAsm:
         assert not any(c == "E023" for _, c, _ in result.errors)
 
     def test_metadata_cflags_rebrew_allow_naked_skips_e023(self, tmp_path: Path) -> None:
-        """REBREW_ALLOW_NAKED in rebrew-function.toml (not source) suppresses E023."""
-        metadata_toml = tmp_path / "rebrew-function.toml"
+        """REBREW_ALLOW_NAKED in rebrew-functions.toml (not source) suppresses E023."""
+        metadata_toml = tmp_path / "rebrew-functions.toml"
         metadata_toml.write_text(
             '["SERVER.0x10008880"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n',
             encoding="utf-8",
@@ -966,7 +966,7 @@ class TestE023NakedAsm:
 
     def test_metadata_cflags_without_guard_keeps_e023(self, tmp_path: Path) -> None:
         """Metadata cflags that lack REBREW_ALLOW_NAKED must not suppress E023."""
-        metadata_toml = tmp_path / "rebrew-function.toml"
+        metadata_toml = tmp_path / "rebrew-functions.toml"
         metadata_toml.write_text('["SERVER.0x10008880"]\ncflags = "/O2 /Gd"\n', encoding="utf-8")
         content = (
             "// FUNCTION: SERVER 0x10008880\n"
@@ -1247,35 +1247,35 @@ class TestW029RedundantCflags:
         return check_redundant_cflags(cfg)
 
     def test_clean_project_passes(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-function.toml").write_text(
+        (tmp_path / "rebrew-functions.toml").write_text(
             '["SERVER.0x1000"]\nstatus = "EXACT"\nsize = 42\n', encoding="utf-8"
         )
         presets, fns = self._redundant(self._cfg(tmp_path))
         assert presets == [] and fns == []
 
     def test_function_override_redundant(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-function.toml").write_text(
+        (tmp_path / "rebrew-functions.toml").write_text(
             '["SERVER.0x1000"]\nstatus = "EXACT"\ncflags = "/O2 /Gd"\n', encoding="utf-8"
         )
         _presets, fns = self._redundant(self._cfg(tmp_path))
         assert any("0x1000" in m for m in fns)
 
     def test_flag_order_does_not_matter(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-function.toml").write_text(
+        (tmp_path / "rebrew-functions.toml").write_text(
             '["SERVER.0x1000"]\ncflags = "/Gd /O2"\n', encoding="utf-8"
         )
         _presets, fns = self._redundant(self._cfg(tmp_path))
         assert len(fns) == 1
 
     def test_extra_flags_not_redundant(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-function.toml").write_text(
+        (tmp_path / "rebrew-functions.toml").write_text(
             '["SERVER.0x1000"]\ncflags = "/O2 /Gd /DREBREW_ALLOW_NAKED"\n', encoding="utf-8"
         )
         presets, fns = self._redundant(self._cfg(tmp_path))
         assert presets == [] and fns == []
 
     def test_function_override_matching_module_preset_is_redundant(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-function.toml").write_text(
+        (tmp_path / "rebrew-functions.toml").write_text(
             '["GAME.0x1000"]\ncflags = "/O2 /Gd"\n', encoding="utf-8"
         )
         cfg = self._cfg(tmp_path, cflags="/O1 /Gd", cflags_presets={"GAME": "/O2 /Gd"})
@@ -1283,7 +1283,7 @@ class TestW029RedundantCflags:
         assert any("GAME 0x1000" in m for m in fns)
 
     def test_module_preset_redundant_with_project(self, tmp_path: Path) -> None:
-        (tmp_path / "rebrew-function.toml").write_text("", encoding="utf-8")
+        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
         cfg = self._cfg(tmp_path, cflags_presets={"GAME": "/O2 /Gd", "MSVCRT": "/O1"})
         presets, _fns = self._redundant(cfg)
         assert any("cflags_presets.GAME" in m for m in presets)
@@ -1306,7 +1306,7 @@ class TestW029RedundantCflags:
         (src / "foo.c").write_text(
             "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8"
         )
-        (tmp_path / "rebrew-function.toml").write_text(
+        (tmp_path / "rebrew-functions.toml").write_text(
             '["SERVER.0x1000"]\ncflags = "/O2 /Gd"\n', encoding="utf-8"
         )
         cfg = SimpleNamespace(

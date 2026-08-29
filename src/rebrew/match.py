@@ -86,7 +86,7 @@ from rebrew.utils import atomic_write_text, read_source_text
 log = logging.getLogger(__name__)
 
 # Serializes metadata/solutions writes across parallel batch GA workers
-# (read-modify-write of rebrew-function.toml is not otherwise thread-safe).
+# (read-modify-write of rebrew-functions.toml is not otherwise thread-safe).
 _metadata_lock = threading.Lock()
 console = Console(stderr=True)
 
@@ -884,7 +884,7 @@ def _parse_annotations(
 
     *metadata_dir* defaults to ``filepath.parent`` (the legacy inline-layout
     assumption); batch callers pass ``cfg.metadata_dir`` so functions whose
-    SIZE/STATUS live in ``rebrew-function.toml`` at the reversed_dir parent
+    SIZE/STATUS live in ``rebrew-functions.toml`` at the reversed_dir parent
     are found.
     """
     if ignored is None:
@@ -1253,7 +1253,7 @@ def update_stub_to_matched(
     # Promote only when the splice actually landed, the file re-parses, AND
     # the write succeeded — otherwise the metadata would claim RELOC on an
     # unchanged stub body (a failed atomic_write_text — disk full, read-only
-    # dir — must not leave rebrew-function.toml saying RELOC while the .c
+    # dir — must not leave rebrew-functions.toml saying RELOC while the .c
     # still holds the stub).  The promotion therefore runs AFTER the write.
     from rebrew.metadata import update_source_status
 

@@ -503,14 +503,14 @@ class TestMetadataEdgeCases:
         import rebrew.metadata as md
 
         md.clear_metadata_cache()
-        (tmp_path / "rebrew-function.toml").write_text("{broken toml", encoding="utf-8")
+        (tmp_path / "rebrew-functions.toml").write_text("{broken toml", encoding="utf-8")
         assert md.load_metadata(tmp_path) == {}
 
     def test_load_metadata_skips_non_dict_values(self, tmp_path: Path) -> None:
         import rebrew.metadata as md
 
         md.clear_metadata_cache()
-        (tmp_path / "rebrew-function.toml").write_text(
+        (tmp_path / "rebrew-functions.toml").write_text(
             '"SERVER.0x10001000" = "scalar"\n["SERVER.0x10002000"]\nstatus = "EXACT"\n',
             encoding="utf-8",
         )
@@ -523,7 +523,7 @@ class TestMetadataEdgeCases:
         import rebrew.metadata as md
 
         md.clear_metadata_cache()
-        f = tmp_path / "rebrew-function.toml"
+        f = tmp_path / "rebrew-functions.toml"
         f.write_text('["SERVER.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8")
         first = md.load_metadata(tmp_path)
         assert ("SERVER", 0x10001000) in first
@@ -538,7 +538,7 @@ class TestMetadataEdgeCases:
     def test_metadata_path(self, tmp_path: Path) -> None:
         import rebrew.metadata as md
 
-        assert md.metadata_path(tmp_path) == tmp_path / "rebrew-function.toml"
+        assert md.metadata_path(tmp_path) == tmp_path / "rebrew-functions.toml"
 
 
 class TestWritePathsCorruptToml:

@@ -344,7 +344,7 @@ def atomic_write_text(filepath: Path, text: str, encoding: str = "utf-8") -> Non
 
     The temp name carries the writer's pid and thread id so two concurrent
     writers of the same target (e.g. ``rebrew verify`` and ``rebrew test``
-    both promoting STATUS into ``rebrew-function.toml``) cannot interleave
+    both promoting STATUS into ``rebrew-functions.toml``) cannot interleave
     into one shared scratch file and publish a spliced result.  This makes
     each write self-contained; it does not serialise read-modify-write
     cycles, so a genuine last-writer-wins update is still possible.
@@ -469,7 +469,7 @@ _METADATA_WRITE_LOCKS: dict[str, threading.Lock] = {}
 def metadata_write_lock(directory: Path, filename: str) -> Iterator[None]:
     """Thread + cross-process lock around a metadata read-modify-write.
 
-    Shared by ``metadata.py`` (``rebrew-function.toml``) and
+    Shared by ``metadata.py`` (``rebrew-functions.toml``) and
     ``data_metadata.py`` (``rebrew-data.toml``).  The thread lock serializes
     in-process writers (``rebrew verify --jobs``, GA batch promotion); an
     advisory ``flock`` on a ``.lock`` sidecar serializes *concurrent
@@ -518,7 +518,7 @@ def load_metadata_doc(
     cache: dict[Path, tuple[int, dict[tuple[str, int], dict[str, Any]]]],
     description: str,
 ) -> dict[tuple[str, int], dict[str, Any]]:
-    """Parse a qualified-key metadata TOML (``rebrew-function.toml`` /
+    """Parse a qualified-key metadata TOML (``rebrew-functions.toml`` /
     ``rebrew-data.toml``) into ``{(module, va): fields}``.
 
     Shared by ``metadata.load_metadata`` and ``data_metadata.load_data_metadata``,
@@ -559,7 +559,7 @@ def qualified_key(module: str | None, va: int) -> str:
     """Return the canonical TOML key for *(module, va)*.
 
     Used by both ``metadata.py`` and ``data_metadata.py`` for consistent
-    key encoding in ``rebrew-function.toml`` / ``rebrew-data.toml``.
+    key encoding in ``rebrew-functions.toml`` / ``rebrew-data.toml``.
 
     Examples::
 

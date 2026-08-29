@@ -1,7 +1,7 @@
 """Tests for annotation round-trip fidelity (Idea 19).
 
 After the metadata migration, volatile fields (STATUS, CFLAGS, BLOCKER, NOTE,
-GLOBALS, SIZE) are stored in rebrew-function.toml rather than in the .c file. Round-trip
+GLOBALS, SIZE) are stored in rebrew-functions.toml rather than in the .c file. Round-trip
 reads must pass ``metadata_dir`` to ``parse_c_file_multi`` to see them.
 """
 
@@ -176,16 +176,16 @@ def test_inline_update_remove_symmetry_property(tmp_path: Path) -> None:
 
 def test_remove_inline_key_never_creates_metadata(base_file: Path) -> None:
     """remove_inline_annotation_key strips the inline line only — it must not
-    create or write rebrew-function.toml."""
+    create or write rebrew-functions.toml."""
     from rebrew.annotation import remove_inline_annotation_key, update_annotation_key
 
     update_annotation_key(base_file, 0x1000, "AUTHOR", "x")
     assert "// AUTHOR: x" in base_file.read_text(encoding="utf-8")
-    assert not (base_file.parent / "rebrew-function.toml").exists()
+    assert not (base_file.parent / "rebrew-functions.toml").exists()
 
     assert remove_inline_annotation_key(base_file, 0x1000, "AUTHOR")
     assert "// AUTHOR" not in base_file.read_text(encoding="utf-8")
-    assert not (base_file.parent / "rebrew-function.toml").exists()
+    assert not (base_file.parent / "rebrew-functions.toml").exists()
 
 
 def test_update_key_preserves_legacy_encoding(tmp_path: Path) -> None:

@@ -92,7 +92,7 @@ def main(
     fix_sizes: bool = typer.Option(
         False,
         "--fix-sizes",
-        help="Update SIZE in rebrew-function.toml metadata to match canonical sizes",
+        help="Update SIZE in rebrew-functions.toml metadata to match canonical sizes",
     ),
     force: bool = typer.Option(False, "--force", help="Skip the --fix-sizes confirmation prompt"),
     root: Path | None = typer.Option(
@@ -138,7 +138,7 @@ def main(
             )
         if not force:
             typer.confirm(
-                "--fix-sizes will modify rebrew-function.toml metadata files in-place. Continue?",
+                "--fix-sizes will modify rebrew-functions.toml metadata files in-place. Continue?",
                 abort=True,
             )
 

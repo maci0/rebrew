@@ -43,7 +43,7 @@ see [`AGENTS.md`](../AGENTS.md); for the CLI surface see [`CLI.md`](CLI.md).
 
 ## Metadata / tomlkit gotchas
 
-- `rebrew-function.toml` keys are quoted strings: `["SERVER.0x01006364"]`.
+- `rebrew-functions.toml` keys are quoted strings: `["SERVER.0x01006364"]`.
 - **tomlkit copies plain lists on assignment** — mutating a list after
   `tbl[key] = my_list` is invisible to the document.  Re-assign after
   mutation (this caused a real `cfg add-module` persistence bug).
@@ -57,7 +57,7 @@ see [`AGENTS.md`](../AGENTS.md); for the CLI surface see [`CLI.md`](CLI.md).
   `filepath.parent`** — for library headers that lives next to the .c/.h,
   NOT the real metadata root (`cfg.metadata_dir`).  Always pass
   `metadata_dir=cfg.metadata_dir` explicitly (this bit `crt-match
-  --fix-source`, which created a stray rebrew-function.toml next to the
+  --fix-source`, which created a stray rebrew-functions.toml next to the
   header).  Same trap in `match._parse_annotations` — pass cfg.metadata_dir
   through.
 - **Compile paths need the source directory as an extra include dir.**  A

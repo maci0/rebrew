@@ -245,7 +245,7 @@ class TestMetadataWriteLock:
         the ``.lock`` sidecar open happens before any data-write mkdir."""
         from rebrew.utils import metadata_write_lock
 
-        target = tmp_path / "brand" / "new" / "rebrew-function.toml"
+        target = tmp_path / "brand" / "new" / "rebrew-functions.toml"
         with metadata_write_lock(target.parent, target.name):
             pass
         assert not target.exists()  # lock only — no data file implied
@@ -258,11 +258,11 @@ class TestMetadataWriteLock:
 
         from rebrew.utils import atomic_write_text, metadata_write_lock, parse_metadata_doc
 
-        target = tmp_path / "rebrew-function.toml"
+        target = tmp_path / "rebrew-functions.toml"
         atomic_write_text(target, "")
 
         def _write(i: int) -> None:
-            with metadata_write_lock(tmp_path, "rebrew-function.toml"):
+            with metadata_write_lock(tmp_path, "rebrew-functions.toml"):
                 doc = parse_metadata_doc(tomllib.loads(target.read_text(encoding="utf-8")))
                 doc[("M", i)] = {"note": str(i)}
                 lines = "".join(
