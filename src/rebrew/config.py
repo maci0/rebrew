@@ -321,6 +321,7 @@ class ProjectConfig:
     source_ext: str = ".c"  # Source file extension (e.g. ".c", ".cpp")
     ghidra_program_path: str = ""
     ghidra_backend: str = "reva"  # "reva" (MCP) or "cli" (ghidra-cli binary)
+    binsync_state_dir: str = ""  # BinSync state dir for field sync (--state-dir default)
 
     # --- Lint configuration ---
     lint_naming_convention: str = "none"  # "snake_case", "camelCase", or "none"
@@ -804,6 +805,7 @@ _KNOWN_TARGET_KEYS = {
     "source_ext",
     "ghidra_program_path",
     "ghidra_backend",
+    "binsync_state_dir",
     "origins",  # written by `rebrew cfg add-target`; editor/UI only — NOT
     # used for annotation filtering (module filters come from the
     # annotations themselves).
@@ -1196,6 +1198,9 @@ def load_config(
             tgt.get("ghidra_program_path"), "", f"targets.{target}.ghidra_program_path"
         ),
         ghidra_backend=ghidra_backend_val,
+        binsync_state_dir=_as_str(
+            tgt.get("binsync_state_dir"), "", f"targets.{target}.binsync_state_dir"
+        ),
         all_targets=all_target_names,
         # lint configuration
         lint_naming_convention=_as_str(

@@ -741,3 +741,94 @@ class TestRedundantCflagsMoved:
         import rebrew.doctor as _d
 
         assert not hasattr(_d, "check_redundant_cflags")
+
+
+class TestCheckBinsyncState:
+    """The BinSync field-sync relay health check."""
+
+    def _check(self, tmp_path: Path, **cfg_overrides: object):
+        from rebrew.doctor import check_binsync_state
+
+        return check_binsync_state(_make_cfg(tmp_path, **cfg_overrides))
+
+    def test_no_config_warns(self, tmp_path: Path) -> None:
+        r = self._check(tmp_path)
+        assert r.status == _WARN
+        assert "binsync_state_dir" in r.message
+
+    def test_configured_missing_warns(self, tmp_path: Path) -> None:
+        r = self._check(tmp_path, binsync_state_dir=str(tmp_path / "state"))
+        assert r.status == _WARN
+        assert "not found" in r.message
+
+    def test_not_git_warns(self, tmp_path: Path) -> None:
+        state = tmp_path / "state"
+        state.mkdir()
+        r = self._check(tmp_path, binsync_state_dir=str(state))
+        assert r.status == _WARN
+        assert "git repository" in r.message
+
+    def test_git_recent_passes(self, tmp_path: Path) -> None:
+        import subprocess
+
+        state = tmp_path / "state"
+        state.mkdir()
+        subprocess.run(["git", "init", "-q", str(state)], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(state),
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "init",
+            ],
+            check=True,
+        )
+        r = self._check(tmp_path, binsync_state_dir=str(state))
+        assert r.status == _PASS
+
+    def test_git_stale_warns(self, tmp_path: Path) -> None:
+        import subprocess
+
+        state = tmp_path / "state"
+        state.mkdir()
+        subprocess.run(["git", "init", "-q", str(state)], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(state),
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "init",
+            ],
+            check=True,
+        )
+        import datetime
+
+        old = int(datetime.datetime.now(datetime.UTC).timestamp() - 30 * 86400)
+        subprocess.run(
+            ["git", "-C", str(state), "commit", "-q", "--amend", "--no-edit", "--allow-empty"],
+            check=True,
+            env={
+                **__import__("os").environ,
+                "GIT_AUTHOR_DATE": f"@{old}",
+                "GIT_COMMITTER_DATE": f"@{old}",
+            },
+        )
+        r = self._check(tmp_path, binsync_state_dir=str(state))
+        assert r.status == _WARN
+        assert "not been committed" in r.message

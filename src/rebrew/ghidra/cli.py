@@ -184,6 +184,12 @@ def main(
 
     cfg = require_config(target=target, json_mode=json_output)
 
+    # --state-dir defaults to the configured binsync_state_dir (if any).
+    if state_dir is None:
+        configured = getattr(cfg, "binsync_state_dir", "") or ""
+        if configured:
+            state_dir = Path(configured).expanduser()
+
     # --- BinSync field sync ---
     if push or summary:
         out = _require_state_dir(state_dir, json_output)

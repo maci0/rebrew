@@ -23,6 +23,7 @@ import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -978,6 +979,7 @@ def run_doctor(target: str | None = None) -> DoctorReport:
     report.checks.append(check_optional_tools(cfg))
     report.checks.append(check_flirt_sigs(cfg))
     report.checks.append(check_ghidra_sync(cfg))
+    report.checks.append(check_binsync_state(cfg))
 
     return report
 
@@ -1304,6 +1306,84 @@ def check_ghidra_sync(cfg: ProjectConfig) -> CheckResult:
         name="Ghidra sync",
         status=_PASS,
         message=f"ReVa backend ready (program: {program_path})",
+    )
+
+
+def check_binsync_state(cfg: ProjectConfig) -> CheckResult:
+    """Check the BinSync field-sync state dir (the Ghidra relay health).
+
+    Field sync goes through the shared BinSync state dir; the BinSync
+    Ghidra plugin relays it to/from Ghidra.  This surfaces the "state was
+    exported but Ghidra never sees it" failure mode: a missing dir, a
+    non-git dir (the plugin workflow expects a git-versioned state), or a
+    stale dir (nothing committed recently — the plugin is not relaying).
+    """
+    import subprocess
+
+    state = getattr(cfg, "binsync_state_dir", "") or ""
+    if not state:
+        return CheckResult(
+            name="BinSync sync",
+            status=_WARN,
+            message="no BinSync state dir configured — field sync requires "
+            "--state-dir or targets.<name>.binsync_state_dir",
+            fix="Set targets.<name>.binsync_state_dir in rebrew-project.toml "
+            "(or pass --state-dir to rebrew sync).",
+        )
+    state_path = Path(state).expanduser()
+    if not state_path.exists():
+        return CheckResult(
+            name="BinSync sync",
+            status=_WARN,
+            message=f"configured BinSync state dir not found: {state}",
+            fix="Export it once with 'rebrew sync --push --state-dir <dir>'.",
+        )
+    if not state_path.is_dir():
+        return CheckResult(
+            name="BinSync sync",
+            status=_WARN,
+            message=f"configured BinSync state path is not a directory: {state}",
+            fix="Point binsync_state_dir at the state directory.",
+        )
+    # The BinSync workflow expects a git-versioned shared state (the plugin
+    # commits/rebase-pulls it).  Without git, the relay cannot sync back.
+    git_dir = state_path / ".git"
+    if not git_dir.exists():
+        return CheckResult(
+            name="BinSync sync",
+            status=_WARN,
+            message=f"BinSync state dir {state} is not a git repository — the "
+            "plugin workflow expects a versioned shared state",
+            fix="git init the state dir (or clone the team's state repo).",
+        )
+    # Staleness: if nothing has been committed recently, the plugin (or a
+    # collaborator) is not relaying — Ghidra will never see the export.
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(state_path), "log", "-1", "--format=%ct"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        last = int(proc.stdout.strip()) if proc.returncode == 0 and proc.stdout.strip() else 0
+    except (ValueError, OSError, subprocess.TimeoutExpired):
+        last = 0
+    if last:
+        age_days = (datetime.now(UTC).timestamp() - last) / 86400
+        if age_days > 14:
+            return CheckResult(
+                name="BinSync sync",
+                status=_WARN,
+                message=f"BinSync state dir {state} has not been committed in "
+                f"{int(age_days)} days — the BinSync Ghidra plugin may not be "
+                "relaying (Ghidra will not see exports)",
+                fix="Check that the BinSync Ghidra plugin is installed and "
+                "watching this state dir.",
+            )
+    return CheckResult(
+        name="BinSync sync",
+        status=_PASS,
+        message=f"BinSync state dir ready ({state})",
     )
 
 

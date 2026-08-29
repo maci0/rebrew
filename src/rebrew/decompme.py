@@ -182,6 +182,49 @@ def scratch_url(slug: str, claim_token: str, api: str = _DEFAULT_API) -> str:
     return f"{api}/scratch/{slug}/claim?token={claim_token}"
 
 
+def verify_compiler(compiler: str, api: str = _DEFAULT_API, timeout: float = 15.0) -> None:
+    """Verify *compiler* exists in the decomp.me registry.
+
+    Best-effort: on transport failure (e.g. Cloudflare bot protection on the
+    registry endpoint) the upload itself will surface a rejection, so the
+    check degrades to a warning.  Raises :class:`RuntimeError` only when the
+    registry was reachable and the id is unknown — with the known ids as
+    suggestions (the friendly check for non-MSVC toolchains that previously
+    relied on the documented ``--compiler`` override).
+    """
+    import httpx
+
+    try:
+        resp = httpx.get(f"{api}/api/compiler", timeout=timeout)
+    except httpx.HTTPError as exc:
+        console.print(
+            f"[yellow]warning:[/yellow] decomp.me registry unreachable "
+            f"({exc.__class__.__name__}) — skipping compiler check"
+        )
+        return
+    if resp.status_code >= 400:
+        console.print(
+            f"[yellow]warning:[/yellow] decomp.me registry unavailable "
+            f"(HTTP {resp.status_code}) — skipping compiler check"
+        )
+        return
+    try:
+        data = resp.json()
+        compilers = data.get("compilers") or {}
+    except ValueError:
+        return
+    if not isinstance(compilers, dict):
+        return
+    if compiler in compilers:
+        return
+    known = sorted(str(k) for k in compilers)
+    hint = ", ".join(known[:8]) + ("…" if len(known) > 8 else "")
+    raise RuntimeError(
+        f"compiler {compiler!r} is not in the decomp.me registry "
+        f"(available: {hint}) — pass --compiler with a valid id"
+    )
+
+
 def _resolve_annotation(cfg: Any, source: Path, va: int | None) -> tuple[Any, int, int, str]:
     """Pick the annotation for *source* (by *va* or the first FUNCTION entry)."""
     from rebrew.annotation import parse_c_file_multi
@@ -297,6 +340,13 @@ def main(
                 json_mode=json_output,
             )
     flags_str = flags or ""
+
+    # Friendly registry check: catch a wrong compiler id before the upload
+    # (best-effort — degrades to a warning when the registry is unreachable).
+    try:
+        verify_compiler(compiler, api=api)
+    except RuntimeError as exc:
+        error_exit(str(exc), json_mode=json_output)
 
     context_text = _build_context(cfg, context, no_context)
     try:
