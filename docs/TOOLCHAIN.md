@@ -162,7 +162,12 @@ every version and every preserved service pack, each packaged as a
 sha256-pinned docker image `rebrew/msvc:<version>-<arch>` plus a
 host tree vendored into the rebrew-toolchains checkout as the
 byte-identical build source; the 4.0/4.2/5.0 trees are archaic-msvc /
-itsmattkc snapshots, pinned sha256 sources shared with `rebrew toolchain vendor`).
+itsmattkc snapshots, pinned sha256 sources shared with `rebrew toolchain vendor`),
+and `ido5.3`/`ido7.1` (SGI IDO reimplementations — MIPS-II big-endian, N64;
+native-Linux images `rebrew/ido:5.3-linux`/`rebrew/ido:7.1-linux` built+verified
+from the sha256-pinned decompals/ido-static-recomp v1.2 release assets — the
+recomp `cc` runs natively, no wine; in the smoke gate, objects byte-identical
+across runs).
 
 **Every registry toolchain with a pinned source has a verified
 containerized path** (the images above + gcc-pe native) — the

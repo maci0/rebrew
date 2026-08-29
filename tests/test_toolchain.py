@@ -39,10 +39,24 @@ def _monkey_docker(monkeypatch, *, available: bool = True, image: bool = True) -
 class TestRegistry:
     def test_known_toolchains(self) -> None:
         assert {"msvc6", "delphi16", "gcc-pe"} <= set(TOOLCHAINS)
+        assert {"ido5.3", "ido7.1"} <= set(TOOLCHAINS)
 
     def test_get_unknown_raises(self) -> None:
         with pytest.raises(ToolchainError, match="unknown toolchain"):
             get_toolchain("nope")
+
+    def test_ido_specs(self) -> None:
+        """IDO reimplementations: native-Linux docker images, POSIX flags,
+        ELF MIPS objects."""
+        for name in ("ido5.3", "ido7.1"):
+            spec = TOOLCHAINS[name]
+            assert spec.image is not None and spec.image.startswith("rebrew/ido:")
+            assert spec.image.endswith("-linux")
+            assert spec.binary == "cc"
+            assert spec.flags_style == "posix"
+            assert spec.obj_ext == ".o"
+            assert spec.runtime == "native"
+        assert TOOLCHAINS["ido7.1"].family == "ido"
 
     def test_delphi16_host_binary_name(self) -> None:
         # The host executable is DCC.EXE (uppercase on disk); the docker

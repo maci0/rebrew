@@ -102,9 +102,13 @@ compiler → Phase 2.
 
 Byte-exact for N64/PS1/GC requires the actual compilers:
 
-1. **IDO (SGI) reimplementation** (MIPS, N64) and **MWCC PPC** (GC/Wii) via the
-   rebrew-toolchains image pattern (`rebrew/ido:7.1`, `rebrew/mwcc:...`) — wine/
-   wibo under the image, same as MSVC. Vendored trees in
+1. ~~**IDO (SGI) reimplementation** (MIPS, N64)~~ *(DONE — `ido5.3`/`ido7.1`,
+   images `rebrew/ido:5.3-linux`/`:7.1-linux`, in the smoke gate)* and **MWCC
+   PPC** (GC/Wii) via the rebrew-toolchains image pattern — wine/wibo under
+   the image, same as MSVC.  IDO uses the decompals/ido-static-recomp
+   native-Linux binaries (no wine).  MWCC remains: the GC/Wii mwcceppc
+   binaries are proprietary — provenance/licensing research required before
+   pinning a distribution source.  Vendored trees in
    `<family>/<version>-<arch>/source`.
 2. ~~**m2c as a decompiler backend**~~ *(DONE)*: m2c is MIPS/PPC-native; the `m2c`
    backend is registered in the decompiler registry (`rebrew skeleton

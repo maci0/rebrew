@@ -912,6 +912,8 @@ _KNOWN_PROFILES = {
     "watcom16",
     "borlandc55",
     "delphi16",
+    "ido5.3",
+    "ido7.1",
     "tc20",
     "tc16",
 }
