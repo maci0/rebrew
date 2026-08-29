@@ -45,7 +45,11 @@ class TestMappings:
     def test_compiler_map(self) -> None:
         assert decompme.map_compiler("msvc6") == "msvc6.0"
         assert decompme.map_compiler("msvc600sp6") == "msvc6.0"
-        assert decompme.map_compiler("msvc7.1") == "msvc7.1"
+        assert decompme.map_compiler("msvc710") == "msvc7.1"  # canonical VC 7.1
+        assert decompme.map_compiler("msvc7") == "msvc7.1"  # deprecated alias of msvc710
+        assert decompme.map_compiler("msvc700") == "msvc7.0"  # the genuine VC 7.0
+        assert decompme.map_compiler("msvc1000") == "msvc10.0"
+        assert decompme.map_compiler("msvc1100") == "msvc11.0"
         assert decompme.map_compiler("gcc-pe") is None  # must be explicit
         assert decompme.map_compiler(None) is None
 

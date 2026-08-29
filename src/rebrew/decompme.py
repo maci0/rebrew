@@ -58,10 +58,15 @@ _DEFAULT_API = "https://decomp.me"
 #: rebrew toolchain → decomp.me compiler id (closest match).  decomp.me's
 #: registry mirrors the MSVC line; anything else (gcc-pe, console compilers)
 #: must be passed explicitly with ``--compiler``.
+#: Toolchain profile → decomp.me compiler ID. The product-code profiles are
+#: canonical (msvc710 = VC 7.1, cl 13.10.3077); msvc7 is a deprecated alias of
+#: msvc710 and maps to the same ID (its "7.0-win32" image/dir always held the
+#: 7.1 compiler).
 _COMPILER_MAP: dict[str, str] = {
     "msvc4": "msvc4.0",
-    "msvc4.1": "msvc4.1",
-    "msvc4.2": "msvc4.2",
+    "msvc400": "msvc4.0",
+    "msvc410": "msvc4.1",
+    "msvc420": "msvc4.2",
     "msvc5": "msvc5.0",
     "msvc6": "msvc6.0",
     "msvc600sp1": "msvc6.0",
@@ -70,12 +75,18 @@ _COMPILER_MAP: dict[str, str] = {
     "msvc600sp4": "msvc6.0",
     "msvc600sp5": "msvc6.0",
     "msvc600sp6": "msvc6.0",
-    "msvc6.3": "msvc6.3",
-    "msvc6.6": "msvc6.6",
-    "msvc7": "msvc7.0",
-    "msvc7.1": "msvc7.1",
-    "msvc8": "msvc8.0",
-    "msvc10": "msvc9.0",
+    "msvc7": "msvc7.1",
+    "msvc700": "msvc7.0",
+    "msvc700sp1": "msvc7.0",
+    "msvc710": "msvc7.1",
+    "msvc710sp1": "msvc7.1",
+    "msvc800": "msvc8.0",
+    "msvc800sp1": "msvc8.0",
+    "msvc900": "msvc9.0",
+    "msvc900sp1": "msvc9.0",
+    "msvc1000": "msvc10.0",
+    "msvc1000sp1": "msvc10.0",
+    "msvc1100": "msvc11.0",
 }
 
 #: Binary format → decomp.me platform.  PE x86_32 → win32; DOS (MZ/NE 16-bit)

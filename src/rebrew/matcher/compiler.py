@@ -95,7 +95,10 @@ def _map_symbol_re(symbol: str) -> re.Pattern[str]:
 # _merged_flag_sets below).
 _FLAGS_MAP: dict[str, Flags] = {
     "msvc": COMMON_MSVC_FLAGS,
-    "msvc7": COMMON_MSVC_FLAGS,
+    "msvc7": COMMON_MSVC_FLAGS,  # deprecated alias of msvc710
+    "msvc700": COMMON_MSVC_FLAGS,
+    "msvc710": COMMON_MSVC_FLAGS,
+    "msvc800": COMMON_MSVC_FLAGS,
     "msvc6": MSVC6_FLAGS,  # excludes MSVC 7.x+ only flags (/fp:*, /GS-)
     "msvc1.52": MSVC152_FLAGS,
     "watcom": WATCOM_FLAGS,

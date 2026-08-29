@@ -167,6 +167,8 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
+    # Deprecated alias of msvc710: the "7.0-win32" dir/image actually holds
+    # the VC 7.1 compiler (cl 13.10.3077) — the 7.0 name is a mislabel.
     "msvc7": {
         "runner": "wine",
         "command": "wine toolchain/msvc/7.0-win32/source/Bin/cl.exe",
@@ -799,7 +801,7 @@ _PROFILE_TOOLS: dict[str, str] = {
     "msvc600sp4": "msvc/6.0-sp4-win32",
     "msvc900sp1": "msvc/9.0-sp1-win32",
     "msvc1100": "msvc/11.0-win32",
-    "msvc7": "msvc/7.0-win32",
+    "msvc7": "msvc/7.0-win32",  # deprecated alias of msvc710 (dir holds the 7.1 compiler)
     "borlandc55": "borland/5.5-win32",
     "watcom16": "watcom/2.0-win32",
     "tc20": "borland/2.0-win16",
