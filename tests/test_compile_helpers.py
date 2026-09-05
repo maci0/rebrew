@@ -143,3 +143,50 @@ class TestResolveCompilerEnv:
         assert cl_cmd == "cl"  # empty command falls back to resolve_cl_command
         assert inc_dir == "missing_inc"  # non-existent include stays as-is
         assert cc is None
+
+
+class TestNativeToolchainId:
+    """The native compile-cache toolchain id tracks the resolved binary.
+
+    Image specs key on the docker content digest; a host compiler has no
+    image, so its resolved path's (mtime, size) must stand in for identity —
+    a compiler upgrade must never serve objects cached from the old binary.
+    """
+
+    def _spec(self, binary: str) -> SimpleNamespace:
+        return SimpleNamespace(binary=binary)
+
+    def test_real_binary_gets_stat_suffix(self) -> None:
+        from rebrew.compile import _native_binary_cache, _native_toolchain_id
+
+        _native_binary_cache.clear()
+        tid = _native_toolchain_id(self._spec("sh"))
+        assert tid.startswith("native:sh@")
+        assert "." in tid  # mtime.size suffix
+
+    def test_missing_binary_falls_back(self, monkeypatch) -> None:
+        from rebrew.compile import _native_binary_cache, _native_toolchain_id
+
+        _native_binary_cache.clear()
+        monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: None)
+        assert _native_toolchain_id(self._spec("no-such-compiler")) == "native:no-such-compiler"
+
+    def test_binary_upgrade_changes_id(self, tmp_path: Path, monkeypatch) -> None:
+        """Two different binaries under the same name must not share an id."""
+        import os
+
+        from rebrew.compile import _native_binary_cache, _native_toolchain_id
+
+        gcc = tmp_path / "gcc"
+        gcc.write_bytes(b"#!/bin/sh\nexit 0\n")
+        gcc.chmod(0o755)
+        os.utime(gcc, (1767225600, 1767225600))  # fixed old mtime
+        monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: str(gcc))
+        _native_binary_cache.clear()
+        id_old = _native_toolchain_id(self._spec("gcc-pe"))
+        # "Upgrade": same path, new content + a later mtime.
+        gcc.write_bytes(b"#!/bin/sh\nexit 0\n# newer compiler\n")
+        os.utime(gcc, (1767226000, 1767226000))
+        _native_binary_cache.clear()
+        id_new = _native_toolchain_id(self._spec("gcc-pe"))
+        assert id_old != id_new

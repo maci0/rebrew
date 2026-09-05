@@ -701,6 +701,35 @@ def _docker_include_rewrite(
 
 _toolchain_digest_cache: dict[str, str] = {}
 
+_native_binary_cache: dict[str, str] = {}
+
+
+def _native_toolchain_id(spec: "ToolchainSpec") -> str:
+    """The compile-cache toolchain id for a host-only (native) compiler.
+
+    Image-backed specs key on the docker content id (:func:`_toolchain_cache_id`);
+    a native binary has no image, so the resolved executable's (mtime, size)
+    stands in for identity — upgrading or replacing the compiler on PATH
+    changes the stat, and objects cached from the OLD binary are never
+    served under the new one.  Falls back to the bare ``native:<name>`` when
+    the binary is missing or unresolvable (the compile itself fails with a
+    clear error).  Cached per process, mirroring ``_toolchain_digest_cache``.
+    """
+    name = spec.binary
+    cached = _native_binary_cache.get(name)
+    if cached is None:
+        cached = f"native:{name}"
+        resolved = shutil.which(name)
+        if resolved:
+            try:
+                st = Path(resolved).resolve().stat()
+            except OSError:
+                st = None
+            if st is not None:
+                cached = f"native:{name}@{st.st_mtime_ns:x}.{st.st_size:x}"
+        _native_binary_cache[name] = cached
+    return cached
+
 
 def _toolchain_cache_id(spec: "ToolchainSpec") -> str:
     """The compile-cache toolchain id: the image tag, extended with the
@@ -848,8 +877,9 @@ def compile_to_obj(
             toolchain_id = _toolchain_cache_id(spec)
         elif spec is not None:
             # Native (host) spec: the compiler binary IS the toolchain — two
-            # native compilers (gcc vs clang) must never share a cache entry.
-            toolchain_id = f"native:{spec.binary}"
+            # native compilers (gcc vs clang) must never share a cache entry,
+            # and neither may a compiler upgrade (see _native_toolchain_id).
+            toolchain_id = _native_toolchain_id(spec)
         else:
             toolchain_id = " ".join(resolve_cl_command(cfg))
         # extra_include_dirs feed the /I flags and bind mounts - they are
