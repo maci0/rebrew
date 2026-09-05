@@ -114,14 +114,17 @@ class TestCountStatusesInvariants:
 class TestShouldPromoteStatusInvariants:
     @given(st.sampled_from(_STATUSES), st.sampled_from(_STATUSES))
     def test_never_promotes_to_unchanged(self, current: str, new: str) -> None:
-        """Same-status never promotes (unless sticky — which is also refused)."""
-        if current == new:
+        """Same-status never promotes; a sticky status is refused too, except
+        that PROVEN -> EXACT/RELOC records a real byte match."""
+        if current == new and not is_status_sticky(current):
             assert should_promote_status(current, new) is False
 
     @given(st.sampled_from(_STATUSES), st.sampled_from(_STATUSES))
-    def test_sticky_current_never_promotes(self, current: str, new: str) -> None:
+    def test_sticky_current_only_promotes_to_byte_match(self, current: str, new: str) -> None:
+        """PROVEN resists every demotion except a byte match, which supersedes
+        it: EXACT/RELOC show what PROVEN could not."""
         if is_status_sticky(current):
-            assert should_promote_status(current, new) is False
+            assert should_promote_status(current, new) is (new in ("EXACT", "RELOC"))
 
     @given(st.sampled_from(_STATUSES))
     def test_stub_to_size_mismatch_refused(self, current: str) -> None:
@@ -131,12 +134,15 @@ class TestShouldPromoteStatusInvariants:
 
     @given(st.sampled_from(_STATUSES), st.sampled_from(_STATUSES))
     def test_symmetric_under_rule_set(self, current: str, new: str) -> None:
-        """A promotion is allowed iff none of the three refusal rules fire."""
-        expected = (
-            not is_status_sticky(current)
-            and not (current == "STUB" and new in ("SIZE_MISMATCH", "MISSING_SIZE"))
-            and current != new
-        )
+        """A promotion is allowed iff none of the refusal rules fire, with the
+        byte-match carve-out for sticky statuses."""
+        if is_status_sticky(current):
+            expected = new in ("EXACT", "RELOC")
+        else:
+            expected = (
+                not (current == "STUB" and new in ("SIZE_MISMATCH", "MISSING_SIZE"))
+                and current != new
+            )
         assert should_promote_status(current, new) is expected
 
     def test_normal_promotion_allowed(self) -> None:

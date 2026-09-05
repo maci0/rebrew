@@ -179,7 +179,8 @@ class TestVerifyDiff:
         assert diff["improvements"][0]["current_status"] == "PROVEN"
         assert diff["regressions"] == []
 
-    def test_diff_proven_not_regression_vs_reloc(self) -> None:
+    def test_diff_proven_to_reloc_is_improvement(self) -> None:
+        """PROVEN ranks below RELOC: reaching a byte match is a real win."""
         previous = {
             "results": [{"va": "0x10007020", "name": "func_p", "status": "PROVEN", "delta": 2}]
         }
@@ -188,10 +189,10 @@ class TestVerifyDiff:
         }
 
         diff = diff_reports(previous, current)
-        # Same rank tier — neither regression nor improvement by status alone.
         assert diff["regressions"] == []
-        assert diff["improvements"] == []
-        assert diff["unchanged_count"] == 1
+        assert len(diff["improvements"]) == 1
+        assert diff["improvements"][0]["previous_status"] == "PROVEN"
+        assert diff["improvements"][0]["current_status"] == "RELOC"
 
     def test_diff_matching_alias(self) -> None:
         """NEAR_MATCHING → STUB is a same-rank DEGRADATION — the fine-grained

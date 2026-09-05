@@ -310,11 +310,14 @@ app = typer.Typer(
 )
 
 _STATUS_RANK: dict[str, int] = {
-    # PROVEN is a post-verify semantic promotion — not worse than byte match.
-    # Rank with RELOC so NEAR_MATCHING → PROVEN is an improvement, never a regression.
+    # PROVEN is a post-verify semantic promotion, NOT a byte match: a proven
+    # function compiles to bytes that differ from the target (every PROVEN
+    # entry carries delta > 0).  It ranks below RELOC so a byte-identical
+    # goal does not count it as done, and RELOC -> PROVEN reads as the
+    # regression it is.
     "EXACT": 0,
     "RELOC": 1,
-    "PROVEN": 1,
+    "PROVEN": 2,
     "STUB": 2,
     "NEAR_MATCHING": 2,
     "SIZE_MISMATCH": 2,
@@ -340,17 +343,20 @@ _STATUS_RANK: dict[str, int] = {
 _STATUS_ORDER: dict[str, int] = {
     "EXACT": 0,
     "RELOC": 1,
-    "PROVEN": 1,
-    "NEAR_MATCHING": 2,
-    "SIZE_MISMATCH": 3,
-    "STUB": 4,
-    "COMPILE_ERROR": 5,
-    "EXTRACT_ERROR": 5,
-    "MISSING_FILE": 6,
-    "MISSING_SIZE": 6,
-    "INVALID_VA": 6,
-    "INTERNAL_ERROR": 8,
-    "FAIL": 7,
+    # Ordered just below RELOC and above the unmatched statuses: proven code
+    # is semantically right but not byte-identical, so NEAR_MATCHING ->
+    # PROVEN is still an improvement while RELOC -> PROVEN is a regression.
+    "PROVEN": 2,
+    "NEAR_MATCHING": 3,
+    "SIZE_MISMATCH": 4,
+    "STUB": 5,
+    "COMPILE_ERROR": 6,
+    "EXTRACT_ERROR": 6,
+    "MISSING_FILE": 7,
+    "MISSING_SIZE": 7,
+    "INVALID_VA": 7,
+    "INTERNAL_ERROR": 9,
+    "FAIL": 8,
 }
 
 
