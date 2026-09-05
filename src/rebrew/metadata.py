@@ -568,11 +568,17 @@ def should_promote_status(current_status: str, new_status: str) -> bool:
     sticky (PROVEN), when a STUB's placeholder size-mismatch would erase
     the user's STUB classification, or when the status did not change.
     Both sides are compared case-insensitively.
+
+    The one exception to PROVEN stickiness is a byte match: EXACT/RELOC mean
+    the compiler reproduced the target's bytes, which is strictly stronger
+    than the semantic equivalence PROVEN records.  Without it a function that
+    finally byte-matches would keep reporting PROVEN and the win would never
+    be recorded.
     """
     current = canonical_status(current_status)
     new = canonical_status(new_status)
     if is_status_sticky(current):
-        return False
+        return new in ("EXACT", "RELOC")
     if current == "STUB" and new in ("SIZE_MISMATCH", "MISSING_SIZE"):
         # A documented STUB (typically blocker-documented) must not be
         # demoted by a placeholder size-mismatch or a missing-size

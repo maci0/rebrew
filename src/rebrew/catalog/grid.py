@@ -38,11 +38,13 @@ _DEFAULT_CELL_BYTES = 16
 _GRID_COLUMNS = 64
 
 # Highest-priority status group per VA (first matching group wins).
-# PROVEN is grouped with RELOC: it ranks with RELOC everywhere else
-# (verify._STATUS_RANK), and a proven function IS fully matched — omitting
-# it made count_statuses drop PROVEN annotations into no bucket, so
-# exact+reloc+near+stub could undercount totalFunctions and the catalog's
-# "Matched: N/M" line lied (test-review F2).
+# PROVEN shares a bucket with RELOC for COVERAGE accounting only: it counts
+# as reversed work so exact+reloc+near+stub cannot undercount totalFunctions
+# and the catalog's "Matched: N/M" line stays honest (test-review F2).
+# This is not a byte-match claim.  PROVEN ranks BELOW RELOC in
+# verify._STATUS_RANK because a proven function compiles to different bytes
+# than the target; only EXACT/RELOC are byte-identical (see the
+# "byte_matched" field in the verify summary).
 _STATUS_PRIORITY = (
     ("EXACT",),
     ("RELOC", "PROVEN"),

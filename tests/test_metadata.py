@@ -804,7 +804,12 @@ class TestStatusCasePolicy:
     def test_should_promote_is_case_insensitive(self) -> None:
         from rebrew.metadata import should_promote_status
 
-        assert should_promote_status("proven", "EXACT") is False
+        # PROVEN is sticky against demotion, but a byte match supersedes it:
+        # EXACT/RELOC show what PROVEN could not, so they are recorded.
+        assert should_promote_status("proven", "EXACT") is True
+        assert should_promote_status("proven", "RELOC") is True
+        assert should_promote_status("proven", "NEAR_MATCHING") is False
+        assert should_promote_status("proven", "SIZE_MISMATCH") is False
         assert should_promote_status("stub", "SIZE_MISMATCH") is False
         assert should_promote_status("stub", "EXACT") is True
         assert should_promote_status("near_matching", "RELOC") is True
