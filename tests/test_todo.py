@@ -18,6 +18,7 @@ from rebrew.todo import (
     CAT_IMPROVE_MATCH,
     CAT_MISSING_ANNOTATION,
     CAT_NAKED,
+    CAT_RUN_PROVER,
     CAT_SETUP,
     CAT_START_FUNCTION,
     TodoItem,
@@ -1189,3 +1190,38 @@ class TestProverCandidateFiltering:
         existing = self._existing("50")
         items = _collect_prover_candidates(existing, {0x1000: 50}, {})  # type: ignore[arg-type]
         assert len(items) == 1
+
+
+class TestGaCeilingRouting:
+    """A GA_CEILING blocker (register-only delta, not byte-reproducible from
+    C) must route to the prover lane — never to a wasted flag-sweep fix-delta
+    item, even when angr is absent (prover-candidate collection gates on it)."""
+
+    def test_ceiling_not_fix_delta(self) -> None:
+        existing = {
+            0x1000: {
+                "status": "NEAR_MATCHING",
+                "symbol": "func_a",
+                "blocker_delta": "3",
+                "blocker": "GA_CEILING: register-only byte delta (effective match)",
+                "size": "200",
+            }
+        }
+        items = _collect_active_functions(existing, {0x1000: 200}, {}, {})
+        assert len(items) == 1
+        assert items[0].category == CAT_RUN_PROVER
+        assert "rebrew prove" in items[0].command
+        assert "flag-sweep" not in items[0].command
+
+    def test_plain_near_match_still_fix_delta(self) -> None:
+        existing = {
+            0x1000: {
+                "status": "NEAR_MATCHING",
+                "symbol": "func_a",
+                "blocker_delta": "3",
+                "size": "200",
+            }
+        }
+        items = _collect_active_functions(existing, {0x1000: 200}, {}, {})
+        assert len(items) == 1
+        assert items[0].category == CAT_FIX_DELTA

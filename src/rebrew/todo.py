@@ -35,7 +35,7 @@ from rebrew.cli import (
 )
 from rebrew.compile import NEAR_MATCH_THRESHOLD
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
-from rebrew.metadata import MATCHED_STATUSES
+from rebrew.metadata import GA_CEILING_PREFIX, MATCHED_STATUSES
 from rebrew.naming import (
     detect_unmatchable,
     estimate_difficulty,
@@ -427,6 +427,17 @@ def _collect_active_functions(
             desc = "Missing SIZE annotation — backfill with rebrew verify --fix-sizes"
             score = calculate_roi(size, v_match, calc_delta)
             cmd = "rebrew verify --fix-sizes"
+
+        elif info.get("blocker", "").startswith(GA_CEILING_PREFIX):
+            # The GA exhausted on a register-only delta — byte-exact is not
+            # reproducible from portable C, so no flag sweep / GA item helps.
+            # Route to the prover lane (surfaces even when angr is absent —
+            # _collect_prover_candidates gates on it and would otherwise drop
+            # this function to a wasted fix-delta item).
+            category = CAT_RUN_PROVER
+            desc = "GA ceiling (register-only delta) — prove semantic equivalence for PROVEN"
+            score = calculate_roi(size, v_match, calc_delta) + 10.0
+            cmd = f"rebrew prove 0x{va:08x}"
 
         elif calc_delta is not None and calc_delta <= 20:
             category = CAT_FIX_DELTA

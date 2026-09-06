@@ -653,11 +653,25 @@ def _diagnose_one(
     )
     blocker_written = False
     if fix_blocker and not result["verdict"].startswith("MATCH"):
-        if dry_run:
+        from rebrew.metadata import (
+            GA_CEILING_PREFIX,
+            get_entry,
+            set_field,
+            update_source_status,
+        )
+
+        existing_blocker = (get_entry(cfg.metadata_dir, va_int, ann.module) or {}).get(
+            "blocker", ""
+        ) or ""
+        if existing_blocker.startswith(GA_CEILING_PREFIX):
+            # A GA_CEILING marker is the terminal classification (register-only
+            # delta, not byte-reproducible from C — written when the GA
+            # exhausted).  Replacing it with a plain verdict would silently
+            # reopen the GA loop; leave it and say so.
+            result["blocker_skipped_ceiling"] = True
+        elif dry_run:
             blocker_written = True  # would write, but --dry-run skips it
         else:
-            from rebrew.metadata import set_field, update_source_status
-
             set_field(cfg.metadata_dir, va_int, "blocker", _blocker_text(result), module=ann.module)
             # A blocker note implies NEAR_MATCHING — keep the documented state
             # consistent so status reports count it as documented, not as a
