@@ -61,6 +61,13 @@ class SolutionEntry:
     generations: int = 0
     """How many GA generations the winning run used."""
 
+    mutations: tuple[str, ...] = ()
+    """Distinct ``mut_*`` operators applied during the winning run (the GA's
+    ``applied_mutations`` at the win site).  Cross-function learning: a later
+    function solved from a similar source can bias its own GA toward the
+    operators that worked here (see ``rebrew match`` similar-solution
+    seeding)."""
+
 
 def _solutions_path(project_root: Path) -> Path:
     """Return the solutions.json path (no side effects)."""
@@ -109,6 +116,10 @@ def load_solutions_file(path: Path) -> list[SolutionEntry]:
             entry = SolutionEntry(**{k: v for k, v in item.items() if k in known})
         except TypeError:
             continue  # missing required field
+        # JSON round-trips the tuple-typed `mutations` field as a list —
+        # normalize it so downstream seeding reads a tuple.
+        if not isinstance(entry.mutations, tuple):
+            entry = dataclasses.replace(entry, mutations=tuple(entry.mutations))
         # Type-check the fields the readers rely on: a malformed record
         # (e.g. {"size": "abc"}) constructs fine but would raise TypeError
         # inside find_similar's abs(e.size - size), which the per-stub

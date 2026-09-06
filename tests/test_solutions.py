@@ -411,3 +411,67 @@ class TestLoadSolutionsFile:
         assert entries[0].symbol == "_f"
         assert entries[0].cflags == "/O1"
         assert entries[0].target == "OTHER"
+
+
+class TestMutationsProvenance:
+    """The winning run's mutation operators ride along on the solution for
+    cross-function seeding (see match.py similar-solution transfer)."""
+
+    def test_default_empty(self) -> None:
+        e = SolutionEntry(symbol="_f", cflags="/O2", size=10, source_file="f.c")
+        assert e.mutations == ()
+
+    def test_roundtrip_preserves_mutations(self, project_root: Path) -> None:
+        e = SolutionEntry(
+            symbol="_f",
+            cflags="/O2",
+            size=10,
+            source_file="src/f.c",
+            mutations=("mut_swap_if_else", "mut_reorder_register_vars"),
+        )
+        save_solution(project_root, e)
+        loaded = load_solutions(project_root)
+        assert loaded[0].mutations == ("mut_swap_if_else", "mut_reorder_register_vars")
+
+    def test_legacy_entry_without_mutations_loads(self, tmp_path: Path, project_root: Path) -> None:
+        # A pre-provenance solutions file (no `mutations` key) must load clean.
+        p = project_root / ".rebrew" / "solutions.json"
+        p.write_text(
+            json.dumps(
+                [
+                    {
+                        "symbol": "_old",
+                        "cflags": "/O2",
+                        "size": 32,
+                        "source_file": "old.c",
+                        "score": 0.0,
+                        "generations": 5,
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        loaded = load_solutions(project_root)
+        assert len(loaded) == 1
+        assert loaded[0].mutations == ()
+
+    def test_json_list_normalized_to_tuple(self, tmp_path: Path, project_root: Path) -> None:
+        # JSON round-trips the tuple field as a list — the loader normalizes.
+        p = project_root / ".rebrew" / "solutions.json"
+        p.write_text(
+            json.dumps(
+                [
+                    {
+                        "symbol": "_f",
+                        "cflags": "/O2",
+                        "size": 32,
+                        "source_file": "f.c",
+                        "score": 0.0,
+                        "mutations": ["mut_a", "mut_b"],
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        loaded = load_solutions(project_root)
+        assert loaded[0].mutations == ("mut_a", "mut_b")
