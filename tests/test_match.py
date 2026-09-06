@@ -934,3 +934,135 @@ class TestMutationFocusWeights:
         defined = set(re.findall(r"^def (mut_\w+)\(", source, re.M))
         for op in weights:
             assert op in defined, f"{op} not in mutator.py"
+
+
+# ---------------------------------------------------------------------------
+# GA ceiling — register-only terminal blocker (item: ceiling documentation)
+# ---------------------------------------------------------------------------
+
+
+class TestGaCeiling:
+    """The GA exhausts on register-only deltas (not reproducible from portable
+    C) — such functions get a GA_CEILING blocker and are excluded from later
+    GA batch selectors while staying prove-eligible."""
+
+    def _write_near(self, tmp_path: Path, name: str, va: str) -> Path:
+        f = tmp_path / name
+        f.write_text(
+            f"// FUNCTION: SERVER {va}\n// STATUS: NEAR_MATCHING\n// SIZE: 64\n"
+            f"int f(void) {{ return 0; }}\n",
+            encoding="utf-8",
+        )
+        return f
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=tmp_path,
+            metadata_dir=tmp_path,
+            marker="SERVER",
+            ignored_symbols=[],
+            target_name="T",
+            source_ext=".c",
+        )
+
+    def _set_blocker(self, tmp_path: Path, va: int, text: str) -> None:
+        from rebrew.metadata import save_metadata
+
+        save_metadata(
+            tmp_path, {("SERVER", va): {"blocker": text, "status": "NEAR_MATCHING", "size": 64}}
+        )
+
+    def test_ceiling_excluded_from_improve_selectors(self, tmp_path: Path) -> None:
+        from rebrew.match import find_all_matching
+
+        self._write_near(tmp_path, "a.c", "0x10001000")
+        self._write_near(tmp_path, "b.c", "0x10002000")
+        # b.c hits the ceiling; a.c has a plain near-match blocker.
+        self._set_blocker(tmp_path, 0x10001000, "NEAR_MATCHING — STRUCTURAL (90% of delta)")
+        self._set_blocker(
+            tmp_path, 0x10002000, "GA_CEILING: register-only byte delta (effective match)"
+        )
+        stubs = find_all_matching(tmp_path, cfg=self._cfg(tmp_path))
+        # Only a.c survives — the GA_CEILING entry is excluded from further GA.
+        assert [s.va for s in stubs] == ["0x10001000"]
+
+    def test_plain_near_matching_still_selected(self, tmp_path: Path) -> None:
+        from rebrew.match import find_all_matching
+
+        self._write_near(tmp_path, "a.c", "0x10001000")
+        stubs = find_all_matching(tmp_path, cfg=self._cfg(tmp_path))
+        assert [s.va for s in stubs] == ["0x10001000"]
+
+    def test_document_writes_blocker_when_register_only(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A register-only champion after GA exhaustion gets a GA_CEILING
+        blocker written through the sanctioned metadata writer."""
+        from rebrew.match import _maybe_document_ga_ceiling
+        from rebrew.metadata import get_entry
+
+        ga = SimpleNamespace(cs_mode="CS_MODE_32")
+        monkeypatch.setattr("rebrew.match._classify_register_only", lambda *a, **k: True)
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        text = _maybe_document_ga_ceiling(
+            self._cfg(tmp_path),
+            "SERVER",
+            "f",
+            0x10001000,
+            b"\x55\x8b\xec",
+            ga,
+            "int f(void){return 0;}",
+            0.42,
+            100,
+            out_dir,
+        )
+        assert text is not None and text.startswith("GA_CEILING:")
+        entry = get_entry(tmp_path, 0x10001000, "SERVER")
+        assert (entry or {}).get("blocker", "").startswith("GA_CEILING:")
+
+    def test_document_never_clobbers_existing_blocker(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        from rebrew.match import _maybe_document_ga_ceiling
+
+        self._set_blocker(tmp_path, 0x10001000, "user note: investigated")
+        ga = SimpleNamespace(cs_mode="CS_MODE_32")
+        monkeypatch.setattr("rebrew.match._classify_register_only", lambda *a, **k: True)
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        text = _maybe_document_ga_ceiling(
+            self._cfg(tmp_path),
+            "SERVER",
+            "f",
+            0x10001000,
+            b"\x55\x8b\xec",
+            ga,
+            "int f(void){return 0;}",
+            0.42,
+            100,
+            out_dir,
+        )
+        assert text is None  # existing blocker preserved
+
+    def test_document_skips_non_register_only(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.match import _maybe_document_ga_ceiling
+
+        ga = SimpleNamespace(cs_mode="CS_MODE_32")
+        monkeypatch.setattr("rebrew.match._classify_register_only", lambda *a, **k: False)
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        text = _maybe_document_ga_ceiling(
+            self._cfg(tmp_path),
+            "SERVER",
+            "f",
+            0x10001000,
+            b"\x55\x8b\xec",
+            ga,
+            "int f(void){return 0;}",
+            0.42,
+            100,
+            out_dir,
+        )
+        assert text is None

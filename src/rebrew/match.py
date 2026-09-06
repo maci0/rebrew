@@ -904,6 +904,14 @@ def _parse_annotations(
         if parsed_status not in status_filter:
             continue
 
+        # A GA_CEILING blocker means the GA exhausted its budget on a
+        # register-only (effective-match) delta that portable C cannot
+        # reproduce — further GA runs on it are wasted work.  Only `rebrew
+        # prove` can move it to PROVEN (prove's own selectors do not use
+        # this parse path, so ceiling entries stay prove-eligible).
+        if ann.blocker.startswith(_GA_CEILING_PREFIX):
+            continue
+
         if ann.va < min_va:
             continue
 
@@ -2655,8 +2663,32 @@ def _run_single_ga(
         cs_mode=capstone_mode_for_arch(getattr(p.cfg, "arch", "")),
         cfg=p.cfg,
     )
+    ceiling_blocker: str | None = None
     try:
         best_src, best_score = ga.run()
+        # GA exhausted without a match: if the champion's residual delta is
+        # register-only (effective match), document the ceiling (needs the
+        # warm build cache, so run before ga.close()).
+        if best_src is not None and best_score >= 0.1:
+            try:
+                annos = parse_c_file_multi(p.seed_c, metadata_dir=p.cfg.metadata_dir)
+            except Exception:
+                annos = []
+            ann = _select_annotation(annos, p.symbol) or (annos[0] if annos else None)
+            module = ann.module if ann is not None else ""
+            if module:
+                ceiling_blocker = _maybe_document_ga_ceiling(
+                    p.cfg,
+                    module,
+                    p.symbol,
+                    p.va_int,
+                    p.target_bytes,
+                    ga,
+                    best_src,
+                    best_score,
+                    generations,
+                    out_dir_path,
+                )
     finally:
         ga.close()
 
@@ -2699,6 +2731,12 @@ def _run_single_ga(
             "(smygb: 7/7 NEAR_MATCHING promoted) — or run "
             "`rebrew near-diag --fix-blocker` to classify + document."
         )
+        if ceiling_blocker:
+            console.print(
+                "[dim]Documented GA ceiling (register-only delta) — further GA "
+                "runs on this function will be skipped; `rebrew prove` is the "
+                "sanctioned next step.[/dim]"
+            )
         raise typer.Exit(code=EXIT_MISMATCH)
 
 
@@ -2976,10 +3014,134 @@ def _run_one_stub_ga(
             # stub whose block could not be spliced is still a stub, and
             # must not pollute ga_runs/solutions with a false "solved".
             matched = spliced_ok
+
+        # GA exhausted without a match: if the champion's residual delta is
+        # register-only (effective match), document the ceiling so later
+        # --improve/--flag-sweep runs skip this function and `rebrew prove`
+        # is the sanctioned next step.  Runs before ga.close() so the warm
+        # build cache can serve the champion compile.
+        if not matched and best_src is not None:
+            ceiling = _maybe_document_ga_ceiling(
+                cfg,
+                stub.module,
+                stub.symbol,
+                va_int,
+                target_bytes,
+                ga,
+                best_src,
+                best_score,
+                generations,
+                out_dir,
+            )
+            if ceiling:
+                output_summary += " [GA ceiling documented]"
     finally:
         ga.close()
 
     return matched, output_summary
+
+
+# ---------------------------------------------------------------------------
+# GA ceiling documentation
+# ---------------------------------------------------------------------------
+
+#: Blocker prefix marking a function whose residual byte delta is
+#: register-only ("effective match") — the GA ceiling, not reproducible
+#: from portable C (register allocation is a compiler-internal decision).
+#: Ceiling entries keep their NEAR_MATCHING/SIZE_MISMATCH status (so
+#: `rebrew prove --all` still targets them) but are excluded from further
+#: GA batch runs (--improve / --flag-sweep / --near-miss / --size-mismatch)
+#: — see `_parse_annotations`.
+_GA_CEILING_PREFIX = "GA_CEILING:"
+
+
+def _classify_register_only(
+    ga: BinaryMatchingGA,
+    best_src: str,
+    target_bytes: bytes,
+    symbol: str,
+    va_int: int,
+    out_dir: Path,
+) -> bool:
+    """True when the GA champion's residual delta is register-only.
+
+    Compiles the champion once (warm-cached — it was just scored) and runs
+    the near-diag classifier.  A register-only delta with zero structural
+    bytes is the effective-match case: byte-exact is not reachable from
+    portable C, so further GA search cannot succeed.
+    """
+    try:
+        res = ga._compile_source(best_src)
+        if not res.ok or not res.obj_bytes:
+            return False
+        obj_path = out_dir / f"{symbol}.ceiling.obj"
+        obj_path.write_bytes(res.obj_bytes)
+        try:
+            from rebrew.matcher import parse_obj_symbol_and_relocs
+
+            code, reloc_dict, _typed = parse_obj_symbol_and_relocs(obj_path, symbol)
+        finally:
+            obj_path.unlink(missing_ok=True)
+        if not code:
+            return False
+
+        from rebrew.near_diag import analyze
+
+        diag = analyze(
+            target_bytes,
+            code,
+            set(reloc_dict or {}),
+            va_int,
+            cs_mode=getattr(ga, "cs_mode", "CS_MODE_32"),
+        )
+        if diag.get("verdict") == "MATCH":
+            return False
+        cats = diag.get("categories", {}) or {}
+        reg = int((cats.get("register") or {}).get("bytes", 0))
+        struct = int((cats.get("structural") or {}).get("bytes", 0))
+        return reg > 0 and struct == 0
+    except Exception:
+        # Best-effort: a classification failure must not crash the run or
+        # write a bogus ceiling marker.
+        return False
+
+
+def _maybe_document_ga_ceiling(
+    cfg: Any,
+    module: str,
+    symbol: str,
+    va_int: int,
+    target_bytes: bytes,
+    ga: BinaryMatchingGA,
+    best_src: str,
+    best_score: float,
+    generations: int,
+    out_dir: Path,
+) -> str | None:
+    """Write a ``GA_CEILING`` blocker when the champion is register-only.
+
+    Called after the GA exhausts its budget without a match.  Never clobbers
+    an existing blocker; writes nothing when the champion is not cleanly
+    register-only.  Returns the blocker text written, or ``None``.
+    """
+    if not best_src:
+        return None
+    from rebrew.metadata import get_entry, update_field
+
+    meta_root = cfg.metadata_dir
+    existing = (get_entry(meta_root, va_int, module) or {}).get("blocker")
+    if existing:
+        return None
+    if not _classify_register_only(ga, best_src, target_bytes, symbol, va_int, out_dir):
+        return None
+    text = (
+        f"{_GA_CEILING_PREFIX} register-only byte delta (effective match) — not "
+        "byte-reproducible from portable C (compiler register allocation); GA "
+        f"exhausted {generations} generations at best score {best_score:.2f}; "
+        "run `rebrew prove` for PROVEN"
+    )
+    update_field(meta_root, va_int, "blocker", text, module=module)
+    return text
 
 
 # ---------------------------------------------------------------------------
