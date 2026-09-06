@@ -409,6 +409,9 @@ class BinaryMatchingGA:
         self.best_score: float = float("inf")
         self.stagnant_gens: int = 0
         self.elapsed_sec: float = 0.0
+        #: Mutation operators applied during this run (tracked for solution
+        #: provenance — see SolutionEntry.mutations).  Filled by _mutate().
+        self.applied_mutations: set[str] = set()
 
         self.cache = BuildCache(str(self.out_dir / "build_cache.db"))
         self.compile_cache = compile_cache
@@ -471,20 +474,31 @@ class BinaryMatchingGA:
         else:
             self._init_population()
 
+    def _mutate(self, src: str) -> str:
+        """Apply one weighted mutation, recording the operator for solution
+        provenance (SolutionEntry.mutations — see match.py win sites)."""
+        out = mutate_code(
+            src, self.rng, mutation_weights=self.mutation_weights, track_mutation=True
+        )
+        if isinstance(out, tuple):
+            new_src, mut_name = out
+            if mut_name:
+                self.applied_mutations.add(mut_name)
+            return new_src
+        return out
+
     def _init_population(self) -> None:
         self.population = [self.seed_source]
         for seed_src in self.extra_seeds:
             if seed_src not in self.population:
                 self.population.append(seed_src)
                 if len(self.population) < self.pop_size:
-                    mutated = mutate_code(
-                        seed_src, self.rng, mutation_weights=self.mutation_weights
-                    )
+                    mutated = self._mutate(seed_src)
                     self.population.append(mutated)
         while len(self.population) < self.pop_size:
             src = self.seed_source
             for _ in range(self.rng.randint(1, 4)):
-                src = mutate_code(src, self.rng, mutation_weights=self.mutation_weights)
+                src = self._mutate(src)
             self.population.append(src)
 
     def _compile_source(self, src: str) -> BuildResult:
@@ -751,7 +765,7 @@ class BinaryMatchingGA:
                     if self.rng.random() < 0.35:
                         n_muts = self.rng.randint(2, 3)
                     for _ in range(n_muts):
-                        child = mutate_code(child, self.rng, mutation_weights=self.mutation_weights)
+                        child = self._mutate(child)
 
                 if quick_validate(child):
                     next_pop.append(child)
@@ -2768,7 +2782,14 @@ def _run_single_ga(
 
     if best_score < 0.1:
         _save_solution(
-            p.cfg, p.symbol, p.cflags, p.target_size, str(p.seed_c), best_score, generations
+            p.cfg,
+            p.symbol,
+            p.cflags,
+            p.target_size,
+            str(p.seed_c),
+            best_score,
+            generations,
+            mutations=tuple(sorted(getattr(ga, "applied_mutations", ()))),
         )
     else:
         # Documented exit-code contract: 0 = match, 1 = no match, 2 = build
@@ -2797,9 +2818,13 @@ def _save_solution(
     score: float,
     generations: int,
     *,
+    mutations: tuple[str, ...] = (),
     collect_out: list[SolutionEntry] | None = None,
 ) -> None:
     """Save an exact-match solution to the solutions database.
+
+    *mutations* are the ``mut_*`` operators the winning GA run applied (see
+    ``SolutionEntry.mutations``) — the cross-function learning signal.
 
     With *collect_out* set, the entry is appended to that list instead of
     written — the batch GA driver collects one entry per matched stub and
@@ -2817,6 +2842,7 @@ def _save_solution(
             target=getattr(cfg, "target_name", ""),
             score=score,
             generations=generations,
+            mutations=mutations,
         )
         if collect_out is not None:
             collect_out.append(entry)
@@ -3056,6 +3082,7 @@ def _run_one_stub_ga(
                         str(filepath),
                         best_score,
                         generations,
+                        mutations=tuple(sorted(getattr(ga, "applied_mutations", ()))),
                         collect_out=solutions_out,
                     )
             # Only claim a match when the source was actually updated — a
@@ -3442,9 +3469,11 @@ def _run_all(
 
     stub_seeds: list[list[str]] = []
     stub_seed_cflags: list[str | None] = []
+    stub_seed_mutations: list[tuple[str, ...]] = []
     for stub in stubs:
         extra_ga_paths: list[str] = []
         seed_cflags: str | None = None
+        seed_mutations: tuple[str, ...] = ()
         if seed_from_solved:
             try:
                 from rebrew.matcher import find_similar
@@ -3475,6 +3504,12 @@ def _run_all(
                                 f"  [dim]Seeding cflags from solved:[/] {sol.symbol} "
                                 f"({sol.size}B, {sol.cflags})"
                             )
+                    # The winning run's mutation operators transfer too: bias
+                    # this GA toward what solved the lookalike.  First usable
+                    # seed's mutations win (batch --mutation-focus overrides
+                    # per-stub weights — see _run_stub).
+                    if not seed_mutations and sol.mutations:
+                        seed_mutations = tuple(sol.mutations)
             except Exception:
                 # Per-stub seed lookup failure — warn so a stub that would
                 # otherwise have been seed-informed is not silently run from
@@ -3482,6 +3517,7 @@ def _run_all(
                 log.warning("Solution lookup failed for %s", stub.symbol, exc_info=True)
         stub_seeds.append(extra_ga_paths)
         stub_seed_cflags.append(seed_cflags)
+        stub_seed_mutations.append(seed_mutations)
 
     # Parallel stubs: one worker per stub, intra-GA compiles serialized so
     # total concurrency stays at ~jobs (MSVC under wine is not cheap).
@@ -3494,8 +3530,17 @@ def _run_all(
     solutions_out: list[SolutionEntry] = []
 
     def _run_stub(
-        stub: StubInfo, seeds: list[str], seed_cflags: str | None
+        stub: StubInfo,
+        seeds: list[str],
+        seed_cflags: str | None,
+        seed_mutations: tuple[str, ...] = (),
     ) -> tuple[StubInfo, bool, str]:
+        # A batch --mutation-focus overrides the per-stub transfer from the
+        # seeded solution; without one, the seed's winning operators bias
+        # this GA the same way a verdict blocker would.
+        stub_weights: dict[str, float] | None = mutation_weights
+        if stub_weights is None and seed_mutations:
+            stub_weights = dict.fromkeys(seed_mutations, _MUTATION_FOCUS_WEIGHT)
         # Deterministic per-stub sub-seed: same --seed + same VA ⇒ same GA.
         # (VA collisions are impossible within one batch; across batches the
         # VA is stable, so runs stay reproducible.)
@@ -3547,7 +3592,7 @@ def _run_all(
                 cflags_override=sweep_flags or seed_cflags,
                 rng_seed=stub_seed,
                 resume_from=resume_from,
-                mutation_weights=mutation_weights,
+                mutation_weights=stub_weights,
                 solutions_out=solutions_out,
             )
         except Exception as exc:  # one bad stub must not abort the batch
@@ -3578,12 +3623,16 @@ def _run_all(
     if jobs > 1 and len(stubs) > 1:
         with ThreadPoolExecutor(max_workers=jobs) as executor:
             outcomes = list(
-                executor.map(_run_stub, stubs, stub_seeds, stub_seed_cflags)  # order preserved
+                executor.map(
+                    _run_stub, stubs, stub_seeds, stub_seed_cflags, stub_seed_mutations
+                )  # order preserved
             )
     else:
         outcomes = [
-            _run_stub(s, seeds, scf)
-            for s, seeds, scf in zip(stubs, stub_seeds, stub_seed_cflags, strict=False)
+            _run_stub(s, seeds, scf, sm)
+            for s, seeds, scf, sm in zip(
+                stubs, stub_seeds, stub_seed_cflags, stub_seed_mutations, strict=False
+            )
         ]
 
     for stub, matched, output_summary in outcomes:
