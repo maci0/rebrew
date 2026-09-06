@@ -187,6 +187,53 @@ def _mutation_focus_weights(
     return dict.fromkeys(ops, _MUTATION_FOCUS_WEIGHT)
 
 
+def _live_mutation_weights(params: _BuildParams) -> dict[str, float] | None:
+    """Near-diag category of the CURRENT implementation, for auto focus.
+
+    ``--mutation-focus auto`` normally derives its category from a verdict
+    BLOCKER (written by ``near-diag --fix-blocker``); when none exists, this
+    compiles the seed once and classifies it against the target live, so the
+    GA's first generations already sample the category's operators.  Returns
+    None (uniform sampling) when the seed does not compile or the delta is
+    not cleanly classifiable (reloc-masked, compiler-version encoding).
+    """
+    if not params.seed_src:
+        return None
+    try:
+        from rebrew.matcher import build_candidate_obj_only
+        from rebrew.near_diag import analyze
+
+        res = build_candidate_obj_only(
+            params.seed_src,
+            params.cl,
+            params.inc,
+            params.cflags,
+            params.symbol,
+            env=params.msvc_env,
+            cache=params.cc,
+            timeout=getattr(params.cfg, "compile_timeout", 60),
+            extra_include_dirs=[str(params.seed_c.parent.resolve())],
+            posix_style=getattr(params.cfg, "posix_style", False),
+            profile=getattr(params.cfg, "compiler_profile", ""),
+            cfg=params.cfg,
+        )
+        if not res.ok or not res.obj_bytes:
+            return None
+        diag = analyze(
+            params.target_bytes,
+            res.obj_bytes,
+            set(res.reloc_offsets or {}),
+            params.va_int,
+        )
+        mutations = diag.get("mutations") or []
+        if not mutations:
+            return None
+        return dict.fromkeys(mutations, _MUTATION_FOCUS_WEIGHT)
+    except Exception:
+        # Best-effort: a live classification failure degrades to uniform.
+        return None
+
+
 def _find_function_range(source: str, symbol: str) -> tuple[int, int] | None:
     """Byte range of the function matching *symbol* in *source*, or None.
 
@@ -1804,7 +1851,9 @@ def main(
 
     # --mutation-focus: bias GA mutation selection toward a near-diag category.
     # "auto" reads the function's BLOCKER metadata (written by
-    # near-diag --fix-blocker) to derive the category.
+    # near-diag --fix-blocker) to derive the category; with no verdict blocker
+    # it falls back to classifying the CURRENT implementation live (see
+    # _live_mutation_weights).
     mutation_weights: dict[str, float] | None = None
     if mutation_focus:
         blocker_text = ""
@@ -1815,12 +1864,9 @@ def main(
                 if va == params.va_int and entry.get("blocker"):
                     blocker_text = entry["blocker"]
                     break
-            if not blocker_text and not json_output:
-                console.print(
-                    "[dim]--mutation-focus auto: no BLOCKER metadata for "
-                    f"0x{params.va_int:08x} — sampling uniformly.[/dim]"
-                )
         mutation_weights = _mutation_focus_weights(mutation_focus, blocker_text)
+        if mutation_weights is None and mutation_focus == "auto" and not blocker_text:
+            mutation_weights = _live_mutation_weights(params)
         if mutation_weights and not json_output:
             console.print(
                 f"[dim]mutation focus:[/dim] {len(mutation_weights)} operator(s) "
