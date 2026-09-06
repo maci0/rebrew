@@ -205,6 +205,34 @@ rebrew sync --pull-data             # fetch Ghidra data labels into rebrew_globa
 rebrew sync --pull --dry-run        # preview pull without modifying files
 ```
 
+## ✅ Match Statuses
+
+Every annotated function carries a `STATUS`. Status is *earned*, never
+claimed: `rebrew verify` / `rebrew test` derive it from the real byte
+comparison of the compiled `.c` against the target binary, and write it
+through the metadata writer. A hand-claimed status is demoted to the actual
+byte result with a `metadata:` warning.
+
+| Status | Meaning | How it is earned |
+|---|---|---|
+| `EXACT` | Compiled bytes identical to the target | `rebrew verify` — every non-relocation byte matches |
+| `RELOC` | Identical except relocation slots | `rebrew verify` — all non-reloc bytes match and the reloc slots (linker-filled symbol addresses) validate against the catalog |
+| `PROVEN` | Semantically equivalent despite structurally different bytes | `rebrew prove` (symbolic equivalence via angr/Z3). Byte compare cannot produce it and verify never demotes it; an unbacked claim is demoted with a `metadata:` warning |
+| `NEAR_MATCHING` | Close but not byte-identical — at least 60 % of bytes match | `rebrew verify` — typically register allocation, instruction scheduling, or a flag variant; try `rebrew match --flag-sweep` |
+| `STUB` | Below the 60 % near-match threshold — the skeleton was never implemented, or control flow diverges | `rebrew verify`, or manual classification for known-unimplemented code |
+| `SKIP` | Intentionally not worked on (data, out of scope) | manual classification |
+| `SIZE_MISMATCH` | Compiles, but the object length differs from the target | `rebrew verify` |
+| `COMPILE_ERROR` | The C does not compile under the function's toolchain and flags | `rebrew verify` |
+| `EXTRACT_ERROR` | The compiled object or the target bytes could not be extracted | `rebrew verify` |
+| `MISSING_SIZE` / `MISSING_FILE` | Target function size unknown / target binary missing | `rebrew verify` |
+| `INVALID_VA` | Annotation VA sits below the architecture's code floor | `rebrew verify` (annotation problem) |
+
+Typical progress runs `STUB` → `NEAR_MATCHING` → `EXACT` / `RELOC`, with
+`PROVEN` for code that is semantically correct but structurally different.
+`EXACT`, `RELOC`, and `PROVEN` count as matched work (`rebrew status` and
+`rebrew todo` summarize the rest).  Source-marker mechanics live in
+[docs/ANNOTATIONS.md](docs/ANNOTATIONS.md).
+
 ## ⚙️ Supported Platforms
 
 | Architecture | Binary Format | Compiler | Binary Loading | Object Parsing | GA Matching | Verification |
