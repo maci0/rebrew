@@ -1211,6 +1211,12 @@ def main(
     all_sources: bool = typer.Option(
         False, "--all", help="Prove all NEAR_MATCHING/SIZE_MISMATCH functions"
     ),
+    ceiling_only: bool = typer.Option(
+        False,
+        "--ceiling",
+        help="With --all: only prove GA_CEILING-documented functions (the register-only "
+        "effective-match set the GA gave up on — the sanctioned PROVEN lane)",
+    ),
     max_delta: int | None = typer.Option(
         None,
         "--max-delta",
@@ -1277,6 +1283,12 @@ def main(
     if all_sources:
         if watch:
             error_exit("--watch cannot be combined with --all", json_mode=json_output)
+        if ceiling_only and max_delta is not None:
+            error_exit(
+                "--ceiling and --max-delta are mutually exclusive "
+                "(ceiling functions are a fixed set)",
+                json_mode=json_output,
+            )
         _run_all_batch(
             cfg,
             timeout,
@@ -1286,6 +1298,7 @@ def main(
             check_edx=check_edx,
             watch_va=watch_va_ints,
             max_delta=max_delta,
+            ceiling_only=ceiling_only,
         )
         return
 
@@ -1839,13 +1852,18 @@ def _run_all_batch(
     check_edx: bool = False,
     watch_va: list[int] | None = None,
     max_delta: int | None = None,
+    ceiling_only: bool = False,
 ) -> None:
     """Batch-prove all NEAR_MATCHING/SIZE_MISMATCH functions.
 
     *max_delta* bounds the work to functions whose recorded byte delta
     (blocker_delta metadata) is at most the given value — Z3 time goes to
-    the closest matches first.
+    the closest matches first.  *ceiling_only* restricts the batch to
+    GA_CEILING-documented functions (the register-only effective-match set
+    ``rebrew match`` marked as the prove lane).
     """
+    from rebrew.metadata import GA_CEILING_PREFIX
+
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     tm = target_marker(cfg)
 
@@ -1860,6 +1878,8 @@ def _run_all_batch(
         for a in annos:
             if a.status not in ("NEAR_MATCHING", "SIZE_MISMATCH") or not a.size:
                 continue
+            if ceiling_only and not a.blocker.startswith(GA_CEILING_PREFIX):
+                continue
             if max_delta is not None:
                 delta = getattr(a, "blocker_delta", None)
                 if delta is not None and delta > max_delta:
@@ -1870,7 +1890,10 @@ def _run_all_batch(
         if json_output:
             json_print({"total": 0, "proven": 0, "failed": 0, "results": []})
         else:
-            console.print("[dim]No NEAR_MATCHING/SIZE_MISMATCH functions found to prove.[/dim]")
+            scope = "GA_CEILING " if ceiling_only else ""
+            console.print(
+                f"[dim]No {scope}NEAR_MATCHING/SIZE_MISMATCH functions found to prove.[/dim]"
+            )
         return
 
     # Build the DIR32 validation map once for the whole batch — per-candidate
@@ -1878,8 +1901,9 @@ def _run_all_batch(
     name_to_va = build_name_to_va(cfg)
 
     if not json_output:
+        scope = "GA_CEILING " if ceiling_only else ""
         console.print(
-            f"\n[bold]Batch proving {len(candidates)} NEAR_MATCHING/SIZE_MISMATCH function(s)[/bold]"
+            f"\n[bold]Batch proving {len(candidates)} {scope}NEAR_MATCHING/SIZE_MISMATCH function(s)[/bold]"
             + (" [dim](--dry-run)[/dim]" if dry_run else "")
             + "\n"
         )

@@ -841,6 +841,13 @@ KNOWN_STATUSES: frozenset[str] = frozenset(
 # re-spelling the tuple locally.
 MATCHED_STATUSES: tuple[str, ...] = ("EXACT", "RELOC", "PROVEN")
 
+#: Blocker prefix marking a function whose residual byte delta is
+#: register-only ("effective match") — the GA ceiling.  Written by
+#: ``rebrew match`` after the GA exhausts on such a delta; GA batch
+#: selectors skip these entries while ``rebrew prove --all --ceiling``
+#: targets exactly them (the sanctioned next step to PROVEN).
+GA_CEILING_PREFIX = "GA_CEILING:"
+
 
 def coerce_metadata_value(key: str, value: Any) -> Any:
     """Coerce *value* to the canonical type for metadata field *key* (lower-case TOML key).

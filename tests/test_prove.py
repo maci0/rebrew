@@ -1324,3 +1324,65 @@ class TestProveEquivalenceBytes:
         a = bytes.fromhex("8B 44 24 04 C3")
         proven, msg = prove_equivalence(a, a, {}, "int f(int)", timeout=30)
         assert proven, msg
+
+
+class TestProveCeilingFilter:
+    """`rebrew prove --all --ceiling` targets exactly the GA_CEILING set —
+    the register-only effective-match functions `rebrew match` documented as
+    the prove lane."""
+
+    def _make_project(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, list]:
+        import shutil
+
+        toml = tmp_path / "rebrew-project.toml"
+        toml.write_text(
+            '[targets.GAME]\nbinary = "game.exe"\nreversed_dir = "src"\nsource_ext = ".c"\n'
+        )
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        ceiling = src_dir / "ceiling.c"
+        ceiling.write_text(
+            "// FUNCTION: GAME 0x00001000\nint __cdecl ceiling_fn(void) { return 0; }\n"
+        )
+        plain = src_dir / "plain.c"
+        plain.write_text("// FUNCTION: GAME 0x00002000\nint __cdecl plain_fn(void) { return 0; }\n")
+        metadata_toml = tmp_path / "rebrew-functions.toml"
+        metadata_toml.write_text(
+            '["GAME.0x00001000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n'
+            'blocker = "GA_CEILING: register-only byte delta (effective match)"\n'
+            '["GAME.0x00002000"]\nstatus = "NEAR_MATCHING"\nsize = 16\n'
+        )
+        shutil.copy(FIXTURES / "mini_pe.exe", tmp_path / "game.exe")
+        calls: list[str] = []
+        monkeypatch.setattr("rebrew.prove._prove_single", lambda *a, **k: (False, "mocked"))
+        return tmp_path, calls
+
+    def test_ceiling_selects_only_documented(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.prove import app
+
+        proj_dir, calls = self._make_project(tmp_path, monkeypatch)
+        monkeypatch.chdir(proj_dir)
+        result = CliRunner().invoke(
+            app, ["--all", "--ceiling", "--json", "--target", "GAME"], catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        assert "ceiling_fn" in result.output
+        assert "plain_fn" not in result.output
+
+    def test_all_still_covers_both(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.prove import app
+
+        proj_dir, _ = self._make_project(tmp_path, monkeypatch)
+        monkeypatch.chdir(proj_dir)
+        result = CliRunner().invoke(
+            app, ["--all", "--json", "--target", "GAME"], catch_exceptions=False
+        )
+        assert result.exit_code == 0
+        assert "ceiling_fn" in result.output
+        assert "plain_fn" in result.output
