@@ -887,6 +887,8 @@ def _parse_annotations(
     SIZE/STATUS live in ``rebrew-functions.toml`` at the reversed_dir parent
     are found.
     """
+    from rebrew.metadata import GA_CEILING_PREFIX
+
     if ignored is None:
         ignored = set()
     meta_dir = metadata_dir if metadata_dir is not None else filepath.parent
@@ -909,7 +911,7 @@ def _parse_annotations(
         # reproduce — further GA runs on it are wasted work.  Only `rebrew
         # prove` can move it to PROVEN (prove's own selectors do not use
         # this parse path, so ceiling entries stay prove-eligible).
-        if ann.blocker.startswith(_GA_CEILING_PREFIX):
+        if ann.blocker.startswith(GA_CEILING_PREFIX):
             continue
 
         if ann.va < min_va:
@@ -3045,6 +3047,7 @@ def _run_one_stub_ga(
 # GA ceiling documentation
 # ---------------------------------------------------------------------------
 
+
 #: Blocker prefix marking a function whose residual byte delta is
 #: register-only ("effective match") — the GA ceiling, not reproducible
 #: from portable C (register allocation is a compiler-internal decision).
@@ -3052,9 +3055,6 @@ def _run_one_stub_ga(
 #: `rebrew prove --all` still targets them) but are excluded from further
 #: GA batch runs (--improve / --flag-sweep / --near-miss / --size-mismatch)
 #: — see `_parse_annotations`.
-_GA_CEILING_PREFIX = "GA_CEILING:"
-
-
 def _classify_register_only(
     ga: BinaryMatchingGA,
     best_src: str,
@@ -3126,7 +3126,7 @@ def _maybe_document_ga_ceiling(
     """
     if not best_src:
         return None
-    from rebrew.metadata import get_entry, update_field
+    from rebrew.metadata import GA_CEILING_PREFIX, get_entry, update_field
 
     meta_root = cfg.metadata_dir
     existing = (get_entry(meta_root, va_int, module) or {}).get("blocker")
@@ -3135,7 +3135,7 @@ def _maybe_document_ga_ceiling(
     if not _classify_register_only(ga, best_src, target_bytes, symbol, va_int, out_dir):
         return None
     text = (
-        f"{_GA_CEILING_PREFIX} register-only byte delta (effective match) — not "
+        f"{GA_CEILING_PREFIX} register-only byte delta (effective match) — not "
         "byte-reproducible from portable C (compiler register allocation); GA "
         f"exhausted {generations} generations at best score {best_score:.2f}; "
         "run `rebrew prove` for PROVEN"
