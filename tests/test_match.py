@@ -1066,3 +1066,67 @@ class TestGaCeiling:
             out_dir,
         )
         assert text is None
+
+
+class TestLiveMutationFocus:
+    """--mutation-focus auto falls back to a live near-diag classification
+    when no verdict BLOCKER exists — the GA's first generations already
+    sample the delta's category operators."""
+
+    def _params(self, tmp_path: Path) -> SimpleNamespace:
+        from rebrew.config import ProjectConfig
+
+        return SimpleNamespace(
+            seed_c=tmp_path / "f.c",
+            seed_src="int f(void) { return 0; }",
+            cl="cl.exe",
+            inc=tmp_path,
+            cflags="/O2",
+            symbol="f",
+            target_bytes=b"\x55\x8b\xec\x83\xec\x08\x5d\xc3",
+            va_int=0x1000,
+            msvc_env=None,
+            cc=None,
+            cfg=ProjectConfig(root=tmp_path),
+        )
+
+    def _fake_build(self, obj: bytes, ok: bool = True):
+        from rebrew.matcher.core import BuildResult
+
+        return BuildResult(ok=ok, obj_bytes=obj, reloc_offsets={0x2: "sym"})
+
+    def test_weights_from_live_verdict(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.match import _live_mutation_weights
+
+        monkeypatch.setattr(
+            "rebrew.matcher.build_candidate_obj_only",
+            lambda *a, **k: self._fake_build(b"\x55\x8b\xec"),
+        )
+        monkeypatch.setattr(
+            "rebrew.near_diag.analyze",
+            lambda *a, **k: {"mutations": ["mut_reorder_register_vars", "mut_inject_dummy_var"]},
+        )
+        weights = _live_mutation_weights(self._params(tmp_path))
+        assert weights == {
+            "mut_reorder_register_vars": 6.0,
+            "mut_inject_dummy_var": 6.0,
+        }
+
+    def test_no_mutations_returns_none(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.match import _live_mutation_weights
+
+        monkeypatch.setattr(
+            "rebrew.matcher.build_candidate_obj_only",
+            lambda *a, **k: self._fake_build(b"\x55\x8b\xec"),
+        )
+        monkeypatch.setattr("rebrew.near_diag.analyze", lambda *a, **k: {"mutations": []})
+        assert _live_mutation_weights(self._params(tmp_path)) is None
+
+    def test_compile_failure_returns_none(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.match import _live_mutation_weights
+
+        monkeypatch.setattr(
+            "rebrew.matcher.build_candidate_obj_only",
+            lambda *a, **k: self._fake_build(None, ok=False),
+        )
+        assert _live_mutation_weights(self._params(tmp_path)) is None
