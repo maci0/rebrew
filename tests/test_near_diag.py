@@ -974,3 +974,65 @@ class TestFixBlockerStatus:
         self._invoke_fix(monkeypatch, tmp_path, "--dry-run")
         meta_path = tmp_path / "rebrew-functions.toml"
         assert not meta_path.exists() or "status" not in meta_path.read_text(encoding="utf-8")
+
+
+class TestFixBlockerPreservesGaCeiling:
+    """near-diag --fix-blocker must NOT overwrite a GA_CEILING marker — the
+    terminal register-only classification that excludes the function from the
+    GA loop (a plain verdict would silently reopen it)."""
+
+    def test_ceiling_blocker_not_clobbered(self, tmp_path: Path, monkeypatch) -> None:
+        from types import SimpleNamespace as NS
+
+        from typer.testing import CliRunner
+
+        from rebrew.near_diag import app
+
+        cfg = NS(
+            root=tmp_path,
+            reversed_dir=tmp_path,
+            metadata_dir=tmp_path,
+            marker="S",
+            source_ext=".c",
+            target_name="S",
+            target_binary=tmp_path / "x.exe",
+        )
+        monkeypatch.setattr(
+            "rebrew.near_diag.require_config", lambda target=None, json_mode=False: cfg
+        )
+        monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, s: s)
+        src = tmp_path / "f.c"
+        src.write_text(
+            "// FUNCTION: S 0x1000\n// SIZE: 8\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        writes: list[object] = []
+        monkeypatch.setattr("rebrew.metadata.set_field", lambda *a, **k: writes.append(a))
+        monkeypatch.setattr(
+            "rebrew.metadata.get_entry",
+            lambda *a, **k: {"blocker": "GA_CEILING: register-only byte delta (effective match)"},
+        )
+        monkeypatch.setattr(
+            "rebrew.near_diag.analyze",
+            lambda *a, **k: {
+                "verdict": "REGISTER (90% of delta)",
+                "suggestion": "Register allocation differs.",
+                "mutations": [],
+                "categories": {},
+            },
+        )
+        monkeypatch.setattr(
+            "rebrew.annotation.parse_c_file_multi",
+            lambda *a, **k: [NS(va=0x1000, size=8, symbol="_f", module="S", cflags="")],
+        )
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec\x5d\xc3"
+        )
+        monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
+        monkeypatch.setattr(
+            "rebrew.matcher.parse_obj_symbol_and_relocs",
+            lambda *a, **k: (b"\x90" * 8, {}, []),
+        )
+        result = CliRunner().invoke(app, ["--fix-blocker", str(src)])
+        assert result.exit_code == 0, result.output
+        assert writes == []  # GA_CEILING marker preserved
