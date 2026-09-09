@@ -7,7 +7,8 @@ cross-checks FUNCTION/STUB marker VAs against the target's function list
 (W028), flags redundant per-function / preset cflags that only repeat an
 inherited value (W029), and otherwise catches stale annotations at lint time
 instead of as confusing mismatches in ``rebrew test``.
-Supports ``--fix`` to migrate inline metadata keys to the TOML metadata file.
+Supports ``--fix`` to migrate inline metadata keys to the TOML metadata file
+and to drop redundant per-function / preset cflags (W029).
 
 Inspired by reccmp's decomplint tool.
 """
@@ -83,8 +84,10 @@ class LintResult:
     # Counters collected during lint for --summary (avoids re-reading files).
     _status_counts: Counter[str] = field(default_factory=Counter)
     _marker_counts: Counter[str] = field(default_factory=Counter)
-    # Collected inline metadata for --fix migration: (module, va_int, key, value)
+    # Collected inline metadata for --fix migration: (module, va_int, key, value, marker)
     _inline_fixes: list[tuple[str, int, str, str, str]] = field(default_factory=list)
+    # Unknown / derived-only keys (W010: SYMBOL, PROTOTYPE, …) — strip, never store.
+    _inline_strips: list[tuple[str, int, str]] = field(default_factory=list)
     # Lines of the file for style checks
     _lines: list[str] = field(default_factory=list)
 
@@ -398,10 +401,27 @@ def _check_W018_cflags(
         )
 
 
-def _check_W010_unknown_keys(result: LintResult, found_keys: dict[str, str]) -> None:
+# Unknown keys that are safe for `--fix` to strip outright: retired
+# annotations whose value is now derived from the C source itself, so the
+# inline line carries no information (SYMBOL from the function definition,
+# PROTOTYPE from the definition line).  Any other unknown key is only
+# warned about — it may be a typo of a real key or a prose note, and
+# deleting it would destroy information.
+_FIXABLE_UNKNOWN_KEYS = frozenset({"SYMBOL", "PROTOTYPE"})
+
+
+def _check_W010_unknown_keys(
+    result: LintResult,
+    found_keys: dict[str, str],
+    module: str = "",
+    va_int: int | None = None,
+) -> None:
     for key in found_keys:
-        if key not in ALL_KNOWN_KEYS and key not in ("MODULE", "_LINE"):
-            result.warning(result.marker_line, "W010", f"Unknown annotation key: {key}")
+        if key in ALL_KNOWN_KEYS or key in ("MODULE", "_LINE") or key.startswith("_"):
+            continue
+        result.warning(result.marker_line, "W010", f"Unknown annotation key: {key}")
+        if module and va_int is not None and key in _FIXABLE_UNKNOWN_KEYS:
+            result._inline_strips.append((module, va_int, key))
 
 
 def _check_E015_marker_consistency(
@@ -500,13 +520,39 @@ def _check_config_rules(
         )
 
 
-def _check_W016_section(result: LintResult, marker: str, found_keys: dict[str, str]) -> None:
+@dataclass(frozen=True)
+class MissingSection:
+    """A DATA/GLOBAL marker whose VA resolves to a known binary section (W016)."""
+
+    module: str
+    va: int
+    section: str
+
+
+def _check_W016_section(
+    result: LintResult,
+    marker: str,
+    found_keys: dict[str, str],
+    module: str = "",
+    va_int: int | None = None,
+    section_for_va: Any = None,
+    section_hits: list[MissingSection] | None = None,
+) -> None:
     if marker in ("DATA", "GLOBAL") and "SECTION" not in found_keys:
         result.warning(
             result.marker_line,
             "W016",
             f"{marker} marker missing // SECTION: (.data, .rdata, .bss)",
         )
+        if (
+            module
+            and va_int is not None
+            and section_for_va is not None
+            and section_hits is not None
+        ):
+            section = section_for_va(va_int)
+            if section:
+                section_hits.append(MissingSection(module=module, va=va_int, section=section))
 
 
 def _check_W019_inline_metadata(
@@ -1044,15 +1090,44 @@ def _cflags_key(cflags: str) -> frozenset[str]:
     return frozenset(cflags.split())
 
 
+@dataclass(frozen=True)
+class RedundantPreset:
+    """A ``compiler.cflags_presets.<MODULE>`` entry that only repeats project cflags."""
+
+    module: str
+    cflags: str
+    inherited: str
+
+    def message(self) -> str:
+        """Human-readable W029 text for this preset."""
+        return f"cflags_presets.{self.module} = '{self.cflags}' (= project cflags)"
+
+
+@dataclass(frozen=True)
+class RedundantFunctionCflags:
+    """A per-function ``cflags`` entry that only repeats the inherited ladder."""
+
+    module: str
+    va: int
+    cflags: str
+    inherited: str
+
+    def message(self) -> str:
+        """Human-readable W029 text for this function."""
+        return (
+            f"{self.module} 0x{self.va:x}: cflags '{self.cflags}' (= inherited '{self.inherited}')"
+        )
+
+
 def check_redundant_cflags(
     cfg: ProjectConfig | None,
     preloaded_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[RedundantPreset], list[RedundantFunctionCflags]]:
     """Collect redundant cflags entries for W029 (module presets + per-function).
 
-    Returns ``(preset_redundant, function_redundant)`` as human-readable
-    strings so callers can attribute them to the right file.  Pure metadata
-    + config logic — no .c file I/O.  Order-invariant flag comparison via
+    Returns ``(preset_redundant, function_redundant)`` as structured hits so
+    ``--fix`` can drop them without parsing warning text.  Pure metadata +
+    config logic — no .c file I/O.  Order-invariant flag comparison via
     ``_cflags_key``.
 
     The level ladder is: per-function cflags (rebrew-functions.toml) →
@@ -1068,15 +1143,21 @@ def check_redundant_cflags(
     project_key = _cflags_key(project_cflags)
     presets: dict[str, str] = getattr(cfg, "cflags_presets", {}) or {}
 
-    preset_redundant: list[str] = []
+    preset_redundant: list[RedundantPreset] = []
     for mod, preset_cflags in sorted(presets.items()):
         if project_key and _cflags_key(str(preset_cflags)) == project_key:
-            preset_redundant.append(f"cflags_presets.{mod} = '{preset_cflags}' (= project cflags)")
+            preset_redundant.append(
+                RedundantPreset(
+                    module=str(mod),
+                    cflags=str(preset_cflags),
+                    inherited=project_cflags,
+                )
+            )
 
     metadata = (
         preloaded_metadata if preloaded_metadata is not None else _load_meta(cfg.metadata_dir)
     )
-    fn_redundant: list[str] = []
+    fn_redundant: list[RedundantFunctionCflags] = []
     for (module, va), meta in sorted(metadata.items(), key=lambda kv: kv[0][1]):
         fn_cflags = str(meta.get("cflags") or "").strip()
         if not fn_cflags:
@@ -1084,9 +1165,92 @@ def check_redundant_cflags(
         inherited = resolve_cflags(cfg, None, module)
         if _cflags_key(fn_cflags) == _cflags_key(inherited):
             fn_redundant.append(
-                f"{module} 0x{va:x}: cflags '{fn_cflags}' (= inherited '{inherited}')"
+                RedundantFunctionCflags(module=module, va=va, cflags=fn_cflags, inherited=inherited)
             )
     return preset_redundant, fn_redundant
+
+
+def _drop_redundant_presets(
+    cfg: ProjectConfig,
+    hits: list[RedundantPreset],
+    *,
+    dry_run: bool,
+) -> int:
+    """Remove W029-redundant ``cflags_presets`` keys from ``rebrew-project.toml``.
+
+    Only drops a module's keys when the remaining fallback is still project
+    cflags (so a target override that merely undoes a different global
+    preset is left alone).  Returns the number of modules dropped.  Missing
+    or unreadable project TOML is a no-op (tests mock config without a file).
+    """
+    if not hits:
+        return 0
+    toml_path = Path(cfg.root) / "rebrew-project.toml"
+    if not toml_path.exists():
+        return 0
+    import tomlkit
+
+    from rebrew.utils import atomic_write_text
+
+    try:
+        doc = tomlkit.parse(toml_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        console.print(f"[yellow]warning:[/yellow] could not update {toml_path}: {exc}")
+        return 0
+
+    def _find(table: Any, mod_upper: str) -> tuple[Any, Any]:
+        if table is None:
+            return None, None
+        presets = table.get("cflags_presets")
+        if presets is None:
+            return None, None
+        for key in list(presets.keys()):
+            if str(key).upper() == mod_upper:
+                return presets, key
+        return None, None
+
+    def _drop(presets: Any, key: Any, table: Any) -> None:
+        del presets[key]
+        if len(presets) == 0:
+            del table["cflags_presets"]
+
+    target_compiler: Any = None
+    target_name = str(getattr(cfg, "target_name", "") or "")
+    if target_name:
+        targets = doc.get("targets")
+        if targets is not None and target_name in targets:
+            tgt = targets[target_name]
+            target_compiler = tgt.get("compiler") if tgt is not None else None
+    global_compiler = doc.get("compiler")
+
+    dropped = 0
+    for hit in hits:
+        expected = _cflags_key(hit.cflags)
+        mod = hit.module.upper()
+        t_presets, t_key = _find(target_compiler, mod)
+        g_presets, g_key = _find(global_compiler, mod)
+        t_val = _cflags_key(str(t_presets[t_key])) if t_key is not None else None
+        g_val = _cflags_key(str(g_presets[g_key])) if g_key is not None else None
+        remaining = None
+        if t_val is not None and t_val != expected:
+            remaining = t_val
+        elif g_val is not None and g_val != expected:
+            remaining = g_val
+        if remaining is not None:
+            continue
+        changed = False
+        if t_key is not None and t_val == expected:
+            _drop(t_presets, t_key, target_compiler)
+            changed = True
+        if g_key is not None and g_val == expected:
+            _drop(g_presets, g_key, global_compiler)
+            changed = True
+        if changed:
+            dropped += 1
+
+    if dropped and not dry_run:
+        atomic_write_text(toml_path, tomlkit.dumps(doc), encoding="utf-8")
+    return dropped
 
 
 def lint_file(
@@ -1098,6 +1262,8 @@ def lint_file(
     preloaded_data_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
     function_index: tuple[set[int], list[tuple[int, int, str]]] | None = None,
     pedantic: bool = False,
+    section_for_va: Any = None,
+    section_hits: list[MissingSection] | None = None,
 ) -> LintResult:
     """Lint a single C file.
 
@@ -1113,6 +1279,11 @@ def lint_file(
         function_index: ``(starts, spans)`` from the target function list
                         (built once per batch); enables the W028
                         annotation-staleness cross-check.
+        section_for_va: Optional callable mapping a VA to its binary section
+                        name; enables W016 autofix collection in
+                        ``section_hits``.
+        section_hits: Optional list collecting :class:`MissingSection` for
+                      DATA/GLOBAL markers whose VA resolves to a section.
 
     """
     result = LintResult(filepath)
@@ -1264,12 +1435,20 @@ def lint_file(
             _check_E015_marker_consistency(result, marker, module, status, cfg)
             _check_W005_blocker(result, status, found_keys)
             _check_W006_source(result, module, found_keys, cfg)
-            _check_W010_unknown_keys(result, found_keys)
+            _check_W010_unknown_keys(result, found_keys, module=mod, va_int=_va_int)
             _check_E017_contradictory(result, status, marker)
             _check_config_rules(result, found_keys, cfg)
 
             _check_W015_va_case(result, va_str)
-            _check_W016_section(result, marker, found_keys)
+            _check_W016_section(
+                result,
+                marker,
+                found_keys,
+                module=mod,
+                va_int=_va_int,
+                section_for_va=section_for_va,
+                section_hits=section_hits,
+            )
             _check_W019_inline_metadata(
                 result,
                 found_keys,
@@ -1334,7 +1513,7 @@ app = typer.Typer(
         "  rebrew lint --json · · · · · · · · · Machine-readable JSON output\n\n"
         "  rebrew lint --summary · · · · · · · Show status/origin breakdown table\n\n"
         "  rebrew lint src/game/foo.c · · · · · Lint specific files only\n\n"
-        "  rebrew lint --fix --dry-run · · · · Preview inline-metadata migrations before commit\n\n"
+        "  rebrew lint --fix --dry-run · · · · Preview migrations, strips, and backfills before commit\n\n"
         "[bold]Error codes:[/bold]\n\n"
         "  E001   Missing FUNCTION/LIBRARY/STUB marker\n\n"
         "  E002   Invalid VA format or range\n\n"
@@ -1358,7 +1537,7 @@ app = typer.Typer(
         "  W028   Annotation VA matches no function in the current function list\n"
         "         (stale after a binary update — re-annotate or refresh the list)\n\n"
         "  W029   Redundant cflags — per-function or preset cflags that only repeat\n"
-        "         the inherited value (project cflags / module preset) — drop it\n"
+        "         the inherited value (project cflags / module preset) — --fix drops them\n"
         "         (the fallback chain already supplies the same flags)\n\n"
         "[dim]Checks for reccmp-style markers in each .c file, plus project-level\n"
         "corpus hygiene (W029 cflags redundancy via rebrew-functions.toml / presets).[/dim]"
@@ -1371,7 +1550,7 @@ def main(
     fix: bool = typer.Option(
         False,
         "--fix",
-        help="Migrate inline metadata to rebrew-functions.toml and remove from source",
+        help=("Migrate inline metadata, strip redundant lines, backfill SECTION (W016)"),
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Only show errors, suppress warnings"),
@@ -1424,6 +1603,29 @@ def main(
         _preloaded_data_metadata = load_data_metadata(cfg.metadata_dir)
     # Pre-load the function list once for the whole batch (W028).
     function_index = _build_function_index(cfg) if cfg else None
+    # Section resolver for W016 autofix (DATA/GLOBAL markers missing SECTION):
+    # one binary parse per batch, mapping VA -> section name.  None when the
+    # binary is unavailable — W016 then stays warn-only.
+    section_for_va: Any = None
+    if cfg is not None and getattr(cfg, "target_binary", None):
+        with contextlib.suppress(Exception):
+            from rebrew.binary_loader import load_binary
+
+            _info = load_binary(cfg.target_binary)
+            _ranges = sorted(
+                ((s.va, s.va + s.size, s.name) for s in _info.sections.values()),
+                key=lambda t: t[0],
+            )
+
+            def section_for_va(va: int, _ranges: list[tuple[int, int, str]] = _ranges) -> str:
+                idx = bisect.bisect_right([r[0] for r in _ranges], va) - 1
+                if idx >= 0:
+                    start, end, name = _ranges[idx]
+                    if start <= va < end:
+                        return name
+                return ""
+
+    section_hits: list[MissingSection] = []
 
     total = 0
     passed = 0
@@ -1442,6 +1644,8 @@ def main(
             preloaded_data_metadata=_preloaded_data_metadata,
             function_index=function_index,
             pedantic=pedantic,
+            section_for_va=section_for_va,
+            section_hits=section_hits,
         )
         all_results.append(result)
         if result.passed:
@@ -1455,6 +1659,8 @@ def main(
     # no single .c file owns a preset and the redundancy is about the fallback
     # ladder.  Attribute per-function warnings back to the file that hosts the
     # VA when possible; presets and unattributed VAs land on a synthetic entry.
+    preset_redundant: list[RedundantPreset] = []
+    fn_redundant: list[RedundantFunctionCflags] = []
     if cfg is not None:
         preset_redundant, fn_redundant = check_redundant_cflags(cfg, _preloaded_metadata)
         if preset_redundant or fn_redundant:
@@ -1471,23 +1677,17 @@ def main(
             # Presets: no single file — emit on a synthetic "config" result.
             if preset_redundant:
                 syn = LintResult(Path("rebrew-project.toml"))
-                for msg in preset_redundant:
-                    syn.warning(1, "W029", f"redundant cflags preset: {msg}")
+                for hit in preset_redundant:
+                    syn.warning(1, "W029", f"redundant cflags preset: {hit.message()}")
                 all_results.append(syn)
                 if not json_output and not quiet:
                     syn.display(quiet=False)
                 warning_count += len(syn.warnings)
             # Per-function redundancies: attribute per file when we can.
-            unattributed: list[str] = []
-            for msg in fn_redundant:
-                # msg format: "MODULE 0xVA: cflags '...' (= inherited '...')"
-                try:
-                    head = msg.split(":", 1)[0].strip()
-                    mod_s, va_s = head.rsplit(" ", 1)
-                    va_i = int(va_s, 16)
-                    dest = va_to_result.get((mod_s, va_i))
-                except (ValueError, IndexError):
-                    dest = None
+            unattributed: list[RedundantFunctionCflags] = []
+            for fn_hit in fn_redundant:
+                dest = va_to_result.get((fn_hit.module, fn_hit.va))
+                msg = fn_hit.message()
                 if dest is not None:
                     if not any(c == "W029" and msg in m for _, c, m in dest.warnings):
                         dest.warning(dest.marker_line, "W029", f"redundant cflags: {msg}")
@@ -1500,11 +1700,11 @@ def main(
                                 f"[yellow]W029[/yellow]: redundant cflags: {msg}"
                             )
                 else:
-                    unattributed.append(msg)
+                    unattributed.append(fn_hit)
             if unattributed:
                 syn2 = LintResult(Path("rebrew-functions.toml"))
-                for msg in unattributed:
-                    syn2.warning(1, "W029", f"redundant cflags: {msg}")
+                for fn_hit in unattributed:
+                    syn2.warning(1, "W029", f"redundant cflags: {fn_hit.message()}")
                 all_results.append(syn2)
                 if not json_output and not quiet:
                     syn2.display(quiet=False)
@@ -1547,15 +1747,34 @@ def main(
         )
     if fix and cfg:
         from rebrew.annotation import remove_inline_annotation_key
+        from rebrew.cli import resolve_cflags
         from rebrew.data_metadata import get_data_entry, set_data_field
         from rebrew.metadata import (
             coerce_metadata_value,
             get_entry,
+            remove_fields_batch,
             set_field,
             update_source_status,
         )
 
         fix_count = 0
+        strip_count = 0
+        for r in all_results:
+            if r._inline_strips and not dry_run:
+                for _module, va, key in r._inline_strips:
+                    if remove_inline_annotation_key(r.filepath, va, key):
+                        strip_count += 1
+            elif r._inline_strips and dry_run:
+                for _module, _va, key in r._inline_strips:
+                    console.print(
+                        f"  [dim]Would strip[/dim] {r.filepath.name} "
+                        f"// {key}: (unknown annotation key)"
+                    )
+                    strip_count += 1
+        # Strips from the migration loop below (legacy keys, redundant inline
+        # CFLAGS, already-migrated copies) — counted separately so the
+        # summary never reports a pure strip as a "migration".
+        inline_strip_count = 0
         for r in all_results:
             if not r._inline_fixes:
                 continue
@@ -1566,10 +1785,30 @@ def main(
                 # but a real data-metadata field for DATA/GLOBAL markers.
                 # Legacy keys are never stored — just strip the inline form.
                 if key == "ORIGIN" or (not is_data_marker and key == "SECTION"):
-                    if not dry_run:
+                    if dry_run:
+                        console.print(
+                            f"  [dim]Would strip[/dim] {r.filepath.name} "
+                            f"// {key}: (legacy key — never stored)"
+                        )
+                    else:
                         remove_inline_annotation_key(r.filepath, va, key)
-                    fix_count += 1
+                    inline_strip_count += 1
                     continue
+                # An inline CFLAGS that only repeats the inherited ladder
+                # would migrate into a W029-redundant per-function cflags —
+                # strip it without writing.
+                if toml_key == "cflags":
+                    inherited = resolve_cflags(cfg, None, module)
+                    if _cflags_key(value.strip()) == _cflags_key(inherited):
+                        if dry_run:
+                            console.print(
+                                f"  [dim]Would strip[/dim] {r.filepath.name} "
+                                f"// {key}: {value!r} (redundant — inherits {inherited!r})"
+                            )
+                        else:
+                            remove_inline_annotation_key(r.filepath, va, key)
+                        inline_strip_count += 1
+                        continue
                 # Check if the destination store already has this field.
                 if is_data_marker:
                     existing = get_data_entry(cfg.metadata_dir, va, module)
@@ -1606,19 +1845,106 @@ def main(
                 # write above already owns the field; routing STATUS through
                 # remove_annotation_key would raise, and removing any other
                 # metadata key would delete the field we just migrated).
+                # Already present in the store: the inline copy is still
+                # stripped, so say so under --dry-run.  Either way this is a
+                # strip, not a migration.
+                if dry_run and present:
+                    console.print(
+                        f"  [dim]Would strip[/dim] {r.filepath.name} "
+                        f"// {key}: (already in metadata)"
+                    )
                 if not dry_run:
                     remove_inline_annotation_key(r.filepath, va, key)
-                fix_count += 1
+                if present:
+                    inline_strip_count += 1
+                else:
+                    fix_count += 1
+
+        w029_fn_count = 0
+        if fn_redundant:
+            if dry_run:
+                for fn_hit in fn_redundant:
+                    console.print(
+                        f"  [dim]Would drop[/dim] redundant cflags "
+                        f"{fn_hit.module} 0x{fn_hit.va:x} (inherited {fn_hit.inherited!r})"
+                    )
+                w029_fn_count = len(fn_redundant)
+            else:
+                w029_fn_count = remove_fields_batch(
+                    cfg.metadata_dir,
+                    [
+                        {"module": fn_hit.module, "va": fn_hit.va, "keys": ["cflags"]}
+                        for fn_hit in fn_redundant
+                    ],
+                )
+        w029_preset_count = 0
+        if preset_redundant:
+            if dry_run:
+                for preset_hit in preset_redundant:
+                    console.print(
+                        f"  [dim]Would drop[/dim] redundant preset "
+                        f"cflags_presets.{preset_hit.module}"
+                    )
+            w029_preset_count = _drop_redundant_presets(cfg, preset_redundant, dry_run=dry_run)
+            if dry_run and w029_preset_count == 0:
+                w029_preset_count = len(preset_redundant)
+
+        section_count = 0
+        if section_hits:
+            if dry_run:
+                for section_hit in section_hits:
+                    console.print(
+                        f"  [dim]Would set[/dim] section {section_hit.section!r} "
+                        f"for {section_hit.module} 0x{section_hit.va:x} (rebrew-data.toml)"
+                    )
+                section_count = len(section_hits)
+            else:
+                for section_hit in section_hits:
+                    existing = get_data_entry(cfg.metadata_dir, section_hit.va, section_hit.module)
+                    if "section" in {k.lower() for k in existing}:
+                        continue
+                    set_data_field(
+                        cfg.metadata_dir,
+                        section_hit.va,
+                        "section",
+                        section_hit.section,
+                        module=section_hit.module,
+                    )
+                    section_count += 1
 
         if not json_output:
+            parts: list[str] = []
+            # Merge the two strip streams: W010 unknown keys and redundant /
+            # already-migrated inline copies are all pure source-line removals.
+            all_stripped = strip_count + inline_strip_count
             if dry_run:
-                console.print(
-                    f"\n[yellow]Dry run:[/yellow] {fix_count} inline annotations would be migrated"
-                )
-            elif fix_count > 0:
-                console.print(
-                    f"\n[green]Fixed:[/green] migrated {fix_count} inline annotations to rebrew-functions.toml"
-                )
+                if fix_count:
+                    parts.append(f"{fix_count} inline annotations would be migrated")
+                if all_stripped:
+                    parts.append(f"{all_stripped} redundant inline lines would be stripped")
+                if w029_fn_count:
+                    parts.append(f"{w029_fn_count} redundant per-function cflags would be dropped")
+                if w029_preset_count:
+                    parts.append(f"{w029_preset_count} redundant cflags presets would be dropped")
+                if section_count:
+                    parts.append(f"{section_count} missing SECTIONs would be backfilled")
+                if parts:
+                    console.print(f"\n[yellow]Dry run:[/yellow] {'; '.join(parts)}")
+            else:
+                if fix_count:
+                    parts.append(
+                        f"migrated {fix_count} inline annotations to rebrew-functions.toml"
+                    )
+                if all_stripped:
+                    parts.append(f"stripped {all_stripped} redundant inline lines")
+                if w029_fn_count:
+                    parts.append(f"dropped {w029_fn_count} redundant per-function cflags")
+                if w029_preset_count:
+                    parts.append(f"dropped {w029_preset_count} redundant cflags presets")
+                if section_count:
+                    parts.append(f"backfilled {section_count} missing SECTIONs")
+                if parts:
+                    console.print(f"\n[green]Fixed:[/green] {'; '.join(parts)}")
 
     if error_count > 0:
         raise typer.Exit(code=EXIT_MISMATCH)

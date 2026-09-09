@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -1246,7 +1247,7 @@ class TestW029RedundantCflags:
         base.update(overrides)
         return SimpleNamespace(**base)
 
-    def _redundant(self, cfg: SimpleNamespace) -> tuple[list[str], list[str]]:
+    def _redundant(self, cfg: SimpleNamespace) -> tuple[list[Any], list[Any]]:
         from rebrew.lint import check_redundant_cflags
 
         return check_redundant_cflags(cfg)
@@ -1263,7 +1264,7 @@ class TestW029RedundantCflags:
             '["SERVER.0x1000"]\nstatus = "EXACT"\ncflags = "/O2 /Gd"\n', encoding="utf-8"
         )
         _presets, fns = self._redundant(self._cfg(tmp_path))
-        assert any("0x1000" in m for m in fns)
+        assert any(hit.va == 0x1000 for hit in fns)
 
     def test_flag_order_does_not_matter(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-functions.toml").write_text(
@@ -1285,14 +1286,14 @@ class TestW029RedundantCflags:
         )
         cfg = self._cfg(tmp_path, cflags="/O1 /Gd", cflags_presets={"GAME": "/O2 /Gd"})
         _presets, fns = self._redundant(cfg)
-        assert any("GAME 0x1000" in m for m in fns)
+        assert any(hit.module == "GAME" and hit.va == 0x1000 for hit in fns)
 
     def test_module_preset_redundant_with_project(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
         cfg = self._cfg(tmp_path, cflags_presets={"GAME": "/O2 /Gd", "MSVCRT": "/O1"})
         presets, _fns = self._redundant(cfg)
-        assert any("cflags_presets.GAME" in m for m in presets)
-        assert not any("MSVCRT" in m for m in presets)
+        assert any(hit.module == "GAME" for hit in presets)
+        assert not any(hit.module == "MSVCRT" for hit in presets)
 
     def test_no_metadata_file_passes(self, tmp_path: Path) -> None:
         presets, fns = self._redundant(self._cfg(tmp_path))
@@ -1331,3 +1332,253 @@ class TestW029RedundantCflags:
         assert result.exit_code == 0, result.output
         # W029 should appear either via the attributed file or synthetic entry
         assert "W029" in result.output or "redundant cflags" in result.output.lower()
+
+    def _lint_cfg(self, tmp_path: Path, src: Path, **overrides: object) -> SimpleNamespace:
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src,
+            metadata_dir=tmp_path,
+            source_ext=".c",
+            cflags="/O2 /Gd",
+            cflags_presets={},
+            marker="SERVER",
+            function_list=tmp_path / "funcs.txt",
+            library_modules=set(),
+            target_name="",
+        )
+        for k, v in overrides.items():
+            setattr(cfg, k, v)
+        return cfg
+
+    def test_fix_drops_redundant_function_cflags(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+        from rebrew.metadata import get_entry
+
+        src = tmp_path / "reversed"
+        src.mkdir()
+        f = src / "foo.c"
+        f.write_text("// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8")
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x1000"]\nstatus = "EXACT"\ncflags = "/O2 /Gd"\nsize = 16\n',
+            encoding="utf-8",
+        )
+        cfg = self._lint_cfg(tmp_path, src)
+        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
+        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
+        result = CliRunner().invoke(app, ["--fix", str(f)])
+        assert result.exit_code == 0, result.output
+        assert "dropped" in result.output.lower()
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert "cflags" not in entry
+        assert entry.get("status") == "EXACT"
+        assert entry.get("size") == 16
+
+    def test_fix_dry_run_leaves_redundant_cflags(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+        from rebrew.metadata import get_entry
+
+        src = tmp_path / "reversed"
+        src.mkdir()
+        f = src / "foo.c"
+        f.write_text("// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8")
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x1000"]\ncflags = "/O2 /Gd"\n', encoding="utf-8"
+        )
+        cfg = self._lint_cfg(tmp_path, src)
+        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
+        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
+        result = CliRunner().invoke(app, ["--fix", "--dry-run", str(f)])
+        assert result.exit_code == 0, result.output
+        assert "Would drop" in result.output
+        assert get_entry(tmp_path, 0x1000, "SERVER").get("cflags") == "/O2 /Gd"
+
+    def test_fix_drops_redundant_preset(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+
+        src = tmp_path / "reversed"
+        src.mkdir()
+        f = src / "foo.c"
+        f.write_text("// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8")
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x1000"]\nstatus = "EXACT"\n', encoding="utf-8"
+        )
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[compiler]\ncflags = "/O2 /Gd"\n'
+            '[compiler.cflags_presets]\nSERVER = "/O2 /Gd"\nMSVCRT = "/O1"\n',
+            encoding="utf-8",
+        )
+        cfg = self._lint_cfg(tmp_path, src, cflags_presets={"SERVER": "/O2 /Gd", "MSVCRT": "/O1"})
+        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
+        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
+        result = CliRunner().invoke(app, ["--fix", str(f)])
+        assert result.exit_code == 0, result.output
+        text = (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
+        assert "SERVER" not in text
+        assert "MSVCRT" in text
+        assert "/O1" in text
+
+    def test_fix_strips_unknown_inline_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+
+        src = tmp_path / "reversed"
+        src.mkdir()
+        f = src / "foo.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n// SYMBOL: _foo\nint foo(void){return 0;}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        cfg = self._lint_cfg(tmp_path, src)
+        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
+        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
+        result = CliRunner().invoke(app, ["--fix", str(f)])
+        assert result.exit_code == 0, result.output
+        assert "SYMBOL" not in f.read_text(encoding="utf-8")
+        assert "stripped" in result.output.lower()
+
+    def test_fix_strips_redundant_inline_cflags_without_migrating(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+        from rebrew.metadata import get_entry
+
+        src = tmp_path / "reversed"
+        src.mkdir()
+        f = src / "foo.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n// CFLAGS: /O2 /Gd\nint foo(void){return 0;}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        cfg = self._lint_cfg(tmp_path, src)
+        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
+        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
+        result = CliRunner().invoke(app, ["--fix", str(f)])
+        assert result.exit_code == 0, result.output
+        assert "CFLAGS" not in f.read_text(encoding="utf-8")
+        assert "cflags" not in get_entry(tmp_path, 0x1000, "SERVER")
+
+    def test_fix_keeps_distinct_inline_cflags_migrated(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+        from rebrew.metadata import get_entry
+
+        src = tmp_path / "reversed"
+        src.mkdir()
+        f = src / "foo.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n// CFLAGS: /O1\nint foo(void){return 0;}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        cfg = self._lint_cfg(tmp_path, src)
+        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
+        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
+        result = CliRunner().invoke(app, ["--fix", str(f)])
+        assert result.exit_code == 0, result.output
+        assert get_entry(tmp_path, 0x1000, "SERVER").get("cflags") == "/O1"
+
+    def test_fix_leaves_unfixable_unknown_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+
+        src = tmp_path / "reversed"
+        src.mkdir()
+        f = src / "foo.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n// FROBNICATE: keep me\nint foo(void){return 0;}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        cfg = self._lint_cfg(tmp_path, src)
+        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
+        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
+        result = CliRunner().invoke(app, ["--fix", str(f)])
+        assert result.exit_code == 0, result.output
+        assert "FROBNICATE" in f.read_text(encoding="utf-8")
+        assert "W010" in result.output
+
+    def test_w016_backfills_section_from_resolver(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.data_metadata import get_data_entry
+        from rebrew.lint import app
+
+        src = tmp_path / "reversed"
+        src.mkdir()
+        f = src / "g.c"
+        f.write_text("// GLOBAL: SERVER 0x2000\nint g;\n", encoding="utf-8")
+        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        cfg = self._lint_cfg(tmp_path, src)
+        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
+        (tmp_path / "target.dll").write_bytes(b"MZ")
+        cfg.target_binary = tmp_path / "target.dll"
+        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
+        from rebrew.binary_loader import SectionInfo
+
+        class _Info:
+            sections = {".data": SectionInfo(".data", 0x2000, 0x100, 0, 0x100)}
+
+        import rebrew.binary_loader as bl
+
+        monkeypatch.setattr(bl, "load_binary", lambda path: _Info())
+        result = CliRunner().invoke(app, ["--fix", str(f)])
+        assert result.exit_code == 0, result.output
+        assert "backfilled 1 missing SECTION" in result.output
+        assert get_data_entry(tmp_path, 0x2000, "SERVER").get("section") == ".data"
+
+    def test_w016_dry_run_leaves_section(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.data_metadata import get_data_entry
+        from rebrew.lint import app
+
+        src = tmp_path / "reversed"
+        src.mkdir()
+        f = src / "g.c"
+        f.write_text("// GLOBAL: SERVER 0x2000\nint g;\n", encoding="utf-8")
+        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        cfg = self._lint_cfg(tmp_path, src)
+        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
+        (tmp_path / "target.dll").write_bytes(b"MZ")
+        cfg.target_binary = tmp_path / "target.dll"
+        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
+        import rebrew.binary_loader as bl
+        from rebrew.binary_loader import SectionInfo
+
+        class _Info:
+            sections = {".rdata": SectionInfo(".rdata", 0x2000, 0x100, 0, 0x100)}
+
+        monkeypatch.setattr(bl, "load_binary", lambda path: _Info())
+        result = CliRunner().invoke(app, ["--fix", "--dry-run", str(f)])
+        assert result.exit_code == 0, result.output
+        assert "Would set" in result.output
+        assert "section" not in get_data_entry(tmp_path, 0x2000, "SERVER")

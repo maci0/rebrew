@@ -1,5 +1,12 @@
 ## [Unreleased]
 ### Added
+- **`rebrew lint --fix` strips redundant inline lines and backfills SECTION**
+  — retired `SYMBOL`/`PROTOTYPE` keys (derived from the C source), legacy
+  `ORIGIN`, inline `// CFLAGS:` that only repeat the inherited flags, and
+  copies already in metadata are stripped from the source; any other unknown
+  key is left for a human.  Missing W016 `SECTION` on DATA/GLOBAL markers is
+  backfilled into `rebrew-data.toml` from the target binary's section table.
+  `--dry-run` previews every action per line.
 - **`targets.<name>.binsync_state_dir` config** — the BinSync state dir for
   field sync; `rebrew sync --push/--pull` default `--state-dir` to it.
 - **`rebrew doctor` BinSync sync check** — validates the configured state

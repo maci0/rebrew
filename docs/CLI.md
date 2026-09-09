@@ -437,7 +437,7 @@ the `wine ` prefix) for faster headless compiles.
 
 | Flag | Description |
 |------|-------------|
-| `--fix` | Auto-migrate old source marker formats |
+| `--fix` | Migrate leftover inline metadata into `rebrew-functions.toml` / `rebrew-data.toml`, strip redundant inline lines (retired `SYMBOL`/`PROTOTYPE`, legacy `ORIGIN`, repeated `// CFLAGS:`, copies already in metadata), backfill missing W016 `SECTION` from the target binary, and drop W029-redundant per-function `cflags` and matching `cflags_presets` |
 | `--dry-run` | Preview changes without writing |
 | `--quiet` | Suppress warnings, show errors only |
 | `--pedantic` | Warn on functions with default names (fcn, fn, fun, etc.) |
@@ -451,14 +451,16 @@ Project-specific linting rules can be configured in `rebrew-project.toml` under 
 - `indent_style`: "spaces", "tabs", or "none" (default)
 - `max_line_length`: integer (default: 200)
 
-See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–E023, W001–W028).
+See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–E023, W001–W029).
 
 `rebrew lint` is the source-corpus checker — in addition to markers and
 metadata it cross-references every `// FUNCTION:`/`// STUB:` marker against
 the current `functions.txt` (**W028**): a VA that no longer has a function
 there, or that now points *inside* another function's span, is a stale
 annotation after a binary update (LIBRARY/DATA/GLOBAL markers are excluded
-so import stubs and data labels never false-positive).  Environment/setup
+so import stubs and data labels never false-positive).  **W029** flags
+per-function `cflags` (and matching `cflags_presets`) that only repeat the
+inherited ladder; `rebrew lint --fix` drops them.  Environment/setup
 health is `rebrew doctor`'s job, not lint's.
 
 ### `rebrew blocker`
@@ -1687,7 +1689,7 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 | Module | Purpose |
 |--------|---------|
 | `annotation.py` | Canonical annotation parser (`parse_c_file`, `parse_c_file_multi`) |
-| `lint.py` | Source marker linter (E000–E023 / W001–W029); `--fix` auto-migrates old formats; W005 points to `rebrew blocker set` for STUB BLOCKERs |
+| `lint.py` | Source marker linter (E000–E023 / W001–W029); `--fix` migrates leftover inline metadata and drops W029-redundant cflags; W005 points to `rebrew blocker set` for STUB BLOCKERs |
 | `blocker.py` | Programmatic BLOCKER writer — `rebrew blocker set/clear/show` (`--json`, `--dry-run`, `--delta`, `--va`); every write via `rebrew.metadata` (never hand-edit `rebrew-functions.toml`) |
 | `ghidra/cli.py` | Sync annotations to Ghidra via ReVa MCP; skips generic `func_` labels by default |
 

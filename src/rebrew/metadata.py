@@ -94,6 +94,7 @@ from rebrew.utils import (
     load_metadata_doc,
     load_toml_for_write,
     metadata_write_lock,
+    parse_metadata_key,
     qualified_key,
 )
 
@@ -391,6 +392,60 @@ def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
         if changed_entries:
             atomic_write_locked(path, tomlkit.dumps(doc))
         _metadata_cache.pop(path, None)
+    return changed_entries
+
+
+def remove_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
+    """Drop named fields from many ``(module, va)`` entries in one TOML rewrite.
+
+    Sibling of :func:`set_fields_batch` for bulk deletes (``lint --fix`` W029
+    dropping redundant per-function ``cflags``).  Rejects ``status`` (use
+    :func:`update_statuses_batch`).  Returns the number of entries that lost
+    at least one named field.  Missing entries / missing keys are no-ops.
+    """
+    if not updates:
+        return 0
+    path = (metadata_dir / METADATA_FILENAME).resolve()
+    if not path.exists():
+        return 0
+    changed_entries = 0
+    with _metadata_write_lock(metadata_dir):
+        doc = load_toml_for_write(path, "metadata")
+        doc_dict = typing.cast(dict[str, Any], doc)
+        for u in updates:
+            module = u.get("module") or ""
+            if not module:
+                continue
+            va = u.get("va")
+            if va is None:
+                continue
+            keys = u.get("keys") or ()
+            if not keys:
+                continue
+            want = (str(module), int(va))
+            toml_key = qualified_key(module, int(va))
+            if toml_key not in doc_dict:
+                toml_key = ""
+                for existing in doc_dict:
+                    parsed = parse_metadata_key(str(existing))
+                    if parsed == want:
+                        toml_key = str(existing)
+                        break
+                if not toml_key:
+                    continue
+            entry = typing.cast(dict[str, Any], doc_dict[toml_key])
+            changed = False
+            for key in keys:
+                if key == "status":
+                    raise ValueError("Cannot delete STATUS directly")
+                if key in entry:
+                    del entry[key]
+                    changed = True
+            if changed:
+                changed_entries += 1
+        if changed_entries:
+            atomic_write_locked(path, tomlkit.dumps(doc))
+            _metadata_cache.pop(path, None)
     return changed_entries
 
 
