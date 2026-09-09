@@ -492,8 +492,6 @@ def main(
         seed_c,
         None,
         None,
-        None,
-        None,
         original_arg if va_arg else None,
         None,
         ignore_lint,

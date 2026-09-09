@@ -436,7 +436,7 @@ class TestGADeadline:
         ga = BinaryMatchingGA(
             seed_source="int f(void) { return 0; }",
             target_bytes=b"\xc3",
-            cl_cmd="cl",
+            _cl_cmd="",
             inc_dir="",
             cflags="/O2",
             symbol="_f",
@@ -459,7 +459,7 @@ class TestGADeadline:
         ga = BinaryMatchingGA(
             seed_source="int f(void) { return 0; }",
             target_bytes=b"\xc3",
-            cl_cmd="cl",
+            _cl_cmd="",
             inc_dir="",
             cflags="/O2",
             symbol="_f",
@@ -483,7 +483,7 @@ class TestGADeadline:
         ga = BinaryMatchingGA(
             seed_source="int f(void) { return 0; }",
             target_bytes=b"\xc3",
-            cl_cmd="cl",
+            _cl_cmd="",
             inc_dir="",
             cflags="/O2",
             symbol="_f",
@@ -1108,7 +1108,7 @@ class TestGABuildCacheKey:
             return BinaryMatchingGA(
                 seed_source="int f(void) { return 0; }",
                 target_bytes=b"\xc3",
-                cl_cmd="cl",
+                _cl_cmd="",
                 inc_dir="",
                 cflags=cflags,
                 symbol="_f",
@@ -1180,7 +1180,7 @@ class TestRunOneStubGaPersistsFlags:
 
         monkeypatch.setattr(M, "BinaryMatchingGA", FakeGA)
         monkeypatch.setattr(M, "extract_raw_bytes", lambda *a, **k: b"\xc3" * 16)
-        monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
+        monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("", {}, None))
         monkeypatch.setattr(M, "update_stub_to_matched", lambda *a, **k: True)
         monkeypatch.setattr(M, "_save_solution", lambda *a, **k: None)
         persisted: dict[str, str] = {}
@@ -1234,7 +1234,7 @@ class TestRunOneStubGaPersistsFlags:
 
         monkeypatch.setattr(M, "BinaryMatchingGA", FakeGA)
         monkeypatch.setattr(M, "extract_raw_bytes", lambda *a, **k: b"\xc3" * 16)
-        monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
+        monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("", {}, None))
         # The splice fails (typedef return, no match) — the batch must NOT
         # report a match or save a solution.
         monkeypatch.setattr(M, "update_stub_to_matched", lambda *a, **k: False)

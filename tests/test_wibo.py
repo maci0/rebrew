@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 import rebrew.wibo as wibo_mod
-from rebrew.doctor import _PASS, _WARN, check_runner
+from rebrew.doctor import _FAIL, _PASS, _WARN, check_runner
 from rebrew.wibo import _WIBO_API_URL, _wibo_asset_name, download_wibo, find_wibo
 
 
@@ -190,35 +190,33 @@ class TestDownloadWibo:
 
 
 class TestDoctorCheckRunner:
-    def test_no_runner_passes(self, tmp_path: Path) -> None:
-        cfg = SimpleNamespace(compiler_runner="", root=tmp_path)
+    def test_image_ready_passes(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
+        cfg = SimpleNamespace(compiler_profile="msvc6", root=tmp_path)
         result = check_runner(cfg)
         assert result.status == _PASS
-        assert "No runner configured" in result.message
 
-    def test_wibo_found_passes(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        found = tmp_path / "tools" / "wibo"
-        monkeypatch.setattr("rebrew.doctor.shutil.which", lambda _name: None)
-        monkeypatch.setattr("rebrew.wibo.find_wibo", lambda _root: found)
-        cfg = SimpleNamespace(compiler_runner="wibo", root=tmp_path)
-        result = check_runner(cfg)
-        assert result.status == _PASS
-        assert str(found) in result.message
-
-    def test_wibo_missing_warns(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        monkeypatch.setattr("rebrew.doctor.shutil.which", lambda _name: None)
-        monkeypatch.setattr("rebrew.wibo.find_wibo", lambda _root: None)
-        cfg = SimpleNamespace(compiler_runner="wibo", root=tmp_path)
+    def test_image_missing_warns(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
+        cfg = SimpleNamespace(compiler_profile="msvc6", root=tmp_path)
         result = check_runner(cfg)
         assert result.status == _WARN
-        assert "install-wibo" in result.fix
+        assert "not built" in result.message
 
-    def test_wine_passes(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        monkeypatch.setattr("rebrew.doctor.shutil.which", lambda _name: None)
-        cfg = SimpleNamespace(compiler_runner="wine", root=tmp_path)
+    def test_unknown_profile_fails(self, tmp_path: Path) -> None:
+        cfg = SimpleNamespace(compiler_profile="no-such-tc", root=tmp_path)
+        result = check_runner(cfg)
+        assert result.status == _FAIL
+
+    def test_remote_backend_passes(self, tmp_path: Path) -> None:
+        cfg = SimpleNamespace(
+            compiler_profile="msvc6",
+            root=tmp_path,
+            recompile_url="http://localhost:8000",
+        )
         result = check_runner(cfg)
         assert result.status == _PASS
-        assert "checked by compiler check" in result.message
+        assert "recompile" in result.message
 
 
 class TestDownloadWiboErrors:

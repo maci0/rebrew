@@ -18,8 +18,6 @@ Usage::
 """
 
 import logging
-import os
-import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass, field
@@ -32,7 +30,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from rebrew.cli import EXIT_MISMATCH, TargetOption, json_print, require_config
+from rebrew.cli import EXIT_MISMATCH, TargetOption, json_print
 from rebrew.config import ProjectConfig, load_config
 
 console = Console(stderr=True)
@@ -309,12 +307,20 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
             fix=f'Set compiler.profile = "{hint}"; analysis/docs work either way.',
         )
 
-    # Docker-only execution: every Windows/DOS profile compiles through its
-    # docker image — the image IS the compiler.  Only native-Linux profiles
-    # (gcc-pe and friends) fall through to the legacy executable check.
+    # Docker-only execution: every profile compiles through its docker
+    # image — the image IS the compiler.  A configured recompile service
+    # URL replaces local docker with the same images behind HTTP.
+    from rebrew.compile import recompile_url
     from rebrew.toolchain import TOOLCHAINS, image_present
 
+    remote = recompile_url(cfg)
     _profile = str(getattr(cfg, "compiler_profile", ""))
+    if remote is not None:
+        return CheckResult(
+            name="Compiler",
+            status=_PASS,
+            message=f"recompile service at {remote} (profile {_profile})",
+        )
     _spec = TOOLCHAINS.get(_profile) if _profile else None
     if _spec is not None and _spec.image is not None:
         if image_present(_spec.image):
@@ -329,183 +335,11 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
             message=f"{_profile} docker image {_spec.image} not built",
             fix=f"Run `rebrew toolchain build {_profile}` (docker-only execution).",
         )
-    if _spec is not None and _spec.runtime != "native":
-        return CheckResult(
-            name="Compiler",
-            status=_FAIL,
-            message=f"{_profile} has no docker image — execution is docker-only",
-            fix=f"Run `rebrew toolchain build {_profile}` first.",
-        )
-
-    cmd_str = cfg.compiler_command
-    if not cmd_str:
-        return CheckResult(
-            name="Compiler",
-            status=_FAIL,
-            message="No compiler command configured",
-            fix="Set [compiler] profile to a docker-backed toolchain, or command for a native compiler.",
-        )
-
-    try:
-        parts = shlex.split(cmd_str)
-    except ValueError:
-        parts = cmd_str.split()
-
-    # Check if the first token (e.g. "wine"/"wibo") is available
-    exe = parts[0] if parts else ""
-    exe_path = shutil.which(exe)
-    is_wibo_runner = Path(exe).name == "wibo"
-    # A relative command (e.g. toolchain/msvc/1.52-win16/BIN/CL.EXE) resolves against the
-    # project root — do not require it on PATH (msvc1.52's direct DOSBox
-    # command, watcom, gcc-pe vendored paths).
-    if exe_path is None and exe != "wine" and not is_wibo_runner:
-        local_exe = Path(exe) if Path(exe).is_absolute() else cfg.root / Path(exe)
-        if local_exe.exists():
-            exe_path = str(local_exe)
-        else:
-            # Same install-tools fallback resolve_cl_command uses — a wibo
-            # config has no runner prefix, so exe is the CL.EXE path.
-            from rebrew.utils import find_install_tool
-
-            alt = find_install_tool(exe)
-            if alt is not None:
-                exe_path = str(alt)
-            else:
-                hint = _toolchain_download_hint(str(exe).lower())
-                return CheckResult(
-                    name="Compiler",
-                    status=_FAIL,
-                    message=f"Executable '{exe}' not found in PATH or project",
-                    fix=(
-                        f"Install '{exe}' or update compiler.command in rebrew-project.toml.{hint}"
-                    ),
-                )
-
-    if is_wibo_runner and exe_path is None:
-        # `init --install-wibo` writes a relative runner like tools/wibo —
-        # resolve it against the project root, not PATH.
-        local = Path(exe) if Path(exe).is_absolute() else cfg.root / Path(exe)
-        if local.exists():
-            exe_path = str(local)
-        else:
-            from rebrew.wibo import find_wibo
-
-            found = find_wibo(cfg.root)
-            if found is None:
-                return CheckResult(
-                    name="Compiler",
-                    status=_WARN,
-                    message="wibo runner not found",
-                    fix=(
-                        "Run 'rebrew init --install-wibo' or set compiler.command "
-                        "to the wibo binary path."
-                    ),
-                )
-            exe_path = str(found)
-
-    # For Wine/wibo-based compilers, check the CL.EXE path.
-    if exe == "wine":
-        wine_path = shutil.which("wine")
-        if wine_path is None:
-            return CheckResult(
-                name="Compiler",
-                status=_FAIL,
-                message="Wine is not installed or not in PATH",
-                fix="Install Wine: apt install wine-stable (Debian/Ubuntu) or brew install wine.",
-            )
-
-    if exe == "wine" or is_wibo_runner:
-        if len(parts) > 1:
-            cl_path = Path(parts[1])
-            if not cl_path.is_absolute():
-                cl_path = cfg.root / cl_path
-            if not cl_path.exists():
-                # Project-local tools/ absent?  Fall back to the rebrew
-                # install's own vendored tree — resolve_cl_command does the
-                # same, so a missing symlink is NOT a broken compiler.
-                from rebrew.utils import find_install_tool
-
-                alt = find_install_tool(parts[1])
-                if alt is not None:
-                    cl_path = alt
-                else:
-                    fix_msg = (
-                        "Place MSVC toolchain at the configured path or update compiler.command."
-                        + _toolchain_download_hint(str(cl_path).lower())
-                    )
-
-                    return CheckResult(
-                        name="Compiler",
-                        status=_FAIL,
-                        message=f"CL.EXE not found at: {cl_path}",
-                        fix=fix_msg,
-                    )
-
-            # Quick smoke test: try running cl.exe with no args.  Use the
-            # RESOLVED runner path (exe_path) — a relative tools/wibo would be
-            # resolved against the process CWD, not cfg.root, and fail from a
-            # subdirectory.
-            runner_token = exe_path if exe_path else ("wine" if exe == "wine" else exe)
-            display_runner = "wibo" if is_wibo_runner else "Wine"
-            try:
-                from rebrew.compile import maybe_headless_wine
-
-                smoke_cmd, smoke_env = maybe_headless_wine(
-                    [runner_token, str(cl_path)],
-                    {**os.environ, "WINEDEBUG": "-all"},
-                )
-                subprocess.run(
-                    smoke_cmd,
-                    capture_output=True,
-                    timeout=10,
-                    env=smoke_env,
-                )
-                note = ""
-                if exe == "wine":
-                    if shutil.which("Xvfb") is not None:
-                        note = " — headless (Xvfb)"
-                    else:
-                        note = (
-                            " — a virtual-desktop window may pop; install xvfb "
-                            "for headless, or use wibo (rebrew init --install-wibo)"
-                        )
-                return CheckResult(
-                    name="Compiler",
-                    status=_PASS,
-                    message=f"{display_runner} + {cl_path.name} (reachable){note}",
-                )
-            except subprocess.TimeoutExpired:
-                return CheckResult(
-                    name="Compiler",
-                    status=_WARN,
-                    message=f"{display_runner} + {cl_path.name} (timed out on smoke test)",
-                    fix="The runner may be slow to start. This is usually fine for actual compilation.",
-                )
-            except (FileNotFoundError, OSError) as e:
-                return CheckResult(
-                    name="Compiler",
-                    status=_FAIL,
-                    message=f"Failed to invoke {display_runner}: {e}",
-                    fix="Check the runner installation and CL.EXE path.",
-                )
-        if exe == "wine":
-            return CheckResult(
-                name="Compiler",
-                status=_WARN,
-                message=f"Wine found at {wine_path}, but no CL.EXE path specified in compiler.command",
-                fix="Set compiler.command to 'wine /path/to/CL.EXE' in rebrew-project.toml.",
-            )
-        return CheckResult(
-            name="Compiler",
-            status=_WARN,
-            message="wibo runner configured, but no CL.EXE path specified in compiler.command",
-            fix="Set compiler.command to 'wibo /path/to/CL.EXE' in rebrew-project.toml.",
-        )
-
     return CheckResult(
         name="Compiler",
-        status=_PASS,
-        message=f"Found: {exe_path or exe}",
+        status=_FAIL,
+        message=f"unknown compiler profile {_profile!r} — no docker image",
+        fix="Run `rebrew toolchain list` for the available profiles.",
     )
 
 
@@ -626,10 +460,9 @@ def check_delphi16_toolchain(cfg: ProjectConfig) -> CheckResult:
 
 def check_toolchain_backed(cfg: ProjectConfig) -> CheckResult:
     """For docker-backed profiles, report the execution state: the docker
-    image must be built (execution is docker-only — no host wine/dosbox
-    fallback); the vendored tree is informational (it is the byte-identical
-    source the image builds from).  Native-Linux profiles (gcc-pe, watcom16)
-    skip (their binary is checked by the generic compiler check)."""
+    image must be built (execution is docker-only — no host fallback);
+    the vendored tree is informational (it is the byte-identical
+    source the image builds from)."""
     profile = str(getattr(cfg, "compiler_profile", ""))
     from rebrew.toolchain import ToolchainError, get_toolchain, image_present
 
@@ -638,9 +471,7 @@ def check_toolchain_backed(cfg: ProjectConfig) -> CheckResult:
     except ToolchainError:
         return CheckResult(name="Toolchain", status=_SKIP, message="not a toolchain-backed profile")
     if spec.image is None:
-        return CheckResult(
-            name="Toolchain", status=_SKIP, message="not a docker-backed profile (native binary)"
-        )
+        return CheckResult(name="Toolchain", status=_SKIP, message="not a docker-backed profile")
 
     image_ok = image_present(spec.image)
     host_present = spec.host_path is not None and Path(spec.host_path).exists()
@@ -682,11 +513,16 @@ def check_cache_backend(cfg: ProjectConfig) -> CheckResult:
 
 
 def check_runner(cfg: ProjectConfig) -> CheckResult:
-    """Check the execution runner.  Docker-backed profiles run through
-    their docker image (wine/wibo config is obsolete for them); native-Linux
-    profiles need no runner."""
+    """Check the execution runner: the docker image, or the recompile service.
+
+    Every profile compiles through its docker image (or the recompile
+    service when configured) — host runner config is obsolete."""
+    from rebrew.compile import recompile_url
     from rebrew.toolchain import TOOLCHAINS
 
+    remote = recompile_url(cfg)
+    if remote is not None:
+        return CheckResult(name="Runner", status=_PASS, message=f"recompile service at {remote}")
     _profile = str(getattr(cfg, "compiler_profile", ""))
     _spec = TOOLCHAINS.get(_profile) if _profile else None
     if _spec is not None and _spec.image is not None:
@@ -702,61 +538,12 @@ def check_runner(cfg: ProjectConfig) -> CheckResult:
             message=f"docker image {_spec.image} not built",
             fix=f"Run `rebrew toolchain build {_profile}`.",
         )
-
-    runner = str(getattr(cfg, "compiler_runner", "")).strip()
-    if not runner:
-        return CheckResult(
-            name="Runner", status=_PASS, message="No runner configured (native compiler)"
-        )
-
-    if Path(runner).name == "wibo":
-        # `init --install-wibo` writes a relative runner like tools/wibo —
-        # resolve it against the project root (and fall back to the shared
-        # wibo cache / PATH).
-        if shutil.which(runner):
-            return CheckResult(name="Runner", status=_PASS, message=f"{runner} found in PATH")
-        local = Path(runner) if Path(runner).is_absolute() else cfg.root / Path(runner)
-        if local.exists():
-            return CheckResult(name="Runner", status=_PASS, message=f"wibo found at {local}")
-        from rebrew.wibo import find_wibo
-
-        found = find_wibo(cfg.root)
-        if found:
-            return CheckResult(name="Runner", status=_PASS, message=f"wibo found at {found}")
-        return CheckResult(
-            name="Runner",
-            status=_WARN,
-            message="wibo not found",
-            fix=(
-                "Run 'rebrew init --install-wibo' or download manually from "
-                "https://github.com/decompals/wibo"
-            ),
-        )
-
-    if runner == "wine":
-        # Wine is the compatible default: the docker images run wine
-        # (REBREW_RUNNER defaults to wine) and wibo — while faster and
-        # headless — FAILS on some tools, so rebrew deliberately does not
-        # recommend the switch.  A wibo binary sitting around is reported
-        # as an informational note, never as a suggested change.
-        from rebrew.wibo import find_wibo
-
-        if shutil.which("wine") is not None and find_wibo(cfg.root) is not None:
-            return CheckResult(
-                name="Runner",
-                status=_PASS,
-                message=(
-                    "Wine (checked by compiler check); wibo also available in "
-                    "tools/ — wibo is faster but fails on some tools, wine "
-                    "remains the default"
-                ),
-            )
-        return CheckResult(name="Runner", status=_PASS, message="Wine (checked by compiler check)")
-
-    if shutil.which(runner):
-        return CheckResult(name="Runner", status=_PASS, message=f"{runner} found in PATH")
-
-    return CheckResult(name="Runner", status=_WARN, message=f"Unknown runner '{runner}'")
+    return CheckResult(
+        name="Runner",
+        status=_FAIL,
+        message=f"unknown compiler profile {_profile!r} — no docker image",
+        fix="Run `rebrew toolchain list` for the available profiles.",
+    )
 
 
 def _docker_toolchain_check(cfg: ProjectConfig, name: str, what: str) -> CheckResult | None:
@@ -765,9 +552,8 @@ def _docker_toolchain_check(cfg: ProjectConfig, name: str, what: str) -> CheckRe
     Execution is docker-only: the image encapsulates the compiler AND its
     include/lib trees (it is built from the vendored toolchain source), so a
     dangling host ``compiler.includes``/``compiler.libs`` path is not a
-    first-run failure — it is only meaningful for legacy native/wine/wibo
-    profiles.  Returns a CheckResult, or None when the profile is not
-    docker-backed (the caller proceeds with the host-path check).
+    first-run failure.  Returns a CheckResult, or None when the profile is
+    not docker-backed (the caller proceeds with the host-path check).
     """
     from rebrew.toolchain import TOOLCHAINS, image_present
 
@@ -1033,65 +819,10 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    install_wibo: bool = typer.Option(
-        False,
-        "--install-wibo",
-        help="Download wibo to tools/wibo if missing; no-op if already installed.",
-    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Run diagnostic checks on the rebrew project."""
-    if install_wibo:
-        from rebrew.wibo import download_wibo
-
-        cfg = require_config(target=target, json_mode=json_output)
-        wibo_path = cfg.root / "tools" / "wibo"
-        tag_name = download_wibo(wibo_path)
-        console.print(f"Downloaded wibo {tag_name} to {wibo_path}")
-
-        # Docker-backed profiles execute through their image, which runs
-        # WINE by default (REBREW_RUNNER defaults to wine; wibo is opt-in and
-        # fails on some tools).  The config runner is obsolete for them, so
-        # --install-wibo must NOT rewrite runner = "tools/wibo" — that would
-        # silently steer a docker-only project toward the less-compatible
-        # runtime the user just reported failing.  Only legacy host-runner
-        # profiles (native/wine/wibo without an image) get the rewrite.
-        from rebrew.toolchain import TOOLCHAINS
-
-        profile = str(getattr(cfg, "compiler_profile", ""))
-        spec = TOOLCHAINS.get(profile) if profile else None
-        if spec is not None and spec.image is not None:
-            console.print(
-                f"[yellow]note:[/yellow] {profile} is docker-backed — execution "
-                f"runs through image {spec.image}, which uses wine by default; "
-                "the runner config is obsolete and was left untouched (wibo "
-                "is available in tools/ for legacy profiles)"
-            )
-            return
-
-        toml_path = cfg.root / "rebrew-project.toml"
-        if toml_path.exists():
-            import re
-
-            from rebrew.utils import atomic_write_text
-
-            content = toml_path.read_text(encoding="utf-8")
-            new_content = re.sub(
-                r'(?m)^(\s*runner\s*=\s*)"[^"]*"',
-                r'\1"tools/wibo"',
-                content,
-            )
-            if new_content == content:
-                new_content = re.sub(
-                    r"(?m)^(\[compiler\]\s*\n)",
-                    r'\1runner = "tools/wibo"\n',
-                    content,
-                )
-            if new_content != content:
-                atomic_write_text(toml_path, new_content, encoding="utf-8")
-                console.print("Auto-enabled wibo in rebrew-project.toml")
-
     report = run_doctor(target=target)
 
     if json_output:
@@ -1329,7 +1060,6 @@ def check_binsync_state(cfg: ProjectConfig) -> CheckResult:
     non-git dir (the plugin workflow expects a git-versioned state), or a
     stale dir (nothing committed recently — the plugin is not relaying).
     """
-    import subprocess
 
     state = getattr(cfg, "binsync_state_dir", "") or ""
     if not state:

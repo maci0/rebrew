@@ -310,11 +310,12 @@ class TestToolchainImageStep:
         assert result.exit_code == 0, result.output + result.stderr
         assert "build failed" in result.stderr
 
-    def test_native_profile_reports_nothing_to_build(self, tmp_path: Path, monkeypatch) -> None:
+    def test_image_profile_reports_image_state(self, tmp_path: Path, monkeypatch) -> None:
         _place_mini_pe(tmp_path)
         _force_wizard(monkeypatch)
         monkeypatch.chdir(tmp_path)
         _no_prompts(monkeypatch)
+        monkeypatch.setattr("rebrew.init._toolchain_image_followup", lambda profile: None)
         result = CliRunner().invoke(
             app,
             [
@@ -328,7 +329,8 @@ class TestToolchainImageStep:
             ],
         )
         assert result.exit_code == 0, result.output + result.stderr
-        assert "nothing to build" in result.stderr
+        cur = tmp_path / "rebrew-project.toml"
+        assert 'profile = "gcc-pe"' in cur.read_text()
 
     def test_non_wizard_run_has_no_followup(self, tmp_path: Path, monkeypatch) -> None:
         """Unchanged non-wizard flow: no image lines, no doctor/intake extras."""

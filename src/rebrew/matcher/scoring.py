@@ -987,8 +987,8 @@ def code_similarity(
         # that don't exercise similarity) never pay for it.
         from rapidfuzz import fuzz
         from resembl.scoring import (
-            _minhash_from_tokens,
             code_tokenize,
+            minhash_from_tokens,
             minhash_jaccard,
             minhash_pack,
             score_hybrid,
@@ -1006,8 +1006,8 @@ def code_similarity(
         # One side has no instructions (empty/undecodable) — nothing to
         # compare structurally beyond the byte-equality fast path above.
         return 0.0 if text_a or text_b else 100.0
-    ma = _minhash_from_tokens(code_tokenize(text_a))
-    mb = _minhash_from_tokens(code_tokenize(text_b))
+    ma = minhash_from_tokens(code_tokenize(text_a))
+    mb = minhash_from_tokens(code_tokenize(text_b))
     jaccard = minhash_jaccard(minhash_pack(ma), minhash_pack(mb))
     ratio = float(fuzz.ratio(text_a, text_b))
     return float(round(score_hybrid(float(jaccard), ratio, 0.4), 1))

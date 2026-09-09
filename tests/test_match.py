@@ -18,7 +18,7 @@ def _make_ga(tmp_path: Path, **kwargs) -> BinaryMatchingGA:
     defaults = {
         "seed_source": "int f(void) { return 0; }",
         "target_bytes": b"\x55\x8b\xec\xc3",
-        "cl_cmd": "wine CL.EXE",
+        "_cl_cmd": "",
         "inc_dir": "/fake/include",
         "cflags": "/O2 /Gd",
         "symbol": "_f",
@@ -133,20 +133,10 @@ class TestBinaryMatchingGAInit:
         ga = _make_ga(tmp_path, mutation_weights=weights)
         assert ga.mutation_weights == weights
 
-    def test_compare_obj_default_true(self, tmp_path: Path) -> None:
-        """compare_obj defaults to True (OBJ-only mode)."""
+    def test_object_only_mode(self, tmp_path: Path) -> None:
+        """The GA always compares objects (linked-exe mode is retired)."""
         ga = _make_ga(tmp_path)
-        assert ga.compare_obj is True
-
-    def test_link_cmd_default_none(self, tmp_path: Path) -> None:
-        """link_cmd defaults to None (no linker-command override)."""
-        ga = _make_ga(tmp_path)
-        assert ga.link_cmd is None
-
-    def test_link_cmd_stored(self, tmp_path: Path) -> None:
-        """Custom link_cmd is stored for the linked-exe build path."""
-        ga = _make_ga(tmp_path, link_cmd="link /SUBSYSTEM:WINDOWS")
-        assert ga.link_cmd == "link /SUBSYSTEM:WINDOWS"
+        assert ga.profile == ""
 
     def test_elitism_default(self, tmp_path: Path) -> None:
         """Default elitism is 4."""
@@ -798,14 +788,12 @@ class TestResolveBuildParamsVATargeting:
         # read_source_text + parse must run; compiler env resolution can be stubbed.
         monkeypatch.setattr(
             "rebrew.match.resolve_compiler_env",
-            lambda cfg: ("wine CL.EXE", "inc", {"WINEDEBUG": "-all"}, None),
+            lambda cfg: ("inc", {"WINEDEBUG": "-all"}, None),
         )
 
         params = resolve_build_params(
             cfg,
             str(multi),
-            None,
-            None,
             None,
             None,
             "0x1000a010",
@@ -842,8 +830,6 @@ class TestResolveBuildParamsVATargeting:
                 str(multi),
                 None,
                 None,
-                None,
-                None,
                 "0x1000a010",  # not annotated in multi.c
                 None,
                 False,
@@ -866,13 +852,11 @@ class TestResolveBuildParamsVATargeting:
         monkeypatch.setattr("rebrew.match.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
         monkeypatch.setattr(
             "rebrew.match.resolve_compiler_env",
-            lambda cfg: ("wine CL.EXE", "inc", {"WINEDEBUG": "-all"}, None),
+            lambda cfg: ("inc", {"WINEDEBUG": "-all"}, None),
         )
         params = resolve_build_params(
             cfg,
             str(multi),
-            None,
-            None,
             None,
             "_exit_handler",
             "0x1000a010",  # mismatch, but symbol is explicit

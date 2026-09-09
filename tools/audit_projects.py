@@ -15,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.catalog.loaders import parse_function_list
-from rebrew.compile import resolve_cl_command
 from rebrew.config import _KNOWN_PROFILES, load_config
 from rebrew.data_metadata import load_data_metadata
 from rebrew.metadata import KNOWN_STATUSES, load_metadata
@@ -118,13 +117,20 @@ def main() -> int:
                     if issubclass(w.category, UserWarning):
                         issues.append(f"[{t}] config warn: {w.message}")
                 issues.extend(buf)
-                # Toolchain resolution
+                # Toolchain resolution: every profile compiles inside its
+                # docker image (or the recompile service) — the audit checks
+                # the image exists (or a remote URL is set), not a host path.
                 try:
-                    cmd = resolve_cl_command(cfg)
-                    if not Path(cmd[-1]).exists():
-                        issues.append(f"[{t}] CL not found: {cmd[-1]}")
+                    from rebrew.compile import recompile_url
+                    from rebrew.toolchain import TOOLCHAINS
+
+                    spec = TOOLCHAINS.get(cfg.compiler_profile)
+                    if recompile_url(cfg) is None and (spec is None or spec.image is None):
+                        issues.append(
+                            f"[{t}] unknown toolchain {cfg.compiler_profile!r} (no docker image)"
+                        )
                 except Exception as e:
-                    issues.append(f"[{t}] resolve_cl_command: {e}")
+                    issues.append(f"[{t}] toolchain resolve: {e}")
                 inc = getattr(cfg, "compiler_includes", Path())
                 if inc and not inc.exists():
                     issues.append(f"[{t}] includes missing: {inc}")

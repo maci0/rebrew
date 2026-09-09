@@ -439,7 +439,7 @@ class TestDiffCli:
         va_calls: list[str | None] = []
 
         def _resolve_build_params(
-            cfg, seed_c, cl, inc, cflags, symbol, target_va, target_size, ignore_lint, json_output
+            cfg, seed_c, cflags, symbol, target_va, target_size, ignore_lint, json_output
         ):
             va_calls.append(target_va)
             return _params()

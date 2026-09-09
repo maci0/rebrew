@@ -1124,7 +1124,7 @@ class TestSkillsDirWarning:
 
 
 class TestNativeElfToolchains:
-    """gcc/clang are native PATH specs — an ELF profile must actually compile."""
+    """gcc/clang are docker image specs — an ELF profile compiles in-container."""
 
     def test_gcc_clang_in_registry(self) -> None:
         from rebrew.toolchain import TOOLCHAINS
@@ -1132,8 +1132,7 @@ class TestNativeElfToolchains:
         for name in ("gcc", "clang"):
             spec = TOOLCHAINS.get(name)
             assert spec is not None
-            assert spec.image is None
-            assert spec.runtime == "native"
+            assert spec.image is not None
             assert spec.flags_style == "posix"
             assert spec.obj_ext == ".o"
 
@@ -1143,6 +1142,12 @@ class TestNativeElfToolchains:
 
         from rebrew.compile import compile_to_obj
         from rebrew.config import load_config
+        from rebrew.toolchain import TOOLCHAINS, image_present
+
+        spec = TOOLCHAINS[profile]
+        assert spec.image is not None
+        if not image_present(spec.image):
+            pytest.skip(f"{spec.image} image not built")
 
         (tmp_path / "rebrew-project.toml").write_text(
             f'[project]\nroot = "{tmp_path}"\ndefault_target = "T"\n'
@@ -1196,8 +1201,7 @@ class TestRefreshAll:
 
 
 class TestNativeCacheKey:
-    """Native specs must key the compile cache by their binary, not the
-    config's MSVC compiler_command (gcc vs clang would otherwise collide)."""
+    """Image specs key the compile cache by image tag — gcc vs clang never collide."""
 
     def test_gcc_and_clang_get_distinct_ids(self, tmp_path: Path) -> None:
         import warnings
@@ -1218,12 +1222,12 @@ class TestNativeCacheKey:
             from rebrew.toolchain import TOOLCHAINS
 
             spec = TOOLCHAINS[cfg.compiler_profile]
-            return f"native:{spec.binary}"
+            assert spec.image is not None
+            return spec.image
 
         k_gcc = compile_cache_key("int f(){}", "f.c", [], [], _id("gcc"))
         k_clang = compile_cache_key("int f(){}", "f.c", [], [], _id("clang"))
         assert k_gcc != k_clang
-        assert "wine" not in _id("gcc")  # not the MSVC default
 
 
 class TestSkillNameSanitization:

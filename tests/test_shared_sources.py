@@ -307,36 +307,47 @@ class TestDefinesCompile:
         args = self._run_compile(tmp_path, monkeypatch, "gcc-pe", ["V2"])
         assert "-DV2" in args
 
-    def test_matcher_raw_path_applies_defines(self, tmp_path: Path, monkeypatch) -> None:
-        """The GA's raw subprocess path (native gcc-pe) must compile with the
-        per-target defines too, or GA results diverge from verify."""
+    def test_matcher_path_applies_defines(self, tmp_path: Path, monkeypatch) -> None:
+        """The GA compile path (gcc-pe) must compile with the per-target
+        defines too, or GA results diverge from verify."""
         from rebrew.matcher.compiler import build_candidate_obj_only
 
         captured: dict[str, list[str]] = {}
         mini_obj = (Path(__file__).parent / "fixtures" / "mini.obj").read_bytes()
 
-        def _fake_run(cmd, **kw):
-            captured["cmd"] = cmd
-            import pathlib
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+            captured["args"] = args
+            (workdir / "cand.obj").write_bytes(mini_obj)
+            from rebrew.toolchain import RunResult
 
-            cwd = pathlib.Path(kw.get("cwd", "."))
-            (cwd / "cand.obj").write_bytes(mini_obj)
-            return SimpleNamespace(returncode=0, stdout="", stderr="")
+            return RunResult(0, "", "", backend="docker")
 
-        monkeypatch.setattr("rebrew.matcher.compiler.subprocess.run", _fake_run)
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
 
-        cfg = SimpleNamespace(defines=["V2"], root=tmp_path)
+        cfg = SimpleNamespace(
+            defines=["V2"],
+            root=tmp_path,
+            compiler_profile="gcc-pe",
+            compiler_includes="",
+            base_cflags="",
+            compile_timeout=3,
+            recompile_url="",
+            recompile_emit_assembly=False,
+            cache_backend="diskcache",
+        )
         build_candidate_obj_only(
             "int f(void){ return 1; }\n",
-            "i686-w64-mingw32-gcc",
+            "",
             str(tmp_path),
             "-O2",
             "_f",
             env=None,
             posix_style=True,
+            profile="gcc-pe",
             cfg=cfg,
         )
-        assert "-DV2" in captured["cmd"]
+        assert "-DV2" in captured["args"]
 
     def test_ga_cache_key_covers_defines(self) -> None:
         """The GA's per-run build cache key must change when the per-target
@@ -348,35 +359,45 @@ class TestDefinesCompile:
         k2 = _ga_cache_key(*base, defines=["V2"])
         assert k1 != k2
 
-    def test_empty_inc_dir_raw_path_compiles(self, tmp_path: Path, monkeypatch) -> None:
-        """The raw subprocess path must not emit a bare -I//I when the include
-        dir is empty (gcc-pe allows no includes) — compile.py already guards
-        this; the matcher path must too."""
+    def test_empty_inc_dir_path_compiles(self, tmp_path: Path, monkeypatch) -> None:
+        """The compile path must not emit a bare -I//I when the include
+        dir is empty (gcc-pe allows no includes)."""
         from rebrew.matcher.compiler import build_candidate_obj_only
 
         captured: dict[str, list[str]] = {}
 
-        def _fake_run(cmd, **kw):
-            captured["cmd"] = cmd
-            import pathlib
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+            captured["args"] = args
+            (workdir / "cand.obj").write_bytes(b"\x00OBJ")
+            from rebrew.toolchain import RunResult
 
-            (pathlib.Path(kw.get("cwd", ".")) / "cand.obj").write_bytes(b"\x00OBJ")
-            return SimpleNamespace(returncode=0, stdout="", stderr="")
+            return RunResult(0, "", "", backend="docker")
 
-        monkeypatch.setattr("rebrew.matcher.compiler.subprocess.run", _fake_run)
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
 
         build_candidate_obj_only(
             "int f(void){ return 1; }\n",
-            "i686-w64-mingw32-gcc",
+            "",
             "",  # empty include dir
             "-O2",
             "_f",
             posix_style=True,
             profile="gcc-pe",
-            cfg=SimpleNamespace(defines=[], root=tmp_path),
+            cfg=SimpleNamespace(
+                defines=[],
+                root=tmp_path,
+                compiler_profile="gcc-pe",
+                compiler_includes="",
+                base_cflags="",
+                compile_timeout=3,
+                recompile_url="",
+                recompile_emit_assembly=False,
+                cache_backend="diskcache",
+            ),
         )
-        assert "-I" not in captured["cmd"] or not any(
-            f == "-I" or f == "/I" for f in captured["cmd"]
+        assert "-I" not in captured["args"] or not any(
+            f == "-I" or f == "/I" for f in captured["args"]
         )
 
     def test_flag_sweep_refused_for_posix(self) -> None:
@@ -403,18 +424,22 @@ class TestDefinesCompile:
             )
 
 
-class TestGANativeEndToEnd:
-    """The full GA with a native (no-docker) toolchain — real compiles."""
+class TestGADockerEndToEnd:
+    """The full GA with a docker toolchain — real compiles."""
 
     @pytest.mark.skipif(
-        shutil.which("i686-w64-mingw32-gcc") is None,
-        reason="gcc-pe toolchain not installed",
+        shutil.which("docker") is None,
+        reason="docker not installed",
     )
     def test_ga_finds_exact_match_with_gcc_pe(self, tmp_path: Path) -> None:
         from bin_util import make_pe
 
         from rebrew.binary_loader import extract_raw_bytes
         from rebrew.match import BinaryMatchingGA
+        from rebrew.toolchain import image_present
+
+        if not image_present("rebrew/gcc:pe-win32"):
+            pytest.skip("rebrew/gcc:pe-win32 image not built")
 
         # mov eax,1; ret — the seed below compiles to exactly this.
         target = bytes.fromhex("b8 01 00 00 00 c3")
@@ -429,7 +454,7 @@ class TestGANativeEndToEnd:
             reversed_dir=tmp_path / "src" / "GAME",
             shared_dir=None,
             function_list=tmp_path / "functions.txt",
-            compiler_command="i686-w64-mingw32-gcc",
+            compiler_command="",
             compiler_profile="gcc-pe",
             base_cflags="",
             cflags="-O2",
@@ -441,7 +466,7 @@ class TestGANativeEndToEnd:
         ga = BinaryMatchingGA(
             seed_source="int f(void){ return 1; }\n",
             target_bytes=target_bytes,
-            cl_cmd="i686-w64-mingw32-gcc",
+            _cl_cmd="",
             inc_dir=str(tmp_path),
             cflags="-O2",
             symbol="_f",
@@ -455,18 +480,23 @@ class TestGANativeEndToEnd:
             cfg=cfg,
         )
         best_src, best_score = ga.run()
-        assert best_score == 0.0  # exact match found by the native toolchain
+        assert best_score == 0.0  # exact match found by the docker toolchain
 
 
 class TestVerifySharedFile:
     """verify_entry resolves a shared filepath (../shared/...) and compiles it."""
 
     @pytest.mark.skipif(
-        shutil.which("i686-w64-mingw32-gcc") is None,
-        reason="gcc-pe toolchain not installed",
+        shutil.which("docker") is None,
+        reason="docker not installed",
     )
     def test_verify_compiles_shared_function(self, tmp_path: Path) -> None:
         from bin_util import make_pe
+
+        from rebrew.toolchain import image_present
+
+        if not image_present("rebrew/gcc:pe-win32"):
+            pytest.skip("rebrew/gcc:pe-win32 image not built")
 
         F1 = bytes.fromhex("55 8b ec 8b 05 00 00 00 00 5d c3")
         binary = tmp_path / "b.exe"
@@ -480,7 +510,7 @@ class TestVerifySharedFile:
             reversed_dir=tmp_path / "src_V2",
             shared_dir=tmp_path / "src" / "shared",
             function_list=tmp_path / "functions.txt",
-            compiler_command="i686-w64-mingw32-gcc",
+            compiler_command="",
             compiler_profile="gcc-pe",
             base_cflags="",
             cflags="-O2",

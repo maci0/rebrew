@@ -1,13 +1,13 @@
 # AGENTS.md — matcher/
 
-GA engine for binary-matching decompilation. Compiles C through the docker-backed toolchain abstraction (wine lives inside the image; no host wine/wibo fallback), scores byte similarity against targets, mutates source to converge on exact matches.
+GA engine for binary-matching decompilation. Compiles C through the shared compile_to_obj runner (local docker images, or the recompile service when configured — no host compiler path), scores byte similarity against targets, mutates source to converge on exact matches.
 
 ## Module Map
 
 | Module | Role | Key Exports |
 |--------|------|-------------|
 | `core.py` | Types (pure, no logic) | `Score`, `BuildResult`, `BuildCache`, `GACheckpoint`, `StructuralSimilarity` |
-| `compiler.py` | Compilation backend | `build_candidate()`, `build_candidate_obj_only(cache=)`, `flag_sweep(cache=)`, `generate_flag_combinations()` |
+| `compiler.py` | Compilation backend | `build_candidate_obj_only(cache=)`, `flag_sweep(cache=)`, `generate_flag_combinations()` |
 | `scoring.py` | Binary comparison (pure) | `score_candidate()`, `diff_functions()`, `structural_similarity()` |
 | `mutator.py` | C mutations (pure) | `mutate_code()`, `mutate_chain()`, `MutationLog`, `crossover()`, `compute_population_diversity()`, 119 `mut_*` operators |
 | `parsers.py` | Object parsing (read-only) | `parse_obj_symbol_bytes()`, `list_obj_symbols()`, `extract_function_from_binary()` |
@@ -44,7 +44,7 @@ Minimal coupling — each module largely independent. `compiler.py` orchestrates
 ## Data Flow
 
 ```
-Source (.c) ──→ compiler.build_candidate()
+Source (.c) ──→ compiler.build_candidate_obj_only()
                   ├─ Check cache (if cache=, SHA-256 keyed)
                   ├─ Write temp dir (on miss)
                   ├─ Run compiler inside the docker image (60s timeout)
@@ -118,12 +118,11 @@ callable joins `ALL_MUTATIONS` at import; a duplicate name raises
 
 ## Consumers
 
-- **`match.py`** — Single-function GA CLI; imports `BuildCache`, `build_candidate`, `score_candidate`, `mutate_code`, `crossover`, `diff_functions`, `structural_similarity` + `flag_sweep` from `compiler.py` for batch (`--all`).
+- **`match.py`** — Single-function GA CLI; imports `BuildCache`, `build_candidate_obj_only`, `score_candidate`, `mutate_code`, `crossover`, `diff_functions`, `structural_similarity` + `flag_sweep` from `compiler.py` for batch (`--all`).
 
 ## Gotchas
 
-- **Profile-parametrized sweep**: `generate_flag_combinations(tier=, profile=)` picks the flag set per profile (`msvc6` default; `watcom`/`watcom16`, `msvc1.52`, `tc16`/`borlandc55` tiers) and `build_candidate()` resolves the docker image via the toolchain abstraction — no host wine.
+- **Profile-parametrized sweep**: `generate_flag_combinations(tier=, profile=)` picks the flag set per profile (`msvc6` default; `watcom`/`watcom16`, `msvc1.52`, `tc16`/`borlandc55` tiers) and `build_candidate_obj_only()` routes through compile_to_obj — no host compiler.
 - **Heuristic reloc/register detection**: `scoring.py` zeros reloc slots / masks register diffs via pattern matching, not COFF metadata.
-- **60s timeout**: `build_candidate()` kills hung compilers → `BuildResult(ok=False)`, never raises.
-- **Wine stderr**: `compiler.py` calls `rebrew.compile.filter_wine_stderr()` via lazy import (avoids cycle).
+- **60s timeout**: `build_candidate_obj_only()` kills hung compilers → `BuildResult(ok=False)`, never raises.
 - **No global state**: each GA run owns its `BuildCache`, `Random`, and temp dirs — safe for concurrent invocations.

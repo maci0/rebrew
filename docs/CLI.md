@@ -71,8 +71,8 @@ for `--compare` (not “better than EXACT”).
 | `rebrew crt-match` | `crt_match.py` | CRT source cross-reference matcher (index, match, ASM detection) |
 | `rebrew data` | `data.py` | Global data scanner for .data/.rdata/.bss; `--bss` layout verification; `--dispatch` vtable detection |
 | `rebrew graph` | `depgraph.py` | Function dependency graph (mermaid, DOT, summary); `--cu-map` infers compilation unit boundaries |
-| `rebrew doctor` | `doctor.py` | Diagnostic checks for project health (config, compiler, binary, paths); Delphi 1.0 toolchain readiness for 16-bit targets; `--install-wibo`; `--json` |
-| `rebrew toolchain` | `toolchain_cli.py` | Standardized toolchain management (`list`, `status`, `detect`, `pull`, `build`, `vendor`, `smoke`, `check-updates`, `update`) — docker-only execution for Windows/DOS toolchains |
+| `rebrew doctor` | `doctor.py` | Diagnostic checks for project health (config, compiler, binary, paths); Delphi 1.0 toolchain readiness for 16-bit targets; `--json` |
+| `rebrew toolchain` | `toolchain_cli.py` | Standardized toolchain management (`list`, `status`, `detect`, `pull`, `build`, `vendor`, `smoke`, `check-updates`, `update`) — docker-only execution for every toolchain |
 | `rebrew library` | `library.py` | Per-library toolchain/flags overrides (`set`/`show`/`list`/`rm` — writes/reads `rebrew-libraries.toml`, walk-up from any function dir; `list` enumerates every override under a project root; `--preset` fills known shipped-library settings like `msvcrt-static`) |
 | `rebrew binsync-export` | `binsync_export.py` | Export source markers and metadata to BinSync state directory (prototype, STATUS/CFLAGS, globals with real types, structs with fields; `--module`, `--git`) |
 | `rebrew binsync-import` | `binsync_import.py` | Import a BinSync state directory into rebrew metadata (names, prototypes, globals; `--accept-binsync`/`--accept-local`, `--module`) |
@@ -154,8 +154,6 @@ skills.
 
 | Flag | Description |
 |------|-------------|
-| `--cl COMMAND` | CL.EXE command (auto from config) |
-| `--inc DIR` | Include dir (auto from config) |
 | `--cflags FLAGS` | Compiler flags (auto from source) |
 | `--symbol NAME` | Symbol to match (auto from source) |
 | `--va HEX` | Target VA hex (auto from source) |
@@ -166,13 +164,9 @@ skills.
 | `--pop-size N` | GA population size (default 64) |
 | `-j N` | Parallel compilation workers |
 | `--out-dir DIR` | Output directory for GA results |
-| `--compare-obj` / `--no-compare-obj` | Use object comparison instead of full link (default: true) |
 | `--extra-seed FILE` | Extra `.c` file(s) to seed GA population from solved functions |
 | `--no-seed` | Disable cross-function solution seeding |
 | `--mutation-focus CAT` | Bias GA mutation selection: `register` / `equivalent` / `structural`, or `auto` (derives the category from the function's BLOCKER metadata; single-function only) — the category's suggested operators get 6x selection weight |
-| `--cl COMMAND` | CL.EXE command (auto from rebrew-project.toml) |
-| `--lib DIR` | Lib dir (for non-obj comparison) |
-| `--ldflags FLAGS` | Linker flags (for non-obj comparison) |
 | `--flag-sweep-only` | Exhaustive flag-combination sweep; skip GA (**MSVC-only** — posix profiles like gcc-pe refuse with a clear error) |
 | `--sweep-toolchain` | Try each vendored MSVC toolchain (the full 4.0→7.0 line: 6.0-sp3/sp6, 7.0, 4.2, 5.0, 4.0); combine with `--flag-sweep-only` to flag-sweep with each toolchain ("which MSVC version + flags built this function?" — the combined mode reports the best flags per toolchain) |
 | `--tier NAME` | Flag-sweep tier: `quick`, `targeted` (default), `normal`, `thorough`, `full` — see [FLAG_SWEEP_TIERS.md](FLAG_SWEEP_TIERS.md) |
@@ -385,20 +379,16 @@ Output prefixes for unambiguous parsing:
 
 | Flag | Description |
 |------|-------------|
-| `--install-wibo` | Auto-download wibo (lightweight Wine alternative for Linux) |
 | `--json` | Output results as JSON |
 
 Checks: project toml, target binary, arch/format, toolchain alignment
-(diec → PDB → heuristics), CRT linkage, optimization level, compiler +
-CL.EXE reachability, runner, include/lib paths, function list, source dirs,
-FLIRT signatures, Ghidra sync, optional tools (angr/claripy), and metadata
-files.  `rebrew doctor` is environment health only — source-corpus checks
-(annotation markers, VA-vs-function-list consistency) live in
-`rebrew lint`.  16-bit-only checks (e.g. Delphi 1.0) only appear on
-x86_16 targets.
-The **Runner** check also flags a `wine`-configured project that has wibo
-available, with the exact config switch (`runner = "tools/wibo"` + strip
-the `wine ` prefix) for faster headless compiles.
+(diec → PDB → heuristics), CRT linkage, optimization level, compiler image
+(or recompile service) reachability, include/lib paths, function list,
+source dirs, FLIRT signatures, Ghidra sync, optional tools
+(angr/claripy), and metadata files.  `rebrew doctor` is environment health
+only — source-corpus checks (annotation markers, VA-vs-function-list
+consistency) live in `rebrew lint`.  16-bit-only checks (e.g. Delphi 1.0)
+only appear on x86_16 targets.
 
 ### `rebrew data`
 

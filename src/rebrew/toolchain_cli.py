@@ -82,8 +82,6 @@ def status_cmd(
     Execution is docker-only for every Windows/DOS toolchain, so the image
     state is the primary signal; the vendored tree is informational (it is
     the byte-identical source the image builds from)."""
-    import shutil
-
     from rebrew.toolchain import get_toolchain, vendored_binary
 
     spec = get_toolchain(name)
@@ -99,10 +97,6 @@ def status_cmd(
                 resolved_cmd = str(hit)
         except Exception:
             host_ok = False
-    elif spec.image is None:
-        # Native-Linux toolchains (gcc-pe, watcom16 wcc) exec their binary
-        # directly — that IS the execution path.
-        host_ok = shutil.which(spec.binary) is not None
     image_ok: bool | None = None
     if spec.image is not None and docker_available():
         r = __import__("subprocess").run(
@@ -447,21 +441,21 @@ _SMOKE_GOLDEN: dict[
         "t.c",
         (4, 8),
     ),  # COFF TimeDateStamp — identical masked object to msvc420 (same
-    # compiler lineage; cross-validates both goldens) (host-only — wine)
+    # compiler lineage; cross-validates both goldens)
     "msvc420": (
         ["/c", "t.c"],
         "t.obj",
         "d420f2d9626c270866ba1d1d718a19cd39a59d07c8fe9d2999bde3ffd4bd9f4a",
         "t.c",
         (4, 8),
-    ),  # COFF TimeDateStamp (host-only — wine runner, see smoke_cmd)
+    ),  # COFF TimeDateStamp
     "msvc5": (
         ["/c", "t.c"],
         "t.obj",
         "3fdf875c176b0abc8614f7208053d0b53193e73466f0c52c3cabc80a065dc897",
         "t.c",
         (4, 8),
-    ),  # COFF TimeDateStamp (host-only — wine runner, see smoke_cmd)
+    ),  # COFF TimeDateStamp
     "msvc6": (
         ["/c", "t.c"],
         "t.obj",
@@ -671,7 +665,7 @@ _SMOKE_GOLDEN: dict[
         "c44434a24aa1c6dbb36fe3a0a203992f79ea6e11cd95233da66e968ed4111acd",
         "t.c",
         None,  # wcc embeds the source path (fixed /tmp/rebrew-smoke) but no
-        # timestamp — fixed-workdir runs are byte-identical (host-only).
+        # timestamp — fixed-workdir runs are byte-identical.
     ),
     "delphi16": (
         ["hello.dpr"],
@@ -756,61 +750,45 @@ def smoke_cmd(
     try:
         for tool in targets:
             spec = get_toolchain(tool)
-            if spec.image is None and spec.host_path is None:
-                results[tool] = "skip (no image, no vendored host tree)"
+            if spec.image is None:
+                results[tool] = "skip (no image)"
                 continue
             flags, out_name, golden, src_name, mask = _SMOKE_GOLDEN[tool]
             src = _SMOKE_SOURCE if src_name == "t.c" else _SMOKE_DPR
             src_path = workdir / src_name
             src_path.write_text(src, encoding="utf-8")
             os.utime(src_path, (_SDE, _SDE))
-            if spec.image is not None:
-                container = f"rebrew-smoke-{spec.name}-{tool}"
-                try:
-                    r = subprocess.run(
-                        [
-                            container_runtime(),
-                            "run",
-                            "--rm",
-                            "--network=none",  # compile-only container
-                            # Named so the timeout path can kill it (a killed
-                            # docker CLI leaves the container under dockerd).
-                            "--name",
-                            container,
-                            "-v",
-                            f"{workdir}:/work",
-                            "-w",
-                            "/work",
-                            spec.image,
-                            *flags,
-                        ],
-                        capture_output=True,
-                        text=True,
-                        timeout=300,
-                    )
-                except subprocess.TimeoutExpired:
-                    from rebrew.toolchain import kill_container
+            container = f"rebrew-smoke-{spec.name}-{tool}"
+            try:
+                r = subprocess.run(
+                    [
+                        container_runtime(),
+                        "run",
+                        "--rm",
+                        "--network=none",  # compile-only container
+                        # Named so the timeout path can kill it (a killed
+                        # docker CLI leaves the container under dockerd).
+                        "--name",
+                        container,
+                        "-v",
+                        f"{workdir}:/work",
+                        "-w",
+                        "/work",
+                        spec.image,
+                        *flags,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
+            except subprocess.TimeoutExpired:
+                from rebrew.toolchain import kill_container
 
-                    kill_container(container)
-                    results[tool] = "FAIL (docker run timed out after 300s)"
-                    ok = False
-                    continue
-                detail = (r.stdout + r.stderr)[-120:].strip()
-            else:
-                # Host-only vendored toolchain (msvc420/msvc5 under wine, watcom16
-                # native wcc): gate its reproducibility through the uniform host
-                # runner (resolves the vendored binary, sets the wine env).  The
-                # same fixed-workdir + fixed-mtime determinism contract applies —
-                # previously these had NO reproducibility gate at all.
-                from rebrew.toolchain import ToolchainError, run_toolchain
-
-                try:
-                    rr = run_toolchain(spec, flags, workdir=workdir, timeout=300)
-                    detail = (rr.stdout + rr.stderr)[-120:].strip()
-                except ToolchainError as exc:
-                    results[tool] = "FAIL (" + str(exc)[-120:] + ")"
-                    ok = False
-                    continue
+                kill_container(container)
+                results[tool] = "FAIL (docker run timed out after 300s)"
+                ok = False
+                continue
+            detail = (r.stdout + r.stderr)[-120:].strip()
             obj = workdir / out_name
             if not obj.exists():
                 results[tool] = "FAIL (no object: " + detail + ")"

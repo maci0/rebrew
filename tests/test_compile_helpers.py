@@ -1,9 +1,9 @@
-"""Tests for compile.py pure helpers — CL command resolution and include flags."""
+"""Tests for compile.py pure helpers — backend selection and include flags."""
 
 from pathlib import Path
 from types import SimpleNamespace
 
-from rebrew.compile import resolve_cl_command, resolve_include_flags
+from rebrew.compile import recompile_url, resolve_include_flags
 
 
 def _cfg(root: Path, **overrides: object) -> SimpleNamespace:
@@ -14,28 +14,6 @@ def _cfg(root: Path, **overrides: object) -> SimpleNamespace:
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
-
-
-class TestResolveClCommand:
-    def test_wine_detected_and_stripped(self, tmp_path: Path) -> None:
-        cmd = resolve_cl_command(_cfg(tmp_path))
-        # The runner is stripped from the CL path and re-prepended.
-        assert cmd == ["wine", str(tmp_path / "tools" / "CL.EXE")]
-
-    def test_explicit_runner_stripped(self, tmp_path: Path) -> None:
-        cfg = _cfg(tmp_path, compiler_command="wibo /vc/CL.EXE", compiler_runner="wibo")
-        cmd = resolve_cl_command(cfg)
-        assert cmd == ["wibo", "/vc/CL.EXE"]
-
-    def test_absolute_cl_path(self, tmp_path: Path) -> None:
-        cfg = _cfg(tmp_path, compiler_command="wine /abs/CL.EXE")
-        cmd = resolve_cl_command(cfg)
-        assert cmd == ["wine", "/abs/CL.EXE"]
-
-    def test_no_runner_flags_preserved(self, tmp_path: Path) -> None:
-        cfg = _cfg(tmp_path, compiler_command="wine tools/CL.EXE /nologo /c")
-        cmd = resolve_cl_command(cfg)
-        assert cmd == ["wine", str(tmp_path / "tools" / "CL.EXE"), "/nologo", "/c"]
 
 
 class TestResolveIncludeFlags:
@@ -70,7 +48,7 @@ class TestResolveIncludeFlags:
         assert out == [f"-I{inc.resolve()}"]
 
     def test_two_token_space_separated(self, tmp_path: Path) -> None:
-        """ "/I ../Units" (split by shlex into two tokens) must merge into
+        """/I ../Units (split by shlex into two tokens) must merge into
         one resolved include flag instead of corrupting the bare /I.
         The next token may carry a trailing comma separator (/I,<dir>)."""
         src_parent = tmp_path / "src"
@@ -107,8 +85,6 @@ class TestResolveCompilerEnv:
         cl.touch()
         cfg = SimpleNamespace(
             root=tmp_path,
-            compiler_command="wine tools/CL.EXE",
-            compiler_runner="",
             compiler_includes="inc",
             metadata_dir=tmp_path,
         )
@@ -117,9 +93,7 @@ class TestResolveCompilerEnv:
         monkeypatch.setattr(
             "rebrew.compile.get_compile_cache", lambda root, backend="diskcache": None
         )
-        cl_cmd, inc_dir, env, cc = resolve_compiler_env(cfg)
-        assert str(cl) in cl_cmd  # existing relative path root-prefixed
-        assert "wine" in cl_cmd
+        inc_dir, env, cc = resolve_compiler_env(cfg)
         assert inc_dir == str(tmp_path / "inc")  # existing include dir resolved
         assert env == {"X": "1"}
         assert cc is None
@@ -129,64 +103,142 @@ class TestResolveCompilerEnv:
 
         cfg = SimpleNamespace(
             root=tmp_path,
-            compiler_command="",
-            compiler_runner="",
             compiler_includes="missing_inc",
             metadata_dir=tmp_path,
         )
-        monkeypatch.setattr("rebrew.compile.resolve_cl_command", lambda cfg: ["cl"])
         monkeypatch.setattr("rebrew.compile.msvc_env_from_config", lambda cfg: {})
         monkeypatch.setattr(
             "rebrew.compile.get_compile_cache", lambda root, backend="diskcache": None
         )
-        cl_cmd, inc_dir, env, cc = resolve_compiler_env(cfg)
-        assert cl_cmd == "cl"  # empty command falls back to resolve_cl_command
+        inc_dir, env, cc = resolve_compiler_env(cfg)
         assert inc_dir == "missing_inc"  # non-existent include stays as-is
         assert cc is None
 
 
-class TestNativeToolchainId:
-    """The native compile-cache toolchain id tracks the resolved binary.
+class TestRemoteToolchainId:
+    """A remote compile never shares a cache entry with a local compile.
 
-    Image specs key on the docker content digest; a host compiler has no
-    image, so its resolved path's (mtime, size) must stand in for identity —
-    a compiler upgrade must never serve objects cached from the old binary.
+    The recompile service may run a different image build than local
+    docker, so the cache id pins the backend (URL + toolchain name), not
+    just the image tag.
     """
 
-    def _spec(self, binary: str) -> SimpleNamespace:
-        return SimpleNamespace(binary=binary)
+    def _cfg(self, tmp_path: Path, url: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            root=tmp_path,
+            compiler_profile="msvc6",
+            compiler_command="",
+            compiler_runner="",
+            compiler_includes=tmp_path,
+            base_cflags="",
+            compile_timeout=3,
+            defines=[],
+            recompile_url=url,
+            recompile_emit_assembly=False,
+            cache_backend="diskcache",
+        )
 
-    def test_real_binary_gets_stat_suffix(self) -> None:
-        from rebrew.compile import _native_binary_cache, _native_toolchain_id
+    def _source(self, tmp_path: Path) -> Path:
+        src_dir = tmp_path / "src"
+        src_dir.mkdir(exist_ok=True)
+        source = src_dir / "f.c"
+        source.write_text("int f(void){return 1;}\n", encoding="utf-8")
+        return source
 
-        _native_binary_cache.clear()
-        tid = _native_toolchain_id(self._spec("sh"))
-        assert tid.startswith("native:sh@")
-        assert "." in tid  # mtime.size suffix
+    def test_backend_switch_changes_key(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.compile import compile_cache_key
 
-    def test_missing_binary_falls_back(self, monkeypatch) -> None:
-        from rebrew.compile import _native_binary_cache, _native_toolchain_id
+        url = "http://localhost:8000"
+        assert recompile_url(self._cfg(tmp_path, url)) == url
+        assert recompile_url(self._cfg(tmp_path, "")) is None
+        local_id = "rebrew/msvc:6.0-win32"
+        remote_id = f"recompile:{url}/msvc6"
+        assert local_id != remote_id
+        key_local = compile_cache_key(
+            source_content="int f(void){return 1;}\n",
+            source_filename="f.c",
+            cflags=["/c"],
+            include_dirs=[str(tmp_path)],
+            toolchain_id=local_id,
+            source_ext=".c",
+            source_dir=str(tmp_path),
+        )
+        key_remote = compile_cache_key(
+            source_content="int f(void){return 1;}\n",
+            source_filename="f.c",
+            cflags=["/c"],
+            include_dirs=[str(tmp_path)],
+            toolchain_id=remote_id,
+            source_ext=".c",
+            source_dir=str(tmp_path),
+        )
+        assert key_local != key_remote
 
-        _native_binary_cache.clear()
-        monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: None)
-        assert _native_toolchain_id(self._spec("no-such-compiler")) == "native:no-such-compiler"
+    def test_remote_compile_posts_source(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.compile import compile_to_obj
+        from rebrew.recompile_client import RecompileResult
 
-    def test_binary_upgrade_changes_id(self, tmp_path: Path, monkeypatch) -> None:
-        """Two different binaries under the same name must not share an id."""
-        import os
+        seen: dict = {}
 
-        from rebrew.compile import _native_binary_cache, _native_toolchain_id
+        def _fake_compile(base_url, compiler, source, flags, **kwargs):
+            seen["url"] = base_url
+            seen["compiler"] = compiler
+            seen["source"] = source
+            seen["flags"] = flags
+            return RecompileResult(ok=True, obj_bytes=b"\x00obj")
 
-        gcc = tmp_path / "gcc"
-        gcc.write_bytes(b"#!/bin/sh\nexit 0\n")
-        gcc.chmod(0o755)
-        os.utime(gcc, (1767225600, 1767225600))  # fixed old mtime
-        monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: str(gcc))
-        _native_binary_cache.clear()
-        id_old = _native_toolchain_id(self._spec("gcc-pe"))
-        # "Upgrade": same path, new content + a later mtime.
-        gcc.write_bytes(b"#!/bin/sh\nexit 0\n# newer compiler\n")
-        os.utime(gcc, (1767226000, 1767226000))
-        _native_binary_cache.clear()
-        id_new = _native_toolchain_id(self._spec("gcc-pe"))
-        assert id_old != id_new
+        monkeypatch.setattr("rebrew.recompile_client.compile_source", _fake_compile)
+        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+        source = self._source(tmp_path)
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+        obj_path, err = compile_to_obj(
+            self._cfg(tmp_path, "http://localhost:8000"), source, ["/O2"], workdir
+        )
+        assert err == ""
+        assert obj_path is not None
+        assert Path(obj_path).read_bytes() == b"\x00obj"
+        assert seen["compiler"] == "msvc6"
+        assert "return 1" in seen["source"]
+        assert "/O2" in seen["flags"]
+
+    def test_remote_failure_surfaces_log(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.compile import compile_to_obj
+        from rebrew.recompile_client import RecompileResult
+
+        def _fake_compile(base_url, compiler, source, flags, **kwargs):
+            return RecompileResult(ok=False, log="C1083: cannot open source")
+
+        monkeypatch.setattr("rebrew.recompile_client.compile_source", _fake_compile)
+        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+        source = self._source(tmp_path)
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+        obj_path, err = compile_to_obj(
+            self._cfg(tmp_path, "http://localhost:8000"), source, ["/O2"], workdir
+        )
+        assert obj_path is None
+        assert "C1083" in err
+
+    def test_remote_error_maps_to_message(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.compile import compile_to_obj
+        from rebrew.recompile_client import RecompileError
+
+        def _fake_compile(base_url, compiler, source, flags, **kwargs):
+            raise RecompileError("connection refused")
+
+        monkeypatch.setattr("rebrew.recompile_client.compile_source", _fake_compile)
+        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+        source = self._source(tmp_path)
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+        obj_path, err = compile_to_obj(
+            self._cfg(tmp_path, "http://localhost:8000"), source, ["/O2"], workdir
+        )
+        assert obj_path is None
+        assert "recompile service error" in err
+
+    def test_env_url_selects_remote(self, tmp_path: Path, monkeypatch) -> None:
+
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://remote:9000")
+        assert recompile_url(self._cfg(tmp_path, "")) == "http://remote:9000"

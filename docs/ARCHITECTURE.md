@@ -2,7 +2,7 @@
 
 Compiler-in-the-loop decompilation workbench for binary-matching game
 reversing. C source is compiled in a pinned toolchain docker image
-(MSVC6 runs wine inside its image; there is no host wine/wibo path),
+(MSVC6 runs wine inside its image; there is no host compiler path),
 byte-compared against a target binary's functions, and the result drives
 STATUS promotion and the GA matching engine.
 
@@ -82,14 +82,14 @@ flowchart LR
 | `rebrew/delphi16.py` | Delphi 1.0 (16-bit) compile support — headless DOSBox sandbox + NE parse (ADR-001 foundation) |
 | `rebrew/msvc16.py` | MSVC 1.52 (16-bit) compile support — DOSBox + 16-bit OMF objects |
 | `rebrew/dosbox.py` | Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads) |
-| `rebrew/toolchain.py` | Toolchain abstraction: spec registry, docker-only runner (images for Windows/DOS, native for Linux compilers) |
+| `rebrew/toolchain.py` | Toolchain abstraction: spec registry, docker-only runner (every toolchain compiles inside its image) |
+| `rebrew/toolchain_cli.py` | `rebrew toolchain` CLI (`list`/`status`/`detect`/`pull`/`build`/`vendor`/`smoke`/`update`/`check-updates`) |
+| `rebrew/recompile_client.py` | HTTP client for the recompile compile service (`POST /api/v1/compile` + artifact download; opt-in `emit_assembly` training tap) |
 | `rebrew/toolchain_cli.py` | `rebrew toolchain` CLI (`list`/`status`/`detect`/`pull`/`build`/`vendor`/`smoke`/`update`/`check-updates`) |
 | `rebrew/round_trip.py` | Splice matched functions back into the target PE, verify byte equality |
 | `rebrew/similar.py` | Structural clone detection (mnemonic-histogram similarity) |
 | `rebrew/near_diag.py` | NEAR_MATCHING delta classification (register/reloc/structural buckets) |
-| `rebrew/headless.py` | Persistent per-process Xvfb for headless wine compiles (no window, no DISPLAY needed) |
 | `rebrew/toolchain_detect.py` | Layered compiler-family detector: Detect It Easy (diec) → PDB → codegen heuristics; feeds init's CRT/opt seeding and doctor's alignment check |
-| `rebrew/wibo.py` | Auto-download + SHA256-verify the wibo runner (fast headless wine alternative) |
 | `rebrew/binsync_export.py` / `binsync_import.py` / `binsync_diff.py` | BinSync state export/import/diff (TOML-based, no libbs dependency) |
 | `rebrew/blocker.py` | Programmatic BLOCKER writer — `rebrew blocker set/clear/show` (by file/VA/symbol; every write locked + atomic) |
 | `rebrew/document_unmatched.py` | STUB skeleton + BLOCKER writer for unmatched functions (standalone intake document step) |
