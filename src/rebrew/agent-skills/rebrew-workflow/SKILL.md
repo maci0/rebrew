@@ -79,12 +79,16 @@ unfamiliar — it is read-only and cheap (no compilation).
 > rebrew crt-match 0x<VA> --json      # reference-source match (CRT, zlib)
 > ```
 >
-> Neither is conclusive on its own. FLIRT depends on prebuilt signatures, and
-> a signature set generated from a different library build will miss real
-> matches. When a whole cluster of functions looks like runtime code, compare
-> **bytes** against the library actually being linked, ignoring each object's
-> relocation slots: whatever is identical outside those slots is library code.
-> Mark it `// LIBRARY:` and move on.
+> A miss is inconclusive, not a verdict of "target code". FLIRT matches short
+> byte patterns against prebuilt signatures, so a signature set generated from
+> a different library build misses real matches: on one MSVC 6 project it
+> identified 9 of the 68 CRT functions actually present.
+>
+> When a whole cluster of functions looks like runtime code, settle it by
+> comparing **whole function bodies** against the library actually being
+> linked, with each object's relocation slots masked out: whatever is
+> identical outside those slots is library code. Mark it `// LIBRARY:` and
+> move on.
 
 ## 2. Generate Skeleton
 
