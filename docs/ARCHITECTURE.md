@@ -67,7 +67,7 @@ flowchart LR
 |---|---|
 | `rebrew/` top-level tools | One CLI command each (`test`, `verify`, `diff`, `match`, `lint`, `data`, `status`, `todo`, …), registered in `main.py` |
 | `rebrew/intake.py` | One-shot binary onboarding: init + toolchain detect (diec → PDB → heuristics) + rizin function enumeration + STUB/blocker documentation |
-| `rebrew/main.py` | Umbrella CLI. Flat `app.command()` for single-command modules, `app.add_typer()` for multi-command (`cfg`, `cache`, `extract`, `skills`, `resource`, `library`, `toolchain`) |
+| `rebrew/main.py` | Umbrella CLI. Flat `app.command()` for single-command modules, `app.add_typer()` for multi-command (`blocker`, `orphans`, `types`, `cfg`, `cache`, `extract`, `skills`, `resource`, `library`, `toolchain`) |
 | `rebrew/cli.py` | Shared options/helpers: `TargetOption`, `require_config`, `iter_annotations`, `error_exit`, `json_print`, exit codes |
 | `rebrew/sources.py` | Source-tree discovery: `source_exts`, `source_glob`, `target_marker`, `iter_sources`, `iter_library_headers` (pure pathlib/config logic, importable by library modules) |
 | `rebrew/config.py` | `ProjectConfig` dataclass + `rebrew-project.toml` loader (multi-target) |
@@ -75,7 +75,7 @@ flowchart LR
 | `rebrew/metadata.py` | `rebrew-functions.toml` store + routing (`METADATA_FIELDS`, `update_source_status` / `update_field` / `remove_field`); typed facade in `metadata_model.py` (`MetadataEntry`) |
 | `rebrew/compile.py` | Compile (docker image or native backend) + compare → `CompareResult` |
 | `rebrew/binary_loader.py` | PE/ELF/Mach-O loading via LIEF → `BinaryInfo` (sections, VAs, raw bytes) |
-| `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (119 tree-sitter mutations), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
+| `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (121 tree-sitter mutations), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
 | `rebrew/catalog/` | Function registry, coverage grid (`grid.py`), `data_*.json` export, `coverage.db` schema consumers |
 | `rebrew/ghidra/` | ReVa MCP sync: push/pull structs, signatures, renames, size-sync |
 | `rebrew/core/` | Relocation-aware byte comparison, MSVC env setup |
@@ -122,7 +122,8 @@ flowchart LR
 ## Metadata routing rules (file-only vs metadata-only)
 
 - **metadata-owned**: STATUS, SIZE, CFLAGS, TOOLCHAIN, BLOCKER, BLOCKER_DELTA,
-  NOTE, GHIDRA, ANALYSIS, SKIP, GLOBALS, SOURCE, PROVE_CONSTRAINTS — live in
+  NOTE, GHIDRA, ANALYSIS, SKIP, GLOBALS, SOURCE, PROVE_CONSTRAINTS,
+  UPDATED_BY, UPDATED_AT (STATUS-write provenance) — live in
   `rebrew-functions.toml`; inline use fires lint W019.
 - **file-only**: MARKER, VA, MODULE, SYMBOL — live in the `.c` block.
 - **legacy**: ORIGIN (derived from module), SECTION (owned by

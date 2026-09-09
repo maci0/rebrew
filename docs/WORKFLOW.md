@@ -208,17 +208,20 @@ implementations, STATUS is promoted to `PROVEN`.
 > Functions with heavy floating-point math or complex loops may time out.
 
 > [!CAUTION]
-> **PROVEN is sticky.** `rebrew test` / `rebrew verify` will never silently demote
-> a PROVEN function, even after you edit its source so it no longer matches — the
-> status stays PROVEN until you deliberately reclassify it. To demote a stale
-> PROVEN to its actual byte-compare result (e.g. STUB or NEAR_MATCHING):
+> **PROVEN is sticky — with one automatic exception.** `rebrew test` /
+> `rebrew verify` never silently demote a PROVEN function whose byte result is
+> one a proven function legitimately produces (NEAR_MATCHING, SIZE_MISMATCH).
+> But a PROVEN claim the compile cannot support (STUB, COMPILE_ERROR,
+> EXTRACT_ERROR, MISSING_FILE — the source no longer contains the proven
+> code) is void: verify demotes it to the real byte result with a
+> `metadata: warning`, once. To demote any other stale PROVEN:
 >
 > ```bash
 > rebrew test src/target_name/my_func.c --force-status
 > ```
 >
-> This is the only intended remedy — it forces the STATUS update from a sticky
-> status, so use it deliberately per function.
+> This is the intended manual remedy — it forces the STATUS update from a
+> sticky status, so use it deliberately per function.
 
 ### 10. Verify STATUS is current
 
@@ -226,9 +229,10 @@ implementations, STATUS is promoted to `PROVEN`.
 rebrew verify  # recompiles all tracked functions; auto-updates any drifted STATUS
 ```
 
-`verify` promotes and corrects drifted statuses but respects sticky PROVEN
-(see section 9) — a stale PROVEN surfaces as a failure in the report while its
-metadata stays PROVEN until you demote it with
+`verify` promotes and corrects drifted statuses. It respects sticky PROVEN
+over legitimate byte states (NEAR_MATCHING, SIZE_MISMATCH) but auto-demotes
+void claims (STUB, COMPILE_ERROR, EXTRACT_ERROR, MISSING_FILE — see
+section 9); any other stale PROVEN is demoted with
 `rebrew test <file> --force-status`.
 
 ### 11. Lint and verify source marker health

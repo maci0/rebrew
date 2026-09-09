@@ -65,17 +65,11 @@ and recommendation. Statuses: **IMPLEMENT** (well-scoped, existing deps),
 ### #25 — `rebrew prove` memory side effects (watched VAs)
 
 - **Status:** Sub-part 1 (EDX:EAX pair check) is **already implemented and
-  tested** (this audit, 2026-08-07): `prove_equivalence(check_edx=...)`
-  (`prove.py:547`), auto-enabled for 64-bit return types (`prove.py:600`),
-  `--check-edx` CLI flag, tests `test_identical_blobs_check_edx_proven` /
-  `test_64bit_prototype_auto_enables_edx`. The IDEAS.md note predates this.
-- **Remaining:** Sub-part 2 — **watched-VA memory comparison**. `prove.py:841`
-  carries `TODO(E9 v2): also compare selected memory writes. Today we only
-  check ...`. Plan: thread a small watched-VA list through
-  `prove_equivalence` and compare `state.memory.load(va, 4)` across the
-  orig/comp state pairs for each watched address (user-supplied via
-  `prove_constraints` metadata or a `--watch-va` flag; keep the list small to
-  avoid Z3 blowup).
+  tested**: `prove_equivalence` (`prove.py:799`), auto-enabled for 64-bit
+  return types (`prove.py:873`), `--check-edx` CLI flag.
+- **Remaining:** Sub-part 2 — **watched-VA memory comparison** — has since
+  shipped as `--watch-va` (`prove.py:1239`) plus
+  `prove_constraints.watched_vas` (`prove.py:1672`).
 - **Effort:** Medium (1–2 days).
 - **Recommendation:** **IMPLEMENT** (sub-part 2 only).
 

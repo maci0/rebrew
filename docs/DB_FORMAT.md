@@ -68,7 +68,7 @@ Stores details regarding decompiled and original functions.
 | `blocker` | `TEXT` | Blocker description (e.g. "needs vtable", "missing struct"). Empty string if none. |
 | `blockerDelta` | `INTEGER` | Byte difference from target when blocker is set. NULL if no blocker. |
 | `size_reason` | `TEXT` | Explanation of how canonical size was determined (e.g. "ghidra", "list", "annotation"). Empty string if unknown. |
-| `similarity` | `REAL` | Structural similarity score (0.0–1.0). **Reserved** — needs both target and recompiled bytes, which only `rebrew match`/`diff` have; the catalog producer emits no such key, so the column is always NULL (recoverage displays it only when non-null). |
+| `similarity` | `REAL` | Structural similarity score (0.0–1.0). Populated from `verify_results.json` (verify computes it for every verified function); NULL when never verified. |
 
 **Primary Key**: `(target, va)`
 **Indexes**:

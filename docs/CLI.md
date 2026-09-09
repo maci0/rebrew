@@ -1,6 +1,6 @@
 # CLI Reference
 
-All 48 CLI commands are registered under the unified `rebrew` entry point in `main.py`.
+All 78 CLI commands are registered under the unified `rebrew` entry point in `main.py`.
 Every tool supports `--target / -t` to select a target from `rebrew-project.toml` and
 reads defaults (binary path, reversed_dir, compiler settings) from the project config.
 
@@ -49,10 +49,10 @@ for `--compare` (not “better than EXACT”).
 | `rebrew diff` | `diff.py` | Side-by-side disassembly diff against target binary; `--fix-blocker` writes BLOCKER metadata |
 | `rebrew skeleton` | `skeleton.py` | Generate annotated `.c` skeleton from VA (with `--decomp`, `--xrefs`, `--append` for multi-function files) |
 | `rebrew catalog` | `catalog/` | Parse annotations, generate catalog + coverage JSON |
-| `rebrew sync` | `ghidra/cli.py` | Sync source markers, metadata, structs, and signatures to/from Ghidra via ReVa MCP (`--push`, `--pull`, `--apply`, `--export`) |
+| `rebrew sync` | `ghidra/cli.py` | BinSync-primary field sync via the shared state dir (`--push`/`--pull --state-dir`); ReVa MCP for structural ops (`--create-functions`, `--bookmarks`, `--pull-data`) |
 | `rebrew lint` | `lint.py` | Lint source marker standards in decomp C files |
 | `rebrew extract` | `extract.py` | Batch extract and disassemble functions from binary |
-| `rebrew match` | `match.py` / `matcher/` | GA matching engine (single-function or `--all` batch); `--fix-blocker`; `--json` structured output |
+| `rebrew match` | `match.py` / `matcher/` | GA matching engine (single-function or `--all` batch); `--json` structured output |
 | `rebrew verify` | `verify.py` | Compile all `.c` files and verify byte match against target binary; `--compare` regression detection; `--json` structured reports. 16-bit NE targets run when `profile = "msvc1.52"` is configured, otherwise short-circuit with a notice naming the required profile |
 | `rebrew todo` | `todo.py` | Prioritized action list: what to work on next, ROI-ranked across all signals |
 | `rebrew cache` | `cache_cli.py` | Compile cache management (`stats` reports hit rate + disk usage, `clear` purges cache) |
@@ -74,9 +74,9 @@ for `--compare` (not “better than EXACT”).
 | `rebrew doctor` | `doctor.py` | Diagnostic checks for project health (config, compiler, binary, paths); Delphi 1.0 toolchain readiness for 16-bit targets; `--install-wibo`; `--json` |
 | `rebrew toolchain` | `toolchain_cli.py` | Standardized toolchain management (`list`, `status`, `detect`, `pull`, `build`, `vendor`, `smoke`, `check-updates`, `update`) — docker-only execution for Windows/DOS toolchains |
 | `rebrew library` | `library.py` | Per-library toolchain/flags overrides (`set`/`show`/`list`/`rm` — writes/reads `rebrew-libraries.toml`, walk-up from any function dir; `list` enumerates every override under a project root; `--preset` fills known shipped-library settings like `msvcrt-static`) |
-| `rebrew binsync-export` | `binsync_export.py` | Export source markers and metadata to BinSync state directory (prototype, STATUS/CFLAGS, globals with real types, structs with fields; `--module`, `--git`) |
+| `rebrew binsync-export` | `binsync_export.py` | Export source markers and metadata to BinSync state directory (prototype, notes, globals with real types, structs with fields, freshness manifest; `--module`, `--git`, `--clean`) |
 | `rebrew binsync-import` | `binsync_import.py` | Import a BinSync state directory into rebrew metadata (names, prototypes, globals; `--accept-binsync`/`--accept-local`, `--module`) |
-| `rebrew binsync-diff` | `binsync_diff.py` | Read-only divergence report between rebrew and a BinSync state directory (`--module`, `--target`; exits 1 on any divergence) |
+| `rebrew binsync-diff` | `binsync_diff.py` | Read-only divergence report between rebrew and a BinSync state directory (`--module`; exits 1 on any divergence) |
 | `rebrew build-db` | `build_db.py` | Build SQLite `db/coverage.db` from `data_*.json` ([schema docs](DB_FORMAT.md)) |
 | `rebrew status` | `status.py` | At-a-glance reversing progress overview (per-module coverage, status ladder counts) |
 | `rebrew similar` | `similar.py` | Find structurally similar functions in the target binary (clone detection) |
@@ -89,6 +89,36 @@ for `--compare` (not “better than EXACT”).
 | `rebrew skills` | `skills.py` | Discover and manage AI agent skills (`list`, `show`, `install`, `remove` — the latter two manage the `REBREW_SKILLS_DIR` overlay) |
 | `rebrew blocker` | `blocker.py` | Manage `BLOCKER` / `BLOCKER_DELTA` in `rebrew-functions.toml` (`set`/`clear`/`show` by file, VA, or symbol; `--delta`, `--va`, `--dry-run`, `--json`) — ad-hoc BLOCKER for STUBs `diff --fix-blocker` cannot classify; every write via `rebrew.metadata` (locked + atomic, never hand-edited) |
 | `rebrew orphans` | `orphans.py` | List or prune metadata blocks whose VA has no source marker (`--prune`, `--include-matched`, `drop 0xVA`; `--dry-run`, `--json`) — every delete via `rebrew.metadata` batch helpers (locked + atomic) |
+| `rebrew types` | `types_cli.py` | Check declared struct layouts vs decompiler evidence; `apply-type` rewrites one param type in source (`--param N --type T`, `--dry-run`, `--json`) |
+| `rebrew analyze` | `analyze.py` | One-shot binary dossier (toolchain, strings, imports, dispatch, FLIRT, blockers) |
+| `rebrew calibrate-bss` | `calibrate_bss.py` | Size the BSS tail pad so raw-link `.data` VirtualSize matches |
+| `rebrew cmake-toolchain` | `cmake_tc.py` | Generate a CMake toolchain file running the image's tools via docker |
+| `rebrew context` | `context.py` | Universal decompiler context (types + prototypes) |
+| `rebrew cross-import` | `cross_import.py` | Import functions matched in another target |
+| `rebrew decompile` | `name_decomp.py` | Decompile a function, optionally applying known struct names (`--named`) |
+| `rebrew decompme` | `decompme.py` | Upload a function to decomp.me as a scratch |
+| `rebrew discover-functions` | `discover.py` | Function enumeration (rizin-driven linear sweep) |
+| `rebrew document-unmatched` | `document_unmatched.py` | STUB skeletons + blockers for remaining functions |
+| `rebrew fix` | `fixup.py` | DecBench-style compilability fixup for decompiler output |
+| `rebrew gen-layout` | `gen_layout.py` | Linker-script scaffolding from a target binary (writes `layout.fingerprint`) |
+| `rebrew gen-link-stubs` | `gen_link_stubs.py` | BSS placeholder TU from the data metadata |
+| `rebrew gen-stubs` | `gen_stubs.py` | Stub TU for unresolved linker symbols |
+| `rebrew identify-library` | `identify_library.py` | Library-function backends (CRT/ZLIB marking) |
+| `rebrew inline-strings` | `inline_strings.py` | Materialize string-literal globals from the original binary |
+| `rebrew intake` | `intake.py` | One-shot binary onboarding (FLIRT scan, catalog, triage) |
+| `rebrew lib-match` | `lib_match.py` | Byte-compare reversed functions against linked static-library archives |
+| `rebrew link-sweep` | `link_sweep.py` | Find which LINK options reproduce the reference PE header |
+| `rebrew objdiff` | `objdiff_project.py` | Synthesized target objects + objdiff GUI project |
+| `rebrew order-sources` | `order_sources.py` | Order source files by first function VA |
+| `rebrew pdb-info` | `pdb_info.py` | PDB metadata (compiler + command line) |
+| `rebrew postlink` | `postlink.py` | Normalize built-binary layout onto the reference |
+| `rebrew recover-structs` | `struct_recover.py` | Struct typedefs from decompiler offset evidence |
+| `rebrew refactor` | `refactor.py` | Refactoring recommendations for the rebrew codebase (dev tool) |
+| `rebrew resource` | `resource.py` | PE resource comparison |
+| `rebrew solutions` | `solutions_db.py` | GA solutions DB (cross-function cflags seeding) |
+| `rebrew symbol-addrs` | `symbol_addrs.py` | Splat-style 0xVA,name CSV export |
+| `rebrew unpack-lzexe` | `lzexe_cli.py` | Unpack LZEXE 0.90/0.91 DOS executables |
+| `rebrew verify-placement` | `verify_placement.py` | Post-edit check: `.data` symbol VAs vs the metadata |
 
 ## Component Registration (Plugins)
 
@@ -195,6 +225,7 @@ matching `rebrew prove` / `rebrew test`.
 | `-f FORMAT` / `--format FORMAT` | Output format: `terminal` (default), `csv` |
 | `--ignore-lint` | Continue even if source marker lint errors exist |
 | `--json` | Output results as JSON |
+| `--watch` | Re-run on source changes |
 
 When the compiled candidate is shorter than the target, `--json` adds a
 `missing_tail` summary (`count` / `first` / `last` target instruction) —
@@ -371,7 +402,9 @@ build the recomp binary with `-DREBREW_ALLOW_NAKED=1`) — the mismatch is the
 build matrix, not the decompilation.
 
 Status promotion is always-on: after verification, STATUS is promoted/demoted in
-`rebrew-functions.toml` metadata. PROVEN status is sticky — it survives every
+`rebrew-functions.toml` metadata. Every write tags `updated_by`
+(test/verify/prove/match/lint/binsync-import/intake) with a UTC `updated_at`
+timestamp. PROVEN status is sticky — it survives every
 byte result a proven function legitimately produces (NEAR_MATCHING,
 SIZE_MISMATCH). But a PROVEN claim the compile cannot support (STUB,
 COMPILE_ERROR, EXTRACT_ERROR, MISSING_FILE — the source no longer contains the
@@ -407,6 +440,23 @@ Output prefixes for unambiguous parsing:
 | `--threshold N` | Max byte delta for `--near-miss` mode (default 10) |
 | `--dry-run` | Preview changes without writing |
 | `--seed-from-solved` / `--no-seed-from-solved` | Seed GA population from similar solved functions (default: on) |
+| `--seed-solutions` / `--no-seed-solutions` | Seed from the cross-function solutions DB |
+| `--flag-sweep` | Sweep compiler flags before GA |
+| `--flag-sweep-only` | Flag sweep only, no GA |
+| `--fix-cflags` | Write winning sweep flags to metadata |
+| `--sweep-toolchain` | Include toolchain in the sweep |
+| `--sweep-only` | Sweep without follow-up matching |
+| `--sweep-exclude FLAGS` | Exclude flags from the sweep |
+| `--sweep-then-ga` | Run GA after the sweep |
+| `--size-mismatch` | Include SIZE_MISMATCH functions in batch mode |
+| `--skip-recent HOURS` | Skip functions matched in the last N hours |
+| `--llm-seed` | Seed GA with LLM-proposed implementations |
+| `--kuna-seed` | Seed GA with kuna decompiler output |
+| `--resume` | Resume from GA checkpoints |
+| `--ga-history` | Record GA run history |
+| `--watch` | Re-run on source changes |
+| `--mutation-focus` | Focus mutations on near-diag classified operators |
+| `--collect-pairs` | Collect (source, listing) training pairs |
 | `--json` | Output results as JSON |
 
 
@@ -785,6 +835,11 @@ Prove semantic equivalence of a NEAR_MATCHING function via angr symbolic executi
 | `--loop-bound N` | Max loop iterations for angr's LoopSeer (default: 10) |
 | `--check-edx` | Also compare EDX register (auto-enabled when return type is `long long` / `__int64` / `int64_t` / `uint64_t`) |
 | `--watch-va VA` | Also compare 4 bytes of memory at this VA (repeatable; can also come from `prove_constraints.watched_vas` metadata) |
+| `--all` | Batch-prove all NEAR_MATCHING functions |
+| `--watch` | Re-run on source changes |
+| `--ceiling` | Target GA-ceiling (register-only terminal state) functions |
+| `--max-delta N` | Max byte delta to attempt |
+| `--start-offset N` / `--end-offset N` | Restrict comparison to a byte range |
 | `--watch` | Re-prove the source on every save (single-file mode only) |
 | `--dry-run` | Preview changes without writing |
 
@@ -1045,6 +1100,8 @@ history (`.rebrew/ga_runs.jsonl`).  Read-only.
 |------------|-------------|
 | `list` | List bundled agent skills |
 | `show NAME` | Print a skill's SKILL.md |
+| `install <dir\|git-url>` | Install a skill into the `REBREW_SKILLS_DIR` overlay |
+| `remove NAME` | Remove a skill from the overlay |
 
 ### `rebrew library`
 
@@ -1103,6 +1160,7 @@ and offsets as your project file.
 | `--json` | JSON structured output |
 | `--module NAME` | Only this module (e.g. SERVER) |
 | `--git` | Stage + `git commit` the state directory after writing |
+| `--clean` | Delete orphan `functions/<hex>.toml` no longer in the catalog/annotations |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
 
 ### `rebrew binsync-import`
@@ -1124,7 +1182,7 @@ them as STUB files.
 
 ### `rebrew binsync-diff`
 
-`rebrew binsync-diff STATE_DIR [--module NAME] [--json] [--target NAME]`
+`rebrew binsync-diff STATE_DIR [--module NAME] [--json]`
 
 Read-only divergence report between the local project (reversed annotations +
 catalog/project file) and a BinSync state directory — every place the two
@@ -1645,12 +1703,12 @@ rebrew crt-match --all                           # match all library-marker func
 rebrew crt-match --fix-source --all              # auto-write // SOURCE: markers
 rebrew crt-match --index                         # show CRT source index
 
-# Sync to/from Ghidra
-rebrew sync --summary                              # Preview what would sync
-rebrew sync --push                                 # Export + apply to Ghidra
-rebrew sync --export                               # Export ghidra_commands.json only
-rebrew sync --pull                                 # Pull renames/comments from Ghidra
-rebrew sync --pull-data                            # Fetch data labels into rebrew_globals.h
+# Sync to/from Ghidra (BinSync state dir relay)
+rebrew sync --summary --state-dir D                # Preview what would sync
+rebrew sync --push --state-dir D                   # Export annotations to the state dir
+rebrew sync --pull --state-dir D --dry-run         # Preview import
+rebrew sync --pull --state-dir D                   # Import names/prototypes/notes/globals/structs
+rebrew sync --pull-data                            # Fetch data labels into rebrew_globals.h (MCP)
 ```
 
 ## `rebrew round-trip`
@@ -1748,7 +1806,7 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 | `matcher/flags.py` | `FlagSet`/`Checkbox` primitives (compatible with decomp.me) |
 | `matcher/flag_data.py` | Auto-generated MSVC flags + sweep tiers (from `tools/sync_decomp_flags.py`) |
 | `matcher/parsers.py` | COFF `.obj` and PE byte extraction (LIEF-based) |
-| `matcher/mutator.py` | 114 C mutation operators for GA |
+| `matcher/mutator.py` | 121 C mutation operators for GA |
 | `matcher/core.py` | SQLite `BuildCache` + GA checkpointing |
 | `solutions.py` | Cross-function solution transfer database (`.rebrew/solutions.json`) |
 
