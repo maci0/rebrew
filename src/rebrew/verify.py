@@ -1218,7 +1218,13 @@ def main(
     built: Path | None = typer.Option(
         None,
         "--built",
-        help="Built binary for --data comparison (default: build/<target>)",
+        help="Built binary for --data/--whole-binary comparison (default: build/<target>)",
+    ),
+    whole_binary: bool = typer.Option(
+        False,
+        "--whole-binary",
+        help="Compare built binary against the reference: sections, "
+        "exports, imports, resources, headers (needs --built)",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -1277,6 +1283,7 @@ def main(
                 prune_orphans=prune_orphans,
                 data=data,
                 built=built,
+                whole_binary=whole_binary,
                 watch=False,  # never nest watch loops
                 target=target,
             )
@@ -1389,6 +1396,43 @@ def main(
                 )
             for name in data_report["missing"][:15]:
                 console.print(f"  [yellow]MISSING[/yellow] {name} (no built bytes)")
+
+    whole_report: dict[str, Any] | None = None
+    if whole_binary:
+        from rebrew.binary_gate import (
+            check_layout_freshness,
+            compare_snapshots,
+            snapshot_binary,
+        )
+
+        built_path = built or (cfg.root / "build" / cfg.target_name)
+        if not built_path.exists():
+            error_exit(
+                f"{built_path} not found — build the project first (or pass --built <path>)",
+                json_mode=json_output,
+            )
+        whole_report = compare_snapshots(
+            snapshot_binary(cfg.target_binary), snapshot_binary(built_path)
+        )
+        whole_report["layout"] = check_layout_freshness(
+            cfg.root / "layout" / cfg.target_name, cfg.target_binary
+        )
+        whole_report["match"] = bool(whole_report["match"] and whole_report["layout"]["match"])
+        if not json_output:
+            if whole_report["match"]:
+                console.print("[green]whole-binary: match[/green]")
+            else:
+                console.print("[red]whole-binary: drift[/red]")
+                for area in ("sections", "exports", "imports", "rsrc", "headers"):
+                    part = whole_report[area]
+                    if not part["match"]:
+                        console.print(f"  [yellow]{area}[/yellow]: {part}")
+                layout = whole_report["layout"]
+                if not layout["match"]:
+                    console.print(
+                        f"  [yellow]layout[/yellow]: {layout['status']} — "
+                        "regenerate with rebrew gen-layout"
+                    )
 
     (
         unique_entries,
@@ -1575,6 +1619,7 @@ def main(
         "missing_sizes": missing_sizes,
         "results": results,
         "data": data_report,
+        "whole_binary": whole_report,
     }
 
     if size_divergences and not json_output:
