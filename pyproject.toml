@@ -125,6 +125,7 @@ rebrew-split = "rebrew.split:main_entry"
 rebrew-status = "rebrew.status:main_entry"
 rebrew-test = "rebrew.test:main_entry"
 rebrew-todo = "rebrew.todo:main_entry"
+rebrew-types = "rebrew.types_cli:main_entry"
 rebrew-unpack-lzexe = "rebrew.lzexe_cli:main_entry"
 rebrew-verify = "rebrew.verify:main_entry"
 # CMake toolchain bridge — CMAKE_C_COMPILER/LINKER/AR wrappers (docker)

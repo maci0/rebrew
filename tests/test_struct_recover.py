@@ -314,3 +314,18 @@ class TestCli:
         assert anon[0]["var"] == "a0"
         assert anon[0]["semantic"] is False
         assert "typedef struct a0_s {" in anon[0]["definition"]
+
+
+class TestTypeWidthSharedModel:
+    def test_delegates_arrays_to_shared_model(self) -> None:
+        from rebrew.struct_recover import type_width
+
+        assert type_width("char[8]") == 8
+        assert type_width("int *") == 4
+
+    def test_alias_table_still_covers_decompiler_types(self) -> None:
+        from rebrew.struct_recover import type_width
+
+        assert type_width("uint32_t") == 4
+        assert type_width("undefined4") == 4
+        assert type_width("SomeStruct") is None

@@ -257,6 +257,16 @@ Behavior:
 - Replaces `extern` cross-references across all `.c` files
 - Renames the file itself if the stem matches the old name
 
+### `rebrew types`
+
+`rebrew types [--json]`
+
+Check declared struct layouts against decompiler offset evidence (`*.dec.c`
+files): parses `typedef struct` definitions via the shared `rebrew.types`
+model and reports offsets the declaration does not cover or covers too
+narrowly. No writes; exit 0 with findings listed (JSON carries
+`structs`/`findings`).
+
 ### `rebrew todo`
 
 | Flag | Description |

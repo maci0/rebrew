@@ -192,13 +192,20 @@ TYPE_WIDTHS: dict[str, int] = {
 
 
 def type_width(cast_type: str) -> int | None:
-    """Width of *cast_type* when it is a primitive (None for named structs)."""
+    """Width of *cast_type* when it is a primitive (None for named structs).
+
+    Delegates to the shared :mod:`rebrew.types` model first (primitives,
+    pointers, arrays); the decompiler-alias table below covers spellings
+    the model does not know (``uint32_t``, ``undefined4``, Windows types).
+    """
+    from rebrew.types import type_size
+
+    shared = type_size(cast_type.strip())
+    if shared is not None:
+        return shared
     t = cast_type.strip()
     if t in TYPE_WIDTHS:
         return TYPE_WIDTHS[t]
-    # pointer-to-anything → 4 (x86-32)
-    if t.endswith("*"):
-        return 4
     return None
 
 
