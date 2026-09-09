@@ -1203,6 +1203,12 @@ def main(
         "--nolib equivalent (gate on game code only; CRT/zlib sources are not "
         "counted or compiled)",
     ),
+    prune_orphans: bool = typer.Option(
+        False,
+        "--prune-orphans",
+        help="Delete metadata blocks whose VA has no source marker (orphans) "
+        "before verifying — same scan as `rebrew orphans --prune`",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -1257,6 +1263,7 @@ def main(
                 dry_run=dry_run,
                 fix_sizes=fix_sizes,
                 nolib=nolib,
+                prune_orphans=prune_orphans,
                 watch=False,  # never nest watch loops
                 target=target,
             )
@@ -1266,6 +1273,42 @@ def main(
 
     out_file = Path(output_path) if output_path else cfg.db_dir / "verify_results.json"
     previous_report, diff_warning = _load_previous_report(out_file, diff_mode, json_output)
+
+    orphans_pruned = 0
+    if prune_orphans:
+        from rebrew.orphans import find_orphans, split_prunable
+
+        orphans = split_prunable(cfg, *find_orphans(cfg))
+        if dry_run:
+            orphans_pruned = len(orphans)
+            if not json_output and orphans_pruned:
+                console.print(
+                    f"  [dim]Would prune[/dim] {orphans_pruned} orphaned metadata block(s)"
+                )
+        elif orphans:
+            from rebrew.data_metadata import delete_data_entries_batch
+            from rebrew.metadata import delete_entries_batch
+
+            orphans_pruned = delete_entries_batch(
+                cfg.metadata_dir,
+                [
+                    (o["module"], int(o["va"], 16))
+                    for o in orphans
+                    if o["store"] == "rebrew-functions.toml"
+                ],
+            )
+            orphans_pruned += delete_data_entries_batch(
+                cfg.metadata_dir,
+                [
+                    (o["module"], int(o["va"], 16))
+                    for o in orphans
+                    if o["store"] == "rebrew-data.toml"
+                ],
+            )
+            if not json_output:
+                console.print(
+                    f"[green]Pruned:[/green] deleted {orphans_pruned} orphaned metadata block(s)"
+                )
 
     (
         unique_entries,
@@ -1409,6 +1452,7 @@ def main(
             # byte match — for a byte-identical goal only exact+reloc count.
             "byte_matched": _status_counts.get("EXACT", 0) + _status_counts.get("RELOC", 0),
             "library_excluded": library_excluded,
+            "orphans_pruned": orphans_pruned,
         },
         "size_divergences": size_divergences,
         "missing_sizes": missing_sizes,

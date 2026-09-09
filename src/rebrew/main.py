@@ -416,6 +416,7 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
 # Only modules with multiple @app.command() subcommands belong here.
 _MULTI_COMMANDS: list[tuple[str, str, str]] = [
     ("blocker", "rebrew.blocker", "Manage BLOCKER metadata (set/clear/show) — programmatic only."),
+    ("orphans", "rebrew.orphans", "List or prune orphaned metadata blocks (no source marker)."),
     ("extract", "rebrew.extract", "Extract and disassemble functions from binary."),
     ("cfg", "rebrew.cfg", "Read and edit rebrew-project.toml programmatically."),
     ("cache", "rebrew.cache_cli", "Manage the compile result cache."),

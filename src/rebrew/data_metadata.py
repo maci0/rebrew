@@ -55,6 +55,7 @@ from rebrew.utils import (
     load_metadata_doc,
     load_toml_for_write,
     metadata_write_lock,
+    parse_metadata_key,
     qualified_key,
 )
 
@@ -228,6 +229,44 @@ def set_data_field(directory: Path, va: int, key: str, value: Any, module: str) 
         doc[toml_key][key] = value  # type: ignore[index]
         atomic_write_locked(path, tomlkit.dumps(doc))
         _invalidate_data_cache(path)
+
+
+def delete_data_entries_batch(directory: Path, targets: list[tuple[str, int]]) -> int:
+    """Drop whole ``(module, va)`` entries from ``rebrew-data.toml`` in one rewrite.
+
+    Sibling of :func:`rebrew.metadata.delete_entries_batch` for the data
+    store (orphan pruning: DATA/GLOBAL blocks whose VA has no source
+    annotation).  Returns the number of entries removed.  Missing entries
+    are no-ops.  Only touches the metadata file — never a source file.
+    """
+    if not targets:
+        return 0
+    path = (directory / DATA_METADATA_FILENAME).resolve()
+    if not path.exists():
+        return 0
+    removed = 0
+    with metadata_write_lock(directory, DATA_METADATA_FILENAME):
+        doc = load_toml_for_write(path, "data metadata")
+        for module, va in targets:
+            if not module:
+                continue
+            want = (str(module), int(va))
+            toml_key = qualified_key(module, int(va))
+            if toml_key not in doc:
+                toml_key = ""
+                for existing in doc:
+                    parsed = parse_metadata_key(str(existing))
+                    if parsed == want:
+                        toml_key = str(existing)
+                        break
+                if not toml_key:
+                    continue
+            del doc[toml_key]
+            removed += 1
+        if removed:
+            atomic_write_locked(path, tomlkit.dumps(doc))
+            _invalidate_data_cache(path)
+    return removed
 
 
 # ---------------------------------------------------------------------------

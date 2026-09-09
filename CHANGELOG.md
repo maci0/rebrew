@@ -1,5 +1,13 @@
 ## [Unreleased]
 ### Added
+- **`rebrew orphans` + `rebrew verify --prune-orphans`** — list or delete
+  metadata blocks whose VA has no source marker.  A block is only an orphan
+  when its VA is also absent from the function list (never a real function
+  awaiting reversal); named data entries and import slots are excluded, and
+  EXACT/RELOC/PROVEN blocks are held back unless `--include-matched`.
+  `rebrew orphans drop 0xVA` removes one VA's block on demand.  New
+  `metadata.delete_entries_batch` / `data_metadata.delete_data_entries_batch`
+  do the deletes in one rewrite each.
 - **`rebrew lint --fix` strips redundant inline lines and backfills SECTION**
   — retired `SYMBOL`/`PROTOTYPE` keys (derived from the C source), legacy
   `ORIGIN`, inline `// CFLAGS:` that only repeat the inherited flags, and

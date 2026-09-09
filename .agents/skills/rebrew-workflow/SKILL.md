@@ -276,6 +276,8 @@ rebrew lint --fix                       # migrate leftover inline metadata; drop
 rebrew lint --fix --dry-run             # preview migrations / cflags drops without writing
 rebrew lint --summary                   # status/origin breakdown table
 rebrew lint --quiet                     # errors only, suppress warnings
+rebrew orphans                          # list metadata blocks with no source marker
+rebrew orphans --prune --dry-run        # preview deleting them (matched EXACT/RELOC/PROVEN held back)
 ```
 
 `rebrew verify` compiles every annotated `.c`, reports EXACT/RELOC/NEAR_MATCHING/STUB/
