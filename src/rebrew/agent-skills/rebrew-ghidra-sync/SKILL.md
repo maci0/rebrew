@@ -94,9 +94,12 @@ prototype, notes; globals (`global_vars.toml`); structs (`structs/*.toml`).
 STATUS/CFLAGS stay in `rebrew-functions.toml` (STATUS is verify-earned).
 
 **Pull <- state dir:** names (renames the `.c` file, rewrites extern
-cross-references), prototypes (`// PROTOTYPE:`), notes, global names, structs;
+cross-references), prototypes (`// PROTOTYPE:`; whitespace-normalized compare,
+differing locals gate as conflicts), notes, global names + differing
+type/size, structs (unknown definitions land in `binsync_types.h`);
 `--create-missing` materializes STUB files.  Conflicts are reported and
-skipped until resolved with `--accept-binsync` / `--accept-local`.
+skipped until resolved with `--accept-binsync` / `--accept-local`. Export
+writes `manifest.toml` freshness facts, surfaced by `binsync-diff --json`.
 
 **MCP structural:** function creation (`--create-functions`, standalone or
 chained after `--pull`), status bookmarks (`--bookmarks`), data labels

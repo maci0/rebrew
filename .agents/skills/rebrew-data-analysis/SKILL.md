@@ -44,6 +44,9 @@ rebrew data --gen-header --dry-run              # preview rebrew_globals.h conte
 rebrew data --gen-header                        # write rebrew_globals.h from local // GLOBAL: / // DATA: annotations (no Ghidra)
 rebrew data --gen-header --gen-header-out /path/to/my_globals.h  # override output path
 rebrew data --gen-header --force                # overwrite existing file without prompting
+rebrew data --layout-audit --section .rdata     # per-TU span/order audit for .rdata (default .data)
+rebrew verify --data --built build/bench     # byte-compare built .data/.rdata per symbol (VERIFIED/DRIFT/UNCHECKED)
+rebrew todo -c data-drift --json                # data symbols whose built bytes differ from the reference
 ```
 
 Use `--gen-header` when working offline or before any Ghidra sync — it emits typed
@@ -125,6 +128,7 @@ note    = "lookup table for sprite indices"
 | `size` | Size in bytes |
 | `section` | PE section (`.data`, `.rdata`, `.bss`) |
 | `note` | Description; written by `rebrew sync --pull --state-dir <dir>` from Ghidra comments |
+| `status` | Data verdict written by `rebrew verify --data`: `VERIFIED` (built bytes match), `DRIFT` (differ), `UNCHECKED` (not compared); counted in `rebrew status` and `rebrew todo -c data-drift` |
 
 > [!CAUTION]
 > **Never manually edit `rebrew-data.toml`.** It is managed automatically by `rebrew data`,

@@ -35,13 +35,14 @@ For annotation syntax details, see `references/annotation-format.md`.
 - Deep byte-level matching / GA / flag sweep / prove → use `rebrew-matching`
 - Global variables, `.bss` gaps, dispatch tables → use `rebrew-data-analysis`
 - Ghidra push/pull operations → use `rebrew-ghidra-sync`
+- Struct layouts, type checking, signature rewrites → `rebrew types` (this skill, §8b)
 
 ## 1. Pick a Function
 
 ```bash
 rebrew status --json                    # Quick overview: counts per STATUS, % coverage
 rebrew todo --json                      # Primary: highest ROI action items
-rebrew todo -c start-function --json    # Filter category: start-function | fix-delta | compile-error | extract-error | improve-match | missing-annotation | identify-library | run-prover | setup | documented (audit-only)
+rebrew todo -c start-function --json    # Filter category: start-function | fix-delta | compile-error | extract-error | improve-match | missing-annotation | identify-library | run-prover | setup | documented (audit-only) | data-drift
 rebrew flirt --json                     # FLIRT scan: identify known library functions (fast wins)
 rebrew crt-match --all --json           # Find matching CRT source files for LIBRARY functions
 rebrew similar 0x10001000 --json        # Find structurally similar functions (same source family)
@@ -277,6 +278,10 @@ rebrew lint --summary                   # status/origin breakdown table
 rebrew lint --quiet                     # errors only, suppress warnings
 rebrew orphans                          # list metadata blocks with no source marker
 rebrew orphans --prune --dry-run        # preview deleting them (matched EXACT/RELOC/PROVEN held back)
+rebrew types                            # check declared struct layouts vs decompiler evidence
+rebrew types apply-type <file> --param N --type T   # rewrite one param type in source
+rebrew verify --data --built build/bench   # byte-compare built .data/.rdata per symbol
+rebrew verify --whole-binary --built build/bench  # sections/exports/imports/rsrc/headers + layout freshness
 ```
 
 `rebrew verify` compiles every annotated `.c`, reports EXACT/RELOC/NEAR_MATCHING/STUB/
@@ -286,7 +291,8 @@ Exit code 1 when any function fails.
 
 `rebrew lint` checks marker syntax (E001/E002/…), duplicate VAs, and warns (W019) when
 metadata-owned keys appear inline. Pass specific files as positional args; exit code 1 on
-any error.
+any error. Link-only files with no VA of their own declare `// SUPPORT: <MODULE> <reason>`
+instead of faking a function marker.
 
 ### Coverage Database
 
@@ -317,6 +323,20 @@ compiler) and prints the claim URL to share.
 `rebrew verify --compare` compares the current run against `db/verify_results.json`.
 Exit code 1 if any regressions — suitable for CI/pre-commit hooks.
 The first run has no baseline: it warns "No previous verify report" and skips the diff.
+
+## 8b. Types (Struct Layouts and Signature Rewrites)
+
+```bash
+rebrew types --json                                    # check declared structs vs *.dec.c evidence
+rebrew types apply-type <file> --param N --type T [--dry-run]   # e.g. --param 1 --type "Player *"
+```
+
+`rebrew types` parses `typedef struct` definitions once (shared tree-sitter
+model: offsets, MSVC alignment, completeness) and reports offsets the
+declaration does not cover or covers too narrowly. `apply-type` rewrites the
+indexed parameter's type spelling in place (encoding-preserving atomic
+write) so recovered types reach the compiler — close the recover → check →
+apply → `rebrew test` loop per function.
 
 ## 9. Final Validation: Round-Trip
 

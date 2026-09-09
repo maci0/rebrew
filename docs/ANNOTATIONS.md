@@ -251,7 +251,8 @@ Global variables, dispatch tables, const arrays, and string tables live in the d
 ### Format
 
 The **reccmp-compatible marker line** stays in the `.c` file.  All rebrew-specific
-metadata (SIZE, SECTION, NOTE) lives in the **`rebrew-data.toml` metadata file** — the
+metadata (SIZE, SECTION, NOTE, plus verify-written STATUS) lives in the
+**`rebrew-data.toml` metadata file** — the
 data analogue of `rebrew-functions.toml` (also at `cfg.metadata_dir`).
 
 **`.c` file** (only the stable identity):
@@ -267,6 +268,7 @@ extern type name;
 size    = <bytes>
 section = ".data" | ".rdata" | ".bss"
 note    = "optional description"
+status  = "VERIFIED" | "DRIFT" | "UNCHECKED"   # written by `rebrew verify --data`
 ```
 
 ### Examples

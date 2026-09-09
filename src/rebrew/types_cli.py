@@ -99,7 +99,7 @@ def main_entry() -> None:
 def apply_type(
     target_ident: str = typer.Argument(..., help="File path, symbol, or hex VA"),
     param: int = typer.Option(..., "--param", "-p", help="0-based parameter index"),
-    type_name: str = typer.Option(..., "--type", "-t", help="New parameter type spelling"),
+    type_name: str = typer.Option(..., "--type", help="New parameter type spelling"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
