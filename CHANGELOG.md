@@ -1,5 +1,14 @@
 ## [Unreleased]
 ### Added
+- **`rebrew lib-match`** — byte-compare reversed functions against linked
+  static-library archives (.lib/.a). Flags code whose bytes the linker already
+  supplies, so it is not worth reversing. Compares whole function bodies with
+  each object's relocation slots masked, indexes COFF static symbols (MSVC
+  marks CRT helpers like `_initterm` static, so an external-only index
+  reports them absent), and rejects mostly-relocation bodies (`__sys_errlist`)
+  as trivial matches. `--va` checks one function before you start; `--allow`
+  holds back VAs kept for link reasons; exit 1 when anything matches, so it
+  gates pre-commit/CI. See [ADR-013](docs/adr/013-lib-match.md).
 - **`rebrew orphans` + `rebrew verify --prune-orphans`** — list or delete
   metadata blocks whose VA has no source marker.  A block is only an orphan
   when its VA is also absent from the function list (never a real function

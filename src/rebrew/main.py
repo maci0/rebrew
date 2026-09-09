@@ -282,6 +282,11 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "Unpack an LZEXE 0.90/0.91 compressed DOS executable.",
     ),
     ("crt-match", "rebrew.crt_match", "CRT source cross-reference matcher."),
+    (
+        "lib-match",
+        "rebrew.lib_match",
+        "Byte-compare reversed functions against linked static libraries.",
+    ),
     ("imports", "rebrew.imports", "List PE import-table symbols and detect import stubs."),
     (
         "verify-exports",

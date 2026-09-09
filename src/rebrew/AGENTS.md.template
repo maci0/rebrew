@@ -13,7 +13,7 @@
 
 ```
 1. rebrew todo --json                          # get highest ROI action items
-2. rebrew flirt --va 0x<VA> --json             # is it already in a library?
+2. rebrew lib-match --lib <runtime>.LIB --va 0x<VA>   # is it already in a library?
 3. rebrew skeleton 0x<VA>                      # generate .c skeleton
 4. rebrew test src/{target_name}/<func>.c --json  # compile + compare
 5. # iterate code until STATUS: EXACT or RELOC
@@ -34,10 +34,10 @@
 > library code `fcn_XXXX` like anything else. Measured on one MSVC 6 project,
 > FLIRT identified 9 of the 68 CRT functions actually present.
 >
-> When a cluster of functions looks like runtime code, settle it by comparing
-> **whole function bodies** against the library actually being linked, with
-> each object's relocation slots masked out: whatever is identical outside
-> those slots is library code.
+> `rebrew lib-match --lib <archive>` settles it: it compares whole function
+> bodies against the archive the project links, masking each object's
+> relocation slots, and indexes COFF static symbols too. Whatever is
+> identical outside those slots is library code.
 
 ## CLI Tools
 

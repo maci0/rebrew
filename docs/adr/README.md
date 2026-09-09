@@ -34,3 +34,4 @@ itself, and the consequences (including trade-offs accepted).
 | 010 | Shared multi-version sources (`src/shared` + per-target defines) |
 | 011 | Toolchain build source moves to the sibling rebrew-toolchains checkout |
 | 012 | Metadata store tiers: canonical vs derived vs cache (see [METADATA.md](../METADATA.md)) |
+| 013 | Byte-level library detection against linked archives (`rebrew lib-match`) |
