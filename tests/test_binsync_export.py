@@ -619,3 +619,33 @@ class TestBinsyncStructNames:
         result = CliRunner().invoke(app, ["--json", str(outdir)])
         assert result.exit_code == 0
         assert (outdir / "structs" / "MyStruct.toml").exists()
+
+
+class TestManifest:
+    def test_manifest_written(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 31\nint foo() { return 1; }\n",
+            },
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        manifest = outdir / "manifest.toml"
+        assert manifest.exists()
+        doc = tomlkit.parse(manifest.read_text(encoding="utf-8"))
+        assert doc["content_hash"]
+        assert doc["exported_at"]
+
+    def test_manifest_loads(self, tmp_path: Path) -> None:
+        from rebrew.binsync_state import load_manifest
+
+        assert load_manifest(tmp_path) == {}
+        manifest = tmp_path / "manifest.toml"
+        manifest.write_text(
+            'exported_at = "2026-09-10T00:00:00+00:00"\ncontent_hash = "abc"\n', encoding="utf-8"
+        )
+        assert load_manifest(tmp_path) == {
+            "exported_at": "2026-09-10T00:00:00+00:00",
+            "content_hash": "abc",
+        }
