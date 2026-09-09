@@ -57,6 +57,10 @@ Use `--json` for structured output (preferred for agents).
 | `rebrew verify --json` | Bulk verify all reversed files |
 | `rebrew lint --json` | Validate annotations |
 | `rebrew data --json` | Inventory globals in .data/.rdata/.bss |
+| `rebrew types` | Check struct layouts; rewrite signature types (`apply-type`) |
+| `rebrew orphans` | List/prune metadata blocks with no source marker |
+| `rebrew verify --data --built build/<target>` | Byte-compare built data sections per symbol |
+| `rebrew verify --whole-binary --built build/<target>` | Sections/exports/imports/rsrc/headers + layout freshness |
 | `rebrew graph --format summary` | Dependency graph stats and blockers |
 | `rebrew catalog --json` | Generate coverage catalog |
 | `rebrew flirt --json` | FLIRT scan for known library functions |

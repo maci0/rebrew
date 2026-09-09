@@ -55,7 +55,9 @@ _SKIP_FLAGS: frozenset[str] = frozenset(
 
 # Multi-command subcommands whose top-level --help does not list subcommand
 # flags.  For these, we validate subcommand+subsubcommand pairs instead.
-_MULTI_SUBCOMMANDS: frozenset[str] = frozenset({"cfg", "cache", "extract", "skills"})
+_MULTI_SUBCOMMANDS: frozenset[str] = frozenset(
+    {"cfg", "cache", "extract", "skills", "types", "blocker", "orphans"}
+)
 
 
 def _extract_commands(skill_md: Path) -> list[tuple[str, list[str]]]:

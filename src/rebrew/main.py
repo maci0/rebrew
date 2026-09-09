@@ -277,7 +277,6 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ),
     ("status", "rebrew.status", "At-a-glance reversing progress overview."),
     ("todo", "rebrew.todo", "Prioritized action list: what to work on next."),
-    ("types", "rebrew.types_cli", "Check declared struct layouts against evidence."),
     (
         "unpack-lzexe",
         "rebrew.lzexe_cli",
@@ -424,6 +423,7 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
 _MULTI_COMMANDS: list[tuple[str, str, str]] = [
     ("blocker", "rebrew.blocker", "Manage BLOCKER metadata (set/clear/show) — programmatic only."),
     ("orphans", "rebrew.orphans", "List or prune orphaned metadata blocks (no source marker)."),
+    ("types", "rebrew.types_cli", "Check declared struct layouts; apply types to signatures."),
     ("extract", "rebrew.extract", "Extract and disassemble functions from binary."),
     ("cfg", "rebrew.cfg", "Read and edit rebrew-project.toml programmatically."),
     ("cache", "rebrew.cache_cli", "Manage the compile result cache."),

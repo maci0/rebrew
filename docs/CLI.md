@@ -267,12 +267,17 @@ model and reports offsets the declaration does not cover or covers too
 narrowly. No writes; exit 0 with findings listed (JSON carries
 `structs`/`findings`).
 
+`rebrew types apply-type <file|symbol> --param N --type T [--dry-run]`
+
+Rewrite one parameter's type in project C source, so recovered struct types
+reach the compiler (tree-sitter span edit, encoding-preserving atomic write).
+
 ### `rebrew todo`
 
 | Flag | Description |
 |------|-------------|
 | `-n N` / `--count N` | Number of items to show (default 20) |
-| `-c CAT` / `--category CAT` | Filter by category (e.g. `start-function`, `fix-delta`, `compile-error`, `extract-error`, `improve-match`, `missing-annotation`, `documented`) |
+| `-c CAT` / `--category CAT` | Filter by category (e.g. `start-function`, `fix-delta`, `compile-error`, `extract-error`, `improve-match`, `missing-annotation`, `documented`, `data-drift`) |
 | `-s` / `--stats` | Show the coverage stats header |
 | `--json` | Output results as JSON |
 
@@ -341,12 +346,18 @@ graph TD
 | `--nolib` | Exclude LIBRARY-marked functions from verification — the reccmp `--nolib` equivalent. They are neither compiled nor counted (`summary.library_excluded` reports the count), so the summary + CI gate reflect game code only (statically-linked CRT / vendored zlib sources are not part of the gate) |
 | `--fix-sizes` | Backfill `SIZE` into metadata from the binary-derived size: stale sizes (false `SIZE_MISMATCH`) and missing sizes (`MISSING_SIZE` stubs, which `rebrew test` refuses) |
 | `--prune-orphans` | Delete metadata blocks whose VA has no source marker before verifying (same scan as `rebrew orphans --prune`; EXACT/RELOC/PROVEN blocks held back) |
+| `--data` | Byte-compare built `.data`/`.rdata` against the reference, per metadata symbol with first-diff attribution (needs `--built`); verdicts persist as data STATUS (`VERIFIED`/`DRIFT`/`UNCHECKED`) and surface in `status` + `todo data-drift` |
+| `--built PATH` | Built binary for `--data` / `--whole-binary` comparison (default `build/<target>`) |
+| `--whole-binary` | Compare built binary against the reference: section sizes, exports, imports, `.rsrc` bytes, headers, plus layout-freshness check (needs `--built`) |
 
 The `--json` report carries `dry_run`, `size_divergences`, and `missing_sizes`
 (plus `sizes_fixed` when `--fix-sizes` ran); VAs fixed by `--fix-sizes` are
 stripped from the same-run `size_divergences`/`missing_sizes` lists.
 `--nolib` also adds `library_excluded` to the summary, `--prune-orphans` adds
-`orphans_pruned`.
+`orphans_pruned`. `--data` adds a `data` block (`matched` count,
+`mismatched`/`missing` lists with first-diff offsets); `--whole-binary` adds
+a `whole_binary` block (per-area verdicts for sections, exports, imports,
+`rsrc`, headers, plus `layout` freshness).
 Per-function result rows carry `diff_lines` (structural diff count),
 `similarity`, `reg_delta` (register-encoding-only diff count), and
 `effective_match` (true when the entire delta is register allocation) —
@@ -430,7 +441,8 @@ the `wine ` prefix) for faster headless compiles.
 | `--max-pointer-stride N` | Maximum byte stride between pointer slots when scanning (default: 4; requires `--dispatch`) |
 | `--fix-bss` | Auto-generate `bss_padding.c` with dummy arrays for detected gaps |
 | `--annotate` | Insert `// GLOBAL: <marker> 0x<VA>` markers from `rebrew-data.toml` into the sources (above each symbol's first declaration; skips already-marked ones; `--dry-run` previews) |
-| `--layout-audit` | Per-TU `.data`/`.bss` span/order feasibility audit — what blocks placement convergence (ORDER/SPAN violations, unowned + duplicate-owned symbols) |
+| `--layout-audit` | Per-TU span/order feasibility audit for `--section` — what blocks placement convergence (ORDER/SPAN violations, unowned + duplicate-owned symbols) |
+| `--section SEC` | Section for `--layout-audit` (`.data` or `.rdata`) |
 | `--fill-data` | Emit `_dpad_<addr>[N]` pads for uncovered `.data` byte runs (byte-exact from the reference in the raw region, zero-init for BSS); `--bss-only` skips the initialized region |
 | `--own` | Materialize stub-file globals as real definitions in their owner TUs (original bytes from the reference); `--stub-file PATH` overrides the stub TU (default `src/link_stubs.c`) |
 | `--fix-ownership` | Re-partition global definitions across TUs so each owns one contiguous address run (fixes `--layout-audit` SPAN/ORDER violations) |
@@ -907,7 +919,10 @@ At-a-glance reversing progress: total/covered functions, per-status counts
 last verify summary.  When a verify cache exists, reported statuses are the
 **effective** status (verify result overrides metadata; see
 `docs/ANNOTATIONS.md` "Effective Status") — `verify_cache: {overrides,
-missing_size}` in JSON surfaces how many functions the cache overrode.
+missing_size, effective_matches}` in JSON surfaces how many functions the
+cache overrode, plus the effective-match count (register-allocation-only
+delta — the prove queue). Data verdicts from `verify --data` show as
+`data: {verified, drift, unchecked}` in JSON and a terminal summary line.
 
 ### `rebrew similar`
 
