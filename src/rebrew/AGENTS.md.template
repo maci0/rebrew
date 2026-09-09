@@ -27,11 +27,17 @@
 > counted as coverage, and "improved" for weeks before anyone notices it was
 > never yours. Mark such functions `// LIBRARY:` and move on.
 >
-> Name-based checks are not enough on their own, because a decompiler names
-> library code `fcn_XXXX` like anything else. Compare **bytes** against the
-> library actually being linked, ignoring relocation slots: what remains
-> identical is library code. `rebrew crt-match` covers the source-available
-> case (CRT, zlib); `rebrew flirt` covers signatures.
+> `rebrew flirt` and `rebrew crt-match` are the fast first pass, but treat a
+> miss as inconclusive rather than as "this is target code". FLIRT matches
+> short byte patterns against prebuilt signatures, so a signature set built
+> from a different library build misses real matches, and a decompiler names
+> library code `fcn_XXXX` like anything else. Measured on one MSVC 6 project,
+> FLIRT identified 9 of the 68 CRT functions actually present.
+>
+> When a cluster of functions looks like runtime code, settle it by comparing
+> **whole function bodies** against the library actually being linked, with
+> each object's relocation slots masked out: whatever is identical outside
+> those slots is library code.
 
 ## CLI Tools
 
