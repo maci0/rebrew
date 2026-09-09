@@ -1498,35 +1498,82 @@ def remove_annotation_key(
 
 
 def _strip_key_lines(filepath: Path, va: int, key: str, text: str, encoding: str = "utf-8") -> bool:
-    """Drop every ``// KEY:`` line inside the marker block for *va* and rewrite the file.
+    """Drop every ``// KEY:`` line of the marker block for *va* and rewrite the file.
+
+    A block is the marker line plus its attached ``// KEY:`` lines on either
+    side: preceding keys (``pending_kv`` — e.g. a ``// CFLAGS:`` above the
+    ``// FUNCTION:`` line) and following keys up to the first code line.  A
+    non-comment, non-blank line (code, ``#include``, a prototype) ends the
+    attachment on that side, so a same-named key in a sibling block is never
+    touched.  Multi-function files route on the VA: the scan only arms inside
+    the block whose marker carries *va*.
 
     *encoding* is the source file's detected encoding (see
     :func:`rebrew.utils.read_source_text`) and is preserved on write-back.
 
     Returns True if a line was removed.
     """
-    in_target_block = False
-    modified = False
+    raw_lines = text.splitlines(keepends=True)
     _key_pattern = _compile_key_pattern(key)
 
-    new_lines = []
-    for line in text.splitlines(keepends=True):
+    def _is_key_line(line: str) -> bool:
+        return bool(_key_pattern.search(line))
+
+    def _is_marker_for_va(line: str) -> bool:
         marker_match = _MARKER_BLOCK_RE.search(line)
-        if marker_match:
-            found_va = int(marker_match.group(2), 16)
-            # If we're in the target block and hit a different VA, we've crossed
-            # into a sibling block — stop removal.  Otherwise match on VA.
-            in_target_block = False if in_target_block and found_va != va else found_va == va
+        if not marker_match:
+            return False
+        return int(marker_match.group(2), 16) == va
 
-        if in_target_block and _key_pattern.search(line):
-            modified = True
-            continue  # Skip this line
+    def _is_block_marker(line: str) -> bool:
+        return bool(_MARKER_BLOCK_RE.search(line))
 
-        new_lines.append(line)
+    def _is_attachable(line: str) -> bool:
+        # Blank lines and any comment line attach (bare name hints, prose,
+        # block comments); code and preprocessor lines end the block.
+        stripped = line.strip()
+        return not stripped or stripped.startswith("//") or stripped.startswith("/*")
 
-    if modified:
-        atomic_write_text(filepath, "".join(new_lines), encoding=encoding)
-    return modified
+    # First pass: locate the target marker line.
+    marker_idx: int | None = None
+    for idx, line in enumerate(raw_lines):
+        if _is_marker_for_va(line):
+            marker_idx = idx
+            break
+    if marker_idx is None:
+        return False
+
+    drop: set[int] = set()
+    # Walk back over attached preceding lines: key lines drop, other
+    # attachable lines are skipped over, and the first non-attachable line
+    # (or another block's marker) stops the walk.
+    idx = marker_idx - 1
+    while idx >= 0:
+        line = raw_lines[idx]
+        if _is_block_marker(line) or not _is_attachable(line):
+            break
+        if _is_key_line(line):
+            drop.add(idx)
+        idx -= 1
+    # Walk forward the same way: the marker line itself drops when it is a
+    # key line (never — it carries the VA), then attached following lines.
+    idx = marker_idx
+    while idx < len(raw_lines):
+        line = raw_lines[idx]
+        if idx != marker_idx and (_is_block_marker(line) or not _is_attachable(line)):
+            break
+        if _is_key_line(line):
+            drop.add(idx)
+        idx += 1
+
+    if not drop:
+        return False
+    atomic_write_text(
+        filepath,
+        "".join(line for idx, line in enumerate(raw_lines) if idx not in drop),
+        encoding=encoding,
+    )
+    return True
 
 
 def remove_inline_annotation_key(filepath: Path, va: int, key: str) -> bool:

@@ -1726,3 +1726,53 @@ class TestMarkerConsistencyStub:
         result = parse_new_format(lines)
         assert result is not None
         assert result.symbol == "@fcn_01030a82@8"
+
+
+class TestStripPrecedingKeys:
+    """_strip_key_lines covers attached keys on both sides of the marker."""
+
+    def test_preceding_key_line_removed(self, tmp_path: Path) -> None:
+        from rebrew.annotation import remove_inline_annotation_key
+
+        f = tmp_path / "f.c"
+        f.write_text(
+            "// CFLAGS: /O2 /Gd\n// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        assert remove_inline_annotation_key(f, 0x1000, "CFLAGS") is True
+        assert f.read_text(encoding="utf-8") == (
+            "// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n"
+        )
+
+    def test_preceding_key_keeps_prose_and_code(self, tmp_path: Path) -> None:
+        from rebrew.annotation import remove_inline_annotation_key
+
+        f = tmp_path / "f.c"
+        f.write_text(
+            "/* leading comment */\n"
+            "// CFLAGS: /O2 /Gd\n"
+            "// FUNCTION: SERVER 0x1000\n"
+            "int f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        assert remove_inline_annotation_key(f, 0x1000, "CFLAGS") is True
+        text = f.read_text(encoding="utf-8")
+        assert "// CFLAGS" not in text
+        assert "/* leading comment */" in text
+        assert "int f(void)" in text
+
+    def test_sibling_block_key_untouched(self, tmp_path: Path) -> None:
+        from rebrew.annotation import remove_inline_annotation_key
+
+        f = tmp_path / "f.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n"
+            "int f(void) { return 0; }\n"
+            "// FUNCTION: SERVER 0x2000\n"
+            "// CFLAGS: /O1\n"
+            "int g(void) { return 1; }\n",
+            encoding="utf-8",
+        )
+        assert remove_inline_annotation_key(f, 0x1000, "CFLAGS") is False
+        assert remove_inline_annotation_key(f, 0x2000, "CFLAGS") is True
+        assert "// CFLAGS" not in f.read_text(encoding="utf-8")

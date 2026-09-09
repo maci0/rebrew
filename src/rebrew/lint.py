@@ -1790,9 +1790,9 @@ def main(
                             f"  [dim]Would strip[/dim] {r.filepath.name} "
                             f"// {key}: (legacy key — never stored)"
                         )
-                    else:
-                        remove_inline_annotation_key(r.filepath, va, key)
-                    inline_strip_count += 1
+                        inline_strip_count += 1
+                    elif remove_inline_annotation_key(r.filepath, va, key):
+                        inline_strip_count += 1
                     continue
                 # An inline CFLAGS that only repeats the inherited ladder
                 # would migrate into a W029-redundant per-function cflags —
@@ -1805,9 +1805,9 @@ def main(
                                 f"  [dim]Would strip[/dim] {r.filepath.name} "
                                 f"// {key}: {value!r} (redundant — inherits {inherited!r})"
                             )
-                        else:
-                            remove_inline_annotation_key(r.filepath, va, key)
-                        inline_strip_count += 1
+                            inline_strip_count += 1
+                        elif remove_inline_annotation_key(r.filepath, va, key):
+                            inline_strip_count += 1
                         continue
                 # Check if the destination store already has this field.
                 if is_data_marker:
@@ -1847,18 +1847,21 @@ def main(
                 # metadata key would delete the field we just migrated).
                 # Already present in the store: the inline copy is still
                 # stripped, so say so under --dry-run.  Either way this is a
-                # strip, not a migration.
-                if dry_run and present:
-                    console.print(
-                        f"  [dim]Would strip[/dim] {r.filepath.name} "
-                        f"// {key}: (already in metadata)"
-                    )
-                if not dry_run:
-                    remove_inline_annotation_key(r.filepath, va, key)
-                if present:
-                    inline_strip_count += 1
-                else:
-                    fix_count += 1
+                # strip, not a migration.  Count only lines actually removed.
+                if dry_run:
+                    if present:
+                        console.print(
+                            f"  [dim]Would strip[/dim] {r.filepath.name} "
+                            f"// {key}: (already in metadata)"
+                        )
+                        inline_strip_count += 1
+                    else:
+                        fix_count += 1
+                elif remove_inline_annotation_key(r.filepath, va, key):
+                    if present:
+                        inline_strip_count += 1
+                    else:
+                        fix_count += 1
 
         w029_fn_count = 0
         if fn_redundant:
