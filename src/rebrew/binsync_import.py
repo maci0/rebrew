@@ -29,7 +29,11 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from rebrew.binsync_state import index_local_and_catalog, load_binsync_state
+from rebrew.binsync_state import (
+    index_local_and_catalog,
+    load_binsync_state,
+    load_binsync_structs,
+)
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
 from rebrew.naming import avoid_windows_reserved
@@ -70,8 +74,49 @@ def _is_meaningful(name: str) -> bool:
     )
 
 
+def _global_type_size_drift(local: Any, bs_entry: dict[str, str]) -> bool:
+    """True when BinSync's global type/size differs from the local entry."""
+    bs_type = (bs_entry.get("type") or "").strip()
+    if bs_type and bs_type != str(getattr(local, "type", "") or "").strip():
+        return True
+    bs_size = (bs_entry.get("size") or "").strip()
+    if bs_size:
+        try:
+            if int(bs_size, 0) != int(getattr(local, "size", 0) or 0):
+                return True
+        except (TypeError, ValueError):
+            pass
+    return False
+
+
+def _apply_global_type_size(
+    metadata_dir: Path, va: int, module: str, local: Any, bs_entry: dict[str, str]
+) -> None:
+    """Write BinSync global type/size into rebrew-data.toml when they differ."""
+    from rebrew.data_metadata import set_data_field
+
+    bs_type = (bs_entry.get("type") or "").strip()
+    if bs_type and bs_type != str(getattr(local, "type", "") or "").strip():
+        set_data_field(metadata_dir, va, "type", bs_type, module)
+    bs_size = (bs_entry.get("size") or "").strip()
+    if bs_size:
+        try:
+            if int(bs_size, 0) != int(getattr(local, "size", 0) or 0):
+                set_data_field(metadata_dir, va, "size", int(bs_size, 0), module)
+        except (TypeError, ValueError):
+            pass
+
+
 def _strip_cdecl_prefix(name: str) -> str:
     return name[1:] if name.startswith("_") else name
+
+
+def _normalize_prototype(proto: str) -> str:
+    """Canonicalize a prototype for comparison: collapse whitespace, drop trailing semicolon."""
+    text = " ".join(proto.strip().split())
+    if text.endswith(";"):
+        text = text[:-1].strip()
+    return re.sub(r"\s*([(),;*])\s*", r"\1", text)
 
 
 def _apply_binsync_func_name(
@@ -183,8 +228,9 @@ def import_state(
     ``rebrew sync --pull --create-functions`` can push them to Ghidra).
     """
     funcs_by_va, globals_by_va = load_binsync_state(state_dir)
+    structs_by_name = load_binsync_structs(state_dir)
 
-    if not funcs_by_va and not globals_by_va:
+    if not funcs_by_va and not globals_by_va and not structs_by_name:
         error_exit(f"No BinSync data found in {state_dir}", json_mode=json_output)
 
     local_by_va, catalog_by_va, catalog_vas = index_local_and_catalog(cfg)
@@ -198,6 +244,8 @@ def import_state(
     applied_names = 0
     applied_protos = 0
     applied_globals = 0
+    applied_structs = 0
+    applied_notes = 0
     skipped = 0
     touched_vas: list[int] = []
 
@@ -310,8 +358,33 @@ def import_state(
             _strip_cdecl_prefix(local_name) if local_name.startswith("_") else local_name
         )
 
-        # Prototype import (independent of name)
-        if bs_proto and bs_proto.strip() != local_proto.strip():
+        # Prototype import (independent of name; whitespace-normalized compare).
+        # A differing local prototype is a conflict like a differing name:
+        # --accept-binsync overwrites, --accept-local keeps local, otherwise
+        # reported and skipped.  Empty local applies cleanly either way.
+        if bs_proto and _normalize_prototype(bs_proto) != _normalize_prototype(local_proto):
+            if local_proto and not accept_binsync:
+                conflicts.append(
+                    {
+                        "va": f"0x{va:08x}",
+                        "field": "prototype",
+                        "local": local_proto,
+                        "binsync": bs_proto,
+                    }
+                )
+                if dry_run:
+                    proposed.append(
+                        {
+                            "va": f"0x{va:08x}",
+                            "field": "prototype",
+                            "local": local_proto,
+                            "binsync": bs_proto,
+                        }
+                    )
+                elif not json_output:
+                    console.print(f"  Conflict prototype 0x{va:08x} (use --accept-binsync)")
+                skipped += 1
+                continue
             if dry_run:
                 proposed.append(
                     {
@@ -350,6 +423,35 @@ def import_state(
                     skipped += 1
             elif dry_run:
                 applied_protos += 1
+
+        # Note import from [comments] (independent of name/prototype)
+        bs_note = bs_entry.get("note", "")
+        if bs_note:
+            from rebrew.metadata import get_entry
+
+            local_mod = getattr(local, "module", "") or "SERVER"
+            local_note = str(get_entry(cfg.metadata_dir, va, local_mod).get("note") or "")
+            if local_note.strip() != bs_note.strip():
+                if dry_run:
+                    proposed.append(
+                        {
+                            "va": f"0x{va:08x}",
+                            "field": "note",
+                            "local": local_note,
+                            "binsync": bs_note,
+                        }
+                    )
+                    applied_notes += 1
+                else:
+                    try:
+                        from rebrew.metadata import update_field
+
+                        update_field(cfg.metadata_dir, va, "note", bs_note, local_mod)
+                        applied_notes += 1
+                        touched_vas.append(va)
+                    except Exception:
+                        log.debug("note apply failed for VA 0x%x", va, exc_info=True)
+                        skipped += 1
 
         if not bs_name or not _is_meaningful(bs_name):
             continue
@@ -452,7 +554,9 @@ def import_state(
         # For DATA/GLOBAL, update rebrew-data.toml
         if local is not None:
             local_name = getattr(local, "name", "") or getattr(local, "symbol", "") or ""
-            if local_name.strip() == bs_name.strip():
+            if local_name.strip() == bs_name.strip() and not _global_type_size_drift(
+                local, bs_entry
+            ):
                 continue
             if dry_run:
                 proposed.append(
@@ -469,6 +573,7 @@ def import_state(
 
                     mod = getattr(local, "module", "") or "SERVER"
                     _sdf(cfg.metadata_dir, va, "name", bs_name, mod)
+                    _apply_global_type_size(cfg.metadata_dir, va, mod, local, bs_entry)
                     applied_globals += 1
                     touched_vas.append(va)
                 except Exception:
@@ -497,12 +602,18 @@ def import_state(
             else:
                 applied_globals += 1
 
+    # --- Structs: write unknown BinSync definitions into a local header ---
+    if structs_by_name:
+        applied_structs = _import_structs(cfg, structs_by_name, dry_run=dry_run, proposed=proposed)
+
     return {
         "state_dir": str(state_dir),
         "dry_run": dry_run,
         "applied_names": applied_names,
         "applied_prototypes": applied_protos,
         "applied_globals": applied_globals,
+        "applied_structs": applied_structs,
+        "applied_notes": applied_notes,
         "conflicts": len(conflicts),
         "skipped": skipped,
         "touched_vas": sorted(set(touched_vas)),
@@ -514,6 +625,82 @@ def import_state(
     }
 
 
+def _import_structs(
+    cfg: ProjectConfig,
+    structs_by_name: dict[str, dict[str, object]],
+    *,
+    dry_run: bool,
+    proposed: list[dict[str, str]],
+) -> int:
+    """Write unknown BinSync struct definitions into ``binsync_types.h``.
+
+    Only structs with no local definition (by name, across headers and
+    sources) are written; known names are skipped, never overwritten.
+    Returns the applied count (dry-run counts without writing).
+    """
+    from rebrew.struct_parser import extract_structs_from_file
+
+    local_names: set[str] = set()
+    reversed_dir = Path(cfg.reversed_dir)
+    try:
+        header_files = list(reversed_dir.rglob("*.h"))
+    except OSError:
+        header_files = []
+    try:
+        from rebrew.sources import iter_sources
+
+        source_files = list(iter_sources(reversed_dir, cfg))
+    except OSError:
+        source_files = []
+    for path in header_files + source_files:
+        try:
+            from rebrew.types import parse_structs
+
+            for typedef_text in extract_structs_from_file(path):
+                for found in parse_structs(typedef_text):
+                    local_names.add(found)
+        except OSError:
+            continue
+    new = {name: entry for name, entry in structs_by_name.items() if name not in local_names}
+    if not new:
+        return 0
+    if dry_run:
+        for name in sorted(new):
+            proposed.append(
+                {"struct": name, "field": "struct_definition", "local": "", "binsync": name}
+            )
+        return len(new)
+    header = reversed_dir / "binsync_types.h"
+    try:
+        existing = header.read_text(encoding="utf-8") if header.exists() else ""
+    except OSError:
+        existing = ""
+    blocks = [existing] if existing and not existing.endswith("\n\n") else [existing]
+    if not blocks[0]:
+        blocks = [
+            "/* binsync_types.h - struct definitions imported from BinSync.\n * Regenerate/extend via: rebrew binsync-import\n */\n\n"
+        ]
+    for name in sorted(new):
+        definition = str(new[name].get("definition") or "").strip()
+        if not definition:
+            fields = new[name].get("fields")
+            if isinstance(fields, dict) and fields:
+                lines = [
+                    f"\t{str(f.get('type', 'int'))} {fname};"
+                    for fname, f in fields.items()
+                    if isinstance(f, dict)
+                ]
+                definition = f"typedef struct {name}_s {{\n" + "\n".join(lines) + f"\n}} {name};"
+        if not definition:
+            continue
+        if name not in existing:
+            blocks.append(definition + "\n\n")
+    from rebrew.utils import atomic_write_text
+
+    atomic_write_text(header, "".join(blocks), encoding="utf-8")
+    return len(new)
+
+
 def _print_import_result(result: dict[str, object], *, json_output: bool, dry_run: bool) -> None:
     """Render an :func:`import_state` result (the CLI summary/exit path)."""
     from typing import cast
@@ -522,6 +709,8 @@ def _print_import_result(result: dict[str, object], *, json_output: bool, dry_ru
     applied_names = int(cast(int, result["applied_names"]))
     applied_protos = int(cast(int, result["applied_prototypes"]))
     applied_globals = int(cast(int, result["applied_globals"]))
+    applied_structs = int(cast(int, result.get("applied_structs", 0)))
+    applied_notes = int(cast(int, result.get("applied_notes", 0)))
     conflicts = int(cast(int, result["conflicts"]))
     proposed = list(cast(list[Any], result.get("proposed") or []))
     conflict_details = list(cast(list[Any], result.get("conflict_details") or []))
@@ -535,6 +724,8 @@ def _print_import_result(result: dict[str, object], *, json_output: bool, dry_ru
             "applied_names": applied_names,
             "applied_prototypes": applied_protos,
             "applied_globals": applied_globals,
+            "applied_structs": applied_structs,
+            "applied_notes": applied_notes,
             "conflicts": conflicts,
             "skipped": int(cast(int, result.get("skipped", 0))),
         }
@@ -569,10 +760,11 @@ def _print_import_result(result: dict[str, object], *, json_output: bool, dry_ru
         return
 
     # Non-dry-run, non-json summary
-    if applied_names or applied_protos or applied_globals:
+    if applied_names or applied_protos or applied_globals or applied_structs:
         console.print(
             f"[green]Imported[/green] {applied_names} name(s), {applied_protos} prototype(s), "
-            f"{applied_globals} global(s) from [cyan]{state_dir}[/cyan]"
+            f"{applied_globals} global(s), {applied_structs} struct(s) "
+            f"from [cyan]{state_dir}[/cyan]"
         )
     if conflicts:
         if accept_binsync or accept_local:
@@ -584,7 +776,13 @@ def _print_import_result(result: dict[str, object], *, json_output: bool, dry_ru
                 "[cyan]--accept-binsync[/cyan] or [cyan]--accept-local[/cyan] to resolve"
             )
             raise typer.Exit(code=1)
-    if not applied_names and not applied_protos and not applied_globals and not conflicts:
+    if (
+        not applied_names
+        and not applied_protos
+        and not applied_globals
+        and not applied_structs
+        and not conflicts
+    ):
         console.print("[green]Already in sync — nothing to import.[/green]")
 
 

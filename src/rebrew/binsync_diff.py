@@ -16,7 +16,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from rebrew.binsync_state import index_local_and_catalog, load_binsync_state
+from rebrew.binsync_import import _normalize_prototype
+from rebrew.binsync_state import index_local_and_catalog, load_binsync_state, load_manifest
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.utils import strip_body
 
@@ -70,6 +71,8 @@ def main(
     if not funcs_by_va and not globals_by_va:
         error_exit(f"No BinSync data found in {state_dir}", json_mode=json_output)
 
+    manifest = load_manifest(state_dir)
+
     local_by_va, catalog_by_va, catalog_vas = index_local_and_catalog(cfg)
 
     divergences: list[dict[str, str]] = []
@@ -108,8 +111,9 @@ def main(
         local_name = getattr(local, "symbol", "") or getattr(local, "name", "") or ""
         raw_proto = getattr(local, "prototype", "") or ""
         local_proto = strip_body(raw_proto) if raw_proto else ""
-        # prototype divergence
-        if bs_proto and bs_proto != local_proto:
+        # prototype divergence (whitespace-normalized — formatting-only
+        # differences are not divergence)
+        if bs_proto and _normalize_prototype(bs_proto) != _normalize_prototype(local_proto):
             # Local prototype with body stripped vs binsync header type
             # Report even though prototype import is orthogonal to name conflicts
             divergences.append(
@@ -191,6 +195,7 @@ def main(
             "state_dir": str(state_dir),
             "divergences": len(divergences),
             "skipped": skipped,
+            "manifest": manifest,
         }
         if module is not None:
             result["module"] = module

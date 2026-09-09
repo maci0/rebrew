@@ -60,6 +60,19 @@ def load_binsync_state(
                 htype = header.get("type")
                 if isinstance(htype, str) and htype.strip():
                     entry["prototype"] = htype.strip()
+            comments = doc.get("comments", {})
+            if isinstance(comments, dict):
+                for addr_key, text in comments.items():
+                    if not isinstance(text, str):
+                        continue
+                    try:
+                        addr = int(str(addr_key), 0)
+                    except (TypeError, ValueError):
+                        continue
+                    if addr == va + 1 and text.startswith("[rebrew:note]"):
+                        entry["note"] = text[len("[rebrew:note]") :].strip()
+                    elif addr == va + 2 and text.startswith("[rebrew:ghidra]"):
+                        entry["ghidra"] = text[len("[rebrew:ghidra]") :].strip()
             funcs[va] = entry
 
     globals_map: dict[int, dict[str, str]] = {}
@@ -82,11 +95,70 @@ def load_binsync_state(
                     continue
                 gname = entry.get("name")
                 if isinstance(gname, str) and gname:
-                    globals_map[va] = {"name": gname}
+                    record: dict[str, str] = {"name": gname}
+                    gtype = entry.get("type")
+                    if isinstance(gtype, str) and gtype.strip():
+                        record["type"] = gtype.strip()
+                    gsize = entry.get("size")
+                    if gsize is not None:
+                        record["size"] = str(gsize)
+                    globals_map[va] = record
         except Exception:
             log.debug("unparseable BinSync global_vars.toml", exc_info=True)
 
     return funcs, globals_map
+
+
+def load_manifest(state_dir: Path) -> dict[str, str]:
+    """Read ``manifest.toml`` freshness facts; empty dict when absent."""
+    manifest = state_dir / "manifest.toml"
+    if not manifest.exists():
+        return {}
+    try:
+        doc = tomlkit.parse(manifest.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    out: dict[str, str] = {}
+    for key in ("exported_at", "content_hash", "commit"):
+        val = doc.get(key)
+        if isinstance(val, str) and val.strip():
+            out[key] = val.strip()
+    return out
+
+
+def load_binsync_structs(state_dir: Path) -> dict[str, dict[str, object]]:
+    """Load ``structs/*.toml`` from a BinSync state directory.
+
+    Returns ``{struct name: {"definition": str, "fields": {name: {...}}}}``.
+    Entries without a usable definition or field list are skipped.
+    """
+    structs: dict[str, dict[str, object]] = {}
+    structs_dir = state_dir / "structs"
+    if not structs_dir.is_dir():
+        return structs
+    for toml_path in sorted(structs_dir.glob("*.toml")):
+        try:
+            doc = tomlkit.parse(toml_path.read_text(encoding="utf-8"))
+        except Exception:
+            log.debug("unparseable BinSync struct TOML %s", toml_path.name, exc_info=True)
+            continue
+        info = doc.get("info", {})
+        name = info.get("name") if isinstance(info, dict) else None
+        if not isinstance(name, str) or not name.strip():
+            name = toml_path.stem
+        definition = doc.get("definition", "")
+        if not isinstance(definition, str) or not definition.strip():
+            maybe = info.get("definition") if isinstance(info, dict) else None
+            definition = maybe if isinstance(maybe, str) else ""
+        fields = doc.get("fields", {})
+        if not isinstance(definition, str):
+            definition = ""
+        if not isinstance(fields, dict):
+            fields = {}
+        if not definition.strip() and not fields:
+            continue
+        structs[name.strip()] = {"definition": definition, "fields": dict(fields)}
+    return structs
 
 
 def index_local_and_catalog(

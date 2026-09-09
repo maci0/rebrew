@@ -284,9 +284,16 @@ class TestBinsyncRoundTrip:
         p.write_text(tomlkit.dumps(doc), encoding="utf-8")
 
         result = _invoke_import(tmp_path, tmp_path / "state", monkeypatch, "--json")
-        assert result.exit_code == 0
+        assert result.exit_code == 1
         data = json.loads(result.stdout)
-        assert data["applied_prototypes"] == 1
+        assert data["applied_prototypes"] == 0
+        assert data["conflicts"] == 1
+
+        result = _invoke_import(
+            tmp_path, tmp_path / "state", monkeypatch, "--json", "--accept-binsync"
+        )
+        assert result.exit_code == 0
+        assert json.loads(result.stdout)["applied_prototypes"] == 1
 
     def test_global_round_trip(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(
@@ -429,3 +436,129 @@ reversed_dir = "src/server"
         assert "SERVER.0x10002000" in meta
         assert 'status = "STUB"' in meta
         assert "imported from BinSync" in meta
+
+
+class TestGlobalTypeSizeImport:
+    def test_type_and_size_applied(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.data_metadata import get_data_entry
+
+        _make_project(
+            tmp_path,
+            {
+                "data.c": "// GLOBAL: SERVER 0x01008000\n// SIZE: 4\nint g_x;\n",
+            },
+        )
+        state = tmp_path / "state"
+        (state / "functions").mkdir(parents=True, exist_ok=True)
+        doc = tomlkit.document()
+        entry = tomlkit.table()
+        entry["name"] = "g_x"
+        entry["addr"] = 0x01008000
+        entry["type"] = "unsigned int"
+        entry["size"] = 8
+        doc[str(0x01008000)] = entry
+        (state / "global_vars.toml").write_text(tomlkit.dumps(doc), encoding="utf-8")
+        result = _invoke_import(tmp_path, state, monkeypatch, "--json")
+        assert result.exit_code == 0, result.output
+        stored = get_data_entry(tmp_path, 0x01008000, "SERVER")
+        assert stored.get("type") == "unsigned int"
+        assert stored.get("size") == 8
+
+
+class TestStructImport:
+    def test_unknown_struct_written_to_header(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _make_project(tmp_path, {"foo.c": "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n"})
+        state = tmp_path / "state"
+        (state / "functions").mkdir(parents=True, exist_ok=True)
+        structs = state / "structs"
+        structs.mkdir(parents=True, exist_ok=True)
+        doc = tomlkit.document()
+        info = tomlkit.table()
+        info["name"] = "Player"
+        doc["info"] = info
+        doc["definition"] = "typedef struct Player_s {\n\tint x;\n} Player;"
+        (structs / "Player.toml").write_text(tomlkit.dumps(doc), encoding="utf-8")
+        result = _invoke_import(tmp_path, state, monkeypatch, "--json")
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.stdout)
+        assert data["applied_structs"] == 1
+        header = tmp_path / "src" / "binsync_types.h"
+        assert "Player" in header.read_text(encoding="utf-8")
+
+    def test_known_struct_skipped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n",
+                "types.h": "typedef struct Player_s {\n\tint x;\n} Player;\n",
+            },
+        )
+        state = tmp_path / "state"
+        (state / "functions").mkdir(parents=True, exist_ok=True)
+        structs = state / "structs"
+        structs.mkdir(parents=True, exist_ok=True)
+        (structs / "Player.toml").write_text(
+            '[info]\nname = "Player"\ndefinition = "typedef struct Player_s { int x; } Player;"\n',
+            encoding="utf-8",
+        )
+        result = _invoke_import(tmp_path, state, monkeypatch, "--json")
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.stdout)
+        assert data["applied_structs"] == 0
+        assert not (tmp_path / "src" / "binsync_types.h").exists()
+
+
+class TestNormalizePrototype:
+    def test_whitespace_only_difference_ignored(self) -> None:
+        from rebrew.binsync_import import _normalize_prototype
+
+        assert _normalize_prototype("int foo(int a, char *b);") == _normalize_prototype(
+            "int  foo( int a,char*b )"
+        )
+
+    def test_real_difference_kept(self) -> None:
+        from rebrew.binsync_import import _normalize_prototype
+
+        assert _normalize_prototype("int foo(int a);") != _normalize_prototype("int foo(char a);")
+
+
+class TestNoteImport:
+    def _write_state_with_note(self, state: Path, note: str) -> None:
+        import tomlkit
+
+        funcs = state / "functions"
+        funcs.mkdir(parents=True, exist_ok=True)
+        doc = tomlkit.document()
+        info = tomlkit.table()
+        info["name"] = "foo"
+        info["addr"] = 0x1000
+        doc["info"] = info
+        comments = tomlkit.table()
+        comments[str(0x1001)] = f"[rebrew:note] {note}"
+        doc["comments"] = comments
+        (funcs / "00001000.toml").write_text(tomlkit.dumps(doc), encoding="utf-8")
+
+    def test_note_applied(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.metadata import get_entry
+
+        _make_project(tmp_path, {"foo.c": "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n"})
+        state = tmp_path / "state"
+        self._write_state_with_note(state, "needs RE structs")
+        result = _invoke_import(tmp_path, state, monkeypatch, "--json")
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.stdout)
+        assert data["applied_notes"] == 1
+        assert get_entry(tmp_path, 0x1000, "SERVER").get("note") == "needs RE structs"
+
+    def test_same_note_skipped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.metadata import update_field
+
+        _make_project(tmp_path, {"foo.c": "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n"})
+        update_field(tmp_path, 0x1000, "note", "needs RE structs", "SERVER")
+        state = tmp_path / "state"
+        self._write_state_with_note(state, "needs RE structs")
+        result = _invoke_import(tmp_path, state, monkeypatch, "--json")
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["applied_notes"] == 0

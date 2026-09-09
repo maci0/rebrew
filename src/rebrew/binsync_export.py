@@ -827,6 +827,12 @@ def export_state(
         for w in warnings_list:
             console.print(f"[yellow]warning:[/yellow] {w}")
 
+    # Freshness manifest: timestamp + content hash so import/diff can tell
+    # whether the state dir is newer, older, or divergent from local.
+    manifest_hash = ""
+    if not dry_run:
+        manifest_hash = _write_manifest(outdir, commit_hash)
+
     return {
         "outdir": str(outdir),
         "dry_run": dry_run,
@@ -839,9 +845,33 @@ def export_state(
         "warnings": warnings_list,
         "cleaned": cleaned,
         "commit": commit_hash,
+        "manifest": manifest_hash,
         "module": module,
         "empty": False,
     }
+
+
+def _write_manifest(outdir: Path, commit_hash: str | None) -> str:
+    """Write ``manifest.toml`` (timestamp, content hash, commit) and return the hash."""
+    import hashlib
+    from datetime import UTC, datetime
+
+    digest = hashlib.sha256()
+    for path in sorted(outdir.rglob("*.toml")):
+        if path.name == "manifest.toml":
+            continue
+        try:
+            digest.update(path.read_bytes())
+        except OSError:
+            continue
+    content_hash = digest.hexdigest()
+    doc = tomlkit.document()
+    doc["exported_at"] = datetime.now(UTC).isoformat()
+    doc["content_hash"] = content_hash
+    if commit_hash:
+        doc["commit"] = commit_hash
+    atomic_write_locked(outdir / "manifest.toml", tomlkit.dumps(doc), encoding="utf-8")
+    return content_hash
 
 
 def _print_export_result(result: dict[str, object], *, json_output: bool, dry_run: bool) -> None:

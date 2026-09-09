@@ -41,28 +41,24 @@ with `--create-missing`.
 | `va` + `name`/`symbol` | Function name | `functions/<hex>.toml` `[info].name` |
 | `size` | Function size | `functions/<hex>.toml` `[info].size` |
 | `prototype` | Function signature | `functions/<hex>.toml` `[header].type` |
-| `status`, `cflags` | Rebrew metadata comment | `functions/<hex>.toml` `[comments]` |
-| `note` | Analyst note comment | `functions/<hex>.toml` `[comments]` |
-| `ghidra` | Ghidra-synced name comment | `functions/<hex>.toml` `[comments]` |
+| `note` | Analyst note comment | `functions/<hex>.toml` `[comments]` at `va + 1` |
+| `ghidra` | Ghidra-synced name comment | `functions/<hex>.toml` `[comments]` at `va + 2` (only when different) |
 | DATA/GLOBAL entries | Global variable label + type | `global_vars.toml` (keys are decimal VAs — `functions/<hex>.toml` filenames are hex; matches BinSync's own layout) |
 | Struct definitions | Struct type + fields | `structs/<name>.toml` |
+| Export manifest | Freshness facts | `manifest.toml` (`exported_at`, `content_hash`, optional `commit`) |
 
 ### Rebrew Metadata Comment Format
 
-Rebrew-specific fields have no BinSync counterpart, so they are stored as a
-structured comment at the function's address:
+`STATUS`/`CFLAGS` are verify-earned and never exported.  Notes and the
+Ghidra-synced name travel as structured comments at offset addresses (to
+avoid colliding with the function address itself):
 
 ```
-[rebrew] STATUS=EXACT CFLAGS=/O1 /Gd/Oy
+268469377 = "[rebrew:note] Matches original exactly"
+268469379 = "[rebrew:ghidra] OtherToolName"
 ```
 
-If a NOTE field is present in metadata, a separate comment is added at
-`va + 1` (offset, to avoid collision); a GHIDRA name that differs from the
-exported symbol goes to `va + 2`:
-
-```
-[rebrew:note] Stubbed via GlobalFree wrapper
-```
+(`va + 1` for the note, `va + 2` for a differing Ghidra name.)
 
 ### Function TOML Layout
 
@@ -77,7 +73,6 @@ size = 31
 type = "int __cdecl BitReverse(int x)"
 
 [comments]
-268469376 = "[rebrew] STATUS=EXACT CFLAGS=/O1 /Gd"
 268469377 = "[rebrew:note] Matches original exactly"
 ```
 
@@ -137,7 +132,15 @@ and applies changes back into rebrew metadata/source:
   directly; meaningful↔meaningful raises a conflict.
 - **Prototypes** — BinSync `[header].type` → `// PROTOTYPE:` inline annotations
   in the local `.c` files (PROTOTYPE is a file-only key, not metadata).
-- **Globals** — BinSync `global_vars.toml` → `rebrew-data.toml` names.
+  Comparison is whitespace-normalized (formatting-only differences are not
+  divergence); a differing local prototype raises a conflict like a name —
+  `--accept-binsync` overwrites.
+- **Globals** — BinSync `global_vars.toml` → `rebrew-data.toml` names, plus
+  differing `type`/`size` written back.
+- **Notes** — BinSync `[comments]` `[rebrew:note]` → rebrew `note` metadata
+  (differing notes only; identical notes skipped).
+- **Structs** — BinSync `structs/*.toml` definitions unknown locally land in
+  `binsync_types.h`; known names are never overwritten.
 
 Conflict resolution mirrors `rebrew sync`:
 
@@ -178,10 +181,11 @@ divergence exists (CI-friendly). Same filtering semantics as
 `binsync-import --dry-run`.
 
 - **Names** — generic-vs-meaningful and meaningful↔meaningful conflicts
-- **Prototypes** — BinSync `[header].type` vs local prototype
+- **Prototypes** — BinSync `[header].type` vs local prototype (whitespace-normalized)
 - **Globals** — `global_vars.toml` labels missing or renamed locally
 - **New in BinSync** — catalog-known functions present in BinSync but not yet
   reversed locally (the same population import surfaces as `proposed_missing`)
+- **Freshness** — `manifest.toml` facts surfaced in `--json` (`exported_at`, `content_hash`)
 
 ```bash
 rebrew binsync-diff ./binsync_state            # divergences (exit 1 if any)
@@ -240,14 +244,16 @@ rebrew binsync-export ./binsync_state --json
 | LIBRARY | ✅ | ✅ (if annotated) | ✅ |
 | (no STATUS) | ✅ | ✅ (if annotated) | omitted |
 
+The metadata-comment column is notes and differing Ghidra names only —
+`STATUS`/`CFLAGS` are verify-earned and never leave the project.
+
 ---
 
 ## Limitations (remaining)
 
-- **EAX-only semantics** — rebrew metadata fields (STATUS, CFLAGS) have no native BinSync equivalent; stored as structured comments that other tools cannot parse without custom logic.
 - **No libbs yet** — BinSync state is written as plain TOML, not via the `libbs` crate. A future `libbs>=2.0` dependency will add libbs validation and stack-var/enum/typedef support.
 - **No stack vars / locals** — per-function local variable names are not yet round-tripped.
-- **No per-instruction comments** — function-level comments only.
+- **No per-instruction comments** — function-level notes only.
 
 ---
 
