@@ -1412,10 +1412,32 @@ def main(
         # the status was hand-claimed).  The real byte result stands and a
         # metadata: warning is emitted — a claimed PROVEN is only honored
         # over the byte states a proven function legitimately produces
-        # (metadata-review F2).
+        # (metadata-review F2).  The demotion is written through (force —
+        # PROVEN stickiness protects earned claims, but a STUB/COMPILE_ERROR
+        # body demonstrably no longer contains the proven code, so the claim
+        # is void and the warning must fire exactly once).
         stale_proven = sorted(
             r["va"] for r in results if r["va"] in proven_vas and r["va"] not in overlaid_vas
         )
+        if stale_proven and not dry_run:
+            from rebrew.metadata import update_statuses_batch
+
+            by_va = {r["va"]: r for r in results}
+            by_entry = {f"0x{e.va:08x}": e for e in unique_entries}
+            update_statuses_batch(
+                cfg.metadata_dir,
+                [
+                    {
+                        "module": getattr(by_entry[va], "module", "") or "",
+                        "va": by_entry[va].va,
+                        "new_status": by_va[va]["status"],
+                        "clear_blockers": False,
+                        "force": True,
+                    }
+                    for va in stale_proven
+                    if getattr(by_entry.get(va), "module", "") and by_va[va]["status"] != "PROVEN"
+                ],
+            )
         for va in stale_proven:
             status = next(r["status"] for r in results if r["va"] == va)
             console.print(
