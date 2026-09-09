@@ -1638,3 +1638,60 @@ class TestW029RedundantCflags:
         result = CliRunner().invoke(app, ["--fix", str(f)])
         assert result.exit_code == 0, result.output
         assert "inline words" in f.read_text(encoding="utf-8")
+
+
+class TestSupportTu:
+    def _write(self, tmp_path: Path, name: str, text: str) -> Path:
+        f = tmp_path / name
+        f.write_text(text, encoding="utf-8")
+        return f
+
+    def test_support_blessed(self, tmp_path: Path) -> None:
+        from rebrew.lint import lint_file
+
+        f = self._write(
+            tmp_path,
+            "shim.c",
+            "// SUPPORT: SERVER linker shims keep LIBCMT sbheap.obj out\n"
+            "int __cdecl shim(void){return 0;}\n",
+        )
+        result = lint_file(f, None)
+        assert result.errors == []
+        assert result.warnings == []
+        assert result._marker_counts["SUPPORT"] == 1
+
+    def test_support_without_reason_errors(self, tmp_path: Path) -> None:
+        from rebrew.lint import lint_file
+
+        f = self._write(
+            tmp_path, "shim.c", "// SUPPORT: SERVER\nint __cdecl shim(void){return 0;}\n"
+        )
+        result = lint_file(f, None)
+        assert [(c) for _, c, _ in result.errors] == ["E001"]
+
+    def test_support_without_code_warns(self, tmp_path: Path) -> None:
+        from rebrew.lint import lint_file
+
+        f = self._write(tmp_path, "empty.c", "// SUPPORT: SERVER pads .bss\n")
+        result = lint_file(f, None)
+        assert result.errors == []
+        assert [(c) for _, c, _ in result.warnings] == ["W003"]
+
+    def test_support_after_code_not_blessed(self, tmp_path: Path) -> None:
+        from rebrew.lint import lint_file
+
+        f = self._write(
+            tmp_path,
+            "late.c",
+            "int x;\n// SUPPORT: SERVER too late\n",
+        )
+        result = lint_file(f, None)
+        assert [(c) for _, c, _ in result.errors] == ["E001"]
+        assert "SUPPORT" not in result.errors[0][2]
+
+    def test_markerless_without_support_still_e001(self, tmp_path: Path) -> None:
+        from rebrew.lint import lint_file
+
+        f = self._write(tmp_path, "bare.c", "int x;\n")
+        result = lint_file(f, None)
+        assert [(c) for _, c, _ in result.errors] == ["E001"]
