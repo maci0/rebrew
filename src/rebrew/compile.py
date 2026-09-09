@@ -1,9 +1,8 @@
 """Unified compilation helper for rebrew.
 
 Provides a single, consistent interface for compiling C source to .obj files
-through the configured toolchain (docker images for every Windows/DOS
-compiler - wine runs inside the image; native binaries for Linux compilers
-such as gcc-pe/watcom16). All tools (rebrew test, rebrew match, rebrew
+through the configured toolchain — local docker images, or the recompile
+service when configured.  All tools (rebrew test, rebrew match, rebrew
 verify) use these functions instead of building compile commands
 independently.
 
@@ -11,14 +10,14 @@ Architecture
 ~~~~~~~~~~~~
 Entry points in order of abstraction:
 
-``resolve_cl_command(cfg)``
-    Lowest level - builds the base compiler command list from the config's
-    ``compiler_command`` string.  Returns ``[]`` for docker-only configs
-    (empty host command; the image is the compiler).
+``recompile_url(cfg)``
+    Backend selection — the recompile service URL (env
+    ``REBREW_RECOMPILE_URL`` or ``[compiler] recompile_url``), or None for
+    local docker images.
 
 ``compile_to_obj(cfg, source_path, cflags, workdir)``
     Mid-level - compiles a source file inside the toolchain's docker image
-    (or natively for Linux-hosted compilers) and produces a ``.obj`` file.
+    (or via the recompile service) and produces a ``.obj`` file.
     Returns ``(obj_path, error_msg)``.
 
 ``compile_and_compare(cfg, source_path, symbol, target_bytes, cflags)``
@@ -39,11 +38,10 @@ Configuration
 ~~~~~~~~~~~~~
 All functions read from ``cfg`` (a ``ProjectConfig`` instance):
 
-- ``cfg.compiler_command`` - host compiler command, e.g. ``"wine CL.EXE"``;
-  empty for docker-only profiles (the image provides the compiler)
 - ``cfg.compiler_includes`` - path to MSVC include directory
 - ``cfg.base_cflags`` - always-on flags (e.g. ``/nologo /c /MT``)
-- ``cfg.compile_timeout`` - seconds before subprocess is killed
+- ``cfg.compile_timeout`` - seconds before a compile is killed
+- ``cfg.recompile_url`` / ``REBREW_RECOMPILE_URL`` - remote backend selection
 - ``msvc_env_from_config(cfg)`` - environment dict with ``LIB`` / ``INCLUDE`` etc.
 """
 
@@ -62,13 +60,7 @@ import numpy as np
 from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary
 from rebrew.compile_cache import CacheBackend, compile_cache_key, get_compile_cache
 from rebrew.config import ProjectConfig
-from rebrew.core import (
-    build_iat_region,
-    msvc_env_from_config,
-    resolve_runner_path,
-    smart_reloc_compare,
-)
-from rebrew.headless import ensure_xvfb
+from rebrew.core import build_iat_region, msvc_env_from_config, smart_reloc_compare
 from rebrew.matcher import parse_obj_symbol_and_relocs
 from rebrew.metadata import MATCHED_STATUSES
 from rebrew.toolchain import TOOLCHAINS, ToolchainError, ToolchainSpec, run_toolchain
@@ -406,130 +398,24 @@ _STUB_BODY_MAX_BYTES = 8
 _STUB_TARGET_MIN_BYTES = 12
 
 
-# Wine prefixes configured with "Emulate a virtual desktop" (winecfg) pop a
-# window on every compiler invocation, and bare `wine` fails outright under
-# CI with no DISPLAY.  We point wine at a persistent Xvfb (headless.py) -
-# invisible AND cheap: xvfb-run's wrapper costs ~3 s per invocation, a
-# persistent server pays ~200 ms once and amortizes over a whole batch.
-_XVFB_SERVER_ARGS = "-screen 0 1280x1024x24"
-
-
-def maybe_headless_wine(
-    cmd: list[str], env: dict[str, str] | None
-) -> tuple[list[str], dict[str, str] | None]:
-    """Run a ``wine`` invocation headlessly (no window, works without DISPLAY).
-
-    When the first command token is ``wine`` (or a path to it), the
-    ``DISPLAY`` env is pointed at a persistent ``Xvfb`` (see
-    ``rebrew.headless.ensure_xvfb``) so the compile runs on an invisible
-    virtual display.  ``wibo`` is already headless and is left untouched.
-    Set ``REBREW_WINE_HEADLESS=0`` in the environment to force bare wine
-    (e.g. when you genuinely want the window).
-
-    Falls back to wrapping the command in ``xvfb-run`` when no ``Xvfb``
-    binary is available, then to bare wine when neither exists.
-
-    Returns the (possibly wrapped) command and the env dict (a copy with
-    ``DISPLAY`` set when headless was applied).
-    """
-    if not cmd or Path(cmd[0]).name != "wine":
-        return cmd, env
-    if env is not None and env.get("REBREW_WINE_HEADLESS", "") == "0":
-        return cmd, env
-    display = ensure_xvfb()
-    if display is not None:
-        env = dict(env) if env is not None else {**os.environ}
-        env["DISPLAY"] = display
-        return cmd, env
-    if shutil.which("xvfb-run") is not None:
-        return ["xvfb-run", "-a", "-s", _XVFB_SERVER_ARGS, *cmd], env
-    return cmd, env
-
-
-def resolve_cl_command(cfg: ProjectConfig) -> list[str]:
-    """Build the base CL.EXE command list from config.
-
-    Handles both runner-prefixed (``cfg.compiler_runner``) and bare ``cl.exe``
-    formats.  If the runner appears as the first element of
-    ``cfg.compiler_command``, it is stripped and re-prepended to avoid
-    duplication.  Relative compiler paths are resolved against ``cfg.root``.
-
-    Returns:
-        List of command parts, e.g. ``["wine", "/abs/path/CL.EXE"]``.
-
-    """
-    cmd_parts = safe_shlex_split(cfg.compiler_command)
-    if not cmd_parts:
-        # Docker-only configs (empty host command; the image is the
-        # compiler) - nothing to resolve.
-        return []
-
-    runner = str(getattr(cfg, "compiler_runner", "")).strip()
-    if (
-        runner
-        and cmd_parts
-        and Path(cmd_parts[0]).name.lower() == Path(runner).name.lower()
-        and len(cmd_parts) > 1
-    ):
-        cmd_parts = cmd_parts[1:]
-    if (
-        not runner
-        and cmd_parts
-        and Path(cmd_parts[0]).name.lower() in {"wine", "wibo"}
-        and len(cmd_parts) > 1
-    ):
-        runner = cmd_parts[0]
-        cmd_parts = cmd_parts[1:]
-
-    cl_rel = Path(cmd_parts[0]) if cmd_parts else Path("CL.EXE")
-    if (
-        cmd_parts
-        and not cl_rel.is_absolute()
-        and "/" not in cmd_parts[0]
-        and "\\" not in cmd_parts[0]
-        and not runner
-    ):
-        # Bare executable name (e.g. a gcc-pe/mingw toolchain on PATH) -
-        # resolve via PATH instead of the project root.
-        found = shutil.which(cmd_parts[0])
-        cl_abs = found or str(cfg.root / cl_rel)
-    else:
-        cl_abs = str(cfg.root / cl_rel) if not cl_rel.is_absolute() else str(cl_rel)
-        if not cl_rel.is_absolute():
-            cl_path = Path(cl_abs)
-            if not cl_path.exists():
-                # Project-local tools/ absent (no --link-tools-from)?  Fall
-                # back to the rebrew install's own vendored tree so fresh
-                # projects compile out of the box.
-                from rebrew.utils import find_install_tool
-
-                alt = find_install_tool(cl_rel)
-                if alt is not None:
-                    cl_abs = str(alt)
-    command = [cl_abs, *cmd_parts[1:]]
-    if runner:
-        return [resolve_runner_path(runner, cfg.root), *command]
-    return command
-
-
 def resolve_compiler_env(
     cfg: ProjectConfig,
-) -> tuple[str, str, dict[str, str] | None, CacheBackend | None]:
-    """Resolve compiler command, include dir, MSVC env, and compile cache from config.
+) -> tuple[str, dict[str, str] | None, CacheBackend | None]:
+    """Resolve include dir, MSVC env, and compile cache from config.
 
-    Returns ``(cl_cmd, inc_dir, msvc_env, compile_cache)`` - the four values
-    typically needed for compilation workflows.
+    Returns ``(inc_dir, msvc_env, compile_cache)`` — the values compilation
+    workflows need.  The host compiler command is gone: every compile runs
+    through ``compile_to_obj`` (local docker images or the recompile
+    service), which resolves the toolchain from the profile.
 
     Args:
         cfg: ProjectConfig instance from the project root.
 
     Returns:
-        Tuple of (cl_cmd, inc_dir, msvc_env, compile_cache) where compile_cache
+        Tuple of (inc_dir, msvc_env, compile_cache) where compile_cache
         may be None if the cache database cannot be opened.
 
     """
-    cl_cmd = " ".join(resolve_cl_command(cfg))
-
     inc_dir = str(cfg.compiler_includes)
     inc_path = cfg.root / inc_dir
     if inc_path.exists():
@@ -541,7 +427,7 @@ def resolve_compiler_env(
     with contextlib.suppress(OSError):
         cc = get_compile_cache(cfg.root, getattr(cfg, "cache_backend", "diskcache"))
 
-    return cl_cmd, inc_dir, env, cc
+    return inc_dir, env, cc
 
 
 # ---------------------------------------------------------------------------
@@ -701,35 +587,6 @@ def _docker_include_rewrite(
 
 _toolchain_digest_cache: dict[str, str] = {}
 
-_native_binary_cache: dict[str, str] = {}
-
-
-def _native_toolchain_id(spec: "ToolchainSpec") -> str:
-    """The compile-cache toolchain id for a host-only (native) compiler.
-
-    Image-backed specs key on the docker content id (:func:`_toolchain_cache_id`);
-    a native binary has no image, so the resolved executable's (mtime, size)
-    stands in for identity — upgrading or replacing the compiler on PATH
-    changes the stat, and objects cached from the OLD binary are never
-    served under the new one.  Falls back to the bare ``native:<name>`` when
-    the binary is missing or unresolvable (the compile itself fails with a
-    clear error).  Cached per process, mirroring ``_toolchain_digest_cache``.
-    """
-    name = spec.binary
-    cached = _native_binary_cache.get(name)
-    if cached is None:
-        cached = f"native:{name}"
-        resolved = shutil.which(name)
-        if resolved:
-            try:
-                st = Path(resolved).resolve().stat()
-            except OSError:
-                st = None
-            if st is not None:
-                cached = f"native:{name}@{st.st_mtime_ns:x}.{st.st_size:x}"
-        _native_binary_cache[name] = cached
-    return cached
-
 
 def _toolchain_cache_id(spec: "ToolchainSpec") -> str:
     """The compile-cache toolchain id: the image tag, extended with the
@@ -759,6 +616,74 @@ def _toolchain_cache_id(spec: "ToolchainSpec") -> str:
             digest = ""
         _toolchain_digest_cache[image] = digest
     return f"{image}@{digest}" if digest else image
+
+
+def recompile_url(cfg: ProjectConfig) -> str | None:
+    """The recompile service base URL, or None when the local backend applies.
+
+    Precedence: ``REBREW_RECOMPILE_URL`` env first (per-run override without
+    editing the TOML), then ``[compiler] recompile_url``.  Empty/unset means
+    local docker images.
+    """
+    env = os.environ.get("REBREW_RECOMPILE_URL", "").strip()
+    if env:
+        return env
+    return (getattr(cfg, "recompile_url", "") or "").strip() or None
+
+
+def _recompile_obj_name(source_path: Path) -> str:
+    """Artifact filename for a recompile request (basename + ``.obj``)."""
+    stem = source_path.stem or "input"
+    return f"{stem}.obj"
+
+
+def _compile_via_recompile(
+    cfg: ProjectConfig,
+    source_path: Path,
+    all_flags: list[str],
+    workdir: Path,
+    obj_name: str,
+    profile: str,
+    emit_assembly: bool,
+) -> tuple[str | None, str]:
+    """Compile one source through the recompile HTTP service.
+
+    Single-file model: the source text plus the fully-resolved flag list go
+    in one ``POST /api/v1/compile``; the returned artifact bytes are written
+    to *workdir* / *obj_name*.  Include dirs are NOT shipped — the service
+    compiles its own image-local tree (plus the single source), so sources
+    with project-relative ``#include`` resolve only when they travel with
+    the source text.
+    """
+    from rebrew.recompile_client import RecompileError, compile_source
+
+    url = recompile_url(cfg)
+    assert url is not None, "recompile backend selected without a URL"
+    try:
+        source_text = source_path.read_text(encoding="utf-8", errors="surrogateescape")
+    except OSError as exc:
+        return None, f"Failed to read source for recompile upload: {exc}"
+    try:
+        res = compile_source(
+            url,
+            compiler=profile,
+            source=source_text,
+            flags=all_flags,
+            filename=_recompile_obj_name(source_path),
+            timeout=float(getattr(cfg, "compile_timeout", 60) or 60) + 120.0,
+            emit_assembly=emit_assembly,
+        )
+    except RecompileError as exc:
+        return None, f"recompile service error: {exc}"
+    if not res.ok or res.obj_bytes is None:
+        err = (res.log or "").strip()[-400:]
+        return None, err or "recompile service reported failure with no log"
+    obj_file = workdir / obj_name
+    try:
+        obj_file.write_bytes(res.obj_bytes)
+    except OSError as exc:
+        return None, f"Failed to write recompile artifact: {exc}"
+    return str(obj_file), ""
 
 
 def compile_to_obj(
@@ -875,13 +800,15 @@ def compile_to_obj(
         source_content = source_path.read_bytes().decode("utf-8", errors="surrogateescape")
         if spec is not None and spec.image is not None:
             toolchain_id = _toolchain_cache_id(spec)
-        elif spec is not None:
-            # Native (host) spec: the compiler binary IS the toolchain — two
-            # native compilers (gcc vs clang) must never share a cache entry,
-            # and neither may a compiler upgrade (see _native_toolchain_id).
-            toolchain_id = _native_toolchain_id(spec)
         else:
-            toolchain_id = " ".join(resolve_cl_command(cfg))
+            toolchain_id = f"unknown:{profile}"
+        # A remote compile does not see host include dirs (single-file model:
+        # source text + flags only) — key it on its own id so a backend
+        # switch can never serve the other's object.  The image tag alone is
+        # not enough: the service may run a different image build than local
+        # docker, so pin the identity to the backend that produced it.
+        if recompile_url(cfg) is not None and spec is not None:
+            toolchain_id = f"recompile:{recompile_url(cfg)}/{spec.name}"
         # extra_include_dirs feed the /I flags and bind mounts - they are
         # compile inputs and must shape the key (two functions whose
         # relative #include resolves differently would otherwise share
@@ -928,49 +855,61 @@ def compile_to_obj(
     except OSError as e:
         return None, f"Failed to copy source into workdir: {e}"
 
-    if spec is not None and (spec.image is not None or spec.runtime == "native"):
-        """The standardized runner: docker images for every Windows/DOS
-        toolchain, native execution for Linux compilers without an image
-        (gcc-pe, watcom16 wcc).  There is no host wine/dosbox path."""
+    if recompile_url(cfg) is not None:
+        # Remote backend: one POST carries source text + resolved flags; the
+        # artifact bytes come back over HTTP.  No mounts, no local image.
+        active = toolchain or profile
+        return _compile_via_recompile(
+            cfg,
+            source_path,
+            all_flags,
+            workdir,
+            obj_name,
+            active,
+            emit_assembly=bool(getattr(cfg, "recompile_emit_assembly", False)),
+        )
+
+    if spec is not None and spec.image is not None:
+        """The standardized runner: every toolchain compiles inside its
+        docker image.  There is no host-compiler path."""
         mounts: list[tuple[str, str]] = []
-        if spec.image is not None:
-            # --- docker: rewrite include flags for the container ---
-            # The project root is same-path mounted: relative
-            # `#include "../.."` paths in a project tree resolve exactly as
-            # on the host (the source copy in /work is flat, so only /I
-            # flags + the root mount can reach the original tree).
-            root_dir = getattr(cfg, "root", None)
-            if root_dir is not None:
-                root_p = Path(root_dir).resolve()
-                if root_p.exists():
-                    mounts.append((str(root_p), str(root_p)))
-            all_flags, extra_mounts = _docker_include_rewrite(all_flags, workdir)
-            mounts += extra_mounts
-            # The source's own dir (../../ includes) and any custom include dir
-            # outside the vendored toolchain trees are bind-mounted; the
-            # toolchain's own include tree ships inside the image (byte-identical
-            # to the vendored tree it was built from) and needs no mount.  The
-            # 16-bit DOSBox wrappers stage their own include tree - follow the
-            # ACTIVE spec (a per-function TOOLCHAIN override may swap in a
-            # 16-bit toolchain under a 32-bit project profile).
-            if spec.name not in ("msvc1.52", "msvc15", "msvc10", "tc16", "tc20"):
-                extra_inc: list[str] = []
-                if src_parent.resolve() != workdir.resolve():
-                    extra_inc.append(str(src_parent))
-                if inc_path and not _is_vendored_toolchain_tree(Path(inc_path)):
-                    extra_inc.append(str(inc_path))
-                # The GA / diff paths compile from a temp source copy and
-                # pass the original source's parent (for relative includes)
-                # mount those dirs too.
-                extra_inc.extend(d for d in (extra_include_dirs or []) if d)
-                prefix = "/I" if spec.flags_style == "msvc" else "-I"
-                for d in extra_inc:
-                    rewritten, extra_mounts = _docker_include_rewrite([f"{prefix}{d}"], workdir)
-                    mounts += extra_mounts
-                    all_flags += rewritten
-                # Same-path mounts may repeat across dirs - docker rejects
-                # duplicate -v targets.
-                mounts = list(dict.fromkeys(mounts))
+        # --- docker: rewrite include flags for the container ---
+        # The project root is same-path mounted: relative
+        # `#include "../.."` paths in a project tree resolve exactly as
+        # on the host (the source copy in /work is flat, so only /I
+        # flags + the root mount can reach the original tree).
+        root_dir = getattr(cfg, "root", None)
+        if root_dir is not None:
+            root_p = Path(root_dir).resolve()
+            if root_p.exists():
+                mounts.append((str(root_p), str(root_p)))
+        all_flags, extra_mounts = _docker_include_rewrite(all_flags, workdir)
+        mounts += extra_mounts
+        # The source's own dir (../../ includes) and any custom include dir
+        # outside the vendored toolchain trees are bind-mounted; the
+        # toolchain's own include tree ships inside the image (byte-identical
+        # to the vendored tree it was built from) and needs no mount.  The
+        # 16-bit DOSBox wrappers stage their own include tree - follow the
+        # ACTIVE spec (a per-function TOOLCHAIN override may swap in a
+        # 16-bit toolchain under a 32-bit project profile).
+        if spec.name not in ("msvc1.52", "msvc15", "msvc10", "tc16", "tc20"):
+            extra_inc: list[str] = []
+            if src_parent.resolve() != workdir.resolve():
+                extra_inc.append(str(src_parent))
+            if inc_path and not _is_vendored_toolchain_tree(Path(inc_path)):
+                extra_inc.append(str(inc_path))
+            # The GA / diff paths compile from a temp source copy and
+            # pass the original source's parent (for relative includes)
+            # mount those dirs too.
+            extra_inc.extend(d for d in (extra_include_dirs or []) if d)
+            prefix = "/I" if spec.flags_style == "msvc" else "-I"
+            for d in extra_inc:
+                rewritten, extra_mounts = _docker_include_rewrite([f"{prefix}{d}"], workdir)
+                mounts += extra_mounts
+                all_flags += rewritten
+            # Same-path mounts may repeat across dirs - docker rejects
+            # duplicate -v targets.
+            mounts = list(dict.fromkeys(mounts))
         if spec.name in ("msvc1.52", "msvc15", "msvc10", "tc16", "tc20"):
             # 16-bit DOSBox wrappers stage their own include tree.
             args = [src_name, *all_flags]
@@ -981,7 +920,7 @@ def compile_to_obj(
         elif spec.name in ("watcom", "watcom16"):
             args = all_flags + [f"-fo={obj_name}", "-zq", src_name]
         elif spec.flags_style == "posix":
-            # Native posix compilers (gcc-pe): -I/-c/-o, no MSVC /Fo.
+            # Posix-style compilers (gcc-pe, watcom): -I/-c/-o, no MSVC /Fo.
             inc_flags = [f"-I{inc_path}"] if inc_path else []
             args = all_flags + inc_flags + [f"-I{str(src_parent)}", "-c", "-o", obj_name, src_name]
         else:
@@ -1012,10 +951,10 @@ def compile_to_obj(
                 cc.put(cache_key, obj_file.read_bytes())
         return str(obj_file), ""
 
-    # Unknown/unregistered profile: nothing to run.  Execution is docker-
-    # (or native-runner-)only; a plain command string cannot be exec'd.
+    # Unknown/unregistered profile: nothing to run.  Execution is
+    # docker-only; a plain command string cannot be exec'd.
     return None, (
-        f"profile {profile!r} is not a docker/native toolchain - every compile "
+        f"profile {profile!r} is not a docker toolchain - every compile "
         "runs through the standardized runner; "
         "run `rebrew toolchain list` for the available profiles"
     )

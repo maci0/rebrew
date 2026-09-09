@@ -1071,8 +1071,7 @@ def _toolchain_image_followup(compiler_profile: str) -> None:
     """Report the compiler profile's docker image state (wizard runs only).
 
     Missing image → print the exact build command and offer to run it
-    (streamed output; failure/wibo/docker errors only warn — never crash
-    init).  Native PATH toolchains have no image, so nothing to build."""
+    (streamed output; docker errors only warn — never crash init)."""
     from rebrew.toolchain import TOOLCHAINS, image_present
 
     spec = TOOLCHAINS.get(compiler_profile)
@@ -1080,9 +1079,7 @@ def _toolchain_image_followup(compiler_profile: str) -> None:
         return
     image = spec.image
     if image is None:
-        console.print(
-            f"[dim]toolchain: {compiler_profile} runs natively from PATH — nothing to build[/]"
-        )
+        console.print(f"[yellow]toolchain: {compiler_profile} has no docker image[/]")
         return
     try:
         present = image_present(image)
@@ -1145,7 +1142,10 @@ def main(
         ),
     ),
     install_wibo: bool = typer.Option(
-        False, "--install-wibo", help="Download wibo runner to tools/wibo."
+        False,
+        "--install-wibo",
+        help="Deprecated no-op (host runners are retired; kept so old scripts parse).",
+        hidden=True,
     ),
     install_completions: bool = typer.Option(
         False,
@@ -1259,27 +1259,16 @@ def main(
         if layout is not None:
             cmd, inc, lib = layout
             profile = {**profile, "command": cmd, "includes": inc, "libs": lib}
-    # Docker-only execution: every Windows/DOS toolchain compiles through
-    # its docker image, so the legacy host wine command/runner are inert —
-    # write an empty command so fresh projects are docker-native (no stale
-    # "wine toolchain/..." line that doctor/verify might misread).  Native
-    # profiles without an image (gcc-pe, watcom16 wcc) keep their command.
+    # Docker-only execution: every toolchain compiles through its docker
+    # image, so the legacy host command/runner are inert — write an empty
+    # command so fresh projects are docker-native.
     from rebrew.toolchain import TOOLCHAINS
 
     _spec = TOOLCHAINS.get(compiler_profile)
     if _spec is not None and _spec.image is not None:
-        # wibo is a host-wine alternative — obsolete under docker-only
-        # execution; ignore --install-wibo for image-backed profiles.
         profile = {**profile, "command": "", "runner": ""}
-        install_wibo = False
-    runner = "tools/wibo" if install_wibo else profile["runner"]
+    runner = profile["runner"]
     compiler_command = profile["command"]
-    if install_wibo and compiler_command.startswith("wine "):
-        # wibo runs the CL.EXE directly — drop the wine prefix so
-        # resolve_cl_command's runner stripping sees cmd_parts[0] == runner
-        # (otherwise the config mixes "tools/wibo" with a "wine" command
-        # and every compile fails with a bogus argv).
-        compiler_command = compiler_command[len("wine ") :]
 
     # Auto-detect the binary's format/arch when it is already in place
     # (original/<name>) — otherwise the profile's hardcoded defaults (pe /
@@ -1421,15 +1410,7 @@ def main(
             shutil.copy2(_PRINCIPLES_SRC, principles_dest)
             console.print("[green]Created PRINCIPLES.md[/] (Project design principles)")
 
-    # 8. Optionally download wibo runner
-    if install_wibo:
-        from rebrew.wibo import download_wibo
-
-        wibo_path = cwd / "tools" / "wibo"
-        tag_name = download_wibo(wibo_path)
-        console.print(f"[green]Downloaded wibo {tag_name} to {wibo_path}[/]")
-
-    # 9. Optionally symlink the profile toolchain from a master directory
+    # 8. Optionally symlink the profile toolchain from a master directory
     linked_toolchain: Path | None = None
     if toolchain_dir is not None:
         linked_toolchain = _link_toolchain(cwd, compiler_profile, toolchain_dir, json_output)

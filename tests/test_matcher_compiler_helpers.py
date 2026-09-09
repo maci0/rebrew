@@ -1,8 +1,6 @@
 """Tests for matcher/compiler.py pure helpers."""
 
-import re
-
-from rebrew.matcher.compiler import _flags_to_axes, _map_symbol_re, generate_flag_combinations
+from rebrew.matcher.compiler import _flags_to_axes, generate_flag_combinations
 from rebrew.matcher.flags import Checkbox, FlagSet
 
 
@@ -57,12 +55,6 @@ class TestGenerateFlagCombinations:
         assert any("/G2" in c for c in combos)
         assert any("/AM" in c for c in combos)
         assert any("/AL" in c for c in combos)
-
-
-class TestMapSymbolRe:
-    def test_escapes_special_chars(self) -> None:
-        pat = _map_symbol_re("_func+[1]")
-        assert re.escape("_func+[1]") in pat.pattern
 
 
 class TestFlagSweepsNewProfiles:

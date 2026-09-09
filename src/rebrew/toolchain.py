@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import contextlib
 import os
-import shutil
 import subprocess
 import tomllib
 import uuid
@@ -589,30 +588,30 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
     ),
     "gcc-pe": ToolchainSpec(
         name="gcc-pe",
-        image=None,
+        image="rebrew/gcc:pe-win32",
         binary="i686-w64-mingw32-gcc",
         runtime="native",
         flags_style="posix",
         obj_ext=".o",
-        description="MinGW GCC / Zig (PE/x86_32) — native PATH binary",
+        description="MinGW GCC (PE/x86_32) — docker image (native Linux binary inside)",
     ),
     "gcc": ToolchainSpec(
         name="gcc",
-        image=None,
+        image="rebrew/gcc:linux-x64",
         binary="gcc",
         runtime="native",
         flags_style="posix",
         obj_ext=".o",
-        description="GCC (ELF/x86_64) — native PATH binary",
+        description="GCC (ELF/x86_64) — docker image (native Linux binary inside)",
     ),
     "clang": ToolchainSpec(
         name="clang",
-        image=None,
+        image="rebrew/clang:linux-x64",
         binary="clang",
         runtime="native",
         flags_style="posix",
         obj_ext=".o",
-        description="Clang (ELF/x86_64) — native PATH binary",
+        description="Clang (ELF/x86_64) — docker image (native Linux binary inside)",
     ),
     "ido5.3": ToolchainSpec(
         name="ido5.3",
@@ -1008,7 +1007,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
     ),
     "watcom16": ToolchainSpec(
         name="watcom16",
-        image=None,  # host-only: wcc runs natively from the watcom snapshot
+        image="rebrew/watcom:2.0-win16",
         binary="wcc",
         runtime="native",
         bits=16,  # 16-bit target (arch-alignment check)
@@ -1016,7 +1015,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         obj_ext=".obj",  # 16-bit OMF — parses via omf16/objconv
         host_path=_vendored("watcom/2.0-win32") if _vendored("watcom/2.0-win32").exists() else None,
         host_bin="binl",
-        description="Open Watcom 2.0 wcc (16-bit DOS, OMF) — native Linux wcc",
+        description="Open Watcom 2.0 wcc (16-bit DOS, OMF) — docker image (native Linux binary inside)",
     ),
 }
 
@@ -1369,24 +1368,6 @@ def vendored_binary(spec: ToolchainSpec) -> Path | None:
     return None
 
 
-def _resolve_binary(spec: ToolchainSpec) -> str:
-    """The host-side compiler path for a native-runtime spec (no image):
-    vendored dir / PATH binary.  Raises ToolchainError when nothing
-    resolvable exists.  Only native-Linux toolchains (gcc-pe, watcom16
-    wcc) reach this — wine/dosbox toolchains are docker-only."""
-    hit = vendored_binary(spec)
-    if hit is not None:
-        return str(hit)
-    found = shutil.which(spec.binary)
-    if found:
-        return found
-    raise ToolchainError(
-        f"toolchain {spec.name!r}: no native binary ({spec.binary}) found — "
-        "run `rebrew toolchain vendor <name>` into the rebrew-toolchains "
-        "checkout or install it on PATH"
-    )
-
-
 def run_toolchain(
     spec: ToolchainSpec,
     args: list[str],
@@ -1397,15 +1378,12 @@ def run_toolchain(
 ) -> RunResult:
     """Invoke a toolchain's compiler through its docker image (uniform backend).
 
-    Execution is docker-only for every Windows/DOS toolchain: the images
-    encapsulate the runtime (MSVC under wine, DCC/TCC under DOSBox) and the
-    host never calls CL.EXE / DCC.EXE / TCC.EXE / bcc32.exe directly.  A
-    missing image is a hard error (run `rebrew toolchain build <name>`) —
-    there is deliberately no wine/wibo/dosbox host fallback anymore.
-
-    Native-Linux toolchains without an image (gcc-pe, watcom16 wcc) exec the
-    vendored/PATH binary directly — they are not Windows binaries, so no
-    wine glue is involved.
+    Execution is docker-only for every toolchain: the images encapsulate
+    the runtime (MSVC under wine, DCC/TCC under DOSBox, native-Linux
+    compilers as image-local binaries) and the host never executes a
+    compiler directly.  A missing image is a hard error (run
+    `rebrew toolchain build <name>`) — there is deliberately no host
+    fallback anymore.
 
     The container runs with ``--network=none`` — compilation is strictly
     local (source in, object out), and the toolchain image needs no egress
@@ -1414,16 +1392,14 @@ def run_toolchain(
     Args:
         spec: The toolchain to run.
         args: Compiler arguments (flags, source, output).
-        workdir: Host directory mounted into the container (docker) or the
-            process cwd (native).  Required for docker.
+        workdir: Host directory mounted into the container.  Required.
         mounts: Extra ``(host_dir, container_dir)`` bind mounts, used to
             expose project include trees to the container (each host dir is
             mounted read-write at the container path).
         timeout: Subprocess timeout.
 
     Raises:
-        ToolchainError: no docker daemon/image for a docker toolchain, or no
-            native binary for a native-runtime toolchain.
+        ToolchainError: no docker daemon/image for the toolchain.
     """
     workdir = Path(workdir) if workdir is not None else Path.cwd()
     try:
@@ -1433,68 +1409,49 @@ def run_toolchain(
         # catch that), not a raw OSError escaping into the GA/flag-sweep path.
         raise ToolchainError(f"cannot create workdir {workdir}: {exc}") from exc
 
-    if spec.image is not None:
-        if not docker_available():
-            raise ToolchainError("docker is not available — cannot run toolchain images")
-        if not image_present(spec.image):
-            raise ToolchainError(
-                f"toolchain {spec.name!r}: docker image {spec.image} not built — "
-                f"run `rebrew toolchain build {spec.name}`"
-            )
-        cmd = [
-            container_runtime(),
-            "run",
-            "--rm",
-            "--network=none",  # compile-only containers — no egress needed
-            # A stable name lets the timeout path kill the container: when the
-            # docker CLI is killed, dockerd keeps the (attached) container
-            # running, so a hung compile would linger forever and accumulate
-            # one orphan per timed-out invocation.
-            "--name",
-            f"rebrew-{uuid.uuid4().hex[:12]}",
-            "-v",
-            f"{workdir.resolve()}:/work",
-            "-w",
-            "/work",
-        ]
-        for host_dir, container_dir in mounts or []:
-            cmd += ["-v", f"{Path(host_dir).resolve()}:{container_dir}"]
-        cmd.append(spec.image)
-        if spec.image_binary is not None:
-            cmd.append(spec.image_binary)
-        cmd.extend(args)
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        except subprocess.TimeoutExpired as exc:
-            kill_container(str(cmd[cmd.index("--name") + 1]))
-            raise ToolchainError(f"docker invocation failed: {exc}") from exc
-        except OSError as exc:
-            raise ToolchainError(f"docker invocation failed: {exc}") from exc
-        return RunResult(r.returncode, r.stdout, r.stderr, backend="docker")
-
-    if spec.runtime == "native":
-        # Native-Linux compiler (gcc-pe, watcom16 wcc) — vendored/PATH binary
-        # executed directly.  These are NOT Windows binaries; no wine glue.
-        binary = _resolve_binary(spec)
-        env = dict(os.environ)
-        try:
-            r = subprocess.run(
-                [binary, *args],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-                env=env,
-                cwd=str(workdir),
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise ToolchainError(f"toolchain invocation failed: {exc}") from exc
-        return RunResult(r.returncode, r.stdout, r.stderr, backend="native")
-
-    raise ToolchainError(
-        f"toolchain {spec.name!r} ({spec.runtime}) has no docker image — every "
-        "Windows/DOS toolchain runs only through its docker image; "
-        f"run `rebrew toolchain build {spec.name}`"
-    )
+    if spec.image is None:
+        raise ToolchainError(
+            f"toolchain {spec.name!r} has no docker image — every toolchain "
+            "runs only through its docker image; "
+            f"run `rebrew toolchain build {spec.name}`"
+        )
+    if not docker_available():
+        raise ToolchainError("docker is not available — cannot run toolchain images")
+    if not image_present(spec.image):
+        raise ToolchainError(
+            f"toolchain {spec.name!r}: docker image {spec.image} not built — "
+            f"run `rebrew toolchain build {spec.name}`"
+        )
+    cmd = [
+        container_runtime(),
+        "run",
+        "--rm",
+        "--network=none",  # compile-only containers — no egress needed
+        # A stable name lets the timeout path kill the container: when the
+        # docker CLI is killed, dockerd keeps the (attached) container
+        # running, so a hung compile would linger forever and accumulate
+        # one orphan per timed-out invocation.
+        "--name",
+        f"rebrew-{uuid.uuid4().hex[:12]}",
+        "-v",
+        f"{workdir.resolve()}:/work",
+        "-w",
+        "/work",
+    ]
+    for host_dir, container_dir in mounts or []:
+        cmd += ["-v", f"{Path(host_dir).resolve()}:{container_dir}"]
+    cmd.append(spec.image)
+    if spec.image_binary is not None:
+        cmd.append(spec.image_binary)
+    cmd.extend(args)
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        kill_container(str(cmd[cmd.index("--name") + 1]))
+        raise ToolchainError(f"docker invocation failed: {exc}") from exc
+    except OSError as exc:
+        raise ToolchainError(f"docker invocation failed: {exc}") from exc
+    return RunResult(r.returncode, r.stdout, r.stderr, backend="docker")
 
 
 def list_toolchains() -> list[dict[str, Any]]:

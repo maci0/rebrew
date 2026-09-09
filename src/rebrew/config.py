@@ -300,6 +300,24 @@ class ProjectConfig:
     base_cflags: str = "/nologo /c /MT"  # Always-on flags prepended to every compile
     compile_timeout: int = 60  # Seconds before a compile subprocess is killed
 
+    # --- recompile remote backend ([compiler] recompile_url or
+    # REBREW_RECOMPILE_URL env) ---
+    recompile_url: str = ""
+    """Base URL of the recompile compile service (e.g. ``http://localhost:8000``).
+
+    When set, every compile routes through ``POST /api/v1/compile`` instead
+    of local docker images — the same pinned toolchain images, plus the
+    opt-in training tap (``emit_assembly``) that feeds resembl and LLM
+    training.  Empty (the default) keeps local docker execution.
+    """
+    recompile_emit_assembly: bool = False
+    """Pass ``emit_assembly=true`` on remote compiles (training-data tap).
+
+    Off by default: ordinary test/verify compiles must not grow the
+    service's ``train_data/train.jsonl``.  The GA's ``--collect-pairs`` path
+    enables it per run.
+    """
+
     # --- per-target version defines ---
     defines: list[str] = field(default_factory=list)
     """Per-target compile-time defines (``targets.<name>.defines``).
@@ -861,6 +879,8 @@ _KNOWN_COMPILER_KEYS = {
     "profile",
     "base_cflags",
     "timeout",
+    "recompile_url",  # remote compile backend (or REBREW_RECOMPILE_URL env)
+    "recompile_emit_assembly",  # training-data tap for remote compiles
     "cflags_presets",  # written by `rebrew cfg set-cflags --global` (per-origin compiler flag overrides)
 }
 
@@ -1219,6 +1239,8 @@ def load_config(
             "compiler.base_cflags",
         ),
         compile_timeout=_positive_int(compiler.get("timeout", 60), 60, "compiler.timeout"),
+        recompile_url=_as_str(compiler.get("recompile_url"), "", "compiler.recompile_url").strip(),
+        recompile_emit_assembly=bool(compiler.get("recompile_emit_assembly", False)),
         # arch-derived
         pointer_size=arch_preset["pointer_size"],
         padding_bytes=arch_preset["padding_bytes"],

@@ -23,9 +23,7 @@ import json
 import logging
 import random
 import re
-import shlex
 import shutil
-import subprocess
 import tempfile
 import threading
 import time
@@ -68,7 +66,6 @@ from rebrew.matcher import (
     BuildResult,
     GACheckpoint,
     SolutionEntry,
-    build_candidate,
     build_candidate_obj_only,
     compute_population_diversity,
     crossover,
@@ -285,7 +282,7 @@ def _find_function_range(source: str, symbol: str) -> tuple[int, int] | None:
 def _ga_cache_key(
     src: str,
     cflags: str,
-    cl_cmd: str,
+    profile: str,
     inc_dir: str,
     extra_include_dirs: list[str] | None = None,
     defines: list[str] | None = None,
@@ -293,7 +290,8 @@ def _ga_cache_key(
     """Cache key for a GA compile result.
 
     Must cover everything that changes the produced .obj: the source text,
-    the compiler flags, the compiler command, the include directory, the
+    the compiler flags, the toolchain profile (image identity — the host
+    command is gone), the include directory, the
     extra include dirs (different headers → different codegen), and the
     per-target defines (a version switch changes ``#ifdef``-driven codegen).
     The build cache persists across runs
@@ -307,7 +305,7 @@ def _ga_cache_key(
     h = hashlib.sha256()
     h.update(source_digest(src).encode())
     h.update(b"\x00cflags=" + cflags.encode())
-    h.update(b"\x00cmd=" + cl_cmd.encode())
+    h.update(b"\x00profile=" + profile.encode())
     h.update(b"\x00inc=" + inc_dir.encode())
     for d in sorted(extra_include_dirs or []):
         h.update(b"\x00" + d.encode())
@@ -323,7 +321,7 @@ class BinaryMatchingGA:
         self,
         seed_source: str,
         target_bytes: bytes,
-        cl_cmd: str,
+        _cl_cmd: str,
         inc_dir: str,
         cflags: str,
         symbol: str,
@@ -338,10 +336,6 @@ class BinaryMatchingGA:
         stagnation_limit: int = 40,
         verbose: int = 1,
         rng_seed: int | None = None,
-        compare_obj: bool = True,
-        lib_dir: str | None = None,
-        link_cmd: str | None = None,
-        ldflags: str | None = None,
         env: dict[str, str] | None = None,
         compile_cache: CacheBackend | None = None,
         compile_timeout: int = 60,
@@ -371,7 +365,6 @@ class BinaryMatchingGA:
         self.cfg = cfg
         self.seed_source = seed_source
         self.target_bytes = target_bytes
-        self.cl_cmd = cl_cmd
         self.inc_dir = inc_dir
         self.extra_include_dirs = extra_include_dirs or []
         self.cflags = cflags
@@ -386,10 +379,6 @@ class BinaryMatchingGA:
         self.stagnation_limit = stagnation_limit
         self.verbose = verbose
         self.rng_seed = rng_seed
-        self.compare_obj = compare_obj
-        self.lib_dir = lib_dir
-        self.link_cmd = link_cmd
-        self.ldflags = ldflags
         self.env = env
         self.compile_timeout = compile_timeout
         self.collect_pairs_path = collect_pairs_path
@@ -509,7 +498,7 @@ class BinaryMatchingGA:
         src_hash = _ga_cache_key(
             src,
             self.cflags,
-            str(self.cl_cmd),
+            self.profile,
             self.inc_dir,
             self.extra_include_dirs,
             getattr(self.cfg, "defines", None) or [],
@@ -518,48 +507,20 @@ class BinaryMatchingGA:
         if res:
             return res
 
-        if self.compare_obj:
-            res = build_candidate_obj_only(
-                src,
-                self.cl_cmd,
-                self.inc_dir,
-                self.cflags,
-                self.symbol,
-                env=self.env,
-                cache=self.compile_cache,
-                timeout=self.compile_timeout,
-                extra_include_dirs=self.extra_include_dirs,
-                posix_style=getattr(self, "posix_style", False),
-                profile=self.profile,
-                cfg=self.cfg,
-            )
-        else:
-            if not self.lib_dir or not self.ldflags:
-                raise ValueError("lib dir and ldflags must be set when compare_obj is False")
-            # The linked-exe GA path uses a host subprocess (wine) — execution
-            # is docker-only for Windows/DOS toolchains, so this mode is only
-            # available for native Linux compilers (gcc-pe).
-            if self.profile:
-                from rebrew.toolchain import TOOLCHAINS
-
-                _spec = TOOLCHAINS.get(self.profile)
-                if _spec is not None and _spec.image is not None:
-                    raise ValueError(
-                        f"linked-exe GA ({self.profile}) needs host wine — execution is "
-                        "docker-only; use object comparison (default) instead"
-                    )
-            res = build_candidate(
-                src,
-                self.cl_cmd,
-                self.inc_dir,
-                self.lib_dir,
-                self.cflags,
-                self.ldflags,
-                self.symbol,
-                link_cmd=self.link_cmd,
-                env=self.env,
-                timeout=self.compile_timeout * 2,
-            )
+        res = build_candidate_obj_only(
+            src,
+            "",
+            self.inc_dir,
+            self.cflags,
+            self.symbol,
+            env=self.env,
+            cache=self.compile_cache,
+            timeout=self.compile_timeout,
+            extra_include_dirs=self.extra_include_dirs,
+            posix_style=getattr(self, "posix_style", False),
+            profile=self.profile,
+            cfg=self.cfg,
+        )
 
         self.cache.put(src_hash, res)
         return res
@@ -711,13 +672,7 @@ class BinaryMatchingGA:
                     src, src_hash = futures[fut]
                     try:
                         res = fut.result()
-                    except (
-                        FileNotFoundError,
-                        OSError,
-                        ValueError,
-                        RuntimeError,
-                        subprocess.SubprocessError,
-                    ) as exc:
+                    except (FileNotFoundError, OSError, ValueError, RuntimeError) as exc:
                         res = BuildResult(
                             ok=False, error_msg=f"exception during compilation: {exc}"
                         )
@@ -1372,14 +1327,6 @@ app = typer.Typer(
 def main(
     seed_c: str | None = typer.Argument(None, help="Seed source file (.c) — omit for --all mode"),
     # Single-function options
-    cl: str | None = typer.Option(
-        None,
-        help="CL.EXE command (auto from rebrew-project.toml)",
-        rich_help_panel="Single-Function",
-    ),
-    inc: str | None = typer.Option(
-        None, help="Include dir (auto from rebrew-project.toml)", rich_help_panel="Single-Function"
-    ),
     cflags: str | None = typer.Option(
         None, help="Compiler flags (auto from source)", rich_help_panel="Single-Function"
     ),
@@ -1397,21 +1344,6 @@ def main(
     ),
     out_dir: str = typer.Option(
         "output/ga_runs", help="Output dir", rich_help_panel="Single-Function"
-    ),
-    compare_obj: bool = typer.Option(
-        True, help="Use object comparison instead of full link", rich_help_panel="Single-Function"
-    ),
-    lib: str | None = typer.Option(
-        None, "--lib", help="Lib dir", rich_help_panel="Single-Function"
-    ),
-    link: str | None = typer.Option(
-        None,
-        "--link",
-        help="Linker command (auto from rebrew-project.toml)",
-        rich_help_panel="Single-Function",
-    ),
-    ldflags: str | None = typer.Option(
-        None, help="Linker flags", rich_help_panel="Single-Function"
     ),
     flag_sweep_only: bool = typer.Option(
         False,
@@ -1860,7 +1792,7 @@ def main(
         target_va = seed_c_orig
 
     params = resolve_build_params(
-        cfg, seed_c, cl, inc, cflags, symbol, target_va, target_size, ignore_lint, json_output
+        cfg, seed_c, cflags, symbol, target_va, target_size, ignore_lint, json_output
     )
 
     # --mutation-focus: bias GA mutation selection toward a near-diag category.
@@ -1903,17 +1835,11 @@ def main(
             # Re-run the full single-function match path; --watch must not nest.
             main(
                 seed_c=seed_c,
-                cl=cl,
-                inc=inc,
                 cflags=cflags,
                 symbol=symbol,
                 target_va=target_va,
                 target_size=target_size,
                 out_dir=out_dir,
-                compare_obj=compare_obj,
-                lib=lib,
-                link=link,
-                ldflags=ldflags,
                 flag_sweep_only=flag_sweep_only,
                 tier=tier,
                 sweep_toolchain=sweep_toolchain,
@@ -1974,9 +1900,6 @@ def main(
         generations,
         pop_size,
         jobs,
-        compare_obj,
-        lib,
-        ldflags,
         seed,
         json_output,
         extra_seed,
@@ -1986,7 +1909,6 @@ def main(
         kuna_seed=kuna_seed,
         dry_run=dry_run,
         mutation_weights=mutation_weights,
-        link=link,
     )
 
 
@@ -2033,8 +1955,6 @@ def _select_annotation(annos: list[Annotation], symbol: str | None) -> Annotatio
 def resolve_build_params(
     cfg: Any,
     seed_c: str,
-    cl: str | None,
-    inc: str | None,
     cflags: str | None,
     symbol: str | None,
     target_va: str | None,
@@ -2095,7 +2015,7 @@ def resolve_build_params(
     # Use shared helper for compiler env resolution — the returned msvc_env
     # IS msvc_env_from_config(cfg) (the old code computed it a second time
     # and discarded the helper's copy).
-    cl_resolved, inc_resolved, msvc_env, cc = resolve_compiler_env(cfg)
+    inc_resolved, msvc_env, cc = resolve_compiler_env(cfg)
     # Per-library / per-function toolchain override: the nearest
     # rebrew-libraries.toml (walk-up from the source dir) or the function's
     # own TOOLCHAIN metadata selects the docker image.  Every compile runs
@@ -2132,20 +2052,6 @@ def resolve_build_params(
 
         compile_cfg = copy.copy(compile_cfg)
         compile_cfg.compiler_profile = toolchain_name
-    if cl is not None:
-        # Caller override: resolve paths relative to root
-        try:
-            cl_parts = shlex.split(cl)
-        except ValueError:
-            cl_parts = cl.split()
-        cl_parts_res = []
-        for part in cl_parts:
-            p = cfg.root / part
-            cl_parts_res.append(str(p) if p.exists() else part)
-        cl_resolved = " ".join(cl_parts_res)
-    if inc is not None:
-        inc_path = cfg.root / inc
-        inc_resolved = str(inc_path) if inc_path.exists() else inc
 
     if not symbol and anno:
         symbol = anno.symbol
@@ -2204,7 +2110,7 @@ def resolve_build_params(
         cfg=compile_cfg,
         seed_c=seed_c_path,
         seed_src=seed_src,
-        cl=cl_resolved,
+        cl="",
         inc=inc_resolved,
         cflags=cflags,
         symbol=symbol,
@@ -2336,7 +2242,7 @@ def run_flag_sweep(
     if not target_bytes:
         return float("inf"), "", []
 
-    cl_cmd, inc_dir, msvc_env, cc = resolve_compiler_env(cfg)
+    inc_dir, msvc_env, cc = resolve_compiler_env(cfg)
 
     if "/c" not in cflags:
         cflags = _compile_cflags(
@@ -2352,7 +2258,7 @@ def run_flag_sweep(
         results = flag_sweep(
             source,
             target_bytes,
-            cl_cmd,
+            "",
             inc_dir,
             cflags,
             symbol,
@@ -2599,9 +2505,6 @@ def _run_single_ga(
     generations: int,
     pop_size: int,
     jobs: int,
-    compare_obj: bool,
-    lib: str | None,
-    ldflags: str | None,
     seed: int | None,
     json_output: bool,
     extra_seed: list[str] | None,
@@ -2611,7 +2514,6 @@ def _run_single_ga(
     kuna_seed: bool = False,
     dry_run: bool = False,
     mutation_weights: dict[str, float] | None = None,
-    link: str | None = None,
 ) -> None:
     """Run the full GA matching engine for a single source file."""
     out_dir_path = Path(out_dir)
@@ -2707,10 +2609,6 @@ def _run_single_ga(
         pop_size=pop_size,
         num_generations=generations,
         num_jobs=jobs,
-        compare_obj=compare_obj,
-        lib_dir=lib,
-        link_cmd=link,
-        ldflags=ldflags,
         env=p.msvc_env,
         rng_seed=seed,
         compile_cache=p.cc,
@@ -2894,7 +2792,7 @@ def _run_one_stub_ga(
     if not target_bytes:
         return False, "Could not extract target bytes"
 
-    cl_cmd, inc_dir, msvc_env, cc = resolve_compiler_env(cfg)
+    _inc_dir, msvc_env, cc = resolve_compiler_env(cfg)
 
     if cflags_override is not None:
         cflags = cflags_override
@@ -2921,8 +2819,8 @@ def _run_one_stub_ga(
     ga = BinaryMatchingGA(
         seed_src,
         target_bytes,
-        cl_cmd,
-        inc_dir,
+        "",
+        _inc_dir,
         cflags,
         stub.symbol,
         out_dir,

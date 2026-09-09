@@ -1,28 +1,23 @@
-"""compiler.py – MSVC compilation and Wine execution for GA matching.
+"""compiler.py — compile backend for GA matching.
 
 Provides build_candidate_obj_only(), build_candidate(), flag_sweep(),
-and generate_flag_combinations() for compiling C source with MSVC6 under Wine
-and extracting function bytes from the resulting object/executable.
+and generate_flag_combinations().  Every compile routes through the shared
+``rebrew.compile.compile_to_obj`` runner (local docker images, or the
+recompile service when configured) — there is no host-compiler path.
 """
 
 import contextlib
-import functools
 import itertools
 import logging
 import math
-import os
-import re
 import shlex
 import shutil
-import subprocess
-import tempfile
 import warnings
 from pathlib import Path
 from typing import Any
 
-from rebrew.compile_cache import CacheBackend, compile_cache_key
+from rebrew.compile_cache import CacheBackend
 from rebrew.config import POSIX_PROFILES
-from rebrew.utils import safe_shlex_split
 
 from .core import BuildResult
 from .flag_data import (
@@ -39,55 +34,13 @@ from .flag_data import (
     WATCOM_SWEEP_TIERS,
 )
 from .flags import Checkbox, Flags, FlagSet
-from .parsers import extract_function_from_binary, parse_obj_symbol_bytes
+from .parsers import parse_obj_symbol_bytes
 
 log = logging.getLogger(__name__)
 
 
-def _filter_wine_stderr(text: str) -> str:
-    """Filter Wine noise from stderr text (lazy-imported from rebrew.compile).
-
-    Imported lazily because rebrew.compile imports rebrew.core, which imports
-    rebrew.matcher — a module-level import here would be circular.
-    """
-    from rebrew.compile import filter_wine_stderr
-
-    return filter_wine_stderr(text)
-
-
-def _maybe_headless_wine(
-    cmd: list[str], env: dict[str, str] | None
-) -> tuple[list[str], dict[str, str] | None]:
-    """Wrap a ``wine`` command under xvfb-run (lazy-imported, see above)."""
-    from rebrew.compile import maybe_headless_wine
-
-    return maybe_headless_wine(cmd, env)
-
-
-# Fallback function size (in bytes) when both LIEF symbol table and MAP
-# heuristics fail to determine the actual size.  1000 bytes is a conservative
-# upper bound that covers most MSVC6 game functions without reading too far
-# past the function boundary — excess bytes are trimmed later by
-# trim_trailing_padding() in catalog/sections.py.
-_DEFAULT_SYMBOL_SIZE = 1000
-
 # Warn when flag sweep produces more than this many combinations
 _MAX_SWEEP_COMBOS = 100_000
-
-# Pre-compiled regex for MAP file symbol parsing
-_MAP_SYM_RE = re.compile(
-    r"^\s*\d+:[0-9a-fA-F]+\s+\S+\s+([0-9a-fA-F]+)",
-    re.MULTILINE,
-)
-
-
-@functools.lru_cache(maxsize=256)
-def _map_symbol_re(symbol: str) -> re.Pattern[str]:
-    """Return a compiled regex for looking up *symbol* in a MAP file."""
-    return re.compile(
-        r"^\s*\d+:[0-9a-fA-F]+\s+" + re.escape(symbol) + r"\s+([0-9a-fA-F]+)",
-        re.MULTILINE,
-    )
 
 
 # Map of profiles → synced Flags lists (the packaged base; entry-point
@@ -189,53 +142,6 @@ def refresh_flag_sets() -> tuple[dict[str, Flags], dict[str, dict[str, list[str]
     return _FLAGS_MAP, _TIERS_MAP
 
 
-def _ensure_wine_env(env: dict[str, str] | None, cmd: list[str]) -> dict[str, str]:
-    """Return an env dict with WINEDEBUG=-all when running under Wine/wibo.
-
-    If *env* is already provided, returns it unchanged (but ensures
-    WINEDEBUG is set when the command is a Wine/wibo invocation, since
-    callers may supply an env that does not yet carry it).
-    Otherwise copies ``os.environ`` and suppresses Wine diagnostic noise
-    when the first command token is ``wine`` or ``wibo``.
-    """
-    if env is not None:
-        cmd_head = Path(cmd[0]).name.lower() if cmd else ""
-        if cmd_head in {"wine", "wibo"} and "WINEDEBUG" not in env:
-            env = {**env, "WINEDEBUG": "-all"}
-        return env
-    env = {**os.environ}
-    cmd_head = Path(cmd[0]).name.lower() if cmd else ""
-    if cmd_head in {"wine", "wibo"}:
-        env["WINEDEBUG"] = "-all"
-    return env
-
-
-#: Profiles whose compiler runs ONLY through its docker image.  Derived from
-#: the toolchain registry at import time (all specs with an image); the raw
-#: subprocess path is reserved for native Linux compilers (gcc-pe).
-def _docker_backed_profiles() -> frozenset[str]:
-    try:
-        from rebrew.toolchain import TOOLCHAINS
-
-        return frozenset(n for n, s in TOOLCHAINS.items() if s.image is not None)
-    except Exception:
-        return frozenset()
-
-
-_DOCKER_BACKED_PROFILES = _docker_backed_profiles()
-
-
-def _compiler_cmd_parts(cl_cmd: str, env: dict[str, str] | None) -> list[str]:
-
-    parts = safe_shlex_split(cl_cmd)
-    runner = ""
-    if env is not None:
-        runner = env.get("REBREW_COMPILER_RUNNER", "").strip()
-    if runner and (not parts or Path(parts[0]).name.lower() != Path(runner).name.lower()):
-        parts = [runner, *parts]
-    return parts
-
-
 def _flags_to_axes(flags: Flags, tier_ids: list[str] | None = None) -> list[list[str]]:
     """Convert FlagSet/Checkbox list to list of axes (each axis = list of options).
 
@@ -251,55 +157,6 @@ def _flags_to_axes(flags: Flags, tier_ids: list[str] | None = None) -> list[list
         elif isinstance(item, Checkbox):
             axes.append([item.flag, ""])
     return axes
-
-
-def _get_pe_symbol_size(exe_path: Path, symbol: str) -> int | None:
-    """Get function size from PE symbol table via LIEF.
-
-    Looks up the symbol in the PE's COFF symbol table and returns the
-    distance to the next symbol in the same section. Returns None if
-    the symbol cannot be found, the section is unresolvable, or LIEF
-    is not available.
-    """
-    try:
-        import lief
-
-        pe = lief.PE.parse(str(exe_path))
-        if pe is None:
-            return None
-
-        # Find symbol in COFF symbol table (present in debug/MAP-linked PEs)
-        target_sym = None
-        for sym in pe.symbols:
-            if sym.name == symbol:
-                target_sym = sym
-                break
-
-        if target_sym is None:
-            return None
-
-        # Find next symbol in the same section with a higher offset
-        section_number = getattr(target_sym, "section_number", None)
-        sym_value = target_sym.value
-        if section_number is None:
-            return None
-        next_offset = None
-        for sym in pe.symbols:
-            if (
-                getattr(sym, "section_number", None) == section_number
-                and sym.value > sym_value
-                and (next_offset is None or sym.value < next_offset)
-            ):
-                next_offset = sym.value
-
-        if next_offset is not None:
-            size = next_offset - sym_value
-            if 0 < size <= 10000:
-                return int(size)
-
-        return None
-    except (ImportError, OSError, AttributeError, ValueError):
-        return None
 
 
 def generate_flag_combinations(tier: str = "targeted", profile: str = "msvc6") -> list[str]:
@@ -376,177 +233,72 @@ def build_candidate_obj_only(
 ) -> BuildResult:
     """Compile source to .obj and extract symbol bytes (no linking).
 
-    When *cache* is provided, the raw ``.obj`` bytes are cached on disk
-    keyed by ``(source_content, source_filename, cflags, include_dirs,
-    toolchain_id, source_ext)``.  On cache hit only the fast LIEF symbol
-    extraction runs, skipping the 200-500 ms Wine/wibo subprocess entirely.
-
-    Every image-backed profile (all MSVC versions, Watcom, Borland, the
-    16-bit DOS compilers) routes through the shared ``compile_to_obj``
-    runner (docker image — there is no host wine/dosbox fallback) instead
-    of the raw subprocess path.  The raw subprocess path below serves only
-    native Linux compilers without an image (gcc-pe and friends).
+    Every profile routes through the shared ``compile_to_obj`` runner —
+    local docker images, or the recompile service when configured — which
+    owns caching, include resolution, and per-target defines.  There is no
+    host-compiler path: native-Linux toolchains (gcc-pe and friends) execute
+    inside their container image or on the service, never as a host
+    subprocess.
     """
-    if profile in _DOCKER_BACKED_PROFILES:
-        if cfg is None:
-            from types import SimpleNamespace
+    if cfg is None:
+        from types import SimpleNamespace
 
-            cfg = SimpleNamespace(
-                root=Path.cwd(),
-                compiler_profile=profile,
-                compiler_command=cl_cmd,
-                compiler_includes=inc_dir,
-                base_cflags="",
-                compile_timeout=timeout,
-                # build_name_to_va / scan_globals read these — without them
-                # DIR32 reloc validation degrades to a silent no-op warning.
-                reversed_dir=Path.cwd(),
-                metadata_dir=Path.cwd(),
-            )
-        from rebrew.compile import compile_to_obj
-
-        # The docker workdir must live on a real, container-visible disk:
-        # under sandboxed homes the system temp dir is invisible to docker
-        # and the bind mount silently loses the source (the image wrapper
-        # then reports "no readable source file").  writable_temp_dir
-        # prefers the workspace .cache for exactly this reason.
-        from rebrew.utils import writable_temp_dir
-
-        base = writable_temp_dir("matcher_")
-        try:
-            # Write the source into a *sibling* dir of the compile workdir:
-            # compile_to_obj copies source_path -> workdir, which fails when
-            # they are already the same path.
-            src_dir = base / "src"
-            src_dir.mkdir()
-            src_path = src_dir / f"cand{source_ext}"
-            src_path.write_text(source_code, encoding="utf-8")
-            workdir = base / "work"
-            workdir.mkdir()
-            obj_file, err = compile_to_obj(
-                cfg,
-                src_path,
-                shlex.split(cflags),
-                workdir,
-                use_cache=cache is not None,
-                cache=cache,
-                obj_name="cand.obj",
-                # The source is compiled from a temp copy; the original
-                # source's parent dir must reach the container for relative
-                # #include resolution (rebrew diff / flag sweep).
-                extra_include_dirs=extra_include_dirs,
-                # A --sweep-toolchain run swaps the compiler per iteration —
-                # the profile must drive the image, not the project default.
-                toolchain=profile,
-            )
-            if obj_file is None:
-                return BuildResult(ok=False, error_msg=f"Compile failed: {err}")
-            code, relocs = parse_obj_symbol_bytes(str(obj_file), symbol)
-            if code is None:
-                return BuildResult(ok=False, error_msg=f"Symbol {symbol} not found in .obj")
-            return BuildResult(ok=True, obj_bytes=code, reloc_offsets=relocs)
-        finally:
-            shutil.rmtree(base, ignore_errors=True)
-
-    src_name = f"cand{source_ext}"
-    all_flags = shlex.split(cflags)
-    # Per-target version defines (targets.<name>.defines) — the raw
-    # subprocess path must compile with the same flags compile_to_obj
-    # applies, or GA/diff results diverge from verify for shared
-    # multi-version sources.  (Docker-backed profiles get them inside
-    # compile_to_obj; this path serves native compilers like gcc-pe.)
-    for define in getattr(cfg, "defines", None) or []:
-        all_flags.append(f"{'-D' if posix_style else '/D'}{define}")
-    extra_inc = extra_include_dirs or []
-
-    # Resolve relative /I paths in the flags (base_cflags often carry e.g.
-    # /Ireferences/zlib-1.1.3). The raw subprocess path compiles from a temp
-    # workdir, so a relative include path would resolve against the wrong
-    # directory and fail on functions that #include those headers. Mirror the
-    # resolution compile_to_obj performs for toolchain-backed profiles.
-    if any(f.startswith(("/I", "-I")) for f in all_flags):
-        from rebrew.compile import resolve_include_flags
-
-        # extra_inc carries the source's parent dir for relative #include resolution;
-        # fall back to cwd when no extra inc dirs were supplied.
-        src_parent = Path(extra_inc[0]) if extra_inc else Path.cwd()
-        cfg_root = getattr(cfg, "root", Path.cwd()) if cfg is not None else Path.cwd()
-        all_flags = resolve_include_flags(all_flags, src_parent, cfg_root)
-
-    cache_key: str | None = None
-    if cache is not None:
-        from rebrew.compile import extract_include_dirs
-
-        cmd_parts = _compiler_cmd_parts(cl_cmd, env)
-        toolchain_id = " ".join(cmd_parts)
-        cache_key = compile_cache_key(
-            source_content=source_code,
-            source_filename=src_name,
-            cflags=all_flags + ["/c"],
-            # The /I dirs carried by the flags join the search set so their
-            # headers participate in the per-source dependency fingerprints.
-            include_dirs=[inc_dir, *extra_inc, *extract_include_dirs(all_flags)],
-            toolchain_id=toolchain_id,
-            source_ext=source_ext,
+        cfg = SimpleNamespace(
+            root=Path.cwd(),
+            compiler_profile=profile,
+            compiler_command=cl_cmd,
+            compiler_includes=inc_dir,
+            base_cflags="",
+            compile_timeout=timeout,
+            # build_name_to_va / scan_globals read these — without them
+            # DIR32 reloc validation degrades to a silent no-op warning.
+            reversed_dir=Path.cwd(),
+            metadata_dir=Path.cwd(),
         )
-        cached_obj = cache.get(cache_key)
-        if cached_obj is not None:
-            with tempfile.TemporaryDirectory(prefix="matcher_hit_") as _td:
-                obj_path = Path(_td) / "cand.obj"
-                obj_path.write_bytes(cached_obj)
-                code, relocs = parse_obj_symbol_bytes(str(obj_path), symbol)
-                if code is None:
-                    return BuildResult(ok=False, error_msg=f"Symbol {symbol} not found in .obj")
-                return BuildResult(ok=True, obj_bytes=code, reloc_offsets=relocs)
+    from rebrew.compile import compile_to_obj
 
-    with tempfile.TemporaryDirectory(prefix="matcher_") as _td:
-        workdir = Path(_td)
-        obj_name = "cand.obj"
-        (workdir / src_name).write_text(source_code, encoding="utf-8")
+    # The docker workdir must live on a real, container-visible disk:
+    # under sandboxed homes the system temp dir is invisible to docker
+    # and the bind mount silently loses the source (the image wrapper
+    # then reports "no readable source file").  writable_temp_dir
+    # prefers the workspace .cache for exactly this reason.
+    from rebrew.utils import writable_temp_dir
 
-        cmd = (
-            _compiler_cmd_parts(cl_cmd, env)
-            + all_flags
-            + (
-                ["-c"]
-                + ([f"-I{inc_dir}"] if inc_dir else [])
-                + [f"-I{d}" for d in extra_inc]
-                + ["-o", obj_name, src_name]
-                if posix_style
-                else ["/c"]
-                + ([f"/I{inc_dir}"] if inc_dir else [])
-                + [f"/I{d}" for d in extra_inc]
-                + [f"/Fo{obj_name}", src_name]
-            )
+    base = writable_temp_dir("matcher_")
+    try:
+        # Write the source into a *sibling* dir of the compile workdir:
+        # compile_to_obj copies source_path -> workdir, which fails when
+        # they are already the same path.
+        src_dir = base / "src"
+        src_dir.mkdir()
+        src_path = src_dir / f"cand{source_ext}"
+        src_path.write_text(source_code, encoding="utf-8")
+        workdir = base / "work"
+        workdir.mkdir()
+        obj_file, err = compile_to_obj(
+            cfg,
+            src_path,
+            shlex.split(cflags),
+            workdir,
+            use_cache=cache is not None,
+            cache=cache,
+            obj_name="cand.obj",
+            # The source is compiled from a temp copy; the original
+            # source's parent dir must reach the container for relative
+            # #include resolution (rebrew diff / flag sweep).
+            extra_include_dirs=extra_include_dirs,
+            # A --sweep-toolchain run swaps the compiler per iteration —
+            # the profile must drive the image, not the project default.
+            toolchain=profile,
         )
-        env = _ensure_wine_env(env, cmd)
-        cmd, env = _maybe_headless_wine(cmd, env)
-
-        try:
-            r = subprocess.run(cmd, capture_output=True, cwd=workdir, env=env, timeout=timeout)
-        except subprocess.TimeoutExpired:
-            return BuildResult(ok=False, error_msg=f"Compile timed out after {timeout}s")
-        except FileNotFoundError as e:
-            return BuildResult(ok=False, error_msg=f"Compiler not found: {e}")
-        except OSError as e:
-            return BuildResult(ok=False, error_msg=f"Failed to run compiler: {e}")
-
-        obj_path = workdir / obj_name
-
-        if r.returncode != 0 or not obj_path.exists():
-            err_output = _filter_wine_stderr((r.stdout + b"\n" + r.stderr).decode(errors="replace"))
-            detailed_err = f"Command: {' '.join(cmd)}\nReturn code: {r.returncode}\nObj Exists: {obj_path.exists()}\nOutput: {err_output}"
-            return BuildResult(ok=False, error_msg=detailed_err)
-
-        if cache is not None and cache_key is not None:
-            with contextlib.suppress(OSError):
-                cache.put(cache_key, obj_path.read_bytes())
-
-        code, relocs = parse_obj_symbol_bytes(str(obj_path), symbol)
+        if obj_file is None:
+            return BuildResult(ok=False, error_msg=f"Compile failed: {err}")
+        code, relocs = parse_obj_symbol_bytes(str(obj_file), symbol)
         if code is None:
             return BuildResult(ok=False, error_msg=f"Symbol {symbol} not found in .obj")
-
         return BuildResult(ok=True, obj_bytes=code, reloc_offsets=relocs)
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
 
 
 def build_candidate(
@@ -565,74 +317,20 @@ def build_candidate(
 ) -> BuildResult:
     """Compile and link source to .exe, then extract symbol bytes.
 
-    *link_cmd* (when provided) overrides the MSVC linker invocation — e.g.
-    ``"link /SUBSYSTEM:WINDOWS"`` — replacing the default ``/link`` switch;
-    the base *ldflags* and ``/LIBPATH``/``/OUT``/``/MAP`` still follow.
+    Retired: link-then-extract ran a host compiler+linker subprocess, which
+    no longer exists (every compile routes through container images or the
+    recompile service, and neither exposes a link-then-extract path).
+    Kept as a stub so old imports fail loudly at call time instead of at
+    import time; the linked-exe GA mode in match.py is removed alongside.
     """
-    with tempfile.TemporaryDirectory(prefix="matcher_") as _td:
-        workdir = Path(_td)
-        src_name = f"cand{source_ext}"
-        exe_name = "cand.exe"
-        map_name = "cand.map"
-        (workdir / src_name).write_text(source_code, encoding="utf-8")
-
-        cmd = _compiler_cmd_parts(cl_cmd, env) + shlex.split(cflags) + [f"/I{inc_dir}", src_name]
-        if extra_sources:
-            for es in extra_sources:
-                shutil.copy2(es, workdir)
-                cmd.append(Path(es).name)
-
-        link_head = shlex.split(link_cmd) if link_cmd else ["/link"]
-        cmd += (
-            link_head
-            + shlex.split(ldflags)
-            + [f"/LIBPATH:{lib_dir}", f"/OUT:{exe_name}", f"/MAP:{map_name}"]
-        )
-
-        env = _ensure_wine_env(env, cmd)
-        cmd, env = _maybe_headless_wine(cmd, env)
-        try:
-            r = subprocess.run(cmd, capture_output=True, cwd=workdir, env=env, timeout=timeout)
-        except subprocess.TimeoutExpired:
-            return BuildResult(ok=False, error_msg=f"Compile+link timed out after {timeout}s")
-        except FileNotFoundError as e:
-            return BuildResult(ok=False, error_msg=f"Compiler not found: {e}")
-        except OSError as e:
-            return BuildResult(ok=False, error_msg=f"Failed to run compiler: {e}")
-
-        exe_path = workdir / exe_name
-        map_path = workdir / map_name
-
-        if r.returncode != 0 or not exe_path.exists() or not map_path.exists():
-            err_output = _filter_wine_stderr(
-                (r.stdout + b"\n" + r.stderr).decode(errors="replace")
-            )[:400]
-            return BuildResult(ok=False, error_msg=err_output)
-
-        map_text = map_path.read_text(encoding="utf-8")
-
-        # MSVC MAP format: "  SSSS:OOOOOOOO  _symbol  VVVVVVVV  f  obj"
-        m = _map_symbol_re(symbol).search(map_text)
-        if not m:
-            return BuildResult(ok=False, error_msg=f"Symbol {symbol} not found in MAP")
-
-        va = int(m.group(1), 16)
-
-        size = _get_pe_symbol_size(exe_path, symbol)
-        if size is None:
-            size = _DEFAULT_SYMBOL_SIZE
-            for m_next in _MAP_SYM_RE.finditer(map_text, m.end()):
-                next_va = int(m_next.group(1), 16)
-                estimated = next_va - va
-                if 0 < estimated <= 10000:
-                    size = estimated
-                    break
-
-        code = extract_function_from_binary(exe_path, va, size)
-        if code is None:
-            return BuildResult(ok=False, error_msg="Failed to extract from PE")
-
-        return BuildResult(ok=True, obj_bytes=code)
+    return BuildResult(
+        ok=False,
+        error_msg=(
+            "build_candidate (linked-exe compare) is retired: compiles run "
+            "through container images or the recompile service; use "
+            "build_candidate_obj_only instead"
+        ),
+    )
 
 
 def flag_sweep(
@@ -752,8 +450,8 @@ def flag_sweep(
                 pending.remove(fut)
                 try:
                     score, flags = fut.result()
-                except (OSError, subprocess.SubprocessError, ValueError, RuntimeError) as exc:
-                    # Environmental failures (missing compiler, cache corruption,
+                except (OSError, ValueError, RuntimeError) as exc:
+                    # Environmental failures (missing image, cache corruption,
                     # LIEF parse of a bad .obj).  Never silently swallowed: count
                     # them so a fully-failed sweep can't masquerade as "no match".
                     worker_errors += 1

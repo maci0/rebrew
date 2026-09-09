@@ -115,7 +115,6 @@ rebrew match src/<target>/<file>.c --generations 200 --pop-size 64 -j 16
   blocker names the category, the GA then samples its operators more often.
 - `--seed-from-solved / --no-seed-from-solved` — seed from solutions DB (default on)
 - `--out-dir DIR` — output directory (default: `output/ga_runs`)
-- `--compare-obj / --no-compare-obj` — use object-level comparison
 - `--ignore-lint` — continue even if annotation linter finds errors
 - `--collect-pairs FILE` — record `(source, binary)` pairs for ML training
 

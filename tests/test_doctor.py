@@ -209,16 +209,16 @@ class TestDockerIncludeLibs:
         lib = check_libs(self._cfg(tmp_path))
         assert lib.status == _WARN
 
-    def test_native_profile_still_checks_host_path(self, tmp_path: Path, monkeypatch) -> None:
-        # gcc-pe has no docker image — the host path check applies as before.
+    def test_image_profile_reports_image_includes(self, tmp_path: Path, monkeypatch) -> None:
+        # gcc-pe now has a docker image — includes come from the image.
         cfg = _make_cfg(
             tmp_path,
             compiler_profile="gcc-pe",
             compiler_includes=tmp_path / "nope" / "include",
         )
         result = check_includes(cfg)
-        assert result.status == _FAIL
-        assert "compiler.includes" in result.fix
+        assert result.status in (_PASS, _WARN)
+        assert "gcc-pe" in result.message or "gcc" in result.message
 
 
 class TestCheckLibs:
@@ -391,16 +391,15 @@ class TestExtraBranches:
         assert result.status == doctor._FAIL
         assert "Failed to load" in result.message
 
-    def test_runner_checked_by_compiler(
+    def test_runner_unknown_profile_fails(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import rebrew.doctor as doctor
 
-        monkeypatch.setattr("rebrew.doctor.shutil.which", lambda _name: None)
-        cfg = SimpleNamespace(compiler_runner="wine", root=tmp_path)
+        cfg = SimpleNamespace(compiler_profile="no-such-tc", root=tmp_path)
         result = doctor.check_runner(cfg)
-        assert result.status == doctor._PASS
-        assert "checked by compiler check" in result.message
+        assert result.status == doctor._FAIL
+        assert "no docker image" in result.message
 
 
 class TestCheckFlirtSigs:

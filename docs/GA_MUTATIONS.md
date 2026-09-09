@@ -20,9 +20,9 @@ Source (.c) ──→ mutate_code(source, rng)
                   └─ Return (mutated_source, mutation_name) or None
                         │
                         ▼
-                  build_candidate(source, ...)
+                  build_candidate_obj_only(source, ...)
                   ├─ SHA-256 hash → check compile cache
-                  ├─ Run CL.EXE inside the docker image (60s timeout)
+                  ├─ Run the compiler inside the docker image (60s timeout)
                   ├─ parse_obj_symbol_bytes() → extract function bytes + relocs
                   └─ Return BuildResult {ok, obj_bytes, reloc_offsets}
                         │

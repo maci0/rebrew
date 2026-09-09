@@ -91,10 +91,10 @@ scripts, and the sha256-pinned `sources.json` manifest. No compiler binaries
 live here — 32-bit images download verified sources at build time; the six
 16-bit images need a user-supplied media tarball next to the Dockerfile.
 
-The images are self-contained (runtime — wine/wibo/DOSBox — baked in, the
-wrapper is the entrypoint), so any tool can use them without rebrew itself.
-`rebrew toolchain build` (and `vendor`/`update`) reads the Dockerfiles from
-the sibling checkout (`REBREW_TOOLCHAINS_DIR`, defaults to
+The images are self-contained (runtime — wine/DOSBox/native binaries —
+baked in, the wrapper is the entrypoint), so any tool can use them without
+rebrew itself. `rebrew toolchain build` (and `vendor`/`update`) reads the
+Dockerfiles from the sibling checkout (`REBREW_TOOLCHAINS_DIR`, defaults to
 `../rebrew-toolchains`); `pull`/`smoke` operate on the built images, and
 compilation shells out via `docker run`. The same images back the
 `recompile` service. See [TOOLCHAIN.md](TOOLCHAIN.md).
@@ -294,9 +294,11 @@ flowchart LR
 ```
 
 The compile-service flow is the same compiler boundary, served over HTTP
-instead of a local loop: API client → `recompile` (FastAPI) → `docker run`
+instead of a local loop: rebrew → `recompile` (FastAPI) → `docker run`
 on a toolchain image → `artifacts/{id}` + `ledger.json`, with optional
-`emit_assembly` pairs streaming into `train_data/`.
+`emit_assembly` pairs streaming into `train_data/`.  rebrew selects it
+with `[compiler] recompile_url` (or `REBREW_RECOMPILE_URL`); the local
+docker loop is the default.
 
 ## Dependency layering
 

@@ -9,13 +9,13 @@ Install editable (`uv pip install -e .`) inside a workspace containing binaries,
 ## Compiler Profiles
 
 - **`msvc6`** (default): MSVC 6.0 — runs ONLY through its docker image `rebrew/msvc:6.0-win32` (the image wraps wine; the host never calls CL.EXE directly). MSVC flags (`/I`, `/Fo`, `/c`). C89.
-  Execution is **docker-only for every Windows/DOS toolchain** (all `msvc*`, `borlandc55`, `watcom`, `tc16`/20, `msvc1.52`/15/10, `delphi16`): the image encapsulates the runtime (wine / DOSBox) and there is no host wine/wibo/dosbox fallback.  A missing image is a hard error — run `rebrew toolchain build <name>` (or `rebrew toolchain pull <name>`).  The docker build source (Dockerfiles, wrappers, the shared `base`) lives in the sibling **rebrew-toolchains** checkout (overridable via `REBREW_TOOLCHAINS_DIR`); `rebrew toolchain build`/`vendor` read it from there — rebrew no longer vendors build files in-repo.
+  Execution is **docker-only for every toolchain**: the image encapsulates the runtime (wine / DOSBox / native-Linux binaries) and there is no host compiler fallback.  A missing image is a hard error — run `rebrew toolchain build <name>` (or `rebrew toolchain pull <name>`).  Alternatively point `[compiler] recompile_url` (or `REBREW_RECOMPILE_URL`) at the sibling **recompile** service for the same images over HTTP plus the opt-in training tap.  The docker build source (Dockerfiles, wrappers, the shared `base`) lives in the sibling **rebrew-toolchains** checkout (overridable via `REBREW_TOOLCHAINS_DIR`); `rebrew toolchain build`/`vendor` read it from there — rebrew no longer vendors build files in-repo.
   The 16-bit media tarballs are user-supplied next to their Dockerfile in that checkout; the vendored host trees (assemble via `rebrew toolchain vendor`) land in `<family>/<version>-<arch>/source` there too.
-- **`gcc-pe`**: `i686-w64-mingw32-gcc` — POSIX flags (`-I`, `-o`, `-c`), a native Linux binary (no wine), PATH-resolved toolchain, empty `includes`/`libs` allowed. For MinGW GCC / Zig-built PE/x86_32 targets (`.buildid` section, `0f 1f` GNU nops, call-based `___chkstk_ms` probe, few/no CRT imports).
+- **`gcc-pe`**: MinGW GCC — POSIX flags (`-I`, `-o`, `-c`), compiled inside the `rebrew/gcc:pe-win32` image, empty `includes`/`libs` allowed. For MinGW GCC / Zig-built PE/x86_32 targets (`.buildid` section, `0f 1f` GNU nops, call-based `___chkstk_ms` probe, few/no CRT imports).
   See `docs/TOOLCHAIN.md` for the codegen-version caveat: byte-exact matching requires the author's exact GCC version; old builds usually match only structurally (document semantic decomp + blocker).
-- **`gcc` / `clang`**: ELF/x86_64 targets — native PATH specs (compile via the host `gcc`/`clang` binary; minimal posix flag-sweep axes in `flag_data.py`).
+- **`gcc` / `clang`**: ELF/x86_64 targets — docker image specs (`rebrew/gcc:linux-x64`, `rebrew/clang:linux-x64`; minimal posix flag-sweep axes in `flag_data.py`).
 - **`borlandc55`**: Borland C++ 5.5 free tools (bcc32) — image `rebrew/borland:5.5-win32` (wine inside the image). For Borland-built PE/x86_32 targets (family `borlandc`).
-- **`watcom16`**: Open Watcom 2.0 `wcc` (16-bit DOS, native Linux binary — no image, runs directly). Same snapshot as `watcom`. For 16-bit DOS/Watcom targets (family `watcom`).
+- **`watcom16`**: Open Watcom 2.0 `wcc` (16-bit DOS, image `rebrew/watcom:2.0-win16`). Same snapshot as `watcom`. For 16-bit DOS/Watcom targets (family `watcom`).
 - **`tc16`**: Turbo C++ 3.1 `TCC.EXE` (16-bit DOS) — image `rebrew/borland:3.1-win16` (DOSBox inside the image). Classic DOS-game compiler. 16-bit OMF via `rebrew.matcher.omf16`.
 - **`msvc1.52` / `delphi16`**: 16-bit targets — images `rebrew/msvc:1.52-win16`, `rebrew/delphi:1.0-win16` (DOSBox inside the image).
 
@@ -156,7 +156,8 @@ src/rebrew/
 ├── c_parser.py          # tree-sitter C parsing (function defs, extern decls/vars)
 ├── compile.py           # Compile helpers (compile_to_obj, compile_and_compare → CompareResult,
 │                        #   classify_compare_result, classify_match_status, is_matched,
-│                        #   NEAR_MATCH_THRESHOLD)
+│                        #   NEAR_MATCH_THRESHOLD, recompile_url backend selection)
+├── recompile_client.py  # HTTP client for the recompile compile service (POST /api/v1/compile + artifact download)
 ├── naming.py            # Naming/difficulty/origin helpers (next, skeleton, triage)
 ├── binary_loader.py     # PE/COFF/ELF/Mach-O loading + format detection (via LIEF)
 ├── extract.py           # Batch extract + disassemble functions
@@ -171,8 +172,6 @@ src/rebrew/
 ├── analyze.py           # One-shot dossier (toolchain, strings, imports, dispatch, FLIRT, NEAR_MATCHING blockers)
 ├── pe_headers.py        # PE header helpers (image base, section math)
 ├── ne_loader.py         # NE (New Executable) loader — 16-bit Windows 3.x format detection + parsing
-├── headless.py          # Headless X server management for wine compiler invocations
-├── wibo.py              # Auto-download + verify wibo (lightweight Wine alternative)
 ├── compile_cache.py     # Disk-backed compile cache (diskcache, SHA-256 keyed)
 ├── metadata.py          # Per-directory rebrew-functions.toml loader/writer; update_source_status is canonical STATUS writer; is_status_sticky / should_promote_status promotion rules
 ├── metadata_model.py    # Typed metadata schema helpers (file-only vs metadata-only routing)
@@ -187,7 +186,7 @@ src/rebrew/
 ├── lzexe.py             # LZEXE 0.90/0.91 DOS unpacker core (CLI in lzexe_cli.py)
 ├── library.py           # rebrew-libraries.toml per-library overrides + `rebrew library` CLI group
 ├── dosbox.py            # Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads)
-├── toolchain.py         # Toolchain abstraction: spec registry, docker-only runner (images for Windows/DOS, native for Linux compilers)
+├── toolchain.py         # Toolchain abstraction: spec registry, docker-only runner (every toolchain compiles inside its image)
 ├── toolchain_cli.py     # `rebrew toolchain` CLI (list/status/detect/pull/build)
 ├── registry.py          # Declarative component registration: entry-point groups + data-file overlays, single-source conflict policy
 ├── diagnose.py          # `rebrew diagnose` — compile-config resolution trace (why a function compiles with its toolchain+flags)
@@ -278,9 +277,9 @@ src/rebrew/
 │   ├── sections.py      # PE section helpers, x86 utils (trim_trailing_padding, has_back_jumps)
 │   └── cli.py           # Typer CLI app
 ├── matcher/             # Core GA engine (see matcher/AGENTS.md)
-│   ├── __init__.py      # Re-exports: build_candidate, score_candidate, mutate_code, ...
+│   ├── __init__.py      # Re-exports: build_candidate_obj_only, score_candidate, mutate_code, ...
 │   ├── core.py          # Types: Score, BuildResult, BuildCache, GACheckpoint
-│   ├── compiler.py      # MSVC6 compilation + flag sweep (docker images)
+│   ├── compiler.py      # Compile backend + flag sweep (docker images / recompile service)
 │   ├── scoring.py       # Byte scoring, structural similarity (capstone + numpy)
 │   ├── mutator.py       # 119 C mutation operators for GA
 │   ├── omf16.py         # Minimal 16-bit OMF parser (MSVC 1.52 dialect — code + reloc slots for the 16-bit path)

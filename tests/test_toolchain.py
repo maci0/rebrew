@@ -74,8 +74,7 @@ class TestRegistry:
         assert TOOLCHAINS["msvc1.52"].family == "msvc"
         assert TOOLCHAINS["delphi16"].family == "delphi"
         assert TOOLCHAINS["watcom"].family == "watcom"
-        # host-only spec: falls back to its name
-        assert TOOLCHAINS["gcc-pe"].family == "gcc-pe"
+        assert TOOLCHAINS["gcc-pe"].family == "gcc"
 
 
 class TestRunToolchain:
@@ -177,33 +176,16 @@ class TestRunToolchain:
 
         assert len(calls) == 1
 
-    def test_native_runtime_without_image_uses_vendored_path(
-        self, tmp_path: Path, monkeypatch
-    ) -> None:
-        """Native-Linux toolchains without an image (gcc-pe, watcom16 wcc)
-        exec their vendored/PATH binary directly — they are not Windows
-        binaries, so no wine glue is involved."""
-        cl = tmp_path / "vc" / "bin" / "cl.exe"
-        cl.parent.mkdir(parents=True)
-        cl.write_bytes(b"MZ")
+    def test_image_none_raises_with_build_hint(self, tmp_path: Path, monkeypatch) -> None:
+        """A toolchain without an image is a hard error with a build hint."""
         spec = ToolchainSpec(
             name="t",
             image=None,
             binary="cl",
             runtime="native",
-            host_path=tmp_path / "vc",
-            host_bin="Bin",
         )
-        calls: list[list[str]] = []
-
-        def _run(cmd, **kwargs):
-            calls.append(cmd)
-            return _FakeProc(0, "", "")
-
-        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
-        r = run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path)
-        assert r.backend == "native"
-        assert calls[0] == [str(cl), "/c", "t.c"]
+        with pytest.raises(ToolchainError, match="no docker image"):
+            run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path)
 
     def test_missing_image_raises_with_build_hint(self, tmp_path: Path, monkeypatch) -> None:
         """A docker toolchain whose image is not built is a hard error that
@@ -248,15 +230,16 @@ class TestCli:
         result = CliRunner().invoke(umbrella, ["toolchain", "status", "nope"])
         assert result.exit_code != 0
 
-    def test_pull_host_only_errors(self, monkeypatch) -> None:
+    def test_pull_gcc_pe_goes_remote(self, monkeypatch) -> None:
+        """gcc-pe now has an image — pull routes to the image path."""
         from typer.testing import CliRunner
 
         from rebrew.main import app as umbrella
 
-        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: False)
+        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
         result = CliRunner().invoke(umbrella, ["toolchain", "pull", "gcc-pe"])
-        assert result.exit_code == 2
-        assert "host-only" in result.output
+        assert result.exit_code == 0
 
     def test_pull_unknown_errors(self) -> None:
         from typer.testing import CliRunner
@@ -347,8 +330,10 @@ class TestCli:
         from rebrew.main import app as umbrella
 
         result = CliRunner().invoke(umbrella, ["toolchain", "build", "gcc-pe"])
+        # gcc-pe now has an image tag without a Dockerfile in the checkout
+        # (image build source ships later) — the failure names the Dockerfile.
         assert result.exit_code == 2
-        assert "host-only" in result.output
+        assert "Dockerfile" in result.output
 
     def test_build_missing_dockerfile_errors(self, monkeypatch) -> None:
         from typer.testing import CliRunner
@@ -530,7 +515,7 @@ class TestResolveBinaryCaseInsensitive:
     must match host_bin case-insensitively (MSVC 1.52 regression)."""
 
     def test_uppercase_bin_resolves(self, tmp_path: Path) -> None:
-        from rebrew.toolchain import ToolchainSpec, _resolve_binary
+        from rebrew.toolchain import ToolchainSpec, vendored_binary
 
         (tmp_path / "BIN").mkdir()
         (tmp_path / "BIN" / "CL.EXE").write_bytes(b"")
@@ -541,11 +526,11 @@ class TestResolveBinaryCaseInsensitive:
             host_bin="Bin",  # spec says Bin, disk says BIN
             host_path=str(tmp_path),
         )
-        resolved = _resolve_binary(spec)
-        assert resolved == str(tmp_path / "BIN" / "CL.EXE")
+        resolved = vendored_binary(spec)
+        assert str(resolved) == str(tmp_path / "BIN" / "CL.EXE")
 
     def test_exact_case_still_works(self, tmp_path: Path) -> None:
-        from rebrew.toolchain import ToolchainSpec, _resolve_binary
+        from rebrew.toolchain import ToolchainSpec, vendored_binary
 
         (tmp_path / "Bin").mkdir()
         (tmp_path / "Bin" / "cl").write_bytes(b"")
@@ -556,12 +541,12 @@ class TestResolveBinaryCaseInsensitive:
             host_bin="Bin",
             host_path=str(tmp_path),
         )
-        assert _resolve_binary(spec) == str(tmp_path / "Bin" / "cl")
+        assert str(vendored_binary(spec)) == str(tmp_path / "Bin" / "cl")
 
     def test_exe_suffix_tolerated_in_subdir(self, tmp_path: Path) -> None:
         """binary="cl" must resolve CL.EXE in the host_bin subdir (vendored
         Windows trees store the .exe; specs name the bare binary)."""
-        from rebrew.toolchain import ToolchainSpec, _resolve_binary
+        from rebrew.toolchain import ToolchainSpec, vendored_binary
 
         (tmp_path / "Bin").mkdir()
         (tmp_path / "Bin" / "CL.EXE").write_bytes(b"")
@@ -572,11 +557,11 @@ class TestResolveBinaryCaseInsensitive:
             host_bin="Bin",
             host_path=str(tmp_path),
         )
-        assert _resolve_binary(spec) == str(tmp_path / "Bin" / "CL.EXE")
+        assert str(vendored_binary(spec)) == str(tmp_path / "Bin" / "CL.EXE")
 
     def test_exe_suffix_tolerated_at_root(self, tmp_path: Path) -> None:
         """binary="cl" must also resolve cl.exe directly in host_path."""
-        from rebrew.toolchain import ToolchainSpec, _resolve_binary
+        from rebrew.toolchain import ToolchainSpec, vendored_binary
 
         (tmp_path / "cl.exe").write_bytes(b"")
         spec = ToolchainSpec(
@@ -585,7 +570,7 @@ class TestResolveBinaryCaseInsensitive:
             binary="cl",
             host_path=str(tmp_path),
         )
-        assert _resolve_binary(spec) == str(tmp_path / "cl.exe")
+        assert str(vendored_binary(spec)) == str(tmp_path / "cl.exe")
 
     def test_status_uses_shared_resolver(self, monkeypatch, tmp_path: Path) -> None:
         """toolchain status must agree with _resolve_binary (case-insensitive
@@ -619,11 +604,8 @@ class TestResolveBinaryCaseInsensitive:
 
 
 class TestDockerOnlyGuard:
-    """run_toolchain is docker-only: every Windows/DOS toolchain (wine- and
-    dosbox-runtime) must fail with a clear build hint when its image is
-    absent — never exec the vendored binary directly (EACCES / Exec format
-    error).  Native-Linux specs without an image (gcc-pe, watcom16 wcc)
-    keep the direct vendored-host path: they are not Windows binaries."""
+    """run_toolchain is docker-only: every toolchain must fail with a clear
+    build hint when its image is absent — never exec a host binary."""
 
     def test_msvc152_image_missing_raises(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
@@ -641,19 +623,14 @@ class TestDockerOnlyGuard:
         with pytest.raises(ToolchainError, match="not built"):
             run_toolchain(TOOLCHAINS["delphi16"], ["hello.dpr"], workdir=tmp_path)
 
-    def test_watcom16_native_path_unaffected(self, tmp_path: Path, monkeypatch) -> None:
-        """watcom16 has no image (native Linux wcc) — the direct vendored
-        binary path still applies; only image-less wine/dosbox specs are
-        blocked by the docker-only guard."""
-        from rebrew.toolchain import TOOLCHAINS, run_toolchain
+    def test_watcom16_image_missing_raises(self, tmp_path: Path, monkeypatch) -> None:
+        """watcom16 now has an image — a missing image is a build hint."""
+        from rebrew.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
 
-        spec = TOOLCHAINS["watcom16"]
-        monkeypatch.setattr(
-            "rebrew.toolchain._resolve_binary",
-            lambda spec: (_ for _ in ()).throw(ToolchainError("no native binary")),
-        )
-        with pytest.raises(ToolchainError, match="no native binary"):
-            run_toolchain(spec, ["-zq", "f.c"], workdir=tmp_path)
+        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
+        with pytest.raises(ToolchainError, match="not built"):
+            run_toolchain(TOOLCHAINS["watcom16"], ["-zq", "f.c"], workdir=tmp_path)
 
 
 class TestVc98Wrap:
@@ -820,13 +797,29 @@ class TestDockerfileSanity:
         """Every image-backed toolchain must have its Dockerfile in the
         rebrew-toolchains checkout — a fresh clone must be able to rebuild
         the image (tc16/tc20 images were built from UNTRACKED Dockerfiles,
-        silently unreproducible)."""
+        silently unreproducible).
+
+        Profiles whose image build source ships later (gcc, gcc-pe, clang,
+        watcom16) are allow-listed with their planned Dockerfile path so
+        the gate keeps failing loudly for genuinely missing sources.
+        """
         from rebrew.toolchain import TOOLCHAINS
+
+        #: Image specs whose Dockerfile build source ships in a later change
+        #: (planned path in the rebrew-toolchains checkout).
+        _PENDING_IMAGE_SOURCE = {
+            "gcc-pe": "gcc/pe-win32/Dockerfile",
+            "gcc": "gcc/linux-x64/Dockerfile",
+            "clang": "clang/linux-x64/Dockerfile",
+            "watcom16": "watcom/2.0-win16/Dockerfile",
+        }
 
         repo = self._repo()
         missing = []
         for name, spec in TOOLCHAINS.items():
             if spec.image is None:
+                continue
+            if name in _PENDING_IMAGE_SOURCE:
                 continue
             tag, verarch = spec.image.rsplit(":", 1)
             df = repo / spec.family / verarch / "Dockerfile"

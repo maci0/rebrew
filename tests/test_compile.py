@@ -1,111 +1,11 @@
-"""Tests for rebrew.compile — resolve_cl_command and compile_and_compare helpers."""
+"""Tests for rebrew.compile — backend selection and compile_and_compare helpers."""
 
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
-from rebrew.compile import (
-    compile_to_obj,
-    filter_wine_stderr,
-    maybe_headless_wine,
-    resolve_cl_command,
-)
+from rebrew.compile import compile_to_obj, filter_wine_stderr
 from rebrew.config import ProjectConfig
-
-# ---------------------------------------------------------------------------
-# resolve_cl_command
-# ---------------------------------------------------------------------------
-
-
-class TestResolveClCommand:
-    """Tests for resolve_cl_command()."""
-
-    def test_wine_relative_path(self, tmp_path: Path) -> None:
-        """wine + relative CL.EXE path is resolved against cfg.root (the
-        project-local file wins over the rebrew install's vendored tree)."""
-        fake = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "Bin" / "CL.EXE"
-        fake.parent.mkdir(parents=True)
-        fake.write_bytes(b"MZ")
-        cfg = ProjectConfig(
-            root=tmp_path,
-            compiler_command="wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE",
-        )
-        result = resolve_cl_command(cfg)
-        assert result[0] == "wine"
-        assert result[1] == str(fake)
-
-    def test_missing_relative_path_falls_back_to_install(self, tmp_path: Path, monkeypatch) -> None:
-        """A project-relative CL path absent under the project root resolves
-        against the rebrew install's vendored tools/ (fresh projects without
-        a tools/ symlink still compile)."""
-        from rebrew import utils as rebrew_utils
-
-        fake = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "Bin" / "CL.EXE"
-        fake.parent.mkdir(parents=True)
-        fake.write_bytes(b"MZ")
-        monkeypatch.setattr(rebrew_utils, "_REPO_ROOT", tmp_path)
-        cfg = ProjectConfig(
-            root=tmp_path / "project",
-            compiler_command="wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE",
-        )
-        result = resolve_cl_command(cfg)
-        assert result[0] == "wine"
-        assert result[1] == str(fake)
-
-    def test_wine_absolute_path(self, tmp_path: Path) -> None:
-        """wine + absolute CL.EXE path is preserved as-is."""
-        cfg = ProjectConfig(
-            root=tmp_path,
-            compiler_command="wine /opt/msvc/CL.EXE",
-        )
-        result = resolve_cl_command(cfg)
-        assert result == ["wine", "/opt/msvc/CL.EXE"]
-
-    def test_bare_relative_path(self, tmp_path: Path) -> None:
-        """Bare relative path is resolved against cfg.root."""
-        cfg = ProjectConfig(
-            root=tmp_path,
-            compiler_command="tools/CL.EXE",
-        )
-        result = resolve_cl_command(cfg)
-        assert result == [str(tmp_path / "tools/CL.EXE")]
-
-    def test_bare_absolute_path(self, tmp_path: Path) -> None:
-        """Bare absolute path is preserved."""
-        cfg = ProjectConfig(
-            root=tmp_path,
-            compiler_command="/usr/bin/cl",
-        )
-        result = resolve_cl_command(cfg)
-        assert result == ["/usr/bin/cl"]
-
-    def test_empty_command_returns_empty(self, tmp_path: Path) -> None:
-        """Docker-only configs have an empty compiler_command (the image is
-        the compiler) — nothing to resolve, no phantom CL.EXE path."""
-        cfg = ProjectConfig(
-            root=tmp_path,
-            compiler_command="",
-        )
-        assert resolve_cl_command(cfg) == []
-
-    def test_quoted_wine_path(self, tmp_path: Path) -> None:
-        """Quoted path with spaces is handled by shlex.split."""
-        cfg = ProjectConfig(
-            root=tmp_path,
-            compiler_command='wine "tools/MS VC/CL.EXE"',
-        )
-        result = resolve_cl_command(cfg)
-        assert result[0] == "wine"
-        assert "MS VC" in result[1]
-
-    def test_keeps_extra_tokens_after_compiler(self, tmp_path: Path) -> None:
-        cfg = ProjectConfig(
-            root=tmp_path,
-            compiler_command="wine tools/CL.EXE --wrapper-arg",
-        )
-        result = resolve_cl_command(cfg)
-        assert result == ["wine", str(tmp_path / "tools/CL.EXE"), "--wrapper-arg"]
-
 
 # ---------------------------------------------------------------------------
 # compile_and_compare — unit-level logic tests (no real compiler)
@@ -252,24 +152,21 @@ class TestCompileToObj:
 
 
 class TestCompileToObjPosix:
-    """gcc-pe / mingw (POSIX-style) compiler routing."""
+    """gcc-pe / mingw (POSIX-style) compiler routing goes through run_toolchain."""
 
     def _run_compile(
         self, tmp_path: Path, monkeypatch, *, profile: str, cflags: list[str]
     ) -> list[str]:
         captured: dict[str, list[str]] = {}
 
-        def _fake_run(cmd: list[str], **_kwargs: object) -> SimpleNamespace:
-            captured["cmd"] = cmd
-            # GCC-style output flag: -o objname
-            out = cmd[cmd.index("-o") + 1]
-            (tmp_path / "work" / out).write_bytes(b"\x00")
-            return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+            captured["args"] = args
+            out = args[args.index("-o") + 1]
+            (workdir / out).write_bytes(b"\x00")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.subprocess.run", _fake_run)
-        monkeypatch.setattr(
-            "rebrew.compile.resolve_cl_command", lambda _cfg: ["i686-w64-mingw32-gcc"]
-        )
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
 
         cfg: Any = SimpleNamespace(
             root=tmp_path,
@@ -293,7 +190,7 @@ class TestCompileToObjPosix:
         obj_path, err = compile_to_obj(cast(ProjectConfig, cfg), source, cflags, workdir)
         assert err == ""
         assert obj_path is not None
-        return captured["cmd"]
+        return captured["args"]
 
     def test_gcc_pe_uses_posix_flags(self, tmp_path: Path, monkeypatch) -> None:
         cmd = self._run_compile(
@@ -545,260 +442,6 @@ class TestCompileToObjMsvc152Image:
         assert "not built" in err
 
 
-class TestMaybeHeadlessWine:
-    """Tests for maybe_headless_wine() — wine runs headless via a persistent Xvfb."""
-
-    def test_wine_gets_display_env(self, monkeypatch) -> None:
-        """wine → command unchanged, env gains DISPLAY pointing at an Xvfb."""
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
-        cmd, env = maybe_headless_wine(["wine", "/opt/CL.EXE"], {"WINEDEBUG": "-all"})
-        assert cmd == ["wine", "/opt/CL.EXE"]
-        assert env == {"WINEDEBUG": "-all", "DISPLAY": ":99"}
-
-    def test_absolute_wine_path_gets_display(self, monkeypatch) -> None:
-        """A path to wine (e.g. /usr/bin/wine) is matched by basename."""
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
-        cmd, env = maybe_headless_wine(["/usr/bin/wine", "/opt/CL.EXE"], None)
-        assert cmd == ["/usr/bin/wine", "/opt/CL.EXE"]
-        assert env["DISPLAY"] == ":99"
-
-    def test_wibo_not_touched(self, monkeypatch) -> None:
-        """wibo is already headless — left untouched."""
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
-        cmd, env = maybe_headless_wine(["wibo", "/opt/CL.EXE"], None)
-        assert cmd == ["wibo", "/opt/CL.EXE"]
-        assert env is None
-
-    def test_gcc_not_touched(self, monkeypatch) -> None:
-        """Non-wine commands are never touched."""
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
-        cmd, env = maybe_headless_wine(["gcc", "-c", "t.c"], None)
-        assert cmd == ["gcc", "-c", "t.c"]
-        assert env is None
-
-    def test_no_xvfb_falls_back_to_xvfb_run(self, monkeypatch) -> None:
-        """No Xvfb binary but xvfb-run present → slow wrapper fallback."""
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: None)
-        monkeypatch.setattr(
-            "rebrew.compile.shutil.which",
-            lambda name: "/usr/bin/xvfb-run" if name == "xvfb-run" else None,
-        )
-        cmd, env = maybe_headless_wine(["wine", "/opt/CL.EXE"], {"WINEDEBUG": "-all"})
-        assert cmd[0] == "xvfb-run"
-        assert cmd[4:] == ["wine", "/opt/CL.EXE"]
-        assert env == {"WINEDEBUG": "-all"}
-
-    def test_no_xvfb_no_wrapper_bare_wine(self, monkeypatch) -> None:
-        """Neither Xvfb nor xvfb-run → bare wine as-is."""
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: None)
-        monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: None)
-        cmd, env = maybe_headless_wine(["wine", "/opt/CL.EXE"], None)
-        assert cmd == ["wine", "/opt/CL.EXE"]
-        assert env is None
-
-    def test_headless_opt_out_env(self, monkeypatch) -> None:
-        """REBREW_WINE_HEADLESS=0 forces bare wine even with Xvfb available."""
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
-        cmd, _env = maybe_headless_wine(["wine", "/opt/CL.EXE"], {"REBREW_WINE_HEADLESS": "0"})
-        assert cmd == ["wine", "/opt/CL.EXE"]
-
-    def test_empty_command_untouched(self, monkeypatch) -> None:
-        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
-        cmd, env = maybe_headless_wine([], {"WINEDEBUG": "-all"})
-        assert cmd == []
-        assert env == {"WINEDEBUG": "-all"}
-
-
-# ---------------------------------------------------------------------------
-# Relative runner path resolution (--install-wibo config shape)
-# ---------------------------------------------------------------------------
-
-
-class TestRelativeRunnerResolution:
-    """A relative runner like ``tools/wibo`` must anchor to the project root,
-    not the (temp) compile workdir."""
-
-    def test_resolve_cl_command_anchors_relative_runner(self, tmp_path: Path) -> None:
-        """runner='tools/wibo' + command without prefix → root-anchored runner."""
-        cfg = ProjectConfig(
-            root=tmp_path,
-            compiler_command="toolchain/msvc/5.0-win32/bin/cl.exe",
-            compiler_runner="tools/wibo",
-        )
-        result = resolve_cl_command(cfg)
-        assert result[0] == str(tmp_path / "tools/wibo")
-        assert result[1].endswith("toolchain/msvc/5.0-win32/bin/cl.exe")
-
-    def test_resolve_cl_command_bare_runner_untouched(self, tmp_path: Path) -> None:
-        """Bare runner names (wine/wibo on PATH) pass through unchanged."""
-        cfg = ProjectConfig(
-            root=tmp_path,
-            compiler_command="toolchain/msvc/5.0-win32/bin/cl.exe",
-            compiler_runner="wine",
-        )
-        result = resolve_cl_command(cfg)
-        assert result[0] == "wine"
-
-    def test_msvc_env_runner_resolved_and_winedebug(self, tmp_path: Path) -> None:
-        """msvc_env_from_config resolves the relative runner for the GA path
-        and sets WINEDEBUG by basename (tools/wibo is still wibo)."""
-        from rebrew.core.toolchain import msvc_env_from_config
-
-        cfg = ProjectConfig(
-            root=tmp_path,
-            compiler_command="toolchain/msvc/5.0-win32/bin/cl.exe",
-            compiler_runner="tools/wibo",
-            compiler_includes="toolchain/msvc/5.0-win32/include",
-            compiler_libs="toolchain/msvc/5.0-win32/lib",
-        )
-        env = msvc_env_from_config(cfg)
-        assert env["REBREW_COMPILER_RUNNER"] == str(tmp_path / "tools/wibo")
-        assert env["WINEDEBUG"] == "-all"
-
-
-class TestCompileToObjBorlandc55:
-    """borlandc55 routes through the toolchain runner with bcc32 flags
-    (`-c` compile-only; the object follows the source stem — `-o obj` would
-    misparse obj as an input file in Borland's flag dialect)."""
-
-    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
-        return SimpleNamespace(
-            root=tmp_path,
-            compiler_profile="borlandc55",
-            compiler_command="bcc32.exe",
-            base_cflags="",
-            compiler_includes=tmp_path / "h",
-            compiler_runner="",
-            compile_timeout=30,
-        )
-
-    def test_borlandc55_uses_toolchain_runner(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compile import compile_to_obj
-        from rebrew.toolchain import RunResult
-
-        captured: dict = {}
-
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
-            captured["args"] = args
-            obj = workdir / "t.obj"
-            obj.write_bytes(b"OMF")
-            return RunResult(0, "", "", backend="host")
-
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.compile_cache_key", lambda **k: "k")
-        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
-
-        src = tmp_path / "t.c"
-        src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
-        workdir = tmp_path / "work"
-        workdir.mkdir()
-        obj, err = compile_to_obj(self._cfg(tmp_path), src, [], workdir, use_cache=False)
-        assert obj is not None and err == ""
-        assert "-c" in captured["args"]
-        assert "t.c" in captured["args"]
-        assert "-o" not in captured["args"]
-
-
-class TestPerFunctionOverrideArgShape:
-    def test_16bit_override_gets_wrapper_args(self, tmp_path: Path, monkeypatch) -> None:
-        """A per-function TOOLCHAIN override to a 16-bit toolchain must use
-        the 16-bit DOSBox wrapper arg shape (source first), not the config
-        profile's 32-bit /Fo shape (spec.name drives the branch)."""
-        from rebrew.compile import compile_to_obj
-        from rebrew.toolchain import RunResult
-
-        captured: dict = {}
-
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
-            captured["args"] = args
-            (workdir / "F.OBJ").write_bytes(b"OMF")
-            return RunResult(0, "", "", backend="docker")
-
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
-
-        cfg: Any = SimpleNamespace(
-            root=tmp_path,
-            compiler_profile="msvc6",  # 32-bit config profile
-            compiler_command="",
-            compiler_runner="",
-            compiler_includes="toolchain/msvc/6.0-win32/VC98/Include",
-            base_cflags="",
-            compile_timeout=30,
-            posix_style=False,
-            cflags_presets={},
-            cflags="",
-            cflags_explicit=False,
-        )
-        src_dir = tmp_path / "src"
-        src_dir.mkdir()
-        source = src_dir / "f.c"
-        source.write_text("int f(void){return 1;}\n", encoding="utf-8")
-        work = tmp_path / "work"
-        work.mkdir()
-        obj, err = compile_to_obj(cfg, source, [], work, use_cache=False, toolchain="msvc1.52")
-        assert obj is not None and err == ""
-        assert captured["args"][0] == "f.c"  # source first (wrapper convention)
-        assert not any(a.startswith("/Fo") for a in captured["args"])
-
-
-class TestCompileEdgeCases:
-    def test_obj_name_with_separator_rejected(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compile import compile_to_obj
-
-        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
-        cfg: Any = SimpleNamespace(
-            root=tmp_path,
-            compiler_profile="msvc6",
-            compiler_command="",
-            compiler_runner="",
-            compiler_includes="",
-            base_cflags="",
-            compile_timeout=10,
-            posix_style=False,
-            cflags_presets={},
-            cflags="",
-            cflags_explicit=False,
-        )
-        src = tmp_path / "f.c"
-        src.write_text("int f(void){return 1;}", encoding="utf-8")
-        work = tmp_path / "w"
-        work.mkdir()
-        obj, err = compile_to_obj(cfg, src, [], work, use_cache=False, obj_name="../evil.obj")
-        assert obj is None
-        assert "plain filename" in err
-
-    def test_success_without_object_reports_error(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.compile import compile_to_obj
-        from rebrew.toolchain import RunResult
-
-        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
-            return RunResult(0, "", "", backend="docker")  # no object written
-
-        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
-        cfg: Any = SimpleNamespace(
-            root=tmp_path,
-            compiler_profile="msvc6",
-            compiler_command="",
-            compiler_runner="",
-            compiler_includes="",
-            base_cflags="",
-            compile_timeout=10,
-            posix_style=False,
-            cflags_presets={},
-            cflags="",
-            cflags_explicit=False,
-        )
-        src = tmp_path / "f.c"
-        src.write_text("int f(void){return 1;}", encoding="utf-8")
-        work = tmp_path / "w"
-        work.mkdir()
-        obj, err = compile_to_obj(cfg, src, [], work, use_cache=False)
-        assert obj is None
-        assert "produced no object" in err
-
-
 # ---------------------------------------------------------------------------
 # Linked single-function compare (padded shell + LINK.EXE oracle)
 # ---------------------------------------------------------------------------
@@ -954,7 +597,7 @@ class TestLinkedSpec:
         cfg: Any = SimpleNamespace(compiler_profile="gcc-pe")
         spec, err = _linked_spec(cfg, None)
         assert spec is None
-        assert "host-native" in err
+        assert "MSVC" in err
 
     def test_non_msvc_image_rejected(self) -> None:
         from rebrew.compile import _linked_spec

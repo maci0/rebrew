@@ -7,9 +7,6 @@ from .ast_engine import (
     parse_c_ast as parse_c_ast,
 )
 from .compiler import (
-    build_candidate as build_candidate,
-)
-from .compiler import (
     build_candidate_obj_only as build_candidate_obj_only,
 )
 from .compiler import (
@@ -117,7 +114,6 @@ __all__ = [
     "Score",
     "SolutionEntry",
     "StructuralSimilarity",
-    "build_candidate",
     "build_candidate_obj_only",
     "diff_functions",
     "extract_function_from_binary",

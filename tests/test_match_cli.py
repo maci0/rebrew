@@ -250,9 +250,7 @@ class TestResolveBuildParamsSymbol:
         f = self._make_multi(tmp_path)
         monkeypatch.chdir(tmp_path)
 
-        params = resolve_build_params(
-            cfg, str(f), None, None, None, "_second_fn", None, None, False, True
-        )
+        params = resolve_build_params(cfg, str(f), None, "_second_fn", None, None, False, True)
         assert params.symbol == "_second_fn"
         assert params.va_int == 0x401100
         assert params.target_size == 128
@@ -284,7 +282,7 @@ class TestResolveBuildParamsSymbol:
         f = self._make_multi(tmp_path)
         monkeypatch.chdir(tmp_path)
 
-        params = resolve_build_params(cfg, str(f), None, None, None, None, None, None, False, True)
+        params = resolve_build_params(cfg, str(f), None, None, None, None, False, True)
         assert params.symbol == "_first_fn"
         assert params.va_int == 0x401000
         assert params.target_size == 64
@@ -319,9 +317,7 @@ class TestResolveBuildParamsSymbol:
         f = self._make_multi(tmp_path)
         monkeypatch.chdir(tmp_path)
 
-        params = resolve_build_params(
-            cfg, str(f), None, None, None, None, "0x401100", None, False, True
-        )
+        params = resolve_build_params(cfg, str(f), None, None, "0x401100", None, False, True)
         assert params.symbol == "_second_fn"
         assert params.va_int == 0x401100
         assert params.target_size == 128
@@ -478,51 +474,19 @@ class TestAllTargetsParallel:
 
 
 class TestMatchCliLink:
-    """PRD 04: rebrew match --link threads a linker command into the linked GA."""
+    """Retired link options (--link/--lib/--no-compare-obj) are rejected."""
 
-    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
-        return SimpleNamespace(
-            metadata_dir=tmp_path,
-            reversed_dir=tmp_path / "src",
-            marker="SERVER",
-            source_ext=".c",
-            default_jobs=2,
-            compile_timeout=30,
-            compiler_profile="gcc-pe",
-            posix_style=True,
-        )
-
-    def test_link_reaches_linked_build_path(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_link_option_rejected(self) -> None:
         from rebrew.match import app
 
-        cfg = self._cfg(tmp_path)
-        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
-        monkeypatch.setattr(
-            "rebrew.match.resolve_build_params",
-            lambda *a, **k: _params(),
-        )
-        captured: dict = {}
-        monkeypatch.setattr(
-            "rebrew.match._run_single_ga",
-            lambda *a, **k: captured.update(args=a, kwargs=k),
-        )
-        result = CliRunner().invoke(
-            app, ["--no-compare-obj", "--link", "link /SUBSYSTEM:WINDOWS", "f.c"]
-        )
-        assert result.exit_code == 0, result.output
-        # The linked build path (compare_obj=False) receives --link by keyword.
-        assert captured["args"][5] is False  # compare_obj=False
-        assert captured["kwargs"]["link"] == "link /SUBSYSTEM:WINDOWS"
+        result = CliRunner().invoke(app, ["--link", "link /SUBSYSTEM:WINDOWS", "f.c"])
+        assert result.exit_code != 0
 
-    def test_help_exposes_link(self) -> None:
+    def test_no_compare_obj_rejected(self) -> None:
         from rebrew.match import app
 
-        result = CliRunner().invoke(app, ["--help"])
-        assert result.exit_code == 0
-        assert "Linker command" in result.output
-        assert "--link" in result.output
+        result = CliRunner().invoke(app, ["--no-compare-obj", "f.c"])
+        assert result.exit_code != 0
 
 
 class TestKunaSeed:
@@ -589,9 +553,6 @@ class TestKunaSeed:
                 pop_size=4,
                 generations=1,
                 jobs=1,
-                compare_obj=False,
-                lib=None,
-                ldflags=None,
                 seed=None,
                 json_output=False,
                 extra_seed=None,
@@ -629,9 +590,6 @@ class TestKunaSeed:
             pop_size=4,
             generations=1,
             jobs=1,
-            compare_obj=False,
-            lib=None,
-            ldflags=None,
             seed=None,
             json_output=False,
             extra_seed=None,

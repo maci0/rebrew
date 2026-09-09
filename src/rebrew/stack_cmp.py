@@ -252,8 +252,6 @@ def run_stack_cmp(
         seed_c,
         None,
         None,
-        None,
-        None,
         original_arg if va_arg else None,
         None,
         False,  # ignore_lint

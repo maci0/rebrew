@@ -102,222 +102,62 @@ class TestCheckDelphi16Toolchain:
         assert result.status == _PASS
         assert "ready" in result.message
 
-    def test_shlex_valueerror_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Unbalanced quotes → shlex.split raises → plain split fallback."""
-        import shlex
-
-        monkeypatch.setattr(shlex, "split", lambda s: (_ for _ in ()).throw(ValueError()))
-        monkeypatch.setattr("rebrew.doctor.shutil.which", lambda exe: f"/usr/bin/{exe}")
-        result = check_compiler(_cfg(compiler_command='gcc "unclosed'))
+    def test_image_profile_ready(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
+        result = check_compiler(_cfg(compiler_profile="msvc6"))
         assert result.status == _PASS
+        assert "msvc6" in result.message
 
-    def test_exe_not_in_path_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("rebrew.doctor.shutil.which", lambda exe: None)
-        result = check_compiler(_cfg(compiler_command="clang-99"))
+    def test_image_missing_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
+        result = check_compiler(_cfg(compiler_profile="msvc6"))
         assert result.status == _FAIL
-        assert "not found in PATH" in result.message
+        assert "not built" in result.message
+        assert "toolchain build" in result.fix
 
-    def test_native_compiler_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("rebrew.doctor.shutil.which", lambda exe: f"/usr/bin/{exe}")
-        result = check_compiler(_cfg(compiler_command="gcc"))
+    def test_unknown_profile_fails(self) -> None:
+        result = check_compiler(_cfg(compiler_profile="no-such-tc"))
+        assert result.status == _FAIL
+        assert "no docker image" in result.message
+
+    def test_remote_backend_passes(self) -> None:
+        cfg = _cfg(compiler_profile="msvc6", recompile_url="http://localhost:8000")
+        result = check_compiler(cfg)
         assert result.status == _PASS
-
-    def test_wine_not_installed_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("rebrew.doctor.shutil.which", lambda exe: None)
-        result = check_compiler(_cfg(compiler_command="wine CL.EXE"))
-        assert result.status == _FAIL
-        assert "Wine is not installed" in result.message
-
-    def test_wine_cl_missing_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(
-            "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
-        )
-        result = check_compiler(
-            _cfg(compiler_command="wine tools/CL.EXE", root=Path("/tmp/msvc6toolchain"))
-        )
-        assert result.status == _FAIL
-        assert "CL.EXE not found" in result.message
-        assert "msvc-6.0-win32" in result.fix  # msvc6 hint
-
-    def test_wine_cl_missing_msvc400_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(
-            "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
-        )
-        result = check_compiler(
-            _cfg(compiler_command="wine tools/CL.EXE", root=Path("/opt/msvc400"))
-        )
-        assert "MSVC400" in result.fix
-
-    def test_wine_cl_missing_msvc63_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The SP3 toolchain ships from the decomp.me mirror, not itsmattkc."""
-        monkeypatch.setattr(
-            "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
-        )
-        result = check_compiler(
-            _cfg(compiler_command="wine Bin/CL.EXE", root=Path("/opt/msvc-6.0-sp3-win32"))
-        )
-        assert "OmniBlade" in result.fix
-        assert "msvc-6.0-sp3-win32.tar.gz" in result.fix
-        assert "itsmattkc" not in result.fix  # msvc-6.0-sp3-win32 must not hit the SP6-era hint
-
-    def test_wine_cl_missing_msvc70_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(
-            "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
-        )
-        result = check_compiler(
-            _cfg(compiler_command="wine Bin/cl.exe", root=Path("/opt/msvc-7.0-win32"))
-        )
-        assert "msvc-7.0-win32.tar.gz" in result.fix
-
-    def test_wine_cl_missing_msvc500_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """VC5.0 (archaic-msvc) gets the codeload URL, not itsmattkc."""
-        monkeypatch.setattr(
-            "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
-        )
-        result = check_compiler(
-            _cfg(compiler_command="wine bin/cl.exe", root=Path("/opt/msvc-5.0-win32"))
-        )
-        assert "archaic-msvc" in result.fix
-        assert "msvc500" in result.fix
-
-    def test_wine_cl_missing_watcom_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(
-            "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
-        )
-        result = check_compiler(_cfg(compiler_command="wine bin/wcc.exe", root=Path("/opt/wcc11")))
-        assert "Watcom" in result.fix
-        assert "wcc11.0.tar.gz" in result.fix
-
-    def test_wine_smoke_test_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import subprocess
-
-        cl = Path("/tmp/proj/tools/CL.EXE")
-        cl.parent.mkdir(parents=True, exist_ok=True)
-        cl.touch()
-
-        monkeypatch.setattr(
-            "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
-        )
-
-        def _run(*a, **k):
-            return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
-
-        monkeypatch.setattr(subprocess, "run", _run)
-        result = check_compiler(_cfg(compiler_command=f"wine {cl}", root=Path("/tmp/proj")))
-        assert result.status == _PASS
-        assert "reachable" in result.message
-
-    def test_wine_smoke_timeout_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import subprocess
-
-        cl = Path("/tmp/proj/tools/CL.EXE")
-        cl.parent.mkdir(parents=True, exist_ok=True)
-        cl.touch()
-        monkeypatch.setattr(
-            "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
-        )
-
-        def _run(*a, **k):
-            raise subprocess.TimeoutExpired("wine", 10)
-
-        monkeypatch.setattr(subprocess, "run", _run)
-        result = check_compiler(_cfg(compiler_command=f"wine {cl}", root=Path("/tmp/proj")))
-        assert result.status == _WARN
-        assert "timed out" in result.message
-
-    def test_wine_smoke_filenotfound_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import subprocess
-
-        cl = Path("/tmp/proj/tools/CL.EXE")
-        cl.parent.mkdir(parents=True, exist_ok=True)
-        cl.touch()
-        monkeypatch.setattr(
-            "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
-        )
-
-        def _run(*a, **k):
-            raise FileNotFoundError("wine")
-
-        monkeypatch.setattr(subprocess, "run", _run)
-        result = check_compiler(_cfg(compiler_command=f"wine {cl}", root=Path("/tmp/proj")))
-        assert result.status == _FAIL
-        assert "Failed to invoke Wine" in result.message
-
-    def test_wine_without_cl_path_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(
-            "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
-        )
-        result = check_compiler(_cfg(compiler_command="wine"))
-        assert result.status == _WARN
-        assert "no CL.EXE path specified" in result.message
+        assert "recompile" in result.message
 
 
 class TestCheckRunner:
-    def test_no_runner_pass(self) -> None:
-        result = check_runner(_cfg())
+    def test_image_ready_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
+        result = check_runner(_cfg(compiler_profile="msvc6"))
         assert result.status == _PASS
 
-    def test_runner_in_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("rebrew.doctor.shutil.which", lambda exe: f"/usr/bin/{exe}")
-        result = check_runner(_cfg(compiler_runner="wibo"))
-        assert result.status == _PASS
+    def test_image_missing_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
+        result = check_runner(_cfg(compiler_profile="msvc6"))
+        from rebrew.doctor import _WARN
 
-    def test_wibo_found_via_finder(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("rebrew.doctor.shutil.which", lambda exe: None)
-        monkeypatch.setattr("rebrew.wibo.find_wibo", lambda root: Path("/tmp/wibo"))
-        result = check_runner(_cfg(compiler_runner="wibo"))
-        assert result.status == _PASS
-        assert "wibo found" in result.message
-
-    def test_wibo_missing_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("rebrew.doctor.shutil.which", lambda exe: None)
-        monkeypatch.setattr("rebrew.wibo.find_wibo", lambda root: None)
-        result = check_runner(_cfg(compiler_runner="wibo"))
         assert result.status == _WARN
-        assert "wibo not found" in result.message
+        assert "not built" in result.message
 
-    def test_wine_runner_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(
-            "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
-        )
-        result = check_runner(_cfg(compiler_runner="wine"))
+    def test_unknown_profile_fails(self) -> None:
+        result = check_runner(_cfg(compiler_profile="no-such-tc"))
+        assert result.status == _FAIL
+
+    def test_remote_backend_passes(self) -> None:
+        cfg = _cfg(compiler_profile="msvc6", recompile_url="http://localhost:8000")
+        result = check_runner(cfg)
         assert result.status == _PASS
-
-    def test_wine_with_wibo_available_keeps_wine_default(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """wine configured + a wibo binary around → informational note, NOT a
-        recommended switch: wibo fails on some tools, wine is the compatible
-        default (the docker images also run wine by default)."""
-        monkeypatch.setattr(
-            "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
-        )
-        monkeypatch.setattr("rebrew.wibo.find_wibo", lambda root: Path("/tmp/wibo"))
-        result = check_runner(_cfg(compiler_runner="wine"))
-        assert result.status == _PASS
-        assert "wibo" in result.message
-        assert "fails on some tools" in result.message
-        assert (result.fix or "") == ""
-
-    def test_unknown_runner_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("rebrew.doctor.shutil.which", lambda exe: None)
-        result = check_runner(_cfg(compiler_runner="mystery"))
-        assert result.status == _WARN
-        assert "Unknown runner" in result.message
+        assert "recompile" in result.message
 
 
 class TestCheckCompilerMore:
-    def test_wine_cl_missing_msvc420_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(
-            "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
-        )
-        result = check_compiler(
-            _cfg(compiler_command="wine tools/CL.EXE", root=Path("/opt/msvc420"))
-        )
-        # The hint must match the PINNED ToolchainSource (archaic-msvc/msvc420),
-        # not the older itsmattkc mirror — vendor reproduces the vendored tree.
-        assert "archaic-msvc/msvc420" in result.fix
-        assert "itsmattkc" not in result.fix
+    def test_remote_url_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://remote:9000")
+        result = check_compiler(_cfg(compiler_profile="msvc6"))
+        assert result.status == _PASS
+        assert "remote:9000" in result.message
 
 
 class TestCheckMetadataFiles:
@@ -346,7 +186,7 @@ class TestDoctorCli:
         from rebrew.doctor import app
 
         cfg = SimpleNamespace(root=tmp_path, target_name="SERVER")
-        monkeypatch.setattr("rebrew.doctor.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.cli.require_config", lambda **kw: cfg)
 
         def _run_doctor(target=None):
             from rebrew.doctor import DoctorReport
@@ -369,84 +209,21 @@ class TestDoctorCli:
         result = self._invoke(tmp_path, monkeypatch, [])
         assert result.exit_code == 0
 
-    def test_install_wibo_updates_toml(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from typer.testing import CliRunner
 
-        from rebrew.doctor import app
+class TestInstallWiboRetired:
+    """--install-wibo is retired (host runners are gone)."""
 
-        cfg = SimpleNamespace(root=tmp_path, target_name="SERVER")
-        monkeypatch.setattr("rebrew.doctor.require_config", lambda **kw: cfg)
-        monkeypatch.setattr("rebrew.wibo.download_wibo", lambda p: "v1.0")
-        toml = tmp_path / "rebrew-project.toml"
-        toml.write_text('[compiler]\ncommand = "cl"\n', encoding="utf-8")
-        monkeypatch.setattr(
-            "rebrew.doctor.run_doctor",
-            lambda target=None: __import__("rebrew.doctor", fromlist=["DoctorReport"]).DoctorReport(
-                checks=[]
-            ),
-        )
-        result = CliRunner().invoke(app, ["--install-wibo"])
-        assert result.exit_code == 0
-        assert 'runner = "tools/wibo"' in toml.read_text(encoding="utf-8")
-
-    def test_install_wibo_skips_rewrite_for_docker_backed(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """--install-wibo must NOT rewrite runner=tools/wibo for docker-backed
-        profiles: the image runs wine by default and wibo fails on some tools —
-        the config runner is obsolete for them (regression for the
-        'make wine the default' directive)."""
-        from typer.testing import CliRunner
-
-        from rebrew.doctor import app
-
-        cfg = SimpleNamespace(root=tmp_path, target_name="SERVER", compiler_profile="msvc6")
-        monkeypatch.setattr("rebrew.doctor.require_config", lambda **kw: cfg)
-        monkeypatch.setattr("rebrew.wibo.download_wibo", lambda p: "v1.0")
-        toml = tmp_path / "rebrew-project.toml"
-        toml.write_text('[compiler]\nrunner = "wine"\ncommand = "cl"\n', encoding="utf-8")
-        monkeypatch.setattr(
-            "rebrew.doctor.run_doctor",
-            lambda target=None: __import__("rebrew.doctor", fromlist=["DoctorReport"]).DoctorReport(
-                checks=[]
-            ),
-        )
-        result = CliRunner().invoke(app, ["--install-wibo"])
-        assert result.exit_code == 0
-        content = toml.read_text(encoding="utf-8")
-        assert 'runner = "wine"' in content
-        assert "tools/wibo" not in content
-        assert "docker-backed" in result.stderr
-
-
-class TestInstallWiboToml:
     def _invoke(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, args: list[str]) -> object:
         from typer.testing import CliRunner
 
         from rebrew.doctor import DoctorReport, app
 
-        cfg = SimpleNamespace(root=tmp_path, target_name="SERVER")
-        monkeypatch.setattr("rebrew.doctor.require_config", lambda **kw: cfg)
-        monkeypatch.setattr("rebrew.wibo.download_wibo", lambda p: "v1.0")
         monkeypatch.setattr("rebrew.doctor.run_doctor", lambda target=None: DoctorReport(checks=[]))
         return CliRunner().invoke(app, args)
 
-    def test_replaces_existing_runner(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        toml = tmp_path / "rebrew-project.toml"
-        toml.write_text('[compiler]\nrunner = "wine"\n', encoding="utf-8")
+    def test_install_wibo_rejected(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         result = self._invoke(tmp_path, monkeypatch, ["--install-wibo"])
-        assert result.exit_code == 0
-        content = toml.read_text(encoding="utf-8")
-        assert 'runner = "tools/wibo"' in content
-        assert "wine" not in content
-
-    def test_no_toml_no_crash(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        result = self._invoke(tmp_path, monkeypatch, ["--install-wibo"])
-        assert result.exit_code == 0
+        assert result.exit_code != 0
 
 
 class TestCheckOptionalTools:
@@ -615,13 +392,14 @@ class TestCheckToolchainAlignment:
 
 
 class TestCheckToolchainBacked:
-    def test_skipped_for_native_profiles(self) -> None:
-        from rebrew.doctor import _SKIP, check_toolchain_backed
+    def test_image_profile_checked(self, monkeypatch) -> None:
+        from rebrew.doctor import _FAIL, check_toolchain_backed
 
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
         result = check_toolchain_backed(
             SimpleNamespace(compiler_profile="gcc-pe", root=Path("/tmp"))
         )
-        assert result.status == _SKIP
+        assert result.status == _FAIL
 
     def test_watcom_image_present_passes(self, monkeypatch) -> None:
         from rebrew.doctor import _PASS, check_toolchain_backed
@@ -742,15 +520,15 @@ class TestCheckToolchainBackedNewProfiles:
         result = check_toolchain_backed(cfg)
         assert result.status == _PASS
 
-    def test_watcom16_skipped_as_native(self, monkeypatch) -> None:
-        """watcom16 is a native Linux compiler (no image) — the docker-backed
-        check skips it (its binary is checked by the generic compiler check)."""
-        from rebrew.doctor import _SKIP, check_toolchain_backed
+    def test_watcom16_image_checked(self, monkeypatch) -> None:
+        """watcom16 now has a docker image — the backed check applies."""
+        from rebrew.doctor import _PASS, check_toolchain_backed
 
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
         result = check_toolchain_backed(
             SimpleNamespace(compiler_profile="watcom16", root=Path("/tmp"))
         )
-        assert result.status == _SKIP
+        assert result.status == _PASS
 
 
 class TestCheckCompiler16BitProfiles:

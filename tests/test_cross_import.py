@@ -384,14 +384,18 @@ class TestCLI:
 
 
 class TestGccPeEndToEnd:
-    """Real compile+verify round-trip with the native gcc-pe toolchain."""
+    """Real compile+verify round-trip with the gcc-pe docker toolchain."""
 
     @pytest.mark.skipif(
-        shutil.which("i686-w64-mingw32-gcc") is None,
-        reason="gcc-pe toolchain not installed",
+        shutil.which("docker") is None,
+        reason="docker not installed",
     )
     def test_import_compiles_and_verifies(self, tmp_path: Path) -> None:
         from rebrew.config import ProjectConfig
+        from rebrew.toolchain import image_present
+
+        if not image_present("rebrew/gcc:pe-win32"):
+            pytest.skip("rebrew/gcc:pe-win32 image not built")
 
         pa = tmp_path / "a.exe"
         pb = tmp_path / "b.exe"
@@ -416,7 +420,7 @@ class TestGccPeEndToEnd:
                 target_binary=binary,
                 reversed_dir=rev,
                 function_list=fl,
-                compiler_command="i686-w64-mingw32-gcc",
+                compiler_command="",
                 compiler_profile="gcc-pe",
                 # gcc-pe projects set gcc-style flags explicitly (the MSVC
                 # "/O2 /Gd" / "/nologo /c /MT" defaults are invalid for gcc).
