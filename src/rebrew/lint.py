@@ -88,6 +88,10 @@ class LintResult:
     _inline_fixes: list[tuple[str, int, str, str, str]] = field(default_factory=list)
     # Unknown / derived-only keys (W010: SYMBOL, PROTOTYPE, …) — strip, never store.
     _inline_strips: list[tuple[str, int, str]] = field(default_factory=list)
+    # Inline keys that duplicate a metadata-owned field with an equal value:
+    # no warning (the store already owns the field) but --fix strips the
+    # dead inline copy.  SIZE is never collected (inline SIZE is the contract).
+    _inline_dup_strips: list[tuple[str, int, str]] = field(default_factory=list)
     # Lines of the file for style checks
     _lines: list[str] = field(default_factory=list)
 
@@ -1090,6 +1094,18 @@ def _cflags_key(cflags: str) -> frozenset[str]:
     return frozenset(cflags.split())
 
 
+def _inline_equals_store(found_key: str, inline_value: str, store_value: str) -> bool:
+    """Whether an inline annotation duplicates its metadata-store value.
+
+    CFLAGS compares order-insensitively (``/O2 /Gd`` == ``/Gd /O2``); every
+    other key compares stripped strings.  A differing inline copy is left
+    alone — deleting it would destroy information a human may rely on.
+    """
+    if found_key == "CFLAGS":
+        return _cflags_key(inline_value.strip()) == _cflags_key(store_value.strip())
+    return inline_value.strip() == store_value.strip()
+
+
 @dataclass(frozen=True)
 class RedundantPreset:
     """A ``compiler.cflags_presets.<MODULE>`` entry that only repeats project cflags."""
@@ -1376,6 +1392,18 @@ def lint_file(
                     if _toml_key in _metadata_override:
                         if _found_key not in found_keys:
                             found_keys[_found_key] = str(_metadata_override[_toml_key])
+                        elif _found_key != "SIZE" and _inline_equals_store(
+                            _found_key,
+                            found_keys[_found_key],
+                            str(_metadata_override[_toml_key]),
+                        ):
+                            # Same value inline and in the store: the inline
+                            # copy is dead (parsing prefers it, but it changes
+                            # nothing) — no warning, but --fix strips it.
+                            # Without this, W019 never fires for
+                            # metadata-sourced keys and the copy survives
+                            # every --fix run.
+                            result._inline_dup_strips.append((mod, _va_int, _found_key))
                         _metadata_sourced_keys.add(_found_key)
             except (ValueError, KeyError):
                 pass
@@ -1418,6 +1446,12 @@ def lint_file(
                         if _ds_key in _ds_override:
                             if _ds_found_key not in found_keys:
                                 found_keys[_ds_found_key] = str(_ds_override[_ds_key])
+                            elif _ds_found_key != "SIZE" and _inline_equals_store(
+                                _ds_found_key,
+                                found_keys[_ds_found_key],
+                                str(_ds_override[_ds_key]),
+                            ):
+                                result._inline_dup_strips.append((mod, va_int, _ds_found_key))
                             # Mark as metadata-sourced so W019 doesn't fire for these
                             _metadata_sourced_keys.add(_ds_found_key)
 
@@ -1769,6 +1803,20 @@ def main(
                     console.print(
                         f"  [dim]Would strip[/dim] {r.filepath.name} "
                         f"// {key}: (unknown annotation key)"
+                    )
+                    strip_count += 1
+            # Inline copies that duplicate the metadata store with an equal
+            # value: silent in the lint pass (no warning — the store owns the
+            # field), stripped here so one --fix run converges.
+            if r._inline_dup_strips and not dry_run:
+                for _module, va, key in r._inline_dup_strips:
+                    if remove_inline_annotation_key(r.filepath, va, key):
+                        strip_count += 1
+            elif r._inline_dup_strips and dry_run:
+                for _module, _va, key in r._inline_dup_strips:
+                    console.print(
+                        f"  [dim]Would strip[/dim] {r.filepath.name} "
+                        f"// {key}: (already in metadata)"
                     )
                     strip_count += 1
         # Strips from the migration loop below (legacy keys, redundant inline
