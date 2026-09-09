@@ -1739,3 +1739,63 @@ class TestVerifySymbolField:
             [entry], cfg, jobs=1, total=1, cached_count=0, json_output=True
         )
         assert results[0]["symbol"] == "_my_func"
+
+    def test_stale_proven_demotion_writes_through(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A STUB-compiled PROVEN claim is demoted in metadata, not just warned.
+
+        Regression: the warning claimed a demotion but stickiness blocked the
+        write, so it fired on every run.  The second run must be clean.
+        """
+        from rebrew.metadata import get_entry, save_metadata
+        from rebrew.verify import app
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 1; }\n", encoding="utf-8")
+        save_metadata(tmp_path, {("SERVER", 0x1000): {"status": "PROVEN", "size": 64}})
+        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        proven_entry = _ann(0x1000, status="PROVEN")
+        monkeypatch.setattr(
+            "rebrew.verify.prepare_entries",
+            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], []),
+        )
+        results = [{"va": "0x00001000", "status": "STUB", "passed": False}]
+        monkeypatch.setattr(
+            "rebrew.verify.run_verification", lambda *a, **k: (0, 1, [], results, [])
+        )
+        monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (None, None))
+        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
+        result = CliRunner().invoke(app, ["--json"])
+        assert "PROVEN claim" in result.output
+        assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == "STUB"
+
+    def test_stale_proven_dry_run_writes_nothing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--dry-run warns but leaves the PROVEN claim in place."""
+        from rebrew.metadata import get_entry, save_metadata
+        from rebrew.verify import app
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 1; }\n", encoding="utf-8")
+        save_metadata(tmp_path, {("SERVER", 0x1000): {"status": "PROVEN", "size": 64}})
+        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        proven_entry = _ann(0x1000, status="PROVEN")
+        monkeypatch.setattr(
+            "rebrew.verify.prepare_entries",
+            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], []),
+        )
+        results = [{"va": "0x00001000", "status": "STUB", "passed": False}]
+        monkeypatch.setattr(
+            "rebrew.verify.run_verification", lambda *a, **k: (0, 1, [], results, [])
+        )
+        monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (None, None))
+        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
+        result = CliRunner().invoke(app, ["--json", "--dry-run"])
+        assert "PROVEN claim" in result.output
+        assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == "PROVEN"

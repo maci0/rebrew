@@ -350,8 +350,13 @@ build the recomp binary with `-DREBREW_ALLOW_NAKED=1`) — the mismatch is the
 build matrix, not the decompilation.
 
 Status promotion is always-on: after verification, STATUS is promoted/demoted in
-`rebrew-functions.toml` metadata. PROVEN status is sticky and never silently
-demoted — deliberately reclassify a stale PROVEN with `rebrew test <file> --force-status`.
+`rebrew-functions.toml` metadata. PROVEN status is sticky — it survives every
+byte result a proven function legitimately produces (NEAR_MATCHING,
+SIZE_MISMATCH). But a PROVEN claim the compile cannot support (STUB,
+COMPILE_ERROR, EXTRACT_ERROR, MISSING_FILE — the source no longer contains the
+proven code) is void: verify demotes it to the real byte result with a
+`metadata: warning`, once. Deliberately reclassify any other stale PROVEN with
+`rebrew test <file> --force-status`.
 
 Output prefixes for unambiguous parsing:
 
