@@ -1927,7 +1927,12 @@ def main(
                             # (validates the value, clears stale blockers,
                             # never silently demotes PROVEN).
                             update_source_status(
-                                cfg.metadata_dir, write_value, module, va, force=True
+                                cfg.metadata_dir,
+                                write_value,
+                                module,
+                                va,
+                                force=True,
+                                updated_by="lint",
                             )
                         else:
                             set_field(cfg.metadata_dir, va, toml_key, write_value, module=module)

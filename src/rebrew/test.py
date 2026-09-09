@@ -692,6 +692,7 @@ def main(
                 va_int_for_promote,
                 clear_blockers=clear,
                 force=force_status,
+                updated_by="test",
             )
             _patch_verify_cache(
                 cfg,
@@ -1234,6 +1235,7 @@ def _test_multi(
                         ann.module,
                         ann.va,
                         clear_blockers=clear,
+                        updated_by="test",
                     )
                     _patch_verify_cache(
                         cfg,
