@@ -701,6 +701,24 @@ state dir), `--refresh-cache` (cache deleted).
 | `--target NAME` | Select a target from `rebrew-project.toml` |
 | `--json` | Output results as JSON |
 
+### `rebrew lib-match`
+
+Byte-compare reversed functions against the static library archives the target
+links. Flags code whose bytes are already supplied by a library, so it is not
+worth reversing. Unlike `flirt` (short signatures) and `crt-match` (reference
+source), it compares whole function bodies against the `.lib`/`.a` itself with
+each object's relocation slots masked; the archive index covers COFF static
+symbols too (MSVC marks helpers like `_initterm` static). Exit 0 = clean,
+1 = a reversed function matches a library, 2 = config/library error.
+
+| Flag / Arg | Description |
+|------------|-------------|
+| `--lib FILE` | Static library to check against (repeatable) |
+| `--va HEX` | Check a single function VA instead of every reversed function |
+| `--allow FILE` | VAs known to be library code kept for link reasons (one hex per line, `#` comments) |
+| `--target NAME` | Select a target from `rebrew-project.toml` |
+| `--json` | Output results as JSON |
+
 ### `rebrew extract`
 
 | Flag / Arg | Description |
