@@ -38,6 +38,11 @@
   path for non-MSVC toolchains that previously relied on `--compiler`.
 
 ### Fixed
+- **`rebrew prove` accepts blocker-documented STUBs** — a STUB with a
+  blocker/blocker_delta is a developed function parked at a wall (bytes
+  differ structurally, semantics implemented), the prove contract; a bare
+  placeholder STUB still passes no gate. Blocker-documented STUBs below the
+  60% classifier line could never reach prove to earn PROVEN otherwise.
 - **verify size-divergence warning stops flagging benign/validated sizes** —
   the "N function(s) have annotation SIZE differing" warning compared the
   annotation (pure code bytes) against a canonical size that is either the
