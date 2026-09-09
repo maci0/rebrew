@@ -38,6 +38,12 @@
   path for non-MSVC toolchains that previously relied on `--compiler`.
 
 ### Fixed
+- **verify honors PROVEN over blocker-documented STUB** — the PROVEN
+  overlay only covered NEAR_MATCHING/SIZE_MISMATCH byte states, treating
+  STUB as broken source. now that prove accepts blocker-documented STUBs,
+  verify re-demoted every fresh prove-earned PROVEN under the 60% classifier
+  line. a blocker-documented STUB overlays to PROVEN; a bare STUB (no
+  blocker) still demotes with the metadata warning.
 - **`rebrew prove` accepts blocker-documented STUBs** — a STUB with a
   blocker/blocker_delta is a developed function parked at a wall (bytes
   differ structurally, semantics implemented), the prove contract; a bare

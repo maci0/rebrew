@@ -1382,7 +1382,19 @@ def main(
     proven_vas: set[str] = {
         f"0x{entry.va:08x}" for entry in unique_entries if getattr(entry, "status", "") == "PROVEN"
     }
+    # A PROVEN claim is honored over the byte states a proven function
+    # legitimately produces: NEAR_MATCHING / SIZE_MISMATCH (bytes differ
+    # structurally). A blocker-documented STUB is also legitimate now —
+    # `rebrew prove` accepts those (developed function parked at a wall,
+    # classifier <60% on a real body), so verify must not demote a fresh
+    # prove-earned PROVEN back to STUB.
     _proven_compatible = ("NEAR_MATCHING", "SIZE_MISMATCH")
+    _blocker_documented_stub_vas: set[str] = {
+        f"0x{entry.va:08x}"
+        for entry in unique_entries
+        if getattr(entry, "status", "") == "PROVEN"
+        and bool(getattr(entry, "blocker", "") or getattr(entry, "blocker_delta", 0))
+    }
     overlaid_vas: set[str] = set()
     # Raw byte-level truth for overlaid entries — the verify cache must store
     # the result as compiled, not the metadata-derived PROVEN.  The overlay is
@@ -1392,7 +1404,10 @@ def main(
     raw_statuses: dict[str, tuple[str, bool]] = {}
     if proven_vas:
         for r in results:
-            if r["va"] in proven_vas and r["status"] in _proven_compatible:
+            compatible = r["status"] in _proven_compatible or (
+                r["status"] == "STUB" and r["va"] in _blocker_documented_stub_vas
+            )
+            if r["va"] in proven_vas and compatible:
                 raw_statuses[r["va"]] = (r["status"], bool(r.get("passed", False)))
                 was_failed = not r.get("passed", False)
                 r["status"] = "PROVEN"

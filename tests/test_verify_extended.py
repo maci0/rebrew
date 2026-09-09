@@ -12,7 +12,14 @@ from rebrew.annotation import Annotation
 from rebrew.cli import EXIT_MISMATCH
 
 
-def _ann(va: int, *, size: int = 64, filepath: str = "f.c", status: str = "STUB") -> Annotation:
+def _ann(
+    va: int,
+    *,
+    size: int = 64,
+    filepath: str = "f.c",
+    status: str = "STUB",
+    blocker: str | None = None,
+) -> Annotation:
     return Annotation(
         va=va,
         name="my_func",
@@ -23,6 +30,7 @@ def _ann(va: int, *, size: int = 64, filepath: str = "f.c", status: str = "STUB"
         cflags="/O2",
         marker_type="FUNCTION",
         filepath=filepath,
+        blocker=blocker,
     )
 
 
@@ -1167,6 +1175,41 @@ class TestProvenOverlay:
         assert data["summary"]["passed"] == 1
         assert data["summary"]["failed"] == 0
         assert data["summary"]["proven"] == 1
+
+    def test_proven_over_blocker_documented_stub_honored(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A prove-earned PROVEN on a blocker-documented STUB body must not be
+        demoted: prove accepts those (developed function parked at a wall,
+        classifier <60%), so verify honoring PROVEN only over NEAR/SIZE would
+        undo the promotion every run. Regression: gv_ExAllocGraveyardWorker
+        (58.3%) and gm_AllocGebaeude (38.8%) proved then re-demoted."""
+        import json
+
+        from rebrew.verify import app
+
+        cfg = _cfg(tmp_path)
+        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        proven_entry = _ann(0x1000, status="PROVEN", blocker="scheduler phase shift")
+        monkeypatch.setattr(
+            "rebrew.verify.prepare_entries",
+            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], []),
+        )
+        results = [{"va": "0x00001000", "status": "STUB", "passed": False}]
+        monkeypatch.setattr(
+            "rebrew.verify.run_verification", lambda *a, **k: (0, 1, [], results, [])
+        )
+        monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (None, None))
+        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
+        result = CliRunner().invoke(app, ["--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["results"][0]["status"] == "PROVEN"
+        assert data["results"][0]["passed"] is True
+        assert data["summary"]["proven"] == 1
+        assert "metadata: warning:" not in result.output
 
     def test_proven_regression_not_masked(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
