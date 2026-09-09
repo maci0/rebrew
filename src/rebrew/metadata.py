@@ -83,6 +83,7 @@ import tomllib
 import typing
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -173,6 +174,9 @@ METADATA_FIELDS: frozenset[str] = frozenset(
         # ORIGIN is derivable from the FUNCTION: marker module field.
         "SOURCE",
         "PROVE_CONSTRAINTS",
+        # Provenance of the last STATUS write (writer + timestamp).
+        "UPDATED_BY",
+        "UPDATED_AT",
         # NOTE: SECTION is intentionally absent — it is owned by data_metadata.py
         # for DATA/GLOBAL annotations and must not be written to rebrew-functions.toml.
     }
@@ -689,6 +693,7 @@ def update_source_status(
     *,
     clear_blockers: bool = True,
     force: bool = False,
+    updated_by: str = "",
 ) -> None:
     """Write STATUS for (module, va) to the metadata; never touches the .c file.
 
@@ -711,6 +716,9 @@ def update_source_status(
             ``blocker_delta`` from the metadata entry (correct for EXACT/RELOC).
             Pass ``False`` when demoting to NEAR_MATCHING to preserve user-set blockers.
         force: If ``True``, allow demotion from PROVEN.  Default ``False``.
+        updated_by: Provenance tag for the write (``test``/``verify``/``prove``/
+            ``lint``/``binsync-import``/``intake``/``match``).  Recorded as
+            ``updated_by`` with a UTC ``updated_at`` timestamp.
 
     """
     if not module:
@@ -724,6 +732,7 @@ def update_source_status(
                 "new_status": new_status,
                 "clear_blockers": clear_blockers,
                 "force": force,
+                "updated_by": updated_by,
             }
         ],
     )
@@ -797,6 +806,10 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
                     del entry["blocker"]
                 with contextlib.suppress(KeyError):
                     del entry["blocker_delta"]
+            updated_by = str(u.get("updated_by") or "")
+            if updated_by:
+                entry["updated_by"] = updated_by
+                entry["updated_at"] = datetime.now(UTC).isoformat(timespec="seconds")
             changed += 1
 
         # Single write for the whole batch

@@ -245,7 +245,13 @@ def classify_all(
         if fields:
             field_updates.append({"module": marker, "va": va, "fields": fields})
         status_updates.append(
-            {"module": marker, "va": va, "new_status": "STUB", "clear_blockers": False}
+            {
+                "module": marker,
+                "va": va,
+                "new_status": "STUB",
+                "clear_blockers": False,
+                "updated_by": "intake",
+            }
         )
         documented += 1
     set_fields_batch(meta_base, field_updates)

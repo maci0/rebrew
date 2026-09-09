@@ -316,7 +316,9 @@ def import_state(
                         mod = cfg.marker or "SERVER"
                         from rebrew.metadata import set_field, update_source_status
 
-                        update_source_status(cfg.metadata_dir, "STUB", mod, va)
+                        update_source_status(
+                            cfg.metadata_dir, "STUB", mod, va, updated_by="binsync-import"
+                        )
                         if size_hint:
                             set_field(cfg.metadata_dir, va, "size", size_hint, mod)
                         set_field(

@@ -903,3 +903,21 @@ class TestCrossProcessMetadataLock:
             for i in range(20):
                 key = ("T", 0x1000 + w * 20 + i)
                 assert md.get(key, {}).get("status") == "EXACT", f"lost update for {key}"
+
+
+class TestProvenance:
+    def test_status_write_records_provenance(self, tmp_path: Path) -> None:
+        from rebrew.metadata import get_entry, update_source_status
+
+        update_source_status(tmp_path, "EXACT", "SERVER", 0x1000, updated_by="verify")
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry["updated_by"] == "verify"
+        assert entry["updated_at"]
+
+    def test_no_provenance_without_tag(self, tmp_path: Path) -> None:
+        from rebrew.metadata import get_entry, update_source_status
+
+        update_source_status(tmp_path, "EXACT", "SERVER", 0x1000)
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert "updated_by" not in entry
+        assert "updated_at" not in entry

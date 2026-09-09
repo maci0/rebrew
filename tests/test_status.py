@@ -458,7 +458,7 @@ class TestCollectStatus:
         assert report.verify_overrides == 2  # func_b, func_c
         assert report.verify_missing_size == 0
         d = report.to_dict()
-        assert d["verify_cache"] == {"overrides": 2, "missing_size": 0}
+        assert d["verify_cache"] == {"overrides": 2, "missing_size": 0, "effective_matches": 0}
 
     def test_missing_size_overlay_surfaced(self, tmp_path: Path) -> None:
         """MISSING_SIZE (metadata SIZE absent) shows up as its own bucket."""
@@ -502,7 +502,7 @@ class TestCollectStatus:
         assert report.verify_overrides == 1
         assert report.verify_missing_size == 1
         d = report.to_dict()
-        assert d["verify_cache"] == {"overrides": 1, "missing_size": 1}
+        assert d["verify_cache"] == {"overrides": 1, "missing_size": 1, "effective_matches": 0}
 
 
 # ---------------------------------------------------------------------------
@@ -1064,3 +1064,34 @@ class TestDataVerdicts:
         assert report.data_drift == 1
         assert report.data_unchecked == 1
         assert report.to_dict()["data"] == {"verified": 1, "drift": 1, "unchecked": 1}
+
+
+class TestEffectiveMatches:
+    def test_effective_flag_counted(self, tmp_path: Path, monkeypatch) -> None:
+        import json
+
+        from rebrew.status import collect_status
+
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        (src / "function_structure.json").write_text(
+            json.dumps([{"va": 0x1000, "size": 100, "ghidra_name": "func_a"}]),
+            encoding="utf-8",
+        )
+        (src / "f.c").write_text(
+            "// FUNCTION: TEST 0x1000\n// STATUS: NEAR_MATCHING\nint f(void){return 0;}\n",
+            encoding="utf-8",
+        )
+        cache = {
+            "target": "test",
+            "version": 1,
+            "entries": {
+                "0x00001000": {"result": {"status": "NEAR_MATCHING", "effective_match": True}}
+            },
+        }
+        (tmp_path / ".rebrew").mkdir(exist_ok=True)
+        (tmp_path / ".rebrew" / "verify_cache.json").write_text(json.dumps(cache), encoding="utf-8")
+        report = collect_status(cfg)
+        assert report.effective_matches == 1
+        assert report.to_dict()["verify_cache"]["effective_matches"] == 1

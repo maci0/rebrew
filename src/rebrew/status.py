@@ -109,6 +109,9 @@ class StatusReport:
     # could not extract).  Surfaced so the overlay is not emergent behavior.
     verify_overrides: int = 0
     verify_missing_size: int = 0
+    # Functions whose entire byte delta is register allocation
+    # (effective_match in the verify cache) — the prove queue.
+    effective_matches: int = 0
 
     # W019 quick-lint result: number of .c files with inline metadata comments.
     # 0 means no issues found (or scan not yet run).
@@ -201,6 +204,7 @@ class StatusReport:
             d["verify_cache"] = {
                 "overrides": self.verify_overrides,
                 "missing_size": self.verify_missing_size,
+                "effective_matches": self.effective_matches,
             }
         if self.inline_metadata_warning:
             d["inline_metadata_warning"] = self.inline_metadata_warning
@@ -284,6 +288,16 @@ def load_verify_statuses(cfg: ProjectConfig) -> dict[int, str]:
     Returns a dict mapping VA -> verify status (e.g. "EXACT", "NEAR_MATCHING",
     "COMPILE_ERROR").  Used to override optimistic source statuses.
     """
+    return {va: status for va, (status, _effective) in load_verify_details(cfg).items()}
+
+
+def load_verify_details(cfg: ProjectConfig) -> dict[int, tuple[str, bool]]:
+    """Load per-VA ``(status, effective_match)`` from the verify cache.
+
+    *effective_match* marks functions whose entire delta is register
+    allocation (reccmp's 100% effective-match case) — candidates worth
+    proving even though bytes differ.
+    """
     from rebrew.cli import load_verify_cache_raw
 
     raw = load_verify_cache_raw(cfg)
@@ -301,7 +315,7 @@ def load_verify_statuses(cfg: ProjectConfig) -> dict[int, str]:
     if not isinstance(entries, dict):
         return {}
 
-    statuses: dict[int, str] = {}
+    details: dict[int, tuple[str, bool]] = {}
     for va_str, entry_data in entries.items():
         if not isinstance(entry_data, dict):
             continue
@@ -314,8 +328,8 @@ def load_verify_statuses(cfg: ProjectConfig) -> dict[int, str]:
         va = canonical_va_key(va_str)
         if not isinstance(va, int):
             continue
-        statuses[va] = status
-    return statuses
+        details[va] = (status, bool(result.get("effective_match", False)))
+    return details
 
 
 def _compute_text_size(cfg: ProjectConfig) -> int:
@@ -368,7 +382,8 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     # Load verify cache to override source statuses.
     # Metadata statuses may be optimistic (e.g. STATUS: RELOC) while
     # the actual verify result is STUB.  Verify results are authoritative.
-    verify_statuses = load_verify_statuses(cfg)
+    verify_details = load_verify_details(cfg)
+    verify_statuses = {va: status for va, (status, _eff) in verify_details.items()}
 
     # Single pass: status breakdown + byte-level coverage.
     # Exception: PROVEN (from rebrew prove) is a post-verify promotion that
@@ -380,6 +395,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     naked_bytes = 0
     verify_overrides = 0
     verify_missing_size = 0
+    effective_matches = 0
     unresolved_blockers = 0
     for va, info in existing.items():
         if info.get("blocker"):
@@ -408,6 +424,8 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
             verify_overrides += 1
         if effective == "MISSING_SIZE":
             verify_missing_size += 1
+        if verify_details.get(va, ("", False))[1] and effective not in MATCHED_STATUSES:
+            effective_matches += 1
         status_counts[effective] = status_counts.get(effective, 0) + 1
         if effective in MATCHED_STATUSES:
             # Fall back to annotation-metadata SIZE when the Ghidra
@@ -433,6 +451,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     report.total_text_bytes = _compute_text_size(cfg)
     report.verify_overrides = verify_overrides
     report.verify_missing_size = verify_missing_size
+    report.effective_matches = effective_matches
     report.unresolved_blockers = unresolved_blockers
 
     # Data verdicts: count rebrew-data.toml STATUS values written by
@@ -728,6 +747,11 @@ def _render_terminal(report: StatusReport) -> None:
             summary_lines.append(
                 f"  [yellow]{report.verify_missing_size} function(s) MISSING_SIZE[/yellow]"
                 " — set SIZE via metadata (rebrew cfg set) then re-run verify"
+            )
+        if report.effective_matches:
+            summary_lines.append(
+                f"  [cyan]{report.effective_matches} effective match(es)[/cyan]"
+                " — register-allocation-only delta, prove candidates"
             )
 
     # W019 inline metadata warning

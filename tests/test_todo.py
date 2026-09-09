@@ -1248,3 +1248,21 @@ class TestDataDrift:
 
         cfg = _make_cfg(tmp_path)
         assert _collect_data_drift(cfg) == []
+
+
+class TestCallerBoost:
+    def test_unblocks_suffix_and_boost(self, tmp_path: Path) -> None:
+        from rebrew.todo import _caller_boost, _caller_suffix
+
+        counts = {"helper": 2}
+        assert _caller_boost("helper", counts) == 10.0
+        assert _caller_boost("other", counts) == 0.0
+        assert _caller_boost("helper", None) == 0.0
+        assert _caller_boost("helper", {"helper": 10}) == 15.0
+        assert "unblocks 2" in _caller_suffix("do work", "helper", counts)
+        assert _caller_suffix("do work", "other", counts) == "do work"
+
+    def test_underscore_symbol_matches(self, tmp_path: Path) -> None:
+        from rebrew.todo import _caller_boost
+
+        assert _caller_boost("helper", {"_helper": 1}) == 5.0

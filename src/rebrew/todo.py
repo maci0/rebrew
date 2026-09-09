@@ -300,6 +300,7 @@ def _collect_active_functions(
     size_by_va: dict[int, int],
     name_by_va: dict[int, str],
     verify_entries: dict[str, "VerifyCacheEntry"],
+    caller_counts: dict[str, int] | None = None,
 ) -> list[TodoItem]:
     """Collect and score all incomplete functions currently tracked in the project.
 
@@ -501,12 +502,12 @@ def _collect_active_functions(
         items.append(
             TodoItem(
                 category=category,
-                roi_score=score,
+                roi_score=score + _caller_boost(name, caller_counts),
                 va=va,
                 name=name,
                 size=size,
                 filename=filename,
-                description=desc,
+                description=_caller_suffix(desc, name, caller_counts),
                 command=cmd,
                 byte_delta=calc_delta,
                 status=status,
@@ -516,6 +517,24 @@ def _collect_active_functions(
         )
 
     return items
+
+
+def _caller_boost(name: str, caller_counts: dict[str, int] | None) -> float:
+    """ROI bonus for functions other unmatched work waits on (leaf-first)."""
+    if not caller_counts:
+        return 0.0
+    callers = caller_counts.get(name, 0) + caller_counts.get("_" + name, 0)
+    return min(15.0, 5.0 * callers)
+
+
+def _caller_suffix(desc: str, name: str, caller_counts: dict[str, int] | None) -> str:
+    """Append "unblocks N caller(s)" when other files declare this function."""
+    if not caller_counts:
+        return desc
+    callers = caller_counts.get(name, 0) + caller_counts.get("_" + name, 0)
+    if callers <= 0:
+        return desc
+    return f"{desc} — unblocks {callers} caller(s)"
 
 
 def _collect_prover_candidates(
@@ -718,6 +737,32 @@ def _collect_library_candidates(
     return items
 
 
+def _caller_counts(cfg: ProjectConfig) -> dict[str, int]:
+    """Count unresolved callers per callee name from extern declarations.
+
+    Scans reversed sources for ``extern`` function declarations: each file
+    whose own function is still unmatched counts as one unresolved caller
+    of every extern callee it declares.  Best-effort (unparseable files
+    skipped); returns ``{callee name: caller count}``.
+    """
+    from rebrew.c_parser import find_extern_function_names
+    from rebrew.sources import iter_sources
+
+    counts: dict[str, int] = {}
+    try:
+        files = list(iter_sources(cfg.reversed_dir, cfg))
+    except OSError:
+        return counts
+    for path in files:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for callee in find_extern_function_names(text):
+            counts[callee] = counts.get(callee, 0) + 1
+    return counts
+
+
 def _collect_data_drift(cfg: ProjectConfig) -> list[TodoItem]:
     """Collect data symbols whose built bytes drift from the reference.
 
@@ -774,7 +819,11 @@ def collect_all(
     verify_entries = _load_verify_entries(cfg)
 
     # 1. Collect all active functions tracked in the project
-    items.extend(_collect_active_functions(existing, size_by_va, name_by_va, verify_entries))
+    items.extend(
+        _collect_active_functions(
+            existing, size_by_va, name_by_va, verify_entries, _caller_counts(cfg)
+        )
+    )
 
     # 2. Collect specialized candidates
     items.extend(_collect_prover_candidates(existing, size_by_va, verify_entries))

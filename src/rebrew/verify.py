@@ -1572,6 +1572,7 @@ def main(
                         "new_status": by_va[va]["status"],
                         "clear_blockers": False,
                         "force": True,
+                        "updated_by": "verify",
                     }
                     for va in stale_proven
                     if getattr(by_entry.get(va), "module", "") and by_va[va]["status"] != "PROVEN"
@@ -2291,6 +2292,7 @@ def apply_status_updates(
                 "va": entry.va,
                 "new_status": status,
                 "clear_blockers": is_matched(status),
+                "updated_by": "verify",
             }
         )
 

@@ -1332,7 +1332,7 @@ def update_stub_to_matched(
     atomic_write_text(filepath, updated, encoding=encoding)
 
     meta_root = metadata_dir or filepath.parent
-    update_source_status(meta_root, "RELOC", module, va_int)
+    update_source_status(meta_root, "RELOC", module, va_int, updated_by="match")
 
     from rebrew.utils import rel_display_path
 
@@ -3814,6 +3814,7 @@ def _run_batch_flag_sweep(
                 module=module_for_va(stub.filepath, int(stub.va, 16)),
                 va=int(stub.va, 16),
                 clear_blockers=True,
+                updated_by="match",
             )
             # Keep status/todo in sync with the fresh EXACT metadata (the
             # verify cache may hold a stale NEAR_MATCHING entry).

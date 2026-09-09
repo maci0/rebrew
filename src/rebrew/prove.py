@@ -1417,7 +1417,9 @@ def main(
 
         new_status = m.new_status
         if not dry_run:
-            update_source_status(cfg.metadata_dir, new_status, ann.module, ann.va)
+            update_source_status(
+                cfg.metadata_dir, new_status, ann.module, ann.va, updated_by="prove"
+            )
         early: dict[str, Any] = {
             "schema_version": 1,
             "source": str(source_path),
@@ -1521,7 +1523,9 @@ def main(
         # line reads back as STUB, and verify honors PROVEN over a
         # blocker-documented STUB. Clearing it here would strand a fresh
         # promotion as a blocker-less STUB the next verify run.
-        update_source_status(cfg.metadata_dir, "PROVEN", ann.module, va, clear_blockers=False)
+        update_source_status(
+            cfg.metadata_dir, "PROVEN", ann.module, va, clear_blockers=False, updated_by="prove"
+        )
         _clear_prove_counterexample(cfg, ann)
         result["action"] = "updated"
         result["new_status"] = "PROVEN"
@@ -1783,7 +1787,9 @@ def _prove_single(
         if not dry_run:
             from rebrew.metadata import update_source_status
 
-            update_source_status(cfg.metadata_dir, m.new_status, ann.module, ann.va)
+            update_source_status(
+                cfg.metadata_dir, m.new_status, ann.module, ann.va, updated_by="prove"
+            )
             _clear_prove_counterexample(cfg, ann)
         # Sentinel prefix so batch mode can count this separately from failures.
         return False, f"ALREADY_MATCHED:{m.new_status}"
@@ -1810,7 +1816,9 @@ def _prove_single(
     if proven and not dry_run:
         from rebrew.metadata import update_source_status
 
-        update_source_status(cfg.metadata_dir, "PROVEN", ann.module, ann.va, clear_blockers=False)
+        update_source_status(
+            cfg.metadata_dir, "PROVEN", ann.module, ann.va, clear_blockers=False, updated_by="prove"
+        )
         _clear_prove_counterexample(cfg, ann)
     elif not proven and not dry_run:
         _record_prove_counterexample(cfg, ann, message)
