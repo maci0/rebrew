@@ -118,6 +118,12 @@ class StatusReport:
     # i.e. work that is currently understood-blocked and needs attention.
     unresolved_blockers: int = 0
 
+    # Data verification verdicts from rebrew-data.toml STATUS (written by
+    # `verify --data`): verified / drift / unchecked symbol counts.
+    data_verified: int = 0
+    data_drift: int = 0
+    data_unchecked: int = 0
+
     # Derived percentages
     @property
     def coverage_pct(self) -> float:
@@ -173,6 +179,11 @@ class StatusReport:
             "naked_matched": self.naked_matched,
             "source_files": self.source_files,
             "unresolved_blockers": self.unresolved_blockers,
+            "data": {
+                "verified": self.data_verified,
+                "drift": self.data_drift,
+                "unchecked": self.data_unchecked,
+            },
         }
         if self.total_text_bytes > 0:
             d["matched_bytes"] = self.matched_bytes
@@ -424,6 +435,22 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     report.verify_missing_size = verify_missing_size
     report.unresolved_blockers = unresolved_blockers
 
+    # Data verdicts: count rebrew-data.toml STATUS values written by
+    # `verify --data`.  Named symbols only — unnamed inventory rows carry
+    # no verdict.
+    from rebrew.data_metadata import load_data_metadata
+
+    for fields in load_data_metadata(cfg.metadata_dir).values():
+        if not fields.get("name"):
+            continue
+        verdict = str(fields.get("status") or "UNCHECKED").upper()
+        if verdict == "VERIFIED":
+            report.data_verified += 1
+        elif verdict == "DRIFT":
+            report.data_drift += 1
+        else:
+            report.data_unchecked += 1
+
     # Verify info
     report.verify_info = _load_verify_info(cfg)
 
@@ -663,6 +690,15 @@ def _render_terminal(report: StatusReport) -> None:
         summary_lines.append(
             f"  [yellow]{report.unresolved_blockers} unresolved BLOCKER(s)[/yellow]"
             " — see rebrew todo / BLOCKER metadata"
+        )
+
+    # Data verification verdicts (from `verify --data`)
+    data_total = report.data_verified + report.data_drift + report.data_unchecked
+    if data_total:
+        summary_lines.append(
+            f"  [dim]data:[/dim] [green]{report.data_verified} verified[/green] / "
+            f"[red]{report.data_drift} drift[/red] / "
+            f"[dim]{report.data_unchecked} unchecked[/dim]"
         )
 
     # Pointer to the prioritized next-action list (PRD 05 status requirement)

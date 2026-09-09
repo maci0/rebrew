@@ -1209,6 +1209,17 @@ def main(
         help="Delete metadata blocks whose VA has no source marker (orphans) "
         "before verifying — same scan as `rebrew orphans --prune`",
     ),
+    data: bool = typer.Option(
+        False,
+        "--data",
+        help="Byte-compare built .data/.rdata against the reference, "
+        "per metadata symbol (needs --built)",
+    ),
+    built: Path | None = typer.Option(
+        None,
+        "--built",
+        help="Built binary for --data comparison (default: build/<target>)",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -1264,6 +1275,8 @@ def main(
                 fix_sizes=fix_sizes,
                 nolib=nolib,
                 prune_orphans=prune_orphans,
+                data=data,
+                built=built,
                 watch=False,  # never nest watch loops
                 target=target,
             )
@@ -1309,6 +1322,73 @@ def main(
                 console.print(
                     f"[green]Pruned:[/green] deleted {orphans_pruned} orphaned metadata block(s)"
                 )
+
+    data_report: dict[str, Any] | None = None
+    if data:
+        from rebrew.data_verify import section_symbol_bytes, verify_data_bytes
+
+        built_path = built or (cfg.root / "build" / cfg.target_name)
+        if not built_path.exists():
+            error_exit(
+                f"{built_path} not found — build the project first (or pass --built <path>)",
+                json_mode=json_output,
+            )
+        metadata_path = cfg.metadata_dir / "rebrew-data.toml"
+        if not metadata_path.exists():
+            error_exit(f"data metadata not found: {metadata_path}", json_mode=json_output)
+        ref_bytes, ref_sizes = section_symbol_bytes(
+            metadata_path=metadata_path, binary_path=cfg.target_binary
+        )
+        built_bytes, built_sizes = section_symbol_bytes(
+            metadata_path=metadata_path, binary_path=built_path
+        )
+        data_report = verify_data_bytes(
+            metadata_path=metadata_path,
+            expected=ref_bytes,
+            actual=built_bytes,
+            sizes={va: ref_sizes.get(va, built_sizes.get(va, 0)) for va in ref_sizes | built_sizes},
+        )
+        if not dry_run:
+            from rebrew.data_metadata import (
+                DATA_STATUS_DRIFT,
+                DATA_STATUS_UNCHECKED,
+                DATA_STATUS_VERIFIED,
+                load_data_metadata,
+                set_data_field,
+            )
+
+            entries = load_data_metadata(cfg.metadata_dir)
+            names_by_va: dict[int, tuple[str, str]] = {}
+            for (module, va), fields in entries.items():
+                name = str(fields.get("name") or "")
+                if name:
+                    names_by_va[va] = (module, name)
+            drift_names = {str(m["name"]) for m in data_report["mismatched"]}
+            missing_names = set(data_report["missing"])
+            matched_names = {
+                names_by_va[va][1] for va in ref_sizes if va in names_by_va
+            } - drift_names
+            for va, (module, name) in names_by_va.items():
+                if name in drift_names or name in missing_names:
+                    status = DATA_STATUS_DRIFT
+                elif name in matched_names or va in built_bytes:
+                    status = DATA_STATUS_VERIFIED
+                else:
+                    status = DATA_STATUS_UNCHECKED
+                if entries[(module, va)].get("status") != status:
+                    set_data_field(cfg.metadata_dir, va, "status", status, module)
+        if not json_output:
+            console.print(
+                f"data: {data_report['matched']} matched, "
+                f"{len(data_report['mismatched'])} mismatched, "
+                f"{len(data_report['missing'])} missing"
+            )
+            for m in data_report["mismatched"][:15]:
+                console.print(
+                    f"  [red]FAIL[/red] {m['name']} ({m['va']}): first diff at +{m['first_diff']}"
+                )
+            for name in data_report["missing"][:15]:
+                console.print(f"  [yellow]MISSING[/yellow] {name} (no built bytes)")
 
     (
         unique_entries,
@@ -1494,6 +1574,7 @@ def main(
         "size_divergences": size_divergences,
         "missing_sizes": missing_sizes,
         "results": results,
+        "data": data_report,
     }
 
     if size_divergences and not json_output:

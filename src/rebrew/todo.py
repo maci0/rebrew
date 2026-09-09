@@ -64,6 +64,9 @@ CAT_DOCUMENTED = "documented"
 # Byte-exact via a generated naked skeleton (`// SOURCE: naked`) — reproduced,
 # NOT decompiled: it stays on the list until the real C body matches.
 CAT_NAKED = "naked-reconstruction"
+# Data symbol whose built bytes differ from the reference (`verify --data`
+# wrote STATUS DRIFT in rebrew-data.toml).
+CAT_DATA_DRIFT = "data-drift"
 
 # Proving is only feasible when few bytes actually differ: symbolic execution
 # over hundreds of mismatched bytes just times out.  Cap the estimated byte
@@ -88,6 +91,7 @@ _CATEGORY_COLORS = {
     CAT_RUN_PROVER: "cyan",
     CAT_DOCUMENTED: "dim",
     CAT_NAKED: "magenta",
+    CAT_DATA_DRIFT: "yellow",
 }
 
 # ---------------------------------------------------------------------------
@@ -714,6 +718,40 @@ def _collect_library_candidates(
     return items
 
 
+def _collect_data_drift(cfg: ProjectConfig) -> list[TodoItem]:
+    """Collect data symbols whose built bytes drift from the reference.
+
+    Reads rebrew-data.toml STATUS verdicts written by ``verify --data``.
+    Data VAs live in a separate address space from function VAs in practice
+    (.data/.rdata vs .text), so no dedup against function items is needed.
+    """
+    from rebrew.data_metadata import load_data_metadata
+
+    items: list[TodoItem] = []
+    for (module, va), fields in load_data_metadata(cfg.metadata_dir).items():
+        if str(fields.get("status") or "").upper() != "DRIFT":
+            continue
+        name = str(fields.get("name") or f"DAT_{va:08x}")
+        try:
+            size = int(fields.get("size") or 0)
+        except (TypeError, ValueError):
+            size = 0
+        items.append(
+            TodoItem(
+                category=CAT_DATA_DRIFT,
+                roi_score=50.0,
+                va=va,
+                name=name,
+                size=size,
+                filename="",
+                description=f"data symbol {name} differs from reference bytes ({module} 0x{va:x})",
+                command="rebrew verify --data",
+                status="DRIFT",
+            )
+        )
+    return items
+
+
 # ---------------------------------------------------------------------------
 # Main collection + ranking
 # ---------------------------------------------------------------------------
@@ -742,6 +780,7 @@ def collect_all(
     items.extend(_collect_prover_candidates(existing, size_by_va, verify_entries))
     items.extend(_collect_new_functions(ghidra_funcs, existing, covered_vas, cfg))
     items.extend(_collect_library_candidates(ghidra_funcs, existing, cfg))
+    items.extend(_collect_data_drift(cfg))
 
     # Deduplicate by VA — keep only the highest-ROI item per function.
     # Setup items (va=0) are category-level, not per-function, so they skip dedup.
@@ -784,6 +823,8 @@ _EPILOG = (
     "  run-prover · · · · · · · Small nearly-matching functions (angr equivalence)\n\n"
     "  documented · · · · · · · IAT thunks / non-reproducible code — audit only, "
     "hidden from the default list\n\n"
+    "  data-drift · · · · · · · Data symbol differs from reference bytes — run\n\n"
+    "                         `rebrew verify --data`\n\n"
     "[dim]Reads from ghidra_functions.json, source files, and .rebrew/verify_cache.json.[/dim]"
 )
 

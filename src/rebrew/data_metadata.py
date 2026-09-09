@@ -87,10 +87,15 @@ def _invalidate_data_cache(path: Path) -> None:
 DATA_METADATA_FILENAME = "rebrew-data.toml"
 
 #: Fields owned by the data metadata.
-DATA_METADATA_FIELDS: frozenset[str] = frozenset({"NAME", "SIZE", "SECTION", "NOTE"})
+DATA_METADATA_FIELDS: frozenset[str] = frozenset({"NAME", "SIZE", "SECTION", "NOTE", "STATUS"})
+
+#: Data verification verdicts written by ``verify --data``.
+DATA_STATUS_VERIFIED = "VERIFIED"
+DATA_STATUS_DRIFT = "DRIFT"
+DATA_STATUS_UNCHECKED = "UNCHECKED"
 
 # Canonical TOML key order when writing.
-_CANONICAL_ORDER = ["name", "type", "size", "section", "note"]
+_CANONICAL_ORDER = ["name", "type", "size", "section", "note", "status"]
 
 __all__ = [
     "DATA_METADATA_FILENAME",
@@ -309,5 +314,8 @@ def merge_into_data_annotation(ann: Annotation, directory: Path) -> Annotation:
 
     if "note" in entry:
         ann.note = str(entry["note"])
+
+    if "status" in entry:
+        ann.status = str(entry["status"])
 
     return ann

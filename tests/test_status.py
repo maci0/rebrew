@@ -1046,3 +1046,21 @@ class TestCollectStatusSizeFallback:
         assert report.status_counts.get("EXACT") == 1
         # Size came from the annotation metadata, not Ghidra.
         assert report.matched_bytes == 100
+
+
+class TestDataVerdicts:
+    def test_counts_status_values(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import set_data_field
+        from rebrew.status import collect_status
+
+        cfg = _make_cfg(tmp_path)
+        set_data_field(tmp_path, 0x1000, "name", "g_a", "SERVER")
+        set_data_field(tmp_path, 0x1000, "status", "VERIFIED", "SERVER")
+        set_data_field(tmp_path, 0x2000, "name", "g_b", "SERVER")
+        set_data_field(tmp_path, 0x2000, "status", "DRIFT", "SERVER")
+        set_data_field(tmp_path, 0x3000, "name", "g_c", "SERVER")
+        report = collect_status(cfg)
+        assert report.data_verified == 1
+        assert report.data_drift == 1
+        assert report.data_unchecked == 1
+        assert report.to_dict()["data"] == {"verified": 1, "drift": 1, "unchecked": 1}

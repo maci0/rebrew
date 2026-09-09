@@ -96,12 +96,19 @@ def link_objects(root: Path) -> list[Path]:
 
 def _obj_sections(obj: Path) -> tuple[dict[int, str], int, int]:
     """``(section index → name, .data size, .bss size)`` from ``objdump -h``."""
+    secname, sizes = _obj_section_sizes(obj)
+    return secname, sizes.get(".data", 0), sizes.get(".bss", 0)
+
+
+def _obj_section_sizes(obj: Path) -> tuple[dict[int, str], dict[str, int]]:
+    """``(section index → name, {section name: size})`` from ``objdump -h``."""
     h = _run_objdump(obj, "-h")
     secs = re.findall(r"^\s+(\d+)\s+(\S+)\s+([0-9a-f]+)\s", h, re.M)
     secname = {int(a): b for a, b, _ in secs}
-    dsize = sum(int(c, 16) for a, b, c in secs if b == ".data")
-    bsize = sum(int(c, 16) for a, b, c in secs if b == ".bss")
-    return secname, dsize, bsize
+    sizes: dict[str, int] = {}
+    for _a, b, c in secs:
+        sizes[b] = sizes.get(b, 0) + int(c, 16)
+    return secname, sizes
 
 
 def _iter_obj_symbols(obj: Path) -> Iterator[tuple[int, int, str]]:
@@ -119,19 +126,26 @@ def _iter_obj_symbols(obj: Path) -> Iterator[tuple[int, int, str]]:
 
 def obj_data_symbols(obj: Path) -> tuple[int, int, set[str], set[str]]:
     """``(dsize, bsize, .data symbols, .bss symbols)`` of one object file."""
-    secname, dsize, bsize = _obj_sections(obj)
-    dsyms: set[str] = set()
-    bsyms: set[str] = set()
+    sizes, buckets = obj_section_symbols(obj, ".data", ".bss")
+    return sizes[".data"], sizes[".bss"], buckets[".data"], buckets[".bss"]
+
+
+def obj_section_symbols(obj: Path, *sections: str) -> tuple[dict[str, int], dict[str, set[str]]]:
+    """``({section: size}, {section: symbols})`` of one object file.
+
+    Generalization of :func:`obj_data_symbols` for extra sections (``.rdata``).
+    Only the requested sections are inventoried.
+    """
+    secname, sizes = _obj_section_sizes(obj)
+    buckets: dict[str, set[str]] = {s: set() for s in sections}
     for sec_idx, _value, raw_sym in _iter_obj_symbols(obj):
         sym = raw_sym.lstrip("_")
         if not sym or sym.startswith((".", "@")):
             continue
         sname = secname.get(sec_idx - 1)
-        if sname == ".data":
-            dsyms.add(sym)
-        elif sname == ".bss":
-            bsyms.add(sym)
-    return dsize, bsize, dsyms, bsyms
+        if sname in buckets:
+            buckets[sname].add(sym)
+    return {s: sizes.get(s, 0) for s in sections}, buckets
 
 
 def obj_data_symbol_offsets(obj: Path) -> tuple[int, dict[str, int]]:
@@ -149,11 +163,13 @@ def obj_data_symbol_offsets(obj: Path) -> tuple[int, dict[str, int]]:
 # ---------------------------------------------------------------------------
 
 
-def data_symbols(metadata: Path) -> dict[str, int]:
-    """``{name: full VA}`` for every ``.data`` symbol in the metadata."""
+def data_symbols(metadata: Path, section: str | None = ".data") -> dict[str, int]:
+    """``{name: full VA}`` for every symbol in *section* of the metadata."""
     with open(metadata, "rb") as fh:
         db = tomllib.load(fh)
-    return {str(val["name"]): va for _, va, val in iter_data_symbols(db) if val.get("name")}
+    return {
+        str(val["name"]): va for _, va, val in iter_data_symbols(db, section) if val.get("name")
+    }
 
 
 def layout_geometry(project_toml: Path) -> tuple[int, int, int]:
@@ -263,20 +279,22 @@ def insert_definition(
 # ---------------------------------------------------------------------------
 
 
-def audit_layout(root: Path, metadata: Path) -> dict[str, Any]:
-    """Per-TU .data/.bss span/order feasibility report.
+def audit_layout(root: Path, metadata: Path, section: str = ".data") -> dict[str, Any]:
+    """Per-TU span/order feasibility report for *section* (``.data`` or ``.rdata``).
 
-    Returns rows (per TU: symbol count, min/max addr, data/bss sizes, flags),
+    Returns rows (per TU: symbol count, min/max addr, section sizes, flags),
     the violation count, and the unowned/duplicate-owned symbol lists.
+    ``.bss`` symbols ride along for ordering context in ``.data`` mode only.
     """
-    toml = data_symbols(metadata)
+    toml = data_symbols(metadata, section)
     owner: dict[str, list[str]] = defaultdict(list)
     rows: list[dict[str, Any]] = []
     violations = 0
+    extra = (".bss",) if section == ".data" else ()
     for obj in link_objects(root):
         name = str(obj).split(".dir/")[-1]
         try:
-            dsize, bsize, dsyms, bsyms = obj_data_symbols(obj)
+            sizes, buckets = obj_section_symbols(obj, section, *extra)
         except RuntimeError as exc:
             # Record the broken TU and keep auditing the rest — a visible
             # OBJDUMP_ERROR row beats both a crash and silent zero sizes.
@@ -295,16 +313,18 @@ def audit_layout(root: Path, metadata: Path) -> dict[str, Any]:
             )
             violations += 1
             continue
+        syms = buckets.get(section, set())
+        bsyms = buckets.get(".bss", set()) if extra else set()
         rows.append(
             {
                 "obj": name,
-                "dsize": dsize,
-                "bsize": bsize,
-                "dsyms": sorted(dsyms),
+                "dsize": sizes.get(section, 0),
+                "bsize": sizes.get(".bss", 0) if extra else 0,
+                "dsyms": sorted(syms),
                 "bsyms": sorted(bsyms),
             }
         )
-        for sym in dsyms | bsyms:
+        for sym in syms | bsyms:
             if sym in toml:
                 owner[sym].append(name)
 
@@ -312,15 +332,15 @@ def audit_layout(root: Path, metadata: Path) -> dict[str, Any]:
     for r in rows:
         if "error" in r:
             continue  # already flagged — nothing to order/score
-        all_syms = set(r["dsyms"]) | set(r["bsyms"])
-        syms = sorted(toml[s] for s in all_syms if s in toml)
-        lo = syms[0] if syms else 0
-        hi = syms[-1] if syms else 0
+        all_syms: set[str] = set(r["dsyms"]) | set(r["bsyms"])
+        vas = sorted(toml[s] for s in all_syms if s in toml)
+        lo = vas[0] if vas else 0
+        hi = vas[-1] if vas else 0
         flags: list[str] = []
-        if syms and prev_max is not None and lo < prev_max:
+        if vas and prev_max is not None and lo < prev_max:
             flags.append("ORDER")
             violations += 1
-        if syms and hi - lo > 0x4000:
+        if vas and hi - lo > 0x4000:
             flags.append("SPAN")
             violations += 1
         r["min_addr"] = lo

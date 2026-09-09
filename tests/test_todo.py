@@ -1225,3 +1225,26 @@ class TestGaCeilingRouting:
         items = _collect_active_functions(existing, {0x1000: 200}, {}, {})
         assert len(items) == 1
         assert items[0].category == CAT_FIX_DELTA
+
+
+class TestDataDrift:
+    def test_drift_symbol_surfaces(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import set_data_field
+        from rebrew.todo import CAT_DATA_DRIFT, _collect_data_drift
+
+        cfg = _make_cfg(tmp_path)
+        set_data_field(tmp_path, 0x1000, "name", "g_a", "SERVER")
+        set_data_field(tmp_path, 0x1000, "status", "DRIFT", "SERVER")
+        set_data_field(tmp_path, 0x2000, "name", "g_b", "SERVER")
+        set_data_field(tmp_path, 0x2000, "status", "VERIFIED", "SERVER")
+        items = _collect_data_drift(cfg)
+        assert len(items) == 1
+        assert items[0].category == CAT_DATA_DRIFT
+        assert items[0].name == "g_a"
+        assert items[0].va == 0x1000
+
+    def test_no_drift_no_items(self, tmp_path: Path) -> None:
+        from rebrew.todo import _collect_data_drift
+
+        cfg = _make_cfg(tmp_path)
+        assert _collect_data_drift(cfg) == []

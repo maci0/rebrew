@@ -516,3 +516,69 @@ def test_link_objects_missing_raises(tmp_path: Path) -> None:
 
     with pytest.raises(FileNotFoundError, match="build the project first"):
         link_objects(tmp_path)
+
+
+class TestObjSectionSymbols:
+    def test_rdata_bucket(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.data_layout import obj_section_symbols
+
+        def fake_run(obj: Path, flag: str) -> str:
+            if flag == "-h":
+                return "  1 .data  00000010\n  2 .rdata 00000008\n  3 .bss   00000004\n"
+            assert flag == "-t"
+            return (
+                "[  1](sec  2)(fl 0x00)(ty 300)(scl 2) (nx 0) 0x00000000 _g_data\n"
+                "[  2](sec  3)(fl 0x00)(ty 300)(scl 2) (nx 0) 0x00000000 _g_const\n"
+                "[  3](sec  4)(fl 0x00)(ty 300)(scl 2) (nx 0) 0x00000000 _g_bss\n"
+            )
+
+        monkeypatch.setattr("rebrew.data_layout._run_objdump", fake_run)
+        sizes, buckets = obj_section_symbols(tmp_path / "f.obj", ".data", ".bss", ".rdata")
+        assert (sizes[".data"], sizes[".bss"], sizes[".rdata"]) == (0x10, 0x04, 0x08)
+        assert buckets[".data"] == {"g_data"}
+        assert buckets[".bss"] == {"g_bss"}
+        assert buckets[".rdata"] == {"g_const"}
+
+    def test_legacy_wrapper_unchanged(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.data_layout import obj_data_symbols
+
+        def fake_run(obj: Path, flag: str) -> str:
+            if flag == "-h":
+                return "  1 .data  00000010\n  2 .bss   00000004\n"
+            assert flag == "-t"
+            return "[  1](sec  2)(fl 0x00)(ty 300)(scl 2) (nx 0) 0x00000000 _g_data\n"
+
+        monkeypatch.setattr("rebrew.data_layout._run_objdump", fake_run)
+        assert obj_data_symbols(tmp_path / "f.obj") == (0x10, 0x04, {"g_data"}, set())
+
+
+class TestAuditLayoutSection:
+    def test_rdata_audit(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.data_layout import audit_layout
+
+        meta = tmp_path / "rebrew-data.toml"
+        meta.write_text(
+            '["SERVER.0x1000"]\nname = "g_c"\nsize = 4\nsection = ".rdata"\n'
+            '["SERVER.0x2000"]\nname = "g_d"\nsize = 4\nsection = ".data"\n',
+            encoding="utf-8",
+        )
+
+        def fake_run(obj: Path, flag: str) -> str:
+            if flag == "-h":
+                return "  1 .data  00000010\n  2 .rdata 00000008\n"
+            assert flag == "-t"
+            return (
+                "[  1](sec  2)(fl 0x00)(ty 300)(scl 2) (nx 0) 0x00000000 _g_d\n"
+                "[  2](sec  3)(fl 0x00)(ty 300)(scl 2) (nx 0) 0x00000004 _g_c\n"
+            )
+
+        import rebrew.data_layout as dl
+
+        monkeypatch.setattr(dl, "_run_objdump", fake_run)
+        monkeypatch.setattr(dl, "link_objects", lambda root: [tmp_path / "f.obj"])
+        report = audit_layout(tmp_path, meta, ".rdata")
+        assert report["violations"] == 0
+        assert report["unowned"] == []
+        row = report["rows"][0]
+        assert row["dsyms"] == ["g_c"]
+        assert row["bsyms"] == []
