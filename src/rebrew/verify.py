@@ -1663,6 +1663,41 @@ def _load_previous_report(
     return previous_report, diff_warning
 
 
+def _alignment_padding(ann_size: int, canonical: int) -> bool:
+    """Whether the canonical size is just the annotation rounded up to the
+    next 16-byte function-alignment boundary (functions start 16-aligned, so
+    the function-list extent includes the trailing pad). The annotation is the
+    true code length and the two agree on the code; this is not a divergence."""
+    pad = canonical - ann_size
+    if not (0 < pad <= 15):
+        return False
+    return (ann_size + pad) % 16 == 0
+
+
+def _skip_validated_overcount(ann_size: int, canonical: int, status: str | None) -> bool:
+    """Whether an over-counted annotation (ann > canonical) is proven correct.
+
+    A function whose bytes EXACT/RELOC-matched at the annotation size has
+    exercised exactly that many real bytes: the canonical side (a Ghidra
+    fragment or a stale list entry) is the unreliable one, and flagging it as
+    an annotation bug is noise. Under-counts (ann < canonical) are never
+    skipped: a truncated annotation can false-EXACT on a prefix."""
+    return ann_size > canonical and status in ("EXACT", "RELOC")
+
+
+def _size_divergence_action(ann_size: int, canonical: int, status: str | None) -> str:
+    """Classify an annotation-vs-canonical size difference.
+
+    Returns 'skip' (padding or a validated over-count), 'warn', or 'ok'."""
+    if canonical <= 0 or ann_size <= 0 or abs(canonical - ann_size) <= 1:
+        return "ok"
+    if _alignment_padding(ann_size, canonical):
+        return "skip"
+    if _skip_validated_overcount(ann_size, canonical, status):
+        return "skip"
+    return "warn"
+
+
 def prepare_entries(
     cfg: ProjectConfig,
     full: bool,
@@ -1874,7 +1909,8 @@ def prepare_entries(
             continue
         canonical = reg.get("canonical_size") or 0
         ann_size = entry.size or 0
-        if canonical > 0 and ann_size > 0 and abs(canonical - ann_size) > 1:
+        stored = str(getattr(entry, "status", "") or "")
+        if _size_divergence_action(ann_size, canonical, stored) == "warn":
             size_divergences.append(
                 {
                     "va": f"0x{entry.va:08x}",

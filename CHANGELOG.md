@@ -38,6 +38,18 @@
   path for non-MSVC toolchains that previously relied on `--compiler`.
 
 ### Fixed
+- **verify size-divergence warning stops flagging benign/validated sizes** —
+  the "N function(s) have annotation SIZE differing" warning compared the
+  annotation (pure code bytes) against a canonical size that is either the
+  function-list extent rounded to the next 16-byte alignment (so every
+  function with trailing padding "diverged") or a Ghidra fragment smaller
+  than a 100%-matched annotation. 65 warnings on one MSVC6 project dropped
+  to 2. Alignment padding is recognised and skipped; an annotation LARGER
+  than the canonical size is skipped when the function is stored EXACT/RELOC
+  (matching that many bytes proves the annotation; the canonical side is the
+  stale one); an annotation SMALLER than the canonical is never skipped, that
+  is the truncation hazard that can false-EXACT on a prefix. Report-only
+  logic extracted to `_size_divergence_action` with tests.
 - **FLIRT signature generation covers file-static functions** —
   `gen_flirt_pat.parse_coff_obj` yielded only `STORAGE_CLASS.EXTERNAL`
   symbols, so every function MSVC marks static was silently absent from the
