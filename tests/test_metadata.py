@@ -18,6 +18,7 @@ from rebrew.metadata import (
     merge_into_annotation,
     metadata_path,
     remove_field,
+    remove_fields_batch,
     save_metadata,
     update_field,
 )
@@ -351,6 +352,33 @@ class TestRemoveField:
     def test_status_blocked_via_remove_field(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="Cannot delete STATUS"):
             remove_field(tmp_path, 0x01006364, "status", module="SERVER")
+
+    def test_remove_fields_batch_drops_cflags(self, tmp_path: Path) -> None:
+        save_metadata(
+            tmp_path,
+            {
+                ("SERVER", 0x1000): {"status": "EXACT", "cflags": "/O2 /Gd", "size": 16},
+                ("SERVER", 0x2000): {"status": "EXACT", "cflags": "/O2 /Gd"},
+                ("GAME", 0x3000): {"status": "EXACT", "cflags": "/O1"},
+            },
+        )
+        n = remove_fields_batch(
+            tmp_path,
+            [
+                {"module": "SERVER", "va": 0x1000, "keys": ["cflags"]},
+                {"module": "SERVER", "va": 0x2000, "keys": ["cflags"]},
+            ],
+        )
+        assert n == 2
+        assert "cflags" not in get_entry(tmp_path, 0x1000, "SERVER")
+        assert get_entry(tmp_path, 0x1000, "SERVER")["size"] == 16
+        assert "cflags" not in get_entry(tmp_path, 0x2000, "SERVER")
+        assert get_entry(tmp_path, 0x3000, "GAME")["cflags"] == "/O1"
+
+    def test_remove_fields_batch_rejects_status(self, tmp_path: Path) -> None:
+        save_metadata(tmp_path, {("SERVER", 0x1000): {"status": "EXACT", "cflags": "/O2"}})
+        with pytest.raises(ValueError, match="Cannot delete STATUS"):
+            remove_fields_batch(tmp_path, [{"module": "SERVER", "va": 0x1000, "keys": ["status"]}])
 
 
 # ---------------------------------------------------------------------------

@@ -431,7 +431,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | W008 | *(not implemented)* | Reserved for CFLAGS preset validation |
 | W018 | Missing CFLAGS with no config fallback | No CFLAGS in metadata **and** no `base_cflags` in project config — compile may use wrong flags |
 | W019 | Inline metadata annotation | `// STATUS:`, `// ORIGIN:`, `// SIZE:`, `// CFLAGS:`, `// BLOCKER:`, `// NOTE:`, `// GHIDRA:`, etc. inline — run `--fix` to move to `rebrew-functions.toml` |
-| W010 | Unknown annotation key | `// FOOBAR: value` — key not in the known set |
+| W010 | Unknown annotation key | `// FOOBAR: value` — key not in the known set. `--fix` strips only retired derived keys (`SYMBOL`, `PROTOTYPE` — recomputed from the C source); anything else stays until a human decides |
 | W015 | Mixed-case VA hex digits | `0x10003Da0` — prefer consistent `0x10003da0` or `0x10003DA0` |
 | W020 | Asm-dump placeholder | Body uses `__asm`/`__emit` — pasted disassembly, not real C.  Does **not** fire for whole-function `__declspec(naked)` + asm (that is **E023** — error).  **Escalates** when the file's `STATUS` claims a non-stub match (`EXACT`/`RELOC`/...): an asm dump cannot be a byte-match, so the metadata status is wrong (fix it or mark `BLOCKER`).  `STATUS: STUB` + asm dump is an expected documented placeholder and gets the base message only |
 | W021 | Duplicate global | Same global defined in more than one file |
@@ -442,13 +442,13 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | W026 | Line indent style | Line indent style does not match project configuration (`lint_indent_style` in config) |
 | W027 | Line too long | Line exceeds `lint_max_line_length` characters |
 | W028 | Stale annotation VA | FUNCTION/STUB marker VA has no function in the current `functions.txt` (removed/shifted) or points inside another function's span (moved/merged) — re-annotate or refresh the list; LIBRARY/DATA/GLOBAL markers excluded |
-| W029 | Redundant cflags | Per-function `cflags` in `rebrew-functions.toml` or `compiler.cflags_presets.<MODULE>` that only repeat the inherited value (`resolve_cflags` ladder: function → module preset → project `compiler.cflags`) — flagged by `rebrew lint` (project-level `check_redundant_cflags` moved from `rebrew doctor`). Drop it; the fallback chain already supplies the same flags |
+| W029 | Redundant cflags | Per-function `cflags` in `rebrew-functions.toml` or `compiler.cflags_presets.<MODULE>` that only repeat the inherited value (`resolve_cflags` ladder: function → module preset → project `compiler.cflags`) — flagged by `rebrew lint` (project-level `check_redundant_cflags` moved from `rebrew doctor`). `rebrew lint --fix` drops the redundant field; the fallback chain already supplies the same flags |
 
 #### Data Annotation Warnings
 
 | Code | Description | Triggered by |
 |------|-------------|--------------|
-| W016 | DATA/GLOBAL missing `section` in metadata | `// DATA:` or `// GLOBAL:` marker with no `section` in `rebrew-data.toml` (.data, .rdata, .bss) |
+| W016 | DATA/GLOBAL missing `section` in metadata | `// DATA:` or `// GLOBAL:` marker with no `section` in `rebrew-data.toml` (.data, .rdata, .bss). `--fix` backfills it from the target binary's section table when the VA resolves; otherwise warn-only |
 | W017 | *(not implemented)* | Reserved for detecting auto-generated sync metadata in NOTE |
 
 ---
@@ -457,7 +457,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 
 | Flag | Description |
 |------|-------------|
-| `--fix` | Auto-migrate old/block/javadoc format headers to canonical `// KEY: value` format |
+| `--fix` | Migrate leftover inline metadata keys into `rebrew-functions.toml` / `rebrew-data.toml`; strip redundant inline lines (retired `SYMBOL`/`PROTOTYPE` keys, legacy `ORIGIN`, inline `// CFLAGS:` that only repeat the inherited flags, copies already in metadata); backfill missing W016 `SECTION` from the target binary; drop W029-redundant per-function `cflags` and matching `cflags_presets` |
 | `--quiet` | Suppress warnings, show errors only |
 | `--json` | Machine-readable JSON output (schema below) |
 | `--summary` | Print status × origin breakdown table after results |
