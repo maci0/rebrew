@@ -371,6 +371,32 @@ class TestParseCoffObjReal:
         assert 5 not in relocs
         assert 10 not in relocs
 
+    def test_static_function_symbols_yielded(self) -> None:
+        """Regression: MSVC marks CRT helpers such as _initterm and
+        _parse_cmdline STATIC, so they never reach the archive symbol index.
+        Yielding only EXTERNAL symbols silently drops them from signatures and
+        makes callers conclude the function is absent from the library."""
+        from rebrew.gen_flirt_pat import parse_coff_obj
+
+        # _myfunc (EXTERNAL) at 0, a STATIC helper at 4.
+        blob = make_coff_obj(
+            b"\x90\x90\x90\xc3\x31\xc0\x90\xc3",
+            section_symbols=[("_static_helper", 4)],
+        )
+        names = {name for name, _, _ in parse_coff_obj(blob)}
+        assert "_myfunc" in names
+        assert "_static_helper" in names
+
+    def test_section_symbols_not_yielded_as_functions(self) -> None:
+        """Section symbols (".text") share STORAGE_CLASS.STATIC and alias the
+        first real function; they must not shadow its name."""
+        from rebrew.gen_flirt_pat import parse_coff_obj
+
+        blob = make_coff_obj(b"\x90\x90\x90\xc3", section_symbols=[(".text", 0)])
+        names = {name for name, _, _ in parse_coff_obj(blob)}
+        assert ".text" not in names
+        assert "_myfunc" in names
+
     def test_non_code_section_skipped(self) -> None:
         from rebrew.gen_flirt_pat import parse_coff_obj
 
