@@ -1374,7 +1374,12 @@ def main(
     layout_audit: bool = typer.Option(
         False,
         "--layout-audit",
-        help="Per-TU .data/.bss span/order feasibility audit (what blocks placement convergence)",
+        help="Per-TU span/order feasibility audit for --section (what blocks placement convergence)",
+    ),
+    section: str = typer.Option(
+        ".data",
+        "--section",
+        help="Section for --layout-audit (.data or .rdata)",
     ),
     fill_data: bool = typer.Option(
         False,
@@ -1443,8 +1448,10 @@ def main(
         if not metadata.exists():
             error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
         if layout_audit:
+            if section not in (".data", ".rdata"):
+                error_exit("--section must be .data or .rdata", json_mode=json_output)
             try:
-                report = audit_layout(cfg.root, metadata)
+                report = audit_layout(cfg.root, metadata, section)
             except OSError as exc:
                 error_exit(str(exc), json_mode=json_output)
             if json_output:

@@ -51,8 +51,7 @@ class TestConstants:
         assert "SIZE" in DATA_METADATA_FIELDS
         assert "SECTION" in DATA_METADATA_FIELDS
         assert "NOTE" in DATA_METADATA_FIELDS
-        # Status is NOT a data metadata field
-        assert "STATUS" not in DATA_METADATA_FIELDS
+        assert "STATUS" in DATA_METADATA_FIELDS
 
 
 # ---------------------------------------------------------------------------
