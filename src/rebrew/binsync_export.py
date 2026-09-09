@@ -341,98 +341,20 @@ def _write_global_vars_toml(
 def _parse_struct_fields(typedef_text: str) -> list[dict[str, str]]:
     """Extract ``{name, type}`` field dicts from a typedef-struct string.
 
-    Uses a lightweight brace/body parser when tree-sitter is unavailable;
-    prefers tree-sitter AST walking when available.
+    Parses via the shared :mod:`rebrew.types` model (tree-sitter).  Falls
+    back to the legacy brace/body splitter for definitions the shared model
+    cannot size, so unrecognized declarator forms still export.
     """
-    # Prefer tree-sitter AST for precise type/field splits
     try:
-        from rebrew.c_parser import get_ts_parser as _get_parser
+        from rebrew.types import parse_structs
 
-        result = _get_parser()
-        if result is not None:
-            parser, _ = result
-            b = typedef_text.encode("utf-8")
-            tree = parser.parse(b)
-            fields: list[dict[str, str]] = []
-
-            def _node_text(node: object, src: bytes) -> str:
-                return src[node.start_byte : node.end_byte].decode("utf-8", errors="replace")  # type: ignore[attr-defined]
-
-            def _count_field_declarations(node: object) -> int:
-                n = 1 if getattr(node, "type", None) == "field_declaration" else 0
-                for child in getattr(node, "children", []):
-                    n += _count_field_declarations(child)
-                return n
-
-            def _walk(node: object) -> None:
-                if getattr(node, "type", None) == "field_declaration":
-                    # Collect type parts + declarator name
-                    type_parts: list[str] = []
-                    field_name = ""
-                    for child in getattr(node, "children", []):
-                        ctype = getattr(child, "type", None)
-                        if ctype in (
-                            "type_qualifier",
-                            "primitive_type",
-                            "sized_type_specifier",
-                            "type_identifier",
-                            "struct_specifier",
-                            "enum_specifier",
-                            "union_specifier",
-                        ):
-                            type_parts.append(_node_text(child, b))
-                        elif ctype == "field_identifier":
-                            field_name = _node_text(child, b)
-                        elif ctype == "pointer_declarator":
-                            # field char *name; — the '*' belongs in the type,
-                            # the identifier is the name.  Without this branch
-                            # pointer fields were silently dropped from mixed
-                            # structs (sync-review F3).
-                            for sub in getattr(child, "children", []):
-                                if getattr(sub, "type", None) == "field_identifier":
-                                    field_name = _node_text(sub, b)
-                                    break
-                            type_parts.append("*")
-                        elif ctype == "array_declarator":
-                            # field int name[4];
-                            for sub in getattr(child, "children", []):
-                                if getattr(sub, "type", None) == "field_identifier":
-                                    field_name = _node_text(sub, b)
-                                    break
-                            # include suffix in type
-                            type_parts.append(_node_text(child, b).replace(field_name, "").strip())
-                            # Actually reconstruct: type + declarator
-                            # Simpler: use full field text and split
-                            full = _node_text(node, b).strip().rstrip(";").strip()
-                            # full is like "int x" or "char name[32]"
-                            parts = full.rsplit(None, 1)
-                            if len(parts) == 2:
-                                fields.append(
-                                    {
-                                        "name": parts[1].split("[")[0],
-                                        "type": parts[0]
-                                        + full[len(parts[0]) + 1 + len(parts[1].split("[")[0]) :],
-                                    }
-                                )
-                                # The above is messy; fallback to simple
-                                return
-                    if field_name:
-                        t = " ".join(type_parts).strip() or "int"
-                        # Handle array suffix already captured
-                        fields.append({"name": field_name, "type": t})
-                else:
-                    for child in getattr(node, "children", []):
-                        _walk(child)
-
-            _walk(tree.root_node)
-            # Only trust the walk when it captured every field declaration —
-            # a partially-parsed struct (unrecognized declarator form) must
-            # fall through to the regex path, which handles pointers/arrays,
-            # rather than returning a truncated field list (sync-review F3).
-            if fields and len(fields) == _count_field_declarations(tree.root_node):
-                return fields
+        parsed = parse_structs(typedef_text)
+        if parsed:
+            struct = next(iter(parsed.values()))
+            if struct.fields:
+                return [{"name": name, "type": spelling} for name, spelling, _off in struct.fields]
     except Exception:
-        logger.debug("tree-sitter struct field parse failed, falling back to regex", exc_info=True)
+        logger.debug("shared struct parse failed, falling back to regex", exc_info=True)
 
     # Regex fallback: extract body between { and } then split on ;
     m = re.search(r"\{(.*)\}", typedef_text, flags=re.DOTALL)

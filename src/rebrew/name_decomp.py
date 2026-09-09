@@ -133,8 +133,31 @@ def struct_field_layout(definition: str) -> FieldLayout:
 
 
 def struct_definitions_to_layouts(definitions: dict[str, str]) -> dict[str, FieldLayout]:
-    """Map struct name → parsed layout for every raw definition."""
-    return {name: struct_field_layout(definition) for name, definition in definitions.items()}
+    """Map struct name → parsed layout for every raw definition.
+
+    Parses via the shared :mod:`rebrew.types` model (tree-sitter offsets
+    with MSVC alignment); falls back to the legacy line parser for bodies
+    the shared model cannot size, so existing behavior is preserved.
+    """
+    from rebrew.types import parse_structs, type_size
+
+    layouts: dict[str, FieldLayout] = {}
+    for name, definition in definitions.items():
+        parsed = parse_structs(definition)
+        struct = parsed.get(name) or next(iter(parsed.values()), None)
+        if struct is not None and struct.fields:
+            lay = FieldLayout()
+            lay.complete = struct.complete
+            ordered = sorted(struct.fields, key=lambda f: f[2])
+            for idx, (field_name, spelling, off) in enumerate(ordered):
+                end = ordered[idx + 1][2] if idx + 1 < len(ordered) else struct.size
+                width = type_size(spelling) or max(0, end - off)
+                lay.fields[off] = (field_name, width)
+            lay.size = struct.size
+            layouts[name] = lay
+        else:
+            layouts[name] = struct_field_layout(definition)
+    return layouts
 
 
 def _match_struct(var_offsets: set[int], layouts: dict[str, FieldLayout]) -> str | None:

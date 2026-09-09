@@ -123,6 +123,7 @@ _COMMAND_PANELS: dict[str, str] = {
     "blocker": "Analysis",
     "status": "Analysis",
     "todo": "Analysis",
+    "types": "Analysis",
     "data": "Analysis",
     "graph": "Analysis",
     "flirt": "Analysis",
@@ -276,6 +277,7 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ),
     ("status", "rebrew.status", "At-a-glance reversing progress overview."),
     ("todo", "rebrew.todo", "Prioritized action list: what to work on next."),
+    ("types", "rebrew.types_cli", "Check declared struct layouts against evidence."),
     (
         "unpack-lzexe",
         "rebrew.lzexe_cli",

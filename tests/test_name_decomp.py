@@ -231,3 +231,24 @@ class TestCli:
         assert data["named"] is False
         assert data["applied"] == []
         assert "*(char *)(a0 + 0x10) = 1;" in data["code"]
+
+
+class TestSharedModelLayouts:
+    def test_aligned_offsets(self) -> None:
+        from rebrew.name_decomp import struct_definitions_to_layouts
+
+        layouts = struct_definitions_to_layouts(
+            {"P": "typedef struct { char a; int b; short c; } P;"}
+        )
+        lay = layouts["P"]
+        assert lay.complete is True
+        assert lay.fields == {0: ("a", 1), 4: ("b", 4), 8: ("c", 2)}
+        assert lay.size == 12
+
+    def test_incomplete_struct_marks(self) -> None:
+        from rebrew.name_decomp import struct_definitions_to_layouts
+
+        layouts = struct_definitions_to_layouts(
+            {"Q": "typedef struct { int a; unsigned b : 3; } Q;"}
+        )
+        assert layouts["Q"].complete is False
