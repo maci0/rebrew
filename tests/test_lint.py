@@ -761,7 +761,8 @@ class TestLintFix:
         monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
         result = CliRunner().invoke(app, ["--fix", "--dry-run", str(f)])
         assert result.exit_code == 0
-        assert "STATUS" not in result.output  # overlay marks it metadata-sourced
+        assert "Would migrate" not in result.output  # overlay marks it metadata-sourced
+        assert "Would strip" in result.output  # dead inline copy still listed for removal
         assert "SIZE" not in result.output  # SIZE stays inline (reccmp-native, R3)
 
     def test_fix_duplicate_va_second_file_already_migrated(
@@ -1582,3 +1583,58 @@ class TestW029RedundantCflags:
         assert result.exit_code == 0, result.output
         assert "Would set" in result.output
         assert "section" not in get_data_entry(tmp_path, 0x2000, "SERVER")
+
+    def test_fix_strips_metadata_duplicated_cflags(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Inline CFLAGS equal to the store's cflags is stripped in one run.
+
+        Regression: metadata-sourced keys never raised W019, so the dead
+        inline copy survived --fix until a later run dropped the store field.
+        """
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+
+        src = tmp_path / "reversed"
+        src.mkdir()
+        f = src / "foo.c"
+        f.write_text(
+            "// CFLAGS: /O2 /Gd\n// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x1000"]\nstatus = "EXACT"\ncflags = "/O2 /Gd"\n', encoding="utf-8"
+        )
+        cfg = self._lint_cfg(tmp_path, src)
+        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
+        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
+        result = CliRunner().invoke(app, ["--fix", str(f)])
+        assert result.exit_code == 0, result.output
+        assert "CFLAGS" not in f.read_text(encoding="utf-8")
+        assert "W019" not in result.output
+
+    def test_fix_keeps_differing_metadata_duplicated_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Inline NOTE differing from the store's note is left alone."""
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+
+        src = tmp_path / "reversed"
+        src.mkdir()
+        f = src / "foo.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n// NOTE: inline words\nint foo(void){return 0;}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x1000"]\nstatus = "EXACT"\nnote = "store words"\n', encoding="utf-8"
+        )
+        cfg = self._lint_cfg(tmp_path, src)
+        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
+        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
+        result = CliRunner().invoke(app, ["--fix", str(f)])
+        assert result.exit_code == 0, result.output
+        assert "inline words" in f.read_text(encoding="utf-8")
