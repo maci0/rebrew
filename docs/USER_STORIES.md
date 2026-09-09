@@ -114,7 +114,7 @@ graph TD
 
 ```mermaid
 graph TD
-    Pick["rebrew todo --origin GAME<br/>pick smallest function"] --> Skel["rebrew skeleton 0xVA"]
+    Pick["rebrew todo<br/>pick smallest function"] --> Skel["rebrew skeleton 0xVA"]
     Skel --> Decompile["Get ASM / Ghidra decompilation"]
     Decompile --> Write["Write C89 source code"]
     Write --> Test{"rebrew test<br/>src/target/func.c"}
@@ -146,8 +146,8 @@ graph TD
 
 ### Acceptance Criteria
 - GA accepts my `.c` file as seed
-- 119 mutation operators applied (if-swaps, loop transforms, operand commutation, code layout, expression rewriting, MSVC6-targeted stack/register/zero-extension mutations, parameter register toggling, loop break manipulation, call-arg ternary collapse, common-tail hoisting, pragma optimize, loop rotation, argument extraction)
-- Results cached in SQLite `BuildCache` to prevent duplicate compilations
+- 121 mutation operators applied (if-swaps, loop transforms, operand commutation, code layout, expression rewriting, MSVC6-targeted stack/register/zero-extension mutations, parameter register toggling, loop break manipulation, call-arg ternary collapse, common-tail hoisting, pragma optimize, loop rotation, argument extraction)
+- Results cached in diskcache-backed `BuildCache` to prevent duplicate compilations
 - GA finds EXACT/RELOC or reports stagnation after N generations
 
 ```mermaid
@@ -266,7 +266,7 @@ graph TD
 
 ### Acceptance Criteria
 - `rebrew sync --push` pushes function names, comments, and bookmarks to Ghidra via ReVa MCP
-- Generic `func_XXXXXXXX` labels are skipped by default (`--skip-generic`)
+- Generic `func_XXXXXXXX` labels are skipped by default
 - Struct definitions pushed via `parse-c-structure` MCP tool
 - Ghidra decompilation and struct info can be pulled into local `.c` files
 - Sync is bidirectional and incremental
@@ -375,7 +375,7 @@ graph TD
     F -->|Yes| G["✅ All green"]
     F -->|No| H["❌ Regressions found<br/>report affected files"]
 
-    I["Generate catalog"] --> J["rebrew catalog --json"]
+    I["Generate catalog"] --> J["rebrew catalog --data-json"]
     J --> BD["rebrew build-db"]
     BD --> K["coverage.db +<br/>dashboard updated"]
 
@@ -395,7 +395,7 @@ graph TD
 
 ### Acceptance Criteria
 - `rebrew lint` checks all annotation fields (FUNCTION, STATUS, SIZE, CFLAGS)
-- Error codes E000–E023 for hard errors, W001–W028 for warnings
+- Error codes E000–E023 for hard errors, W001–W029 for warnings
 - `rebrew lint --fix` auto-migrates old annotation formats
 - Running lint twice changes nothing (idempotent)
 

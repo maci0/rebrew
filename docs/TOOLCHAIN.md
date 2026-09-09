@@ -51,7 +51,7 @@ semantic decomp and blocker the byte delta rather than forcing a pass.
 **ELF/x86_64 targets:** `gcc` and `clang` are first-class native PATH specs
 (no image, posix flags, `.o` objects) — the same profile-aware pipeline as
 `gcc-pe`, resolving the bare `gcc`/`clang` binary from PATH.  Both carry a
-minimal posix flag-sweep axis set (`flag_data.GCC_FLAGS`), so
+minimal posix flag-sweep axis set (`rebrew.matcher.flag_data.GCC_FLAGS`), so
 `rebrew match --flag-sweep` emits flags these compilers accept rather than
 the MSVC fallback.
 
@@ -975,7 +975,7 @@ are normalized.
 
 ### For Compiler Flag Analysis
 1. `rebrew match --flag-sweep-only --tier normal` (~5.4K combos)
-2. Use `--tier quick` for fast iteration (192) or `--tier thorough` for deep search (~258K)
+2. Use `--tier quick` for fast iteration (192), `--tier targeted` (default), `--tier thorough` for deep search (~258K), or `--tier full`
 3. **objconv** comp.id verification to confirm same compiler
 4. Re-sync flags from decomp.me: `python tools/sync_decomp_flags.py`
 

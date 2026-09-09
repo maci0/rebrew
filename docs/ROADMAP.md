@@ -7,6 +7,16 @@ first-class proof target, with PPC/ARM as the follow-on set.
 Status: RFC — phased roadmap. Phases ship independently with green CI; Phase 0
 and 1 together form the "MIPS works" milestone.
 
+> **Note (2026-09):** much of the Phase 0 table below has since landed —
+> arch presets now include mips32/mips64/ppc32/ppc64/sh2 (`config.py`),
+> ELF/Mach-O machine maps cover MIPS/PPC/SH (`binary_loader.py`), the
+> extent walker/reloc masking/discovery/jump-table checks are per-arch,
+> and `doctor.py` lists all nine arches. The table describes the pre-work
+> state; treat unchecked rows as claims to re-verify against code, not as
+> current fact. Remaining open items: `ToolchainSpec.arch` field + gcc-mips
+> spec, `asm.py` x86 hardcodes, ELF-MIPS/PPC reloc extraction in
+> `matcher/parsers.py`.
+
 ## Current state (grounded audit)
 
 ### Already arch-agnostic (no work needed)
