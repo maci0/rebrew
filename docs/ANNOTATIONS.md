@@ -120,13 +120,30 @@ Format: `// MARKER: MODULE 0xVA`
 - **MODULE** — the target identifier from `rebrew-project.toml` (e.g. `SERVER`, `CLIENT`)
 - **VA** — virtual address in the original binary, hex with `0x` prefix
 
+### Support TUs (link-only files)
+
+A file that exists purely for link reasons (linker-forced shims, CRT guard
+stubs, BSS pads) has no binary VA of its own to anchor a marker to.  It
+declares itself with a single comment line before any code:
+
+```c
+// SUPPORT: SERVER linker shims keep LIBCMT sbheap.obj out of the link
+```
+
+`// SUPPORT:` blesses the file against E001; the reason (what breaks without
+this file) is mandatory — a reason-less declaration errors the same way a
+missing marker does.  No annotation checks apply (there are no headers), but
+body rules still run: a support file with no code earns W003.  Prefer folding
+support content into a VA-anchored file when one exists; keep a standalone
+support TU only when nothing in the reversed tree can carry it.
+
 ---
 
 ## Annotation Keys (Functions)
 
 | Key | Required? | Linter | Description |
 |-----|:---------:|--------|-------------|
-| Marker line | **Mandatory** | E001 | `// FUNCTION:`, `// LIBRARY:`, or `// STUB:` with MODULE and VA |
+| Marker line | **Mandatory** | E001 | `// FUNCTION:`, `// LIBRARY:`, or `// STUB:` with MODULE and VA — or `// SUPPORT:` (see below) for link-only files |
 | `STATUS` | Metadata-owned | — | Match quality (see below); lives in rebrew-functions.toml, not inline |
 | `SIZE` | Metadata-owned | — | Function size in bytes from the original binary; lives in rebrew-functions.toml, not inline |
 | `CFLAGS` | Optional | W018 | Per-function compiler flag override. Falls back to the target's `base_cflags` in `rebrew-project.toml`. Only needed for functions compiled with non-default flags (e.g. a static lib linked with `/O1` into an `/O2` binary). |
@@ -367,7 +384,7 @@ Errors indicate broken annotations that will cause `rebrew test`, `rebrew verify
 | Code | Description | Triggered by |
 |------|-------------|--------------|
 | E000 | Cannot read file | File permissions, encoding issues |
-| E001 | Missing or invalid marker | No `// FUNCTION:`, `// LIBRARY:`, or `// STUB:` line, or unknown marker type |
+| E001 | Missing or invalid marker | No `// FUNCTION:`, `// LIBRARY:`, or `// STUB:` line, or unknown marker type. `// SUPPORT: <MODULE> <reason>` blesses a link-only TU (no VA of its own); a reason-less `// SUPPORT:` errors the same way |
 | E002 | Invalid or suspicious VA | VA outside 32-bit range, non-hex string, or missing `0x` prefix |
 
 #### Field Validation Errors

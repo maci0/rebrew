@@ -1046,6 +1046,32 @@ def _check_style_rules(result: LintResult, cfg: ProjectConfig | None) -> None:
                 result.warning(i, "W027", f"Line too long ({len(line)} > {max_len})")
 
 
+_SUPPORT_MARKER_RE = re.compile(r"//\s*SUPPORT:\s*(\S+)(?:\s+(.*))?")
+
+
+def _support_declaration(lines: list[str]) -> tuple[int, str, str] | None:
+    """Return ``(line_no, module, reason)`` for a ``// SUPPORT:`` declaration, or None.
+
+    A support TU exists purely for link reasons (linker-forced shims, CRT
+    guard stubs, BSS pads) and has no binary VA of its own to anchor a
+    FUNCTION/LIBRARY/STUB/GLOBAL/DATA marker to.  The declaration is a
+    single ``// SUPPORT: <MODULE> <reason>`` comment line, e.g.
+    ``// SUPPORT: SERVER linker shims keep LIBCMT sbheap.obj out of the link``.
+    Only the first such line counts; it must precede any code.
+    """
+    for idx, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        m = _SUPPORT_MARKER_RE.match(stripped)
+        if m:
+            return idx, m.group(1), (m.group(2) or "").strip()
+        if stripped.startswith("//") or stripped.startswith("/*") or stripped.startswith("*"):
+            continue
+        return None
+    return None
+
+
 def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> None:
     """Check struct SIZE comments and code presence (W003, W007)."""
     has_code = False
@@ -1321,6 +1347,23 @@ def lint_file(
         result.error(1, "E001", "Empty file, missing FUNCTION/LIBRARY/STUB marker")
         return result
     result._lines = lines
+
+    # A support TU declares itself with `// SUPPORT: <MODULE> <reason>` and
+    # carries no VA-anchored marker by design.  Blessed here: no E001, and
+    # none of the annotation checks below apply (there are no headers to
+    # check).  Body rules (W003/W007) still run — a support file with no
+    # code at all is dead weight, not support.
+    support = _support_declaration(lines)
+    if support is not None:
+        _support_line, _support_module, _support_reason = support
+        if not _support_reason:
+            result.error(
+                _support_line, "E001", "// SUPPORT: needs a reason (what breaks without this file)"
+            )
+            return result
+        result._marker_counts["SUPPORT"] += 1
+        _check_body_rules(result, lines, True)
+        return result
     # DEBUG
     # print(f"[DEBUG] Linting {filepath} with {len(lines)} lines")
 
@@ -1549,7 +1592,7 @@ app = typer.Typer(
         "  rebrew lint src/game/foo.c · · · · · Lint specific files only\n\n"
         "  rebrew lint --fix --dry-run · · · · Preview migrations, strips, and backfills before commit\n\n"
         "[bold]Error codes:[/bold]\n\n"
-        "  E001   Missing FUNCTION/LIBRARY/STUB marker\n\n"
+        "  E001   Missing FUNCTION/LIBRARY/STUB marker (or reason-less // SUPPORT:)\n\n"
         "  E002   Invalid VA format or range\n\n"
         "  E012   Module doesn't match configured marker\n\n"
         "  E013   Duplicate VA across files\n\n"
