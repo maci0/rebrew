@@ -38,6 +38,10 @@
   path for non-MSVC toolchains that previously relied on `--compiler`.
 
 ### Fixed
+- **prove keeps the blocker when promoting to PROVEN** — clearing it
+  stranded a fresh promotion as a blocker-less STUB the next verify run (the
+  byte result reads STUB under the 60% classifier line, and verify honors
+  PROVEN over blocker-documented STUB only).
 - **verify honors PROVEN over blocker-documented STUB** — the PROVEN
   overlay only covered NEAR_MATCHING/SIZE_MISMATCH byte states, treating
   STUB as broken source. now that prove accepts blocker-documented STUBs,
