@@ -1379,9 +1379,17 @@ def main(
         if cached in ("NEAR_MATCHING", "SIZE_MISMATCH"):
             effective_status = cached
 
-    if effective_status not in ("NEAR_MATCHING", "SIZE_MISMATCH"):
+    # A blocker-documented STUB is a developed function parked at a wall (its
+    # bytes differ structurally but it is semantically implemented), which is
+    # exactly the prove contract. A bare STUB (intake placeholder, no blocker)
+    # has nothing to prove and stays rejected.
+    blocker_documented = effective_status == "STUB" and bool(
+        getattr(ann, "blocker", "") or getattr(ann, "blocker_delta", 0)
+    )
+    if effective_status not in ("NEAR_MATCHING", "SIZE_MISMATCH") and not blocker_documented:
         error_exit(
-            f"Status is '{ann.status}', expected NEAR_MATCHING or SIZE_MISMATCH. "
+            f"Status is '{ann.status}', expected NEAR_MATCHING or SIZE_MISMATCH "
+            "(or a blocker-documented STUB). "
             "PROVEN is reserved for functions whose bytes differ structurally "
             "but are semantically equivalent. RELOC/EXACT functions already match "
             "byte-for-byte — symbolic prove adds no information.",

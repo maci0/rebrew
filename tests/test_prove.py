@@ -234,6 +234,26 @@ class TestProveCLIStatusGuard:
         assert result.exit_code != 0
         assert "expected NEAR_MATCHING or SIZE_MISMATCH" in result.output
 
+    def test_blocker_documented_stub_passes_gate(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A STUB with a blocker is a developed function parked at a wall
+        (bytes differ structurally, semantics implemented) — the prove
+        contract. It must pass the gate; a bare placeholder STUB stays
+        rejected. Regression: blocker-documented STUBs (classifier <60% on a
+        real body) could never reach prove to earn PROVEN."""
+        proj_dir, src = self._make_project(tmp_path, "STUB")
+        toml = proj_dir / "rebrew-functions.toml"
+        toml.write_text(
+            '["GAME.0x00001000"]\nstatus = "STUB"\nsize = 16\n'
+            'blocker = "scheduler phase shift, instruction-identical to reference"\n'
+        )
+        result = self._invoke(proj_dir, src, monkeypatch)
+        assert result.exit_code != 0
+        # The gate passed; any failure is downstream (angr/compile), never the
+        # status rejection.
+        assert "expected NEAR_MATCHING" not in result.output
+
     def test_stub_with_cached_near_matching_passes_gate(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
