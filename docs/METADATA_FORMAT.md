@@ -44,7 +44,8 @@ Variants for different marker types:
 
 The following keys are **metadata-only** and must not appear in source files.
 `rebrew lint` fires **W019** for any of these found inline, and
-`rebrew lint --fix` migrates them to the correct TOML.
+`rebrew lint --fix` migrates them to the correct TOML, and also drops
+W029-redundant per-function `cflags` that only repeat the inherited ladder.
 
 `STATUS`, `CFLAGS`, `TOOLCHAIN`, `SKIP`, `GLOBALS`, `BLOCKER`, `BLOCKER_DELTA`,
 `SOURCE`, `NOTE`, `SECTION`, `GHIDRA`, `ANALYSIS`, `ORIGIN`,
@@ -137,3 +138,5 @@ This will:
 2. Write the values to the appropriate TOML (`rebrew-functions.toml`, or
    `rebrew-data.toml` for DATA/GLOBAL markers).
 3. Leave only the reccmp marker line (`// FUNCTION: MODULE 0xVA`) inline.
+4. Drop W029-redundant per-function `cflags` (and matching
+   `compiler.cflags_presets` keys that only repeat project `cflags`).
