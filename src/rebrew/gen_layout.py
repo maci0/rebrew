@@ -758,6 +758,12 @@ def main(
                 meta, pkg_dir, fmt_toml=lambda m: fmt_layout_toml(m, imports, link_options)
             )
         )
+        from rebrew.binary_gate import layout_fingerprint
+
+        fingerprint = layout_fingerprint(cfg.target_binary)
+        if fingerprint:
+            atomic_write_text(pkg_dir / "layout.fingerprint", fingerprint + "\n")
+            written.append(str(pkg_dir / "layout.fingerprint"))
         iat_section = next((s for s in sections if s.name == ".rdata"), None)
         write(
             Path("crt_region/crt_imports.c"),
