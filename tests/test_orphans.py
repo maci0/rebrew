@@ -24,17 +24,19 @@ def _mock_cfg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespac
     return cfg
 
 
-def _write_project(tmp_path: Path) -> None:
+def _write_project(tmp_path: Path, matched_orphan: bool = False) -> None:
     src = tmp_path / "reversed"
     src.mkdir(exist_ok=True)
     (src / "foo.c").write_text(
         "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8"
     )
-    (tmp_path / "rebrew-functions.toml").write_text(
+    blocks = (
         '["SERVER.0x1000"]\nstatus = "STUB"\nsize = 16\n\n'
-        '["SERVER.0x2000"]\nstatus = "STUB"\nsize = 16\n',
-        encoding="utf-8",
+        '["SERVER.0x2000"]\nstatus = "STUB"\nsize = 16\n'
     )
+    if matched_orphan:
+        blocks += '\n["SERVER.0x3000"]\nstatus = "EXACT"\nsize = 16\n'
+    (tmp_path / "rebrew-functions.toml").write_text(blocks, encoding="utf-8")
 
 
 class TestOrphansList:
@@ -113,6 +115,40 @@ class TestOrphansPrune:
         assert res.exit_code == 0, res.output
         assert "would be deleted" in res.output
         assert get_entry(tmp_path, 0x2000, "SERVER").get("status") == "STUB"
+
+    def test_prune_json_deletes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Regression: --prune --json used to short-circuit on the listing path
+        and report pruned: 0 without deleting anything."""
+        import json
+
+        from rebrew.metadata import get_entry
+        from rebrew.orphans import app
+
+        _mock_cfg(tmp_path, monkeypatch)
+        _write_project(tmp_path)
+        res = CliRunner().invoke(app, ["--prune", "--json"])
+        assert res.exit_code == 0, res.output
+        out = json.loads(res.output)
+        assert out["pruned"] == 1
+        assert get_entry(tmp_path, 0x2000, "SERVER") == {}
+        assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == "STUB"
+
+    def test_prune_include_matched_json(self, tmp_path: Path, monkeypatch) -> None:
+        """--prune --include-matched --json reports held_back 0 and prunes matched."""
+        import json
+
+        from rebrew.metadata import get_entry
+        from rebrew.orphans import app
+
+        _mock_cfg(tmp_path, monkeypatch)
+        _write_project(tmp_path, matched_orphan=True)
+        res = CliRunner().invoke(app, ["--prune", "--include-matched", "--json"])
+        assert res.exit_code == 0, res.output
+        out = json.loads(res.output)
+        assert out["pruned"] == 2
+        assert out["held_back"] == 0
+        assert get_entry(tmp_path, 0x2000, "SERVER") == {}
+        assert get_entry(tmp_path, 0x3000, "SERVER") == {}
 
 
 class TestOrphansDrop:
