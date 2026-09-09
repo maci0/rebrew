@@ -1383,9 +1383,15 @@ def main(
     # bytes differ structurally but it is semantically implemented), which is
     # exactly the prove contract. A bare STUB (intake placeholder, no blocker)
     # has nothing to prove and stays rejected.
-    blocker_documented = effective_status == "STUB" and bool(
-        getattr(ann, "blocker", "") or getattr(ann, "blocker_delta", 0)
-    )
+    blocker = getattr(ann, "blocker", "") or ""
+    blocker_delta = getattr(ann, "blocker_delta", 0) or 0
+    if effective_status == "STUB" and not (blocker or blocker_delta):
+        from rebrew.metadata import load_metadata
+
+        stored = load_metadata(cfg.metadata_dir).get((ann.module, ann.va), {})
+        blocker = stored.get("blocker", "") or ""
+        blocker_delta = stored.get("blocker_delta", 0) or 0
+    blocker_documented = effective_status == "STUB" and bool(blocker or blocker_delta)
     if effective_status not in ("NEAR_MATCHING", "SIZE_MISMATCH") and not blocker_documented:
         error_exit(
             f"Status is '{ann.status}', expected NEAR_MATCHING or SIZE_MISMATCH "
@@ -1511,7 +1517,11 @@ def main(
     if proven and not dry_run:
         from rebrew.metadata import update_source_status
 
-        update_source_status(cfg.metadata_dir, "PROVEN", ann.module, va)
+        # Keep the blocker: a PROVEN body compiled under the 60% classifier
+        # line reads back as STUB, and verify honors PROVEN over a
+        # blocker-documented STUB. Clearing it here would strand a fresh
+        # promotion as a blocker-less STUB the next verify run.
+        update_source_status(cfg.metadata_dir, "PROVEN", ann.module, va, clear_blockers=False)
         _clear_prove_counterexample(cfg, ann)
         result["action"] = "updated"
         result["new_status"] = "PROVEN"
@@ -1800,7 +1810,7 @@ def _prove_single(
     if proven and not dry_run:
         from rebrew.metadata import update_source_status
 
-        update_source_status(cfg.metadata_dir, "PROVEN", ann.module, ann.va)
+        update_source_status(cfg.metadata_dir, "PROVEN", ann.module, ann.va, clear_blockers=False)
         _clear_prove_counterexample(cfg, ann)
     elif not proven and not dry_run:
         _record_prove_counterexample(cfg, ann, message)
