@@ -115,9 +115,22 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
     for offsets in section_sym_offsets.values():
         offsets.sort()
 
+    # EXTERNAL alone is not enough: MSVC marks CRT helpers such as _initterm
+    # and _parse_cmdline STATIC, so they are absent from the archive symbol
+    # index. They are still linked into the target and still need signatures,
+    # and code that looks only at EXTERNAL reports them as "not in the library".
+    _FUNC_CLASSES = (
+        lief.COFF.Symbol.STORAGE_CLASS.EXTERNAL,
+        lief.COFF.Symbol.STORAGE_CLASS.STATIC,
+    )
+
     for sym in coff.symbols:
-        # Only external function symbols in code sections
-        if sym.storage_class != lief.COFF.Symbol.STORAGE_CLASS.EXTERNAL or sym.section is None:
+        # Function symbols (external or file-static) in code sections
+        if sym.storage_class not in _FUNC_CLASSES or sym.section is None:
+            continue
+        # STATIC is also the class used for section symbols (".text"), which
+        # alias the first real function; skip them so names stay meaningful.
+        if str(sym.name).startswith("."):
             continue
 
         section = sym.section

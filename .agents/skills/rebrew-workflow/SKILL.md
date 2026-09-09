@@ -66,6 +66,26 @@ The JSON `coverage` block (`total`/`covered`/`exact`/`reloc`/`proven`/`matching`
 is the source of truth for progress. Use `rebrew status --json` first if the project state is
 unfamiliar — it is read-only and cheap (no compilation).
 
+> [!IMPORTANT]
+> **Before starting a function, check it is not library code.** Statically
+> linked CRT/zlib/runtime code sits in `.text` looking exactly like target
+> code, and a decompiler names it `fcn_XXXX` like anything else. Reversing it
+> is wasted effort: the linker supplies those bytes anyway, so the work is
+> committed, counted as coverage, and refined for weeks before anyone notices
+> it was never the target's.
+>
+> ```bash
+> rebrew flirt --va 0x<VA> --json     # signature match
+> rebrew crt-match 0x<VA> --json      # reference-source match (CRT, zlib)
+> ```
+>
+> Neither is conclusive on its own. FLIRT depends on prebuilt signatures, and
+> a signature set generated from a different library build will miss real
+> matches. When a whole cluster of functions looks like runtime code, compare
+> **bytes** against the library actually being linked, ignoring each object's
+> relocation slots: whatever is identical outside those slots is library code.
+> Mark it `// LIBRARY:` and move on.
+
 ## 2. Generate Skeleton
 
 ```bash
@@ -248,8 +268,8 @@ rebrew verify --watch                   # re-verify all sources on every file ch
 rebrew verify --full --json             # ignore cache, force full re-verification
 rebrew lint src/bench/<file>.c       # lint one file (files are POSITIONAL args)
 rebrew lint --json                      # check annotation correctness
-rebrew lint --fix                       # auto-migrate inline metadata to rebrew-functions.toml
-rebrew lint --fix --dry-run             # preview migrations without writing
+rebrew lint --fix                       # migrate leftover inline metadata; drop W029-redundant cflags
+rebrew lint --fix --dry-run             # preview migrations / cflags drops without writing
 rebrew lint --summary                   # status/origin breakdown table
 rebrew lint --quiet                     # errors only, suppress warnings
 ```

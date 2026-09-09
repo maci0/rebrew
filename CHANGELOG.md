@@ -12,6 +12,18 @@
   unknown ids error with the available ones as suggestions — the friendly
   path for non-MSVC toolchains that previously relied on `--compiler`.
 
+### Fixed
+- **FLIRT signature generation covers file-static functions** —
+  `gen_flirt_pat.parse_coff_obj` yielded only `STORAGE_CLASS.EXTERNAL`
+  symbols, so every function MSVC marks static was silently absent from the
+  generated `.pat`. Those functions are still linked into targets and still
+  need signatures; worse, code that probes a library this way reports them as
+  "not present", which makes a linked-in CRT helper look like target code
+  worth reversing. Real case: MSVC 6 `LIBCMT.LIB` went from 1115 to 1384
+  signature-bearing symbols, picking up `_initterm` and `_parse_cmdline`.
+  Section symbols (`.text`, same storage class) are excluded so function
+  names stay meaningful.
+
 ### Changed
 - **`rebrew sync` is BinSync-primary** (metadata-review R1, destructive):
   field-level sync (names, comments/notes, prototypes, structs, globals)

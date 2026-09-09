@@ -13,11 +13,25 @@
 
 ```
 1. rebrew todo --json                          # get highest ROI action items
-2. rebrew skeleton 0x<VA>                      # generate .c skeleton
-3. rebrew test src/{target_name}/<func>.c --json  # compile + compare
-4. # iterate code until STATUS: EXACT or RELOC
-5. rebrew test --all --json                    # batch promote all ready functions
+2. rebrew flirt --va 0x<VA> --json             # is it already in a library?
+3. rebrew skeleton 0x<VA>                      # generate .c skeleton
+4. rebrew test src/{target_name}/<func>.c --json  # compile + compare
+5. # iterate code until STATUS: EXACT or RELOC
+6. rebrew test --all --json                    # batch promote all ready functions
 ```
+
+> [!IMPORTANT]
+> **Do step 2 before reversing anything.** Statically linked library code sits
+> in `.text` looking exactly like target code. Reversing it is wasted effort:
+> the linker supplies those bytes anyway, and the result gets committed,
+> counted as coverage, and "improved" for weeks before anyone notices it was
+> never yours. Mark such functions `// LIBRARY:` and move on.
+>
+> Name-based checks are not enough on their own, because a decompiler names
+> library code `fcn_XXXX` like anything else. Compare **bytes** against the
+> library actually being linked, ignoring relocation slots: what remains
+> identical is library code. `rebrew crt-match` covers the source-available
+> case (CRT, zlib); `rebrew flirt` covers signatures.
 
 ## CLI Tools
 
@@ -88,6 +102,22 @@ relocations) > `NEAR_MATCHING` (close) > `STUB` (incomplete)
 ## Compiler Constraints ({compiler_profile})
 
 {compiler_constraints}
+
+## Linking
+
+- **Link stock libraries. Never patch a `.lib`.** When a library object drags
+  in something the reference does not have (an extra import, duplicate data),
+  displace it with a local definition of the symbols it provides, or change
+  what references it. A hand-edited library cannot be reproduced from a clean
+  checkout, and it hides the duplication that library-detection depends on.
+- **A duplicate-symbol warning is a finding, not noise.** `LNK4006` /
+  `LNK4217` usually means either the same global is defined in several
+  translation units, or you have reimplemented something the library already
+  provides. Resolve it rather than silencing it with `/FORCE:MULTIPLE`; keep
+  the flag only for cases you have identified and written down.
+- **Compare the import table against the reference** after any link change.
+  An extra import means a library object came in that the original did not
+  have; a missing one means the opposite.
 
 ## Agent Skills
 
