@@ -137,17 +137,16 @@ def main(
     total = len(fn_orphans) + len(data_orphans)
 
     orphans = _orphan_dicts(cfg, fn_orphans, data_orphans)
-    if json_output:
-        json_print({"orphans": orphans, "pruned": 0})
-        return
-    if total == 0:
-        console.print("[green]No orphaned metadata blocks.[/green]")
-        return
-    for o in orphans:
-        flag = " [red]matched[/red]" if o["status"] in ("EXACT", "RELOC", "PROVEN") else ""
-        console.print(f"  [yellow]orphan[/yellow] {o['module']} {o['va']} ({o['store']}){flag}")
-
     if not prune:
+        if json_output:
+            json_print({"orphans": orphans, "pruned": 0})
+            return
+        if total == 0:
+            console.print("[green]No orphaned metadata blocks.[/green]")
+            return
+        for o in orphans:
+            flag = " [red]matched[/red]" if o["status"] in ("EXACT", "RELOC", "PROVEN") else ""
+            console.print(f"  [yellow]orphan[/yellow] {o['module']} {o['va']} ({o['store']}){flag}")
         console.print(
             f"\n{total} orphaned block(s) — re-run with [bold]--prune[/bold] to delete them"
         )
@@ -157,13 +156,25 @@ def main(
     # split_prunable is the shared gate with verify --prune-orphans.
     doomed = split_prunable(cfg, fn_orphans, data_orphans, include_matched=include_matched)
     held_count = total - len(doomed)
+    doomed_keys = {(o["module"], o["va"]) for o in doomed}
+    doomed_dicts = [o for o in orphans if (o["module"], o["va"]) in doomed_keys]
     if dry_run:
+        if json_output:
+            json_print(
+                {
+                    "orphans": doomed_dicts,
+                    "pruned": 0,
+                    "dry_run": True,
+                    "held_back": held_count,
+                }
+            )
+            return
         console.print(
             f"\n[yellow]Dry run:[/yellow] {len(doomed)} orphaned block(s) would be deleted"
             + (f" ({held_count} matched held back)" if held_count and not include_matched else "")
         )
         return
-    if held_count and not include_matched:
+    if held_count and not include_matched and not json_output:
         console.print(
             f"[yellow]Holding back {held_count} matched orphan(s)[/yellow] "
             "(EXACT/RELOC/PROVEN with no marker — re-attach a marker or pass "
@@ -181,6 +192,9 @@ def main(
         cfg.metadata_dir,
         [(o["module"], int(o["va"], 16)) for o in doomed if o["store"] == "rebrew-data.toml"],
     )
+    if json_output:
+        json_print({"orphans": doomed_dicts, "pruned": pruned, "held_back": held_count})
+        return
     console.print(f"\n[green]Pruned:[/green] deleted {pruned} orphaned block(s)")
 
 
