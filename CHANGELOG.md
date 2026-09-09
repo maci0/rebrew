@@ -1,4 +1,39 @@
-## [0.9.0] - 2026-09-10
+## [Unreleased]
+
+## [0.10.0] - 2026-09-10
+### Added
+- **Data verification loop** — `rebrew verify --data --built build/<target>`
+  byte-compares built `.data`/`.rdata` against the reference per metadata
+  symbol (first-diff attribution); verdicts persist as data STATUS
+  (`VERIFIED`/`DRIFT`/`UNCHECKED`) in `rebrew-data.toml` and surface in
+  `rebrew status` counts and a new `todo -c data-drift` category. Layout
+  audit and the objdump inventory generalize to `.rdata` (`--section`).
+- **Whole-binary gate** — `rebrew verify --whole-binary --built build/<target>`
+  snapshots reference vs built binary (section sizes, exports, imports,
+  `.rsrc` bytes, headers) and folds in a layout-freshness check;
+  `rebrew gen-layout` writes the `layout.fingerprint` it reads. Report block
+  `whole_binary` in JSON.
+- **Shared type model + `rebrew types`** — `rebrew.types` parses structs once
+  via tree-sitter (offsets, MSVC alignment, completeness); `name_decomp`,
+  `binsync_export`, and `struct_recover` route through it with legacy
+  fallbacks. `rebrew types` checks declarations against `*.dec.c` evidence;
+  `rebrew types apply-type <file> --param N --type T` rewrites one parameter
+  type in project source so recovered types reach the compiler.
+- **Sync fidelity** — BinSync import reads structs (unknown definitions land
+  in `binsync_types.h`), `[comments]` notes, and global type/size; prototype
+  compare is whitespace-normalized and differing locals gate as conflicts;
+  export writes a freshness `manifest.toml` surfaced by `binsync-diff --json`.
+- **Provenance + confidence + call-graph todo** — every STATUS write tags
+  `updated_by`/`updated_at`; `effective_match` persists from the verify cache
+  into `status` text/JSON as the prove queue; todo boosts ROI for functions
+  with unresolved callers (`unblocks N`).
+
+### Fixed
+- **Docs vs code audit** — entry-point table covers all 78 registered
+  commands; removed `sync --export`/`--apply`, `match --fix-blocker`,
+  `binsync-diff --target` claims; completed match/prove/diff/skills/export
+  flag tables; PROVEN void-demotion and provenance documented; stale
+  ROADMAP/GAP/TOOLCHAIN/DB counts corrected.
 ### Added
 - **`rebrew lib-match`** — byte-compare reversed functions against linked
   static-library archives (.lib/.a). Flags code whose bytes the linker already
