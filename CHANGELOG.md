@@ -1,4 +1,4 @@
-## [Unreleased]
+## [0.9.0] - 2026-09-10
 ### Added
 - **`rebrew lib-match`** — byte-compare reversed functions against linked
   static-library archives (.lib/.a). Flags code whose bytes the linker already
