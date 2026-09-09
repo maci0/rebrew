@@ -356,6 +356,10 @@ binary being decompiled.
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — rebrew internals: module map, compile
   loop, metadata routing rules
+- [architecture.drawio](architecture.drawio) — diagrams.net: ecosystem,
+  compile loop, toolchains, FLIRT/resembl/GA, reverse data flows,
+  config/store tiers, data/globals/layout, LLM training export,
+  AI-decomp research landscape
 - [TOOLCHAIN.md](TOOLCHAIN.md) — the toolchain zoo and image provenance
 - [DB_FORMAT.md](DB_FORMAT.md) — the `coverage.db` schema shared with
   recoverage

@@ -16,7 +16,11 @@ as an HTTP API, and `reagent` automates the loop with an LLM. External
 tools interoperate through file formats: reccmp-compatible source
 markers/catalog CSV, and the BinSync state directory (`rebrew binsync-*`).
 The full cross-repo map, dependency layering, and mermaid diagrams are in
-[ECOSYSTEM.md](ECOSYSTEM.md).
+[ECOSYSTEM.md](ECOSYSTEM.md). Open [architecture.drawio](architecture.drawio)
+in diagrams.net for the same map as nine pages: ecosystem, compile-compare
+loop, toolchains, FLIRT/resembl/GA, reverse data flows, config/store tiers,
+data/globals/layout, LLM training export, and the local AI-decomp research
+landscape.
 
 ## High-level data flow
 

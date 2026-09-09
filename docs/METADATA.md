@@ -4,7 +4,8 @@ This is the one-page map of **every place rebrew persists or caches data**
 and, crucially, which of them is authoritative for which fact.  It exists
 so the "why are there so many files?" question has a written answer: most
 of the surface is *derived snapshots and caches*, not competing sources of
-truth.
+truth.  Pages 6–7 of [architecture.drawio](architecture.drawio) draw the
+same tiers and the data/globals/layout pipeline.
 
 ## The four tiers
 

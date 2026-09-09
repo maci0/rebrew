@@ -1,0 +1,1283 @@
+<mxfile host="app.diagrams.net" modified="2026-09-09T00:00:00.000Z" agent="rebrew" version="22.1.16" type="device">
+  <diagram id="ecosystem" name="1. Ecosystem">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1680" pageHeight="1180" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="eco-title" value="Relumea workspace: how rebrew talks to siblings and external tools" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=18;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="40" y="16" width="900" height="32" as="geometry"/>
+        </mxCell>
+        <mxCell id="eco-sub" value="Contracts are files, docker images, and a few Python imports. Nothing in this picture is a shared database except coverage.db (rebrew writes, recoverage reads)." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+          <mxGeometry x="40" y="44" width="1200" height="24" as="geometry"/>
+        </mxCell>
+
+        <!-- L0 -->
+        <mxCell id="l0" value="L0  Toolchain layer (build source + images). rebrew never vendors compiler binaries." style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="40" y="76" width="1600" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="rt" value="&lt;b&gt;rebrew-toolchains&lt;/b&gt;&lt;br&gt;Dockerfiles · wrappers · sources.json&lt;br&gt;sibling checkout (REBREW_TOOLCHAINS_DIR)&lt;br&gt;35 compiler images, sha256-pinned" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="64" y="112" width="300" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="img" value="&lt;b&gt;docker images&lt;/b&gt;&lt;br&gt;rebrew/msvc:6.0-win32 (wine in image)&lt;br&gt;rebrew/borland:5.5-win32 · 3.1-win16&lt;br&gt;rebrew/msvc:1.52-win16 · delphi:1.0-win16&lt;br&gt;watcom win32, …  Missing image = hard error" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="460" y="112" width="360" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="native" value="&lt;b&gt;All images, no host compilers&lt;/b&gt;&lt;br&gt;rebrew/gcc:pe-win32 (MinGW PE)&lt;br&gt;rebrew/gcc:linux-x64 · clang:linux-x64&lt;br&gt;rebrew/watcom:2.0-win16 (wcc)&lt;br&gt;native binaries run INSIDE images" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="920" y="112" width="300" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="cli-tc" value="&lt;b&gt;rebrew toolchain&lt;/b&gt;&lt;br&gt;list · status · detect&lt;br&gt;pull · build · vendor&lt;br&gt;smoke · update" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bfdbfe;strokeColor=#1d4ed8;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1300" y="112" width="300" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-rt-img" value="build / pull" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#1d4ed8;fontSize=10;fontColor=#1e3a5f;endArrow=block;endFill=1;" edge="1" parent="1" source="rt" target="img">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-cli-rt" value="reads Dockerfiles" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#1d4ed8;fontSize=10;dashed=1;endArrow=block;" edge="1" parent="1" source="cli-tc" target="rt">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1450" y="236"/><mxPoint x="214" y="236"/></Array></mxGeometry>
+        </mxCell>
+
+        <!-- L1 -->
+        <mxCell id="l1" value="L1  Core workbench (this repo) + per-game workspaces" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="40" y="264" width="1600" height="190" as="geometry"/>
+        </mxCell>
+        <mxCell id="rb" value="&lt;b&gt;rebrew&lt;/b&gt;&lt;br&gt;CLI + Python library (rebrew.*)&lt;br&gt;compile → compare → STATUS&lt;br&gt;GA · FLIRT · catalog · verify&lt;br&gt;toolchain.py docker-only runner" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=12;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="64" y="304" width="320" height="124" as="geometry"/>
+        </mxCell>
+        <mxCell id="prj" value="&lt;b&gt;*-rebrew workspace&lt;/b&gt;&lt;br&gt;target binary + C sources&lt;br&gt;rebrew-project.toml&lt;br&gt;rebrew-functions.toml (STATUS/CFLAGS/BLOCKER)&lt;br&gt;flirt_sigs/ (project overlays)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="460" y="304" width="340" height="124" as="geometry"/>
+        </mxCell>
+        <mxCell id="arts" value="&lt;b&gt;Artifacts rebrew writes&lt;/b&gt;&lt;br&gt;db/coverage.db + data_*.json&lt;br&gt;ga_runs.jsonl · solutions DB&lt;br&gt;matched .c + locked metadata TOML&lt;br&gt;verify_results (incl. similarity)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="880" y="304" width="340" height="124" as="geometry"/>
+        </mxCell>
+        <mxCell id="spec" value="&lt;b&gt;toolchain.py&lt;/b&gt;&lt;br&gt;ToolchainSpec registry&lt;br&gt;entry points + TOML overlay&lt;br&gt;docker run &amp;lt;image&amp;gt; &amp;lt;cc&amp;gt; &amp;lt;args&amp;gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1300" y="304" width="300" height="124" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-rb-prj" value="operates on" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#15803d;fontSize=10;endArrow=block;" edge="1" parent="1" source="rb" target="prj">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-rb-arts" value="writes" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#15803d;fontSize=10;endArrow=block;" edge="1" parent="1" source="rb" target="arts">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="224" y="440"/><mxPoint x="1050" y="440"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-rb-spec" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#15803d;endArrow=block;" edge="1" parent="1" source="rb" target="spec">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="224" y="448"/><mxPoint x="1450" y="448"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-spec-img" value="docker run" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#1d4ed8;fontSize=10;fontColor=#1e3a5f;endArrow=block;" edge="1" parent="1" source="spec" target="img">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1450" y="255"/><mxPoint x="640" y="255"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-spec-native" value="all profiles" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#1d4ed8;fontSize=10;endArrow=block;" edge="1" parent="1" source="spec" target="native">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1450" y="250"/><mxPoint x="1070" y="250"/></Array></mxGeometry>
+        </mxCell>
+
+        <!-- L2 -->
+        <mxCell id="l2" value="L2  Intelligence and visualization (optional extras / sibling CLIs)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="40" y="472" width="1600" height="180" as="geometry"/>
+        </mxCell>
+        <mxCell id="res" value="&lt;b&gt;resembl&lt;/b&gt;&lt;br&gt;MinHash + LSH asm similarity&lt;br&gt;own DB (not used by rebrew)&lt;br&gt;rebrew extra: resembl.scoring&lt;br&gt;verify_results.similarity 0–100" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="64" y="512" width="280" height="116" as="geometry"/>
+        </mxCell>
+        <mxCell id="recov" value="&lt;b&gt;recoverage&lt;/b&gt;&lt;br&gt;Bottle + VanJS coverage SPA&lt;br&gt;reads db/coverage.db only&lt;br&gt;imports nothing from rebrew&lt;br&gt;recoverage check CI gate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="420" y="512" width="280" height="116" as="geometry"/>
+        </mxCell>
+        <mxCell id="reag" value="&lt;b&gt;reagent&lt;/b&gt;&lt;br&gt;autonomous LLM RE agent&lt;br&gt;imports rebrew.* in-process&lt;br&gt;skip / ga_only / llm_then_ga&lt;br&gt;flag_sweep_first / llm_only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="780" y="512" width="280" height="116" as="geometry"/>
+        </mxCell>
+        <mxCell id="flirts" value="&lt;b&gt;rebrew-flirt-sigs&lt;/b&gt;&lt;br&gt;sibling .sig / .pat tree&lt;br&gt;REBREW_FLIRT_SIGS_DIR&lt;br&gt;merged under project flirt_sigs/&lt;br&gt;python-flirt, no IDA required" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1140" y="512" width="280" height="116" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-rb-res" value="optional extra: scoring.py" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7e22ce;fontSize=10;endArrow=block;" edge="1" parent="1" source="rb" target="res">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-arts-recov" value="coverage.db" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7e22ce;fontSize=10;endArrow=block;" edge="1" parent="1" source="arts" target="recov">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1050" y="462"/><mxPoint x="560" y="462"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-reag-rb" value="direct imports" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7e22ce;fontSize=10;endArrow=block;" edge="1" parent="1" source="reag" target="rb">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="920" y="462"/><mxPoint x="224" y="462"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-rb-flirt" value="rebrew flirt" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7e22ce;fontSize=10;endArrow=block;" edge="1" parent="1" source="rb" target="flirts">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="224" y="462"/><mxPoint x="1280" y="462"/></Array></mxGeometry>
+        </mxCell>
+
+        <!-- L3 + external -->
+        <mxCell id="l3" value="L3  Services and product vision" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#fce7f3;strokeColor=#db2777;fontColor=#9d174d;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="40" y="672" width="780" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="rc" value="&lt;b&gt;recompile&lt;/b&gt;&lt;br&gt;FastAPI compiler-as-a-service&lt;br&gt;path-dep: rebrew.toolchain catalog&lt;br&gt;POST /api/v1/compile → docker run&lt;br&gt;rebrew backend via recompile_url" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#db2777;fontColor=#9d174d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="64" y="712" width="350" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="rel" value="&lt;b&gt;relumea&lt;/b&gt;&lt;br&gt;SaaS workbench vision&lt;br&gt;productizes the stack;&lt;br&gt;snowball datasets from matched pairs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#db2777;fontColor=#9d174d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="440" y="712" width="350" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="ext" value="External interoperability (file formats, not Python deps)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#e2e8f0;strokeColor=#475569;fontColor=#1e293b;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="840" y="672" width="800" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="ghidra" value="&lt;b&gt;Ghidra + BinSync&lt;/b&gt;&lt;br&gt;sync: BinSync state-dir TOML&lt;br&gt;MCP only for structural ops&lt;br&gt;binsync-export / import / diff" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;fontColor=#1e293b;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="864" y="712" width="240" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="reccmp" value="&lt;b&gt;reccmp&lt;/b&gt;&lt;br&gt;FUNCTION:/STUB: markers&lt;br&gt;catalog CSV export&lt;br&gt;recomp can read the tree" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;fontColor=#1e293b;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1128" y="712" width="230" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="decomp" value="&lt;b&gt;decompedia&lt;/b&gt;&lt;br&gt;community wiki&lt;br&gt;no code dependency&lt;br&gt;reference only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;fontColor=#1e293b;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1382" y="712" width="230" height="108" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-rc-rb" value="catalog import + compile backend (recompile_url)" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#be185d;fontSize=10;endArrow=block;startArrow=block;startFill=1;" edge="1" parent="1" source="rc" target="rb">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="28" y="766"/><mxPoint x="28" y="366"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-rc-img" value="docker run" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#1d4ed8;fontSize=10;dashed=1;endArrow=block;" edge="1" parent="1" source="rc" target="img">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="239" y="658"/><mxPoint x="640" y="246"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-rb-ghidra" value="state-dir TOML" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#475569;fontSize=10;endArrow=block;startArrow=block;startFill=1;" edge="1" parent="1" source="rb" target="ghidra">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="224" y="658"/><mxPoint x="984" y="658"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-rb-reccmp" value="markers + CSV" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#475569;fontSize=10;dashed=1;endArrow=block;" edge="1" parent="1" source="prj" target="reccmp">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="630" y="658"/><mxPoint x="1243" y="658"/></Array></mxGeometry>
+        </mxCell>
+
+        <mxCell id="legend" value="Blue = compilers / images. Green = rebrew core. Amber = project files. Purple = scoring / coverage / agent. Pink = services. Grey = external formats. Dashed = optional or file-only." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+          <mxGeometry x="40" y="860" width="1500" height="24" as="geometry"/>
+        </mxCell>
+        <mxCell id="see" value="See ECOSYSTEM.md for the same map as mermaid, TOOLCHAIN.md for image tags, FLIRT_SIGNATURES.md for .sig/.pat, MATCH_TYPES.md for EXACT/RELOC/NEAR/PROVEN." style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+          <mxGeometry x="40" y="884" width="1500" height="24" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="loop" name="2. Compile-compare loop">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1760" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="loop-title" value="Inside rebrew: compile → compare → STATUS (and who may write what)" style="text;html=1;strokeColor=none;fillColor=none;align=left;fontSize=18;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="40" y="16" width="1100" height="32" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="src-box" value="Inputs" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#f8fafc;strokeColor=#64748b;fontStyle=1;fontSize=12;fontColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="40" y="64" width="300" height="420" as="geometry"/>
+        </mxCell>
+        <mxCell id="cfile" value="&lt;b&gt;.c / .cpp sources&lt;/b&gt;&lt;br&gt;// FUNCTION: MOD 0xVA&lt;br&gt;file-only: MARKER, VA, MODULE, SYMBOL&lt;br&gt;annotation.py parse_c_file_multi" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="100" width="260" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="toml" value="&lt;b&gt;rebrew-project.toml&lt;/b&gt;&lt;br&gt;targets, compiler profile, paths&lt;br&gt;config.py → ProjectConfig" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="206" width="260" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="meta" value="&lt;b&gt;rebrew-functions.toml&lt;/b&gt;&lt;br&gt;STATUS CFLAGS TOOLCHAIN BLOCKER NOTE&lt;br&gt;mode 0444; CLI chmods to write&lt;br&gt;metadata.py + metadata_model.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="302" width="260" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="bin" value="&lt;b&gt;target binary&lt;/b&gt;&lt;br&gt;PE / ELF / Mach-O / NE&lt;br&gt;binary_loader.py (LIEF) → bytes at VA" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#475569;fontColor=#1e293b;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="408" width="260" height="56" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="mid-box" value="Merge and compile" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#f8fafc;strokeColor=#64748b;fontStyle=1;fontSize=12;fontColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="380" y="64" width="560" height="420" as="geometry"/>
+        </mxCell>
+        <mxCell id="merged" value="&lt;b&gt;merged Annotation&lt;/b&gt;&lt;br&gt;merge_into_annotation()&lt;br&gt;metadata wins for owned fields" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#64748b;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="500" y="110" width="280" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="diag" value="&lt;b&gt;diagnose.py&lt;/b&gt;&lt;br&gt;resolution: per-function TOOLCHAIN/CFLAGS&lt;br&gt;→ nearest rebrew-libraries.toml → project default" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#64748b;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="500" y="200" width="280" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="compile" value="&lt;b&gt;compile.py&lt;/b&gt;&lt;br&gt;compile_to_obj → compile_and_compare&lt;br&gt;docker image, or recompile service&lt;br&gt;extract symbol bytes + reloc slots&lt;br&gt;core.matching.smart_reloc_compare" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="460" y="292" width="360" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="cache" value="compile_cache.py&lt;br&gt;SHA-256 keyed disk cache" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="400" y="420" width="200" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="tcmod" value="toolchain.py&lt;br&gt;ToolchainSpec + docker run" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="620" y="420" width="200" height="48" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="out-box" value="CompareResult and writers" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#f8fafc;strokeColor=#64748b;fontStyle=1;fontSize=12;fontColor=#334155;" vertex="1" parent="1">
+          <mxGeometry x="980" y="64" width="740" height="420" as="geometry"/>
+        </mxCell>
+        <mxCell id="cmp" value="&lt;b&gt;CompareResult&lt;/b&gt;&lt;br&gt;matched · status · match_percent · delta&lt;br&gt;obj_bytes · reloc_offsets · similarity" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="110" width="320" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="status" value="&lt;b&gt;update_source_status&lt;/b&gt;&lt;br&gt;EXACT / RELOC / NEAR_MATCHING / MISMATCH&lt;br&gt;metadata only; never rewrite .c markers&lt;br&gt;rebrew test (single) · verify (batch)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1360" y="100" width="330" height="96" as="geometry"/>
+        </mxCell>
+        <mxCell id="diff" value="&lt;b&gt;diff / near-diag / match&lt;/b&gt;&lt;br&gt;byte + mnemonic diffs&lt;br&gt;NEAR_MATCHING buckets&lt;br&gt;GA + flag sweep (page 4)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7aa;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="220" width="320" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="prove" value="&lt;b&gt;prove.py (optional angr)&lt;/b&gt;&lt;br&gt;NEAR_MATCHING → PROVEN&lt;br&gt;when bytes will never match" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1360" y="220" width="330" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="cat" value="&lt;b&gt;catalog / build-db&lt;/b&gt;&lt;br&gt;data_*.json → coverage.db&lt;br&gt;dashboard.py · recoverage" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="340" width="320" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="blocker" value="&lt;b&gt;blocker writers&lt;/b&gt;&lt;br&gt;update_field / remove_field&lt;br&gt;diff --fix-blocker, near-diag, document-unmatched" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1360" y="340" width="330" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e-c-m" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#64748b;endArrow=block;" edge="1" parent="1" source="cfile" target="merged">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-meta-m" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ea580c;endArrow=block;" edge="1" parent="1" source="meta" target="merged">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-toml-d" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#3b82f6;endArrow=block;" edge="1" parent="1" source="toml" target="diag">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-m-c" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;endArrow=block;" edge="1" parent="1" source="merged" target="compile">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-d-c" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;endArrow=block;" edge="1" parent="1" source="diag" target="compile">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-bin-c" value="target bytes" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#475569;fontSize=10;endArrow=block;" edge="1" parent="1" source="bin" target="compile">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="190" y="496"/><mxPoint x="640" y="496"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-tc-c" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#3b82f6;endArrow=block;" edge="1" parent="1" source="tcmod" target="compile">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-cache-c" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;endArrow=block;" edge="1" parent="1" source="cache" target="compile">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-c-cmp" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;endArrow=block;strokeWidth=2;" edge="1" parent="1" source="compile" target="cmp">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-cmp-st" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ea580c;endArrow=block;" edge="1" parent="1" source="cmp" target="status">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-cmp-diff" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ea580c;endArrow=block;" edge="1" parent="1" source="cmp" target="diff">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-st-meta" value="STATUS" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ea580c;fontSize=10;dashed=1;endArrow=block;" edge="1" parent="1" source="status" target="meta">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1525" y="496"/><mxPoint x="190" y="496"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-bl-meta" value="BLOCKER" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ef4444;fontSize=10;dashed=1;endArrow=block;" edge="1" parent="1" source="blocker" target="meta">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1525" y="490"/><mxPoint x="190" y="490"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-bin-cat" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9333ea;endArrow=block;" edge="1" parent="1" source="bin" target="cat">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="190" y="500"/><mxPoint x="1170" y="500"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-diff-prove" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9333ea;endArrow=block;" edge="1" parent="1" source="diff" target="prove">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="rules" value="Routing: STATUS/CFLAGS/TOOLCHAIN/BLOCKER live only in rebrew-functions.toml. .c markers never get a STATUS rewrite. Hand-edit of locked TOML fails (0444); use rebrew test / verify / blocker / diff --fix-blocker. Similarity is best-effort: missing resembl leaves CompareResult.similarity = None, never a fake 0." style="rounded=1;whiteSpace=wrap;html=1;align=left;spacingLeft=12;spacingRight=12;fillColor=#fff7ed;strokeColor=#ea580c;fontColor=#7c2d12;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="508" width="1680" height="56" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="cli-row" value="CLI that drive this loop" style="text;html=1;align=left;fontSize=13;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="40" y="580" width="400" height="24" as="geometry"/>
+        </mxCell>
+        <mxCell id="c1" value="rebrew test&lt;br&gt;one function, promote STATUS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="40" y="612" width="200" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2" value="rebrew verify&lt;br&gt;batch + cache + similarity col" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="260" y="612" width="200" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3" value="rebrew diff&lt;br&gt;hex/asm + --fix-blocker" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7aa;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="480" y="612" width="200" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="c4" value="rebrew match&lt;br&gt;GA / --flag-sweep / --all" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7aa;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="700" y="612" width="200" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="c5" value="rebrew prove&lt;br&gt;angr equivalence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="920" y="612" width="200" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="c6" value="rebrew todo / skeleton / lint&lt;br&gt;pick, stub, gate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1140" y="612" width="220" height="56" as="geometry"/>
+        </mxCell>
+        <mxCell id="c7" value="rebrew catalog / build-db&lt;br&gt;coverage.db for recoverage" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1380" y="612" width="220" height="56" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="toolchains" name="3. Toolchains">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1680" pageHeight="1120" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="tc-title" value="How rebrew uses toolchains" style="text;html=1;align=left;fontSize=18;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="40" y="16" width="700" height="32" as="geometry"/>
+        </mxCell>
+        <mxCell id="tc-sub" value="One ToolchainSpec per compiler version. Every compile runs inside its docker image (wine / DOSBox / native binary inside); the host never executes a compiler. The recompile service serves the same images over HTTP." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+          <mxGeometry x="40" y="44" width="1400" height="24" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="src-lane" value="Build source (sibling repo)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="380" height="420" as="geometry"/>
+        </mxCell>
+        <mxCell id="tcrepo" value="&lt;b&gt;rebrew-toolchains&lt;/b&gt;&lt;br&gt;github.com/maci0/rebrew-toolchains&lt;br&gt;or REBREW_TOOLCHAINS_DIR&lt;br&gt;&lt;br&gt;base/ shared Debian digest&lt;br&gt;family/version Dockerfiles&lt;br&gt;wrapper entrypoints&lt;br&gt;sources.json (sha256 pins)&lt;br&gt;16-bit media tarballs (user-supplied)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="116" width="340" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="tccli" value="&lt;b&gt;rebrew toolchain&lt;/b&gt;&lt;br&gt;build / vendor  read that checkout&lt;br&gt;pull / smoke    operate on images&lt;br&gt;detect          diec → PDB → heuristics&lt;br&gt;status / list   registry + docker presence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bfdbfe;strokeColor=#1d4ed8;fontColor=#1e3a5f;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="336" width="340" height="140" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="reg-lane" value="In-process registry" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="440" y="80" width="400" height="420" as="geometry"/>
+        </mxCell>
+        <mxCell id="specbox" value="&lt;b&gt;ToolchainSpec&lt;/b&gt;&lt;br&gt;image tag, compiler binary, flag style&lt;br&gt;object format (COFF / OMF16 / ELF)&lt;br&gt;bits=16 joins arch-alignment set&lt;br&gt;&lt;br&gt;Built-ins + entry points&lt;br&gt;rebrew.toolchains&lt;br&gt;+ REBREW_TOOLCHAIN_OVERLAY_DIR TOML&lt;br&gt;duplicate name = RegistryError" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="460" y="116" width="360" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="resolve" value="&lt;b&gt;Resolution order&lt;/b&gt;&lt;br&gt;1. per-function TOOLCHAIN / CFLAGS&lt;br&gt;2. nearest rebrew-libraries.toml&lt;br&gt;3. project [compiler] default&lt;br&gt;&lt;br&gt;library presets fill gaps&lt;br&gt;(msvcrt-static = /MT /O2 /Gd)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="460" y="336" width="360" height="140" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="run-lane" value="Execution" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="860" y="80" width="780" height="420" as="geometry"/>
+        </mxCell>
+        <mxCell id="dock" value="&lt;b&gt;docker-only (every toolchain)&lt;/b&gt;&lt;br&gt;docker run --rm -v project:/work &amp;lt;image&amp;gt; &amp;lt;cc&amp;gt; &amp;lt;flags&amp;gt;&lt;br&gt;wine / DOSBox / native binary is inside the image.&lt;br&gt;&lt;br&gt;msvc 1.0–11.0 · borlandc55 · watcom (win32)&lt;br&gt;tc16 · msvc1.52 · delphi16 · gcc-pe · gcc · clang" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="880" y="116" width="360" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="nat" value="&lt;b&gt;recompile service (remote)&lt;/b&gt;&lt;br&gt;POST /api/v1/compile + artifact GET&lt;br&gt;same images, backend-pinned cache id&lt;br&gt;&lt;br&gt;[compiler] recompile_url&lt;br&gt;or REBREW_RECOMPILE_URL&lt;br&gt;opt-in emit_assembly tap" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1260" y="116" width="360" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="obj" value="&lt;b&gt;Object parse&lt;/b&gt;&lt;br&gt;parsers.py  COFF/ELF/Mach-O via LIEF&lt;br&gt;omf16.py    16-bit OMF (MSVC 1.52 dialect)&lt;br&gt;→ function bytes + reloc slot offsets" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="880" y="308" width="360" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="cmake" value="&lt;b&gt;CMake bridge&lt;/b&gt;&lt;br&gt;rebrew cmake-toolchain --out cmake/&lt;br&gt;rebrew-cmake-{cl,link,lib} wrap docker run&lt;br&gt;same images, same wineprefix flock" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1260" y="308" width="360" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="smoke" value="rebrew toolchain smoke: byte-reproducible objects for every image-backed toolchain. Missing image is a hard error (rebrew toolchain build | pull). Remote backend: cache id pins (url, profile), never shared with local." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="880" y="424" width="740" height="56" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e-repo-cli" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#1d4ed8;endArrow=block;" edge="1" parent="1" source="tcrepo" target="tccli">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-cli-spec" value="registers / builds" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;fontSize=10;endArrow=block;" edge="1" parent="1" source="tccli" target="specbox">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-spec-dock" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ca8a04;endArrow=block;" edge="1" parent="1" source="specbox" target="dock">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="640" y="108"/><mxPoint x="1060" y="108"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-spec-nat" value="remote backend" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ca8a04;fontSize=10;endArrow=block;" edge="1" parent="1" source="specbox" target="nat">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="640" y="102"/><mxPoint x="1440" y="102"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-dock-obj" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ca8a04;endArrow=block;" edge="1" parent="1" source="dock" target="obj">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-nat-obj" value="artifact bytes" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ca8a04;fontSize=10;endArrow=block;" edge="1" parent="1" source="nat" target="obj">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="detect-lane" value="How a project picks a profile" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="520" width="1600" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="d1" value="&lt;b&gt;1. Detect&lt;/b&gt;&lt;br&gt;toolchain_detect.py&lt;br&gt;diec → PDB S_COMPILE3&lt;br&gt;→ codegen heuristics&lt;br&gt;(.buildid, 0f 1f nops, chkstk_ms)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="556" width="280" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="d2" value="&lt;b&gt;2. Init / cfg set&lt;/b&gt;&lt;br&gt;rebrew init --compiler msvc6|gcc-pe|…&lt;br&gt;writes [compiler] in project toml&lt;br&gt;seeds CRT / opt from detect" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="380" y="556" width="280" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="d3" value="&lt;b&gt;3. Per-library override&lt;/b&gt;&lt;br&gt;rebrew library set&lt;br&gt;rebrew-libraries.toml walk-up&lt;br&gt;whole subtree, one image+flags" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="700" y="556" width="280" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="d4" value="&lt;b&gt;4. Per-function override&lt;/b&gt;&lt;br&gt;TOOLCHAIN / CFLAGS in metadata&lt;br&gt;flag sweep may write CFLAGS&lt;br&gt;GA uses that set as the genome" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="556" width="280" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="d5" value="&lt;b&gt;5. Compile&lt;/b&gt;&lt;br&gt;compile_to_obj&lt;br&gt;matcher.compiler.build_candidate_obj_only&lt;br&gt;same runner, SHA-256 cache" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1340" y="556" width="280" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-d1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9333ea;endArrow=block;" edge="1" parent="1" source="d1" target="d2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-d2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9333ea;endArrow=block;" edge="1" parent="1" source="d2" target="d3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-d3" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9333ea;endArrow=block;" edge="1" parent="1" source="d3" target="d4">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-d4" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;endArrow=block;" edge="1" parent="1" source="d4" target="d5">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="caveat" value="gcc-pe caveat: byte-exact match needs the author's exact GCC (the image pins one version). Modern GCC vs 4.x–7.x usually only matches structurally (resembl / rebrew diff). Document the semantic decomp and BLOCKER rather than forcing EXACT." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+          <mxGeometry x="40" y="736" width="1600" height="24" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="matching" name="4. FLIRT, resembl, GA">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1760" pageHeight="1280" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="m-title" value="Matching stack: library IDs, structural score, GA, prover" style="text;html=1;align=left;fontSize=18;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="40" y="16" width="900" height="32" as="geometry"/>
+        </mxCell>
+
+        <!-- Intake / FLIRT -->
+        <mxCell id="flirt-lane" value="A. Intake: identify known library code (free wins, skip the GA)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="56" width="1680" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="tbin" value="&lt;b&gt;target binary&lt;/b&gt;&lt;br&gt;PE/ELF/NE bytes" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="118" width="160" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="disc" value="&lt;b&gt;discover.py&lt;/b&gt;&lt;br&gt;rizin aaa → aap&lt;br&gt;→ capstone linear sweep" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="260" y="110" width="200" height="86" as="geometry"/>
+        </mxCell>
+        <mxCell id="flirt" value="&lt;b&gt;flirt.py&lt;/b&gt;&lt;br&gt;python-flirt  .sig / .pat&lt;br&gt;rebrew-flirt-sigs + project flirt_sigs/&lt;br&gt;rebrew gen-flirt-pat from .lib" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="500" y="110" width="280" height="86" as="geometry"/>
+        </mxCell>
+        <mxCell id="idlib" value="&lt;b&gt;identify_library.py&lt;/b&gt;&lt;br&gt;CRT / zlib backends&lt;br&gt;crt_match.py source xref" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="820" y="110" width="220" height="86" as="geometry"/>
+        </mxCell>
+        <mxCell id="catg" value="&lt;b&gt;catalog&lt;/b&gt;&lt;br&gt;FunctionEntry registry&lt;br&gt;SIZE / names / coverage grid" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="110" width="220" height="86" as="geometry"/>
+        </mxCell>
+        <mxCell id="libmark" value="&lt;b&gt;LIBRARY / SKIP&lt;/b&gt;&lt;br&gt;attributed, not decompiled&lt;br&gt;document-unmatched for the rest" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1340" y="110" width="250" height="86" as="geometry"/>
+        </mxCell>
+        <mxCell id="skel" value="rebrew intake / skeleton --batch --skip-fragments  writes STUB .c for remaining functions. rebrew todo ranks what to attack next." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="202" width="1530" height="42" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-tb-d" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ca8a04;endArrow=block;" edge="1" parent="1" source="tbin" target="disc">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-tb-f" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ca8a04;endArrow=block;" edge="1" parent="1" source="tbin" target="flirt">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="140" y="96"/><mxPoint x="640" y="96"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-f-id" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ca8a04;endArrow=block;" edge="1" parent="1" source="flirt" target="idlib">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-disc-catg" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ca8a04;endArrow=block;" edge="1" parent="1" source="disc" target="catg">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="360" y="92"/><mxPoint x="1190" y="92"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-id-lib" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;endArrow=block;" edge="1" parent="1" source="idlib" target="libmark">
+          <mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="930" y="100"/><mxPoint x="1465" y="100"/></Array></mxGeometry>
+        </mxCell>
+        <mxCell id="e-c-lib" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;endArrow=block;" edge="1" parent="1" source="catg" target="libmark">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Human / agent loop -->
+        <mxCell id="loop-lane" value="B. Per-function iteration (rebrew-workflow / rebrew-matching skills)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="276" width="1680" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="p1" value="todo" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="316" width="100" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="p2" value="skeleton" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="200" y="316" width="110" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="p3" value="decomp seed&lt;br&gt;Ghidra / kuna / r2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="350" y="308" width="150" height="66" as="geometry"/>
+        </mxCell>
+        <mxCell id="p4" value="write C89" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="540" y="316" width="110" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="p5" value="rebrew test" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=12;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="690" y="316" width="120" height="50" as="geometry"/>
+        </mxCell>
+        <mxCell id="p6" value="EXACT / RELOC&lt;br&gt;STATUS written" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="860" y="308" width="150" height="66" as="geometry"/>
+        </mxCell>
+        <mxCell id="p7" value="NEAR_MATCHING&lt;br&gt;diff / near-diag" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7aa;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1050" y="308" width="160" height="66" as="geometry"/>
+        </mxCell>
+        <mxCell id="p8" value="COMPILE ERROR&lt;br&gt;fix / rebrew fix" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1250" y="308" width="150" height="66" as="geometry"/>
+        </mxCell>
+        <mxCell id="p9" value="MISMATCH&lt;br&gt;rewrite C" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1440" y="308" width="130" height="66" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-p1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#3b82f6;endArrow=block;" edge="1" parent="1" source="p1" target="p2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-p2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#3b82f6;endArrow=block;" edge="1" parent="1" source="p2" target="p3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-p3" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#3b82f6;endArrow=block;" edge="1" parent="1" source="p3" target="p4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-p4" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;endArrow=block;" edge="1" parent="1" source="p4" target="p5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-p5a" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;endArrow=block;" edge="1" parent="1" source="p5" target="p6"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-p5b" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ea580c;endArrow=block;" edge="1" parent="1" source="p5" target="p7"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="750" y="384"/><mxPoint x="1130" y="384"/></Array></mxGeometry></mxCell>
+        <mxCell id="e-p5c" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ef4444;endArrow=block;" edge="1" parent="1" source="p5" target="p8"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="750" y="392"/><mxPoint x="1325" y="392"/></Array></mxGeometry></mxCell>
+        <mxCell id="e-p5d" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ef4444;endArrow=block;" edge="1" parent="1" source="p5" target="p9"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="750" y="400"/><mxPoint x="1505" y="400"/></Array></mxGeometry></mxCell>
+        <mxCell id="e-p8" value="edit" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ef4444;fontSize=9;dashed=1;endArrow=block;" edge="1" parent="1" source="p8" target="p4"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1325" y="408"/><mxPoint x="595" y="408"/></Array></mxGeometry></mxCell>
+        <mxCell id="e-p9" value="edit" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ef4444;fontSize=9;dashed=1;endArrow=block;" edge="1" parent="1" source="p9" target="p4"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1505" y="416"/><mxPoint x="595" y="416"/></Array></mxGeometry></mxCell>
+
+        <!-- GA -->
+        <mxCell id="ga-lane" value="C. GA engine (rebrew match) when the last 5–20% is flags and expression style" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="446" width="1680" height="280" as="geometry"/>
+        </mxCell>
+        <mxCell id="ga-src" value="&lt;b&gt;seed .c&lt;/b&gt;&lt;br&gt;STUB or NEAR_MATCHING&lt;br&gt;--all / --improve / --near-miss" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="490" width="200" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="mut" value="&lt;b&gt;mutator.py&lt;/b&gt;&lt;br&gt;119 mut_* ops (tree-sitter)&lt;br&gt;mutate_code / crossover&lt;br&gt;entry point rebrew.mutations" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7aa;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="300" y="490" width="230" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="build" value="&lt;b&gt;compiler.build_candidate_obj_only&lt;/b&gt;&lt;br&gt;compile_to_obj: image or recompile&lt;br&gt;CompileCache SHA-256&lt;br&gt;60s timeout per build" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="570" y="490" width="240" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="score" value="&lt;b&gt;scoring.score_candidate&lt;/b&gt;&lt;br&gt;zero reloc slots, mask reg-only&lt;br&gt;numpy byte score + capstone mnemonics&lt;br&gt;Score.total (lower is better)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="850" y="490" width="280" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="win" value="&lt;b&gt;EXACT / RELOC&lt;/b&gt;&lt;br&gt;write source + CFLAGS&lt;br&gt;update_source_status&lt;br&gt;save_solution()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1170" y="490" width="220" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="budget" value="&lt;b&gt;budget exhausted&lt;/b&gt;&lt;br&gt;keep best NEAR&lt;br&gt;ga_runs.jsonl" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1430" y="490" width="200" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="flags" value="&lt;b&gt;flag_sweep&lt;/b&gt;&lt;br&gt;MSVC6_SWEEP_TIERS&lt;br&gt;quick / targeted / normal / thorough / full&lt;br&gt;rebrew match --flag-sweep-only --tier targeted" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="600" width="340" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="sols" value="&lt;b&gt;solutions.py&lt;/b&gt;&lt;br&gt;cross-function cflags + mutation seeds&lt;br&gt;find_similar() warms the next run&lt;br&gt;target-scoped; --extra-seed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="430" y="600" width="340" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="llm" value="&lt;b&gt;Seeds besides mutate&lt;/b&gt;&lt;br&gt;--kuna-seed  decompiler backend&lt;br&gt;--llm-seed   llm_seed.py&lt;br&gt;reagent workflows wrap the same loop" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="800" y="600" width="340" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="cfgged" value="&lt;b&gt;cfg_ged.py&lt;/b&gt;&lt;br&gt;basic-block graph edit distance&lt;br&gt;feeds near-diag (structural vs flag-fixable)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1170" y="600" width="460" height="90" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e-ga1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ea580c;endArrow=block;" edge="1" parent="1" source="ga-src" target="mut"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-ga2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#3b82f6;endArrow=block;" edge="1" parent="1" source="mut" target="build"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-ga3" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ea580c;endArrow=block;" edge="1" parent="1" source="build" target="score"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-ga4" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;endArrow=block;" edge="1" parent="1" source="score" target="win"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-ga5" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ef4444;endArrow=block;" edge="1" parent="1" source="score" target="budget"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="990" y="584"/><mxPoint x="1530" y="584"/></Array></mxGeometry></mxCell>
+        <mxCell id="e-ga-loop" value="next gen" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ea580c;fontSize=10;dashed=1;endArrow=block;" edge="1" parent="1" source="score" target="mut"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="990" y="590"/><mxPoint x="415" y="590"/></Array></mxGeometry></mxCell>
+        <mxCell id="e-p7-ga" value="rebrew match" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ea580c;fontSize=10;endArrow=block;" edge="1" parent="1" source="p7" target="ga-src"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="28" y="384"/><mxPoint x="28" y="530"/></Array></mxGeometry></mxCell>
+        <mxCell id="e-flags-b" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#3b82f6;endArrow=block;" edge="1" parent="1" source="flags" target="build"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-sols-m" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ea580c;endArrow=block;" edge="1" parent="1" source="sols" target="mut"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- resembl + prove -->
+        <mxCell id="res-lane" value="D. resembl (structural score) vs score_candidate (GA fitness) vs prove (semantics)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="746" width="1680" height="220" as="geometry"/>
+        </mxCell>
+        <mxCell id="r1" value="&lt;b&gt;resembl.scoring&lt;/b&gt;&lt;br&gt;optional extra [similarity]&lt;br&gt;path-pin ../resembl&lt;br&gt;&lt;br&gt;tokenize asm: REG / IMM / MEM_SIZE&lt;br&gt;weighted shingles, MinHash&lt;br&gt;hybrid Jaccard + rapidfuzz ratio&lt;br&gt;&lt;br&gt;code_similarity() → 0–100 float&lt;br&gt;used by verify.py for every function&lt;br&gt;None if extra missing (not a fake 0)&lt;br&gt;resembl's own LSH DB is not used" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="786" width="420" height="160" as="geometry"/>
+        </mxCell>
+        <mxCell id="r2" value="&lt;b&gt;matcher.scoring (always on)&lt;/b&gt;&lt;br&gt;GA fitness, no resembl required&lt;br&gt;&lt;br&gt;byte_score (reloc-zeroed, prologue-weighted)&lt;br&gt;reloc_score · mnemonic_score · prologue_bonus&lt;br&gt;structural_similarity() for near-diag&lt;br&gt;capstone + numpy only&lt;br&gt;&lt;br&gt;similar.py is a separate clone finder&lt;br&gt;(mnemonic-histogram, not resembl)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="520" y="786" width="420" height="160" as="geometry"/>
+        </mxCell>
+        <mxCell id="r3" value="&lt;b&gt;prove.py (optional angr)&lt;/b&gt;&lt;br&gt;symbolic equivalence&lt;br&gt;&lt;br&gt;when register allocation / scheduling&lt;br&gt;will never byte-match&lt;br&gt;NEAR_MATCHING → PROVEN&lt;br&gt;honored only over legitimate byte states;&lt;br&gt;stale PROVEN is demoted on verify&lt;br&gt;&lt;br&gt;[prove] extra; missing angr is a hard skip" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="980" y="786" width="340" height="160" as="geometry"/>
+        </mxCell>
+        <mxCell id="r4" value="&lt;b&gt;STATUS meaning&lt;/b&gt;&lt;br&gt;EXACT  bytes identical&lt;br&gt;RELOC  identical after reloc mask&lt;br&gt;NEAR_MATCHING  close, not done&lt;br&gt;PROVEN  semantics, not bytes&lt;br&gt;SKIP / LIBRARY  out of scope&lt;br&gt;STUB  skeleton only&lt;br&gt;&lt;br&gt;MATCH_TYPES.md has the byte examples" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1360" y="786" width="330" height="160" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="backflow" name="5. Reverse data flows">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1760" pageHeight="1380" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="bf-title" value="How data flows back: contracts, not shared databases" style="text;html=1;align=left;fontSize=18;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="40" y="16" width="900" height="32" as="geometry"/>
+        </mxCell>
+        <mxCell id="bf-sub" value="Solid arrows write into a rebrew project (metadata, sources, coverage.db). Dashed arrows are consume-only. Grey boxes never write STATUS. Relumea / ML snowball / recondb are vision, not shipped." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+          <mxGeometry x="40" y="44" width="1600" height="24" as="geometry"/>
+        </mxCell>
+
+        <!-- Project hub -->
+        <mxCell id="hub" value="*-rebrew project (guild-rebrew, win2k-notepad-rebrew, … under rebrew-projects/)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="480" y="80" width="800" height="210" as="geometry"/>
+        </mxCell>
+        <mxCell id="h-src" value="&lt;b&gt;C sources&lt;/b&gt;&lt;br&gt;FUNCTION: markers&lt;br&gt;file-only VA/MODULE/SYMBOL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="500" y="116" width="180" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="h-meta" value="&lt;b&gt;rebrew-functions.toml&lt;/b&gt;&lt;br&gt;STATUS CFLAGS BLOCKER&lt;br&gt;0444; CLI writers only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="700" y="116" width="180" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="h-db" value="&lt;b&gt;db/coverage.db&lt;/b&gt;&lt;br&gt;+ data_*.json&lt;br&gt;schema: DB_FORMAT.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="900" y="116" width="170" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="h-ga" value="&lt;b&gt;ga_runs.jsonl&lt;/b&gt;&lt;br&gt;solutions DB&lt;br&gt;seeds next match" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1090" y="116" width="170" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="h-note" value="One project = one binary. Durable facts live here. Siblings either read these files or shell/import rebrew to rewrite them. Nothing else owns STATUS." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="500" y="200" width="760" height="70" as="geometry"/>
+        </mxCell>
+
+        <!-- Coverage reverse -->
+        <mxCell id="cov-lane" value="1. Coverage dashboard (recoverage) — file contract + regen subprocess" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="310" width="1680" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="cov1" value="rebrew catalog --json&lt;br&gt;→ db/data_*.json" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="350" width="200" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="cov2" value="rebrew build-db&lt;br&gt;→ db/coverage.db" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="300" y="350" width="200" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="cov3" value="&lt;b&gt;recoverage serve&lt;/b&gt;&lt;br&gt;Bottle + VanJS defrag grid&lt;br&gt;imports nothing from rebrew" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="540" y="350" width="240" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="cov4" value="&lt;b&gt;POST /api/regen&lt;/b&gt;&lt;br&gt;or recoverage serve --regen&lt;br&gt;uv run rebrew catalog + build-db&lt;br&gt;rewrites coverage.db in-place" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="820" y="350" width="280" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="cov5" value="recoverage check / stats&lt;br&gt;CI gate, read-only&lt;br&gt;rebrew dashboard.py also reads db" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1140" y="350" width="260" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="cov6" value="Does not write STATUS&lt;br&gt;or touch .c files" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#475569;fontColor=#1e293b;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1440" y="350" width="250" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-c1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9333ea;endArrow=block;" edge="1" parent="1" source="cov1" target="cov2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-c2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9333ea;endArrow=block;" edge="1" parent="1" source="cov2" target="cov3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-c3" value="rebuild" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ca8a04;fontSize=10;endArrow=block;" edge="1" parent="1" source="cov4" target="cov1"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="960" y="442"/><mxPoint x="160" y="442"/></Array></mxGeometry></mxCell>
+        <mxCell id="e-c4" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9333ea;dashed=1;endArrow=block;" edge="1" parent="1" source="cov3" target="cov5"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="660" y="448"/><mxPoint x="1270" y="448"/></Array></mxGeometry></mxCell>
+        <mxCell id="e-hdb-c" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9333ea;endArrow=block;" edge="1" parent="1" source="h-db" target="cov3"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- BinSync + Ghidra -->
+        <mxCell id="bs-lane" value="2. Collaboration: BinSync (fields) and Ghidra ReVa MCP (structure only)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#e2e8f0;strokeColor=#475569;fontColor=#1e293b;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="480" width="1680" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="bs1" value="rebrew binsync-export&lt;br&gt;functions/*.toml&lt;br&gt;global_vars.toml · structs/*.toml&lt;br&gt;[rebrew] STATUS/CFLAGS as comments" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="520" width="260" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="bs2" value="&lt;b&gt;BinSync state dir&lt;/b&gt;&lt;br&gt;plain TOML, no libbs&lt;br&gt;IDA · Binary Ninja · Ghidra plugins" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="360" y="520" width="240" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="bs3" value="rebrew binsync-import&lt;br&gt;names, prototypes, global labels&lt;br&gt;--accept-binsync / --accept-local&lt;br&gt;writes metadata + source" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="640" y="520" width="260" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="bs4" value="binsync-diff&lt;br&gt;read-only CI gate&lt;br&gt;exit 1 on divergence" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="940" y="520" width="200" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="bs5" value="&lt;b&gt;rebrew sync (ReVa MCP)&lt;/b&gt;&lt;br&gt;create-function, bookmarks, data&lt;br&gt;not the field store&lt;br&gt;interactive Ghidra only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="520" width="240" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="bs6" value="cross-import&lt;br&gt;matched funcs from&lt;br&gt;another *-rebrew target" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1460" y="520" width="230" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-bs1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#475569;endArrow=block;" edge="1" parent="1" source="h-meta" target="bs1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-bs2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#475569;endArrow=block;" edge="1" parent="1" source="bs1" target="bs2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-bs3" value="plugins rename" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#475569;fontSize=10;endArrow=block;startArrow=block;startFill=1;" edge="1" parent="1" source="bs2" target="bs3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-bs4" value="apply" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ca8a04;fontSize=10;endArrow=block;" edge="1" parent="1" source="bs3" target="h-meta"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-bs5" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ca8a04;endArrow=block;" edge="1" parent="1" source="bs3" target="h-src"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- External GUIs / reccmp -->
+        <mxCell id="ext-lane" value="3. External GUIs and reccmp (mostly consume; objdiff compiles back through rebrew)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="670" width="1680" height="160" as="geometry"/>
+        </mxCell>
+        <mxCell id="ex1" value="&lt;b&gt;rebrew objdiff&lt;/b&gt;&lt;br&gt;synthesized target COFF + objdiff.json&lt;br&gt;rebrew-objdiff-build = custom_make&lt;br&gt;compiles base .obj via same toolchain" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bfdbfe;strokeColor=#1d4ed8;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="710" width="300" height="96" as="geometry"/>
+        </mxCell>
+        <mxCell id="ex2" value="&lt;b&gt;rebrew decompme&lt;/b&gt;&lt;br&gt;upload COFF + C seed + context&lt;br&gt;claim_token URL; anonymous create&lt;br&gt;no automatic pull back" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="400" y="710" width="280" height="96" as="geometry"/>
+        </mxCell>
+        <mxCell id="ex3" value="&lt;b&gt;reccmp&lt;/b&gt;&lt;br&gt;markers in .c, catalog --csv&lt;br&gt;recomp build reads the tree&lt;br&gt;round-trip splices matched funcs into PE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="720" y="710" width="300" height="96" as="geometry"/>
+        </mxCell>
+        <mxCell id="ex4" value="&lt;b&gt;report --decomp-dev&lt;/b&gt;&lt;br&gt;objdiff-format report.json&lt;br&gt;static HTML site also emitted" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1060" y="710" width="280" height="96" as="geometry"/>
+        </mxCell>
+        <mxCell id="ex5" value="Human copies improved C&lt;br&gt;from decomp.me / objdiff&lt;br&gt;then rebrew test promotes STATUS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1380" y="710" width="300" height="96" as="geometry"/>
+        </mxCell>
+
+        <!-- Services / agent / ML -->
+        <mxCell id="svc-lane" value="4. Services, agent, similarity, ML (what actually writes back vs what only consumes)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#fce7f3;strokeColor=#db2777;fontColor=#9d174d;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="850" width="1680" height="280" as="geometry"/>
+        </mxCell>
+        <mxCell id="sv1" value="&lt;b&gt;recompile&lt;/b&gt;&lt;br&gt;POST /api/v1/compile&lt;br&gt;path-dep: rebrew.toolchain catalog&lt;br&gt;docker run same images&lt;br&gt;artifacts/{id} + ledger.json&lt;br&gt;emit_assembly → train_data/train.jsonl&lt;br&gt;&lt;br&gt;Does not read a project.&lt;br&gt;Does not write STATUS." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#db2777;fontColor=#9d174d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="890" width="300" height="210" as="geometry"/>
+        </mxCell>
+        <mxCell id="sv2" value="&lt;b&gt;reagent&lt;/b&gt;&lt;br&gt;in-process rebrew.* imports&lt;br&gt;skip / ga_only / llm_then_ga /&lt;br&gt;flag_sweep_first / llm_only&lt;br&gt;own SQLite run log&lt;br&gt;&lt;br&gt;Writes STATUS/CFLAGS through&lt;br&gt;the same metadata writers.&lt;br&gt;This is the live reverse path&lt;br&gt;for the LLM loop.&lt;br&gt;(sibling listed; not in this workspace checkout)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="390" y="890" width="300" height="210" as="geometry"/>
+        </mxCell>
+        <mxCell id="sv3" value="&lt;b&gt;resembl&lt;/b&gt;&lt;br&gt;rebrew imports resembl.scoring only&lt;br&gt;fills verify_results.similarity&lt;br&gt;&lt;br&gt;resembl CLI has its own LSH DB&lt;br&gt;(SQLite/Postgres/…). rebrew never&lt;br&gt;indexes functions into it.&lt;br&gt;&lt;br&gt;One-way library call.&lt;br&gt;No writeback." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#db2777;fontColor=#9d174d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="720" y="890" width="300" height="210" as="geometry"/>
+        </mxCell>
+        <mxCell id="sv4" value="&lt;b&gt;Within-project feedback&lt;/b&gt;&lt;br&gt;solutions.py seeds later GA runs&lt;br&gt;ga_runs.jsonl is history&lt;br&gt;verify demotes stale PROVEN&lt;br&gt;library / FLIRT marks SKIP&lt;br&gt;&lt;br&gt;rebrew-flirt-sigs and&lt;br&gt;rebrew-toolchains are consume-only&lt;br&gt;(images + .sig/.pat in; nothing out)." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1050" y="890" width="300" height="210" as="geometry"/>
+        </mxCell>
+        <mxCell id="sv5" value="&lt;b&gt;Not shipped (vision)&lt;/b&gt;&lt;br&gt;relumea SaaS workbench&lt;br&gt;recondb placeholder&lt;br&gt;decompedia wiki (markdown only)&lt;br&gt;ML_TRAINING.md snowball / LoRA&lt;br&gt;&lt;br&gt;Intended later: matched pairs +&lt;br&gt;recompile train.jsonl → fine-tune&lt;br&gt;→ reagent. Do not document as live." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#475569;fontColor=#1e293b;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1380" y="890" width="310" height="210" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="legend2" value="Amber boxes write into the project. White/pink/grey boxes consume or are vision. Graph is acyclic at the repo layer: toolchains/resembl → rebrew → recoverage/recompile; reagent imports rebrew; relumea sits above and is not a dependency." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1148" width="1680" height="24" as="geometry"/>
+        </mxCell>
+        <mxCell id="see2" value="Workspace: rebrew, rebrew-toolchains, rebrew-flirt-sigs, rebrew-projects, resembl, recoverage, recompile, relumea, recondb, guild-rebrew. decompedia and objconv-fork live under third-party/. reagent is documented as a sibling but is not in this checkout." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1172" width="1680" height="24" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="configs" name="6. Config and store tiers">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1760" pageHeight="1420" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="cf-title" value="Config files, concerns, and who may write them" style="text;html=1;align=left;fontSize=18;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="40" y="16" width="900" height="32" as="geometry"/>
+        </mxCell>
+        <mxCell id="cf-sub" value="Four tiers from METADATA.md. Canonical is the only source of non-derivable facts. Precedence for compile: CLI flags &gt; per-function metadata &gt; rebrew-libraries.toml walk-up &gt; rebrew-project.toml &gt; env &gt; defaults." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+          <mxGeometry x="40" y="44" width="1650" height="24" as="geometry"/>
+        </mxCell>
+
+        <!-- T0 canonical -->
+        <mxCell id="t0" value="Tier 0  Canonical (user-owned). Identity in .c; volatile fields in locked TOML. Hand-edit only rebrew-project.toml and (via CLI) the three metadata TOMLs." style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="1680" height="430" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="proj" value="&lt;b&gt;rebrew-project.toml&lt;/b&gt;  (project root; config.py)&lt;br&gt;Hand-edit + rebrew cfg / init / cmake-toolchain / gen-layout" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="60" y="120" width="800" height="370" as="geometry"/>
+        </mxCell>
+        <mxCell id="p-proj" value="&lt;b&gt;[project]&lt;/b&gt;&lt;br&gt;default_target · name · jobs&lt;br&gt;db_dir · output_dir · shared_dir" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefce8;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="80" y="168" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="p-tgt" value="&lt;b&gt;[targets.&amp;lt;name&amp;gt;]&lt;/b&gt;&lt;br&gt;binary · format · arch · marker&lt;br&gt;reversed_dir · function_list · bin_dir&lt;br&gt;source_ext · library_modules · origins&lt;br&gt;crt_sources · ghidra_program_path" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefce8;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="340" y="168" width="250" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="p-cc" value="&lt;b&gt;[compiler]&lt;/b&gt;&lt;br&gt;profile · includes · libs&lt;br&gt;cflags · base_cflags · timeout&lt;br&gt;recompile_url · recompile_emit_assembly&lt;br&gt;cflags_presets (GAME=/O2 …)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefce8;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="610" y="168" width="230" height="104" as="geometry"/>
+        </mxCell>
+        <mxCell id="p-tcc" value="&lt;b&gt;[targets.&amp;lt;t&amp;gt;.compiler]&lt;/b&gt;&lt;br&gt;per-target profile/cflags override&lt;br&gt;unspecified keys fall back global" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefce8;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="80" y="270" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="p-cache" value="&lt;b&gt;[cache]&lt;/b&gt;&lt;br&gt;backend = diskcache (or plugin)&lt;br&gt;keying is NOT pluggable" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefce8;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="340" y="270" width="250" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="p-llm" value="&lt;b&gt;[llm]&lt;/b&gt;&lt;br&gt;llm_endpoint · llm_api_key&lt;br&gt;prefer env over committing the key" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefce8;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="610" y="270" width="230" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="p-link" value="&lt;b&gt;[link] + [targets.&amp;lt;t&amp;gt;.layout]&lt;/b&gt;&lt;br&gt;file_align · stack_* · tsaware · timestamp&lt;br&gt;layout copy for UI + bss calibration&lt;br&gt;written by gen-layout / calibrate-bss" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefce8;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="80" y="356" width="370" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="p-note" value="Fail-fast: missing [targets], empty binary. Unknown keys warn. format/arch/profile fall back (pe / x86_32 / msvc6). --target selects among [targets.*]. command/runner keys are retired (ignored)." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#ea580c;fontColor=#7c2d12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="470" y="356" width="370" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="fn" value="&lt;b&gt;rebrew-functions.toml&lt;/b&gt;&lt;br&gt;cfg.metadata_dir (parent of reversed_dir)&lt;br&gt;key: MODULE.0xVA&lt;br&gt;mode 0444; never hand-edit&lt;br&gt;&lt;br&gt;STATUS CFLAGS TOOLCHAIN SKIP&lt;br&gt;GLOBALS BLOCKER BLOCKER_DELTA&lt;br&gt;SOURCE NOTE GHIDRA ANALYSIS&lt;br&gt;PROVE_CONSTRAINTS SIZE (override)&lt;br&gt;&lt;br&gt;Writers: test / verify / prove (STATUS)&lt;br&gt;blocker set/clear · diff --fix-blocker&lt;br&gt;near-diag --fix-blocker · document-unmatched&lt;br&gt;update_field / remove_field" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="880" y="120" width="260" height="370" as="geometry"/>
+        </mxCell>
+        <mxCell id="dt" value="&lt;b&gt;rebrew-data.toml&lt;/b&gt;&lt;br&gt;same metadata_dir, no walk-up&lt;br&gt;key: MODULE.0xVA&lt;br&gt;mode 0444; never hand-edit&lt;br&gt;&lt;br&gt;name · size · section · note&lt;br&gt;for DATA / GLOBAL markers&lt;br&gt;&lt;br&gt;Writers: rebrew data&lt;br&gt;(scan / annotate / --fix-bss)&lt;br&gt;rebrew sync --pull-data&lt;br&gt;data_metadata.set_data_field" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="120" width="250" height="370" as="geometry"/>
+        </mxCell>
+        <mxCell id="lb" value="&lt;b&gt;rebrew-libraries.toml&lt;/b&gt;&lt;br&gt;at a source subtree root&lt;br&gt;walk-up from the .c file&lt;br&gt;&lt;br&gt;toolchain + cflags for the&lt;br&gt;whole library (zlib, CRT, …)&lt;br&gt;presets fill gaps&lt;br&gt;(msvcrt-static = /MT /O2 /Gd)&lt;br&gt;&lt;br&gt;Writer: rebrew library set/rm&lt;br&gt;&lt;br&gt;&lt;b&gt;.c markers (file-only)&lt;/b&gt;&lt;br&gt;// FUNCTION|LIBRARY|STUB|DATA|GLOBAL:&lt;br&gt;MODULE 0xVA&lt;br&gt;optional // SIZE: N (reccmp contract)&lt;br&gt;inline STATUS/CFLAGS → lint W019&lt;br&gt;&lt;br&gt;library_*.h = LIBRARY headers" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1430" y="120" width="270" height="370" as="geometry"/>
+        </mxCell>
+
+        <!-- T1 derived vcs -->
+        <mxCell id="t1" value="Tier 1  Derived, VCS-intended. Generate once from the binary, commit so rebuilds do not need original/. Never hand-edit; generators are idempotent." style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="528" width="1680" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="d1" value="&lt;b&gt;Function identity&lt;/b&gt;&lt;br&gt;functions.txt&lt;br&gt;function_structure.json&lt;br&gt;CATALOG.md · &amp;lt;t&amp;gt;.def&lt;br&gt;discover / catalog / exports" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="568" width="240" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="d2" value="&lt;b&gt;Layout package&lt;/b&gt;&lt;br&gt;layout/&amp;lt;target&amp;gt;/&lt;br&gt;layout.txt + *.hex + operands/calls&lt;br&gt;rebrew gen-layout&lt;br&gt;feeds postlink without original/" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="320" y="568" width="260" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="d3" value="&lt;b&gt;Link scaffolding&lt;/b&gt;&lt;br&gt;src/link_stubs.c  (calibrate-bss)&lt;br&gt;src/&amp;lt;t&amp;gt;/bss_padding.c&lt;br&gt;src/&amp;lt;t&amp;gt;/rebrew_globals.h&lt;br&gt;crt_region/*.c · gen-stubs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="600" y="568" width="260" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="d4" value="&lt;b&gt;Signatures / cmake&lt;/b&gt;&lt;br&gt;flirt_sigs/*.pat (project overlay)&lt;br&gt;cmake/toolchain-*.cmake&lt;br&gt;rebrew cmake-toolchain&lt;br&gt;gen-flirt-pat from .lib" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="880" y="568" width="260" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="d5" value="&lt;b&gt;History (not a cache)&lt;/b&gt;&lt;br&gt;.rebrew/solutions.json&lt;br&gt;.rebrew/ga_runs.jsonl&lt;br&gt;re-running GA does not&lt;br&gt;reproduce these" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="568" width="240" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="d6" value="&lt;b&gt;Binsync export&lt;/b&gt;&lt;br&gt;functions/*.toml&lt;br&gt;global_vars.toml&lt;br&gt;structs/*.toml&lt;br&gt;0444 interchange, not canonical" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1420" y="568" width="270" height="110" as="geometry"/>
+        </mxCell>
+
+        <!-- T2 derived gitignore -->
+        <mxCell id="t2" value="Tier 2  Derived, gitignored build output. Rebuild with the named command." style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="716" width="820" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="b1" value="db/data_&amp;lt;t&amp;gt;.json&lt;br&gt;rebrew catalog" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="756" width="180" height="86" as="geometry"/>
+        </mxCell>
+        <mxCell id="b2" value="db/coverage.db&lt;br&gt;rebrew build-db" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="260" y="756" width="180" height="86" as="geometry"/>
+        </mxCell>
+        <mxCell id="b3" value="db/verify_results.json&lt;br&gt;incl. similarity col" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="460" y="756" width="180" height="86" as="geometry"/>
+        </mxCell>
+        <mxCell id="b4" value="bin/ · output/report/&lt;br&gt;extract · report" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="660" y="756" width="180" height="86" as="geometry"/>
+        </mxCell>
+
+        <!-- T3 cache -->
+        <mxCell id="t3" value="Tier 3  Cache (delete-safe). Content- or mtime-keyed." style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#e2e8f0;strokeColor=#475569;fontColor=#1e293b;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="880" y="716" width="840" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="c1" value=".rebrew/compile_cache/&lt;br&gt;SHA-256 keyed objects" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="900" y="756" width="190" height="86" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2" value=".rebrew/verify_cache.json&lt;br&gt;measured overlay;&lt;br&gt;PROVEN never stored here" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1110" y="756" width="200" height="86" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3" value=".rebrew/ghidra_sync_state.json&lt;br&gt;pushed-op hashes" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1330" y="756" width="180" height="86" as="geometry"/>
+        </mxCell>
+        <mxCell id="c4" value="output/ga_runs/*/&lt;br&gt;build_cache · checkpoints · best.c" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1530" y="756" width="170" height="86" as="geometry"/>
+        </mxCell>
+
+        <!-- env + overlays -->
+        <mxCell id="env-lane" value="Environment and overlays (not files in the project)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="886" width="1680" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="e1" value="&lt;b&gt;Sibling checkouts&lt;/b&gt;&lt;br&gt;REBREW_TOOLCHAINS_DIR&lt;br&gt;REBREW_FLIRT_SIGS_DIR&lt;br&gt;default: ../rebrew-toolchains&lt;br&gt;and ../rebrew-flirt-sigs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="926" width="250" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" value="&lt;b&gt;Plugin overlays&lt;/b&gt;&lt;br&gt;REBREW_TOOLCHAIN_OVERLAY_DIR&lt;br&gt;TOML extra ToolchainSpecs&lt;br&gt;REBREW_SKILLS_DIR&lt;br&gt;community SKILL.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="330" y="926" width="250" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="e3" value="&lt;b&gt;LLM (never in argv)&lt;/b&gt;&lt;br&gt;REBREW_LLM_ENDPOINT&lt;br&gt;REBREW_LLM_API_KEY&lt;br&gt;[llm] keys win if set&lt;br&gt;Bearer header only, never logged" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="600" y="926" width="250" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4" value="&lt;b&gt;Remote backend&lt;/b&gt;&lt;br&gt;REBREW_RECOMPILE_URL&lt;br&gt;or [compiler] recompile_url&lt;br&gt;recompile_emit_assembly&lt;br&gt;(training tap, default off)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="870" y="926" width="250" height="110" as="geometry"/>
+        </mxCell>
+        <mxCell id="e5" value="&lt;b&gt;Who owns which fact&lt;/b&gt;&lt;br&gt;identity: .c marker + catalog registry&lt;br&gt;STATUS/BLOCKER/CFLAGS: functions.toml&lt;br&gt;globals: data.toml&lt;br&gt;layout bytes: layout/&amp;lt;t&amp;gt;/  (not original/)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1140" y="926" width="550" height="110" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="prec" value="SIZE: compile contract = annotation/metadata SIZE; coverage uses registry canonical_size. STATUS display: metadata &gt; verify_cache measured (PROVEN never in cache) &gt; grid/DB snapshot. Inline metadata keys: lint W019, lint --fix migrates to TOML." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1070" width="1680" height="24" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="data" name="7. Data, globals, layout">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1760" pageHeight="1280" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="da-title" value="Data functions: globals, BSS, dispatch tables, post-link layout" style="text;html=1;align=left;fontSize=18;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="40" y="16" width="1100" height="32" as="geometry"/>
+        </mxCell>
+        <mxCell id="da-sub" value="Function matching is .text. Reloc diffs (~~) are usually missing globals, BSS gaps, or linker placement. rebrew data + layout/ + postlink are the data-side workbench." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+          <mxGeometry x="40" y="44" width="1650" height="24" as="geometry"/>
+        </mxCell>
+
+        <!-- inventory -->
+        <mxCell id="inv" value="A. Inventory (rebrew data)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="1680" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="i0" value="&lt;b&gt;target binary&lt;/b&gt;&lt;br&gt;.data · .rdata · .bss&lt;br&gt;LIEF sections" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="120" width="160" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="i1" value="&lt;b&gt;rebrew data --json&lt;/b&gt;&lt;br&gt;globals, data_annotations&lt;br&gt;type_conflicts, sections&lt;br&gt;summary" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="250" y="120" width="200" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="i2" value="&lt;b&gt;--annotate&lt;/b&gt;&lt;br&gt;// DATA: / // GLOBAL:&lt;br&gt;MODULE 0xVA in .c&lt;br&gt;+ rebrew-data.toml row" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="480" y="120" width="220" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="i3" value="&lt;b&gt;--dispatch&lt;/b&gt;&lt;br&gt;vtables / jump tables&lt;br&gt;in .rdata as fn-ptr arrays" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="730" y="120" width="200" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="i4" value="&lt;b&gt;type conflicts&lt;/b&gt;&lt;br&gt;same VA, different C types&lt;br&gt;across translation units" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="960" y="120" width="210" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="i5" value="&lt;b&gt;sync --pull-data&lt;/b&gt;&lt;br&gt;Ghidra labels → data.toml&lt;br&gt;MCP structural path" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="120" width="220" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="i6" value="&lt;b&gt;inline-strings&lt;/b&gt;&lt;br&gt;materialize string literals&lt;br&gt;from the original binary" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1450" y="120" width="240" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="i-note" value=".c keeps only the marker + C declaration. SIZE / SECTION / NOTE live in rebrew-data.toml (name, size, section, note). lint W016 on data-annotation issues. GLOBALS on a function is metadata-owned (which globals that TU references)." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="214" width="1630" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-i0" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ca8a04;endArrow=block;" edge="1" parent="1" source="i0" target="i1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-i1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ca8a04;endArrow=block;" edge="1" parent="1" source="i1" target="i2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-i3" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ca8a04;endArrow=block;" edge="1" parent="1" source="i1" target="i3"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="350" y="206"/><mxPoint x="830" y="206"/></Array></mxGeometry></mxCell>
+        <mxCell id="e-i4" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ef4444;endArrow=block;" edge="1" parent="1" source="i1" target="i4"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="350" y="210"/><mxPoint x="1065" y="210"/></Array></mxGeometry></mxCell>
+
+        <!-- BSS -->
+        <mxCell id="bss" value="B. BSS and .data placement (so reloc slots land on the right VA)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="300" width="1680" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="b0" value="&lt;b&gt;rebrew-data.toml&lt;/b&gt;&lt;br&gt;known symbols + sizes&lt;br&gt;section = .bss / .data / .rdata" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="340" width="220" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="b1d" value="&lt;b&gt;--bss&lt;/b&gt;&lt;br&gt;compare declared layout&lt;br&gt;against binary VirtualSize" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="310" y="340" width="200" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="b2d" value="&lt;b&gt;--fix-bss&lt;/b&gt;&lt;br&gt;src/&amp;lt;t&amp;gt;/bss_padding.c&lt;br&gt;_pad_&amp;lt;va&amp;gt;[N] dummy arrays" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bfdbfe;strokeColor=#1d4ed8;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="540" y="340" width="220" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="b3d" value="&lt;b&gt;--fill-data&lt;/b&gt;&lt;br&gt;_dpad_&amp;lt;addr&amp;gt;[N] in .c&lt;br&gt;raw bytes from reference;&lt;br&gt;zero-init in BSS" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bfdbfe;strokeColor=#1d4ed8;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="790" y="340" width="220" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="b4d" value="&lt;b&gt;--gen-header&lt;/b&gt;&lt;br&gt;src/&amp;lt;t&amp;gt;/rebrew_globals.h&lt;br&gt;externs for the build" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bfdbfe;strokeColor=#1d4ed8;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="340" width="220" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="b5d" value="&lt;b&gt;calibrate-bss&lt;/b&gt;&lt;br&gt;g_bss_tail in link_stubs.c&lt;br&gt;match .data VirtualSize" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bfdbfe;strokeColor=#1d4ed8;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1290" y="340" width="200" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="b6d" value="&lt;b&gt;verify-placement&lt;/b&gt;&lt;br&gt;.data symbol VAs vs metadata" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1520" y="340" width="170" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="b-note" value="Missing an extern shifts every later BSS symbol: one gap cascades into reloc mismatches across the project. Fix the layout, then re-verify functions that were ~~. order-sources orders TUs by first function VA so link order is stable." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="434" width="1630" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-b0" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#3b82f6;endArrow=block;" edge="1" parent="1" source="b0" target="b1d"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-b1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#1d4ed8;endArrow=block;" edge="1" parent="1" source="b1d" target="b2d"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-b2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#1d4ed8;endArrow=block;" edge="1" parent="1" source="b1d" target="b3d"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="410" y="426"/><mxPoint x="900" y="426"/></Array></mxGeometry></mxCell>
+
+        <!-- layout / postlink -->
+        <mxCell id="lay" value="C. Layout package and postlink (linker artifacts, not decomp errors)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="520" width="1680" height="220" as="geometry"/>
+        </mxCell>
+        <mxCell id="l0" value="&lt;b&gt;rebrew gen-layout&lt;/b&gt;&lt;br&gt;from reference PE&lt;br&gt;text-only package" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="560" width="180" height="80" as="geometry"/>
+        </mxCell>
+        <mxCell id="l1" value="&lt;b&gt;layout/&amp;lt;target&amp;gt;/&lt;/b&gt;&lt;br&gt;layout.txt  sections, IAT, exports&lt;br&gt;header.hex iat.hex data.hex reloc.hex&lt;br&gt;prefix.hex bookkeeping.hex&lt;br&gt;operands.txt calls.txt" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="270" y="548" width="280" height="104" as="geometry"/>
+        </mxCell>
+        <mxCell id="l2" value="&lt;b&gt;link helpers&lt;/b&gt;&lt;br&gt;gen-link-stubs  BSS TU&lt;br&gt;gen-stubs  unresolved symbols&lt;br&gt;&amp;lt;t&amp;gt;.def  export ordinals&lt;br&gt;link-sweep  LINK.EXE flags" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="580" y="548" width="240" height="104" as="geometry"/>
+        </mxCell>
+        <mxCell id="l3" value="&lt;b&gt;round-trip / recomp&lt;/b&gt;&lt;br&gt;splice matched funcs into PE&lt;br&gt;--fix-headers uses [link]&lt;br&gt;naked-fenced sources for reccmp" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="850" y="548" width="250" height="104" as="geometry"/>
+        </mxCell>
+        <mxCell id="l4" value="&lt;b&gt;rebrew postlink&lt;/b&gt;&lt;br&gt;built.dll vs layout/ (or ref)&lt;br&gt;--fix imports | data | pe-metadata | all&lt;br&gt;order: imports → data → pe-metadata" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="548" width="280" height="104" as="geometry"/>
+        </mxCell>
+        <mxCell id="l5" value="&lt;b&gt;byte-identical PE&lt;/b&gt;&lt;br&gt;linker hash/IAT/timestamp&lt;br&gt;normalized away;&lt;br&gt;remaining diff is real code/data" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1440" y="548" width="250" height="104" as="geometry"/>
+        </mxCell>
+        <mxCell id="l-note" value="MSVC6 LINK is not a source-order assembler for every section. Placement drift is a linker artifact. The layout package is committed so a public checkout reproduces postlink without original/. Prefix hex is checked for drift, never copied." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="668" width="1630" height="52" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-l0" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;endArrow=block;" edge="1" parent="1" source="l0" target="l1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-l1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;endArrow=block;" edge="1" parent="1" source="l1" target="l2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-l3" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;endArrow=block;" edge="1" parent="1" source="l1" target="l4"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="410" y="512"/><mxPoint x="1270" y="512"/></Array></mxGeometry></mxCell>
+        <mxCell id="e-l4" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ca8a04;endArrow=block;" edge="1" parent="1" source="l4" target="l5"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- how it meets functions -->
+        <mxCell id="meet" value="D. How data work feeds function matching" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#ffedd5;strokeColor=#ea580c;fontColor=#7c2d12;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="760" width="1680" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="m0" value="function compile&lt;br&gt;reloc slots point at globals" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="808" width="220" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="m1" value="smart_reloc_compare&lt;br&gt;zeros reloc bytes;&lt;br&gt;RELOC if only those differ" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="320" y="808" width="220" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="m2" value="wrong global VA / BSS gap&lt;br&gt;→ leftover ~~ after mask&lt;br&gt;near-diag: reloc bucket" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="580" y="808" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="m3" value="fix data.toml / padding /&lt;br&gt;externs / fill-data" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="860" y="808" width="220" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="m4" value="re-verify functions&lt;br&gt;STATUS may become RELOC/EXACT&lt;br&gt;without touching the C body" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="808" width="250" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="m5" value="coverage.db globals table&lt;br&gt;recoverage paints .data/.bss&lt;br&gt;same defrag grid as .text" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1410" y="808" width="280" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="m-note" value="rebrew-data-analysis skill: scan → annotate → dispatch → BSS check → fix-bss / externs → gen-header → lint. Do not use it for function bodies (workflow/matching) or Ghidra field sync (ghidra-sync). recover-structs is a sibling path: typedefs from decompiler offset evidence, not from section bytes." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ea580c;fontColor=#7c2d12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="894" width="1630" height="48" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-m0" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ea580c;endArrow=block;" edge="1" parent="1" source="m0" target="m1"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-m1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ef4444;endArrow=block;" edge="1" parent="1" source="m1" target="m2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-m2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ca8a04;endArrow=block;" edge="1" parent="1" source="m2" target="m3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-m3" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;endArrow=block;" edge="1" parent="1" source="m3" target="m4"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="ml" name="8. LLM training export">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1760" pageHeight="1720" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="ml-title" value="What we can ship later for LLM training (collectors vs packaging vs future state)" style="text;html=1;align=left;fontSize=18;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="40" y="16" width="1500" height="32" as="geometry"/>
+        </mxCell>
+        <mxCell id="ml-sub" value="Green = shipped today. Amber = assemble from existing files. Purple dashed = future state (planned, not live). Red = export rules that stay even after those ship." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+          <mxGeometry x="40" y="44" width="1650" height="24" as="geometry"/>
+        </mxCell>
+
+        <!-- A shipped collectors -->
+        <mxCell id="a-lane" value="A. Shipped collectors (opt-in JSONL). These are the only training writers that exist." style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="80" width="1680" height="250" as="geometry"/>
+        </mxCell>
+        <mxCell id="a1" value="&lt;b&gt;rebrew match --collect-pairs FILE.jsonl&lt;/b&gt;&lt;br&gt;GA loop: every successful compile appends one line&lt;br&gt;works with --all / --improve / --near-miss&lt;br&gt;&lt;br&gt;{source, compiled_bytes (hex), target_bytes (hex),&lt;br&gt; score, cflags, symbol}&lt;br&gt;&lt;br&gt;score = GA fitness (lower better). Includes misses,&lt;br&gt;not only EXACT. That is the mutation-effect corpus." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="116" width="400" height="190" as="geometry"/>
+        </mxCell>
+        <mxCell id="a2" value="&lt;b&gt;recompile POST /api/v1/compile&lt;/b&gt;&lt;br&gt;emit_assembly: true  (default false)&lt;br&gt;MSVC-family adds /FA; first .asm/.cod captured&lt;br&gt;&lt;br&gt;train_data/train.jsonl  (RECOMPILE_TRAIN_DIR)&lt;br&gt;{job_id, compiler, image, filename, flags,&lt;br&gt; source, assembly, time}&lt;br&gt;&lt;br&gt;Best-effort: missing listing skips the sample,&lt;br&gt;never fails the compile. Unauthenticated today." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="490" y="116" width="400" height="190" as="geometry"/>
+        </mxCell>
+        <mxCell id="a3" value="&lt;b&gt;History files (not a collector flag)&lt;/b&gt;&lt;br&gt;.rebrew/ga_runs.jsonl&lt;br&gt;.rebrew/solutions.json&lt;br&gt;&lt;br&gt;Winning cflags + mutation traces.&lt;br&gt;Re-running GA does not reproduce them.&lt;br&gt;Useful as seed labels, not as a byte corpus.&lt;br&gt;&lt;br&gt;verify_results.json similarity column&lt;br&gt;(resembl 0–100) is a ranking feature." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="920" y="116" width="370" height="190" as="geometry"/>
+        </mxCell>
+        <mxCell id="a4" value="&lt;b&gt;What these are for&lt;/b&gt;&lt;br&gt;collect-pairs → mutation / score model&lt;br&gt;(how C edits change bytes)&lt;br&gt;&lt;br&gt;train.jsonl → C↔asm listing model&lt;br&gt;(Godbolt-style, vintage MSVC)&lt;br&gt;&lt;br&gt;Neither is a decompiler dataset by itself.&lt;br&gt;Ground-truth C is the EXACT/RELOC/PROVEN&lt;br&gt;sources in *-rebrew projects." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1320" y="116" width="370" height="190" as="geometry"/>
+        </mxCell>
+
+        <!-- B assemble -->
+        <mxCell id="b-lane" value="B. Assemble later from project files (no new product; export scripts / a dataset pack)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="350" width="1680" height="250" as="geometry"/>
+        </mxCell>
+        <mxCell id="b1m" value="&lt;b&gt;Matched-pair pack&lt;/b&gt;&lt;br&gt;Filter STATUS in {EXACT, RELOC, PROVEN}&lt;br&gt;from rebrew-functions.toml&lt;br&gt;+ .c body + CFLAGS + TOOLCHAIN&lt;br&gt;+ target bytes at VA (from the binary)&lt;br&gt;&lt;br&gt;One record = (C, flags, image, obj/target bytes).&lt;br&gt;This is the snowball ground truth.&lt;br&gt;Needs original/ or extract dumps at pack time." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="386" width="400" height="190" as="geometry"/>
+        </mxCell>
+        <mxCell id="b2m" value="&lt;b&gt;Near-miss pack&lt;/b&gt;&lt;br&gt;STATUS = NEAR_MATCHING&lt;br&gt;+ near-diag bucket (reg / equiv / reloc / structural)&lt;br&gt;+ BLOCKER text&lt;br&gt;+ verify match_percent + similarity&lt;br&gt;&lt;br&gt;Supervises &quot;what is still wrong&quot;,&lt;br&gt;not a finished target. Good for critic /&lt;br&gt;agent routing, bad as compile ground truth." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="490" y="386" width="400" height="190" as="geometry"/>
+        </mxCell>
+        <mxCell id="b3m" value="&lt;b&gt;Context pack&lt;/b&gt;&lt;br&gt;rebrew context  (types + prototypes)&lt;br&gt;rebrew_globals.h · recover-structs&lt;br&gt;catalog names / callers (describe, xrefs)&lt;br&gt;asm.py --hints  (SEH, switch, IAT)&lt;br&gt;&lt;br&gt;This is the RAG / agent prompt payload,&lt;br&gt;not token-level compile training.&lt;br&gt;Strip secrets: no LLM keys, no original PE." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="920" y="386" width="370" height="190" as="geometry"/>
+        </mxCell>
+        <mxCell id="b4m" value="&lt;b&gt;External interchange&lt;/b&gt;&lt;br&gt;rebrew decompme  (upload scratch;&lt;br&gt;no automatic pull-back)&lt;br&gt;decomp.me /api/scratch scrape&lt;br&gt;(DECOMPME_SNIPPETS.md)&lt;br&gt;catalog --csv  reccmp&lt;br&gt;report --decomp-dev  report.json&lt;br&gt;objdiff.json units&lt;br&gt;&lt;br&gt;Inbound community C must be re-verified&lt;br&gt;through the pinned image before it is truth." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1320" y="386" width="370" height="190" as="geometry"/>
+        </mxCell>
+
+        <!-- C pipeline -->
+        <mxCell id="c-lane" value="C. Suggested ship path (what to productize, in order)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="620" width="1680" height="170" as="geometry"/>
+        </mxCell>
+        <mxCell id="c1" value="1. Schema freeze&lt;br&gt;version the JSONL&lt;br&gt;fields + toolchain id&lt;br&gt;+ image digest" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="660" width="200" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="c2" value="2. Pack command&lt;br&gt;rebrew dataset export&lt;br&gt;filter STATUS, redact PE,&lt;br&gt;emit parquet/jsonl" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bfdbfe;strokeColor=#1d4ed8;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="290" y="660" width="200" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="c3" value="3. License / filter&lt;br&gt;game binaries stay private&lt;br&gt;CRT/zlib/open-source TUs&lt;br&gt;are the public slice" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="520" y="660" width="210" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="c4" value="4. Join collectors&lt;br&gt;GA pairs + recompile listings&lt;br&gt;+ matched-pair pack&lt;br&gt;keyed by (compiler, flags, hash)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="760" y="660" width="220" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="c5" value="5. Auth + retention&lt;br&gt;recompile train.jsonl&lt;br&gt;is unauthenticated;&lt;br&gt;gate before public scale" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="660" width="200" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="c6" value="6. Train elsewhere&lt;br&gt;not in rebrew CI&lt;br&gt;LoRA / critic / mutator&lt;br&gt;then feed reagent" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="660" width="200" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="c7" value="7. Snowball&lt;br&gt;new EXACT pairs&lt;br&gt;re-export → retrain&lt;br&gt;relumea vision" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1470" y="660" width="220" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-c1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#3b82f6;endArrow=block;" edge="1" parent="1" source="c1" target="c2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-c2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#3b82f6;endArrow=block;" edge="1" parent="1" source="c2" target="c3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-c3-ship" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#3b82f6;endArrow=block;" edge="1" parent="1" source="c3" target="c4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-c4-ship" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#3b82f6;endArrow=block;" edge="1" parent="1" source="c4" target="c5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-c5" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#475569;dashed=1;endArrow=block;" edge="1" parent="1" source="c5" target="c6"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-c6" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#475569;dashed=1;endArrow=block;" edge="1" parent="1" source="c6" target="c7"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- D future state -->
+        <mxCell id="d-lane" value="D. Future state (planned, not live). Dashed purple = does not exist yet. Each box is a product to build; none of these are how-tos." style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;fontStyle=1;fontSize=12;dashed=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="810" width="1680" height="430" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="f-ing" value="Ingest (future)" style="text;html=1;align=left;fontSize=11;fontStyle=1;fontColor=#581c87;" vertex="1" parent="1">
+          <mxGeometry x="60" y="848" width="200" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="f1" value="&lt;b&gt;decomp.me dump ingest&lt;/b&gt;&lt;br&gt;official dump only&lt;br&gt;no live API scrape, no LLM on live&lt;br&gt;importer exists; dump not on disk&lt;br&gt;ai-decomp data-factory.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;dashed=1;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="872" width="200" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="f2" value="&lt;b&gt;dump → recompile in-image&lt;/b&gt;&lt;br&gt;C + flags from dump;&lt;br&gt;pinned MSVC6/IDO/MWCC image;&lt;br&gt;STATUS only if bytes match" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;dashed=1;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="280" y="872" width="210" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="f3" value="&lt;b&gt;volume sources&lt;/b&gt;&lt;br&gt;AnghaBench / GitHub 1998–2005&lt;br&gt;synthetic C89 generator&lt;br&gt;always recompile in-image" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;dashed=1;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="510" y="872" width="210" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="f4" value="&lt;b&gt;recompile auth + GC&lt;/b&gt;&lt;br&gt;gate emit_assembly&lt;br&gt;retain/rotate train.jsonl&lt;br&gt;(PRD §9 / §10)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;dashed=1;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="740" y="872" width="200" height="100" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="f-pack" value="Pack (future)" style="text;html=1;align=left;fontSize=11;fontStyle=1;fontColor=#581c87;" vertex="1" parent="1">
+          <mxGeometry x="980" y="848" width="200" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="f5" value="&lt;b&gt;rebrew dataset export&lt;/b&gt;&lt;br&gt;CLI does not exist yet&lt;br&gt;filter STATUS, redact PE&lt;br&gt;task= label required&lt;br&gt;image digest on every row" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e9d5ff;strokeColor=#7e22ce;fontColor=#581c87;dashed=1;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="980" y="872" width="220" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="f6" value="&lt;b&gt;task + protocol labeled&lt;/b&gt;&lt;br&gt;task=sft | mutator | listing | critic&lt;br&gt;protocol_id on every row&lt;br&gt;train harness = eval harness" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;dashed=1;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1220" y="872" width="230" height="100" as="geometry"/>
+        </mxCell>
+        <mxCell id="f7" value="&lt;b&gt;public vs private slices&lt;/b&gt;&lt;br&gt;public: CRT / zlib / OSS TUs&lt;br&gt;private: game PE / NE bytes&lt;br&gt;never export unmatched STUB as truth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;dashed=1;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1470" y="872" width="220" height="100" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="f-train" value="Train and close the loop (future; not in rebrew CI)" style="text;html=1;align=left;fontSize=11;fontStyle=1;fontColor=#581c87;" vertex="1" parent="1">
+          <mxGeometry x="60" y="990" width="400" height="20" as="geometry"/>
+        </mxCell>
+        <mxCell id="f8" value="&lt;b&gt;Keras / JAX trainer&lt;/b&gt;&lt;br&gt;out of tree (ml-env)&lt;br&gt;score predictor&lt;br&gt;mutation classifier" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;dashed=1;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="1014" width="200" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="f9" value="&lt;b&gt;LoRA adapters&lt;/b&gt;&lt;br&gt;per-compiler / per-game&lt;br&gt;from matched-pair SFT&lt;br&gt;relumea snowball vision" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;dashed=1;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="280" y="1014" width="200" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="f10" value="&lt;b&gt;feed reagent&lt;/b&gt;&lt;br&gt;--llm-seed uses the adapter&lt;br&gt;compiler-in-the-loop still gates STATUS&lt;br&gt;LoRA is optional, verify is not" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;dashed=1;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="500" y="1014" width="240" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="f11" value="&lt;b&gt;new EXACT pairs&lt;/b&gt;&lt;br&gt;re-export → retrain&lt;br&gt;snowball. relumea owns this loop." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;dashed=1;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="760" y="1014" width="200" height="90" as="geometry"/>
+        </mxCell>
+        <mxCell id="f12" value="&lt;b&gt;Already usable without any of D&lt;/b&gt;&lt;br&gt;solutions.json seeds GA · --llm-seed / --kuna-seed · reagent imports rebrew.*&lt;br&gt;A trained model is optional. The pinned image is the ground-truth filter either way." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="990" y="1014" width="700" height="90" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e-f1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9333ea;dashed=1;endArrow=block;" edge="1" parent="1" source="f1" target="f2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-f2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9333ea;dashed=1;endArrow=block;" edge="1" parent="1" source="f2" target="f5"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="385" y="850"/><mxPoint x="1090" y="850"/></Array></mxGeometry></mxCell>
+        <mxCell id="e-f3" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9333ea;dashed=1;endArrow=block;" edge="1" parent="1" source="f3" target="f5"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="615" y="854"/><mxPoint x="1090" y="854"/></Array></mxGeometry></mxCell>
+        <mxCell id="e-f5" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9333ea;dashed=1;endArrow=block;" edge="1" parent="1" source="f5" target="f6"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-f6" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9333ea;dashed=1;endArrow=block;" edge="1" parent="1" source="f6" target="f8"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1335" y="1004"/><mxPoint x="160" y="1004"/></Array></mxGeometry></mxCell>
+        <mxCell id="e-f8" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9333ea;dashed=1;endArrow=block;" edge="1" parent="1" source="f8" target="f9"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-f9" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9333ea;dashed=1;endArrow=block;" edge="1" parent="1" source="f9" target="f10"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-f10" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9333ea;dashed=1;endArrow=block;" edge="1" parent="1" source="f10" target="f11"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-c2-f5" value="step 2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#9333ea;fontSize=9;dashed=1;endArrow=block;" edge="1" parent="1" source="c2" target="f5"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- E standing rules -->
+        <mxCell id="e-lane" value="E. Standing export rules (apply now and after D ships)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1260" width="1680" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="r1" value="&lt;b&gt;task= and protocol_id&lt;/b&gt;&lt;br&gt;sft / mutator / listing / critic&lt;br&gt;unlabeled mix, or train≠eval harness, is defective" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="1300" width="300" height="86" as="geometry"/>
+        </mxCell>
+        <mxCell id="r2" value="&lt;b&gt;STATUS filter&lt;/b&gt;&lt;br&gt;SFT: EXACT / RELOC / PROVEN only&lt;br&gt;never unmatched STUB as public truth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="390" y="1300" width="300" height="86" as="geometry"/>
+        </mxCell>
+        <mxCell id="r3" value="&lt;b&gt;no original game PE / NE&lt;/b&gt;&lt;br&gt;in a public set. Private packs may&lt;br&gt;keep bytes; public gets C + flags only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="720" y="1300" width="300" height="86" as="geometry"/>
+        </mxCell>
+        <mxCell id="r4" value="&lt;b&gt;pin image digest&lt;/b&gt;&lt;br&gt;on every record. gcc-pe needs the&lt;br&gt;author's exact GCC or it is not truth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1050" y="1300" width="300" height="86" as="geometry"/>
+        </mxCell>
+        <mxCell id="r5" value="&lt;b&gt;no secrets&lt;/b&gt;&lt;br&gt;REBREW_LLM_API_KEY, [llm] keys,&lt;br&gt;claim tokens stay out of JSONL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1380" y="1300" width="310" height="86" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="ml-foot" value="Three corpora, three jobs: (1) matched-pair pack = decompile/codegen SFT, (2) --collect-pairs = mutator/score model, (3) recompile train.jsonl = listing model. Future-state nodes are dashed purple so they cannot be read as shipped. Research landscape (modes A/B/C, factory, lab, wiki bindings) is page 9." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1430" width="1680" height="24" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="research" name="9. AI decomp research">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1760" pageHeight="1480" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="rs-title" value="Local AI decomp research and how it plugs into rebrew" style="text;html=1;align=left;fontSize=18;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="40" y="16" width="1200" height="32" as="geometry"/>
+        </mxCell>
+        <mxCell id="rs-sub" value="Source of truth: ~/Desktop/ai-decomp wiki (notes, not a trainer). Archived trees in ai-decomp/!ARCHIVE/ are on-disk only, not in git. Binding: papers measure Mode A (GCC/Clang Linux re-exec). rebrew campaigns are Mode C (MSVC6/IDO/MWCC EXACT/RELOC). A 20–60% HumanEval number is not matching decompilation." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+          <mxGeometry x="40" y="44" width="1680" height="36" as="geometry"/>
+        </mxCell>
+
+        <!-- modes -->
+        <mxCell id="modes" value="Correctness modes (do not mix numbers)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="92" width="1680" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="ma" value="&lt;b&gt;Mode A — papers / lab&lt;/b&gt;&lt;br&gt;GCC/Clang Linux x86_64 -O0..-O3&lt;br&gt;HumanEval-Decompile re-exec / BLEU&lt;br&gt;Decompile-Bench, ExeBench, SK²&lt;br&gt;Never train on HE / MBPP-C / GitHub2025" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="128" width="520" height="84" as="geometry"/>
+        </mxCell>
+        <mxCell id="mb" value="&lt;b&gt;Mode B — readability / types&lt;/b&gt;&lt;br&gt;R2I, ident/struct heads, Ghidra pseudo&lt;br&gt;SK² struct and ident are two corpora&lt;br&gt;obfuscate between them" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="610" y="128" width="520" height="84" as="geometry"/>
+        </mxCell>
+        <mxCell id="mc" value="&lt;b&gt;Mode C — matching campaigns&lt;/b&gt;&lt;br&gt;MSVC6 / IDO / MWCC / psyq / 65816&lt;br&gt;EXACT / RELOC via rebrew test&lt;br&gt;rebrew campaigns default eval, not train" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="128" width="540" height="84" as="geometry"/>
+        </mxCell>
+
+        <!-- local stack -->
+        <mxCell id="stack" value="Local stack (wiki mermaid, compressed). Most arrows are policy, not shipped ingest." style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="250" width="1680" height="220" as="geometry"/>
+        </mxCell>
+        <mxCell id="s1" value="&lt;b&gt;Wild gold&lt;/b&gt;&lt;br&gt;matching trees&lt;br&gt;decomp.me official dump&lt;br&gt;SM64 CC0; skip OoT until explicit&lt;br&gt;no live API scrape" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="290" width="250" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="s2" value="&lt;b&gt;Data factory&lt;/b&gt;&lt;br&gt;RE Notebook / re-dataset-generator&lt;br&gt;exports JSONL, does not train&lt;br&gt;synthetic sweep yes (25k cap)&lt;br&gt;wild ingest yes; SK² export no&lt;br&gt;factory ingest of --collect-pairs no" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="340" y="290" width="280" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="s3" value="&lt;b&gt;Training lab&lt;/b&gt;&lt;br&gt;!ARCHIVE/decompllm&lt;br&gt;Unsloth LoRA, paused 2026-05-21&lt;br&gt;Qwen3.5-4B Phase 0.5&lt;br&gt;two GB10 boxes; eval on .205&lt;br&gt;always start from base, not prior LoRA" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="650" y="290" width="280" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="s4" value="&lt;b&gt;Matching workbench&lt;/b&gt;&lt;br&gt;rebrew + GA (this repo)&lt;br&gt;Mode C gold: EXACT/RELOC&lt;br&gt;LLM emits NEAR_MATCHING;&lt;br&gt;GA finishes bytes&lt;br&gt;Mode C loop on adapters: never run" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="960" y="290" width="280" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="s5" value="&lt;b&gt;Agents / retrieval&lt;/b&gt;&lt;br&gt;reagent · ghidra-cli · ct-recomp&lt;br&gt;FLIRT / resembl&lt;br&gt;protocol_id on every export&lt;br&gt;59.8% HE → 0% under wrong harness" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1270" y="290" width="420" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-s1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#3b82f6;endArrow=block;" edge="1" parent="1" source="s1" target="s2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-s2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#3b82f6;endArrow=block;" edge="1" parent="1" source="s2" target="s3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-s3" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;endArrow=block;" edge="1" parent="1" source="s3" target="s4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-s4" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#3b82f6;dashed=1;endArrow=block;" edge="1" parent="1" source="s4" target="s2"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1100" y="282"/><mxPoint x="480" y="282"/></Array></mxGeometry></mxCell>
+        <mxCell id="e-s5" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#3b82f6;endArrow=block;" edge="1" parent="1" source="s5" target="s4"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <!-- archives / desktop -->
+        <mxCell id="desk" value="On this machine (not rebrew dependencies)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="490" width="1680" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="k1" value="&lt;b&gt;~/Desktop/ai-decomp&lt;/b&gt;&lt;br&gt;MkDocs wiki. Notes only.&lt;br&gt;wiki/decomp/* is the playbook&lt;br&gt;generate-and-train.md = resume page" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="528" width="250" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="k2" value="&lt;b&gt;!ARCHIVE/ (gitignored)&lt;/b&gt;&lt;br&gt;decompllm  Unsloth lab&lt;br&gt;matcher_ml  StarCoder2+GA predecessor&lt;br&gt;re-dataset-generator  factory PRDs&lt;br&gt;reagent  (listed; not this checkout)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="340" y="528" width="280" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="k3" value="&lt;b&gt;matcher_ml actuals&lt;/b&gt;&lt;br&gt;real_train_pairs.jsonl = 187 lines&lt;br&gt;two SFT runs, both overfit&lt;br&gt;GA had 48 ops, no committed ga_runs&lt;br&gt;split-by-binary rule exists because of this leak" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="650" y="528" width="300" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="k4" value="&lt;b&gt;Sibling / desktop tools&lt;/b&gt;&lt;br&gt;ct-recomp  holiday matching&lt;br&gt;ghidra-cli  MCP structural ops&lt;br&gt;recompile  vintage recompile API&lt;br&gt;rebrew-go  experiment, not this package" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="980" y="528" width="280" height="140" as="geometry"/>
+        </mxCell>
+        <mxCell id="k5" value="&lt;b&gt;Public dumps (steal recipe, recompile)&lt;/b&gt;&lt;br&gt;Decompile-Bench 2.2M Clang-19 — not vintage gold&lt;br&gt;ExeBench / AnghaBench / SK² mix — same&lt;br&gt;decompile-ghidra-100k MIT&lt;br&gt;Never train on HumanEval-Decompile" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1290" y="528" width="400" height="140" as="geometry"/>
+        </mxCell>
+
+        <!-- bindings from wiki -->
+        <mxCell id="bind" value="Wiki bindings that rebrew export must keep (generate-and-train.md). Do not renegotiate mid-run." style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="710" width="1680" height="200" as="geometry"/>
+        </mxCell>
+        <mxCell id="b1w" value="Split by binary / function_id.&lt;br&gt;Never 80/20 inside one DLL." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="754" width="250" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="b2w" value="rebrew campaigns default eval.&lt;br&gt;Train needs an explicit exception&lt;br&gt;and a different eval binary." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="340" y="754" width="250" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="b3w" value="Named protocol_id on every row.&lt;br&gt;Train harness = eval harness.&lt;br&gt;Wrong wrapper → 59.8% becomes 0%." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="620" y="754" width="260" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="b4w" value="LLM emits NEAR_MATCHING C.&lt;br&gt;GA finishes bytes.&lt;br&gt;Do not SFT #pragma optimize." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="910" y="754" width="240" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="b5w" value="VAs / struct offsets via RAG or mask.&lt;br&gt;insert_noop_block out of SFT.&lt;br&gt;SK² struct/ident = two corpora." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1180" y="754" width="250" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="b6w" value="License per row.&lt;br&gt;HumanEval never in train.&lt;br&gt;Mode A number ≠ Mode C." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1460" y="754" width="230" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="bnote" value="Target row (factory export): id, split, task, language, compiler, opt, arch, os, function_id, binary_id, protocol_id, head, asm_surface, license, train|eval, input.assembly, output.source, compiler_image, cflags, pragma_id, abi, view_id, damage_id, parent/child hash, score_delta, engine=ga|permuter. Studio DatasetRow is missing protocol_id and license — do not ship a shard without those." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ef4444;fontColor=#7f1d1d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="838" width="1630" height="52" as="geometry"/>
+        </mxCell>
+
+        <!-- first useful run -->
+        <mxCell id="run" value="First useful train run (wiki: does not wait for SK² I-51)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;fontStyle=1;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="930" width="1680" height="150" as="geometry"/>
+        </mxCell>
+        <mxCell id="u1" value="named protocol_id" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="60" y="978" width="200" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="u2" value="binary-level split" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="290" y="978" width="200" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="u3" value="no HE in train" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="520" y="978" width="200" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="u4" value="vintage-recompiled asm&lt;br&gt;if the target is Mode C" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="750" y="978" width="220" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="u5" value="LLM → NEAR_MATCHING&lt;br&gt;then rebrew match / GA" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="978" width="220" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="u6" value="Mode C rebrew test on the adapter&lt;br&gt;is still never run — that is the next gate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+          <mxGeometry x="1250" y="978" width="440" height="70" as="geometry"/>
+        </mxCell>
+        <mxCell id="e-u1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;endArrow=block;" edge="1" parent="1" source="u1" target="u2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-u2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;endArrow=block;" edge="1" parent="1" source="u2" target="u3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-u3" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;endArrow=block;" edge="1" parent="1" source="u3" target="u4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-u4" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#16a34a;endArrow=block;" edge="1" parent="1" source="u4" target="u5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e-u5" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#ca8a04;dashed=1;endArrow=block;" edge="1" parent="1" source="u5" target="u6"><mxGeometry relative="1" as="geometry"/></mxCell>
+
+        <mxCell id="rs-foot" value="Resume: ~/Desktop/ai-decomp/wiki/decomp/generate-and-train.md. Catalog: data-factory.md (G-/M- methods mostly N). Lab numbers: training.md. Scoring: evaluation.md. 201-paper catalog: wiki/decomp/papers/. This page cites that wiki; it does not vendor it." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1100" width="1680" height="24" as="geometry"/>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
+
+

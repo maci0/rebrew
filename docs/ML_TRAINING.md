@@ -1,9 +1,14 @@
 # ML Training: Binary-Source Pair Collection & Model Training
 
 > **Status: ASPIRATIONAL** — None of the ML training pipeline described here is shipped.
-> The GA engine is real and can collect pairs, but the dataset-generation infrastructure,
-> data-sourcing scripts, and model training are design notes, not implemented features.
-> Do not treat this document as a how-to; treat it as a design sketch.
+> The GA engine is real and can collect pairs (`rebrew match --collect-pairs`),
+> and recompile can append `(source, listing)` lines when `emit_assembly` is
+> true. Dataset packaging and model training are design notes, not implemented
+> features. Do not treat this document as a how-to; treat it as a design sketch.
+> Page 8 of [architecture.drawio](architecture.drawio) splits shipped collectors
+> from later packaging from future-state nodes. Page 9 maps the local
+> `~/Desktop/ai-decomp` wiki (modes A/B/C, factory, paused Unsloth lab,
+> bindings). Official decomp.me **dump** ingest only; no live API scrape.
 
 This guide covers generating a large-scale dataset of (C source, compiled binary) pairs
 using the rebrew GA engine, then training an ML model to predict source transformations
