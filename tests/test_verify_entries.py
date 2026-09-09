@@ -9,9 +9,9 @@ import rebrew.verify as verify_mod
 from rebrew.annotation import Annotation
 
 
-def _ann(va: int, marker: str = "FUNCTION", filepath: str = "f.c") -> Annotation:
+def _ann(va: int, marker: str = "FUNCTION", filepath: str = "f.c", size: int = 64) -> Annotation:
     return Annotation(
-        va=va, name=f"f{va:x}", status="STUB", size=64, filepath=filepath, marker_type=marker
+        va=va, name=f"f{va:x}", status="STUB", size=size, filepath=filepath, marker_type=marker
     )
 
 
@@ -468,6 +468,41 @@ class TestPrepareEntriesCache:
         assert size_div[0]["va"] == "0x00001000"
         assert size_div[0]["annotation_size"] == 64
         assert size_div[0]["binary_size"] == 80
+
+    def test_padding_to_alignment_not_a_divergence(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A canonical size that is just the annotation rounded up to the next
+        16-byte function-alignment boundary is the aligned slot, not stale."""
+        cfg = _cfg(tmp_path)
+        cfg.src_dir = cfg.reversed_dir
+        (tmp_path / "x.dll").write_bytes(b"MZ")
+        _patch(monkeypatch, [_ann(0x1000, size=66)])  # 66 % 16 == 2 -> pad 14
+        monkeypatch.setattr(
+            verify_mod,
+            "build_function_registry",
+            lambda *a, **k: {0x1000: {"canonical_size": 80, "size_reason": "list"}},
+        )
+        _e, _p, _f, _fd, _r, _c, size_div, _miss = verify_mod.prepare_entries(
+            cfg, full=True, json_output=False
+        )
+        assert size_div == []
+
+    def test_validated_overcount_not_a_divergence(self) -> None:
+        """EXACT/RELOC at the annotation size proves that many real bytes; a
+        smaller canonical (Ghidra fragment) is the unreliable side."""
+        from rebrew.verify import _size_divergence_action
+
+        assert _size_divergence_action(752, 340, "RELOC") == "skip"
+        assert _size_divergence_action(304, 24, "EXACT") == "skip"
+
+    def test_truncation_hazard_still_warns(self) -> None:
+        """ann < canonical can false-EXACT on a prefix: never skip it, even
+        when matched."""
+        from rebrew.verify import _size_divergence_action
+
+        assert _size_divergence_action(51, 239, "RELOC") == "warn"
+        assert _size_divergence_action(396, 400, "EXACT") == "skip"  # pad, ann%16==12
 
     def test_no_divergence_when_sizes_agree(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
