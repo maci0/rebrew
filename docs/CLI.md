@@ -88,6 +88,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew round-trip` | `round_trip.py` | Splice matched functions back into the target PE and verify byte equality |
 | `rebrew skills` | `skills.py` | Discover and manage AI agent skills (`list`, `show`, `install`, `remove` — the latter two manage the `REBREW_SKILLS_DIR` overlay) |
 | `rebrew blocker` | `blocker.py` | Manage `BLOCKER` / `BLOCKER_DELTA` in `rebrew-functions.toml` (`set`/`clear`/`show` by file, VA, or symbol; `--delta`, `--va`, `--dry-run`, `--json`) — ad-hoc BLOCKER for STUBs `diff --fix-blocker` cannot classify; every write via `rebrew.metadata` (locked + atomic, never hand-edited) |
+| `rebrew orphans` | `orphans.py` | List or prune metadata blocks whose VA has no source marker (`--prune`, `--include-matched`, `drop 0xVA`; `--dry-run`, `--json`) — every delete via `rebrew.metadata` batch helpers (locked + atomic) |
 
 ## Component Registration (Plugins)
 
@@ -329,11 +330,13 @@ graph TD
 | `--watch` | Re-verify all sources whenever any `.c` file changes |
 | `--nolib` | Exclude LIBRARY-marked functions from verification — the reccmp `--nolib` equivalent. They are neither compiled nor counted (`summary.library_excluded` reports the count), so the summary + CI gate reflect game code only (statically-linked CRT / vendored zlib sources are not part of the gate) |
 | `--fix-sizes` | Backfill `SIZE` into metadata from the binary-derived size: stale sizes (false `SIZE_MISMATCH`) and missing sizes (`MISSING_SIZE` stubs, which `rebrew test` refuses) |
+| `--prune-orphans` | Delete metadata blocks whose VA has no source marker before verifying (same scan as `rebrew orphans --prune`; EXACT/RELOC/PROVEN blocks held back) |
 
 The `--json` report carries `dry_run`, `size_divergences`, and `missing_sizes`
 (plus `sizes_fixed` when `--fix-sizes` ran); VAs fixed by `--fix-sizes` are
 stripped from the same-run `size_divergences`/`missing_sizes` lists.
-`--nolib` also adds `library_excluded` to the summary.
+`--nolib` also adds `library_excluded` to the summary, `--prune-orphans` adds
+`orphans_pruned`.
 Per-function result rows carry `diff_lines` (structural diff count),
 `similarity`, `reg_delta` (register-encoding-only diff count), and
 `effective_match` (true when the entire delta is register allocation) —
@@ -478,6 +481,23 @@ values.  This is the ad-hoc counterpart to the auto-writers (`rebrew diff
 --fix-blocker`, `rebrew near-diag --fix-blocker`, `rebrew
 document-unmatched`) for blockers they cannot classify.  Every write goes
 through `rebrew.metadata` (locked + atomic) — never hand-edit the toml.
+
+### `rebrew orphans`
+
+```
+rebrew orphans [--prune] [--include-matched] [--dry-run] [--json]
+rebrew orphans drop <0xVA|file|symbol> [--va HEX] [--dry-run] [--json]
+```
+
+List metadata blocks whose VA has no source marker (no `// FUNCTION:` /
+`// DATA:` / `// GLOBAL:` claims it).  A block is only reported when its VA
+is also absent from the target's function list — a real function without a
+marker yet (mid-split source, unreversed function) is never listed — and
+named data entries plus `.idata`/`.edata` import slots are excluded.  Blocks
+claiming EXACT/RELOC/PROVEN are flagged `matched` and held back from
+`--prune` unless `--include-matched` is passed.  `drop` removes one VA's
+block from both stores on demand.  `rebrew verify --prune-orphans` runs the
+same prune before verifying.
 
 ### `rebrew gen-layout`
 

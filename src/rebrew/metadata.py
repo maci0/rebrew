@@ -449,6 +449,45 @@ def remove_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> in
     return changed_entries
 
 
+def delete_entries_batch(metadata_dir: Path, targets: list[tuple[str, int]]) -> int:
+    """Drop whole ``(module, va)`` entries in one TOML rewrite.
+
+    Sibling of :func:`remove_fields_batch` for bulk entry deletes (orphan
+    pruning: metadata blocks whose VA has no source annotation).  Returns the
+    number of entries removed.  Missing entries are no-ops.  Only touches the
+    metadata file — never a source file.
+    """
+    if not targets:
+        return 0
+    path = (metadata_dir / METADATA_FILENAME).resolve()
+    if not path.exists():
+        return 0
+    removed = 0
+    with _metadata_write_lock(metadata_dir):
+        doc = load_toml_for_write(path, "metadata")
+        doc_dict = typing.cast(dict[str, Any], doc)
+        for module, va in targets:
+            if not module:
+                continue
+            want = (str(module), int(va))
+            toml_key = qualified_key(module, int(va))
+            if toml_key not in doc_dict:
+                toml_key = ""
+                for existing in doc_dict:
+                    parsed = parse_metadata_key(str(existing))
+                    if parsed == want:
+                        toml_key = str(existing)
+                        break
+                if not toml_key:
+                    continue
+            del doc_dict[toml_key]
+            removed += 1
+        if removed:
+            atomic_write_locked(path, tomlkit.dumps(doc))
+            _metadata_cache.pop(path, None)
+    return removed
+
+
 def _mutate_entry_doc(
     directory: Path,
     va: int,
