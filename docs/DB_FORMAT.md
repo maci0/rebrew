@@ -69,6 +69,8 @@ Stores details regarding decompiled and original functions.
 | `blockerDelta` | `INTEGER` | Byte difference from target when blocker is set. NULL if no blocker. |
 | `size_reason` | `TEXT` | Explanation of how canonical size was determined (e.g. "ghidra", "list", "annotation"). Empty string if unknown. |
 | `similarity` | `REAL` | Structural similarity score (0.0–1.0). Populated from `verify_results.json` (verify computes it for every verified function); NULL when never verified. |
+| `updated_by` | `TEXT` | Provenance tag of the last STATUS write (`test`/`verify`/`prove`/`match`/`lint`/`binsync-import`/`intake`). |
+| `updated_at` | `TEXT` | UTC timestamp of the last STATUS write. |
 
 **Primary Key**: `(target, va)`
 **Indexes**:
@@ -89,6 +91,7 @@ Tracks global variables mapped during the decompilation effort.
 | `files` | `TEXT` | JSON array of associated source files. |
 | `module` | `TEXT` | Origin module (from `// GLOBAL: MODULE 0xVA` annotation). |
 | `size` | `INTEGER` | Estimated size in bytes (default: 4 for pointer-sized). |
+| `status` | `TEXT` | Data verdict from `verify --data` (`VERIFIED`/`DRIFT`/`UNCHECKED`; empty when never compared). |
 
 **Primary Key**: `(target, va)`
 **Indexes**: `idx_globals_name` on `(target, name)`
@@ -151,7 +154,7 @@ Stores arbitrary target-specific key-value pairs. Primary Key is `(target, key)`
 | `summary` | JSON object with coverage statistics (totalFunctions, matchedFunctions, exactMatches, etc.) |
 | `function_stats` | JSON object with coverage stats for the dashboard headline (`total`, `covered_bytes`, `matched_bytes`, `total_bytes`, `by_status`, `by_module_counts`) |
 | `paths` | JSON object with file paths (originalDll, sourceRoot) |
-| `db_version` | Schema version string (current: `"5"`) |
+| `db_version` | Schema version string (current: `"6"`) |
 
 #### Schema Version History
 
@@ -162,6 +165,7 @@ whenever the schema changes.
 
 | Version | Change |
 |---|---|
+| `"6"` | `functions` gained `updated_by`/`updated_at` (STATUS-write provenance); `globals` gained `status` (data verdicts); `history` gained `updated_by`. |
 | `"5"` | `verify_results` gained `reg_delta` and `effective_match` (the effective-match signal — register-only delta; see the table below). |
 | `"4"` | Cell rows normalized and range-checked on insert (`start >= 0`, `end >= start`, `span > 0`); `cells` gained a `FOREIGN KEY (target, section_name)` to `sections` with `ON DELETE CASCADE`; `section_cell_stats` gained `other_count`; `verify_results` no longer dropped on full rebuild. |
 | `"3"` | Baseline documented schema. |
@@ -200,6 +204,7 @@ Tracks function status changes over time.
 | `old_status` | `TEXT` | Previous status before change. |
 | `new_status` | `TEXT` | New status after change. |
 | `changed_at` | `TEXT` | ISO 8601 timestamp of the change. |
+| `updated_by` | `TEXT` | Provenance tag of the write that caused the change. |
 
 > [!NOTE]
 > This table is persistent — never dropped on rebuild, but retention-capped:

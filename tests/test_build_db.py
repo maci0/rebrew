@@ -331,7 +331,15 @@ binary = "test.exe"
 
         c.execute("PRAGMA table_info(history)")
         columns = [row["name"] for row in c.fetchall()]
-        assert columns == ["id", "target", "va", "old_status", "new_status", "changed_at"]
+        assert columns == [
+            "id",
+            "target",
+            "va",
+            "old_status",
+            "new_status",
+            "changed_at",
+            "updated_by",
+        ]
         conn.close()
 
     def test_history_tracks_changes(self, project_root: Path) -> None:

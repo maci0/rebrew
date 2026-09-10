@@ -906,6 +906,12 @@ def _apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
         if isinstance(raw_pc, dict):
             ann.prove_constraints = dict(raw_pc)
 
+    if "updated_by" in entry:
+        ann.updated_by = str(entry["updated_by"])
+
+    if "updated_at" in entry:
+        ann.updated_at = str(entry["updated_at"])
+
 
 # ---------------------------------------------------------------------------
 # Typed facade

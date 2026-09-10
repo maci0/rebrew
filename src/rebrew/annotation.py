@@ -356,6 +356,8 @@ class Annotation:
     section: str = ""  # .data, .rdata, .bss — used by DATA annotations
     line: int = 0  # 1-based line number of the marker in the source file
     prove_constraints: dict[str, Any] = field(default_factory=dict)
+    updated_by: str = ""
+    updated_at: str = ""
 
     # -- Dict-like access and field aliases --
 
