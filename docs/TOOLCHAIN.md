@@ -796,7 +796,7 @@ Layout notes (differ from the local `rebrew-toolchains/msvc/6.0-win32/source/VC9
 
 When the master (`rebrew-toolchains/msvc/6.0-win32`,
 `rebrew-toolchains/msvc/7.0-win32`) is absent, `rebrew init
---compiler msvc6|msvc7` and the config layer resolve the best present layout
+--toolchain msvc6|msvc7` and the config layer resolve the best present layout
 instead (newest mirror first) so a fresh project compiles out of the box
 rather than pointing at a master path that does not exist.
   Case matters on Linux — point `[compiler] command` at the lowercase file.
@@ -811,7 +811,7 @@ for v in msvc-6.0-sp3-win32 msvc-6.0-sp6-win32 msvc-7.0-win32; do
 done
 ```
 
-`rebrew init --compiler msvc600sp3|msvc600sp6` sets up the profiles (the
+`rebrew init --toolchain msvc600sp3|msvc600sp6` sets up the profiles (the
 dir names above are the decomp.me mirror names; the registry ids are
 `msvc600sp3` / `msvc600sp6`); each is proven by
 `tests/test_toolchain_roundtrip.py` (compile → compare → EXACT; skipped when the

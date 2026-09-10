@@ -748,13 +748,14 @@ def build_db(
                         json.dumps(g.get("files", [])),
                         str(g.get("module") or g.get("origin") or ""),
                         g.get("size") if g.get("size") is not None else 4,
+                        str(g.get("status") or ""),
                     )
                 )
 
             c.executemany(
                 """
-                INSERT INTO globals (target, va, name, decl, files, module, size)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO globals (target, va, name, decl, files, module, size, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 g_rows,
             )

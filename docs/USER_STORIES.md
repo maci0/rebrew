@@ -82,13 +82,13 @@ graph TD
 ```mermaid
 graph TD
     A["Target binary loaded"] --> B["radare2 / Ghidra:<br/>function boundary detection"]
-    B --> C["functions.json<br/>(VA, size, name)"]
+    B --> C["function_structure.json<br/>(VA, size, name)"]
     C --> D{"rebrew flirt:<br/>FLIRT match?"}
     D -->|"Match (CRT/zlib)"| E["Mark as LIBRARY<br/>compile from reference"]
     D -->|"No match"| F{"Named export?"}
     F -->|Yes| G["Named STUB"]
     F -->|No| H["Anonymous STUB<br/>(FUN_XXXXXXXX)"]
-    E --> I["Seed RAG database"]
+    E --> I["Seed solutions DB<br/>(cross-function cflags)"]
     G --> T["rebrew todo<br/>classify & prioritize"]
     H --> T
     T --> J["rebrew todo --stats<br/>prioritize by size"]
@@ -118,6 +118,7 @@ graph TD
     Skel --> Decompile["Get ASM / Ghidra decompilation"]
     Decompile --> Write["Write C89 source code"]
     Write --> Test{"rebrew test<br/>src/target/func.c"}
+    Sweep["rebrew match --flag-sweep<br/>or rebrew match (GA)"]
     Test -->|EXACT| Promote["auto-promote<br/>→ STATUS: EXACT"]
     Promote --> Done["✅ Done"]
     Test -->|RELOC| PromoteR["auto-promote<br/>→ STATUS: RELOC"]
@@ -153,7 +154,7 @@ graph TD
 ```mermaid
 graph TD
     A["Function at STATUS: NEAR_MATCHING<br/>(small byte delta)"] --> B["rebrew match func.c<br/>--generations 200 --pop-size 64"]
-    B --> C["GA mutates C AST<br/>(119 operators)"]
+    B --> C["GA mutates C AST<br/>(121 operators)"]
     C --> D["Compile each candidate<br/>(MSVC6 toolchain image)"]
     D --> E{"Fitness improved?"}
     E -->|"EXACT / RELOC"| F["✅ Match found!<br/>Update annotation"]
@@ -174,29 +175,29 @@ graph TD
 > **As an AI Operator**, I want the LLM to generate an initial C implementation from assembly so that I get a semantic baseline without manual effort.
 
 ### Acceptance Criteria
-- ASM extracted via `rebrew asm` and fed to LLM with RAG context
-- RAG resolves called function signatures, globals, strings, and caller context
+- ASM extracted via `rebrew asm` and fed to LLM with `rebrew context`
+- Context resolves called function signatures, globals, strings, and caller context
 - Output normalized (C89 dialect, proper annotation header prepended)
 - Result tested and classified automatically
 
 ```mermaid
 sequenceDiagram
     participant O as Orchestrator
-    participant DB as SQLite RAG
+    participant Ctx as rebrew context
     participant LLM as LLM
     participant T as rebrew test
 
     O->>O: Extract ASM via rebrew asm
-    O->>DB: Query all referenced VAs
-    DB-->>O: Function sigs + globals + strings
-    O->>LLM: ASM + RAG context + compiler rules
+    O->>Ctx: Context for all referenced VAs
+    Ctx-->>O: Function sigs + globals + strings
+    O->>LLM: ASM + rebrew context + compiler rules
     LLM-->>O: Generated C source
 
     loop Up to N iterations
         O->>T: Compile & compare
         T-->>O: Result (EXACT/RELOC/NEAR_MATCHING)
         alt EXACT or RELOC
-            O->>DB: Ingest new match into RAG
+            O->>T: STATUS auto-promotes in metadata
             Note over O: Done ✅
         else NEAR_MATCHING / MISMATCH
             O->>LLM: Diff feedback + corrections
@@ -212,15 +213,14 @@ sequenceDiagram
 > **As an AI Operator**, I want to run the agent overnight to process an entire binary's worth of functions so that I can review results in the morning.
 
 ### Acceptance Criteria
-- Agent auto-selects workflow (A/B/C/D/E) per function based on state
+- Agent follows the `rebrew-workflow` / `rebrew-matching` skills per function based on state
 - Score monotonicity enforced (never makes a function worse)
-- Shadow workspace (`staging/`) used — never writes directly to `src/`
-- Git branch `agent/batch-<timestamp>` created for all changes
+- One task, one `git worktree` on its own branch — never writes directly to another session's tree
 - Run report generated with stats, stalled functions, and audit trail
 
 ```mermaid
 graph TD
-    Start["Agent starts<br/>load agent.yml"] --> Queue["Build work queue<br/>from rebrew todo"]
+    Start["Agent starts<br/>load rebrew-workflow skill"] --> Queue["Build work queue<br/>from rebrew todo"]
     Queue --> Empty{"Queue empty?"}
     Empty -->|Yes| Report["Generate run report<br/>agent_run_TIMESTAMP.md"]
     Empty -->|No| Pop["Pop next function"]
@@ -236,7 +236,7 @@ graph TD
     WC --> Result
     WE --> Result
 
-    Result -->|"EXACT / RELOC"| Stage["Write to staging/<br/>score gate check"]
+    Result -->|"EXACT / RELOC"| Stage["Write to worktree<br/>score gate check"]
     Result -->|NEAR_MATCHING| Requeue["Update state<br/>re-queue"]
     Result -->|STALLED| Log["Log for<br/>human review"]
 
@@ -265,10 +265,10 @@ graph TD
 > **As an RE Dev**, I want improvements from my `.c` files pushed to Ghidra (and vice versa) so that the decompiler always shows resolved names and correct types.
 
 ### Acceptance Criteria
-- `rebrew sync --push` pushes function names, comments, and bookmarks to Ghidra via ReVa MCP
+- `rebrew sync --push --state-dir D` exports names, prototypes, structs, globals, notes to a BinSync state dir (relayed into Ghidra by the external BinSync plugin)
+- `rebrew sync --pull --state-dir D` imports the state dir (names, prototypes, structs, notes, global types/sizes) into rebrew metadata
+- ReVa MCP remains only for structural ops: `--create-functions`, `--bookmarks`, `--pull-data`
 - Generic `func_XXXXXXXX` labels are skipped by default
-- Struct definitions pushed via `parse-c-structure` MCP tool
-- Ghidra decompilation and struct info can be pulled into local `.c` files
 - Sync is bidirectional and incremental
 
 ```mermaid
@@ -285,25 +285,26 @@ graph LR
         G3["Decompiler output"]
     end
 
-    L1 -->|"rebrew sync --push<br/>(create-label)"| G1
-    L3 -->|"rebrew sync --push<br/>(set-comment)"| G1
-    L2 -->|"parse-c-structure"| G2
-    G3 -->|"get-decompilation"| L1
-    G2 -->|"get-structure-info"| L2
+    L1 -->|"rebrew sync --push<br/>--state-dir D"| G1
+    L3 -->|"rebrew sync --push<br/>--state-dir D"| G1
+    L2 -->|"rebrew sync --push<br/>--state-dir D"| G2
+    G1 -->|"rebrew sync --pull<br/>--state-dir D"| L1
+    G2 -->|"rebrew sync --pull<br/>--state-dir D"| L2
+    G3 -->|"rebrew sync --pull-data<br/>(MCP)"| L1
 ```
 
 ### Recommended Sync Cycle
 
 ```mermaid
 graph TD
-    A["Start reversing<br/>a function"] --> B["Pull decompilation<br/>(Ghidra → Local)"]
-    B --> C["Pull struct defs<br/>(Ghidra → Local)"]
+    A["Start reversing<br/>a function"] --> B["Pull state dir<br/>(Ghidra → Local)"]
+    B --> C["Pull data labels<br/>(--pull-data, MCP)"]
     C --> D["Write/update .c file"]
     D --> E["rebrew test"]
-    E --> F["Push names back<br/>(Local → Ghidra)"]
-    F --> G["Push new structs<br/>(Local → Ghidra)"]
+    E --> F["Push state dir back<br/>(Local → Ghidra)"]
+    F --> G["Structs/notes ride<br/>the state dir"]
     G --> H{"More functions<br/>using these types?"}
-    H -->|Yes| I["Re-pull decompilation<br/>(resolved names now)"]
+    H -->|Yes| I["Re-pull state dir<br/>(resolved names now)"]
     I --> D
     H -->|No| J["Done"]
 
@@ -316,7 +317,7 @@ graph TD
 
 ## 9. Cold-Start Bootstrapping (Workflow D)
 
-> **As a Project Lead**, I want to bootstrap an entirely new binary from scratch so that the RAG database gets seeded progressively and enables the snowball effect.
+> **As a Project Lead**, I want to bootstrap an entirely new binary from scratch so that the solutions DB gets seeded progressively and enables the snowball effect.
 
 ### Acceptance Criteria
 - `rebrew init` scaffolds the project directory and config
@@ -324,7 +325,7 @@ graph TD
 - FLIRT identifies library functions automatically
 - `rebrew todo` classifies and prioritizes all functions
 - Smallest leaf functions processed first (snowball strategy)
-- Each match enriches RAG for subsequent functions
+- Each match enriches the solutions DB + `rebrew context` for subsequent functions
 
 ```mermaid
 graph TD
@@ -334,12 +335,12 @@ graph TD
     C --> D["FLIRT signature<br/>matching"]
     D -->|"~20-40% matched"| E["Compile from<br/>reference source"]
     D -->|"Unmatched"| F["rebrew todo<br/>classify functions"]
-    E --> G["Seed RAG database"]
+    E --> G["Seed solutions DB"]
     F --> H["rebrew todo<br/>sort by size"]
     H --> I["LLM generates<br/>tiny leaf functions"]
-    I --> J{"rebrew test"}
+    I --> J{"rebrew test / match"}
     J -->|"EXACT/RELOC"| G
-    J -->|"NEAR_MATCHING"| K["GA refinement"]
+    J -->|"NEAR_MATCHING"| K["GA refinement<br/>(rebrew match)"]
     K -->|Success| G
     K -->|Stalled| L["Diff resolver<br/>(Workflow C)"]
     L --> J
@@ -404,7 +405,7 @@ graph TD
     A["Write or edit a .c file"] --> B["rebrew lint"]
     B --> C{"Annotations valid?"}
     C -->|Yes| D["✅ Clean"]
-    C -->|No| E["Report errors<br/>(E000-E023, W001-W028)"]
+    C -->|No| E["Report errors<br/>(E000-E023, W001-W029)"]
     E --> F{"Auto-fixable?"}
     F -->|Yes| G["rebrew lint --fix"]
     G --> B
@@ -492,7 +493,7 @@ graph TD
 ```mermaid
 graph TD
     A["EXACT/RELOC function"] --> B["LLM or human suggests<br/>better variable names"]
-    B --> C["Apply renames in<br/>staging/VA.c"]
+    B --> C["Apply renames in<br/>a worktree copy"]
     C --> D{"Compile +<br/>byte-compare"}
     D -->|"Bytes identical"| E["✅ Accept cosmetic edit<br/>promote to src/"]
     D -->|"Bytes differ"| F["❌ Reject:<br/>rename affected codegen"]
@@ -516,7 +517,7 @@ graph LR
     subgraph "Phase 1: Discovery"
         A["target.dll"] --> B["Parse PE<br/>sections"]
         B --> C["Function boundary<br/>detection"]
-        C --> D["functions.json"]
+        C --> D["function_structure.json"]
     end
 
     subgraph "Phase 2: Triage"
@@ -526,7 +527,7 @@ graph LR
     end
 
     subgraph "Phase 3: Batch Reverse"
-        F --> H["RAG DB"]
+        F --> H["Solutions DB"]
         G --> I["LLM + GA loop"]
         I -->|"EXACT/RELOC"| H
         I -->|Stalled| J["Human review"]

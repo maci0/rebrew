@@ -438,8 +438,8 @@ profile = "ido71"                 # Docker ido-static-recomp
 
 ```bash
 # Build FLIRT signatures from SDK .a/.lib once, then every project benefits
-rebrew gen-flirt-pat sdk/libultra/libultra.a --out sigs/libultra.pat
-rebrew gen-flirt-pat sdk/libdolphin.a --out sigs/libdolphin.pat
+rebrew gen-flirt-pat sdk/libultra/libultra.a --output sigs/libultra.pat
+rebrew gen-flirt-pat sdk/libdolphin.a --output sigs/libdolphin.pat
 rebrew flirt sigs/                           # → auto-labels SDK functions as library_*.h
 rebrew identify-library --all --fix-source   # merges FLIRT + imports + toolchain signals
 ```

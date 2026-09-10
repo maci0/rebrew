@@ -96,7 +96,8 @@ class TestRecoverageContract:
         conn = sqlite3.connect(root / "db" / "coverage.db")
         c = conn.cursor()
 
-        # Objects recoverage's api.py queries.
+        # Objects recoverage's api.py queries, plus history (the in-repo
+        # dashboard's timeline reads it — a silent drop breaks that path).
         c.execute("SELECT name FROM sqlite_master WHERE type IN ('table','view') ORDER BY name")
         objects = {r[0] for r in c.fetchall()}
         for required in (
@@ -106,20 +107,43 @@ class TestRecoverageContract:
             "functions",
             "globals",
             "verify_results",
+            "history",
             "section_cell_stats",
         ):
             assert required in objects, f"missing DB object {required}"
 
+        # functions key columns recoverage filters/groups on.
+        c.execute("PRAGMA table_info(functions)")
+        fn_cols = {r[1] for r in c.fetchall()}
+        for col in ("target", "va", "name", "status", "module", "size", "updated_by"):
+            assert col in fn_cols, f"functions missing column {col}"
+
+        # globals carries the data-verdict column verify --data writes.
+        c.execute("PRAGMA table_info(globals)")
+        g_cols = {r[1] for r in c.fetchall()}
+        for col in ("target", "va", "name", "size", "status"):
+            assert col in g_cols, f"globals missing column {col}"
+
         # cells carries the recoverage-specific label/parent_function columns.
         c.execute("PRAGMA table_info(cells)")
         cell_cols = {r[1] for r in c.fetchall()}
-        for col in ("state", "functions", "label", "parent_function"):
+        for col in (
+            "target",
+            "section_name",
+            "start",
+            "state",
+            "functions",
+            "label",
+            "parent_function",
+        ):
             assert col in cell_cols, f"cells missing column {col}"
 
-        # verify_results has the diff columns the detail API reads.
+        # verify_results has the key + diff columns the detail API reads.
         c.execute("PRAGMA table_info(verify_results)")
         vr_cols = {r[1] for r in c.fetchall()}
         for col in (
+            "target",
+            "va",
             "verified_at",
             "byte_delta",
             "diff_lines",
@@ -141,4 +165,15 @@ class TestRecoverageContract:
         c = conn.cursor()
         c.execute("SELECT COUNT(*) FROM cells WHERE target = 'SERVER' AND section_name = '.text'")
         assert c.fetchone()[0] > 0
+        conn.close()
+
+    def test_data_json_carries_globals(self, tmp_path, monkeypatch) -> None:
+        """build_db reads the data-JSON globals block — pin its presence."""
+        root = _run_pipeline(tmp_path, monkeypatch)
+        data = json.loads((root / "db" / "data_SERVER.json").read_text(encoding="utf-8"))
+        assert "globals" in data, "data JSON missing globals"
+        conn = sqlite3.connect(root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("PRAGMA table_info(globals)")
+        assert "status" in {r[1] for r in c.fetchall()}
         conn.close()
