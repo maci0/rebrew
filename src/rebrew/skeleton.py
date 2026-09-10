@@ -37,6 +37,7 @@ from rebrew.annotation import (
 from rebrew.catalog import load_function_structure
 from rebrew.cli import (
     EXIT_ERROR,
+    EXIT_OK,
     TargetOption,
     error_exit,
     json_print,
@@ -1455,7 +1456,7 @@ def main(
         else:
             console.print(f"Already covered by: {covered_by}")
             console.print("Use [cyan]--force[/] to overwrite.")
-        raise typer.Exit(code=0)
+        raise typer.Exit(code=EXIT_OK)
 
     module_val = cfg.marker  # Use the project marker as module name
 

@@ -146,7 +146,7 @@ def main(
     pull_data: bool = typer.Option(
         False, "--pull-data", help="Pull data labels from Ghidra into rebrew_globals.h (MCP)"
     ),
-    summary: bool = typer.Option(False, "--summary", help="Preview the push without writing"),
+    summary: bool = typer.Option(False, "--summary", help="Show push summary without writing"),
     watch: bool = typer.Option(
         False, "--watch", help="Watch sources and re-push to the state dir on change"
     ),

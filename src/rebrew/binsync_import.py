@@ -34,7 +34,7 @@ from rebrew.binsync_state import (
     load_binsync_state,
     load_binsync_structs,
 )
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import EXIT_MISMATCH, TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
 from rebrew.naming import avoid_windows_reserved
 from rebrew.utils import strip_body
@@ -750,7 +750,7 @@ def _print_import_result(result: dict[str, object], *, json_output: bool, dry_ru
             payload["module"] = module
         json_print(payload)
         if conflicts and not accept_binsync and not accept_local:
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=EXIT_MISMATCH)
         return
 
     if dry_run:
@@ -769,7 +769,7 @@ def _print_import_result(result: dict[str, object], *, json_output: bool, dry_ru
         else:
             console.print("[green]No changes to import (already in sync or all generic).[/green]")
         if conflicts and not accept_binsync and not accept_local:
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=EXIT_MISMATCH)
         return
 
     # Non-dry-run, non-json summary
@@ -788,7 +788,7 @@ def _print_import_result(result: dict[str, object], *, json_output: bool, dry_ru
                 f"[yellow]{conflicts} conflict(s)[/yellow] — re-run with "
                 "[cyan]--accept-binsync[/cyan] or [cyan]--accept-local[/cyan] to resolve"
             )
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=EXIT_MISMATCH)
     if (
         not applied_names
         and not applied_protos

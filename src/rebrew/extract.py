@@ -24,7 +24,7 @@ from rebrew.asm import disasm_bytes
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
 from rebrew.catalog import parse_function_list, scan_reversed_dir
 from rebrew.cli import (
-    EXIT_MISMATCH,
+    EXIT_ERROR,
     TargetOption,
     error_exit,
     json_print,
@@ -141,12 +141,12 @@ def cmd_extract(
                 error_exit(
                     f"Failed to extract bytes at VA 0x{va:08X}",
                     json_mode=json_output,
-                    code=EXIT_MISMATCH,
+                    code=EXIT_ERROR,
                 )
             try:
                 asm_text = disasm_bytes(code, va, cfg=cfg)
             except RuntimeError as e:
-                error_exit(str(e), json_mode=json_output, code=EXIT_MISMATCH)
+                error_exit(str(e), json_mode=json_output, code=EXIT_ERROR)
 
             bin_dir.mkdir(parents=True, exist_ok=True)
             bin_path = bin_dir / f"func_0x{va:08X}.bin"
@@ -175,7 +175,7 @@ def cmd_extract(
     error_exit(
         f"VA 0x{target_va:08X} not found in candidate list",
         json_mode=json_output,
-        code=EXIT_MISMATCH,
+        code=EXIT_ERROR,
     )
 
 
