@@ -194,22 +194,101 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
     return None
 
 
-def collect_extern_info(src_dir: Path) -> dict[str, dict[str, typing.Any]]:
-    """``symbol_name -> info`` from every ``extern`` line in *src_dir*'s sources.
+def _strip_comments(text: str) -> str:
+    """Remove block and line comments so a commented-out declaration is not scanned."""
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return re.sub(r"//[^\n]*", "", text)
 
-    First-seen wins (the first declaration of a name sets its stub type).
+
+#: File-scope lines that begin a definition or a local-scope keyword rather
+#: than a link-visible declaration.
+_SKIP_DECL_PREFIXES = ("typedef", "static", "register", "return", "else", "case", "default")
+
+
+def _is_file_scope_decl(line: str) -> bool:
+    """True for a file-scope declaration or prototype.
+
+    An initializer (``=``) makes the line a definition, and the skip prefixes
+    mark storage classes or statement keywords; neither names a link symbol.
+    """
+    if not line.endswith(";") or "=" in line:
+        return False
+    return not line.startswith(_SKIP_DECL_PREFIXES)
+
+
+def collect_extern_info(src_dir: Path) -> dict[str, dict[str, typing.Any]]:
+    """``symbol_name -> info`` from the file-scope declarations in *src_dir*'s sources.
+
+    Two passes, so an explicit ``extern`` wins and first-seen wins inside each:
+    ``extern`` lines first, then other brace-depth-0 declarations ending in
+    ``;``.  MSVC sources often declare a symbol as a bare prototype
+    (``int __cdecl foo(void*, int);``) with no ``extern`` keyword; missing
+    those makes gen-stubs guess a data stub for a symbol that is in fact
+    called, and the call stays unresolved.  Declarations inside function
+    bodies are locals, not link symbols, and are skipped.
     """
     externs: dict[str, dict[str, typing.Any]] = {}
+    deferred: dict[str, dict[str, typing.Any]] = {}
     for src_file in sorted(src_dir.rglob("*.c")):
-        for line in src_file.read_text(encoding="utf-8", errors="replace").splitlines():
-            line = line.strip()
-            if not line.startswith("extern"):
+        text = _strip_comments(src_file.read_text(encoding="utf-8", errors="replace"))
+        depth = 0
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line:
                 continue
-            line = re.sub(r"/\*.*?\*/", "", line).strip().rstrip("; ").strip()
-            info = parse_extern_decl(line)
-            if info and info["name"] not in externs:
-                externs[info["name"]] = info
+            if line.startswith("extern"):
+                info = parse_extern_decl(line.rstrip("; ").strip())
+                if info and info["name"] not in externs:
+                    externs[info["name"]] = info
+            elif depth == 0 and _is_file_scope_decl(line):
+                info = parse_extern_decl(line.rstrip("; ").strip())
+                if info and info["name"] not in externs and info["name"] not in deferred:
+                    deferred[info["name"]] = info
+            depth += line.count("{") - line.count("}")
+    for name, info in deferred.items():
+        externs.setdefault(name, info)
     return externs
+
+
+#: Identifiers that are followed by ``(`` but are not function calls.
+_NON_CALL_KEYWORDS = frozenset(
+    {
+        "if",
+        "for",
+        "while",
+        "switch",
+        "return",
+        "sizeof",
+        "do",
+        "else",
+        "case",
+        "goto",
+        "break",
+        "continue",
+        "defined",
+        "__asm",
+        "asm",
+    }
+)
+
+
+def collect_called_symbols(src_dir: Path) -> set[str]:
+    """Identifiers invoked as functions anywhere in *src_dir*'s sources.
+
+    A symbol that is called is a function by definition, so a stub for it must
+    be a function body: emitting a data stub leaves the call unresolved
+    (LNK2001).  This is the fallback signal for symbols with no visible
+    declaration at all.
+    """
+    called: set[str] = set()
+    call_re = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
+    for src_file in sorted(src_dir.rglob("*.c")):
+        text = _strip_comments(src_file.read_text(encoding="utf-8", errors="replace"))
+        for m in call_re.finditer(text):
+            name = m.group(1)
+            if name not in _NON_CALL_KEYWORDS:
+                called.add(name)
+    return called
 
 
 _KNOWN_TYPES = {
@@ -364,9 +443,11 @@ def generate_stubs(
     extern_info: dict[str, dict[str, typing.Any]],
     specials: dict[str, typing.Any] | None = None,
     footer: str = "",
+    called: Iterable[str] | None = None,
 ) -> str:
     """The complete stub TU text for *unresolved* symbol names."""
     specials = specials or {}
+    called_set: set[str] = set(called) if called is not None else set()
     special_entries: dict[str, dict[str, typing.Any]] = specials.get("specials", {})
     bss_arrays: list[list[typing.Any]] = specials.get("bss_arrays", [])
     bss_tail: int = int(specials.get("bss_tail_size", 0) or 0)
@@ -383,17 +464,33 @@ def generate_stubs(
     globals_list: list[str] = []
     functions_list: list[str] = []
     string_globals: list[str] = []
+
+    def _variants(name: str) -> tuple[str, str, str]:
+        """Spellings a name may appear under: the demangled form may lack (or
+        keep) the leading underscore the source used."""
+        return (name, "_" + name, name.lstrip("_"))
+
+    def _lookup(container: dict[str, typing.Any], name: str) -> typing.Any:
+        for key in _variants(name):
+            if key in container:
+                return container[key]
+        return None
+
     for name in sorted(demangled):
         if name in special_entries:
             special_list.append(name)
             continue
-        info = extern_info.get(name)
+        info = _lookup(extern_info, name)
         if name.startswith("s_"):
             string_globals.append(name)
         elif info and info["is_func"]:
             functions_list.append(name)
         elif info and not info["is_func"]:
             globals_list.append(name)
+        elif any(key in called_set for key in _variants(name)):
+            # Called somewhere in the sources => a function, whatever the
+            # declaration scan and the name heuristic say.
+            functions_list.append(name)
         elif _guess_function(name):
             functions_list.append(name)
         else:
@@ -415,7 +512,7 @@ def generate_stubs(
     # All stubs are zero-initialized (non-tentative) so MSVC6 emits them into
     # the object's .bss -> PE .data VirtualSize with raw=0, deterministically.
     for name in sorted(globals_list):
-        info = extern_info.get(name)
+        info = _lookup(extern_info, name)
         if info:
             var_type = simplify_type_for_stub(info["type"])
             if info["is_array"]:
@@ -441,7 +538,7 @@ def generate_stubs(
     if string_globals:
         lines.append("/* String literal globals */")
         for name in sorted(string_globals):
-            info = extern_info.get(name)
+            info = _lookup(extern_info, name)
             decl_size = info["array_size"] if info and info["is_array"] else "1"
             lines.append(f'char {name}[{decl_size}] = "";')
         lines.append("")
@@ -458,7 +555,7 @@ def generate_stubs(
 
     lines.append("/* Function stubs */")
     for name in sorted(functions_list):
-        info = extern_info.get(name)
+        info = _lookup(extern_info, name)
         if info and info["is_func"]:
             ret_type = simplify_type_for_stub(info["type"])
             cc = info["calling_conv"] or "__cdecl"
@@ -494,6 +591,16 @@ def generate_stubs(
 
 
 # --- build integration ---------------------------------------------------------
+
+
+#: Definition names in a generated stub TU, for the overwrite warning.
+_DEFINED_FUNC_RE = re.compile(r"(?:__cdecl|__stdcall)\s+(\w+)")
+_DEFINED_DATA_RE = re.compile(r"(?m)^[A-Za-z_][\w\s\*]*?\b(\w+)\s*(?:=|\[)")
+
+
+def _defined_symbols(text: str) -> set[str]:
+    """Names this stub TU defines (rough, for the overwrite warning only)."""
+    return set(_DEFINED_FUNC_RE.findall(text)) | set(_DEFINED_DATA_RE.findall(text))
 
 
 def _run_build(
@@ -640,11 +747,31 @@ def main(
     if not src.is_dir():
         error_exit(f"source directory not found: {src}", json_mode=json_output)
     extern_info = collect_extern_info(src)
+    called = collect_called_symbols(src)
 
     # 4. Generate.
     spec_dict = _load_specials(specials) if specials is not None else {}
     footer_text = footer.read_text(encoding="utf-8", errors="replace") if footer is not None else ""
-    content = generate_stubs(unresolved, extern_info, spec_dict, footer_text)
+    content = generate_stubs(unresolved, extern_info, spec_dict, footer_text, called=called)
+
+    # Symbols the existing output defines that this run does not reproduce.
+    # Regeneration is by design (the TU is generated), but silently dropping
+    # hand-carried stubs breaks the link (LNK2001) with no trace of why.
+    target = out if out.is_absolute() else root / out
+    dropped: list[str] = []
+    if target.exists():
+        old_symbols = _defined_symbols(target.read_text(encoding="utf-8", errors="replace"))
+        dropped = sorted(old_symbols - _defined_symbols(content))
+        if dropped and not json_output:
+            console.print(
+                f"[yellow]warning:[/] {len(dropped)} symbol(s) defined in "
+                f"{target.name} are not reproduced by this run and will be dropped: "
+                + ", ".join(dropped[:8])
+                + (" …" if len(dropped) > 8 else "")
+            )
+            console.print(
+                "[dim]carry them via --specials/--footer, or keep the existing file[/dim]"
+            )
 
     if dry_run or json_output:
         if json_output:
@@ -652,6 +779,7 @@ def main(
                 {
                     "unresolved": len(unresolved),
                     "externs": len(extern_info),
+                    "dropped_existing": dropped,
                     "generated": content,
                 }
             )
@@ -659,7 +787,6 @@ def main(
             print(content)
         return
 
-    target = out if out.is_absolute() else root / out
     target.write_text(content, encoding="utf-8")
     console.print(f"[green]gen-stubs:[/] wrote {target} ({len(unresolved)} symbols)")
 
