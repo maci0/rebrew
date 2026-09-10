@@ -96,8 +96,23 @@ class TestCollectExterns:
         assert infos["foo"]["params"] == "(int)"
         assert "bar" in infos
 
-    def test_skips_non_extern_lines(self, tmp_path: Path) -> None:
-        p = _write_src(tmp_path, "int local = 3;\n/* extern int hidden; */\n")
+    def test_collects_bare_prototype(self, tmp_path: Path) -> None:
+        p = _write_src(tmp_path, "int __cdecl _crt_locked_call4a(void*, int, int, void*);\n")
+        infos = collect_extern_info(p.parent)
+        assert infos["_crt_locked_call4a"]["is_func"] is True
+        assert infos["_crt_locked_call4a"]["params"] == "(void*, int, int, void*)"
+
+    def test_skips_definitions_locals_and_typedefs(self, tmp_path: Path) -> None:
+        p = _write_src(
+            tmp_path,
+            "int local = 3;\n"
+            "/* extern int hidden; */\n"
+            "typedef int myint;\n"
+            "void f(void)\n"
+            "{\n"
+            "    int g(int);\n"
+            "}\n",
+        )
         assert collect_extern_info(p.parent) == {}
 
 
@@ -196,6 +211,27 @@ class TestGenerate:
         content = generate_stubs([], {}, footer="/* marker */\nint _fltused = 0;")
         assert content.rstrip("\n").endswith("int _fltused = 0;")
 
+    def test_called_symbol_without_decl_is_function(self) -> None:
+        content = generate_stubs(["_mystery_hook"], {}, called={"_mystery_hook"})
+        assert "int __cdecl mystery_hook(void)" in content
+        assert "int mystery_hook = 0;" not in content
+
+    def test_info_found_under_decorated_spelling(self) -> None:
+        externs = {
+            "_crt_locked_call4a": {
+                "name": "_crt_locked_call4a",
+                "type": "int",
+                "is_func": True,
+                "calling_conv": "__cdecl",
+                "params": "(void*, int, int, void*)",
+                "full_decl": "int __cdecl _crt_locked_call4a(void*, int, int, void*)",
+                "is_array": False,
+                "array_size": None,
+            }
+        }
+        content = generate_stubs(["_crt_locked_call4a"], externs)
+        assert "int __cdecl crt_locked_call4a(void* a, int b, int c, void* d)" in content
+
     def test_guess_functions_by_name(self) -> None:
         content = generate_stubs(["_free_node", "_mystery_global"], {})
         assert "int __cdecl free_node(void)" in content
@@ -233,6 +269,19 @@ class TestCli:
         assert result.exit_code == 0
         assert "int g_counter = 0;" in out.read_text(encoding="utf-8")
         assert "int __cdecl write_log(char* a)" in out.read_text(encoding="utf-8")
+
+    def test_warns_before_dropping_existing_stub(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.gen_stubs import app
+
+        monkeypatch.chdir(tmp_path)
+        _write_src(tmp_path, "extern int g_counter;\n")
+        out = tmp_path / "stubs.c"
+        out.write_text("int __cdecl hand_carried(void)\n{\n\treturn 0;\n}\n", encoding="utf-8")
+        result = CliRunner().invoke(app, ["--out", str(out)], input=LNK_OUTPUT)
+        assert result.exit_code == 0, result.output
+        assert "hand_carried" in result.output
 
     def test_no_unresolved_is_error(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.gen_stubs import app
