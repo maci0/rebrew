@@ -564,6 +564,27 @@ class TestCLIAddRemoveTarget:
         assert result.exit_code == 0
         assert "already exists" in result.output
 
+    def test_add_target_dry_run(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(
+            cfg_app,
+            [
+                "add-target",
+                "client.exe",
+                "--binary",
+                "original/client.exe",
+                "--arch",
+                "x86_32",
+                "--force",
+                "--dry-run",
+            ],
+        )
+        assert result.exit_code == 0
+        assert "dry-run" in result.output
+        doc, _ = load_toml(tmp_path)
+        assert "client.exe" not in doc.get("targets", {})
+
     def test_remove_target(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
@@ -572,6 +593,15 @@ class TestCLIAddRemoveTarget:
         assert "Removed" in result.output
         doc, _ = load_toml(tmp_path)
         assert "server.dll" not in doc.get("targets", {})
+
+    def test_remove_target_dry_run(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["remove-target", "server.dll", "--dry-run"])
+        assert result.exit_code == 0
+        assert "dry-run" in result.output
+        doc, _ = load_toml(tmp_path)
+        assert "server.dll" in doc.get("targets", {})
 
     def test_remove_target_idempotent(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
@@ -632,6 +662,15 @@ class TestCLIModules:
         assert "Removed" in result.output
         doc, _ = load_toml(tmp_path)
         assert "ZLIB" not in doc["targets"]["server.dll"]["origins"]
+
+    def test_remove_module_dry_run(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["remove-module", "ZLIB", "--dry-run"])
+        assert result.exit_code == 0
+        assert "dry-run" in result.output
+        doc, _ = load_toml(tmp_path)
+        assert "ZLIB" in doc["targets"]["server.dll"]["origins"]
 
     def test_remove_module_idempotent(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
@@ -864,6 +903,17 @@ class TestCLIDetectCrt:
             == "toolchain/msvc/6.0-win32/VC98/CRT/SRC"
         )
 
+    def test_detect_crt_write_dry_run(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        crt_dir = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "CRT" / "SRC"
+        crt_dir.mkdir(parents=True)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["detect-crt", "--write", "--dry-run"])
+        assert result.exit_code == 0
+        assert "dry-run" in result.output
+        doc, _ = load_toml(tmp_path)
+        assert "crt_sources" not in doc["targets"]["server.dll"]
+
     def test_detect_crt_json_empty(self, tmp_path: Path, monkeypatch) -> None:
         """--json emits a structured empty result when nothing is found."""
         _make_project(tmp_path)
@@ -980,6 +1030,16 @@ class TestCLISetCompiler:
         compiler_tbl = doc["targets"]["server.dll"]["compiler"]
         assert compiler_tbl["command"] == "gcc"
         assert compiler_tbl["profile"] == "gcc"
+
+    def test_set_compiler_dry_run(self, tmp_path: Path, monkeypatch) -> None:
+        """set-compiler --dry-run previews without writing."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "msvc6", "--dry-run"])
+        assert result.exit_code == 0
+        assert "dry-run" in result.output
+        doc, _ = load_toml(tmp_path)
+        assert "compiler" not in doc["targets"]["server.dll"]
 
     def test_set_compiler_unknown_profile_rejected(self, tmp_path: Path, monkeypatch) -> None:
         """set-compiler rejects unknown profiles with a list of valid choices."""

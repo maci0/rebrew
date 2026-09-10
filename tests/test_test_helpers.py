@@ -122,7 +122,7 @@ class TestBuildResultDictFromCompare:
     def test_size_mismatch_reports_full_obj_size(self) -> None:
         """A SIZE_MISMATCH truncates cmp.obj_bytes to the target length — the
         JSON must report the full compiled size (total/obj_size), not the
-        common-prefix slice, so --fix-size output is self-consistent."""
+        common-prefix slice, so --fix-sizes output is self-consistent."""
         cmp = CompareResult(
             matched=False,
             status="SIZE_MISMATCH",
@@ -143,7 +143,7 @@ class TestBuildResultDictFromCompare:
         assert d["size"] == 9  # the annotation value passed through
 
     def test_fixed_size_match_dict(self) -> None:
-        """After --fix-size reclassifies as matched, the dict must carry the
+        """After --fix-sizes reclassifies as matched, the dict must carry the
         corrected status and full sizes."""
         cmp = CompareResult(
             matched=True,
@@ -316,7 +316,7 @@ class TestSizePersistence:
 
 
 class TestFixSize:
-    """`rebrew test --fix-size` corrects a stale SIZE annotation when ALL
+    """`rebrew test --fix-sizes` corrects a stale SIZE annotation when ALL
     common bytes match (the compiled size is the definitive evidence), and
     must NOT touch the size when the mismatch is a real byte difference."""
 
@@ -382,7 +382,7 @@ class TestFixSize:
                 "9",
                 "--symbol",
                 "_f",
-                "--fix-size",
+                "--fix-sizes",
                 "--json",
             ],
         )
@@ -397,7 +397,7 @@ class TestFixSize:
         from rebrew.main import app as umbrella
 
         self._project(tmp_path, monkeypatch)
-        # 90% common-prefix match: real byte differences → --fix-size no-op.
+        # 90% common-prefix match: real byte differences → --fix-sizes no-op.
         monkeypatch.setattr(
             "rebrew.test.compile_and_compare",
             lambda *a, **k: self._size_mismatch_result(90.0),
@@ -417,7 +417,7 @@ class TestFixSize:
                 "9",
                 "--symbol",
                 "_f",
-                "--fix-size",
+                "--fix-sizes",
                 "--json",
             ],
         )
@@ -450,7 +450,7 @@ class TestFixSize:
                 "9",
                 "--symbol",
                 "_f",
-                "--fix-size",
+                "--fix-sizes",
                 "--dry-run",
             ],
         )
@@ -561,7 +561,7 @@ class TestCliSizeLintSuppression:
 
 class TestMultiFixSize:
     """The multi-function path (`rebrew test multi.c` with no --va/--size)
-    must also honor --fix-size: all-common-bytes-match SIZE_MISMATCHes write
+    must also honor --fix-sizes: all-common-bytes-match SIZE_MISMATCHes write
     the compiled size and promote, without leaving the file."""
 
     @staticmethod
@@ -638,7 +638,7 @@ class TestMultiFixSize:
             str(tmp_path / "f.c"),
             [self._ann()],
             None,
-            fix_size=True,
+            fix_sizes=True,
         )
         assert writes == [("X", 0x1000, 12)]
 
@@ -700,7 +700,7 @@ class TestMultiFixSize:
                 str(tmp_path / "f.c"),
                 [self._ann()],
                 None,
-                fix_size=False,
+                fix_sizes=False,
             )
         # SIZE_MISMATCH is unmatched → exit 1 per the documented contract.
         assert exc_info.value.exit_code == 1
@@ -708,7 +708,7 @@ class TestMultiFixSize:
 
 
 class TestFixSizeEvidence:
-    """--fix-size's evidence gate must refuse a fix when the region beyond
+    """--fix-sizes's evidence gate must refuse a fix when the region beyond
     the common prefix hides a mismatch — the false-fix hazard."""
 
     @staticmethod
@@ -794,7 +794,7 @@ class TestFixSizeEvidence:
 
 
 class TestFixSizeDisasmFallback:
-    """--fix-size's evidence gate falls back to the disassembly extent when
+    """--fix-sizes's evidence gate falls back to the disassembly extent when
     the padding/extension checks refuse — a discovery boundary merged the
     NEXT function into the annotation (real code beyond the compiled end)."""
 

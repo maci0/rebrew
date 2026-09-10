@@ -1,7 +1,7 @@
 """Initialize a new rebrew project directory.
 
 Usage:
-    rebrew init [--target NAME] [--binary FILENAME] [--compiler PROFILE]
+    rebrew init [--target NAME] [--binary FILENAME] [--toolchain PROFILE]
 """
 
 import logging
@@ -1132,9 +1132,7 @@ def main(
         "-b",
         help="Name of the executable binary file (an 'original/' prefix is accepted and stripped).",
     ),
-    compiler_profile: str = typer.Option(
-        "msvc6", "--compiler", "-c", help="Compiler profile to use."
-    ),
+    compiler_profile: str = typer.Option("msvc6", "--toolchain", help="Compiler profile to use."),
     guess_compiler: bool = typer.Option(
         False,
         "--guess-compiler",
@@ -1161,6 +1159,7 @@ def main(
         ),
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     wizard: bool = typer.Option(
         True,
         "--wizard/--no-wizard",
@@ -1186,6 +1185,7 @@ def main(
     # docs/DEVELOPMENT.md).  Normalize to the declared default.
     toolchain_dir = option_default(toolchain_dir, None)
     guess_compiler = option_default(guess_compiler, False)
+    dry_run = option_default(dry_run, False)
     wizard = option_default(wizard, True)
 
     # Accept both "original/bench.exe" and "bench.exe" — the config already
@@ -1227,7 +1227,7 @@ def main(
         if guess is None:
             error_exit(
                 f"cannot guess a compiler profile for {binary_path} "
-                f"(detected family {guess_tc.family!r}) — pass --compiler "
+                f"(detected family {guess_tc.family!r}) — pass --toolchain "
                 "<profile> explicitly (see --help for the list)",
                 json_mode=json_output,
             )
@@ -1354,6 +1354,23 @@ def main(
     toml_content = toml_content.replace("__COMPILER_RUNNER__", runner)
     toml_content = toml_content.replace("__TARGET_FORMAT__", binary_format)
     toml_content = toml_content.replace("__TARGET_ARCH__", target_arch)
+    if dry_run:
+        if json_output:
+            json_print(
+                {
+                    "project_root": str(cwd),
+                    "target": target_name,
+                    "binary": binary_name,
+                    "compiler": compiler_profile,
+                    "dry_run": True,
+                }
+            )
+        else:
+            console.print(
+                f"[cyan]dry-run:[/cyan] would init project {cwd.name!r} "
+                f"(target {target_name!r}, binary {binary_name!r}, profile {compiler_profile!r})"
+            )
+        return
     atomic_write_text(toml_path, toml_content, encoding="utf-8")
     console.print(f"[green]Created {toml_path.name}[/]")
 

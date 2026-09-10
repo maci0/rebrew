@@ -667,7 +667,7 @@ def _load_specials(path: Path) -> dict[str, typing.Any]:
 
 @app.callback(invoke_without_command=True)
 def main(
-    out: Path = typer.Option(Path("src/link_stubs.c"), "--out", help="Output TU path"),
+    output: Path = typer.Option(Path("src/link_stubs.c"), "--output", "-o", help="Output TU path"),
     source_dir: Path | None = typer.Option(
         None, "--source-dir", help="Directory of reversed sources (extern decl scan)"
     ),
@@ -757,7 +757,7 @@ def main(
     # Symbols the existing output defines that this run does not reproduce.
     # Regeneration is by design (the TU is generated), but silently dropping
     # hand-carried stubs breaks the link (LNK2001) with no trace of why.
-    target = out if out.is_absolute() else root / out
+    target = output if output.is_absolute() else root / output
     dropped: list[str] = []
     if target.exists():
         old_symbols = _defined_symbols(target.read_text(encoding="utf-8", errors="replace"))

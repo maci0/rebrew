@@ -185,6 +185,7 @@ def main(
     write_cflags: bool = typer.Option(
         False, "--write-cflags", help=r"Write the S_COMPILE3 flags into \[compiler] cflags."
     ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Report compiler version, flags, and function names from the PDB."""
@@ -212,6 +213,8 @@ def main(
         cfg_path = Path("rebrew-project.toml")
         if not cfg_path.exists():
             payload["cflags_write"] = "skipped: no rebrew-project.toml in cwd"
+        elif dry_run:
+            payload["cflags_write"] = "dry-run: " + " ".join(info.flags)
         else:
             from rebrew.cfg import load_toml, save_toml
 
@@ -236,6 +239,8 @@ def main(
             console.print(f"    - {fn['name']}")
         if info.error:
             console.print(f"  [yellow]{info.error}[/yellow]")
+        if dry_run and "cflags_write" in payload:
+            console.print(f"  [cyan]dry-run:[/cyan] would write {payload['cflags_write']!r}")
 
 
 def main_entry() -> None:

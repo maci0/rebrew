@@ -66,7 +66,7 @@ def test_sweep_filter_matches() -> None:
 
 
 def test_vendored_enumeration_respects_only_exclude() -> None:
-    """--sweep-only / --sweep-exclude narrow the registry enumeration."""
+    """--sweep-toolchains / --sweep-exclude-toolchains narrow the registry enumeration."""
     from rebrew.match import _vendored_msvc_toolchains
 
     all_ = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc6"))
@@ -130,7 +130,7 @@ def test_toolchain_sweep_orders_best_first(monkeypatch, capsys) -> None:
 
 
 def test_toolchain_flag_sweep_reports_per_toolchain(monkeypatch, capsys) -> None:
-    """--sweep-toolchain --flag-sweep-only combines both dimensions: each
+    """--flag-sweep-toolchains --flag-sweep-only combines both dimensions: each
     toolchain gets its own flag sweep and the best flags are reported."""
     import json
 

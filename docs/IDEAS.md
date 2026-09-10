@@ -41,8 +41,8 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 | — | One-shot onboarding | `rebrew intake` (toolchain detect → init → functions → document). |
 | — | PDB import | `rebrew pdb-info` — S_COMPILE3 version + flags (`--write-cflags`) + names. |
 | — | Function discovery | `rebrew discover-functions` — aaa→aap→capstone sweep with boundary validation. |
-| — | Toolchain-version sweep | `rebrew match --sweep-toolchain` — which MSVC SP built this function. |
-| — | Cross-project solutions seeding | `rebrew match --all --seed-solutions <path>` — borrow winning cflags across projects. |
+| — | Toolchain-version sweep | `rebrew match --flag-sweep-toolchains` — which MSVC SP built this function. |
+| — | Cross-project solutions seeding | `rebrew match --all --seed-solutions-file <path>` — borrow winning cflags across projects. |
 | — | Library identification | `rebrew identify-library` — FLIRT + imports + CRT merged into `library_*.h`. |
 | — | Intelligence dossier | `rebrew analyze` — one-shot recon (toolchain, strings, imports, dispatch, FLIRT); `--output report.md`, `--function 0xVA` drill. |
 | — | In-repo binary fixtures | `tests/fixtures/` + `tools/gen_fixtures.py` — CI parse/compare/reloc coverage without wine. |
@@ -51,7 +51,7 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 | — | Ghidra enum/typedef sync | `extract_enums_from_file`, push via CParser, merge-safe `--pull-datatypes`. |
 | — | GA scoring fast paths | identical-bytes + mnemonic-equality shortcuts (1.76× measured; `docs/PERFORMANCE.md`). |
 | — | Recoverage schema parity | `tests/test_recoverage_contract.py` pins the DB contract recoverage reads. |
-| 23 | LLM-assisted GA seed generation | `rebrew match --llm-seed` (`llm_seed.py`) — optional LLM alternative-implementation seeding for the GA (NEAR_MATCHING diff → suggested C permutations). |
+| 23 | LLM-assisted GA seed generation | `rebrew match --seed-llm` (`llm_seed.py`) — optional LLM alternative-implementation seeding for the GA (NEAR_MATCHING diff → suggested C permutations). |
 | 24 | Ghidra-CLI sync backend | `ghidra_backend = "cli"` (`ghidra/cli_backend.py`) — headless `ghidra-cli` transport alongside ReVa MCP (no live ReVa instance needed). |
 | 25 | Memory side-effect checking in prove | `prove --watch-va` / `prove_constraints.watched_vas` — EDX:EAX returns + watched-VA memory comparison (`test_prove_memory_watch.py`, 11 tests). |
 

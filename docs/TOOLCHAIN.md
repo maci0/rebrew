@@ -37,7 +37,7 @@ cflags = "-O2 -march=pentium4"
 base_cflags = ""         # -c is added by rebrew for posix-style profiles
 ```
 
-`rebrew init --compiler gcc-pe` creates this configuration.  The compile
+`rebrew init --toolchain gcc-pe` creates this configuration.  The compile
 pipeline is profile-aware: `-I/-c/-o` flag style, no Wine runner, and PATH
 resolution of the bare toolchain name.
 

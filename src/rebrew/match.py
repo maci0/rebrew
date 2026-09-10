@@ -1435,14 +1435,14 @@ def main(
     ),
     extra_seed: list[str] | None = typer.Option(
         None,
-        "--extra-seed",
-        help="Extra .c file(s) to seed GA population from solved functions. Ignored if --no-seed is also passed.",
+        "--seed-file",
+        help="Extra .c file(s) to seed GA population from solved functions. Ignored if --no-seeds is also passed.",
         rich_help_panel="Single-Function",
     ),
     no_seed: bool = typer.Option(
         False,
-        "--no-seed",
-        help="Disable cross-function solution seeding (takes precedence over --extra-seed)",
+        "--no-seeds",
+        help="Disable cross-function solution seeding (takes precedence over --seed-file)",
         rich_help_panel="Single-Function",
     ),
     mutation_focus: str | None = typer.Option(
@@ -1482,27 +1482,28 @@ def main(
         help="Batch mode: run GA across STUB functions in EVERY configured target",
         rich_help_panel="Batch Mode",
     ),
-    sweep_toolchain: bool = typer.Option(
+    flag_sweep_toolchains: bool = typer.Option(
         False,
-        "--sweep-toolchain",
+        "--flag-sweep-toolchains",
         help="Try each vendored MSVC toolchain (SP versions) instead of GA and report the best; combine with --flag-sweep-only to flag-sweep with each toolchain",
         rich_help_panel="Single-Function",
     ),
-    sweep_only: str = typer.Option(
+    sweep_toolchains: str = typer.Option(
         "",
-        "--sweep-only",
-        help="Sweep only these toolchains (comma-separated profile names or version prefixes, e.g. msvc6,6.0,win16; a Y2K binary likely rules out 2.0/4.x — exclude them with --sweep-exclude 2.0,4.0)",
+        "--sweep-toolchains",
+        "--toolchain",
+        help="Sweep only these toolchains (comma-separated profile names or version prefixes, e.g. msvc6,6.0,win16; a Y2K binary likely rules out 2.0/4.x — exclude them with --sweep-exclude-toolchains 2.0,4.0)",
         rich_help_panel="Single-Function",
     ),
-    sweep_exclude: str = typer.Option(
+    sweep_exclude_toolchains: str = typer.Option(
         "",
-        "--sweep-exclude",
+        "--sweep-exclude-toolchains",
         help="Skip these toolchains in the sweep (comma-separated profile names or version prefixes, e.g. 2.0,4.0,win16)",
         rich_help_panel="Single-Function",
     ),
-    sweep_then_ga: bool = typer.Option(
+    flag_sweep_then_ga: bool = typer.Option(
         False,
-        "--sweep-then-ga",
+        "--flag-sweep-then-ga",
         help="Batch: flag-sweep each stub first, then run the GA with the best flags",
         rich_help_panel="Batch Mode",
     ),
@@ -1514,7 +1515,7 @@ def main(
     ),
     seed_solutions: Path | None = typer.Option(
         None,
-        "--seed-solutions",
+        "--seed-solutions-file",
         help=(
             "Batch: extra solutions.json to seed from (cross-project cflags/"
             "source transfer).  E.g. ../makehm-rebrew/.rebrew/solutions.json"
@@ -1523,7 +1524,7 @@ def main(
     ),
     llm_seed: bool = typer.Option(
         False,
-        "--llm-seed",
+        "--seed-llm",
         help=(
             "Ask a configured LLM endpoint for alternative C implementations "
             "and inject them into the GA's initial population (see [llm] "
@@ -1533,7 +1534,7 @@ def main(
     ),
     kuna_seed: bool = typer.Option(
         False,
-        "--kuna-seed",
+        "--seed-kuna",
         help=(
             "Seed the GA's initial population with Kuna's decompilation of "
             "the target function (github.com/Noelo-Lab/kuna — requires the "
@@ -1628,7 +1629,7 @@ def main(
     ),
     seed_from_solved: bool = typer.Option(
         True,
-        "--seed-from-solved/--no-seed-from-solved",
+        "--seed-solved/--no-seed-solved",
         help="Seed GA population from similar solved functions",
         rich_help_panel="Batch Mode",
     ),
@@ -1722,7 +1723,7 @@ def main(
             seed_from_solved=seed_from_solved,
             json_output=json_output,
             tier=tier,
-            sweep_then_ga=sweep_then_ga,
+            flag_sweep_then_ga=flag_sweep_then_ga,
             skip_recent_hours=skip_recent_hours,
             seed=seed,
             seed_solutions_path=seed_solutions,
@@ -1778,7 +1779,7 @@ def main(
                     seed_from_solved=seed_from_solved,
                     json_output=False,
                     tier=tier,
-                    sweep_then_ga=sweep_then_ga,
+                    flag_sweep_then_ga=flag_sweep_then_ga,
                     skip_recent_hours=skip_recent_hours,
                     seed=seed,
                     seed_solutions_path=seed_solutions,
@@ -1916,8 +1917,8 @@ def main(
                 ldflags=ldflags,
                 flag_sweep_only=flag_sweep_only,
                 tier=tier,
-                sweep_toolchain=sweep_toolchain,
-                sweep_then_ga=sweep_then_ga,
+                flag_sweep_toolchains=flag_sweep_toolchains,
+                flag_sweep_then_ga=flag_sweep_then_ga,
                 skip_recent_hours=skip_recent_hours,
                 seed_solutions=seed_solutions,
                 llm_seed=llm_seed,
@@ -1955,17 +1956,19 @@ def main(
         watch_files([seed_path], _retest)
         return
 
-    if flag_sweep_only and sweep_toolchain:
+    if flag_sweep_only and flag_sweep_toolchains:
         # Both dimensions at once: flag-sweep with each vendored MSVC version.
-        _run_single_toolchain_flag_sweep(params, tier, jobs, json_output, sweep_only, sweep_exclude)
+        _run_single_toolchain_flag_sweep(
+            params, tier, jobs, json_output, sweep_toolchains, sweep_exclude_toolchains
+        )
         return
 
     if flag_sweep_only:
         _run_single_flag_sweep(params, tier, jobs, json_output)
         return
 
-    if sweep_toolchain:
-        _run_single_toolchain_sweep(params, json_output, sweep_only, sweep_exclude)
+    if flag_sweep_toolchains:
+        _run_single_toolchain_sweep(params, json_output, sweep_toolchains, sweep_exclude_toolchains)
         return
 
     _run_single_ga(
@@ -2390,7 +2393,7 @@ def _sweep_filter_matches(name: str, verarch: str, filters: list[str]) -> bool:
     of the profile id ("msvc2" -> msvc200), or a substring of the version-arch
     ("6.0" -> every 6.0 line incl. SPs; "win16" -> all 16-bit DOSBox
     toolchains).  This is what lets a Y2K binary exclude the pre-5.0 line
-    with --sweep-exclude 2.0,4.0."""
+    with --sweep-exclude-toolchains 2.0,4.0."""
     n = name.lower()
     va = verarch.lower()
     for f in filters:
@@ -3311,7 +3314,7 @@ def _run_all(
     seed_from_solved: bool,
     json_output: bool,
     tier: str,
-    sweep_then_ga: bool = False,
+    flag_sweep_then_ga: bool = False,
     skip_recent_hours: int = 0,
     seed: int | None = None,
     size_mismatch: bool = False,
@@ -3546,7 +3549,7 @@ def _run_all(
         # VA is stable, so runs stay reproducible.)
         stub_seed = None if seed is None else seed + int(stub.va, 16)
         sweep_flags: str | None = None
-        if sweep_then_ga:
+        if flag_sweep_then_ga:
             try:
                 _s, best_flags, _all = run_flag_sweep(stub, cfg, tier=tier, jobs=intra_jobs)
                 if best_flags and _s < float("inf"):

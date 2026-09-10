@@ -292,13 +292,13 @@ def cmd_batch(
 def _setup_candidates(
     target: str | None,
     json_output: bool,
-    exe: Path | None,
+    binary: Path | None,
     min_size: int,
     max_size: int,
 ) -> tuple[ProjectConfig, list[tuple[int, int, str]], Path]:
     cfg = require_config(target=target, json_mode=json_output)
 
-    exe_path = exe or cfg.target_binary
+    exe_path = binary or cfg.target_binary
     src_dir = cfg.reversed_dir
 
     try:
@@ -377,14 +377,16 @@ def main() -> None:
 
 @app.command("list")
 def list_candidates(
-    exe: Path | None = typer.Option(None, "--exe", help="Path to DLL/EXE (default: from config)"),
+    binary: Path | None = typer.Option(
+        None, "--binary", help="Path to DLL/EXE (default: from config)"
+    ),
     min_size: int = typer.Option(8, "--min-size", help="Minimum function size"),
     max_size: int = typer.Option(50000, "--max-size", help="Maximum function size"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """List un-reversed candidates."""
-    cfg, candidates, exe_path = _setup_candidates(target, json_output, exe, min_size, max_size)
+    cfg, candidates, exe_path = _setup_candidates(target, json_output, binary, min_size, max_size)
     if json_output:
         items = [{"va": f"0x{va:08x}", "size": sz, "name": nm} for va, sz, nm in candidates]
         json_print({"count": len(candidates), "candidates": items})
@@ -398,14 +400,16 @@ def show_candidate(
     size: int | None = typer.Option(
         None, "--size", help="Override catalog-recorded size for this extraction"
     ),
-    exe: Path | None = typer.Option(None, "--exe", help="Path to DLL/EXE (default: from config)"),
+    binary: Path | None = typer.Option(
+        None, "--binary", help="Path to DLL/EXE (default: from config)"
+    ),
     min_size: int = typer.Option(8, "--min-size", help="Minimum function size"),
     max_size: int = typer.Option(50000, "--max-size", help="Maximum function size"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Extract and disassemble a single VA."""
-    cfg, candidates, exe_path = _setup_candidates(target, json_output, exe, min_size, max_size)
+    cfg, candidates, exe_path = _setup_candidates(target, json_output, binary, min_size, max_size)
     binary_info = load_binary(exe_path)
     target_va = parse_va(va, json_mode=json_output)
     # --size override: inject a synthetic candidate entry so the VA is found
@@ -422,7 +426,9 @@ def show_candidate(
 def batch_candidates(
     count: int = typer.Argument(20, help="Number of functions to extract"),
     start: int = typer.Option(0, "--start", help="Start offset for batch mode"),
-    exe: Path | None = typer.Option(None, "--exe", help="Path to DLL/EXE (default: from config)"),
+    binary: Path | None = typer.Option(
+        None, "--binary", help="Path to DLL/EXE (default: from config)"
+    ),
     min_size: int = typer.Option(8, "--min-size", help="Minimum function size"),
     max_size: int = typer.Option(50000, "--max-size", help="Maximum function size"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -430,7 +436,7 @@ def batch_candidates(
     target: str | None = TargetOption,
 ) -> None:
     """Extract and disassemble a batch of functions."""
-    cfg, candidates, exe_path = _setup_candidates(target, json_output, exe, min_size, max_size)
+    cfg, candidates, exe_path = _setup_candidates(target, json_output, binary, min_size, max_size)
     binary_info = load_binary(exe_path)
     cmd_batch(
         binary_info,

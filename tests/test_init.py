@@ -247,6 +247,21 @@ class TestInit:
         assert "server" in content
         assert "server.dll" in content
 
+    def test_dry_run_writes_nothing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """init() --dry-run previews without touching the disk."""
+        monkeypatch.chdir(tmp_path)
+        init(
+            target_name="server",
+            binary_name="server.dll",
+            compiler_profile="msvc6",
+            install_wibo=False,
+            json_output=False,
+            install_completions=False,
+            dry_run=True,
+        )
+        assert not (tmp_path / "rebrew-project.toml").exists()
+        assert not (tmp_path / "AGENTS.md").exists()
+
     def test_msvc6_resolves_available_toolchain(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -844,7 +859,7 @@ class TestProfileMismatchWarning:
 
 
 class TestInitTc16:
-    """rebrew init --compiler tc16 must generate a config that loads
+    """rebrew init --toolchain tc16 must generate a config that loads
     without an unknown-profile fallback (COMPILER_DEFAULTS + _KNOWN_PROFILES
     cover the new profile)."""
 
@@ -876,7 +891,7 @@ class TestInitTc16:
 
 
 class TestInitDelphi16:
-    """rebrew init --compiler delphi16 must generate a config that loads
+    """rebrew init --toolchain delphi16 must generate a config that loads
     without an unknown-profile fallback — the profile is advertised in the
     CLI epilog, registered in TOOLCHAINS, and validated by _KNOWN_PROFILES."""
 
@@ -1002,7 +1017,7 @@ class TestInitGuessCompiler:
 
 class TestGuessCompilerFailure:
     """init --guess-compiler on an unrecognizable binary must fail with a
-    hint to pass --compiler explicitly (perf of the onboarding UX)."""
+    hint to pass --toolchain explicitly (perf of the onboarding UX)."""
 
     def test_unknown_family_suggests_explicit_compiler(
         self, tmp_path: Path, monkeypatch, capsys
@@ -1034,4 +1049,4 @@ class TestGuessCompilerFailure:
             )
         captured = capsys.readouterr()
         assert "cannot guess" in captured.err
-        assert "--compiler" in captured.err  # the actionable hint
+        assert "--toolchain" in captured.err  # the actionable hint

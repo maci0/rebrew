@@ -192,7 +192,9 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     sig_dir: Path | None = typer.Argument(None, help="Directory containing .sig/.pat files"),
-    exe: Path | None = typer.Option(None, "--exe", help="Target PE file (default: from config)"),
+    binary: Path | None = typer.Option(
+        None, "--binary", help="Target PE file (default: from config)"
+    ),
     min_size: int = typer.Option(16, "--min-size", help="Minimum function size in bytes to report"),
     va_filter: str | None = typer.Option(
         None, "--va", help="Check a single function VA (hex) instead of the whole .text"
@@ -208,7 +210,7 @@ def main(
     """FLIRT signature scanner for binaries."""
     cfg = require_config(target=target, json_mode=json_output)
 
-    final_exe = exe or cfg.target_binary
+    final_exe = binary or cfg.target_binary
 
     # 1. Load FLIRT signatures: explicit dir, else project flirt_sigs/ merged
     # with the rebrew-flirt-sigs checkout (standard library sigs).

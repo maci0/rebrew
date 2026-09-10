@@ -62,7 +62,7 @@ class TestReportCli:
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
         monkeypatch.chdir(tmp_path)
         site = tmp_path / "site"
-        result = runner.invoke(app, ["--out", str(site)])
+        result = runner.invoke(app, ["--output", str(site)])
         assert result.exit_code == 0, result.output
 
         # The out directory is created and contains all four pages.
@@ -91,7 +91,7 @@ class TestReportCli:
         )
         monkeypatch.chdir(tmp_path)
         site = tmp_path / "site"
-        result = runner.invoke(app, ["--out", str(site)])
+        result = runner.invoke(app, ["--output", str(site)])
         assert result.exit_code == 0, result.output
         index = (site / "index.html").read_text(encoding="utf-8")
         assert "Blocker" in index
@@ -105,7 +105,7 @@ class TestReportCli:
     def test_default_out_dir_under_output_dir(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Without --out the site lands in <output_dir>/report."""
+        """Without --output the site lands in <output_dir>/report."""
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(app, [])
@@ -129,7 +129,7 @@ class TestReportCli:
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
         monkeypatch.chdir(tmp_path)
         site = tmp_path / "site"
-        result = runner.invoke(app, ["--json", "--out", str(site)])
+        result = runner.invoke(app, ["--json", "--output", str(site)])
         assert result.exit_code == 0, result.output
 
         payload = json.loads(result.stdout)
@@ -149,7 +149,7 @@ class TestReportCli:
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))  # .text only, no data sections
         monkeypatch.chdir(tmp_path)
         site = tmp_path / "site"
-        result = runner.invoke(app, ["--out", str(site)])
+        result = runner.invoke(app, ["--output", str(site)])
         assert result.exit_code == 0, result.output
 
         strings_html = (site / "strings.html").read_text(encoding="utf-8")
@@ -173,7 +173,7 @@ class TestReportCli:
         _write_project(tmp_path, pe_bytes=make_pe(stub, imports=imports))
         monkeypatch.chdir(tmp_path)
         site = tmp_path / "site"
-        result = runner.invoke(app, ["--out", str(site)])
+        result = runner.invoke(app, ["--output", str(site)])
         assert result.exit_code == 0, result.output
 
         imports_html = (site / "imports.html").read_text(encoding="utf-8")

@@ -41,7 +41,7 @@ rebrew diff src/bench/<file>.c -r --json      # register-aware (mark RR encoding
 rebrew diff src/bench/<file>.c --format csv   # CSV for spreadsheet analysis
 rebrew diff 0x10009310 --json                    # resolve a VA directly (no .c path needed)
 rebrew near-diag src/bench/<file>.c --json    # classify WHY it doesn't match (first-mismatch diagnosis)
-rebrew objdiff --out objdiff.json                # GUI diffing project (objdiff) from target objects
+rebrew objdiff --output objdiff.json                # GUI diffing project (objdiff) from target objects
 ```
 
 `rebrew objdiff` synthesizes one target COFF object per annotated source file
@@ -106,14 +106,14 @@ rebrew match src/bench/<file>.c --generations 200 --pop-size 64 -j 16
 - `-p / --pop-size N` — population size (default: 64)
 - `-j / --jobs N` — parallel compilation jobs (default: from config)
 - `--seed N` — RNG seed for reproducibility
-- `--extra-seed FILE` — additional `.c` file(s) to seed initial population
-- `--no-seed` — disable cross-function solution seeding
+- `--seed-file FILE` — additional `.c` file(s) to seed initial population
+- `--no-seeds` — disable cross-function solution seeding
 - `--mutation-focus register|equivalent|structural|auto` — bias mutation
   selection toward a near-diag category (its suggested operators get 6x
   weight). `auto` reads the function's BLOCKER metadata for the category
   (single-function only). Use it after `near-diag --fix-blocker`: the
   blocker names the category, the GA then samples its operators more often.
-- `--seed-from-solved / --no-seed-from-solved` — seed from solutions DB (default on)
+- `--seed-solved / --no-seed-solved` — seed from solutions DB (default on)
 - `--out-dir DIR` — output directory (default: `output/ga_runs`)
 - `--compare-obj / --no-compare-obj` — use object-level comparison
 - `--ignore-lint` — continue even if annotation linter finds errors
@@ -142,8 +142,8 @@ rebrew match src/bench/<file>.c --flag-sweep-only --tier thorough      # 258k co
 rebrew match src/bench/<file>.c --flag-sweep-only --tier full          # 6.2M combos, hours
 rebrew match --all --flag-sweep                                           # batch: all NEAR_MATCHING
 rebrew match --all --flag-sweep --fix-cflags                              # auto-update CFLAGS on hit
-rebrew match --all --sweep-then-ga                                        # sweep flags, then GA with best flags
-rebrew match --all --sweep-then-ga --skip-recent 24                       # resume: skip stubs GA-run in last 24h
+rebrew match --all --flag-sweep-then-ga                                        # sweep flags, then GA with best flags
+rebrew match --all --flag-sweep-then-ga --skip-recent 24                       # resume: skip stubs GA-run in last 24h
 ```
 
 The sweep axes are per-profile: `msvc6/msvc7` (decomp.me-synced `/` flags),
@@ -261,8 +261,8 @@ Before launching a long batch, run `--ga-history` to see how many past runs
 converged (total / matched % / avg & best score) — it tells you whether GA has
 already plateaued on these stubs. `--skip-recent N` drops stubs with a GA run
 record in the last N hours, so you can resume an interrupted batch without
-re-attempting finished work. `--seed-from-solved` (default on) seeds the
-population from similar solved functions; pass `--no-seed-from-solved` to
+re-attempting finished work. `--seed-solved` (default on) seeds the
+population from similar solved functions; pass `--no-seed-solved` to
 disable.
 
 ## 4. Scoring (lower = better)

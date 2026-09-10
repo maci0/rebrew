@@ -406,6 +406,8 @@ def add_target(
         "--force",
         help="Skip binary existence check; write stanza with default format/arch.",
     ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Add a new target section to rebrew-project.toml (idempotent).
 
@@ -520,6 +522,24 @@ def add_target(
     tgt.add("origins", origin_list)
 
     targets[name] = tgt
+    if dry_run:
+        if json_output:
+            json_print(
+                {
+                    "target": name,
+                    "binary": binary,
+                    "format": fmt,
+                    "arch": arch,
+                    "source_ext": source_ext,
+                    "origins": origin_list,
+                    "dry_run": True,
+                }
+            )
+        else:
+            console.print(f'[cyan]dry-run:[/cyan] would add [targets."{name}"]')
+            console.print(f"  Format: {fmt}, Arch: {arch}")
+            console.print(f"  Language: {detected_lang} ({source_ext})")
+        return
     save_toml(doc, toml_path)
 
     console.print(f'[green]Added [targets."{name}"] to rebrew-project.toml[/green]')
@@ -533,14 +553,22 @@ def add_target(
 def remove_target(
     name: str = typer.Argument(..., help="Target name to remove."),
     force: bool = typer.Option(False, "--force", help="Skip confirmation prompt"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Remove a target section from rebrew-project.toml (idempotent)."""
-    doc, toml_path = load_toml()
+    doc, toml_path = load_toml(json_mode=json_output)
     targets = doc.get("targets", {})
     if name not in targets:
         console.print(f"[yellow]Target '{name}' not found (already removed).[/yellow]")
         return
 
+    if dry_run:
+        if json_output:
+            json_print({"removed": False, "target": name, "dry_run": True})
+        else:
+            console.print(f'[cyan]dry-run:[/cyan] would remove [targets."{name}"]')
+        return
     if not force:
         typer.confirm(f"Remove target '{name}' from rebrew-project.toml?", abort=True)
     del targets[name]
@@ -641,6 +669,7 @@ def add_module(
 def remove_module(
     module: str = typer.Argument(..., help="Module name to remove."),
     force: bool = typer.Option(False, "--force", help="Skip confirmation prompt"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     target: str | None = TargetOption,
 ) -> None:
     """Remove a module from a target's origins list (idempotent)."""
@@ -656,6 +685,12 @@ def remove_module(
         )
         return
 
+    if dry_run:
+        console.print(
+            f"[cyan]dry-run:[/cyan] would remove module '{module.upper()}' from {target} "
+            f"(Modules: {[o for o in origins if o != module.upper()]})"
+        )
+        return
     if not force:
         typer.confirm(f"Remove module '{module.upper()}' from target '{target}'?", abort=True)
     origins.remove(module.upper())
@@ -723,6 +758,7 @@ def set_cflags(
 def set_compiler(
     target: str = typer.Argument(..., help="Target name (e.g. 'mygame')."),
     profile: str = typer.Argument(..., help="Compiler profile (see --help for the list)."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
 ) -> None:
     """Set the compiler profile for a target.
 
@@ -761,6 +797,11 @@ def set_compiler(
     compiler_tbl["includes"] = preset["includes"]
     compiler_tbl["libs"] = preset["libs"]
 
+    if dry_run:
+        console.print(
+            f'[cyan]dry-run:[/cyan] would set compiler profile "{profile}" on target "{target_name}".'
+        )
+        return
     save_toml(doc, toml_path)
     console.print(f'[green]Set compiler profile "{profile}" on target "{target_name}".[/green]')
     console.print(f"  profile   = {profile}")
@@ -774,6 +815,7 @@ def detect_crt(
     write: bool = typer.Option(
         False, "--write", "-w", help="Write detected paths into rebrew-project.toml."
     ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     target: str | None = TargetOption,
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
@@ -807,12 +849,12 @@ def detect_crt(
             written = 0
             for origin, rel_path in sorted(detected.items()):
                 if origin not in crt_sources:
-                    crt_sources[origin] = rel_path
+                    if not dry_run:
+                        crt_sources[origin] = rel_path
                     written += 1
-            if written:
-                save_toml(doc, toml_path)
             result["target"] = target_name
             result["written"] = written
+            result["dry_run"] = dry_run
         json_print(result)
         return
 
@@ -823,6 +865,9 @@ def detect_crt(
     for origin, rel_path in sorted(detected.items()):
         console.print(f"  {origin} → {rel_path}")
 
+    if dry_run:
+        console.print("[cyan]dry-run:[/cyan] would write detected crt_sources entries")
+        return
     if write:
         doc, toml_path = load_toml(root)
         target_name = _resolve_target(doc, target)

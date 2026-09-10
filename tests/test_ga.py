@@ -709,7 +709,7 @@ class TestFlagSweepIncludeDirs:
 
 
 class TestSweepThenGa:
-    """--sweep-then-ga: flag-sweep each stub, then GA with the best flags."""
+    """--flag-sweep-then-ga: flag-sweep each stub, then GA with the best flags."""
 
     @pytest.mark.parametrize(
         ("sweep_outcome", "expected_override"),
@@ -796,7 +796,7 @@ class TestSweepThenGa:
             seed_from_solved=False,
             json_output=True,
             tier="targeted",
-            sweep_then_ga=True,
+            flag_sweep_then_ga=True,
         )
         assert seen.get("override") == expected_override
 
@@ -1247,7 +1247,7 @@ class TestRunOneStubGaPersistsFlags:
 
 
 class TestCrossProjectSeeding:
-    """rebrew match --all --seed-solutions <other-project>/solutions.json.
+    """rebrew match --all --seed-solutions-file <other-project>/solutions.json.
 
     Cross-project seeding transfers winning cflags (and source files when
     they resolve) from another project's solutions into this project's batch

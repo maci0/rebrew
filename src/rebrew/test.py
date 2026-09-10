@@ -211,9 +211,9 @@ def main(
             "demote a stale PROVEN function to its actual result (single-function only)"
         ),
     ),
-    fix_size: bool = typer.Option(
+    fix_sizes: bool = typer.Option(
         False,
-        "--fix-size",
+        "--fix-sizes",
         help=(
             "Fix a stale SIZE annotation when ALL common bytes match: writes the "
             "compiled size into metadata and reclassifies as EXACT/RELOC.  "
@@ -280,9 +280,9 @@ def main(
 
     if linked and all_sources:
         error_exit("--linked is single-function only", json_mode=json_output, code=EXIT_ERROR)
-    if linked and fix_size:
+    if linked and fix_sizes:
         error_exit(
-            "--linked and --fix-size are mutually exclusive — the linked compare "
+            "--linked and --fix-sizes are mutually exclusive — the linked compare "
             "has no relocation masking to reclassify",
             json_mode=json_output,
             code=EXIT_ERROR,
@@ -307,9 +307,9 @@ def main(
                 json_mode=json_output,
                 code=EXIT_ERROR,
             )
-        if fix_size:
+        if fix_sizes:
             error_exit(
-                "--fix-size is file-scoped — batch size repair is 'rebrew verify --fix-sizes'",
+                "--fix-sizes is file-scoped — batch size repair is 'rebrew verify --fix-sizes'",
                 json_mode=json_output,
                 code=EXIT_ERROR,
             )
@@ -343,7 +343,7 @@ def main(
                 jobs=None,
                 no_promote=no_promote,
                 force_status=force_status,
-                fix_size=fix_size,
+                fix_sizes=fix_sizes,
                 linked=linked,
                 json_output=json_output,
                 target=target,
@@ -404,7 +404,7 @@ def main(
                 no_promote=no_promote,
                 dry_run=dry_run,
                 json_output=json_output,
-                fix_size=fix_size,
+                fix_sizes=fix_sizes,
                 toolchain=toolchain,
             )
             return
@@ -535,14 +535,14 @@ def main(
     if cmp.status == "COMPILE_ERROR":
         error_exit(f"COMPILE ERROR:\n{cmp.message}", json_mode=json_output, code=EXIT_ERROR)
 
-    # --fix-size: a SIZE_MISMATCH where every common byte matched is a stale
+    # --fix-sizes: a SIZE_MISMATCH where every common byte matched is a stale
     # SIZE annotation, not a decompilation problem.  Write the compiled size
     # into metadata and reclassify as a real match.  Requires a VA (metadata
     # is keyed by (module, va)); --target-bin runs have no VA and are skipped.
     # The evidence check verifies the region beyond the common prefix before
     # trusting the compiled size.
     if (
-        fix_size
+        fix_sizes
         and cmp.status == "SIZE_MISMATCH"
         and cmp.match_percent == 100.0
         and cmp.full_obj_size is not None
@@ -886,11 +886,11 @@ def _print_compare_result(cmp: CompareResult, target_bytes: bytes) -> None:
     size_hint = ""
     if cmp.status == "SIZE_MISMATCH" and cmp.match_percent == 100.0 and obj_len:
         # Every common byte matched — only the SIZE annotation is stale.
-        # Same hint as the multi-function path; --fix-size automates it.
+        # Same hint as the multi-function path; --fix-sizes automates it.
         size_hint = (
             f" — all common bytes match; the SIZE annotation is off "
             f"(compiled {obj_len}B vs annotation {len(target_bytes)}B) — "
-            f"re-run with --fix-size to correct it"
+            f"re-run with --fix-sizes to correct it"
         )
     console.print(
         f"[{color}]{cmp.status}[/{color}]: {match_count}/{total} bytes{near_hint}{size_hint}"
@@ -925,7 +925,7 @@ def _test_multi(
     no_promote: bool = False,
     dry_run: bool = False,
     json_output: bool = False,
-    fix_size: bool = False,
+    fix_sizes: bool = False,
     toolchain: str | None = None,
 ) -> None:
     """Test all functions in a multi-function .c file.
@@ -1102,7 +1102,7 @@ def _test_multi(
                 else:
                     console.print(f"[red]EXTRACT_ERROR[/red] {sym} — {exc}")
                 continue
-            # --fix-size: when ALL common bytes match, the SIZE annotation is
+            # --fix-sizes: when ALL common bytes match, the SIZE annotation is
             # stale, not the code — write the compiled size into metadata and
             # reclassify as a real match (mirrors verify --fix-sizes, but the
             # compiled size is the definitive evidence at test time instead of
@@ -1111,7 +1111,7 @@ def _test_multi(
             fixed_size = False
             if (
                 size_mismatch
-                and fix_size
+                and fix_sizes
                 and total > 0
                 and total - match_count == 0
                 and _fix_size_evidence_ok(cfg, ann.va, obj_bytes, target_bytes, relocs)
@@ -1144,7 +1144,7 @@ def _test_multi(
                     size_hint = (
                         f" — ALL {total} common bytes match: the SIZE annotation is off; "
                         f"compiled size is {len(obj_bytes)}B (annotation says {ann.size}) — "
-                        f"re-run with --fix-size to correct it"
+                        f"re-run with --fix-sizes to correct it"
                     )
                 msg = (
                     f"SIZE_MISMATCH: Size {len(obj_bytes)}B vs {len(target_bytes)}B "

@@ -39,7 +39,7 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    out: Path = typer.Option(Path("symbol_addrs.csv"), "--out", help="Output CSV path"),
+    output: Path = typer.Option(Path("symbol_addrs.csv"), "--output", "-o", help="Output CSV path"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -61,20 +61,20 @@ def main(
     rows.sort(key=lambda r: r[0])
     lines = [f"0x{va:08X},{name}" for va, name in rows]
 
-    atomic_write_text(out, "\n".join(lines) + "\n", encoding="utf-8")
+    atomic_write_text(output, "\n".join(lines) + "\n", encoding="utf-8")
     if json_output:
         from rebrew.cli import json_print
 
         json_print(
             {
-                "out": str(out),
+                "output": str(output),
                 "symbols": len(rows),
                 "skipped_unnamed": skipped,
             }
         )
         return
     console.print(
-        f"[green]Wrote {len(rows)} symbol(s) to {out}[/green]"
+        f"[green]Wrote {len(rows)} symbol(s) to {output}[/green]"
         + (f" ({skipped} unnamed skipped)" if skipped else "")
     )
 

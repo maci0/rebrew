@@ -148,7 +148,7 @@ class TestRequestSeeds:
 
 class TestMatchGlue:
     def test_llm_seeds_injected_into_ga(self, tmp_path: Path, monkeypatch) -> None:
-        """match --llm-seed appends validated LLM snippets to the GA seeds."""
+        """match --seed-llm appends validated LLM snippets to the GA seeds."""
         from types import SimpleNamespace as NS
 
         from rebrew import match as match_mod
@@ -269,7 +269,7 @@ class TestMatchGlue:
 
 
 class TestLlmSeedDryRun:
-    """H10: match --llm-seed --dry-run previews the prompt without a GA run."""
+    """H10: match --seed-llm --dry-run previews the prompt without a GA run."""
 
     def test_dry_run_shows_prompt_and_skips_ga(self, tmp_path: Path, monkeypatch, capsys) -> None:
         from types import SimpleNamespace as NS

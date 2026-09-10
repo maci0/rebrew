@@ -330,7 +330,7 @@ class TestRunAllBatch:
             seed_from_solved=seed_from_solved,
             json_output=json_output,
             tier="targeted",
-            sweep_then_ga=sweep_then_ga,
+            flag_sweep_then_ga=sweep_then_ga,
             skip_recent_hours=skip_recent_hours,
         )
 

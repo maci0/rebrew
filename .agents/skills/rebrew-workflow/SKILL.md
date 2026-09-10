@@ -304,8 +304,8 @@ rebrew build-db                         # build SQLite coverage database
 ### Interchange & Progress Hub
 
 ```bash
-rebrew symbol-addrs --out symbol_addrs.csv   # splat-style 0xVA,name CSV (Ghidra/tooling interop)
-rebrew context --out ctx.c                   # universal decompiler context (structs+typedefs+prototypes)
+rebrew symbol-addrs --output symbol_addrs.csv   # splat-style 0xVA,name CSV (Ghidra/tooling interop)
+rebrew context --output ctx.c                   # universal decompiler context (structs+typedefs+prototypes)
 rebrew report --decomp-dev report.json       # objdiff-format progress report for decomp.dev
 ```
 
@@ -348,7 +348,7 @@ rebrew round-trip --json                # splice every EXACT/RELOC function back
 rebrew round-trip --dry-run             # preview without writing <binary>.reasm
 rebrew round-trip --strict-catalog      # exit non-zero on unresolved catalog symbols
 rebrew round-trip --filter <substr>     # only splice symbols containing this substring
-rebrew round-trip --out <path>          # override output path
+rebrew round-trip --output <path>          # override output path
 ```
 
 - Compiles every EXACT/RELOC function, applies COFF relocations against the function +

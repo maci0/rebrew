@@ -108,6 +108,7 @@ def main(
         "rebrew-cmake-cl", "--compile-cmd", help="Command to recompile the stub TU"
     ),
     cflags: str = typer.Option("/O2 /Gd", "--cflags", help="Flags for the stub compile"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Calibrate *symbol* in *stub* so the raw link's .data VirtualSize == *target_vs*."""
@@ -128,6 +129,23 @@ def main(
     tail_re = re.compile(rf"{symbol}\[\s*0x([0-9A-Fa-f]+)\s*\]")
     if not tail_re.search(stub.read_text(encoding="utf-8")):
         error_exit(f"{symbol}[0x..] not found in {stub}")
+
+    if dry_run:
+        if json_output:
+            json_print(
+                {
+                    "target_vs": hex(target_vs_int),
+                    "symbol": symbol,
+                    "stub": str(stub),
+                    "dry_run": True,
+                }
+            )
+        else:
+            console.print(
+                f"[cyan]dry-run:[/cyan] would calibrate {symbol} in {stub} "
+                f"to .data VS=0x{target_vs_int:x}"
+            )
+        return
 
     link_cwd, cmd_tpl, target_dir = find_link_cmd(root)
     # Unpredictable scratch name in the shared temp dir: a fixed

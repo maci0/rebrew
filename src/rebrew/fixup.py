@@ -270,7 +270,7 @@ def main(
         False, "--dry-run", help="Print the fixed source to stdout instead of writing"
     ),
     out: Path | None = typer.Option(
-        None, "--out", help="Write the fixed source to this path (default: <file>.fixed.c)"
+        None, "--output", "-o", help="Write the fixed source to this path (default: <file>.fixed.c)"
     ),
     compile_check: bool = typer.Option(
         False,

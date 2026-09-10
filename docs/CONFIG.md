@@ -263,7 +263,7 @@ Configuration precedence is: CLI flags > per-function metadata > `rebrew-project
   a specific display (it must host a live Xvfb).  (Host-wine invocations
   only, as above.)
 - `REBREW_LLM_ENDPOINT` / `REBREW_LLM_API_KEY` — LLM seeding endpoint + key
-  (`rebrew match --llm-seed`). The `[llm]` config keys (`llm_endpoint`,
+  (`rebrew match --seed-llm`). The `[llm]` config keys (`llm_endpoint`,
   `llm_api_key`) win over these env vars; both fall back to env when unset.
   The key is sent only as a `Bearer` header to the configured endpoint, never
   logged. Prefer the env vars over committing the key to
@@ -378,7 +378,7 @@ rebrew cfg path                                 # print path to config file
 
 ## Compiler profiles from `rebrew init`
 
-`rebrew init --compiler <profile>` supports the full toolchain matrix (run
+`rebrew init --toolchain <profile>` supports the full toolchain matrix (run
 `rebrew toolchain list` for the exact names): every MSVC variant — 4.0/4.2/5.0
 (and sp1–sp3), 6.0 (and sp1–sp6), 7.0–11.0 (rtm/sp variants), 2.0/4.1, and the
 16-bit 1.0 (`msvc10`)/1.5 (`msvc15`)/1.52 (`msvc1.52`) — plus borlandc55,

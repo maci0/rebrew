@@ -29,7 +29,7 @@ Run the initialize command inside an empty or existing directory. Pass the
 target name, original executable filename, and compiler profile.
 
 ```bash
-rebrew init --target mygame --binary mygame.exe --compiler msvc6
+rebrew init --target mygame --binary mygame.exe --toolchain msvc6
 ```
 
 This will automatically create your `rebrew-project.toml` as well as the

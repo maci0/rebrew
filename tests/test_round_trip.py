@@ -16,7 +16,7 @@ class TestRoundTripCli:
     def test_help_lists_required_flags(self) -> None:
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
-        for flag in ("--json", "--out", "--dry-run", "--filter", "--strict-catalog", "--target"):
+        for flag in ("--json", "--output", "--dry-run", "--filter", "--strict-catalog", "--target"):
             assert flag in result.stdout
 
     def test_no_config_errors_cleanly(
@@ -58,7 +58,9 @@ class TestSplicePipeline:
         monkeypatch.setattr("rebrew.round_trip._collect_splice_set", lambda cfg, f: ([], [], 0))
         monkeypatch.setattr("rebrew.round_trip._load_catalogs", lambda cfg: ({}, {}))
 
-        code = _run_round_trip(cfg, out=None, no_write=True, symbol_filter=None, json_output=False)
+        code = _run_round_trip(
+            cfg, output=None, no_write=True, symbol_filter=None, json_output=False
+        )
         assert code == EXIT_OK
 
     def test_compile_drift_marks_mismatch(
@@ -84,7 +86,9 @@ class TestSplicePipeline:
             lambda cfg, fn, work_dir: (b"", [], {}, {}, False, "cl.exe failed"),
         )
 
-        code = _run_round_trip(cfg, out=None, no_write=True, symbol_filter=None, json_output=False)
+        code = _run_round_trip(
+            cfg, output=None, no_write=True, symbol_filter=None, json_output=False
+        )
         assert code == EXIT_MISMATCH
 
     def test_allow_naked_appends_define(
@@ -117,7 +121,7 @@ class TestSplicePipeline:
         monkeypatch.setattr("rebrew.round_trip._compile_and_extract", _fake_compile)
 
         _run_round_trip(
-            cfg, out=None, no_write=True, symbol_filter=None, json_output=False, allow_naked=True
+            cfg, output=None, no_write=True, symbol_filter=None, json_output=False, allow_naked=True
         )
         assert "/DREBREW_ALLOW_NAKED" in seen["cflags"]
 
@@ -125,14 +129,14 @@ class TestSplicePipeline:
         cfg.posix_style = True
         fn.cflags = ["/O2"]
         _run_round_trip(
-            cfg, out=None, no_write=True, symbol_filter=None, json_output=False, allow_naked=True
+            cfg, output=None, no_write=True, symbol_filter=None, json_output=False, allow_naked=True
         )
         assert "-DREBREW_ALLOW_NAKED" in seen["cflags"]
 
         # without the flag, no define is added
         fn.cflags = ["/O2"]
         seen.clear()
-        _run_round_trip(cfg, out=None, no_write=True, symbol_filter=None, json_output=False)
+        _run_round_trip(cfg, output=None, no_write=True, symbol_filter=None, json_output=False)
         assert all("ALLOW_NAKED" not in f for f in seen["cflags"])
 
     def test_allow_naked_reports_fenced_functions(
@@ -185,7 +189,7 @@ class TestSplicePipeline:
         monkeypatch.setattr("rebrew.round_trip.json_print", lambda d: captured.update(d))
 
         _run_round_trip(
-            cfg, out=None, no_write=True, symbol_filter=None, json_output=True, allow_naked=True
+            cfg, output=None, no_write=True, symbol_filter=None, json_output=True, allow_naked=True
         )
         fenced = captured["fenced_naked"]
         assert fenced["count"] == 1
@@ -237,7 +241,9 @@ class TestSplicePipeline:
         monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
 
         out = tmp_path / "fake.reasm"
-        code = _run_round_trip(cfg, out=out, no_write=False, symbol_filter=None, json_output=False)
+        code = _run_round_trip(
+            cfg, output=out, no_write=False, symbol_filter=None, json_output=False
+        )
         assert code == EXIT_OK
         assert out.exists()
         assert out.read_bytes() == cfg.target_binary.read_bytes()
@@ -295,7 +301,7 @@ class TestSplicePipeline:
 
         code = _run_round_trip(
             cfg,
-            out=None,
+            output=None,
             no_write=True,
             symbol_filter=None,
             json_output=False,
@@ -334,7 +340,9 @@ class TestSplicePipeline:
         )
         monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
 
-        code = _run_round_trip(cfg, out=None, no_write=True, symbol_filter=None, json_output=False)
+        code = _run_round_trip(
+            cfg, output=None, no_write=True, symbol_filter=None, json_output=False
+        )
         assert code == EXIT_MISMATCH
 
 
@@ -673,7 +681,7 @@ class TestRoundTripGoldenPe:
         )
         out = tmp_path / "golden.reasm"
         code_ret = _run_round_trip(
-            cfg, out=out, no_write=False, symbol_filter=None, json_output=False
+            cfg, output=out, no_write=False, symbol_filter=None, json_output=False
         )
         assert code_ret == EXIT_OK
         assert out.exists()
@@ -692,7 +700,7 @@ class TestRoundTripGoldenPe:
             lambda cfg, fn, work_dir: (drifted, [], {}, {}, True, ""),
         )
         code_ret = _run_round_trip(
-            cfg, out=None, no_write=True, symbol_filter=None, json_output=False
+            cfg, output=None, no_write=True, symbol_filter=None, json_output=False
         )
         assert code_ret == EXIT_MISMATCH
 
@@ -743,7 +751,9 @@ class TestPaddingInclusiveSize:
         )
         monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
 
-        code = _run_round_trip(cfg, out=None, no_write=True, symbol_filter=None, json_output=False)
+        code = _run_round_trip(
+            cfg, output=None, no_write=True, symbol_filter=None, json_output=False
+        )
         assert code == EXIT_OK
 
     def test_oversize_still_detected_when_real_code_short(
@@ -785,7 +795,9 @@ class TestPaddingInclusiveSize:
         )
         monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
 
-        code = _run_round_trip(cfg, out=None, no_write=True, symbol_filter=None, json_output=False)
+        code = _run_round_trip(
+            cfg, output=None, no_write=True, symbol_filter=None, json_output=False
+        )
         assert code == EXIT_MISMATCH
 
     def test_oversize_detected_when_compile_longer(
@@ -830,7 +842,9 @@ class TestPaddingInclusiveSize:
         )
         monkeypatch.setattr("rebrew.round_trip.va_to_file_offset", lambda info, va: 0x100)
 
-        code = _run_round_trip(cfg, out=None, no_write=True, symbol_filter=None, json_output=False)
+        code = _run_round_trip(
+            cfg, output=None, no_write=True, symbol_filter=None, json_output=False
+        )
         assert code == EXIT_MISMATCH
 
 
@@ -913,7 +927,7 @@ class TestDriftDetail:
             }
 
         monkeypatch.setattr("rebrew.round_trip._mismatch", _capture_mismatch)
-        _run_round_trip(cfg, out=None, no_write=True, symbol_filter=None, json_output=False)
+        _run_round_trip(cfg, output=None, no_write=True, symbol_filter=None, json_output=False)
         detail = captured.get("detail")
         assert isinstance(detail, str)
         assert "reloc@0x1" in detail
@@ -1240,7 +1254,7 @@ class TestFixHeaders:
         out = tmp_path / "r.reasm"
         _run_round_trip(
             cfg,
-            out=out,
+            output=out,
             no_write=False,
             symbol_filter=None,
             json_output=json_output,
@@ -1308,7 +1322,7 @@ class TestFixHeaders:
         from rebrew.round_trip import _run_round_trip
 
         _run_round_trip(
-            cfg, out=out, no_write=False, symbol_filter=None, json_output=False, fix_headers=True
+            cfg, output=out, no_write=False, symbol_filter=None, json_output=False, fix_headers=True
         )
         fields = read_pe_header_fields(out.read_bytes())
         assert fields is not None

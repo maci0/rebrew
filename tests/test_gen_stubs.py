@@ -265,7 +265,7 @@ class TestCli:
         log = tmp_path / "build.log"
         log.write_text(LNK_OUTPUT, encoding="utf-8")
         out = tmp_path / "stubs.c"
-        result = CliRunner().invoke(app, ["--log", str(log), "--out", str(out)])
+        result = CliRunner().invoke(app, ["--log", str(log), "--output", str(out)])
         assert result.exit_code == 0
         assert "int g_counter = 0;" in out.read_text(encoding="utf-8")
         assert "int __cdecl write_log(char* a)" in out.read_text(encoding="utf-8")
@@ -279,7 +279,7 @@ class TestCli:
         _write_src(tmp_path, "extern int g_counter;\n")
         out = tmp_path / "stubs.c"
         out.write_text("int __cdecl hand_carried(void)\n{\n\treturn 0;\n}\n", encoding="utf-8")
-        result = CliRunner().invoke(app, ["--out", str(out)], input=LNK_OUTPUT)
+        result = CliRunner().invoke(app, ["--output", str(out)], input=LNK_OUTPUT)
         assert result.exit_code == 0, result.output
         assert "hand_carried" in result.output
 
@@ -336,7 +336,7 @@ class TestCli:
                 build_cmd,
                 "--cmake-stub-var",
                 "LINK_STUBS",
-                "--out",
+                "--output",
                 str(out),
             ],
         )
@@ -367,7 +367,7 @@ class TestCli:
                 build_cmd,
                 "--exclude-file",
                 str(stub),
-                "--out",
+                "--output",
                 str(out),
             ],
         )

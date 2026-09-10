@@ -41,7 +41,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
 - Batch GA / flag-sweep across all `STUB` or `NEAR_MATCHING` functions
   (`--all`, `--near-miss`, `--improve`).
 - Cross-function solution database: successful flag sets and mutations
-  seed future GA runs (`--extra-seed`, opt-out via `--no-seed`).
+  seed future GA runs (`--seed-file`, opt-out via `--no-seeds`).
 - Symbolic equivalence prover via angr (`rebrew prove`) for the residue
   where byte equality is impossible.
 
@@ -67,10 +67,10 @@ prover that promotes NEAR_MATCHING → PROVEN.
   from source + config.
 - `--compare-obj` / `--no-compare-obj` toggles between fast object
   comparison and full link.
-- `--extra-seed PATH` injects additional seed sources (mutations from
-  already-solved functions); ignored when `--no-seed` is also passed.
-- `--no-seed` disables cross-function seeding and takes precedence over
-  `--extra-seed`.
+- `--seed-file PATH` injects additional seed sources (mutations from
+  already-solved functions); ignored when `--no-seeds` is also passed.
+- `--no-seeds` disables cross-function seeding and takes precedence over
+  `--seed-file`.
 - Writes `output/ga_runs/` (default) with best candidate, score log, and
   cflags solution if a match is achieved.
 - `--ignore-lint` allows running on files with annotation lint errors.
@@ -165,8 +165,8 @@ rebrew match [SEED_C]
       --flag-sweep-only
       --tier quick|targeted|normal|thorough|full (default targeted)
       --ignore-lint
-      --extra-seed PATH (ignored if --no-seed passed)
-      --no-seed (takes precedence over --extra-seed)
+      --seed-file PATH (ignored if --no-seeds passed)
+      --no-seeds (takes precedence over --seed-file)
       --sweep-toolchain
       --sweep-only TEXT
       --sweep-exclude TEXT
@@ -199,7 +199,7 @@ rebrew match [SEED_C]
       --timeout-min N (default 30)
       --dry-run
       --ga-history
-      --seed-from-solved / --no-seed-from-solved (default seed-from-solved)
+      --seed-solved / --no-seed-solved (default seed-from-solved)
       --collect-pairs PATH
   Output
       --json
@@ -230,7 +230,7 @@ rebrew prove [SOURCE]
 - `rebrew prove --all` clears the NEAR_MATCHING backlog of any function
   whose only remaining diff is register allocation (within timeout
   budget).
-- Cross-function solution seeding (`--extra-seed`) reduces median
+- Cross-function solution seeding (`--seed-file`) reduces median
   generations-to-match for similar functions versus a cold GA run.
 
 ## Open Questions / Known Limitations
