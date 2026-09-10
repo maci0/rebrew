@@ -7,6 +7,7 @@ and any other references discovered by scanning the reversed directory.
 
 import re
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -83,12 +84,21 @@ def main(
     target_ident: str = typer.Argument(..., help="Old function name, file path, or VA"),
     new_name: str = typer.Argument(..., help="New function name"),
     new_file: str | None = typer.Option(None, "--file", help="New filename"),
+    data: bool = typer.Option(
+        False,
+        "--data",
+        help="Rename a DATA/GLOBAL symbol instead of a function (no file rename)",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Rename a function and update all cross-references."""
     cfg = require_config(target=target, json_mode=json_output)
+
+    if data:
+        _rename_data(cfg, target_ident, new_name, dry_run, json_output)
+        return
 
     entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
     # Normalize a hex VA identifier once (functions.txt writes zero-padded
@@ -231,6 +241,156 @@ def main(
                 console.print(f"  [dim]- {rel_display_path(p, cfg.root)}[/dim]")
         else:
             console.print(f"Updated cross-references in {updated} files.")
+        console.print("[green]Done![/green]")
+
+
+def _rename_data(
+    cfg: Any, target_ident: str, new_name: str, dry_run: bool, json_output: bool
+) -> None:
+    """Rename a DATA/GLOBAL symbol: metadata name + declaration + references.
+
+    No file rename (data symbols don't own files) and no STATUS semantics
+    (data verdicts are VERIFIED/DRIFT, unaffected by a label change).
+    """
+    from rebrew.data_metadata import get_data_entry, set_data_field
+
+    if not new_name.isidentifier() or new_name in _C_KEYWORDS:
+        error_exit(
+            f"'{new_name}' is not a valid C identifier — use letters, digits, "
+            "and underscores (not starting with a digit, not a C keyword).",
+            json_mode=json_output,
+        )
+
+    entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
+    data_entries = [e for e in entries if getattr(e, "marker_type", "") in ("DATA", "GLOBAL")]
+
+    va_ident: int | None = None
+    if target_ident.lower().startswith("0x"):
+        try:
+            va_ident = int(target_ident, 16)
+        except ValueError:
+            va_ident = None
+    matches = []
+    for e in data_entries:
+        va = getattr(e, "va", 0)
+        fp = getattr(e, "filepath", "")
+        stored_name = str(
+            get_data_entry(cfg.metadata_dir, va, getattr(e, "module", "") or "").get("name") or ""
+        )
+        if target_ident in (stored_name, f"0x{va:x}", f"0x{va:X}", str(va), str(fp)) or (
+            va_ident is not None and va == va_ident
+        ):
+            matches.append(e)
+    if not matches:
+        error_exit(f"Could not find DATA/GLOBAL matching '{target_ident}'", json_mode=json_output)
+    if len(matches) > 1:
+        error_exit(
+            f"Found {len(matches)} matches for '{target_ident}'. Be more specific.",
+            json_mode=json_output,
+        )
+    match = matches[0]
+    va = getattr(match, "va", 0)
+    module = getattr(match, "module", "") or ""
+    old_fp = getattr(match, "filepath", "")
+    old_name = str(get_data_entry(cfg.metadata_dir, va, module).get("name") or "")
+    if not old_name:
+        error_exit(
+            f"DATA/GLOBAL 0x{va:x} has no name in rebrew-data.toml — "
+            "name it first (rebrew data --json), then rename.",
+            json_mode=json_output,
+        )
+
+    # Collision guard: the linker sees one namespace — refuse when any
+    # function or data symbol already uses the new name (data names come
+    # from the metadata store, not the annotation).
+    for e in entries:
+        if e is match:
+            continue
+        if getattr(e, "name", "") == new_name or getattr(e, "symbol", "") in (
+            new_name,
+            f"_{new_name}",
+        ):
+            error_exit(
+                f"'{new_name}' is already used by {getattr(e, 'filepath', '?')} — "
+                "renaming would create a duplicate symbol. Pick a different name.",
+                json_mode=json_output,
+            )
+        if getattr(e, "marker_type", "") in ("DATA", "GLOBAL"):
+            other = str(
+                get_data_entry(
+                    cfg.metadata_dir, getattr(e, "va", 0), getattr(e, "module", "") or ""
+                ).get("name")
+                or ""
+            )
+            if other == new_name:
+                error_exit(
+                    f"'{new_name}' is already used by {getattr(e, 'filepath', '?')} — "
+                    "renaming would create a duplicate symbol. Pick a different name.",
+                    json_mode=json_output,
+                )
+
+    stored = get_data_entry(cfg.metadata_dir, va, module)
+    stored_name = str(stored.get("name") or "")
+    pattern = re.compile(r"\b" + re.escape(old_name) + r"\b")
+    if not old_fp:
+        error_exit(
+            f"DATA/GLOBAL '{old_name}' has no source file — cannot rewrite references.",
+            json_mode=json_output,
+        )
+    filepath = cfg.reversed_dir / old_fp
+    files = collect_matching_files(cfg, filepath, pattern)
+    if dry_run:
+        if json_output:
+            json_print(
+                {
+                    "old_name": old_name,
+                    "new_name": new_name,
+                    "va": f"0x{va:08x}",
+                    "files_updated": len(files),
+                    "dry_run": True,
+                }
+            )
+        else:
+            console.print(f"[dim]Dry run:[/dim] Would rename {old_name} → {new_name}")
+            for p in files:
+                console.print(f"  [dim]- {rel_display_path(p, cfg.root)}[/dim]")
+        return
+
+    from rebrew.utils import atomic_write_text, read_source_text
+
+    updated = 0
+    for src in files:
+        try:
+            content, encoding = read_source_text(src)
+        except OSError:
+            continue
+        new_content = re.sub(r"\b" + re.escape(old_name) + r"\b", lambda _m: new_name, content)
+        if new_content != content:
+            try:
+                atomic_write_text(src, new_content, encoding=encoding)
+                updated += 1
+            except OSError:
+                error_exit(f"Cannot write {src}", json_mode=json_output)
+    if stored_name == old_name:
+        set_data_field(cfg.metadata_dir, va, "name", new_name, module)
+    elif stored_name and stored_name != new_name:
+        error_exit(
+            f"Metadata name {stored_name!r} disagrees with source {old_name!r} — "
+            "resolve first (rebrew data --json), then rename.",
+            json_mode=json_output,
+        )
+    if json_output:
+        json_print(
+            {
+                "old_name": old_name,
+                "new_name": new_name,
+                "va": f"0x{va:08x}",
+                "files_updated": updated,
+                "dry_run": False,
+            }
+        )
+    else:
+        console.print(f"Updated cross-references in {updated} files.")
         console.print("[green]Done![/green]")
 
 
