@@ -77,7 +77,7 @@ def _collect_context(cfg: Any, include_sources: bool = True) -> tuple[list[str],
 
 @app.callback(invoke_without_command=True)
 def main(
-    out: Path = typer.Option(Path("ctx.c"), "--out", help="Output context file path"),
+    output: Path = typer.Option(Path("ctx.c"), "--output", "-o", help="Output context file path"),
     sources_only: bool = typer.Option(
         False,
         "--sources-only",
@@ -100,21 +100,21 @@ def main(
         " */\n"
     )
     text = header + "\n\n".join(blocks) + ("\n" if blocks else "")
-    atomic_write_text(out, text, encoding="utf-8")
+    atomic_write_text(output, text, encoding="utf-8")
 
     if json_output:
         from rebrew.cli import json_print
 
         json_print(
             {
-                "out": str(out),
+                "output": str(output),
                 "files": file_count,
                 "blocks": len(blocks),
             }
         )
         return
     console.print(
-        f"[green]Wrote {len(blocks)} declaration block(s) from {file_count} file(s) to {out}[/green]"
+        f"[green]Wrote {len(blocks)} declaration block(s) from {file_count} file(s) to {output}[/green]"
     )
 
 

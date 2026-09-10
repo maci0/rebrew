@@ -787,8 +787,8 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    out: Path | None = typer.Option(
-        None, "--out", help="Output directory (default: <output_dir>/report)"
+    output: Path | None = typer.Option(
+        None, "--output", "-o", help="Output directory (default: <output_dir>/report)"
     ),
     decomp_dev: Path | None = typer.Option(
         None,
@@ -818,17 +818,17 @@ def main(
         )
         return
 
-    if out is None:
+    if output is None:
         output_dir = getattr(cfg, "output_dir", None) or Path("output")
-        out = Path(output_dir) / "report"
+        output = Path(output_dir) / "report"
 
-    result = generate_report(cfg, out)
+    result = generate_report(cfg, output)
 
     if json_output:
         json_print(result)
         return
 
-    console.print(f"[bold green]Report written to:[/bold green] {out}")
+    console.print(f"[bold green]Report written to:[/bold green] {output}")
     for page in result["pages"]:
         console.print(f"  [dim]{page}[/dim]")
 

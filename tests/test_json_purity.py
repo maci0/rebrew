@@ -44,7 +44,7 @@ _JSON_COMMANDS: list[tuple[str, set[int]]] = [
     ),  # 1 = a check fails (e.g. compiler absent in CI); stdout stays pure JSON
     ("cache stats --json", {0}),
     ("cfg show --json", {0}),
-    ("flirt --exe original/mini_pe.exe --json", {2}),  # 2 = no signatures loaded
+    ("flirt --binary original/mini_pe.exe --json", {2}),  # 2 = no signatures loaded
     # Session-era commands — must keep stdout JSON-pure even on error paths.
     ("pdb-info original/mini_pe.exe --json", {2}),  # 2 = no sibling .pdb
     ("analyze --function 0x401000 --json", {0}),

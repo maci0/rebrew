@@ -652,7 +652,7 @@ def _stale_size_note(cfg: ProjectConfig, va: int, size: int) -> str | None:
         return (
             f"declared size {size}B is stale — code continues to at least {extent}B; "
             "run `rebrew asm --size <extent>` to see the real function, or "
-            "`rebrew test --fix-size` once the body is written"
+            "`rebrew test --fix-sizes` once the body is written"
         )
     return None
 

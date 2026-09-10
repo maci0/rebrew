@@ -202,17 +202,17 @@ workflows, and limitations.
 - **Suggested fix:** Extend proof goals to cover EDX:EAX pairs and selected memory
   locations referenced by the function, behind a flag.
 
-### Gap: `rebrew match --no-seed` and `--extra-seed` interact silently
+### Gap: `rebrew match --no-seeds` and `--seed-file` interact silently
 
-- **Gap:** Passing both `--no-seed` and `--extra-seed PATH` is accepted but their
-  precedence isn't documented; current behaviour is `--no-seed` wins.
+- **Gap:** Passing both `--no-seeds` and `--seed-file PATH` is accepted but their
+  precedence isn't documented; current behaviour is `--no-seeds` wins.
 - **Evidence:** `src/rebrew/match.py` (typer option declarations).
 - **Severity:** nit (fixed)
-- **Fixed:** precedence documented on both flags — `--extra-seed`: "Ignored if
-  `--no-seed` is also passed"; `--no-seed`: "(takes precedence over
-  `--extra-seed`)" (`src/rebrew/match.py:1263`/`1269`).
+- **Fixed:** precedence documented on both flags — `--seed-file`: "Ignored if
+  `--no-seeds` is also passed"; `--no-seeds`: "(takes precedence over
+  `--seed-file`)" (`src/rebrew/match.py:1263`/`1269`).
 - **Suggested fix:** Either error when both are supplied, or document that
-  `--extra-seed` overrides `--no-seed`.
+  `--seed-file` overrides `--no-seeds`.
 
 ### Gap: Flag-sweep tier descriptions are CLI-only
 

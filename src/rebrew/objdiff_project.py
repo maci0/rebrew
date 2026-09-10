@@ -215,7 +215,9 @@ def _build_one_object(cfg: Any, base_object: Path) -> None:
 
 @app.callback(invoke_without_command=True)
 def main(
-    out: Path = typer.Option(Path("objdiff.json"), "--out", help="Output objdiff config path"),
+    output: Path = typer.Option(
+        Path("objdiff.json"), "--output", "-o", help="Output objdiff config path"
+    ),
     target_dir: Path = typer.Option(
         Path("build/objdiff/target"),
         "--target-dir",
@@ -238,15 +240,15 @@ def main(
         "units": units,
         "watch_patterns": ["src/**/*.c", "src/**/*.h"],
     }
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(doc, indent=2), encoding="utf-8")
 
     if json_output:
         from rebrew.cli import json_print
 
-        json_print({"out": str(out), "units": len(units)})
+        json_print({"output": str(output), "units": len(units)})
         return
-    console.print(f"[green]Wrote objdiff project: {out}[/green]")
+    console.print(f"[green]Wrote objdiff project: {output}[/green]")
     console.print(
         f"  [dim]{len(units)} unit(s), {len(units)} target object(s) in {target_dir}[/dim]"
     )

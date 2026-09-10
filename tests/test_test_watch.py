@@ -146,7 +146,7 @@ class TestWatchCli:
             jobs=None,
             no_promote=False,
             force_status=False,
-            fix_size=False,
+            fix_sizes=False,
             linked=False,
             watch=True,
             json_output=False,

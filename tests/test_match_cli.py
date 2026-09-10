@@ -527,7 +527,7 @@ class TestMatchCliLink:
 
 class TestKunaSeed:
     def test_kuna_seed_injected_into_ga(self, tmp_path: Path, monkeypatch) -> None:
-        """--kuna-seed fetches Kuna's decompilation, fixes it, and injects it
+        """--seed-kuna fetches Kuna's decompilation, fixes it, and injects it
         into the GA's initial population (extra_seeds)."""
         from types import SimpleNamespace
 
@@ -601,7 +601,7 @@ class TestKunaSeed:
         assert seen.get("extra_seeds") == ["int FUN_00401000(void) { return 1; }\n"]
 
     def test_kuna_seed_dry_run_skips_ga(self, tmp_path: Path, monkeypatch) -> None:
-        """--kuna-seed --dry-run prints the fixed decompilation and returns
+        """--seed-kuna --dry-run prints the fixed decompilation and returns
         without constructing the GA."""
         from types import SimpleNamespace
 

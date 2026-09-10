@@ -198,14 +198,14 @@ skills.
 | `-j N` | Parallel compilation workers |
 | `--out-dir DIR` | Output directory for GA results |
 | `--compare-obj` / `--no-compare-obj` | Use object comparison instead of full link (default: true) |
-| `--extra-seed FILE` | Extra `.c` file(s) to seed GA population from solved functions |
-| `--no-seed` | Disable cross-function solution seeding |
+| `--seed-file FILE` | Extra `.c` file(s) to seed GA population from solved functions |
+| `--no-seeds` | Disable cross-function solution seeding |
 | `--mutation-focus CAT` | Bias GA mutation selection: `register` / `equivalent` / `structural`, or `auto` (derives the category from the function's BLOCKER metadata; single-function only) — the category's suggested operators get 6x selection weight |
 | `--cl COMMAND` | CL.EXE command (auto from rebrew-project.toml) |
 | `--lib DIR` | Lib dir (for non-obj comparison) |
 | `--ldflags FLAGS` | Linker flags (for non-obj comparison) |
 | `--flag-sweep-only` | Exhaustive flag-combination sweep; skip GA (**MSVC-only** — posix profiles like gcc-pe refuse with a clear error) |
-| `--sweep-toolchain` | Try each vendored MSVC toolchain (the full 4.0→7.0 line: 6.0-sp3/sp6, 7.0, 4.2, 5.0, 4.0); combine with `--flag-sweep-only` to flag-sweep with each toolchain ("which MSVC version + flags built this function?" — the combined mode reports the best flags per toolchain) |
+| `--flag-sweep-toolchains` | Try each vendored MSVC toolchain (the full 4.0→7.0 line: 6.0-sp3/sp6, 7.0, 4.2, 5.0, 4.0); combine with `--flag-sweep-only` to flag-sweep with each toolchain ("which MSVC version + flags built this function?" — the combined mode reports the best flags per toolchain) |
 | `--tier NAME` | Flag-sweep tier: `quick`, `targeted` (default), `normal`, `thorough`, `full` — see [FLAG_SWEEP_TIERS.md](FLAG_SWEEP_TIERS.md) |
 | `--collect-pairs FILE` | Save source/binary pairs to JSONL for ML training |
 | `--json` | Output results as JSON |
@@ -254,7 +254,7 @@ consumers can learn whether the blocker landed (mirrors `near-diag`'s
 | `--dry-run` | Preview changes without writing |
 | `--no-promote` | Skip STATUS metadata update |
 | `--force-status` | Force the STATUS update even from sticky PROVEN (deliberately demote a stale PROVEN to its actual result; single-function only) |
-| `--fix-size` | Fix a stale `SIZE` annotation when ALL common bytes match: writes the compiled size into metadata and reclassifies as EXACT/RELOC (no-op when the mismatch is a real byte difference; `--dry-run` previews). File-scoped — batch size repair is `rebrew verify --fix-sizes` |
+| `--fix-sizes` | Fix a stale `SIZE` annotation when ALL common bytes match: writes the compiled size into metadata and reclassifies as EXACT/RELOC (no-op when the mismatch is a real byte difference; `--dry-run` previews). File-scoped — batch size repair is `rebrew verify --fix-sizes` |
 | `--linked` | Linked compare (single-function, VA required): compile in a padded `#pragma data_seg(".text$A")` + `code_seg(".text$B")` shell, LINK a real DLL at the target's image base inside the toolchain image, compare the linker-resolved bytes RAW — no relocation masking. rel32 displacements are linker-resolved and in-`.text` jump tables land in the window, so a match is byte-identical output, not RELOC-level. Sources with externals (imports, cross-TU calls) fail the link by design; MSVC docker toolchains only |
 | `--watch` | Re-test the source file on every save (single-file mode) |
 | `--json` | JSON structured output |
@@ -338,7 +338,7 @@ longer than a fixed 48-byte window no longer fall back to a wrong
 `int __cdecl f(void)` default.  When the resolved size is stale (the
 disassembly extent runs past it — a truncated `functions.txt` entry),
 skeleton warns with the real extent and suggests `rebrew asm --size
-<extent>` / `rebrew test --fix-size`; JSON output carries `size_warning`.
+<extent>` / `rebrew test --fix-sizes`; JSON output carries `size_warning`.
 | `--batch N` | Generate N skeletons (smallest first) |
 | `--min-size N` | Minimum function size (default 10) |
 | `--max-size N` | Maximum function size (default 9999) |
@@ -440,19 +440,20 @@ Output prefixes for unambiguous parsing:
 | `--improve` | Target all NEAR_MATCHING functions (no delta threshold) |
 | `--threshold N` | Max byte delta for `--near-miss` mode (default 10) |
 | `--dry-run` | Preview changes without writing |
-| `--seed-from-solved` / `--no-seed-from-solved` | Seed GA population from similar solved functions (default: on) |
-| `--seed-solutions` / `--no-seed-solutions` | Seed from the cross-function solutions DB |
+| `--seed-solved` / `--no-seed-solved` | Seed GA population from similar solved functions (default: on) |
+| `--seed-solutions-file PATH` | Extra solutions.json to seed from (cross-project transfer) |
 | `--flag-sweep` | Sweep compiler flags before GA |
 | `--flag-sweep-only` | Flag sweep only, no GA |
 | `--fix-cflags` | Write winning sweep flags to metadata |
-| `--sweep-toolchain` | Include toolchain in the sweep |
-| `--sweep-only` | Sweep without follow-up matching |
-| `--sweep-exclude FLAGS` | Exclude flags from the sweep |
-| `--sweep-then-ga` | Run GA after the sweep |
+| `--flag-sweep-toolchains` | Try each vendored MSVC toolchain instead of GA (combine with `--flag-sweep-only`) |
+| `--sweep-toolchains CSV` | Sweep only these toolchains (profile names or version prefixes) |
+| `--sweep-exclude-toolchains CSV` | Skip these toolchains in the sweep |
+| `--sweep-exclude-flags FLAGS` | Exclude flags from the sweep |
+| `--flag-sweep-then-ga` | Flag-sweep each stub first, then run GA with the best flags |
 | `--size-mismatch` | Include SIZE_MISMATCH functions in batch mode |
 | `--skip-recent HOURS` | Skip functions matched in the last N hours |
-| `--llm-seed` | Seed GA with LLM-proposed implementations |
-| `--kuna-seed` | Seed GA with kuna decompiler output |
+| `--seed-llm` | Seed GA with LLM-proposed implementations |
+| `--seed-kuna` | Seed GA with kuna decompiler output |
 | `--resume` | Resume from GA checkpoints |
 | `--ga-history` | Record GA run history |
 | `--watch` | Re-run on source changes |
@@ -579,7 +580,7 @@ same prune before verifying.
 
 ### `rebrew gen-layout`
 
-`rebrew gen-layout [--def-only] [--link-config] [--layout-config] [--json]`
+`rebrew gen-layout [--def-only] [--link-config] [--layout-config] [--data-gap HEX] [--dry-run] [--json]`
 
 Generate linker-script scaffolding from the target binary for byte-identity
 rebuilds: `<target>.def` (EXPORTS with the original's ordinals), the
@@ -589,11 +590,13 @@ everything `rebrew postlink --layout` needs, zero binary blobs at rest),
 the CRT IAT-forcing import list, and the data-restore bits.  `--def-only`
 emits just the `.def`; `--link-config` prints the derived `[link]` toml
 block for `rebrew-project.toml`; `--layout-config` prints the
-`[targets.<t>.layout]` block; `--json` emits a machine-readable manifest.
+`[targets.<t>.layout]` block; `--data-gap HEX` also emits
+`crt_region/data_restore.c`; `--dry-run` previews the file list without
+writing; `--json` emits a machine-readable manifest.
 
 ### `rebrew cmake-toolchain`
 
-`rebrew cmake-toolchain [--toolchain msvc6] [--out cmake/]`
+`rebrew cmake-toolchain [--toolchain msvc6] [--output cmake/] [--dry-run] [--json]`
 
 Write a CMake toolchain file that drives a docker toolchain's tools from
 CMake: `CMAKE_C_COMPILER/LINKER/AR` point at the `rebrew-cmake-{cl,link,lib}`
@@ -616,7 +619,7 @@ from `build/CMakeFiles/*/link.txt` when present, or passed as
 
 ### `rebrew gen-link-stubs`
 
-`rebrew gen-link-stubs [--data-metadata src/rebrew-data.toml] [--out src/link_stubs.c]`
+`rebrew gen-link-stubs [--data-metadata src/rebrew-data.toml] [--output src/link_stubs.c]`
 
 Generate a `link_stubs.c`-style BSS placeholder TU: a `char <sym>[1] = {0};`
 stub per `.data` symbol in the data metadata plus a `g_bss_tail[0x400000]`
@@ -625,7 +628,7 @@ link's `.data` VirtualSize matches the reference.
 
 ### `rebrew calibrate-bss`
 
-`rebrew calibrate-bss [--stub src/link_stubs.c] [--symbol g_bss_tail] [--target-vs 0x...] [--max-iters 8]`
+`rebrew calibrate-bss [--stub src/link_stubs.c] [--symbol g_bss_tail] [--target-vs 0x...] [--max-iters 8] [--dry-run] [--json]`
 
 Size the BSS tail pad empirically so the raw link's `.data` VirtualSize
 matches the reference (from `[targets.<t>.layout]` unless `--target`):
@@ -634,7 +637,7 @@ stub, repeat until equal.
 
 ### `rebrew gen-stubs`
 
-`rebrew gen-stubs [--out src/link_stubs.c] [--source-dir ...] [--build-cmd CMD] [--log FILE] [--library-csv ...] [--specials ...] [--footer ...] [--dry-run] [--json]`
+`rebrew gen-stubs [--output src/link_stubs.c] [--source-dir ...] [--build-cmd CMD] [--log FILE] [--library-csv ...] [--specials ...] [--footer ...] [--dry-run] [--json]`
 
 Generate a stub TU for the linker's unresolved external symbols
 (LNK2001/LNK2019): parses the errors from a build (`--build-cmd`), a saved
@@ -758,7 +761,7 @@ state dir), `--refresh-cache` (cache deleted).
 | Flag | Description |
 |------|-------------|
 | `SIG_DIR` | Directory containing `.sig`/`.pat` files (positional, optional) |
-| `--exe FILE` | Target PE file (default: from config) |
+| `--binary FILE` | Target PE file (default: from config) |
 | `--min-size N` | Minimum function size in bytes to report (default 16) |
 | `--json` | Output results as JSON |
 
@@ -797,7 +800,7 @@ symbols too (MSVC marks helpers like `_initterm` static). Exit 0 = clean,
 | Flag / Arg | Description |
 |------------|-------------|
 | `COMMAND` | `list`, `show` (or `extract`), or `batch N` (positional argument) |
-| `--exe PATH` | Path to DLL/EXE (default: from config) |
+| `--binary PATH` | Path to DLL/EXE (default: from config) |
 | `--size N` | With `show`, override the catalog-recorded size |
 | `--start N` | With `batch`, start offset into the sorted candidate list |
 | `--min-size N` | Minimum function size to extract (default 8) |
@@ -879,9 +882,10 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 |------|-------------|
 | `--target NAME` / `-t NAME` | Name of the initial target (default: `main`) |
 | `--binary NAME` | Binary filename (default: `program.exe`) |
-| `--compiler PROFILE` | Compiler profile (default: `msvc6`) |
+| `--toolchain PROFILE` | Compiler profile (default: `msvc6`) |
 | `--guess-compiler` | Auto-select the compiler profile from the target binary (diec → PDB → heuristics; prefers the 16-bit profile for DOS/NE binaries — requires the binary in `original/`) |
 | `--wizard` / `--no-wizard` | Interactive onboarding wizard (default: on; TTY only, never under `--json` or piped stdin).  Prompts only for options not passed explicitly: binary pick from `original/`/cwd, compiler profile with detection-based suggestion from the binary, target name (binary stem), a summary confirmation, and shell completions — then reports the profile's docker image state and offers `rebrew toolchain build <profile>` when it is missing. |
+| `--dry-run` | Preview the project layout without writing |
 | `--json` | Output results as JSON |
 
 - `--link-tools-from PATH` — symlink `toolchain/<family>/<version>-<arch>` from a master toolchain
@@ -959,12 +963,14 @@ entry point was accidentally renamed — before it becomes a runtime failure.
 
 ### `rebrew resource`
 
-`rebrew resource [--json] [--target NAME]`
+`rebrew resource compare A.exe B.exe [--json]`
+`rebrew resource extract PE [--output FILE] [--json]`
 
-Compare and extract the PE resource (`.rsrc`) section of the target binary —
-a quick check whether the binary ships resources (icons, version info,
-dialogs) that are irrelevant to function matching but matter for
-understanding what the program is.
+Byte-compare (`compare`) or extract (`extract`) the PE resource (`.rsrc`)
+section — `compare` reports byte-identity plus first-diff offset/diff-byte
+count/size delta and exits `EXIT_MISMATCH` (1) when the sections differ, so a
+resource byte diff in the recompiled PE is caught instead of staying invisible
+to function-only verify/diff.
 
 ### `rebrew status`
 
@@ -1086,12 +1092,12 @@ history (`.rebrew/ga_runs.jsonl`).  Read-only.
 |------------|-------------|
 | `list-targets` | List configured targets |
 | `show KEY` | Read a (dotted) config value, e.g. `show targets.main.binary` |
-| `set KEY VALUE` | Set a (dotted) config value, e.g. `set compiler.timeout 120` |
-| `add-target` / `remove-target` | Manage targets |
-| `add-module` / `remove-module` | Manage `reversed_dir` modules |
-| `set-cflags MODULE FLAGS` | Set a module's cflags preset (global, or per-target with `--target`) |
-| `set-compiler TARGET PROFILE` | Write a compiler profile (`msvc6`, `msvc7`, `clang`, `gcc`) onto a target |
-| `detect-crt` | Scan `toolchain/` for known MSVC CRT source dirs |
+| `set KEY VALUE [--dry-run]` | Set a (dotted) config value, e.g. `set compiler.timeout 120` |
+| `add-target NAME --binary F [--arch A] [--format FMT] [--modules M] [--source-ext E] [--copy/--no-copy] [--force] [--dry-run] [--json]` / `remove-target NAME [--force] [--dry-run] [--json]` | Manage targets |
+| `add-module NAME [--dry-run]` / `remove-module NAME [--force] [--dry-run]` | Manage `reversed_dir` modules |
+| `set-cflags MODULE FLAGS [--target T] [--dry-run]` | Set a module's cflags preset (global, or per-target with `--target`) |
+| `set-compiler TARGET PROFILE [--dry-run]` | Write a compiler profile (`msvc6`, `msvc7`, `clang`, `gcc`) onto a target |
+| `detect-crt [--write] [--dry-run]` | Scan `toolchain/` for known MSVC CRT source dirs |
 | `raw` | Dump `rebrew-project.toml` as JSON (`--format toml` for TOML) |
 | `path` | Print the path to `rebrew-project.toml` |
 
@@ -1118,9 +1124,9 @@ project defaults).  Known shipped libraries can be declared by name via
 
 | Flag | Description |
 |------|-------------|
-| `set DIR [--toolchain X] [--cflags Y] [--preset NAME] [--library NAME]` | Write/update `DIR/rebrew-libraries.toml`; explicit fields always win over a preset |
+| `set DIR [--toolchain X] [--cflags Y] [--preset NAME] [--library NAME] [--dry-run]` | Write/update `DIR/rebrew-libraries.toml`; explicit fields always win over a preset |
 | `show DIR` | Show the effective override for DIR (nearest file walking up; `--json`) |
-| `rm DIR` | Remove `DIR/rebrew-libraries.toml` (revert to project defaults) |
+| `rm DIR [--dry-run]` | Remove `DIR/rebrew-libraries.toml` (revert to project defaults) |
 
 ```toml
 # refs/zlib/rebrew-libraries.toml
@@ -1288,7 +1294,7 @@ functions per-function.  Exits 1 when the frames differ, 2 on build failure.
 
 ### `rebrew fix`
 
-`rebrew fix SOURCE.c [--dry-run] [--out PATH] [--compile-check] [--json]`
+`rebrew fix SOURCE.c [--dry-run] [--output PATH] [--compile-check] [--json]`
 
 Make raw decompiler output (Ghidra, r2ghidra, r2dec, Kuna, angr) compilable
 so rebrew can byte-match it — the DecBench fairness pass:
@@ -1302,7 +1308,7 @@ so rebrew can byte-match it — the DecBench fairness pass:
   what the source declared.
 
 Writes `<file>.fixed.c` by default (`--out` to override, `--dry-run` to
-print instead).  Also used internally by `rebrew match --kuna-seed`.
+print instead).  Also used internally by `rebrew match --seed-kuna`.
 
 `--compile-check` compiles the fixed source with the project's default
 flags before writing: on failure the decisive first compiler error is
@@ -1368,11 +1374,12 @@ code}` where `applied` lists `{var, struct, offsets}`.
 
 ### `rebrew postlink`
 
-`rebrew postlink BUILT REFERENCE [--fix imports|data|pe-metadata] [-o OUT]`
+`rebrew postlink BUILT REFERENCE [--fix imports|data|pe-metadata] [--output OUT] [--dry-run]`
 
 Normalize a built binary's layout onto a reference binary (post-link
 fixes) — import table, data sections, and PE metadata convergence, in
-place by default (`--output` to write elsewhere).  For byte-identical
+place by default (`--output` to write elsewhere, `--dry-run` to preview
+the fixer reports without writing).  For byte-identical
 rebuild verification where the linker layout differs from the original.
 
 ### `rebrew analyze`
@@ -1466,14 +1473,16 @@ the whole intake.
 
 ### `rebrew pdb-info`
 
-`rebrew pdb-info [OPTIONS] BINARY`
+`rebrew pdb-info BINARY [--write-cflags] [--dry-run] [--json]`
 
 Extract PDB metadata (e.g. MSVC `S_COMPILE3` records: compiler + exact
 command line) — feeds toolchain detection and per-function CFLAGS discovery.
+`--write-cflags` persists the S_COMPILE3 flags into `[compiler] cflags`
+(`--dry-run` previews the write).
 
 ### `rebrew report`
 
-`rebrew report [OPTIONS] [--out DIR] [--json]`
+`rebrew report [OPTIONS] [--output DIR] [--json]`
 `rebrew report --decomp-dev report.json [--json]`
 
 Generate a static self-contained HTML documentation site (`index.html`,
@@ -1492,7 +1501,7 @@ at decomp.dev/manage/new.
 
 ### `rebrew symbol-addrs`
 
-`rebrew symbol-addrs [--out symbol_addrs.csv] [--json]`
+`rebrew symbol-addrs [--output symbol_addrs.csv] [--json]`
 
 Export every annotated function as a splat-style `symbol_addrs.csv`
 (`0xVA,name` lines, sorted by VA; GLOBAL/DATA markers and unnamed entries
@@ -1501,7 +1510,7 @@ Ghidra and third-party tooling that expect the two-column CSV.
 
 ### `rebrew context`
 
-`rebrew context [--out ctx.c] [--sources-only] [--json]`
+`rebrew context [--output ctx.c] [--sources-only] [--json]`
 
 Emit a universal C context file for the decompiler backends (m2c-style):
 structs, typedefs, enums, and function signatures (definitions AND
@@ -1513,7 +1522,7 @@ it from a stub TU.
 
 ### `rebrew objdiff`
 
-`rebrew objdiff [--out objdiff.json] [--target-dir build/objdiff/target] [--json]`
+`rebrew objdiff [--output objdiff.json] [--target-dir build/objdiff/target] [--json]`
 
 Generate an objdiff project for GUI byte-diffing: one synthesized target
 COFF object per annotated source file (function bytes from the reference
@@ -1735,7 +1744,7 @@ graph TD
 ```bash
 rebrew round-trip                       # splice + write reasm + exit 1 on mismatch
 rebrew round-trip --json                # machine-readable report
-rebrew round-trip --out path/to/file    # override output PE path
+rebrew round-trip --output path/to/file    # override output PE path
 rebrew round-trip --dry-run             # in-memory only
 rebrew round-trip --filter SUBSTR       # restrict to matching symbols
 rebrew round-trip --allow-naked         # define REBREW_ALLOW_NAKED for splice builds

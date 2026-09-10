@@ -1,4 +1,27 @@
 ## [Unreleased]
+### Changed
+- **CLI flag consistency sweep** — one spelling per concept, no shims:
+  `--output` (was `--out`, `--exe`, `-o` on extract), `--binary` (was `--exe`
+  on flirt/extract), `--toolchain` (was `--compiler`, `--profile` on
+  init/intake), `--fix-sizes` (was `--fix-size`), match sweep cluster
+  (`--flag-sweep-toolchains`, `--sweep-toolchains`,
+  `--sweep-exclude-toolchains`, `--flag-sweep-then-ga`), match seed cluster
+  (`--seed-file`, `--no-seeds`, `--seed-llm`, `--seed-kuna`,
+  `--seed-solved`, `--seed-solutions-file`), `postlink --dry-run`,
+  `fix --output`. Writer commands without a preview gained `--dry-run`
+  (`cfg add-target/remove-target/remove-module/set-compiler/detect-crt`,
+  `library set/rm`, `pdb-info --write-cflags`, `gen-layout`,
+  `calibrate-bss`, `cmake-toolchain`, `init`); `resource extract` gained
+  `--json`. Docs (`CLI.md`, toolchain/onboarding/skill files) updated to the
+  new spellings.
+### Fixed
+- **Metadata writers stop duplicating an entry spelled with different hex
+  padding** (`SERVER.0x24000` beside the canonical `SERVER.0x00024000`). The
+  loader parses both keys to one `(module, va)`, so the appended twin replaced
+  the original wholesale and split its fields, dropping `section` from the
+  `crt_imports.c` IAT entry and tripping lint W016. Writers now update the
+  spelling the file already uses, and a file that already holds both keys
+  merges their fields with a warning instead of silently discarding one.
 
 ## [0.11.0] - 2026-09-10
 ### Added

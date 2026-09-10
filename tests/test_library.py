@@ -162,6 +162,23 @@ class TestLibraryCli:
         ovr = find_library_override(lib, tmp_path)
         assert ovr is not None and ovr.cflags == "/O2 /Gd /MT"
 
+    def test_set_dry_run_writes_nothing(self, tmp_path: Path) -> None:
+        lib = tmp_path / "lib"
+        lib.mkdir()
+        res = self._invoke("set", str(lib), "--toolchain", "msvc6", "--dry-run")
+        assert res.exit_code == 0, res.output
+        assert "would write" in res.output
+        assert not (lib / LIBRARY_METADATA_FILE).exists()
+
+    def test_rm_dry_run_keeps_file(self, tmp_path: Path) -> None:
+        lib = tmp_path / "lib"
+        lib.mkdir()
+        (lib / LIBRARY_METADATA_FILE).write_text('toolchain = "msvc6"\n', encoding="utf-8")
+        res = self._invoke("rm", str(lib), "--dry-run")
+        assert res.exit_code == 0, res.output
+        assert "would remove" in res.output
+        assert (lib / LIBRARY_METADATA_FILE).exists()
+
     def test_unknown_toolchain_fails(self, tmp_path: Path) -> None:
         lib = tmp_path / "lib"
         lib.mkdir()

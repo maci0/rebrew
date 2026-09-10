@@ -571,6 +571,7 @@ def main(
     output: Path | None = typer.Option(
         None, "--output", "-o", help="Write the result here instead of in place"
     ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Converge the layout of *built* onto *reference* (byte-identical).
@@ -619,6 +620,24 @@ def main(
         error_exit(f"postlink failed: {exc}", json_mode=json_output, code=EXIT_ERROR)
 
     target = output or built
+    if dry_run:
+        if json_output:
+            json_print(
+                {
+                    "built": str(built),
+                    "reference": str(reference),
+                    "layout": str(layout),
+                    "output": str(target),
+                    "dry_run": True,
+                    "reports": [r.as_dict() for r in reports],
+                }
+            )
+            return
+        for report in reports:
+            stats = " ".join(f"{k}={v}" for k, v in report.stats.items())
+            detail = f" [{stats}]" if stats else ""
+            console.print(f"[dim]Would apply {report.name}{detail} → {target}[/dim]")
+        return
     # Atomic replace: a crash or disk-full mid-write must not truncate the
     # (by default in-place) built binary.
     atomic_write_bytes(target, patched)

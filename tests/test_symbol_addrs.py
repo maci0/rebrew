@@ -47,7 +47,7 @@ class TestSymbolAddrs:
             [_fake_ann(0x2000, "later"), _fake_ann(0x1000, "earlier")],
         )
         out = tmp_path / "symbol_addrs.csv"
-        r = runner.invoke(symbol_addrs.app, ["--out", str(out)])
+        r = runner.invoke(symbol_addrs.app, ["--output", str(out)])
         assert r.exit_code == 0
         lines = out.read_text(encoding="utf-8").splitlines()
         assert lines == ["0x00001000,earlier", "0x00002000,later"]
@@ -65,7 +65,7 @@ class TestSymbolAddrs:
             ],
         )
         out = tmp_path / "symbol_addrs.csv"
-        r = runner.invoke(symbol_addrs.app, ["--out", str(out), "--json"])
+        r = runner.invoke(symbol_addrs.app, ["--output", str(out), "--json"])
         assert r.exit_code == 0
         import json
 
@@ -80,6 +80,6 @@ class TestSymbolAddrs:
     ) -> None:
         _patch(monkeypatch, tmp_path, [_fake_ann(0x1000, "func_a", symbol="_func_a@8")])
         out = tmp_path / "symbol_addrs.csv"
-        r = runner.invoke(symbol_addrs.app, ["--out", str(out)])
+        r = runner.invoke(symbol_addrs.app, ["--output", str(out)])
         assert r.exit_code == 0
         assert out.read_text(encoding="utf-8").strip() == "0x00001000,_func_a@8"

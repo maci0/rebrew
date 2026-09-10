@@ -32,7 +32,7 @@ User stories for the Rebrew decompilation workbench, organized by persona and wo
 
 ```mermaid
 graph TD
-    A["Obtain target binary<br/>(e.g. game.dll)"] --> B["rebrew init --target game<br/>--binary game.dll --compiler msvc6"]
+    A["Obtain target binary<br/>(e.g. game.dll)"] --> B["rebrew init --target game<br/>--binary game.dll --toolchain msvc6"]
     B --> C["rebrew-project.toml created"]
     B --> D["src/game/ directory created"]
     B --> E["bin/game/ directory created"]

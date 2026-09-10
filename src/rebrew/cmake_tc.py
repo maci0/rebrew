@@ -422,10 +422,11 @@ set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 
 @app.callback(invoke_without_command=True)
 def main(
-    toolchain: str = typer.Option("msvc6", "--toolchain", "-t", help="Toolchain name"),
-    out: Path = typer.Option(
-        Path("cmake"), "--out", "-o", help="Output dir for the toolchain file"
+    toolchain: str = typer.Option("msvc6", "--toolchain", help="Toolchain name"),
+    output: Path = typer.Option(
+        Path("cmake"), "--output", "-o", help="Output dir for the toolchain file"
     ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Write a CMake toolchain file for a docker-based toolchain.
@@ -435,7 +436,15 @@ def main(
     inside the toolchain image (see the module docstring).
     """
     spec = _resolve_spec(toolchain)
-    written = generate_toolchain_file(spec, out)
+    if dry_run:
+        if json_output:
+            json_print({"toolchain": toolchain, "output": str(output), "dry_run": True})
+        else:
+            console.print(
+                f"[cyan]dry-run:[/cyan] would write the {toolchain} toolchain file to {output}"
+            )
+        return
+    written = generate_toolchain_file(spec, output)
     if json_output:
         json_print({"toolchain": toolchain, "written": str(written)})
     else:

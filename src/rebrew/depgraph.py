@@ -564,9 +564,9 @@ def main(
         "--max-pointer-stride",
         help="Maximum byte stride between pointer slots when scanning tables (--include-dispatch)",
     ),
-    binary: bool = typer.Option(
+    from_binary: bool = typer.Option(
         False,
-        "--binary",
+        "--from-binary",
         help="Build call edges from the target binary's xrefs instead of the "
         "reversed C sources (16-bit NE support included — the source graph is "
         "empty for stub-only projects).",
@@ -634,14 +634,14 @@ def main(
         reversed_dir, cfg=cfg, dispatch_tables=dispatch_tables
     )
 
-    # --binary: augment with call edges discovered in the target binary's
+    # --from-binary: augment with call edges discovered in the target binary's
     # xrefs (the source graph is empty for stub-only projects like an
     # intake'd NE target).  Only edges between known function VAs are kept.
-    if binary:
+    if from_binary:
         bin_path = cfg.target_binary
         if not bin_path or not bin_path.exists():
             error_exit(
-                "--binary requires a target binary (target_binary not set or missing).",
+                "--from-binary requires a target binary (target_binary not set or missing).",
                 json_mode=json_output,
             )
         try:

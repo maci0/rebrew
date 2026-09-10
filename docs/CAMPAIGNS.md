@@ -10,7 +10,7 @@ blockers found.
 ```bash
 # One project, bounded batch, resume-aware, cross-project solutions seeding:
 rebrew match --all --max-stubs 20 --generations 50 --pop-size 32 --jobs 4 \
-    --seed-solutions ../<best-solved-project>/.rebrew/solutions.json --resume --json
+    --seed-solutions-file ../<best-solved-project>/.rebrew/solutions.json --resume --json
 ```
 
 Measure progress with `rebrew status --json` (matched_pct) and
@@ -77,7 +77,7 @@ CRT blocker (loop attempt 1/39 by test metric, wrong family).
 ## Next campaigns
 
 1. **smygb full** — skeleton all 3 `start-function` candidates from Ghidra
-   decompilation, then `--all --seed-solutions ../makehm-rebrew/... --resume`.
+   decompilation, then `--all --seed-solutions-file ../makehm-rebrew/... --resume`.
 2. **nbench / makehm** — cross-project cflags transfer via `--seed-solutions`;
    measure matched_pct delta.
-3. **bind (VC5)** — `--sweep-toolchain` per function to confirm the VC5 line.
+3. **bind (VC5)** — `--flag-sweep-toolchains` per function to confirm the VC5 line.

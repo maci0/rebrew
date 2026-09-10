@@ -113,7 +113,7 @@ class TestStaleSizeNote:
         assert note is not None
         assert "44B is stale" in note
         assert "121B" in note
-        assert "--fix-size" in note
+        assert "--fix-sizes" in note
 
     def test_accurate_size_no_warning(self, tmp_path: Path, monkeypatch: Any) -> None:
         from rebrew.skeleton import _stale_size_note

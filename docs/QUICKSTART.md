@@ -36,7 +36,7 @@ graph TD
 ### Step 1 — Initialize the project
 
 ```bash
-rebrew init --target server.dll --binary original/server.dll --compiler msvc6
+rebrew init --target server.dll --binary original/server.dll --toolchain msvc6
 ```
 
 This creates `rebrew-project.toml` in the current directory, registering the target

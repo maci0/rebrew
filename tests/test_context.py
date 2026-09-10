@@ -42,7 +42,7 @@ class TestContext:
         )
         _patch(monkeypatch, tmp_path, [hdr])
         out = tmp_path / "ctx.c"
-        r = CliRunner().invoke(context.app, ["--out", str(out)])
+        r = CliRunner().invoke(context.app, ["--output", str(out)])
         assert r.exit_code == 0
         text = out.read_text(encoding="utf-8")
         assert "struct Vec { int x; int y; };" in text
@@ -59,7 +59,7 @@ class TestContext:
         b.write_text("struct Dup { int a; };\n", encoding="utf-8")
         _patch(monkeypatch, tmp_path, [a, b])
         out = tmp_path / "ctx.c"
-        r = CliRunner().invoke(context.app, ["--out", str(out)])
+        r = CliRunner().invoke(context.app, ["--output", str(out)])
         assert r.exit_code == 0
         assert out.read_text(encoding="utf-8").count("struct Dup {") == 1
 
@@ -68,6 +68,6 @@ class TestContext:
         bad.write_text("struct Broken {", encoding="utf-8")  # unparseable fragment
         _patch(monkeypatch, tmp_path, [bad])
         out = tmp_path / "ctx.c"
-        r = CliRunner().invoke(context.app, ["--out", str(out)])
+        r = CliRunner().invoke(context.app, ["--output", str(out)])
         assert r.exit_code == 0
         assert out.exists()

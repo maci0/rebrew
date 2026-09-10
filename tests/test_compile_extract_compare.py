@@ -77,7 +77,7 @@ class TestExtractAndCompare:
         assert r.matched is False
         # delta includes the 2-byte length difference.
         assert r.delta >= 2
-        # The full compiled size survives truncation for --fix-size.
+        # The full compiled size survives truncation for --fix-sizes.
         assert r.full_obj_size == 5
 
     def test_target_longer_size_mismatch(self, monkeypatch: pytest.MonkeyPatch) -> None:

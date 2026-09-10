@@ -672,6 +672,7 @@ def main(
         "[<raw-size>:raw_end] the project TUs do not emit (hex, e.g. 0x3000), so the "
         "raw link's .data rsz matches without post-processing",
     ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Generate the linker-script scaffolding for a target binary."""
@@ -728,6 +729,24 @@ def main(
 
     marker = cfg.marker or cfg.target_name.upper()
     out_dir = cfg.reversed_dir
+
+    result = {
+        "target": cfg.target_name,
+        "exports": len(exports),
+        "imports": len(imports),
+        "written": [],
+    }
+    if dry_run:
+        if json_output:
+            result["dry_run"] = True
+            json_print(result)
+        else:
+            console.print(
+                f"[cyan]dry-run:[/cyan] would write {len(exports)} exports, "
+                f"{len(imports)} imports scaffolding under {out_dir} "
+                f"and layout/{cfg.target_name}/"
+            )
+        return
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "crt_region").mkdir(parents=True, exist_ok=True)
 
@@ -780,6 +799,7 @@ def main(
         "exports": len(exports),
         "imports": len(imports),
         "written": written,
+        "dry_run": False,
     }
     if json_output:
         json_print(result)

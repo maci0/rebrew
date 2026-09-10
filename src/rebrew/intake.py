@@ -19,7 +19,7 @@ blocker-documented — ready for the per-function decomp loop.
 Usage::
 
     rebrew intake original/game.exe --target game
-    rebrew intake game.exe --profile msvc6.3 --dry-run
+    rebrew intake game.exe --toolchain msvc6.3 --dry-run
 """
 
 from __future__ import annotations
@@ -345,8 +345,8 @@ def _link_toolchain(project: Path, profile: str) -> str | None:
 @app.callback(invoke_without_command=True)
 def main(
     binary: str = typer.Argument(..., help="Path to the target binary (copied into original/)."),
-    profile: str | None = typer.Option(
-        None, "--profile", "-p", help="Compiler profile (default: auto-detected)."
+    toolchain: str | None = typer.Option(
+        None, "--toolchain", help="Compiler profile (default: auto-detected)."
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -363,8 +363,9 @@ def main(
     target_name = target or bin_path.stem
     marker = re.sub(r"[^A-Za-z0-9_]", "", target_name).upper()
 
-    if profile is None:
+    if toolchain is None:
         profile, family, hint, notes = _suggest_profile(bin_path)
+        toolchain = profile
     else:
         family, hint = "unknown", ""
         notes = []
@@ -396,7 +397,7 @@ def main(
             "function_count": preview_count,
             "notes": notes,
             "actions": [
-                "rebrew init --target <name> --binary <name>.exe --compiler <profile>",
+                "rebrew init --target <name> --binary <name>.exe --toolchain <profile>",
                 "copy binary to original/",
                 "symlink vendored toolchain into tools/",
                 "generate src/<target>/functions.txt via rizin",
@@ -426,7 +427,7 @@ def main(
     else:
         init_result = runner.invoke(
             init_app,
-            ["--target", target_name, "--binary", f"{target_name}.exe", "--compiler", profile],
+            ["--target", target_name, "--binary", f"{target_name}.exe", "--toolchain", toolchain],
         )
         if init_result.exit_code != 0:
             msg = f"rebrew init failed: {init_result.output[:300]}"

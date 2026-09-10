@@ -74,3 +74,29 @@ def test_extract_missing_rsrc_fails(tmp_path: Path) -> None:
     a.write_bytes(make_pe(b"\xc3"))
     result = runner.invoke(app, ["extract", str(a)])
     assert result.exit_code == 1
+
+
+def test_extract_json(tmp_path: Path) -> None:
+    from rebrew.resource import app
+
+    rsrc = b"\xde\xad\xbe\xef" * 16
+    a = _rsrc_pe(tmp_path / "a.exe", rsrc)
+    out = tmp_path / "out.rsrc"
+    result = runner.invoke(app, ["extract", str(a), "--output", str(out), "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)
+    assert data["present"] is True
+    assert data["output"] == str(out)
+    assert data["bytes"] == len(rsrc)
+    assert out.read_bytes() == rsrc
+
+
+def test_extract_missing_rsrc_json(tmp_path: Path) -> None:
+    from rebrew.resource import app
+
+    a = tmp_path / "a.exe"
+    a.write_bytes(make_pe(b"\xc3"))
+    result = runner.invoke(app, ["extract", str(a), "--json"])
+    assert result.exit_code == 1
+    data = json.loads(result.stdout)
+    assert data["present"] is False

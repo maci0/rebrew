@@ -112,7 +112,7 @@ class TestObjdiffProject:
         out = tmp_path / "objdiff.json"
         r = runner.invoke(
             objdiff_project.app,
-            ["--out", str(out), "--target-dir", str(tmp_path / "target")],
+            ["--output", str(out), "--target-dir", str(tmp_path / "target")],
         )
         assert r.exit_code == 0
         doc = json.loads(out.read_text(encoding="utf-8"))

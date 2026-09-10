@@ -138,7 +138,7 @@ class TestWizardFlow:
         _force_wizard(monkeypatch)
         image_present(monkeypatch, True)
         monkeypatch.chdir(tmp_path)
-        result = CliRunner().invoke(app, ["--compiler", "msvc6"], input="1\n\ny\nn\n")
+        result = CliRunner().invoke(app, ["--toolchain", "msvc6"], input="1\n\ny\nn\n")
         assert result.exit_code == 0, result.output + result.stderr
         content = (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
         assert 'profile = "msvc6"' in content
@@ -216,7 +216,7 @@ class TestWizardFullyFlagged:
                 "mytarget",
                 "--binary",
                 "mini_pe.exe",
-                "--compiler",
+                "--toolchain",
                 "msvc6",
                 "--install-completions",
             ],
@@ -240,7 +240,7 @@ _FLAGGED = [
     "t",
     "--binary",
     "mini_pe.exe",
-    "--compiler",
+    "--toolchain",
     "msvc6",
     "--install-completions",
 ]
@@ -322,7 +322,7 @@ class TestToolchainImageStep:
                 "t",
                 "--binary",
                 "mini_pe.exe",
-                "--compiler",
+                "--toolchain",
                 "gcc-pe",
                 "--install-completions",
             ],

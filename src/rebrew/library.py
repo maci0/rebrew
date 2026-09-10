@@ -121,6 +121,7 @@ def set_cmd(
         None, "--preset", help="Known-library preset, e.g. msvcrt-static"
     ),
     library: str | None = typer.Option(None, "--library", help="Library name (drives presets)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Declare (or update) the per-library toolchain/flags override.
@@ -155,9 +156,24 @@ def set_cmd(
         doc["toolchain"] = toolchain
     if cflags is not None:
         doc["cflags"] = cflags
+    merged, presets = apply_library_presets({k: doc[k] for k in doc})
+    if dry_run:
+        if json_output:
+            json_print(
+                {
+                    "file": str(path),
+                    "library": str(merged.get("library", "")),
+                    "toolchain": str(merged.get("toolchain", "")),
+                    "cflags": str(merged.get("cflags", "")),
+                    "presets": list(presets),
+                    "dry_run": True,
+                }
+            )
+        else:
+            console.print(f"[yellow]would write {path}[/yellow]")
+        return
     path.write_text(tomlkit.dumps(doc), encoding="utf-8")
     clear_library_override_cache()
-    merged, presets = apply_library_presets({k: doc[k] for k in doc})
     if json_output:
         json_print(
             {
@@ -182,6 +198,7 @@ def rm_cmd(
         ".", help="Library directory (removes rebrew-libraries.toml here)"
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
 ) -> None:
     """Remove a rebrew-libraries.toml (revert to project defaults)."""
     path = _resolve_root(directory) / LIBRARY_METADATA_FILE
@@ -191,6 +208,12 @@ def rm_cmd(
             json_print({"removed": False, "file": str(path)})
         else:
             console.print(f"[yellow]{msg}[/yellow]")
+        return
+    if dry_run:
+        if json_output:
+            json_print({"removed": False, "file": str(path), "dry_run": True})
+        else:
+            console.print(f"[yellow]would remove {path}[/yellow]")
         return
     path.unlink()
     clear_library_override_cache()

@@ -232,7 +232,7 @@ rebrew flirt
 rebrew flirt /path/to/my/signatures/
 
 # Scan a different target binary
-rebrew flirt --exe original/MyGame/mygame.exe
+rebrew flirt --binary original/MyGame/mygame.exe
 
 # Only report functions larger than 32 bytes
 rebrew flirt --min-size 32

@@ -114,14 +114,30 @@ def compare(
 def extract(
     pe: Path = typer.Argument(..., help="PE to extract the .rsrc section from"),
     output: Path = typer.Option(Path("resource.rsrc"), "--output", "-o", help="Output file"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Extract the .rsrc section raw bytes to *output*."""
     raw, info = _rsrc_bytes(pe)
     if raw is None:
-        console.print(f"[yellow]{pe} has no .rsrc section.[/yellow]")
+        if json_output:
+            json_print({"pe": str(pe), "present": False, "output": None})
+        else:
+            console.print(f"[yellow]{pe} has no .rsrc section.[/yellow]")
         raise typer.Exit(code=EXIT_MISMATCH)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(raw)
+    if json_output:
+        json_print(
+            {
+                "pe": str(pe),
+                "present": True,
+                "output": str(output),
+                "bytes": len(raw),
+                "va": info.get("va"),
+                "raw_size": info.get("raw_size"),
+            }
+        )
+        return
     console.print(
         f"Wrote {len(raw)} bytes of .rsrc from {pe} to {output} "
         f"(va=0x{info['va']:x}, raw_size=0x{info['raw_size']:x})"

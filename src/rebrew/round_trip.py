@@ -75,8 +75,11 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    out: Path | None = typer.Option(
-        None, "--out", help="Override output PE path (default: <binary>.reasm next to target)"
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Override output PE path (default: <binary>.reasm next to target)",
     ),
     no_write: bool = typer.Option(
         False,
@@ -113,7 +116,7 @@ def main(
     raise typer.Exit(
         _run_round_trip(
             cfg,
-            out=out,
+            output=output,
             no_write=no_write,
             symbol_filter=symbol_filter,
             json_output=json_output,
@@ -452,7 +455,7 @@ def _source_is_naked_fenced(path: str | Path) -> bool:
 def _run_round_trip(
     cfg: ProjectConfig,
     *,
-    out: Path | None,
+    output: Path | None,
     no_write: bool,
     symbol_filter: str | None,
     json_output: bool,
@@ -674,7 +677,7 @@ def _run_round_trip(
     catalog_ok = not strict_catalog or not skipped_catalog
     match = not mismatches and sha_original == sha_reasm and catalog_ok
 
-    out_path = out or cfg.target_binary.with_suffix(cfg.target_binary.suffix + ".reasm")
+    out_path = output or cfg.target_binary.with_suffix(cfg.target_binary.suffix + ".reasm")
     if not no_write:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_bytes(out_path, bytes(reasm))

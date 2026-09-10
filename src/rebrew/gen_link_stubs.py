@@ -82,7 +82,7 @@ def main(
     data_metadata: Path = typer.Option(
         Path("src/rebrew-data.toml"), "--data-metadata", help="Data metadata toml path"
     ),
-    out: Path = typer.Option(Path("src/link_stubs.c"), "--out", help="Output TU path"),
+    output: Path = typer.Option(Path("src/link_stubs.c"), "--output", "-o", help="Output TU path"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print instead of writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
@@ -104,7 +104,7 @@ def main(
         else:
             print(content)
         return
-    target = out if out.is_absolute() else root / out
+    target = output if output.is_absolute() else root / output
     target.write_text(content, encoding="utf-8")
     console.print(f"[green]gen-link-stubs:[/] wrote {target}")
     console.print("  next: rebrew calibrate-bss to size g_bss_tail")

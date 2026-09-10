@@ -102,11 +102,11 @@ class CompareResult:
             comparison (empty list by default).
         full_obj_size: Full compiled ``.obj`` size when ``obj_bytes`` was
             truncated to the target length for comparison (SIZE_MISMATCH
-            path), else ``None``.  ``rebrew test --fix-size`` uses this to
+            path), else ``None``.  ``rebrew test --fix-sizes`` uses this to
             correct a stale SIZE annotation with the definitive compiled
             size instead of re-deriving it by hand.
         full_obj_bytes: Full compiled ``.obj`` bytes (untruncated) on the
-            SIZE_MISMATCH path, else ``None``.  Lets ``--fix-size`` verify
+            SIZE_MISMATCH path, else ``None``.  Lets ``--fix-sizes`` verify
             the bytes beyond the annotated slice before declaring the SIZE
             annotation stale - a false fix would otherwise write a size
             that hides unreproduced code.
@@ -240,7 +240,7 @@ def classify_compare_result(
             reloc_offsets=relocs,
             message=msg,
             inv_reloc_offsets=inv,
-            # Thread through for --fix-size reclassification: the caller
+            # Thread through for --fix-sizes reclassification: the caller
             # rebuilds a matched result from a truncated SIZE_MISMATCH view
             # and needs the full size preserved for reporting.
             full_obj_size=full_obj_size,
