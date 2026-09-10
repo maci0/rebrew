@@ -27,7 +27,7 @@ from rebrew.metadata import MATCHED_STATUSES
 console = Console(stderr=True)
 
 
-_CURRENT_DB_VERSION = "5"
+_CURRENT_DB_VERSION = "6"
 
 #: Per-target retention cap for the history table: only the newest N status-
 #: change rows per target are kept after each rebuild.  The dashboard pages
@@ -309,8 +309,10 @@ def _missing_required_objects(db_path: Path) -> set[str]:
             "blockerDelta",
             "size_reason",
             "similarity",
+            "updated_by",
+            "updated_at",
         },
-        "globals": {"target", "va", "name", "decl", "files", "module", "size"},
+        "globals": {"target", "va", "name", "decl", "files", "module", "size", "status"},
         "verify_results": {
             "target",
             "va",
@@ -321,7 +323,7 @@ def _missing_required_objects(db_path: Path) -> set[str]:
             "reg_delta",
             "effective_match",
         },
-        "history": {"id", "target", "va", "old_status", "new_status", "changed_at"},
+        "history": {"id", "target", "va", "old_status", "new_status", "changed_at", "updated_by"},
         "section_cell_stats": {
             "target",
             "section_name",
@@ -467,6 +469,8 @@ def build_db(
                 blockerDelta INTEGER CHECK (blockerDelta IS NULL OR blockerDelta >= 0),
                 size_reason TEXT,
                 similarity REAL CHECK (similarity IS NULL OR (similarity >= 0.0 AND similarity <= 1.0)),
+                updated_by TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (target, va)
             )
         """)
@@ -480,6 +484,7 @@ def build_db(
                 files TEXT NOT NULL DEFAULT '[]',
                 module TEXT NOT NULL DEFAULT '',
                 size INTEGER NOT NULL DEFAULT 4 CHECK (size >= 0),
+                status TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY (target, va)
             )
         """)
@@ -548,7 +553,8 @@ def build_db(
                 va INTEGER NOT NULL,
                 old_status TEXT,
                 new_status TEXT,
-                changed_at TEXT NOT NULL
+                changed_at TEXT NOT NULL,
+                updated_by TEXT NOT NULL DEFAULT ''
             )
         """)
         # history rows are appended on every rebuild; the dashboard pages them
@@ -710,6 +716,8 @@ def build_db(
                         else 0,
                         fn.get("size_reason", ""),
                         fn_similarity,
+                        str(fn.get("updated_by") or ""),
+                        str(fn.get("updated_at") or ""),
                     )
                 )
 
@@ -718,9 +726,9 @@ def build_db(
                 "(target, va, name, vaStart, size, fileOffset, status, module, cflags, "
                 "symbol, markerType, ghidra_name, list_name, is_thunk, is_export, sha256, "
                 "files, detected_by, size_by_tool, textOffset, blocker, blockerDelta, "
-                "size_reason, similarity) "
+                "size_reason, similarity, updated_by, updated_at) "
                 "VALUES "
-                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 fn_rows,
             )
 
@@ -898,20 +906,22 @@ def build_db(
             # Populate history: record any status changes since last build
             now_iso = datetime.now(UTC).isoformat()
             c.execute(
-                "SELECT va, status FROM functions WHERE target = ?",
+                "SELECT va, status, updated_by FROM functions WHERE target = ?",
                 (target_name,),
             )
             history_rows = []
             for row in c.fetchall():
-                new_va, new_status = row
+                new_va, new_status, updated_by = row
                 key = (target_name, new_va)
                 old_status = old_statuses.get(key)
                 if old_status is not None and old_status != new_status:
-                    history_rows.append((target_name, new_va, old_status, new_status, now_iso))
+                    history_rows.append(
+                        (target_name, new_va, old_status, new_status, now_iso, updated_by or "")
+                    )
             if history_rows:
                 c.executemany(
-                    "INSERT INTO history (target, va, old_status, new_status, changed_at) "
-                    "VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO history (target, va, old_status, new_status, changed_at, updated_by) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
                     history_rows,
                 )
             # Retention: keep only the newest _HISTORY_RETENTION rows per

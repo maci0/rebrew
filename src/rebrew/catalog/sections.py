@@ -185,6 +185,7 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
                             "files": [p.name],
                             "module": origin,
                             "size": size,
+                            "status": "",
                         }
                     elif p.name not in globals_dict[va]["files"]:
                         globals_dict[va]["files"].append(p.name)

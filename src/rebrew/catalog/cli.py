@@ -286,7 +286,16 @@ def main(
         console.print(f"Wrote {catalog_path}", style="dim")
 
     if gen_data_json or export_ghidra_labels:
-        data = generate_data_json(entries, funcs, text_size, bin_path, registry, reversed_dir, root)
+        data = generate_data_json(
+            entries,
+            funcs,
+            text_size,
+            bin_path,
+            registry,
+            reversed_dir,
+            root,
+            metadata_dir=cfg.metadata_dir,
+        )
         if gen_data_json:
             coverage_dir = cfg.db_dir
             coverage_dir.mkdir(parents=True, exist_ok=True)

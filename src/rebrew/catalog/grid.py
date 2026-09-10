@@ -210,6 +210,7 @@ def generate_data_json(
     registry: dict[int, RegistryEntry] | None = None,
     src_dir: Path | None = None,
     root_dir: Path | None = None,
+    metadata_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Generate the coverage database structure (db/data.json).
 
@@ -257,6 +258,16 @@ def generate_data_json(
     elif bin_path:
         log.warning("Configured binary not found; sections/hashes/thunks omitted: %s", bin_path)
     globals_dict = get_globals(src_dir) if src_dir else {}
+    if metadata_dir is not None:
+        from rebrew.data_metadata import load_data_metadata
+
+        try:
+            data_entries = load_data_metadata(metadata_dir)
+        except OSError:
+            data_entries = {}
+        for (_module, va), fields in data_entries.items():
+            if va in globals_dict and fields.get("status"):
+                globals_dict[va]["status"] = str(fields["status"])
     ghidra_data_labels = load_ghidra_data_labels(src_dir)
     label_index = _build_label_index(ghidra_data_labels) if ghidra_data_labels else None
 
@@ -373,6 +384,8 @@ def generate_data_json(
             "blocker": e.get("blocker", ""),
             "blockerDelta": e.get("blocker_delta"),
             "size_reason": reg.get("size_reason", ""),
+            "updated_by": getattr(e, "updated_by", ""),
+            "updated_at": getattr(e, "updated_at", ""),
         }
         if e["marker_type"] not in ("GLOBAL", "DATA"):
             emitted_fn_count += 1
