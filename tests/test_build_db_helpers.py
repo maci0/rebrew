@@ -139,11 +139,11 @@ class TestCheckDbVersion:
                     is_thunk INTEGER, is_export INTEGER, sha256 TEXT, files TEXT,
                     detected_by TEXT, size_by_tool TEXT, textOffset INTEGER,
                     blocker TEXT, blockerDelta INTEGER, size_reason TEXT,
-                    similarity REAL
+                    similarity REAL, updated_by TEXT, updated_at TEXT
                 );
                 CREATE TABLE globals (
                     target TEXT, va INTEGER, name TEXT, decl TEXT, files TEXT,
-                    module TEXT, size INTEGER
+                    module TEXT, size INTEGER, status TEXT
                 );
                 CREATE TABLE verify_results (
                     target TEXT, va INTEGER, verified_at TEXT, byte_delta INTEGER,
@@ -152,7 +152,7 @@ class TestCheckDbVersion:
                 );
                 CREATE TABLE history (
                     id INTEGER, target TEXT, va INTEGER, old_status TEXT,
-                    new_status TEXT, changed_at TEXT
+                    new_status TEXT, changed_at TEXT, updated_by TEXT
                 );
                 CREATE VIEW section_cell_stats AS
                     SELECT target, section_name, COUNT(*) AS total_cells,

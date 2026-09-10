@@ -87,6 +87,7 @@ name = "g_szNotepad"
 addr = 268500000
 size = 64
 type = "char[64]"
+section = ".rdata"
 
 [268500100]
 name = "g_counter"
@@ -94,6 +95,9 @@ addr = 268500100
 size = 4
 type = "int"
 ```
+
+`section` (`.data`/`.rdata`/`.bss`/…) round-trips both ways when present and
+is omitted when empty, so foreign BinSync tools keep reading the file.
 
 ### Structs
 
@@ -136,11 +140,13 @@ and applies changes back into rebrew metadata/source:
   divergence); a differing local prototype raises a conflict like a name —
   `--accept-binsync` overwrites.
 - **Globals** — BinSync `global_vars.toml` → `rebrew-data.toml` names, plus
-  differing `type`/`size` written back.
+  differing `type`/`size`/`section` written back.
 - **Notes** — BinSync `[comments]` `[rebrew:note]` → rebrew `note` metadata
   (differing notes only; identical notes skipped).
 - **Structs** — BinSync `structs/*.toml` definitions unknown locally land in
-  `binsync_types.h`; known names are never overwritten.
+  `binsync_types.h`; known names are never overwritten. Definitions validate
+  through the shared type model — unparseable ones import as comments, never
+  as compile-breaking typedefs.
 
 Conflict resolution mirrors `rebrew sync`:
 

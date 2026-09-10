@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-10
+### Added
+- **BinSync global `section` round-trip** — `global_vars.toml` carries
+  `section` both ways (omitted when empty for foreign-tool compat); import
+  writes differing sections back to `rebrew-data.toml`.
+- **BinSync struct import validates through the type model** — unparseable
+  definitions land in `binsync_types.h` as comments, never as
+  compile-breaking typedefs.
+
 ## [0.10.0] - 2026-09-10
 ### Added
 - **Data verification loop** — `rebrew verify --data --built build/<target>`
