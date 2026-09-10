@@ -178,7 +178,7 @@ def main(
     allow: Path | None = typer.Option(
         None, "--allow", help="File of VAs known library code, one hex VA per line (# comments)."
     ),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON."),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Flag reversed functions whose bytes come from a linked library."""

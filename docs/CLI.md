@@ -625,7 +625,7 @@ link's `.data` VirtualSize matches the reference.
 
 ### `rebrew calibrate-bss`
 
-`rebrew calibrate-bss [--stub src/link_stubs.c] [--symbol g_bss_tail] [--target 0x...] [--max-iters 8]`
+`rebrew calibrate-bss [--stub src/link_stubs.c] [--symbol g_bss_tail] [--target-vs 0x...] [--max-iters 8]`
 
 Size the BSS tail pad empirically so the raw link's `.data` VirtualSize
 matches the reference (from `[targets.<t>.layout]` unless `--target`):

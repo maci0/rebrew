@@ -86,7 +86,7 @@ class TestCmdExtract:
         monkeypatch.setattr(extract_mod, "extract_bytes_at_va", lambda *a, **k: b"")
         with pytest.raises(typer.Exit) as exc:
             extract_mod.cmd_extract(self._info(), [(0x1000, 4, "f")], 0x1000, tmp_path)
-        assert exc.value.exit_code == 1
+        assert exc.value.exit_code == 2
 
     def test_va_not_found_errors(self, tmp_path: Path) -> None:
         import typer
@@ -95,7 +95,7 @@ class TestCmdExtract:
 
         with pytest.raises(typer.Exit) as exc:
             extract_mod.cmd_extract(self._info(), [(0x2000, 4, "f")], 0x1000, tmp_path)
-        assert exc.value.exit_code == 1
+        assert exc.value.exit_code == 2
 
     def test_disasm_failure_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import typer
@@ -110,7 +110,7 @@ class TestCmdExtract:
         )
         with pytest.raises(typer.Exit) as exc:
             extract_mod.cmd_extract(self._info(), [(0x1000, 4, "f")], 0x1000, tmp_path)
-        assert exc.value.exit_code == 1
+        assert exc.value.exit_code == 2
 
     def test_json_success(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: object

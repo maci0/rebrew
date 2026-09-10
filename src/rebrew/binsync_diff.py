@@ -18,7 +18,7 @@ from rich.table import Table
 
 from rebrew.binsync_import import _normalize_prototype
 from rebrew.binsync_state import index_local_and_catalog, load_binsync_state, load_manifest
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import EXIT_MISMATCH, TargetOption, error_exit, json_print, require_config
 from rebrew.utils import strip_body
 
 log = logging.getLogger(__name__)
@@ -205,7 +205,7 @@ def main(
             result["new_in_binsync"] = new_in_binsync
         json_print(result)
         if divergences:
-            raise typer.Exit(code=1)
+            raise typer.Exit(code=EXIT_MISMATCH)
         return
 
     if not divergences:
@@ -229,7 +229,7 @@ def main(
     console.print(table)
     if len(divergences) > 200:
         console.print(f"[dim]… and {len(divergences) - 200} more (see --json)[/dim]")
-    raise typer.Exit(code=1)
+    raise typer.Exit(code=EXIT_MISMATCH)
 
 
 def main_entry() -> None:

@@ -84,9 +84,9 @@ class TestCmdExtract:
         monkeypatch.setattr("rebrew.extract.extract_bytes_at_va", lambda *a, **k: b"")
         with pytest.raises(typer.Exit) as exc:
             cmd_extract(binary, [(0x1000, 8, "f")], 0x1000, tmp_path, json_output=True)  # type: ignore[arg-type]
-        assert exc.value.exit_code == 1
+        assert exc.value.exit_code == 2
         out = json.loads(capsys.readouterr().out)
-        assert out["code"] == 1
+        assert out["code"] == 2
 
     def test_json_disasm_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
@@ -100,9 +100,9 @@ class TestCmdExtract:
         monkeypatch.setattr("rebrew.extract.disasm_bytes", _boom)
         with pytest.raises(typer.Exit) as exc:
             cmd_extract(binary, [(0x1000, 8, "f")], 0x1000, tmp_path, json_output=True)  # type: ignore[arg-type]
-        assert exc.value.exit_code == 1
+        assert exc.value.exit_code == 2
         out = json.loads(capsys.readouterr().out)
-        assert out["code"] == 1
+        assert out["code"] == 2
         assert "no capstone" in out["error"]
 
     def test_va_not_found_json(
@@ -111,7 +111,7 @@ class TestCmdExtract:
         binary = SimpleNamespace(data=b"", sections={})
         with pytest.raises(typer.Exit) as exc:
             cmd_extract(binary, [], 0x9999, tmp_path, json_output=True)  # type: ignore[arg-type]
-        assert exc.value.exit_code == 1
+        assert exc.value.exit_code == 2
         out = json.loads(capsys.readouterr().out)
         assert "not found" in out["error"]
 

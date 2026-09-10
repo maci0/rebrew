@@ -14,7 +14,7 @@ The target VS defaults to the reference's ``.data`` VirtualSize from the
 project's layout metadata (``[targets.<t>.layout]`` sections).
 
 Usage:
-    rebrew calibrate-bss [--stub src/link_stubs.c] [--target 0x174059c] [--max-iters 8]
+    rebrew calibrate-bss [--stub src/link_stubs.c] [--target-vs 0x174059c] [--max-iters 8]
 """
 
 from __future__ import annotations
@@ -100,8 +100,8 @@ def _stub_obj(target_dir: Path, stub: Path, root: Path) -> Path:
 def main(
     stub: Path = typer.Option(Path("src/link_stubs.c"), "--stub", help="Stub TU holding the tail"),
     symbol: str = typer.Option("g_bss_tail", "--symbol", help="Tail array symbol name"),
-    target: str | None = typer.Option(
-        None, "--target", help="Target .data VirtualSize (default: the layout metadata's)"
+    target_vs: str | None = typer.Option(
+        None, "--target-vs", help="Target .data VirtualSize (default: the layout metadata's)"
     ),
     max_iters: int = typer.Option(8, "--max-iters", help="Max calibration iterations"),
     compile_cmd: str = typer.Option(
@@ -110,20 +110,20 @@ def main(
     cflags: str = typer.Option("/O2 /Gd", "--cflags", help="Flags for the stub compile"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
-    """Calibrate *symbol* in *stub* so the raw link's .data VirtualSize == *target*."""
+    """Calibrate *symbol* in *stub* so the raw link's .data VirtualSize == *target_vs*."""
     root = walk_up_to_root(Path.cwd())
     if root is None:
         error_exit("no rebrew-project.toml found above the cwd")
     stub = stub if stub.is_absolute() else root / stub
     if not stub.exists():
         error_exit(f"stub file not found: {stub}")
-    if target is None:
-        target_vs = _layout_data_vs(root)
-        if target_vs is None:
+    if target_vs is None:
+        target_vs_int = _layout_data_vs(root)
+        if target_vs_int is None:
             error_exit("no target VS given and no .data vs in the layout metadata")
-        target_vs = int(target_vs)
+        target_vs_int = int(target_vs_int)
     else:
-        target_vs = int(target, 0)
+        target_vs_int = int(target_vs, 0)
 
     tail_re = re.compile(rf"{symbol}\[\s*0x([0-9A-Fa-f]+)\s*\]")
     if not tail_re.search(stub.read_text(encoding="utf-8")):
@@ -154,7 +154,7 @@ def main(
                 stderr = exc.stderr.decode(errors="replace")[-400:].strip() if exc.stderr else ""
                 error_exit(f"raw link failed (rc={exc.returncode}) on iter {it}: {stderr}")
             vs = read_data_vs(scratch)
-            delta = target_vs - vs
+            delta = target_vs_int - vs
             iters.append({"iter": it, "vs": vs, "delta": delta})
             if delta == 0:
                 break
@@ -188,11 +188,11 @@ def main(
         scratch.unlink(missing_ok=True)
 
     if json_output:
-        json_print({"target": target_vs, "symbol": symbol, "iters": iters})
+        json_print({"target_vs": hex(target_vs_int), "symbol": symbol, "iters": iters})
     else:
         for row in iters:
             print(f"iter {row['iter']}: raw .data VS=0x{row['vs']:x} delta={row['delta']:+d}")
-        print(f"calibrated OK (target 0x{target_vs:x})")
+        print(f"calibrated OK (target 0x{target_vs_int:x})")
 
 
 def main_entry() -> None:

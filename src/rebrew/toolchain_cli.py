@@ -17,7 +17,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from rebrew.cli import TargetOption, error_exit, json_print
+from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print
 from rebrew.toolchain import (
     ToolchainError,
     docker_available,
@@ -844,7 +844,7 @@ def smoke_cmd(
                 f"[green]Smoke: {sum(1 for s in results.values() if s == 'OK')} toolchains byte-reproducible[/green]"
             )
         else:
-            raise typer.Exit(code=2)
+            raise typer.Exit(code=EXIT_ERROR)
     finally:
         remove_temp_dir(workdir)
 
