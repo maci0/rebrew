@@ -562,3 +562,52 @@ class TestNoteImport:
         result = _invoke_import(tmp_path, state, monkeypatch, "--json")
         assert result.exit_code == 0, result.output
         assert json.loads(result.stdout)["applied_notes"] == 0
+
+
+class TestGlobalSectionRoundTrip:
+    def test_section_imported(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.data_metadata import get_data_entry
+
+        _make_project(
+            tmp_path,
+            {
+                "data.c": "// GLOBAL: SERVER 0x01008000\n// SIZE: 4\nint g_x;\n",
+            },
+        )
+        state = tmp_path / "state"
+        (state / "functions").mkdir(parents=True, exist_ok=True)
+        doc = tomlkit.document()
+        entry = tomlkit.table()
+        entry["name"] = "g_x"
+        entry["addr"] = 0x01008000
+        entry["type"] = "int"
+        entry["size"] = 4
+        entry["section"] = ".bss"
+        doc[str(0x01008000)] = entry
+        (state / "global_vars.toml").write_text(tomlkit.dumps(doc), encoding="utf-8")
+        result = _invoke_import(tmp_path, state, monkeypatch, "--json")
+        assert result.exit_code == 0, result.output
+        assert get_data_entry(tmp_path, 0x01008000, "SERVER").get("section") == ".bss"
+
+
+class TestUnparsedStructComment:
+    def test_unparsed_definition_becomes_comment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _make_project(tmp_path, {"foo.c": "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n"})
+        state = tmp_path / "state"
+        (state / "functions").mkdir(parents=True, exist_ok=True)
+        structs = state / "structs"
+        structs.mkdir(parents=True, exist_ok=True)
+        doc = tomlkit.document()
+        info = tomlkit.table()
+        info["name"] = "Weird"
+        doc["info"] = info
+        doc["definition"] = "not a struct at all {{{"
+        (structs / "Weird.toml").write_text(tomlkit.dumps(doc), encoding="utf-8")
+        result = _invoke_import(tmp_path, state, monkeypatch, "--json")
+        assert result.exit_code == 0, result.output
+        header = tmp_path / "src" / "binsync_types.h"
+        text = header.read_text(encoding="utf-8")
+        assert "UNPARSED" in text
+        assert "typedef struct Weird" not in text

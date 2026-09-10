@@ -75,7 +75,7 @@ def _is_meaningful(name: str) -> bool:
 
 
 def _global_type_size_drift(local: Any, bs_entry: dict[str, str]) -> bool:
-    """True when BinSync's global type/size differs from the local entry."""
+    """True when BinSync's global type/size/section differs from the local entry."""
     bs_type = (bs_entry.get("type") or "").strip()
     if bs_type and bs_type != str(getattr(local, "type", "") or "").strip():
         return True
@@ -86,13 +86,14 @@ def _global_type_size_drift(local: Any, bs_entry: dict[str, str]) -> bool:
                 return True
         except (TypeError, ValueError):
             pass
-    return False
+    bs_section = (bs_entry.get("section") or "").strip()
+    return bool(bs_section and bs_section != str(getattr(local, "section", "") or "").strip())
 
 
 def _apply_global_type_size(
     metadata_dir: Path, va: int, module: str, local: Any, bs_entry: dict[str, str]
 ) -> None:
-    """Write BinSync global type/size into rebrew-data.toml when they differ."""
+    """Write BinSync global type/size/section into rebrew-data.toml when they differ."""
     from rebrew.data_metadata import set_data_field
 
     bs_type = (bs_entry.get("type") or "").strip()
@@ -105,6 +106,9 @@ def _apply_global_type_size(
                 set_data_field(metadata_dir, va, "size", int(bs_size, 0), module)
         except (TypeError, ValueError):
             pass
+    bs_section = (bs_entry.get("section") or "").strip()
+    if bs_section and bs_section != str(getattr(local, "section", "") or "").strip():
+        set_data_field(metadata_dir, va, "section", bs_section, module)
 
 
 def _strip_cdecl_prefix(name: str) -> str:
@@ -695,6 +699,13 @@ def _import_structs(
                 definition = f"typedef struct {name}_s {{\n" + "\n".join(lines) + f"\n}} {name};"
         if not definition:
             continue
+        # Validate through the shared type model: an unparseable definition
+        # goes in as a comment (visible, non-breaking) instead of a
+        # compile-breaking typedef.
+        from rebrew.types import parse_structs
+
+        if name not in parse_structs(definition):
+            definition = f"/* UNPARSED from BinSync (no known layout):\n{definition}\n*/"
         if name not in existing:
             blocks.append(definition + "\n\n")
     from rebrew.utils import atomic_write_text
