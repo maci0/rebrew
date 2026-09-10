@@ -102,6 +102,9 @@ def load_binsync_state(
                     gsize = entry.get("size")
                     if gsize is not None:
                         record["size"] = str(gsize)
+                    gsection = entry.get("section")
+                    if isinstance(gsection, str) and gsection.strip():
+                        record["section"] = gsection.strip()
                     globals_map[va] = record
         except Exception:
             log.debug("unparseable BinSync global_vars.toml", exc_info=True)

@@ -308,20 +308,30 @@ def _write_function_toml(
 
 def _write_global_vars_toml(
     path: Path,
-    globals_list: list[tuple[int, str, int] | tuple[int, str, int, str | None]],
+    globals_list: list[
+        tuple[int, str, int]
+        | tuple[int, str, int, str | None]
+        | tuple[int, str, int, str | None, str | None]
+    ],
 ) -> None:
-    """Write global_vars.toml from (va, name, size[, type]) tuples.
+    """Write global_vars.toml from (va, name, size[, type[, section]]) tuples.
 
-    Accepts both 3-tuples ``(va, name, size)`` (back-compat, type defaults to
-    ``"char"``) and 4-tuples ``(va, name, size, type)``.
+    Accepts 3-tuples ``(va, name, size)`` (back-compat, type defaults to
+    ``"char"``), 4-tuples ``(va, name, size, type)``, and 5-tuples with a
+    trailing section (``.data``/``.rdata``/``.bss``/``.idata`` — omitted
+    when empty so foreign BinSync tools keep reading the file).
     """
     doc = tomlkit.document()
     for raw in sorted(globals_list):
+        section: str | None = None
         if len(raw) == 3:
             va, name, size = raw
             type_str = "char"
-        else:
+        elif len(raw) == 4:
             va, name, size, type_ = raw
+            type_str = type_ or "char"
+        else:
+            va, name, size, type_, section = raw
             type_str = type_ or "char"
         entry = tomlkit.table()
         entry["name"] = name
@@ -329,6 +339,8 @@ def _write_global_vars_toml(
         if size > 0:
             entry["size"] = size
         entry["type"] = type_str
+        if section:
+            entry["section"] = section
         doc[str(va)] = entry
     atomic_write_locked(path, tomlkit.dumps(doc), encoding="utf-8")
 
@@ -730,11 +742,12 @@ def export_state(
     # Collect global vars with real names + types
     va_to_name = _resolve_global_names(cfg, global_entries)  # type: ignore[arg-type]
     va_to_type = _resolve_global_types(cfg, global_entries)  # type: ignore[arg-type]
-    globals_list: list[tuple[int, str, int, str]] = []
+    globals_list: list[tuple[int, str, int, str, str | None]] = []
     for e in global_entries:
         gname = va_to_name.get(e.va) or e.symbol or e.name or f"g_{e.va:08x}"
         gtype = va_to_type.get(e.va, "char")
-        globals_list.append((e.va, gname, e.size, gtype))
+        section = getattr(e, "section", "") or None
+        globals_list.append((e.va, gname, e.size, gtype, section))
 
     # Collect struct definitions: prefer real definitions from headers/sources,
     # fall back to annotation STRUCT: names for any not found in sources
