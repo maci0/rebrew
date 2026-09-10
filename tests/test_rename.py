@@ -368,3 +368,76 @@ class TestCollectMatchingFiles:
         pattern = re.compile(r"\bfunc_a\b")
         matched = collect_matching_files(_cfg(tmp_path), a, pattern)
         assert set(matched) == {a, b}
+
+
+class TestRenameData:
+    def _cfg(self, tmp_path: Path):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=tmp_path / "src",
+            metadata_dir=tmp_path,
+            source_ext=".c",
+            marker="SERVER",
+        )
+
+    def _project(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        (src / "g.c").write_text("// GLOBAL: SERVER 0x2000\nint g_old;\n", encoding="utf-8")
+        (src / "use.c").write_text(
+            "// FUNCTION: SERVER 0x1000\nint f(void){return g_old;}\n", encoding="utf-8"
+        )
+        (tmp_path / "rebrew-data.toml").write_text(
+            '["SERVER.0x2000"]\nname = "g_old"\nsize = 4\nsection = ".data"\n',
+            encoding="utf-8",
+        )
+
+    def test_rename_data(self, tmp_path: Path, monkeypatch) -> None:
+        import typer as _typer
+        from typer.testing import CliRunner
+
+        from rebrew.data_metadata import get_data_entry
+        from rebrew.rename import main as _rename_main
+
+        app = _typer.Typer()
+        app.command()(_rename_main)
+
+        self._project(tmp_path)
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        res = CliRunner().invoke(app, ["g_old", "g_new", "--data"])
+        assert res.exit_code == 0, res.output
+        assert get_data_entry(tmp_path, 0x2000, "SERVER").get("name") == "g_new"
+        text = (tmp_path / "src" / "use.c").read_text(encoding="utf-8")
+        assert "g_new" in text and "g_old" not in text
+
+    def test_rename_data_dry_run(self, tmp_path: Path, monkeypatch) -> None:
+        import typer as _typer
+        from typer.testing import CliRunner
+
+        from rebrew.data_metadata import get_data_entry
+        from rebrew.rename import main as _rename_main
+
+        app = _typer.Typer()
+        app.command()(_rename_main)
+
+        self._project(tmp_path)
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        res = CliRunner().invoke(app, ["g_old", "g_new", "--data", "--dry-run"])
+        assert res.exit_code == 0, res.output
+        assert get_data_entry(tmp_path, 0x2000, "SERVER").get("name") == "g_old"
+
+    def test_rename_data_collision_refused(self, tmp_path: Path, monkeypatch) -> None:
+        import typer as _typer
+        from typer.testing import CliRunner
+
+        from rebrew.rename import main as _rename_main
+
+        app = _typer.Typer()
+        app.command()(_rename_main)
+
+        self._project(tmp_path)
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        res = CliRunner().invoke(app, ["g_old", "f", "--data"])
+        assert res.exit_code != 0

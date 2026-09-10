@@ -278,6 +278,7 @@ Atomically renames a function across the entire project.
 | Flag | Description |
 |------|-------------|
 | `--file NAME` | New filename (default: auto-rename if stem matches old name) |
+| `--data` | Rename a DATA/GLOBAL symbol instead of a function (metadata name + declaration + references; no file rename) |
 | `--dry-run` | Preview changes without writing |
 | `--json` | Output results as JSON |
 
