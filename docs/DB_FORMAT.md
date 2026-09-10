@@ -68,7 +68,7 @@ Stores details regarding decompiled and original functions.
 | `blocker` | `TEXT` | Blocker description (e.g. "needs vtable", "missing struct"). Empty string if none. |
 | `blockerDelta` | `INTEGER` | Byte difference from target when blocker is set. NULL if no blocker. |
 | `size_reason` | `TEXT` | Explanation of how canonical size was determined (e.g. "ghidra", "list", "annotation"). Empty string if unknown. |
-| `similarity` | `REAL` | Structural similarity score (0.0–1.0). Populated from `verify_results.json` (verify computes it for every verified function); NULL when never verified. |
+| `similarity` | `REAL` | Structural similarity score (0.0–1.0). Populated from the catalog data-JSON `similarity` field (clamped to [0,1]); the `verify_results` table import writes per-run scores to its own `similarity` column, never back into `functions.similarity`. NULL when never scored. |
 | `updated_by` | `TEXT` | Provenance tag of the last STATUS write (`test`/`verify`/`prove`/`match`/`lint`/`binsync-import`/`intake`). |
 | `updated_at` | `TEXT` | UTC timestamp of the last STATUS write. |
 

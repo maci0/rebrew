@@ -24,8 +24,13 @@ graph TD
     Test -->|COMPILE ERROR| Write
     Done --> Lint[Lint & verify<br/>rebrew lint]
     Diff --> Flags{Unsure about flags?}
-    Sweep --> Write
-    Flags -->|No| Prove{Still NEAR_MATCHING?}
+    Sweep[rebrew match --flag-sweep<br/>or rebrew match (GA)] --> Write
+    Flags -->|Yes| Sweep
+    Flags -->|No| Diag[Near-diag blocker<br/>rebrew near-diag --fix-blocker]
+    Diag --> LibMatch{Library code?}
+    LibMatch -->|Yes| Lib[rebrew lib-match<br/>rebrew cross-import]
+    Lib --> Write
+    LibMatch -->|No| Prove{Still NEAR_MATCHING?}
     Prove -->|Yes| Symbolic[Prove equivalence<br/>rebrew prove]
     Symbolic -->|PROVEN| Lint
     Symbolic -->|Not proven| Write

@@ -42,7 +42,7 @@ and prints the next steps.  If you have the binary handy, skip straight to
 Bare `rebrew init` on a TTY runs an **onboarding wizard** (`--wizard` is the
 default; `--no-wizard` or `--json` opts out).  It only asks about parameters
 you did NOT pass on the command line — a fully flagged run
-(`--target/--binary/--compiler/--install-completions` all given) prompts
+(`--target/--binary/--toolchain/--install-completions` all given) prompts
 nothing.
 
 1. **Binary** — scans `original/` first, then the current directory, for
@@ -65,7 +65,7 @@ Piped/CI invocations (non-TTY stdin, `--json`) never prompt.
 
 ```bash
 rebrew intake original/server.dll          # auto-detects the compiler profile
-rebrew intake original/server.dll --profile msvc6   # or pin it explicitly
+rebrew intake original/server.dll --toolchain msvc6   # or pin it explicitly
 ```
 
 `intake` does the whole first pass automatically:

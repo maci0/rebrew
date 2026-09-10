@@ -88,7 +88,7 @@ onboarding in one shot: toolchain detection → `rebrew init` with a matching
 profile → copy binary → symlink vendored toolchain → rizin `functions.txt`
 (`aaa`, `aap` fallback) → document every function (STUB .c + metadata blocker).
 The result is a lint-clean project where every function is matched or
-blocker-documented.  Use `--profile` to override the auto-detected profile,
+blocker-documented.  Use `--toolchain` to override the auto-detected profile,
 `--dry-run` to preview.  Use the manual procedure below when you need to
 customize a step.
 
@@ -104,7 +104,7 @@ pipeline (MSVC6 vs MinGW GCC):
   `HeapCreate`, ...).  A standalone MinGW build imports only a handful
   (`ExitProcess`, `GetStdHandle`, `WriteFile`, ...) and FLIRT finds zero
   matches (no MSVC CRT).
-- If MinGW: `rebrew init --compiler gcc-pe` (see `docs/TOOLCHAIN.md`).
+- If MinGW: `rebrew init --toolchain gcc-pe` (see `docs/TOOLCHAIN.md`).
   Function discovery needs `rizin -qc 'aa; aap; afl'` — `aaa` mis-merges
   functions on this toolchain.  Note that byte-exact matching requires the
   author's exact GCC version; old builds typically match structurally only

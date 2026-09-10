@@ -66,7 +66,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew strings` | `strings.py` | Extract printable ASCII/UTF-16 strings from data sections, with cross-references (`--xref`, `--filter`, `--min-len`, `--section`) |
 | `rebrew xrefs` | `xrefs.py` | Cross-reference explorer: find code that references an address (calls, jumps, `push`/`mov`/`lea`, IAT slots) |
 | `rebrew describe` | `describe.py` | Per-function recon dossier: callers, callees, strings, globals, imports (project-based) |
-| `rebrew report` | `report.py` | Generate a static self-contained HTML documentation site (`--out`; index, strings, imports, call graph) |
+| `rebrew report` | `report.py` | Generate a static self-contained HTML documentation site (`--output`; index, strings, imports, call graph) |
 | `rebrew dashboard` | `dashboard.py` | Read-only web dashboard over `db/coverage.db` (`--port`, `--host`) |
 | `rebrew crt-match` | `crt_match.py` | CRT source cross-reference matcher (index, match, ASM detection) |
 | `rebrew data` | `data.py` | Global data scanner for .data/.rdata/.bss; `--bss` layout verification; `--dispatch` vtable detection |
@@ -193,9 +193,9 @@ skills.
 | `--size N` | Target size (auto from source) |
 | `--seed N` | Seed RNG for reproducible GA runs |
 | `--ignore-lint` | Continue even if source marker linter finds errors |
-| `--generations N` | Number of GA generations (default 100) |
-| `--pop-size N` | GA population size (default 64) |
-| `-j N` | Parallel compilation workers |
+| `--generations N` / `-g N` | Number of GA generations (default 100) |
+| `--pop-size N` / `-p N` | GA population size (default 64) |
+| `--jobs N` / `-j N` | Parallel compilation workers |
 | `--out-dir DIR` | Output directory for GA results |
 | `--compare-obj` / `--no-compare-obj` | Use object comparison instead of full link (default: true) |
 | `--seed-file FILE` | Extra `.c` file(s) to seed GA population from solved functions |
@@ -357,10 +357,14 @@ graph TD
     Classify -->|EXACT / RELOC| Pass[pass · STATUS promoted]
     Classify -->|NEAR_MATCHING| NM[near-match · STATUS kept]
     Classify -->|MISMATCH / COMPILE_ERROR| Fail[fail · STATUS demoted]
-    Pass --> Report[aggregate report<br/>--json · -o db/verify_results.json]
+    Pass --> Report[aggregate report<br/>--json · --output db/verify_results.json]
     NM --> Report
     Fail --> Report
-    Report -->|--compare| Gate{regression vs last run?}
+    Report -->|--data| Data[byte-compare built<br/>.data/.rdata per symbol]
+    Data --> Whole{--whole-binary?}
+    Whole -->|yes| WB[+ exports/imports/resources<br/>sections/header freshness]
+    Whole -->|no| Gate{--compare<br/>regression vs last run?}
+    WB --> Gate
     Gate -->|yes| CI[exit 1 — CI gate]
     Gate -->|no| OK[exit 0]
 ```
@@ -370,7 +374,6 @@ graph TD
 | `--compare` | Compare against last saved `db/verify_results.json`, detect regressions/improvements; exit code 1 on regression |
 | `--summary` | Show EXACT/RELOC/NEAR_MATCHING summary table with match percentages |
 | `--full` / `-f` | Force full verification, ignoring cached results (also required after header/include changes) |
-| `-j N` / `--jobs N` | Number of parallel compile jobs (default: from `[project].jobs` or 4) |
 | `--json` | Structured JSON report to stdout |
 | `-o FILE` / `--output FILE` | Write report to specific file |
 | `--dry-run` | Preview STATUS metadata changes without writing (JSON report carries `dry_run: true`) |
@@ -430,6 +433,7 @@ Output prefixes for unambiguous parsing:
 | `--all-targets` | Batch mode across EVERY configured target (aggregate JSON) |
 | `--max-stubs N` | Max functions to process, 0=all (default 0) |
 | `--generations N` / `-g N` | GA generations per function (default 100) |
+| `--jobs N` / `-j N` | Parallel jobs (default: from `[project].jobs`); stubs run in parallel, per-stub compiles serialized |
 | `--pop-size N` / `-p N` | GA population size (default 64) |
 | `-j N` / `--jobs N` | Parallel jobs (default: from `[project].jobs`); stubs run in parallel, per-stub compiles serialized |
 | `--timeout-min N` | Per-function GA timeout in minutes (default 30) |
@@ -448,7 +452,6 @@ Output prefixes for unambiguous parsing:
 | `--flag-sweep-toolchains` | Try each vendored MSVC toolchain instead of GA (combine with `--flag-sweep-only`) |
 | `--sweep-toolchains CSV` | Sweep only these toolchains (profile names or version prefixes) |
 | `--sweep-exclude-toolchains CSV` | Skip these toolchains in the sweep |
-| `--sweep-exclude-flags FLAGS` | Exclude flags from the sweep |
 | `--flag-sweep-then-ga` | Flag-sweep each stub first, then run GA with the best flags |
 | `--size-mismatch` | Include SIZE_MISMATCH functions in batch mode |
 | `--skip-recent HOURS` | Skip functions matched in the last N hours |
@@ -673,7 +676,7 @@ stub drops out of the link — both restore on failure.
 
 Materialize `s_<hint>_<0xADDR>` string-literal globals from the reference
 binary: rewrites C-level uses to inline literals (never inside comments or
-`__asm` blocks), and with `--define` (default) turns the remaining
+`__asm` blocks), and by default turns the remaining
 asm-referenced `extern char s_x[];` into real `char s_x[N] = "...";`
 definitions in the owning TU (most-referencing file), so the string gets
 content AND lands in the owning translation unit's `.data` slot.
@@ -1307,7 +1310,7 @@ so rebrew can byte-match it — the DecBench fairness pass:
   names and prototypes for implicitly-declared functions, never redefining
   what the source declared.
 
-Writes `<file>.fixed.c` by default (`--out` to override, `--dry-run` to
+Writes `<file>.fixed.c` by default (`--output` to override, `--dry-run` to
 print instead).  Also used internally by `rebrew match --seed-kuna`.
 
 `--compile-check` compiles the fixed source with the project's default
@@ -1445,7 +1448,7 @@ triage — the automated version of the `rebrew-intake` skill's steps.
 
 | Flag | Description |
 |------|-------------|
-| `-p NAME` / `--profile NAME` | Compiler profile (default: auto-detected) |
+| `--toolchain NAME` | Compiler profile (default: auto-detected) |
 | `-t NAME` / `--target NAME` | Target name (default: binary stem) |
 | `--dry-run` | Preview the onboarding without writing — runs rizin (read-only) and reports how many functions would be documented |
 | `--json` | Structured JSON result |

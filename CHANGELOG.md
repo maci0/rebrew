@@ -1,4 +1,21 @@
 ## [Unreleased]
+### Fixed
+- **Docs/skills/flowcharts synced to the CLI** — `CLI.md` flag drift fixed
+  (`report --output`, `verify --full` without `-f`, phantom
+  `--sweep-exclude-flags` removed, `fix --output`, `intake --toolchain`,
+  inline-strings `--define` prose, `library list` row, match `--jobs` rows);
+  stale `--compiler`/`--profile`/`--out` spellings fixed across onboarding,
+  toolchain, and skill files; `USER_STORIES.md` flowcharts corrected (121
+  mutators, W001–W029, labeled Sweep node, BinSync-primary sync diagrams,
+  RAG/agent.yml nodes retargeted at the solutions DB + skills); `WORKFLOW.md`
+  loop and the verify flowchart cover match/near-diag/lib-match and
+  `--data`/`--whole-binary`.
+- **`build_db` persisted `globals.status`** — `verify --data` verdicts
+  (VERIFIED/DRIFT/UNCHECKED) flowed from `rebrew-data.toml` into the catalog
+  data JSON but the `globals` insert dropped the column, so the documented
+  verdict column stayed empty. The recoverage contract now pins `history`,
+  key `functions`/`globals`/`cells`/`verify_results` columns, and the data
+  JSON `globals` block.
 ### Changed
 - **CLI flag consistency sweep** — one spelling per concept, no shims:
   `--output` (was `--out`, `--exe`, `-o` on extract), `--binary` (was `--exe`
