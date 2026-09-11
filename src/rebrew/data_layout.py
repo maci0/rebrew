@@ -158,6 +158,20 @@ def obj_data_symbol_offsets(obj: Path) -> tuple[int, dict[str, int]]:
     return dsize, syms
 
 
+def obj_text_symbol_offsets(obj: Path) -> tuple[int, dict[str, int]]:
+    """(obj .text size, {symbol: offset within the obj's .text}).
+
+    Same shape as :func:`obj_data_symbol_offsets`, for the ``.text`` side —
+    the primitive ``rebrew text-audit`` walks per TU in link order.
+    """
+    secname, sizes = _obj_section_sizes(obj)
+    syms: dict[str, int] = {}
+    for sec_idx, value, raw_sym in _iter_obj_symbols(obj):
+        if secname.get(sec_idx - 1) == ".text":
+            syms[raw_sym.lstrip("_")] = value
+    return sizes.get(".text", 0), syms
+
+
 # ---------------------------------------------------------------------------
 # Data metadata + layout geometry
 # ---------------------------------------------------------------------------
@@ -876,6 +890,15 @@ def built_data_va(dll: Path) -> int:
     sec = info.sections.get(".data")
     if sec is None:
         raise ValueError("no .data section in the built DLL")
+    return sec.va
+
+
+def built_text_va(dll: Path) -> int:
+    """image-base-correct .text VA of a built binary (never hardcode)."""
+    info = load_binary(dll)
+    sec = info.sections.get(".text")
+    if sec is None:
+        raise ValueError("no .text section in the built binary")
     return sec.va
 
 

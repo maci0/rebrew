@@ -563,7 +563,7 @@ class TestLintFileBranches:
     def test_w019_silent_for_metadata_backed_after_name_hint(self, tmp_path: Path) -> None:
         """SIZE after a name-hint line that metadata already owns stays silent."""
         from rebrew.lint import lint_file
-        from rebrew.metadata import set_field
+        from rebrew.metadata import update_field
 
         src = tmp_path / "src"
         src.mkdir()
@@ -571,7 +571,7 @@ class TestLintFileBranches:
             "// FUNCTION: SERVER 0x1000\n// FooBar\n// SIZE: 42\nint FooBar(void) { return 0; }\n",
             encoding="utf-8",
         )
-        set_field(tmp_path, 0x1000, "size", 42, module="SERVER")
+        update_field(tmp_path, 0x1000, "size", 42, module="SERVER")
         cfg = SimpleNamespace(
             metadata_dir=tmp_path,
             marker="SERVER",

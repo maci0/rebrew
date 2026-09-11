@@ -143,6 +143,34 @@ add_custom_command(TARGET server_dll POST_BUILD
 It writes in place by default (use `--output` for a copy).  Each fixer is
 idempotent and cheap, so running it on every link is fine.
 
+## Reproducing the original layout end to end
+
+Postlink fixes placement the linker stamps, but the link itself must already
+be close: objects in original order, functions at their reference VAs, TU
+splits matching the original build. Five commands close that loop:
+
+1. `rebrew layout-map` — measure the reference: section geometry, .text
+   gap/alignment histograms, .reloc density, IAT slot order, exports,
+   toolchain guess. The diagnostic starting point when layout diverges.
+2. `rebrew link-order [--apply] [--check]` — enforce VA-ordered sources
+   into `CMakeLists.txt` SOURCES (`--check` is the CI drift gate). MSVC6
+   LINK emits objects in command-line order, so this fixes function order
+   for non-`/Gy` links.
+3. `rebrew text-audit` — verify built .text function VAs against the
+   markers. This is the position-alignment gate postlink assumes; run it
+   before postlink, or use `rebrew verify --text` to fold it into verify.
+4. `rebrew merge-sweep` — deterministic TU-partition search over
+   `cu-map` clusters (merge adjacent clusters sharing call/string
+   evidence, split at large non-padding gaps; accept on matched bytes).
+   The move when per-file flags cannot close a gap because the original
+   was an amalgamated TU (MSVC6 has no `/GL`, so cross-TU inlining in the
+   original means merged source).
+5. `rebrew verify --text` — the gate form of (3): exit 1 on any misplaced
+   function, with a `text` block in the `--json` report.
+
+Pipeline order: layout-map (measure) → link-order (order) → text-audit
+(check) → merge-sweep (search TU splits) → postlink (normalize stamps).
+
 ## See also
 
 - `rebrew postlink --help` — CLI reference

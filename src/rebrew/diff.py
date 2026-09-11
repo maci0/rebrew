@@ -185,11 +185,12 @@ def _write_blocker(
     terminal path (which prints the same outcome).  Returns the outcome dict
     regardless of mode so the caller can report it.
     """
-    from rebrew.annotation import parse_c_file
+    from rebrew.annotation import parse_c_file_multi
     from rebrew.metadata import remove_field, update_field
 
     seed_path = Path(p.seed_c)
-    ann = parse_c_file(seed_path)
+    annos = parse_c_file_multi(seed_path)
+    ann = annos[0] if annos else None
     metadata_dir = p.cfg.metadata_dir
     va = ann.va if ann else p.va_int
     module = ann.module if ann else ""

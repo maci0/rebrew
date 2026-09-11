@@ -8,7 +8,7 @@ import pytest
 from rebrew.annotation import (
     Annotation,
     make_func_entry,
-    parse_c_file,
+    parse_c_file_multi,
     parse_library_header,
     parse_new_format,
     split_annotation_sections,
@@ -288,8 +288,9 @@ int myfunc(void) { return 0; }
 """
         f = tmp_path / "myfunc.c"
         f.write_text(content, encoding="utf-8")
-        result = parse_c_file(f)
-        assert result is not None
+        results = parse_c_file_multi(f)
+        assert len(results) == 1
+        result = results[0]
         assert result["va"] == 0x10001234
         assert result["status"] == "EXACT"
         assert result["size"] == 42
@@ -299,12 +300,12 @@ int myfunc(void) { return 0; }
 
     def test_parse_nonexistent_file(self, tmp_path: Path) -> None:
         f = tmp_path / "does_not_exist.c"
-        assert parse_c_file(f) is None
+        assert parse_c_file_multi(f) == []
 
     def test_parse_empty_file(self, tmp_path: Path) -> None:
         f = tmp_path / "empty.c"
         f.write_text("", encoding="utf-8")
-        assert parse_c_file(f) is None
+        assert parse_c_file_multi(f) == []
 
 
 # ---------------------------------------------------------------------------
@@ -418,8 +419,8 @@ int func_b(void) { return 1; }
         assert results[1].va == 0x10002000
         assert results[1].filepath == "multi.c"
 
-    def test_parse_c_file_still_returns_first(self, tmp_path: Path) -> None:
-        """parse_c_file returns the first annotation; SIZE comes from metadata via parse_c_file_multi."""
+    def test_parse_multi_metadata_overlay(self, tmp_path: Path) -> None:
+        """parse_c_file_multi returns all annotations; SIZE comes from metadata overlay."""
         content = """\
 // FUNCTION: SERVER 0x10001000
 // STATUS: EXACT
@@ -441,15 +442,14 @@ int func_b(void) { return 1; }
             '["SERVER.0x10001000"]\nsize = 42\n',
             encoding="utf-8",
         )
-        # parse_c_file (no metadata arg) returns first annotation; size=0 since metadata not loaded
-        result = parse_c_file(f)
-        assert result is not None
+        # parse_c_file_multi (no metadata arg) returns both annotations; size=0 since metadata not loaded
+        results = parse_c_file_multi(f)
+        assert len(results) == 2
+        result = results[0]
         assert result.va == 0x10001000
         assert result.status == "EXACT"
         assert result.symbol == "_func_a"
         # parse_c_file_multi with metadata_dir picks up SIZE from metadata
-        from rebrew.annotation import parse_c_file_multi
-
         results = parse_c_file_multi(f, metadata_dir=f.parent)
         assert results[0].size == 42
 

@@ -450,10 +450,6 @@ def batch_candidates(
     )
 
 
-# Add extract as an alias to show
-app.command("extract", hidden=True)(show_candidate)
-
-
 def main_entry() -> None:
     """Run the Typer CLI application."""
     app()

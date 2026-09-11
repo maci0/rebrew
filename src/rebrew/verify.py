@@ -509,6 +509,29 @@ _HEADERS_HASH_CACHE: dict[tuple[tuple[str, int, int] | str, ...], str] = {}
 _HEADERS_HASH_CACHE_MAX = 8  # one entry per distinct header-tree state
 
 
+def _expected_text_functions(cfg: ProjectConfig) -> dict[str, int]:
+    """``{symbol: marker VA}`` for every annotated function.
+
+    Imported decisions live in ``text_audit``: ``audit_text`` classifies OK /
+    MISPLACED / MISSING, this wrapper only feeds it the expectation side.  The
+    marker symbol is the per-target ``// FUNCTION:`` name; the ``lstrip("_")``
+    normalization matches ``text_audit._expected_functions`` so verify and
+    ``text-audit`` classify the same binary identically.
+    """
+    from rebrew.cli import iter_annotations
+    from rebrew.sources import iter_sources, target_marker
+
+    marker = target_marker(cfg)
+    out: dict[str, int] = {}
+    for path, annos in iter_annotations(
+        iter_sources(cfg.reversed_dir, cfg), target=marker, metadata_dir=cfg.metadata_dir
+    ):
+        for ann in annos:
+            sym = ann.symbol if ann.symbol and ann.symbol != "?" else "_" + path.stem
+            out.setdefault(sym.lstrip("_"), ann.va)
+    return out
+
+
 def _headers_stat_fingerprint(src_dir: Path) -> tuple[tuple[str, int, int], ...]:
     """Return sorted (rel_path, mtime_ns, size) tuples for all .h files.
 
@@ -1218,7 +1241,12 @@ def main(
     built: Path | None = typer.Option(
         None,
         "--built",
-        help="Built binary for --data/--whole-binary comparison (default: build/<target>)",
+        help="Built binary for --data/--whole-binary/--text comparison (default: build/<target>)",
+    ),
+    text: bool = typer.Option(
+        False,
+        "--text",
+        help="Check .text function placement against markers (position-alignment gate)",
     ),
     whole_binary: bool = typer.Option(
         False,
@@ -1283,6 +1311,7 @@ def main(
                 prune_orphans=prune_orphans,
                 data=data,
                 built=built,
+                text=text,
                 whole_binary=whole_binary,
                 watch=False,  # never nest watch loops
                 target=target,
@@ -1396,6 +1425,48 @@ def main(
                 )
             for name in data_report["missing"][:15]:
                 console.print(f"  [yellow]MISSING[/yellow] {name} (no built bytes)")
+
+    text_report: dict[str, Any] | None = None
+    if text:
+        from rebrew.text_audit import audit_text, collect_actual_vas
+
+        built_path = built or (cfg.root / "build" / cfg.target_name)
+        if not built_path.exists():
+            error_exit(
+                f"{built_path} not found — build the project first (or pass --built <path>)",
+                json_mode=json_output,
+            )
+        expected = _expected_text_functions(cfg)
+        try:
+            actual = collect_actual_vas(cfg.root, built_path)
+        except (RuntimeError, OSError, ValueError) as exc:
+            error_exit(f"cannot inventory build objects: {exc}", json_mode=json_output)
+        rows, n_ok, n_bad, n_missing = audit_text(expected, actual)
+        text_report = {
+            "functions": len(expected),
+            "found": n_ok + n_bad,
+            "correct": n_ok,
+            "misplaced": n_bad,
+            "missing": n_missing,
+            "misplaced_list": [r for r in rows if r["status"] != "OK"][:15],
+        }
+        if not json_output:
+            console.print(
+                f"text: {len(expected)} functions  correct-VA: {n_ok}  "
+                f"misplaced: {n_bad}  missing: {n_missing}"
+            )
+            for r in text_report["misplaced_list"]:
+                if r["status"] == "MISPLACED":
+                    console.print(
+                        f"  [red]MISPLACED[/red] {r['symbol']:32} "
+                        f"exp {int(r['expected'], 16):#010x}  "
+                        f"our {int(r['actual'], 16):#010x}  d {r['delta']:+#x}"
+                    )
+                else:
+                    console.print(
+                        f"  [yellow]MISSING[/yellow] {r['symbol']:32} "
+                        f"exp {r['expected']}  MISSING from build"
+                    )
 
     whole_report: dict[str, Any] | None = None
     if whole_binary:
@@ -1620,6 +1691,7 @@ def main(
         "missing_sizes": missing_sizes,
         "results": results,
         "data": data_report,
+        "text": text_report,
         "whole_binary": whole_report,
     }
 
@@ -1664,7 +1736,11 @@ def main(
     diff_result: dict[str, Any] | None = None
     if diff_mode and previous_report is not None:
         diff_result = diff_reports(previous_report, report)
-    gate_failed = _gate_fails(diff_result, failed)
+    gate_failed = _gate_fails(
+        diff_result,
+        failed,
+        text_misplaced=text_report["misplaced"] if text_report else 0,
+    )
 
     if not dry_run and not (diff_mode and gate_failed):
         cache_path = cfg.root / ".rebrew" / "verify_cache.json"
@@ -1702,7 +1778,11 @@ def main(
             else:
                 json_print(report)
 
-            _raise_if_regression(diff_result, failed)
+            _raise_if_regression(
+                diff_result,
+                failed,
+                text_misplaced=text_report["misplaced"] if text_report else 0,
+            )
             return
 
     _print_results(
@@ -1717,7 +1797,11 @@ def main(
         failed,
     )
 
-    _raise_if_regression(diff_result, failed)
+    _raise_if_regression(
+        diff_result,
+        failed,
+        text_misplaced=text_report["misplaced"] if text_report else 0,
+    )
 
 
 def _apply_size_fixes(cfg: Any, size_divergences: list[dict[str, Any]], dry_run: bool) -> int:
@@ -1736,20 +1820,27 @@ def _apply_size_fixes(cfg: Any, size_divergences: list[dict[str, Any]], dry_run:
         module = d.get("module") or cfg.marker
         updates.append({"module": module, "va": va, "fields": {"size": d["binary_size"]}})
     if not dry_run and updates:
-        # One TOML read-modify-write for the whole batch (per-entry set_field
-        # was N full rewrites — perf-review F2).
+        # One TOML read-modify-write for the whole batch (per-entry writes
+        # were N full rewrites — perf-review F2).
         set_fields_batch(cfg.metadata_dir, updates)
         return len(updates)
     return 0
 
 
-def _gate_fails(diff_result: dict[str, Any] | None, failed: int) -> bool:
+def _gate_fails(
+    diff_result: dict[str, Any] | None, failed: int, *, text_misplaced: int = 0
+) -> bool:
     """True when the CI regression gate must fail this run.
 
     With a baseline (*diff_result*), only regressions and newly-broken
     entries fail the run — pre-existing failures are the baseline's
     business.  Without a baseline, any failed function fails the run.
+    A misplaced ``--text`` function fails the gate in both modes: placement
+    drift means the link no longer reproduces the reference layout, which no
+    byte-level verdict covers.
     """
+    if text_misplaced:
+        return True
     if diff_result is not None:
         if diff_result["regressions"]:
             return True
@@ -1761,12 +1852,14 @@ def _gate_fails(diff_result: dict[str, Any] | None, failed: int) -> bool:
     return failed > 0
 
 
-def _raise_if_regression(diff_result: dict[str, Any] | None, failed: int) -> None:
+def _raise_if_regression(
+    diff_result: dict[str, Any] | None, failed: int, *, text_misplaced: int = 0
+) -> None:
     """Raise ``typer.Exit(EXIT_MISMATCH)`` per the CI regression gate.
 
     Shared gate logic lives in :func:`_gate_fails`; this raises on it.
     """
-    if _gate_fails(diff_result, failed):
+    if _gate_fails(diff_result, failed, text_misplaced=text_misplaced):
         raise typer.Exit(code=EXIT_MISMATCH)
 
 

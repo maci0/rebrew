@@ -308,31 +308,17 @@ def _write_function_toml(
 
 def _write_global_vars_toml(
     path: Path,
-    globals_list: list[
-        tuple[int, str, int]
-        | tuple[int, str, int, str | None]
-        | tuple[int, str, int, str | None, str | None]
-    ],
+    globals_list: list[tuple[int, str, int, str, str | None]],
 ) -> None:
-    """Write global_vars.toml from (va, name, size[, type[, section]]) tuples.
+    """Write global_vars.toml from (va, name, size, type, section) tuples.
 
-    Accepts 3-tuples ``(va, name, size)`` (back-compat, type defaults to
-    ``"char"``), 4-tuples ``(va, name, size, type)``, and 5-tuples with a
-    trailing section (``.data``/``.rdata``/``.bss``/``.idata`` — omitted
-    when empty so foreign BinSync tools keep reading the file).
+    Section is one of ``.data``/``.rdata``/``.bss``/``.idata`` — omitted
+    when empty so foreign BinSync tools keep reading the file.
     """
     doc = tomlkit.document()
     for raw in sorted(globals_list):
-        section: str | None = None
-        if len(raw) == 3:
-            va, name, size = raw
-            type_str = "char"
-        elif len(raw) == 4:
-            va, name, size, type_ = raw
-            type_str = type_ or "char"
-        else:
-            va, name, size, type_, section = raw
-            type_str = type_ or "char"
+        va, name, size, type_, section = raw
+        type_str = type_ or "char"
         entry = tomlkit.table()
         entry["name"] = name
         entry["addr"] = va
@@ -787,7 +773,7 @@ def export_state(
     if globals_list:
         global_path = outdir / "global_vars.toml"
         if not dry_run:
-            _write_global_vars_toml(global_path, globals_list)  # type: ignore[arg-type]
+            _write_global_vars_toml(global_path, globals_list)
         written_globals = str(global_path)
 
     written_structs: list[str] = []

@@ -210,6 +210,7 @@ src/rebrew/
 ├── document_unmatched.py# STUB skeletons + blockers for remaining functions (`rebrew document-unmatched`)
 ├── postlink.py          # `rebrew postlink` — normalize built-binary layout onto the reference
 ├── layout_meta.py       # Text-only layout metadata for byte-identical post-linking
+├── layout_map.py        # `layout-map` — reference-side layout measurement dump
 ├── calibrate_bss.py     # `calibrate-bss` — size the BSS tail pad so raw-link .data VirtualSize matches
 ├── gen_layout.py        # `gen-layout` — linker-script scaffolding from a target binary
 ├── gen_link_stubs.py    # `gen-link-stubs` — BSS placeholder TU from the data metadata
@@ -218,6 +219,7 @@ src/rebrew/
 ├── order_sources.py     # `order-sources` — order source files by their first function's original VA
 ├── link_sweep.py        # `link-sweep` — find which LINK options reproduce the reference PE header
 ├── verify_placement.py  # `verify-placement` — post-edit check: .data symbol VAs vs the metadata
+├── text_audit.py        # `text-audit` — post-edit check: .text function VAs vs the markers
 ├── cmake_tc.py          # `rebrew cmake-toolchain` + rebrew-cmake-{cl,link,lib} — CMake
 │                        # bridge: run the toolchain image's tools via docker from CMake
 ├── cross_import.py      # `rebrew cross-import` — import functions matched in another target

@@ -148,6 +148,7 @@ _COMMAND_PANELS: dict[str, str] = {
     "solutions": "Analysis",
     "round-trip": "Matching",
     "postlink": "Matching",
+    "merge-sweep": "Matching",
     # Export & Sync — generating data and syncing with external tools
     "catalog": "Export & Sync",
     "build-db": "Export & Sync",
@@ -250,9 +251,19 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "Compare .data symbol VAs of the current build against the data metadata.",
     ),
     (
+        "text-audit",
+        "rebrew.text_audit",
+        "Compare .text function VAs of the current build against the source markers.",
+    ),
+    (
         "link-sweep",
         "rebrew.link_sweep",
         "Sweep LINK options to reproduce the reference PE header (find stamp-only fields).",
+    ),
+    (
+        "link-order",
+        "rebrew.link_order",
+        "Enforce VA-ordered sources into CMakeLists.txt SOURCES (drift gate).",
     ),
     (
         "document-unmatched",
@@ -382,6 +393,11 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "Whole-binary structural similarity vs another binary (versions/DLL+EXE).",
     ),
     (
+        "merge-sweep",
+        "rebrew.merge_sweep",
+        "Deterministic TU-partition search over cu-map clusters.",
+    ),
+    (
         "cross-import",
         "rebrew.cross_import",
         "Import matched functions from another target (same code, different VAs).",
@@ -415,6 +431,11 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "decompme",
         "rebrew.decompme",
         "Upload a function to decomp.me as a collaborative scratch (claim URL returned).",
+    ),
+    (
+        "layout-map",
+        "rebrew.layout_map",
+        "Dump reference-side layout measurements (sections, gaps, IAT, exports).",
     ),
 ]
 

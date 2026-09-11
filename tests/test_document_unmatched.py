@@ -126,12 +126,12 @@ class TestDocumentUnmatched:
         from typer.testing import CliRunner
 
         from rebrew.main import app
-        from rebrew.metadata import get_entry, set_field
+        from rebrew.metadata import get_entry, update_field, update_source_status
 
-        set_field(project / "src", 0x401000, "status", "STUB", module="SERVER")
-        set_field(project / "src", 0x401010, "status", "STUB", module="SERVER")
+        update_source_status(project / "src", "STUB", "SERVER", 0x401000)
+        update_source_status(project / "src", "STUB", "SERVER", 0x401010)
         # 0x1000 already has a blocker — must be preserved
-        set_field(project / "src", 0x401000, "blocker", "mine: documented", module="SERVER")
+        update_field(project / "src", 0x401000, "blocker", "mine: documented", module="SERVER")
 
         result = CliRunner().invoke(app, ["document-unmatched", "--backfill-blockers", "--json"])
         assert result.exit_code == 0, result.output
@@ -149,16 +149,16 @@ class TestDocumentUnmatched:
         from typer.testing import CliRunner
 
         from rebrew.main import app
-        from rebrew.metadata import get_entry, set_field
+        from rebrew.metadata import get_entry, update_field, update_source_status
 
         # A stub with an inline SIZE but no metadata size yet.
         (project / "src" / "SERVER" / "fcn_00401020.c").write_text(
             "// STUB: SERVER 0x00401020\n// SIZE: 8\nvoid fcn_00401020(void) {}\n",
             encoding="utf-8",
         )
-        set_field(project / "src", 0x401020, "status", "STUB", module="SERVER")
+        update_source_status(project / "src", "STUB", "SERVER", 0x401020)
         # 0x401000 is already documented as non-target — must stay untouched
-        set_field(project / "src", 0x401000, "blocker", "mine: documented", module="SERVER")
+        update_field(project / "src", 0x401000, "blocker", "mine: documented", module="SERVER")
 
         result = CliRunner().invoke(app, ["document-unmatched", "--backfill-blockers", "--json"])
         assert result.exit_code == 0, result.output
@@ -176,9 +176,9 @@ class TestDocumentUnmatched:
         from typer.testing import CliRunner
 
         from rebrew.main import app
-        from rebrew.metadata import get_entry, set_field
+        from rebrew.metadata import get_entry, update_source_status
 
-        set_field(project / "src", 0x401000, "status", "STUB", module="SERVER")
+        update_source_status(project / "src", "STUB", "SERVER", 0x401000)
         result = CliRunner().invoke(
             app, ["document-unmatched", "--backfill-blockers", "--dry-run", "--json"]
         )

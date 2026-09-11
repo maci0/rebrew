@@ -213,6 +213,9 @@ rebrew split src/bench/multi.c                    # split into individual files
 rebrew split src/bench/multi.c --dry-run           # preview without writing
 rebrew split --va 0x10003DA0 src/bench/multi.c     # extract one function
 rebrew merge a.c b.c -o merged.c                     # merge into one file
+rebrew merge-sweep --dry-run                          # TU-partition search preview (merge/split by matched bytes)
+rebrew link-order --check                             # SOURCES order matches VA order (CI drift gate)
+rebrew layout-map                                     # reference layout measurements (sections/gaps/IAT/exports)
 rebrew rename old_func new_func                       # rename across entire project
 rebrew rename old_func new_func --dry-run             # preview rename without writing
 ```
@@ -282,6 +285,9 @@ rebrew types                            # check declared struct layouts vs decom
 rebrew types apply-type <file> --param N --type T   # rewrite one param type in source
 rebrew verify --data --built build/bench   # byte-compare built .data/.rdata per symbol
 rebrew verify --whole-binary --built build/bench  # sections/exports/imports/rsrc/headers + layout freshness
+rebrew verify --text --built build/bench           # fold the .text placement gate into verify
+rebrew text-audit --built build/bench  # .text function VAs vs markers (position-alignment gate)
+rebrew verify-placement --built build/bench  # .data symbol VAs vs the metadata
 ```
 
 `rebrew verify` compiles every annotated `.c`, reports EXACT/RELOC/NEAR_MATCHING/STUB/

@@ -61,7 +61,6 @@ __all__ = [
     "has_skip_annotation",
     "min_valid_va_for",
     "module_for_va",
-    "parse_c_file",
     "parse_c_file_multi",
     "parse_source_metadata",
     "resolve_symbol",
@@ -879,43 +878,6 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
         return None
 
     return _kv_to_annotation(kv, marker_type, va, module)
-
-
-def parse_c_file(
-    filepath: Path,
-    target_name: str | None = None,
-    base_dir: Path | None = None,
-) -> Annotation | None:
-    """Parse a decomp .c file for annotations.
-
-    Parses ``// FUNCTION: MODULE 0xVA`` marker lines from the first 20 lines.
-    Does **not** merge metadata from ``rebrew-functions.toml`` — use
-    ``parse_c_file_multi()`` with *metadata_dir* for metadata overlay.
-
-    Sets ``filepath`` on the returned Annotation for downstream use.
-    When *base_dir* is given the stored path is relative to it (e.g.
-    ``"zlib/zlib_adler32.c"``); otherwise only the bare filename is kept.
-    """
-    try:
-        text, _ = read_source_text(filepath)
-    except OSError:
-        return None
-
-    lines = text.splitlines()
-    if not lines:
-        return None
-
-    rel = rel_display_path(filepath, base_dir)
-
-    # Only use new format (multi-line) — preferred, canonical output
-    entry = parse_new_format(lines[:_PARSE_LOOKAHEAD_LINES])
-    if entry is not None:
-        if target_name and entry.module and entry.module.lower() != target_name.lower():
-            return None
-        entry.filepath = rel
-        return entry
-
-    return None
 
 
 def parse_new_format_multi(lines: list[str]) -> list[Annotation]:

@@ -444,7 +444,7 @@ def _blocker_text(result: dict[str, Any]) -> str:
 def analyze(
     target_bytes: bytes,
     compiled_bytes: bytes,
-    reloc_offsets: dict[int, str] | set[int] | None,
+    reloc_offsets: set[int] | None,
     va: int,
     cs_arch: str = _DEFAULT_CS_ARCH,
     cs_mode: str = _DEFAULT_CS_MODE,
@@ -452,8 +452,7 @@ def analyze(
     """Full classification of a NEAR_MATCHING pair.
 
     *reloc_offsets* is the set of VALIDATED relocation sites (offsets that
-    survived the same DIR32/REL32 address check as ``rebrew test``); offsets
-    may also arrive as the raw ``offset → symbol`` dict for backward compat.
+    survived the same DIR32/REL32 address check as ``rebrew test``).
     """
     target_insns = disasm_insns(target_bytes, va, cs_arch, cs_mode)
     compiled_insns = disasm_insns(compiled_bytes, va, cs_arch, cs_mode)
@@ -656,7 +655,7 @@ def _diagnose_one(
         from rebrew.metadata import (
             GA_CEILING_PREFIX,
             get_entry,
-            set_field,
+            update_field,
             update_source_status,
         )
 
@@ -672,7 +671,9 @@ def _diagnose_one(
         elif dry_run:
             blocker_written = True  # would write, but --dry-run skips it
         else:
-            set_field(cfg.metadata_dir, va_int, "blocker", _blocker_text(result), module=ann.module)
+            update_field(
+                cfg.metadata_dir, va_int, "blocker", _blocker_text(result), module=ann.module
+            )
             # A blocker note implies NEAR_MATCHING — keep the documented state
             # consistent so status reports count it as documented, not as a
             # bare STUB (previously the status stayed missing/STUB while the

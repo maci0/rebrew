@@ -318,14 +318,14 @@ def import_state(
                         # Route the volatile fields through the canonical metadata
                         # writers (STATUS via the promotion gate).
                         mod = cfg.marker or "SERVER"
-                        from rebrew.metadata import set_field, update_source_status
+                        from rebrew.metadata import update_field, update_source_status
 
                         update_source_status(
                             cfg.metadata_dir, "STUB", mod, va, updated_by="binsync-import"
                         )
                         if size_hint:
-                            set_field(cfg.metadata_dir, va, "size", size_hint, mod)
-                        set_field(
+                            update_field(cfg.metadata_dir, va, "size", size_hint, mod)
+                        update_field(
                             cfg.metadata_dir,
                             va,
                             "note",

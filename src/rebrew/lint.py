@@ -1830,7 +1830,7 @@ def main(
             coerce_metadata_value,
             get_entry,
             remove_fields_batch,
-            set_field,
+            update_field,
             update_source_status,
         )
 
@@ -1935,7 +1935,7 @@ def main(
                                 updated_by="lint",
                             )
                         else:
-                            set_field(cfg.metadata_dir, va, toml_key, write_value, module=module)
+                            update_field(cfg.metadata_dir, va, toml_key, write_value, module=module)
 
                 # Strip inline comment from source (file-only — the metadata
                 # write above already owns the field; routing STATUS through

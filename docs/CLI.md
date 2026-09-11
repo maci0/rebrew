@@ -59,6 +59,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew cfg` | `cfg.py` | Read and edit `rebrew-project.toml` programmatically (see [CONFIG.md](CONFIG.md)) |
 | `rebrew split` | `split.py` | Split multi-function C files into individual files |
 | `rebrew merge` | `merge.py` | Merge single-function C files into multi-function file |
+| `rebrew merge-sweep` | `merge_sweep.py` | Deterministic TU-partition search over cu-map clusters |
 | `rebrew prove` | `prove.py` | Prove semantic equivalence via angr symbolic execution (optional dep) |
 | `rebrew flirt` | `flirt.py` | FLIRT signature scanning (see [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md)) |
 | `rebrew gen-flirt-pat` | `gen_flirt_pat.py` | Generate FLIRT `.pat` files from COFF `.lib` archives |
@@ -101,6 +102,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew document-unmatched` | `document_unmatched.py` | STUB skeletons + blockers for remaining functions |
 | `rebrew fix` | `fixup.py` | DecBench-style compilability fixup for decompiler output |
 | `rebrew gen-layout` | `gen_layout.py` | Linker-script scaffolding from a target binary (writes `layout.fingerprint`) |
+| `rebrew layout-map` | `layout_map.py` | Reference-side layout measurement dump (sections, gaps, IAT, exports; writes `text-map/`) |
 | `rebrew gen-link-stubs` | `gen_link_stubs.py` | BSS placeholder TU from the data metadata |
 | `rebrew gen-stubs` | `gen_stubs.py` | Stub TU for unresolved linker symbols |
 | `rebrew identify-library` | `identify_library.py` | Library-function backends (CRT/ZLIB marking) |
@@ -108,6 +110,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew intake` | `intake.py` | One-shot binary onboarding (FLIRT scan, catalog, triage) |
 | `rebrew lib-match` | `lib_match.py` | Byte-compare reversed functions against linked static-library archives |
 | `rebrew link-sweep` | `link_sweep.py` | Find which LINK options reproduce the reference PE header |
+| `rebrew link-order` | `link_order.py` | Enforce VA-ordered sources into CMakeLists.txt SOURCES (drift gate) |
 | `rebrew objdiff` | `objdiff_project.py` | Synthesized target objects + objdiff GUI project |
 | `rebrew order-sources` | `order_sources.py` | Order source files by first function VA |
 | `rebrew pdb-info` | `pdb_info.py` | PDB metadata (compiler + command line) |
@@ -117,6 +120,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew resource` | `resource.py` | PE resource comparison |
 | `rebrew solutions` | `solutions_db.py` | GA solutions DB (cross-function cflags seeding) |
 | `rebrew symbol-addrs` | `symbol_addrs.py` | Splat-style 0xVA,name CSV export |
+| `rebrew text-audit` | `text_audit.py` | Post-edit check: `.text` function VAs vs the markers |
 | `rebrew unpack-lzexe` | `lzexe_cli.py` | Unpack LZEXE 0.90/0.91 DOS executables |
 | `rebrew verify-placement` | `verify_placement.py` | Post-edit check: `.data` symbol VAs vs the metadata |
 
@@ -392,7 +396,10 @@ graph TD
     NM --> Report
     Fail --> Report
     Report -->|--data| Data[byte-compare built<br/>.data/.rdata per symbol]
-    Data --> Whole{--whole-binary?}
+    Data --> Text{--text?}
+    Text -->|yes| TA[check .text placement<br/>vs markers]
+    Text -->|no| Whole{--whole-binary?}
+    TA --> Whole
     Whole -->|yes| WB[+ exports/imports/resources<br/>sections/header freshness]
     Whole -->|no| Gate{--compare<br/>regression vs last run?}
     WB --> Gate
@@ -413,7 +420,8 @@ graph TD
 | `--fix-sizes` | Backfill `SIZE` into metadata from the binary-derived size: stale sizes (false `SIZE_MISMATCH`) and missing sizes (`MISSING_SIZE` stubs, which `rebrew test` refuses) |
 | `--prune-orphans` | Delete metadata blocks whose VA has no source marker before verifying (same scan as `rebrew orphans --prune`; EXACT/RELOC/PROVEN blocks held back) |
 | `--data` | Byte-compare built `.data`/`.rdata` against the reference, per metadata symbol with first-diff attribution (needs `--built`); verdicts persist as data STATUS (`VERIFIED`/`DRIFT`/`UNCHECKED`) and surface in `status` + `todo data-drift` |
-| `--built PATH` | Built binary for `--data` / `--whole-binary` comparison (default `build/<target>`) |
+| `--built PATH` | Built binary for `--data` / `--text` / `--whole-binary` comparison (default `build/<target>`) |
+| `--text` | Check built `.text` function placement against the `// FUNCTION:` markers via `text-audit` (needs `--built`); exit 1 on any misplaced function |
 | `--whole-binary` | Compare built binary against the reference: section sizes, exports, imports, `.rsrc` bytes, headers, plus layout-freshness check (needs `--built`) |
 
 The `--json` report carries `dry_run`, `size_divergences`, and `missing_sizes`
@@ -421,7 +429,10 @@ The `--json` report carries `dry_run`, `size_divergences`, and `missing_sizes`
 stripped from the same-run `size_divergences`/`missing_sizes` lists.
 `--nolib` also adds `library_excluded` to the summary, `--prune-orphans` adds
 `orphans_pruned`. `--data` adds a `data` block (`matched` count,
-`mismatched`/`missing` lists with first-diff offsets); `--whole-binary` adds
+`mismatched`/`missing` lists with first-diff offsets); `--text` adds a `text`
+block (same shape as `text-audit`: `functions`/`found`/`correct`/`misplaced`/
+`missing` counts plus the `misplaced_list` rows, exit 1 on any misplaced
+function); `--whole-binary` adds
 a `whole_binary` block (per-area verdicts for sections, exports, imports,
 `rsrc`, headers, plus `layout` freshness).
 Per-function result rows carry `diff_lines` (structural diff count),
@@ -628,6 +639,23 @@ block for `rebrew-project.toml`; `--layout-config` prints the
 `crt_region/data_restore.c`; `--dry-run` previews the file list without
 writing; `--json` emits a machine-readable manifest.
 
+### `rebrew layout-map`
+
+`rebrew layout-map [--output DIR] [--json]`
+
+Dump the reference binary's own measurable layout in one manifest: the
+section-table geometry (name, VA, virtual/raw size, file offset,
+characteristics), the `.text` function-start alignment histogram (mod 16 of
+the catalog function VAs), the inter-function gap-class histogram (padding,
+jump table, small/large non-padding), the `.reloc` HIGHLOW density per 4K
+page, the IAT slot order (`dll!symbol` at slot VA), the export `name @ordinal`
+rows, the Rich-header toolchain guess, and the linker version plus key
+header flags. `--output DIR` (conventionally
+`layout/<target>/text-map/`) additionally writes the committed text-map
+files (`sections.txt`, `gaps.txt`, `iat.txt`, `exports.txt`), mirroring the
+`gen-layout` package style. `--json` (the default shape) emits the full
+manifest including per-gap rows.
+
 ### `rebrew cmake-toolchain`
 
 `rebrew cmake-toolchain [--toolchain msvc6] [--output cmake/] [--dry-run] [--json]`
@@ -722,6 +750,17 @@ reproduces the original `.text`/`.data` layout (fixes reccmp "0 aligned").
 `--first-va` covers library files without FUNCTION markers; `--exclude`
 drops files absent from the original.
 
+### `rebrew link-order`
+
+`rebrew link-order [--apply] [--dry-run] [--check] [--json]`
+
+Enforce the `order-sources` VA order into the project's `CMakeLists.txt`
+so the link builds TUs in position-aligned order. Default prints the
+computed order (preview); `--apply` rewrites the `set(SOURCES ...)` block
+(or the first `add_library`/`add_executable` file list) in place, keeping
+keywords, quoting, and surrounding text; `--dry-run` previews without
+writing; `--check` exits 1 with a unified diff on drift (CI gate).
+
 ### `rebrew verify-placement`
 
 `rebrew verify-placement [--data-metadata src/rebrew-data.toml] [--json]`
@@ -730,6 +769,17 @@ Post-edit check: walk the link's object files (objdump, link order), compute
 each symbol's current `.data` VA, and compare against the data metadata.
 Misplaced symbols mean the object order or a TU's layout drifted (the reccmp
 "0 aligned" symptom).
+
+### `rebrew text-audit`
+
+`rebrew text-audit [--built build/server.dll] [--limit 15] [--json]`
+
+Post-edit check: walk the link's object files (objdump, link order), compute
+each function's current `.text` VA, and compare against the `// FUNCTION:`
+marker VA in the sources. Per-function OK/MISPLACED/MISSING with address
+deltas; exits 1 on any misplaced function. When no build objects are found,
+actual VAs fall back to exported-symbol lookup on the built binary. The
+position-alignment gate `postlink` assumes but never checks.
 
 ### `rebrew refactor`
 
@@ -901,6 +951,30 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 | `--delete` | Delete input files after successful merge |
 | `--consolidate` | Hoist unique includes/externs/typedefs/`#pragma intrinsic` to the top of the merged TU, resolving conflicting extern signatures by specificity (companion cleanup for multi-function merges) |
 | `--json` | Structured JSON output |
+
+### `rebrew merge-sweep`
+
+`rebrew merge-sweep [--passes N] [--max-compiles N] [--audit FILE] [--dry-run] [--json] [--target NAME]`
+
+Deterministic TU-partition search over `cu-map` clusters. `rebrew graph
+--cu-map` infers translation units from gaps and call edges but never compiles;
+this tool starts from that partition and hill-climbs toward the partition whose
+merged TUs compile to the most matched bytes. Phase A greedily merges adjacent
+cluster pairs sharing a call edge or string (accepted only on strictly more
+matched bytes); Phase B greedily splits clusters at internal `large_nonpadding`
+gaps (ties accepted). Both phases repeat to a fixpoint (default 3 passes, cap
+2n compiles). Each merged TU compiles once via the `merge` machinery and every
+function scores through `compile_and_compare`; traversal is VA-ordered with no
+RNG, scores memoize per partition, and every accepted move lands in the JSON
+audit log. Nothing in the source tree is modified — the search only reads.
+
+| Flag | Effect |
+|------|--------|
+| `--passes N` | Search passes over the partition (default 3) |
+| `--max-compiles N` | Cap on TU compilations (default 2n) |
+| `--audit FILE` | Write the JSON audit log to FILE |
+| `--dry-run` | Show the initial partition + candidate moves without compiling |
+| `--json` | Output results as JSON |
 
 ### `rebrew build-db`
 

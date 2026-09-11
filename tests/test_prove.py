@@ -348,10 +348,10 @@ class TestProveCLIStatusGuard:
         """A reverser's own note is never overwritten by the prove note."""
         from types import SimpleNamespace
 
-        from rebrew.metadata import load_metadata, set_field
+        from rebrew.metadata import load_metadata, update_field
         from rebrew.prove import _record_prove_counterexample
 
-        set_field(tmp_path, 0x1000, "note", "mine: hand analysis", module="GAME")
+        update_field(tmp_path, 0x1000, "note", "mine: hand analysis", module="GAME")
         cfg = SimpleNamespace(metadata_dir=tmp_path)
         ann = SimpleNamespace(module="GAME", va=0x1000)
         _record_prove_counterexample(
@@ -652,12 +652,12 @@ class TestProveConstraintsMetadata:
 
     def test_merge_prove_constraints(self, tmp_path: Path) -> None:
         from rebrew.annotation import Annotation
-        from rebrew.metadata import merge_into_annotation, set_field
+        from rebrew.metadata import merge_into_annotation, update_field
 
         meta_dir = tmp_path
         # Write a prove_constraints dict to metadata
         constraints = {"arg0": {"type": "pointer", "struct_size": 24}}
-        set_field(meta_dir, 0x1000, "prove_constraints", constraints, module="GAME")
+        update_field(meta_dir, 0x1000, "prove_constraints", constraints, module="GAME")
 
         # Create an annotation and merge
         ann = Annotation(va=0x1000, module="GAME")
@@ -666,10 +666,10 @@ class TestProveConstraintsMetadata:
 
     def test_merge_without_constraints_leaves_default(self, tmp_path: Path) -> None:
         from rebrew.annotation import Annotation
-        from rebrew.metadata import merge_into_annotation, set_field
+        from rebrew.metadata import _set_field, merge_into_annotation
 
         meta_dir = tmp_path
-        set_field(meta_dir, 0x1000, "status", "NEAR_MATCHING", module="GAME")
+        _set_field(meta_dir, 0x1000, "status", "NEAR_MATCHING", module="GAME")
 
         ann = Annotation(va=0x1000, module="GAME")
         merge_into_annotation(ann, meta_dir)
