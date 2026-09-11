@@ -19,6 +19,7 @@ from rebrew.data import (
     _render_globals,
     _render_summary,
     _section_summary,
+    _set_data_types,
     scan_data_annotations,
     scan_globals,
 )
@@ -113,6 +114,39 @@ class TestEmitExternDecl:
 
     def test_plain_pointer_type_unchanged(self) -> None:
         assert _emit_extern_decl({"name": "p", "type": "void *"}) == "extern void * p;"
+
+
+class TestSetDataType:
+    """`rebrew data --set-type`: fix a declared global type through the tool.
+
+    The metadata type decides what the header generator emits, so a wrong one
+    has to be correctable without hand-editing the TOML.
+    """
+
+    def _meta(self, cfg) -> Path:
+        return cfg.metadata_dir / "rebrew-data.toml"
+
+    def test_sets_type_in_metadata(self, tmp_path: Path) -> None:
+        cfg = _cfg(tmp_path)
+        self._meta(cfg).write_text(
+            '["SERVER.0x1000"]\nname = "g_x"\ntype = "int"\n', encoding="utf-8"
+        )
+        rows = _set_data_types(cfg, ["0x1000=int[]"])
+        assert rows == [{"va": "0x1000", "type": "int[]", "module": "SERVER"}]
+        assert 'type = "int[]"' in self._meta(cfg).read_text(encoding="utf-8")
+
+    def test_dry_run_writes_nothing(self, tmp_path: Path) -> None:
+        cfg = _cfg(tmp_path)
+        self._meta(cfg).write_text(
+            '["SERVER.0x1000"]\nname = "g_x"\ntype = "int"\n', encoding="utf-8"
+        )
+        _set_data_types(cfg, ["0x1000=int[]"], dry_run=True)
+        assert 'type = "int"' in self._meta(cfg).read_text(encoding="utf-8")
+
+    def test_rejects_a_spec_without_a_type(self, tmp_path: Path) -> None:
+        cfg = _cfg(tmp_path)
+        with pytest.raises(ValueError, match="0xVA=TYPE"):
+            _set_data_types(cfg, ["0x1000="])
 
 
 class TestGenGlobalsHeader:
