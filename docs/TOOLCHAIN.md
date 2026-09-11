@@ -654,6 +654,60 @@ Notes:
   historical 13.10.3077 compiler (the canonical `7.0-win32` dir), while
   `msvc700` is the true VC 7.0 build in `7.0-rtm-win32`.
 
+#### Service packs: what differs, and how to tell which one a target used
+
+The seven VC 6.0 images ship two compilers but three different include/library
+trees and, notably, not all of them export `INCLUDE`/`LIB`.  Measured from the
+images on this workstation:
+
+| Image | CL.EXE | Container toolchain root | Wrapper exports INCLUDE/LIB | LIBCMT.LIB sha256 |
+|---|---|---|---|---|
+| `rebrew/msvc:6.0-win32` | 12.00.8168 | `/opt/msvc6.0/VC98` | yes | `1ef9c27b4f76…` |
+| `rebrew/msvc:6.0-sp1-win32` | 12.00.8168 | `/opt/msvc6.0-sp1/VC98` | **no** | `1ef9c27b4f76…` |
+| `rebrew/msvc:6.0-sp2-win32` | 12.00.8168 | `/opt/msvc6.0-sp2/VC98` | **no** | `1ef9c27b4f76…` |
+| `rebrew/msvc:6.0-sp3-win32` | 12.00.8168 | `/opt/msvc6.0-sp3` (no `VC98`) | **no** | (ships no `Lib`) |
+| `rebrew/msvc:6.0-sp4-win32` | 12.00.8804 | `/opt/msvc6.0-sp4/VC98` | **no** | `5dc8e4bc5377…` |
+| `rebrew/msvc:6.0-sp5-win32` | 12.00.8804 | `/opt/msvc6.0-sp5/VC98` | **no** | `28b9f0496237…` |
+| `rebrew/msvc:6.0-sp6-win32` | 12.00.8804 | `/opt/msvc6.0/VC98` | yes | `a541c95e5ffd…` |
+
+Two consequences:
+
+- **A missing `INCLUDE`/`LIB` export made five of the seven builds
+  uncompilable.**  Only the base and SP6 wrappers set them; every SP1/SP2/SP3/
+  SP5 compile died with `C1083`, which `rebrew match
+  --flag-sweep-toolchains` reported as a compile failure (`score: Infinity`,
+  `0/0`) rather than a toolchain result.  Each of those specs now declares its
+  container `tool_root`, and `run_toolchain` exports `INCLUDE`/`LIB` from it
+  (`rebrew.toolchain.image_msvc_env`), the derivation the CMake bridge already
+  used.  Confirm with
+  `rebrew match <seed.c> --flag-sweep-toolchains --sweep-toolchains 6.0`: all
+  seven builds should report the same `bytes` count.
+- **The libc/math code differs while the codegen barely does.**  The 8168
+  builds share one `LIBCMT.LIB`, SP4/SP5/SP6 each carry a different one, and
+  the CRT small-block-heap family (`___sbh_*`, `___old_sbh_*`) is where they
+  disagree.  Across a real target's near-miss functions, sweeping all seven
+  builds produced byte-identical objects for every one but a single function,
+  whose only cross-build difference was `obj 2055` versus `obj 2030` between
+  `{SP3, SP4}` and the rest (neither matching the target).  Sweep the
+  near-misses, but do not expect the SP level to close a layout or register
+  mismatch.
+
+To identify which service pack built a given target, compare the target's own
+CRT function bodies against each candidate `LIBCMT.LIB` with the member's
+relocation slots zero-filled: linked-in library code is byte-identical to the
+member outside its own relocations, and the variant that covers the most
+target functions built the binary.  `docker cp
+<image>:/opt/msvc6.0-spN/VC98/Lib .` extracts a candidate; COFF archive members
+are read by `rebrew.matcher.parsers`.  A body that matches only one variant
+pins the pack: for the Guild's `server.dll` the sbh family matched SP4/SP5/SP6
+and not the 8168 builds, and `___old_sbh_resize_block` (169 B at `0x1001e638`)
+matched SP5 alone.
+
+Caveat: the container roots above are what the local images carry; the
+Dockerfiles in `maci0/rebrew-toolchains` currently install to
+`/opt/msvc6.0-spN`.  A rebuild moves those paths, and the registry
+`tool_root` entries must be updated in the same change.
+
 ### Provenance & checksums (official releases only)
 
 Every pinned source is an **unmodified official Microsoft release** — the

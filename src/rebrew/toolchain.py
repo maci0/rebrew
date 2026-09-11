@@ -66,8 +66,9 @@ class ToolchainSpec:
     # MSVC, binl for Watcom, "" for the root — Delphi)
     tool_root: str | None = None  # container dir holding the command-line tools
     # (e.g. "/opt/msvc6.0/VC98/Bin"); the CMake toolchain wrapper
-    # (rebrew-cmake-cl/link/lib) calls the tools there directly via `wine` and
-    # derives the Include/Lib dirs from it
+    # (rebrew-cmake-cl/link/lib) calls the tools there directly via `wine`, and
+    # both it and the compile runner derive the Include/Lib dirs from it
+    # (rebrew.toolchain.image_msvc_env)
     bits: int | None = None  # target code model: 16 / 32 / 64; None = unknown
     # (assumed 32-bit by detection's arch-alignment check).  A toolchain
     # registered with bits=16 is allowed on x86_16 DOS/NE targets instead of
@@ -724,6 +725,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc6.0-sp3/Bin",
         host_path=_vendored("msvc/6.0-sp3-win32")
         if _vendored("msvc/6.0-sp3-win32").exists()
         else None,
@@ -737,6 +739,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc6.0-sp1/VC98/bin",
         host_path=_vendored("msvc/6.0-sp1-win32")
         if _vendored("msvc/6.0-sp1-win32").exists()
         else None,
@@ -750,6 +753,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc6.0-sp2/VC98/bin",
         host_path=_vendored("msvc/6.0-sp2-win32")
         if _vendored("msvc/6.0-sp2-win32").exists()
         else None,
@@ -763,6 +767,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc6.0-sp4/VC98/bin",
         host_path=_vendored("msvc/6.0-sp4-win32")
         if _vendored("msvc/6.0-sp4-win32").exists()
         else None,
@@ -776,6 +781,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc6.0-sp5/VC98/Bin",
         host_path=_vendored("msvc/6.0-sp5-win32")
         if _vendored("msvc/6.0-sp5-win32").exists()
         else None,
@@ -1369,6 +1375,27 @@ def vendored_binary(spec: ToolchainSpec) -> Path | None:
     return None
 
 
+def image_msvc_env(spec: ToolchainSpec) -> dict[str, str]:
+    """INCLUDE/LIB for an image-backed MSVC run, derived from ``tool_root``.
+
+    The images' ``cl`` wrapper is not the only place the include/lib trees
+    come from: several MSVC 6.0 service-pack images ship a wrapper that
+    exports neither, so a compile fails with C1083 unless the runner supplies
+    them.  Both paths are the toolchain's own tree, seen through wine's ``Z:``
+    drive (the container's root filesystem), matching the CMake bridge.
+
+    Returns an empty mapping for specs that are not image-backed wine MSVC
+    toolchains, so native and non-MSVC runtimes are untouched.
+    """
+    if not (spec.image and spec.runtime == "wine" and spec.family == "msvc" and spec.tool_root):
+        return {}
+    root = Path(spec.tool_root).parent
+    return {
+        "INCLUDE": "Z:" + str(root / "Include").replace("/", "\\"),
+        "LIB": "Z:" + str(root / "Lib").replace("/", "\\"),
+    }
+
+
 def _resolve_binary(spec: ToolchainSpec) -> str:
     """The host-side compiler path for a native-runtime spec (no image):
     vendored dir / PATH binary.  Raises ToolchainError when nothing
@@ -1459,6 +1486,8 @@ def run_toolchain(
         ]
         for host_dir, container_dir in mounts or []:
             cmd += ["-v", f"{Path(host_dir).resolve()}:{container_dir}"]
+        for key, value in image_msvc_env(spec).items():
+            cmd += ["-e", f"{key}={value}"]
         cmd.append(spec.image)
         if spec.image_binary is not None:
             cmd.append(spec.image_binary)
