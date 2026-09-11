@@ -612,6 +612,67 @@ class TestKunaBackend:
         monkeypatch.setattr(dc.subprocess, "run", lambda *a, **k: _R())
         assert dc.fetch_kuna(binary, 0x401000, tmp_path) is None
 
+    def test_kuna_spec_dirs_only_qualifies_sla_dirs(self, tmp_path: Path) -> None:
+        """Only dirs containing x86.sla qualify as spec dirs."""
+        import rebrew.decompiler as dc
+
+        good = tmp_path / "good"
+        good.mkdir()
+        (good / "x86.sla").write_bytes(b"sla\x04binary")
+        assert all(isinstance(d, Path) for d in dc._kuna_spec_dirs())
+
+    def test_fetch_kuna_injects_specs_env(self, tmp_path: Path, monkeypatch) -> None:
+        """Without KUNA_SPECS, fetch_kuna injects the resolved spec dir."""
+        import rebrew.decompiler as dc
+
+        binary = tmp_path / "x.exe"
+        binary.write_bytes(b"MZ")
+        monkeypatch.setattr(dc.shutil, "which", lambda n: "/usr/bin/kuna")
+        monkeypatch.delenv("KUNA_SPECS", raising=False)
+        spec = tmp_path / "specs"
+        spec.mkdir()
+        (spec / "x86.sla").write_bytes(b"sla\x04binary")
+        monkeypatch.setattr(dc, "_kuna_spec_dirs", lambda: [spec])
+
+        seen: dict = {}
+
+        class _R:
+            returncode = 0
+            stdout = "int f(void) { return 0; }\n"
+            stderr = ""
+
+        def _run(cmd, **kw):
+            seen.update(kw)
+            return _R()
+
+        monkeypatch.setattr(dc.subprocess, "run", _run)
+        assert dc.fetch_kuna(binary, 0x401000, tmp_path) is not None
+        assert seen.get("env", {}).get("KUNA_SPECS") == str(spec)
+
+    def test_fetch_kuna_honors_explicit_specs(self, tmp_path: Path, monkeypatch) -> None:
+        """An explicit KUNA_SPECS is never overridden."""
+        import rebrew.decompiler as dc
+
+        binary = tmp_path / "x.exe"
+        binary.write_bytes(b"MZ")
+        monkeypatch.setattr(dc.shutil, "which", lambda n: "/usr/bin/kuna")
+        monkeypatch.setenv("KUNA_SPECS", "/custom/specs")
+
+        seen: dict = {}
+
+        class _R:
+            returncode = 0
+            stdout = "int f(void) { return 0; }\n"
+            stderr = ""
+
+        def _run(cmd, **kw):
+            seen.update(kw)
+            return _R()
+
+        monkeypatch.setattr(dc.subprocess, "run", _run)
+        assert dc.fetch_kuna(binary, 0x401000, tmp_path) is not None
+        assert seen.get("env") is None
+
     def test_kuna_seed_source_fixes_pseudo_types(self, tmp_path: Path, monkeypatch) -> None:
         import rebrew.decompiler as dc
 
