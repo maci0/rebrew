@@ -222,6 +222,56 @@ class TestGenGlobalsHeader:
         text = (cfg.reversed_dir / "rebrew_globals.h").read_text(encoding="utf-8")
         assert "extern void * _FPinit;" in text, text
 
+    def test_source_decl_type_beats_metadata(self, tmp_path: Path) -> None:
+        """A VA-anchored source declaration wins over the metadata type.
+
+        Regression: the metadata said float for double constants, and the
+        header repeated the wrong spelling.
+        """
+        from rebrew.data_metadata import set_data_field
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "consts.c").write_text(
+            "// DATA: SERVER 0x100256d0\nextern double g_dbl_const_6d0; /* 0x100256d0 */\n"
+            "// DATA: SERVER 0x10025f88\nextern float g_dbl_const_f88; /* 0x10025f88 */\n",
+            encoding="utf-8",
+        )
+        set_data_field(cfg.metadata_dir, 0x100256D0, "type", "float", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x10025F88, "type", "double", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x100256D0, "name", "WRONG", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x10025F88, "name", "WRONG", "SERVER")
+        _gen_globals_header(cfg, cfg.reversed_dir)
+        text = (cfg.reversed_dir / "rebrew_globals.h").read_text(encoding="utf-8")
+        assert "extern double g_dbl_const_6d0;" in text
+        assert "extern float g_dbl_const_f88;" in text
+        assert "WRONG" not in text
+
+    def test_stub_tu_markers_covered(self, tmp_path: Path) -> None:
+        """Markers in src/link_stubs.c (outside reversed_dir) reach the header."""
+        cfg = _cfg(tmp_path)
+        (tmp_path / "src" / "link_stubs.c").write_text(
+            "// DATA: SERVER 0x3000\nextern double g_stub_const; /* 0x3000 */\n",
+            encoding="utf-8",
+        )
+        _gen_globals_header(cfg, cfg.reversed_dir)
+        text = (cfg.reversed_dir / "rebrew_globals.h").read_text(encoding="utf-8")
+        assert "extern double g_stub_const;" in text
+
+    def test_metadata_type_used_without_source_decl(self, tmp_path: Path) -> None:
+        """No VA-anchored decl: the metadata type still applies."""
+        from rebrew.data_metadata import set_data_field
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "globals.c").write_text(
+            "// DATA: SERVER 0x1000\nint g_counter;\n",
+            encoding="utf-8",
+        )
+        set_data_field(cfg.metadata_dir, 0x1000, "type", "int", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x1000, "name", "g_counter", "SERVER")
+        _gen_globals_header(cfg, cfg.reversed_dir)
+        text = (cfg.reversed_dir / "rebrew_globals.h").read_text(encoding="utf-8")
+        assert "extern int g_counter;" in text
+
     def test_refuses_overwrite_without_force(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
         out = cfg.reversed_dir / "rebrew_globals.h"

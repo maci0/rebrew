@@ -1232,6 +1232,81 @@ def _set_data_types(
     return rows
 
 
+_VA_COMMENT_RE = re.compile(r"/\*\s*(0x[0-9a-fA-F]+)")
+
+
+def _source_decl_types_by_va(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, str]:
+    """Index VA → declared C type from ``extern <type> <name>; /* 0xVA */`` lines.
+
+    Kept as the public name; delegates to :func:`_source_decls_by_va`.
+    """
+    return {va: typ for va, (_name, typ) in _source_decls_by_va(src_dir, cfg).items()}
+
+
+def _source_decls_by_va(
+    src_dir: Path,
+    cfg: ProjectConfig | None = None,
+    *,
+    extra_files: list[Path | None] | None = None,
+) -> dict[int, tuple[str, str]]:
+    """Index VA → ``(name, type)`` from VA-anchored source declarations.
+
+    Sources are authoritative for the header: their spelling is the one that
+    compiles to matching bytes, while the metadata type is a guess that can
+    be wrong (e.g. ``float`` for a ``double`` constant).  Only lines carrying
+    an explicit VA comment participate, so unanchored decls never leak across
+    globals.  Tree-sitter parses each declaration line; the regex fallback
+    covers spellings the grammar rejects.
+
+    *extra_files* are scanned in addition to *src_dir* (e.g. the stub TU,
+    which lives outside the reversed tree but holds real markers).
+    """
+    from rebrew.c_parser import find_extern_variables
+    from rebrew.sources import iter_sources
+    from rebrew.utils import read_source_text
+
+    try:
+        from rebrew.binsync_export import _type_from_declaration
+    except ImportError:  # binsync_export pulls catalog; keep header gen usable without it
+        _type_from_declaration = None  # type: ignore[assignment]
+
+    found: dict[int, tuple[str, str]] = {}
+    files = sorted(iter_sources(src_dir, cfg)) if src_dir.exists() else []
+    for extra in extra_files or []:
+        if extra is not None and extra.is_file() and extra not in files:
+            files.append(extra)
+    for cfile in files:
+        try:
+            text, _ = read_source_text(cfile)
+        except OSError:
+            continue
+        for line in text.splitlines():
+            m = _VA_COMMENT_RE.search(line)
+            if not m:
+                continue
+            va = int(m.group(1), 16)
+            if va in found:
+                continue
+            decl = line[: m.start()].strip().rstrip(";").strip()
+            if not decl:
+                continue
+            name, type_str = "", ""
+            try:
+                ext_vars = find_extern_variables(decl + ";")
+            except Exception:
+                ext_vars = []
+            if ext_vars:
+                name, type_str = ext_vars[0].name, ext_vars[0].type_str
+            elif _type_from_declaration is not None:
+                var_m = re.search(r"([A-Za-z_][A-Za-z0-9_]*)\s*(\[[^\]]*\])?\s*$", decl)
+                if var_m:
+                    name = var_m.group(1)
+                    type_str = _type_from_declaration(decl + ";", name) or ""
+            if name and type_str:
+                found[va] = (name, type_str)
+    return found
+
+
 def _gen_globals_header(
     cfg: ProjectConfig,
     src_dir: Path,
@@ -1265,10 +1340,25 @@ def _gen_globals_header(
     marker = getattr(cfg, "marker", getattr(cfg, "target_name", "GAME").upper())
     metadata = load_data_metadata(cfg.metadata_dir)
 
+    # Sources are authoritative for the emitted name and type: a
+    # VA-anchored declaration in the tree beats the metadata guess.
+    # The stub TU (src/link_stubs.c) is compiled into the link but lives
+    # outside reversed_dir, so scan it too: stub-held globals (e.g. .rdata
+    # constants owned by the rdata_restore blob) have their markers and
+    # VA-anchored declarations only there.
+    stub_path = cfg.root / "src" / "link_stubs.c" if cfg else None
+    source_decls = _source_decls_by_va(src_dir, cfg, extra_files=[stub_path] if stub_path else [])
+    source_types = {va: typ for va, (_name, typ) in source_decls.items()}
+    source_names = {va: name for va, (name, _typ) in source_decls.items()}
+
     rows: list[dict[str, Any]] = []
     seen_va: set[int] = set()
 
-    for src in sorted(iter_sources(src_dir, cfg)):
+    header_sources = sorted(iter_sources(src_dir, cfg))
+    if stub_path is not None and stub_path.is_file() and stub_path not in header_sources:
+        header_sources.append(stub_path)
+
+    for src in header_sources:
         try:
             annotations = parse_c_file_multi(src, target_name=marker, metadata_dir=cfg.metadata_dir)
         except Exception:  # non-fatal; skip unparseable files
@@ -1286,8 +1376,13 @@ def _gen_globals_header(
             sk = (ann.module, va)
             se = metadata.get(sk, {})
 
-            # Prefer annotation name; fall back to metadata name; then to address-based
-            if ann.name:
+            # Prefer the VA-anchored source declaration (authoritative: the
+            # spelling that compiles to matching bytes); then the annotation
+            # name; then the metadata name; then address-based.
+            src_name = source_names.get(va, "")
+            if src_name:
+                raw_name = src_name
+            elif ann.name:
                 raw_name = ann.name
             elif str(se.get("name", "")):
                 # A metadata name is already the C name: `_FPinit`, `_osver` and
@@ -1304,7 +1399,7 @@ def _gen_globals_header(
             section = ann.section or str(se.get("section", ""))
             size = ann.size or int(se.get("size", 0) or 0)
             note = str(se.get("note", ""))
-            type_str = str(se.get("type", ""))
+            type_str = source_types.get(va) or str(se.get("type", ""))
 
             rows.append(
                 {

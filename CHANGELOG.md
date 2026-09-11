@@ -1,4 +1,12 @@
 ## [Unreleased]
+### Fixed
+- **`data --gen-header` takes each global's type from its source
+  declaration** — the header read the type from `rebrew-data.toml`, whose
+  guess is demonstrably wrong for several globals (e.g. `float` for
+  `double` constants). A VA-anchored declaration in the tree
+  (`extern <type> <name>; /* 0xVA */`) now wins for both type and name;
+  metadata remains the fallback. The stub TU (`src/link_stubs.c`) is
+  scanned too — it holds markers the reversed tree lacks.
 ### Added
 - **Layout reproduction pipeline** — five commands closing the
   measure→order→check→search→normalize loop postlink needs: `rebrew
