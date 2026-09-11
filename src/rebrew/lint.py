@@ -723,7 +723,10 @@ def _check_E023_naked_asm(
 
 
 def _check_W020_asm_dump(
-    result: LintResult, lines: list[str], claimed_statuses: set[str] | None = None
+    result: LintResult,
+    lines: list[str],
+    claimed_statuses: set[str] | None = None,
+    has_blocker: bool = False,
 ) -> None:
     """Flag asm-dump placeholder implementations (W020).
 
@@ -737,7 +740,15 @@ def _check_W020_asm_dump(
     warning — an asm dump cannot be a byte-match, so the STATUS is wrong.
     That is how "documented STUB" (expected) is told apart from a "claimed
     match on an asm dump" (a metadata bug) at a glance.
+
+    A recorded ``BLOCKER`` is the remedy the escalated message names, so an
+    asm body under one is documented and not reported at all.  Measured on a
+    project where three partial block-fill ``__asm`` bodies sit inside
+    functions that do byte-match (RELOC) and carry blockers: the rule fired on
+    all three, and its advice could not clear them.
     """
+    if has_blocker:
+        return
     # Whole-function naked asm is handled by E023 — don't double-report W020.
     for line in lines:
         s = line.strip()
@@ -1405,6 +1416,10 @@ def lint_file(
     # Statuses claimed by this file's annotations (for W020 escalation: a
     # non-STUB claim on an asm-dump body is a metadata error).
     _file_statuses: set[str] = set()
+    # A recorded BLOCKER documents why the body is what it is; W020's own text
+    # tells the author to add one, so an asm block under a blocker is the
+    # documented end state, not a placeholder to flag.
+    _file_has_blocker = False
     # CFLAGS from metadata/inline annotations (for the E023 REBREW_ALLOW_NAKED
     # guard — the flag lives in rebrew-functions.toml, not in source lines).
     _file_cflags: set[str] = set()
@@ -1501,6 +1516,8 @@ def lint_file(
             module = found_keys.get("MODULE", "")
             status = found_keys.get("STATUS", "")
             _file_cflags.update(found_keys.get("CFLAGS", "").split())
+            if found_keys.get("BLOCKER"):
+                _file_has_blocker = True
 
             # Collect summary data during the lint pass (used by _print_summary).
             if marker:
@@ -1545,7 +1562,7 @@ def lint_file(
         if entry.get("section") == ".data" and entry.get("name")
     )
     _check_E023_naked_asm(result, lines, _file_statuses, " ".join(_file_cflags))
-    _check_W020_asm_dump(result, lines, _file_statuses)
+    _check_W020_asm_dump(result, lines, _file_statuses, _file_has_blocker)
     _check_W021_duplicate_globals(result, lines, filepath, seen_globals)
     _check_W022_zero_init_bss(result, lines, _data_section_names)
     _check_body_rules(result, lines, all_headers[0][1]["has_new"] if all_headers else False)

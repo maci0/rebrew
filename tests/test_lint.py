@@ -903,6 +903,25 @@ class TestW020AsmDump:
         assert "EXACT" in msg
         assert "cannot be a byte-match" in msg
 
+    def test_recorded_blocker_documents_the_asm_body(self, tmp_path: Path) -> None:
+        """A BLOCKER is the remedy the escalated message names, so it must
+        actually clear the warning: a partial __asm under a documented blocker
+        is the end state, not a placeholder."""
+        metadata_toml = tmp_path / "rebrew-functions.toml"
+        metadata_toml.write_text(
+            '["SERVER.0x10008880"]\n'
+            'blocker = "block-fill prelude: pure C cannot emit; kept as __asm"\n',
+            encoding="utf-8",
+        )
+        content = (
+            "// FUNCTION: SERVER 0x10008880\n// STATUS: RELOC\n// SIZE: 31\n// CFLAGS: /O2 /Gd\n"
+            "int f(void) {\n    __asm { mov eax, 1 }\n    return 0;\n}\n"
+        )
+        result = lint_file(_write_c(tmp_path, "documented.c", content))
+        assert not any(c == "W020" for _, c, _ in result.warnings), (
+            f"a recorded blocker must clear W020, got {result.warnings}"
+        )
+
 
 class TestE023NakedAsm:
     """E023: whole-function __declspec(naked)+__asm is an error; minor padding (1-2 nops) is allowed."""
