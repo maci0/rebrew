@@ -126,6 +126,40 @@ def fetch_r2dec(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None
     return _run_re(binary, va, "pdd", root)
 
 
+def _kuna_spec_dirs() -> list[Path]:
+    """Candidate SLEIGH spec dirs for kuna, best first.
+
+    Kuna resolves specs from ``KUNA_SPECS`` (else ``/specs/``, which rarely
+    exists), and the rizin-bundled ``.sla`` files are XML debug format that
+    kuna's loader rejects ("Missing SLA format header").  The binary-format
+    specs shipped inside pypcode installs work — prefer those, then the
+    rizin dir as a fallback.  Only dirs containing ``x86.sla`` qualify so a
+    partial tree never shadows a working one.
+    """
+    candidates = []
+    try:
+        import pypcode
+
+        candidates.append(Path(pypcode.__file__).parent / "processors/x86/data/languages")
+    except ImportError:
+        pass
+    for uv_tool in ("rebrew", "angr"):
+        candidates.append(
+            Path.home()
+            / ".local/share/uv/tools"
+            / uv_tool
+            / "lib/python3.13/site-packages/pypcode/processors/x86/data/languages"
+        )
+        candidates.append(
+            Path.home()
+            / ".local/share/uv/tools"
+            / uv_tool
+            / "lib/python3.12/site-packages/pypcode/processors/x86/data/languages"
+        )
+    candidates.append(Path("/usr/lib/rizin/plugins/rz_ghidra_sleigh"))
+    return [d for d in candidates if (d / "x86.sla").is_file()]
+
+
 def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     """Fetch decompilation from the Kuna decompiler (agent-first Ghidra port).
 
@@ -134,12 +168,24 @@ def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     (Kuna's CLI takes an address with ``--addr``) and returns the cleaned C
     printed to stdout.  Returns ``None`` when kuna is unavailable or fails,
     exactly like the other optional backends.
+
+    Kuna reads SLEIGH specs from ``KUNA_SPECS`` (default ``/specs/``); an
+    explicit ``KUNA_SPECS`` is honored, otherwise the first working spec dir
+    from :func:`_kuna_spec_dirs` is injected so ``--seed-kuna`` works without
+    manual env setup.
     """
     if not binary.exists():
         return None
     kuna = shutil.which("kuna")
     if kuna is None:
         return None
+    import os
+
+    env = None
+    if "KUNA_SPECS" not in os.environ:
+        for spec_dir in _kuna_spec_dirs():
+            env = {**os.environ, "KUNA_SPECS": str(spec_dir)}
+            break
     try:
         result = subprocess.run(
             [kuna, "decompile", str(binary), f"0x{va:x}", "--addr"],
@@ -147,6 +193,7 @@ def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
             text=True,
             cwd=root,
             timeout=180,
+            env=env,
         )
         if result.returncode == 0 and result.stdout:
             return _clean_output(result.stdout)

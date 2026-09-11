@@ -210,6 +210,37 @@ skills.
 | `--collect-pairs FILE` | Save source/binary pairs to JSONL for ML training |
 | `--json` | Output results as JSON |
 
+### `rebrew climb`
+
+`rebrew climb <source> [--va HEX] [--symbol NAME] [--size N] [--cflags FLAGS] [--passes N] [--dry-run] [--json] [--target NAME]`
+
+Relocate one top-level statement at a time and keep every move that matches more
+bytes. This is the deterministic counterpart to `rebrew match`: where a residual
+is statement *order* rather than expression shape, the GA can stall while the
+climb still finds moves — on gm_CreateEntityFromParents (3689 B) `rebrew match`
+ran 100 generations with no improvement, and one climb sweep found five moves
+worth +21 matched bytes.
+
+Each candidate is one adjacent swap of two top-level statements in the
+annotated function's body, scored with the same compile → compare path as
+`rebrew test`. Multi-line statements (including `if`/`for`/`while` blocks) move
+as a unit. The sweep repeats for `--passes`, stopping early when a sweep finds
+nothing.
+
+Candidates are compiled from a sibling scratch copy of the source and the real
+file is written **only** when the climb wins, so an interrupted run leaves the
+tree clean; `--dry-run` reports the moves without writing at all.
+
+| Option | Description |
+| --- | --- |
+| `--va HEX` | Select the annotated function by VA (multi-function files) |
+| `--symbol NAME` | Override the COFF symbol |
+| `--size N` | Override the target size |
+| `--cflags FLAGS` | Override the resolved compiler flags |
+| `--passes N` | Number of adjacent-swap sweeps (default 1) |
+| `--dry-run` | Preview changes without writing |
+| `--json` | Output results as JSON |
+
 ### `rebrew diff`
 
 The seed argument accepts a `.c` path, a symbol name, or a hex VA — VAs and
@@ -456,7 +487,7 @@ Output prefixes for unambiguous parsing:
 | `--size-mismatch` | Include SIZE_MISMATCH functions in batch mode |
 | `--skip-recent HOURS` | Skip functions matched in the last N hours |
 | `--seed-llm` | Seed GA with LLM-proposed implementations |
-| `--seed-kuna` | Seed GA with kuna decompiler output |
+| `--seed-kuna` | Seed GA with kuna decompiler output (needs `kuna` on PATH; SLEIGH specs auto-resolved from the pypcode install, override with `KUNA_SPECS`) |
 | `--resume` | Resume from GA checkpoints |
 | `--ga-history` | Record GA run history |
 | `--watch` | Re-run on source changes |

@@ -1,5 +1,24 @@
 ## [Unreleased]
 ### Fixed
+- **`--seed-kuna` works without manual env setup** — kuna reads SLEIGH specs
+  from `KUNA_SPECS` (default `/specs/`, which rarely exists) and rejects the
+  rizin-bundled XML debug-format `.sla` files ("Missing SLA format header").
+  `fetch_kuna` now injects the first working spec dir (importable pypcode,
+  then uv-tool pypcode installs, then the rizin tree; only dirs containing
+  `x86.sla` qualify) unless `KUNA_SPECS` is already set. Documented on the
+  `--seed-kuna` CLI row.
+### Added
+- **`rebrew climb <source>`** — deterministic single-statement hill-climb, the
+  counterpart to `match`'s genetic search. Where a residual is statement *order*
+  rather than expression shape the GA can stall: on one 3689-byte function it
+  ran its full hour without an improvement, while a climb sweep found five moves
+  worth +21 matched bytes. Each candidate is one relocation of a top-level
+  statement, scored through the same compile→compare path as `test` (same
+  `name_to_va`/`section_va`/toolchain arguments, so the score equals `test`'s
+  match count). Multi-line blocks move as a unit; the source is written only
+  when a move wins and restored on any exception, and each accepted move is
+  reported to stderr so `--json` stays parseable.
+### Fixed
 - **Docs/skills/flowcharts synced to the CLI** — `CLI.md` flag drift fixed
   (`report --output`, `verify --full` without `-f`, phantom
   `--sweep-exclude-flags` removed, `fix --output`, `intake --toolchain`,
