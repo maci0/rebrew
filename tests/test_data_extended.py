@@ -88,8 +88,10 @@ class TestScanGlobalsBranches:
 
 
 class TestEmitExternDecl:
-    def test_no_type_fallback(self) -> None:
-        assert _emit_extern_decl({"name": "g_buf"}) == "extern unsigned char g_buf[];"
+    def test_no_type_is_omitted(self) -> None:
+        """No declared type means no declaration: a `char` guess would clash
+        with the real declaration in whichever TU declares it."""
+        assert _emit_extern_decl({"name": "g_buf"}) is None
 
     def test_scalar_type(self) -> None:
         assert _emit_extern_decl({"name": "g_x", "type": "int"}) == "extern int g_x;"
@@ -110,6 +112,15 @@ class TestEmitExternDecl:
         assert (
             _emit_extern_decl({"name": "g_hook", "type": "void (__cdecl *)(int)"})
             == "extern void (__cdecl *g_hook)(int);"
+        )
+
+    def test_function_pointer_with_pointer_arguments(self) -> None:
+        """The first `(*` group is the declarator; a later `void *` is not."""
+        assert (
+            _emit_extern_decl(
+                {"name": "g_h", "type": "int (__stdcall *)(void *, unsigned int, void *)"}
+            )
+            == "extern int (__stdcall *g_h)(void *, unsigned int, void *);"
         )
 
     def test_plain_pointer_type_unchanged(self) -> None:
@@ -143,20 +154,35 @@ class TestSetDataType:
         _set_data_types(cfg, ["0x1000=int[]"], dry_run=True)
         assert 'type = "int"' in self._meta(cfg).read_text(encoding="utf-8")
 
-    def test_rejects_a_spec_without_a_type(self, tmp_path: Path) -> None:
+    def test_rejects_a_spec_without_an_equals(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
         with pytest.raises(ValueError, match="0xVA=TYPE"):
-            _set_data_types(cfg, ["0x1000="])
+            _set_data_types(cfg, ["0x1000"])
+
+    def test_empty_type_clears_it(self, tmp_path: Path) -> None:
+        """Clearing the type makes --gen-header omit the global, which is how a
+        declaration whose sources disagree is left with the TU that owns it."""
+        cfg = _cfg(tmp_path)
+        self._meta(cfg).write_text(
+            '["SERVER.0x1000"]\nname = "g_x"\ntype = "int"\n', encoding="utf-8"
+        )
+        _set_data_types(cfg, ["0x1000="])
+        text = self._meta(cfg).read_text(encoding="utf-8")
+        assert 'type = "int"' not in text
 
 
 class TestGenGlobalsHeader:
     def test_writes_header_from_annotations(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import set_data_field
+
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "globals.c").write_text(
             "// DATA: SERVER 0x1000\n// SYMBOL: g_counter\nint g_counter;\n"
             "// GLOBAL: SERVER 0x2000\n// SYMBOL: g_flag\nint g_flag;\n",
             encoding="utf-8",
         )
+        set_data_field(cfg.metadata_dir, 0x1000, "type", "int", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x2000, "type", "int", "SERVER")
         _gen_globals_header(cfg, cfg.reversed_dir)
         out = cfg.reversed_dir / "rebrew_globals.h"
         assert out.exists()
@@ -166,6 +192,8 @@ class TestGenGlobalsHeader:
         assert "0x00001000" in text
 
     def test_dedup_by_va(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import set_data_field
+
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "a.c").write_text(
             "// DATA: SERVER 0x1000\nint g_counter;\n", encoding="utf-8"
@@ -173,6 +201,7 @@ class TestGenGlobalsHeader:
         (cfg.reversed_dir / "b.c").write_text(
             "// GLOBAL: SERVER 0x1000\nint g_counter;\n", encoding="utf-8"
         )
+        set_data_field(cfg.metadata_dir, 0x1000, "type", "int", "SERVER")
         _gen_globals_header(cfg, cfg.reversed_dir)
         out = cfg.reversed_dir / "rebrew_globals.h"
         text = out.read_text(encoding="utf-8")
@@ -627,6 +656,8 @@ class TestDataMoreBranches:
         # DATA-marker names come from rebrew-data.toml; underscore is stripped.
         set_data_field(cfg.metadata_dir, 0x1000, "name", "_g_und", "SERVER")
         set_data_field(cfg.metadata_dir, 0x2000, "name", "g_other", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x1000, "type", "int", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x2000, "type", "int", "SERVER")
         _gen_globals_header(cfg, cfg.reversed_dir)
         text = (cfg.reversed_dir / "rebrew_globals.h").read_text(encoding="utf-8")
         assert "g_und" in text  # leading underscore stripped

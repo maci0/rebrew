@@ -1173,7 +1173,7 @@ app = typer.Typer(
 )
 
 
-def _emit_extern_decl(row: dict[str, Any]) -> str:
+def _emit_extern_decl(row: dict[str, Any]) -> str | None:
     """Format an `extern` declaration honoring an explicit `type` when given.
 
     Uses `unsigned char <name>[]` as the fallback when no type is specified.
@@ -1186,14 +1186,17 @@ def _emit_extern_decl(row: dict[str, Any]) -> str:
     type_str = (row.get("type") or "").strip()
     name = row["name"]
     if not type_str:
-        return f"extern unsigned char {name}[];"
+        # No declared type: the global stays with the TU that declares it.
+        # `char` would be a guess, and a wrong guess is a compile error the
+        # moment the header is included next to the real declaration.
+        return None
     array = re.search(r"\s*(\[[^\]]*\])$", type_str)
     if array:
         base = type_str[: array.start()].strip()
         return f"extern {base} {name}{array.group(1)};"
     if "(*)" in type_str:
         return f"extern {type_str.replace('(*)', f'(*{name})', 1)};"
-    fp = re.match(r"^(.*)\(\s*([^()]*?)\s*\*\s*\)(.*)$", type_str)
+    fp = re.match(r"^(.*?)\(\s*([^()]*?)\s*\*\s*\)(.*)$", type_str)
     if fp:
         prefix, quals, suffix = fp.group(1), fp.group(2), fp.group(3)
         inner = f"{quals} *{name}" if quals else f"*{name}"
@@ -1220,7 +1223,7 @@ def _set_data_types(
     for spec in specs:
         va_s, sep, type_s = spec.partition("=")
         type_s = type_s.strip()
-        if not sep or not type_s:
+        if not sep:
             raise ValueError(f"--set-type wants 0xVA=TYPE, got {spec!r}")
         va = int(va_s, 16)
         if not dry_run:
@@ -1342,7 +1345,8 @@ def _gen_globals_header(
             if row["note"]:
                 note_parts.append(row["note"])
             decl = _emit_extern_decl(row)
-            header_lines.append(f"{decl} /* {', '.join(note_parts)} */")
+            if decl is not None:
+                header_lines.append(f"{decl} /* {', '.join(note_parts)} */")
         header_lines.append("")
 
     section_order = [".data", ".rdata", ".bss", ""]
