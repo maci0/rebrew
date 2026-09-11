@@ -14,7 +14,7 @@ from rebrew.init import (
     GCC_CONSTRAINTS,
     MSVC7_CONSTRAINTS,
     MSVC_CONSTRAINTS,
-    init,
+    main,
 )
 
 # ---------------------------------------------------------------------------
@@ -217,7 +217,7 @@ class TestConstraints:
 
 
 # ---------------------------------------------------------------------------
-# init() -- filesystem tests
+# main() -- filesystem tests
 # ---------------------------------------------------------------------------
 
 
@@ -228,12 +228,12 @@ def mock_download_wibo(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class TestInit:
-    """Tests for the init() function using tmp_path."""
+    """Tests for the main() function using tmp_path."""
 
     def test_creates_rebrew_toml(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """init() creates rebrew-project.toml in cwd."""
+        """main() creates rebrew-project.toml in cwd."""
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="server",
             binary_name="server.dll",
             compiler_profile="msvc6",
@@ -248,9 +248,9 @@ class TestInit:
         assert "server.dll" in content
 
     def test_dry_run_writes_nothing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """init() --dry-run previews without touching the disk."""
+        """main() --dry-run previews without touching the disk."""
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="server",
             binary_name="server.dll",
             compiler_profile="msvc6",
@@ -269,7 +269,7 @@ class TestInit:
         host command; the image is the compiler), no stale wine path, even
         when a vendored toolchain layout exists on disk."""
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="server",
             binary_name="server.dll",
             compiler_profile="msvc6",
@@ -293,7 +293,7 @@ class TestInit:
         """msvc7 is docker-backed — init writes a docker-native config (empty
         host command; the image is the compiler), no stale wine path."""
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="server",
             binary_name="server.dll",
             compiler_profile="msvc7",
@@ -312,9 +312,9 @@ class TestInit:
         )
 
     def test_creates_agents_md(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """init() creates AGENTS.md."""
+        """main() creates AGENTS.md."""
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="main",
             binary_name="prog.exe",
             compiler_profile="msvc6",
@@ -328,9 +328,9 @@ class TestInit:
         assert "prog.exe" in content
 
     def test_creates_directories(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """init() creates original/, src/<target>/, bin/<target>/."""
+        """main() creates original/, src/<target>/, bin/<target>/."""
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="game",
             binary_name="game.exe",
             compiler_profile="gcc",
@@ -343,9 +343,9 @@ class TestInit:
         assert (tmp_path / "bin" / "game").is_dir()
 
     def test_creates_function_list(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """init() creates an empty functions.txt."""
+        """main() creates an empty functions.txt."""
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="t",
             binary_name="t.exe",
             compiler_profile="clang",
@@ -361,7 +361,7 @@ class TestInit:
     ) -> None:
         """--binary original/bench.exe must not produce original/original/bench.exe."""
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="server",
             binary_name="original/bench.exe",
             compiler_profile="msvc6",
@@ -377,7 +377,7 @@ class TestInit:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="server",
             binary_name="original\\bench.exe",
             compiler_profile="msvc6",
@@ -395,7 +395,7 @@ class TestInit:
         master = tmp_path / "master"
         (master / "msvc" / "6.0-win32").mkdir(parents=True)
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="t",
             binary_name="t.exe",
             compiler_profile="msvc6",
@@ -417,7 +417,7 @@ class TestInit:
         # Canonical layout: the actual toolchain nests under source/.
         (master / "msvc" / "6.0-sp6-win32" / "source").mkdir(parents=True)
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="t",
             binary_name="t.exe",
             compiler_profile="msvc6",
@@ -441,7 +441,7 @@ class TestInit:
         master.mkdir()
         monkeypatch.chdir(tmp_path)
         with pytest.raises(Exit):
-            init(
+            main(
                 target_name="t",
                 binary_name="t.exe",
                 compiler_profile="msvc6",
@@ -458,7 +458,7 @@ class TestInit:
         master = tmp_path / "master"
         master.mkdir()
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="t",
             binary_name="t.exe",
             compiler_profile="gcc-pe",
@@ -470,11 +470,11 @@ class TestInit:
         assert not (tmp_path / "tools").exists()
 
     def test_idempotency_guard(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """init() exits with code 1 if rebrew-project.toml already exists."""
+        """main() exits with code 1 if rebrew-project.toml already exists."""
         monkeypatch.chdir(tmp_path)
         (tmp_path / "rebrew-project.toml").write_text("existing", encoding="utf-8")
         with pytest.raises(Exit):
-            init(
+            main(
                 target_name="t",
                 binary_name="t.exe",
                 compiler_profile="msvc6",
@@ -486,10 +486,10 @@ class TestInit:
     def test_unknown_compiler_profile(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """init() exits with code 1 for unknown compiler profile."""
+        """main() exits with code 1 for unknown compiler profile."""
         monkeypatch.chdir(tmp_path)
         with pytest.raises(Exit):
-            init(
+            main(
                 target_name="t",
                 binary_name="t.exe",
                 compiler_profile="borland",
@@ -503,7 +503,7 @@ class TestInit:
     ) -> None:
         """msvc7 profile generates AGENTS.md with C99 constraints."""
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="t",
             binary_name="t.exe",
             compiler_profile="msvc7",
@@ -519,7 +519,7 @@ class TestInit:
     ) -> None:
         """gcc profile generates AGENTS.md with ELF constraints."""
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="t",
             binary_name="t.exe",
             compiler_profile="gcc",
@@ -644,7 +644,7 @@ class TestInitCompletions:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="t",
             binary_name="t.exe",
             compiler_profile="msvc6",
@@ -669,7 +669,7 @@ class TestInitCompletions:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="t",
             binary_name="t.exe",
             compiler_profile="msvc6",
@@ -681,7 +681,7 @@ class TestInitCompletions:
 
     def test_scripts_deterministic(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="t",
             binary_name="t.exe",
             compiler_profile="msvc6",
@@ -706,7 +706,7 @@ class TestInitCompletions:
         import json
 
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="t",
             binary_name="t.exe",
             compiler_profile="msvc6",
@@ -832,7 +832,7 @@ class TestProfileMismatchWarning:
         pure JSON (the main init payload remains machine-parseable)."""
         import json
 
-        from rebrew.init import init
+        from rebrew.init import main
 
         original = tmp_path / "original"
         original.mkdir()
@@ -844,7 +844,7 @@ class TestProfileMismatchWarning:
         ne.write_bytes(bytes(data))
 
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="game",
             binary_name="game.exe",
             compiler_profile="msvc6",
@@ -867,10 +867,10 @@ class TestInitTc16:
         import warnings
 
         from rebrew.config import load_config
-        from rebrew.init import init
+        from rebrew.init import main
 
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="main",
             binary_name="main.exe",
             compiler_profile="tc16",
@@ -899,10 +899,10 @@ class TestInitDelphi16:
         import warnings
 
         from rebrew.config import load_config
-        from rebrew.init import init
+        from rebrew.init import main
 
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="main",
             binary_name="main.exe",
             compiler_profile="delphi16",
@@ -928,10 +928,10 @@ class TestInitDelphi16:
     def test_init_delphi16_agents_md(self, tmp_path: Path, monkeypatch) -> None:
         """The generated AGENTS.md must describe the Pascal/research path,
         not fall through to the GCC constraints (ELF / objdump / C99)."""
-        from rebrew.init import init
+        from rebrew.init import main
 
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="main",
             binary_name="main.exe",
             compiler_profile="delphi16",
@@ -951,7 +951,7 @@ class TestInitGuessCompiler:
     for DOS/NE binaries."""
 
     def test_guess_borlandc_from_real_exe(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.init import init
+        from rebrew.init import main
 
         fixture = Path(__file__).parent / "fixtures" / "tc16_hello.exe"
         if not fixture.exists():
@@ -961,7 +961,7 @@ class TestInitGuessCompiler:
 
         shutil.copy(fixture, tmp_path / "original" / "game.exe")
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="main",
             binary_name="game.exe",
             guess_compiler=True,
@@ -973,7 +973,7 @@ class TestInitGuessCompiler:
         assert 'profile = "tc16"' in content
 
     def test_guess_msvc16_ne_binary(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.init import init
+        from rebrew.init import main
         from rebrew.toolchain_detect import ToolchainInfo
 
         def _fake_detect(path):
@@ -989,7 +989,7 @@ class TestInitGuessCompiler:
         (tmp_path / "original").mkdir()
         (tmp_path / "original" / "prog.exe").write_bytes(b"MZ")
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="main",
             binary_name="prog.exe",
             guess_compiler=True,
@@ -1001,11 +1001,11 @@ class TestInitGuessCompiler:
         assert 'profile = "msvc1.52"' in content
 
     def test_guess_missing_binary_errors(self, tmp_path: Path, monkeypatch, capsys) -> None:
-        from rebrew.init import init
+        from rebrew.init import main
 
         monkeypatch.chdir(tmp_path)
         with pytest.raises(typer.Exit):
-            init(
+            main(
                 target_name="main",
                 binary_name="ghost.exe",
                 guess_compiler=True,
@@ -1022,7 +1022,7 @@ class TestGuessCompilerFailure:
     def test_unknown_family_suggests_explicit_compiler(
         self, tmp_path: Path, monkeypatch, capsys
     ) -> None:
-        from rebrew.init import init
+        from rebrew.init import main
         from rebrew.toolchain_detect import ToolchainInfo
 
         def _fake_detect(path):
@@ -1039,7 +1039,7 @@ class TestGuessCompilerFailure:
         (tmp_path / "original" / "weird.bin").write_bytes(b"\x00" * 64)
         monkeypatch.chdir(tmp_path)
         with pytest.raises(typer.Exit):
-            init(
+            main(
                 target_name="main",
                 binary_name="weird.bin",
                 guess_compiler=True,

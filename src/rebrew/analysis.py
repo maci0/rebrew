@@ -179,14 +179,11 @@ def _op_constants() -> tuple[Any, Any, Any]:
     return _OP_CONSTANTS
 
 
-def iter_instructions(
-    info: BinaryInfo, va: int, size: int, section_names: list[str] | None = None
-) -> list[Insn]:
+def iter_instructions(info: BinaryInfo, va: int, size: int) -> list[Insn]:
     """Disassemble *size* bytes at *va*, returning ``Insn`` records.
 
     Disassembly stops at the first invalid byte (capstone ``stop`` callback
-    semantics).  *section_names* is accepted for API symmetry but unused — the
-    caller already restricts *va*/*size* to the section it wants.
+    semantics).
     """
     if size <= 0:
         return []

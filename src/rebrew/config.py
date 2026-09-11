@@ -345,7 +345,6 @@ class ProjectConfig:
     text_raw_offset: int = 0
 
     # --- Project-specific (loaded from TOML if present) ---
-    game_range_end: int | None = None
     iat_thunks: list[int] = field(default_factory=list)
     dll_exports: dict[int, str] = field(default_factory=dict)
     ignored_symbols: list[str] = field(default_factory=list)
@@ -831,7 +830,6 @@ _KNOWN_TARGET_KEYS = {
     "bin_dir",
     "compiler",
     "r2_bogus_vas",
-    "game_range_end",  # legacy/no-op: parsed and stored, never read by any tool
     "iat_thunks",
     "dll_exports",
     "ignored_symbols",
@@ -1224,7 +1222,6 @@ def load_config(
         padding_bytes=arch_preset["padding_bytes"],
         symbol_prefix=arch_preset["symbol_prefix"],
         # project-specific
-        game_range_end=_parse_optional_int(tgt.get("game_range_end"), "game_range_end"),
         iat_thunks=_parse_int_list(tgt.get("iat_thunks", []), "iat_thunks"),
         dll_exports=_parse_hex_dict(tgt.get("dll_exports", {})),
         ignored_symbols=_parse_str_list(tgt.get("ignored_symbols", []), "ignored_symbols"),
@@ -1318,14 +1315,5 @@ def load_config(
     if unknown_cache:
         _config_warn(f"rebrew-project.toml [cache]: unrecognized keys: {sorted(unknown_cache)}")
     cfg.cache_backend = _as_str(cache_raw.get("backend"), "diskcache", "cache.backend")
-
-    if cfg.game_range_end is not None:
-        # Legacy/no-op key: parsed and stored but never read by any tool
-        # (config.py documents it as such).  Warn so a user setting it does
-        # not believe it constrains discovery (config-review F5).
-        _config_warn(
-            f"game_range_end = {cfg.game_range_end:#x} is a legacy no-op key — "
-            "no tool reads it; remove it from rebrew-project.toml"
-        )
 
     return cfg

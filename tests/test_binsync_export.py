@@ -334,7 +334,10 @@ class TestBinsyncWriters:
         from rebrew.binsync_export import _write_global_vars_toml
 
         out = tmp_path / "global_vars.toml"
-        _write_global_vars_toml(out, [(0x2000, "g_b", 0), (0x1000, "g_a", 4)])
+        _write_global_vars_toml(
+            out,
+            [(0x2000, "g_b", 0, "char", None), (0x1000, "g_a", 4, "char", None)],
+        )
         text = out.read_text()
         # Sorted by VA → g_a (0x1000) first.
         assert text.index("g_a") < text.index("g_b")
@@ -389,7 +392,7 @@ class TestBinsyncGhidraComment:
             ghidra="",
         )
         gv = tmp_path / "global_vars.toml"
-        _write_global_vars_toml(gv, [(0x2000, "g_var", 4)])
+        _write_global_vars_toml(gv, [(0x2000, "g_var", 4, "char", None)])
         st = tmp_path / "structs" / "S.toml"
         st.parent.mkdir(parents=True)
         _write_struct_toml(st, "S", fields=[{"name": "x", "type": "int"}])

@@ -593,7 +593,7 @@ class TestInlineMetadataWarning:
 
     def test_metadata_backed_inline_not_counted(self, tmp_path: Path) -> None:
         """An inline key already owned by rebrew-functions.toml is not counted."""
-        from rebrew.metadata import set_field
+        from rebrew.metadata import update_field
 
         cfg = _make_cfg(tmp_path)
         src = tmp_path / "src"
@@ -603,13 +603,13 @@ class TestInlineMetadataWarning:
             "// FUNCTION: TEST 0x1000\n// SIZE: 42\nvoid func_a(void) {}\n",
             encoding="utf-8",
         )
-        set_field(tmp_path, 0x1000, "size", 42, module="TEST")
+        update_field(tmp_path, 0x1000, "size", 42, module="TEST")
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.inline_metadata_warning == 0
 
     def test_pending_cflags_before_marker_backed_not_counted(self, tmp_path: Path) -> None:
         """A // CFLAGS before the marker, backed by metadata, is not counted."""
-        from rebrew.metadata import set_field
+        from rebrew.metadata import update_field
 
         cfg = _make_cfg(tmp_path)
         src = tmp_path / "src"
@@ -620,7 +620,7 @@ class TestInlineMetadataWarning:
             "void func_a(void) {}\n",
             encoding="utf-8",
         )
-        set_field(tmp_path, 0x1000, "cflags", "/O2 /Gd /DREBREW_ALLOW_NAKED", module="TEST")
+        update_field(tmp_path, 0x1000, "cflags", "/O2 /Gd /DREBREW_ALLOW_NAKED", module="TEST")
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.inline_metadata_warning == 0
 

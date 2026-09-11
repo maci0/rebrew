@@ -494,7 +494,7 @@ class TestFixBlocker:
         )
         calls: list[object] = []
         monkeypatch.setattr(
-            "rebrew.metadata.set_field",
+            "rebrew.metadata.update_field",
             lambda *a, **k: calls.append((a, k)),
         )
         # Mock the analysis pipeline so no compile is needed.
@@ -580,7 +580,7 @@ class TestAllBatch:
             },
         )
         calls: list[object] = []
-        monkeypatch.setattr("rebrew.metadata.set_field", lambda *a, **k: calls.append((a, k)))
+        monkeypatch.setattr("rebrew.metadata.update_field", lambda *a, **k: calls.append((a, k)))
         result = CliRunner().invoke(app, args)
         return result, calls
 
@@ -841,7 +841,7 @@ class TestFixBlockerDryRun:
             encoding="utf-8",
         )
         calls: list[object] = []
-        monkeypatch.setattr("rebrew.metadata.set_field", lambda *a, **k: calls.append(1))
+        monkeypatch.setattr("rebrew.metadata.update_field", lambda *a, **k: calls.append(1))
         monkeypatch.setattr(
             "rebrew.near_diag.analyze",
             lambda *a, **k: {
@@ -865,7 +865,7 @@ class TestFixBlockerDryRun:
         )
         result = CliRunner().invoke(app, ["--fix-blocker", "--dry-run", str(src)])
         assert result.exit_code == 0, result.output
-        assert calls == []  # set_field never invoked under --dry-run
+        assert calls == []  # update_field never invoked under --dry-run
 
     def test_dry_run_reports_would_write_in_json(self, tmp_path: Path, monkeypatch) -> None:
         import json
@@ -893,7 +893,7 @@ class TestFixBlockerDryRun:
             "// FUNCTION: S 0x1000\n// SIZE: 8\nint f(void) { return 0; }\n",
             encoding="utf-8",
         )
-        monkeypatch.setattr("rebrew.metadata.set_field", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.metadata.update_field", lambda *a, **k: None)
         monkeypatch.setattr(
             "rebrew.near_diag.analyze",
             lambda *a, **k: {
@@ -1007,7 +1007,7 @@ class TestFixBlockerPreservesGaCeiling:
             encoding="utf-8",
         )
         writes: list[object] = []
-        monkeypatch.setattr("rebrew.metadata.set_field", lambda *a, **k: writes.append(a))
+        monkeypatch.setattr("rebrew.metadata.update_field", lambda *a, **k: writes.append(a))
         monkeypatch.setattr(
             "rebrew.metadata.get_entry",
             lambda *a, **k: {"blocker": "GA_CEILING: register-only byte delta (effective match)"},

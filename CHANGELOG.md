@@ -1,4 +1,23 @@
 ## [Unreleased]
+### Added
+- **Layout reproduction pipeline** — five commands closing the
+  measure→order→check→search→normalize loop postlink needs: `rebrew
+  layout-map` (reference section/gap/IAT/export/toolchain measurements +
+  committed `text-map/` package), `rebrew link-order` (enforce VA-ordered
+  sources into `CMakeLists.txt` SOURCES; `--check` CI drift gate), `rebrew
+  text-audit` (built .text function VAs vs markers — the position-alignment
+  gate postlink assumes), `rebrew merge-sweep` (deterministic TU-partition
+  search over `cu-map` clusters, JSON audit log), and `rebrew verify
+  --text` (the gate folded into verify). Pipeline prose in
+  `docs/POSTLINK.md`; pointers in the workflow/matching skills.
+### Removed
+- **Shim pass, no back-compat** — deleted `parse_c_file` (use
+  `parse_c_file_multi`), the `init = main` alias, `set_field` (use
+  `update_field` / `update_source_status` / `_set_field`), the hidden
+  `extract` alias for `show`, the unused `iter_instructions section_names`
+  param, the `game_range_end` legacy no-op key, and the 3-tuple shape of
+  `_write_global_vars_toml`; narrowed `analyze reloc_offsets` to
+  `set[int]`. Callers and tests migrated.
 ### Fixed
 - **`--seed-kuna` works without manual env setup** — kuna reads SLEIGH specs
   from `KUNA_SPECS` (default `/specs/`, which rarely exists) and rejects the

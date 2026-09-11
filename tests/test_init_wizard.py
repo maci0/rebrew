@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
-from rebrew.init import app, init
+from rebrew.init import app, main
 
 _FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -90,7 +90,7 @@ class TestWizardGating:
         _no_prompts(monkeypatch)
         image_present(monkeypatch, True)
         monkeypatch.chdir(tmp_path)
-        init(
+        main(
             target_name="demo",
             binary_name="demo.exe",
             compiler_profile="msvc6",

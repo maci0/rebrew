@@ -1505,10 +1505,6 @@ def main(
             console.print("  fish: source completions/rebrew.fish")
 
 
-# Alias so main.py can register the command as ``init`` without renaming the callback.
-init = main
-
-
 def main_entry() -> None:
     """Run the Typer CLI application.
 

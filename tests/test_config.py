@@ -288,19 +288,6 @@ crt_sources = "toolchain/msvc/6.0-win32/VC98/CRT/SRC"
             cfg = load_config(root)
         assert cfg.crt_sources == {}
 
-    def test_game_range_end_hex_string(self, tmp_path: Path) -> None:
-        toml = """\
-[project]
-default_target = "main"
-
-[targets.main]
-binary = "test.exe"
-game_range_end = "0x1000ABCD"
-"""
-        root = _make_project(tmp_path, toml)
-        cfg = load_config(root)
-        assert cfg.game_range_end == 0x1000ABCD
-
     def test_source_ext_without_dot_is_normalized(self, tmp_path: Path) -> None:
         toml = """\
 [project]
@@ -530,9 +517,9 @@ api_key = "secret-key"
         assert cfg.llm_api_key == "secret-key"
 
     def test_dead_config_keys_warn(self, tmp_path: Path) -> None:
-        """Reserved/no-op keys ([compiler.profiles], game_range_end) must warn
-        at load — a user configuring them gets zero effect, so the no-op must
-        be visible, not silent (config-review F5)."""
+        """Reserved/no-op keys ([compiler.profiles]) must warn at load — a user
+        configuring them gets zero effect, so the no-op must be visible, not
+        silent (config-review F5)."""
         toml = """\
 [project]
 default_target = "main"
@@ -542,12 +529,9 @@ command = "clang"
 
 [targets.main]
 binary = "test.exe"
-game_range_end = 0x20000000
 """
         root = _make_project(tmp_path, toml)
         with pytest.warns(UserWarning, match=r"unrecognized keys.*profiles"):
-            load_config(root)
-        with pytest.warns(UserWarning, match="legacy no-op key"):
             load_config(root)
 
     def test_unknown_target_key_warns(self, tmp_path: Path) -> None:

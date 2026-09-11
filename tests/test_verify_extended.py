@@ -1661,11 +1661,11 @@ class TestFixSizes:
         assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("size") == 128
 
     def test_dry_run_writes_nothing(self, tmp_path: Path) -> None:
-        from rebrew.metadata import get_entry, set_field
+        from rebrew.metadata import get_entry, update_field
         from rebrew.verify import _apply_size_fixes
 
         cfg = _cfg(tmp_path)
-        set_field(cfg.metadata_dir, 0x1000, "size", 64, module="SERVER")
+        update_field(cfg.metadata_dir, 0x1000, "size", 64, module="SERVER")
         divergences = [
             {
                 "va": "0x1000",

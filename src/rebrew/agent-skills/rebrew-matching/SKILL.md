@@ -141,7 +141,8 @@ rebrew match src/<target>/<file>.c --flag-sweep-only --tier normal        # 5,37
 rebrew match src/<target>/<file>.c --flag-sweep-only --tier thorough      # 258k combos, ~15–60 min
 rebrew match src/<target>/<file>.c --flag-sweep-only --tier full          # 6.2M combos, hours
 rebrew match --all --flag-sweep                                           # batch: all NEAR_MATCHING
-rebrew match --all --flag-sweep --fix-cflags                              # auto-update CFLAGS on hit
+rebrew match --all --flag-sweep --fix-cflags                             # auto-update CFLAGS on hit
+rebrew merge-sweep --dry-run                         # TU-partition search (original was amalgamated)
 rebrew match --all --flag-sweep-then-ga                                        # sweep flags, then GA with best flags
 rebrew match --all --flag-sweep-then-ga --skip-recent 24                       # resume: skip stubs GA-run in last 24h
 ```

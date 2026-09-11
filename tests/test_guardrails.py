@@ -60,7 +60,7 @@ def _write_c(tmp_path: Path, name: str, content: str) -> Path:
 
 
 class TestParserConsolidation:
-    """Verify parse_source_metadata delegates to parse_c_file."""
+    """Verify parse_source_metadata delegates to parse_c_file_multi."""
 
     def test_status_matches(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
@@ -190,9 +190,9 @@ class TestSafeWriteBack:
     def test_blocker_removed(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "stub.c", STUB_HEADER)
         # Pre-populate metadata with BLOCKER
-        from rebrew.metadata import set_field
+        from rebrew.metadata import update_field
 
-        set_field(tmp_path, 0x10008880, "blocker", "initial decompilation", module="SERVER")
+        update_field(tmp_path, 0x10008880, "blocker", "initial decompilation", module="SERVER")
         update_source_status(tmp_path, "RELOC", "SERVER", 0x10008880, clear_blockers=True)
         # Blocker gone from metadata
         entry = get_entry(tmp_path, 0x10008880, module="SERVER")

@@ -99,7 +99,7 @@ def main(
 
     if backfill_blockers:
         from rebrew.intake import blocker_reason
-        from rebrew.metadata import get_entry, set_field
+        from rebrew.metadata import get_entry, update_field
         from rebrew.naming import load_data
 
         _ghidra, existing, _covered = load_data(cfg)
@@ -112,12 +112,12 @@ def main(
                 size = int(info.get("size") or 0)
                 reason = blocker_reason(family, size, "")
                 if not dry_run:
-                    set_field(cfg.metadata_dir, va, "blocker", reason, module=module)
+                    update_field(cfg.metadata_dir, va, "blocker", reason, module=module)
                     # Same self-heal as classify_all: a blocker for a size-less
                     # stub is incomplete — record the binary-derived size so
                     # rebrew test can run on it.
                     if size > 0 and not entry.get("size"):
-                        set_field(cfg.metadata_dir, va, "size", size, module=module)
+                        update_field(cfg.metadata_dir, va, "size", size, module=module)
                         sizes_written += 1
                 backfilled += 1
         payload = {

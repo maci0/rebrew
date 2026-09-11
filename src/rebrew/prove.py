@@ -1858,12 +1858,12 @@ def _record_prove_counterexample(cfg: Any, ann: Any, message: str) -> None:
     if not any(tok in message for tok in ("EAX", "EDX", "differs")):
         return  # timeout / path explosion / internal error — not a counterexample
     try:
-        from rebrew.metadata import load_metadata, set_field
+        from rebrew.metadata import load_metadata, update_field
 
         existing = load_metadata(cfg.metadata_dir).get((ann.module, ann.va), {})
         if existing.get("note"):
             return
-        set_field(cfg.metadata_dir, ann.va, "note", f"prove: {message}", module=ann.module)
+        update_field(cfg.metadata_dir, ann.va, "note", f"prove: {message}", module=ann.module)
     except Exception:  # best-effort; never fail the prove flow
         return
 

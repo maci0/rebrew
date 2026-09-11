@@ -68,7 +68,6 @@ _TARGET_SCOPED_KEYS: frozenset[str] = frozenset(
         "crt_sources",
         "ghidra_program_path",
         "ghidra_backend",
-        "game_range_end",
         "r2_bogus_vas",
         "iat_thunks",
         "dll_exports",
