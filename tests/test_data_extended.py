@@ -129,6 +129,21 @@ class TestGenGlobalsHeader:
         text = out.read_text(encoding="utf-8")
         assert text.count("extern") == 1  # one decl despite two annotations
 
+    def test_metadata_name_is_not_undecorated(self, tmp_path: Path) -> None:
+        """A metadata name is already the C identifier, so CRT names keep their
+        leading underscores: `_FPinit` must not be written as `FPinit`."""
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "globals.c").write_text(
+            "// DATA: SERVER 0x1000\nint x;\n", encoding="utf-8"
+        )
+        (cfg.metadata_dir / "rebrew-data.toml").write_text(
+            '["SERVER.0x1000"]\nname = "_FPinit"\ntype = "void *"\nsection = ".data"\n',
+            encoding="utf-8",
+        )
+        _gen_globals_header(cfg, cfg.reversed_dir, force=True)
+        text = (cfg.reversed_dir / "rebrew_globals.h").read_text(encoding="utf-8")
+        assert "extern void * _FPinit;" in text, text
+
     def test_refuses_overwrite_without_force(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
         out = cfg.reversed_dir / "rebrew_globals.h"

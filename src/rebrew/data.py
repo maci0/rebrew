@@ -1225,9 +1225,18 @@ def _gen_globals_header(
             se = metadata.get(sk, {})
 
             # Prefer annotation name; fall back to metadata name; then to address-based
-            raw_name = ann.name or ann.symbol or str(se.get("name", "")) or ""
-            if raw_name.startswith("_"):
-                raw_name = raw_name[1:]
+            if ann.name:
+                raw_name = ann.name
+            elif str(se.get("name", "")):
+                # A metadata name is already the C name: `_FPinit`, `_osver` and
+                # the `__sbh_*` family are the real identifiers, not decorated.
+                raw_name = str(se["name"])
+            else:
+                # Only a bare object-file symbol carries the compiler's leading
+                # underscore; strip that one.
+                raw_name = ann.symbol or ""
+                if raw_name.startswith("_"):
+                    raw_name = raw_name[1:]
             name = raw_name or f"g_{va:08x}"
 
             section = ann.section or str(se.get("section", ""))
