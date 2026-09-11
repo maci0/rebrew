@@ -11,6 +11,7 @@ from rebrew.toolchain import (
     ToolchainError,
     ToolchainSpec,
     get_toolchain,
+    image_msvc_env,
     run_toolchain,
 )
 
@@ -78,6 +79,60 @@ class TestRegistry:
         assert TOOLCHAINS["gcc-pe"].family == "gcc-pe"
 
 
+class TestImageMsvcEnv:
+    """Every MSVC 6.0 image needs INCLUDE/LIB from its own tree.
+
+    The service-pack images' ``cl`` wrappers do not all export them, and a
+    missing export surfaces as a C1083 that the flag sweep reports as a
+    compile failure — five of the seven MSVC 6.0 builds were unusable that
+    way before the runner supplied the env itself.
+    """
+
+    def test_every_msvc6_profile_declares_the_container_root(self) -> None:
+        for name in (
+            "msvc6",
+            "msvc600sp1",
+            "msvc600sp2",
+            "msvc600sp3",
+            "msvc600sp4",
+            "msvc600sp5",
+            "msvc600sp6",
+        ):
+            spec = TOOLCHAINS[name]
+            assert spec.tool_root, f"{name} has no tool_root"
+            env = image_msvc_env(spec)
+            assert env["INCLUDE"].startswith("Z:\\opt\\")
+            assert env["LIB"].startswith("Z:\\opt\\")
+
+    def test_dirs_are_derived_from_tool_root(self) -> None:
+        spec = ToolchainSpec(
+            name="t",
+            image="rebrew/msvc:6.0-win32",
+            binary="cl",
+            runtime="wine",
+            tool_root="/opt/msvc6.0/VC98/Bin",
+        )
+        assert image_msvc_env(spec) == {
+            "INCLUDE": "Z:\\opt\\msvc6.0\\VC98\\Include",
+            "LIB": "Z:\\opt\\msvc6.0\\VC98\\Lib",
+        }
+
+    def test_non_msvc_runtimes_get_no_env(self) -> None:
+        assert (
+            image_msvc_env(
+                ToolchainSpec(
+                    name="t",
+                    image="rebrew/x:1",
+                    binary="cc",
+                    runtime="native",
+                    tool_root="/opt/x/Bin",
+                )
+            )
+            == {}
+        )
+        assert image_msvc_env(TOOLCHAINS["gcc-pe"]) == {}
+
+
 class TestRunToolchain:
     def test_docker_backend_uses_image_and_mount(self, tmp_path: Path, monkeypatch) -> None:
         spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="cl", image_binary="cl")
@@ -93,6 +148,25 @@ class TestRunToolchain:
         assert calls[0][6:10] == ["-v", f"{tmp_path.resolve()}:/work", "-w", "/work"]
         assert calls[0][10:12] == ["rebrew/t:latest", "cl"]
         assert calls[0][12:] == ["/c", "f.c"]
+
+    def test_docker_msvc_image_exports_include_and_lib(self, tmp_path: Path, monkeypatch) -> None:
+        """An image-backed MSVC spec carries its own INCLUDE/LIB (the SP
+        wrappers that do not export them would otherwise fail with C1083)."""
+        spec = ToolchainSpec(
+            name="t",
+            image="rebrew/msvc:6.0-sp1-win32",
+            binary="cl",
+            runtime="wine",
+            tool_root="/opt/msvc6.0-sp1/VC98/bin",
+        )
+        calls = _monkey_docker(monkeypatch)
+        run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path)
+        cmd = calls[0]
+        include = "INCLUDE=Z:\\opt\\msvc6.0-sp1\\VC98\\Include"
+        assert include in cmd
+        assert "LIB=Z:\\opt\\msvc6.0-sp1\\VC98\\Lib" in cmd
+        # env must precede the image tag, or docker reads it as a command.
+        assert cmd.index(include) < cmd.index(spec.image)
 
     def test_docker_entrypoint_image_passes_no_command(self, tmp_path: Path, monkeypatch) -> None:
         """image_binary=None means the image ENTRYPOINT is the compiler —
