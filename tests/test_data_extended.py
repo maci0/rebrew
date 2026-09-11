@@ -96,8 +96,23 @@ class TestEmitExternDecl:
     def test_array_type(self) -> None:
         assert (
             _emit_extern_decl({"name": "g_arr", "type": "unsigned char[16]"})
-            == "extern unsigned char[16] g_arr;"
+            == "extern unsigned char g_arr[16];"
         )
+
+    def test_struct_array_type(self) -> None:
+        assert (
+            _emit_extern_decl({"name": "g_rterrlist", "type": "struct rterr_entry[18]"})
+            == "extern struct rterr_entry g_rterrlist[18];"
+        )
+
+    def test_function_pointer_type(self) -> None:
+        assert (
+            _emit_extern_decl({"name": "g_hook", "type": "void (__cdecl *)(int)"})
+            == "extern void (__cdecl *g_hook)(int);"
+        )
+
+    def test_plain_pointer_type_unchanged(self) -> None:
+        assert _emit_extern_decl({"name": "p", "type": "void *"}) == "extern void * p;"
 
 
 class TestGenGlobalsHeader:
@@ -519,7 +534,7 @@ class TestGenGlobalsHeaderMetadata:
         text = (cfg.reversed_dir / "rebrew_globals.h").read_text(encoding="utf-8")
         # Underscore stripped from symbol-derived name.
         assert "g_counter" in text
-        assert "int[4] g_counter" in text
+        assert "extern int g_counter[4];" in text
         assert ".rdata" in text
         assert "16 bytes" in text
 

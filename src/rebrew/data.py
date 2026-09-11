@@ -1158,15 +1158,27 @@ def _emit_extern_decl(row: dict[str, Any]) -> str:
     """Format an `extern` declaration honoring an explicit `type` when given.
 
     Uses `unsigned char <name>[]` as the fallback when no type is specified.
-    Otherwise emits `extern <type> <name>;` — the type string itself carries
-    any pointer/array-ness, so no separate array handling is needed.
+    A metadata type carries its pointer/array-ness in the string, but the
+    declarator still has to be assembled around the *name*: `struct T[18] x`
+    and `void (*)(int) x` are not C, while `struct T x[18]` and
+    `void (*x)(int)` are.  Measured on a project whose header was generated
+    this way and never compiled, because nothing included it.
     """
     type_str = (row.get("type") or "").strip()
     name = row["name"]
     if not type_str:
         return f"extern unsigned char {name}[];"
-    # Both the pointer and array spellings emit identically — MSVC accepts
-    # `extern T name;` for either (the type carries the pointer/array-ness).
+    array = re.search(r"\s*(\[[^\]]*\])$", type_str)
+    if array:
+        base = type_str[: array.start()].strip()
+        return f"extern {base} {name}{array.group(1)};"
+    if "(*)" in type_str:
+        return f"extern {type_str.replace('(*)', f'(*{name})', 1)};"
+    fp = re.match(r"^(.*)\(\s*([^()]*?)\s*\*\s*\)(.*)$", type_str)
+    if fp:
+        prefix, quals, suffix = fp.group(1), fp.group(2), fp.group(3)
+        inner = f"{quals} *{name}" if quals else f"*{name}"
+        return f"extern {prefix}({inner}){suffix};"
     return f"extern {type_str} {name};"
 
 
