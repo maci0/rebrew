@@ -428,6 +428,58 @@ class TestRenameData:
         assert res.exit_code == 0, res.output
         assert get_data_entry(tmp_path, 0x2000, "SERVER").get("name") == "g_old"
 
+    def test_rename_data_metadata_only(self, tmp_path: Path, monkeypatch) -> None:
+        """A metadata-only entry (no marker) renames via the metadata store."""
+        import typer as _typer
+        from typer.testing import CliRunner
+
+        from rebrew.data_metadata import get_data_entry
+        from rebrew.rename import main as _rename_main
+
+        app = _typer.Typer()
+        app.command()(_rename_main)
+
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        (src / "use.c").write_text(
+            "// FUNCTION: SERVER 0x1000\nint f(void){return $SG18890;}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "rebrew-data.toml").write_text(
+            '["SERVER.0x313fc"]\nname = "$SG18890"\nsize = 4\n',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        res = CliRunner().invoke(app, ["0x313fc", "g_100313fc", "--data"])
+        assert res.exit_code == 0, res.output
+        assert get_data_entry(tmp_path, 0x313FC, "SERVER").get("name") == "g_100313fc"
+        text = (src / "use.c").read_text(encoding="utf-8")
+        assert "g_100313fc" in text
+
+    def test_rename_data_metadata_only_dry_run(self, tmp_path: Path, monkeypatch) -> None:
+        import typer as _typer
+        from typer.testing import CliRunner
+
+        from rebrew.data_metadata import get_data_entry
+        from rebrew.rename import main as _rename_main
+
+        app = _typer.Typer()
+        app.command()(_rename_main)
+
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        (src / "use.c").write_text(
+            "// FUNCTION: SERVER 0x1000\nint f(void){return 0;}\n", encoding="utf-8"
+        )
+        (tmp_path / "rebrew-data.toml").write_text(
+            '["SERVER.0x313fc"]\nname = "$SG18890"\nsize = 4\n',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        res = CliRunner().invoke(app, ["$SG18890", "g_100313fc", "--data", "--dry-run"])
+        assert res.exit_code == 0, res.output
+        assert get_data_entry(tmp_path, 0x313FC, "SERVER").get("name") == "$SG18890"
+
     def test_rename_data_collision_refused(self, tmp_path: Path, monkeypatch) -> None:
         import typer as _typer
         from typer.testing import CliRunner

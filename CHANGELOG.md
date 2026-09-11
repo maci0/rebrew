@@ -1,5 +1,11 @@
 ## [Unreleased]
 ### Fixed
+- **`rename --data` handles metadata-only entries** — a VA with a name in
+  `rebrew-data.toml` but no marker in the tree (e.g. an `$SG` string
+  constant) no longer errors; the metadata name is renamed and source
+  occurrences rewritten when any exist. Name matching tolerates
+  compiler-emitted `$` leads (`\b` never matches before `$`).
+### Fixed
 - **`data --gen-header` takes each global's type from its source
   declaration** — the header read the type from `rebrew-data.toml`, whose
   guess is demonstrably wrong for several globals (e.g. `float` for
