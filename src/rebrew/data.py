@@ -189,6 +189,10 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
     result = ScanResult()
     # Track all type declarations per name for conflict detection
     type_by_name: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+    # Globals key by (name, va): the same name annotated at two VAs in two
+    # files is two globals (a TU-local collision), not one entry whose
+    # second annotation is skipped.
+    by_key: dict[tuple[str, int], GlobalEntry] = {}
 
     if not src_dir.exists():
         return result
@@ -208,8 +212,8 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
         # Pre-compute extern variables from tree-sitter (used for unannotated scan)
         extern_vars = {v.name: v for v in find_extern_variables(text)}
 
-        # Track which extern names are already handled via GLOBAL annotation
-        annotated_names: set[str] = set()
+        # Track which (name, va) pairs are already handled via GLOBAL annotation
+        annotated_keys: set[tuple[str, int]] = set()
 
         for i, line in enumerate(lines):
             # 1. Check for // GLOBAL: annotation
@@ -240,16 +244,23 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                     if id_match:
                         name = id_match.group(1)
 
-                annotated_names.add(name)
+                key = (name, va)
+                annotated_keys.add(key)
 
-                entry = result.globals.get(name)
+                entry = by_key.get(key)
                 if entry is None:
-                    entry = GlobalEntry(name=name, va=va, type_str=type_str, annotated=True)
-                    result.globals[name] = entry
-                else:
-                    # Update VA if not set
-                    if not entry.va:
+                    # An extern-only (name, 0) entry from an earlier file is
+                    # the same global awaiting its VA — adopt it rather than
+                    # forking a duplicate.
+                    entry = by_key.pop((name, 0), None)
+                    if entry is not None:
                         entry.va = va
+                        entry.annotated = True
+                        by_key[key] = entry
+                    else:
+                        entry = GlobalEntry(name=name, va=va, type_str=type_str, annotated=True)
+                        by_key[key] = entry
+                else:
                     entry.annotated = True
 
                 if fname not in entry.declared_in:
@@ -262,19 +273,26 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
 
         # 2. Add unannotated extern variables from tree-sitter
         for ev_name, ev in extern_vars.items():
-            if ev_name in annotated_names:
+            if any(k[0] == ev_name for k in annotated_keys):
                 continue  # Already handled via GLOBAL annotation
 
-            entry = result.globals.get(ev_name)
+            key = (ev_name, 0)
+            entry = by_key.get(key)
             if entry is None:
                 entry = GlobalEntry(name=ev_name, type_str=ev.type_str)
-                result.globals[ev_name] = entry
+                by_key[key] = entry
 
             if fname not in entry.declared_in:
                 entry.declared_in.append(fname)
 
             if ev.type_str:
                 type_by_name[ev_name][ev.type_str].append(fname)
+
+    for (name, va), entry in by_key.items():
+        if va and name in result.globals and result.globals[name] is not entry:
+            result.globals[f"{name}@0x{va:x}"] = entry
+        else:
+            result.globals[name] = entry
 
     # Detect type conflicts: same name, different type strings
     for name, types in type_by_name.items():
@@ -284,8 +302,9 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                 "types": dict(types),
             }
             result.type_conflicts.append(conflict)
-            if name in result.globals:
-                result.globals[name].type_str += " ⚠ CONFLICT"
+            for entry in by_key.values():
+                if entry.name == name:
+                    entry.type_str += " ⚠ CONFLICT"
 
     return result
 
@@ -1182,6 +1201,34 @@ def _emit_extern_decl(row: dict[str, Any]) -> str:
     return f"extern {type_str} {name};"
 
 
+def _set_data_types(
+    cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
+) -> list[dict[str, str]]:
+    """Set declared global types in rebrew-data.toml from ``0xVA=TYPE`` specs.
+
+    The declared type decides which of two conflicting declarations the
+    compiler sees, and `--gen-header` reads it from the metadata, so a wrong
+    one has to be correctable through the tool rather than by editing the TOML.
+    """
+    from rebrew.data_metadata import set_data_field
+    from rebrew.sources import target_marker
+
+    module = target_marker(cfg) or ""
+    if not module:
+        raise ValueError("no target marker configured to address the data metadata")
+    rows: list[dict[str, str]] = []
+    for spec in specs:
+        va_s, sep, type_s = spec.partition("=")
+        type_s = type_s.strip()
+        if not sep or not type_s:
+            raise ValueError(f"--set-type wants 0xVA=TYPE, got {spec!r}")
+        va = int(va_s, 16)
+        if not dry_run:
+            set_data_field(cfg.metadata_dir, va, "type", type_s, module)
+        rows.append({"va": f"0x{va:x}", "type": type_s, "module": module})
+    return rows
+
+
 def _gen_globals_header(
     cfg: ProjectConfig,
     src_dir: Path,
@@ -1381,6 +1428,11 @@ def main(
         "--annotate",
         help="Insert // GLOBAL: markers from the data metadata into the sources",
     ),
+    set_type: list[str] = typer.Option(
+        [],
+        "--set-type",
+        help="Set a global's declared type in rebrew-data.toml: 0xVA=TYPE (repeatable)",
+    ),
     gen_header_out: Path | None = typer.Option(
         None,
         "--gen-header-out",
@@ -1444,6 +1496,19 @@ def main(
 
     src_dir = cfg.reversed_dir
     bin_path = cfg.target_binary
+
+    # --set-type: correct a declared global type in the data metadata
+    if set_type:
+        try:
+            rows = _set_data_types(cfg, set_type, dry_run=dry_run)
+        except ValueError as exc:
+            error_exit(str(exc), json_mode=json_output)
+        if json_output:
+            json_print({"dry_run": dry_run, "set": rows})
+        else:
+            for row in rows:
+                console.print(f"set type {row['type']!r} for {row['va']} ({row['module']})")
+        return
 
     # --gen-header: generate rebrew_globals.h from annotations (no Ghidra)
     if gen_header:
