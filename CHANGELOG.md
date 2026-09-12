@@ -149,6 +149,13 @@
   sources now exist.
 
 ### Changed
+- **rebrew reads the workspace config and coverage.db path from
+  `rebrew-workspace`**: `walk_up_to_root`, the `SCHEMA_TARGET` stamp and
+  `resolve_db_dir` come from the shared stdlib-only package that recoverage and
+  reportal also use, so the builder and the dashboards cannot disagree on where
+  `coverage.db` lives.  `build-db` keeps its strict `_check_db_version` (locked
+  DBs must never be deleted; a corrupt file is rebuilt), which the tolerant
+  shared reader deliberately does not try to express.
 - **`rebrew init --refresh-agents` refreshes the whole generated scaffold**
   (`.agents/skills/` and `PRINCIPLES.md`, not just `AGENTS.md`), and
   `rebrew init --check` reports drift against the packaged sources and exits 1.

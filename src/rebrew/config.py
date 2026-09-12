@@ -33,6 +33,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypedDict
 
+from rebrew_workspace import walk_up_to_root
+
 from rebrew.toolchain_spec import FlagsStyle
 from rebrew.utils import parse_int_literal
 
@@ -754,22 +756,6 @@ def detect_crt_sources(root: Path) -> dict[str, str]:
             found[origin] = str(rel)
 
     return found
-
-
-def walk_up_to_root(start: Path) -> Path | None:
-    """Walk up from *start* (inclusive) looking for ``rebrew-project.toml``.
-
-    Returns the directory containing the marker file, or ``None`` when the
-    walk reaches the filesystem root without finding one.  The marker must
-    be a regular file, so a directory named ``rebrew-project.toml`` does not
-    satisfy the search.
-    """
-    candidate = start.resolve()
-    while candidate != candidate.parent:
-        if (candidate / "rebrew-project.toml").is_file():
-            return candidate
-        candidate = candidate.parent
-    return None
 
 
 def find_root(start: Path | None = None) -> Path:
