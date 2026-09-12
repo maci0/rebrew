@@ -4,6 +4,25 @@ External tools that rebrew integrates with or builds on top of.
 
 ---
 
+## Compile backends
+
+The default backend is the local docker image for the profile's toolchain.
+Setting `[compiler] recompile_url` (or `REBREW_RECOMPILE_URL`, which wins)
+routes every compile through the sibling [recompile](https://github.com/relumea/recompile)
+service instead: the same pinned images over `POST /api/v1/compile` plus an
+artifact download, with the opt-in `recompile_emit_assembly` training tap.
+The compile cache keys an object on the backend that produced it, so
+switching backends cannot serve the other's object, and the transport lives
+in `rebrew/recompile_client.py`.
+
+`gcc`, `gcc-pe`, `clang` and `watcom16` remain **native** specs (PATH or
+vendored binary, no image). Making them image-backed is deferred: no pinned
+source with the author's exact compiler version exists for them, and
+byte-exact matching depends on that version (see the MinGW GCC caveat
+below). See ADR 015.
+
+---
+
 ## MSVC6 Toolchain (Compile Backend)
 
 Executed only through the docker image `rebrew/msvc:6.0-win32` (the image

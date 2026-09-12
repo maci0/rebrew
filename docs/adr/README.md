@@ -36,3 +36,4 @@ itself, and the consequences (including trade-offs accepted).
 | 012 | Metadata store tiers: canonical vs derived vs cache (see [METADATA.md](../METADATA.md)) |
 | 013 | Byte-level library detection against linked archives (`rebrew lib-match`) |
 | 014 | The CLI is a component graph (`rebrew.plugin` + `rebrew.builtins`) |
+| 015 | Compile backends: local docker images plus the recompile service |
