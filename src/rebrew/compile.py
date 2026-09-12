@@ -772,6 +772,74 @@ def _toolchain_cache_id(spec: "ToolchainSpec") -> str:
     return f"{image}@{digest}" if digest else image
 
 
+def recompile_url(cfg: ProjectConfig) -> str | None:
+    """The recompile service base URL, or None when the local backend applies.
+
+    Precedence: ``REBREW_RECOMPILE_URL`` env first (per-run override without
+    editing the TOML), then ``[compiler] recompile_url``.  Empty/unset means
+    local docker images.
+    """
+    env = os.environ.get("REBREW_RECOMPILE_URL", "").strip()
+    if env:
+        return env
+    return (getattr(cfg, "recompile_url", "") or "").strip() or None
+
+
+def _recompile_obj_name(source_path: Path) -> str:
+    """Artifact filename for a recompile request (basename + ``.obj``)."""
+    stem = source_path.stem or "input"
+    return f"{stem}.obj"
+
+
+def _compile_via_recompile(
+    cfg: ProjectConfig,
+    source_path: Path,
+    all_flags: list[str],
+    workdir: Path,
+    obj_name: str,
+    profile: str,
+    emit_assembly: bool,
+) -> tuple[str | None, str]:
+    """Compile one source through the recompile HTTP service.
+
+    Single-file model: the source text plus the fully-resolved flag list go
+    in one ``POST /api/v1/compile``; the returned artifact bytes are written
+    to *workdir* / *obj_name*.  Include dirs are NOT shipped — the service
+    compiles its own image-local tree (plus the single source), so sources
+    with project-relative ``#include`` resolve only when they travel with
+    the source text.
+    """
+    from rebrew.recompile_client import RecompileError, compile_source
+
+    url = recompile_url(cfg)
+    assert url is not None, "recompile backend selected without a URL"
+    try:
+        source_text = source_path.read_text(encoding="utf-8", errors="surrogateescape")
+    except OSError as exc:
+        return None, f"Failed to read source for recompile upload: {exc}"
+    try:
+        res = compile_source(
+            url,
+            compiler=profile,
+            source=source_text,
+            flags=all_flags,
+            filename=_recompile_obj_name(source_path),
+            timeout=float(getattr(cfg, "compile_timeout", 60) or 60) + 120.0,
+            emit_assembly=emit_assembly,
+        )
+    except RecompileError as exc:
+        return None, f"recompile service error: {exc}"
+    if not res.ok or res.obj_bytes is None:
+        err = (res.log or "").strip()[-400:]
+        return None, err or "recompile service reported failure with no log"
+    obj_file = workdir / obj_name
+    try:
+        obj_file.write_bytes(res.obj_bytes)
+    except OSError as exc:
+        return None, f"Failed to write recompile artifact: {exc}"
+    return str(obj_file), ""
+
+
 def compile_to_obj(
     cfg: ProjectConfig,
     source_path: str | Path,
@@ -893,6 +961,13 @@ def compile_to_obj(
             toolchain_id = _native_toolchain_id(spec)
         else:
             toolchain_id = " ".join(resolve_cl_command(cfg))
+        # A remote compile does not see host include dirs (single-file model:
+        # source text + flags only), so key it on its own id: a backend switch
+        # can never serve the other's object.  The image tag alone is not
+        # enough, because the service may run a different image build than
+        # local docker, so pin the identity to the backend that produced it.
+        if recompile_url(cfg) is not None and spec is not None:
+            toolchain_id = f"recompile:{recompile_url(cfg)}/{spec.name}"
         # extra_include_dirs feed the /I flags and bind mounts - they are
         # compile inputs and must shape the key (two functions whose
         # relative #include resolves differently would otherwise share
@@ -938,6 +1013,20 @@ def compile_to_obj(
             shutil.copy2(source_path, local_src)
     except OSError as e:
         return None, f"Failed to copy source into workdir: {e}"
+
+    if recompile_url(cfg) is not None:
+        # Remote backend: one POST carries source text + resolved flags; the
+        # artifact bytes come back over HTTP.  No mounts, no local image.
+        active = toolchain or profile
+        return _compile_via_recompile(
+            cfg,
+            source_path,
+            all_flags,
+            workdir,
+            obj_name,
+            active,
+            emit_assembly=bool(getattr(cfg, "recompile_emit_assembly", False)),
+        )
 
     if spec is not None and (spec.image is not None or spec.runtime == "native"):
         """The standardized runner: docker images for every Windows/DOS
