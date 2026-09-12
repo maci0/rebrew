@@ -43,7 +43,6 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
-          python-version-file: ".python-version"
       - name: Install dependencies
         # --all-extras matters for mypy: prove.py's angr/SimProcedure stubs
         # only type-check correctly with angr installed (otherwise mypy
@@ -111,7 +110,6 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
-          python-version-file: ".python-version"
       - name: Install dependencies
         run: uv sync --frozen --all-extras
       - name: Run pre-commit hooks
@@ -131,7 +129,6 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
-          python-version-file: ".python-version"
       - name: Build sdist and wheel
         env:
           TZ: UTC
@@ -196,7 +193,6 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
-          python-version-file: ".python-version"
       - name: Install package
         run: uv sync --frozen
       - name: CLI contract (round-trip / verify flags)
