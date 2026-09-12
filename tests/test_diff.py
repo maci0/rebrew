@@ -8,7 +8,7 @@ import pytest
 from rich.console import Console
 
 from rebrew.diff import classify_blockers
-from rebrew.match import print_structural_similarity
+from rebrew.match_sweep import print_structural_similarity
 
 
 def _row(match: str, t_asm: str, c_asm: str) -> dict:
@@ -63,7 +63,7 @@ class TestClassifyBlockers:
 
 class TestPrintStructuralSimilarity:
     def test_flag_sensitive_wording(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.match as match_mod
+        import rebrew.match_sweep as match_mod
 
         buf = StringIO()
         monkeypatch.setattr(
@@ -93,7 +93,7 @@ class TestPrintStructuralSimilarity:
         assert "25.0%" in out
 
     def test_flag_insensitive_wording(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.match as match_mod
+        import rebrew.match_sweep as match_mod
 
         buf = StringIO()
         monkeypatch.setattr(
@@ -165,7 +165,7 @@ class TestDiffSourceResolution:
                 va_int=0x1000,
             )
 
-        monkeypatch.setattr("rebrew.match.resolve_build_params", fake_resolve_build_params)
+        monkeypatch.setattr("rebrew.match_sweep.resolve_build_params", fake_resolve_build_params)
         monkeypatch.setattr(
             "rebrew.diff.run_diff", lambda *a, **k: None
         )  # skip compile/diff pipeline
@@ -213,7 +213,7 @@ class TestDiffSourceResolution:
                 va_int=0,
             )
 
-        monkeypatch.setattr("rebrew.match.resolve_build_params", fake_resolve_build_params)
+        monkeypatch.setattr("rebrew.match_sweep.resolve_build_params", fake_resolve_build_params)
         monkeypatch.setattr("rebrew.diff.run_diff", lambda *a, **k: None)
 
         from rebrew.diff import app

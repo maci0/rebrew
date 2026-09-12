@@ -40,31 +40,31 @@ class TestCompileCflags:
     (config-review F8)."""
 
     def test_posix_style_prepends_base(self) -> None:
-        from rebrew.match import _compile_cflags
+        from rebrew.match_sweep import _compile_cflags
 
         assert _compile_cflags("/O2", "-O2", posix_style=True) == "-O2 /O2"
 
     def test_posix_style_no_base(self) -> None:
-        from rebrew.match import _compile_cflags
+        from rebrew.match_sweep import _compile_cflags
 
         assert _compile_cflags("/O2", "", posix_style=True) == "/O2"
 
     def test_msvc_base_with_c_glue(self) -> None:
         """base_cf carries /c → base first, no /nologo /c insertion."""
-        from rebrew.match import _compile_cflags
+        from rebrew.match_sweep import _compile_cflags
 
         assert _compile_cflags("/O2 /Gd", "/nologo /c /MT") == "/nologo /c /MT /O2 /Gd"
 
     def test_msvc_base_without_c_inserts_glue(self) -> None:
         """base_cf lacks /c and cflags lacks it → the /nologo /c glue is
         inserted (the watcom E1139 regression class)."""
-        from rebrew.match import _compile_cflags
+        from rebrew.match_sweep import _compile_cflags
 
         assert _compile_cflags("/O2", "/MT") == "/nologo /c /MT /O2"
 
     def test_cflags_already_has_c(self) -> None:
         """cflags already carries /c → passed through verbatim."""
-        from rebrew.match import _compile_cflags
+        from rebrew.match_sweep import _compile_cflags
 
         assert _compile_cflags("/nologo /c /O1", "") == "/nologo /c /O1"
 
@@ -72,7 +72,7 @@ class TestCompileCflags:
         """cflags carries /c but base_cf (bare /MT) must still be prepended —
         it used to be dropped, compiling a different runtime than the metadata
         declares."""
-        from rebrew.match import _compile_cflags
+        from rebrew.match_sweep import _compile_cflags
 
         assert _compile_cflags("/c /O2", "/MT") == "/MT /c /O2"
 
@@ -85,7 +85,8 @@ class TestFlagSweepBaseCflags:
     def test_sweep_keeps_base_cflags_when_cflags_have_c(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        from rebrew.match import StubInfo, run_flag_sweep
+        from rebrew.match import StubInfo
+        from rebrew.match_sweep import run_flag_sweep
 
         src = tmp_path / "s.c"
         src.write_text("// FUNCTION: T 0x10001000\nint s(void) { return 0; }\n", encoding="utf-8")
@@ -95,9 +96,11 @@ class TestFlagSweepBaseCflags:
             seen.append(cflags)
             return [(0.0, "/O2")]
 
-        monkeypatch.setattr("rebrew.match.flag_sweep", _fake_sweep)
-        monkeypatch.setattr("rebrew.match.extract_raw_bytes", lambda *a, **k: b"\xc3")
-        monkeypatch.setattr("rebrew.match.resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
+        monkeypatch.setattr("rebrew.match_sweep.flag_sweep", _fake_sweep)
+        monkeypatch.setattr("rebrew.match_sweep.extract_raw_bytes", lambda *a, **k: b"\xc3")
+        monkeypatch.setattr(
+            "rebrew.match_sweep.resolve_compiler_env", lambda cfg: ("cl", "", {}, None)
+        )
 
         stub = StubInfo(
             filepath=src,
@@ -900,10 +903,10 @@ class TestResolveBuildParamsVATargeting:
         )
         cfg = self._cfg(tmp_path, src_dir)
         # extract_raw_bytes reads the target binary — stub it with 112 bytes.
-        monkeypatch.setattr("rebrew.match.extract_raw_bytes", lambda *a, **k: b"\x90" * 112)
+        monkeypatch.setattr("rebrew.match_sweep.extract_raw_bytes", lambda *a, **k: b"\x90" * 112)
         # read_source_text + parse must run; compiler env resolution can be stubbed.
         monkeypatch.setattr(
-            "rebrew.match.resolve_compiler_env",
+            "rebrew.match_sweep.resolve_compiler_env",
             lambda cfg: ("wine CL.EXE", "inc", {"WINEDEBUG": "-all"}, None),
         )
 
@@ -969,9 +972,9 @@ class TestResolveBuildParamsVATargeting:
             encoding="utf-8",
         )
         cfg = self._cfg(tmp_path, src_dir)
-        monkeypatch.setattr("rebrew.match.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
+        monkeypatch.setattr("rebrew.match_sweep.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
         monkeypatch.setattr(
-            "rebrew.match.resolve_compiler_env",
+            "rebrew.match_sweep.resolve_compiler_env",
             lambda cfg: ("wine CL.EXE", "inc", {"WINEDEBUG": "-all"}, None),
         )
         params = resolve_build_params(
@@ -1013,9 +1016,9 @@ class TestResolveBuildParamsVATargeting:
         )
         cfg = self._cfg(tmp_path, src_dir)
         cfg.base_cflags = ""  # isolate the per-function flags from the project base
-        monkeypatch.setattr("rebrew.match.extract_raw_bytes", lambda *a, **k: b"\x90" * 112)
+        monkeypatch.setattr("rebrew.match_sweep.extract_raw_bytes", lambda *a, **k: b"\x90" * 112)
         monkeypatch.setattr(
-            "rebrew.match.resolve_compiler_env",
+            "rebrew.match_sweep.resolve_compiler_env",
             lambda cfg: ("wine CL.EXE", "inc", {"WINEDEBUG": "-all"}, None),
         )
         params = resolve_build_params(
