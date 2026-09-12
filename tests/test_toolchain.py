@@ -15,14 +15,6 @@ from rebrew.toolchain import (
     run_toolchain,
 )
 
-#: Image tag -> the directory its CL.EXE actually lives in, when that is not
-#: ``<install_root>/VC98/Bin``.  Measured by listing the images
-#: (``docker run --rm --entrypoint sh rebrew/msvc:<tag> -c "find / -iname
-#: CL.EXE -not -path '*/drive_c/*'"``), not inferred from the tag: the
-#: decomp.me msvc6.3 media behind 6.0-sp3 unpacks flat, so its CL.EXE is at
-#: ``/opt/msvc6.0-sp3/Bin``.
-_CL_DIR_BY_TAG = {"6.0-sp3-win32": "Bin"}
-
 
 class _FakeProc:
     def __init__(self, rc: int = 0, out: str = "", err: str = "") -> None:
@@ -117,9 +109,10 @@ class TestImageMsvcEnv:
         """``tool_root`` must be the dir the image's ``CL.EXE`` lives in.
 
         A stale root points INCLUDE/LIB at a tree that does not exist and the
-        compile fails with C1083.  Most msvc6 media unpack to
-        ``<install>/VC98/Bin``; the ones that do not are listed in
-        ``_CL_DIR_BY_TAG`` from the images.
+        compile fails with C1083.  Every msvc6 image unpacks to
+        ``<install>/VC98/Bin``: the flat ``<install>/Bin`` layout an older
+        6.0-sp3 build had is gone now that the image is rebuilt from its
+        Dockerfile.
         """
         for name, spec in TOOLCHAINS.items():
             if not (
@@ -136,9 +129,8 @@ class TestImageMsvcEnv:
                 f"install tree {install_root!r}"
             )
             if install_root.startswith("/opt/msvc6.0"):
-                expect = _CL_DIR_BY_TAG.get(tag, "VC98/Bin")
-                assert spec.tool_root.lower() == f"{install_root.lower()}/{expect.lower()}", (
-                    f"{name}: tool_root {spec.tool_root!r} is not the image's {expect} dir"
+                assert spec.tool_root.lower() == f"{install_root.lower()}/vc98/bin", (
+                    f"{name}: tool_root {spec.tool_root!r} is not the image's VC98/Bin dir"
                 )
 
     def test_dirs_are_derived_from_tool_root(self) -> None:
