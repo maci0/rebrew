@@ -26,7 +26,10 @@ from rebrew.matcher.mutations.queries import (
     _QUERY_ARRAY_INDEX,
     _QUERY_ASSIGN_ZERO,
     _QUERY_BARE_CHAR_TYPE,
+    _QUERY_BIN_COND_IF,
     _QUERY_BITAND,
+    _QUERY_BYTE_CAST,
+    _QUERY_BYTE_TYPE_DECL,
     _QUERY_CALL_ASSIGN,
     _QUERY_CALL_CONV,
     _QUERY_CMP_BOUNDARY,
@@ -37,6 +40,7 @@ from rebrew.matcher.mutations.queries import (
     _QUERY_DECLARATION,
     _QUERY_DEMORGAN_NOT_AND,
     _QUERY_DEMORGAN_NOT_OR,
+    _QUERY_DEREF_PTR_ADD,
     _QUERY_DO_WHILE,
     _QUERY_DOUBLE_NOT,
     _QUERY_EARLY_RETURN,
@@ -52,6 +56,7 @@ from rebrew.matcher.mutations.queries import (
     _QUERY_IF_BODY_RETURN,
     _QUERY_IF_ELSE,
     _QUERY_IF_FALSE_BITAND,
+    _QUERY_IF_STMT,
     _QUERY_INT_PARAM,
     _QUERY_MERGE_DECL,
     _QUERY_NESTED_IF_P3,
@@ -63,6 +68,7 @@ from rebrew.matcher.mutations.queries import (
     _QUERY_PTR_ARROW,
     _QUERY_PTR_PARAM,
     _QUERY_REASSOCIATE,
+    _QUERY_REGISTER_DECL,
     _QUERY_REMOVE_CAST,
     _QUERY_RETURN_FALSE,
     _QUERY_RETURN_TYPE,
@@ -70,6 +76,8 @@ from rebrew.matcher.mutations.queries import (
     _QUERY_SIZED_CHAR_TYPE,
     _QUERY_SPLIT_DECL,
     _QUERY_SPLIT_PTR_ARITH,
+    _QUERY_SUBSCRIPT_EXPR,
+    _QUERY_SUBSCRIPT_SCALED,
     _QUERY_SWAP_AND,
     _QUERY_SWAP_EQ,
     _QUERY_SWAP_NE,
@@ -77,6 +85,7 @@ from rebrew.matcher.mutations.queries import (
     _QUERY_TEMP_VAR,
     _QUERY_TERNARY,
     _QUERY_WHILE,
+    _QUERY_WHILE_LOOP,
     _QUERY_XOR_SELF,
     _LazyQuery,
 )
@@ -1920,89 +1929,6 @@ def mut_negate_condition(s: str, rng: random.Random) -> str | None:
 # ---------------------------------------------------------------------------
 # MSVC6-targeted structural mutations (2026-03 batch)
 # ---------------------------------------------------------------------------
-
-_QUERY_IF_STMT = _LazyQuery(_C_LANGUAGE, "(if_statement) @if_stmt")
-
-# --- Queries for new mutations ---
-
-_QUERY_SUBSCRIPT_EXPR = _QUERY_ARRAY_INDEX
-
-_QUERY_BIN_COND_IF = _LazyQuery(
-    _C_LANGUAGE,
-    """
-    (if_statement
-        condition: (parenthesized_expression (binary_expression
-            left: (_) @left
-            right: (_) @right) @bin)
-        consequence: (_) @body) @stmt
-""",
-)
-
-_QUERY_WHILE_LOOP = _LazyQuery(
-    _C_LANGUAGE,
-    """
-    (while_statement
-        condition: (parenthesized_expression) @cond
-        body: (_) @body) @stmt
-""",
-)
-
-_QUERY_DEREF_PTR_ADD = _LazyQuery(
-    _C_LANGUAGE,
-    """
-    (pointer_expression
-        operator: "*"
-        argument: (parenthesized_expression
-            (binary_expression left: (_) @ptr operator: "+" right: (_) @idx)
-        )
-    ) @expr
-""",
-)
-
-_QUERY_SUBSCRIPT_SCALED = _LazyQuery(
-    _C_LANGUAGE,
-    """
-    (subscript_expression
-        argument: (_) @arr
-        index: (binary_expression left: (_) @idx_left operator: "*" right: (_) @idx_right)
-    ) @expr
-""",
-)
-
-_QUERY_BYTE_TYPE_DECL = _LazyQuery(
-    _C_LANGUAGE,
-    """
-    (declaration
-        type: (primitive_type) @type
-        declarator: (init_declarator
-            declarator: (identifier) @var
-            value: (_) @init
-        )
-        (#match? @type "^(char|BYTE|unsigned char|signed char)$")
-    ) @stmt
-""",
-)
-
-_QUERY_BYTE_CAST = _LazyQuery(
-    _C_LANGUAGE,
-    """
-    (cast_expression
-        type: (type_descriptor) @type
-        value: (_) @val
-        (#match? @type "^(WORD|BYTE|unsigned short|unsigned char)$")
-    ) @expr
-""",
-)
-
-_QUERY_REGISTER_DECL = _LazyQuery(
-    _C_LANGUAGE,
-    """
-    (declaration
-        (storage_class_specifier) @sc
-        (#eq? @sc "register")
-    ) @stmt
-""",
-)
 
 
 # --- Category 1: Control Flow & Branch Inversion ---
