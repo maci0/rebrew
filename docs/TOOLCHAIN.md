@@ -543,8 +543,13 @@ obj_ext = ".o"
 ```
 
 Unknown spec fields are a declaration error, as is a `flags_style` outside
-`msvc`/`posix`; a name colliding with a packaged toolchain raises
-`RegistryError`.  Once registered (by either
+`msvc`/`posix` or an `arg_style` outside `msvc`/`posix`/`dos`/`borland`/`watcom`;
+a name colliding with a packaged toolchain raises
+`RegistryError`.  `arg_style` is the compiler's input/output argument dialect
+(`msvc` = `/Fo`, `posix` = `-c -o`, `dos` = source first, `borland` = `-c` +
+source-stem object, `watcom` = `-fo=`/`-zq`) and defaults to what
+`flags_style` implies, so a plugin only declares it when its call differs from
+its flag syntax.  Once registered (by either
 mechanism) the toolchain is a first-class profile: usable in
 `rebrew-libraries.toml`, per-function metadata, and `rebrew test --toolchain`.
 `rebrew toolchain list` reports each toolchain's provenance (`origin`:

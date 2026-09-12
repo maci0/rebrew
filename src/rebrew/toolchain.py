@@ -39,7 +39,11 @@ from typing import Any
 from rebrew.registry import RegistryError, merge_provider_dict
 from rebrew.toolchain_data import BUILTIN_TOOLCHAINS
 from rebrew.toolchain_paths import TOOLCHAINS_REPO_URL, toolchains_repo
-from rebrew.toolchain_spec import ToolchainSpec, flags_style_from_str
+from rebrew.toolchain_spec import (
+    ToolchainSpec,
+    arg_style_from_str,
+    flags_style_from_str,
+)
 from rebrew.utils import container_runtime
 
 _RUN_TIMEOUT = 300
@@ -113,6 +117,13 @@ def toolchain_from_toml(name: str, table: dict[str, Any], source: str) -> Toolch
         flags_style = flags_style_from_str(table.get("flags_style"))
     except ValueError as exc:
         raise RegistryError(f"bad toolchain {name!r} in {source}: {exc}") from None
+    raw_arg_style = table.get("arg_style")
+    arg_style = None
+    if raw_arg_style is not None:
+        try:
+            arg_style = arg_style_from_str(raw_arg_style)
+        except ValueError as exc:
+            raise RegistryError(f"bad toolchain {name!r} in {source}: {exc}") from None
     return ToolchainSpec(
         name=name,
         image=table.get("image"),
@@ -120,6 +131,7 @@ def toolchain_from_toml(name: str, table: dict[str, Any], source: str) -> Toolch
         image_binary=table.get("image_binary"),
         runtime=str(table.get("runtime") or "native"),
         flags_style=flags_style,
+        arg_style=arg_style,
         obj_ext=str(table.get("obj_ext") or ".obj"),
         host_path=Path(host_path) if host_path else None,
         host_bin=str(table.get("host_bin") or "Bin"),
@@ -140,6 +152,7 @@ def toolchain_to_toml(spec: ToolchainSpec) -> dict[str, Any]:
         "image_binary",
         "runtime",
         "flags_style",
+        "arg_style",
         "obj_ext",
         "host_bin",
         "tool_root",

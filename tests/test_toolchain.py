@@ -1044,6 +1044,30 @@ class TestDockerfileSanity:
         )
 
 
+class TestEffectiveArgStyle:
+    """The argument dialect comes from the spec: explicit ``arg_style``, else
+    derived from ``flags_style`` — no profile-name list in the compile path."""
+
+    def test_derived_from_flags_style(self) -> None:
+        assert ToolchainSpec(name="a", image=None, flags_style="msvc").effective_arg_style == "msvc"
+        assert (
+            ToolchainSpec(name="b", image=None, flags_style="posix").effective_arg_style == "posix"
+        )
+
+    def test_explicit_overrides_derivation(self) -> None:
+        spec = ToolchainSpec(name="c", image=None, flags_style="posix", arg_style="dos")
+        assert spec.effective_arg_style == "dos"
+
+    def test_shipped_dialects(self) -> None:
+        assert TOOLCHAINS["msvc-6.0"].effective_arg_style == "msvc"
+        assert TOOLCHAINS["gcc-14.2.0"].effective_arg_style == "posix"
+        assert TOOLCHAINS["msvc-1.52"].effective_arg_style == "dos"
+        assert TOOLCHAINS["borland-3.1"].effective_arg_style == "dos"
+        assert TOOLCHAINS["borland-5.5"].effective_arg_style == "borland"
+        assert TOOLCHAINS["watcom-2.0-win32"].effective_arg_style == "watcom"
+        assert TOOLCHAINS["watcom-2.0-win16"].effective_arg_style == "watcom"
+
+
 class TestSmokeGoldenCoverage:
     """`_SMOKE_GOLDEN` is hand-maintained per toolchain, so it must cover
     exactly the packaged image-backed set — a new registry toolchain without a

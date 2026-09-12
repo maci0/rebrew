@@ -591,6 +591,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         image_binary=None,  # the image ENTRYPOINT is wcc386
         runtime="native",
         flags_style="posix",
+        arg_style="watcom",
         obj_ext=".o",  # wcc386 emits OMF (8086 relocatable) — see OMF note
         host_path=vendored_path("watcom/2.0-win32")
         if vendored_path("watcom/2.0-win32").exists()
@@ -606,6 +607,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="dosbox",
         bits=16,  # 16-bit target (arch-alignment check)
         flags_style="msvc",
+        arg_style="dos",
         obj_ext=".obj",  # 16-bit OMF — see docs/OMF_NOTES.md
         host_path=vendored_path("msvc/1.52-win16")
         if vendored_path("msvc/1.52-win16").exists()
@@ -959,6 +961,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="dosbox",
         bits=16,  # 16-bit target (arch-alignment check)
         flags_style="msvc",
+        arg_style="dos",
         obj_ext=".obj",  # 16-bit OMF — parses via rebrew.omf16
         host_path=vendored_path("msvc/1.5-win16")
         if vendored_path("msvc/1.5-win16").exists()
@@ -974,6 +977,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="dosbox",
         bits=16,  # 16-bit target (arch-alignment check)
         flags_style="msvc",
+        arg_style="dos",
         obj_ext=".obj",  # 16-bit OMF — parses via rebrew.omf16
         host_path=vendored_path("msvc/1.0-win16")
         if vendored_path("msvc/1.0-win16").exists()
@@ -988,6 +992,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="dosbox",
         bits=16,  # 16-bit target (arch-alignment check)
         flags_style="posix",
+        arg_style="dos",
         obj_ext=".obj",  # Borland 16-bit OMF — parses via rebrew.omf16
         host_path=vendored_path("borland/2.0-win16")
         if vendored_path("borland/2.0-win16").exists()
@@ -1002,6 +1007,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="dosbox",
         bits=16,  # 16-bit target (arch-alignment check)
         flags_style="posix",
+        arg_style="dos",
         obj_ext=".obj",  # Borland 16-bit OMF — parses via rebrew.omf16
         host_path=vendored_path("borland/3.1-win16")
         if vendored_path("borland/3.1-win16").exists()
@@ -1015,6 +1021,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         binary="bcc32.exe",
         runtime="wine",
         flags_style="posix",
+        arg_style="borland",
         obj_ext=".obj",
         tool_root="/opt/bcc55/Bin",
         host_path=vendored_path("borland/5.5-win32")
@@ -1030,6 +1037,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="native",  # the compiler runs natively in the image
         bits=16,  # 16-bit target (arch-alignment check)
         flags_style="posix",
+        arg_style="watcom",
         obj_ext=".obj",  # 16-bit OMF — parses via omf16/objconv
         description="Open Watcom 2.0 wcc (16-bit DOS, OMF) — docker image (native Linux)",
     ),
