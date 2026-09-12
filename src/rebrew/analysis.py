@@ -166,6 +166,32 @@ def _capstone(skipdata: bool = False, info: BinaryInfo | None = None) -> Any:
     return md
 
 
+_cs_handle_tls = threading.local()
+
+
+def capstone_handle(cs_arch: int, cs_mode: int, *, detail: bool = False) -> Any:
+    """A cached capstone handle for an explicit ``(cs_arch, cs_mode)``.
+
+    ``detail`` off is the hot path: mnemonics, operands and bytes only, no
+    operand/detail decoding.  Cached per thread for the same reason
+    :func:`_capstone` is: a ``Cs`` mutates its libcapstone handle on every
+    ``disasm``, so one instance cannot be shared across threads.
+    """
+    from capstone import Cs
+
+    cache = getattr(_cs_handle_tls, "cache", None)
+    if cache is None:
+        cache = {}
+        _cs_handle_tls.cache = cache
+    key = (cs_arch, cs_mode, detail)
+    md = cache.get(key)
+    if md is None:
+        md = Cs(cs_arch, cs_mode)
+        md.detail = detail
+        cache[key] = md
+    return md
+
+
 _OP_CONSTANTS: tuple[Any, Any, Any] | None = None
 
 

@@ -20,7 +20,6 @@ The verdict maps the dominant category to an actionable suggestion
 from __future__ import annotations
 
 import difflib
-import functools
 import logging
 import re
 from pathlib import Path
@@ -31,6 +30,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from rebrew.analysis import capstone_handle
 from rebrew.cli import (
     TargetOption,
     error_exit,
@@ -122,15 +122,6 @@ def _is_x86_16_or_32(cs_arch: str | int, cs_mode: str | int) -> bool:
     return arch == capstone.CS_ARCH_X86 and mode in (capstone.CS_MODE_16, capstone.CS_MODE_32)
 
 
-@functools.lru_cache(maxsize=8)
-def _cs_handle(arch: int, mode: int) -> capstone.Cs:
-    """A cached non-detail capstone handle — constructing ``capstone.Cs`` per
-    call was a measurable cost in the per-function hot path."""
-    md = capstone.Cs(arch, mode)
-    md.detail = False
-    return md
-
-
 def disasm_insns(
     code: bytes,
     va: int,
@@ -143,7 +134,7 @@ def disasm_insns(
     defaults), the int constants that ``cfg.capstone_arch``/``cfg.capstone_mode``
     return, or a bare numeric string ("3") — both config styles must work.
     """
-    md = _cs_handle(_resolve_capstone(cs_arch), _resolve_capstone(cs_mode))
+    md = capstone_handle(_resolve_capstone(cs_arch), _resolve_capstone(cs_mode))
     return [Insn(i.address, i.mnemonic, i.op_str, bytes(i.bytes)) for i in md.disasm(code, va)]
 
 

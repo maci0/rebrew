@@ -22,13 +22,14 @@ capstone, no angr dependency.  Best-effort: garbage/undecodable input yields
 
 from __future__ import annotations
 
-import functools
 import math
 import re
 from collections import Counter
 from typing import Any
 
 import capstone
+
+from rebrew.analysis import capstone_handle
 
 #: Terminators that end a basic block.
 _BLOCK_END_MNEMONICS = frozenset(
@@ -77,13 +78,6 @@ _COND_JUMPS = frozenset(
 _JMP_TARGET_RE = re.compile(r"0x([0-9a-fA-F]+)")
 
 
-@functools.lru_cache(maxsize=8)
-def _cs_handle(arch: int, mode: int) -> capstone.Cs:
-    md = capstone.Cs(arch, mode)
-    md.detail = False
-    return md
-
-
 def build_cfg(code: bytes, va: int, cs_mode: int = capstone.CS_MODE_32) -> dict[str, Any]:
     """Segment *code* into a basic-block CFG.
 
@@ -92,7 +86,7 @@ def build_cfg(code: bytes, va: int, cs_mode: int = capstone.CS_MODE_32) -> dict[
     plain instructions; their callees are not in this CFG).  *start_off* is
     the byte offset into *code* (address - va).
     """
-    md = _cs_handle(capstone.CS_ARCH_X86, cs_mode)
+    md = capstone_handle(capstone.CS_ARCH_X86, cs_mode)
     insns = list(md.disasm(code, va))
     if not insns:
         return {"blocks": [], "edges": []}

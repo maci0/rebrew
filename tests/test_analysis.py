@@ -271,6 +271,28 @@ class TestInsnAndBytes:
         assert not is_inside(info, IMAGE_BASE + 0x9000)
 
 
+class TestCapstoneHandle:
+    def test_cached_per_arch_mode_and_detail(self) -> None:
+        import capstone as cs
+
+        from rebrew.analysis import capstone_handle
+
+        handle = capstone_handle(cs.CS_ARCH_X86, cs.CS_MODE_32)
+        assert capstone_handle(cs.CS_ARCH_X86, cs.CS_MODE_32) is handle  # cached
+        assert handle.detail is False
+        assert capstone_handle(cs.CS_ARCH_X86, cs.CS_MODE_32, detail=True) is not handle
+        assert capstone_handle(cs.CS_ARCH_X86, cs.CS_MODE_64) is not handle
+
+    def test_disassembles(self) -> None:
+        import capstone as cs
+
+        from rebrew.analysis import capstone_handle
+
+        md = capstone_handle(cs.CS_ARCH_X86, cs.CS_MODE_32)
+        insns = list(md.disasm(b"\x55\x8b\xec", 0x1000))
+        assert [i.mnemonic for i in insns] == ["push", "mov"]
+
+
 class TestRipRelativeOperands:
     def test_mov_rip_relative_resolves_to_absolute(self) -> None:
         """x86-64 RIP-relative refs must resolve: target = insn_end + disp."""

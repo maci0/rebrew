@@ -8,7 +8,6 @@ Extracted from skeleton.py and todo.py to eliminate circular dependencies.
 """
 
 import bisect
-import functools
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -18,6 +17,7 @@ import capstone
 if TYPE_CHECKING:
     from rebrew.catalog import FunctionEntry
 
+from rebrew.analysis import capstone_handle
 from rebrew.annotation import min_valid_va_for, parse_c_file_multi, parse_library_header
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
@@ -70,12 +70,6 @@ def avoid_windows_reserved(name: str) -> str:
     return name
 
 
-@functools.lru_cache(maxsize=4)
-def _get_capstone(arch: int, mode: int) -> capstone.Cs:
-    """Return a cached capstone disassembler instance."""
-    return capstone.Cs(arch, mode)
-
-
 def detect_unmatchable(
     va: int,
     size: int,
@@ -126,7 +120,7 @@ def detect_unmatchable(
     # 3d. ASM-origin CRT patterns (via disassembly to avoid false positives in immediates)
     arch = cs_arch if cs_arch is not None else capstone.CS_ARCH_X86
     mode = cs_mode if cs_mode is not None else capstone.CS_MODE_32
-    md = _get_capstone(arch, mode)
+    md = capstone_handle(arch, mode)
     # Disassemble only the function's OWN bytes: `raw` is `max(size, 8)` long to
     # give a short prologue enough bytes to decode, and running the scan over
     # the padding let the FOLLOWING function's first instruction (e.g. `bt`)
