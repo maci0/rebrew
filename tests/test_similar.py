@@ -67,6 +67,15 @@ class TestSimilarityScore:
         assert similar_mod.similarity_score(sig, sig, 0, 6) == 100.0
         assert similar_mod.similarity_score(sig, sig, None, None) == 100.0
 
+    def test_longer_body_with_the_same_mix_scores_below_the_threshold(self) -> None:
+        """The regression cross-import hit: one small function was the best
+        match for 59 unrelated destinations because the caller passed no
+        sizes and the histogram said "identical"."""
+        short = similar_mod.disasm_signature(_CALL_RET, 0, "CS_ARCH_X86", "CS_MODE_32")
+        long_sig = similar_mod.disasm_signature(_CALL_RET * 20, 0, "CS_ARCH_X86", "CS_MODE_32")
+        assert short["size"] == len(_CALL_RET)
+        assert similar_mod.similarity_score(short, long_sig) < 95.0
+
     def test_none_returns_zero(self) -> None:
         sig = similar_mod.disasm_signature(_CALL_RET, 0, "CS_ARCH_X86", "CS_MODE_32")
         assert similar_mod.similarity_score(sig, None) == 0.0
