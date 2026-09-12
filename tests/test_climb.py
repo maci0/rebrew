@@ -41,6 +41,14 @@ class TestFunctionSpan:
         lo, _ = _function_span(_lines(), "demo")
         assert "demo" in _lines()[lo]
 
+    def test_stdcall_decoration_is_stripped(self) -> None:
+        # `_demo@4` is the decorated name of `demo`; the source never writes
+        # the "@4", so the lookup must strip it as well as the leading `_`.
+        lines = _lines()
+        lo, hi = _function_span(lines, "_demo@4")
+        assert lines[lo].startswith("int demo(int arg)")
+        assert lines[hi].strip() == "}"
+
     def test_prototype_before_definition_is_skipped(self) -> None:
         lines = (
             "int demo(int arg);\n"
