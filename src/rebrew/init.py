@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import click
 import tomlkit
@@ -567,6 +568,120 @@ def _toolchain_image_followup(compiler_profile: str) -> None:
         )
 
 
+def _docker_only(profile: dict[str, Any], profile_name: str) -> dict[str, Any]:
+    """Drop the inert host command/runner for an image-backed profile.
+
+    Every registry toolchain compiles through its docker image, so a
+    hand-written ``command`` (a legacy ``wine toolchain/...`` line) is inert
+    and must not be written into a generated config or AGENTS.md.  A plugin
+    toolchain registered without an image keeps its command.  Returns the
+    same object unchanged when there is nothing to normalize.
+    """
+    from rebrew.toolchain import TOOLCHAINS
+
+    spec = TOOLCHAINS.get(profile_name)
+    if spec is not None and spec.image is not None:
+        return {**profile, "command": "", "runner": ""}
+    return profile
+
+
+def _refresh_agents(cwd: Path, toml_path: Path, *, json_output: bool) -> None:
+    """Rewrite AGENTS.md for an existing project from its rebrew-project.toml.
+
+    The generated file follows the packaged template and the project's own
+    profile, so a renamed toolchain or a template change reaches projects
+    already on disk.  Reads only the config; never rewrites it.
+    """
+    import tomllib
+
+    if not toml_path.exists():
+        error_exit(f"no rebrew-project.toml in {cwd}", json_mode=json_output)
+    data = tomllib.loads(toml_path.read_text(encoding="utf-8"))
+    compiler_profile = str(data.get("compiler", {}).get("profile", "")).strip()
+    if not compiler_profile:
+        error_exit("rebrew-project.toml has no [compiler] profile", json_mode=json_output)
+    targets = data.get("targets", {})
+    if not targets:
+        error_exit("rebrew-project.toml declares no [targets]", json_mode=json_output)
+    target_name, target_cfg = next(iter(targets.items()))
+    profile = profile_defaults().get(compiler_profile)
+    if profile is None:
+        error_exit(
+            f"unknown compiler profile {compiler_profile!r} in rebrew-project.toml",
+            json_mode=json_output,
+        )
+    profile = _docker_only(profile, compiler_profile)
+    content = _render_agents_md(
+        cwd.name,
+        target_name=target_name,
+        binary_name=Path(str(target_cfg.get("binary", ""))).name,
+        binary_format=str(target_cfg.get("format") or profile.get("format", "pe")),
+        arch=str(target_cfg.get("arch") or profile.get("arch", "x86_32")),
+        compiler_profile=compiler_profile,
+        defaults=profile,
+    )
+    path = cwd / "AGENTS.md"
+    atomic_write_text(path, content, encoding="utf-8")
+    console.print(f"[green]Rewrote {path.name}[/] for profile {compiler_profile}")
+
+
+def _render_agents_md(
+    project_name: str,
+    *,
+    target_name: str,
+    binary_name: str,
+    binary_format: str,
+    arch: str,
+    compiler_profile: str,
+    defaults: dict[str, Any],
+) -> str:
+    """Render AGENTS.md from the packaged template.
+
+    Shared by ``rebrew init`` (a new project) and ``--refresh-agents`` (an
+    existing one), so a renamed profile or a template change reaches projects
+    already on disk without hand-editing a generated file.
+    """
+    if compiler_profile.startswith("msvc-6.0"):
+        constraints = MSVC_CONSTRAINTS
+    elif compiler_profile == "delphi-1.0":
+        constraints = DELPHI16_CONSTRAINTS
+    elif compiler_profile.startswith("msvc"):
+        constraints = MSVC7_CONSTRAINTS
+    else:
+        constraints = GCC_CONSTRAINTS
+    template = _AGENTS_MD_TEMPLATE.read_text(encoding="utf-8")
+    return template.format(
+        project_name=project_name,
+        target_name=target_name,
+        binary_name=binary_name,
+        binary_format=binary_format,
+        arch=arch,
+        compiler_profile=compiler_profile,
+        compiler_command=_compiler_command(compiler_profile, defaults),
+        compiler_constraints=constraints,
+        cflags=defaults["cflags"],
+        lang=defaults.get("lang", "C89"),
+    )
+
+
+def _compiler_command(profile_name: str, defaults: dict[str, Any]) -> str:
+    """The compiler invocation AGENTS.md records for *profile_name*.
+
+    A docker-backed profile has no host command (``command`` is empty), so
+    name the image it compiles in rather than rendering an empty pair of
+    backticks.
+    """
+    command = str(defaults.get("command", "")).strip()
+    if command:
+        return command
+    from rebrew.toolchain import TOOLCHAINS
+
+    spec = TOOLCHAINS.get(profile_name)
+    if spec is not None and spec.image:
+        return f"docker image {spec.image}"
+    return "docker image"
+
+
 @app.callback(invoke_without_command=True)
 def main(
     target_name: str = typer.Option("main", "--target", "-t", help="Name of the initial target."),
@@ -607,6 +722,11 @@ def main(
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    refresh_agents: bool = typer.Option(
+        False,
+        "--refresh-agents",
+        help="Rewrite AGENTS.md from rebrew-project.toml and exit.",
+    ),
     wizard: bool = typer.Option(
         True,
         "--wizard/--no-wizard",
@@ -641,6 +761,11 @@ def main(
     binary_name = binary_name.replace("\\", "/")
     if binary_name.lower().startswith("original/"):
         binary_name = binary_name[len("original/") :]
+
+    refresh_agents = option_default(refresh_agents, False)
+    if refresh_agents:
+        _refresh_agents(cwd, toml_path, json_output=json_output)
+        return
 
     if toml_path.exists():
         error_exit(f"A rebrew-project.toml already exists in {cwd}", json_mode=json_output)
@@ -713,14 +838,12 @@ def main(
     # empty command so fresh projects are docker-native (no stale
     # "wine toolchain/..." line that doctor/verify might misread).  A
     # plugin toolchain registered without an image keeps its command.
-    from rebrew.toolchain import TOOLCHAINS
-
-    _spec = TOOLCHAINS.get(compiler_profile)
-    if _spec is not None and _spec.image is not None:
+    normalized = _docker_only(profile, compiler_profile)
+    if normalized is not profile:
         # wibo is a host-wine alternative — obsolete under docker-only
         # execution; ignore --install-wibo for image-backed profiles.
-        profile = {**profile, "command": "", "runner": ""}
         install_wibo = False
+    profile = normalized
     runner = "tools/wibo" if install_wibo else profile["runner"]
     compiler_command = profile["command"]
     if install_wibo and compiler_command.startswith("wine "):
@@ -824,29 +947,16 @@ def main(
     console.print(f"[green]Created {toml_path.name}[/]")
 
     # 2. Write AGENTS.md (for LLM agents)
-    if compiler_profile.startswith("msvc-6.0"):
-        constraints = MSVC_CONSTRAINTS
-    elif compiler_profile == "delphi-1.0":
-        constraints = DELPHI16_CONSTRAINTS
-    elif compiler_profile.startswith("msvc"):
-        constraints = MSVC7_CONSTRAINTS
-    else:
-        constraints = GCC_CONSTRAINTS
-
-    agents_template = _AGENTS_MD_TEMPLATE.read_text(encoding="utf-8")
-    agents_content = agents_template.format(
-        project_name=cwd.name,
+    agents_path = cwd / "AGENTS.md"
+    agents_content = _render_agents_md(
+        cwd.name,
         target_name=target_name,
         binary_name=binary_name,
         binary_format=binary_format,
         arch=target_arch,
         compiler_profile=compiler_profile,
-        compiler_command=profile["command"],
-        compiler_constraints=constraints,
-        cflags=profile["cflags"],
-        lang=profile.get("lang", "C89"),
+        defaults=profile,
     )
-    agents_path = cwd / "AGENTS.md"
     atomic_write_text(agents_path, agents_content, encoding="utf-8")
     console.print(f"[green]Created {agents_path.name}[/] (AI agent instructions)")
 

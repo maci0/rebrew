@@ -1113,3 +1113,58 @@ class TestRegistryDerivedProfiles:
         monkeypatch.setattr(toolchain_mod, "TOOLCHAINS", toolchain_mod.build_toolchain_registry())
         assert "mytc" in profile_defaults()
         assert "mytc" in profile_families()
+
+
+# ---------------------------------------------------------------------------
+# --refresh-agents: re-render an existing project's AGENTS.md
+# ---------------------------------------------------------------------------
+
+
+class TestRefreshAgents:
+    """The generated AGENTS.md follows the packaged template and the project's
+    own profile, so a renamed toolchain or a template change reaches projects
+    already on disk without hand-editing a generated file."""
+
+    def _project(self, tmp_path: Path, profile: str) -> Path:
+        root = tmp_path / "proj"
+        root.mkdir()
+        (root / "rebrew-project.toml").write_text(
+            f'[compiler]\nprofile = "{profile}"\n\n'
+            '[targets."main"]\n'
+            'binary = "original/a.exe"\n'
+            f'format = "pe"\narch = "x86_32"\n',
+            encoding="utf-8",
+        )
+        return root
+
+    def test_docker_only_profile_renders_its_image(self, tmp_path: Path) -> None:
+        from rebrew.init import _refresh_agents
+
+        root = self._project(tmp_path, "msvc-5.0")
+        _refresh_agents(root, root / "rebrew-project.toml", json_output=False)
+
+        text = (root / "AGENTS.md").read_text(encoding="utf-8")
+        line = next(ln for ln in text.splitlines() if ln.startswith("- **Compiler**:"))
+        assert line == "- **Compiler**: msvc-5.0 (`docker image rebrew/msvc:5.0-win32`)"
+
+    def test_missing_config_fails(self, tmp_path: Path) -> None:
+        from rebrew.init import _refresh_agents
+
+        with pytest.raises(Exit):
+            _refresh_agents(tmp_path, tmp_path / "rebrew-project.toml", json_output=False)
+
+    def test_unknown_profile_fails(self, tmp_path: Path) -> None:
+        from rebrew.init import _refresh_agents
+
+        root = self._project(tmp_path, "not-a-real-profile")
+        with pytest.raises(Exit):
+            _refresh_agents(root, root / "rebrew-project.toml", json_output=False)
+
+    def test_config_is_not_rewritten(self, tmp_path: Path) -> None:
+        from rebrew.init import _refresh_agents
+
+        root = self._project(tmp_path, "msvc-5.0")
+        toml = root / "rebrew-project.toml"
+        before = toml.read_text(encoding="utf-8")
+        _refresh_agents(root, toml, json_output=False)
+        assert toml.read_text(encoding="utf-8") == before
