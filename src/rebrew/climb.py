@@ -18,9 +18,12 @@ C -- and ``git diff`` shows it.
 
 from __future__ import annotations
 
+import os
 import re
+import signal
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -212,6 +215,35 @@ def _swap(lines: list[str], a: tuple[int, int], b: tuple[int, int]) -> list[str]
     return lines[:a1] + lines[b0 : b2 + 1] + lines[a1 : b1 + 1] + lines[b2 + 1 :]
 
 
+def _install_restore_handler(path: Path, original: str, encoding: str) -> dict[int, Any]:
+    """Put the source back if a signal ends the climb early.
+
+    Scoring writes every candidate into the real source, so the file returns to
+    *original* only on the normal and exception paths.  A SIGTERM -- a
+    `timeout` wrapper, a supervisor killing the job -- runs neither, and leaves
+    whichever candidate was last scored sitting in the tree.  Returns the
+    previous handlers so the caller can restore them; the payload type is
+    whatever ``signal.signal`` handed back, which has no useful common name.
+    """
+    previous: dict[int, Any] = {}
+
+    def handler(signum: int, _frame: object) -> None:
+        atomic_write_text(path, original, encoding=encoding)
+        signal.signal(signum, previous.get(signum, signal.SIG_DFL))
+        os.kill(os.getpid(), signum)
+
+    for name in ("SIGTERM", "SIGINT", "SIGHUP"):
+        number = getattr(signal, name, None)
+        if number is not None:
+            previous[number] = signal.signal(number, handler)
+    return previous
+
+
+def _remove_restore_handler(previous: dict[int, Any]) -> None:
+    for number, handler in previous.items():
+        signal.signal(number, handler)
+
+
 def _climb(
     lines: list[str],
     chunks: list[tuple[int, int]],
@@ -300,6 +332,7 @@ def main(
     name_to_va = build_name_to_va(cfg)
 
     original, encoding = read_source_text(path)
+    previous_handlers = _install_restore_handler(path, original, encoding)
     lines = original.splitlines(keepends=True)
     try:
         lo, hi = _function_span(lines, sym)
@@ -328,6 +361,8 @@ def main(
     except BaseException:
         atomic_write_text(path, original, encoding=encoding)
         raise
+    finally:
+        _remove_restore_handler(previous_handlers)
 
     payload = {
         "source": str(path),
