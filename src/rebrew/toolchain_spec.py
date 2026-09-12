@@ -53,8 +53,10 @@ class ToolchainSpec:
     name: str  # e.g. "msvc-6.0", "delphi-1.0", "watcom-2.0-win32"
     image: str | None  # docker image tag, e.g. "rebrew/msvc:6.0-win32"; None = host-only
     binary: str = ""  # host executable name (vendored dir / PATH)
-    image_binary: str | None = None  # entry binary inside the container (a shim,
-    # e.g. "dcc" wrapping DCC.EXE); defaults to *binary*
+    image_entrypoint: str | None = None  # absolute in-image wrapper the image
+    # declares as ENTRYPOINT (e.g. "/usr/local/bin/cl"); the docker runner
+    # passes it explicitly, so a consumer that overrides the image entrypoint
+    # still names the same wrapper
     runtime: str = "native"  # "native" | "wine" | "dosbox" — informational; the
     # image wrapper encapsulates it, host fallback uses it for env setup
     flags_style: FlagsStyle = "msvc"  # flag syntax: /I,/Fo,/c vs -I,-o,-c

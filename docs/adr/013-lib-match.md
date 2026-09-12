@@ -34,6 +34,19 @@ exactly what a linked-in object looks like.
 Add `rebrew lib-match`, a command that:
 
 - takes one or more `--lib PATH` archives (`.lib`/`.a`),
+- can instead (or additionally) take `--stock-lib NAME`, a stock archive the
+  project toolchain ships. It is extracted from the profile's image into
+  `.scratch/` on first use, and the cached copy is refused when its md5
+  differs from the image's, so a hand-edited archive (objects stripped to
+  make a link succeed) cannot quietly redefine what "library code" means.
+  Both the image tag and the in-image `Lib` path come from the toolchain
+  registry, so a service pack that moves its tree cannot leave the check
+  pointing at a directory that does not exist,
+- can index objects the build produces from a source-vendored subtree: a
+  library vendored as source (built from a `references/` tree) never ships a
+  `.LIB`, so its objects are read from the build database
+  (`build/compile_commands.json`, `--compile-commands`) rather than a glob,
+  which would also pick up stale objects,
 - indexes every code symbol in them, **including COFF storage-class-3
   (static) symbols** — MSVC marks CRT helpers such as `_initterm` and
   `_parse_cmdline` static, so an external-symbol-only index reports them
@@ -52,9 +65,9 @@ Add `rebrew lib-match`, a command that:
   CI gate.
 
 The archive parsing reuses `gen_flirt_pat.parse_archive` /
-`parse_coff_obj`; no third parser is introduced. Libraries are passed
-explicitly (the project links LIBCMT from the toolchain image); there is no
-implicit library auto-discovery yet.
+`parse_coff_obj`; no third parser is introduced. Libraries are named
+explicitly (`--lib`, `--stock-lib`, or the build database); there is no
+implicit library auto-discovery.
 
 ## Consequences
 
@@ -66,10 +79,12 @@ implicit library auto-discovery yet.
   leaves the question open.
 - The archive index cost is per-`.lib` load, amortised across all VAs in a
   scan; single-`--va` checks pay the same one-time index.
-- `--lib` is required: the command cannot guess which archives a project
-  links. A config-driven default (e.g. `targets.<name>.link_libraries`) is a
-  possible follow-up, as is auto-extracting the toolchain's default runtime
-  library from its image.
+- `--lib`/`--stock-lib` are optional but at least one input is required: the
+  command cannot guess which archives a project links, and it must not run
+  silently with nothing to compare against.
+- The toolchain image is the source of truth for a stock archive and for the
+  `Lib` path that holds it; both derive from the registry rather than a
+  hardcoded path, which is the failure this replaced.
 - The static-symbol requirement is load-bearing: an index built only from the
   archive symbol index silently misses MSVC's static CRT helpers, which is
   the exact failure this command exists to prevent.

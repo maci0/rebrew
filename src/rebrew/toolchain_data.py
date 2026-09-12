@@ -436,6 +436,58 @@ SOURCES: dict[str, ToolchainSource] = {
     ),
 }
 
+#: The ENTRYPOINT wrapper each image declares, keyed by image tag.  The
+#: Dockerfile in the rebrew-toolchains checkout is the source (rebrew pins
+#: that checkout), and this publishes the wrapper so a consumer that has to
+#: override the image entrypoint names the same one.
+IMAGE_ENTRYPOINTS: dict[str, str] = {
+    "rebrew/borland:2.0-win16": "/usr/local/bin/tcc",
+    "rebrew/borland:3.1-win16": "/usr/local/bin/tcc",
+    "rebrew/borland:5.5-win32": "/usr/local/bin/bcc",
+    "rebrew/clang:16.0.4-linux-x64": "/usr/local/bin/clang",
+    "rebrew/clang:18.1.8-linux-x64": "/usr/local/bin/clang",
+    "rebrew/delphi:1.0-win16": "/usr/local/bin/dcc",
+    "rebrew/gcc:12.3.0-linux-x64": "/usr/local/bin/gcc",
+    "rebrew/gcc:14.2.0-linux-x64": "/usr/local/bin/gcc",
+    "rebrew/ido:5.3-linux": "/usr/local/bin/cc",
+    "rebrew/ido:7.1-linux": "/usr/local/bin/cc",
+    "rebrew/mingw:14.2.0-win32": "/usr/local/bin/mingw",
+    "rebrew/mingw:16.2.0-win32": "/usr/local/bin/mingw",
+    "rebrew/msvc:1.0-win16": "/usr/local/bin/cl10",
+    "rebrew/msvc:1.5-win16": "/usr/local/bin/cl15",
+    "rebrew/msvc:1.52-win16": "/usr/local/bin/cl16",
+    "rebrew/msvc:10.0-sp1-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:10.0-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:11.0-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:2.0-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:4.0-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:4.1-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:4.2-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:5.0-sp1-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:5.0-sp2-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:5.0-sp3-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:5.0-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:6.0-sp1-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:6.0-sp2-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:6.0-sp3-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:6.0-sp4-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:6.0-sp5-pp-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:6.0-sp5-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:6.0-sp6-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:6.0-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:7.0-rtm-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:7.0-sp1-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:7.0-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:7.1-sp1-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:7.1-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:8.0-sp1-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:8.0-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:9.0-sp1-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:9.0-win32": "/usr/local/bin/cl",
+    "rebrew/watcom:2.0-win16": "/usr/local/bin/wcc",
+    "rebrew/watcom:2.0-win32": "/usr/local/bin/wcc386",
+}
+
 
 #: Packaged (built-in) toolchain registry — the base every discovered
 #: toolchain merges on top of.  The public :data:`TOOLCHAINS` is built from
@@ -498,7 +550,6 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         name="delphi-1.0",
         image="rebrew/delphi:1.0-win16",
         binary="DCC.EXE",
-        image_binary=None,  # the image ENTRYPOINT is the dcc wrapper
         runtime="dosbox",
         bits=16,  # 16-bit target (arch-alignment check)
         flags_style="msvc",
@@ -510,7 +561,6 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         name="mingw-16.2.0",
         image="rebrew/mingw:16.2.0-win32",
         binary="i686-w64-mingw32-gcc",
-        image_binary=None,  # the image ENTRYPOINT is the mingw-16.2.0 wrapper
         runtime="wine",  # the mingw-builds driver is a Windows PE binary
         flags_style="posix",
         obj_ext=".obj",  # PE/COFF object for the i686-w64-mingw32 target
@@ -520,7 +570,6 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         name="mingw-14.2.0",
         image="rebrew/mingw:14.2.0-win32",
         binary="i686-w64-mingw32-gcc",
-        image_binary=None,  # the image ENTRYPOINT is the mingw-16.2.0 wrapper
         runtime="wine",  # the mingw-builds driver is a Windows PE binary
         flags_style="posix",
         obj_ext=".obj",  # PE/COFF object for the i686-w64-mingw32 target
@@ -530,7 +579,6 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         name="gcc-14.2.0",
         image="rebrew/gcc:14.2.0-linux-x64",
         binary="gcc",
-        image_binary=None,  # the image ENTRYPOINT is the gcc wrapper
         runtime="native",  # the compiler runs natively in the image
         flags_style="posix",
         obj_ext=".o",  # ELF x86_64 object
@@ -540,7 +588,6 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         name="gcc-12.3.0",
         image="rebrew/gcc:12.3.0-linux-x64",
         binary="gcc",
-        image_binary=None,  # the image ENTRYPOINT is the gcc wrapper
         runtime="native",  # the compiler runs natively in the image
         flags_style="posix",
         obj_ext=".o",  # ELF x86_64 object
@@ -550,7 +597,6 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         name="clang-18.1.8",
         image="rebrew/clang:18.1.8-linux-x64",
         binary="clang",
-        image_binary=None,  # the image ENTRYPOINT is the clang wrapper
         runtime="native",  # the compiler runs natively in the image
         flags_style="posix",
         obj_ext=".o",  # ELF x86_64 object
@@ -560,7 +606,6 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         name="clang-16.0.4",
         image="rebrew/clang:16.0.4-linux-x64",
         binary="clang",
-        image_binary=None,  # the image ENTRYPOINT is the clang wrapper
         runtime="native",  # the compiler runs natively in the image
         flags_style="posix",
         obj_ext=".o",  # ELF x86_64 object
@@ -588,7 +633,6 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         name="watcom-2.0-win32",
         image="rebrew/watcom:2.0-win32",
         binary="wcc386",
-        image_binary=None,  # the image ENTRYPOINT is wcc386
         runtime="native",
         flags_style="posix",
         arg_style="watcom",
@@ -603,7 +647,6 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         name="msvc-1.52",
         image="rebrew/msvc:1.52-win16",
         binary="CL.EXE",
-        image_binary=None,  # the image ENTRYPOINT is the cl16 wrapper
         runtime="dosbox",
         bits=16,  # 16-bit target (arch-alignment check)
         flags_style="msvc",
@@ -957,7 +1000,6 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         name="msvc-1.5",
         image="rebrew/msvc:1.5-win16",
         binary="CL.EXE",
-        image_binary=None,  # the image ENTRYPOINT is the cl15 wrapper
         runtime="dosbox",
         bits=16,  # 16-bit target (arch-alignment check)
         flags_style="msvc",
@@ -973,7 +1015,6 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         name="msvc-1.0",
         image="rebrew/msvc:1.0-win16",
         binary="CL.EXE",
-        image_binary=None,  # the image ENTRYPOINT is the cl10 wrapper
         runtime="dosbox",
         bits=16,  # 16-bit target (arch-alignment check)
         flags_style="msvc",
@@ -1033,7 +1074,6 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         name="watcom-2.0-win16",
         image="rebrew/watcom:2.0-win16",
         binary="wcc",
-        image_binary=None,  # the image ENTRYPOINT is the wcc wrapper
         runtime="native",  # the compiler runs natively in the image
         bits=16,  # 16-bit target (arch-alignment check)
         flags_style="posix",

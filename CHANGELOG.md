@@ -1,5 +1,16 @@
 ## [Unreleased]
 ### Added
+- **`rebrew lib-match` indexes source-vendored library objects and verifies
+  stock archives against the toolchain image**: a library vendored as source
+  never ships a `.LIB`, so its objects are read from the build database
+  (`build/compile_commands.json`, `--compile-commands`) instead of a glob over
+  the build directory, which would also pick up stale objects.  `--stock-lib
+  LIBCMT.LIB` extracts a stock archive from the project profile's image into
+  `.scratch/` on first use and refuses a cached copy whose md5 differs from the
+  image's, so a hand-edited archive cannot quietly redefine what "library
+  code" means; both the image and the in-image `Lib` path come from the
+  registry, fixing the hardcoded path that made the previous copy-and-check
+  silently no-op.  `--lib` is now optional (at least one input is required).
 - **Five C-shape lever operators, taken from measured findings in a real 2002
   MSVC6 build**: `mut_ternary_lift_constant` lifts an equal-armed ternary over
   its enclosing expression (`p + (c ? K : K)` to
@@ -138,6 +149,12 @@
   sources now exist.
 
 ### Changed
+- **`ToolchainSpec.image_entrypoint` publishes each image's ENTRYPOINT
+  wrapper**: the dead `image_binary` field is gone.  Every image-backed spec
+  now names the wrapper its Dockerfile declares (e.g. `/usr/local/bin/cl`),
+  and the docker runner passes it explicitly with `--entrypoint` immediately
+  before the image, so a consumer that must override the image entrypoint
+  names the same wrapper instead of relying on the image default.
 - **A profile's argument dialect is declared, not guessed**: `compile_to_obj`
   picked the compiler invocation from hardcoded profile-name tuples, so a
   plugin toolchain with the same call shape could not get its arguments built.

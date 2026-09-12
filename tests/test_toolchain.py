@@ -61,10 +61,11 @@ class TestRegistry:
 
     def test_delphi_1_0_host_binary_name(self) -> None:
         # The host executable is DCC.EXE (uppercase on disk); the docker
-        # image's ENTRYPOINT is the dcc wrapper, so no command is passed.
+        # image's ENTRYPOINT is the dcc wrapper, published so a consumer
+        # that overrides the entrypoint names the same wrapper.
         spec = TOOLCHAINS["delphi-1.0"]
         assert spec.binary == "DCC.EXE"
-        assert spec.image_binary is None
+        assert spec.image_entrypoint == "/usr/local/bin/dcc"
 
     def test_image_backed_native_specs(self) -> None:
         """The compiler profiles that used to be native PATH binaries are
@@ -83,7 +84,8 @@ class TestRegistry:
         for name, image in expected.items():
             spec = TOOLCHAINS[name]
             assert spec.image == image, name
-            assert spec.image_binary is None, name  # the ENTRYPOINT is the wrapper
+            assert spec.image_entrypoint is not None, name  # the ENTRYPOINT is published
+            assert spec.image_entrypoint.startswith("/"), name
             assert spec.flags_style == "posix", name
             assert spec.host_path is None, name  # no host fallback tree
         assert TOOLCHAINS["gcc-14.2.0"].obj_ext == ".o"
@@ -91,6 +93,15 @@ class TestRegistry:
         assert TOOLCHAINS["mingw-16.2.0"].obj_ext == ".obj"
         assert TOOLCHAINS["watcom-2.0-win16"].obj_ext == ".obj"
         assert TOOLCHAINS["watcom-2.0-win16"].bits == 16
+
+    def test_every_image_spec_publishes_entrypoint(self) -> None:
+        """Every image-backed spec names its image's ENTRYPOINT wrapper in
+        absolute form; a consumer that overrides the entrypoint uses it."""
+        for name, spec in TOOLCHAINS.items():
+            if spec.image is None:
+                continue
+            assert spec.image_entrypoint is not None, name
+            assert spec.image_entrypoint.startswith("/"), name
 
     def test_image_backed_native_sources_pinned(self) -> None:
         """Each image-backed native profile has a pinned SOURCES entry (the
@@ -211,7 +222,9 @@ class TestImageMsvcEnv:
 
 class TestRunToolchain:
     def test_docker_backend_uses_image_and_mount(self, tmp_path: Path, monkeypatch) -> None:
-        spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="cl", image_binary="cl")
+        spec = ToolchainSpec(
+            name="t", image="rebrew/t:latest", binary="cl", image_entrypoint="/usr/local/bin/cl"
+        )
         calls = _monkey_docker(monkeypatch)
         r = run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path)
         assert r.backend == "docker"
@@ -222,8 +235,9 @@ class TestRunToolchain:
         assert calls[0][4] == "--name"
         assert calls[0][5].startswith("rebrew-")
         assert calls[0][6:10] == ["-v", f"{tmp_path.resolve()}:/work", "-w", "/work"]
-        assert calls[0][10:12] == ["rebrew/t:latest", "cl"]
-        assert calls[0][12:] == ["/c", "f.c"]
+        assert calls[0][10:12] == ["--entrypoint", "/usr/local/bin/cl"]
+        assert calls[0][12] == "rebrew/t:latest"
+        assert calls[0][13:] == ["/c", "f.c"]
 
     def test_docker_msvc_image_exports_include_and_lib(self, tmp_path: Path, monkeypatch) -> None:
         """An image-backed MSVC spec carries its own INCLUDE/LIB (the SP
@@ -244,21 +258,29 @@ class TestRunToolchain:
         # env must precede the image tag, or docker reads it as a command.
         assert cmd.index(include) < cmd.index(spec.image)
 
-    def test_docker_entrypoint_image_passes_no_command(self, tmp_path: Path, monkeypatch) -> None:
-        """image_binary=None means the image ENTRYPOINT is the compiler —
-        no command is appended after the image tag (Godbolt convention)."""
+    def test_docker_without_entrypoint_passes_no_command(self, tmp_path: Path, monkeypatch) -> None:
+        """A spec with no image_entrypoint appends no command after the image
+        tag: the image ENTRYPOINT is used as-is (Godbolt convention)."""
         spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="wcc386")
         calls = _monkey_docker(monkeypatch)
         run_toolchain(spec, ["-zq", "f.c"], workdir=tmp_path)
         assert calls[0][11:] == ["-zq", "f.c"]
 
-    def test_docker_uses_image_binary_shim(self, tmp_path: Path, monkeypatch) -> None:
+    def test_docker_passes_entrypoint_wrapper(self, tmp_path: Path, monkeypatch) -> None:
+        """An explicit image_entrypoint is passed as ``--entrypoint``
+        immediately before the image, so a consumer that overrides the image
+        entrypoint still names the same wrapper."""
         spec = ToolchainSpec(
-            name="t", image="rebrew/t:latest", binary="DCC.EXE", image_binary="dcc"
+            name="t",
+            image="rebrew/t:latest",
+            binary="DCC.EXE",
+            image_entrypoint="/usr/local/bin/dcc",
         )
         calls = _monkey_docker(monkeypatch)
         run_toolchain(spec, ["hello.dpr"], workdir=tmp_path)
-        assert calls[0][11] == "dcc"
+        assert calls[0][10:12] == ["--entrypoint", "/usr/local/bin/dcc"]
+        assert calls[0][12] == "rebrew/t:latest"
+        assert calls[0][13:] == ["hello.dpr"]
 
     def test_wine_runtime_without_image_raises(self, tmp_path: Path, monkeypatch) -> None:
         """A wine-runtime spec without an image is not runnable — execution
@@ -288,7 +310,9 @@ class TestRunToolchain:
         would otherwise accumulate one hung wine process per timeout."""
         import subprocess as sp
 
-        spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="cl", image_binary="cl")
+        spec = ToolchainSpec(
+            name="t", image="rebrew/t:latest", binary="cl", image_entrypoint="/usr/local/bin/cl"
+        )
         calls: list[list[str]] = []
 
         def _run(cmd, **kwargs):
@@ -311,7 +335,9 @@ class TestRunToolchain:
     def test_docker_os_error_skips_kill(self, tmp_path: Path, monkeypatch) -> None:
         """No container exists when docker itself cannot be exec'd — the
         error path must not fire a kill."""
-        spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="cl", image_binary="cl")
+        spec = ToolchainSpec(
+            name="t", image="rebrew/t:latest", binary="cl", image_entrypoint="/usr/local/bin/cl"
+        )
         calls: list[list[str]] = []
 
         def _run(cmd, **kwargs):
@@ -851,7 +877,7 @@ class TestDockerOnlyGuard:
 
         spec = TOOLCHAINS["watcom-2.0-win16"]
         assert spec.image == "rebrew/watcom:2.0-win16"
-        assert spec.image_binary is None
+        assert spec.image_entrypoint == "/usr/local/bin/wcc"
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
         monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
         with pytest.raises(ToolchainError, match="not built"):
@@ -1051,6 +1077,30 @@ class TestDockerfileSanity:
             "rebrew-toolchains checkout (a fresh clone cannot rebuild "
             "them): " + ", ".join(missing)
         )
+
+    def test_image_entrypoint_matches_dockerfile(self) -> None:
+        """ToolchainSpec.image_entrypoint must equal the wrapper its
+        Dockerfile declares as ENTRYPOINT, so the published value and the
+        image can never drift."""
+        import re
+
+        from rebrew.toolchain import TOOLCHAINS
+
+        repo = self._repo()
+        for name, spec in TOOLCHAINS.items():
+            if spec.image is None:
+                continue
+            _, verarch = spec.image.rsplit(":", 1)
+            dockerfile = repo / spec.family / verarch / "Dockerfile"
+            if not dockerfile.is_file():
+                continue
+            match = re.search(
+                r'^ENTRYPOINT \["([^"]+)"\]',
+                dockerfile.read_text(encoding="utf-8"),
+                re.MULTILINE,
+            )
+            assert match is not None, f"{dockerfile.relative_to(repo)}: no ENTRYPOINT line"
+            assert spec.image_entrypoint == match.group(1), name
 
 
 class TestEffectiveArgStyle:

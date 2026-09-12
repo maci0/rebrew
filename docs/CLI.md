@@ -878,9 +878,17 @@ each object's relocation slots masked; the archive index covers COFF static
 symbols too (MSVC marks helpers like `_initterm` static). Exit 0 = clean,
 1 = a reversed function matches a library, 2 = config/library error.
 
+`--stock-lib` names an archive the toolchain ships instead of a path the
+project carries; it is extracted from the profile's image and its md5 is
+checked against that image before use. Objects built from a source-vendored
+library subtree are indexed from the build database, since such a library
+never ships a `.LIB`.
+
 | Flag / Arg | Description |
 |------------|-------------|
 | `--lib FILE` | Static library to check against (repeatable) |
+| `--stock-lib NAME` | Stock archive from the project toolchain's image (repeatable), e.g. `LIBCMT.LIB`. Extracted into `.scratch/` on first use, refused when it differs from the image's copy |
+| `--compile-commands FILE` | Build database used to index objects built from a source-vendored tree (default `build/compile_commands.json`, skipped when absent) |
 | `--va HEX` | Check a single function VA instead of every reversed function |
 | `--allow FILE` | VAs known to be library code kept for link reasons (one hex per line, `#` comments) |
 | `--target NAME` | Select a target from `rebrew-project.toml` |

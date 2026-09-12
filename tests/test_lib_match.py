@@ -198,3 +198,158 @@ class TestMatchBytesRelocGuard:
         # In-range fixed bytes = 16 - 8 = 8 == 0.5 * 16, so the match stands;
         # the old `len(data) - len(relocs)` guard computed 7 and skipped it.
         assert match_bytes(index, data) == ("sym", "obj")
+
+
+class TestIndexObjects:
+    """Loose .obj indexing for libraries vendored as source (no .LIB)."""
+
+    def test_matches_a_named_object(self, tmp_path: Path) -> None:
+        from rebrew.lib_match import index_objects
+
+        obj = tmp_path / "mylib.obj"
+        obj.write_bytes(make_coff_obj(LIB_CODE, func_symbol="_mylibfn"))
+        index = index_objects([obj])
+        assert "_mylibfn" in index
+        name, body, _relocs = index["_mylibfn"][0]
+        assert name == "mylib.obj"
+        assert body == LIB_CODE
+
+    def test_short_file_is_skipped(self, tmp_path: Path) -> None:
+        """A truncated object is skipped with a note, not a crash."""
+        from rebrew.lib_match import index_objects
+
+        obj = tmp_path / "stub.obj"
+        obj.write_bytes(b"\x00\x00\x00\x00")
+        assert index_objects([obj]) == {}
+
+
+class TestVendoredObjects:
+    """Which objects in a build database come from a source-vendored tree."""
+
+    def _db(self, tmp_path: Path, entries: list[dict[str, str]]) -> Path:
+        import json
+
+        db = tmp_path / "build" / "compile_commands.json"
+        db.parent.mkdir(parents=True, exist_ok=True)
+        db.write_text(json.dumps(entries), encoding="utf-8")
+        return db
+
+    def test_picks_only_references_entries(self, tmp_path: Path) -> None:
+        from rebrew.lib_match import vendored_objects
+
+        vendored_obj = tmp_path / "build" / "ref.obj"
+        own_obj = tmp_path / "build" / "own.obj"
+        vendored_obj.parent.mkdir(parents=True, exist_ok=True)
+        vendored_obj.write_bytes(b"x")
+        own_obj.write_bytes(b"x")
+        db = self._db(
+            tmp_path,
+            [
+                {
+                    "directory": str(tmp_path),
+                    "file": "/proj/references/zlib/adler32.c",
+                    "command": f"cl /c /Fo{vendored_obj} /proj/references/zlib/adler32.c",
+                },
+                {
+                    "directory": str(tmp_path),
+                    "file": "/proj/src/main.c",
+                    "command": f"cl /c /Fo{own_obj} /proj/src/main.c",
+                },
+            ],
+        )
+        assert vendored_objects(db, tmp_path) == [vendored_obj]
+
+    def test_missing_database_is_empty(self, tmp_path: Path) -> None:
+        from rebrew.lib_match import vendored_objects
+
+        assert vendored_objects(tmp_path / "nope.json", tmp_path) == []
+
+    def test_relative_output_resolves_against_directory(self, tmp_path: Path) -> None:
+        from rebrew.lib_match import vendored_objects
+
+        (tmp_path / "build").mkdir()
+        (tmp_path / "build" / "ref.obj").write_bytes(b"x")
+        db = self._db(
+            tmp_path,
+            [
+                {
+                    "directory": str(tmp_path),
+                    "file": "/proj/references/x.c",
+                    "command": "cl /c /Fobuild/ref.obj /proj/references/x.c",
+                }
+            ],
+        )
+        assert vendored_objects(db, tmp_path) == [tmp_path / "build" / "ref.obj"]
+
+
+class TestStockLib:
+    """Docker stock-LIB extraction plus the md5 stock check."""
+
+    def _runtime(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import shutil
+
+        import rebrew.lib_match as lm
+
+        monkeypatch.setattr(lm, "container_runtime", lambda: "docker")
+        monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
+
+    def test_ensure_stock_lib_extracts_from_registry_image(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.lib_match as lm
+
+        self._runtime(monkeypatch)
+        dest = tmp_path / ".scratch" / "libcmt_stock.LIB"
+        seen: list[list[str]] = []
+
+        def fake_run(argv: list[str], **kwargs: object) -> SimpleNamespace:
+            seen.append(list(argv))
+            dest.write_bytes(b"STOCK")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(lm.subprocess, "run", fake_run)
+        assert lm.ensure_stock_lib(dest, profile="msvc-6.0-sp6", name="LIBCMT.LIB") is True
+        argv = seen[0]
+        assert "rebrew/msvc:6.0-sp6-win32" in argv
+        assert "/opt/msvc6.0-sp6/VC98/Lib/LIBCMT.LIB" in argv
+
+    def test_assert_library_is_stock_rejects_divergent_copy(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import typer
+
+        import rebrew.lib_match as lm
+
+        self._runtime(monkeypatch)
+        path = tmp_path / "libcmt_stock.LIB"
+        path.write_bytes(b"EDITED")
+        monkeypatch.setattr(
+            lm.subprocess,
+            "run",
+            lambda argv, **kw: SimpleNamespace(
+                returncode=0, stdout="aaaa  stock\nbbbb  /out/x\n", stderr=""
+            ),
+        )
+        with pytest.raises(typer.Exit) as exc:
+            lm.assert_library_is_stock(path, profile="msvc-6.0-sp6", name="LIBCMT.LIB")
+        assert exc.value.exit_code == 2
+
+    def test_assert_library_is_stock_errors_on_one_digest(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A run that hashes fewer than two files is an error, not a pass."""
+        import typer
+
+        import rebrew.lib_match as lm
+
+        self._runtime(monkeypatch)
+        path = tmp_path / "libcmt_stock.LIB"
+        path.write_bytes(b"STOCK")
+        monkeypatch.setattr(
+            lm.subprocess,
+            "run",
+            lambda argv, **kw: SimpleNamespace(returncode=0, stdout="aaaa  stock\n", stderr=""),
+        )
+        with pytest.raises(typer.Exit) as exc:
+            lm.assert_library_is_stock(path, profile="msvc-6.0-sp6", name="LIBCMT.LIB")
+        assert exc.value.exit_code == 2
