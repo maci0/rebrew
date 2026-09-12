@@ -15,6 +15,12 @@ from rebrew.toolchain import (
     run_toolchain,
 )
 
+#: Image tag -> install root when it is not the default ``/opt/msvc<tag>``.
+#: The 6.0-sp6 image unpacks its media under the base 6.0 root — its ``cl``
+#: wrapper and INCLUDE/LIB exports point at ``/opt/msvc6.0`` — so the profile
+#: follows the image rather than the tag.
+_INSTALL_ROOT_BY_TAG = {"6.0-sp6-win32": "/opt/msvc6.0"}
+
 
 class _FakeProc:
     def __init__(self, rc: int = 0, out: str = "", err: str = "") -> None:
@@ -120,7 +126,7 @@ class TestImageMsvcEnv:
             tag = spec.image.split(":", 1)[1]
             if not tag.endswith("-win32"):
                 continue
-            install_root = "/opt/msvc" + tag[: -len("-win32")]
+            install_root = _INSTALL_ROOT_BY_TAG.get(tag, "/opt/msvc" + tag[: -len("-win32")])
             assert spec.tool_root, f"{name} has no tool_root"
             assert spec.tool_root.startswith(install_root + "/"), (
                 f"{name}: tool_root {spec.tool_root!r} is outside the image's "

@@ -34,8 +34,9 @@ make build                    # reproducible sdist+wheel (SOURCE_DATE_EPOCH, TZ=
 
 ## Versioning and releases
 
-Rebrew is pre-1.0.  Under SemVer's `0.x` rule any release may break the CLI,
-the config schema, or an on-disk format; nothing here is frozen until `1.0.0`.
+Rebrew is 1.x.  From `1.0.0` the CLI command names, the config schema, and the
+on-disk formats are frozen: a breaking change to any of them takes a major
+version bump and a `**Breaking:**` changelog entry.
 
 - **One version, one place.**  `__version__` in `src/rebrew/__init__.py` is the
   source of truth; `pyproject.toml` reads it via `[tool.setuptools.dynamic]`.

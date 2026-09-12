@@ -1,4 +1,4 @@
-## [Unreleased]
+## [1.0.0] - 2026-09-12
 ### Added
 - **`rebrew security-scan` scans C sources for unsafe API use**: a new command
   (and `rebrew.security_scan` module) matches call expressions on the
@@ -11,11 +11,34 @@
   defaults to the project's reversed sources. `--min-severity` filters;
   `--json` prints `{root, files_scanned, findings, count, by_severity}` and
   no findings is exit 0.
+### Changed
+- **Breaking: the CLI is a component graph and the module tree is split along
+  its seams.**  `rebrew.main` now builds the app from components (the
+  `rebrew.plugin` runtime plus the `rebrew.builtins` declarations) instead of a
+  name-keyed command table, so built-ins and third-party plugins follow one
+  activation path and a broken plugin degrades to an `[unavailable]` stub
+  (ADR 014).  Import paths moved with the split: `rebrew.binsync_*` is now the
+  `rebrew.binsync` package (`binsync_serial` → `binsync.serial`,
+  `binsync_import` → `binsync.importer`, and so on); the `rebrew.core` package
+  is gone (`core.matching` → `rebrew.coff_reloc`, `core.toolchain` →
+  `rebrew.msvc_env`); `catalog.sections` and `matcher.omf16` are top-level
+  modules.  Oversized modules were split: `match.py` into
+  `match_batch`/`match_sweep`/`match_ga`/`match_run`; `verify.py` into
+  `verify_cache`/`verify_hash`; `data.py` into `data_annotate`/`data_render`;
+  `lint.py` into `lint_cflags`; `init.py` into `init_profiles`; `prove.py` into
+  `prove_simprocs`; `toolchain.py` into
+  `toolchain_spec`/`toolchain_paths`/`toolchain_data`; `matcher/mutator.py` into
+  `matcher/mutations/`.  Console scripts and imports naming the old paths must
+  be updated; every `rebrew <command>` name is unchanged.
 ### Fixed
 - **Plugin multi-command groups show their own help** — a Typer group registered through the
   `rebrew.multicommands` entry point was added with `help=<command name>`, so the Plugins panel
   and `rebrew <group>` repeated the name instead of the group's own description. The help now
   comes from the plugin app's `help=`/docstring, like the packaged groups.
+- **`code_similarity` reads the `resembl` scoring core again** — it imported the
+  private `_minhash_from_tokens`, which `resembl` no longer exposes, so the
+  optional similarity path raised `RuntimeError` (and `rebrew verify` wrote no
+  `Sim %`). The import now names `resembl.scoring.minhash_from_tokens`.
 
 ## [0.12.0] - 2026-09-12
 ### Added
