@@ -14,11 +14,16 @@ from rebrew.matcher.ast_engine import _C_LANGUAGE, parse_c_ast
 from rebrew.matcher.mutations.queries import (
     _QUERY_ADD_VOLATILE_INTERMEDIATE,
     _QUERY_BYTE_CAST,
+    _QUERY_BYTE_LOCAL_DECL,
     _QUERY_BYTE_TYPE_DECL,
+    _QUERY_CONDITIONAL,
     _QUERY_DEREF_PTR_ADD,
     _QUERY_IF_STMT,
+    _QUERY_INIT_DECLARATION,
     _QUERY_INJECT_DUMMY_ARRAY,
     _QUERY_INJECT_DUMMY_VAR,
+    _QUERY_NEGATED_COMPARISON,
+    _QUERY_PLAIN_CALL,
     _QUERY_REGISTER_DECL,
     _QUERY_SCOPE_VARIABLE,
     _QUERY_SUBSCRIPT_EXPR,
@@ -1104,3 +1109,423 @@ def mut_switch_break_to_return(s: str, rng: random.Random) -> str | None:
         out = out[: b_node.start_byte] + ret_text + out[b_node.end_byte :]
 
     return out.decode("utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Lever operators: shapes a real MSVC6 build keys its codegen off
+# ---------------------------------------------------------------------------
+
+
+def _node_text(node: ts.Node, source: bytes) -> str:
+    """Decode *node*'s source span."""
+    return source[node.start_byte : node.end_byte].decode("utf-8")
+
+
+def _enclosing_function(node: ts.Node) -> ts.Node | None:
+    """The nearest enclosing ``function_definition`` of *node*, or None."""
+    parent = node.parent
+    while parent is not None:
+        if parent.type == "function_definition":
+            return parent
+        parent = parent.parent
+    return None
+
+
+def _parameter_list_of(func: ts.Node) -> ts.Node | None:
+    """The ``parameter_list`` node of *func*, or None.
+
+    Scoped to the declarator, not the whole function: a function-pointer cast
+    inside the body carries its own ``parameter_declaration`` nodes, and those
+    names are not parameters of this function.
+    """
+    stack = [func]
+    while stack:
+        node = stack.pop()
+        if node.type == "parameter_list":
+            return node
+        if node.type == "compound_statement":
+            continue
+        stack.extend(node.children)
+    return None
+
+
+def _deepest_identifier(node: ts.Node) -> ts.Node | None:
+    """The last identifier in *node*'s subtree (the declared name)."""
+    found: ts.Node | None = None
+    stack = [node]
+    while stack:
+        node = stack.pop()
+        if node.type == "identifier":
+            found = node
+        stack.extend(node.children)
+    return found
+
+
+def _parameter_names(func: ts.Node, source: bytes) -> set[bytes]:
+    """Text of every parameter name *func* declares."""
+    params = _parameter_list_of(func)
+    if params is None:
+        return set()
+    names: set[bytes] = set()
+    stack = [params]
+    while stack:
+        node = stack.pop()
+        if node.type == "parameter_declaration":
+            ident = _deepest_identifier(node)
+            if ident is not None:
+                names.add(source[ident.start_byte : ident.end_byte])
+            continue
+        stack.extend(node.children)
+    return names
+
+
+def _identifier_uses(
+    func: ts.Node, name: bytes, source: bytes, *, skip: ts.Node | None = None
+) -> list[ts.Node]:
+    """Every identifier named *name* inside *func*, minus *skip*'s subtree."""
+    uses: list[ts.Node] = []
+    stack = [func]
+    while stack:
+        node = stack.pop()
+        if (
+            skip is not None
+            and node.start_byte >= skip.start_byte
+            and node.end_byte <= skip.end_byte
+        ):
+            continue
+        if node.type == "identifier" and source[node.start_byte : node.end_byte] == name:
+            uses.append(node)
+            continue
+        stack.extend(node.children)
+    return uses
+
+
+def _is_address_taken(use: ts.Node) -> bool:
+    """True when *use* sits under a unary ``&`` (its address escapes)."""
+    parent = use.parent
+    while parent is not None:
+        if parent.type == "unary_expression":
+            op = parent.child_by_field_name("operator")
+            return op is not None and op.text == b"&"
+        if parent.type in ("expression_statement", "declaration", "compound_statement"):
+            return False
+        parent = parent.parent
+    return False
+
+
+def _is_last_declaration(declaration: ts.Node) -> bool:
+    """True when no declaration follows *declaration* in the same block.
+
+    Removing a declaration and leaving a statement behind would put that
+    statement ahead of later declarations, which C89 rejects.
+    """
+    block = declaration.parent
+    if block is None:
+        return False
+    seen = False
+    for child in block.children:
+        if child.start_byte == declaration.start_byte:
+            seen = True
+            continue
+        if seen and child.type in ("declaration", "type_definition"):
+            return False
+    return seen
+
+
+def _first_parameter_reference(init: ts.Node, params: set[bytes], source: bytes) -> bytes | None:
+    """The first parameter name *init* references, or None."""
+    stack = [init]
+    while stack:
+        node = stack.pop()
+        if node.type == "identifier":
+            name = source[node.start_byte : node.end_byte]
+            if name in params:
+                return name
+        stack.extend(node.children)
+    return None
+
+
+def mut_ternary_lift_constant(s: str, rng: random.Random) -> str | None:
+    """Lift an equal-armed ternary out of a binary expression.
+
+    ``p + (c ? K : K)`` gives the conditional equal constant arms, which MSVC6
+    folds away; the folded form kills the byte's liveness and yields the
+    ``xor``-form preamble.  Spelling the same value as
+    ``(c) ? (p + K) : (p + K)`` keeps the comparison and the byte live, which
+    is the reference's ``and reg,0xff`` preamble shape.  The arms are equal,
+    so the rewrite cannot change the result.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+
+    candidates: list[tuple[ts.Node, str, str, str]] = []
+    for _idx, caps in _cursor(_QUERY_CONDITIONAL).matches(tree.root_node):
+        cond = _first_caps(caps).get("cond")
+        if cond is None:
+            continue
+        condition = cond.child_by_field_name("condition")
+        consequence = cond.child_by_field_name("consequence")
+        alternative = cond.child_by_field_name("alternative")
+        if condition is None or consequence is None or alternative is None:
+            continue
+        if consequence.text != alternative.text:
+            continue
+        paren = cond.parent
+        if paren is None or paren.type != "parenthesized_expression":
+            continue
+        binary = paren.parent
+        if binary is None or binary.type != "binary_expression":
+            continue
+        left = binary.child_by_field_name("left")
+        right = binary.child_by_field_name("right")
+        op = binary.child_by_field_name("operator")
+        if left is None or right is None or op is None:
+            continue
+        if left.start_byte == paren.start_byte:
+            other = right
+        elif right.start_byte == paren.start_byte:
+            other = left
+        else:
+            continue
+        candidates.append(
+            (
+                binary,
+                _node_text(condition, b_source),
+                _node_text(op, b_source),
+                f"({_node_text(other, b_source)} {_node_text(op, b_source)} "
+                f"{_node_text(consequence, b_source)})",
+            )
+        )
+
+    if not candidates:
+        return None
+
+    binary, cond_txt, _op_txt, combined = rng.choice(candidates)
+    new = f"(({cond_txt}) ? {combined} : {combined})"
+    result = b_source[: binary.start_byte] + new.encode("utf-8") + b_source[binary.end_byte :]
+    return result.decode("utf-8")
+
+
+def mut_compare_negate_to_ternary(s: str, rng: random.Random) -> str | None:
+    """Rewrite ``-(a != b)`` as ``(a != b ? -1 : 0)``.
+
+    MSVC6 compiles the negated comparison to ``setne`` plus ``neg``, seven
+    bytes larger than the fused ``sub``/``neg``/``sbb`` compare-and-negate the
+    reference uses.  The ternary spelling reaches the fused form; ``==`` maps
+    to the mirrored ``(a == b ? 0 : -1)``.  Both spellings yield 0 or -1.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+
+    candidates: list[tuple[ts.Node, ts.Node, bytes]] = []
+    for _idx, caps in _cursor(_QUERY_NEGATED_COMPARISON).matches(tree.root_node):
+        cap = _first_caps(caps)
+        unary = cap.get("un")
+        cmp_node = cap.get("cmp")
+        if unary is None or cmp_node is None:
+            continue
+        op = unary.child_by_field_name("operator")
+        if op is None or op.text != b"-":
+            continue
+        cmp_op = cmp_node.child_by_field_name("operator")
+        if cmp_op is None or cmp_op.text not in (b"==", b"!="):
+            continue
+        candidates.append((unary, cmp_node, cmp_op.text))
+
+    if not candidates:
+        return None
+
+    unary, cmp_node, cmp_op_text = rng.choice(candidates)
+    cmp_txt = _node_text(cmp_node, b_source)
+    true_val, false_val = ("-1", "0") if cmp_op_text == b"!=" else ("0", "-1")
+    new = f"(({cmp_txt}) ? {true_val} : {false_val})"
+    result = b_source[: unary.start_byte] + new.encode("utf-8") + b_source[unary.end_byte :]
+    return result.decode("utf-8")
+
+
+def mut_walk_in_parameter(s: str, rng: random.Random) -> str | None:
+    """Advance a parameter instead of a local copy of it.
+
+    ``cur = cursor + 0x14; ... cur = cur + 0x14;`` keeps two live ranges over
+    one pointer, so MSVC6 spends a callee-saved register on the copy and
+    rotates every assignment in the function.  Writing the walk into the
+    parameter merges the ranges.  The declaration becomes the first assignment
+    and every use of the local becomes the parameter.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+
+    candidates: list[tuple[ts.Node, ts.Node, bytes, bytes, list[ts.Node]]] = []
+    for _idx, caps in _cursor(_QUERY_INIT_DECLARATION).matches(tree.root_node):
+        cap = _first_caps(caps)
+        decl = cap.get("decl")
+        init = cap.get("init")
+        if decl is None or init is None:
+            continue
+        declaration = decl.parent
+        if declaration is None or declaration.type != "declaration":
+            continue
+        declarator = decl.child_by_field_name("declarator")
+        if declarator is None:
+            continue
+        # A multi-declarator declaration cannot become a single assignment.
+        if len([c for c in declaration.children if c.type == "init_declarator"]) != 1:
+            continue
+        local = _deepest_identifier(declarator)
+        if local is None:
+            continue
+        local_name = b_source[local.start_byte : local.end_byte]
+        func = _enclosing_function(declaration)
+        if func is None or not _is_last_declaration(declaration):
+            continue
+        params = _parameter_names(func, b_source)
+        if local_name in params:
+            continue
+        # The initializer must name a parameter, or replacing the local with
+        # the parameter would drop the value it was derived from.
+        param = _first_parameter_reference(init, params, b_source)
+        if param is None:
+            continue
+        uses = _identifier_uses(func, local_name, b_source, skip=declaration)
+        # Uses before the declaration name something else (a global of the
+        # same name); renaming those would change their meaning.
+        if not uses or any(u.start_byte < declaration.end_byte for u in uses):
+            continue
+        if any(_is_address_taken(u) for u in uses):
+            continue
+        candidates.append((declaration, init, local_name, param, uses))
+
+    if not candidates:
+        return None
+
+    declaration, init, _local_name, param, uses = rng.choice(candidates)
+    out = b_source
+    for use in sorted(uses, key=lambda n: n.start_byte, reverse=True):
+        out = out[: use.start_byte] + param + out[use.end_byte :]
+    assignment = param + b" = " + out[init.start_byte : init.end_byte] + b";"
+    out = out[: declaration.start_byte] + assignment + out[declaration.end_byte :]
+    return out.decode("utf-8")
+
+
+def mut_home_byte_in_param_slot(s: str, rng: random.Random) -> str | None:
+    """Home a byte local in a dead parameter's stack slot.
+
+    A byte that must survive across a loop has no register home on MSVC6, so
+    it gets a fresh spill dword and the frame grows by four.  An incoming
+    parameter the body no longer reads already owns a dead slot in that frame,
+    and its spare bytes are legal homes: ``((unsigned char*)&arg)[1]`` removes
+    the spill and restores the reference's frame size.  Byte 2 loses the frame
+    instead, so only bytes 0 and 1 are used.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+    byte_types = {b"char", b"unsigned char", b"signed char", b"BYTE"}
+
+    candidates: list[tuple[ts.Node, ts.Node | None, bytes, bytes, list[ts.Node]]] = []
+    for _idx, caps in _cursor(_QUERY_BYTE_LOCAL_DECL).matches(tree.root_node):
+        cap = _first_caps(caps)
+        declaration = cap.get("stmt")
+        name_node = cap.get("name")
+        type_node = cap.get("type")
+        if declaration is None or name_node is None or type_node is None:
+            continue
+        if b_source[type_node.start_byte : type_node.end_byte] not in byte_types:
+            continue
+        local_name = b_source[name_node.start_byte : name_node.end_byte]
+        func = _enclosing_function(declaration)
+        if func is None or not _is_last_declaration(declaration):
+            continue
+        uses = _identifier_uses(func, local_name, b_source, skip=declaration)
+        if not uses or any(u.start_byte < declaration.end_byte for u in uses):
+            continue
+        if any(_is_address_taken(u) for u in uses):
+            continue
+        # The slot must belong to a parameter the body no longer reads, so the
+        # home cannot change an observable value.
+        param_list = _parameter_list_of(func)
+        dead = [
+            name
+            for name in _parameter_names(func, b_source)
+            if not _identifier_uses(func, name, b_source, skip=param_list)
+        ]
+        if not dead:
+            continue
+        candidates.append((declaration, cap.get("init"), local_name, rng.choice(dead), uses))
+
+    if not candidates:
+        return None
+
+    declaration, init, _local_name, param, uses = rng.choice(candidates)
+    home = b"((unsigned char*)&" + param + b")[" + str(rng.choice((0, 1))).encode("utf-8") + b"]"
+    out = b_source
+    for use in sorted(uses, key=lambda n: n.start_byte, reverse=True):
+        out = out[: use.start_byte] + home + out[use.end_byte :]
+    replacement = b""
+    if init is not None:
+        replacement = home + b" = " + out[init.start_byte : init.end_byte] + b";"
+    out = out[: declaration.start_byte] + replacement + out[declaration.end_byte :]
+    return out.decode("utf-8")
+
+
+def mut_call_prototype_view(s: str, rng: random.Random) -> str | None:
+    """Call a function through a cast pointer with a different parameter type.
+
+    The caller-side prototype decides how an argument is materialized: a raw
+    byte load for ``unsigned char``, ``movsx`` for ``char``, ``xor`` plus a
+    byte load for an explicit cast.  When the reference was compiled against a
+    different view of the callee, the cast-call reproduces it without touching
+    the callee's definition.
+
+    Argument types are inferred from each expression; the cast keeps the
+    project's default calling convention, so a callee declared ``__stdcall``
+    is mis-called (the same hazard ``mut_toggle_calling_convention`` carries).
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+    varied = ("unsigned char", "char", "short", "int")
+
+    candidates: list[tuple[ts.Node, ts.Node, str]] = []
+    for _idx, caps in _cursor(_QUERY_PLAIN_CALL).matches(tree.root_node):
+        cap = _first_caps(caps)
+        fn = cap.get("fn")
+        args = cap.get("args")
+        if fn is None or args is None:
+            continue
+        arg_nodes = [c for c in args.children if c.type not in ("(", ")", ",")]
+        if not arg_nodes or len(arg_nodes) > 8:
+            continue
+        types = [_argument_type_text(a, b_source) for a in arg_nodes]
+        index = rng.randrange(len(types))
+        # The view only changes if the parameter type differs from what the
+        # argument already is.
+        types[index] = rng.choice([t for t in varied if t != types[index]])
+        signature = f"int (*)({', '.join(types)})"
+        candidates.append((fn, args, signature))
+
+    if not candidates:
+        return None
+
+    fn, args, signature = rng.choice(candidates)
+    new_fn = f"(({signature}) {_node_text(fn, b_source)})"
+    result = b_source[: fn.start_byte] + new_fn.encode("utf-8") + b_source[fn.end_byte :]
+    return result.decode("utf-8")
+
+
+def _argument_type_text(node: ts.Node, source: bytes) -> str:
+    """A best-effort C type for an argument expression.
+
+    Only the parameter *declaration* an argument is passed through matters to
+    the caller's codegen, so an approximate type is enough: a wrong guess
+    costs one failed compile, never a wrong match.
+    """
+    if node.type == "cast_expression":
+        type_node = node.child_by_field_name("type")
+        return _node_text(type_node, source) if type_node is not None else "int"
+    if node.type == "number_literal":
+        text = _node_text(node, source)
+        return "double" if any(c in text for c in ".eE") else "int"
+    if node.type == "string_literal":
+        return "char*"
+    if node.type == "pointer_expression":
+        return "void*"
+    return "int"

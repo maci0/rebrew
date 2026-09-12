@@ -138,8 +138,11 @@ from rebrew.matcher.mutations.runtime import (
 from rebrew.matcher.mutations.structural import (
     mut_add_volatile_intermediate,
     mut_array_to_ptr_arith,
+    mut_call_prototype_view,
     mut_cast_to_bitmask,
+    mut_compare_negate_to_ternary,
     mut_decouple_index_math,
+    mut_home_byte_in_param_slot,
     mut_if_chain_to_switch,
     mut_inject_dummy_array,
     mut_inject_dummy_var,
@@ -154,6 +157,8 @@ from rebrew.matcher.mutations.structural import (
     mut_switch_add_explicit_default,
     mut_switch_break_to_return,
     mut_switch_to_if_chain,
+    mut_ternary_lift_constant,
+    mut_walk_in_parameter,
     mut_while_to_goto_loop,
     mut_wrap_in_else,
 )
@@ -290,6 +295,12 @@ _BUILTIN_MUTATIONS = [
     mut_extract_complex_args,
     # --- Pragma levers: #pragma optimize / intrinsic / check_stack /
     #     auto_inline (codegen switches that flags cannot reach) ---
+    # --- Lever operators: shapes a real MSVC6 build keys its codegen off ---
+    mut_ternary_lift_constant,
+    mut_compare_negate_to_ternary,
+    mut_walk_in_parameter,
+    mut_home_byte_in_param_slot,
+    mut_call_prototype_view,
     mut_add_optimize_pragma,
     mut_remove_optimize_pragma,
     mut_add_intrinsic_pragma,

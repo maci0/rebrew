@@ -504,6 +504,17 @@ _VALID_C_CORPUS = [
     "int f(int a) {\n    int t;\n    t = a * 2;\n    return t;\n}\n",
     "void f(void) {\n    if (cond) {\n        a = 1;\n    } else {\n        b = 2;\n    }\n}\n",
     "int f(int x) {\n    return x ? 1 : 0;\n}\n",
+    # Lever shapes: equal-arm ternary, negated comparison, pointer walk into a
+    # local copy, byte local with a dead parameter, and a plain call.
+    "int f(char *p, char *c, void *arg, int x) {\n"
+    "    unsigned char b = p[6];\n"
+    "    char *cur = c + 0x14;\n"
+    "    cur = cur + 0x14;\n"
+    "    c = p + (*p == 0x16 ? 0x15 : 0x15);\n"
+    "    if (-(x != 0xe)) { x = b; }\n"
+    "    x = gm_QueryEntitySum(1, x);\n"
+    "    return (int)cur + x;\n"
+    "}\n",
 ]
 
 
