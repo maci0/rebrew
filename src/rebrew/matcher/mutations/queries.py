@@ -782,3 +782,21 @@ _QUERY_ADD_VOLATILE_INTERMEDIATE = _LazyQuery(
     _C_LANGUAGE,
     '\n        (expression_statement\n            (assignment_expression\n                left: (identifier) @var\n                operator: "="\n                right: (binary_expression) @rhs\n            )\n        ) @stmt\n    ',
 )
+
+
+_QUERY_TERNARY_ARG_TO_IF_ELSE_CALL = _LazyQuery(
+    _C_LANGUAGE,
+    "\n        (expression_statement\n            (call_expression\n                function: (_) @fn\n                arguments: (argument_list\n                    (conditional_expression\n                        condition: (_) @cond\n                        consequence: (_) @val_true\n                        alternative: (_) @val_false) @ternary)\n            ) @call\n        ) @stmt\n    ",
+)
+_QUERY_SINK_COMMON_TAIL = _LazyQuery(
+    _C_LANGUAGE,
+    "\n        (compound_statement\n            (if_statement\n                condition: (parenthesized_expression) @cond\n                consequence: (compound_statement) @if_body\n                alternative: (else_clause\n                    (compound_statement) @else_body)\n            ) @if_stmt\n            .\n            [\n                (expression_statement)\n                (return_statement)\n            ] @next_stmt\n        )\n    ",
+)
+
+
+_QUERY_LOCAL_DECL = _LazyQuery(
+    _C_LANGUAGE,
+    """
+    (declaration type: (_) @type declarator: (_) @decl) @stmt
+""",
+)
