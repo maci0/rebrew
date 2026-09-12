@@ -163,19 +163,19 @@ def _detect_binary_format(path: Path) -> tuple[str, str] | None:
     return None
 
 
-def _copy_agent_skills(dest: Path, target_name: str) -> None:
-    """Copy agent-skills into the project under .agents/skills, substituting <target>.
+def _agent_skill_files(target_name: str) -> dict[str, bytes]:
+    """Expected ``.agents/skills`` contents: relative path -> bytes.
 
     Packaged skills first, then user/community skills from
     ``REBREW_SKILLS_DIR`` (a user skill with the same name overrides the
-    packaged one — the same overlay semantics ``rebrew skills list``
-    serves), then the ``<target>`` substitution runs over all of them."""
-    if not _AGENT_SKILLS_SRC.is_dir():
-        console.print("[yellow]warning:[/yellow] agent-skills not found in package; skipping.")
-        return
-
-    dest_skills = dest / ".agents" / "skills"
-    shutil.copytree(_AGENT_SKILLS_SRC, dest_skills, dirs_exist_ok=True)
+    packaged one — the same overlay semantics ``rebrew skills list`` serves),
+    then the ``<target>`` substitution over ``.md`` files.  One source of truth
+    for the initial copy and a later refresh/check."""
+    files: dict[str, bytes] = {}
+    if _AGENT_SKILLS_SRC.is_dir():
+        for src in sorted(_AGENT_SKILLS_SRC.rglob("*")):
+            if src.is_file():
+                files[str(src.relative_to(_AGENT_SKILLS_SRC))] = src.read_bytes()
 
     from rebrew.skills import _parse_frontmatter, _safe_skill_name, _user_skills_dir
 
@@ -192,13 +192,31 @@ def _copy_agent_skills(dest: Path, target_name: str) -> None:
             name = _safe_skill_name(fm.get("name") or skill_dir.name)
             if not name:
                 continue
-            shutil.copytree(skill_dir, dest_skills / name, dirs_exist_ok=True)
+            for src in sorted(skill_dir.rglob("*")):
+                if src.is_file():
+                    files[f"{name}/{src.relative_to(skill_dir)}"] = src.read_bytes()
 
-    # Replace <target> placeholder with the actual target name
-    for md_file in dest_skills.rglob("*.md"):
-        content = md_file.read_text(encoding="utf-8")
-        if "<target>" in content:
-            md_file.write_text(content.replace("<target>", target_name), encoding="utf-8")
+    marker = b"<target>"
+    replacement = target_name.encode("utf-8")
+    return {
+        rel: data.replace(marker, replacement) if rel.endswith(".md") else data
+        for rel, data in files.items()
+    }
+
+
+def _copy_agent_skills(dest: Path, target_name: str) -> None:
+    """Write the packaged agent-skills into *dest*/.agents/skills (see
+    :func:`_agent_skill_files`)."""
+    files = _agent_skill_files(target_name)
+    if not files:
+        console.print("[yellow]warning:[/yellow] agent-skills not found in package; skipping.")
+        return
+
+    dest_skills = dest / ".agents" / "skills"
+    for rel, data in files.items():
+        out = dest_skills / rel
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(data)
 
     console.print("[green]Created .agents/skills/[/] (AI workflow instructions)")
 
@@ -585,12 +603,14 @@ def _docker_only(profile: dict[str, Any], profile_name: str) -> dict[str, Any]:
     return profile
 
 
-def _refresh_agents(cwd: Path, toml_path: Path, *, json_output: bool) -> None:
-    """Rewrite AGENTS.md for an existing project from its rebrew-project.toml.
+def _refresh_agents(cwd: Path, toml_path: Path, *, json_output: bool, check: bool = False) -> None:
+    """Rewrite (or check) the generated scaffold for an existing project.
 
-    The generated file follows the packaged template and the project's own
-    profile, so a renamed toolchain or a template change reaches projects
-    already on disk.  Reads only the config; never rewrites it.
+    Covers AGENTS.md, PRINCIPLES.md and .agents/skills/ from the packaged
+    sources and the project's own profile, so a renamed toolchain, a template
+    change or a skill edit reaches projects already on disk.  Reads only the
+    config; never rewrites it.  With *check*, report drift and exit non-zero
+    instead of writing anything.
     """
     import tomllib
 
@@ -620,9 +640,41 @@ def _refresh_agents(cwd: Path, toml_path: Path, *, json_output: bool) -> None:
         compiler_profile=compiler_profile,
         defaults=profile,
     )
-    path = cwd / "AGENTS.md"
-    atomic_write_text(path, content, encoding="utf-8")
-    console.print(f"[green]Rewrote {path.name}[/] for profile {compiler_profile}")
+
+    expected: dict[str, bytes] = {"AGENTS.md": content.encode("utf-8")}
+    if _PRINCIPLES_SRC.is_file():
+        expected["PRINCIPLES.md"] = _PRINCIPLES_SRC.read_bytes()
+    for rel, data_bytes in _agent_skill_files(target_name).items():
+        expected[f".agents/skills/{rel}"] = data_bytes
+
+    if check:
+        drift = [
+            {"path": rel, "reason": "missing" if not (cwd / rel).is_file() else "differs"}
+            for rel, want in expected.items()
+            if not (cwd / rel).is_file() or (cwd / rel).read_bytes() != want
+        ]
+        if json_output:
+            json_print({"drift": drift, "count": len(drift)})
+        elif drift:
+            console.print(f"[yellow]{len(drift)} generated file(s) drifted:[/yellow]")
+            for item in drift:
+                console.print(f"  {item['path']} ({item['reason']})")
+        else:
+            console.print("[green]Generated scaffold matches the packaged sources.[/green]")
+        raise typer.Exit(code=EXIT_MISMATCH if drift else 0)
+
+    written = 0
+    for rel, data_bytes in expected.items():
+        path = cwd / rel
+        if path.is_file() and path.read_bytes() == data_bytes:
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data_bytes)
+        written += 1
+    console.print(
+        f"[green]Refreshed {written} scaffold file(s)[/] "
+        f"(AGENTS.md, PRINCIPLES.md, .agents/skills/) for profile {compiler_profile}"
+    )
 
 
 def _render_agents_md(
@@ -725,7 +777,19 @@ def main(
     refresh_agents: bool = typer.Option(
         False,
         "--refresh-agents",
-        help="Rewrite AGENTS.md from rebrew-project.toml and exit.",
+        help=(
+            "Rewrite the generated scaffold (AGENTS.md, PRINCIPLES.md, "
+            ".agents/skills/) from rebrew-project.toml and exit."
+        ),
+    ),
+    check: bool = typer.Option(
+        False,
+        "--check",
+        help=(
+            "Report generated-scaffold drift (AGENTS.md, PRINCIPLES.md, "
+            ".agents/skills/) against the packaged sources instead of writing; "
+            "exit 1 when any file differs."
+        ),
     ),
     wizard: bool = typer.Option(
         True,
@@ -763,8 +827,9 @@ def main(
         binary_name = binary_name[len("original/") :]
 
     refresh_agents = option_default(refresh_agents, False)
-    if refresh_agents:
-        _refresh_agents(cwd, toml_path, json_output=json_output)
+    check = option_default(check, False)
+    if refresh_agents or check:
+        _refresh_agents(cwd, toml_path, json_output=json_output, check=check)
         return
 
     if toml_path.exists():
