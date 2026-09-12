@@ -63,9 +63,9 @@ for `--compare` (not “better than EXACT”).
 | `rebrew prove` | `prove.py` | Prove semantic equivalence via angr symbolic execution (optional dep) |
 | `rebrew flirt` | `flirt.py` | FLIRT signature scanning (see [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md)) |
 | `rebrew gen-flirt-pat` | `gen_flirt_pat.py` | Generate FLIRT `.pat` files from COFF `.lib` archives |
-| `rebrew imports` | `imports.py` | List import-table symbols — PE IAT (with `jmp [iat]` stub detection) or 16-bit NE module references (library identification) |
+| `rebrew imports` | `imports.py` | List import-table symbols — PE IAT (with `jmp [iat]` stub detection and ordinal-only slots as `ordinal_<N>`), ELF DT_NEEDED libraries plus undefined dynamic symbols with their GOT/PLT slot VAs, or 16-bit NE module references (library identification) |
 | `rebrew fingerprints` | `fingerprints.py` | Binary fingerprint bundle: MD5/SHA1/SHA256/SHA512/SHA3 digests + CRC32, imphash, export hash, Rich-header hash, per-section entropy (TLSH/ssdeep when installed) |
-| `rebrew pe-info` | `pe_info.py` | Read-only PE metadata dump: identity (with type and resource count), section table with protections, entropy and full `IMAGE_SCN_*` names, DllCharacteristics security flags plus the 11-item security checklist and score, exports, Authenticode, debug/PDB, Rich header, presence + counts |
+| `rebrew pe-info` | `pe_info.py` | Read-only PE metadata dump: identity (with type, resource count and entry-point bytes), section table with protections, entropy and full `IMAGE_SCN_*` names, DllCharacteristics security flags plus the 11-item security checklist and score, exports, delay imports, TLS callbacks, SafeSEH handlers, CFG targets, version-info fields, Authenticode, debug/PDB, Rich header, presence + counts |
 | `rebrew crypto-scan` | `crypto_scan.py` | Detect crypto constant tables, crypto imports, and crypto-named functions |
 | `rebrew security-scan` | `security_scan.py` | Scan C sources for unsafe API use (unbounded copies, format strings, command execution) |
 | `rebrew strings` | `strings.py` | Extract printable ASCII/UTF-16 strings from data sections, with cross-references (`--xref`, `--filter`, `--min-len`, `--section`) |
@@ -126,7 +126,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew refactor` | `refactor.py` | Refactoring recommendations for the rebrew codebase (dev tool) |
 | `rebrew resource` | `resource.py` | PE resource comparison |
 | `rebrew solutions` | `solutions_db.py` | GA solutions DB (cross-function cflags seeding) |
-| `rebrew symbol-addrs` | `symbol_addrs.py` | Splat-style 0xVA,name CSV export |
+| `rebrew symbol-addrs` | `symbol_addrs.py` | Splat-style symbol export: the rich `name = 0xVA; // type:... size:...` format by default, the bare `0xVA,name` CSV with `--csv`, a symbols dump with a `referenced_by` column with `--references`, and PE-derived symbols (IAT slots, exports, delay imports, TLS callbacks, SafeSEH/CFG tables, security cookie) with `--pe-symbols` |
 | `rebrew text-audit` | `text_audit.py` | Post-edit check: `.text` function VAs vs the markers |
 | `rebrew unpack-lzexe` | `lzexe_cli.py` | Unpack LZEXE 0.90/0.91 DOS executables |
 | `rebrew verify-placement` | `verify_placement.py` | Post-edit check: `.data` symbol VAs vs the metadata |
@@ -1064,6 +1064,12 @@ and detect `jmp [IAT]` import stubs.  Used to spot which functions are
 one-instruction thunks into imported APIs (unmatchable by decompilation —
 they are linker glue, not compiled C).
 
+An import by ordinal only (MFC DLLs import by ordinal almost exclusively)
+has no name in the hint/name table, so it is listed as `ordinal_<N>` and its
+`ordinal` is reported; `--json` carries both in every record.  Each record is
+`{"dll", "name", "iat_va", "ordinal"}`, with `ordinal` null for a named
+import.
+
 ### `rebrew fingerprints`
 
 `rebrew fingerprints [BINARY] [--json] [--target NAME]`
@@ -1092,14 +1098,17 @@ a rebuild.
 
 Read-only PE metadata dump for `BINARY` (default: the project's target
 binary).  `BINARY` may also be ELF or Mach-O: those report their shared
-identity block (format, arch, bits, image base, entry point, size) plus a
-note that the PE-only metadata is unavailable, rather than an error.
+identity block (format, arch, bits, image base, entry point, entry bytes,
+size) plus a note that the PE-only metadata is unavailable, rather than an
+error.
 
 For a PE the payload carries:
 
 - **Identity** — `format`, `arch`, `bits` (32/64 from the optional-header
   magic), `type` (`exe` / `dll` from the file-header characteristics, omitted
   when neither bit is set), `image_base`, `entry_point` (absolute),
+  `entry_bytes` (the first 16 bytes at the entry point, hex; `null` when the
+  address is 0 or unmapped, so a packer's stub is visible without the file),
   `subsystem`, `timestamp` (plus `timestamp_iso`, derived from the file
   value), `checksum`, `size`, `resource_count` (the leaf entries of the
   resource tree; 0 when the image has none).
@@ -1135,6 +1144,23 @@ For a PE the payload carries:
 - **`presence`** — TLS directory, load config, resources, relocations,
   exports, imports; **`counts`** gives exports, imports, import DLLs, and
   relocations.
+- **`delay_imports`** — one record per delay-load slot (`dll`, `name`,
+  `ordinal`, `va`), read from the descriptor bytes because LIEF 0.17 misreads
+  the VA-based descriptors MSVC emits.  `name` is null for an ordinal-only
+  slot.
+- **`tls_callbacks`**, **`safe_seh_handlers`**, **`cfg_targets`** — absolute
+  VAs, in table order.  The SafeSEH and ``/guard:cf`` tables come from the
+  load config's addresses and counts with their entries read from the image
+  bytes (LIEF parses the load config but does not enumerate those entries).
+- **`version_info`** — the version resource's `company_name`,
+  `product_name`, `file_version`, and `original_filename`, or null when the
+  image carries none of them.
+
+A directory LIEF could not read at all is `null` for these blocks; a
+directory the image genuinely does not carry is an empty list (or null for
+`version_info`), so "unknown" never reads as "absent".  The human rendering
+prints one table per block, truncating at 64 rows for the large tables (the
+`--json` payload carries every entry).
 
 Every field is best-effort: an attribute LIEF does not expose in the
 installed version is omitted rather than guessed.  The payload contains no
@@ -1824,12 +1850,34 @@ at decomp.dev/manage/new.
 
 ### `rebrew symbol-addrs`
 
-`rebrew symbol-addrs [--output symbol_addrs.csv] [--json]`
+`rebrew symbol-addrs [--output symbol_addrs.csv] [--csv] [--references] [--pe-symbols] [--json]`
 
-Export every annotated function as a splat-style `symbol_addrs.csv`
-(`0xVA,name` lines, sorted by VA; GLOBAL/DATA markers and unnamed entries
-excluded).  The splat ecosystem's interchange format — importable by
-Ghidra and third-party tooling that expect the two-column CSV.
+Export every annotated function as a splat-style `symbol_addrs` file, sorted
+by VA (GLOBAL/DATA markers and unnamed entries excluded).  The splat
+ecosystem's interchange format, importable by Ghidra and third-party tooling.
+
+Three output modes, one per run:
+
+- **rich** (default): `name = 0x00100000; // type:func size:0x2A`.  The
+  comment carries the splat type, the size when known, and, for a symbol
+  named from the PE, where it came from.  A forwarded export has no address
+  in this image and is written as a `// name -> DLL.Function` note line.
+- `--csv`: the bare two-column `0xVA,name` lines.
+- `--references`: a CSV with the header
+  `va,name,type,size,referenced_by`, where `referenced_by` names the symbols
+  that address each one (joined with `|`).  References come from the shared
+  disassembly xref scan (`analysis.scan_references`); a reference site inside
+  no known symbol is named `fcn_<VA>`.
+
+`--pe-symbols` adds the symbols named from the target PE's data directories
+(`rebrew.pe_symbols`): `entrypoint`, exports, every IAT slot as
+`__imp_<dll>_<name>` (or `__imp_<dll>_ord<N>` for an ordinal-only import),
+delay-load slots as `__dimp_<dll>_<name>`, `tls_callback_<N>`, `safeseh_<N>`,
+`cfg_target_<N>`, and `security_cookie`.  The default output has none of them.
+
+When a PE symbol collides with an annotation, the annotation wins (both the
+same-VA and the same-name cases) and the dropped symbol is reported on stderr
+and under `pe_collisions` in `--json`.
 
 ### `rebrew context`
 

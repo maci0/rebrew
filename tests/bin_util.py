@@ -12,6 +12,7 @@ into ``sys.path``.
 from __future__ import annotations
 
 import struct
+from collections.abc import Sequence
 
 _TEXT_CHARS = 0x60000020  # CODE | EXECUTE | READ | CNT_CODE
 
@@ -292,12 +293,26 @@ def make_lib_archive(members: list[tuple[str, bytes]]) -> bytes:
     return out
 
 
+def _elf_hash(name: str) -> int:
+    """The SysV ELF hash of *name*, the value Elf32_Vernaux.vna_hash carries."""
+    value = 0
+    for byte in name.encode("ascii"):
+        value = (value << 4) + byte
+        high = value & 0xF0000000
+        if high:
+            value ^= high >> 24
+        value &= ~high
+    return value & 0xFFFFFFFF
+
+
 def make_elf(
     code: bytes,
     *,
     image_base: int = 0x8048000,
     text_va: int = 0x8049000,
     text_offset: int = 0x1000,
+    needed_libraries: Sequence[str] = (),
+    imported_symbols: Sequence[tuple[str, str, str]] = (),
 ) -> bytes:
     """Build a minimal ELF32 (ET_EXEC, EM_386) with one real ``.text`` section.
 
@@ -305,8 +320,30 @@ def make_elf(
     *text_offset* + ``.shstrtab`` + a 3-entry section header table.  LIEF
     parses this into a ``BinaryInfo`` with ``.text`` at *text_va* and
     ``image_base`` = the PT_LOAD vaddr.
+
+    *needed_libraries* and *imported_symbols* (``(symbol, library, version)``
+    triples) add the dynamic tables a real image uses: ``.dynstr``,
+    ``.dynsym``, ``.gnu.version``, ``.gnu.version_r`` with one requirement per
+    library, a ``.got.plt`` with one relocation per symbol, ``.dynamic`` with
+    the DT_NEEDED/DT_SYMTAB/DT_VERNEED tags and a PT_DYNAMIC segment.  Passing
+    neither leaves the output byte-identical to the plain fixture.
     """
     code = bytes(code)
+    if not imported_symbols and not needed_libraries:
+        return _make_plain_elf(
+            code, image_base=image_base, text_va=text_va, text_offset=text_offset
+        )
+    return _make_dynamic_elf(
+        code,
+        image_base=image_base,
+        text_va=text_va,
+        text_offset=text_offset,
+        needed_libraries=tuple(needed_libraries),
+        imported_symbols=tuple(imported_symbols),
+    )
+
+
+def _make_plain_elf(code: bytes, *, image_base: int, text_va: int, text_offset: int) -> bytes:
     shstrtab = b"\x00.text\x00.shstrtab\x00"
     shstr_off = text_offset + len(code)
     # Pad section data to 4-byte alignment.
@@ -365,6 +402,309 @@ def make_elf(
     out += shstrtab
     out += b"\x00" * (shoff - len(out))
     out += shdrs
+    return bytes(out)
+
+
+def _make_dynamic_elf(
+    code: bytes,
+    *,
+    image_base: int,
+    text_va: int,
+    text_offset: int,
+    needed_libraries: tuple[str, ...],
+    imported_symbols: tuple[tuple[str, str, str], ...],
+) -> bytes:
+    """Build the dynamic variant of :func:`make_elf` (see its docstring)."""
+    # .dynstr: the leading null, then library names, version names and symbol
+    # names, each interned once.
+    dynstr = bytearray(b"\x00")
+    library_offsets: dict[str, int] = {}
+    for library in needed_libraries:
+        if library not in library_offsets:
+            library_offsets[library] = len(dynstr)
+            dynstr += library.encode("ascii") + b"\x00"
+    # Version index 1 is the unversioned global base every image has, so the
+    # requirement indices the version table refers to start at 2.
+    version_offsets: dict[tuple[str, str], int] = {}
+    version_indices: dict[tuple[str, str], int] = {}
+    for _symbol, library, version in imported_symbols:
+        if library and library not in library_offsets:
+            library_offsets[library] = len(dynstr)
+            dynstr += library.encode("ascii") + b"\x00"
+        key = (library, version)
+        if version and key not in version_indices and key not in version_offsets:
+            version_offsets[key] = len(dynstr)
+            dynstr += version.encode("ascii") + b"\x00"
+    symbol_offsets: list[int] = []
+    for symbol, _library, _version in imported_symbols:
+        symbol_offsets.append(len(dynstr))
+        dynstr += symbol.encode("ascii") + b"\x00"
+
+    # Version indices in first-appearance order, grouped by the library whose
+    # .gnu.version_r requirement declares them.
+    library_versions: dict[str, list[tuple[str, str]]] = {}
+    for _symbol, library, version in imported_symbols:
+        if not version:
+            continue
+        key = (library, version)
+        if key in version_indices:
+            continue
+        version_indices[key] = 2 + len(version_indices)
+        library_versions.setdefault(library, []).append(key)
+
+    symbol_count = len(imported_symbols)
+    dynsym = bytearray(b"\x00" * 16)
+    for (symbol, _library, _version), offset in zip(imported_symbols, symbol_offsets, strict=True):
+        del symbol
+        dynsym += struct.pack("<IIIBBH", offset, 0, 0, 0x12, 0, 0)  # GLOBAL FUNC, SHN_UNDEF
+
+    versym = bytearray(struct.pack("<H", 0))
+    for _symbol, library, version in imported_symbols:
+        index = version_indices.get((library, version), 1) if version else 1
+        versym += struct.pack("<H", index)
+
+    # One Verneed per library, its Vernaux list holding that library's
+    # versions; vn_aux and vn_next are byte offsets from this Verneed
+    # structure, vna_next from the Vernaux itself.
+    verneed = bytearray()
+    requirement_entries = list(library_versions.items())
+    for position, (library, versions) in enumerate(requirement_entries):
+        next_offset = 0 if position + 1 == len(requirement_entries) else 16 + 16 * len(versions)
+        verneed += struct.pack(
+            "<HHIII", 1, len(versions), library_offsets[library], 16, next_offset
+        )
+        for index, (_library, version) in enumerate(versions):
+            last = index + 1 == len(versions)
+            verneed += struct.pack(
+                "<IHHII",
+                _elf_hash(version),
+                0,
+                version_indices[(library, version)],
+                version_offsets[(library, version)],
+                0 if last else 16,
+            )
+
+    # Section layout: .text, .got.plt, then the dynamic tables.
+    def _align(value: int) -> int:
+        return (value + 3) & ~3
+
+    got_offset = _align(text_offset + len(code))
+    got_size = max(4 * symbol_count, 4)
+    dynstr_offset = _align(got_offset + got_size)
+    dynsym_offset = _align(dynstr_offset + len(dynstr))
+    versym_offset = _align(dynsym_offset + len(dynsym))
+    verneed_offset = _align(versym_offset + len(versym))
+    rel_offset = _align(verneed_offset + len(verneed))
+
+    # One GOT slot per symbol, and the relocation that resolves it there.
+    rel = bytearray()
+    for index, (_symbol, _library, _version) in enumerate(imported_symbols):
+        rel += struct.pack("<II", image_base + got_offset + 4 * index, (index + 1) << 8 | 7)
+
+    def _va(offset: int) -> int:
+        return image_base + offset
+
+    dynamic_entries: list[tuple[int, int]] = [
+        *((1, library_offsets[library]) for library in needed_libraries),  # DT_NEEDED
+        (5, _va(dynstr_offset)),  # DT_STRTAB
+        (6, _va(dynsym_offset)),  # DT_SYMTAB
+        (10, len(dynstr)),  # DT_STRSZ
+        (11, 16),  # DT_SYMENT
+    ]
+    if verneed:
+        dynamic_entries += [
+            (0x6FFFFFF0, _va(versym_offset)),  # DT_VERSYM
+            (0x6FFFFFFE, _va(verneed_offset)),  # DT_VERNEED
+            (0x6FFFFFFF, len(requirement_entries)),  # DT_VERNEEDNUM
+        ]
+    if rel:
+        dynamic_entries += [
+            (23, _va(rel_offset)),  # DT_JMPREL
+            (2, len(rel)),  # DT_PLTRELSZ
+            (20, 17),  # DT_PLTREL: DT_REL
+        ]
+    dynamic_entries.append((0, 0))  # DT_NULL
+    dynamic = b"".join(struct.pack("<iI", tag, value) for tag, value in dynamic_entries)
+
+    dynamic_offset = _align(rel_offset + len(rel))
+    names = (
+        b"\x00.text\x00.got.plt\x00.dynstr\x00.dynsym\x00.gnu.version\x00"
+        b".gnu.version_r\x00.rel.plt\x00.dynamic\x00.shstrtab\x00"
+    )
+    shstrtab_offset = _align(dynamic_offset + len(dynamic))
+    section_header_offset = _align(shstrtab_offset + len(names))
+    filesz = section_header_offset + 10 * 40
+
+    name_offsets: dict[str, int] = {}
+    for name in (
+        ".text",
+        ".got.plt",
+        ".dynstr",
+        ".dynsym",
+        ".gnu.version",
+        ".gnu.version_r",
+        ".rel.plt",
+        ".dynamic",
+        ".shstrtab",
+    ):
+        name_offsets[name] = names.index(name.encode("ascii") + b"\x00")
+
+    e_ident = b"\x7fELF" + b"\x01\x01\x01" + b"\x00" * 9
+    header = struct.pack(
+        "<16sHHIIIIIHHHHHH",
+        e_ident,
+        2,  # e_type: ET_EXEC
+        3,  # e_machine: EM_386
+        1,  # e_version
+        text_va,  # e_entry
+        52,  # e_phoff
+        section_header_offset,  # e_shoff
+        0,  # e_flags
+        52,  # e_ehsize
+        32,  # e_phentsize
+        2,  # e_phnum: PT_LOAD + PT_DYNAMIC
+        40,  # e_shentsize
+        10,  # e_shnum
+        9,  # e_shstrndx
+    )
+    load = struct.pack("<IIIIIIII", 1, 0, image_base, image_base, filesz, filesz, 7, 0x1000)
+    dynamic_phdr = struct.pack(
+        "<IIIIIIII",
+        2,  # p_type: PT_DYNAMIC
+        dynamic_offset,
+        _va(dynamic_offset),
+        _va(dynamic_offset),
+        len(dynamic),
+        len(dynamic),
+        6,  # R|W
+        4,
+    )
+
+    def _shdr(
+        name: int,
+        sh_type: int,
+        flags: int,
+        address: int,
+        offset: int,
+        size: int,
+        *,
+        link: int = 0,
+        info: int = 0,
+        alignment: int = 1,
+        entsize: int = 0,
+    ) -> bytes:
+        return struct.pack(
+            "<IIIIIIIIII",
+            name,
+            sh_type,
+            flags,
+            address,
+            offset,
+            size,
+            link,
+            info,
+            alignment,
+            entsize,
+        )
+
+    section_headers = b"".join(
+        [
+            b"\x00" * 40,  # null section
+            _shdr(name_offsets[".text"], 1, 0x6, text_va, text_offset, len(code), alignment=16),
+            _shdr(
+                name_offsets[".got.plt"], 1, 0x3, _va(got_offset), got_offset, got_size, alignment=4
+            ),
+            _shdr(
+                name_offsets[".dynstr"],
+                3,
+                0x2,
+                _va(dynstr_offset),
+                dynstr_offset,
+                len(dynstr),
+                alignment=1,
+            ),
+            _shdr(
+                name_offsets[".dynsym"],
+                11,
+                0x2,
+                _va(dynsym_offset),
+                dynsym_offset,
+                len(dynsym),
+                link=3,
+                info=1,
+                alignment=4,
+                entsize=16,
+            ),
+            _shdr(
+                name_offsets[".gnu.version"],
+                0x6FFFFFFF,
+                0x2,
+                _va(versym_offset),
+                versym_offset,
+                len(versym),
+                link=4,
+                alignment=2,
+                entsize=2,
+            ),
+            _shdr(
+                name_offsets[".gnu.version_r"],
+                0x6FFFFFFE,
+                0x2,
+                _va(verneed_offset),
+                verneed_offset,
+                len(verneed),
+                link=3,
+                info=len(requirement_entries),
+                alignment=4,
+            ),
+            _shdr(
+                name_offsets[".rel.plt"],
+                9,
+                0x2,
+                _va(rel_offset),
+                rel_offset,
+                len(rel),
+                link=4,
+                info=1,
+                alignment=4,
+                entsize=8,
+            ),
+            _shdr(
+                name_offsets[".dynamic"],
+                6,
+                0x3,
+                _va(dynamic_offset),
+                dynamic_offset,
+                len(dynamic),
+                link=3,
+                alignment=4,
+                entsize=8,
+            ),
+            _shdr(name_offsets[".shstrtab"], 3, 0x0, 0, shstrtab_offset, len(names), alignment=1),
+        ]
+    )
+
+    out = bytearray(header + load + dynamic_phdr)
+    out += b"\x00" * (text_offset - len(out))
+    out += code
+    out += b"\x00" * (got_offset - len(out))
+    out += b"\x00" * got_size
+    out += b"\x00" * (dynstr_offset - len(out))
+    out += dynstr
+    out += b"\x00" * (dynsym_offset - len(out))
+    out += dynsym
+    out += b"\x00" * (versym_offset - len(out))
+    out += versym
+    out += b"\x00" * (verneed_offset - len(out))
+    out += verneed
+    out += b"\x00" * (rel_offset - len(out))
+    out += rel
+    out += b"\x00" * (dynamic_offset - len(out))
+    out += dynamic
+    out += b"\x00" * (shstrtab_offset - len(out))
+    out += names
+    out += b"\x00" * (section_header_offset - len(out))
+    out += section_headers
     return bytes(out)
 
 

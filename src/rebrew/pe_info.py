@@ -1,7 +1,8 @@
 """pe_info.py — read-only PE metadata dump via LIEF.
 
 Reports the identity of a binary (format, arch, bits, image base, entry
-point, subsystem, timestamp, checksum, size, PE type), the PE section table
+point, the entry point's first bytes as hex, subsystem, timestamp, checksum,
+size, PE type), the PE section table
 with resolved read/write/execute protection flags, the full ``IMAGE_SCN_*``
 characteristic names and Shannon entropy per section, the DllCharacteristics
 security flags plus the load-config-derived GS and SafeSEH state, the
@@ -11,6 +12,15 @@ summary, the debug directory (CodeView PDB path, GUID and age when LIEF
 exposes them), the Rich header (key and entries), and the presence plus
 counts of the TLS directory, load config, resources, relocations, exports,
 and imports.
+
+The loader directories LIEF parses but does not enumerate are reported in
+full through :mod:`rebrew.pe_symbols`: the delay-import slots (with the DLL
+and ordinal), the TLS callback addresses, the SafeSEH handler table, the
+``/guard:cf`` target table, plus the version resource's company, product,
+file version, and original filename.  A value the image does not carry is
+``null``, never a fabricated ``false`` or ``0`` (a directory LIEF could not
+read at all is ``null``; a directory that is genuinely absent is an empty
+list).
 
 ELF and Mach-O inputs return the identity block they share with PE plus a
 note that the PE-only fields are unavailable, rather than an error.  Every
@@ -37,6 +47,7 @@ from rich.table import Table
 
 from rebrew.binary_loader import detect_format_and_arch
 from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print, require_config
+from rebrew.pe_symbols import PeDirectories, pe_directories
 
 console = Console(stderr=True)
 
@@ -180,14 +191,31 @@ _STRUCTURED_KEYS = frozenset(
         "rich_header",
         "presence",
         "counts",
+        "delay_imports",
+        "tls_callbacks",
+        "safe_seh_handlers",
+        "cfg_targets",
+        "version_info",
     }
 )
+
+#: Rows rendered per directory table.  A ``/guard:cf`` table reaches thousands
+#: of entries in a system binary; the terminal rendering truncates (with a
+#: count of what it left out) while ``--json`` carries every one.
+_MAX_TABLE_ROWS = 64
 
 #: Non-PE note.  The same wording for every format, parameterized by name.
 _PE_ONLY_NOTE = (
     "PE-only metadata (sections, security flags, Authenticode, debug, "
     "Rich header) is unavailable for {fmt} binaries"
 )
+
+#: Bytes of the entry point ``entry_bytes`` carries, as hex.  A packer or
+#: protector stub is recognizable in its first few bytes (a ``pushad``, a
+#: call/pop pair, a bare jump), which the entry-point address alone cannot
+#: show.  The portal's file-type detection compares a 16-character prefix, so
+#: 16 bytes leaves headroom without carrying a whole function.
+_ENTRY_BYTES_LENGTH = 16
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +292,7 @@ def pe_info(path: str | Path) -> dict[str, object]:
         pe = lief.PE.parse(str(target))
         if pe is None:
             raise ValueError(f"Failed to parse PE: {target}")
-        return _pe_payload(pe, size, arch or "")
+        return _pe_payload(pe, target, size, arch or "")
 
     if fmt == "elf":
         elf = lief.ELF.parse(str(target))
@@ -281,11 +309,18 @@ def pe_info(path: str | Path) -> dict[str, object]:
     raise ValueError(f"Unsupported binary format: {target}")
 
 
-def _pe_payload(pe: Any, size: int, arch: str) -> dict[str, object]:
-    """Full PE payload: identity, sections, security, exports, debug, Rich."""
+def _pe_payload(pe: Any, path: Path, size: int, arch: str) -> dict[str, object]:
+    """Full PE payload: identity, sections, security, exports, debug, Rich.
+
+    The loader-directory blocks (delay imports, TLS callbacks, SafeSEH, CFG
+    targets, the security cookie) come from :func:`rebrew.pe_symbols.pe_directories`,
+    the shared reader, so the report and the symbol export never disagree.
+    """
     security = _security_flags(pe)
     checklist = _security(pe)
     exports = _exports(pe)
+    directories = pe_directories(path)
+    known = _directories_known(pe)
     payload: dict[str, object] = {
         **_pe_identity(pe, size, arch),
         "sections": _pe_sections(pe),
@@ -303,8 +338,117 @@ def _pe_payload(pe: Any, size: int, arch: str) -> dict[str, object]:
         "rich_header": _rich_header(pe),
         "presence": _presence(pe),
         "counts": _counts(pe),
+        "delay_imports": _delay_import_payload(directories, known),
+        "tls_callbacks": _optional_list(directories.tls_callbacks, _tls_known(pe)),
+        "safe_seh_handlers": _optional_list(directories.safe_seh_handlers, known),
+        "cfg_targets": _optional_list(directories.cfg_targets, known),
+        "version_info": _version_info(pe),
     }
     return payload
+
+
+def _directories_known(pe: Any) -> bool:
+    """Whether LIEF exposed the data directory table at all.
+
+    An empty table means the image has no directories (a real "none"); a
+    missing table means every directory question is unanswerable, which the
+    payload reports as ``null`` rather than as a fabricated empty list.
+    """
+    return bool(_safe_list(pe, "data_directories"))
+
+
+def _tls_known(pe: Any) -> bool:
+    """Whether LIEF exposed the TLS presence flag."""
+    return getattr(pe, "has_tls", None) is not None
+
+
+def _optional_list(values: tuple[int, ...], known: bool) -> list[int] | None:
+    """*values* as a list when the source is readable, else ``null``."""
+    return list(values) if known else None
+
+
+def _delay_import_payload(
+    directories: PeDirectories, known: bool
+) -> list[dict[str, object]] | None:
+    """Delay-import records as ``{dll, name, ordinal, va}``, or ``null``."""
+    if not known:
+        return None
+    return [
+        {
+            "dll": record.dll,
+            "name": record.name or None,
+            "ordinal": record.ordinal,
+            "va": record.va,
+        }
+        for record in directories.delay_imports
+    ]
+
+
+#: Version-resource string key → payload field, in report order.
+_VERSION_FIELDS: tuple[tuple[str, str], ...] = (
+    ("company_name", "CompanyName"),
+    ("product_name", "ProductName"),
+    ("file_version", "FileVersion"),
+    ("original_filename", "OriginalFilename"),
+)
+
+
+def _version_info(pe: Any) -> dict[str, str] | None:
+    """The version resource's named string fields, or ``None``.
+
+    Reads LIEF's parsed version resource (``string_file_info`` blocks) rather
+    than the raw resource bytes.  Only the four fields the report names are
+    kept, so a version resource carrying none of them reports ``null`` instead
+    of an empty object that would read as "present and blank".
+    """
+    manager = getattr(pe, "resources_manager", None)
+    if manager is None:
+        return None
+    try:
+        versions = list(getattr(manager, "version", None) or [])
+    except (AttributeError, TypeError, ValueError, RuntimeError):
+        return None
+    values: dict[str, str] = {}
+    for version in versions:
+        info = getattr(version, "string_file_info", None)
+        if info is None:
+            continue
+        try:
+            tables = list(getattr(info, "children", None) or [])
+        except (AttributeError, TypeError, ValueError, RuntimeError):
+            continue
+        for table in tables:
+            try:
+                entries = list(getattr(table, "entries", None) or [])
+            except (AttributeError, TypeError, ValueError, RuntimeError):
+                continue
+            for entry in entries:
+                key = getattr(entry, "key", None)
+                value = getattr(entry, "value", None)
+                if not isinstance(key, str) or not isinstance(value, str):
+                    continue
+                for field, resource_key in _VERSION_FIELDS:
+                    if key == resource_key and field not in values:
+                        values[field] = value
+    return values or None
+
+
+def _entry_bytes(binary: Any, address: int) -> str | None:
+    """Hex of the first ``_ENTRY_BYTES_LENGTH`` bytes at *address*.
+
+    ``None`` when the address is 0 (no entry point recorded), when the image
+    has no bytes there, or when LIEF refuses the read: an entry point outside
+    the mapped image must not cost the whole report.  The bytes are the
+    link-time contents at that address, so a PIE's are image-relative.
+    """
+    if not address:
+        return None
+    try:
+        content = binary.get_content_from_virtual_address(address, _ENTRY_BYTES_LENGTH)
+    except Exception:  # guarded LIEF call: an unmapped entry point yields no bytes
+        return None
+    data = bytes(int(byte) & 0xFF for byte in content or [])
+    return data.hex() if data else None
 
 
 def _pe_identity(pe: Any, size: int, arch: str) -> dict[str, object]:
@@ -324,6 +468,7 @@ def _pe_identity(pe: Any, size: int, arch: str) -> dict[str, object]:
         "bits": 64 if _is_pe32_plus(magic) else 32,
         "image_base": image_base,
         "entry_point": image_base + entry_rva,
+        "entry_bytes": _entry_bytes(pe, image_base + entry_rva),
     }
     pe_type = _pe_type(header)
     if pe_type is not None:
@@ -362,12 +507,14 @@ def _pe_type(header: Any) -> str | None:
 def _elf_payload(elf: Any, size: int, arch: str) -> dict[str, object]:
     """ELF identity block plus the note that PE-only fields do not apply."""
     header = getattr(elf, "header", None)
+    entry_point = _to_int(getattr(elf, "entrypoint", 0)) or 0
     identity: dict[str, object] = {
         "format": "elf",
         "arch": arch,
         "bits": _elf_bits(header),
         "image_base": _to_int(getattr(elf, "imagebase", 0)) or 0,
-        "entry_point": _to_int(getattr(elf, "entrypoint", 0)) or 0,
+        "entry_point": entry_point,
+        "entry_bytes": _entry_bytes(elf, entry_point),
         "size": size,
         "note": _PE_ONLY_NOTE.format(fmt="elf"),
     }
@@ -378,12 +525,14 @@ def _macho_payload(macho: Any, size: int, arch: str) -> dict[str, object]:
     """Mach-O identity block plus the note that PE-only fields do not apply."""
     binary = macho.at(0) if isinstance(macho, lief.MachO.FatBinary) else macho
     header = getattr(binary, "header", None)
+    entry_point = _to_int(getattr(binary, "entrypoint", 0)) or 0
     identity: dict[str, object] = {
         "format": "macho",
         "arch": arch,
         "bits": _macho_bits(header),
         "image_base": _macho_image_base(binary),
-        "entry_point": _to_int(getattr(binary, "entrypoint", 0)) or 0,
+        "entry_point": entry_point,
+        "entry_bytes": _entry_bytes(binary, entry_point),
         "size": size,
         "note": _PE_ONLY_NOTE.format(fmt="macho"),
     }
@@ -545,8 +694,8 @@ def _forwarder_target(entry: Any) -> str | None:
     info = getattr(entry, "forward_information", None)
     if info is None:
         return None
-    library = getattr(info, "library", None) or getattr(info, "lib", None)
-    function = getattr(info, "function", None) or getattr(info, "name", None)
+    library = getattr(info, "library", None)
+    function = getattr(info, "function", None)
     if isinstance(library, str) and isinstance(function, str) and library and function:
         return f"{library}.{function}"
     return None
@@ -908,6 +1057,40 @@ def _print_human(info: dict[str, object], binary: Path) -> None:
             )
         console.print(table)
 
+    delay = info.get("delay_imports")
+    if isinstance(delay, list) and delay:
+        table = Table(title="Delay imports")
+        table.add_column("DLL", overflow="fold")
+        table.add_column("Name", overflow="fold")
+        table.add_column("Ordinal", justify="right")
+        table.add_column("IAT VA", justify="right")
+        for entry in delay[:_MAX_TABLE_ROWS]:
+            if not isinstance(entry, dict):
+                continue
+            ordinal = entry.get("ordinal")
+            table.add_row(
+                str(entry.get("dll", "")),
+                str(entry.get("name") or "(ordinal only)"),
+                str(ordinal) if ordinal is not None else "-",
+                _hex(entry.get("va")),
+            )
+        console.print(table)
+        if len(delay) > _MAX_TABLE_ROWS:
+            console.print(f"[dim]... and {len(delay) - _MAX_TABLE_ROWS} more (see --json)[/dim]")
+
+    _print_va_table(info, "tls_callbacks", "TLS callbacks")
+    _print_va_table(info, "safe_seh_handlers", "SafeSEH handlers")
+    _print_va_table(info, "cfg_targets", "CFG targets")
+
+    version = info.get("version_info")
+    if isinstance(version, dict) and version:
+        table = Table(title="Version info")
+        table.add_column("Field", style="bold")
+        table.add_column("Value", overflow="fold")
+        for key, value in version.items():
+            table.add_row(str(key), str(value))
+        console.print(table)
+
     rich = info.get("rich_header")
     if isinstance(rich, dict) and rich.get("present"):
         entries = rich.get("entries")
@@ -926,6 +1109,32 @@ def _print_human(info: dict[str, object], binary: Path) -> None:
             if isinstance(rich_key, int):
                 console.print(f"Rich key: 0x{rich_key:08x}")
             console.print(table)
+
+
+def _print_va_table(info: dict[str, object], key: str, title: str) -> None:
+    """Render a payload list of VAs as an indexed table.
+
+    A key the payload does not carry at all (an ELF or Mach-O payload) renders
+    nothing.  A key carried as ``null`` means the source directory was
+    unreadable or unexposed, which renders as "unknown" to keep it distinct
+    from a directory that is genuinely empty.
+    """
+    if key not in info:
+        return
+    values = info.get(key)
+    if values is None:
+        console.print(f"[dim]{title}: unknown[/dim]")
+        return
+    if not isinstance(values, list) or not values:
+        return
+    table = Table(title=title)
+    table.add_column("#", justify="right")
+    table.add_column("VA", justify="right")
+    for index, value in enumerate(values[:_MAX_TABLE_ROWS]):
+        table.add_row(str(index), _hex(value) if value is not None else "-")
+    console.print(table)
+    if len(values) > _MAX_TABLE_ROWS:
+        console.print(f"[dim]... and {len(values) - _MAX_TABLE_ROWS} more (see --json)[/dim]")
 
 
 def _protection_text(section: dict[str, object]) -> str:
@@ -951,7 +1160,10 @@ def _names_text(value: object) -> list[str]:
 # ---------------------------------------------------------------------------
 
 app = typer.Typer(
-    help="Dump PE metadata: identity, sections, security flags, debug, Rich header.",
+    help=(
+        "Dump PE metadata: identity, sections, security flags, loader "
+        "directories, version info, debug, Rich header."
+    ),
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
@@ -970,7 +1182,7 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Dump PE metadata: identity, sections, security flags, debug, Rich header."""
+    """Dump PE metadata: identity, sections, security, directories, version info."""
     if binary is None:
         cfg = require_config(target=target, json_mode=json_output)
         binary = Path(cfg.target_binary)

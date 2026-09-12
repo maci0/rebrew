@@ -11,9 +11,9 @@ import pytest
 from typer.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
-from bin_util import make_pe
+from bin_util import make_elf, make_pe
 
-from rebrew.imports import find_import_stubs, parse_import_table
+from rebrew.imports import find_import_stubs, parse_import_table, parse_imports
 
 IMAGE_BASE = 0x400000
 TEXT_VA = 0x1000
@@ -60,6 +60,36 @@ def pe_path(tmp_path: Path) -> Path:
     return path
 
 
+def _pe_with_ordinal_import(tmp_path: Path) -> Path:
+    """A PE whose first import is by ordinal.
+
+    ``make_pe`` writes only name-based imports, so the first import-lookup
+    entry (and its IAT slot) is rewritten to the high-bit ordinal form.  The
+    section's raw data sits at file offset 0x200 for RVA ``TEXT_VA``.
+    """
+    import lief
+
+    pe = make_pe(
+        b"\x90" * 16,
+        image_base=IMAGE_BASE,
+        text_va=TEXT_VA,
+        imports=[("KERNEL32.dll", ["MessageBoxA", "GetProcAddress"])],
+    )
+    path = tmp_path / "ordinal.exe"
+    path.write_bytes(pe)
+    parsed = lief.PE.parse(str(path))
+    assert parsed is not None
+    entry = parsed.imports[0]
+    int_rva = int(entry.import_lookup_table_rva)
+    iat_rva = min(int(fn.iat_address) for fn in entry.entries)
+    ordinal_entry = 0x80000000 | 4717
+    patched = bytearray(pe)
+    for rva in (int_rva, iat_rva):
+        struct.pack_into("<I", patched, rva - TEXT_VA + 0x200, ordinal_entry)
+    path.write_bytes(bytes(patched))
+    return path
+
+
 class TestParseImportTable:
     def test_imports_parsed(self, pe_path: Path) -> None:
         table = parse_import_table(pe_path)
@@ -68,6 +98,23 @@ class TestParseImportTable:
         assert "GetProcAddress" in table.values()
         for va in table:
             assert va >= IMAGE_BASE
+
+    def test_named_imports_carry_no_ordinal(self, pe_path: Path) -> None:
+        assert all(record["ordinal"] is None for record in parse_imports(pe_path))
+
+    def test_ordinal_only_import_is_reported(self, tmp_path: Path) -> None:
+        path = _pe_with_ordinal_import(tmp_path)
+        records = parse_imports(path)
+        ordinals = [record for record in records if record["ordinal"] is not None]
+        assert len(ordinals) == 1
+        # A record with no name in the hint/name table still has to be visible:
+        # it gets a synthetic name and its ordinal, which is what a caller
+        # needs to spell the linker's __imp_<dll>_ord<N> symbol.
+        assert ordinals[0]["name"] == "ordinal_4717"
+        assert ordinals[0]["iat_va"] >= IMAGE_BASE
+        assert [record["name"] for record in records if record["ordinal"] is None] == [
+            "GetProcAddress"
+        ]
 
     def test_non_pe_returns_empty(self, tmp_path: Path) -> None:
         path = tmp_path / "not_a_pe.bin"
@@ -126,6 +173,85 @@ class TestImportsCli:
         result = CliRunner().invoke(umbrella, ["--help"])
         assert result.exit_code == 0
         assert "imports" in result.output
+
+
+ELF_IMAGE_BASE = 0x8048000
+ELF_TEXT_VA = 0x8049000
+ELF_CODE = b"\x55\x8b\xec\x5d\xc3\x90" * 8
+ELF_IMPORTS = (
+    ("printf", "libc.so.6", "GLIBC_2.0"),
+    ("puts", "libc.so.6", "GLIBC_2.0"),
+    ("sqrt", "libm.so.6", "GLIBC_2.2"),
+    ("plain_sym", "", ""),
+)
+
+
+def _elf_with_imports(tmp_path: Path) -> Path:
+    """A dynamic ELF32 importing from two libraries, one symbol unversioned."""
+    path = tmp_path / "game.elf"
+    path.write_bytes(
+        make_elf(
+            ELF_CODE,
+            image_base=ELF_IMAGE_BASE,
+            text_va=ELF_TEXT_VA,
+            needed_libraries=("libc.so.6", "libm.so.6"),
+            imported_symbols=ELF_IMPORTS,
+        )
+    )
+    return path
+
+
+class TestElfImports:
+    def test_needed_libraries_lead_the_records(self, tmp_path: Path) -> None:
+        records = parse_imports(_elf_with_imports(tmp_path))
+        assert [(r["dll"], r["name"]) for r in records[:2]] == [
+            ("libc.so.6", ""),
+            ("libm.so.6", ""),
+        ]
+
+    def test_versioned_symbols_take_their_library(self, tmp_path: Path) -> None:
+        records = parse_imports(_elf_with_imports(tmp_path))
+        by_name = {r["name"]: r for r in records if r["name"]}
+        assert by_name["printf"]["dll"] == "libc.so.6"
+        assert by_name["puts"]["dll"] == "libc.so.6"
+        # The second requirement's own library, not the first one's.
+        assert by_name["sqrt"]["dll"] == "libm.so.6"
+
+    def test_unversioned_symbol_stays_unattributed(self, tmp_path: Path) -> None:
+        """DT_NEEDED names the libraries but not which exports which symbol."""
+        records = parse_imports(_elf_with_imports(tmp_path))
+        by_name = {r["name"]: r for r in records if r["name"]}
+        assert by_name["plain_sym"]["dll"] == ""
+
+    def test_relocation_slots_are_image_relative(self, tmp_path: Path) -> None:
+        records = parse_imports(_elf_with_imports(tmp_path))
+        slots = {r["name"]: r["iat_va"] for r in records if r["name"]}
+        # One GOT slot per symbol, in symbol-table order, right after .text.
+        assert slots["printf"] == ELF_IMAGE_BASE + 0x1000 + len(ELF_CODE)
+        assert slots["plain_sym"] == slots["printf"] + 3 * 4
+
+    def test_elf_without_dynamic_tables_has_no_imports(self, tmp_path: Path) -> None:
+        path = tmp_path / "static.elf"
+        path.write_bytes(make_elf(ELF_CODE))
+        assert parse_imports(path) == []
+
+    def test_json_output_lists_elf_imports(self, tmp_path: Path) -> None:
+        from rebrew.imports import app
+
+        result = CliRunner().invoke(app, ["--json", str(_elf_with_imports(tmp_path))])
+        assert result.exit_code == 0
+        payload = json.loads(result.stdout)
+        names = {i["name"] for i in payload["imports"]}
+        assert {"printf", "puts", "sqrt", "plain_sym"} <= names
+        assert all(str(i["iat_va"]).startswith("0x") for i in payload["imports"])
+
+    def test_terminal_output_lists_elf_imports(self, tmp_path: Path) -> None:
+        from rebrew.imports import app
+
+        result = CliRunner().invoke(app, [str(_elf_with_imports(tmp_path))])
+        assert result.exit_code == 0
+        assert "sqrt" in result.output
+        assert "libm.so.6" in result.output
 
 
 def _ne_with_modules(tmp_path: Path, modules: list[str]) -> Path:
