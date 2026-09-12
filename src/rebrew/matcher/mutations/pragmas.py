@@ -10,11 +10,12 @@ from __future__ import annotations
 import random
 import re
 
-#: Letters the ``#pragma optimize`` directive accepts (MSVC 6+): g = global
-#: optimizations, s/t = favor size/speed, y = frame-pointer omission; the
-#: empty string turns everything off (or resets to the /O baseline with on).
+#: Letters the ``#pragma optimize`` directive accepts (MSVC 6+): a = assume no
+#: aliasing, g = global optimizations, s/t = favor size/speed, y = frame-pointer
+#: omission; the empty string turns everything off (or resets to the /O
+#: baseline with on).
 _OPTIMIZE_PRAGMA_RE = re.compile(
-    r'^[ \t]*#pragma[ \t]+optimize\(\s*"[gsty]*"\s*,\s*(?:on|off)\s*\)[ \t]*$',
+    r'^[ \t]*#pragma[ \t]+optimize\(\s*"[agsty]*"\s*,\s*(?:on|off)\s*\)[ \t]*$',
     re.MULTILINE,
 )
 
@@ -43,17 +44,20 @@ def mut_add_optimize_pragma(s: str, rng: random.Random) -> str | None:
     """Wrap the function in ``#pragma optimize("X", on|off)`` … ``("", on)``.
 
     ``#pragma optimize("", off)`` is the classic binary-matching lever: it
-    disables all of g/s/t/y, forcing the unoptimized full-stack-frame layout
+    disables all of a/g/s/t/y, forcing the unoptimized full-stack-frame layout
     (complete prologue, every local on the stack) that many original builds
-    exhibit.  The other letters target one aspect each: ``"y"`` off keeps
-    the frame pointer, ``"g"`` off disables global optimizations, ``"s"``/
-    ``"t"`` on favor size/speed.  The closing ``("", on)`` resets to the
-    /O-specified baseline.  No-op when a wrapper is already present.
+    exhibit.  The other letters target one aspect each: ``"a"`` on drops the
+    aliasing assumption, which lets the scheduler move a load across a store to
+    the same object and is the only lever for a transposed field read/write
+    pair; ``"y"`` off keeps the frame pointer, ``"g"`` off disables global
+    optimizations, ``"s"``/``"t"`` on favor size/speed.  The closing
+    ``("", on)`` resets to the /O-specified baseline.  No-op when a wrapper is
+    already present.
     """
     if _OPTIMIZE_PRAGMA_RE.search(s):
         return None
-    letter = rng.choice(("", "y", "g", "s", "t"))
-    mode = "on" if letter in ("s", "t") else "off"
+    letter = rng.choice(("", "y", "g", "s", "t", "a"))
+    mode = "on" if letter in ("s", "t", "a") else "off"
     return f'#pragma optimize("{letter}", {mode})\n{s}\n#pragma optimize("", on)\n'
 
 

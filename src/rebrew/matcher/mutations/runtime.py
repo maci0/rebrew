@@ -131,6 +131,22 @@ def _find_function_body_insert_pos(source: bytes, ref_byte: int) -> int | None:
     return None
 
 
+def _statement_region_start(block: ts.Node) -> int:
+    """Byte offset where a statement may be inserted into *block*.
+
+    C89 puts block declarations before the first statement, so a statement
+    belongs after the last leading declaration; a declaration appended here
+    would be ``error C2143`` for MSVC6.  Returns the offset just after ``{``
+    when the block declares nothing, which is also where a *declaration*
+    belongs (:func:`_find_function_body_insert_pos`).
+    """
+    offset = int(block.start_byte) + 1
+    for node in block.children:
+        if node.type in ("declaration", "type_definition"):
+            offset = int(node.end_byte)
+    return offset
+
+
 def _apply_query_once(
     source: bytes,
     query: ts.Query | _LazyQuery,

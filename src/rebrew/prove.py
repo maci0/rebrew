@@ -1083,8 +1083,8 @@ def main(
     ceiling_only: bool = typer.Option(
         False,
         "--ceiling",
-        help="With --all: only prove GA_CEILING-documented functions (the register-only "
-        "effective-match set the GA gave up on — the sanctioned PROVEN lane)",
+        help="With --all: only prove GA_CEILING-documented functions (the register- or "
+        "encoding-only set the GA gave up on — the sanctioned PROVEN lane)",
     ),
     max_delta: int | None = typer.Option(
         None,
@@ -1754,7 +1754,7 @@ def _run_all_batch(
     *max_delta* bounds the work to functions whose recorded byte delta
     (blocker_delta metadata) is at most the given value — Z3 time goes to
     the closest matches first.  *ceiling_only* restricts the batch to
-    GA_CEILING-documented functions (the register-only effective-match set
+    GA_CEILING-documented functions (the register- or encoding-only set
     ``rebrew match`` marked as the prove lane).
     """
     from rebrew.metadata import GA_CEILING_PREFIX
