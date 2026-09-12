@@ -13,14 +13,12 @@ from typer.testing import CliRunner
 from rebrew.annotation import Annotation
 from rebrew.compile import CompareResult
 from rebrew.config import ProjectConfig
-from rebrew.verify import (
+from rebrew.verify import _load_verify_cache, _save_verify_cache, app
+from rebrew.verify_hash import (
     _compiler_config_hash,
     _entry_headers_fp,
     _headers_hash,
-    _load_verify_cache,
-    _save_verify_cache,
     _source_hash,
-    app,
 )
 
 runner = CliRunner()
@@ -56,7 +54,7 @@ class TestCompilerConfigHash:
         """The hash must embed a content hash of the comparison/extraction
         modules, not just the (static during development) package version —
         a code fix that changes results must invalidate cached results."""
-        from rebrew.verify import _compare_logic_hash
+        from rebrew.verify_hash import _compare_logic_hash
 
         cfg = _make_cfg(tmp_path)
         # Deterministic + includes the logic modules (stable across calls).
@@ -955,7 +953,7 @@ class TestCompareLogicHashMembership:
         import rebrew.coff_reloc
         import rebrew.compile
         import rebrew.matcher.parsers
-        from rebrew.verify import _compare_logic_hash
+        from rebrew.verify_hash import _compare_logic_hash
 
         names = {
             rebrew.annotation._kv_to_annotation.__code__.co_filename,

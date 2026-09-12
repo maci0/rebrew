@@ -214,6 +214,7 @@ src/rebrew/
 ├── # --- CLI tools (each exports app, main, main_entry) ---
 ├── test.py              # Compile, byte-compare, auto-update STATUS
 ├── verify.py            # Bulk verification (incremental, cached)
+├── verify_hash.py       # Cache-invalidation hashes (compiler/headers/source/logic)
 ├── diff.py              # Compile and diff against target
 ├── asm.py               # Disassemble (hex/NASM); --imports/--strings/--hints annotate IAT, strings, codegen patterns (post-decrement, SEH, CRT magic, switch dispatch incl. byte-compressed, IAT forwarder, EH-ctor, esp-disp8); detect_function_pattern + calling_convention
 ├── switch.py            # `rebrew switch` — decode jump-table switches (case → handler; --all recon)
