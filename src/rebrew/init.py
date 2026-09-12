@@ -247,7 +247,7 @@ _PROFILE_TOOLS: dict[str, str] = {
     "msvc-6.0-sp4": "msvc/6.0-sp4-win32",
     "msvc-9.0-sp1": "msvc/9.0-sp1-win32",
     "msvc-11.0": "msvc/11.0-win32",
-    "msvc-7.0": "msvc/7.0-win32",  # deprecated alias of msvc-7.1 (dir holds the 7.1 compiler)
+    "msvc-7.0": "msvc/7.0-win32",  # the 7.0-win32 dir holds the 7.1 compiler build
     "borland-5.5": "borland/5.5-win32",
     "borland-2.0": "borland/2.0-win16",
     "borland-3.1": "borland/3.1-win16",

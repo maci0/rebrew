@@ -1044,6 +1044,23 @@ class TestDockerfileSanity:
         )
 
 
+class TestSmokeGoldenCoverage:
+    """`_SMOKE_GOLDEN` is hand-maintained per toolchain, so it must cover
+    exactly the packaged image-backed set — a new registry toolchain without a
+    golden would be silently ungated by `toolchain smoke`."""
+
+    def test_covers_every_packaged_image_backed_toolchain(self) -> None:
+        from rebrew.toolchain_cli import _SMOKE_GOLDEN
+        from rebrew.toolchain_data import BUILTIN_TOOLCHAINS
+
+        packaged = {n for n, s in BUILTIN_TOOLCHAINS.items() if s.image is not None}
+        assert set(_SMOKE_GOLDEN) == packaged, (
+            "smoke golden table drifted from the packaged registry: no golden for "
+            f"{sorted(packaged - set(_SMOKE_GOLDEN))}, stale golden for "
+            f"{sorted(set(_SMOKE_GOLDEN) - packaged)}"
+        )
+
+
 class TestSmokePrintGoldens:
     """`toolchain smoke --print-goldens` recomputes the masked hashes
     without comparing (the regeneration path for _SMOKE_GOLDEN after a

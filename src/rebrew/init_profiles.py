@@ -122,8 +122,8 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    # Deprecated alias of msvc-7.1: the "7.0-win32" dir/image actually holds
-    # the VC 7.1 compiler (cl 13.10.3077) — the 7.0 name is a mislabel.
+    # The "7.0-win32" dir/image actually holds the VC 7.1 compiler
+    # (cl 13.10.3077) — the 7.0 name is a historical mislabel, not an alias.
     "msvc-7.0": {
         "runner": "wine",
         "command": "wine toolchain/msvc/7.0-win32/source/Bin/cl.exe",

@@ -46,7 +46,7 @@ class TestMappings:
         assert decompme.map_compiler("msvc-6.0") == "msvc6.0"
         assert decompme.map_compiler("msvc-6.0-sp6") == "msvc6.0"
         assert decompme.map_compiler("msvc-7.1") == "msvc7.1"  # canonical VC 7.1
-        assert decompme.map_compiler("msvc-7.0") == "msvc7.1"  # deprecated alias of msvc-7.1
+        assert decompme.map_compiler("msvc-7.0") == "msvc7.1"  # same 13.10.3077 build
         assert decompme.map_compiler("msvc-7.0-rtm") == "msvc7.0"  # the genuine VC 7.0
         assert decompme.map_compiler("msvc-10.0") == "msvc10.0"
         assert decompme.map_compiler("msvc-11.0") == "msvc11.0"

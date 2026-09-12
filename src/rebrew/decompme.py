@@ -56,13 +56,10 @@ app = typer.Typer(
 
 _DEFAULT_API = "https://decomp.me"
 
-#: rebrew toolchain → decomp.me compiler id (closest match).  decomp.me's
-#: registry mirrors the MSVC line; anything else (mingw-16.2.0, console compilers)
-#: must be passed explicitly with ``--compiler``.
-#: Toolchain profile → decomp.me compiler ID. The product-code profiles are
-#: canonical (msvc-7.1 = VC 7.1, cl 13.10.3077); msvc-7.0 is a deprecated alias of
-#: msvc-7.1 and maps to the same ID (its "7.0-win32" image/dir always held the
-#: 7.1 compiler).
+#: rebrew profile → decomp.me compiler id (closest match).  decomp.me's
+#: registry mirrors the MSVC line; anything else (mingw-16.2.0, console
+#: compilers) must be passed explicitly with ``--compiler``.  msvc-7.0 maps to
+#: the 7.1 id because its "7.0-win32" image carries the 7.1 compiler build.
 _COMPILER_MAP: dict[str, str] = {
     "msvc4": "msvc4.0",
     "msvc-4.0": "msvc4.0",
