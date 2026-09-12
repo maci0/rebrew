@@ -46,7 +46,7 @@ class Tc16Result:
 
 def _find_tc16(version: str = "3.1") -> Path:
     """Locate the vendored Borland 16-bit TCC tree (BIN/TCC.EXE present)."""
-    from rebrew.toolchain import toolchains_repo
+    from rebrew.toolchain_paths import toolchains_repo
 
     tree = _TREES.get(version)
     if tree is None:
