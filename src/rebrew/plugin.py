@@ -8,13 +8,25 @@ rebrew's composition points.  A unit of functionality is a *component*:
   sibling services by key rather than importing an implementation;
 * it declares the services it needs (its *coeffects*) in ``needs``, so
   activation order falls out of the declaration instead of a hand-maintained
-  sequence; and
-* every registration it installs is an *effect* with a disposer, held by the
-  context, so deactivation reverts exactly what the component added.
+  sequence;
+* it declares services it needs and the runtime reacts to their availability:
+  :class:`CoeffectScope` re-classifies every change to the service table
+  against each component's ``needs`` (Definition 22), activating the component
+  when the specification becomes satisfied and deactivating it when a needed
+  service is withdrawn; and
+* every change it makes is an *effect* with an inverse the context holds, run
+  in reverse on disposal (Theorem 16), so deactivation reverts exactly what the
+  component added and leaves its siblings' effects interleaved but untouched.
+
+A service provision is itself such an effect: its inverse is the restriction of
+the key (Definition 20), so ``unprovide`` or disposal withdraws the binding.
 
 The CLI is composed this way.  Built-in tools and third-party plugins are the
 same kind of :class:`CliComponent`; the umbrella app in :mod:`rebrew.main` is
-the ``"cli"`` service they mount onto.
+the ``"cli"`` service they mount onto.  The loader tier of the paper
+(configuration reconciliation and hot module replacement) is deliberately not
+built: a CLI process composes once and has no module to swap, and
+:class:`CoeffectScope` is the seam a long-lived host would drive instead.
 """
 
 from __future__ import annotations
@@ -64,25 +76,79 @@ class ComponentError(RuntimeError):
     """A component could not activate: unknown service, duplicate, or bad shape."""
 
 
-class Context:
-    """A service container and effect scope.
+@dataclass
+class _Effect:
+    """One tracked context transformation: its inverse, and the key it binds.
 
-    Services are looked up by key; ``effect`` records a disposer the context
-    owns.  Disposal runs the effects in reverse registration order, so a
-    component's residue is fully reverted.
+    ``key`` is set for a service provision, whose inverse is the restriction of
+    that key (Definition 20: ``set(k, v)`` has inverse ``σ ↦ σ ∖ k``), so the
+    provision can be undone on its own while the other effects are retained.
+    """
+
+    dispose: Disposer
+    key: str | None = None
+
+
+class Context:
+    """The unified effect and coeffect context (the context paradigm).
+
+    One type carries both halves of the paradigm:
+
+    * the *coeffect* half is the service table components resolve by key;
+    * the *effect* half is the accumulator of inverses, held in registration
+      order and run in reverse, so disposal reverts exactly what was installed.
+
+    A provision is an effect: ``provide`` records the restriction of its key as
+    the inverse, and ``unprovide`` runs that inverse alone.  Every change to the
+    table notifies the attached :class:`CoeffectScope`, which is what makes the
+    coeffects reactive.  ``_owners`` names the component currently applying, so
+    the effects one activation installs can be reverted on their own.
     """
 
     def __init__(self, parent: Context | None = None) -> None:
         self._parent = parent
         self._services: dict[str, Any] = {}
-        self._effects: list[Disposer] = []
+        self._effects: list[_Effect] = []
+        self._owners: list[list[_Effect]] = []
         self._disposed = False
+        self._on_change: Callable[[], None] | None = None
+
+    # -- coeffect half: the dependency table --------------------------------
 
     def provide(self, key: str, value: Any) -> None:
-        """Publish *value* under *key*; a key is provided exactly once."""
+        """Bind *value* at *key*; the binding is an effect.
+
+        The key may not already be bound in this context (Definition 20's
+        precondition).  The inverse is the restriction of the key, recorded on
+        the accumulator, so ``unprovide`` or disposal withdraws the binding.
+        """
+        if self._disposed:
+            raise ComponentError("context is disposed; cannot provide services")
         if key in self._services:
             raise ComponentError(f"service {key!r} is already provided")
         self._services[key] = value
+        self._record(_Effect(dispose=self._restrict(key), key=key))
+        self._changed()
+
+    def unprovide(self, key: str) -> None:
+        """Withdraw *key*, running exactly its binding's inverse."""
+        if key not in self._services:
+            raise ComponentError(f"service {key!r} is not provided")
+        for index, effect in enumerate(self._effects):
+            if effect.key == key:
+                del self._effects[index]
+                # The inverse (restriction) notifies the scope itself.
+                effect.dispose()
+                break
+
+    def _restrict(self, key: str) -> Disposer:
+        """The inverse of binding *key*: drop it from this context's table."""
+
+        def dispose() -> None:
+            self._services.pop(key, None)
+            self._changed()
+
+        return dispose
 
     def resolve(self, key: str) -> Any:
         """Return the service under *key*, searching enclosing contexts."""
@@ -101,14 +167,25 @@ class Context:
             ctx = ctx._parent
         return False
 
+    # -- effect half: the inverse accumulator --------------------------------
+
     def effect(self, dispose: Disposer) -> None:
         """Record a disposer; it runs, in reverse order, at ``dispose()``."""
+        self._record(_Effect(dispose=dispose))
+
+    def _record(self, effect: _Effect) -> None:
         if self._disposed:
             raise ComponentError("context is disposed; cannot install effects")
-        self._effects.append(dispose)
+        self._effects.append(effect)
+        if self._owners:
+            self._owners[-1].append(effect)
+
+    def _forget(self, effect: _Effect) -> None:
+        """Drop *effect* from the accumulator without running it."""
+        _remove_identity(self._effects, effect)
 
     def fork(self) -> Context:
-        """A child context that resolves services through this one."""
+        """A derived context that resolves services through this one."""
         return Context(parent=self)
 
     @property
@@ -120,17 +197,30 @@ class Context:
         if self._disposed:
             return
         self._disposed = True
+        # Detach the scope first: withdrawing the provisions as they revert
+        # must not reclassify anything during teardown.
+        self._on_change = None
         while self._effects:
-            self._effects.pop()()
+            self._effects.pop().dispose()
+
+    def _changed(self) -> None:
+        """A service table change: hand it to the nearest attached scope."""
+        ctx: Context | None = self
+        while ctx is not None:
+            if ctx._on_change is not None:
+                ctx._on_change()
+                return
+            ctx = ctx._parent
 
 
 @runtime_checkable
 class Component(Protocol):
     """Anything the loader can activate.
 
-    ``needs`` is the coeffect declaration: the service keys that must be
-    available before ``apply`` runs.  ``apply`` installs the component's
-    effects on the context.
+    ``needs`` is the coeffect specification: the service keys that must be
+    available before ``apply`` runs (Definition 21).  ``apply`` installs the
+    component's effects on the context; the scope records them, so deactivation
+    reverts exactly those.
     """
 
     needs: tuple[str, ...]
@@ -138,28 +228,117 @@ class Component(Protocol):
     def apply(self, ctx: Context) -> None: ...
 
 
-def activate(components: Iterable[Component], ctx: Context) -> None:
+@dataclass
+class _Entry:
+    """A registered component and the effects of its current activation."""
+
+    component: Component
+    needs: tuple[str, ...]
+    #: The effects ``apply`` installed, or ``None`` while the component is
+    #: inactive (its specification is unsatisfied).
+    effects: list[_Effect] | None = None
+
+
+class CoeffectScope:
+    """Reactive coeffect resolution over one :class:`Context` (Definition 22).
+
+    Each component's ``needs`` is a coeffect specification.  Every change to
+    the service table is classified against every specification, so a component
+    activates when its dependencies become available (``activating``) and is
+    reverted when they are withdrawn (``deactivating``).  An activation's
+    effects are owned by its entry and run in reverse on deactivation
+    (Theorem 16), so one component reverts exactly its own residue.
+    """
+
+    def __init__(self, ctx: Context) -> None:
+        self._ctx = ctx
+        self._entries: list[_Entry] = []
+        self._settling = False
+        ctx._on_change = self._classify
+
+    def add(self, component: Component) -> None:
+        """Register *component*; it activates as soon as its needs are met."""
+        self._entries.append(_Entry(component=component, needs=tuple(component.needs)))
+        self._classify()
+
+    def unresolved(self) -> list[Component]:
+        """Registered components whose specification is still unsatisfied."""
+        return [entry.component for entry in self._entries if entry.effects is None]
+
+    def close(self) -> None:
+        """Deactivate every entry, newest first."""
+        self._ctx._on_change = None
+        self._settling = True
+        try:
+            for entry in reversed(self._entries):
+                self._deactivate(entry)
+        finally:
+            self._entries.clear()
+            self._settling = False
+
+    def _satisfied(self, needs: tuple[str, ...]) -> bool:
+        return all(self._ctx.has(key) for key in needs)
+
+    def _classify(self) -> None:
+        """Drive activation and deactivation from the current satisfaction.
+
+        Activating one component may provide a service another is waiting on,
+        so the pass repeats until no specification changes status.  Reentrant
+        calls (a change made while classifying) are absorbed into that loop.
+        """
+        if self._settling:
+            return
+        self._settling = True
+        try:
+            changed = True
+            while changed:
+                changed = False
+                for entry in self._entries:
+                    satisfied = self._satisfied(entry.needs)
+                    if satisfied and entry.effects is None:
+                        entry.effects = self._activate(entry.component)
+                        changed = True
+                    elif not satisfied and entry.effects is not None:
+                        self._deactivate(entry)
+                        changed = True
+        finally:
+            self._settling = False
+
+    def _activate(self, component: Component) -> list[_Effect]:
+        owned: list[_Effect] = []
+        self._ctx._owners.append(owned)
+        try:
+            component.apply(self._ctx)
+        finally:
+            self._ctx._owners.pop()
+        return owned
+
+    def _deactivate(self, entry: _Entry) -> None:
+        effects = entry.effects or []
+        entry.effects = None
+        for effect in reversed(effects):
+            self._ctx._forget(effect)
+            effect.dispose()
+
+
+def activate(components: Iterable[Component], ctx: Context) -> CoeffectScope:
     """Activate every component whose declared services are available.
 
-    Components activate in dependency order; one whose ``needs`` are never
-    satisfied raises :class:`ComponentError` naming the missing services and
-    the components left waiting.
+    The startup composition: registers each component on a
+    :class:`CoeffectScope` and raises when a specification is never satisfied,
+    naming the missing services and the components left waiting.  The returned
+    scope stays reactive, so a service provided later still activates its
+    dependents, and disposing it reverts every component.
     """
-    pending = list(components)
-    while pending:
-        deferred: list[Component] = []
-        for component in pending:
-            if all(ctx.has(key) for key in component.needs):
-                component.apply(ctx)
-            else:
-                deferred.append(component)
-        if len(deferred) == len(pending):
-            missing = sorted({key for c in deferred for key in c.needs if not ctx.has(key)})
-            waiting = ", ".join(_component_name(c) for c in deferred)
-            raise ComponentError(
-                f"unresolved service dependencies {missing} for components: {waiting}"
-            )
-        pending = deferred
+    scope = CoeffectScope(ctx)
+    for component in components:
+        scope.add(component)
+    unresolved = scope.unresolved()
+    if unresolved:
+        missing = sorted({key for c in unresolved for key in c.needs if not ctx.has(key)})
+        waiting = ", ".join(_component_name(c) for c in unresolved)
+        raise ComponentError(f"unresolved service dependencies {missing} for components: {waiting}")
+    return scope
 
 
 def _component_name(component: Component) -> str:

@@ -13,6 +13,7 @@ from rebrew.plugin import (
     CLI_SERVICE,
     CONSOLE_SERVICE,
     CliComponent,
+    CoeffectScope,
     ComponentError,
     Context,
     Panel,
@@ -62,6 +63,26 @@ class TestContext:
         with pytest.raises(ComponentError, match="disposed"):
             ctx.effect(lambda: None)
 
+    def test_provide_is_revertible(self) -> None:
+        """A provision is an effect: its inverse is the key's restriction."""
+        ctx = Context()
+        ctx.provide("a", 1)
+        assert ctx.resolve("a") == 1
+        ctx.unprovide("a")
+        assert not ctx.has("a")
+
+    def test_unprovide_absent_raises(self) -> None:
+        with pytest.raises(ComponentError, match="not provided"):
+            Context().unprovide("nope")
+
+    def test_dispose_withdraws_provisions(self) -> None:
+        ctx = Context()
+        ctx.provide("a", 1)
+        ctx.dispose()
+        assert not ctx.has("a")
+        with pytest.raises(ComponentError, match="disposed"):
+            ctx.provide("b", 2)
+
 
 @dataclass
 class _Component:
@@ -106,6 +127,75 @@ class TestActivate:
         b = _Component(name="b", needs=("a_svc",))
         with pytest.raises(ComponentError, match="unresolved service dependencies"):
             activate([a, b], ctx)
+
+
+@dataclass
+class _RevertibleComponent:
+    """A component that records activation and reverts through an effect."""
+
+    needs: tuple[str, ...] = ()
+    log: list[str] = field(default_factory=list)
+
+    def apply(self, ctx: Context) -> None:
+        self.log.append("on")
+        ctx.effect(lambda: self.log.append("off"))
+
+
+class TestReactiveCoeffects:
+    def test_component_activates_when_its_service_appears(self) -> None:
+        """A change classified as activating runs the component's effects."""
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+        comp = _RevertibleComponent(needs=("svc",))
+        scope.add(comp)
+        assert comp.log == []
+        ctx.provide("svc", 1)
+        assert comp.log == ["on"]
+
+    def test_withdrawn_service_deactivates_and_reverts(self) -> None:
+        """A deactivating change applies the accumulator, reverting residue."""
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+        comp = _RevertibleComponent(needs=("svc",))
+        scope.add(comp)
+        ctx.provide("svc", 1)
+        ctx.unprovide("svc")
+        assert comp.log == ["on", "off"]
+        assert scope.unresolved() == [comp]
+
+    def test_deactivation_leaves_siblings_untouched(self) -> None:
+        """Reverting one component does not disturb another's effects."""
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+        steady = _RevertibleComponent()
+        dependent = _RevertibleComponent(needs=("svc",))
+        scope.add(steady)
+        scope.add(dependent)
+        ctx.provide("svc", 1)
+        ctx.unprovide("svc")
+        assert steady.log == ["on"]
+        assert dependent.log == ["on", "off"]
+
+    def test_a_component_that_provides_activates_its_waiter(self) -> None:
+        """Activation may satisfy another specification in the same pass."""
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+        waiter = _RevertibleComponent(needs=("svc",))
+        provider = _Component(name="provider", provides=(("svc", 7),))
+        scope.add(waiter)
+        scope.add(provider)
+        assert waiter.log == ["on"]
+        assert ctx.resolve("svc") == 7
+
+    def test_close_deactivates_every_entry(self) -> None:
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+        comp = _RevertibleComponent(needs=("svc",))
+        scope.add(comp)
+        ctx.provide("svc", 1)
+        scope.close()
+        assert comp.log == ["on", "off"]
+        assert scope.unresolved() == []
 
 
 class TestCliComponent:

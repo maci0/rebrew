@@ -30,6 +30,16 @@
   `toolchain_spec`/`toolchain_paths`/`toolchain_data`; `matcher/mutator.py` into
   `matcher/mutations/`.  Console scripts and imports naming the old paths must
   be updated; every `rebrew <command>` name is unchanged.
+- **Revertible effects and reactive coeffects** (`rebrew.plugin`).  One
+  `Context` now carries both halves: the service table (coeffects) and the
+  accumulator of inverses (effects).  A service provision is an effect whose
+  inverse is the key's restriction, so `unprovide` or disposal withdraws the
+  binding; `CoeffectScope` classifies every service-table change against each
+  component's `needs`, activating a component when its dependencies appear and
+  deactivating it, reverting exactly the effects its activation installed, when
+  a needed service is withdrawn.  `activate()` remains the fail-fast startup
+  wrapper over the scope.  The loader tier (configuration reconciliation and
+  hot module replacement) is deliberately not built; see ADR 014.
 ### Fixed
 - **Plugin multi-command groups show their own help** — a Typer group registered through the
   `rebrew.multicommands` entry point was added with `help=<command name>`, so the Plugins panel

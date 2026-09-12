@@ -18,10 +18,18 @@ Compose the CLI from components, following the composition discipline of
 Cordis (Shi, Zhang & Cui, "A Programming Paradigm for Spatiotemporal
 Composability", arXiv:2608.25512):
 
-- `rebrew.plugin` provides the runtime: `Context` (services by key plus
-  effects that own disposers), the `Component` protocol (a `needs` tuple is
-  the coeffect declaration), `activate()` (dependency-ordered activation),
-  and `CliComponent`.
+- `rebrew.plugin` provides the runtime: one `Context` type carrying both
+  halves of the paradigm (the service table is the coeffect half, the inverse
+  accumulator the effect half), the `Component` protocol (`needs` is the
+  coeffect specification), `CoeffectScope` (reactive resolution),
+  `activate()` (fail-fast startup registration), and `CliComponent`.
+- A service provision is an effect whose inverse is the key's restriction, so
+  `unprovide` or disposal withdraws it, and the binding is reverted with the
+  rest of the accumulator.
+- `CoeffectScope` classifies every change to the service table against each
+  component's specification: a component activates when its dependencies
+  appear, and is deactivated, reverting exactly the effects that activation
+  installed, when a needed service is withdrawn.
 - `rebrew.builtins` declares every built-in tool as one `CliComponent`
   (name, module, help, panel, group flag).  There is no second table.
 - `rebrew.main` builds the app, publishes it as the `cli` service, and
@@ -39,8 +47,12 @@ Composability", arXiv:2608.25512):
   under its declared panel; one broken plugin never takes the CLI down.
 - The help panel lives next to the tool, so the section and the command can
   no longer drift the way the name-keyed table allowed.
-- The effect/disposer model and `needs` graph are available to long-lived
-  processes (the dashboard) for hot reload, and are the intended home for
-  the remaining lazy-import cycle workarounds in the domain registries.
+- Coeffects are reactive: a service published by one component (or a plugin
+  loaded later) activates its dependents without a hand-maintained order, and
+  a withdrawn service reverts exactly the dependents it had activated.
+- The loader tier of the paper (configuration reconciliation and hot module
+  replacement) is deliberately not built.  A CLI process composes once and has
+  no module to swap; `CoeffectScope` is the seam a long-lived host (the
+  dashboard) would drive instead.
 - Tests that regex-parsed `main.py` for the command list now read
   `BUILTIN_COMPONENTS`.
