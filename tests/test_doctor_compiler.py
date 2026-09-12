@@ -615,13 +615,30 @@ class TestCheckToolchainAlignment:
 
 
 class TestCheckToolchainBacked:
-    def test_skipped_for_native_profiles(self) -> None:
+    def test_skipped_for_imageless_plugin_profile(self, monkeypatch) -> None:
         from rebrew.doctor import _SKIP, check_toolchain_backed
+        from rebrew.toolchain import TOOLCHAINS
+        from rebrew.toolchain_spec import ToolchainSpec
 
+        monkeypatch.setitem(
+            TOOLCHAINS, "hostcc", ToolchainSpec(name="hostcc", image=None, binary="hostcc")
+        )
+        result = check_toolchain_backed(
+            SimpleNamespace(compiler_profile="hostcc", root=Path("/tmp"))
+        )
+        assert result.status == _SKIP
+
+    def test_gcc_pe_reports_its_image(self, monkeypatch) -> None:
+        """gcc-pe is image-backed now — the docker-backed check reports the
+        image state instead of skipping it as a native profile."""
+        from rebrew.doctor import _PASS, check_toolchain_backed
+
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
         result = check_toolchain_backed(
             SimpleNamespace(compiler_profile="gcc-pe", root=Path("/tmp"))
         )
-        assert result.status == _SKIP
+        assert result.status == _PASS
+        assert "rebrew/gcc-pe:16.2.0-win32" in result.message
 
     def test_watcom_image_present_passes(self, monkeypatch) -> None:
         from rebrew.doctor import _PASS, check_toolchain_backed
@@ -742,15 +759,17 @@ class TestCheckToolchainBackedNewProfiles:
         result = check_toolchain_backed(cfg)
         assert result.status == _PASS
 
-    def test_watcom16_skipped_as_native(self, monkeypatch) -> None:
-        """watcom16 is a native Linux compiler (no image) — the docker-backed
-        check skips it (its binary is checked by the generic compiler check)."""
-        from rebrew.doctor import _SKIP, check_toolchain_backed
+    def test_watcom16_reports_its_image(self, monkeypatch) -> None:
+        """watcom16 is image-backed now (rebrew/watcom:2.0-win16) — the
+        docker-backed check reports the image state, not a native skip."""
+        from rebrew.doctor import _PASS, check_toolchain_backed
 
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
         result = check_toolchain_backed(
             SimpleNamespace(compiler_profile="watcom16", root=Path("/tmp"))
         )
-        assert result.status == _SKIP
+        assert result.status == _PASS
+        assert "rebrew/watcom:2.0-win16" in result.message
 
 
 class TestCheckCompiler16BitProfiles:

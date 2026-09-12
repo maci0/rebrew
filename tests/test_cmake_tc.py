@@ -310,15 +310,20 @@ def test_resolve_spec_rejects_dosbox_image() -> None:
     import typer
 
     from rebrew.cmake_tc import _resolve_spec
+    from rebrew.toolchain import TOOLCHAINS
 
     with pytest.raises(typer.Exit):
         _resolve_spec("tc16")
 
-    # every wine image spec resolves (tool_root derived for all of them)
-    from rebrew.toolchain import TOOLCHAINS
+    # gcc-pe is a wine-driven image too (its driver is a PE32 binary), but it
+    # is one gcc with no separate link/lib tools — refused, like any other
+    # wine image without a tool_root.
+    with pytest.raises(typer.Exit):
+        _resolve_spec("gcc-pe")
 
+    # every wine image spec that declares a tool_root resolves.
     for name, spec in TOOLCHAINS.items():
-        if spec.image is not None and spec.runtime == "wine":
+        if spec.image is not None and spec.runtime == "wine" and spec.tool_root:
             assert _resolve_spec(name) is spec, name
 
 

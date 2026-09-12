@@ -1042,7 +1042,7 @@ class TestCLISetCompiler:
         assert result.exit_code == 0
         doc, _ = load_toml(tmp_path)
         compiler_tbl = doc["targets"]["server.dll"]["compiler"]
-        assert compiler_tbl["command"] == "gcc"
+        assert compiler_tbl["command"] == ""  # image-backed: docker-native blank
         assert compiler_tbl["profile"] == "gcc"
 
     def test_set_compiler_dry_run(self, tmp_path: Path, monkeypatch) -> None:
@@ -1085,14 +1085,21 @@ class TestCLISetCompiler:
         assert compiler_tbl["command"] == ""  # image-backed: docker-native blank
 
     def test_set_compiler_native_keeps_command(self, tmp_path: Path, monkeypatch) -> None:
-        """set-compiler on a native (imageless) profile keeps its host command."""
+        """set-compiler on an image-less (plugin) profile keeps its host command
+        — the docker-only blank is for image-backed profiles only."""
+        from rebrew.toolchain import TOOLCHAINS
+        from rebrew.toolchain_spec import ToolchainSpec
+
+        monkeypatch.setitem(
+            TOOLCHAINS, "nativecc", ToolchainSpec(name="nativecc", image=None, binary="nativecc")
+        )
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "gcc-pe"])
+        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "nativecc"])
         assert result.exit_code == 0
         compiler_tbl = load_toml(tmp_path)[0]["targets"]["server.dll"]["compiler"]
-        assert compiler_tbl["profile"] == "gcc-pe"
-        assert compiler_tbl["command"] == "i686-w64-mingw32-gcc"
+        assert compiler_tbl["profile"] == "nativecc"
+        assert compiler_tbl["command"] == "nativecc"
 
 
 class TestResolveDottedKeyEdges:

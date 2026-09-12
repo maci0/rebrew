@@ -4,6 +4,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
+import pytest
+
 from rebrew.compile import (
     compile_to_obj,
     filter_wine_stderr,
@@ -254,22 +256,18 @@ class TestCompileToObj:
 class TestCompileToObjPosix:
     """gcc-pe / mingw (POSIX-style) compiler routing."""
 
-    def _run_compile(
-        self, tmp_path: Path, monkeypatch, *, profile: str, cflags: list[str]
-    ) -> list[str]:
+    def test_gcc_pe_uses_posix_flags(self, tmp_path: Path, monkeypatch) -> None:
+        """gcc-pe is image-backed, and the argv compile_to_obj hands the
+        toolchain is still POSIX-style: -I/-c/-o, no MSVC /Fo."""
         captured: dict[str, list[str]] = {}
 
-        def _fake_run(cmd: list[str], **_kwargs: object) -> SimpleNamespace:
-            captured["cmd"] = cmd
-            # GCC-style output flag: -o objname
-            out = cmd[cmd.index("-o") + 1]
-            (tmp_path / "work" / out).write_bytes(b"\x00")
-            return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+            captured["args"] = args
+            (workdir / "f.obj").write_bytes(b"\x00")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.compile.subprocess.run", _fake_run)
-        monkeypatch.setattr(
-            "rebrew.compile.resolve_cl_command", lambda _cfg: ["i686-w64-mingw32-gcc"]
-        )
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
 
         cfg: Any = SimpleNamespace(
             root=tmp_path,
@@ -279,8 +277,8 @@ class TestCompileToObjPosix:
             compiler_command="i686-w64-mingw32-gcc",
             compiler_runner="",
             compiler_libs=tmp_path,
-            compiler_profile=profile,
-            posix_style=profile in ("gcc", "gcc-pe", "clang", "watcom"),
+            compiler_profile="gcc-pe",
+            posix_style=True,
             msvc_env=lambda: {},
         )
         src_dir = tmp_path / "src"
@@ -290,15 +288,12 @@ class TestCompileToObjPosix:
         workdir = tmp_path / "work"
         workdir.mkdir()
 
-        obj_path, err = compile_to_obj(cast(ProjectConfig, cfg), source, cflags, workdir)
+        obj_path, err = compile_to_obj(
+            cast(ProjectConfig, cfg), source, ["-O2", "-fno-builtin"], workdir
+        )
         assert err == ""
         assert obj_path is not None
-        return captured["cmd"]
-
-    def test_gcc_pe_uses_posix_flags(self, tmp_path: Path, monkeypatch) -> None:
-        cmd = self._run_compile(
-            tmp_path, monkeypatch, profile="gcc-pe", cflags=["-O2", "-fno-builtin"]
-        )
+        cmd = captured["args"]
         # GCC-style: -I/-c/-o, no MSVC /Fo, no /I with empty include path
         assert "-c" in cmd
         assert "-o" in cmd
@@ -955,13 +950,27 @@ class TestLinkedSpec:
         assert spec is not None and spec.name == "msvc6"
         assert err == ""
 
-    def test_native_profile_rejected(self) -> None:
+    def test_native_profile_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.compile import _linked_spec
+        from rebrew.toolchain import TOOLCHAINS
+        from rebrew.toolchain_spec import ToolchainSpec
 
-        cfg: Any = SimpleNamespace(compiler_profile="gcc-pe")
-        spec, err = _linked_spec(cfg, None)
+        # An image-less plugin spec has no image to run LINK.EXE in.
+        monkeypatch.setitem(
+            TOOLCHAINS, "hostcc", ToolchainSpec(name="hostcc", image=None, binary="hostcc")
+        )
+        spec, err = _linked_spec(SimpleNamespace(compiler_profile="hostcc"), None)
         assert spec is None
         assert "host-native" in err
+
+    def test_gcc_pe_profile_rejected(self) -> None:
+        """gcc-pe is image-backed but has no LINK.EXE — the linked compare
+        drives MSVC's linkers only."""
+        from rebrew.compile import _linked_spec
+
+        spec, err = _linked_spec(SimpleNamespace(compiler_profile="gcc-pe"), None)
+        assert spec is None
+        assert "MSVC toolchains only" in err
 
     def test_non_msvc_image_rejected(self) -> None:
         from rebrew.compile import _linked_spec

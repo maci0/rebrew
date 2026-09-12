@@ -43,7 +43,8 @@ class ToolchainSpec:
 
         Derived from the image repository basename (``rebrew/msvc:…`` ->
         ``msvc``) so the folder layout and the image tag can never drift.
-        Host-only specs have no image: fall back to the name (gcc-pe).
+        Host-only specs have no repository to derive from: fall back to the
+        name.
         """
         if self.image and ":" in self.image:
             repo = self.image.rsplit(":", 1)[0]

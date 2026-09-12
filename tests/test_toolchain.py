@@ -66,6 +66,44 @@ class TestRegistry:
         assert spec.binary == "DCC.EXE"
         assert spec.image_binary is None
 
+    def test_image_backed_native_specs(self) -> None:
+        """The compiler profiles that used to be native PATH binaries are
+        image-backed like the rest of the matrix: the image ENTRYPOINT is the
+        wrapper, nothing runs from a host tree, and the default profiles point
+        at the newest version."""
+        expected = {
+            "gcc": "rebrew/gcc:14.2.0-linux-x64",
+            "gcc12": "rebrew/gcc:12.3.0-linux-x64",
+            "clang": "rebrew/clang:18.1.8-linux-x64",
+            "clang16": "rebrew/clang:16.0.4-linux-x64",
+            "gcc-pe": "rebrew/gcc-pe:16.2.0-win32",
+            "gcc-pe14": "rebrew/gcc-pe:14.2.0-win32",
+            "watcom16": "rebrew/watcom:2.0-win16",
+        }
+        for name, image in expected.items():
+            spec = TOOLCHAINS[name]
+            assert spec.image == image, name
+            assert spec.image_binary is None, name  # the ENTRYPOINT is the wrapper
+            assert spec.flags_style == "posix", name
+            assert spec.host_path is None, name  # no host fallback tree
+        assert TOOLCHAINS["gcc"].obj_ext == ".o"
+        assert TOOLCHAINS["clang16"].obj_ext == ".o"
+        assert TOOLCHAINS["gcc-pe"].obj_ext == ".obj"
+        assert TOOLCHAINS["watcom16"].obj_ext == ".obj"
+        assert TOOLCHAINS["watcom16"].bits == 16
+
+    def test_image_backed_native_sources_pinned(self) -> None:
+        """Each image-backed native profile has a pinned SOURCES entry (the
+        image build source) — no unpinned host-tree dependency."""
+        from rebrew.toolchain_data import SOURCES
+
+        for name in ("gcc", "gcc12", "clang", "clang16", "gcc-pe", "gcc-pe14", "watcom16"):
+            src = SOURCES[name]
+            assert src.url.startswith("https://"), name
+            assert len(src.sha256) == 64, name
+            assert src.in_repo == "", name
+            assert "/" in src.host_dir, name
+
     def test_family_derived_from_image_tag(self) -> None:
         """The toolchain-images/ top-level dir is the unversioned family
         (Godbolt-style), derived from the image repository — never the
@@ -75,8 +113,9 @@ class TestRegistry:
         assert TOOLCHAINS["msvc1.52"].family == "msvc"
         assert TOOLCHAINS["delphi16"].family == "delphi"
         assert TOOLCHAINS["watcom"].family == "watcom"
-        # host-only spec: falls back to its name
+        # the hyphens in the repository name (gcc-pe, not gcc_pe) are kept
         assert TOOLCHAINS["gcc-pe"].family == "gcc-pe"
+        assert TOOLCHAINS["clang16"].family == "clang"
 
 
 class TestImageMsvcEnv:
@@ -283,9 +322,9 @@ class TestRunToolchain:
     def test_native_runtime_without_image_uses_vendored_path(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        """Native-Linux toolchains without an image (gcc-pe, watcom16 wcc)
-        exec their vendored/PATH binary directly — they are not Windows
-        binaries, so no wine glue is involved."""
+        """An image-less spec (a plugin toolchain) execs its vendored/PATH
+        binary directly — it is not a Windows binary, so no wine glue is
+        involved."""
         cl = tmp_path / "vc" / "bin" / "cl.exe"
         cl.parent.mkdir(parents=True)
         cl.write_bytes(b"MZ")
@@ -355,9 +394,14 @@ class TestCli:
         from typer.testing import CliRunner
 
         from rebrew.main import app as umbrella
+        from rebrew.toolchain import TOOLCHAINS
+        from rebrew.toolchain_spec import ToolchainSpec
 
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: False)
-        result = CliRunner().invoke(umbrella, ["toolchain", "pull", "gcc-pe"])
+        monkeypatch.setitem(
+            TOOLCHAINS, "hostcc", ToolchainSpec(name="hostcc", image=None, binary="hostcc")
+        )
+        result = CliRunner().invoke(umbrella, ["toolchain", "pull", "hostcc"])
         assert result.exit_code == 2
         assert "host-only" in result.output
 
@@ -448,8 +492,13 @@ class TestCli:
         from typer.testing import CliRunner
 
         from rebrew.main import app as umbrella
+        from rebrew.toolchain import TOOLCHAINS
+        from rebrew.toolchain_spec import ToolchainSpec
 
-        result = CliRunner().invoke(umbrella, ["toolchain", "build", "gcc-pe"])
+        monkeypatch.setitem(
+            TOOLCHAINS, "hostcc", ToolchainSpec(name="hostcc", image=None, binary="hostcc")
+        )
+        result = CliRunner().invoke(umbrella, ["toolchain", "build", "hostcc"])
         assert result.exit_code == 2
         assert "host-only" in result.output
 
@@ -526,16 +575,23 @@ class TestPullToolchain:
         assert pulls and all(c[0] == "podman" for c in pulls)
 
     def test_every_wine_image_spec_declares_tool_root(self) -> None:
-        """Every image-backed wine spec carries tool_root, so the CMake
-        bridge and INCLUDE/LIB derivation work for all of them."""
+        """Every image-backed MSVC wine spec carries tool_root, so the CMake
+        bridge and INCLUDE/LIB derivation work for all of them.  (gcc-pe's
+        image is wine-driven too but holds a single gcc, no CL/LINK/LIB
+        tools, so it declares no tool_root — the bridge refuses it, see
+        tests/test_cmake_tc.py.)"""
         from rebrew.toolchain import TOOLCHAINS
 
         missing = [
             name
             for name, spec in TOOLCHAINS.items()
-            if spec.image is not None and spec.runtime == "wine" and not spec.tool_root
+            if spec.image is not None
+            and spec.runtime == "wine"
+            and spec.family == "msvc"
+            and not spec.tool_root
         ]
         assert missing == []
+        assert TOOLCHAINS["gcc-pe"].tool_root is None
 
     def test_cli_reports_already_present(self, monkeypatch) -> None:
         from typer.testing import CliRunner
@@ -757,8 +813,8 @@ class TestDockerOnlyGuard:
     """run_toolchain is docker-only: every Windows/DOS toolchain (wine- and
     dosbox-runtime) must fail with a clear build hint when its image is
     absent — never exec the vendored binary directly (EACCES / Exec format
-    error).  Native-Linux specs without an image (gcc-pe, watcom16 wcc)
-    keep the direct vendored-host path: they are not Windows binaries."""
+    error).  An image-less plugin spec keeps the direct vendored-host path;
+    it is not a shipped profile."""
 
     def test_msvc152_image_missing_raises(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
@@ -776,18 +832,18 @@ class TestDockerOnlyGuard:
         with pytest.raises(ToolchainError, match="not built"):
             run_toolchain(TOOLCHAINS["delphi16"], ["hello.dpr"], workdir=tmp_path)
 
-    def test_watcom16_native_path_unaffected(self, tmp_path: Path, monkeypatch) -> None:
-        """watcom16 has no image (native Linux wcc) — the direct vendored
-        binary path still applies; only image-less wine/dosbox specs are
-        blocked by the docker-only guard."""
-        from rebrew.toolchain import TOOLCHAINS, run_toolchain
+    def test_watcom16_image_backed(self, tmp_path: Path, monkeypatch) -> None:
+        """watcom16 runs through its own image (the 16-bit wcc) — a missing
+        image is a hard error like every other image-backed profile, never a
+        direct vendored-binary exec."""
+        from rebrew.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
 
         spec = TOOLCHAINS["watcom16"]
-        monkeypatch.setattr(
-            "rebrew.toolchain._resolve_binary",
-            lambda spec: (_ for _ in ()).throw(ToolchainError("no native binary")),
-        )
-        with pytest.raises(ToolchainError, match="no native binary"):
+        assert spec.image == "rebrew/watcom:2.0-win16"
+        assert spec.image_binary is None
+        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
+        with pytest.raises(ToolchainError, match="not built"):
             run_toolchain(spec, ["-zq", "f.c"], workdir=tmp_path)
 
 
@@ -939,8 +995,6 @@ class TestDockerfileSanity:
         dockerfiles = sorted((self._repo()).rglob("Dockerfile"))
         assert dockerfiles, "no Dockerfiles found in the rebrew-toolchains checkout"
         for f in dockerfiles:
-            if "linux-x64" in str(f):
-                continue
             lines = f.read_text(encoding="utf-8").splitlines()
             in_run = False
             for ln in lines:
@@ -1032,3 +1086,37 @@ class TestPullToolchainHint:
         monkeypatch.setattr("rebrew.toolchain.subprocess.run", _fake_run)
         with pytest.raises(ToolchainError, match="toolchain build msvc420"):
             pull_toolchain("msvc420")
+
+
+class TestVendorFlatten:
+    """Archive layouts whose payload sits under one top-level wrapper dir
+    (zip-strip1, 7z-strip1 — the mingw-builds assets carry ``mingw32/``)
+    flatten it so the vendored host tree matches every other toolchain."""
+
+    def test_unwraps_the_single_top_level_dir(self, tmp_path: Path) -> None:
+        from rebrew.toolchain_cli import _flatten_wrapper_dir
+
+        payload = tmp_path / "payload"
+        (payload / "mingw32" / "bin").mkdir(parents=True)
+        (payload / "mingw32" / "bin" / "gcc.exe").write_bytes(b"MZ")
+        dest = tmp_path / "dest"
+        dest.mkdir()
+
+        _flatten_wrapper_dir(payload, dest)
+
+        assert (dest / "bin" / "gcc.exe").read_bytes() == b"MZ"
+        assert not (dest / "mingw32").exists()
+
+    def test_flat_payload_moves_its_children(self, tmp_path: Path) -> None:
+        from rebrew.toolchain_cli import _flatten_wrapper_dir
+
+        payload = tmp_path / "payload"
+        (payload / "bin").mkdir(parents=True)
+        (payload / "README").write_text("x", encoding="utf-8")
+        dest = tmp_path / "dest"
+        dest.mkdir()
+
+        _flatten_wrapper_dir(payload, dest)
+
+        assert (dest / "bin").is_dir()
+        assert (dest / "README").is_file()

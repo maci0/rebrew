@@ -125,16 +125,22 @@ _FLAGS_MAP: dict[str, Flags] = {
     "tc20": BORLAND_FLAGS,
     "borlandc55": BORLAND_FLAGS,
     "gcc": GCC_FLAGS,
+    "gcc12": GCC_FLAGS,  # same GCC flag family
     "gcc-pe": GCC_FLAGS,  # MinGW accepts the same GCC flag family
+    "gcc-pe14": GCC_FLAGS,
     "clang": GCC_FLAGS,
+    "clang16": GCC_FLAGS,
 }
 
 #: Packaged sweep-tier dispatch: profile → {tier: [flag-axis ids]}.  Profiles
 #: without an entry fall back to MSVC_SWEEP_TIERS (the historic default).
 _PACKAGED_FLAG_TIERS: dict[str, dict[str, list[str] | None]] = {
     "gcc": GCC_SWEEP_TIERS,
+    "gcc12": GCC_SWEEP_TIERS,
     "gcc-pe": GCC_SWEEP_TIERS,
+    "gcc-pe14": GCC_SWEEP_TIERS,
     "clang": GCC_SWEEP_TIERS,
+    "clang16": GCC_SWEEP_TIERS,
     "watcom": WATCOM_SWEEP_TIERS,
     "watcom16": WATCOM_SWEEP_TIERS,
     "msvc1.52": MSVC152_SWEEP_TIERS,
@@ -244,7 +250,8 @@ def _ensure_wine_env(env: dict[str, str] | None, cmd: list[str]) -> dict[str, st
 
 #: Profiles whose compiler runs ONLY through its docker image.  Derived from
 #: the toolchain registry at import time (all specs with an image); the raw
-#: subprocess path is reserved for native Linux compilers (gcc-pe).
+#: subprocess path is reserved for a registered toolchain with no image (a
+#: plugin/overlay native compiler).
 def _docker_backed_profiles() -> frozenset[str]:
     try:
         from rebrew.toolchain import TOOLCHAINS

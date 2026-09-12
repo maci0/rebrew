@@ -12,11 +12,12 @@ see [TOOLCHAIN.md](TOOLCHAIN.md).
 |------|-----------|---------|
 | Python 3.12+ + `uv` | running rebrew | `pip install uv` / your distro |
 | rebrew itself | everything | `uv pip install -e .` in this checkout |
-| **docker** | every Windows/DOS compiler (MSVC, Borland, Watcom, Turbo C, Delphi) — execution is docker-only; the image wraps wine/DOSBox | your distro's `docker` |
+| **docker** | every compiler (MSVC, Borland, Watcom, Turbo C, Delphi, GCC, Clang, MinGW) — execution is docker-only; the image wraps wine/DOSBox or holds the native compiler | your distro's `docker` |
 | **rizin** (`rz`/`rizin`) | function discovery (`rebrew intake` enumerates functions with it) | `apt install rizin` / [rizin.re](https://rizin.re) |
 | `diec` (optional) | stronger compiler detection in `rebrew doctor`/`intake` | `tools/diec` (vendored) |
 
-Linux native compilers (MinGW GCC via `gcc-pe`, `watcom16`) need no docker.
+Every compiler — including GCC, Clang and MinGW — needs docker: the image
+holds it (see `rebrew toolchain list`).
 
 > **Runtime: wine is the default.**  Every docker image runs the compiler
 > under **wine** (`REBREW_RUNNER` defaults to `wine` inside the image).
@@ -106,10 +107,10 @@ Every `fail` line names its fix.  The common ones after a fresh intake:
   the configured profile: switch the profile (e.g. `rebrew cfg set
   compiler.profile msvc6`) or document it as a blocker.
 - **`Include path`/`Lib path`** — for docker-backed profiles these are
-  provided *by the image* (it is built from the vendored toolchain source in
-  the sibling `rebrew-toolchains` checkout), so a dangling host path is
-  informational, not a failure.  Native profiles (gcc-pe) still require the
-  real paths.
+  provided *by the image* (it is built from the pinned source in the sibling
+  `rebrew-toolchains` checkout), so a dangling host path is informational,
+  not a failure.  Every shipped profile is docker-backed; only a plugin
+  toolchain registered without an image uses real host paths.
 
 ### 4. See where you stand
 

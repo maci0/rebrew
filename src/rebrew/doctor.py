@@ -315,9 +315,10 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
             fix=f'Set compiler.profile = "{hint}"; analysis/docs work either way.',
         )
 
-    # Docker-only execution: every Windows/DOS profile compiles through its
-    # docker image — the image IS the compiler.  Only native-Linux profiles
-    # (gcc-pe and friends) fall through to the legacy executable check.
+    # Docker-only execution: every shipped profile compiles through its
+    # docker image — the image IS the compiler.  Only a profile without a
+    # registry spec (or an image-less plugin one) falls through to the
+    # legacy executable check.
     from rebrew.toolchain import TOOLCHAINS, image_present
 
     _profile = str(getattr(cfg, "compiler_profile", ""))
@@ -363,7 +364,7 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
     is_wibo_runner = Path(exe).name == "wibo"
     # A relative command (e.g. toolchain/msvc/1.52-win16/BIN/CL.EXE) resolves against the
     # project root — do not require it on PATH (msvc1.52's direct DOSBox
-    # command, watcom, gcc-pe vendored paths).
+    # command, or a plugin toolchain's vendored path).
     if exe_path is None and exe != "wine" and not is_wibo_runner:
         local_exe = Path(exe) if Path(exe).is_absolute() else cfg.root / Path(exe)
         if local_exe.exists():
@@ -634,8 +635,8 @@ def check_toolchain_backed(cfg: ProjectConfig) -> CheckResult:
     """For docker-backed profiles, report the execution state: the docker
     image must be built (execution is docker-only — no host wine/dosbox
     fallback); the vendored tree is informational (it is the byte-identical
-    source the image builds from).  Native-Linux profiles (gcc-pe, watcom16)
-    skip (their binary is checked by the generic compiler check)."""
+    source the image builds from).  An image-less profile skips (its binary
+    is checked by the generic compiler check)."""
     profile = str(getattr(cfg, "compiler_profile", ""))
     from rebrew.toolchain import ToolchainError, get_toolchain, image_present
 

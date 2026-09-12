@@ -221,11 +221,12 @@ class LinkConfig:
 #: config default — a posix profile's always-on flags must not default to
 #: the MSVC glue (``/nologo /c /MT``) or every compile breaks.
 #:
-#: This set names profiles WITHOUT a registry spec (e.g. ``gcc``/``clang``
-#: for ELF targets, which never enter the toolchain registry).  For profiles
-#: that ARE registry toolchains, :func:`_profile_flags_style` consults the
-#: spec's ``flags_style`` instead — a plugin toolchain registered with
-#: ``flags_style = "posix"`` routes correctly without touching this set.
+#: This set names profiles WITHOUT a registry spec.  Every shipped profile
+#: (gcc/clang/gcc-pe/watcom included) is a registry toolchain, so
+#: :func:`_profile_flags_style` resolves them from the spec's ``flags_style``;
+#: the set is the fallback for a profile name that has no spec at all (a
+#: plugin-free local config naming ``gcc`` before the registry loads, or an
+#: unregistered fork of a shipped name).
 POSIX_PROFILES = frozenset(
     {"gcc", "gcc-pe", "clang", "watcom", "watcom16", "borlandc55", "tc20", "tc16"}
 )
@@ -931,7 +932,10 @@ _KNOWN_PROFILES = {
     "msvc1.52",
     "gcc",
     "gcc-pe",
+    "gcc-pe14",
+    "gcc12",
     "clang",
+    "clang16",
     "watcom",
     "watcom16",
     "borlandc55",

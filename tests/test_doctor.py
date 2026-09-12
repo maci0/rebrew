@@ -216,16 +216,20 @@ class TestDockerIncludeLibs:
         lib = check_libs(self._cfg(tmp_path))
         assert lib.status == _WARN
 
-    def test_native_profile_still_checks_host_path(self, tmp_path: Path, monkeypatch) -> None:
-        # gcc-pe has no docker image — the host path check applies as before.
+    def test_image_backed_gcc_pe_ignores_the_host_include_path(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """gcc-pe is image-backed: its headers come from the image, so a
+        dangling host includes path is not a failure."""
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda img: True)
         cfg = _make_cfg(
             tmp_path,
             compiler_profile="gcc-pe",
             compiler_includes=tmp_path / "nope" / "include",
         )
         result = check_includes(cfg)
-        assert result.status == _FAIL
-        assert "compiler.includes" in result.fix
+        assert result.status == _PASS
+        assert "docker image" in result.message
 
 
 class TestCheckLibs:

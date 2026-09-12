@@ -30,7 +30,7 @@ and 1 together form the "MIPS works" milestone.
   bytes only.
 - `cfg_ged.py` (CFG structural), `prove.py` (angr supports MIPS/PPC/ARM).
 - `binary_loader` format detection (PE/ELF/Mach-O via LIEF), `toolchain.py`
-  native-spec pattern (`gcc-pe`, `watcom16`).
+  image/spec pattern (every shipped profile; see ADR 016).
 
 ### Arch-specific surfaces (the work list)
 
@@ -86,8 +86,9 @@ Delivers: *a MIPS ELF binary can be onboarded, annotated, and matched with
 
 1. Toolchain spec `gcc-mips` (native Linux cross compiler,
    `mipsel-linux-gnu-gcc` for PS1 / `mips-linux-gnu-gcc` BE for N64; per-target
-   `arch`/endianness in the spec) — copy the `gcc-pe` native-spec pattern;
-   `bits=32`, `arch=mips32`.
+   `arch`/endianness in the spec) — copy the `gcc`/`gcc-pe` image-spec pattern
+   (Dockerfile in the rebrew-toolchains checkout, wrapper that `rebrew_exec`s
+   the compiler); `bits=32`, `arch=mips32`.
 2. `flag_data.py`: MIPS GCC flag family (minimal posix axes: `-march`, `-mabi`,
    `-O2` etc.) registered like `GCC_FLAGS`; sweep tiers.
 3. `matcher/parsers.py`: MIPS ELF object + reloc support (R_MIPS_26/JUMP26/

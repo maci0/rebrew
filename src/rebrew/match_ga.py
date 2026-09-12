@@ -470,9 +470,9 @@ class BinaryMatchingGA:
         else:
             if not self.lib_dir or not self.ldflags:
                 raise ValueError("lib dir and ldflags must be set when compare_obj is False")
-            # The linked-exe GA path uses a host subprocess (wine) — execution
-            # is docker-only for Windows/DOS toolchains, so this mode is only
-            # available for native Linux compilers (gcc-pe).
+            # The linked-exe GA path drives a host subprocess (self.cl_cmd) —
+            # execution is docker-only for every shipped profile, so this mode
+            # is only available to a profile with no registry image.
             if self.profile:
                 from rebrew.toolchain import TOOLCHAINS
 
