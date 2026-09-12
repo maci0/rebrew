@@ -1047,7 +1047,7 @@ def compile_to_obj(
             # 16-bit DOSBox wrappers stage their own include tree - follow the
             # ACTIVE spec (a per-function TOOLCHAIN override may swap in a
             # 16-bit toolchain under a 32-bit project profile).
-            if spec.name not in ("msvc-1.52", "msvc-1.5", "msvc-1.0", "borland-3.1", "borland-2.0"):
+            if spec.effective_arg_style != "dos":
                 extra_inc: list[str] = []
                 if src_parent.resolve() != workdir.resolve():
                     extra_inc.append(str(src_parent))
@@ -1065,18 +1065,18 @@ def compile_to_obj(
                 # Same-path mounts may repeat across dirs - docker rejects
                 # duplicate -v targets.
                 mounts = list(dict.fromkeys(mounts))
-        if spec.name in ("msvc-1.52", "msvc-1.5", "msvc-1.0", "borland-3.1", "borland-2.0"):
-            # 16-bit DOSBox wrappers stage their own include tree.
+        arg_style = spec.effective_arg_style
+        if arg_style == "dos":
+            # DOSBox wrappers take the source first and stage their own
+            # include tree; the object may come back FAT-uppercased.
             args = [src_name, *all_flags]
-        elif spec.name == "borland-5.5":
+        elif arg_style == "borland":
             # bcc32: `-c` compiles only; the object name follows the source
             # stem (add.c → add.obj), which matches obj_name.
             args = all_flags + ["-c", src_name]
-        elif spec.name in ("watcom-2.0-win32", "watcom-2.0-win16"):
+        elif arg_style == "watcom":
             args = all_flags + [f"-fo={obj_name}", "-zq", src_name]
-        elif spec.flags_style == "posix":
-            # POSIX-style compilers (gcc, mingw-16.2.0, clang, watcom): -I/-c/-o,
-            # no MSVC /Fo.
+        elif arg_style == "posix":
             inc_flags = [f"-I{inc_path}"] if inc_path else []
             args = all_flags + inc_flags + [f"-I{str(src_parent)}", "-c", "-o", obj_name, src_name]
         else:
@@ -1086,10 +1086,7 @@ def compile_to_obj(
         except ToolchainError as exc:
             return None, str(exc)
         obj_file = workdir / obj_name
-        if (
-            spec.name in ("msvc-1.52", "msvc-1.5", "msvc-1.0", "borland-3.1", "borland-2.0")
-            and not obj_file.exists()
-        ):
+        if arg_style == "dos" and not obj_file.exists():
             # The DOSBox wrappers FAT-uppercase the object (T.OBJ).
             stem = Path(obj_name).stem
             obj_file = next(

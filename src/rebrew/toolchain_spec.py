@@ -28,6 +28,24 @@ def flags_style_from_str(value: object) -> FlagsStyle:
     return cast(FlagsStyle, style)
 
 
+#: How a compiler takes its input and emits its object, beyond flag syntax:
+#: ``msvc`` (``/Fo<obj> <src>``), ``posix`` (``-c -o <obj> <src>``), ``dos``
+#: (``<src> <flags>`` with a FAT-uppercased object), ``borland``
+#: (``<flags> -c <src>``, object named after the source stem), ``watcom``
+#: (``<flags> -fo=<obj> -zq <src>``).
+ArgStyle = Literal["msvc", "posix", "dos", "borland", "watcom"]
+
+ARG_STYLES: frozenset[str] = frozenset({"msvc", "posix", "dos", "borland", "watcom"})
+
+
+def arg_style_from_str(value: object) -> ArgStyle:
+    """Validate a declared ``arg_style``; ``None`` leaves it derived."""
+    style = str(value)
+    if style not in ARG_STYLES:
+        raise ValueError(f"arg_style must be one of {sorted(ARG_STYLES)}, got {style!r}")
+    return cast(ArgStyle, style)
+
+
 @dataclass(frozen=True)
 class ToolchainSpec:
     """How to invoke one compiler version."""
@@ -40,6 +58,10 @@ class ToolchainSpec:
     runtime: str = "native"  # "native" | "wine" | "dosbox" — informational; the
     # image wrapper encapsulates it, host fallback uses it for env setup
     flags_style: FlagsStyle = "msvc"  # flag syntax: /I,/Fo,/c vs -I,-o,-c
+    arg_style: ArgStyle | None = None  # input/output argument dialect; None =
+    # derive from flags_style (posix or msvc).  A DOS/borland/watcom compiler
+    # declares its own dialect, so no profile-name list is needed to pick the
+    # argument order.
     obj_ext: str = ".obj"
     host_path: str | Path | None = None  # vendored dir (host fallback)
     host_bin: str = "Bin"  # subdir of host_path holding the compiler (Bin for
@@ -54,6 +76,14 @@ class ToolchainSpec:
     # registered with bits=16 is allowed on x86_16 DOS/NE targets instead of
     # being flagged as a 32/64-bit compiler.
     description: str = ""
+
+    @property
+    def effective_arg_style(self) -> ArgStyle:
+        """The argument dialect to invoke this compiler with.
+
+        Explicit ``arg_style`` wins; otherwise POSIX-style flag syntax implies
+        POSIX argument order and everything else MSVC's."""
+        return self.arg_style or ("posix" if self.flags_style == "posix" else "msvc")
 
     @property
     def family(self) -> str:

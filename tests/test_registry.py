@@ -226,6 +226,18 @@ class TestToolchainRegistry:
         with pytest.raises(RegistryError, match="flags_style must be"):
             build_toolchain_registry()
 
+    def test_overlay_bad_arg_style_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("REBREW_TOOLCHAIN_OVERLAY_DIR", str(tmp_path))
+        (tmp_path / "bad.toml").write_text(
+            '[mytc]\nbinary = "cl"\narg_style = "kandr"\n', encoding="utf-8"
+        )
+        from rebrew.toolchain import build_toolchain_registry
+
+        with pytest.raises(RegistryError, match="arg_style must be"):
+            build_toolchain_registry()
+
     def test_overlay_dir_missing_raises(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
