@@ -254,6 +254,7 @@ src/rebrew/
 │   ├── overlay.py       #   `rebrew binsync-overlay`: map a related target's data across VAs
 │   └── cli.py           #   `rebrew binsync` umbrella: push/pull/summary + flat commands
 ├── lint.py              # Lint C annotations + corpus consistency (W028: markers vs function list)
+├── lint_cflags.py       # Redundant CFLAGS analysis (W029 preset/function redundancy)
 ├── llm_seed.py          # LLM alternative-implementation seeding for GA (--llm-seed)
 ├── near_diag.py         # Classify why NEAR_MATCHING doesn't byte-match (register/equiv/reloc/structural + EFFECTIVE)
 ├── stack_cmp.py         # Compare compiled function's stack frame vs target (reccmp stackcmp, no PDB)
