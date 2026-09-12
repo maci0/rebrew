@@ -1,11 +1,11 @@
-"""binsync_import.py — Import a BinSync state directory into rebrew metadata.
+"""importer.py — Import a BinSync state directory into rebrew metadata.
 
 Reads a BinSync state directory (as produced by ``rebrew binsync-export`` or
 any BinSync-aware decompiler) and offers to apply function renames,
 prototype updates, and global names back into the rebrew project.
 
-This is the inverse of :mod:`rebrew.binsync_export`; both read and write the
-BinSync state through :mod:`rebrew.binsync_serial` (declib, the ``binsync``
+This is the inverse of :mod:`rebrew.binsync.export`; both read and write the
+BinSync state through :mod:`rebrew.binsync.serial` (declib, the ``binsync``
 extra).  Conflict handling mirrors :mod:`rebrew.ghidra.commands`
 (``--accept-binsync`` / ``--accept-local``).
 
@@ -30,7 +30,7 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from rebrew.binsync_state import (
+from rebrew.binsync.state import (
     index_local_and_catalog,
     load_binsync_comments,
     load_binsync_enums,
@@ -709,7 +709,7 @@ def import_state(
         markers = source_markers.get(owner_va)
         filepath = getattr(owner, "filepath", "") if owner is not None else ""
         if markers and filepath and not dry_run:
-            from rebrew.binsync_state import write_analysis_markers
+            from rebrew.binsync.state import write_analysis_markers
 
             try:
                 write_analysis_markers(Path(cfg.reversed_dir) / filepath, markers)
@@ -750,7 +750,7 @@ def _route_comments(
     (hex-addr subkeys) and, for comments whose address falls inside the owner's
     range, the text to write as a source marker.
     """
-    from rebrew.binsync_state import containing_va
+    from rebrew.binsync.state import containing_va
 
     ranges = [(va, int(getattr(ann, "size", 0) or 0)) for va, ann in local_by_va.items()]
     by_func: dict[int, dict[str, dict[str, Any]]] = {}

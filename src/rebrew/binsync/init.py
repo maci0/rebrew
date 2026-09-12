@@ -1,4 +1,4 @@
-"""binsync_init.py: initialize a BinSync git envelope for a target's state dir.
+"""init.py: initialize a BinSync git envelope for a target's state dir.
 
 Upstream BinSync's ``Client`` requires a git repository whose
 ``binsync/__root__`` branch root commit carries ``.gitignore`` (``.git/*``)

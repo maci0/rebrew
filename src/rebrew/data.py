@@ -1291,8 +1291,8 @@ def _source_decls_by_va(
     from rebrew.utils import read_source_text
 
     try:
-        from rebrew.binsync_export import _type_from_declaration
-    except ImportError:  # binsync_export pulls catalog; keep header gen usable without it
+        from rebrew.binsync.export import _type_from_declaration
+    except ImportError:  # binsync.export pulls catalog; keep header gen usable without it
         _type_from_declaration = None  # type: ignore[assignment]
 
     found: dict[int, tuple[str, str]] = {}

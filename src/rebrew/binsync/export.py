@@ -1,4 +1,4 @@
-"""binsync_export.py — Export rebrew annotations to a BinSync state directory.
+"""export.py — Export rebrew annotations to a BinSync state directory.
 
 Writes function metadata, global variables, and struct definitions in
 BinSync's TOML layout so any BinSync-aware decompiler plugin can import the
@@ -34,7 +34,7 @@ import tomlkit
 import typer
 from rich.console import Console
 
-from rebrew import binsync_serial
+from rebrew.binsync import serial
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
@@ -305,7 +305,7 @@ def _scan_analysis_comments(
     VA is resolved by address containment (falling back to the address itself).
     These markers win over the metadata COMMENTS store for the same address.
     """
-    from rebrew.binsync_state import containing_va, parse_analysis_markers
+    from rebrew.binsync.state import containing_va, parse_analysis_markers
     from rebrew.sources import iter_sources
 
     ranges = [
@@ -368,9 +368,9 @@ def _write_function_toml(
     :func:`_write_comments_toml`), which is where upstream keeps them.
     """
     sig = strip_body(prototype) if prototype else ""
-    func = binsync_serial.new_function(va, size, name=name or None, prototype=sig or None)
+    func = serial.new_function(va, size, name=name or None, prototype=sig or None)
     for offset, variable in (locals_map or {}).items():
-        binsync_serial.add_stack_variable(
+        serial.add_stack_variable(
             func,
             offset=offset,
             name=str(variable.get("name") or ""),
@@ -378,16 +378,16 @@ def _write_function_toml(
             size=_as_int(variable.get("size")) or None,
             addr=va,
         )
-    binsync_serial.dump_artifact(path, func)
+    serial.dump_artifact(path, func)
 
 
 def _write_comments_toml(path: Path, comments: list[tuple[int, int, str]]) -> None:
     """Write decib ``Comment`` artifacts keyed by address."""
     artifacts = [
-        binsync_serial.new_comment(addr, func_addr, comment)
+        serial.new_comment(addr, func_addr, comment)
         for addr, func_addr, comment in sorted(comments)
     ]
-    binsync_serial.dump_many(path, "comment", artifacts, key="addr")
+    serial.dump_many(path, "comment", artifacts, key="addr")
 
 
 def _write_global_vars_toml(
@@ -400,10 +400,10 @@ def _write_global_vars_toml(
     it from the binary by address instead of carrying it in the state.
     """
     artifacts = [
-        binsync_serial.new_global_variable(va, name, type_ or "char", size if size > 0 else None)
+        serial.new_global_variable(va, name, type_ or "char", size if size > 0 else None)
         for va, name, size, type_, _section in sorted(globals_list)
     ]
-    binsync_serial.dump_many(path, "global_variable", artifacts, key="addr")
+    serial.dump_many(path, "global_variable", artifacts, key="addr")
 
 
 # ---------------------------------------------------------------------------
@@ -554,7 +554,7 @@ def _write_struct_toml(
         members[int(offset)] = (member_name, member_type, member_size)
         next_offset = int(offset) + member_size
     size_total = max((off + (m[2] or 0) for off, m in members.items()), default=0)
-    binsync_serial.dump_artifact(path, binsync_serial.new_struct(name, size_total, members))
+    serial.dump_artifact(path, serial.new_struct(name, size_total, members))
 
 
 # ---------------------------------------------------------------------------
@@ -709,19 +709,17 @@ def _write_enums_toml(path: Path, enums: dict[str, tuple[str, dict[str, int]]]) 
     that :func:`_collect_enum_definitions` collected is not representable and
     is dropped (import synthesizes a typedef from name + members).
     """
-    artifacts = [
-        binsync_serial.new_enum(name, members) for name, (_raw, members) in sorted(enums.items())
-    ]
-    binsync_serial.dump_many(path, "enum", artifacts, key="name")
+    artifacts = [serial.new_enum(name, members) for name, (_raw, members) in sorted(enums.items())]
+    serial.dump_many(path, "enum", artifacts, key="name")
 
 
 def _write_typedefs_toml(path: Path, typedefs: dict[str, tuple[str, str]]) -> None:
     """Write declib ``typedefs.toml`` (``Typedef.dumps_many`` keyed by name)."""
     artifacts = [
-        binsync_serial.new_typedef(name, underlying)
+        serial.new_typedef(name, underlying)
         for name, (_raw, underlying) in sorted(typedefs.items())
     ]
-    binsync_serial.dump_many(path, "typedef", artifacts, key="name")
+    serial.dump_many(path, "typedef", artifacts, key="name")
 
 
 # ---------------------------------------------------------------------------
@@ -732,10 +730,10 @@ def _write_typedefs_toml(path: Path, typedefs: dict[str, tuple[str, str]]) -> No
 def _validate_binsync_dir(outdir: Path) -> list[str]:
     """Validate a written declib BinSync state directory; return warning strings."""
     warnings: list[str] = []
-    funcs_dir = outdir / binsync_serial.FUNCTIONS_DIR
+    funcs_dir = outdir / serial.FUNCTIONS_DIR
     if funcs_dir.is_dir():
         for toml_path in funcs_dir.glob("*.toml"):
-            func = binsync_serial.load_artifact(toml_path, "function")
+            func = serial.load_artifact(toml_path, "function")
             if func is None:
                 warnings.append(f"{toml_path.name}: unparseable Function artifact")
                 continue
@@ -743,9 +741,9 @@ def _validate_binsync_dir(outdir: Path) -> list[str]:
                 warnings.append(f"{toml_path.name}: missing addr")
             if not func.name:
                 warnings.append(f"{toml_path.name}: missing name")
-    gv = outdir / binsync_serial.GLOBAL_VARS_FILE
+    gv = outdir / serial.GLOBAL_VARS_FILE
     if gv.exists():
-        for gvar in binsync_serial.load_many(gv, "global_variable"):
+        for gvar in serial.load_many(gv, "global_variable"):
             if gvar.addr is None or not gvar.name:
                 warnings.append("global_vars.toml: entry missing addr/name")
     return warnings
@@ -1069,7 +1067,7 @@ def export_state(
     written_structs: list[str] = []
     for sname in sorted(struct_defs):
         raw_def, fields = struct_defs[sname]
-        spath = outdir / "structs" / f"{binsync_serial.sanitize_name(sname)}.toml"
+        spath = outdir / "structs" / f"{serial.sanitize_name(sname)}.toml"
         if not dry_run:
             _write_struct_toml(
                 spath, sname, fields=fields or None, raw_definition=raw_def if fields else None
@@ -1093,8 +1091,8 @@ def export_state(
     # State.parse requires metadata.toml; user is the repo identity or rebrew.
     metadata_file = ""
     if not dry_run:
-        binsync_serial.write_metadata(outdir, user=binsync_serial.state_user(outdir))
-        metadata_file = str(outdir / binsync_serial.METADATA_FILE)
+        serial.write_metadata(outdir, user=serial.state_user(outdir))
+        metadata_file = str(outdir / serial.METADATA_FILE)
 
     # BinSync binds a repo to one binary through the MD5 at its root.  Emit it
     # so a state dir is self-identifying and doctor can catch a dir pointed at
