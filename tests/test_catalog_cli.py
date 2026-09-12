@@ -8,6 +8,8 @@ import pytest
 from typer.testing import CliRunner
 
 import rebrew.catalog.cli as catalog_cli
+from rebrew.catalog import run_catalog
+from rebrew.config import load_config
 
 runner = CliRunner()
 
@@ -312,3 +314,66 @@ class TestCatalogCliSummary:
         assert labels[1]["va"] == 0x1000 + 64
         # label defaults to switchdata_<va> when missing
         assert labels[1]["label"] == f"switchdata_{0x1000 + 64:08x}"
+
+
+def _write_project(tmp_path: Path) -> Path:
+    """Minimal on-disk project: config, one reversed source, one function list entry."""
+    reversed_dir = tmp_path / "original"
+    reversed_dir.mkdir()
+    (reversed_dir / "func.c").write_text(
+        "// FUNCTION: GAME 0x10001000\n// STATUS: EXACT\n// SIZE: 16\nint f(void) { return 0; }\n",
+        encoding="utf-8",
+    )
+    (reversed_dir / "functions.txt").write_text("0x10001000 16 f\n", encoding="utf-8")
+    (tmp_path / "rebrew-project.toml").write_text(
+        "[project]\n"
+        'default_target = "GAME"\n'
+        "\n"
+        "[targets.GAME]\n"
+        'binary = "bin/game.exe"\n'
+        'reversed_dir = "original"\n'
+        'function_list = "original/functions.txt"\n',
+        encoding="utf-8",
+    )
+    return tmp_path
+
+
+class TestRunCatalog:
+    def test_defaults_write_all_artifacts(self, tmp_path: Path) -> None:
+        """run_catalog() with every flag left false runs the default action set
+        in-process — the same work a bare `rebrew catalog` performs — and
+        returns the payload the CLI would print under --json."""
+        root = _write_project(tmp_path)
+        cfg = load_config(root=root)
+
+        payload = run_catalog(cfg)
+
+        assert payload["target"] == "GAME"
+        assert payload["annotations"] == 1
+        assert payload["unique_vas"] == 1
+        assert payload["registry"] == 1
+        assert payload["total_functions"] == 1
+        assert payload["text_size"] == 0
+        assert payload["wrote_data_json"] is True
+        assert payload["wrote_catalog"] is True
+        assert payload["wrote_csv"] is True
+        assert payload["warning"].startswith("target binary missing")
+
+        data_json = root / "db" / "data_GAME.json"
+        assert "summary" in json.loads(data_json.read_text(encoding="utf-8"))
+        assert (root / "db" / "game_functions.csv").exists()
+        assert (root / "original" / "CATALOG.md").exists()
+
+    def test_explicit_flag_skips_defaults(self, tmp_path: Path) -> None:
+        """An explicit action flag selects only that action; the default set is
+        not applied on top of it (single-sourced with the CLI's flag branch)."""
+        root = _write_project(tmp_path)
+        cfg = load_config(root=root)
+
+        payload = run_catalog(cfg, catalog=True)
+
+        assert payload["wrote_catalog"] is True
+        assert payload["wrote_data_json"] is False
+        assert payload["wrote_csv"] is False
+        assert (root / "original" / "CATALOG.md").exists()
+        assert not (root / "db" / "data_GAME.json").exists()
