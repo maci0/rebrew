@@ -52,7 +52,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | Tool | What it does |
 |------|-------------|
 | `rebrew init` | Scaffold a new project with config, directories, and agent skills |
-| `rebrew doctor` | Validate project health (config, compiler, binary); `--install-wibo` |
+| `rebrew doctor` | Validate project health (config, toolchain image, binary) |
 | `rebrew catalog` | Build function catalog and coverage JSON |
 | `rebrew build-db` | Build SQLite coverage database from catalog |
 | `rebrew cache` | Compile cache management (`stats`, `clear`) |
@@ -198,7 +198,7 @@ rebrew extract list                 # list un-reversed candidates
 rebrew extract batch 20             # extract and disassemble first 20 smallest
 rebrew asm                          # quick offline disassembly
 rebrew cache stats                  # show compile cache hit rate and size
-rebrew doctor --install-wibo        # auto-download wibo (lightweight Wine alternative)
+rebrew doctor                       # validate config, toolchain image, and binary
 
 # Ghidra Sync via ReVa MCP
 rebrew sync --push                  # export source markers and metadata and push to Ghidra
