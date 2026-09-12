@@ -316,6 +316,7 @@ src/rebrew/
 │   ├── compiler.py      # MSVC6 compilation + flag sweep (docker images)
 │   ├── scoring.py       # Byte scoring, structural similarity (capstone + numpy)
 │   ├── mutator.py       # 119 C mutation operators for GA
+│   ├── mutations/       # Mutation operator grouping; queries.py = shared tree-sitter queries
 │   ├── ast_engine.py    # tree-sitter AST mutation helpers
 │   ├── parsers.py       # Object parsing (COFF/ELF/Mach-O via LIEF)
 │   ├── flags.py         # FlagSet/Checkbox primitives (decomp.me compatible)

@@ -10,6 +10,7 @@ GA engine for binary-matching decompilation. Compiles C through the docker-backe
 | `compiler.py` | Compilation backend | `build_candidate()`, `build_candidate_obj_only(cache=)`, `flag_sweep(cache=)`, `generate_flag_combinations()` |
 | `scoring.py` | Binary comparison (pure) | `score_candidate()`, `diff_functions()`, `structural_similarity()` |
 | `mutator.py` | C mutations (pure) | `mutate_code()`, `mutate_chain()`, `MutationLog`, `crossover()`, `compute_population_diversity()`, 119 `mut_*` operators |
+| `mutations/queries.py` | Shared tree-sitter query library for the mutation operators | `_LazyQuery`, the `_QUERY_*` batch, `_RE_C_ZERO_LITERAL` |
 | `parsers.py` | Object parsing (read-only) | `parse_obj_symbol_bytes()`, `list_obj_symbols()`, `extract_function_from_binary()` |
 | `flags.py` | Flag primitives | `FlagSet`, `Checkbox` (frozen), `Flags` alias |
 | `flag_data.py` | MSVC flag defs | `MSVC6_FLAGS`, `COMMON_MSVC_FLAGS`, `MSVC_SWEEP_TIERS` |
