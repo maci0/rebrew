@@ -1,3 +1,10 @@
+## [Unreleased]
+### Fixed
+- **Plugin multi-command groups show their own help** — a Typer group registered through the
+  `rebrew.multicommands` entry point was added with `help=<command name>`, so the Plugins panel
+  and `rebrew <group>` repeated the name instead of the group's own description. The help now
+  comes from the plugin app's `help=`/docstring, like the packaged groups.
+
 ## [0.12.0] - 2026-09-12
 ### Added
 - **`match --all --collect-pairs` writes the training pairs**: the option is documented under the

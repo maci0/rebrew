@@ -147,6 +147,7 @@ _COMMAND_PANELS: dict[str, str] = {
     "imports": "Analysis",
     "fingerprints": "Analysis",
     "crypto-scan": "Analysis",
+    "security-scan": "Analysis",
     "strings": "Analysis",
     "xrefs": "Analysis",
     "describe": "Analysis",
@@ -353,6 +354,11 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "crypto-scan",
         "rebrew.crypto_scan",
         "Detect crypto constant tables, crypto imports, and crypto-named functions.",
+    ),
+    (
+        "security-scan",
+        "rebrew.security_scan",
+        "Scan C sources for unsafe API use (unbounded copies, format strings, command execution).",
     ),
     (
         "verify-exports",
@@ -682,7 +688,16 @@ def _register_discovered_commands() -> None:
                     existing.add(reg.name)
                     continue
                 if is_multi:
-                    app.add_typer(obj, name=reg.name, help=reg.name, rich_help_panel=_plugin_panel)
+                    # Derive the group's help from the plugin's own Typer app
+                    # (its `help=` / docstring) instead of repeating the command
+                    # name, so `rebrew <group>` reads like the packaged ones.
+                    info = getattr(obj, "info", None)
+                    group_help = (getattr(info, "help", "") or "").strip()
+                    if not group_help:
+                        group_help = (getattr(obj, "__doc__", None) or reg.name).strip()
+                    app.add_typer(
+                        obj, name=reg.name, help=group_help, rich_help_panel=_plugin_panel
+                    )
                 else:
                     cmd_help = getattr(obj, "__doc__", None) or reg.name
                     app.command(name=reg.name, help=cmd_help, rich_help_panel=_plugin_panel)(obj)

@@ -10655,3 +10655,56 @@ portal-parity effort it feeds lives, and its row was dropped from `docs/README.m
 `CHANGELOG.md` or the shipped source referenced it, so the release carries no such material.
 
 Gates: suite 6005 passed / 29 skipped, ruff clean, ruff format 391 files, mypy clean (164 files).
+
+## 2026-09-12 — RevEng.AI plugin (external) + plugin help fix
+
+Built the RevEng.AI integration as a **plugin outside this repo**, per the
+"research only for now" decision: nothing RevEng.AI-shaped lands here, and the
+host tree gets only a generic plugin-support fix.
+
+**New sibling package `~/Desktop/Projects/relumea/rebrew-revengai`** (uv-installable,
+`uv pip install -e ../rebrew-revengai --no-deps` into rebrew's venv):
+
+- `client.py` — httpx client over the documented REST operations (`/v2/upload`,
+  `/v2/analyses`, `/v3/analyses/{id}/functions`, `/v3/functions/{id}/ai-decompilation`,
+  `/v3/analyses/{id}/functions/matches`); tolerant response parsing (bare and
+  `{"data": …}` envelopes), key from `REVENGAI_API_KEY` (never argv),
+  `REVENGAI_BASE_URL` for self-hosted roots.
+- `cache.py` — `.rebrew/revengai.json` keyed by the local binary's SHA-256 (plus VA),
+  atomic writes, malformed file reads as empty, no secrets stored.
+- `backend.py` — a rebrew decompiler backend registered through
+  `rebrew.decompiler_backends`. Fetch-only by construction (cache then a read; never
+  uploads, never starts a credit-charging task) and deliberately **not** marked
+  `__rebrew_auto_probe__`, so `--auto` never reaches a platform that sees the binary.
+- `cli.py` — `rebrew revengai link|decompile|matches` (entry point
+  `rebrew.multicommands`). Free/local by default: `link` is cache-only without
+  `--allow-upload`; `decompile` reads a stored result and only `--start` spends
+  credits; `matches` reads and only `--start` queues. Output is a *seed*: nothing here
+  writes STATUS or any other rebrew metadata.
+- 17 tests (`httpx.MockTransport`, no network, no key) covering request shape, auth
+  header, envelope tolerance, polling, cache round-trips, malformed cache, and the
+  backend's fetch-only/not-auto-probed guarantees.
+
+**Host-repo fix this needed (`main.py`)** — a Typer group registered through
+`rebrew.multicommands` was added with `help=<command name>`, so the Plugins panel and
+`rebrew <group>` repeated the name; the help now comes from the plugin app's
+`help=`/docstring, like the packaged groups. Generic: any plugin group benefits.
+
+Verified: plugin tests 17/17; both entry points discovered
+(`rebrew.multicommands` → `revengai`, `rebrew.decompiler_backends` → `revengai`, and
+`revengai` present in `_BACKEND_MAP`); `rebrew revengai --help` lists
+`link`/`decompile`/`matches`; `rebrew --help`'s Plugins panel shows the group's own
+description; `rebrew revengai link --json` ran against
+`rebrew-projects/notepad-rebrew` end-to-end (resolved `original/notepad.exe`, hashed
+it, reported "not linked", no network). Host gates: 6047 passed / 29 skipped, ruff
+clean, format clean, mypy clean.
+
+**Not verified:** the live API. No credentials here, so the wire format rests on the
+documented operations and mocked tests; the README says so. An earlier run of the
+same host suite showed 4 transient failures in docker-dependent tests
+(`test_relative_includes`, `test_toolchain_roundtrip`) that did not reproduce, and the
+suite's test count moved between runs (6043 → 6047), i.e. a concurrent session is
+landing changes in this tree.
+
+The plugin is not a git repo yet (new directory outside the tree); it is installable
+by path today.
