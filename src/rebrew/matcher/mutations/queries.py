@@ -800,3 +800,21 @@ _QUERY_LOCAL_DECL = _LazyQuery(
     (declaration type: (_) @type declarator: (_) @decl) @stmt
 """,
 )
+
+
+_QUERY_INSERT_NOOP_BLOCK = _LazyQuery(
+    _C_LANGUAGE,
+    "(compound_statement [(expression_statement) (declaration) (return_statement)] @stmt)",
+)
+_QUERY_INTRODUCE_LOCAL_ALIAS = _LazyQuery(
+    _C_LANGUAGE, "(expression_statement (assignment_expression right: (identifier) @var)) @stmt"
+)
+
+
+_QUERY_REORDER_DECLARATIONS = _LazyQuery(
+    _C_LANGUAGE, "\n        (compound_statement (declaration) @d1 (declaration) @d2)\n    "
+)
+_QUERY_HOIST_RETURN = _LazyQuery(_C_LANGUAGE, "(return_statement (_) @val) @stmt")
+_QUERY_NEGATE_CONDITION = _LazyQuery(
+    _C_LANGUAGE, "(if_statement condition: (parenthesized_expression) @cond) @stmt"
+)

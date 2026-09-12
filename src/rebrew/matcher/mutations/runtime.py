@@ -150,3 +150,23 @@ def _apply_query_once(
     replacement = repl(single_captures)
 
     return replace_node(source, target_node, replacement)
+
+
+def _commute_operands(
+    s: str, rng: random.Random, query: ts.Query | _LazyQuery, op_str: bytes
+) -> str | None:
+    """Generic commutative operand swap for the given binary operator query."""
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
+        right = b_source[captures["right"].start_byte : captures["right"].end_byte]
+        if left == right:
+            return b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        return right + b" " + op_str + b" " + left
+
+    res = _apply_query_once(b_source, query, _repl, rng)
+    if not res:
+        return None
+    res_str = res.decode("utf-8")
+    return res_str if res_str != s else None
