@@ -14,6 +14,16 @@
   installed version does not expose is omitted rather than crashing.  ELF and
   Mach-O inputs return their shared identity block plus a note that the PE-only
   metadata is unavailable.
+- **Remote compiles through the recompile service**: setting
+  `[compiler] recompile_url` (or `REBREW_RECOMPILE_URL`) routes every compile
+  through the sibling `recompile` service over HTTP instead of local docker
+  images.  A new `rebrew.recompile_client` carries the transport
+  (`POST /api/v1/compile` plus artifact download, with the service's flag
+  caps and a typed `RecompileError` for unreachable/4xx/5xx replies), and
+  `rebrew.compile.compile_to_obj` selects the backend, keys the compile cache
+  on the backend that produced an object, and passes the opt-in
+  `recompile_emit_assembly` training tap.  Local docker images stay the
+  default.
 
 ## [1.0.0] - 2026-09-12
 ### Added
