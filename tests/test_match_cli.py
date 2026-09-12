@@ -368,7 +368,8 @@ int other(void) { return 2; }
     def test_set_target_range_scopes_cursor(self) -> None:
         """set_target_range must restrict mutation queries to the byte window."""
         from rebrew.matcher import ast_engine
-        from rebrew.matcher.mutator import _cursor, _LazyQuery, set_target_range
+        from rebrew.matcher.mutations.queries import _LazyQuery
+        from rebrew.matcher.mutations.runtime import _cursor, set_target_range
 
         src = b"int a(void) { return 1; } int b(void) { return 2; }"
         set_target_range(0, len(b"int a(void) { return 1; } "))  # only function a

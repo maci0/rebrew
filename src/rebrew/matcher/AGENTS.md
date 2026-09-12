@@ -16,6 +16,7 @@ GA engine for binary-matching decompilation. Compiles C through the docker-backe
 | `mutations/structural.py` | MSVC6 structural operators (control flow, stack frame, folding, zero-extension, register pressure) | 20 `mut_*` operators |
 | `mutations/advanced.py` | Phase 3/4 logical + manual-decomp operators, loop-break, ternary, hoist/sink | 18 `mut_*` operators |
 | `mutations/enhancements.py` | Phase 5/6 codegen insights + Category 7 register pressure | 13 `mut_*` operators |
+| `mutations/basic.py` | Core Phase 1/2 operator set + `quick_validate`/`crossover`/diversity | 63 `mut_*` operators |
 | `parsers.py` | Object parsing (read-only) | `parse_obj_symbol_bytes()`, `list_obj_symbols()`, `extract_function_from_binary()` |
 | `flags.py` | Flag primitives | `FlagSet`, `Checkbox` (frozen), `Flags` alias |
 | `flag_data.py` | MSVC flag defs | `MSVC6_FLAGS`, `COMMON_MSVC_FLAGS`, `MSVC_SWEEP_TIERS` |
