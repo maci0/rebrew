@@ -32,7 +32,7 @@ pipeline) run the image's tools through the `rebrew-cmake-{cl,link,lib}`
 console scripts: they translate CMake's invocations into `docker run` calls
 (same-path-mounted project root, shared flock-initialized wineprefix,
 `INCLUDE`/`LIB` from the image's own tree).  Generate a project's toolchain
-file with `rebrew cmake-toolchain --toolchain msvc-6.0 --out cmake/` and pass
+file with `rebrew cmake-toolchain --toolchain msvc-6.0 --output cmake/` and pass
 `--toolchain cmake/toolchain-msvc-6.0-docker.cmake` to `cmake -B build`.
 
 **Per-library toolchain/flags overrides** (`rebrew-libraries.toml` at a library
