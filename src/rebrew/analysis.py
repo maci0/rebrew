@@ -75,22 +75,6 @@ class StringEntry:
 # ---------------------------------------------------------------------------
 
 
-def capstone_mode_for_arch(arch: str) -> int:
-    """Return the capstone mode for a target arch string.
-
-    16-bit for DOS/NE (``x86_16``), 64-bit for ``x86_64``, 32-bit otherwise.
-    Single definition of the x86 arch→mode mapping shared by the diff/compare
-    layers (``binary_loader.capstone_config_for`` uses the same table).
-    """
-    from capstone import CS_MODE_16, CS_MODE_32, CS_MODE_64
-
-    if arch == "x86_16":
-        return int(CS_MODE_16)
-    if arch == "x86_64":
-        return int(CS_MODE_64)
-    return int(CS_MODE_32)
-
-
 # Capstone ``Cs`` objects wrap a libcapstone handle mutated on every
 # ``disasm`` call, so one instance cannot be shared across threads.
 # ``iter_instructions`` runs per function over whole code sections; a

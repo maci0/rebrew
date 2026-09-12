@@ -15,9 +15,8 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from rebrew.analysis import capstone_mode_for_arch
 from rebrew.annotation import parse_c_file_multi
-from rebrew.binary_loader import extract_raw_bytes
+from rebrew.binary_loader import capstone_mode_for_arch, extract_raw_bytes
 from rebrew.cli import EXIT_MISMATCH, json_print
 from rebrew.compile import resolve_compiler_env
 from rebrew.config import ProjectConfig

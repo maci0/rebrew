@@ -32,6 +32,7 @@ compiler.py
 ├── flags.Checkbox, FlagSet
 ├── parsers.extract_function_from_binary, parse_obj_symbol_bytes
 ├── config.profile_flags_style (external, for the per-style sweep fallback)
+├── binary_loader.capstone_mode_for_arch (external, lazy — sweep scoring mode)
 ├── toolchain_spec.FlagsStyle (external, value type)
 ├── compile.filter_wine_stderr (external, from rebrew.compile)
 └── compile_cache.CompileCache (external, optional — via cache=)

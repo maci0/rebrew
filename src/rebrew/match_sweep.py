@@ -15,14 +15,13 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from rebrew.analysis import capstone_mode_for_arch
 from rebrew.annotation import (
     Annotation,
     min_valid_va_for,
     parse_c_file_multi,
     parse_source_metadata,
 )
-from rebrew.binary_loader import extract_raw_bytes
+from rebrew.binary_loader import capstone_mode_for_arch, extract_raw_bytes
 from rebrew.cli import EXIT_MISMATCH, error_exit, json_print, parse_va
 from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
 from rebrew.compile import resolve_compiler_env

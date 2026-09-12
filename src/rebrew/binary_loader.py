@@ -1012,6 +1012,24 @@ def _elf_endian(identity_data: Any) -> str:
     return "big" if identity_data == msb else "little"
 
 
+def capstone_mode_for_arch(arch: str, fmt: str = "") -> int:
+    """Capstone mode for a detected arch string.
+
+    16-bit for ``x86_16`` or an MZ/NE container, 64-bit for ``x86_64``,
+    32-bit otherwise.  One definition of the x86 arch→mode mapping, used by
+    :func:`capstone_config_for` and the diff/compare layers.
+    """
+    import capstone
+
+    if arch == "x86_16":
+        return int(capstone.CS_MODE_16)
+    if arch == "x86_64":
+        return int(capstone.CS_MODE_64)
+    if fmt in ("mz", "ne"):
+        return int(capstone.CS_MODE_16)
+    return int(capstone.CS_MODE_32)
+
+
 def capstone_config_for(info: BinaryInfo) -> tuple[int, int]:
     """Capstone ``(cs_arch, mode)`` for the binary's detected arch/endianness.
 
@@ -1038,13 +1056,7 @@ def capstone_config_for(info: BinaryInfo) -> tuple[int, int]:
         return capstone.CS_ARCH_ARM64, capstone.CS_MODE_ARM
     if arch == "sh2":
         return capstone.CS_ARCH_SH, capstone.CS_MODE_SH2
-    if arch == "x86_16":
-        return capstone.CS_ARCH_X86, capstone.CS_MODE_16
-    if arch == "x86_64":
-        return capstone.CS_ARCH_X86, capstone.CS_MODE_64
-    if getattr(info, "format", "") in ("mz", "ne"):
-        return capstone.CS_ARCH_X86, capstone.CS_MODE_16
-    return capstone.CS_ARCH_X86, capstone.CS_MODE_32
+    return capstone.CS_ARCH_X86, capstone_mode_for_arch(arch, getattr(info, "format", "") or "")
 
 
 def detect_format_and_arch(path: Path) -> tuple[str, str | None]:

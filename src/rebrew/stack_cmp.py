@@ -39,7 +39,7 @@ import capstone  # module-level: analyze_frame is a hot path (near-diag calls it
 import typer
 from rich.console import Console
 
-from rebrew.analysis import capstone_mode_for_arch
+from rebrew.binary_loader import capstone_mode_for_arch
 from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
