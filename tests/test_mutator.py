@@ -54,6 +54,7 @@ from rebrew.matcher.mutator import (
     mut_invert_if_else,
     mut_invert_loop_direction,
     mut_loop_condition_extraction,
+    mut_materialize_constant,
     mut_merge_declaration_init,
     mut_merge_nested_ifs,
     mut_move_switch_default,
@@ -101,6 +102,7 @@ from rebrew.matcher.mutator import (
     mut_toggle_signedness,
     mut_toggle_volatile,
     mut_unfold_constant_add,
+    mut_volatile_access,
     mut_while_to_for,
     mut_while_to_goto_loop,
     mut_wrap_in_else,
@@ -134,7 +136,7 @@ class TestPragmaMutations:
         assert quick_validate(out)
 
     def test_add_optimize_letters_and_modes(self) -> None:
-        """'' / 'y' / 'g' turn OFF; 's' / 't' turn ON (favor size/speed)."""
+        """'' / 'y' / 'g' turn OFF; 's' / 't' / 'a' turn ON."""
         for seed in range(50):
             out = mut_add_optimize_pragma(self.SRC, random.Random(seed))
             assert out is not None
@@ -145,7 +147,24 @@ class TestPragmaMutations:
                 or '"g", off' in opening
                 or '"s", on' in opening
                 or '"t", on' in opening
+                or '"a", on' in opening
             ), opening
+
+    def test_add_optimize_reaches_the_aliasing_letter(self) -> None:
+        """``"a"`` (assume no aliasing) is the only lever for a transposed
+        field read/write pair, so it must be in the sampled set — and a
+        wrapper already using it must be recognized and strippable."""
+        seen: set[str] = set()
+        for seed in range(200):
+            out = mut_add_optimize_pragma(self.SRC, random.Random(seed))
+            assert out is not None
+            seen.add(out.splitlines()[0])
+        assert any(o.startswith('#pragma optimize("a", on)') for o in seen), sorted(seen)
+
+        wrapped = f'#pragma optimize("a", on)\n{self.SRC}\n#pragma optimize("", on)\n'
+        assert mut_add_optimize_pragma(wrapped, _rng()) is None
+        stripped = mut_remove_optimize_pragma(wrapped, _rng())
+        assert stripped is not None and "pragma" not in stripped
 
     def test_add_optimize_noop_when_present(self) -> None:
         wrapped = f'#pragma optimize("", off)\n{self.SRC}\n#pragma optimize("", on)\n'
@@ -480,6 +499,74 @@ class TestSplitPreambleBody:
         assert "int f(int x)" in body
 
 
+class TestVolatileAccess:
+    """Per-access ``volatile`` on a pointer cast (MSVC6 keys the memory-operand
+    fold and store ordering off the qualifier on the access, not the
+    declaration)."""
+
+    def test_adds_volatile_to_a_store_cast(self) -> None:
+        src = "int f(char *p) {\n    *(int*)p = 1;\n    return 0;\n}\n"
+        out = mut_volatile_access(src, _rng())
+        assert out is not None
+        assert "*(volatile int*)p" in out
+        assert quick_validate(out)
+
+    def test_removes_volatile_from_a_load_cast(self) -> None:
+        src = "int f(char *p) {\n    return *(volatile int*)p;\n}\n"
+        out = mut_volatile_access(src, _rng())
+        assert out is not None
+        assert "volatile" not in out
+        assert quick_validate(out)
+
+    def test_requalifies_an_offset_cast(self) -> None:
+        src = "int f(char *p, int x) {\n    return *(char*)(p + x);\n}\n"
+        out = mut_volatile_access(src, _rng())
+        assert out is not None
+        assert "*(volatile char*)(p + x)" in out
+
+    def test_noop_without_a_pointer_cast(self) -> None:
+        src = "int f(char *p) {\n    *p = 1;\n    return 0;\n}\n"
+        assert mut_volatile_access(src, _rng()) is None
+
+
+class TestMaterializeConstant:
+    """A named local holding a literal materializes it into a register, which
+    a bare immediate folds away."""
+
+    def test_hoists_a_literal_before_the_statement(self) -> None:
+        src = "int f(int x) {\n    return x + 0x1000;\n}\n"
+        out = mut_materialize_constant(src, _rng())
+        assert out is not None
+        assert " _mk_" in out
+        # C89: the declaration precedes the use.
+        assert out.index("_mk_") < out.index("return x")
+        assert "= 0x1000;" in out  # radix preserved
+        assert quick_validate(out)
+
+    def test_width_follows_the_literal(self) -> None:
+        small = mut_materialize_constant("int f(int x) {\n    return x & 0xff;\n}\n", _rng())
+        assert small is not None and "unsigned char _mk_" in small
+        mid = mut_materialize_constant("int f(int x) {\n    return x & 0xffff;\n}\n", _rng())
+        assert mid is not None and "unsigned short _mk_" in mid
+        wide = mut_materialize_constant("int f(int x) {\n    return x & 0x10000;\n}\n", _rng())
+        assert wide is not None and "int _mk_" in wide
+
+    def test_skips_case_labels(self) -> None:
+        src = "int f(int x) {\n    switch (x) { case 0x10: return 2; }\n    return 0;\n}\n"
+        assert mut_materialize_constant(src, _rng()) is None
+
+    def test_skips_static_initializers(self) -> None:
+        src = "int f(void) {\n    static int s = 0x1000;\n    return s;\n}\n"
+        assert mut_materialize_constant(src, _rng()) is None
+
+    def test_skips_array_bounds(self) -> None:
+        src = "int f(void) {\n    char buf[0x20];\n    return buf[0];\n}\n"
+        assert mut_materialize_constant(src, _rng()) is None
+
+    def test_noop_without_an_eligible_literal(self) -> None:
+        assert mut_materialize_constant("int f(int x) {\n    return x;\n}\n", _rng()) is None
+
+
 class TestQuickValidate:
     def test_balanced(self) -> None:
         assert quick_validate("int f() { return 0; }") is True
@@ -528,6 +615,56 @@ int b(void) {
     goto done;
 done:
     return 2;
+}
+"""
+        assert quick_validate(code) is True
+
+    def test_declaration_after_statement_rejected(self) -> None:
+        """C89 puts block declarations before the first statement; MSVC6
+        reports the violation as 'missing ; before type', so it must be
+        rejected before a compile is spent on it."""
+        code = """\
+int f(int x) {
+    x = 1;
+    int y;
+    return x + y;
+}
+"""
+        assert quick_validate(code) is False
+
+    def test_declaration_after_statement_in_nested_block_rejected(self) -> None:
+        code = """\
+int f(int x) {
+    if (x) {
+        x = 2;
+        int y;
+        x += y;
+    }
+    return x;
+}
+"""
+        assert quick_validate(code) is False
+
+    def test_declarations_before_statements_accepted(self) -> None:
+        code = """\
+int f(int x) {
+    int y;
+    typedef int myint;
+    y = 1;
+    return x + y;
+}
+"""
+        assert quick_validate(code) is True
+
+    def test_comment_does_not_start_the_statement_region(self) -> None:
+        """A comment ahead of a block's declarations must not make them look
+        like declarations after a statement."""
+        code = """\
+int f(int x) {
+    /* leading note */
+    int y;
+    y = 1;
+    return x + y;
 }
 """
         assert quick_validate(code) is True

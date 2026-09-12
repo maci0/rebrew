@@ -1,5 +1,18 @@
 ## [Unreleased]
 ### Added
+- **Two more GA mutation operators, and a new `#pragma optimize` letter**:
+  `mut_volatile_access` qualifies a single pointer-cast access
+  (`*(T*)p` ↔ `*(volatile T*)p`) rather than the declaration, a lever
+  declaration-level `volatile` cannot reach.  `mut_materialize_constant` hoists
+  an eligible integer literal into a width-matched named local at the function
+  body top (`x + 0x1000` → `unsigned short _mk_N = 0x1000;`), skipping the
+  contexts where C requires a constant expression.  `mut_add_optimize_pragma`
+  can now emit `#pragma optimize("a", on)` (assume no aliasing), the only lever
+  for a transposed field read/write pair.  `_BUILTIN_MUTATIONS` measures
+  **123**.  Both new operators compile through the real MSVC6 toolchain
+  (checked on a throwaway project); whether they move the object is
+  site-dependent, and on the probe shapes tried the volatile store site changed
+  the bytes while the literal materialization folded away.
 - **`rebrew init --refresh-agents` re-renders an existing project's `AGENTS.md`**:
   the generated file follows the packaged template and the project's own
   profile, so a renamed toolchain or a template change reaches projects already
@@ -55,6 +68,35 @@
   sources now exist.
 
 ### Changed
+- **`quick_validate` rejects C89 declaration-order violations**: a declaration
+  after a statement in a block is an MSVC6 hard error (`missing ';' before
+  'type'`), so the validator now rejects it before a compile is spent.  The
+  check found and fixed two operators that emitted exactly that shape:
+  `mut_dummy_stack_vars` wrote its `_spad_N[0] = 0` statement ahead of the
+  block's declarations (the array declaration and the write are now placed
+  separately, declaration first), and `mut_insert_noop_block` could insert
+  `if (0) {}` ahead of a declaration (its query no longer matches
+  declarations).  A new validator helper, `_statement_region_start`, gives
+  operators the C89-safe insertion point for a statement.
+- **A GA ceiling now covers the encoding-only residual as well as the
+  register-only one**: `_classify_register_only` becomes `_classify_ga_ceiling`,
+  which also returns `"encoding"` when every differing byte is the same
+  instruction re-encoded, since no C change alters a compiler's opcode choice.
+  The blocker text for that kind points at
+  `rebrew match --flag-sweep-toolchains` as well as `rebrew prove`, and an
+  instruction-selection (`equivalent`) difference clears the ceiling because it
+  is C-fixable.
+- **GA search: tournament selection, adaptive mutation rate, stagnation
+  restart**: the matcher no longer breeds children only from the `elitism`
+  subset, which collapsed the population onto four members.  Parents are drawn
+  by tournament (best of 3) from the whole scored population; the per-child
+  mutation probability climbs 0.05 per generation without a new best (capped
+  at +0.25, never past 0.95); and a run flat for half its stagnation budget
+  reseeds a quarter of the population from the seed, at most twice per run,
+  instead of ending on the first plateau.  `rebrew match --json` now reports
+  `restarts`.  The loop constants are folded into `args_hash`, so checkpoints
+  written before this change are rejected and an interrupted run restarts from
+  scratch once.
 - **BREAKING: standardized toolchain profile names**: every profile is now
   `"<image-family>-<version>"` (lowercase, version dots kept), e.g.
   `msvc-6.0`, `gcc-14.2.0`, `mingw-16.2.0`.  A target suffix is appended only

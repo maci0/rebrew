@@ -75,6 +75,7 @@ from rebrew.matcher.mutations.queries import (
     _QUERY_SWAP_OR,
     _QUERY_TEMP_VAR,
     _QUERY_TERNARY,
+    _QUERY_VOLATILE_ACCESS,
     _QUERY_WHILE,
     _QUERY_XOR_SELF,
     _LazyQuery,
@@ -382,6 +383,35 @@ def mut_toggle_volatile(s: str, rng: random.Random) -> str | None:
         return decl
 
     res = _apply_query_once(b_source, _QUERY_DECLARATION, _repl, rng)
+    if not res:
+        return None
+    res_str = res.decode("utf-8")
+    return res_str if res_str != s else None
+
+
+def mut_volatile_access(s: str, rng: random.Random) -> str | None:
+    """Add or remove ``volatile`` on a pointer-cast dereference.
+
+    Declaration-level ``volatile`` (:func:`mut_toggle_volatile`) qualifies
+    every access to the variable; MSVC6 keys the memory-operand fold and the
+    store ordering off the qualifier on the *access*, so a qualified lvalue is
+    a lever of its own.  ``*(float*)p = x;`` becomes ``*(volatile float*)p =
+    x;`` (the store stops sinking past the computation producing ``x``), and a
+    load cast gains or loses the same qualifier.
+
+    Only an existing cast is requalified, so no pointee type has to be
+    invented.
+    """
+    b_source = s.encode("utf-8")
+
+    def _repl(captures: dict[str, ts.Node]) -> bytes:
+        ty = b_source[captures["ty"].start_byte : captures["ty"].end_byte]
+        expr = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        if b"volatile" in ty:
+            return expr.replace(b"volatile ", b"", 1)
+        return expr.replace(ty, b"volatile " + ty, 1)
+
+    res = _apply_query_once(b_source, _QUERY_VOLATILE_ACCESS, _repl, rng)
     if not res:
         return None
     res_str = res.decode("utf-8")
@@ -853,6 +883,107 @@ def mut_tweak_integer_literal(s: str, rng: random.Random) -> str | None:
     )
 
 
+#: Ancestor node types where C requires a constant expression, so a literal
+#: inside them cannot be replaced by a variable.
+_REQUIRES_CONSTANT_EXPR = frozenset(
+    {
+        "case_statement",
+        "enumerator",
+        "array_declarator",
+        "bitfield_clause",
+        "preproc_def",
+        "preproc_if",
+        "preproc_ifdef",
+        "preproc_elif",
+    }
+)
+
+
+def _literal_requires_constant_expression(lit: ts.Node) -> bool:
+    """True when *lit* sits where replacing it with a variable is invalid.
+
+    Covers the constant-expression contexts (case label, enumerator, array
+    bound, bitfield width, preprocessor condition), ``static`` storage
+    initializers, and file scope where there is no function body to declare a
+    local in.
+    """
+    parent = lit.parent
+    while parent is not None:
+        if parent.type in _REQUIRES_CONSTANT_EXPR:
+            return True
+        if parent.type == "declaration":
+            # `static` is a keyword token in some grammar revisions and a
+            # `storage_class_specifier` node in others; match the text either
+            # way.
+            for child in parent.children:
+                if child.text == b"static" or child.type == "storage_class_specifier":
+                    return True
+        if parent.type == "function_definition":
+            return False
+        parent = parent.parent
+    return True
+
+
+def mut_materialize_constant(s: str, rng: random.Random) -> str | None:
+    """Hoist an integer literal into a named local.
+
+    MSVC6 folds a literal into an immediate operand, but loads a named
+    variable into a register first: ``unsigned char marker = 0xff; ... marker``
+    produces ``or edx,-1`` plus byte compares where the bare ``0xff`` folds
+    into ``cmp byte ptr [mem], 0xff``.  The variable's *name* and width are the
+    lever, not its value.
+
+    The local is declared at the enclosing function's body top (C89:
+    declarations first) and its width follows the literal's magnitude: at most
+    0xff ``unsigned char``, at most 0xffff ``unsigned short``, otherwise
+    ``int``.  Literals where C requires a constant expression are skipped.
+    """
+    b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
+    cursor = _cursor(_QUERY_NUMBER_LITERAL)
+
+    valid: list[ts.Node] = []
+    for match in cursor.matches(tree.root_node):
+        lit = _first_caps(match[1]).get("lit")
+        if lit is None:
+            continue
+        value = _parse_int_literal(b_source[lit.start_byte : lit.end_byte].decode("utf-8"))
+        # 0 and 1 are structural (`i = 0`), not magic constants, and the
+        # widest int cannot hold a larger literal.
+        if value is None or value in (0, 1) or abs(value) > 0x7FFFFFFF:
+            continue
+        if _literal_requires_constant_expression(lit):
+            continue
+        valid.append(lit)
+
+    if not valid:
+        return None
+
+    lit_node = rng.choice(valid)
+    name = f"_mk_{rng.randint(0, 99)}".encode()
+    if name in b_source:
+        return None
+    body_pos = _find_function_body_insert_pos(b_source, lit_node.start_byte)
+    if body_pos is None:
+        return None
+
+    raw = b_source[lit_node.start_byte : lit_node.end_byte]
+    magnitude = abs(_parse_int_literal(raw.decode("utf-8")) or 0)
+    if magnitude <= 0xFF:
+        ctype = b"unsigned char"
+    elif magnitude <= 0xFFFF:
+        ctype = b"unsigned short"
+    else:
+        ctype = b"int"
+    decl = b"\n    " + ctype + b" " + name + b" = " + raw + b";"
+
+    # Replace first, then insert: the insertion point precedes the literal, so
+    # the replacement cannot shift it.
+    result = b_source[: lit_node.start_byte] + name + b_source[lit_node.end_byte :]
+    result = result[:body_pos] + decl + result[body_pos:]
+    return result.decode("utf-8")
+
+
 def mut_unfold_constant_add(s: str, rng: random.Random) -> str | None:
     """Expand a constant addition into repeated increment-by-one statements."""
     b_source = s.encode("utf-8")
@@ -1238,7 +1369,7 @@ def quick_validate(source: str) -> bool:
     if not _RE_FUNC_START.search(source):
         return False
     try:
-        return _quick_validate_labels_scoped(source)
+        return _quick_validate_ast_checks(source)
     except Exception:
         # Parse failure: fall back to the whole-source scan.  A duplicate
         # check scoped per function needs the AST; without it, identical
@@ -1254,8 +1385,34 @@ def quick_validate(source: str) -> bool:
     return not _RE_VALIDATE_DOUBLE_TYPE.search(source)
 
 
-def _quick_validate_labels_scoped(source: str) -> bool:
-    """True when no function contains a duplicate goto label.
+def _block_has_C89_declaration_order(block: ts.Node) -> bool:
+    """True when every declaration in *block* precedes every statement.
+
+    C89 requires block-scope declarations before the first statement, so a
+    declaration after one is a hard error for MSVC6 (``error C2143: missing
+    ';' before 'type'``).  Most mutations that move declarations around can
+    produce it, and the compiler is the only other place it would be caught,
+    at the cost of a full compile.  ``type_definition`` counts as a
+    declaration; comments are skipped.
+    """
+    seen_statement = False
+    for node in block.children:
+        # Braces and punctuation are unnamed nodes; only a named node is a
+        # statement.  Counting the opening `{` as one rejected every block
+        # that declares a local.
+        if not node.is_named or node.type == "comment":
+            continue
+        if node.type in ("declaration", "type_definition"):
+            if seen_statement:
+                return False
+        else:
+            seen_statement = True
+    return True
+
+
+def _quick_validate_ast_checks(source: str) -> bool:
+    """True when the parsed functions have no duplicate label and no C89
+    declaration-order violation.
 
     Scoped per ``function_definition``: sibling functions legitimately reuse
     label names (the GA mutates multi-function files), so a global scan
@@ -1279,6 +1436,8 @@ def _quick_validate_labels_scoped(source: str) -> bool:
                     if label in labels:
                         return False
                     labels.add(label)
+            if node.type == "compound_statement" and not _block_has_C89_declaration_order(node):
+                return False
             stack.extend(node.children)
     return not _RE_VALIDATE_DOUBLE_TYPE.search(source)
 

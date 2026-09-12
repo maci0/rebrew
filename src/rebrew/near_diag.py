@@ -679,10 +679,10 @@ def _diagnose_one(
             "blocker", ""
         ) or ""
         if existing_blocker.startswith(GA_CEILING_PREFIX):
-            # A GA_CEILING marker is the terminal classification (register-only
-            # delta, not byte-reproducible from C — written when the GA
-            # exhausted).  Replacing it with a plain verdict would silently
-            # reopen the GA loop; leave it and say so.
+            # A GA_CEILING marker is the terminal classification (register- or
+            # encoding-only delta, not byte-reproducible from C — written when
+            # the GA exhausted).  Replacing it with a plain verdict would
+            # silently reopen the GA loop; leave it and say so.
             result["blocker_skipped_ceiling"] = True
         elif dry_run:
             blocker_written = True  # would write, but --dry-run skips it

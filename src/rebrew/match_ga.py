@@ -63,6 +63,33 @@ _MUTATION_FOCUS_WEIGHT = 6.0
 #: redoes at most this many generations of deterministic work).
 _CHECKPOINT_INTERVAL = 5
 
+#: Tournament selection: how many members compete to become a parent.  The
+#: best (lowest fitness) of the drawn members wins.  Parents come from the
+#: whole scored population rather than the elite alone, so breeding is not
+#: bottlenecked on `elitism` members and the gene pool keeps its spread.
+_TOURNAMENT_SIZE = 3
+
+#: Adaptive mutation rate: each generation without a new best adds
+#: `_MUTATION_PROB_STEP` to the per-child mutation probability, clamped to a
+#: `_MUTATION_PROB_BOOST_CAP` increase and never past `_MUTATION_PROB_MAX`.
+#: On a plateau the search widens instead of replaying one neighbourhood.
+_MUTATION_PROB_STEP = 0.05
+_MUTATION_PROB_BOOST_CAP = 0.25
+_MUTATION_PROB_MAX = 0.95
+
+#: Stagnation restart: once half the stagnation budget has elapsed with no
+#: improvement, this fraction of the population is replaced by fresh random
+#: walks from the seed.  Capped at `_MAX_STAGNATION_RESTARTS` per run, so a
+#: restart buys a second basin without making the run unbounded.
+_IMMIGRANT_DIVISOR = 4
+_MAX_STAGNATION_RESTARTS = 2
+
+#: Random-walk length (mutation steps) of an immigrant.  Wider than the
+#: initial population's 1-4 steps: a restart should land further out than a
+#: cold start, not repeat it.
+_IMMIGRANT_MIN_STEPS = 2
+_IMMIGRANT_MAX_STEPS = 6
+
 #: Default floor (bytes) for a function considered by a batch GA/sweep run.
 
 
@@ -327,6 +354,9 @@ class BinaryMatchingGA:
         self.best_source: str | None = None
         self.best_score: float = float("inf")
         self.stagnant_gens: int = 0
+        #: Stagnation restarts performed by this run (bounded by
+        #: ``_MAX_STAGNATION_RESTARTS``; reported in the JSON payload).
+        self.restarts: int = 0
         self.elapsed_sec: float = 0.0
         #: Mutation operators applied during this run (tracked for solution
         #: provenance — see SolutionEntry.mutations).  Filled by _mutate().
@@ -409,6 +439,13 @@ class BinaryMatchingGA:
             return new_src
         return out
 
+    def _random_walk(self, base: str, low: int, high: int) -> str:
+        """Mutate *base* ``rng.randint(low, high)`` times."""
+        src = base
+        for _ in range(self.rng.randint(low, high)):
+            src = self._mutate(src)
+        return src
+
     def _init_population(self) -> None:
         self.population = [self.seed_source]
         for seed_src in self.extra_seeds:
@@ -418,10 +455,37 @@ class BinaryMatchingGA:
                     mutated = self._mutate(seed_src)
                     self.population.append(mutated)
         while len(self.population) < self.pop_size:
-            src = self.seed_source
-            for _ in range(self.rng.randint(1, 4)):
-                src = self._mutate(src)
-            self.population.append(src)
+            self.population.append(self._random_walk(self.seed_source, 1, 4))
+
+    def _tournament(self, scored_pop: list[tuple[float, str]]) -> str:
+        """Pick a parent: the best of ``_TOURNAMENT_SIZE`` drawn members."""
+        contenders = [self.rng.choice(scored_pop) for _ in range(_TOURNAMENT_SIZE)]
+        return min(contenders, key=lambda scored: scored[0])[1]
+
+    def _effective_mutation_prob(self) -> float:
+        """Per-child mutation probability, raised while the search is flat.
+
+        Adds ``_MUTATION_PROB_STEP`` per generation without a new best, up to
+        ``_MUTATION_PROB_BOOST_CAP`` and never past ``_MUTATION_PROB_MAX``.
+        """
+        boost = min(_MUTATION_PROB_BOOST_CAP, _MUTATION_PROB_STEP * self.stagnant_gens)
+        return min(_MUTATION_PROB_MAX, self.mutation_prob + boost)
+
+    def _reseed(self, next_pop: list[str]) -> int:
+        """Append fresh immigrants to *next_pop* and arm the next cycle.
+
+        Replaces ``1/_IMMIGRANT_DIVISOR`` of the population with random walks
+        from the seed, resets the stagnation counter, and returns how many
+        were appended.  The elite already in *next_pop* survives untouched.
+        """
+        count = min(max(1, self.pop_size // _IMMIGRANT_DIVISOR), self.pop_size - len(next_pop))
+        for _ in range(count):
+            next_pop.append(
+                self._random_walk(self.seed_source, _IMMIGRANT_MIN_STEPS, _IMMIGRANT_MAX_STEPS)
+            )
+        self.restarts += 1
+        self.stagnant_gens = 0
+        return count
 
     def _cache_key(self, src: str) -> str:
         """Disk-cache key for *src* under this run's compile configuration.
@@ -692,18 +756,40 @@ class BinaryMatchingGA:
 
                 elite = [s[1] for s in scored_pop[: self.elitism]]
                 next_pop = elite.copy()
+
+                # Stagnation restart: once half the stagnation budget has
+                # elapsed without a new best, reseed a quarter of the
+                # population from the seed instead of breeding yet another
+                # generation from the same gene pool.  A flat search is
+                # usually sitting in a basin its own mutants cannot leave;
+                # fresh arrivals can start one elsewhere.  Bounded by
+                # _MAX_STAGNATION_RESTARTS so the run still terminates.
+                restart_after = max(1, self.stagnation_limit // 2)
+                if (
+                    self.stagnant_gens >= restart_after
+                    and self.restarts < _MAX_STAGNATION_RESTARTS
+                    and self.pop_size > self.elitism
+                ):
+                    immigrants = self._reseed(next_pop)
+                    if self.verbose:
+                        console.print(
+                            f"  restart #{self.restarts}: {immigrants} fresh "
+                            f"immigrant(s) after {restart_after}+ flat generations"
+                        )
+
+                mutation_prob = self._effective_mutation_prob()
                 max_attempts = self.pop_size * 10
                 attempts = 0
                 while len(next_pop) < self.pop_size and attempts < max_attempts:
                     attempts += 1
-                    p1 = self.rng.choice(elite)
+                    p1 = self._tournament(scored_pop)
                     if self.rng.random() < self.crossover_prob:
-                        p2 = self.rng.choice(elite)
+                        p2 = self._tournament(scored_pop)
                         child = crossover(p1, p2, self.rng)
                     else:
                         child = p1
 
-                    if self.rng.random() < self.mutation_prob:
+                    if self.rng.random() < mutation_prob:
                         # Multi-mutation: 35% chance of chaining 2-3 mutations for
                         # bigger jumps in the search space.
                         n_muts = 1
@@ -716,7 +802,7 @@ class BinaryMatchingGA:
                         next_pop.append(child)
 
                 while len(next_pop) < self.pop_size:
-                    next_pop.append(self.rng.choice(elite))
+                    next_pop.append(self._tournament(scored_pop))
 
                 self.population = next_pop
 
@@ -825,6 +911,16 @@ def _ga_args_hash(
                 "elitism": elitism,
                 "num_jobs": num_jobs,
                 "stagnation_limit": stagnation_limit,
+                # Loop-shape constants.  They come from the module rather than
+                # the call, but a release that changes selection, the
+                # mutation-rate ramp, or the restart policy must not resume a
+                # checkpoint produced by the previous loop.
+                "tournament_size": _TOURNAMENT_SIZE,
+                "mutation_prob_step": _MUTATION_PROB_STEP,
+                "mutation_prob_boost_cap": _MUTATION_PROB_BOOST_CAP,
+                "mutation_prob_max": _MUTATION_PROB_MAX,
+                "immigrant_divisor": _IMMIGRANT_DIVISOR,
+                "max_stagnation_restarts": _MAX_STAGNATION_RESTARTS,
             },
             sort_keys=True,
             separators=(",", ":"),
