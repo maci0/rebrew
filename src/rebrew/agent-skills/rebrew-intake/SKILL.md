@@ -162,6 +162,21 @@ The `imphash` and `rich_header_hash` fields are the cheap build-identity
 checks; `format` / `arch` confirm the toolchain family the rest of intake
 assumes.
 
+For the PE build identity itself, `rebrew pe-info` dumps the headers and
+section table, the DllCharacteristics mitigations with the load-config GS
+and SafeSEH state, the Authenticode summary, the debug directory (CodeView
+PDB path / GUID / age when present), and the Rich header (key and decoded
+entries).  It complements the fingerprint bundle for PE targets: use it to
+read the subsystem, entry point, linker timestamp, section protections,
+and Rich build numbers without an external PE viewer.  ELF and Mach-O
+inputs report the shared identity fields plus a note that the PE-only
+metadata is unavailable.
+
+```bash
+rebrew pe-info --json                      # metadata for the target binary
+rebrew pe-info original/<filename>         # metadata for a specific binary
+```
+
 A crypto scan complements the fingerprint: `rebrew crypto-scan` finds the
 fixed AES/SHA/MD5 constant tables in the data sections and matches crypto
 imports and function names, so a target with an embedded hash or cipher is

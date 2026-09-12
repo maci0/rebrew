@@ -65,6 +65,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew gen-flirt-pat` | `gen_flirt_pat.py` | Generate FLIRT `.pat` files from COFF `.lib` archives |
 | `rebrew imports` | `imports.py` | List import-table symbols — PE IAT (with `jmp [iat]` stub detection) or 16-bit NE module references (library identification) |
 | `rebrew fingerprints` | `fingerprints.py` | Binary fingerprint bundle: file hashes, imphash, Rich-header hash, per-section entropy (TLSH/ssdeep when installed) |
+| `rebrew pe-info` | `pe_info.py` | Read-only PE metadata dump: identity, section table with protection flags, DllCharacteristics security flags, Authenticode, debug/PDB, Rich header, presence + counts |
 | `rebrew crypto-scan` | `crypto_scan.py` | Detect crypto constant tables, crypto imports, and crypto-named functions |
 | `rebrew security-scan` | `security_scan.py` | Scan C sources for unsafe API use (unbounded copies, format strings, command execution) |
 | `rebrew strings` | `strings.py` | Extract printable ASCII/UTF-16 strings from data sections, with cross-references (`--xref`, `--filter`, `--min-len`, `--section`) |
@@ -1078,6 +1079,43 @@ cannot be derived is `null`; a missing binary exits `EXIT_ERROR` (2).
 Use it to tell two builds of the same target apart, to confirm a binary was
 rebuilt identically, and to spot a changed import set (imphash) or a
 different linker stamp (Rich header) after a rebuild.
+
+### `rebrew pe-info`
+
+`rebrew pe-info [BINARY] [--json] [--target NAME]`
+
+Read-only PE metadata dump for `BINARY` (default: the project's target
+binary).  `BINARY` may also be ELF or Mach-O: those report their shared
+identity block (format, arch, bits, image base, entry point, size) plus a
+note that the PE-only metadata is unavailable, rather than an error.
+
+For a PE the payload carries:
+
+- **Identity** — `format`, `arch`, `bits` (32/64 from the optional-header
+  magic), `image_base`, `entry_point` (absolute), `subsystem`, `timestamp`
+  (plus `timestamp_iso`, derived from the file value), `checksum`, `size`.
+- **Sections** — `name`, `virtual_address`, `virtual_size`, `raw_size`,
+  `raw_offset`, and `read` / `write` / `execute` resolved from the section
+  characteristics (`IMAGE_SCN_MEM_*`).
+- **`security_flags`** — booleans `aslr` (DYNAMIC_BASE), `nx` (NX_COMPAT),
+  `cfg` (GUARD_CF), `gs` and `safe_seh` (from the load config),
+  `high_entropy_va`, `force_integrity`, `isolation`, `seh`, plus
+  `certificate_table`, alongside the raw `dll_characteristics` dword.
+  `flags_summary` lists the enabled mitigations in a fixed order.
+- **`authenticode`** — `present`, `signature_count`, and `signers` when LIEF
+  exposes them.
+- **`debug`** — one entry per debug directory record (`type`), with
+  `pdb_path`, `guid`, and `age` for CodeView records when LIEF exposes them.
+- **`rich_header`** — `present`, the XOR `key`, and the decoded
+  `{id, build_id, count}` entries.
+- **`presence`** — TLS directory, load config, resources, relocations,
+  exports, imports; **`counts`** gives exports, imports, import DLLs, and
+  relocations.
+
+Every field is best-effort: an attribute LIEF does not expose in the
+installed version is omitted rather than guessed.  The payload contains no
+timestamp of the run, so two runs over the same binary are byte-identical.
+A missing binary exits `EXIT_ERROR` (2).
 
 ### `rebrew crypto-scan`
 

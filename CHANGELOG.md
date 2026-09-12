@@ -1,3 +1,20 @@
+## [Unreleased]
+### Added
+- **`rebrew pe-info` dumps PE metadata**: a new read-only command (and
+  `rebrew.pe_info` module) reports the binary identity (format, arch, bits,
+  image base, entry point, subsystem, timestamp, checksum, size), the section
+  table with read/write/execute protections resolved from the section
+  characteristics, the DllCharacteristics security flags (`aslr`, `nx`, `cfg`,
+  `gs`, `safe_seh`, `high_entropy_va`, `force_integrity`, `isolation`, `seh`,
+  certificate-table presence) with the raw dword and a `flags_summary` list,
+  the Authenticode summary, the debug directory (CodeView PDB path, GUID, and
+  age when LIEF exposes them), the Rich header (key + decoded entries), and the
+  presence plus counts of the TLS, load-config, resource, reloc, export, and
+  import directories.  Every LIEF attribute access is guarded, so a field the
+  installed version does not expose is omitted rather than crashing.  ELF and
+  Mach-O inputs return their shared identity block plus a note that the PE-only
+  metadata is unavailable.
+
 ## [1.0.0] - 2026-09-12
 ### Added
 - **`rebrew security-scan` scans C sources for unsafe API use**: a new command
