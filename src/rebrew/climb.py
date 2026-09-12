@@ -247,18 +247,21 @@ def _score_aligned(
     section_va: int,
     toolchain: str | None,
 ) -> tuple[float, int]:
-    """Aligned instruction-pair count for *path*, or ``(-1.0, 0)``.
+    """Aligned-pair score for *path*, or ``(-1.0, 0)``.
 
     The compile path is :func:`_score`'s; the comparison is the mnemonic
-    alignment ``.scratch/ndiff.py`` reports as ``aligned`` instead of the
-    positional byte count.  On a function whose byte stream is out of step with
-    the target's the positional count rewards a candidate that merely shifts
-    code into a better offset: measured on gm_AllocSpieler, ten accepted
-    swaps raised it 859 -> 909 while the alignment fell 740 -> 728.
+    alignment ``.scratch/ndiff.py`` reports instead of the positional byte
+    count.  On a function whose byte stream is out of step with the target's
+    the positional count rewards a candidate that merely shifts code into a
+    better offset: measured on gm_AllocSpieler, ten accepted swaps raised it
+    859 -> 909 while the alignment fell 740 -> 728.
 
-    It counts PAIRS, not bytes: scoring aligned bytes let one long instruction
-    outweigh two short ones (1886 -> 2004 aligned bytes bought only 740 -> 743
-    aligned instructions while the hunk count rose 177 -> 179).
+    The score is ``pairs * 1000 - hunks``: pairs are the distance to
+    byte-identity (each unpaired instruction is one that still differs), so
+    they dominate, and the hunk count breaks ties between candidates that pair
+    the same number (fewer, larger regions are the same distance but fewer
+    fixes).  Counting *bytes* instead let one long instruction outweigh two
+    short ones: 1886 -> 2004 aligned bytes was worth only 740 -> 743 pairs.
     """
     result = compile_and_compare(
         cfg,
@@ -300,7 +303,9 @@ def _score_aligned(
     aligner = difflib.SequenceMatcher(
         a=[text(i) for i in compiled], b=[text(i) for i in target], autojunk=False
     )
-    return float(sum(block.size for block in aligner.get_matching_blocks())), obj_len
+    pairs = sum(block.size for block in aligner.get_matching_blocks())
+    hunks = sum(1 for op in aligner.get_opcodes() if op[0] != "equal")
+    return float(pairs * 1000 - hunks), obj_len
 
 
 def _within_size_budget(matched: float, obj_len: int, target_len: int, budget: int) -> bool:

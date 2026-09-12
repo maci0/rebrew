@@ -100,32 +100,42 @@ class TestStatements:
 
 
 class TestScoreAligned:
-    def test_counts_aligned_instruction_pairs(self, monkeypatch, tmp_path) -> None:
-        """The aligned objective is the mnemonic pairing count, not bytes.
-
-        Scoring aligned bytes let one long instruction outweigh two short ones
-        (1886 -> 2004 bytes bought only 740 -> 743 aligned instructions while
-        the hunk count rose), so the objective counts pairs.
-        """
+    def _result(self, monkeypatch):
         from types import SimpleNamespace
 
         import rebrew.near_diag
 
-        result = SimpleNamespace(obj_bytes=b"\x90" * 8, full_obj_size=12, reloc_offsets=[])
+        result = SimpleNamespace(obj_bytes=b"obj", full_obj_size=12, reloc_offsets=[])
         monkeypatch.setattr(rebrew.climb, "compile_and_compare", lambda *a, **k: result)
-        sequence = [
-            SimpleNamespace(mnemonic="mov", op_str="eax, ebx"),
-            SimpleNamespace(mnemonic="ret", op_str=""),
-            SimpleNamespace(mnemonic="call", op_str="0x1000"),
-        ]
-        monkeypatch.setattr(rebrew.near_diag, "disasm_insns", lambda *a, **k: list(sequence))
+        return result, rebrew.near_diag
+
+    def test_score_is_pairs_dominated_with_hunks_as_tie_break(self, monkeypatch, tmp_path) -> None:
+        """pairs * 1000 - hunks: distance first, region count breaks ties.
+
+        Scoring aligned bytes instead let one long instruction outweigh two
+        short ones (1886 -> 2004 bytes was worth only 740 -> 743 pairs), and
+        pairs alone tied two candidates that differ in how many places they
+        differ.
+        """
+        from types import SimpleNamespace
+
+        _result, nd = self._result(monkeypatch)
+
+        def insn(mnemonic: str, op: str = "") -> object:
+            return SimpleNamespace(mnemonic=mnemonic, op_str=op)
+
+        streams = {
+            b"obj": [insn("mov"), insn("ret"), insn("call", "0x1")],
+            b"target": [insn("mov"), insn("ret"), insn("jmp", "0x2")],
+        }
+        monkeypatch.setattr(nd, "disasm_insns", lambda code, *a, **k: list(streams[code]))
         cfg = SimpleNamespace(capstone_arch="CS_ARCH_X86", capstone_mode="CS_MODE_32")
 
         score, obj_len = rebrew.climb._score_aligned(
-            cfg, tmp_path / "f.c", "_f", b"\x90" * 24, "/O2", {}, 0x1000, None
+            cfg, tmp_path / "f.c", "_f", b"target", "/O2", {}, 0x1000, None
         )
 
-        assert score == 3.0
+        assert score == 2 * 1000 - 1  # two pairs, one hunk
         assert obj_len == 12
 
 
