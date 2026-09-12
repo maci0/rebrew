@@ -17,6 +17,12 @@ concurrency:
 # Bump deliberately when upgrading the local toolchain (see `uv --version`).
 env:
   UV_VERSION: "0.12.3"
+  # typer renders every --help with ANSI codes whenever GITHUB_ACTIONS is set
+  # (it treats the GitHub log renderer as a color terminal), which splits
+  # option names across escape sequences and breaks every assertion on help
+  # text: the help-listing tests, the SKILL.md validator, and the
+  # cli-contract grep.  This is typer's own switch for turning that off.
+  _TYPER_FORCE_DISABLE_TERMINAL: "1"
 
 jobs:
   lint:

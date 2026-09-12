@@ -20,6 +20,11 @@ Every job that runs a uv command first clones the sibling `resembl` repo
 that checkout is absent — even for a sync that does not install the extra.
 Keep the cloned tag in step with the `resembl` version in `uv.lock`.
 
+The workflow sets `_TYPER_FORCE_DISABLE_TERMINAL`, typer's switch for the
+forced-ANSI mode it enables whenever `GITHUB_ACTIONS` is set. Without it the
+help text carries escape sequences on a CI runner, which breaks every
+assertion on help output (the help-listing tests and the cli-contract grep).
+
 The nightly `toolchain-sync.yml` drift check installs through the same pinned
 uv flow (`uv sync --frozen`), so scheduled runs can never silently resolve
 newer dependency versions than the audited lockfile.

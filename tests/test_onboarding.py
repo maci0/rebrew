@@ -95,10 +95,11 @@ class TestOnboardingJourney:
         assert intake.exit_code == 0, intake.output
 
         doctor = runner.invoke(main_mod.app, ["doctor", "--json"])
-        assert doctor.exit_code == 0, doctor.output
         report = json.loads(doctor.output)
         fails = [c for c in report["checks"] if c["status"] == "fail"]
-        # No toolchain-independent check may fail on a fresh intake.
+        # No toolchain-independent check may fail on a fresh intake.  The
+        # Toolchain check legitimately fails where the rebrew images are not
+        # built (a CI runner has none), so doctor's exit code is not asserted.
         assert all(c["name"] not in _TOOLCHAIN_INDEPENDENT for c in fails), fails
 
     def test_intake_terminal_output_lists_next_steps(

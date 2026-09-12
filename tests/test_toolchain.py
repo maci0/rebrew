@@ -510,12 +510,15 @@ class TestCli:
         assert result.exit_code == 2
         assert "host-only" in result.output
 
-    def test_build_missing_dockerfile_errors(self, monkeypatch) -> None:
+    def test_build_missing_dockerfile_errors(self, monkeypatch, tmp_path: Path) -> None:
         from typer.testing import CliRunner
 
         from rebrew.main import app as umbrella
 
-        monkeypatch.setattr("rebrew.toolchain_cli.Path.exists", lambda self: False)
+        # No checkout needed: point the build source at an empty dir so the
+        # command reaches the Dockerfile check (a real checkout has the file).
+        monkeypatch.setattr("rebrew.toolchain.require_toolchains_repo", lambda: tmp_path)
+        monkeypatch.setattr("rebrew.toolchain_paths.REPO_TOOLS", tmp_path)
         result = CliRunner().invoke(umbrella, ["toolchain", "build", "watcom-2.0-win32"])
         assert result.exit_code == 2
         assert "Dockerfile" in result.output
@@ -981,6 +984,12 @@ class TestDockerfileSanity:
     sibling rebrew-toolchains checkout now."""
 
     _REPO: Path | None = None
+
+    @pytest.fixture(autouse=True)
+    def _require_checkout(self) -> None:
+        """Skip without the sibling checkout: these read its Dockerfiles."""
+        if not (self._repo() / "base" / "Dockerfile").is_file():
+            pytest.skip("rebrew-toolchains checkout not present (base/Dockerfile)")
 
     @classmethod
     def _repo(cls) -> Path:

@@ -934,7 +934,6 @@ def build_cmd(
     )
     from rebrew.toolchain_paths import REPO_TOOLS
 
-    require_toolchains_repo()
     spec = get_toolchain(name)
     if spec.image is None:
         msg = f"toolchain {name!r} is host-only (no image to build)"
@@ -942,6 +941,7 @@ def build_cmd(
     if spec.image is None or ":" not in spec.image:
         msg = f"toolchain {name!r} image tag {spec.image!r} has no version-arch tag"
         error_exit(msg, json_mode=json_output)
+    require_toolchains_repo()
     tag, verarch = spec.image.rsplit(":", 1)
     image = spec.image  # narrowed local — mypy does not narrow into the closure
     build_dir = REPO_TOOLS / spec.family / verarch

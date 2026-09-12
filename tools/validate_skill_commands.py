@@ -40,6 +40,12 @@ _SKILLS_DIR = _REPO_ROOT / "src" / "rebrew" / "agent-skills"
 _BASH_BLOCK_RE = re.compile(r"```bash\n(.*?)```", re.DOTALL)
 _FLAG_RE = re.compile(r"(--[a-z][a-z0-9-]+)")
 
+# typer colors the help whenever GITHUB_ACTIONS/FORCE_COLOR/PY_COLORS is set
+# (its rich console then treats the pipe as a terminal), splitting an option
+# name across escape sequences — ``-\x1b[1;36m-target`` never matches
+# ``_FLAG_RE``.  Strip the styling before parsing the help text.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
 # Flags that are generic/pass-through or tested elsewhere — skip to avoid
 # false positives from injected placeholders like ``--target`` that some
 # subcommands don't surface.
@@ -145,7 +151,7 @@ def _run_help(subcommand: str) -> tuple[bool, str]:
             env=env,
         )
         # rebrew --help exits 0; some subcommands exit non-zero on --help
-        combined = result.stdout + result.stderr
+        combined = _ANSI_RE.sub("", result.stdout + result.stderr)
         return True, combined
     except subprocess.TimeoutExpired:
         return False, "<timeout>"

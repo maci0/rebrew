@@ -17,6 +17,10 @@ from rebrew.toolchain_paths import toolchains_repo
 
 _REPO_TC16 = toolchains_repo() / "borland" / "3.1-win16" / "source"
 
+#: The shared image wrapper lives in the sibling checkout (not this repo), so
+#: these two tests can only run where it is present.
+_WRAPPER_COMMON = toolchains_repo() / "base" / "wrapper-common.sh"
+
 
 def _fake_tcc(monkeypatch, sandbox: Path) -> None:
     """Simulate a successful DOSBox run: write the TCC log + a .OBJ."""
@@ -83,9 +87,12 @@ class TestHeadlessDosbox:
         assert env.get("SDL_VIDEODRIVER") == "dummy"
         assert env.get("SDL_AUDIODRIVER") == "dummy"
 
+    @pytest.mark.skipif(
+        not _WRAPPER_COMMON.is_file(),
+        reason="rebrew-toolchains checkout not present (base/wrapper-common.sh)",
+    )
     def test_wrapper_common_dosbox_is_headless(self) -> None:
-        wrapper = toolchains_repo() / "base" / "wrapper-common.sh"
-        text = wrapper.read_text(encoding="utf-8")
+        text = _WRAPPER_COMMON.read_text(encoding="utf-8")
         assert "SDL_VIDEODRIVER=dummy" in text
         assert "SDL_AUDIODRIVER=dummy" in text
 
@@ -97,11 +104,14 @@ class TestDosboxDriverSync:
     containerized path for the same 16-bit compilers, so a headless/driver
     fix in one must reach the other."""
 
+    @pytest.mark.skipif(
+        not _WRAPPER_COMMON.is_file(),
+        reason="rebrew-toolchains checkout not present (base/wrapper-common.sh)",
+    )
     def test_host_and_image_conf_templates_match(self) -> None:
         from rebrew import dosbox as dosbox_mod
 
-        wrapper = toolchains_repo() / "base" / "wrapper-common.sh"
-        wtext = wrapper.read_text(encoding="utf-8")
+        wtext = _WRAPPER_COMMON.read_text(encoding="utf-8")
         sandbox = "/tmp/sbx"
         autoexec = "C:\\BIN\\TCC.EXE -c t.c"
 
