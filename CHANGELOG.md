@@ -1,5 +1,25 @@
 ## [Unreleased]
 ### Added
+- **Five C-shape lever operators, taken from measured findings in a real 2002
+  MSVC6 build**: `mut_ternary_lift_constant` lifts an equal-armed ternary over
+  its enclosing expression (`p + (c ? K : K)` to
+  `(c) ? (p + K) : (p + K)`), which keeps a byte live where the folded form
+  kills it; `mut_compare_negate_to_ternary` spells `-(a != b)` as
+  `(a != b ? -1 : 0)` to reach the fused compare-and-negate;
+  `mut_walk_in_parameter` advances a parameter instead of a local copy of it;
+  `mut_home_byte_in_param_slot` homes a byte local in a dead parameter's stack
+  slot instead of spilling a fresh dword; `mut_call_prototype_view` calls a
+  function through a cast pointer whose parameter type differs, so the caller
+  materializes the argument the way the reference did.  `_BUILTIN_MUTATIONS`
+  measures **128**.  All five compile through the real MSVC6 toolchain.  On a
+  minimal probe the ternary lift moved 8 to 10 bytes and the compare-negate
+  form 15 to 12; the other three produced byte-identical objects on the shapes
+  tried, so their effect is context-dependent rather than general.
+- **`mut_split_declaration_init` no longer breaks C89**: it emitted the split
+  assignment beside the declaration, putting a statement ahead of any later
+  declaration in the same block.  The assignment now goes after the block's
+  last declaration, which the `quick_validate` declaration-order check caught
+  once a corpus entry exercised the shape.
 - **PE data-directory symbols, and a splat-compatible `symbol_addrs` interchange**:
   `rebrew.pe_symbols` names an image's entry point, exports (forwarders kept as
   forwarded), IAT slots (`__imp_<dll>_<name>`), delay-loaded slots, the TLS
