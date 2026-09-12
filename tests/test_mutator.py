@@ -348,7 +348,8 @@ class TestTargetRangeBodyCoordinates:
         import random
 
         from rebrew.matcher import mutator as _mut_mod
-        from rebrew.matcher.mutator import mutate_code, set_target_range
+        from rebrew.matcher.mutations.runtime import set_target_range
+        from rebrew.matcher.mutator import mutate_code
 
         src = (
             "#include <windows.h>\n"
@@ -401,7 +402,8 @@ class TestTargetRangeBodyCoordinates:
         function, not point past it into empty body space."""
         import random
 
-        from rebrew.matcher.mutator import _split_preamble_body, mutate_code, set_target_range
+        from rebrew.matcher.mutations.runtime import set_target_range
+        from rebrew.matcher.mutator import _split_preamble_body, mutate_code
 
         src = (
             "int target_fn(int a);\n"
