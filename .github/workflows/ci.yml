@@ -25,6 +25,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+      - name: Check out sibling resembl (path dependency of the `similarity` extra)
+        # [tool.uv.sources] resolves `resembl` from ../resembl, so every uv
+        # command needs the sibling present even when the extra is not
+        # installed.  actions/checkout refuses to write outside the workspace,
+        # and the lock pins the sibling at 1.0.0, so clone that tag into the
+        # parent directory — the same layout a developer's checkout has.
+        run: git clone --depth 1 --branch v1.0.0 https://github.com/maci0/resembl.git ../resembl
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -61,6 +68,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+      - name: Check out sibling resembl (path dependency of the `similarity` extra)
+        # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
+        run: git clone --depth 1 --branch v1.0.0 https://github.com/maci0/resembl.git ../resembl
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -87,6 +97,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+      - name: Check out sibling resembl (path dependency of the `similarity` extra)
+        # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
+        run: git clone --depth 1 --branch v1.0.0 https://github.com/maci0/resembl.git ../resembl
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -169,6 +182,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+      - name: Check out sibling resembl (path dependency of the `similarity` extra)
+        # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
+        run: git clone --depth 1 --branch v1.0.0 https://github.com/maci0/resembl.git ../resembl
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:

@@ -20,6 +20,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+      - name: Check out sibling resembl (path dependency of the `similarity` extra)
+        # [tool.uv.sources] resolves `resembl` from ../resembl, so every uv
+        # command needs the sibling checkout present even though this job never
+        # installs the extra.  Keep the tag in step with uv.lock's `resembl`
+        # version (see the clones in ci.yml).
+        run: git clone --depth 1 --branch v1.0.0 https://github.com/maci0/resembl.git ../resembl
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:
