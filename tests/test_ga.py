@@ -460,7 +460,7 @@ class TestGADeadline:
     def test_past_deadline_returns_immediately(self, tmp_path: Path) -> None:
         import time
 
-        from rebrew.match import BinaryMatchingGA
+        from rebrew.match_ga import BinaryMatchingGA
 
         ga = BinaryMatchingGA(
             seed_source="int f(void) { return 0; }",
@@ -483,7 +483,7 @@ class TestGADeadline:
     def test_future_deadline_runs_at_least_one_gen(self, tmp_path: Path) -> None:
         import time
 
-        from rebrew.match import BinaryMatchingGA
+        from rebrew.match_ga import BinaryMatchingGA
 
         ga = BinaryMatchingGA(
             seed_source="int f(void) { return 0; }",
@@ -507,7 +507,7 @@ class TestGADeadline:
     ) -> None:
         import time
 
-        from rebrew.match import BinaryMatchingGA
+        from rebrew.match_ga import BinaryMatchingGA
 
         ga = BinaryMatchingGA(
             seed_source="int f(void) { return 0; }",
@@ -1200,7 +1200,7 @@ class TestGABuildCacheKey:
     (the cache DB persists across runs in output/ga_runs/<rel>/)."""
 
     def test_key_derivation_partitions_by_flags(self) -> None:
-        from rebrew.match import _ga_cache_key
+        from rebrew.match_ga import _ga_cache_key
 
         src = "int f(void) { return 0; }"
         # Same inputs → same key; any change → different key.
@@ -1240,7 +1240,7 @@ class TestGABuildCacheKey:
     def test_same_instance_recompile_only_on_flag_change(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        from rebrew.match import BinaryMatchingGA
+        from rebrew.match_ga import BinaryMatchingGA
         from rebrew.matcher.core import BuildResult
 
         seen: list[str] = []
@@ -1262,7 +1262,7 @@ class TestGABuildCacheKey:
             seen.append(cflags)
             return BuildResult(ok=False, error_msg="fake")
 
-        monkeypatch.setattr("rebrew.match.build_candidate_obj_only", _fake_build)
+        monkeypatch.setattr("rebrew.match_ga.build_candidate_obj_only", _fake_build)
 
         def _ga(cflags: str) -> BinaryMatchingGA:
             return BinaryMatchingGA(
@@ -1291,7 +1291,7 @@ class TestGABuildCacheKey:
         """Stubs share one cache DB: the same source under another symbol
         must miss (different extracted bytes), not reuse the first stub's
         .obj."""
-        from rebrew.match import BinaryMatchingGA, _ga_cache_key
+        from rebrew.match_ga import BinaryMatchingGA, _ga_cache_key
 
         calls: list[str] = []
 
@@ -1301,7 +1301,7 @@ class TestGABuildCacheKey:
             calls.append(symbol)
             return _fail_result()
 
-        monkeypatch.setattr("rebrew.match.build_candidate_obj_only", _fake_build)
+        monkeypatch.setattr("rebrew.match_ga.build_candidate_obj_only", _fake_build)
 
         def _ga(symbol: str) -> BinaryMatchingGA:
             return BinaryMatchingGA(
@@ -1328,7 +1328,7 @@ class TestGABuildCacheKey:
         """One disk-cache write per scored candidate: _compile_source defers
         the store to _compute_fitness (failures still store on compile, they
         never reach the scoring put)."""
-        from rebrew.match import BinaryMatchingGA, _ga_cache_key
+        from rebrew.match_ga import BinaryMatchingGA, _ga_cache_key
         from rebrew.matcher.core import BuildResult
 
         ga = BinaryMatchingGA(
@@ -1352,7 +1352,7 @@ class TestGABuildCacheKey:
 
         monkeypatch.setattr(ga.cache, "put", _counting_put)
         monkeypatch.setattr(
-            "rebrew.match.build_candidate_obj_only",
+            "rebrew.match_ga.build_candidate_obj_only",
             lambda *a, **k: BuildResult(ok=True, obj_bytes=b"\xc3"),
         )
         src = "int f(void) { return 0; }"
@@ -1371,7 +1371,7 @@ class TestGABuildCacheKey:
         (for memoization); the scoring store must still land under the compile
         key so a later process hits it instead of recompiling every winner."""
         from rebrew.compile_cache import source_digest
-        from rebrew.match import BinaryMatchingGA
+        from rebrew.match_ga import BinaryMatchingGA
         from rebrew.matcher.core import BuildResult
 
         calls: list[str] = []
@@ -1380,7 +1380,7 @@ class TestGABuildCacheKey:
             calls.append(src)
             return BuildResult(ok=True, obj_bytes=b"\xc3")
 
-        monkeypatch.setattr("rebrew.match.build_candidate_obj_only", _fake_build)
+        monkeypatch.setattr("rebrew.match_ga.build_candidate_obj_only", _fake_build)
         src = "int f(void) { return 0; }"
 
         def _ga() -> BinaryMatchingGA:
@@ -1411,7 +1411,7 @@ class TestGABuildCacheKey:
     def test_failure_still_cached_on_compile(self, tmp_path: Path, monkeypatch: Any) -> None:
         """Failed compiles never reach _compute_fitness's put — they must be
         stored by _compile_source so the failure is not recompiled."""
-        from rebrew.match import BinaryMatchingGA
+        from rebrew.match_ga import BinaryMatchingGA
 
         calls: list[str] = []
 
@@ -1419,7 +1419,7 @@ class TestGABuildCacheKey:
             calls.append(src)
             return _fail_result()
 
-        monkeypatch.setattr("rebrew.match.build_candidate_obj_only", _fake_build)
+        monkeypatch.setattr("rebrew.match_ga.build_candidate_obj_only", _fake_build)
 
         ga = BinaryMatchingGA(
             seed_source="int f(void) { return 0; }",
@@ -1442,8 +1442,8 @@ class TestGABuildCacheKey:
     def test_run_uses_single_executor(self, tmp_path: Path, monkeypatch: Any) -> None:
         """The whole run shares one ThreadPoolExecutor (no per-generation
         churn): more than one generation must create exactly one pool."""
-        import rebrew.match as _match_mod
-        from rebrew.match import BinaryMatchingGA
+        import rebrew.match_ga as _match_mod
+        from rebrew.match_ga import BinaryMatchingGA
 
         created: list[Any] = []
         _real_pool = _match_mod.ThreadPoolExecutor
@@ -1458,7 +1458,7 @@ class TestGABuildCacheKey:
         def _fake_build(src: str, *a: Any, **k: Any) -> Any:
             return _fail_result()
 
-        monkeypatch.setattr("rebrew.match.build_candidate_obj_only", _fake_build)
+        monkeypatch.setattr("rebrew.match_ga.build_candidate_obj_only", _fake_build)
         ga = BinaryMatchingGA(
             seed_source="int f(void) { return 0; }",
             target_bytes=b"\xc3",

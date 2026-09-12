@@ -208,9 +208,10 @@ src/rebrew/
 ├── todo.py              # Prioritized action list
 ├── similar.py           # Find structurally similar functions
 ├── binary_similarity.py # Whole-binary structural similarity vs another binary (versions/DLL+EXE)
-├── match.py             # GA engine — single or batch (--all); absorbs old ga.py
+├── match.py             # `rebrew match` CLI + batch GA run drivers
 ├── match_batch.py       # Batch stub/near-miss discovery + STATUS/CFLAGS source updates
 ├── match_sweep.py       # Build-params resolution + compiler/flag/toolchain sweeps
+├── match_ga.py          # BinaryMatchingGA engine, mutation focus, cache key, checkpoints
 ├── climb.py             # `rebrew climb` — deterministic adjacent-statement hill-climb (GA complement)
 │
 ├── # --- CLI tools (each exports app, main, main_entry) ---

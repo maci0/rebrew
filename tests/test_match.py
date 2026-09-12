@@ -6,7 +6,8 @@ from typing import Any
 
 import pytest
 
-from rebrew.match import BinaryMatchingGA, StubInfo
+from rebrew.match_batch import StubInfo
+from rebrew.match_ga import BinaryMatchingGA
 
 # ---------------------------------------------------------------------------
 # BinaryMatchingGA — init and population
