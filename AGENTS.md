@@ -245,7 +245,9 @@ src/rebrew/
 ├── stack_cmp.py         # Compare compiled function's stack frame vs target (reccmp stackcmp, no PDB)
 ├── rename.py            # `rebrew rename` CLI (typer app + argument resolution)
 ├── rename_ops.py        # Cross-reference rename engine (shared by rename CLI, sync pull, binsync import)
-├── init.py              # Initialize new project
+├── init.py              # Initialize new project (CLI + interactive wizard)
+├── init_profiles.py     # New-project template, COMPILER_DEFAULTS, constraint blocks,
+│                        #   profile family tables, and the registry-merged lookups
 ├── imports.py           # List PE imports + detect jmp [iat] stubs
 ├── exports.py           # Verify recompiled binary export table vs target (verexp equivalent)
 ├── pdb_info.py          # PDB metadata (S_COMPILE3 compiler + command line)

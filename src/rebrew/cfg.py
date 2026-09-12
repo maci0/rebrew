@@ -784,10 +784,11 @@ def set_compiler(
     ``command``/``includes``/``libs`` from the named profile preset.
     Existing values for that target are overwritten.
     """
-    # Import profile presets from init (single source of truth, registry-merged)
-    from rebrew.init import _profile_defaults
+    # Import profile presets from init_profiles (single source of truth,
+    # registry-merged)
+    from rebrew.init_profiles import profile_defaults
 
-    defaults = _profile_defaults()
+    defaults = profile_defaults()
     known = sorted(defaults)
     if profile not in defaults:
         error_exit(f"Unknown compiler profile '{profile}'. Valid profiles: {', '.join(known)}")
