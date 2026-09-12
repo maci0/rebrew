@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from rebrew_workspace import SCHEMA_TARGET, db_dir
 from rich.console import Console
 
 from rebrew.cli import (
@@ -38,7 +39,7 @@ _HISTORY_RETENTION = 10_000
 # Reserved metadata target holding the schema-level db_version stamp, so the
 # version is read deterministically regardless of which targets exist (a
 # scoped --target rebuild must not leave the DB reporting a stale version).
-_SCHEMA_TARGET = "__schema__"
+#: `SCHEMA_TARGET` comes from rebrew_workspace (the shared reader uses it too).
 _SQLITE_TIMEOUT_SECONDS = 30.0
 
 
@@ -164,13 +165,20 @@ def _function_stats(
 
 
 def resolve_db_dir(root_dir: Path, *, json_output: bool = False) -> Path:
-    """Return the configured database directory, falling back when no config exists."""
+    """Return the configured database directory, falling back when no config exists.
+
+    The path comes from the shared ``rebrew_workspace.db_dir`` resolver, so a
+    dashboard and this builder never disagree on where coverage.db lives.  A
+    config that is present but broken still fails loud here rather than
+    silently falling back to ``db/``.
+    """
     if not (root_dir / "rebrew-project.toml").exists():
         return root_dir / "db"
     try:
-        return load_config(root_dir).db_dir
+        load_config(root_dir)
     except (FileNotFoundError, KeyError, ValueError, TypeError) as exc:
         error_exit(f"Config error: {exc}", json_mode=json_output)
+    return db_dir(root_dir)
 
 
 def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool = False) -> None:
@@ -188,7 +196,7 @@ def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool =
             # for DBs written before the __schema__ row existed.
             c.execute(
                 "SELECT value FROM metadata WHERE target = ? AND key = 'db_version' LIMIT 1",
-                (_SCHEMA_TARGET,),
+                (SCHEMA_TARGET,),
             )
             row = c.fetchone()
             if row is None:
@@ -1062,7 +1070,7 @@ def build_db(
             # version while the unfiltered reader picked an arbitrary row).
             c.execute(
                 "INSERT OR REPLACE INTO metadata VALUES (?, ?, ?)",
-                (_SCHEMA_TARGET, "db_version", json.dumps(_CURRENT_DB_VERSION)),
+                (SCHEMA_TARGET, "db_version", json.dumps(_CURRENT_DB_VERSION)),
             )
             # Keep the legacy per-target stamp for older dashboard versions.
             c.execute(
