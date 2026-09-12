@@ -21,6 +21,7 @@ from dataclasses import dataclass
 # Offsets follow the PE32 optional-header layout (see docs/TOOLCHAIN notes).
 _FIELD_SPECS: list[tuple[int, int, str]] = [
     (0x08, 4, "timestamp"),  # COFF TimeDateStamp
+    (0x16, 2, "characteristics"),  # COFF Characteristics (e.g. DEBUG_STRIPPED)
     (0x1A, 1, "linker_version_major"),
     (0x1B, 1, "linker_version_minor"),
     (0x40, 2, "os_version_major"),

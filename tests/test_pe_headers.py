@@ -39,6 +39,16 @@ class TestPatchHeaders:
         # Original untouched.
         assert read_pe_header_fields(data).get("stack_reserve") == 0x100000  # type: ignore[union-attr]
 
+    def test_characteristics_is_patchable(self) -> None:
+        """COFF Characteristics carries DEBUG_STRIPPED (0x0200); a relink that
+        drops it is patched to match the reference header."""
+        assert "characteristics" in PATCHABLE
+        data = _fixture()
+        before = read_pe_header_fields(data).get("characteristics")
+        assert before is not None
+        patched = patch_pe_headers(data, {"characteristics": before | 0x0200})
+        assert read_pe_header_fields(patched).get("characteristics") == before | 0x0200
+
     def test_file_align_not_patchable(self) -> None:
         assert "file_align" not in PATCHABLE
         data = _fixture()
