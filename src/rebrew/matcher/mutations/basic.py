@@ -92,6 +92,7 @@ from rebrew.matcher.mutations.runtime import (
     _cursor,
     _find_function_body_insert_pos,
     _first_caps,
+    _statement_region_start,
     brace_block,
 )
 
@@ -637,18 +638,43 @@ def mut_swap_adjacent_declarations(s: str, rng: random.Random) -> str | None:
 
 
 def mut_split_declaration_init(s: str, rng: random.Random) -> str | None:
-    """Split 'TYPE var = expr;' into 'TYPE var; var = expr;'."""
+    """Split ``TYPE var = expr;`` into ``TYPE var;`` plus ``var = expr;``.
+
+    The assignment is a statement, so it belongs after the block's last
+    declaration.  Leaving it beside the declaration put a statement ahead of
+    any later declaration in the same block, which C89 (and MSVC6) rejects.
+    """
     b_source = s.encode("utf-8")
+    tree = parse_c_ast(b_source)
 
-    def _repl(captures: dict[str, ts.Node]) -> bytes:
-        type_ = b_source[captures["type"].start_byte : captures["type"].end_byte]
-        var = b_source[captures["var"].start_byte : captures["var"].end_byte]
-        expr = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+    valid: list[tuple[ts.Node, int, bytes, bytes, bytes]] = []
+    for match in _cursor(_QUERY_SPLIT_DECL).matches(tree.root_node):
+        caps = _first_caps(match[1])
+        declaration = caps.get("stmt")
+        if declaration is None:
+            continue
+        block = declaration.parent
+        if block is None:
+            continue
+        valid.append(
+            (
+                declaration,
+                _statement_region_start(block),
+                b_source[caps["type"].start_byte : caps["type"].end_byte],
+                b_source[caps["var"].start_byte : caps["var"].end_byte],
+                b_source[caps["expr"].start_byte : caps["expr"].end_byte],
+            )
+        )
 
-        return type_ + b" " + var + b";\n    " + var + b" = " + expr + b";"
+    if not valid:
+        return None
 
-    res = _apply_query_once(b_source, _QUERY_SPLIT_DECL, _repl, rng)
-    return res.decode("utf-8") if res else None
+    declaration, insert_at, type_, var, expr = rng.choice(valid)
+    # Insert first: the insertion point is at or after the declaration's end,
+    # so the declaration's own offsets stay valid for the replacement.
+    out = b_source[:insert_at] + b"\n    " + var + b" = " + expr + b";" + b_source[insert_at:]
+    out = out[: declaration.start_byte] + type_ + b" " + var + b";" + out[declaration.end_byte :]
+    return out.decode("utf-8")
 
 
 def mut_merge_declaration_init(s: str, rng: random.Random) -> str | None:
