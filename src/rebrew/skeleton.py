@@ -285,11 +285,9 @@ def _convention_stub(
             n = _ret_arg_count(insns, word_size)
             args = ", ".join(f"int a{i}" for i in range(1, n + 1))
             profile = str(getattr(cfg, "compiler_profile", ""))
-            keyword = (
-                "pascal"
-                if profile in ("borland-3.1", "borland-2.0", "borland-5.5")
-                else "__stdcall"
-            )
+            from rebrew.toolchain import profile_family
+
+            keyword = "pascal" if profile_family(profile) == "borland" else "__stdcall"
             return (
                 f"int {keyword} {func_name}({args or 'void'})",
                 None if keyword == "pascal" else f"{n} word arg(s) popped by callee (__stdcall)",
