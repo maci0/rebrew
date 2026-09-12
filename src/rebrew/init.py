@@ -55,9 +55,9 @@ app = typer.Typer(
         "  borlandc55 / tc16 / tc20 · Borland/Turbo C (PE/x86_32, 16-bit DOS)\n\n"
         "  watcom / watcom16 · Open Watcom (32-bit / 16-bit DOS)\n\n"
         "  delphi16 · · Delphi 1.0 (16-bit NE)\n\n"
-        "  gcc-pe · · GCC/MinGW (C99, PE/x86_32)\n\n"
-        "  gcc / clang · ELF/x86_64\n\n"
-        "[dim]Windows/DOS profiles compile inside docker images only — gcc/clang/gcc-pe/watcom16 run natively. Full list: rebrew toolchain list.[/dim]\n\n"
+        "  gcc-pe · · GCC/MinGW (C99, PE/x86_32; also gcc-pe14)\n\n"
+        "  gcc / clang · ELF/x86_64 (also gcc12 / clang16)\n\n"
+        "[dim]Every profile compiles inside its docker image (wine/DOSBox/native runtime included); there is no host compiler fallback. Full list: rebrew toolchain list.[/dim]\n\n"
         "[dim]Run this once in an empty directory, then place your binary in original/.[/dim]"
     ),
 )
@@ -248,7 +248,6 @@ _PROFILE_TOOLS: dict[str, str] = {
     "msvc1100": "msvc/11.0-win32",
     "msvc7": "msvc/7.0-win32",  # deprecated alias of msvc710 (dir holds the 7.1 compiler)
     "borlandc55": "borland/5.5-win32",
-    "watcom16": "watcom/2.0-win32",
     "tc20": "borland/2.0-win16",
     "tc16": "borland/3.1-win16",
 }
@@ -600,7 +599,8 @@ def main(
         "--link-tools-from",
         help=(
             "Master toolchain directory to symlink tools/<profile> from "
-            "(e.g. ~/zine/tools).  Skips PATH-based profiles (gcc-pe/gcc/clang)."
+            "(e.g. ~/zine/tools).  Skips profiles with nothing to link "
+            "(gcc/gcc-pe/clang run from their docker images)."
         ),
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -706,11 +706,11 @@ def main(
         if layout is not None:
             cmd, inc, lib = layout
             profile = {**profile, "command": cmd, "includes": inc, "libs": lib}
-    # Docker-only execution: every Windows/DOS toolchain compiles through
-    # its docker image, so the legacy host wine command/runner are inert —
-    # write an empty command so fresh projects are docker-native (no stale
-    # "wine toolchain/..." line that doctor/verify might misread).  Native
-    # profiles without an image (gcc-pe, watcom16 wcc) keep their command.
+    # Docker-only execution: every toolchain compiles through its docker
+    # image, so the legacy host wine command/runner are inert — write an
+    # empty command so fresh projects are docker-native (no stale
+    # "wine toolchain/..." line that doctor/verify might misread).  A
+    # plugin toolchain registered without an image keeps its command.
     from rebrew.toolchain import TOOLCHAINS
 
     _spec = TOOLCHAINS.get(compiler_profile)

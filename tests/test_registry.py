@@ -1243,7 +1243,8 @@ class TestSkillsDirWarning:
 
 
 class TestNativeElfToolchains:
-    """gcc/clang are native PATH specs — an ELF profile must actually compile."""
+    """gcc/clang are ELF profiles backed by their docker images (the compiler
+    runs natively inside the image) — an ELF profile must actually compile."""
 
     def test_gcc_clang_in_registry(self) -> None:
         from rebrew.toolchain import TOOLCHAINS
@@ -1251,7 +1252,9 @@ class TestNativeElfToolchains:
         for name in ("gcc", "clang"):
             spec = TOOLCHAINS.get(name)
             assert spec is not None
-            assert spec.image is None
+            assert spec.image is not None
+            assert spec.image.endswith("-linux-x64")
+            assert spec.image_binary is None  # the image ENTRYPOINT is the wrapper
             assert spec.runtime == "native"
             assert spec.flags_style == "posix"
             assert spec.obj_ext == ".o"
@@ -1262,6 +1265,12 @@ class TestNativeElfToolchains:
 
         from rebrew.compile import compile_to_obj
         from rebrew.config import load_config
+        from rebrew.toolchain import TOOLCHAINS, image_present
+
+        image = TOOLCHAINS[profile].image
+        assert image is not None
+        if not image_present(image):
+            pytest.skip(f"{image} not built")
 
         (tmp_path / "rebrew-project.toml").write_text(
             f'[project]\nroot = "{tmp_path}"\ndefault_target = "T"\n'

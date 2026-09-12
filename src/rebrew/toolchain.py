@@ -14,9 +14,9 @@ the standalone **rebrew-toolchains** checkout — the sibling repo
 (overridable via ``REBREW_TOOLCHAINS_DIR``) — so rebrew no longer vendors
 build files in-repo; ``rebrew toolchain build``/``vendor`` read them from
 there, and the smoke gate verifies the image output is byte-reproducible.
-Native-Linux toolchains without an image (gcc-pe, the wcc 16-bit binary)
-exec their vendored/PATH binary directly; they are not Windows binaries, so
-no wine is involved.
+A toolchain registered without an image (a plugin/overlay spec) execs its
+vendored/PATH binary directly; every shipped profile compiles through its
+docker image, so no host wine/dosbox glue is involved.
 
 A :class:`ToolchainSpec` describes how to invoke one compiler version:
 its image tag, the compiler executable (and any wrapper), and the flag
@@ -454,8 +454,8 @@ def image_msvc_env(spec: ToolchainSpec) -> dict[str, str]:
 def _resolve_binary(spec: ToolchainSpec) -> str:
     """The host-side compiler path for a native-runtime spec (no image):
     vendored dir / PATH binary.  Raises ToolchainError when nothing
-    resolvable exists.  Only native-Linux toolchains (gcc-pe, watcom16
-    wcc) reach this — wine/dosbox toolchains are docker-only."""
+    resolvable exists.  Only an image-less spec (a plugin/overlay
+    toolchain) reaches this — every shipped profile is image-backed."""
     hit = vendored_binary(spec)
     if hit is not None:
         return str(hit)
@@ -485,9 +485,8 @@ def run_toolchain(
     missing image is a hard error (run `rebrew toolchain build <name>`) —
     there is deliberately no wine/wibo/dosbox host fallback anymore.
 
-    Native-Linux toolchains without an image (gcc-pe, watcom16 wcc) exec the
-    vendored/PATH binary directly — they are not Windows binaries, so no
-    wine glue is involved.
+    Native-less specs (a plugin toolchain with no image) exec the
+    vendored/PATH binary directly — no wine glue is involved.
 
     The container runs with ``--network=none`` — compilation is strictly
     local (source in, object out), and the toolchain image needs no egress
@@ -557,8 +556,8 @@ def run_toolchain(
         return RunResult(r.returncode, r.stdout, r.stderr, backend="docker")
 
     if spec.runtime == "native":
-        # Native-Linux compiler (gcc-pe, watcom16 wcc) — vendored/PATH binary
-        # executed directly.  These are NOT Windows binaries; no wine glue.
+        # Image-less compiler (plugin/overlay spec) — vendored/PATH binary
+        # executed directly.  No wine glue is involved.
         binary = _resolve_binary(spec)
         env = dict(os.environ)
         try:

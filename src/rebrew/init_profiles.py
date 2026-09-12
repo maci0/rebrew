@@ -411,10 +411,26 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "lang": "C89",
     },
     "clang": {
+        # Docker-only (rebrew/clang:18.1.8-linux-x64): command/runner are
+        # blanked by the image check below.  No includes/libs — the system
+        # headers ship inside the image, and a host /usr/include path here
+        # would be bind-mounted over the container's own tree.
         "runner": "",
         "command": "clang",
-        "includes": "/usr/include",
-        "libs": "/usr/lib",
+        "includes": "",
+        "libs": "",
+        "cflags": "-O2",
+        "base_cflags": "",
+        "format": "elf",
+        "arch": "x86_64",
+        "lang": "C99",
+    },
+    "clang16": {
+        # Docker-only (rebrew/clang:16.0.4-linux-x64) — see the clang entry.
+        "runner": "",
+        "command": "clang",
+        "includes": "",
+        "libs": "",
         "cflags": "-O2",
         "base_cflags": "",
         "format": "elf",
@@ -422,10 +438,23 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "lang": "C99",
     },
     "gcc": {
+        # Docker-only (rebrew/gcc:14.2.0-linux-x64) — see the clang entry.
         "runner": "",
         "command": "gcc",
-        "includes": "/usr/include",
-        "libs": "/usr/lib",
+        "includes": "",
+        "libs": "",
+        "cflags": "-O2",
+        "base_cflags": "",
+        "format": "elf",
+        "arch": "x86_64",
+        "lang": "C99",
+    },
+    "gcc12": {
+        # Docker-only (rebrew/gcc:12.3.0-linux-x64) — see the clang entry.
+        "runner": "",
+        "command": "gcc",
+        "includes": "",
+        "libs": "",
         "cflags": "-O2",
         "base_cflags": "",
         "format": "elf",
@@ -433,6 +462,20 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "lang": "C99",
     },
     "gcc-pe": {
+        # Docker-only (rebrew/gcc-pe:16.2.0-win32): the mingw tree ships
+        # inside the image, so no host include/lib paths.
+        "runner": "",
+        "command": "i686-w64-mingw32-gcc",
+        "includes": "",
+        "libs": "",
+        "cflags": "-O2",
+        "base_cflags": "",
+        "format": "pe",
+        "arch": "x86_32",
+        "lang": "C99",
+    },
+    "gcc-pe14": {
+        # Docker-only (rebrew/gcc-pe:14.2.0-win32) — see the gcc-pe entry.
         "runner": "",
         "command": "i686-w64-mingw32-gcc",
         "includes": "",
@@ -630,8 +673,11 @@ PROFILE_FAMILIES: dict[str, frozenset[str]] = {
     "watcom16": frozenset({"watcom"}),
     "watcom": frozenset({"watcom"}),
     "gcc-pe": frozenset({"zig", "gcc", "clang", "mingw"}),
+    "gcc-pe14": frozenset({"zig", "gcc", "clang", "mingw"}),
     "gcc": frozenset({"gcc", "clang", "icc"}),
+    "gcc12": frozenset({"gcc", "clang", "icc"}),
     "clang": frozenset({"gcc", "clang", "icc"}),
+    "clang16": frozenset({"gcc", "clang", "icc"}),
     "ido5.3": frozenset({"ido"}),
     "ido7.1": frozenset({"ido"}),
 }

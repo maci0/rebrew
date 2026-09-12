@@ -32,6 +32,20 @@
   `xmmintrin.h`, `emmintrin.h`, ...).  `cl.exe` itself is unchanged
   (12.00.8804) and VC6 has no `/arch` option even with the pack: SSE/SSE2 code
   uses the intrinsics.  The pack is SP5-only (SP6 removes it).
+- **Every shipped profile is image-backed**: `gcc`/`gcc12` (GNU GCC 14.2.0 /
+  12.3.0, images `rebrew/gcc:14.2.0-linux-x64` / `rebrew/gcc:12.3.0-linux-x64`,
+  built C-only from the GNU release tarball inside the image),
+  `clang`/`clang16` (Clang 18.1.8 / 16.0.4, images
+  `rebrew/clang:18.1.8-linux-x64` / `rebrew/clang:16.0.4-linux-x64`, LLVM's
+  prebuilt releases), `gcc-pe`/`gcc-pe14` (MinGW-w64 i686 GCC 16.2.0 / 14.2.0,
+  images `rebrew/gcc-pe:16.2.0-win32` / `rebrew/gcc-pe:14.2.0-win32`; the
+  mingw-builds driver is a Windows PE binary, so the image runs it under wine)
+  and `watcom16` (Open Watcom 2.0 `wcc`, image `rebrew/watcom:2.0-win16`).
+  The generic names stay the defaults (`gcc` → 14.2.0, `clang` → 18.1.8,
+  `gcc-pe` → 16.2.0); the versioned profiles select the older build.  A
+  compile no longer needs a host gcc/clang/mingw, and `rebrew toolchain
+  smoke` covers the new images.  ADR 015 noted this as deferred; the pinned
+  sources now exist.
 
 ## [1.0.0] - 2026-09-12
 ### Added

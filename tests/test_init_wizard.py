@@ -299,25 +299,33 @@ class TestToolchainImageStep:
         assert result.exit_code == 0, result.output + result.stderr
         assert "build failed" in result.stderr
 
-    def test_native_profile_reports_nothing_to_build(self, tmp_path: Path, monkeypatch) -> None:
+    def test_image_backed_native_profile_offers_build(self, tmp_path: Path, monkeypatch) -> None:
+        """gcc-pe is image-backed now — the wizard offers to build its image
+        (rebrew/gcc-pe:16.2.0-win32) like any other profile instead of
+        reporting nothing to build."""
         _place_mini_pe(tmp_path)
         _force_wizard(monkeypatch)
+        image_present(monkeypatch, False)
         monkeypatch.chdir(tmp_path)
-        _no_prompts(monkeypatch)
-        result = CliRunner().invoke(
-            app,
-            [
-                "--target",
-                "t",
-                "--binary",
-                "mini_pe.exe",
-                "--toolchain",
-                "gcc-pe",
-                "--install-completions",
-            ],
+        monkeypatch.setattr(
+            shutil,
+            "which",
+            lambda name, *a, **k: "/fake/rebrew" if name == "rebrew" else None,
         )
+        calls: list[list[str]] = []
+
+        def _fake_run(cmd: list[str], **kwargs: Any) -> Any:
+            if cmd[:3] == ["/fake/rebrew", "toolchain", "build"]:
+                calls.append(cmd)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("rebrew.init.subprocess.run", _fake_run)
+        flags = [*_FLAGGED]
+        flags[flags.index("msvc6")] = "gcc-pe"
+        result = CliRunner().invoke(app, flags, input="y\n")
         assert result.exit_code == 0, result.output + result.stderr
-        assert "nothing to build" in result.stderr
+        assert "nothing to build" not in result.stderr
+        assert calls == [["/fake/rebrew", "toolchain", "build", "gcc-pe"]]
 
     def test_non_wizard_run_has_no_followup(self, tmp_path: Path, monkeypatch) -> None:
         """Unchanged non-wizard flow: no image lines, no doctor/intake extras."""

@@ -173,7 +173,7 @@ profile = "msvc7"
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `profile` | `string` | `"msvc6"` | Selects the toolchain (docker image or native binary) and the flag-sweep axes for `rebrew match` |
-| `command` | `string` | `"wine CL.EXE"` | Host compiler invocation (resolved relative to project root). **Empty for docker-backed profiles** — the image IS the compiler (that is what `rebrew init` writes); only native profiles set a real command (PATH-resolved binary for `gcc-pe`, project-relative for `watcom16`). The `wine CL.EXE` fallback default is inert under docker-only execution |
+| `command` | `string` | `"wine CL.EXE"` | Host compiler invocation (resolved relative to project root). **Empty for docker-backed profiles** — the image IS the compiler (that is what `rebrew init` writes for every shipped profile); only a plugin toolchain registered without an image sets a real command. The `wine CL.EXE` fallback default is inert under docker-only execution |
 | `includes` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Include"` | Path to compiler include directory. For `msvc6`/`msvc7` the default resolves the best layout actually present (full master, then the vendored compile-only mirrors `toolchain/msvc/6.0-sp6-win32`/`toolchain/msvc/6.0-sp3-win32`/`toolchain/msvc/7.0-win32`) — see `rebrew init` output and docs/TOOLCHAIN.md. Empty is valid ("no extra dir"; e.g. `gcc-pe` ships its own headers) |
 | `libs` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Lib"` | Path to compiler lib directory (empty is valid — the compile-only mirrors ship no `Lib/`) |
 | `cflags` | `string` | `""` | Default compiler flags |
@@ -388,10 +388,9 @@ rebrew cfg path                                 # print path to config file
 `rebrew toolchain list` for the exact names): every MSVC variant — 4.0/4.2/5.0
 (and sp1–sp3), 6.0 (and sp1–sp6), 7.0–11.0 (rtm/sp variants), 2.0/4.1, and the
 16-bit 1.0 (`msvc10`)/1.5 (`msvc15`)/1.52 (`msvc1.52`) — plus borlandc55,
-tc16/tc20, watcom/watcom16, delphi16, and gcc/gcc-pe/clang.  Windows/DOS
-profiles get an empty `command`/`runner` in the generated config (the docker
-image is the compiler); native profiles keep a real command (PATH-resolved
-`i686-w64-mingw32-gcc` for `gcc-pe`, project-relative
-`toolchain/watcom/2.0-win32/source/binl/wcc` for `watcom16`).  The target
+tc16/tc20, watcom/watcom16, delphi16, gcc/gcc12/gcc-pe/gcc-pe14 and
+clang/clang16.  Every profile gets an empty `command`/`runner` in the
+generated config (the docker image is the compiler); only a plugin toolchain
+registered without an image keeps a real host command.  The target
 `arch` follows the profile (`msvc1.52` → `x86_16`); if a binary is already in
 `original/`, `format`/`arch` are auto-detected from it instead.

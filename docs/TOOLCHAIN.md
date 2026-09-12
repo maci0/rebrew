@@ -15,11 +15,12 @@ The compile cache keys an object on the backend that produced it, so
 switching backends cannot serve the other's object, and the transport lives
 in `rebrew/recompile_client.py`.
 
-`gcc`, `gcc-pe`, `clang` and `watcom16` remain **native** specs (PATH or
-vendored binary, no image). Making them image-backed is deferred: no pinned
-source with the author's exact compiler version exists for them, and
-byte-exact matching depends on that version (see the MinGW GCC caveat
-below). See ADR 015.
+Every shipped profile is **image-backed**: `gcc`/`gcc12`, `gcc-pe`/`gcc-pe14`,
+`clang`/`clang16` and `watcom16` hold the compiler inside their image like the
+rest of the matrix (GCC built from the GNU source tarball, Clang from LLVM's
+prebuilt release, MinGW-w64 from the mingw-builds release, Watcom from its
+snapshot), so a compile needs no host toolchain. Only a plugin toolchain
+registered without an `image` runs as a host binary. See ADR 015.
 
 ---
 
@@ -69,16 +70,19 @@ compiler profile:
 ```toml
 [compiler]
 profile = "gcc-pe"
-command = "i686-w64-mingw32-gcc"
-includes = ""            # mingw ships its own headers
+command = ""             # image-backed: the image IS the compiler
+includes = ""            # mingw ships its own headers inside the image
 libs = ""
 cflags = "-O2 -march=pentium4"
 base_cflags = ""         # -c is added by rebrew for posix-style profiles
 ```
 
-`rebrew init --toolchain gcc-pe` creates this configuration.  The compile
-pipeline is profile-aware: `-I/-c/-o` flag style, no Wine runner, and PATH
-resolution of the bare toolchain name.
+`rebrew init --toolchain gcc-pe` creates this configuration (it writes the
+empty `command`/`runner` every image-backed profile gets).  The compile
+pipeline is profile-aware: `-I/-c/-o` flag style, and the image
+`rebrew/gcc-pe:16.2.0-win32` — whose wrapper runs the Windows PE driver
+through wine — compiles the source.  `gcc-pe14` selects the 14.2.0 build
+(`rebrew/gcc-pe:14.2.0-win32`).
 
 **Caveat — codegen-version sensitivity:** byte-exact matching requires the
 author's *exact* GCC version.  Modern GCC (e.g. 16.x) differs from older GCC
@@ -87,9 +91,13 @@ author's *exact* GCC version.  Modern GCC (e.g. 16.x) differs from older GCC
 match only *structurally* (use `rebrew diff` structural ratio) — document the
 semantic decomp and blocker the byte delta rather than forcing a pass.
 
-**ELF/x86_64 targets:** `gcc` and `clang` are first-class native PATH specs
-(no image, posix flags, `.o` objects) — the same profile-aware pipeline as
-`gcc-pe`, resolving the bare `gcc`/`clang` binary from PATH.  Both carry a
+**ELF/x86_64 targets:** `gcc`/`gcc12` and `clang`/`clang16` are first-class
+ELF profiles (posix flags, `.o` objects) backed by their own images
+(`rebrew/gcc:14.2.0-linux-x64`, `rebrew/gcc:12.3.0-linux-x64`,
+`rebrew/clang:18.1.8-linux-x64`, `rebrew/clang:16.0.4-linux-x64`) — the
+defaults `gcc`/`clang` are the newest of each family.  The GNU images build
+GCC from the release tarball; the Clang images extract LLVM's prebuilt
+release.  Both carry a
 minimal posix flag-sweep axis set (`rebrew.matcher.flag_data.GCC_FLAGS`), so
 `rebrew match --flag-sweep` emits flags these compilers accept rather than
 the MSVC fallback.
@@ -157,11 +165,12 @@ through a uniform abstraction (`rebrew.toolchain`), modeled on Godbolt's
 Compiler Explorer convention: **one container image per toolchain-version**,
 with the compiler behind a wrapper inside the image, so the host invocation
 is always `docker run <image> <compiler> <args>`.  Execution is
-**docker-only for every Windows/DOS toolchain** — the images encapsulate the
-runtime (wine / DOSBox) and there is no host wine/wibo/dosbox fallback; a
-missing image is a hard error (run `rebrew toolchain build <name>`).
-Native-Linux toolchains without an image (gcc-pe, watcom16 `wcc`) exec
-their vendored/PATH binary directly.  The docker build source (Dockerfiles,
+**docker-only for every toolchain** — the images encapsulate the
+runtime (wine / DOSBox / a native Linux compiler) and there is no host
+wine/wibo/dosbox fallback; a missing image is a hard error (run
+`rebrew toolchain build <name>`).  A plugin toolchain registered without an
+image execs its vendored/PATH binary directly (the only image-less path
+left).  The docker build source (Dockerfiles,
 wrappers, the shared `base`) lives in the standalone **rebrew-toolchains**
 checkout — the sibling repo (overridable via `REBREW_TOOLCHAINS_DIR`) —
 and `rebrew toolchain build`/`vendor` read it from there; rebrew no
@@ -173,8 +182,12 @@ container, from the sha256-pinned archaic-msvc `msvc600` tarball,
 CL.EXE 12.00.8168), `delphi16`
 (DOSBox; image `rebrew/delphi:1.0-win16` built+verified — a
 containerized Delphi 1.0 compile produces a genuine NE 6.01 executable),
-`gcc-pe` (native MinGW), `watcom` (native Open Watcom 2.0 — installed at
-`rebrew-toolchains/watcom/2.0-win32`; image `rebrew/watcom:2.0-win32` built and verified —
+`gcc-pe`/`gcc-pe14` (MinGW-w64 i686 — image `rebrew/gcc-pe:16.2.0-win32` /
+`rebrew/gcc-pe:14.2.0-win32`; the driver is a Windows PE binary, so the
+image's wrapper runs it under wine), `gcc`/`gcc12` (GNU GCC 14.2.0 / 12.3.0 ELF
+images, built C-only from the GNU release tarball), `clang`/`clang16` (Clang
+18.1.8 / 16.0.4 ELF images from LLVM's prebuilt releases), `watcom` (Open
+Watcom 2.0 x86 32-bit; image `rebrew/watcom:2.0-win32` built and verified —
 the docker-first compile produces the same object + relocs as the host
 path), `msvc1.52` (16-bit, DOSBox via `rebrew.msvc16`; image
 `rebrew/msvc:1.52-win16` built+verified — containerized CL.EXE
@@ -183,8 +196,9 @@ as its single argument and adds `/nologo /c` itself), `borlandc55`
 (Borland C++ 5.5 free command-line tools under wine; image
 `rebrew/borland:5.5-win32` built+verified — bcc32 emits OMF objects that
 parse via objconv; vendored from the archive.org `BorlandC55` item),
-`watcom16` (Open Watcom 2.0 `wcc`, 16-bit DOS, native — same snapshot as
-`watcom`), `tc16` (Turbo C++ 3.1, 16-bit DOS under DOSBox via
+`watcom16` (Open Watcom 2.0 `wcc`, 16-bit DOS; image
+`rebrew/watcom:2.0-win16`, the compiler running natively inside it — pinned
+to the dated 2026-09-01 snapshot), `tc16` (Turbo C++ 3.1, 16-bit DOS under DOSBox via
 `rebrew.tc16`; image `rebrew/borland:3.1-win16` — TCC.EXE produces
 Borland 16-bit OMF that parses via `rebrew.omf16`; vendored
 from the archive.org `turboc3.1_202112` item — the classic
@@ -209,12 +223,12 @@ recomp `cc` runs natively, no wine; in the smoke gate, objects byte-identical
 across runs).
 
 **Every registry toolchain with a pinned source has a verified
-containerized path** (the images above + gcc-pe native) — the
+containerized path** — the
 docker-only standardization is complete for the whole matrix; there is
 no host wine/dosbox execution path in the compile pipeline anymore (only
 the standalone `rebrew.msvc16`/`rebrew.tc16`/`rebrew.delphi16` research
 modules run their DOSBox sandbox directly).  `rebrew toolchain smoke`
-gates byte-reproducibility for every image-backed MSVC profile with a
+gates byte-reproducibility for every image-backed profile with a
 golden object hash.
 
 **Source drift is tracked** (`rebrew toolchain check-updates`): every
@@ -306,7 +320,8 @@ Notes:
   `tools/objconv/objconv` should be the fixed build from the objconv fork
   (16-bit OMF relocation methods + COMDAT→COFF-section support — see the
   fork's `PR-16BIT-OMF.md`), which converts what the stock build rejects.
-  `profile = "watcom16"` (native `wcc`, 16-bit DOS) routes through the
+  `profile = "watcom16"` (16-bit DOS `wcc`, image
+  `rebrew/watcom:2.0-win16`) routes through the
   same toolchain runner with the wcc flag shape (`-fo=`/`-I`/`-zq`, no
   `-c` — wcc16 rejects it with E1073); its objects parse via the omf16
   decoder too, so 16-bit DOS/Watcom targets get compile+compare support
@@ -351,13 +366,13 @@ a fixed source in each image with deterministic inputs (fixed work dir +
 fixed source mtime — OMF/COFF objects embed the source path and
 modification time) and verifies the object sha256 against golden bytes.
 Every COFF object's TimeDateStamp (build time) is masked, plus the Turbo C
-2.0 / 3.1 per-run COMENT ticks; all 36 smoke-gated toolchains pass —
-every image-backed MSVC profile from `msvc10` to `msvc1100` plus
-borlandc55, watcom, watcom16, tc16, tc20 and delphi16 — and the image and
-host runs gate the same goldens (the container always sees the source at
-`/work`; host-only watcom16 runs from the same fixed workdir).  gcc-pe is
-not gated: it is a PATH tool, not a vendored tree.  When a pinned source
-is bumped (new tarball/snapshot), `rebrew toolchain smoke --print-goldens`
+2.0 / 3.1 per-run COMENT ticks.  The table covers every image-backed profile
+(the MSVC line from `msvc10` to `msvc1100`, borlandc55, watcom, watcom16,
+tc16, tc20, delphi16, the IDO images, and `gcc`/`gcc12`/`clang`/`clang16`/
+`gcc-pe`/`gcc-pe14`); `tc20` is the one known mismatch (its recorded golden
+predates the image built here — regenerate it with `--print-goldens` after
+confirming which tree is canonical).  When a pinned source is bumped (new
+tarball/snapshot), `rebrew toolchain smoke --print-goldens`
 regenerates the masked hashes WITHOUT comparing — run it twice, confirm
 the hashes are stable, then paste them into `_SMOKE_GOLDEN`.
 

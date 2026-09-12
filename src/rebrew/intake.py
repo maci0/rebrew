@@ -59,9 +59,9 @@ def _link_names_for(profile: str) -> tuple[str, str] | None:
 
     Image ``rebrew/<family>:<tag>`` maps to ``<family>/<tag>`` (the
     vendored toolchain layout, e.g. msvc6 → ``msvc/6.0-win32``); explicit
-    overrides in :data:`_TOOLCHAIN_LINK_OVERRIDES` win.  ``None`` for
-    imageless native profiles (gcc-pe — PATH binary, nothing to link) and
-    unknown profiles.
+    overrides in :data:`_TOOLCHAIN_LINK_OVERRIDES` win.  ``None`` for an
+    image-less spec (a plugin toolchain — nothing to link) and unknown
+    profiles.
     """
     if profile in _TOOLCHAIN_LINK_OVERRIDES:
         return _TOOLCHAIN_LINK_OVERRIDES[profile]
@@ -340,8 +340,6 @@ def _set_target_arch(project: Path, target_name: str, arch: str, fmt: str) -> No
 
 def _link_toolchain(project: Path, profile: str) -> str | None:
     """Symlink the vendored toolchain into project/tools; None when not needed/available."""
-    if profile == "gcc-pe":
-        return None
     entry = _link_names_for(profile)
     if entry is None:
         return None
@@ -590,7 +588,7 @@ def main(
                     f"{spec.image} — run 'rebrew toolchain build {profile}' "
                     "if the image is missing"
                 )
-            elif profile != "gcc-pe":
+            elif spec is None or spec.image is None:
                 console.print(
                     f"[yellow]  toolchain: not found in {REPO_TOOLS} — symlink "
                     "tools/ yourself or run rebrew doctor[/yellow]"

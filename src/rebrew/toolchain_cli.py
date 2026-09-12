@@ -100,8 +100,8 @@ def status_cmd(
         except Exception:
             host_ok = False
     elif spec.image is None:
-        # Native-Linux toolchains (gcc-pe, watcom16 wcc) exec their binary
-        # directly — that IS the execution path.
+        # An image-less spec (a plugin toolchain) execs its binary directly —
+        # that IS the execution path.
         host_ok = shutil.which(spec.binary) is not None
     image_ok: bool | None = None
     if spec.image is not None and docker_available():
@@ -256,6 +256,17 @@ def pull_cmd(
             console.print(f"[green]Pulled[/green] {tag}")
 
 
+def _flatten_wrapper_dir(payload: Path, extract_dir: Path) -> None:
+    """Move *payload*'s children into *extract_dir*, unwrapping a single
+    top-level directory first (``TC/``, ``mingw32/``) so the host tree has
+    the same flat shape as every other toolchain."""
+    contents = [p for p in payload.iterdir() if p.is_dir()]
+    if len(contents) == 1 and not any(p.is_file() for p in payload.iterdir()):
+        payload = contents[0]
+    for child in payload.iterdir():
+        child.rename(extract_dir / child.name)
+
+
 @app.command("vendor")
 def vendor_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. msvc1.52, borlandc55)"),
@@ -361,12 +372,18 @@ def vendor_cmd(
                         stdin=subprocess.DEVNULL,
                         timeout=_EXTRACT_TIMEOUT_S,
                     )
-                    payload = Path(td + "/zip")
-                    contents = [p for p in payload.iterdir() if p.is_dir()]
-                    if len(contents) == 1 and not any(p.is_file() for p in payload.iterdir()):
-                        payload = contents[0]
-                    for child in payload.iterdir():
-                        child.rename(extract_dir / child.name)
+                    _flatten_wrapper_dir(Path(td + "/zip"), extract_dir)
+                elif src.layout == "7z-strip1":
+                    # A .7z with the same single top-level wrapper dir
+                    # (mingw-builds archives carry mingw32/).
+                    subprocess.run(
+                        ["7z", "x", "-y", str(archive), f"-o{td}/7z"],
+                        check=True,
+                        capture_output=True,
+                        stdin=subprocess.DEVNULL,
+                        timeout=_EXTRACT_TIMEOUT_S,
+                    )
+                    _flatten_wrapper_dir(Path(td + "/7z"), extract_dir)
                 elif src.layout == "tar-strip1":
                     subprocess.run(
                         # Auto-detect compression (no -z/-J): the pinned
@@ -670,10 +687,10 @@ _SMOKE_GOLDEN: dict[
     "watcom16": (
         ["-fo=w.o", "t.c"],
         "w.o",
-        "c44434a24aa1c6dbb36fe3a0a203992f79ea6e11cd95233da66e968ed4111acd",
+        "85244b6c95dc68fc7de450a4ef422c0bf4ab3a13a882b3cbb5d0e346bb9b01c4",
         "t.c",
         None,  # wcc embeds the source path (fixed /tmp/rebrew-smoke) but no
-        # timestamp — fixed-workdir runs are byte-identical (host-only).
+        # timestamp — fixed-workdir runs are byte-identical.
     ),
     "delphi16": (
         ["hello.dpr"],
@@ -715,6 +732,48 @@ _SMOKE_GOLDEN: dict[
         "6af67c000618e1acb476b58ff8dae30e727934ad78e819bc87305d7e2ebc8672",
         "t.c",
         None,  # ELF object — no timestamp; src path/mtime are fixed by the gate
+    ),
+    "gcc": (
+        ["-c", "-O2", "-o", "t.o", "t.c"],
+        "t.o",
+        "37e63745119ab217e65378fd5b5ab5c5aa22fcece3f4d397b7f10f6c0b9e62f6",
+        "t.c",
+        None,  # ELF object — no timestamp; src path/mtime are fixed by the gate
+    ),
+    "gcc12": (
+        ["-c", "-O2", "-o", "t.o", "t.c"],
+        "t.o",
+        "b80235b3ec4b75d3f9a5d32db64660911d6f1ce9e2c9e67319b378095987d198",
+        "t.c",
+        None,  # ELF object — no timestamp; src path/mtime are fixed by the gate
+    ),
+    "clang": (
+        ["-c", "-O2", "-o", "t.o", "t.c"],
+        "t.o",
+        "fed0b5f644dcc6dff27e0e2178987cfa49d17c4ee4c785ddbafe7c5f0d5f4067",
+        "t.c",
+        None,  # ELF object — no timestamp; src path/mtime are fixed by the gate
+    ),
+    "clang16": (
+        ["-c", "-O2", "-o", "t.o", "t.c"],
+        "t.o",
+        "f2a7e6e5310741bc84b99c9c3674f9909510c867c8349686d0467dcaf07b1ea7",
+        "t.c",
+        None,  # ELF object — no timestamp; src path/mtime are fixed by the gate
+    ),
+    "gcc-pe": (
+        ["-c", "-O2", "-o", "t.o", "t.c"],
+        "t.o",
+        "385f1a688e6490af5978106aa59169cc4d434fd8ee60eb2547d7bdfb34689981",
+        "t.c",
+        (4, 8),  # COFF TimeDateStamp
+    ),
+    "gcc-pe14": (
+        ["-c", "-O2", "-o", "t.o", "t.c"],
+        "t.o",
+        "bd6533f8062fefa16fcf2e52fad761feabbf1c54f0583a64d3c5004a049c140d",
+        "t.c",
+        (4, 8),  # COFF TimeDateStamp
     ),
 }
 
@@ -799,11 +858,12 @@ def smoke_cmd(
                     continue
                 detail = (r.stdout + r.stderr)[-120:].strip()
             else:
-                # Host-only vendored toolchain (msvc420/msvc5 under wine, watcom16
-                # native wcc): gate its reproducibility through the uniform host
-                # runner (resolves the vendored binary, sets the wine env).  The
-                # same fixed-workdir + fixed-mtime determinism contract applies —
-                # previously these had NO reproducibility gate at all.
+                # Host-only vendored toolchain (a plugin spec under wine, or an
+                # image-less native compiler): gate its reproducibility through
+                # the uniform host runner (resolves the vendored binary, sets
+                # the wine env).  The same fixed-workdir + fixed-mtime
+                # determinism contract applies — previously these had NO
+                # reproducibility gate at all.
                 from rebrew.toolchain import ToolchainError, run_toolchain
 
                 try:

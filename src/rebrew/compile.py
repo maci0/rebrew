@@ -1,9 +1,9 @@
 """Unified compilation helper for rebrew.
 
 Provides a single, consistent interface for compiling C source to .obj files
-through the configured toolchain (docker images for every Windows/DOS
-compiler - wine runs inside the image; native binaries for Linux compilers
-such as gcc-pe/watcom16). All tools (rebrew test, rebrew match, rebrew
+through the configured toolchain (its docker image — the runtime, be it
+wine, DOSBox or a native Linux binary, lives inside that image). All tools
+(rebrew test, rebrew match, rebrew
 verify) use these functions instead of building compile commands
 independently.
 
@@ -713,9 +713,9 @@ def _native_toolchain_id(spec: "ToolchainSpec") -> str:
         cached = f"native:{name}"
         # Resolve the binary the runner will actually execute, in the same
         # order as toolchain._resolve_binary: the VENDORED tree first, then
-        # PATH.  Hashing only `shutil.which` gave `native:wcc` (no digest) for
-        # watcom16, whose `wcc` resolves from the vendored tree — so replacing
-        # that tree kept serving objects built by the old compiler.
+        # PATH.  Hashing only `shutil.which` misses a spec whose binary
+        # resolves out of a vendored tree, so replacing that tree kept
+        # serving objects built by the old compiler.
         from rebrew.toolchain import vendored_binary
 
         resolved = vendored_binary(spec)
@@ -852,8 +852,8 @@ def compile_to_obj(
     versions, Borland, Watcom, the 16-bit DOS compilers): the image
     encapsulates the runtime (wine / DOSBox) and the host never calls
     CL.EXE / DCC.EXE / TCC.EXE / bcc32.exe directly - there is no host
-    wine/wibo/dosbox fallback.  Native-Linux toolchains without an image
-    (gcc-pe, watcom16 wcc) run through the standardized native backend.
+    wine/wibo/dosbox fallback.  A spec registered without an image (a
+    plugin toolchain) runs through the standardized native backend.
 
     The source file is copied into ``workdir`` (mounted at /work in the
     container).  Relative /I flags are rewritten to container paths;
@@ -1023,9 +1023,9 @@ def compile_to_obj(
         )
 
     if spec is not None and (spec.image is not None or spec.runtime == "native"):
-        """The standardized runner: docker images for every Windows/DOS
-        toolchain, native execution for Linux compilers without an image
-        (gcc-pe, watcom16 wcc).  There is no host wine/dosbox path."""
+        """The standardized runner: the toolchain's docker image, or native
+        execution for an image-less plugin spec.  There is no host
+        wine/dosbox path."""
         mounts: list[tuple[str, str]] = []
         if spec.image is not None:
             # --- docker: rewrite include flags for the container ---
@@ -1075,7 +1075,8 @@ def compile_to_obj(
         elif spec.name in ("watcom", "watcom16"):
             args = all_flags + [f"-fo={obj_name}", "-zq", src_name]
         elif spec.flags_style == "posix":
-            # Native posix compilers (gcc-pe): -I/-c/-o, no MSVC /Fo.
+            # POSIX-style compilers (gcc, gcc-pe, clang, watcom): -I/-c/-o,
+            # no MSVC /Fo.
             inc_flags = [f"-I{inc_path}"] if inc_path else []
             args = all_flags + inc_flags + [f"-I{str(src_parent)}", "-c", "-o", obj_name, src_name]
         else:

@@ -10,7 +10,6 @@ target, with per-target compile-time defines.
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -20,6 +19,15 @@ import pytest
 from rebrew.config import ProjectConfig
 
 CC = b"\xcc"
+
+
+def _image_built(profile: str) -> bool:
+    """True when the profile's docker image is built locally (the tests below
+    run real compiles through the image)."""
+    from rebrew.toolchain import TOOLCHAINS, image_present
+
+    spec = TOOLCHAINS.get(profile)
+    return spec is not None and spec.image is not None and image_present(spec.image)
 
 
 def _cfg(
@@ -366,11 +374,18 @@ class TestDefinesCompile:
         assert k1 != k2
 
     def test_empty_inc_dir_raw_path_compiles(self, tmp_path: Path, monkeypatch) -> None:
-        """The raw subprocess path must not emit a bare -I//I when the include
-        dir is empty (gcc-pe allows no includes) — compile.py already guards
-        this; the matcher path must too."""
+        """The raw subprocess path (an image-less plugin toolchain) must not
+        emit a bare -I when the include dir is empty — compile.py already
+        guards this; the matcher path must too."""
         from rebrew.matcher.compiler import build_candidate_obj_only
+        from rebrew.toolchain import TOOLCHAINS
+        from rebrew.toolchain_spec import ToolchainSpec
 
+        monkeypatch.setitem(
+            TOOLCHAINS,
+            "hostcc",
+            ToolchainSpec(name="hostcc", image=None, binary="i686-w64-mingw32-gcc"),
+        )
         captured: dict[str, list[str]] = {}
 
         def _fake_run(cmd, **kw):
@@ -389,7 +404,7 @@ class TestDefinesCompile:
             "-O2",
             "_f",
             posix_style=True,
-            profile="gcc-pe",
+            profile="hostcc",
             cfg=SimpleNamespace(defines=[], root=tmp_path),
         )
         assert "-I" not in captured["cmd"] or not any(
@@ -421,11 +436,12 @@ class TestDefinesCompile:
 
 
 class TestGANativeEndToEnd:
-    """The full GA with a native (no-docker) toolchain — real compiles."""
+    """The full GA with the gcc-pe toolchain (MinGW GCC, PE/COFF) — real
+    compiles through its docker image."""
 
     @pytest.mark.skipif(
-        shutil.which("i686-w64-mingw32-gcc") is None,
-        reason="gcc-pe toolchain not installed",
+        not _image_built("gcc-pe"),
+        reason="rebrew/gcc-pe:16.2.0-win32 not built",
     )
     def test_ga_finds_exact_match_with_gcc_pe(self, tmp_path: Path) -> None:
         from bin_util import make_pe
@@ -479,8 +495,8 @@ class TestVerifySharedFile:
     """verify_entry resolves a shared filepath (../shared/...) and compiles it."""
 
     @pytest.mark.skipif(
-        shutil.which("i686-w64-mingw32-gcc") is None,
-        reason="gcc-pe toolchain not installed",
+        not _image_built("gcc-pe"),
+        reason="rebrew/gcc-pe:16.2.0-win32 not built",
     )
     def test_verify_compiles_shared_function(self, tmp_path: Path) -> None:
         from bin_util import make_pe

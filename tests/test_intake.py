@@ -347,11 +347,18 @@ class TestToolchainLinks:
         assert _link_names_for("tc16") == ("borland/3.1-win16", "borland/3.1-win16")
         assert _link_names_for("tc20") == ("borland/2.0-win16", "borland/2.0-win16")
 
-    def test_native_profile_has_no_link(self) -> None:
+    def test_unknown_profile_has_no_link(self) -> None:
         from rebrew.intake import _link_names_for
 
-        assert _link_names_for("gcc-pe") is None
         assert _link_names_for("no-such-profile") is None
+
+    def test_image_backed_native_profile_derived(self) -> None:
+        """gcc-pe is image-backed now (rebrew/gcc-pe:16.2.0-win32), so its
+        link name derives from the image like every other profile."""
+        from rebrew.intake import _link_names_for
+
+        assert _link_names_for("gcc-pe") == ("gcc-pe/16.2.0-win32", "gcc-pe/16.2.0-win32")
+        assert _link_names_for("watcom16") == ("watcom/2.0-win16", "watcom/2.0-win16")
 
 
 class TestExplicitToolchainWarns:

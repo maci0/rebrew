@@ -310,6 +310,63 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar",
         host_dir="ido/7.1-linux",
     ),
+    "clang": ToolchainSource(
+        # LLVM's official prebuilt x86_64 Linux release (llvmorg-18.1.8 — the
+        # only x86_64 Linux asset that release published).  Native ELF
+        # binaries; the same sha256 the rebrew/clang:18.1.8-linux-x64 image
+        # downloads at build time.
+        url="https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04.tar.xz",
+        sha256="54ec30358afcc9fb8aa74307db3046f5187f9fb89fb37064cdde906e062ebf36",
+        layout="tar-strip1",
+        host_dir="clang/18.1.8-linux-x64",
+    ),
+    "clang16": ToolchainSource(
+        # llvmorg-16.0.4 — the newest 16.x release with an x86_64 Linux
+        # asset (16.0.5/16.0.6 shipped aarch64 and powerpc64le only).
+        url="https://github.com/llvm/llvm-project/releases/download/llvmorg-16.0.4/clang+llvm-16.0.4-x86_64-linux-gnu-ubuntu-22.04.tar.xz",
+        sha256="fd464333bd55b482eb7385f2f4e18248eb43129a3cda4c0920ad9ac3c12bdacf",
+        layout="tar-strip1",
+        host_dir="clang/16.0.4-linux-x64",
+    ),
+    "gcc": ToolchainSource(
+        # GNU GCC 14.2.0 release tarball; the image builds C-only from it.
+        url="https://ftp.gnu.org/gnu/gcc/gcc-14.2.0/gcc-14.2.0.tar.xz",
+        sha256="a7b39bc69cbf9e25826c5a60ab26477001f7c08d85cec04bc0e29cabed6f3cc9",
+        layout="tar-strip1",
+        host_dir="gcc/14.2.0-linux-x64",
+    ),
+    "gcc12": ToolchainSource(
+        # GNU GCC 12.3.0 release tarball; the image builds C-only from it.
+        url="https://ftp.gnu.org/gnu/gcc/gcc-12.3.0/gcc-12.3.0.tar.xz",
+        sha256="949a5d4f99e786421a93b532b22ffab5578de7321369975b91aec97adfda8c3b",
+        layout="tar-strip1",
+        host_dir="gcc/12.3.0-linux-x64",
+    ),
+    "gcc-pe": ToolchainSource(
+        # niXman/mingw-builds-binaries — the i686-w64-mingw32 target, Windows
+        # host (the driver is a PE32 binary the image runs under wine); the
+        # archive wraps its tree in mingw32/.
+        url="https://github.com/niXman/mingw-builds-binaries/releases/download/16.2.0-rt_v14-rev1/i686-16.2.0-release-posix-dwarf-msvcrt-rt_v14-rev1.7z",
+        sha256="9773342cba88efe50e6f3ddd021ac6f1d9ac1957301705fe64def22f501f0dd4",
+        layout="7z-strip1",
+        host_dir="gcc-pe/16.2.0-win32",
+    ),
+    "gcc-pe14": ToolchainSource(
+        url="https://github.com/niXman/mingw-builds-binaries/releases/download/14.2.0-rt_v12-rev2/i686-14.2.0-release-posix-dwarf-msvcrt-rt_v12-rev2.7z",
+        sha256="895d22c902e22d4b7b1c1b4160d1b3d70bbd6fc653b04f46b7736ef0ef5e4bc2",
+        layout="7z-strip1",
+        host_dir="gcc-pe/14.2.0-win32",
+    ),
+    "watcom16": ToolchainSource(
+        # Open Watcom 2.0 snapshot, dated 2026-09-01.  The Last-CI-build tag
+        # the `watcom` pin uses is republished on every CI run, so its
+        # recorded sha256 no longer resolves upstream; the dated release is
+        # immutable and this image rebuilds reproducibly from it.
+        url="https://github.com/open-watcom/open-watcom-v2/releases/download/2026-09-01-Build/ow-snapshot.tar.xz",
+        sha256="bac354f3c75ffa49ff8d70a44e475de7e7c1823fff04b80c14787bd0792c9bdf",
+        layout="tar-strip1",
+        host_dir="watcom/2.0-win16",
+    ),
     "borlandc55": ToolchainSource(
         url="https://archive.org/download/BorlandC55/Borland%20C%2B%2B%205.5.zip",
         sha256="12affb942db2b9823292697faaa6f465b18c381ba347f9f4bf8efae6ff34cca1",
@@ -447,30 +504,63 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
     ),
     "gcc-pe": ToolchainSpec(
         name="gcc-pe",
-        image=None,
+        image="rebrew/gcc-pe:16.2.0-win32",
         binary="i686-w64-mingw32-gcc",
-        runtime="native",
+        image_binary=None,  # the image ENTRYPOINT is the gcc-pe wrapper
+        runtime="wine",  # the mingw-builds driver is a Windows PE binary
         flags_style="posix",
-        obj_ext=".o",
-        description="MinGW GCC / Zig (PE/x86_32) — native PATH binary",
+        obj_ext=".obj",  # PE/COFF object for the i686-w64-mingw32 target
+        description="MinGW-w64 GCC 16.2.0 (PE/x86_32) — docker image (wine inside)",
+    ),
+    "gcc-pe14": ToolchainSpec(
+        name="gcc-pe14",
+        image="rebrew/gcc-pe:14.2.0-win32",
+        binary="i686-w64-mingw32-gcc",
+        image_binary=None,  # the image ENTRYPOINT is the gcc-pe wrapper
+        runtime="wine",  # the mingw-builds driver is a Windows PE binary
+        flags_style="posix",
+        obj_ext=".obj",  # PE/COFF object for the i686-w64-mingw32 target
+        description="MinGW-w64 GCC 14.2.0 (PE/x86_32) — docker image (wine inside)",
     ),
     "gcc": ToolchainSpec(
         name="gcc",
-        image=None,
+        image="rebrew/gcc:14.2.0-linux-x64",
         binary="gcc",
-        runtime="native",
+        image_binary=None,  # the image ENTRYPOINT is the gcc wrapper
+        runtime="native",  # the compiler runs natively in the image
         flags_style="posix",
-        obj_ext=".o",
-        description="GCC (ELF/x86_64) — native PATH binary",
+        obj_ext=".o",  # ELF x86_64 object
+        description="GCC 14.2.0 (ELF/x86_64) — docker image (native, built from source)",
+    ),
+    "gcc12": ToolchainSpec(
+        name="gcc12",
+        image="rebrew/gcc:12.3.0-linux-x64",
+        binary="gcc",
+        image_binary=None,  # the image ENTRYPOINT is the gcc wrapper
+        runtime="native",  # the compiler runs natively in the image
+        flags_style="posix",
+        obj_ext=".o",  # ELF x86_64 object
+        description="GCC 12.3.0 (ELF/x86_64) — docker image (native, built from source)",
     ),
     "clang": ToolchainSpec(
         name="clang",
-        image=None,
+        image="rebrew/clang:18.1.8-linux-x64",
         binary="clang",
-        runtime="native",
+        image_binary=None,  # the image ENTRYPOINT is the clang wrapper
+        runtime="native",  # the compiler runs natively in the image
         flags_style="posix",
-        obj_ext=".o",
-        description="Clang (ELF/x86_64) — native PATH binary",
+        obj_ext=".o",  # ELF x86_64 object
+        description="Clang 18.1.8 (ELF/x86_64) — docker image (native, LLVM release build)",
+    ),
+    "clang16": ToolchainSpec(
+        name="clang16",
+        image="rebrew/clang:16.0.4-linux-x64",
+        binary="clang",
+        image_binary=None,  # the image ENTRYPOINT is the clang wrapper
+        runtime="native",  # the compiler runs natively in the image
+        flags_style="posix",
+        obj_ext=".o",  # ELF x86_64 object
+        description="Clang 16.0.4 (ELF/x86_64) — docker image (native, LLVM release build)",
     ),
     "ido5.3": ToolchainSpec(
         name="ido5.3",
@@ -502,7 +592,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         if vendored_path("watcom/2.0-win32").exists()
         else None,
         host_bin="binl",
-        description="Open Watcom 2.0 (x86 32-bit) — native Linux wcc386",
+        description="Open Watcom 2.0 (x86 32-bit) — docker image (native Linux wcc386)",
     ),
     "msvc1.52": ToolchainSpec(
         name="msvc1.52",
@@ -930,16 +1020,13 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
     ),
     "watcom16": ToolchainSpec(
         name="watcom16",
-        image=None,  # host-only: wcc runs natively from the watcom snapshot
+        image="rebrew/watcom:2.0-win16",
         binary="wcc",
-        runtime="native",
+        image_binary=None,  # the image ENTRYPOINT is the wcc wrapper
+        runtime="native",  # the compiler runs natively in the image
         bits=16,  # 16-bit target (arch-alignment check)
         flags_style="posix",
         obj_ext=".obj",  # 16-bit OMF — parses via omf16/objconv
-        host_path=vendored_path("watcom/2.0-win32")
-        if vendored_path("watcom/2.0-win32").exists()
-        else None,
-        host_bin="binl",
-        description="Open Watcom 2.0 wcc (16-bit DOS, OMF) — native Linux wcc",
+        description="Open Watcom 2.0 wcc (16-bit DOS, OMF) — docker image (native Linux)",
     ),
 }

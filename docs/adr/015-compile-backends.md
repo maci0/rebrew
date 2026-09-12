@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Amended by [016](016-image-backed-native-profiles.md) — the blockers recorded
+below are resolved; every shipped profile is image-backed now.
 
 ## Context
 
