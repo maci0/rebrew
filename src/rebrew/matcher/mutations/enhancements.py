@@ -24,6 +24,7 @@ from rebrew.matcher.mutations.runtime import (
     _cursor,
     _find_function_body_insert_pos,
     _first_caps,
+    _statement_region_start,
     brace_block,
 )
 
@@ -503,21 +504,23 @@ def mut_dummy_stack_vars(s: str, rng: random.Random) -> str | None:
         return None
 
     size = rng.choice(_STACK_PAD_SIZES)
-    insert_pos = body_node.start_byte + 1
+    insert_pos = int(body_node.start_byte) + 1
 
     if size == 4:
         decl = b"\n    volatile int " + pad_name + b" = 0;"
-    else:
-        decl = (
-            b"\n    volatile char "
-            + pad_name
-            + f"[{size}]".encode()
-            + b"; "
-            + pad_name
-            + b"[0] = 0;"
-        )
+        result = b_source[:insert_pos] + decl + b_source[insert_pos:]
+        return result.decode("utf-8")
 
-    result = b_source[:insert_pos] + decl + b_source[insert_pos:]
+    # The array needs a write to stay live, and that write is a *statement*:
+    # emitting it beside the declaration (the old shape) put it ahead of the
+    # block's own declarations, which C89 rejects.  Declaration at the top,
+    # write after the declaration region.  The later offset is applied first
+    # so the earlier insertion does not shift it.
+    array_decl = b"\n    volatile char " + pad_name + f"[{size}]".encode() + b";"
+    write = b"\n    " + pad_name + b"[0] = 0;"
+    write_pos = _statement_region_start(body_node)
+    result = b_source[:write_pos] + write + b_source[write_pos:]
+    result = result[:insert_pos] + array_decl + result[insert_pos:]
     return result.decode("utf-8")
 
 

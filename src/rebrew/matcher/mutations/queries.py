@@ -347,6 +347,15 @@ _QUERY_CONST_ADD_FOLD = _LazyQuery(
 
 _QUERY_NUMBER_LITERAL = _LazyQuery(_C_LANGUAGE, "(number_literal) @lit")
 
+#: A pointer-cast dereference (``*(T*)p``): the per-access qualifier site.
+#: MSVC6 keys the memory-operand fold and the store ordering off the qualifier
+#: on the access, so a cast-qualified lvalue is a lever of its own, separate
+#: from the declaration-level ``volatile`` of `mut_toggle_volatile`.
+_QUERY_VOLATILE_ACCESS = _LazyQuery(
+    _C_LANGUAGE,
+    "(pointer_expression argument: (cast_expression (type_descriptor) @ty)) @expr",
+)
+
 _QUERY_CONST_ADD_UNFOLD = _LazyQuery(
     _C_LANGUAGE,
     """
@@ -802,9 +811,11 @@ _QUERY_LOCAL_DECL = _LazyQuery(
 )
 
 
+#: Statements only: inserting `if (0) {}` ahead of a *declaration* puts a
+#: statement before the block's declarations, which C89 (and MSVC6) rejects.
 _QUERY_INSERT_NOOP_BLOCK = _LazyQuery(
     _C_LANGUAGE,
-    "(compound_statement [(expression_statement) (declaration) (return_statement)] @stmt)",
+    "(compound_statement [(expression_statement) (return_statement)] @stmt)",
 )
 _QUERY_INTRODUCE_LOCAL_ALIAS = _LazyQuery(
     _C_LANGUAGE, "(expression_statement (assignment_expression right: (identifier) @var)) @stmt"
