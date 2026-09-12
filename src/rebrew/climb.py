@@ -106,6 +106,9 @@ def _function_span(lines: list[str], symbol: str) -> tuple[int, int]:
         ValueError: when no definition or no matching closing brace is found.
     """
     name = symbol[1:] if symbol.startswith("_") else symbol
+    # A __stdcall/__fastcall definition carries an "@<bytes>" decoration, which
+    # the compiler adds and the source never writes: `_foo@8` defines `foo`.
+    name = re.sub(r"@\d+$", "", name)
     head = re.compile(rf"^[\w\s\*]+?\b{re.escape(name)}\s*\(")
     code = _code_lines(lines)
     # A file may declare the symbol before defining it; a definition is the
