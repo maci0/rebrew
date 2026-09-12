@@ -75,6 +75,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from rebrew.pe_headers import pe_lfanew, sections_at
+
 
 @dataclasses.dataclass
 class SectionMeta:
@@ -164,8 +166,8 @@ def parse_pe(data: bytes) -> tuple[int, int, int, int, int]:
     """Return (e_lfanew, nsec, optsz, opt_off, image_base) with sanity checks."""
     if len(data) < 0x40:
         raise ValueError("file too small to be a PE")
-    e = struct.unpack_from("<I", data, 0x3C)[0]
-    if e + 24 > len(data) or data[e : e + 4] != b"PE\0\0":
+    e = pe_lfanew(data)
+    if e is None or e + 24 > len(data):
         raise ValueError("no PE signature")
     nsec = struct.unpack_from("<H", data, e + 6)[0]
     optsz = struct.unpack_from("<H", data, e + 20)[0]
@@ -178,18 +180,6 @@ def parse_pe(data: bytes) -> tuple[int, int, int, int, int]:
         raise ValueError("PE32+ not supported")
     image_base = struct.unpack_from("<I", data, opt + 28)[0]
     return e, nsec, optsz, opt, image_base
-
-
-def _rva_to_offset(data: bytes, e: int, nsec: int, optsz: int, rva: int) -> int | None:
-    opt = e + 24
-    sh = opt + optsz
-    for i in range(nsec):
-        h = sh + 40 * i
-        vals: tuple[int, int, int, int] = struct.unpack_from("<IIII", data, h + 8)
-        vs, va, rsz, roff = vals
-        if va <= rva < va + max(vs, rsz):
-            return roff + (rva - va)
-    return None
 
 
 def _data_dir(data: bytes, opt: int, index: int) -> tuple[int, int]:
@@ -212,17 +202,23 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
     header_size = e + 4 + 20 + optsz + nsec * 40
     sh = opt + optsz
 
-    sections: list[SectionMeta] = []
-    for i in range(nsec):
-        h = sh + 40 * i
-        name = data[h : h + 8].rstrip(b"\0").decode("latin1")
-        vals: tuple[int, int, int, int] = struct.unpack_from("<IIII", data, h + 8)
-        vs, va, rsz, roff = vals
-        chars = struct.unpack_from("<I", data, h + 36)[0]
-        sections.append(SectionMeta(name, va, vs, rsz, roff, chars))
+    sections: list[SectionMeta] = [
+        SectionMeta(
+            s.name,
+            s.virtual_address,
+            s.virtual_size,
+            s.size_of_raw_data,
+            s.pointer_to_raw_data,
+            s.characteristics,
+        )
+        for s in sections_at(data, sh, nsec)
+    ]
 
     def off(rva: int) -> int | None:
-        return _rva_to_offset(data, e, nsec, optsz, rva)
+        for s in sections:
+            if s.va <= rva < s.va + max(s.vs, s.raw):
+                return s.raw_ptr + (rva - s.va)
+        return None
 
     iat_rva, iat_size = _data_dir(data, opt, 12)  # IAT
     imp_rva, _ = _data_dir(data, opt, 1)  # IMPORT_TABLE

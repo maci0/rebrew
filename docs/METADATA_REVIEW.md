@@ -29,7 +29,7 @@ targets share the metadata dir with separate `reversed_dir`s.
 `ghidra/commands.py` implements a full field-level sync over ReVa MCP
 (create-label / set-comment / set-bookmark / parse-c-structure /
 create-function / set-function-prototype push; rename / NOTE / GHIDRA /
-PROTOTYPE / structs / params / data pull) **and** `binsync_export/import/diff`
+PROTOTYPE / structs / params / data pull) **and** `binsync.export/importer/diff`
 implements the same field set (names→renames, comments→NOTE, prototypes,
 structs, globals) over the BinSync state dir.  Two code paths map the same
 facts to the same destinations; only the transport differs.  A pushed-op hash
@@ -45,9 +45,9 @@ counterpart is BinSync's own plugin — rebrew stops maintaining a second
 client for fields the plugin already covers.
 
 ### R2 — Write-only `[rebrew] STATUS=… CFLAGS=…` shim in BinSync exports
-`binsync_export._rebrew_comment()` embeds rebrew-only STATUS/CFLAGS as a
+`binsync.export._rebrew_comment()` embeds rebrew-only STATUS/CFLAGS as a
 `[rebrew]` comment inside the state TOMLs, but **nothing reads it back** —
-`binsync_import` handles names/prototypes/globals/structs only.  The data is
+`binsync.importer` handles names/prototypes/globals/structs only.  The data is
 duplicated from `rebrew-functions.toml` into the shared state with no
 consumer.  It also *cannot* be restored: STATUS is verify-earned (0444-locked,
 unbacked claims demoted), so importing a status from a shared state would

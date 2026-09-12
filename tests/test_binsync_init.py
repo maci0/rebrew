@@ -1,4 +1,4 @@
-"""Tests for rebrew.binsync_init: the BinSync git envelope.
+"""Tests for rebrew.binsync.init: the BinSync git envelope.
 
 Runs real ``git`` (skipped when git is absent).  The command writes the
 ``binsync/__root__`` root commit and the ``binsync/<user>`` branch upstream

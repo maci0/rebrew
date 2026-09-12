@@ -5,7 +5,7 @@ import struct
 from pathlib import Path
 
 from rebrew.data import DispatchEntry, DispatchTable, find_dispatch_tables
-from rebrew.match import find_near_miss, parse_matching_info
+from rebrew.match_batch import find_near_miss, parse_matching_info
 
 
 def _make_c(d, name, va, status, blocker="", skip=False) -> None:

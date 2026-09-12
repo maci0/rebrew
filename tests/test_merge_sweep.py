@@ -402,8 +402,8 @@ def _scorer_cfg(tmp_path: Path) -> SimpleNamespace:
 
 class TestPartitionScorer:
     def _patch_compile(self, monkeypatch: Any, calls: list[dict[str, Any]], size: int = 10) -> None:
+        import rebrew.coff_reloc
         import rebrew.compile
-        import rebrew.core
         import rebrew.matcher
         import rebrew.merge_sweep as ms
 
@@ -422,11 +422,11 @@ class TestPartitionScorer:
             lambda obj_path, symbol: (b"\x90" * size, {}, []),
         )
         monkeypatch.setattr(
-            rebrew.core,
+            rebrew.coff_reloc,
             "smart_reloc_compare",
             lambda o, t, r, **kw: (True, len(t), len(t), [], []),
         )
-        monkeypatch.setattr(rebrew.core, "build_iat_region", lambda cfg_arg: set())
+        monkeypatch.setattr(rebrew.coff_reloc, "build_iat_region", lambda cfg_arg: set())
         monkeypatch.setattr(ms, "extract_raw_bytes", lambda binary, va, n: bytes([0x90]) * n)
 
     def test_cluster_compiles_once_for_all_members(self, tmp_path: Path, monkeypatch: Any) -> None:

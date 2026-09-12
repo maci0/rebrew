@@ -40,6 +40,12 @@ from rebrew.cli import (
     require_config,
     resolve_source_arg,
 )
+from rebrew.coff_reloc import (
+    CatalogScanError,
+    build_iat_region,
+    build_name_to_va,
+    smart_reloc_compare,
+)
 from rebrew.compile import (
     CompareResult,
     classify_compare_result,
@@ -49,8 +55,6 @@ from rebrew.compile import (
     is_matched,
 )
 from rebrew.config import ProjectConfig
-from rebrew.core import build_iat_region, build_name_to_va, smart_reloc_compare
-from rebrew.core.matching import CatalogScanError
 from rebrew.matcher import parse_obj_symbol_and_relocs
 from rebrew.metadata import (
     is_status_sticky,
@@ -97,10 +101,10 @@ def _patch_verify_cache(
     recomputing from match_percent would store a percent-scale number).
 
     Thin local wrapper over the single shared implementation
-    :func:`rebrew.verify.patch_verify_cache_entries` (identity check +
+    :func:`rebrew.verify_cache.patch_verify_cache_entries` (identity check +
     cross-process lock included).
     """
-    from rebrew.verify import patch_verify_cache_entries
+    from rebrew.verify_cache import patch_verify_cache_entries
 
     patch_verify_cache_entries(
         cfg,
@@ -1507,7 +1511,7 @@ def _run_all_batch(
             )
         # One read + one write for the whole batch (the per-result patch was
         # O(N) full-file rewrites of verify_cache.json).
-        from rebrew.verify import patch_verify_cache_entries
+        from rebrew.verify_cache import patch_verify_cache_entries
 
         patch_verify_cache_entries(cfg, patches)
 

@@ -9,7 +9,7 @@ BIN/INCLUDE/LIB at the top after the floppy/``TC/`` wrapper is stripped by
 ``rebrew toolchain vendor``.
 
 ``TCC`` produces Borland 16-bit OMF objects, which rebrew parses via
-``rebrew.matcher.omf16`` (verified: cdecl prologue + rel16/disp16 slots).
+``rebrew.omf16`` (verified: cdecl prologue + rel16/disp16 slots).
 
 The two compiler generations emit different codegen — a binary built with
 Turbo C 2.0 (e.g. 1989-91 games like Commander Keen) will not byte-match a
@@ -46,7 +46,7 @@ class Tc16Result:
 
 def _find_tc16(version: str = "3.1") -> Path:
     """Locate the vendored Borland 16-bit TCC tree (BIN/TCC.EXE present)."""
-    from rebrew.toolchain import toolchains_repo
+    from rebrew.toolchain_paths import toolchains_repo
 
     tree = _TREES.get(version)
     if tree is None:

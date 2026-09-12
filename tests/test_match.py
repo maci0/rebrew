@@ -6,7 +6,8 @@ from typing import Any
 
 import pytest
 
-from rebrew.match import BinaryMatchingGA, StubInfo
+from rebrew.match_batch import StubInfo
+from rebrew.match_ga import BinaryMatchingGA
 
 # ---------------------------------------------------------------------------
 # BinaryMatchingGA — init and population
@@ -40,31 +41,31 @@ class TestCompileCflags:
     (config-review F8)."""
 
     def test_posix_style_prepends_base(self) -> None:
-        from rebrew.match import _compile_cflags
+        from rebrew.match_sweep import _compile_cflags
 
         assert _compile_cflags("/O2", "-O2", posix_style=True) == "-O2 /O2"
 
     def test_posix_style_no_base(self) -> None:
-        from rebrew.match import _compile_cflags
+        from rebrew.match_sweep import _compile_cflags
 
         assert _compile_cflags("/O2", "", posix_style=True) == "/O2"
 
     def test_msvc_base_with_c_glue(self) -> None:
         """base_cf carries /c → base first, no /nologo /c insertion."""
-        from rebrew.match import _compile_cflags
+        from rebrew.match_sweep import _compile_cflags
 
         assert _compile_cflags("/O2 /Gd", "/nologo /c /MT") == "/nologo /c /MT /O2 /Gd"
 
     def test_msvc_base_without_c_inserts_glue(self) -> None:
         """base_cf lacks /c and cflags lacks it → the /nologo /c glue is
         inserted (the watcom E1139 regression class)."""
-        from rebrew.match import _compile_cflags
+        from rebrew.match_sweep import _compile_cflags
 
         assert _compile_cflags("/O2", "/MT") == "/nologo /c /MT /O2"
 
     def test_cflags_already_has_c(self) -> None:
         """cflags already carries /c → passed through verbatim."""
-        from rebrew.match import _compile_cflags
+        from rebrew.match_sweep import _compile_cflags
 
         assert _compile_cflags("/nologo /c /O1", "") == "/nologo /c /O1"
 
@@ -72,7 +73,7 @@ class TestCompileCflags:
         """cflags carries /c but base_cf (bare /MT) must still be prepended —
         it used to be dropped, compiling a different runtime than the metadata
         declares."""
-        from rebrew.match import _compile_cflags
+        from rebrew.match_sweep import _compile_cflags
 
         assert _compile_cflags("/c /O2", "/MT") == "/MT /c /O2"
 
@@ -85,7 +86,8 @@ class TestFlagSweepBaseCflags:
     def test_sweep_keeps_base_cflags_when_cflags_have_c(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        from rebrew.match import StubInfo, run_flag_sweep
+        from rebrew.match_batch import StubInfo
+        from rebrew.match_sweep import run_flag_sweep
 
         src = tmp_path / "s.c"
         src.write_text("// FUNCTION: T 0x10001000\nint s(void) { return 0; }\n", encoding="utf-8")
@@ -95,9 +97,11 @@ class TestFlagSweepBaseCflags:
             seen.append(cflags)
             return [(0.0, "/O2")]
 
-        monkeypatch.setattr("rebrew.match.flag_sweep", _fake_sweep)
-        monkeypatch.setattr("rebrew.match.extract_raw_bytes", lambda *a, **k: b"\xc3")
-        monkeypatch.setattr("rebrew.match.resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
+        monkeypatch.setattr("rebrew.match_sweep.flag_sweep", _fake_sweep)
+        monkeypatch.setattr("rebrew.match_sweep.extract_raw_bytes", lambda *a, **k: b"\xc3")
+        monkeypatch.setattr(
+            "rebrew.match_sweep.resolve_compiler_env", lambda cfg: ("cl", "", {}, None)
+        )
 
         stub = StubInfo(
             filepath=src,
@@ -389,7 +393,7 @@ class TestRunAllBatch:
     ) -> None:
 
         stubs = [self._stub("a.c"), self._stub("b.c", "0x10001010", 200)]
-        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
+        monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
         out = self._run(self._cfg(tmp_path), dry_run=True, json_output=True)
         assert out == (0, 0)
 
@@ -403,7 +407,7 @@ class TestRunAllBatch:
             self._stub("b.c", "0x10001010", 200),
             self._stub("c.c", "0x10001020", 300),
         ]
-        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
+        monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
         cfg = self._cfg(tmp_path)
         # min_size + filter_str + max_stubs compose.
         self._run(cfg, dry_run=True, json_output=True, min_size=100, filter_str="b.c")
@@ -415,15 +419,17 @@ class TestRunAllBatch:
     def test_skip_recent_filters(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
         stubs = [self._stub("a.c"), self._stub("b.c")]
-        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
-        monkeypatch.setattr("rebrew.match._filter_recently_run", lambda s, cfg, hours, j: [s[1]])
+        monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
+        monkeypatch.setattr(
+            "rebrew.match_run._filter_recently_run", lambda s, cfg, hours, j: [s[1]]
+        )
         out = self._run(self._cfg(tmp_path), dry_run=True, json_output=True, skip_recent_hours=24)
         assert out == (0, 0)
 
     def test_ga_run_persists_result(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
         stubs = [self._stub("a.c")]
-        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
+        monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
         calls: list[tuple] = []
 
         def _fake_ga(
@@ -446,7 +452,7 @@ class TestRunAllBatch:
         def _fake_record(root, *, target, va, symbol, matched, score=None, generations=0):
             calls.append((str(root), target, va, symbol, matched, score, generations))
 
-        monkeypatch.setattr("rebrew.match._run_one_stub_ga", _fake_ga)
+        monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_ga)
         monkeypatch.setattr("rebrew.matcher.record_ga_run", _fake_record)
         matched, failed = self._run(self._cfg(tmp_path), json_output=True)
         assert (matched, failed) == (1, 0)
@@ -459,7 +465,7 @@ class TestRunAllBatch:
     ) -> None:
 
         stubs = [self._stub("bad.c"), self._stub("good.c", "0x10001010")]
-        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
+        monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
 
         def _fake_ga(
             stub,
@@ -480,7 +486,7 @@ class TestRunAllBatch:
                 raise RuntimeError("boom")
             return True, "MATCHED", 0.0, 3
 
-        monkeypatch.setattr("rebrew.match._run_one_stub_ga", _fake_ga)
+        monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_ga)
         matched, failed = self._run(self._cfg(tmp_path), json_output=True)
         assert (matched, failed) == (1, 1)
 
@@ -489,9 +495,9 @@ class TestRunAllBatch:
     ) -> None:
 
         stubs = [self._stub(f"f{i}.c", f"0x1000{i:04x}") for i in range(1, 4)]
-        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
+        monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
         monkeypatch.setattr(
-            "rebrew.match._run_one_stub_ga",
+            "rebrew.match_run._run_one_stub_ga",
             lambda stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None, rng_seed=None, resume_from=None, mutation_weights=None, solutions_out=None, collect_pairs_path=None: (
                 True,
                 "MATCHED",
@@ -520,7 +526,7 @@ class TestUpdateStubToMatched:
     def test_splices_second_function_not_first(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.match import update_stub_to_matched
+        from rebrew.match_batch import update_stub_to_matched
 
         f = tmp_path / "multi.c"
         f.write_text(
@@ -548,7 +554,7 @@ class TestUpdateStubToMatched:
     ) -> None:
         """The splice must not drop functions that FOLLOW the stub's block
         (round-3: header + best_src truncated everything after the stub)."""
-        from rebrew.match import update_stub_to_matched
+        from rebrew.match_batch import update_stub_to_matched
 
         f = tmp_path / "multi.c"
         f.write_text(
@@ -595,7 +601,7 @@ class TestFlagSweepMatchValidation:
         """The sweep reports score 0 (reloc-masked) but the authoritative
         compile-and-compare rejects it (wrong callee) — STATUS must NOT be
         promoted and no solution saved."""
-        from rebrew.match import _run_batch_flag_sweep
+        from rebrew.match_run import _run_batch_flag_sweep
 
         cfg = self._cfg(tmp_path)
         src_dir = tmp_path / "src" / "T"
@@ -632,18 +638,18 @@ class TestFlagSweepMatchValidation:
                 message="NEAR_MATCHING: wrong callee (reloc target mismatch)",
             )
 
-        monkeypatch.setattr("rebrew.match.run_flag_sweep", _fake_sweep)
+        monkeypatch.setattr("rebrew.match_run.run_flag_sweep", _fake_sweep)
         monkeypatch.setattr("rebrew.compile.compile_and_compare", _fake_compare)
         monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x90" * 64)
         calls: list[str] = []
         monkeypatch.setattr(
             "rebrew.metadata.update_source_status", lambda *a, **k: calls.append("status")
         )
-        monkeypatch.setattr("rebrew.verify.patch_verify_cache_entries", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify_cache.patch_verify_cache_entries", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.matcher.save_solutions", lambda *a, **k: None)
         # update_cflags_annotation is a module-level function in match.py —
         # bypass it so the test asserts promotion behavior, not the cflags write.
-        monkeypatch.setattr("rebrew.match.update_cflags_annotation", lambda *a, **k: True)
+        monkeypatch.setattr("rebrew.match_run.update_cflags_annotation", lambda *a, **k: True)
 
         exact, not_exact = _run_batch_flag_sweep(
             [stub],
@@ -661,7 +667,7 @@ class TestFlagSweepMatchValidation:
     def test_confirmed_sweep_exact_promoted(self, tmp_path, monkeypatch) -> None:
         """The authoritative compare confirms the reloc-masked exact — the
         promotion proceeds as before."""
-        from rebrew.match import _run_batch_flag_sweep
+        from rebrew.match_run import _run_batch_flag_sweep
 
         cfg = self._cfg(tmp_path)
         src_dir = tmp_path / "src" / "T"
@@ -698,16 +704,16 @@ class TestFlagSweepMatchValidation:
                 message="EXACT MATCH",
             )
 
-        monkeypatch.setattr("rebrew.match.run_flag_sweep", _fake_sweep)
+        monkeypatch.setattr("rebrew.match_run.run_flag_sweep", _fake_sweep)
         monkeypatch.setattr("rebrew.compile.compile_and_compare", _fake_compare)
         monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x90" * 64)
         calls: list[str] = []
         monkeypatch.setattr(
             "rebrew.metadata.update_source_status", lambda *a, **k: calls.append("status")
         )
-        monkeypatch.setattr("rebrew.verify.patch_verify_cache_entries", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify_cache.patch_verify_cache_entries", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.matcher.save_solutions", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.match.update_cflags_annotation", lambda *a, **k: True)
+        monkeypatch.setattr("rebrew.match_run.update_cflags_annotation", lambda *a, **k: True)
 
         exact, not_exact = _run_batch_flag_sweep(
             [stub],
@@ -726,7 +732,7 @@ class TestFlagSweepMatchValidation:
         """Without --fix-cflags no authoritative re-verify runs, so the
         batch must report the sweep's exact rows instead of `exact: 0` and
         exiting 1 (a false red for CI)."""
-        from rebrew.match import _run_batch_flag_sweep
+        from rebrew.match_run import _run_batch_flag_sweep
 
         cfg = self._cfg(tmp_path)
         src_dir = tmp_path / "src" / "T"
@@ -748,13 +754,13 @@ class TestFlagSweepMatchValidation:
         )
 
         monkeypatch.setattr(
-            "rebrew.match.run_flag_sweep", lambda *a, **k: (0.0, "/O1", [(0.0, "/O1")])
+            "rebrew.match_run.run_flag_sweep", lambda *a, **k: (0.0, "/O1", [(0.0, "/O1")])
         )
         calls: list[str] = []
         monkeypatch.setattr(
             "rebrew.metadata.update_source_status", lambda *a, **k: calls.append("status")
         )
-        monkeypatch.setattr("rebrew.verify.patch_verify_cache_entries", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify_cache.patch_verify_cache_entries", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.matcher.save_solutions", lambda *a, **k: None)
 
         exact, not_exact = _run_batch_flag_sweep(
@@ -798,7 +804,7 @@ class TestFindSizeMismatch:
         )
 
     def test_finds_only_size_mismatch(self, tmp_path: Path) -> None:
-        from rebrew.match import find_size_mismatch
+        from rebrew.match_batch import find_size_mismatch
 
         self._write(tmp_path, "sm.c", "0x10001000", "SIZE_MISMATCH")
         self._write(tmp_path, "stub.c", "0x10002000", "STUB")
@@ -807,7 +813,8 @@ class TestFindSizeMismatch:
         assert [s.va for s in stubs] == ["0x10001000"]
 
     def test_run_all_size_mismatch_mode(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from rebrew.match import _run_all, find_size_mismatch
+        from rebrew.match import _run_all
+        from rebrew.match_batch import find_size_mismatch
 
         real_find = find_size_mismatch
         self._write(tmp_path, "sm.c", "0x10001000", "SIZE_MISMATCH")
@@ -818,12 +825,12 @@ class TestFindSizeMismatch:
             seen.extend(s.va for s in stubs)
             return stubs
 
-        monkeypatch.setattr("rebrew.match.find_size_mismatch", _fake_find)
+        monkeypatch.setattr("rebrew.match_run.find_size_mismatch", _fake_find)
 
         def _fake_ga(*a: Any, **k: Any) -> tuple[bool, str, float, int]:
             return False, "best_score=5.00", 5.0, 3
 
-        monkeypatch.setattr("rebrew.match._run_one_stub_ga", _fake_ga)
+        monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_ga)
         monkeypatch.setattr("rebrew.matcher.record_ga_run", lambda *a, **k: None)
 
         cfg = self._cfg(tmp_path)
@@ -899,10 +906,10 @@ class TestResolveBuildParamsVATargeting:
         )
         cfg = self._cfg(tmp_path, src_dir)
         # extract_raw_bytes reads the target binary — stub it with 112 bytes.
-        monkeypatch.setattr("rebrew.match.extract_raw_bytes", lambda *a, **k: b"\x90" * 112)
+        monkeypatch.setattr("rebrew.match_sweep.extract_raw_bytes", lambda *a, **k: b"\x90" * 112)
         # read_source_text + parse must run; compiler env resolution can be stubbed.
         monkeypatch.setattr(
-            "rebrew.match.resolve_compiler_env",
+            "rebrew.match_sweep.resolve_compiler_env",
             lambda cfg: ("wine CL.EXE", "inc", {"WINEDEBUG": "-all"}, None),
         )
 
@@ -968,9 +975,9 @@ class TestResolveBuildParamsVATargeting:
             encoding="utf-8",
         )
         cfg = self._cfg(tmp_path, src_dir)
-        monkeypatch.setattr("rebrew.match.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
+        monkeypatch.setattr("rebrew.match_sweep.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
         monkeypatch.setattr(
-            "rebrew.match.resolve_compiler_env",
+            "rebrew.match_sweep.resolve_compiler_env",
             lambda cfg: ("wine CL.EXE", "inc", {"WINEDEBUG": "-all"}, None),
         )
         params = resolve_build_params(
@@ -1012,9 +1019,9 @@ class TestResolveBuildParamsVATargeting:
         )
         cfg = self._cfg(tmp_path, src_dir)
         cfg.base_cflags = ""  # isolate the per-function flags from the project base
-        monkeypatch.setattr("rebrew.match.extract_raw_bytes", lambda *a, **k: b"\x90" * 112)
+        monkeypatch.setattr("rebrew.match_sweep.extract_raw_bytes", lambda *a, **k: b"\x90" * 112)
         monkeypatch.setattr(
-            "rebrew.match.resolve_compiler_env",
+            "rebrew.match_sweep.resolve_compiler_env",
             lambda cfg: ("wine CL.EXE", "inc", {"WINEDEBUG": "-all"}, None),
         )
         params = resolve_build_params(
@@ -1064,17 +1071,13 @@ class TestMutationFocusWeights:
 
     def test_weights_match_mutator_names(self) -> None:
         """Every weighted operator must exist in mutator.ALL_MUTATIONS."""
-        import re
-        from pathlib import Path
-
         from rebrew.match import _mutation_focus_weights
-        from rebrew.matcher import mutator
+        from rebrew.matcher.mutator import ALL_MUTATIONS
 
         weights = _mutation_focus_weights("equivalent")
-        source = Path(mutator.__file__).read_text(encoding="utf-8")
-        defined = set(re.findall(r"^def (mut_\w+)\(", source, re.M))
+        defined = {fn.__name__ for fn in ALL_MUTATIONS}
         for op in weights:
-            assert op in defined, f"{op} not in mutator.py"
+            assert op in defined, f"{op} not in ALL_MUTATIONS"
 
 
 # ---------------------------------------------------------------------------
@@ -1115,7 +1118,7 @@ class TestGaCeiling:
         )
 
     def test_ceiling_excluded_from_improve_selectors(self, tmp_path: Path) -> None:
-        from rebrew.match import find_all_matching
+        from rebrew.match_batch import find_all_matching
 
         self._write_near(tmp_path, "a.c", "0x10001000")
         self._write_near(tmp_path, "b.c", "0x10002000")
@@ -1129,7 +1132,7 @@ class TestGaCeiling:
         assert [s.va for s in stubs] == ["0x10001000"]
 
     def test_plain_near_matching_still_selected(self, tmp_path: Path) -> None:
-        from rebrew.match import find_all_matching
+        from rebrew.match_batch import find_all_matching
 
         self._write_near(tmp_path, "a.c", "0x10001000")
         stubs = find_all_matching(tmp_path, cfg=self._cfg(tmp_path))
@@ -1140,11 +1143,11 @@ class TestGaCeiling:
     ) -> None:
         """A register-only champion after GA exhaustion gets a GA_CEILING
         blocker written through the sanctioned metadata writer."""
-        from rebrew.match import _maybe_document_ga_ceiling
+        from rebrew.match_run import _maybe_document_ga_ceiling
         from rebrew.metadata import get_entry
 
         ga = SimpleNamespace(cs_mode="CS_MODE_32")
-        monkeypatch.setattr("rebrew.match._classify_register_only", lambda *a, **k: True)
+        monkeypatch.setattr("rebrew.match_run._classify_register_only", lambda *a, **k: True)
         text = _maybe_document_ga_ceiling(
             self._cfg(tmp_path),
             "SERVER",
@@ -1162,11 +1165,11 @@ class TestGaCeiling:
     def test_document_never_clobbers_existing_blocker(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        from rebrew.match import _maybe_document_ga_ceiling
+        from rebrew.match_run import _maybe_document_ga_ceiling
 
         self._set_blocker(tmp_path, 0x10001000, "user note: investigated")
         ga = SimpleNamespace(cs_mode="CS_MODE_32")
-        monkeypatch.setattr("rebrew.match._classify_register_only", lambda *a, **k: True)
+        monkeypatch.setattr("rebrew.match_run._classify_register_only", lambda *a, **k: True)
         text = _maybe_document_ga_ceiling(
             self._cfg(tmp_path),
             "SERVER",
@@ -1180,10 +1183,10 @@ class TestGaCeiling:
         assert text is None  # existing blocker preserved
 
     def test_document_skips_non_register_only(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from rebrew.match import _maybe_document_ga_ceiling
+        from rebrew.match_run import _maybe_document_ga_ceiling
 
         ga = SimpleNamespace(cs_mode="CS_MODE_32")
-        monkeypatch.setattr("rebrew.match._classify_register_only", lambda *a, **k: False)
+        monkeypatch.setattr("rebrew.match_run._classify_register_only", lambda *a, **k: False)
         text = _maybe_document_ga_ceiling(
             self._cfg(tmp_path),
             "SERVER",
@@ -1200,7 +1203,7 @@ class TestGaCeiling:
         """The champion's extracted code is classified in memory: the old
         version wrote it to a `.obj` and LIEF failed to parse code bytes as
         COFF, so the ceiling was never documented."""
-        from rebrew.match import _classify_register_only
+        from rebrew.match_run import _classify_register_only
 
         class _GA:
             cs_mode = "CS_MODE_32"
@@ -1298,7 +1301,7 @@ class TestBatchWriteLock:
     GA workers in separate processes lost metadata/solution updates."""
 
     def test_match_routes_through_flock_lock(self) -> None:
-        import rebrew.match as match_mod
+        import rebrew.match_run as match_mod
         import rebrew.utils as utils_mod
 
         assert match_mod.metadata_write_lock is utils_mod.metadata_write_lock
@@ -1309,7 +1312,7 @@ class TestBatchWriteLock:
         drop each other's increments (flock, not just a thread lock)."""
         import multiprocessing as mp
 
-        from rebrew.match import metadata_write_lock
+        from rebrew.match_run import metadata_write_lock
 
         counter = tmp_path / "count.txt"
         counter.write_text("0", encoding="utf-8")

@@ -6,6 +6,8 @@ from types import SimpleNamespace
 import pytest
 
 import rebrew.verify as verify_mod
+import rebrew.verify_cache as verify_cache_mod
+import rebrew.verify_hash as verify_hash_mod
 from rebrew.annotation import Annotation
 
 
@@ -127,13 +129,13 @@ class TestPrepareEntriesCache:
             cflags = resolve_cflags(_cfg(Path("/tmp")), None, "")
         if not source_hash:
             p = Path(cfg_reversed_dir()) / filepath
-            source_hash = verify_mod._source_hash(p) if p.exists() else "no-file"
+            source_hash = verify_hash_mod._source_hash(p) if p.exists() else "no-file"
         # Mirror the new writer: the entry stores the reached-header
         # dependency fingerprint, so a hit requires the freshly-computed
         # value to match (a header the source reaches must invalidate it).
         p = Path(cfg_reversed_dir()) / filepath
         headers_fp = (
-            verify_mod._entry_headers_fp(_cfg(Path(cfg_reversed_dir())), p, cflags)
+            verify_hash_mod._entry_headers_fp(_cfg(Path(cfg_reversed_dir())), p, cflags)
             if p.exists()
             else ""
         )
@@ -172,11 +174,13 @@ class TestPrepareEntriesCache:
     def test_cached_pass_reused(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         entry = _ann(0x1000)
         cfg = self._setup(tmp_path, monkeypatch, entry)
-        cache = {"0x00001000": verify_mod.VerifyCacheEntry.from_dict(self._cache_entry("f.c"))}
+        cache = {
+            "0x00001000": verify_cache_mod.VerifyCacheEntry.from_dict(self._cache_entry("f.c"))
+        }
         monkeypatch.setattr(
             verify_mod,
             "_load_verify_cache",
-            lambda *a, **k: verify_mod.VerifyCache(
+            lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
@@ -199,14 +203,14 @@ class TestPrepareEntriesCache:
         entry = _ann(0x1000)  # annotation size 64
         cfg = self._setup(tmp_path, monkeypatch, entry)
         cache = {
-            "0x00001000": verify_mod.VerifyCacheEntry.from_dict(
+            "0x00001000": verify_cache_mod.VerifyCacheEntry.from_dict(
                 self._cache_entry("f.c", size=32)  # cached with a different size
             )
         }
         monkeypatch.setattr(
             verify_mod,
             "_load_verify_cache",
-            lambda *a, **k: verify_mod.VerifyCache(
+            lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
@@ -228,7 +232,7 @@ class TestPrepareEntriesCache:
         entry = _ann(0x1000)
         cfg = self._setup(tmp_path, monkeypatch, entry)
         cache = {
-            "0x00001000": verify_mod.VerifyCacheEntry.from_dict(
+            "0x00001000": verify_cache_mod.VerifyCacheEntry.from_dict(
                 self._cache_entry("f.c", passed=True)
             )
         }
@@ -236,7 +240,7 @@ class TestPrepareEntriesCache:
         monkeypatch.setattr(
             verify_mod,
             "_load_verify_cache",
-            lambda *a, **k: verify_mod.VerifyCache(
+            lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
@@ -252,14 +256,14 @@ class TestPrepareEntriesCache:
         entry = _ann(0x1000)  # annotation cflags ""
         cfg = self._setup(tmp_path, monkeypatch, entry)
         cache = {
-            "0x00001000": verify_mod.VerifyCacheEntry.from_dict(
+            "0x00001000": verify_cache_mod.VerifyCacheEntry.from_dict(
                 self._cache_entry("f.c", cflags="/O1")
             )
         }
         monkeypatch.setattr(
             verify_mod,
             "_load_verify_cache",
-            lambda *a, **k: verify_mod.VerifyCache(
+            lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
@@ -280,14 +284,14 @@ class TestPrepareEntriesCache:
         cfg = self._setup(tmp_path, monkeypatch, entry)
         # Cache was written when the config resolved to the default.
         cache = {
-            "0x00001000": verify_mod.VerifyCacheEntry.from_dict(
+            "0x00001000": verify_cache_mod.VerifyCacheEntry.from_dict(
                 self._cache_entry("f.c", cflags="/O2 /Gd")
             )
         }
         monkeypatch.setattr(
             verify_mod,
             "_load_verify_cache",
-            lambda *a, **k: verify_mod.VerifyCache(
+            lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
@@ -306,14 +310,14 @@ class TestPrepareEntriesCache:
         entry = _ann(0x1000)
         cfg = self._setup(tmp_path, monkeypatch, entry)
         cache = {
-            "0x00001000": verify_mod.VerifyCacheEntry.from_dict(
+            "0x00001000": verify_cache_mod.VerifyCacheEntry.from_dict(
                 self._cache_entry("f.c", passed=False)
             )
         }
         monkeypatch.setattr(
             verify_mod,
             "_load_verify_cache",
-            lambda *a, **k: verify_mod.VerifyCache(
+            lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
@@ -335,7 +339,7 @@ class TestPrepareEntriesCache:
         entry = _ann(0x1000)
         cfg = self._setup(tmp_path, monkeypatch, entry)
         cache = {
-            "0x00001000": verify_mod.VerifyCacheEntry.from_dict(
+            "0x00001000": verify_cache_mod.VerifyCacheEntry.from_dict(
                 self._cache_entry("f.c", cflags="/O2 /Gd")
             )
         }
@@ -343,7 +347,7 @@ class TestPrepareEntriesCache:
         monkeypatch.setattr(
             verify_mod,
             "_load_verify_cache",
-            lambda *a, **k: verify_mod.VerifyCache(
+            lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
@@ -358,11 +362,13 @@ class TestPrepareEntriesCache:
         """The entry's stored toolchain matches the freshly-resolved value."""
         entry = _ann(0x1000)
         cfg = self._setup(tmp_path, monkeypatch, entry)
-        cache = {"0x00001000": verify_mod.VerifyCacheEntry.from_dict(self._cache_entry("f.c"))}
+        cache = {
+            "0x00001000": verify_cache_mod.VerifyCacheEntry.from_dict(self._cache_entry("f.c"))
+        }
         monkeypatch.setattr(
             verify_mod,
             "_load_verify_cache",
-            lambda *a, **k: verify_mod.VerifyCache(
+            lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
@@ -383,14 +389,14 @@ class TestPrepareEntriesCache:
         # Resolved flags are "/O2 /Gd"; the cached entry holds the same flags
         # in a different order — no material change.
         cache = {
-            "0x00001000": verify_mod.VerifyCacheEntry.from_dict(
+            "0x00001000": verify_cache_mod.VerifyCacheEntry.from_dict(
                 self._cache_entry("f.c", cflags="/Gd /O2")
             )
         }
         monkeypatch.setattr(
             verify_mod,
             "_load_verify_cache",
-            lambda *a, **k: verify_mod.VerifyCache(
+            lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
@@ -408,7 +414,7 @@ class TestPrepareEntriesCache:
         entry = _ann(0x1000)
         cfg = self._setup(tmp_path, monkeypatch, entry)
         cache = {
-            "0x00001000": verify_mod.VerifyCacheEntry.from_dict(
+            "0x00001000": verify_cache_mod.VerifyCacheEntry.from_dict(
                 self._cache_entry("f.c", cflags="/O2 /Gd")
             )
         }
@@ -416,7 +422,7 @@ class TestPrepareEntriesCache:
         monkeypatch.setattr(
             verify_mod,
             "_load_verify_cache",
-            lambda *a, **k: verify_mod.VerifyCache(
+            lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
@@ -430,7 +436,7 @@ class TestPrepareEntriesCache:
         entry = _ann(0x1000)
         cfg = self._setup(tmp_path, monkeypatch, entry)
         cache = {
-            "0x00001000": verify_mod.VerifyCacheEntry.from_dict(
+            "0x00001000": verify_cache_mod.VerifyCacheEntry.from_dict(
                 self._cache_entry("f.c", cflags="/O2 /Gd")
             )
         }
@@ -438,7 +444,7 @@ class TestPrepareEntriesCache:
         monkeypatch.setattr(
             verify_mod,
             "_load_verify_cache",
-            lambda *a, **k: verify_mod.VerifyCache(
+            lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
@@ -452,11 +458,13 @@ class TestPrepareEntriesCache:
     ) -> None:
         entry = _ann(0x1000)
         cfg = self._setup(tmp_path, monkeypatch, entry)
-        cache = {"0x00001000": verify_mod.VerifyCacheEntry.from_dict(self._cache_entry("other.c"))}
+        cache = {
+            "0x00001000": verify_cache_mod.VerifyCacheEntry.from_dict(self._cache_entry("other.c"))
+        }
         monkeypatch.setattr(
             verify_mod,
             "_load_verify_cache",
-            lambda *a, **k: verify_mod.VerifyCache(
+            lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
@@ -474,14 +482,14 @@ class TestPrepareEntriesCache:
         cfg = self._setup(tmp_path, monkeypatch, entry)
         # mtime 0 always differs from the file's real mtime; source_hash is stale.
         cache = {
-            "0x00001000": verify_mod.VerifyCacheEntry.from_dict(
+            "0x00001000": verify_cache_mod.VerifyCacheEntry.from_dict(
                 self._cache_entry("f.c", mtime=0, source_hash="stale-hash")
             )
         }
         monkeypatch.setattr(
             verify_mod,
             "_load_verify_cache",
-            lambda *a, **k: verify_mod.VerifyCache(
+            lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
@@ -610,22 +618,22 @@ class TestBinaryIdCacheGuard:
             compiler_libs=tmp_path / "lib",
         )
         cache_path = tmp_path / "verify_cache.json"
-        cache = verify_mod.VerifyCache(
+        cache = verify_cache_mod.VerifyCache(
             version=1,
-            compiler_hash=verify_mod._compiler_config_hash(cfg),
-            headers_hash=verify_mod._headers_hash(cfg),
+            compiler_hash=verify_hash_mod._compiler_config_hash(cfg),
+            headers_hash=verify_hash_mod._headers_hash(cfg),
             target="T",
-            binary_id=verify_mod._binary_id(cfg),
+            binary_id=verify_cache_mod._binary_id(cfg),
             entries={},
         )
         cache_path.write_text(_json.dumps(cache.to_dict()))
-        assert verify_mod._load_verify_cache(cache_path, cfg) is not None
+        assert verify_cache_mod._load_verify_cache(cache_path, cfg) is not None
 
         # Same target name, different binary bytes → cache must be rejected.
         bin_path.write_bytes(b"MZ2")
-        assert verify_mod._load_verify_cache(cache_path, cfg) is None
+        assert verify_cache_mod._load_verify_cache(cache_path, cfg) is None
 
         # Legacy caches (no binary_id) stay accepted.
         cache.binary_id = ""
         cache_path.write_text(_json.dumps(cache.to_dict()))
-        assert verify_mod._load_verify_cache(cache_path, cfg) is not None
+        assert verify_cache_mod._load_verify_cache(cache_path, cfg) is not None

@@ -558,3 +558,35 @@ class TestRemoveTempDir:
         monkeypatch.setattr(shutil, "rmtree", always_busy)
         with pytest.raises(OSError, match="busy"):
             remove_temp_dir(d, retries=1)
+
+
+class TestParseIntLiteral:
+    def test_hex_prefix(self) -> None:
+        from rebrew.utils import parse_int_literal
+
+        assert parse_int_literal("0x10") == 16
+        assert parse_int_literal("0X1F") == 31
+
+    def test_decimal_by_default(self) -> None:
+        from rebrew.utils import parse_int_literal
+
+        assert parse_int_literal("10") == 10
+
+    def test_explicit_base(self) -> None:
+        from rebrew.utils import parse_int_literal
+
+        assert parse_int_literal("10", base=16) == 16
+        assert parse_int_literal("0x10", base=8) == 16
+
+    def test_strips_whitespace(self) -> None:
+        from rebrew.utils import parse_int_literal
+
+        assert parse_int_literal("  12 ") == 12
+
+    def test_invalid_raises(self) -> None:
+        from rebrew.utils import parse_int_literal
+
+        with pytest.raises(ValueError):
+            parse_int_literal("nope")
+        with pytest.raises(ValueError):
+            parse_int_literal("")

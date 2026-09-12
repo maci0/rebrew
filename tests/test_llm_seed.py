@@ -151,7 +151,7 @@ class TestMatchGlue:
         """match --seed-llm appends validated LLM snippets to the GA seeds."""
         from types import SimpleNamespace as NS
 
-        from rebrew import match as match_mod
+        from rebrew import match_run as match_mod
 
         captured: dict[str, object] = {}
 
@@ -215,7 +215,7 @@ class TestMatchGlue:
     ) -> None:
         from types import SimpleNamespace as NS
 
-        from rebrew import match as match_mod
+        from rebrew import match_run as match_mod
 
         monkeypatch.setattr(
             "rebrew.llm_seed.llm_config",
@@ -274,7 +274,7 @@ class TestLlmSeedDryRun:
     def test_dry_run_shows_prompt_and_skips_ga(self, tmp_path: Path, monkeypatch, capsys) -> None:
         from types import SimpleNamespace as NS
 
-        from rebrew import match as match_mod
+        from rebrew import match_run as match_mod
 
         calls: list[object] = []
 

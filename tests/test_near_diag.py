@@ -435,18 +435,14 @@ class TestMutationSuggestions:
         assert MUTATION_SUGGESTIONS["encoding"] == []
 
     def test_operators_exist_in_mutator(self) -> None:
-        """Every suggested operator must be a real mut_* in mutator.py."""
-        import re
-        from pathlib import Path
-
-        from rebrew.matcher import mutator
+        """Every suggested operator must be a real registered mutation."""
+        from rebrew.matcher.mutator import ALL_MUTATIONS
         from rebrew.near_diag import MUTATION_SUGGESTIONS
 
-        source = Path(mutator.__file__).read_text(encoding="utf-8")
-        defined = set(re.findall(r"^def (mut_\w+)\(", source, re.M))
+        defined = {fn.__name__ for fn in ALL_MUTATIONS}
         for category, ops in MUTATION_SUGGESTIONS.items():
             for op in ops:
-                assert op in defined, f"{op} (for {category}) not in mutator.py"
+                assert op in defined, f"{op} (for {category}) not in ALL_MUTATIONS"
 
     def test_analyze_returns_mutations(self) -> None:
         from rebrew.near_diag import analyze
@@ -827,9 +823,9 @@ class TestValidatedRelocMasking:
             "rebrew.matcher.parse_obj_symbol_and_relocs",
             lambda *a, **k: (compiled, {0: "_g", 5: "_h"}, []),
         )
-        monkeypatch.setattr("rebrew.core.build_name_to_va", lambda cfg: {"_g": 0x5000})
+        monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {"_g": 0x5000})
         monkeypatch.setattr(
-            "rebrew.core.smart_reloc_compare",
+            "rebrew.coff_reloc.smart_reloc_compare",
             reloc_fn or (lambda *a, **k: (False, 0, 10, [0], [5])),
         )
         result = CliRunner().invoke(app, ["--json", str(src)])

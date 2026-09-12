@@ -4,7 +4,7 @@ import struct
 
 import pytest
 
-from rebrew.core.matching import (
+from rebrew.coff_reloc import (
     UnresolvedSymbolError,
     apply_coff_relocations,
     build_symbol_resolver,
@@ -81,7 +81,7 @@ def test_build_symbol_resolver_prefers_exact_spelling() -> None:
 def test_lookup_symbol_va_prefers_exact_spelling() -> None:
     # Same precedence as build_symbol_resolver: exact before stripped.  This
     # is the resolver used by rebrew test/verify DIR32/REL32 validation.
-    from rebrew.core.matching import _lookup_symbol_va
+    from rebrew.coff_reloc import _lookup_symbol_va
 
     name_to_va = {"_foo": 0x10001000, "foo": 0x10002000}
     assert _lookup_symbol_va(name_to_va, "_foo") == 0x10001000
@@ -111,7 +111,7 @@ def test_absolute_reloc_alone_is_a_noop() -> None:
 
 def test_absolute_reloc_offset_is_not_masked() -> None:
     """A no-op ABSOLUTE entry must not mask a real difference at its offset."""
-    from rebrew.core.matching import smart_reloc_compare
+    from rebrew.coff_reloc import smart_reloc_compare
 
     obj = b"\x00\x00\x00\x00\xc3"
     target = b"\x11\x22\x33\x44\xc3"

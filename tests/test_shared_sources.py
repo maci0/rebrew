@@ -358,7 +358,7 @@ class TestDefinesCompile:
     def test_ga_cache_key_covers_defines(self) -> None:
         """The GA's per-run build cache key must change when the per-target
         defines change (a version switch alters #ifdef-driven codegen)."""
-        from rebrew.match import _ga_cache_key
+        from rebrew.match_ga import _ga_cache_key
 
         base = ("src", "-O2", "gcc", "/inc")
         k1 = _ga_cache_key(*base, defines=[])
@@ -431,7 +431,7 @@ class TestGANativeEndToEnd:
         from bin_util import make_pe
 
         from rebrew.binary_loader import extract_raw_bytes
-        from rebrew.match import BinaryMatchingGA
+        from rebrew.match_ga import BinaryMatchingGA
 
         # mov eax,1; ret — the seed below compiles to exactly this.
         target = bytes.fromhex("b8 01 00 00 00 c3")

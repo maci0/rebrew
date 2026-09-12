@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import os
 import re
-import struct
 import subprocess
 import tempfile
 import tomllib
@@ -32,6 +31,7 @@ from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
 from rebrew.config import walk_up_to_root
+from rebrew.pe_headers import find_section
 from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
@@ -81,17 +81,10 @@ def find_link_cmd(root: Path) -> tuple[Path, str, Path]:
 
 def read_data_vs(path: Path) -> int:
     """The ``.data`` section VirtualSize of a PE file."""
-    d = path.read_bytes()
-    e = struct.unpack_from("<I", d, 0x3C)[0]
-    n = struct.unpack_from("<H", d, e + 6)[0]
-    optsz = struct.unpack_from("<H", d, e + 20)[0]
-    sh = e + 24 + optsz
-    for i in range(n):
-        h = sh + i * 40
-        if d[h : h + 8].rstrip(b"\0") == b".data":
-            vals: tuple[int, int, int, int] = struct.unpack_from("<IIII", d, h + 8)
-            return vals[0]
-    raise ValueError("no .data section in the linked binary")
+    section = find_section(path.read_bytes(), ".data")
+    if section is None:
+        raise ValueError("no .data section in the linked binary")
+    return section.virtual_size
 
 
 def _stub_obj(target_dir: Path, stub: Path, root: Path) -> Path:

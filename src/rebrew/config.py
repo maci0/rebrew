@@ -33,6 +33,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypedDict
 
+from rebrew.utils import parse_int_literal
+
 
 def _config_warn(msg: str) -> None:
     """Emit a UserWarning and print a user-facing config warning to stderr."""
@@ -417,7 +419,7 @@ def _parse_int_list(values: list[Any] | None, field_name: str) -> list[int]:
             parsed.append(v)
         elif isinstance(v, str):
             try:
-                parsed.append(int(v, 16) if v.startswith("0x") else int(v))
+                parsed.append(parse_int_literal(v))
             except ValueError:
                 _config_warn(f"Invalid integer '{v}' in {field_name}; ignoring")
         else:

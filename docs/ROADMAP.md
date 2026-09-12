@@ -39,7 +39,7 @@ and 1 together form the "MIPS works" milestone.
 | Arch presets | `config.py::_ARCH_PRESETS` | x86_16/32/64, arm32/arm64; **no MIPS/PPC/SuperH** |
 | Arch detection | `binary_loader._ELF/_PE/_MACHO_MACHINE_TO_ARCH` | x86/arm only; ELF EM_MIPS=8, EM_PPC=20, EM_SH=42 missing |
 | Function extent walker | `binary_loader.function_extent_from_disasm` | `CS_ARCH_X86` + `ret/jmp/int3` terminators |
-| Reloc masking | `core/matching.py::smart_reloc_compare` | COFF `IMAGE_REL_I386_DIR32/REL32` constants |
+| Reloc masking | `coff_reloc.py::smart_reloc_compare` | COFF `IMAGE_REL_I386_DIR32/REL32` constants |
 | Object reloc parsing | `matcher/parsers.py` | verify ELF-MIPS/PPC reloc extraction (COFF-centric) |
 | Function discovery | `discover.py::_capstone_sweep` | `e8 rel32` call targets, `CC/90` padding, `ret` ends |
 | Stack frames | `stack_cmp.py` | esp/ebp frame analysis (x86-32) |
@@ -65,7 +65,7 @@ Small, behavior-neutral; unblocks every later phase. Exit: full suite green,
    - MIPS: `jr $ra` / `jr $t9` (tail), `j`/`jal` NOT terminators, padding `0x00`
    - PPC: `blr`, `bctr`/`b` (tail), padding `0x60 00 00 00` nop
    - ARM: `bx lr`, `mov pc,lr`
-4. `core/matching.py`: refactor the reloc-type constants into a per-arch table
+4. `coff_reloc.py`: refactor the reloc-type constants into a per-arch table
    (COFF-i386 keeps `DIR32/REL32`; add ELF-MIPS `R_MIPS_26/LO16/HI16/REL32`,
    ELF-PPC `R_PPC_ADDR32/REL24`). The masking *algorithm* (validate → mask) is
    unchanged; only the type constants + address extraction vary. **Highest-risk

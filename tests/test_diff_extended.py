@@ -366,7 +366,7 @@ class TestDiffCli:
         monkeypatch.setattr("rebrew.diff.require_config", lambda **kw: cfg)
         seen: dict = {}
         monkeypatch.setattr(
-            "rebrew.match.resolve_build_params",
+            "rebrew.match_sweep.resolve_build_params",
             lambda *a, **k: _params(),
         )
 
@@ -392,7 +392,7 @@ class TestDiffCli:
             source_ext=".c",
         )
         monkeypatch.setattr("rebrew.diff.require_config", lambda **kw: cfg)
-        monkeypatch.setattr("rebrew.match.resolve_build_params", lambda *a, **k: _params())
+        monkeypatch.setattr("rebrew.match_sweep.resolve_build_params", lambda *a, **k: _params())
 
         seen: dict = {}
 
@@ -444,7 +444,7 @@ class TestDiffCli:
             va_calls.append(target_va)
             return _params()
 
-        monkeypatch.setattr("rebrew.match.resolve_build_params", _resolve_build_params)
+        monkeypatch.setattr("rebrew.match_sweep.resolve_build_params", _resolve_build_params)
         monkeypatch.setattr("rebrew.diff.run_diff", lambda *a, **k: None)
         captured: dict = {}
         monkeypatch.setattr(

@@ -75,7 +75,7 @@ similarity = [
 m2c = [
     "m2c @ git+https://github.com/matt-kempster/m2c.git",
 ]
-# BinSync state I/O: declib is BinSync's artifact layer.  rebrew.binsync_serial
+# BinSync state I/O: declib is BinSync's artifact layer.  rebrew.binsync.serial
 # is the single module that touches it; the CLIs raise a clear install error
 # when the extra is absent.
 binsync = [
@@ -98,12 +98,12 @@ rebrew-decompme = "rebrew.decompme:main_entry"
 
 rebrew-analyze = "rebrew.analyze:main_entry"
 rebrew-asm = "rebrew.asm:main_entry"
-rebrew-binsync-diff = "rebrew.binsync_diff:main_entry"
-rebrew-binsync-export = "rebrew.binsync_export:main_entry"
-rebrew-binsync-import = "rebrew.binsync_import:main_entry"
-rebrew-binsync-init = "rebrew.binsync_init:main_entry"
-rebrew-binsync-overlay = "rebrew.binsync_overlay:main_entry"
-rebrew-binsync = "rebrew.binsync_cli:main_entry"
+rebrew-binsync-diff = "rebrew.binsync.diff:main_entry"
+rebrew-binsync-export = "rebrew.binsync.export:main_entry"
+rebrew-binsync-import = "rebrew.binsync.importer:main_entry"
+rebrew-binsync-init = "rebrew.binsync.init:main_entry"
+rebrew-binsync-overlay = "rebrew.binsync.overlay:main_entry"
+rebrew-binsync = "rebrew.binsync.cli:main_entry"
 rebrew-build-db = "rebrew.build_db:main_entry"
 rebrew-cache-cli = "rebrew.cache_cli:main_entry"
 rebrew-cfg = "rebrew.cfg:main_entry"

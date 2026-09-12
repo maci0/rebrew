@@ -124,8 +124,8 @@ class TestSyncCli:
         def _fake_print(result, *, json_output, dry_run):
             calls["printed"] = True
 
-        monkeypatch.setattr("rebrew.binsync_export.export_state", _fake_export)
-        monkeypatch.setattr("rebrew.binsync_export._print_export_result", _fake_print)
+        monkeypatch.setattr("rebrew.binsync.export.export_state", _fake_export)
+        monkeypatch.setattr("rebrew.binsync.export._print_export_result", _fake_print)
         state = tmp_path / "state"
         r = runner.invoke(sync_cli.app, ["--push", "--state-dir", str(state)])
         assert r.exit_code == 0
@@ -147,8 +147,8 @@ class TestSyncCli:
         def _fake_print(result, *, json_output, dry_run):
             calls["printed"] = True
 
-        monkeypatch.setattr("rebrew.binsync_import.import_state", _fake_import)
-        monkeypatch.setattr("rebrew.binsync_import._print_import_result", _fake_print)
+        monkeypatch.setattr("rebrew.binsync.importer.import_state", _fake_import)
+        monkeypatch.setattr("rebrew.binsync.importer._print_import_result", _fake_print)
         state = tmp_path / "state"
         r = runner.invoke(sync_cli.app, ["--pull", "--state-dir", str(state), "--create-missing"])
         assert r.exit_code == 0
@@ -162,10 +162,12 @@ class TestSyncCli:
         """Option-1 chain: imported VAs are created in Ghidra via MCP."""
         _patch_cfg(tmp_path, monkeypatch)
         monkeypatch.setattr(
-            "rebrew.binsync_import.import_state",
+            "rebrew.binsync.importer.import_state",
             lambda cfg_, src, **kw: {"touched_vas": [0x1000, 0x2000]},
         )
-        monkeypatch.setattr("rebrew.binsync_import._print_import_result", lambda result, **kw: None)
+        monkeypatch.setattr(
+            "rebrew.binsync.importer._print_import_result", lambda result, **kw: None
+        )
         monkeypatch.setattr("rebrew.ghidra.cli._probe_program_path", lambda cfg, ep, pp, j: pp)
         applied: list[dict] = []
 
@@ -268,9 +270,9 @@ class TestSyncCli:
             calls["dry_run"] = kw.get("dry_run")
             return {"outdir": str(out), "functions": 0, "globals": 0, "structs": 0, "empty": True}
 
-        monkeypatch.setattr("rebrew.binsync_export.export_state", _fake_export)
+        monkeypatch.setattr("rebrew.binsync.export.export_state", _fake_export)
         monkeypatch.setattr(
-            "rebrew.binsync_export._print_export_result",
+            "rebrew.binsync.export._print_export_result",
             lambda result, **kw: (_ for _ in ()).throw(SystemExit(0)),
         )
         state = tmp_path / "state"

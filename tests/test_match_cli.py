@@ -331,7 +331,7 @@ class TestFindFunctionRange:
     """_find_function_range — GA mutation scoping helper."""
 
     def test_finds_matching_function(self) -> None:
-        from rebrew.match import _find_function_range
+        from rebrew.match_ga import _find_function_range
 
         src = """int helper(void) { return 0; }
 
@@ -347,7 +347,7 @@ int other(void) { return 2; }
         assert "helper" not in src[r[0] : r[1]]
 
     def test_underscore_prefix_optional(self) -> None:
-        from rebrew.match import _find_function_range
+        from rebrew.match_ga import _find_function_range
 
         src = "int foo(void) { return 1; }"
         r = _find_function_range(src, "foo")
@@ -355,20 +355,21 @@ int other(void) { return 2; }
         assert "foo" in src[r[0] : r[1]]
 
     def test_missing_symbol_returns_none(self) -> None:
-        from rebrew.match import _find_function_range
+        from rebrew.match_ga import _find_function_range
 
         src = "int foo(void) { return 1; }"
         assert _find_function_range(src, "_nonexistent") is None
 
     def test_non_c_garbage_returns_none(self) -> None:
-        from rebrew.match import _find_function_range
+        from rebrew.match_ga import _find_function_range
 
         assert _find_function_range("not c at all", "_foo") is None
 
     def test_set_target_range_scopes_cursor(self) -> None:
         """set_target_range must restrict mutation queries to the byte window."""
         from rebrew.matcher import ast_engine
-        from rebrew.matcher.mutator import _cursor, _LazyQuery, set_target_range
+        from rebrew.matcher.mutations.queries import _LazyQuery
+        from rebrew.matcher.mutations.runtime import _cursor, set_target_range
 
         src = b"int a(void) { return 1; } int b(void) { return 2; }"
         set_target_range(0, len(b"int a(void) { return 1; } "))  # only function a
@@ -532,7 +533,7 @@ class TestKunaSeed:
         from types import SimpleNamespace
 
         import rebrew.decompiler as dc_mod
-        import rebrew.match as match_mod
+        import rebrew.match_run as match_mod
 
         seen: dict = {}
 
@@ -606,7 +607,7 @@ class TestKunaSeed:
         from types import SimpleNamespace
 
         import rebrew.decompiler as dc_mod
-        import rebrew.match as match_mod
+        import rebrew.match_run as match_mod
 
         constructed: list = []
 

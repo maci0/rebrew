@@ -1,4 +1,4 @@
-"""Tests for rebrew.binsync_overlay: cross-target BinSync overlay.
+"""Tests for rebrew.binsync.overlay: cross-target BinSync overlay.
 
 Uses the synthetic two-PE fixture pattern from ``test_cross_import`` so
 ``extract_raw_bytes`` yields real x86 bytes at the target VAs.  Target A is
@@ -367,28 +367,28 @@ class TestMatchGlobalsByContent:
     """The pure content matcher (no binaries)."""
 
     def test_unique_occurrence_maps(self) -> None:
-        from rebrew.binsync_overlay import match_globals_by_content
+        from rebrew.binsync.overlay import match_globals_by_content
 
         assert match_globals_by_content({0x10: b"ABCD"}, [(0x1000, b"xxABCDyy")]) == {0x10: 0x1002}
 
     def test_duplicate_in_one_span_not_mapped(self) -> None:
-        from rebrew.binsync_overlay import match_globals_by_content
+        from rebrew.binsync.overlay import match_globals_by_content
 
         assert match_globals_by_content({0x10: b"ABCD"}, [(0x1000, b"ABCD..ABCD")]) == {}
 
     def test_duplicate_across_spans_not_mapped(self) -> None:
-        from rebrew.binsync_overlay import match_globals_by_content
+        from rebrew.binsync.overlay import match_globals_by_content
 
         spans = [(0x1000, b"AB"), (0x2000, b"..AB")]
         assert match_globals_by_content({0x10: b"AB"}, spans) == {}
 
     def test_absent_not_mapped(self) -> None:
-        from rebrew.binsync_overlay import match_globals_by_content
+        from rebrew.binsync.overlay import match_globals_by_content
 
         assert match_globals_by_content({0x10: b"ABCD"}, [(0x1000, b"nope")]) == {}
 
     def test_empty_needle_skipped(self) -> None:
-        from rebrew.binsync_overlay import match_globals_by_content
+        from rebrew.binsync.overlay import match_globals_by_content
 
         assert match_globals_by_content({0x10: b""}, [(0x1000, b"AB")]) == {}
 

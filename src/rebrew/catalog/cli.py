@@ -20,7 +20,6 @@ from rebrew.catalog.export import generate_catalog, generate_reccmp_csv
 from rebrew.catalog.grid import count_statuses, covered_bytes, generate_data_json
 from rebrew.catalog.loaders import parse_function_list, scan_reversed_dir
 from rebrew.catalog.registry import build_function_registry, count_detection_sources
-from rebrew.catalog.sections import get_text_section_size
 from rebrew.cli import (
     TargetOption,
     error_exit,
@@ -28,6 +27,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import FUNCTION_STRUCTURE_JSON
+from rebrew.sections import get_text_section_size
 
 console = Console(stderr=True)
 

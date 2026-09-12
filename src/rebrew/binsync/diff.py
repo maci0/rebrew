@@ -1,4 +1,4 @@
-"""binsync_diff.py — Read-only divergence report between rebrew and a BinSync state.
+"""diff.py — Read-only divergence report between rebrew and a BinSync state.
 
 Compares the local project (reversed annotations + catalog/project file) against a
 BinSync state directory and reports every place the two disagree, without
@@ -16,8 +16,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from rebrew.binsync_import import _normalize_prototype
-from rebrew.binsync_state import index_local_and_catalog, load_binsync_state, load_manifest
+from rebrew.binsync.importer import _normalize_prototype
+from rebrew.binsync.state import index_local_and_catalog, load_binsync_state, load_manifest
 from rebrew.cli import EXIT_MISMATCH, TargetOption, error_exit, json_print, require_config
 from rebrew.utils import strip_body
 
@@ -38,7 +38,7 @@ app = typer.Typer(
 
 console = Console(stderr=True)
 
-# Mirrors binsync_import — single source of "meaningful" would be a new shared
+# Mirrors importer — single source of "meaningful" would be a new shared
 # module, but duplicating the 3-line predicate keeps these CLIs independently
 # importable (and ruff F401-clean for the non-imported one).
 _GENERIC_RE = re.compile(r"^_?(func_|FUN_)[0-9a-fA-F]+(@\d+)?$")

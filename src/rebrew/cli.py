@@ -31,6 +31,7 @@ from rich.markup import escape
 from rebrew.config import ProjectConfig, load_config
 from rebrew.metadata import MATCHED_STATUSES
 from rebrew.sources import iter_sources, target_marker
+from rebrew.utils import parse_int_literal
 
 # ---------------------------------------------------------------------------
 # Standardised exit codes
@@ -191,7 +192,7 @@ def parse_va(va_str: str, *, json_mode: bool = False) -> int:
     (1), so scripts can distinguish "bad invocation" from "needs code work".
     """
     try:
-        return int(va_str.strip(), 16)
+        return parse_int_literal(va_str, base=16)
     except ValueError:
         error_exit(f"Invalid hex VA: {va_str!r}", json_mode=json_mode, code=EXIT_ERROR)
 

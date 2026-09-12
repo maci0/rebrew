@@ -40,11 +40,11 @@ from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_c
 from rebrew.struct_recover import (
     PSEUDO_TYPES,
     TYPE_WIDTHS,
-    offset_value,
     parse_decomp_for_structs,
     pointer_element_widths,
     type_width,
 )
+from rebrew.utils import parse_int_literal
 
 console = Console(stderr=True)
 
@@ -72,11 +72,8 @@ def _dim_value(s: str) -> int | None:
     Returns ``None`` for a non-numeric dimension (``[]`` or a symbolic
     ``[N]``), which the caller treats as unsized rather than crashing.
     """
-    s = s.strip()
-    if not s:
-        return None
     try:
-        return int(s, 16) if s.lower().startswith("0x") else int(s, 10)
+        return parse_int_literal(s)
     except ValueError:
         return None
 
@@ -371,7 +368,7 @@ def _rewrite_access(
     pointer_vars: set[str] | None = None,
 ) -> str:
     if m.group("cvar") is not None:
-        var, off, cast = m.group("cvar"), offset_value(m.group("coff")), m.group("cast")
+        var, off, cast = m.group("cvar"), parse_int_literal(m.group("coff")), m.group("cast")
         form = "deref"
     elif m.group("avar") is not None:
         var, cast = m.group("avar"), m.group("cast2")
@@ -388,7 +385,7 @@ def _rewrite_access(
         off = int(m.group("bidx")) * elem
         form = "bare_index"
     else:
-        var, off = m.group("pvar"), offset_value(m.group("poff"))
+        var, off = m.group("pvar"), parse_int_literal(m.group("poff"))
         # A bare ``var + N`` on a non-pointer is integer arithmetic, not a
         # member access — never rewrite it.
         if pointer_vars is not None and var not in pointer_vars:

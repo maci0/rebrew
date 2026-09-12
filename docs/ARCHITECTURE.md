@@ -94,7 +94,7 @@ flowchart LR
 | `rebrew/headless.py` | Persistent per-process Xvfb for headless wine compiles (no window, no DISPLAY needed) |
 | `rebrew/toolchain_detect.py` | Layered compiler-family detector: Detect It Easy (diec) → PDB → codegen heuristics; feeds init's CRT/opt seeding and doctor's alignment check |
 | `rebrew/wibo.py` | Auto-download + SHA256-verify the wibo runner (fast headless wine alternative) |
-| `rebrew/binsync_export.py` / `binsync_import.py` / `binsync_diff.py` / `binsync_init.py` / `binsync_overlay.py` (`binsync_serial.py`, `binsync_cli.py`, `binsync_state.py`) | BinSync state export/import/diff/init/overlay, the `rebrew binsync` umbrella (git automation), and the shared state readers; artifact TOML serialized with declib (the `binsync` extra) |
+| `rebrew/binsync/` (`export.py` / `importer.py` / `diff.py` / `init.py` / `overlay.py`, plus `serial.py`, `cli.py`, `state.py`) | BinSync state export/import/diff/init/overlay, the `rebrew binsync` umbrella (git automation), and the shared state readers; artifact TOML serialized with declib (the `binsync` extra) |
 | `rebrew/crypto_scan.py` | Cryptography detection: data-section constant tables (AES S-boxes, SHA-256 K/H, SHA-1, MD5 T) plus imported-API and project-name matching |
 | `rebrew/fingerprints.py` | Content fingerprint bundle for a binary: streamed digests, Mandiant imphash, MSVC Rich-header hash, per-section entropy, optional TLSH/ssdeep |
 | `rebrew/climb.py` | Deterministic single-statement hill-climb over one function body (adjacent-statement swaps scored through the compile→compare path); complements the GA when the residual is statement order |

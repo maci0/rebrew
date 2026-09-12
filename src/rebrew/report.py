@@ -644,9 +644,9 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
 
     Returns the machine-readable summary dict.
     """
-    from rebrew.catalog.sections import get_text_section_size
     from rebrew.cli import iter_annotations
     from rebrew.metadata import MATCHED_STATUSES
+    from rebrew.sections import get_text_section_size
     from rebrew.sources import iter_sources, target_marker
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
@@ -663,7 +663,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     # both sides through int() instead of testing key types.
     cached_pct: dict[int, float] = {}
     try:
-        from rebrew.verify import _load_verify_cache
+        from rebrew.verify_cache import _load_verify_cache
 
         cache = _load_verify_cache(cfg.root / ".rebrew" / "verify_cache.json", cfg)
         if cache is not None:

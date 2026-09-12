@@ -28,6 +28,7 @@ from typing import Any
 import pytest
 
 import rebrew.prove as prove_mod
+import rebrew.prove_simprocs as simprocs_mod
 
 has_claripy = importlib.util.find_spec("claripy") is not None
 
@@ -91,7 +92,7 @@ def _install_fake_angr(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     fake.factory = _unavailable  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "angr", fake)
     monkeypatch.setattr(prove_mod, "_run_simulation", real_simulation)
-    prove_mod._WIN32_SIMPROCS = None
+    simprocs_mod._WIN32_SIMPROCS = None
     monkeypatch.setattr(prove_mod, "_get_win32_simprocs", lambda: {})
     return fake
 
@@ -172,7 +173,7 @@ class TestCopyLengthBound:
         import claripy
 
         solver = claripy.Solver()
-        assert prove_mod._copy_length_or_none(solver, claripy.BVV(17, 32)) == 17
+        assert simprocs_mod._copy_length_or_none(solver, claripy.BVV(17, 32)) == 17
 
     def test_concrete_length_above_cap_refused(self) -> None:
         """A concrete copy longer than the cap cannot be modelled in full:
@@ -182,11 +183,11 @@ class TestCopyLengthBound:
         import claripy
 
         solver = claripy.Solver()
-        assert prove_mod._copy_length_or_none(solver, claripy.BVV(5000, 32)) is None
+        assert simprocs_mod._copy_length_or_none(solver, claripy.BVV(5000, 32)) is None
         # At the cap exactly, the whole copy fits the model.
         assert (
-            prove_mod._copy_length_or_none(solver, claripy.BVV(prove_mod._MEMCPY_MAX_LEN, 32))
-            == prove_mod._MEMCPY_MAX_LEN
+            simprocs_mod._copy_length_or_none(solver, claripy.BVV(simprocs_mod._MEMCPY_MAX_LEN, 32))
+            == simprocs_mod._MEMCPY_MAX_LEN
         )
 
     def test_unbounded_symbolic_length_refused(self) -> None:
@@ -194,7 +195,7 @@ class TestCopyLengthBound:
 
         solver = claripy.Solver()
         n = claripy.BVS("n", 32)
-        assert prove_mod._copy_length_or_none(solver, n) is None
+        assert simprocs_mod._copy_length_or_none(solver, n) is None
 
     def test_bounded_symbolic_length_honoured_at_max(self) -> None:
         import claripy
@@ -202,20 +203,20 @@ class TestCopyLengthBound:
         solver = claripy.Solver()
         n = claripy.BVS("n", 32)
         solver.add(claripy.ULE(n, 64))
-        assert prove_mod._copy_length_or_none(solver, n) == 64
+        assert simprocs_mod._copy_length_or_none(solver, n) == 64
 
     def test_zero_length_copies_nothing(self) -> None:
         import claripy
 
         solver = claripy.Solver()
-        assert prove_mod._copy_length_or_none(solver, claripy.BVV(0, 32)) == 0
+        assert simprocs_mod._copy_length_or_none(solver, claripy.BVV(0, 32)) == 0
 
     def test_unbounded_copy_raises(self) -> None:
         import claripy
 
         solver = claripy.Solver()
         with pytest.raises(RuntimeError, match="exceeds the .* copy cap"):
-            prove_mod._raise_unbounded_copy(solver, claripy.BVS("n", 32))
+            simprocs_mod._raise_unbounded_copy(solver, claripy.BVS("n", 32))
 
 
 # ---------------------------------------------------------------------------

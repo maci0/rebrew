@@ -4,7 +4,7 @@ Watcom's `wcc386` emits **OMF** ("8086 relocatable (Microsoft)") objects by
 default — every `-bt=`/`-fo=`/`owcc` combination tested produced OMF, not
 COFF.  LIEF cannot parse OMF; Watcom byte-matching is handled via the
 objconv→COFF conversion in `matcher/parsers.py` and the built-in 16-bit
-parser in `matcher/omf16.py` (see the updates below — the README's
+parser in `omf16.py` (see the updates below — the README's
 "Object Parsing" is ✅ for Watcom).
 This file records the empirical findings from the 2026-08-11 investigation
 so the parser starts from ground truth.
@@ -124,7 +124,7 @@ in the meantime.
 
 ## Update 2026-08-11 — 16-bit MSVC dialect: code extraction DONE
 
-`rebrew.matcher.omf16` now parses the MSVC 1.52 16-bit dialect (wired
+`rebrew.omf16` now parses the MSVC 1.52 16-bit dialect (wired
 into `parse_obj_symbol_and_relocs` as the primary 16-bit path — objconv
 remains the fallback for dialects the parser cannot decode):
 - `0xA0` records → concatenated code (`[seg:1][offset:2][code...]`)
@@ -178,7 +178,7 @@ Key facts:
 - The unoptimized GRPDEF `0x96` starts with a `00` group-index byte; the
   optimized public-list `0x96` does not — that byte disambiguates the two.
 - objconv buffer-overflows on this dialect too; the built-in parser handles
-  both via `rebrew.matcher.omf16` (detect 0xA0 *or* 0xC2 code records).
+  both via `rebrew.omf16` (detect 0xA0 *or* 0xC2 code records).
 - Relocs: `e8`/`e9` rel16-slot scan **plus** absolute disp16 operands
   (`a1 00 00` = `mov ax,[global]`, and modrm `mod=00 rm=110` forms like
   `add ax,[global]` / `push [global]`) **plus** far-call/ljmp ptr16:16

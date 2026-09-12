@@ -81,7 +81,7 @@ def _invoke_import(
 
 class TestBinsyncImportHelpers:
     def test_is_meaningful(self) -> None:
-        from rebrew.binsync_import import _is_meaningful
+        from rebrew.binsync.importer import _is_meaningful
 
         assert _is_meaningful("Foo")
         assert not _is_meaningful("func_10001000")
@@ -90,7 +90,7 @@ class TestBinsyncImportHelpers:
         assert not _is_meaningful("DAT_10002000")
 
     def test_load_binsync_state(self, tmp_path: Path) -> None:
-        from rebrew.binsync_state import load_binsync_state
+        from rebrew.binsync.state import load_binsync_state
 
         state = _make_state(tmp_path, funcs={0x10001000: "_Foo"}, globals_map={0x01008000: "g_foo"})
         funcs, globs = load_binsync_state(state)
@@ -98,7 +98,7 @@ class TestBinsyncImportHelpers:
         assert globs[0x01008000]["name"] == "g_foo"
 
     def test_load_binsync_state_with_header(self, tmp_path: Path) -> None:
-        from rebrew.binsync_state import load_binsync_state
+        from rebrew.binsync.state import load_binsync_state
 
         state = tmp_path / "state2"
         funcs_dir = state / "functions"
@@ -513,14 +513,14 @@ class TestStructImport:
 
 class TestNormalizePrototype:
     def test_whitespace_only_difference_ignored(self) -> None:
-        from rebrew.binsync_import import _normalize_prototype
+        from rebrew.binsync.importer import _normalize_prototype
 
         assert _normalize_prototype("int foo(int a, char *b);") == _normalize_prototype(
             "int  foo( int a,char*b )"
         )
 
     def test_real_difference_kept(self) -> None:
-        from rebrew.binsync_import import _normalize_prototype
+        from rebrew.binsync.importer import _normalize_prototype
 
         assert _normalize_prototype("int foo(int a);") != _normalize_prototype("int foo(char a);")
 
@@ -561,7 +561,7 @@ class TestUnparsedTypeComment:
     def test_unparsed_definition_becomes_comment(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
-        from rebrew.binsync_import import _import_type_definitions
+        from rebrew.binsync.importer import _import_type_definitions
 
         src = tmp_path / "src"
         src.mkdir()
@@ -759,7 +759,7 @@ class TestAnalysisMarkers:
     def test_round_trip_and_source_wins(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.binsync_serial import load_many
+        from rebrew.binsync.serial import load_many
 
         self._project_with_size(tmp_path)
         state = self._state_with_comment(tmp_path, addr=0x1006, text="loop")

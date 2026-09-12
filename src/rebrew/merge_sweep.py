@@ -44,8 +44,8 @@ from rebrew.cli import (
     require_config,
     resolve_compile_overrides,
 )
+from rebrew.coff_reloc import build_name_to_va
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
-from rebrew.core import build_name_to_va
 from rebrew.sources import iter_sources, target_marker
 
 console = Console(stderr=True)
@@ -459,8 +459,8 @@ class _PartitionScorer:
 
     def _score_cluster(self, cluster: list[int], workdir: Path) -> tuple[int, int]:
         """Score one cluster as ``(matched_bytes, compiler_invocations)``."""
+        from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
         from rebrew.compile import compile_to_obj
-        from rebrew.core import build_iat_region, smart_reloc_compare
         from rebrew.matcher import parse_obj_symbol_and_relocs
         from rebrew.utils import safe_shlex_split
 

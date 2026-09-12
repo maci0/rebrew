@@ -85,7 +85,7 @@ This design allows:
 
 A name is considered **auto-generated** (generic) if it matches the shared
 regex — `_GENERIC_NAME_RE` in `rebrew.ghidra.commands` (mirrored in
-`binsync_import.py` / `binsync_diff.py`):
+`binsync/importer.py` / `binsync/diff.py`):
 
 ```regex
 ^_?(func_|FUN_)[0-9a-fA-F]+(@\d+)?$
@@ -138,7 +138,7 @@ registry[va]["size_by_tool"]["<tool>"] = entry["size"]
 ### 3. Name Normalization
 
 Extend the generic-name regex `_GENERIC_NAME_RE` (`rebrew/ghidra/commands.py`,
-mirrored in `binsync_import.py`/`binsync_diff.py`) with the tool's prefix:
+mirrored in `binsync/importer.py`/`binsync/diff.py`) with the tool's prefix:
 
 ```diff
 - _GENERIC_NAME_RE = re.compile(r"^_?(func_|FUN_)[0-9a-fA-F]+(@\d+)?$")
