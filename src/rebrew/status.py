@@ -342,7 +342,7 @@ def _compute_text_size(cfg: ProjectConfig) -> int:
     if not cfg.target_binary.exists():
         return 0
     try:
-        from rebrew.catalog import get_text_section_size
+        from rebrew.sections import get_text_section_size
 
         return get_text_section_size(cfg.target_binary)
     except (ImportError, OSError, ValueError):

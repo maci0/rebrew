@@ -16,7 +16,7 @@ Install editable (`uv pip install -e .`) inside a workspace containing binaries,
 - **`gcc` / `clang`**: ELF/x86_64 targets — native PATH specs (compile via the host `gcc`/`clang` binary; minimal posix flag-sweep axes in `flag_data.py`).
 - **`borlandc55`**: Borland C++ 5.5 free tools (bcc32) — image `rebrew/borland:5.5-win32` (wine inside the image). For Borland-built PE/x86_32 targets (family `borlandc`).
 - **`watcom16`**: Open Watcom 2.0 `wcc` (16-bit DOS, native Linux binary — no image, runs directly). Same snapshot as `watcom`. For 16-bit DOS/Watcom targets (family `watcom`).
-- **`tc16`**: Turbo C++ 3.1 `TCC.EXE` (16-bit DOS) — image `rebrew/borland:3.1-win16` (DOSBox inside the image). Classic DOS-game compiler. 16-bit OMF via `rebrew.matcher.omf16`.
+- **`tc16`**: Turbo C++ 3.1 `TCC.EXE` (16-bit DOS) — image `rebrew/borland:3.1-win16` (DOSBox inside the image). Classic DOS-game compiler. 16-bit OMF via `rebrew.omf16`.
 - **`msvc1.52` / `delphi16`**: 16-bit targets — images `rebrew/msvc:1.52-win16`, `rebrew/delphi:1.0-win16` (DOSBox inside the image).
 
 All images build reproducibly (pinned sources, sha256-verified downloads or 16-bit media tarballs in the rebrew-toolchains checkout; shared `rebrew/base` with pinned Debian digest) and `rebrew toolchain smoke` gates byte-reproducible objects for every image-backed toolchain — see `docs/TOOLCHAIN.md`.
@@ -178,6 +178,8 @@ src/rebrew/
 │                        #   sections_at, find_section, plus the field read/patch/parity
 │                        #   helpers used by round-trip --fix-headers
 ├── ne_loader.py         # NE (New Executable) loader — 16-bit Windows 3.x format detection + parsing
+├── omf16.py             # Minimal 16-bit OMF parser (MSVC 1.52 dialect — code + reloc slots for the 16-bit path)
+├── sections.py          # PE section helpers, x86 utils (trim_trailing_padding, has_back_jumps)
 ├── headless.py          # Headless X server management for wine compiler invocations
 ├── wibo.py              # Auto-download + verify wibo (lightweight Wine alternative)
 ├── compile_cache.py     # Disk-backed compile cache (diskcache, SHA-256 keyed)
@@ -297,7 +299,6 @@ src/rebrew/
 │   ├── registry.py      # build_function_registry, canonical size resolution
 │   ├── grid.py          # Coverage grid / data JSON
 │   ├── export.py        # Catalog + reccmp CSV
-│   ├── sections.py      # PE section helpers, x86 utils (trim_trailing_padding, has_back_jumps)
 │   └── cli.py           # Typer CLI app
 ├── matcher/             # Core GA engine (see matcher/AGENTS.md)
 │   ├── __init__.py      # Re-exports: build_candidate, score_candidate, mutate_code, ...
@@ -305,7 +306,6 @@ src/rebrew/
 │   ├── compiler.py      # MSVC6 compilation + flag sweep (docker images)
 │   ├── scoring.py       # Byte scoring, structural similarity (capstone + numpy)
 │   ├── mutator.py       # 119 C mutation operators for GA
-│   ├── omf16.py         # Minimal 16-bit OMF parser (MSVC 1.52 dialect — code + reloc slots for the 16-bit path)
 │   ├── ast_engine.py    # tree-sitter AST mutation helpers
 │   ├── parsers.py       # Object parsing (COFF/ELF/Mach-O via LIEF)
 │   ├── flags.py         # FlagSet/Checkbox primitives (decomp.me compatible)

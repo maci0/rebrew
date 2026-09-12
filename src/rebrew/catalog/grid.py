@@ -18,13 +18,13 @@ if TYPE_CHECKING:
 from rebrew.annotation import Annotation
 from rebrew.catalog.loaders import load_ghidra_data_labels
 from rebrew.catalog.registry import RegistryEntry, is_jump_table
-from rebrew.catalog.sections import (
+from rebrew.metadata import MATCHED_STATUSES
+from rebrew.sections import (
     get_globals,
     has_back_jumps,
     sections_from_info,
     trim_trailing_padding,
 )
-from rebrew.metadata import MATCHED_STATUSES
 
 log = logging.getLogger(__name__)
 

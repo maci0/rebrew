@@ -9,7 +9,7 @@ BIN/INCLUDE/LIB at the top after the floppy/``TC/`` wrapper is stripped by
 ``rebrew toolchain vendor``.
 
 ``TCC`` produces Borland 16-bit OMF objects, which rebrew parses via
-``rebrew.matcher.omf16`` (verified: cdecl prologue + rel16/disp16 slots).
+``rebrew.omf16`` (verified: cdecl prologue + rel16/disp16 slots).
 
 The two compiler generations emit different codegen — a binary built with
 Turbo C 2.0 (e.g. 1989-91 games like Commander Keen) will not byte-match a
