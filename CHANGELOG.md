@@ -1,11 +1,61 @@
 ## [Unreleased]
 ### Added
+- **PE data-directory symbols, and a splat-compatible `symbol_addrs` interchange**:
+  `rebrew.pe_symbols` names an image's entry point, exports (forwarders kept as
+  forwarded), IAT slots (`__imp_<dll>_<name>`), delay-loaded slots, the TLS
+  callback addresses, the SafeSEH handler table, the `/guard:cf` target table
+  and the load-config security cookie's own address, and reports what it could
+  not read through a notes channel instead of raising.  `rebrew symbol-addrs`
+  now writes the richer `name = 0xVA; // type:... size:...` form by default and
+  reads it back (the bare `0xVA,name` CSV stays behind `--csv`), `--pe-symbols`
+  merges the directory symbols with an annotation winning any collision it
+  reports, and `--references` writes a `referenced_by` column derived from the
+  shared `analysis.scan_references` scan rather than a second disassembler path.
+  `rebrew pe-info` gained `delay_imports`, `tls_callbacks`, `safe_seh_handlers`,
+  `cfg_targets` and `version_info`, and `rebrew imports` now lists ordinal-only
+  PE imports (wordpad.exe went from 227 to 948 rows) instead of dropping them.
+  LIEF does not enumerate the SafeSEH or CFG tables, so their addresses and
+  counts come from LIEF and the entry arrays from the image bytes.
 - **`rebrew init --refresh-agents` re-renders an existing project's `AGENTS.md`**:
   the generated file follows the packaged template and the project's own
   profile, so a renamed toolchain or a template change reaches projects already
   on disk.  It reads `rebrew-project.toml` and never rewrites it; `rebrew init`
   previously refused an existing project outright, which left the generated
   file hand-edit-only.
+- **`rebrew pe-info` reports the entry point's own bytes**: a new
+  `entry_bytes` field carries the first 16 bytes at the entry point as hex, for
+  PE, ELF and Mach-O alike, so a reader can see a packer's stub (a `pushad`, a
+  call/pop pair, a bare jump) and not just the address it starts at.  An
+  address outside the mapped image, or a zero entry point, reports `null`
+  rather than failing the report.
+- **`rebrew imports` reads ELF dynamic imports**: an ELF image's DT_NEEDED
+  libraries are listed as module records (in declaration order) and each
+  undefined dynamic symbol follows, with its `dll` set to the library whose
+  `.gnu.version_r` requirement covers the version the symbol asks for and its
+  `iat_va` set to the lowest dynamic relocation address that references it
+  (the GOT/PLT slot, link-time and therefore image-relative for a PIE).  An
+  unversioned symbol is reported with an empty `dll` rather than guessed at:
+  DT_NEEDED names the libraries but never says which of them exports which
+  symbol.  `rebrew fingerprints`' `imphash` now hashes ELF imports the same way
+  it hashes PE ones; it previously reported nothing for an ELF.  The
+  `tests/bin_util.make_elf` fixture builds those dynamic tables (`.dynstr`,
+  `.dynsym`, `.gnu.version`, `.gnu.version_r`, `.got.plt`, `.rel.plt`,
+  `.dynamic`), so the path is tested against spec-valid bytes.
+- **Portal binary-detail fields in `rebrew pe-info` and `rebrew fingerprints`**:
+  `pe-info` reports the PE type, the resource-entry count, the export table
+  (`name`, absolute `va`, `ordinal`, `forwarder`; a forwarded export keeps its
+  record with a null `va`), each section's Shannon entropy and full
+  `IMAGE_SCN_*` characteristic names with the raw dword, and the portal's
+  11-item security checklist (`aslr`, `dep`, `cfg`, `driver_model`,
+  `app_container`, `terminal_server_aware`, `image_isolation`,
+  `code_integrity`, `high_entropy`, `seh`, `bound_image`) where each item
+  carries `enabled` / `flag` / `flag_name` and is `null` for `enabled` when
+  LIEF exposes no source value, never a false the file did not state, plus its
+  `security_score` (`enabled` over the fixed total 11).  `fingerprints` adds
+  sha512 and the four SHA-3 digests to the streamed digest set and an
+  `export_hash` (SHA-256 over the sorted, lowercased `<ordinal>:<name>` export
+  lines, or over the empty string when the image has no exports; `null` when
+  the export table cannot be read).
 - **`rebrew pe-info` dumps PE metadata**: a new read-only command (and
   `rebrew.pe_info` module) reports the binary identity (format, arch, bits,
   image base, entry point, subsystem, timestamp, checksum, size), the section

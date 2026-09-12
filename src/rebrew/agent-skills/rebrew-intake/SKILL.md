@@ -149,25 +149,28 @@ pipeline (MSVC6 vs MinGW GCC):
 ### 0c. Binary Fingerprint
 
 Record the binary's identity before analysis.  `rebrew fingerprints` returns
-the file digests, imphash, Rich-header hash, and per-section entropy in one
-bundle, which tells two builds of the same target apart and flags a changed
-import set or linker stamp after a rebuild.
+the streamed file digests (md5, sha1, sha256, sha512, the four SHA-3 digests
+and crc32), imphash, export hash, Rich-header hash, and per-section entropy in
+one bundle, which tells two builds of the same target apart and flags a
+changed import set, export set or linker stamp after a rebuild.
 
 ```bash
 rebrew fingerprints --json                 # fingerprint the target binary
 rebrew fingerprints original/<filename>    # fingerprint a specific binary
 ```
 
-The `imphash` and `rich_header_hash` fields are the cheap build-identity
-checks; `format` / `arch` confirm the toolchain family the rest of intake
-assumes.
+The `imphash`, `export_hash` and `rich_header_hash` fields are the cheap
+build-identity checks; `format` / `arch` confirm the toolchain family the rest
+of intake assumes.
 
 For the PE build identity itself, `rebrew pe-info` dumps the headers and
-section table, the DllCharacteristics mitigations with the load-config GS
-and SafeSEH state, the Authenticode summary, the debug directory (CodeView
-PDB path / GUID / age when present), and the Rich header (key and decoded
-entries).  It complements the fingerprint bundle for PE targets: use it to
-read the subsystem, entry point, linker timestamp, section protections,
+section table (each section's entropy and full `IMAGE_SCN_*` characteristic
+names), the export table, the resource count, the DllCharacteristics
+mitigations with the load-config GS and SafeSEH state and the 11-item security
+checklist with its `N/11` score, the Authenticode summary, the debug directory
+(CodeView PDB path / GUID / age when present), and the Rich header (key and
+decoded entries).  It complements the fingerprint bundle for PE targets: use
+it to read the subsystem, entry point, linker timestamp, section protections,
 and Rich build numbers without an external PE viewer.  ELF and Mach-O
 inputs report the shared identity fields plus a note that the PE-only
 metadata is unavailable.

@@ -14,6 +14,7 @@ import rebrew.main
 from rebrew.pe_info import (
     _debug_entries,
     _exports,
+    _pe_payload,
     _pe_type,
     _resource_count,
     _rich_header,
@@ -37,6 +38,9 @@ MINI_PE_TEXT_VA = 0x1000
 MINI_PE_TEXT_VSIZE = 113
 MINI_PE_TEXT_RAW_SIZE = 512
 MINI_PE_TEXT_RAW_OFFSET = 512
+# The fixture's first function plus the int3 padding that follows it, the
+# first 16 bytes of .text, which is where its entry point sits.
+MINI_PE_ENTRY_BYTES = "558bec8b05000000005dc3cccccccccc"
 
 
 def _fake_pe(**overrides: object) -> SimpleNamespace:
@@ -82,6 +86,7 @@ class TestPayloadShape:
             "type",
             "image_base",
             "entry_point",
+            "entry_bytes",
             "subsystem",
             "timestamp",
             "checksum",
@@ -99,6 +104,11 @@ class TestPayloadShape:
             "rich_header",
             "presence",
             "counts",
+            "delay_imports",
+            "tls_callbacks",
+            "safe_seh_handlers",
+            "cfg_targets",
+            "version_info",
         }
 
     def test_identity_values(self) -> None:
@@ -109,6 +119,7 @@ class TestPayloadShape:
         assert info["type"] == "exe"
         assert info["image_base"] == MINI_PE_IMAGE_BASE
         assert info["entry_point"] == MINI_PE_IMAGE_BASE + MINI_PE_TEXT_VA
+        assert info["entry_bytes"] == MINI_PE_ENTRY_BYTES
         assert info["subsystem"] == "WINDOWS_CUI"
         assert info["size"] == MINI_PE.stat().st_size
 
@@ -415,6 +426,11 @@ class TestNonPe:
         assert info["entry_point"] == 0x401000
         assert info["size"] == MINI_ELF.stat().st_size
 
+    def test_elf_entry_bytes(self) -> None:
+        """The entry point's own bytes, not just its address."""
+        info = pe_info(MINI_ELF)
+        assert info["entry_bytes"] == MINI_PE_ENTRY_BYTES
+
     def test_elf_note_mentions_pe_only(self) -> None:
         note = pe_info(MINI_ELF)["note"]
         assert isinstance(note, str)
@@ -510,6 +526,46 @@ class TestAuthenticode:
     def test_unsigned_shape(self) -> None:
         auth = pe_info(MINI_PE)["authenticode"]
         assert auth == {"present": False, "signature_count": 0, "signers": []}
+
+
+class TestDirectories:
+    def test_absent_directories_are_empty_lists(self) -> None:
+        info = pe_info(MINI_PE)
+        assert info["delay_imports"] == []
+        assert info["tls_callbacks"] == []
+        assert info["safe_seh_handlers"] == []
+        assert info["cfg_targets"] == []
+
+    def test_version_info_null_without_a_resource(self) -> None:
+        assert pe_info(MINI_PE)["version_info"] is None
+
+    def test_delay_imports_null_without_a_directory_table(self) -> None:
+        info = _pe_payload(_fake_pe(data_directories=[]), MINI_PE, 0, "x86_32")
+        assert info["delay_imports"] is None
+        assert info["safe_seh_handlers"] is None
+        assert info["cfg_targets"] is None
+
+    def test_tls_null_when_the_flag_is_unexposed(self) -> None:
+        fake = _fake_pe()
+        del fake.has_tls
+        info = _pe_payload(fake, MINI_PE, 0, "x86_32")
+        assert info["tls_callbacks"] is None
+
+    def test_version_info_reads_the_string_file_info(self) -> None:
+        entry = SimpleNamespace(key="CompanyName", value="Acme")
+        original = SimpleNamespace(key="OriginalFilename", value="game.exe")
+        table = SimpleNamespace(entries=[entry, original, SimpleNamespace(key="Other")])
+        version = SimpleNamespace(string_file_info=SimpleNamespace(children=[table]))
+        manager = SimpleNamespace(version=[version])
+        info = _pe_payload(_fake_pe(resources_manager=manager), MINI_PE, 0, "x86_32")
+        assert info["version_info"] == {"company_name": "Acme", "original_filename": "game.exe"}
+
+    def test_version_info_null_without_matching_fields(self) -> None:
+        table = SimpleNamespace(entries=[SimpleNamespace(key="Other", value="x")])
+        version = SimpleNamespace(string_file_info=SimpleNamespace(children=[table]))
+        manager = SimpleNamespace(version=[version])
+        info = _pe_payload(_fake_pe(resources_manager=manager), MINI_PE, 0, "x86_32")
+        assert info["version_info"] is None
 
 
 class TestErrors:
