@@ -1,4 +1,16 @@
 ## [Unreleased]
+### Added
+- **`rebrew security-scan` scans C sources for unsafe API use**: a new command
+  (and `rebrew.security_scan` module) matches call expressions on the
+  tree-sitter AST — callee and arguments come from the parse tree, never a
+  regex over the text. Six rules report by CWE, severity, and confidence:
+  `unbounded-copy` (CWE-120, high), `format-string` (CWE-134, medium),
+  `command-exec` (CWE-78, medium), `unchecked-memcpy` (CWE-787, low),
+  `insecure-random` (CWE-338, low), and `stack-alloc` (CWE-770, low). A
+  directory argument selects any C source tree (no project needed) and
+  defaults to the project's reversed sources. `--min-severity` filters;
+  `--json` prints `{root, files_scanned, findings, count, by_severity}` and
+  no findings is exit 0.
 ### Fixed
 - **Plugin multi-command groups show their own help** — a Typer group registered through the
   `rebrew.multicommands` entry point was added with `help=<command name>`, so the Plugins panel
