@@ -1013,3 +1013,21 @@ def rel_display_path(filepath: Path, base_dir: Path | None = None) -> str:
             except ValueError:  # cross-drive on Windows
                 return filepath.name
     return filepath.name
+
+
+def parse_int_literal(text: str, *, base: int = 10) -> int:
+    """Parse a C-style integer literal.
+
+    A ``0x``/``0X`` prefix selects base 16; anything else uses *base* (decimal
+    by default).  Raises ``ValueError`` on a malformed literal, so callers that
+    want a fallback can catch it, and callers that must fail loud (the CLI's
+    ``parse_va``) let it propagate.
+
+    This is the one literal parser: the ad-hoc ``int(s, 16) if s.startswith(
+    "0x") else int(s)`` copies in ``struct_recover``, ``name_decomp``,
+    ``stack_cmp``, ``switch``, and the Ghidra backends all resolve here.
+    """
+    stripped = text.strip()
+    if stripped.lower().startswith("0x"):
+        return int(stripped, 16)
+    return int(stripped, base)
