@@ -429,7 +429,7 @@ def bench_verify_cached() -> dict[str, float]:
     """The incremental verify cache-hit check over 500 sources (source hash +
     header fingerprint — the per-entry cost of an incremental `rebrew verify`)."""
     from rebrew.config import ProjectConfig
-    from rebrew.verify import _entry_headers_fp, _source_hash
+    from rebrew.verify_hash import _entry_headers_fp, _source_hash
 
     with tempfile.TemporaryDirectory() as d:
         src_dir = Path(d) / "src"
