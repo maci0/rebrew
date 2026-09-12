@@ -149,6 +149,12 @@
   sources now exist.
 
 ### Changed
+- **`rebrew init --refresh-agents` refreshes the whole generated scaffold**
+  (`.agents/skills/` and `PRINCIPLES.md`, not just `AGENTS.md`), and
+  `rebrew init --check` reports drift against the packaged sources and exits 1.
+  Only files that differ are written, so a re-run is a no-op once clean.  The
+  skills had drifted in every one of the 44 workspaces because the packaged
+  skill text moved on after each was rendered.
 - **`round-trip --fix-headers` also patches the COFF `characteristics` word**,
   so the DEBUG_STRIPPED bit the now-deleted workspace `fix_pe_header.py` added
   comes from `--fix-headers` like every other header field.  The three

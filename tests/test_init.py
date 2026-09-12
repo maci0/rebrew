@@ -1168,3 +1168,51 @@ class TestRefreshAgents:
         before = toml.read_text(encoding="utf-8")
         _refresh_agents(root, toml, json_output=False)
         assert toml.read_text(encoding="utf-8") == before
+
+    def test_refresh_writes_skills_and_principles(self, tmp_path: Path) -> None:
+        from rebrew.init import _refresh_agents
+
+        root = self._project(tmp_path, "msvc-5.0")
+        _refresh_agents(root, root / "rebrew-project.toml", json_output=False)
+
+        principles = root / "PRINCIPLES.md"
+        assert principles.is_file() and principles.stat().st_size > 0
+        skill = root / ".agents" / "skills" / "rebrew-workflow" / "SKILL.md"
+        assert skill.is_file()
+        assert "<target>" not in skill.read_text(encoding="utf-8")
+
+    def test_check_is_clean_after_refresh(self, tmp_path: Path) -> None:
+        import typer
+
+        from rebrew.init import _refresh_agents
+
+        root = self._project(tmp_path, "msvc-5.0")
+        _refresh_agents(root, root / "rebrew-project.toml", json_output=False)
+        with pytest.raises(typer.Exit) as exc:
+            _refresh_agents(root, root / "rebrew-project.toml", json_output=False, check=True)
+        assert exc.value.exit_code == 0
+
+    def test_check_flags_a_stale_skill(self, tmp_path: Path) -> None:
+        import typer
+
+        from rebrew.init import _refresh_agents
+
+        root = self._project(tmp_path, "msvc-5.0")
+        _refresh_agents(root, root / "rebrew-project.toml", json_output=False)
+        skill = root / ".agents" / "skills" / "rebrew-workflow" / "SKILL.md"
+        skill.write_text(skill.read_text(encoding="utf-8") + "\nstale\n", encoding="utf-8")
+        with pytest.raises(typer.Exit) as exc:
+            _refresh_agents(root, root / "rebrew-project.toml", json_output=False, check=True)
+        assert exc.value.exit_code == 1
+
+    def test_check_flags_a_missing_agents_md(self, tmp_path: Path) -> None:
+        import typer
+
+        from rebrew.init import _refresh_agents
+
+        root = self._project(tmp_path, "msvc-5.0")
+        _refresh_agents(root, root / "rebrew-project.toml", json_output=False)
+        (root / "AGENTS.md").unlink()
+        with pytest.raises(typer.Exit) as exc:
+            _refresh_agents(root, root / "rebrew-project.toml", json_output=False, check=True)
+        assert exc.value.exit_code == 1
