@@ -170,7 +170,8 @@ src/rebrew/
 ├── signature_parser.py  # Extract function signatures from C (tree-sitter)
 ├── split.py             # Split multi-function C files into singles
 ├── struct_parser.py     # Extract struct/typedef defs from C (tree-sitter)
-├── utils.py             # Shared utilities (atomic_write_text, rel_display_path)
+├── utils.py             # Shared utilities (atomic_write_text, rel_display_path,
+│                        #   parse_int_literal — the one C int-literal parser)
 ├── analysis.py          # Recon primitives: iter_strings, scan_references (Xref/Insn/StringEntry), string_refs
 ├── analyze.py           # One-shot dossier (toolchain, strings, imports, dispatch, FLIRT, NEAR_MATCHING blockers)
 ├── pe_headers.py        # PE header helpers (image base, section math)

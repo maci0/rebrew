@@ -48,6 +48,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
+from rebrew.utils import parse_int_literal
 
 console = Console(stderr=True)
 
@@ -138,16 +139,16 @@ def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
             ):
                 m = _ESP_DELTA_RE.search(op_str)
                 if m:
-                    delta = int(m.group(2), 16) if m.group(2).startswith("0x") else int(m.group(2))
+                    delta = parse_int_literal(m.group(2))
                     esp += -delta if m.group(1) == "-" else delta
         elif mnem == "enter":
             m = _ENTER_SIZE_RE.search(op_str)
             if m:
-                size = int(m.group(1), 16) if m.group(1).startswith("0x") else int(m.group(1))
+                size = parse_int_literal(m.group(1))
                 esp -= word + size
             frame_pointer = True
         elif mnem == "ret" and op_str:
-            ret_popping = int(op_str, 16) if op_str.startswith("0x") else int(op_str)
+            ret_popping = parse_int_literal(op_str)
 
         # Frame pointer establishment: push ebp immediately followed by
         # mov ebp, esp (16-bit: push bp / mov bp, sp).
@@ -163,7 +164,7 @@ def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
 
         m = _EBP_SLOT_RE.search(op_str)
         if m:
-            delta = int(m.group(2), 16) if m.group(2).startswith("0x") else int(m.group(2))
+            delta = parse_int_literal(m.group(2))
             if m.group(1) == "-":
                 delta = -delta
             slots.add(delta)

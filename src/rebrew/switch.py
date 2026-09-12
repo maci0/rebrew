@@ -30,6 +30,7 @@ from rich.console import Console
 from rich.table import Table
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.utils import parse_int_literal
 
 console = Console(stderr=True)
 
@@ -158,10 +159,7 @@ def find_switches(cfg: Any, va: int, window: int = 512) -> list[dict[str, Any]]:
                 if cm is None or cm.group(1) not in copies:
                     continue
                 try:
-                    imm_text = cm.group(2)
-                    value = (
-                        int(imm_text, 16) if imm_text.lower().startswith("0x") else int(imm_text)
-                    )
+                    value = parse_int_literal(cm.group(2))
                 except ValueError:
                     continue
                 if 0 <= value <= 0xFFFF:

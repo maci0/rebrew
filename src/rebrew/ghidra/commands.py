@@ -19,7 +19,7 @@ from rebrew.ghidra.client import (
     fetch_mcp_tool_raw,
     init_mcp_session,
 )
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, parse_int_literal
 
 console = Console(stderr=True)
 
@@ -126,13 +126,8 @@ def parse_ghidra_va(va_raw: str | int | None) -> int | None:
         return None
     if isinstance(va_raw, int):
         return va_raw
-    if isinstance(va_raw, str) and va_raw.startswith("0x"):
-        try:
-            return int(va_raw, 16)
-        except ValueError:
-            return None
     try:
-        return int(va_raw)
+        return parse_int_literal(va_raw)
     except (ValueError, TypeError):
         return None
 
