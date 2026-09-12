@@ -292,6 +292,13 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
         is_group=False,
     ),
     CliComponent(
+        name="pe-info",
+        module="rebrew.pe_info",
+        help="Dump PE metadata: identity, sections, security flags, debug, Rich header.",
+        panel=Panel.ANALYSIS,
+        is_group=False,
+    ),
+    CliComponent(
         name="crypto-scan",
         module="rebrew.crypto_scan",
         help="Detect crypto constant tables, crypto imports, and crypto-named functions.",

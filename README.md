@@ -43,6 +43,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew crt-match` | Cross-reference functions against CRT/library source directories |
 | `rebrew similar` | Rank binary functions by structural similarity to a solved function — find which STUBs share its source family |
 | `rebrew fingerprints` | File hashes, imphash, MSVC Rich-header hash, and per-section entropy for a binary |
+| `rebrew pe-info` | PE metadata dump: identity, sections with protection flags, DllCharacteristics security flags, Authenticode, debug/PDB, and Rich header |
 | `rebrew crypto-scan` | Detect crypto constant tables (AES/SHA/MD5), crypto imports, and crypto-named functions |
 | `rebrew security-scan` | Scan C sources for unsafe API use: unbounded copies, non-literal format strings, command execution, unchecked `memcpy`, weak randomness, non-literal `alloca` |
 
