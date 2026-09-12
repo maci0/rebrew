@@ -387,14 +387,14 @@ class TestWin32SimProcedures:
     """Verify the Win32 SimProcedure registry is populated correctly."""
 
     def test_registry_populated(self) -> None:
-        from rebrew.prove import _get_win32_simprocs
+        from rebrew.prove_simprocs import _get_win32_simprocs
 
         procs = _get_win32_simprocs()
         assert isinstance(procs, dict)
         assert len(procs) > 50  # should have ~80+ entries
 
     def test_common_apis_present(self) -> None:
-        from rebrew.prove import _get_win32_simprocs
+        from rebrew.prove_simprocs import _get_win32_simprocs
 
         procs = _get_win32_simprocs()
         for name in (
@@ -414,7 +414,7 @@ class TestWin32SimProcedures:
     def test_all_are_simproc_subclasses(self) -> None:
         import angr
 
-        from rebrew.prove import _get_win32_simprocs
+        from rebrew.prove_simprocs import _get_win32_simprocs
 
         procs = _get_win32_simprocs()
         for name, cls in procs.items():

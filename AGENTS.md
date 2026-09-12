@@ -190,6 +190,7 @@ src/rebrew/
 ├── crt_match.py         # CRT cross-reference matcher (index, match, ASM detection)
 ├── cache_cli.py         # `rebrew cache stats` / `rebrew cache clear` CLI
 ├── prove.py             # Symbolic equivalence prover via angr (optional)
+├── prove_simprocs.py    # Win32 SimProcedure models + bounded-copy helpers (angr optional)
 ├── delphi16.py          # Delphi 1.0 (16-bit) compile support — DOSBox sandbox + NE parse
 ├── msvc16.py            # MSVC 1.52 (16-bit) compile support — DOSBox + OMF object
 ├── tc16.py              # Turbo C 2.0/C++ 3.1 (16-bit) compile support — DOSBox + tiny-model output
