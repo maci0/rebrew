@@ -91,6 +91,7 @@ from rebrew.matcher.mutations.runtime import (
     _cursor,
     _find_function_body_insert_pos,
     _first_caps,
+    brace_block,
 )
 
 # --- Mutations ---
@@ -305,12 +306,7 @@ def mut_swap_if_else(s: str, rng: random.Random) -> str | None:
         # Brace both arms: a bare `else if` without its own trailing else
         # would re-bind the final else to the inner if (dangling else),
         # flipping branch outcomes.
-        def _braced(body: bytes) -> bytes:
-            if body.startswith(b"{") and body.endswith(b"}"):
-                return body
-            return b"{ " + body + b" }"
-
-        return b"if (" + negated_cond + b") " + _braced(alt) + b" else " + _braced(cons)
+        return b"if (" + negated_cond + b") " + brace_block(alt) + b" else " + brace_block(cons)
 
     res = _apply_query_once(b_source, _QUERY_IF_ELSE, _repl, rng)
     return res.decode("utf-8") if res else None
