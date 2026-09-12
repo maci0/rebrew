@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rebrew.match import BinaryMatchingGA, _ga_args_hash, read_ga_checkpoint
+from rebrew.match_ga import BinaryMatchingGA, _ga_args_hash, read_ga_checkpoint
 from rebrew.matcher.core import GACheckpoint
 
 _SOURCE = "int f(void) { return 0; }"
@@ -102,7 +102,7 @@ class TestCheckpointIO:
         ga = _make_ga(tmp_path)
         with (
             caplog.at_level(logging.WARNING, logger="rebrew.match"),
-            patch("rebrew.match.atomic_write_text", side_effect=OSError("disk full")),
+            patch("rebrew.match_ga.atomic_write_text", side_effect=OSError("disk full")),
         ):
             ga._save_checkpoint(2)
             ga._save_checkpoint(3)

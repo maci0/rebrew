@@ -331,7 +331,7 @@ class TestFindFunctionRange:
     """_find_function_range — GA mutation scoping helper."""
 
     def test_finds_matching_function(self) -> None:
-        from rebrew.match import _find_function_range
+        from rebrew.match_ga import _find_function_range
 
         src = """int helper(void) { return 0; }
 
@@ -347,7 +347,7 @@ int other(void) { return 2; }
         assert "helper" not in src[r[0] : r[1]]
 
     def test_underscore_prefix_optional(self) -> None:
-        from rebrew.match import _find_function_range
+        from rebrew.match_ga import _find_function_range
 
         src = "int foo(void) { return 1; }"
         r = _find_function_range(src, "foo")
@@ -355,13 +355,13 @@ int other(void) { return 2; }
         assert "foo" in src[r[0] : r[1]]
 
     def test_missing_symbol_returns_none(self) -> None:
-        from rebrew.match import _find_function_range
+        from rebrew.match_ga import _find_function_range
 
         src = "int foo(void) { return 1; }"
         assert _find_function_range(src, "_nonexistent") is None
 
     def test_non_c_garbage_returns_none(self) -> None:
-        from rebrew.match import _find_function_range
+        from rebrew.match_ga import _find_function_range
 
         assert _find_function_range("not c at all", "_foo") is None
 
