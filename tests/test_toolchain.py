@@ -102,6 +102,7 @@ class TestImageMsvcEnv:
             "msvc600sp3",
             "msvc600sp4",
             "msvc600sp5",
+            "msvc600sp5pp",
             "msvc600sp6",
         ):
             spec = TOOLCHAINS[name]

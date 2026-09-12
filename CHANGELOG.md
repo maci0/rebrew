@@ -24,6 +24,14 @@
   on the backend that produced an object, and passes the opt-in
   `recompile_emit_assembly` training tap.  Local docker images stay the
   default.
+- **`msvc600sp5pp` — VC6 with the Processor Pack**: a new toolchain profile runs
+  MSVC 6.0 SP5 with the Visual C++ 6.0 Processor Pack applied (image
+  `rebrew/msvc:6.0-sp5-pp-win32`, built from `archaic-msvc/msvc600_sp5_vcpp`).
+  The pack replaces the code generator (`c2.dll` 13.00.9044.0), adds MASM 6.15
+  (`ml.exe`), and installs the MMX/SSE/SSE2 intrinsic headers (`mmintrin.h`,
+  `xmmintrin.h`, `emmintrin.h`, ...).  `cl.exe` itself is unchanged
+  (12.00.8804) and VC6 has no `/arch` option even with the pack: SSE/SSE2 code
+  uses the intrinsics.  The pack is SP5-only (SP6 removes it).
 
 ## [1.0.0] - 2026-09-12
 ### Added

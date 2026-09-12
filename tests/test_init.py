@@ -28,7 +28,7 @@ class TestCompilerDefaults:
     """Tests for the COMPILER_DEFAULTS constant."""
 
     def test_has_expected_profiles(self) -> None:
-        assert len(COMPILER_DEFAULTS) == 41
+        assert len(COMPILER_DEFAULTS) == 42
 
     def test_known_profiles(self) -> None:
         assert set(COMPILER_DEFAULTS.keys()) == {
@@ -46,6 +46,7 @@ class TestCompilerDefaults:
             "msvc600sp3",
             "msvc600sp4",
             "msvc600sp5",
+            "msvc600sp5pp",
             "msvc600sp6",
             "msvc7",
             "msvc700",

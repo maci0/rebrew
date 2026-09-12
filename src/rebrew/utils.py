@@ -231,6 +231,13 @@ _MSVC_LAYOUTS: dict[str, tuple[tuple[str, str, str], ...]] = {
             "toolchain/msvc/6.0-sp5-win32/source/VC98/Lib",
         ),
     ),
+    "msvc600sp5pp": (
+        (
+            "toolchain/msvc/6.0-sp5-pp-win32/source/VC98/Bin/CL.EXE",
+            "toolchain/msvc/6.0-sp5-pp-win32/source/VC98/Include",
+            "toolchain/msvc/6.0-sp5-pp-win32/source/VC98/Lib",
+        ),
+    ),
     "msvc600sp6": (
         (
             "toolchain/msvc/6.0-sp6-win32/source/Bin/CL.EXE",
