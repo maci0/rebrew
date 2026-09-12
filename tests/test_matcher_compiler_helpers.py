@@ -88,6 +88,25 @@ class TestFlagSweepsNewProfiles:
             assert c.startswith("-") or c == ""
 
 
+class TestUnlistedProfileFlagFallback:
+    """A profile with no packaged/plugin flag set sweeps axes for its
+    registered ``flags_style`` — a posix compiler must not be handed MSVC's
+    /Gd axes."""
+
+    def test_posix_profile_gets_posix_axes(self) -> None:
+        combos = generate_flag_combinations("targeted", "ido-5.3")
+        assert combos
+        for c in combos:
+            assert c.startswith("-") or c == ""
+            assert "/" not in c
+
+    def test_unregistered_profile_keeps_msvc_axes(self) -> None:
+        combos = generate_flag_combinations("targeted", "totally-made-up")
+        assert combos
+        for c in combos:
+            assert c.startswith("/") or c == ""
+
+
 class TestSweepScoringMode:
     def test_mode_matches_the_ga_path(self) -> None:
         """The sweep hardcoded 32-bit mode for everything but x86_16, so an

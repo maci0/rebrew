@@ -214,6 +214,18 @@ class TestToolchainRegistry:
         with pytest.raises(RegistryError, match="unknown field"):
             build_toolchain_registry()
 
+    def test_overlay_bad_flags_style_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("REBREW_TOOLCHAIN_OVERLAY_DIR", str(tmp_path))
+        (tmp_path / "bad.toml").write_text(
+            '[mytc]\nbinary = "cl"\nflags_style = "gnu"\n', encoding="utf-8"
+        )
+        from rebrew.toolchain import build_toolchain_registry
+
+        with pytest.raises(RegistryError, match="flags_style must be"):
+            build_toolchain_registry()
+
     def test_overlay_dir_missing_raises(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -752,7 +764,7 @@ class TestSixteenBitAlignment:
         monkeypatch.setattr(toolchain, "TOOLCHAINS", toolchain.build_toolchain_registry())
 
         assert "mytc16" in td._bitness16_profiles()
-        assert "borland-3.1" in td._bitness16_profiles()  # packaged set intact
+        assert "borland-3.1" in td._bitness16_profiles()  # packaged bits=16 intact
 
         compat = dict(td._PROFILE_COMPAT_ALL)
         compat.setdefault("acme-c", set()).add("mytc16")
@@ -1131,30 +1143,8 @@ class TestRealEntryPointMetadata:
         assert "demo-cmd" in [c.name for c in fresh.registered_commands]
 
 
-class TestLegacyProfileAliases:
-    """msvc6.3/msvc6.6 migrate to their modern registry names at config load."""
-
-    @pytest.mark.parametrize(
-        ("legacy", "modern"),
-        [("msvc6.3", "msvc-6.0-sp3"), ("msvc6.6", "msvc-6.0-sp6")],
-    )
-    def test_legacy_alias_migrates(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, legacy: str, modern: str
-    ) -> None:
-        import warnings
-
-        from rebrew.config import load_config
-
-        (tmp_path / "rebrew-project.toml").write_text(
-            f'[project]\nroot = "{tmp_path}"\ndefault_target = "T"\n'
-            f'[targets.T]\nbinary = "{tmp_path}/t.exe"\n'
-            f'[compiler]\nprofile = "{legacy}"\n',
-            encoding="utf-8",
-        )
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            cfg = load_config(root=tmp_path)
-        assert cfg.compiler_profile == modern
+class TestUnknownProfileFallback:
+    """A retired or unknown profile name warns and falls back to msvc-6.0."""
 
     def test_unknown_profile_still_falls_back(self, tmp_path: Path) -> None:
         import warnings

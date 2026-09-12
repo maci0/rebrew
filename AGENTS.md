@@ -207,7 +207,7 @@ src/rebrew/
 ├── library.py           # rebrew-libraries.toml per-library overrides + `rebrew library` CLI group
 ├── dosbox.py            # Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads)
 ├── toolchain.py         # Toolchain registry assembly + docker-only runner (images for Windows/DOS, native for Linux compilers); ADR 015
-├── toolchain_spec.py    # ToolchainSpec / ToolchainSource value types
+├── toolchain_spec.py    # ToolchainSpec / ToolchainSource value types + FlagsStyle
 ├── toolchain_paths.py   # rebrew-toolchains checkout location (toolchains_repo, REPO_TOOLS, vendored_path)
 ├── toolchain_data.py    # Packaged registry + source pins (SOURCES, BUILTIN_TOOLCHAINS)
 ├── toolchain_cli.py     # `rebrew toolchain` CLI (list/status/detect/pull/build)
@@ -330,7 +330,7 @@ src/rebrew/
 │   ├── ast_engine.py    # tree-sitter AST mutation helpers
 │   ├── parsers.py       # Object parsing (COFF/ELF/Mach-O via LIEF)
 │   ├── flags.py         # FlagSet/Checkbox primitives (decomp.me compatible)
-│   ├── flag_data.py     # Auto-synced MSVC flag defs
+│   ├── flag_data.py     # Auto-synced flag axes per compiler dialect (MSVC/GCC/Borland/Watcom/16-bit)
 │   └── solutions.py     # GA solution transfer DB (cross-function cflags seeding)
 ├── ghidra/              # Ghidra sync — BinSync-primary field sync + MCP structural ops
 │   ├── __init__.py      # Re-exports public API

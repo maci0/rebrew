@@ -1,8 +1,9 @@
-"""compiler.py – MSVC compilation and Wine execution for GA matching.
+"""compiler.py – the GA compilation backend.
 
-Provides build_candidate_obj_only(), build_candidate(), flag_sweep(),
-and generate_flag_combinations() for compiling C source with MSVC6 under Wine
-and extracting function bytes from the resulting object/executable.
+build_candidate_obj_only(), build_candidate(), flag_sweep(), and
+generate_flag_combinations() compile C source through the profile's toolchain
+(the profile's docker image for a Windows/DOS compiler, native for a Linux
+one) and extract function bytes from the resulting object/executable.
 """
 
 import contextlib
@@ -21,7 +22,8 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.compile_cache import CacheBackend, compile_cache_key
-from rebrew.config import POSIX_PROFILES
+from rebrew.config import profile_flags_style
+from rebrew.toolchain_spec import FlagsStyle
 from rebrew.utils import safe_shlex_split
 
 from .core import BuildResult
@@ -113,7 +115,7 @@ def _map_symbol_re(symbol: str) -> re.Pattern[str]:
 # _merged_flag_sets below).
 _FLAGS_MAP: dict[str, Flags] = {
     "msvc": COMMON_MSVC_FLAGS,
-    "msvc-7.0": COMMON_MSVC_FLAGS,  # deprecated alias of msvc-7.1
+    "msvc-7.0": COMMON_MSVC_FLAGS,  # legacy 7.0 profile — cl 13.10.3077 (the 7.1 build)
     "msvc-7.0-rtm": COMMON_MSVC_FLAGS,
     "msvc-7.1": COMMON_MSVC_FLAGS,
     "msvc-8.0": COMMON_MSVC_FLAGS,
@@ -148,6 +150,22 @@ _PACKAGED_FLAG_TIERS: dict[str, dict[str, list[str] | None]] = {
     "borland-2.0": BORLAND_SWEEP_TIERS,
     "borland-5.5": BORLAND_SWEEP_TIERS,
 }
+
+#: Sweep axes for a profile with no entry above, keyed by the registry spec's
+#: ``flags_style``: a posix compiler must not be handed MSVC's ``/Gd`` axes.
+#: A profile outside the registry keeps the MSVC default.
+_DEFAULT_FLAGS_BY_STYLE: dict[FlagsStyle, Flags] = {"msvc": MSVC6_FLAGS, "posix": GCC_FLAGS}
+_DEFAULT_TIERS_BY_STYLE: dict[FlagsStyle, dict[str, list[str] | None]] = {
+    "msvc": MSVC_SWEEP_TIERS,
+    "posix": GCC_SWEEP_TIERS,
+}
+
+
+def _default_flag_set(profile: str) -> tuple[Flags, dict[str, list[str] | None]]:
+    """Flag set + sweep tiers for a profile with no packaged/plugin entry."""
+    style: FlagsStyle = profile_flags_style(profile) or "msvc"
+    return _DEFAULT_FLAGS_BY_STYLE[style], _DEFAULT_TIERS_BY_STYLE[style]
+
 
 #: setuptools entry-point group whose members register sweep flag sets.  A
 #: member is a zero-arg callable returning ``dict[profile, (Flags, tiers)]``
@@ -347,14 +365,19 @@ def generate_flag_combinations(tier: str = "targeted", profile: str = "msvc-6.0"
     Args:
         tier: Sweep effort level — "quick", "targeted", "normal", "thorough", or "full".
               Controls how many flag axes are included.
-        profile: Compiler profile name — "msvc-6.0", "msvc-7.0", or "msvc".
+        profile: Compiler profile name — a registry toolchain (e.g. "msvc-6.0",
+            "gcc-14.2.0") or a sweep-plugin profile.
 
     """
-    # Use synced Flags for this profile, falling back to msvc-6.0.  Sweep tiers
-    # come from the merged registry (packaged dispatch + rebrew.flag_sets
-    # providers); an unknown profile falls back to the MSVC tiers.
-    flags = _FLAGS_MAP.get(profile, _FLAGS_MAP["msvc-6.0"])
-    tiers = _TIERS_MAP.get(profile, MSVC_SWEEP_TIERS)
+    # Packaged/plugin flag sets first; a profile without one takes axes that
+    # match its registry ``flags_style`` (a posix compiler must not be handed
+    # MSVC's /Gd axes), and its sweep tiers come from the same style.
+    flags = _FLAGS_MAP.get(profile)
+    if flags is None:
+        flags, default_tiers = _default_flag_set(profile)
+    else:
+        default_tiers = MSVC_SWEEP_TIERS
+    tiers = _TIERS_MAP.get(profile, default_tiers)
     if tier not in tiers:
         raise ValueError(f"Unknown sweep tier {tier!r}, valid: {list(tiers)}")
     tier_ids = tiers[tier]  # None = all axes
@@ -717,13 +740,11 @@ def flag_sweep(
 
     from .scoring import precompute_target, score_candidate
 
-    if (posix_style or profile in POSIX_PROFILES) and profile not in _TIERS_MAP:
-        # The sweep needs a flag database for the profile.  Posix profiles
+    if (posix_style or profile_flags_style(profile) == "posix") and profile not in _TIERS_MAP:
+        # The sweep needs a flag database for the profile.  A posix profile
         # WITHOUT one (a plugin toolchain that declared no flag sets) would
-        # get the MSVC fallback — every combo invalid for the compiler, so
-        # refuse loudly instead of silently wasting compiles.  Profiles with
-        # posix tiers (watcom, msvc-1.52, borland-3.1/20, borland-5.5, gcc, clang)
-        # sweep normally.
+        # sweep the generic GCC fallback — likely invalid for the compiler, so
+        # refuse loudly instead of silently wasting compiles.
         raise ValueError(
             f"flag sweep: profile {profile!r} uses posix-style flags but has no "
             "registered flag set (rebrew.flag_sets) — run the GA without "

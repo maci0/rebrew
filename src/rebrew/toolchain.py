@@ -39,7 +39,7 @@ from typing import Any
 from rebrew.registry import RegistryError, merge_provider_dict
 from rebrew.toolchain_data import BUILTIN_TOOLCHAINS
 from rebrew.toolchain_paths import TOOLCHAINS_REPO_URL, toolchains_repo
-from rebrew.toolchain_spec import ToolchainSpec
+from rebrew.toolchain_spec import ToolchainSpec, flags_style_from_str
 from rebrew.utils import container_runtime
 
 _RUN_TIMEOUT = 300
@@ -109,13 +109,17 @@ def toolchain_from_toml(name: str, table: dict[str, Any], source: str) -> Toolch
         )
     host_path = table.get("host_path")
     bits_raw = table.get("bits")
+    try:
+        flags_style = flags_style_from_str(table.get("flags_style"))
+    except ValueError as exc:
+        raise RegistryError(f"bad toolchain {name!r} in {source}: {exc}") from None
     return ToolchainSpec(
         name=name,
         image=table.get("image"),
         binary=str(table.get("binary") or ""),
         image_binary=table.get("image_binary"),
         runtime=str(table.get("runtime") or "native"),
-        flags_style=str(table.get("flags_style") or "msvc"),
+        flags_style=flags_style,
         obj_ext=str(table.get("obj_ext") or ".obj"),
         host_path=Path(host_path) if host_path else None,
         host_bin=str(table.get("host_bin") or "Bin"),

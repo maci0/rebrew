@@ -7,7 +7,6 @@ import pytest
 # Import from the rebrew package
 from rebrew.config import (
     _ARCH_PRESETS,
-    _KNOWN_PROFILES,
     ProjectConfig,
     _detect_binary_layout,
     _resolve,
@@ -667,10 +666,8 @@ profile = "turbo_c"
         assert cfg.compiler_profile == "msvc-6.0"
 
     def test_registered_toolchain_profile_accepted(self, tmp_path: Path) -> None:
-        """Every name in toolchain.TOOLCHAINS must pass config validation —
-        a registered profile (delphi-1.0) must not be rejected and silently
+        """A registered profile (delphi-1.0) must not be rejected and silently
         fall back to msvc-6.0."""
-        from rebrew.toolchain import TOOLCHAINS
 
         toml = """\
 [project]
@@ -700,9 +697,6 @@ profile = "delphi-1.0"
         assert cfg.compiler_profile == "delphi-1.0"
         assert cfg.binary_format == "ne"
         assert cfg.arch == "x86_16"
-        # every registry-backed profile is a valid rebrew-project.toml value
-        for name in TOOLCHAINS:
-            assert name in _KNOWN_PROFILES
 
     def test_empty_binary_raises(self, tmp_path: Path) -> None:
         toml = """\

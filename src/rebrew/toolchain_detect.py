@@ -1663,25 +1663,16 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
     return info
 
 
-#: 16-bit-capable profiles for byte-matching DOS/NE targets (used by
-#: profile_matches_detection's arch alignment check).  The packaged set; a
-#: registered toolchain with ``bits = 16`` joins it via
-#: :func:`_bitness16_profiles`.
-_BITNESS_16_PROFILES = frozenset(
-    {"msvc-1.52", "msvc-1.5", "msvc-1.0", "borland-3.1", "borland-2.0", "watcom-2.0-win16"}
-)
-
-
 def _bitness16_profiles() -> tuple[str, ...]:
-    """16-bit-capable profiles: the packaged set + registry ``bits = 16``.
+    """Profiles registered with ``bits = 16``, for DOS/NE byte-matching.
 
-    A plugin toolchain declaring ``bits = 16`` (entry-point or
-    ``REBREW_TOOLCHAIN_OVERLAY_DIR`` TOML) is then allowed on x86_16
-    DOS/NE targets instead of being flagged as a 32/64-bit compiler."""
+    Comes straight from the toolchain registry, so a plugin toolchain
+    declaring ``bits = 16`` (entry-point or ``REBREW_TOOLCHAIN_OVERLAY_DIR``
+    TOML) is allowed on x86_16 targets instead of being flagged as a
+    32/64-bit compiler."""
     from rebrew.toolchain import TOOLCHAINS
 
-    registry16 = {n for n, s in TOOLCHAINS.items() if s.bits == 16}
-    return tuple(sorted(_BITNESS_16_PROFILES | registry16))
+    return tuple(sorted(n for n, s in TOOLCHAINS.items() if s.bits == 16))
 
 
 #: Compiler profiles that can byte-match each detected family.
