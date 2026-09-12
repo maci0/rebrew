@@ -58,10 +58,10 @@ from rebrew.cli import (
     require_config,
     resolve_source_arg,
 )
+from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
 from rebrew.compile import resolve_compiler_env
 from rebrew.compile_cache import CacheBackend, source_digest
 from rebrew.config import ProjectConfig
-from rebrew.core import build_iat_region, smart_reloc_compare
 from rebrew.matcher import (
     BuildCache,
     BuildResult,
@@ -2552,7 +2552,7 @@ def _run_single_toolchain_sweep(
     # not per iteration (the old code called build_iat_region inside the
     # loop and passed name_to_va via a getattr that never existed, so reloc
     # targets were never validated: a wrong-callee source could tag "EXACT").
-    from rebrew.core import build_name_to_va
+    from rebrew.coff_reloc import build_name_to_va
 
     name_to_va = build_name_to_va(p.cfg)
     iat_region = build_iat_region(p.cfg)
@@ -3092,8 +3092,8 @@ def _run_one_stub_ga(
             # F3).  Confirm with the same predicate test/verify use.
             confirmed = False
             try:
+                from rebrew.coff_reloc import build_name_to_va
                 from rebrew.compile import compile_and_compare
-                from rebrew.core import build_name_to_va
 
                 n2v = build_name_to_va(cfg)
                 if n2v and best_c.exists():
@@ -3531,7 +3531,7 @@ def _run_all(
         return 0, 0
 
     if flag_sweep:
-        from rebrew.core import build_name_to_va
+        from rebrew.coff_reloc import build_name_to_va
 
         # Shared relocation-validation catalog (same as test/verify): the
         # sweep's reloc-masked score alone cannot certify a match — a

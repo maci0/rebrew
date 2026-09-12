@@ -1610,7 +1610,7 @@ class TestRunOneStubGaPersistsFlags:
         monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
         # Confirmation must succeed for the splice to run (an unconfirmed
         # champion is never promoted — see test_unconfirmed_champion_is_not_spliced).
-        import rebrew.core as core
+        import rebrew.coff_reloc as core
 
         monkeypatch.setattr(core, "build_name_to_va", lambda cfg: {"_s": 0x10001000})
         monkeypatch.setattr("rebrew.cli.resolve_cflags", lambda *a, **k: "/O2 /G3")
@@ -1676,7 +1676,7 @@ class TestRunOneStubGaPersistsFlags:
         # The splice fails (typedef return, no match) — the batch must NOT
         # report a match or save a solution.  Confirmation succeeds so the
         # splice is actually attempted.
-        import rebrew.core as core
+        import rebrew.coff_reloc as core
 
         monkeypatch.setattr(core, "build_name_to_va", lambda cfg: {"_s": 0x10001000})
         monkeypatch.setattr("rebrew.cli.resolve_cflags", lambda *a, **k: "/O2")
@@ -1697,7 +1697,7 @@ class TestRunOneStubGaPersistsFlags:
         not be spliced or promoted.  The GA score masks reloc slots, so a
         wrong-callee candidate scores 0.0; splicing it would claim RELOC that
         the next test/verify demotes."""
-        import rebrew.core as core
+        import rebrew.coff_reloc as core
         import rebrew.match as M
         from rebrew.match import StubInfo
 

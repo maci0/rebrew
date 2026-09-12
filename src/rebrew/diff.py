@@ -100,7 +100,7 @@ def classify_blockers(diff_summary: dict[str, Any]) -> list[str]:
 
 def _global_name_map(cfg: Any) -> dict[int, str]:
     """Build a VA → global-name map (inverse of build_name_to_va)."""
-    from rebrew.core import build_name_to_va
+    from rebrew.coff_reloc import build_name_to_va
 
     try:
         return {v: n for n, v in build_name_to_va(cfg).items() if v}

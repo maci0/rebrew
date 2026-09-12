@@ -186,7 +186,7 @@ class TestExtentWalker:
 
 class TestRelocTables:
     def _apply(self, relocs, table: str) -> bytes:
-        from rebrew.core.matching import apply_coff_relocations
+        from rebrew.coff_reloc import apply_coff_relocations
 
         return apply_coff_relocations(
             b"\x00\x00\x00\x00",
@@ -197,19 +197,19 @@ class TestRelocTables:
         )
 
     def test_elf_mips_abs32(self) -> None:
-        from rebrew.core.matching import CoffRelocRecord
+        from rebrew.coff_reloc import CoffRelocRecord
 
         out = self._apply([CoffRelocRecord(0, 2, "sym")], "elf-mips")  # R_MIPS_32
         assert out == (0x2000).to_bytes(4, "little")
 
     def test_elf_ppc_abs32(self) -> None:
-        from rebrew.core.matching import CoffRelocRecord
+        from rebrew.coff_reloc import CoffRelocRecord
 
         out = self._apply([CoffRelocRecord(0, 1, "sym")], "elf-ppc")  # R_PPC_ADDR32
         assert out == (0x2000).to_bytes(4, "little")
 
     def test_unsupported_mips_type_raises(self) -> None:
-        from rebrew.core.matching import CoffRelocRecord, apply_coff_relocations
+        from rebrew.coff_reloc import CoffRelocRecord, apply_coff_relocations
 
         with pytest.raises(NotImplementedError):
             apply_coff_relocations(
@@ -226,7 +226,7 @@ class TestRelocTables:
         these slots (they hold link-time addresses), never raise.  Verified
         against a real `rebrew/ido:7.1-linux` object: relocs at 0x0/0x4
         (sym 6), 0xc (sym 3), 0x28 (sym 5), 0x3c (sym 3)."""
-        from rebrew.core.matching import CoffRelocRecord, smart_reloc_compare
+        from rebrew.coff_reloc import CoffRelocRecord, smart_reloc_compare
 
         obj = bytearray(0x40)
         target = bytearray(0x40)

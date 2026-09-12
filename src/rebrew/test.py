@@ -40,6 +40,12 @@ from rebrew.cli import (
     require_config,
     resolve_source_arg,
 )
+from rebrew.coff_reloc import (
+    CatalogScanError,
+    build_iat_region,
+    build_name_to_va,
+    smart_reloc_compare,
+)
 from rebrew.compile import (
     CompareResult,
     classify_compare_result,
@@ -49,8 +55,6 @@ from rebrew.compile import (
     is_matched,
 )
 from rebrew.config import ProjectConfig
-from rebrew.core import build_iat_region, build_name_to_va, smart_reloc_compare
-from rebrew.core.matching import CatalogScanError
 from rebrew.matcher import parse_obj_symbol_and_relocs
 from rebrew.metadata import (
     is_status_sticky,

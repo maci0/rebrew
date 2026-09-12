@@ -50,14 +50,14 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.compile import compile_to_obj
-from rebrew.config import ProjectConfig
-from rebrew.core.matching import (
+from rebrew.coff_reloc import (
     CoffRelocRecord,
     UnresolvedSymbolError,
     apply_coff_relocations,
     build_symbol_resolver,
 )
+from rebrew.compile import compile_to_obj
+from rebrew.config import ProjectConfig
 from rebrew.matcher import parse_obj_relocs_full, parse_obj_symbol_bytes
 from rebrew.metadata import get_entry
 from rebrew.sources import (
@@ -424,7 +424,7 @@ def _make_resolver(
 ) -> Callable[[str], int | None]:
     """Build a symbol resolver with local-label + Ghidra name-encoded-VA fallbacks.
 
-    Composes the shared catalog resolver (rebrew.core.matching) with two
+    Composes the shared catalog resolver (rebrew.coff_reloc) with two
     round-trip-only fallbacks, fired only when the catalog itself cannot
     resolve a symbol:
 

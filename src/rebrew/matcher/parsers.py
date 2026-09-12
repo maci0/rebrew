@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.binary_loader import PADDING_BYTES as _PADDING_BYTES
-from rebrew.core.matching import CoffRelocRecord
+from rebrew.coff_reloc import CoffRelocRecord
 
 _PADDING_STRIP = bytes(_PADDING_BYTES)
 

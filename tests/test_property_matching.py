@@ -1,4 +1,4 @@
-"""Property-based tests for rebrew.core.matching.smart_reloc_compare.
+"""Property-based tests for rebrew.coff_reloc.smart_reloc_compare.
 
 smart_reloc_compare is the byte-level matching primitive used by every
 compile-and-compare path (test, verify, GA scoring).  The hand-written edge
@@ -22,7 +22,7 @@ import random
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.core import smart_reloc_compare
+from rebrew.coff_reloc import smart_reloc_compare
 
 
 @st.composite
