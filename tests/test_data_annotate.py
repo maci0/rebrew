@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rebrew.data import annotate_globals
+from rebrew.data_annotate import annotate_globals
 
 
 def _mk(src: Path) -> None:

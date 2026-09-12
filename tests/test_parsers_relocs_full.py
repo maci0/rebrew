@@ -278,7 +278,7 @@ def test_msvc16_omf_optimized_dialect_code_extraction() -> None:
 def test_msvc16_omf_optimized_dialect_static_and_publics() -> None:
     """The optimized dialect's 0xCA (static) + 0x96 (public) name records
     map to 0xC2 code records in stream order."""
-    from rebrew.matcher.omf16 import Omf16Module, parse_omf16
+    from rebrew.omf16 import Omf16Module, parse_omf16
 
     data = (_FIXTURES / "tg_msvc16_o1.obj").read_bytes()
     mod = parse_omf16(data)
@@ -352,7 +352,7 @@ def test_omf16_failure_falls_through_to_objconv(monkeypatch) -> None:
     ):
         pytest.skip("objconv not present (tools/objconv is gitignored)")
 
-    from rebrew.matcher import omf16 as omf16_mod
+    import rebrew.omf16 as omf16_mod
 
     def _no_code(*args, **kwargs):
         return None, {}

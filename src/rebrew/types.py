@@ -1,7 +1,7 @@
 """types.py - Shared parsed C type model (structs, sizes, alignment).
 
 Track 3 of the gap-analysis goal: struct layouts are recomputed by regex in
-three places (name_decomp, binsync_export, struct_recover) with no shared
+three places (name_decomp, binsync.export, struct_recover) with no shared
 model.  This module parses struct definitions once via tree-sitter into
 ``StructDef`` (fields with offsets, total size, 32-bit MSVC alignment) and
 sizes scalar/array/pointer type spellings.  Pure logic, no I/O.

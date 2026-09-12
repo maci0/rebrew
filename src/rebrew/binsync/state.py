@@ -1,11 +1,11 @@
-"""binsync_state.py — Shared BinSync-state readers for the binsync CLIs.
+"""state.py — Shared BinSync-state readers for the binsync CLIs.
 
-``binsync_import`` and ``binsync_diff`` both need the same indexes over a
+``importer`` and ``diff`` both need the same indexes over a
 BinSync state directory: the raw function/global maps and the local
 annotation + catalog overlay.  This module is that single source; it imports
 no CLI machinery so both tools stay independently importable.
 
-State is read through :mod:`rebrew.binsync_serial` (declib), so a directory
+State is read through :mod:`rebrew.binsync.serial` (declib), so a directory
 written by rebrew, BinSync, IDA, Ghidra, or Binary Ninja parses the same way.
 """
 
@@ -100,13 +100,13 @@ def load_binsync_state(
     folded back in as ``note``/``ghidra``.  Foreign declib state dirs load the
     same way.
     """
-    from rebrew import binsync_serial
+    from rebrew.binsync import serial
 
     funcs: dict[int, dict[str, Any]] = {}
-    funcs_dir = state_dir / binsync_serial.FUNCTIONS_DIR
+    funcs_dir = state_dir / serial.FUNCTIONS_DIR
     if funcs_dir.is_dir():
         for toml_path in sorted(funcs_dir.glob("*.toml")):
-            func = binsync_serial.load_artifact(toml_path, "function")
+            func = serial.load_artifact(toml_path, "function")
             if func is None:
                 continue
             addr = func.addr
@@ -135,9 +135,7 @@ def load_binsync_state(
             funcs[int(addr)] = entry
 
     globals_map: dict[int, dict[str, Any]] = {}
-    for gvar in binsync_serial.load_many(
-        state_dir / binsync_serial.GLOBAL_VARS_FILE, "global_variable"
-    ):
+    for gvar in serial.load_many(state_dir / serial.GLOBAL_VARS_FILE, "global_variable"):
         addr = gvar.addr
         if addr is None:
             continue
@@ -152,7 +150,7 @@ def load_binsync_state(
 
     # rebrew provenance travels as prefixed comments at va+1 (note) / va+2
     # (ghidra), tagged with the owning function's addr.
-    for comment in binsync_serial.load_many(state_dir / binsync_serial.COMMENTS_FILE, "comment"):
+    for comment in serial.load_many(state_dir / serial.COMMENTS_FILE, "comment"):
         text = comment.comment or ""
         func_addr = comment.func_addr
         if func_addr is None:
@@ -170,10 +168,10 @@ def load_binsync_state(
 
 def load_binsync_comments(state_dir: Path) -> dict[int, dict[str, Any]]:
     """Load ``comments.toml`` as ``{addr: {"comment", "func_addr"}}``."""
-    from rebrew import binsync_serial
+    from rebrew.binsync import serial
 
     out: dict[int, dict[str, Any]] = {}
-    for comment in binsync_serial.load_many(state_dir / binsync_serial.COMMENTS_FILE, "comment"):
+    for comment in serial.load_many(state_dir / serial.COMMENTS_FILE, "comment"):
         if comment.addr is None:
             continue
         out[int(comment.addr)] = {
@@ -207,14 +205,14 @@ def load_binsync_structs(state_dir: Path) -> dict[str, dict[str, object]]:
     {"type", "offset", "size"}}}}``.  The synthesized definition lets the
     import path reuse the same shared type-model validation as before.
     """
-    from rebrew import binsync_serial
+    from rebrew.binsync import serial
 
     structs: dict[str, dict[str, object]] = {}
-    structs_dir = state_dir / binsync_serial.STRUCTS_DIR
+    structs_dir = state_dir / serial.STRUCTS_DIR
     if not structs_dir.is_dir():
         return structs
     for toml_path in sorted(structs_dir.glob("*.toml")):
-        struct = binsync_serial.load_artifact(toml_path, "struct")
+        struct = serial.load_artifact(toml_path, "struct")
         if struct is None:
             continue
         name = struct.name
@@ -243,10 +241,10 @@ def load_binsync_enums(state_dir: Path) -> dict[str, dict[str, object]]:
     Returns ``{name: {"definition": synthesized_typedef, "members":
     {MEMBER: int}}}``.  declib carries no enum body text, so the definition is
     synthesized from the members for the import path."""
-    from rebrew import binsync_serial
+    from rebrew.binsync import serial
 
     enums: dict[str, dict[str, object]] = {}
-    for enum in binsync_serial.load_many(state_dir / binsync_serial.ENUMS_FILE, "enum"):
+    for enum in serial.load_many(state_dir / serial.ENUMS_FILE, "enum"):
         name = enum.name
         if not isinstance(name, str) or not name.strip():
             continue
@@ -264,10 +262,10 @@ def load_binsync_typedefs(state_dir: Path) -> dict[str, dict[str, object]]:
 
     Returns ``{name: {"definition": synthesized_typedef, "type": underlying}}``.
     """
-    from rebrew import binsync_serial
+    from rebrew.binsync import serial
 
     typedefs: dict[str, dict[str, object]] = {}
-    for typedef in binsync_serial.load_many(state_dir / binsync_serial.TYPEDEFS_FILE, "typedef"):
+    for typedef in serial.load_many(state_dir / serial.TYPEDEFS_FILE, "typedef"):
         name = typedef.name
         if not isinstance(name, str) or not name.strip():
             continue

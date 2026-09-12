@@ -15,7 +15,7 @@ from pathlib import Path
 import lief
 
 from rebrew.binary_loader import extract_bytes_at_va, load_binary
-from rebrew.core.matching import smart_reloc_compare
+from rebrew.coff_reloc import smart_reloc_compare
 from rebrew.gen_flirt_pat import bytes_to_pat_line, parse_archive, parse_coff_obj
 from rebrew.matcher.parsers import (
     CoffRelocRecord,

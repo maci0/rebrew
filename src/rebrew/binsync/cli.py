@@ -1,4 +1,4 @@
-"""binsync_cli.py: the ``rebrew binsync`` umbrella (push/pull/summary + flat commands).
+"""cli.py: the ``rebrew binsync`` umbrella (push/pull/summary + flat commands).
 
 Reuses the existing flat BinSync commands as subcommands and adds the
 git-automation trio:
@@ -25,8 +25,8 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from rebrew import binsync_diff, binsync_export, binsync_import, binsync_init, binsync_overlay
-from rebrew.binsync_init import _one_line, _run_git
+from rebrew.binsync import diff, export, importer, init, overlay
+from rebrew.binsync.init import _one_line, _run_git
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
 
@@ -66,9 +66,9 @@ app = typer.Typer(
 
 # Register the existing callbacks directly (same mechanism as main.py's
 # _register_single_module): the callbacks carry their own options.
-app.command(name="init")(binsync_init.main)
-app.command(name="diff")(binsync_diff.main)
-app.command(name="overlay")(binsync_overlay.main)
+app.command(name="init")(init.main)
+app.command(name="diff")(diff.main)
+app.command(name="overlay")(overlay.main)
 
 
 def _resolve_state_dir(state_dir: Path, *, json_mode: bool) -> Path:
@@ -127,7 +127,7 @@ def push(
     # the ``--json`` stream pure (warnings still ride in the JSON payload).
     sink = contextlib.redirect_stderr(io.StringIO()) if json_output else contextlib.nullcontext()
     with sink:
-        result = binsync_export.export_state(
+        result = export.export_state(
             cfg,
             state_dir,
             dry_run=dry_run,
@@ -143,7 +143,7 @@ def push(
             if pushed.returncode != 0:
                 error_exit(_git_failure(f"git push {remote} {ref}", pushed), json_mode=json_output)
 
-    binsync_export._print_export_result(result, json_output=json_output, dry_run=dry_run)
+    export._print_export_result(result, json_output=json_output, dry_run=dry_run)
 
 
 @app.command()
@@ -189,7 +189,7 @@ def pull(
                 json_mode=json_output,
             )
 
-    result = binsync_import.import_state(
+    result = importer.import_state(
         cfg,
         resolved,
         dry_run=dry_run,
@@ -199,7 +199,7 @@ def pull(
         accept_local=accept_local,
         create_missing=create_missing,
     )
-    binsync_import._print_import_result(result, json_output=json_output, dry_run=dry_run)
+    importer._print_import_result(result, json_output=json_output, dry_run=dry_run)
 
 
 @app.command()
@@ -213,7 +213,7 @@ def summary(
     resolved = _resolve_state_dir(state_dir, json_mode=json_output)
     cfg: ProjectConfig = require_config(target=target, json_mode=json_output)
 
-    push_result = binsync_export.export_state(
+    push_result = export.export_state(
         cfg,
         resolved,
         dry_run=True,
@@ -221,7 +221,7 @@ def summary(
         module=module,
         git_commit=False,
     )
-    pull_result = binsync_import.import_state(
+    pull_result = importer.import_state(
         cfg,
         resolved,
         dry_run=True,

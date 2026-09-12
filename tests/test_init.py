@@ -9,12 +9,14 @@ from click.exceptions import Exit
 
 from rebrew.init import (
     _AGENTS_MD_TEMPLATE,
+    main,
+)
+from rebrew.init_profiles import (
     COMPILER_DEFAULTS,
     DEFAULT_REBREW_TOML,
     GCC_CONSTRAINTS,
     MSVC7_CONSTRAINTS,
     MSVC_CONSTRAINTS,
-    main,
 )
 
 # ---------------------------------------------------------------------------
@@ -584,27 +586,27 @@ class TestFamilyMismatchWarning:
 
 class TestInitTemplate:
     def test_has_project_section(self) -> None:
-        from rebrew.init import DEFAULT_REBREW_TOML
+        from rebrew.init_profiles import DEFAULT_REBREW_TOML
 
         assert "[project]" in DEFAULT_REBREW_TOML
 
     def test_has_base_cflags(self) -> None:
-        from rebrew.init import DEFAULT_REBREW_TOML
+        from rebrew.init_profiles import DEFAULT_REBREW_TOML
 
         assert "base_cflags" in DEFAULT_REBREW_TOML
 
     def test_has_timeout(self) -> None:
-        from rebrew.init import DEFAULT_REBREW_TOML
+        from rebrew.init_profiles import DEFAULT_REBREW_TOML
 
         assert "timeout" in DEFAULT_REBREW_TOML
 
     def test_has_ignored_symbols(self) -> None:
-        from rebrew.init import DEFAULT_REBREW_TOML
+        from rebrew.init_profiles import DEFAULT_REBREW_TOML
 
         assert "ignored_symbols" in DEFAULT_REBREW_TOML
 
     def test_has_jobs(self) -> None:
-        from rebrew.init import DEFAULT_REBREW_TOML
+        from rebrew.init_profiles import DEFAULT_REBREW_TOML
 
         assert "jobs" in DEFAULT_REBREW_TOML
 
@@ -1062,15 +1064,15 @@ class TestGuessCompilerFailure:
 
 
 class TestRegistryDerivedProfiles:
-    """_profile_defaults/_profile_families cover every TOOLCHAINS name, so a
+    """profile_defaults/profile_families cover every TOOLCHAINS name, so a
     registry toolchain without a hand-written entry is still accepted and
     still gets family-alignment warnings."""
 
     def test_every_toolchain_has_defaults(self) -> None:
-        from rebrew.init import _profile_defaults
+        from rebrew.init_profiles import profile_defaults
         from rebrew.toolchain import TOOLCHAINS
 
-        defaults = _profile_defaults()
+        defaults = profile_defaults()
         missing = [n for n in TOOLCHAINS if n not in defaults]
         assert missing == []
         for name, data in defaults.items():
@@ -1078,10 +1080,10 @@ class TestRegistryDerivedProfiles:
                 assert key in data, f"{name} missing '{key}'"
 
     def test_every_toolchain_has_family(self) -> None:
-        from rebrew.init import _profile_families
+        from rebrew.init_profiles import profile_families
         from rebrew.toolchain import TOOLCHAINS
 
-        families = _profile_families()
+        families = profile_families()
         missing = [n for n in TOOLCHAINS if n not in families]
         assert missing == []
         # hand-table entries keep their families (incl. the newly completed ones)
@@ -1095,7 +1097,7 @@ class TestRegistryDerivedProfiles:
         """An overlay toolchain with no hand entry is accepted by init's
         lookup and flagged on family mismatch."""
         import rebrew.toolchain as toolchain_mod
-        from rebrew.init import _profile_defaults, _profile_families
+        from rebrew.init_profiles import profile_defaults, profile_families
 
         overlay = tmp_path / "overlay"
         overlay.mkdir()
@@ -1105,5 +1107,5 @@ class TestRegistryDerivedProfiles:
         )
         monkeypatch.setenv("REBREW_TOOLCHAIN_OVERLAY_DIR", str(overlay))
         monkeypatch.setattr(toolchain_mod, "TOOLCHAINS", toolchain_mod.build_toolchain_registry())
-        assert "mytc" in _profile_defaults()
-        assert "mytc" in _profile_families()
+        assert "mytc" in profile_defaults()
+        assert "mytc" in profile_families()

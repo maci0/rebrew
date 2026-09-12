@@ -1,4 +1,4 @@
-"""binsync_overlay.py: overlay a related target's BinSync data onto matched functions.
+"""overlay.py: overlay a related target's BinSync data onto matched functions.
 
 Two targets in one project (a DLL/EXE pair, or two versions) can share code at
 different VAs.  This command structurally matches the related target's BinSync
@@ -39,7 +39,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from rebrew.binsync_import import (
+from rebrew.binsync.importer import (
     _apply_binsync_func_name,
     _import_structs,
     _import_type_definitions,
@@ -47,7 +47,7 @@ from rebrew.binsync_import import (
     _normalize_prototype,
     _strip_cdecl_prefix,
 )
-from rebrew.binsync_state import (
+from rebrew.binsync.state import (
     load_binsync_comments,
     load_binsync_enums,
     load_binsync_state,
@@ -555,7 +555,7 @@ def overlay_state(
                         skipped += 1
                     filepath = getattr(local, "filepath", "") or ""
                     if markers and filepath:
-                        from rebrew.binsync_state import write_analysis_markers
+                        from rebrew.binsync.state import write_analysis_markers
 
                         try:
                             write_analysis_markers(Path(cfg.reversed_dir) / filepath, markers)

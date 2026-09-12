@@ -30,7 +30,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.match import print_structural_similarity
+from rebrew.match_sweep import print_structural_similarity
 
 console = Console(stderr=True)
 
@@ -100,7 +100,7 @@ def classify_blockers(diff_summary: dict[str, Any]) -> list[str]:
 
 def _global_name_map(cfg: Any) -> dict[int, str]:
     """Build a VA → global-name map (inverse of build_name_to_va)."""
-    from rebrew.core import build_name_to_va
+    from rebrew.coff_reloc import build_name_to_va
 
     try:
         return {v: n for n, v in build_name_to_va(cfg).items() if v}
@@ -489,7 +489,7 @@ def main(
     # argument was a bare VA, pass it through so resolve_build_params targets
     # THAT annotation in a multi-function file — previously it fell back to
     # the first annotation and diffed the wrong function (false match).
-    from rebrew.match import resolve_build_params
+    from rebrew.match_sweep import resolve_build_params
 
     params = resolve_build_params(
         cfg,

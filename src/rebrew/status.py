@@ -328,7 +328,7 @@ def load_verify_details(cfg: ProjectConfig) -> dict[int, tuple[str, bool]]:
         status = result.get("status", "")
         if not status:
             continue
-        from rebrew.verify import canonical_va_key
+        from rebrew.verify_cache import canonical_va_key
 
         va = canonical_va_key(va_str)
         if not isinstance(va, int):
@@ -342,7 +342,7 @@ def _compute_text_size(cfg: ProjectConfig) -> int:
     if not cfg.target_binary.exists():
         return 0
     try:
-        from rebrew.catalog import get_text_section_size
+        from rebrew.sections import get_text_section_size
 
         return get_text_section_size(cfg.target_binary)
     except (ImportError, OSError, ValueError):

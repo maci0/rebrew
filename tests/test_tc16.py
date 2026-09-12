@@ -13,7 +13,7 @@ from rebrew.tc16 import Tc16Error, compile_c
 # sandbox; without the tree present (CI: trees are vendored into the
 # rebrew-toolchains checkout, not committed) the class can only fail at
 # staging, so skip rather than red.
-from rebrew.toolchain import toolchains_repo
+from rebrew.toolchain_paths import toolchains_repo
 
 _REPO_TC16 = toolchains_repo() / "borland" / "3.1-win16" / "source"
 

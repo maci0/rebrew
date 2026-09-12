@@ -453,7 +453,7 @@ def _resolve_lib_dir(cfg: Any, lib_dir: Path | None) -> Path | None:
     # The vendored toolchain tree — the path the docstring always promised
     # but never probed.  toolchains_repo() never raises; a missing checkout
     # just yields a nonexistent candidate that is skipped below.
-    from rebrew.toolchain import toolchains_repo
+    from rebrew.toolchain_paths import toolchains_repo
 
     candidates.append(toolchains_repo() / "msvc" / "6.0-win32" / "source" / "VC98" / "Lib")
     for cand in candidates:

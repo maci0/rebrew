@@ -16,7 +16,7 @@ Install editable (`uv pip install -e .`) inside a workspace containing binaries,
 - **`gcc` / `clang`**: ELF/x86_64 targets — native PATH specs (compile via the host `gcc`/`clang` binary; minimal posix flag-sweep axes in `flag_data.py`).
 - **`borlandc55`**: Borland C++ 5.5 free tools (bcc32) — image `rebrew/borland:5.5-win32` (wine inside the image). For Borland-built PE/x86_32 targets (family `borlandc`).
 - **`watcom16`**: Open Watcom 2.0 `wcc` (16-bit DOS, native Linux binary — no image, runs directly). Same snapshot as `watcom`. For 16-bit DOS/Watcom targets (family `watcom`).
-- **`tc16`**: Turbo C++ 3.1 `TCC.EXE` (16-bit DOS) — image `rebrew/borland:3.1-win16` (DOSBox inside the image). Classic DOS-game compiler. 16-bit OMF via `rebrew.matcher.omf16`.
+- **`tc16`**: Turbo C++ 3.1 `TCC.EXE` (16-bit DOS) — image `rebrew/borland:3.1-win16` (DOSBox inside the image). Classic DOS-game compiler. 16-bit OMF via `rebrew.omf16`.
 - **`msvc1.52` / `delphi16`**: 16-bit targets — images `rebrew/msvc:1.52-win16`, `rebrew/delphi:1.0-win16` (DOSBox inside the image).
 
 All images build reproducibly (pinned sources, sha256-verified downloads or 16-bit media tarballs in the rebrew-toolchains checkout; shared `rebrew/base` with pinned Debian digest) and `rebrew toolchain smoke` gates byte-reproducible objects for every image-backed toolchain — see `docs/TOOLCHAIN.md`.
@@ -144,7 +144,11 @@ Key libraries:
 
 ```
 src/rebrew/
-├── main.py              # Umbrella CLI (`rebrew`)
+├── main.py              # Umbrella CLI app: builds the Typer app, publishes it as the
+│                        #   `cli` service, activates components (see ADR 014)
+├── plugin.py            # Component/context runtime: Context services + effects,
+│                        #   Component protocol (`needs` = coeffects), activate(), CliComponent
+├── builtins.py          # Packaged CLI components (one CliComponent per built-in tool)
 ├── merge.py             # Merge single-function C files into one
 ├── cli.py               # Shared: TargetOption, require_config(), iter_annotations(),
 │                        #   error_exit(), json_print(), parse_va(),
@@ -166,11 +170,16 @@ src/rebrew/
 ├── signature_parser.py  # Extract function signatures from C (tree-sitter)
 ├── split.py             # Split multi-function C files into singles
 ├── struct_parser.py     # Extract struct/typedef defs from C (tree-sitter)
-├── utils.py             # Shared utilities (atomic_write_text, rel_display_path)
+├── utils.py             # Shared utilities (atomic_write_text, rel_display_path,
+│                        #   parse_int_literal — the one C int-literal parser)
 ├── analysis.py          # Recon primitives: iter_strings, scan_references (Xref/Insn/StringEntry), string_refs
 ├── analyze.py           # One-shot dossier (toolchain, strings, imports, dispatch, FLIRT, NEAR_MATCHING blockers)
-├── pe_headers.py        # PE header helpers (image base, section math)
+├── pe_headers.py        # The PE header/section walker: pe_lfanew, pe_layout,
+│                        #   sections_at, find_section, plus the field read/patch/parity
+│                        #   helpers used by round-trip --fix-headers
 ├── ne_loader.py         # NE (New Executable) loader — 16-bit Windows 3.x format detection + parsing
+├── omf16.py             # Minimal 16-bit OMF parser (MSVC 1.52 dialect — code + reloc slots for the 16-bit path)
+├── sections.py          # PE section helpers, x86 utils (trim_trailing_padding, has_back_jumps)
 ├── headless.py          # Headless X server management for wine compiler invocations
 ├── wibo.py              # Auto-download + verify wibo (lightweight Wine alternative)
 ├── compile_cache.py     # Disk-backed compile cache (diskcache, SHA-256 keyed)
@@ -181,13 +190,17 @@ src/rebrew/
 ├── crt_match.py         # CRT cross-reference matcher (index, match, ASM detection)
 ├── cache_cli.py         # `rebrew cache stats` / `rebrew cache clear` CLI
 ├── prove.py             # Symbolic equivalence prover via angr (optional)
+├── prove_simprocs.py    # Win32 SimProcedure models + bounded-copy helpers (angr optional)
 ├── delphi16.py          # Delphi 1.0 (16-bit) compile support — DOSBox sandbox + NE parse
 ├── msvc16.py            # MSVC 1.52 (16-bit) compile support — DOSBox + OMF object
 ├── tc16.py              # Turbo C 2.0/C++ 3.1 (16-bit) compile support — DOSBox + tiny-model output
 ├── lzexe.py             # LZEXE 0.90/0.91 DOS unpacker core (CLI in lzexe_cli.py)
 ├── library.py           # rebrew-libraries.toml per-library overrides + `rebrew library` CLI group
 ├── dosbox.py            # Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads)
-├── toolchain.py         # Toolchain abstraction: spec registry, docker-only runner (images for Windows/DOS, native for Linux compilers)
+├── toolchain.py         # Toolchain registry assembly + docker-only runner (images for Windows/DOS, native for Linux compilers)
+├── toolchain_spec.py    # ToolchainSpec / ToolchainSource value types
+├── toolchain_paths.py   # rebrew-toolchains checkout location (toolchains_repo, REPO_TOOLS, vendored_path)
+├── toolchain_data.py    # Packaged registry + source pins (SOURCES, BUILTIN_TOOLCHAINS)
 ├── toolchain_cli.py     # `rebrew toolchain` CLI (list/status/detect/pull/build)
 ├── registry.py          # Declarative component registration: entry-point groups + data-file overlays, single-source conflict policy
 ├── diagnose.py          # `rebrew diagnose` — compile-config resolution trace (why a function compiles with its toolchain+flags)
@@ -195,12 +208,18 @@ src/rebrew/
 ├── todo.py              # Prioritized action list
 ├── similar.py           # Find structurally similar functions
 ├── binary_similarity.py # Whole-binary structural similarity vs another binary (versions/DLL+EXE)
-├── match.py             # GA engine — single or batch (--all); absorbs old ga.py
+├── match.py             # `rebrew match` CLI (typer app + main)
+├── match_batch.py       # Batch stub/near-miss discovery + STATUS/CFLAGS source updates
+├── match_sweep.py       # Build-params resolution + compiler/flag/toolchain sweeps
+├── match_ga.py          # BinaryMatchingGA engine, mutation focus, cache key, checkpoints
+├── match_run.py         # Batch GA / flag-sweep run drivers + solution persistence
 ├── climb.py             # `rebrew climb` — deterministic adjacent-statement hill-climb (GA complement)
 │
 ├── # --- CLI tools (each exports app, main, main_entry) ---
 ├── test.py              # Compile, byte-compare, auto-update STATUS
 ├── verify.py            # Bulk verification (incremental, cached)
+├── verify_cache.py      # Verify result cache: entries, identity, atomic I/O, VA keys
+├── verify_hash.py       # Cache-invalidation hashes (compiler/headers/source/logic)
 ├── diff.py              # Compile and diff against target
 ├── asm.py               # Disassemble (hex/NASM); --imports/--strings/--hints annotate IAT, strings, codegen patterns (post-decrement, SEH, CRT magic, switch dispatch incl. byte-compressed, IAT forwarder, EH-ctor, esp-disp8); detect_function_pattern + calling_convention
 ├── switch.py            # `rebrew switch` — decode jump-table switches (case → handler; --all recon)
@@ -225,20 +244,25 @@ src/rebrew/
 │                        # bridge: run the toolchain image's tools via docker from CMake
 ├── cross_import.py      # `rebrew cross-import` — import functions matched in another target
 ├── lzexe_cli.py         # `rebrew unpack-lzexe` — unpack LZEXE 0.90/0.91 DOS executables
-├── binsync_import.py    # Import a BinSync state dir into rebrew metadata
-├── binsync_init.py      # `rebrew binsync-init`: create the BinSync git envelope (root + user branches)
-├── binsync_diff.py      # Read-only BinSync divergence report
-├── binsync_state.py     # Shared declib-backed state readers for the binsync CLIs
-├── binsync_serial.py    # Thin declib wrapper: artifact dump/load + state layout
-├── binsync_overlay.py   # `rebrew binsync-overlay` — map a related target's BinSync data across VAs
-├── binsync_cli.py       # `rebrew binsync` umbrella: push/pull/summary + flat commands
+├── binsync/             # BinSync state I/O (see binsync/__init__.py)
+│   ├── state.py         #   Shared declib-backed state readers
+│   ├── serial.py        #   Thin declib wrapper: artifact dump/load + state layout
+│   ├── export.py        #   Export annotations to a declib BinSync state dir
+│   ├── importer.py      #   Import a BinSync state dir into rebrew metadata
+│   ├── diff.py          #   Read-only BinSync divergence report
+│   ├── init.py          #   `rebrew binsync-init`: create the git envelope (root + user branches)
+│   ├── overlay.py       #   `rebrew binsync-overlay`: map a related target's data across VAs
+│   └── cli.py           #   `rebrew binsync` umbrella: push/pull/summary + flat commands
 ├── lint.py              # Lint C annotations + corpus consistency (W028: markers vs function list)
+├── lint_cflags.py       # Redundant CFLAGS analysis (W029 preset/function redundancy)
 ├── llm_seed.py          # LLM alternative-implementation seeding for GA (--llm-seed)
 ├── near_diag.py         # Classify why NEAR_MATCHING doesn't byte-match (register/equiv/reloc/structural + EFFECTIVE)
 ├── stack_cmp.py         # Compare compiled function's stack frame vs target (reccmp stackcmp, no PDB)
 ├── rename.py            # `rebrew rename` CLI (typer app + argument resolution)
 ├── rename_ops.py        # Cross-reference rename engine (shared by rename CLI, sync pull, binsync import)
-├── init.py              # Initialize new project
+├── init.py              # Initialize new project (CLI + interactive wizard)
+├── init_profiles.py     # New-project template, COMPILER_DEFAULTS, constraint blocks,
+│                        #   profile family tables, and the registry-merged lookups
 ├── imports.py           # List PE imports + detect jmp [iat] stubs
 ├── exports.py           # Verify recompiled binary export table vs target (verexp equivalent)
 ├── pdb_info.py          # PDB metadata (S_COMPILE3 compiler + command line)
@@ -264,12 +288,13 @@ src/rebrew/
 ├── fingerprints.py      # `rebrew fingerprints` — digests, imphash, Rich header, entropy, TLSH/ssdeep
 ├── data.py              # Global data scanner (.data/.rdata/.bss); --annotate inserts
 │                        # // GLOBAL: markers; --layout-audit/--fill-data placement
+├── data_render.py       # Rich rendering for the data scanner (dispatch/BSS/globals/summary)
+├── data_annotate.py     # GLOBAL annotation + rebrew_globals.h generation
 ├── data_layout.py       # Shared .data placement model (audit, pad emission, ownership)
 ├── depgraph.py          # Function dependency graph
 ├── flirt.py             # FLIRT signature scanning (project flirt_sigs/ merged
 │                        # with the sibling rebrew-flirt-sigs checkout)
 ├── build_db.py          # Build SQLite coverage DB from data JSON
-├── binsync_export.py    # Export annotations to a declib BinSync state dir
 ├── round_trip.py        # Splice matched functions back into PE, verify byte equality
 ├── resource.py          # PE resource comparison
 ├── cfg.py               # Multi-command: list-targets, show, add-target, set, set-cflags, etc.
@@ -284,7 +309,6 @@ src/rebrew/
 │   ├── registry.py      # build_function_registry, canonical size resolution
 │   ├── grid.py          # Coverage grid / data JSON
 │   ├── export.py        # Catalog + reccmp CSV
-│   ├── sections.py      # PE section helpers, x86 utils (trim_trailing_padding, has_back_jumps)
 │   └── cli.py           # Typer CLI app
 ├── matcher/             # Core GA engine (see matcher/AGENTS.md)
 │   ├── __init__.py      # Re-exports: build_candidate, score_candidate, mutate_code, ...
@@ -292,7 +316,7 @@ src/rebrew/
 │   ├── compiler.py      # MSVC6 compilation + flag sweep (docker images)
 │   ├── scoring.py       # Byte scoring, structural similarity (capstone + numpy)
 │   ├── mutator.py       # 119 C mutation operators for GA
-│   ├── omf16.py         # Minimal 16-bit OMF parser (MSVC 1.52 dialect — code + reloc slots for the 16-bit path)
+│   ├── mutations/       # Mutation operator grouping; queries.py = shared tree-sitter queries
 │   ├── ast_engine.py    # tree-sitter AST mutation helpers
 │   ├── parsers.py       # Object parsing (COFF/ELF/Mach-O via LIEF)
 │   ├── flags.py         # FlagSet/Checkbox primitives (decomp.me compatible)
@@ -305,10 +329,9 @@ src/rebrew/
 │   ├── commands.py      # MCP structural op builders (create-function, bookmarks, data pull)
 │   ├── cli_backend.py   # ghidra-cli subprocess backend for MCP ops (alternative to ReVa)
 │   └── cli.py           # Typer CLI (`rebrew sync` — push/pull via --state-dir, MCP ops)
-├── core/                # Matching + toolchain utilities
-│   ├── __init__.py      # Re-exports: smart_reloc_compare, msvc_env_from_config
-│   ├── matching.py      # smart_reloc_compare (relocation-aware byte compare)
-│   └── toolchain.py     # msvc_env_from_config (MSVC env setup)
+├── coff_reloc.py        # Relocation-aware byte compare + catalog symbol resolution
+│                        #   (smart_reloc_compare, CoffRelocRecord, build_name_to_va, build_iat_region)
+├── msvc_env.py          # MSVC env setup (msvc_env_from_config, resolve_runner_path)
 └── agent-skills/        # AI workflow skills (SKILL.md per skill)
     ├── rebrew-intake/   # Binary onboarding, FLIRT scan, catalog, triage
     ├── rebrew-workflow/  # End-to-end reversing loop
@@ -364,7 +387,7 @@ if __name__ == "__main__":
 - `TargetOption` + `require_config()` from `rebrew.cli` — never build config manually. Use `load_config()` from `rebrew.config` only for optional loads (e.g. `lint.py`, `doctor.py`).
 - `main_entry()` registered in `pyproject.toml` `[project.scripts]`.
 - Most tools support `--json`; always use it for structured output when invoking them yourself.
-- Multi-command modules (registered via `add_typer()` in `main.py`'s `_MULTI_COMMANDS`): `extract.py` (`list`, `show`, `batch`), `cfg.py` (`list-targets`, `show`, `add-target`, `remove-target`, `add-module`, `remove-module`, `set`, `set-cflags`, `raw`, `path`, `detect-crt`), `cache_cli.py` (`stats`, `clear`), `skills.py` (`list`, `show`), `resource.py`, `library.py`, `toolchain_cli.py` (`list`, `status`, `detect`, `pull`, `build`, `vendor`, `smoke`, `update`, `check-updates`), `binsync_cli.py` (`push`, `pull`, `summary`, `init`, `diff`, `overlay`).
+- Multi-command modules (`is_group=True` in `builtins.py`, mounted with `add_typer()`): `extract.py` (`list`, `show`, `batch`), `cfg.py` (`list-targets`, `show`, `add-target`, `remove-target`, `add-module`, `remove-module`, `set`, `set-cflags`, `raw`, `path`, `detect-crt`), `cache_cli.py` (`stats`, `clear`), `skills.py` (`list`, `show`), `resource.py`, `library.py`, `toolchain_cli.py` (`list`, `status`, `detect`, `pull`, `build`, `vendor`, `smoke`, `update`, `check-updates`), `binsync/cli.py` (`push`, `pull`, `summary`, `init`, `diff`, `overlay`).
 
 ### CLI Conventions
 
@@ -423,6 +446,7 @@ alongside the packaged ones; a duplicate name is a `RegistryError`.
 - **Source glob**: `source_glob(cfg)` from `sources.py` — respects `cfg.source_ext` (`.c`, `.cpp`)
 - **Don't reimplement**: if an imported library provides it, use it
 - **Declarative component registration**: toolchains, decompiler backends, CLI commands, GA mutations, sweep flag sets, library presets, detection-family alignment, binary-family detectors, binary loaders, MSVC version-exact tables, and compile-cache backends register through `rebrew.registry` — setuptools entry-point groups (`rebrew.toolchains`, `rebrew.decompiler_backends`, `rebrew.commands`, `rebrew.multicommands`, `rebrew.mutations`, `rebrew.flag_sets`, `rebrew.library_presets`, `rebrew.toolchain_detectors`, `rebrew.binary_detectors`, `rebrew.binary_loaders`, `rebrew.msvc_versions`, `rebrew.cache_backends`) plus the `REBREW_TOOLCHAIN_OVERLAY_DIR` TOML overlay for project-local toolchains (a spec may declare `bits = 16` to join the arch-alignment set) and the `REBREW_SKILLS_DIR` overlay for community skills.  Built-ins are the packaged base registry; a duplicate name between any two sources is a `RegistryError` (single-source discipline) — except tuning-data registries (`rebrew.flag_sets`, `rebrew.library_presets`, `rebrew.msvc_versions`), where a provider extends/overrides packaged knowledge.  CLI import failures degrade to stub commands; a broken non-CLI registration is reported where it loads.  Adding a component must not require editing host source.  Long-lived processes pick up plugins installed after startup via `rebrew.registry.refresh_all()` (each module also exposes a single-registry `refresh_*`).
+- **CLI composition**: the umbrella app is a component graph (`rebrew/plugin.py`); `rebrew/builtins.py` declares each packaged tool as a `CliComponent` (name, module, help, panel, group) and third-party tools come from the `rebrew.commands`/`rebrew.multicommands` entry-point groups.  Mounting a command or group is a reversible effect (its disposer unregisters it), and a component's `needs` declares the services that must exist before it activates.  See ADR 014.
 - **No backward compat**: one name per function — no aliases/shims/wrappers
 - **Volatile metadata**: fields `STATUS`, `CFLAGS`, `BLOCKER`, `NOTE`, `GHIDRA`, `LOCALS`, `COMMENTS` live in per-directory `rebrew-functions.toml` via `rebrew.metadata` — never edit manually (STATUS via `update_source_status`/`update_statuses_batch`; BLOCKER via `update_field`/`remove_field` through `rebrew blocker set/clear` or the auto-writers `rebrew diff --fix-blocker`/`near-diag --fix-blocker`/`document-unmatched`)
 - **Metadata write-lock**: `rebrew-functions.toml`, `rebrew-data.toml`, and the declib binsync artifacts (`functions/*.toml`, `global_vars.toml`, `structs/*.toml`, `comments.toml`, `enums.toml`, `typedefs.toml`, `metadata.toml`) are written **read-only (mode 0444)** by the tool (`atomic_write_locked` chmods writable before touching and re-locks after). Direct edits fail with Permission denied; to change anything, use the CLI — it chmods writable, updates, and re-locks.

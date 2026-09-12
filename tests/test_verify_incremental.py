@@ -13,14 +13,13 @@ from typer.testing import CliRunner
 from rebrew.annotation import Annotation
 from rebrew.compile import CompareResult
 from rebrew.config import ProjectConfig
-from rebrew.verify import (
+from rebrew.verify import app
+from rebrew.verify_cache import _load_verify_cache, _save_verify_cache
+from rebrew.verify_hash import (
     _compiler_config_hash,
     _entry_headers_fp,
     _headers_hash,
-    _load_verify_cache,
-    _save_verify_cache,
     _source_hash,
-    app,
 )
 
 runner = CliRunner()
@@ -56,7 +55,7 @@ class TestCompilerConfigHash:
         """The hash must embed a content hash of the comparison/extraction
         modules, not just the (static during development) package version —
         a code fix that changes results must invalidate cached results."""
-        from rebrew.verify import _compare_logic_hash
+        from rebrew.verify_hash import _compare_logic_hash
 
         cfg = _make_cfg(tmp_path)
         # Deterministic + includes the logic modules (stable across calls).
@@ -167,7 +166,7 @@ class TestVerifyCacheMatchesCfg:
     patch entries a `verify -t SERVER` wrote."""
 
     def test_matching_identity(self, tmp_path: Path) -> None:
-        from rebrew.verify import verify_cache_matches_cfg
+        from rebrew.verify_cache import verify_cache_matches_cfg
 
         cfg = _make_cfg(tmp_path)
         cache_path = tmp_path / ".rebrew" / "verify_cache.json"
@@ -183,7 +182,7 @@ class TestVerifyCacheMatchesCfg:
         assert verify_cache_matches_cfg(cache_path, cfg)
 
     def test_wrong_target_rejected(self, tmp_path: Path) -> None:
-        from rebrew.verify import verify_cache_matches_cfg
+        from rebrew.verify_cache import verify_cache_matches_cfg
 
         cfg = _make_cfg(tmp_path)
         cache_path = tmp_path / ".rebrew" / "verify_cache.json"
@@ -199,7 +198,7 @@ class TestVerifyCacheMatchesCfg:
         assert not verify_cache_matches_cfg(cache_path, cfg)
 
     def test_wrong_compiler_rejected(self, tmp_path: Path) -> None:
-        from rebrew.verify import verify_cache_matches_cfg
+        from rebrew.verify_cache import verify_cache_matches_cfg
 
         cfg = _make_cfg(tmp_path)
         cache_path = tmp_path / ".rebrew" / "verify_cache.json"
@@ -215,7 +214,7 @@ class TestVerifyCacheMatchesCfg:
         assert not verify_cache_matches_cfg(cache_path, cfg)
 
     def test_missing_cache_rejected(self, tmp_path: Path) -> None:
-        from rebrew.verify import verify_cache_matches_cfg
+        from rebrew.verify_cache import verify_cache_matches_cfg
 
         cfg = _make_cfg(tmp_path)
         cache_path = tmp_path / ".rebrew" / "verify_cache.json"
@@ -261,7 +260,7 @@ class TestPatchVerifyCacheEntries:
         return cache_path
 
     def test_patches_status(self, tmp_path: Path) -> None:
-        from rebrew.verify import patch_verify_cache_entries
+        from rebrew.verify_cache import patch_verify_cache_entries
 
         cfg = _make_cfg(tmp_path)
         self._make_cache(tmp_path, cfg, status="STUB")
@@ -291,7 +290,7 @@ class TestPatchVerifyCacheEntries:
         status; the old status-equality guard skipped the write, so todo's
         prover queue kept reading the stale 60% and filtered the candidate out.
         """
-        from rebrew.verify import patch_verify_cache_entries
+        from rebrew.verify_cache import patch_verify_cache_entries
 
         cfg = _make_cfg(tmp_path)
         cache_path = self._make_cache(tmp_path, cfg, status="NEAR_MATCHING")
@@ -321,7 +320,7 @@ class TestPatchVerifyCacheEntries:
 
     def test_wrong_target_not_patched(self, tmp_path: Path) -> None:
         """A cache written for a different target must not be touched."""
-        from rebrew.verify import patch_verify_cache_entries
+        from rebrew.verify_cache import patch_verify_cache_entries
 
         cfg = _make_cfg(tmp_path)
         self._make_cache(tmp_path, cfg, status="STUB")
@@ -353,7 +352,7 @@ class TestPatchVerifyCacheEntries:
 
     def test_no_patch_when_absent(self, tmp_path: Path) -> None:
         """No cache file → no crash, no file created."""
-        from rebrew.verify import patch_verify_cache_entries
+        from rebrew.verify_cache import patch_verify_cache_entries
 
         cfg = _make_cfg(tmp_path)
         patch_verify_cache_entries(
@@ -384,12 +383,12 @@ class TestPatchVerifyCacheEntries:
         """
         from contextlib import contextmanager
 
-        import rebrew.verify as verify_mod
-        from rebrew.verify import patch_verify_cache_entries
+        import rebrew.verify_cache as verify_cache_mod
+        from rebrew.verify_cache import patch_verify_cache_entries
 
         cfg = _make_cfg(tmp_path)
         cache_path = self._make_cache(tmp_path, cfg, status="STUB")
-        real_lock = verify_mod._verify_cache_write_lock
+        real_lock = verify_cache_mod._verify_cache_write_lock
 
         @contextmanager
         def swapping_lock(path):  # type: ignore[no-untyped-def]
@@ -401,7 +400,7 @@ class TestPatchVerifyCacheEntries:
                 cache_path.write_text(json.dumps(data), encoding="utf-8")
                 yield
 
-        monkeypatch.setattr(verify_mod, "_verify_cache_write_lock", swapping_lock)
+        monkeypatch.setattr(verify_cache_mod, "_verify_cache_write_lock", swapping_lock)
         patch_verify_cache_entries(
             cfg,
             [
@@ -952,16 +951,16 @@ class TestCompareLogicHashMembership:
         — an omitted module means a logic fix won't invalidate stale caches."""
         import rebrew.annotation
         import rebrew.binary_loader
+        import rebrew.coff_reloc
         import rebrew.compile
-        import rebrew.core.matching
         import rebrew.matcher.parsers
-        from rebrew.verify import _compare_logic_hash
+        from rebrew.verify_hash import _compare_logic_hash
 
         names = {
             rebrew.annotation._kv_to_annotation.__code__.co_filename,
             rebrew.compile.classify_compare_result.__code__.co_filename,
             rebrew.compile._extract_and_compare.__code__.co_filename,
-            rebrew.core.matching.smart_reloc_compare.__code__.co_filename,
+            rebrew.coff_reloc.smart_reloc_compare.__code__.co_filename,
             rebrew.matcher.parsers.parse_obj_symbol_and_relocs.__code__.co_filename,
             rebrew.binary_loader.extract_raw_bytes.__code__.co_filename,
         }

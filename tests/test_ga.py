@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from rebrew.match import (
+from rebrew.match_batch import (
     find_all_matching,
     find_all_stubs,
     parse_matching_all,
@@ -460,7 +460,7 @@ class TestGADeadline:
     def test_past_deadline_returns_immediately(self, tmp_path: Path) -> None:
         import time
 
-        from rebrew.match import BinaryMatchingGA
+        from rebrew.match_ga import BinaryMatchingGA
 
         ga = BinaryMatchingGA(
             seed_source="int f(void) { return 0; }",
@@ -483,7 +483,7 @@ class TestGADeadline:
     def test_future_deadline_runs_at_least_one_gen(self, tmp_path: Path) -> None:
         import time
 
-        from rebrew.match import BinaryMatchingGA
+        from rebrew.match_ga import BinaryMatchingGA
 
         ga = BinaryMatchingGA(
             seed_source="int f(void) { return 0; }",
@@ -507,7 +507,7 @@ class TestGADeadline:
     ) -> None:
         import time
 
-        from rebrew.match import BinaryMatchingGA
+        from rebrew.match_ga import BinaryMatchingGA
 
         ga = BinaryMatchingGA(
             seed_source="int f(void) { return 0; }",
@@ -554,7 +554,8 @@ class TestRunAllParallel:
     def test_parallel_batch_processes_all_in_order(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
-        from rebrew.match import StubInfo, _run_all
+        from rebrew.match import _run_all
+        from rebrew.match_batch import StubInfo
 
         stubs = [
             StubInfo(
@@ -568,7 +569,7 @@ class TestRunAllParallel:
             )
             for i in range(3)
         ]
-        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
+        monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
         seen: list[tuple[str, int]] = []
 
         def _fake_run(
@@ -589,7 +590,7 @@ class TestRunAllParallel:
             seen.append((stub.symbol, jobs))
             return False, "best_score=5.00", 5.0, 3
 
-        monkeypatch.setattr("rebrew.match._run_one_stub_ga", _fake_run)
+        monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_run)
         cfg = self._cfg(tmp_path)
         _run_all(
             cfg,
@@ -621,7 +622,8 @@ class TestRunAllParallel:
     ) -> None:
         """--collect-pairs is documented for batch mode: every stub's GA must
         receive the JSONL path (it was ignored under --all)."""
-        from rebrew.match import StubInfo, _run_all
+        from rebrew.match import _run_all
+        from rebrew.match_batch import StubInfo
 
         stub = StubInfo(
             filepath=tmp_path / "s.c",
@@ -632,14 +634,14 @@ class TestRunAllParallel:
             status="STUB",
             module="SERVER",
         )
-        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: [stub])
+        monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: [stub])
         seen: list[Path | None] = []
 
         def _fake_run(*args: Any, **kwargs: Any) -> tuple[bool, str]:
             seen.append(kwargs.get("collect_pairs_path"))
             return False, "best_score=5.00", 5.0, 3
 
-        monkeypatch.setattr("rebrew.match._run_one_stub_ga", _fake_run)
+        monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_run)
         pairs_path = tmp_path / "pairs.jsonl"
         _run_all(
             self._cfg(tmp_path),
@@ -667,7 +669,8 @@ class TestRunAllParallel:
     def test_serial_batch_keeps_intra_jobs(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.match import StubInfo, _run_all
+        from rebrew.match import _run_all
+        from rebrew.match_batch import StubInfo
 
         stubs = [
             StubInfo(
@@ -680,7 +683,7 @@ class TestRunAllParallel:
                 module="SERVER",
             )
         ]
-        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
+        monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
         seen: list[int] = []
 
         def _fake_run(
@@ -701,7 +704,7 @@ class TestRunAllParallel:
             seen.append(jobs)
             return False, "best_score=5.00", 5.0, 3
 
-        monkeypatch.setattr("rebrew.match._run_one_stub_ga", _fake_run)
+        monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_run)
         _run_all(
             self._cfg(tmp_path),
             jobs=1,
@@ -817,7 +820,7 @@ class TestFlagSweepIncludeDirs:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The single-function CLI path resolves the seed file's directory."""
-        from rebrew.match import _run_single_flag_sweep
+        from rebrew.match_sweep import _run_single_flag_sweep
 
         seen: dict = {}
 
@@ -825,9 +828,9 @@ class TestFlagSweepIncludeDirs:
             seen["extra_include_dirs"] = k.get("extra_include_dirs")
             return [(0.0, "/O2")]
 
-        monkeypatch.setattr("rebrew.match.flag_sweep", _fake_flag_sweep)
+        monkeypatch.setattr("rebrew.match_sweep.flag_sweep", _fake_flag_sweep)
         monkeypatch.setattr(
-            "rebrew.match.build_candidate_obj_only",
+            "rebrew.match_sweep.build_candidate_obj_only",
             lambda *a, **k: SimpleNamespace(ok=True, obj_bytes=b"\xc3", reloc_offsets=None),
         )
         p = SimpleNamespace(
@@ -864,7 +867,8 @@ class TestSweepThenGa:
         expected_override: str | None,
     ) -> None:
         """GA receives the sweep's best flags; a failed sweep falls back to stub.cflags."""
-        from rebrew.match import StubInfo, _run_all
+        from rebrew.match import _run_all
+        from rebrew.match_batch import StubInfo
 
         stubs = [
             StubInfo(
@@ -877,14 +881,14 @@ class TestSweepThenGa:
                 module="SERVER",
             )
         ]
-        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
+        monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
 
         def _fake_sweep(stub: Any, cfg: Any, tier: str = "targeted", jobs: int = 4) -> Any:
             if isinstance(sweep_outcome, Exception):
                 raise sweep_outcome
             return sweep_outcome
 
-        monkeypatch.setattr("rebrew.match.run_flag_sweep", _fake_sweep)
+        monkeypatch.setattr("rebrew.match_run.run_flag_sweep", _fake_sweep)
         seen: dict = {}
 
         def _fake_run(
@@ -905,7 +909,7 @@ class TestSweepThenGa:
             seen["override"] = cflags_override
             return False, "best_score=5.00", 5.0, 3
 
-        monkeypatch.setattr("rebrew.match._run_one_stub_ga", _fake_run)
+        monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_run)
         cfg = SimpleNamespace(
             reversed_dir=tmp_path,
             metadata_dir=tmp_path,
@@ -946,7 +950,8 @@ class TestSkipRecent:
     def test_skips_recently_run(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from datetime import UTC, datetime, timedelta
 
-        from rebrew.match import StubInfo, _filter_recently_run
+        from rebrew.match_batch import StubInfo
+        from rebrew.match_run import _filter_recently_run
 
         cfg = SimpleNamespace(root=tmp_path, target_name="SERVER", reversed_dir=tmp_path)
         stubs = [
@@ -976,7 +981,8 @@ class TestSkipRecent:
         assert "0x10001000" in vas  # old -> kept
 
     def test_naive_timestamp_does_not_crash(self, tmp_path: Path) -> None:
-        from rebrew.match import StubInfo, _filter_recently_run
+        from rebrew.match_batch import StubInfo
+        from rebrew.match_run import _filter_recently_run
 
         cfg = SimpleNamespace(root=tmp_path, target_name="SERVER", reversed_dir=tmp_path)
         stubs = [
@@ -1002,7 +1008,8 @@ class TestSkipRecent:
         assert _filter_recently_run(stubs, cfg, hours=2, json_output=True) == stubs
 
     def test_no_records_keeps_all(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.match import StubInfo, _filter_recently_run
+        from rebrew.match_batch import StubInfo
+        from rebrew.match_run import _filter_recently_run
 
         cfg = SimpleNamespace(root=tmp_path, target_name="SERVER")
         stubs = [
@@ -1156,14 +1163,14 @@ class TestFlagSweepJsonShape:
     def test_sweep_items_include_exact(self, tmp_path: Path, monkeypatch, capsys) -> None:
         import json
 
-        from rebrew.match import _run_single_flag_sweep
+        from rebrew.match_sweep import _run_single_flag_sweep
 
         monkeypatch.setattr(
-            "rebrew.match.flag_sweep",
+            "rebrew.match_sweep.flag_sweep",
             lambda *a, **k: [(0.05, "/O2"), (5000.0, "/O1")],
         )
         monkeypatch.setattr(
-            "rebrew.match.build_candidate_obj_only",
+            "rebrew.match_sweep.build_candidate_obj_only",
             lambda *a, **k: SimpleNamespace(ok=True, obj_bytes=b"\xc3", reloc_offsets=None),
         )
         p = SimpleNamespace(
@@ -1200,7 +1207,7 @@ class TestGABuildCacheKey:
     (the cache DB persists across runs in output/ga_runs/<rel>/)."""
 
     def test_key_derivation_partitions_by_flags(self) -> None:
-        from rebrew.match import _ga_cache_key
+        from rebrew.match_ga import _ga_cache_key
 
         src = "int f(void) { return 0; }"
         # Same inputs → same key; any change → different key.
@@ -1240,7 +1247,7 @@ class TestGABuildCacheKey:
     def test_same_instance_recompile_only_on_flag_change(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
-        from rebrew.match import BinaryMatchingGA
+        from rebrew.match_ga import BinaryMatchingGA
         from rebrew.matcher.core import BuildResult
 
         seen: list[str] = []
@@ -1262,7 +1269,7 @@ class TestGABuildCacheKey:
             seen.append(cflags)
             return BuildResult(ok=False, error_msg="fake")
 
-        monkeypatch.setattr("rebrew.match.build_candidate_obj_only", _fake_build)
+        monkeypatch.setattr("rebrew.match_ga.build_candidate_obj_only", _fake_build)
 
         def _ga(cflags: str) -> BinaryMatchingGA:
             return BinaryMatchingGA(
@@ -1291,7 +1298,7 @@ class TestGABuildCacheKey:
         """Stubs share one cache DB: the same source under another symbol
         must miss (different extracted bytes), not reuse the first stub's
         .obj."""
-        from rebrew.match import BinaryMatchingGA, _ga_cache_key
+        from rebrew.match_ga import BinaryMatchingGA, _ga_cache_key
 
         calls: list[str] = []
 
@@ -1301,7 +1308,7 @@ class TestGABuildCacheKey:
             calls.append(symbol)
             return _fail_result()
 
-        monkeypatch.setattr("rebrew.match.build_candidate_obj_only", _fake_build)
+        monkeypatch.setattr("rebrew.match_ga.build_candidate_obj_only", _fake_build)
 
         def _ga(symbol: str) -> BinaryMatchingGA:
             return BinaryMatchingGA(
@@ -1328,7 +1335,7 @@ class TestGABuildCacheKey:
         """One disk-cache write per scored candidate: _compile_source defers
         the store to _compute_fitness (failures still store on compile, they
         never reach the scoring put)."""
-        from rebrew.match import BinaryMatchingGA, _ga_cache_key
+        from rebrew.match_ga import BinaryMatchingGA, _ga_cache_key
         from rebrew.matcher.core import BuildResult
 
         ga = BinaryMatchingGA(
@@ -1352,7 +1359,7 @@ class TestGABuildCacheKey:
 
         monkeypatch.setattr(ga.cache, "put", _counting_put)
         monkeypatch.setattr(
-            "rebrew.match.build_candidate_obj_only",
+            "rebrew.match_ga.build_candidate_obj_only",
             lambda *a, **k: BuildResult(ok=True, obj_bytes=b"\xc3"),
         )
         src = "int f(void) { return 0; }"
@@ -1371,7 +1378,7 @@ class TestGABuildCacheKey:
         (for memoization); the scoring store must still land under the compile
         key so a later process hits it instead of recompiling every winner."""
         from rebrew.compile_cache import source_digest
-        from rebrew.match import BinaryMatchingGA
+        from rebrew.match_ga import BinaryMatchingGA
         from rebrew.matcher.core import BuildResult
 
         calls: list[str] = []
@@ -1380,7 +1387,7 @@ class TestGABuildCacheKey:
             calls.append(src)
             return BuildResult(ok=True, obj_bytes=b"\xc3")
 
-        monkeypatch.setattr("rebrew.match.build_candidate_obj_only", _fake_build)
+        monkeypatch.setattr("rebrew.match_ga.build_candidate_obj_only", _fake_build)
         src = "int f(void) { return 0; }"
 
         def _ga() -> BinaryMatchingGA:
@@ -1411,7 +1418,7 @@ class TestGABuildCacheKey:
     def test_failure_still_cached_on_compile(self, tmp_path: Path, monkeypatch: Any) -> None:
         """Failed compiles never reach _compute_fitness's put — they must be
         stored by _compile_source so the failure is not recompiled."""
-        from rebrew.match import BinaryMatchingGA
+        from rebrew.match_ga import BinaryMatchingGA
 
         calls: list[str] = []
 
@@ -1419,7 +1426,7 @@ class TestGABuildCacheKey:
             calls.append(src)
             return _fail_result()
 
-        monkeypatch.setattr("rebrew.match.build_candidate_obj_only", _fake_build)
+        monkeypatch.setattr("rebrew.match_ga.build_candidate_obj_only", _fake_build)
 
         ga = BinaryMatchingGA(
             seed_source="int f(void) { return 0; }",
@@ -1442,8 +1449,8 @@ class TestGABuildCacheKey:
     def test_run_uses_single_executor(self, tmp_path: Path, monkeypatch: Any) -> None:
         """The whole run shares one ThreadPoolExecutor (no per-generation
         churn): more than one generation must create exactly one pool."""
-        import rebrew.match as _match_mod
-        from rebrew.match import BinaryMatchingGA
+        import rebrew.match_ga as _match_mod
+        from rebrew.match_ga import BinaryMatchingGA
 
         created: list[Any] = []
         _real_pool = _match_mod.ThreadPoolExecutor
@@ -1458,7 +1465,7 @@ class TestGABuildCacheKey:
         def _fake_build(src: str, *a: Any, **k: Any) -> Any:
             return _fail_result()
 
-        monkeypatch.setattr("rebrew.match.build_candidate_obj_only", _fake_build)
+        monkeypatch.setattr("rebrew.match_ga.build_candidate_obj_only", _fake_build)
         ga = BinaryMatchingGA(
             seed_source="int f(void) { return 0; }",
             target_bytes=b"\xc3",
@@ -1495,7 +1502,7 @@ class TestPerFunctionToolchain:
 
     @staticmethod
     def _stub(tmp_path: Path) -> Any:
-        from rebrew.match import StubInfo
+        from rebrew.match_batch import StubInfo
 
         (tmp_path / "s.c").write_text(
             "// FUNCTION: SERVER 0x10001000\nint s(void) { return 0; }\n", encoding="utf-8"
@@ -1512,7 +1519,7 @@ class TestPerFunctionToolchain:
         )
 
     def test_batch_ga_uses_the_stub_toolchain(self, tmp_path: Path, monkeypatch: Any) -> None:
-        import rebrew.match as M
+        import rebrew.match_run as M
 
         captured: dict[str, Any] = {}
 
@@ -1536,7 +1543,7 @@ class TestPerFunctionToolchain:
         assert captured["profile"] == "msvc5"
 
     def test_flag_sweep_uses_the_stub_toolchain(self, tmp_path: Path, monkeypatch: Any) -> None:
-        import rebrew.match as M
+        import rebrew.match_sweep as M
 
         captured: dict[str, Any] = {}
 
@@ -1570,8 +1577,8 @@ class TestRunOneStubGaPersistsFlags:
         )
 
     def test_sweep_then_ga_persists_raw_override(self, tmp_path: Path, monkeypatch: Any) -> None:
-        import rebrew.match as M
-        from rebrew.match import StubInfo
+        import rebrew.match_run as M
+        from rebrew.match_batch import StubInfo
 
         stub = StubInfo(
             filepath=tmp_path / "s.c",
@@ -1610,7 +1617,7 @@ class TestRunOneStubGaPersistsFlags:
         monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
         # Confirmation must succeed for the splice to run (an unconfirmed
         # champion is never promoted — see test_unconfirmed_champion_is_not_spliced).
-        import rebrew.core as core
+        import rebrew.coff_reloc as core
 
         monkeypatch.setattr(core, "build_name_to_va", lambda cfg: {"_s": 0x10001000})
         monkeypatch.setattr("rebrew.cli.resolve_cflags", lambda *a, **k: "/O2 /G3")
@@ -1635,8 +1642,8 @@ class TestRunOneStubGaPersistsFlags:
         assert persisted.get("cf") == "/O2 /G3"
 
     def test_splice_failure_does_not_claim_match(self, tmp_path: Path, monkeypatch: Any) -> None:
-        import rebrew.match as M
-        from rebrew.match import StubInfo
+        import rebrew.match_run as M
+        from rebrew.match_batch import StubInfo
 
         stub = StubInfo(
             filepath=tmp_path / "s.c",
@@ -1676,7 +1683,7 @@ class TestRunOneStubGaPersistsFlags:
         # The splice fails (typedef return, no match) — the batch must NOT
         # report a match or save a solution.  Confirmation succeeds so the
         # splice is actually attempted.
-        import rebrew.core as core
+        import rebrew.coff_reloc as core
 
         monkeypatch.setattr(core, "build_name_to_va", lambda cfg: {"_s": 0x10001000})
         monkeypatch.setattr("rebrew.cli.resolve_cflags", lambda *a, **k: "/O2")
@@ -1697,9 +1704,9 @@ class TestRunOneStubGaPersistsFlags:
         not be spliced or promoted.  The GA score masks reloc slots, so a
         wrong-callee candidate scores 0.0; splicing it would claim RELOC that
         the next test/verify demotes."""
-        import rebrew.core as core
-        import rebrew.match as M
-        from rebrew.match import StubInfo
+        import rebrew.coff_reloc as core
+        import rebrew.match_run as M
+        from rebrew.match_batch import StubInfo
 
         stub = StubInfo(
             filepath=tmp_path / "s.c",
@@ -1774,7 +1781,7 @@ class TestCrossProjectSeeding:
         )
 
     def _stub(self, tmp_path: Path, sym: str, size: int = 64) -> Any:
-        from rebrew.match import StubInfo
+        from rebrew.match_batch import StubInfo
 
         return StubInfo(
             filepath=tmp_path / f"{sym}.c",
@@ -1812,7 +1819,7 @@ class TestCrossProjectSeeding:
                 target="OTHER",
             ),
         ]
-        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
+        monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
         monkeypatch.setattr("rebrew.matcher.load_solutions", lambda root: local_solutions)
         monkeypatch.setattr("rebrew.matcher.load_solutions_file", lambda p: extra)
         seen: dict[str, Any] = {}
@@ -1836,7 +1843,7 @@ class TestCrossProjectSeeding:
             seen["seeds"] = seeds
             return False, "best_score=5.00", 5.0, 3
 
-        monkeypatch.setattr("rebrew.match._run_one_stub_ga", _fake_run)
+        monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_run)
         _run_all(
             cfg,
             jobs=1,
@@ -1902,7 +1909,7 @@ class TestCrossProjectSeeding:
 
         cfg = self._cfg(tmp_path)
         stubs = [self._stub(tmp_path, "_s0")]
-        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: stubs)
+        monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
         monkeypatch.setattr(
             "rebrew.matcher.load_solutions",
             lambda root: [
@@ -1930,7 +1937,7 @@ class TestCrossProjectSeeding:
 
         monkeypatch.setattr("rebrew.matcher.find_similar", _fake_find_similar)
         monkeypatch.setattr(
-            "rebrew.match._run_one_stub_ga",
+            "rebrew.match_run._run_one_stub_ga",
             lambda *a, **k: (False, "best_score=5.00"),
         )
         _run_all(

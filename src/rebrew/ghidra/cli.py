@@ -215,7 +215,7 @@ def main(
     # --- BinSync field sync ---
     if push or summary:
         out = _require_state_dir(state_dir, json_output)
-        from rebrew.binsync_export import _print_export_result, export_state
+        from rebrew.binsync.export import _print_export_result, export_state
 
         preview = dry_run or summary
         result = export_state(cfg, out, dry_run=preview, json_output=json_output)
@@ -236,7 +236,7 @@ def main(
 
     if pull:
         src = _require_state_dir(state_dir, json_output)
-        from rebrew.binsync_import import _print_import_result, import_state
+        from rebrew.binsync.importer import _print_import_result, import_state
 
         result = import_state(
             cfg,

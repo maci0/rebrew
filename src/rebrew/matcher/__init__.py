@@ -45,10 +45,8 @@ from .flag_data import (
 from .flags import Checkbox as Checkbox
 from .flags import Flags as Flags
 from .flags import FlagSet as FlagSet
+from .mutations.runtime import set_target_range as set_target_range
 from .mutator import *  # noqa: F403 — mutator.py defines __all__
-from .mutator import (
-    set_target_range as set_target_range,
-)
 from .parsers import (
     extract_function_from_binary as extract_function_from_binary,
 )

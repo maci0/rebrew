@@ -18,13 +18,13 @@ pytest.importorskip("declib")
 
 
 def _load_func(path: Path) -> Any:
-    from rebrew.binsync_serial import load_artifact
+    from rebrew.binsync.serial import load_artifact
 
     return load_artifact(path, "function")
 
 
 def _load_artifacts(path: Path, kind: str) -> list[Any]:
-    from rebrew.binsync_serial import load_many
+    from rebrew.binsync.serial import load_many
 
     return load_many(path, kind)
 
@@ -344,7 +344,7 @@ class TestBinsyncExportJson:
 
 class TestBinsyncWriters:
     def test_global_vars_sizes(self, tmp_path: Path) -> None:
-        from rebrew.binsync_export import _write_global_vars_toml
+        from rebrew.binsync.export import _write_global_vars_toml
 
         out = tmp_path / "global_vars.toml"
         _write_global_vars_toml(
@@ -357,8 +357,8 @@ class TestBinsyncWriters:
         assert arts[0x2000].size is None
 
     def test_struct_toml_placeholder(self, tmp_path: Path) -> None:
-        from rebrew.binsync_export import _write_struct_toml
-        from rebrew.binsync_serial import load_artifact
+        from rebrew.binsync.export import _write_struct_toml
+        from rebrew.binsync.serial import load_artifact
 
         out = tmp_path / "structs" / "NPSTATE.toml"
         out.parent.mkdir()
@@ -370,7 +370,7 @@ class TestBinsyncWriters:
 
 class TestBinsyncGhidraComment:
     def test_ghidra_comment_written(self, tmp_path: Path) -> None:
-        from rebrew.binsync_export import _write_comments_toml
+        from rebrew.binsync.export import _write_comments_toml
 
         out = tmp_path / "comments.toml"
         _write_comments_toml(out, [(0x1002, 0x1000, "[rebrew:ghidra] ghidra_name")])
@@ -382,7 +382,7 @@ class TestBinsyncGhidraComment:
     def test_export_toml_left_readonly(self, tmp_path: Path) -> None:
         """binsync exports (functions/*.toml, global_vars.toml, structs/*.toml)
         are write-locked 0444 — direct edits fail, tools chmod+update+re-lock."""
-        from rebrew.binsync_export import (
+        from rebrew.binsync.export import (
             _write_function_toml,
             _write_global_vars_toml,
             _write_struct_toml,
@@ -465,15 +465,15 @@ class TestBinsyncExportModuleFilter:
 
 class TestBinsyncStructFields:
     def test_parse_struct_fields(self) -> None:
-        from rebrew.binsync_export import _parse_struct_fields
+        from rebrew.binsync.export import _parse_struct_fields
 
         fields = _parse_struct_fields("typedef struct { int x; int y; char name[32]; } Foo;")
         names = [f["name"] for f in fields]
         assert "x" in names and "y" in names and "name" in names
 
     def test_struct_with_fields_written(self, tmp_path: Path) -> None:
-        from rebrew.binsync_export import _write_struct_toml
-        from rebrew.binsync_serial import load_artifact
+        from rebrew.binsync.export import _write_struct_toml
+        from rebrew.binsync.serial import load_artifact
 
         out = tmp_path / "MyStruct.toml"
         _write_struct_toml(
@@ -505,7 +505,7 @@ class TestBinsyncStructFields:
         assert result.exit_code == 0
         p = outdir / "structs" / "Point.toml"
         assert p.exists()
-        from rebrew.binsync_serial import load_artifact
+        from rebrew.binsync.serial import load_artifact
 
         struct = load_artifact(p, "struct")
         assert struct is not None
@@ -619,7 +619,7 @@ class TestBinsyncStructNames:
     ) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.binsync_export import app
+        from rebrew.binsync.export import app
 
         cfg = SimpleNamespace(
             root=tmp_path,
@@ -633,7 +633,7 @@ class TestBinsyncStructNames:
             "// FUNCTION: SERVER 0x1000\n// STRUCT: MyStruct\nint f(void) { return 0; }\n",
             encoding="utf-8",
         )
-        monkeypatch.setattr("rebrew.binsync_export.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.binsync.export.require_config", lambda **kw: cfg)
         outdir = tmp_path / "binsync"
         result = CliRunner().invoke(app, ["--json", str(outdir)])
         assert result.exit_code == 0
@@ -657,7 +657,7 @@ class TestManifest:
         assert doc["exported_at"]
 
     def test_manifest_loads(self, tmp_path: Path) -> None:
-        from rebrew.binsync_state import load_manifest
+        from rebrew.binsync.state import load_manifest
 
         assert load_manifest(tmp_path) == {}
         manifest = tmp_path / "manifest.toml"

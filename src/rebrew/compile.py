@@ -62,17 +62,13 @@ from pathlib import Path
 import numpy as np
 
 from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary
+from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
 from rebrew.compile_cache import CacheBackend, compile_cache_key, get_compile_cache
 from rebrew.config import ProjectConfig
-from rebrew.core import (
-    build_iat_region,
-    msvc_env_from_config,
-    resolve_runner_path,
-    smart_reloc_compare,
-)
 from rebrew.headless import ensure_xvfb
 from rebrew.matcher import parse_obj_symbol_and_relocs
 from rebrew.metadata import MATCHED_STATUSES
+from rebrew.msvc_env import msvc_env_from_config, resolve_runner_path
 from rebrew.toolchain import TOOLCHAINS, ToolchainError, ToolchainSpec, run_toolchain
 from rebrew.utils import container_runtime, safe_shlex_split
 
@@ -653,7 +649,7 @@ def _is_vendored_toolchain_tree(p: Path) -> bool:
     Those trees are baked into the docker images byte-identical, so the
     container needs no bind mount for them - CL/wcc resolve their own
     includes inside the image."""
-    from rebrew.toolchain import toolchains_repo
+    from rebrew.toolchain_paths import toolchains_repo
 
     root = toolchains_repo()
     try:

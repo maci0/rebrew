@@ -1031,7 +1031,7 @@ class TestRebrewTestBatchCachePatch:
         monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
         captured: list[list[dict[str, Any]]] = []
         monkeypatch.setattr(
-            "rebrew.verify.patch_verify_cache_entries",
+            "rebrew.verify_cache.patch_verify_cache_entries",
             lambda cfg_, patches: captured.append(patches),
         )
 

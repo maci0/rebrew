@@ -12,16 +12,20 @@ from rebrew.data import (
     BssEntry,
     BssGap,
     BssReport,
+    _generate_bss_fix,
+    scan_data_annotations,
+    scan_globals,
+)
+from rebrew.data_annotate import (
     _emit_extern_decl,
     _gen_globals_header,
-    _generate_bss_fix,
+    _set_data_types,
+)
+from rebrew.data_render import (
     _render_bss,
     _render_globals,
     _render_summary,
     _section_summary,
-    _set_data_types,
-    scan_data_annotations,
-    scan_globals,
 )
 
 
@@ -603,7 +607,7 @@ class TestRenderDispatchAndBss:
     def test_render_dispatch_empty(self) -> None:
         from io import StringIO
 
-        from rebrew.data import _render_dispatch
+        from rebrew.data_render import _render_dispatch
 
         buf = StringIO()
         _render_dispatch(_console(buf), [])  # type: ignore[arg-type]
@@ -612,7 +616,8 @@ class TestRenderDispatchAndBss:
     def test_render_dispatch_with_tables(self) -> None:
         from io import StringIO
 
-        from rebrew.data import DispatchEntry, DispatchTable, _render_dispatch
+        from rebrew.data import DispatchEntry, DispatchTable
+        from rebrew.data_render import _render_dispatch
 
         buf = StringIO()
         tbl = DispatchTable(
@@ -733,7 +738,8 @@ class TestGenGlobalsHeaderMetadata:
 
 class TestDataMoreBranches:
     def test_render_summary_with_conflicts(self, tmp_path: Path) -> None:
-        from rebrew.data import _render_summary, scan_globals
+        from rebrew.data import scan_globals
+        from rebrew.data_render import _render_summary
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "a.c").write_text(
@@ -753,7 +759,7 @@ class TestDataMoreBranches:
         assert scan.globals == {}
 
     def test_gen_header_underscore_strip_and_unknown_section(self, tmp_path: Path) -> None:
-        from rebrew.data import _gen_globals_header
+        from rebrew.data_annotate import _gen_globals_header
         from rebrew.data_metadata import set_data_field
 
         cfg = _cfg(tmp_path)

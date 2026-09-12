@@ -809,7 +809,7 @@ def iat_slot_vas(binary_path: Path | str) -> set[int]:
     functions, and reloc masking must know their addresses.  Returns
     ``set()`` on any failure (non-PE, unparsable, absent file).
 
-    Shared by ``rebrew.core.build_iat_region`` (reloc masking) and the
+    Shared by ``rebrew.coff_reloc.build_iat_region`` (reloc masking) and the
     catalog registry (function filtering) — one LIEF scan, two consumers.
 
     Memoized per resolved path (bounded dict + lock, mirroring

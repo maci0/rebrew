@@ -62,6 +62,7 @@ from typing import Any, cast
 import lief
 
 from rebrew.binary_loader import load_binary
+from rebrew.pe_headers import pe_lfanew
 
 logger = logging.getLogger(__name__)
 
@@ -1876,11 +1877,7 @@ def _is_16bit_target(info: ToolchainInfo, binary: Path | None) -> bool:
         return False
     # A PE carries the "PE\0\0" signature at e_lfanew — it is NOT
     # 16-bit.  Only NE (16-bit Windows) and plain DOS MZ executables are.
-    if len(data) >= 0x40:
-        e_lfanew = int.from_bytes(data[0x3C:0x40], "little")
-        if e_lfanew + 4 <= len(data) and data[e_lfanew : e_lfanew + 4] == b"PE\x00\x00":
-            return False
-    return True
+    return pe_lfanew(data) is None
 
 
 def suggest_profile(info: ToolchainInfo, binary: Path | None = None) -> str | None:

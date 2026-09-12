@@ -978,7 +978,7 @@ class TestLoadPreviousReport:
 
 class TestSaveVerifyCacheBranches:
     def test_entries_without_filepath_skipped(self, tmp_path: Path) -> None:
-        from rebrew.verify import _save_verify_cache
+        from rebrew.verify_cache import _save_verify_cache
 
         cfg = _cfg(tmp_path)
         results = [
@@ -999,7 +999,7 @@ class TestSaveVerifyCacheBranches:
         assert data["entries"] == {}
 
     def test_result_without_file_info_skipped(self, tmp_path: Path) -> None:
-        from rebrew.verify import _save_verify_cache
+        from rebrew.verify_cache import _save_verify_cache
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
@@ -1017,7 +1017,7 @@ class TestSaveVerifyCacheBranches:
         assert data["entries"] == {}
 
     def test_roundtrip_cache_entry(self, tmp_path: Path) -> None:
-        from rebrew.verify import _save_verify_cache
+        from rebrew.verify_cache import _save_verify_cache
 
         cfg = _cfg(tmp_path)
         f = cfg.reversed_dir / "f.c"
@@ -1364,7 +1364,8 @@ class TestProvenOverlay:
         Otherwise a later metadata STATUS demotion (PROVEN → STUB, the stale
         overlay case) would be masked by the cached pass on incremental runs.
         """
-        from rebrew.verify import _load_verify_cache, app
+        from rebrew.verify import app
+        from rebrew.verify_cache import _load_verify_cache
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 1; }\n", encoding="utf-8")
@@ -1422,7 +1423,7 @@ class TestRunVerification:
         monkeypatch.setattr(
             "rebrew.compile_cache.get_compile_cache", lambda root, backend="diskcache": None
         )
-        monkeypatch.setattr("rebrew.core.build_name_to_va", lambda cfg: {})
+        monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {})
 
     def test_all_passed(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.verify import run_verification
@@ -1497,7 +1498,7 @@ class TestRunVerification:
         monkeypatch.setattr(
             "rebrew.compile_cache.get_compile_cache", lambda root, backend="diskcache": None
         )
-        monkeypatch.setattr("rebrew.core.build_name_to_va", lambda cfg: {})
+        monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {})
         passed, failed, fail_details, results, deferred = run_verification(
             [_ann(0x1000)], _cfg(tmp_path), jobs=1, total=1, cached_count=0, json_output=True
         )

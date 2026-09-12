@@ -329,7 +329,7 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 | `cfg.py` | `rebrew-project.toml` (tomlkit read/write) |
 | `split.py` | `marker`, `source_ext`, `reversed_dir` |
 | `merge.py` | `marker`, `source_ext`, `reversed_dir` |
-| `binsync_export.py` | `reversed_dir` |
+| `binsync/export.py` | `reversed_dir` |
 
 ## Config Editor (`rebrew cfg`)
 

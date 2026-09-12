@@ -273,12 +273,14 @@ def vendor_cmd(
     import subprocess
     import tempfile
 
-    from rebrew.toolchain import _SOURCES, REPO_TOOLS, require_toolchains_repo
+    from rebrew.toolchain import require_toolchains_repo
+    from rebrew.toolchain_data import SOURCES
+    from rebrew.toolchain_paths import REPO_TOOLS
 
     require_toolchains_repo()
-    src = _SOURCES.get(name)
+    src = SOURCES.get(name)
     if src is None:
-        msg = f"no pinned source for toolchain {name!r} (known: {sorted(_SOURCES)})"
+        msg = f"no pinned source for toolchain {name!r} (known: {sorted(SOURCES)})"
         error_exit(msg, json_mode=json_output)
 
     host = REPO_TOOLS / src.host_dir
@@ -858,12 +860,12 @@ def build_cmd(
     import subprocess
 
     from rebrew.toolchain import (
-        REPO_TOOLS,
         ToolchainError,
         get_toolchain,
         require_toolchains_repo,
         swap_toolchain_image,
     )
+    from rebrew.toolchain_paths import REPO_TOOLS
 
     require_toolchains_repo()
     spec = get_toolchain(name)
@@ -1046,11 +1048,11 @@ def check_updates_cmd(
 
     import httpx
 
-    from rebrew.toolchain import _SOURCES
+    from rebrew.toolchain_data import SOURCES
 
     rows: dict[str, str] = {}
     drifted: list[str] = []
-    for name, src in sorted(_SOURCES.items()):
+    for name, src in sorted(SOURCES.items()):
         if src.in_repo:
             rows[name] = "static (pinned tarball in rebrew-toolchains)"
             continue
@@ -1110,19 +1112,19 @@ def check_updates_cmd(
 
 
 def _rewrite_source_pin(name: str, sha256: str, commit: str) -> None:
-    """Rewrite the _SOURCES entry for *name* in toolchain.py (sha256 + commit).
+    """Rewrite the SOURCES entry for *name* in toolchain_data.py (sha256 + commit).
 
     The entry block is located by the unique '"name": ToolchainSource('
     header; only the pinned sha256/commit lines inside it are touched, so a
     shared checksum across entries never mutates a neighbour."""
     import re
 
-    path = Path(__file__).resolve().parent / "toolchain.py"
+    path = Path(__file__).resolve().parent / "toolchain_data.py"
     text = path.read_text(encoding="utf-8")
     esc = re.escape(name)
     block = re.search('"' + esc + '": ToolchainSource\\((.*?)\\n\\s*\\),', text, re.S)
     if block is None:
-        raise ToolchainError(f"could not locate _SOURCES entry for {name!r}")
+        raise ToolchainError(f"could not locate SOURCES entry for {name!r}")
     body = block.group(1)
     m = re.search(r'sha256="[0-9a-f]{64}"', body)
     if m is None:
@@ -1172,11 +1174,12 @@ def _rewrite_dockerfile_sha(name: str, sha256: str) -> None:
     """Rewrite the sha256 pin embedded in the toolchain's Dockerfile.
 
     The Dockerfiles hardcode the sha256 (verified at build time with
-    `sha256sum -c`), mirroring _SOURCES — a re-pin must update both or the
+    `sha256sum -c`), mirroring SOURCES — a re-pin must update both or the
     image rebuild fails."""
     import re
 
-    from rebrew.toolchain import REPO_TOOLS, get_toolchain
+    from rebrew.toolchain import get_toolchain
+    from rebrew.toolchain_paths import REPO_TOOLS
 
     spec = get_toolchain(name)
     if spec.image is None or ":" not in spec.image:
@@ -1205,7 +1208,7 @@ def update_cmd(
 
     Dry-run (default): downloads the current source and reports the
     old -> new pin (sha256 + commit).  --apply additionally rewrites
-    _SOURCES, clears + re-vendors the host tree, rebuilds the docker
+    SOURCES, clears + re-vendors the host tree, rebuilds the docker
     image, regenerates the smoke golden (verified stable across two
     compiles) and runs the smoke gate for that toolchain."""
     import contextlib
@@ -1216,12 +1219,14 @@ def update_cmd(
     import tempfile
     from dataclasses import replace
 
-    from rebrew.toolchain import _SOURCES, REPO_TOOLS, get_toolchain, require_toolchains_repo
+    from rebrew.toolchain import get_toolchain, require_toolchains_repo
+    from rebrew.toolchain_data import SOURCES
+    from rebrew.toolchain_paths import REPO_TOOLS
 
     require_toolchains_repo()
-    src = _SOURCES.get(name)
+    src = SOURCES.get(name)
     if src is None:
-        msg = f"no pinned source for toolchain {name!r} (known: {sorted(_SOURCES)})"
+        msg = f"no pinned source for toolchain {name!r} (known: {sorted(SOURCES)})"
         error_exit(msg, json_mode=json_output)
     if src.in_repo:
         msg = f"toolchain {name!r} is a pinned tarball (static) — nothing to update"
@@ -1269,11 +1274,11 @@ def update_cmd(
         #      artifact; the pin (the registration) is what the rollback
         #      restores, so the repo state matches the unchanged image.
         try:
-            # 1. rewrite the pin in _SOURCES (file) + the in-memory dict so
+            # 1. rewrite the pin in SOURCES (file) + the in-memory dict so
             #    vendor_cmd below verifies against the new sha256.
             _rewrite_source_pin(name, actual_sha, live_commit)
             _rewrite_dockerfile_sha(name, actual_sha)
-            _SOURCES[name] = replace(src, sha256=actual_sha, commit=live_commit)
+            SOURCES[name] = replace(src, sha256=actual_sha, commit=live_commit)
             # 2. clear the vendored host tree (keep Dockerfile/wrappers) + re-vendor.
             host = REPO_TOOLS / src.host_dir
             _META_PATTERNS = (

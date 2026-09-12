@@ -10,7 +10,6 @@ Merges function sources (lists, Ghidra JSON, PE exports) into a unified registry
 | `registry.py` | Merge sources, resolve canonical sizes | `build_function_registry()` |
 | `grid.py` | Coverage grid generation | `generate_data_json()` |
 | `export.py` | Output (CATALOG.md, reccmp CSV) | `generate_catalog()`, `generate_reccmp_csv()` |
-| `sections.py` | Section parsing, global scanning, x86 utils | `get_globals()`, `get_text_section_size()`, `trim_trailing_padding()`, `has_back_jumps()` |
 | `cli.py` | Typer CLI orchestrator | `app`, `main`, `main_entry` |
 
 ## Dependency Graph
@@ -21,7 +20,7 @@ cli.py (orchestrator — calls all others)
 ├── registry.py (build_function_registry)
 ├── grid.py (generate_data_json)
 ├── export.py (generate_catalog, generate_reccmp_csv)
-├── sections.py (get_text_section_size)
+├── rebrew.sections (external — get_text_section_size)
 └── annotation.py (external — parse_c_file_multi, update_size_annotation)
 
 loaders.py
@@ -30,17 +29,20 @@ loaders.py
 
 registry.py
 ├── binary_loader.py (external — load_binary)
+├── rebrew.sections (external — has_back_jumps, trim_trailing_padding)
 └── config.py (external — ProjectConfig)
 
 grid.py
 ├── loaders.py (load_ghidra_data_labels)
 ├── registry.py (is_jump_table)
-├── sections.py (get_globals)
+├── rebrew.sections (external — get_globals)
 └── binary_loader.py (external — load_binary)
 
 export.py → config.py (external — ProjectConfig)
-sections.py → binary_loader.py, config.py, cli.py (all external)
 ```
+
+PE section parsing and the x86 helpers live in `rebrew/sections.py`, outside this
+package; `binary_loader.py`, `config.py`, and `cli.py` are their other externals.
 
 ## Data Flow
 

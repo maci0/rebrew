@@ -10,8 +10,14 @@ GA engine for binary-matching decompilation. Compiles C through the docker-backe
 | `compiler.py` | Compilation backend | `build_candidate()`, `build_candidate_obj_only(cache=)`, `flag_sweep(cache=)`, `generate_flag_combinations()` |
 | `scoring.py` | Binary comparison (pure) | `score_candidate()`, `diff_functions()`, `structural_similarity()` |
 | `mutator.py` | C mutations (pure) | `mutate_code()`, `mutate_chain()`, `MutationLog`, `crossover()`, `compute_population_diversity()`, 119 `mut_*` operators |
+| `mutations/queries.py` | Shared tree-sitter query library for the mutation operators | `_LazyQuery`, the `_QUERY_*` batch, `_RE_C_ZERO_LITERAL` |
+| `mutations/runtime.py` | Operator plumbing | `_capture`, `_first_caps`, `_cursor`, `_apply_query_once`, `set_target_range`, `_RE_FUNC_PRAGMA` |
+| `mutations/pragmas.py` | MSVC6 `#pragma` operators | 7 `mut_*_pragma` operators |
+| `mutations/structural.py` | MSVC6 structural operators (control flow, stack frame, folding, zero-extension, register pressure) | 20 `mut_*` operators |
+| `mutations/advanced.py` | Phase 3/4 logical + manual-decomp operators, loop-break, ternary, hoist/sink | 18 `mut_*` operators |
+| `mutations/enhancements.py` | Phase 5/6 codegen insights + Category 7 register pressure | 13 `mut_*` operators |
+| `mutations/basic.py` | Core Phase 1/2 operator set + `quick_validate`/`crossover`/diversity | 63 `mut_*` operators |
 | `parsers.py` | Object parsing (read-only) | `parse_obj_symbol_bytes()`, `list_obj_symbols()`, `extract_function_from_binary()` |
-| `omf16.py` | 16-bit OMF parsing (MSVC 1.52 dialect) | `is_omf16()`, `parse_omf16()`, `parse_obj_omf16()` (code + reloc slots for the 16-bit path) |
 | `flags.py` | Flag primitives | `FlagSet`, `Checkbox` (frozen), `Flags` alias |
 | `flag_data.py` | MSVC flag defs | `MSVC6_FLAGS`, `COMMON_MSVC_FLAGS`, `MSVC_SWEEP_TIERS` |
 | `solutions.py` | Solution transfer DB | `SolutionEntry`, `load_solutions()`, `save_solution()`, `find_similar()` (seeds GA runs from solved lookalikes) |
@@ -34,7 +40,7 @@ scoring.py
 
 mutator.py → ast_engine (internal: _C_LANGUAGE, ASTMutator, parse_c_ast)
 core.py    → diskcache (external), no internal imports
-parsers.py → lief (external), core.matching.CoffRelocRecord
+parsers.py → lief (external), coff_reloc.CoffRelocRecord
 flags.py   → no imports (pure dataclasses)
 flag_data.py → flags.Checkbox, FlagSet
 ```

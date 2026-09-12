@@ -494,7 +494,7 @@ def test_rel32_target_bounds(blob: bytes, fn_va: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# catalog.sections.trim_trailing_padding — padding invariants
+# sections.trim_trailing_padding — padding invariants
 # ---------------------------------------------------------------------------
 
 
@@ -503,7 +503,7 @@ def test_rel32_target_bounds(blob: bytes, fn_va: int) -> None:
 def test_trim_trailing_padding_invariants(data: bytes) -> None:
     """Trimmed length ≤ len; stripped suffix is all padding; prefix is padding-free."""
     from rebrew.binary_loader import PADDING_BYTES
-    from rebrew.catalog.sections import trim_trailing_padding
+    from rebrew.sections import trim_trailing_padding
 
     n = trim_trailing_padding(data)
     assert 0 <= n <= len(data)
@@ -956,7 +956,7 @@ def test_code_relocs_are_valid_slots(code: bytes) -> None:
     """The 16-bit reloc scan (omf16._code_relocs) must always return
     distinct, in-bounds offsets — never overlapping positions or out-of-
     range indices, on arbitrary bytes."""
-    from rebrew.matcher.omf16 import _code_relocs
+    from rebrew.omf16 import _code_relocs
 
     relocs = _code_relocs(code, 0, len(code))
     assert len(relocs) == len(set(relocs))  # no duplicate offsets

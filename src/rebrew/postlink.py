@@ -67,6 +67,7 @@ from rich.console import Console
 from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary
 from rebrew.cli import EXIT_ERROR, error_exit, json_print
 from rebrew.layout_meta import ImportMeta, LayoutMetadata, extract_layout, load_package
+from rebrew.pe_headers import find_section, pe_layout, pe_lfanew, sections_at
 from rebrew.utils import atomic_write_bytes
 
 console = Console(stderr=True)
@@ -171,25 +172,18 @@ def _rva_to_offset(info: BinaryInfo, rva: int) -> int:
 
 def _section_table(info: BinaryInfo) -> tuple[int, int, int]:
     """Return (e_lfanew, optional-header offset, section-table offset)."""
-    e = struct.unpack_from("<I", info.data, 0x3C)[0]
-    if info.data[e : e + 4] != b"PE\x00\x00":
+    layout = pe_layout(info.data)
+    if layout is None:
         raise ValueError("not a PE binary (bad e_lfanew)")
-    coff = e + 4
-    opt_size = struct.unpack_from("<H", info.data, coff + 16)[0]
-    return e, coff + 20, coff + 20 + opt_size
+    return layout.e_lfanew, layout.optional_header_offset, layout.section_table_offset
 
 
 def _section_header_offset(info: BinaryInfo, name: str) -> int:
     """File offset of the section-table entry for *name*."""
-    _, _, sec_off = _section_table(info)
-    e = struct.unpack_from("<I", info.data, 0x3C)[0]
-    n = struct.unpack_from("<H", info.data, e + 4 + 2)[0]
-    for i in range(n):
-        h = sec_off + 40 * i
-        sn = info.data[h : h + 8].rstrip(b"\x00").decode(errors="replace")
-        if sn == name:
-            return h
-    raise ValueError(f"section {name!r} not found")
+    section = find_section(info.data, name)
+    if section is None:
+        raise ValueError(f"section {name!r} not found")
+    return section.header_offset
 
 
 # ---------------------------------------------------------------------------
@@ -480,7 +474,9 @@ def _fix_pe_metadata(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo)
     report = FixerReport(name="pe-metadata", changed=False)
     b = built
     header = meta.header
-    e_r = struct.unpack_from("<I", header, 0x3C)[0]  # reference e_lfanew
+    # The reference e_lfanew is the package's recorded value, not re-validated:
+    # meta.header is a trusted header block, and the layout fixers relocate it.
+    e_r = struct.unpack_from("<I", header, 0x3C)[0]
 
     e_b, opt_b, _ = _section_table(info_b)
 
@@ -504,7 +500,10 @@ def _fix_pe_metadata(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo)
         b[:] = new
         report.changed = True
         # e_lfanew changed — recompute the header offsets before step 2
-        e_b = struct.unpack_from("<I", b, 0x3C)[0]
+        relocated_e = pe_lfanew(b)
+        if relocated_e is None:
+            raise ValueError("built binary is not a PE")
+        e_b = relocated_e
         opt_b = e_b + 24
 
     # ---- 2. copy the reference's full header block ----
@@ -528,15 +527,10 @@ def _fix_pe_metadata(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo)
         reference's raw pointers over them would point the header at bytes the
         fixer never wrote.
         """
-        sec_off = e + 4 + 20 + opt_size
-        out: list[tuple[str, int, int]] = []
-        for i in range(n):
-            h = sec_off + 40 * i
-            name = raw[h : h + 8].rstrip(b"\x00").decode(errors="replace")
-            rva = struct.unpack_from("<I", raw, h + 12)[0]
-            raw_ptr = struct.unpack_from("<I", raw, h + 20)[0]
-            out.append((name, rva, raw_ptr))
-        return out
+        return [
+            (s.name, s.virtual_address, s.pointer_to_raw_data)
+            for s in sections_at(raw, e + 24 + opt_size, n)
+        ]
 
     opt_size_r = struct.unpack_from("<H", header, e_r + 4 + 16)[0]
     hdr_size_r = 4 + 20 + opt_size_r + len(meta.sections) * 40  # bytes after e_r

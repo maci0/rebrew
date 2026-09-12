@@ -1,4 +1,4 @@
-"""binsync_serial.py: declib wrapper for BinSync state artifacts.
+"""serial.py: declib wrapper for BinSync state artifacts.
 
 declib is BinSync's artifact layer (the ``declib>=4.5`` dependency of the
 ``binsync`` extra).  Every declib touch in rebrew lives here: artifact
