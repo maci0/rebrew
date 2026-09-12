@@ -11,7 +11,7 @@ from pathlib import Path
 from rebrew.config import ProjectConfig
 from rebrew.data import scan_data_annotations, scan_globals
 from rebrew.lint import lint_file
-from rebrew.match import find_all_stubs, find_near_miss
+from rebrew.match_batch import find_all_stubs, find_near_miss
 from rebrew.naming import load_existing_vas
 from rebrew.sources import iter_sources
 from rebrew.utils import rel_display_path
