@@ -294,6 +294,15 @@ _MARKER_RE = re.compile(
     r"(?P<module>[^\s]+)\s+(?P<va>0x[0-9a-fA-F]+)(?P<close>\s*\*/)?[ \t]*\r?$"
 )
 
+#: Any marker, including the data types ``_MARKER_RE`` does not rewrite.  The
+#: module filter below must see them too: a `// DATA: SERVER 0x...` line left in
+#: a copy is the same lint error (E012) as a foreign FUNCTION marker.
+_ANY_MARKER_RE = re.compile(
+    r"^(?P<indent>[ \t]*)(?P<open>//|/\*)\s*"
+    r"(?P<type>FUNCTION|LIBRARY|STUB|GLOBAL|DATA|VTABLE|STRING)\s*:\s+"
+    r"(?P<module>[^\s]+)\s+(?P<va>0x[0-9a-fA-F]+)(?P<close>\s*\*/)?[ \t]*\r?$"
+)
+
 #: A ``// KEY: value`` (or ``/* KEY: value */``) line inside a marker block.
 _KV_RE = re.compile(r"^[ \t]*(?://|/\*)[ \t]*[A-Za-z_][A-Za-z0-9_]*:[ \t]*")
 
@@ -349,14 +358,14 @@ def _rewrite_marker(text: str, module: str, va: int, size: int) -> str:
     i = marker_idx + 1
     seen_code = False
     while i < len(lines):
-        m = _MARKER_RE.match(lines[i])
+        m = _ANY_MARKER_RE.match(lines[i])
         is_marker = m is not None
         drop = False
-        if m is not None and m.group("type") in ("FUNCTION", "LIBRARY", "STUB"):
+        if m is not None:
             if not seen_code:
                 drop = True  # stacked leading block for another version
             elif m.group("module") != module:
-                drop = True  # a later function that belongs to another target
+                drop = True  # a later item that belongs to another target
         if drop:
             i += 1
             while i < len(lines) and _KV_RE.match(lines[i]):
