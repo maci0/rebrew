@@ -576,7 +576,20 @@ def _compile_elf_object(tmp_path: Path) -> Path:
     import subprocess
 
     subprocess.run(
-        ["gcc", "-c", "-O1", "-fno-asynchronous-unwind-tables", str(src), "-o", str(obj)],
+        [
+            "gcc",
+            "-c",
+            "-O1",
+            "-fno-asynchronous-unwind-tables",
+            # Ubuntu's gcc defaults to -fcf-protection=full (it patches the
+            # default), which prepends endbr64 and changes every function's
+            # size — the exact-size assertions below must not depend on the
+            # build's defaults.
+            "-fcf-protection=none",
+            str(src),
+            "-o",
+            str(obj),
+        ],
         check=True,
         capture_output=True,
     )

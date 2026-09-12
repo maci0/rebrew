@@ -190,6 +190,18 @@ def test_parse_obj_relocs_full_unknown_symbol_returns_empty(tmp_path: Path) -> N
 _FIXTURES = Path(__file__).parent / "fixtures"
 
 
+def _require_objconv() -> None:
+    """Skip when neither the vendored objconv nor a PATH one is present.
+
+    ``tools/objconv`` is gitignored (a third-party binary), so a fresh
+    checkout — CI included — has no OMF→COFF converter."""
+    import shutil
+
+    vendored = Path(__file__).resolve().parents[2] / "tools" / "objconv" / "objconv"
+    if shutil.which("objconv") is None and not vendored.exists():
+        pytest.skip("objconv not present (tools/objconv is gitignored)")
+
+
 def test_omf_format_detected() -> None:
     from rebrew.matcher.parsers import _detect_obj_format
 
@@ -201,17 +213,10 @@ def test_omf_format_detected() -> None:
 def test_omf_converted_and_parsed() -> None:
     """A raw Watcom OMF object is converted to COFF via objconv and yields
     the same reloc offsets as the direct COFF parse — the e8/a1 slots of
-    `callg_` (push 4; call __CHK; call f_; add eax,[_g]; ret).  Skips when
-    the objconv binary is not present (tools/objconv is gitignored)."""
-    import shutil
-
+    `callg_` (push 4; call __CHK; call f_; add eax,[_g]; ret)."""
     from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 
-    if (
-        shutil.which("objconv") is None
-        and not (Path(__file__).resolve().parents[2] / "tools" / "objconv" / "objconv").exists()
-    ):
-        pytest.skip("objconv not present (tools/objconv is gitignored)")
+    _require_objconv()
 
     omf = _FIXTURES / "tg_watcom.o"
     code, relocs, records = parse_obj_symbol_and_relocs(omf, "callg_")
@@ -227,6 +232,8 @@ def test_watcom_trailing_underscore_symbol_matches() -> None:
     emits trailing underscores (`callg_`) — the lookup must try the
     compiler conventions."""
     from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
+
+    _require_objconv()
 
     omf = _FIXTURES / "tg_watcom.o"
     code, relocs, records = parse_obj_symbol_and_relocs(omf, "_callg")
@@ -342,15 +349,9 @@ def test_omf16_failure_falls_through_to_objconv(monkeypatch) -> None:
     """When the omf16 decoder cannot extract code (an unsupported dialect),
     the parse falls through to the objconv→COFF path instead of returning
     None outright."""
-    import shutil
-
     from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 
-    if (
-        shutil.which("objconv") is None
-        and not (Path(__file__).resolve().parents[2] / "tools" / "objconv" / "objconv").exists()
-    ):
-        pytest.skip("objconv not present (tools/objconv is gitignored)")
+    _require_objconv()
 
     import rebrew.omf16 as omf16_mod
 
@@ -371,8 +372,12 @@ def test_omf16_failure_falls_through_to_objconv(monkeypatch) -> None:
 
 def test_omf_to_coff_failed_conversion_raises(monkeypatch, tmp_path: Path) -> None:
     """A failed objconv run must raise loudly instead of leaving an empty
-    tempfile that LIEF would silently parse as None."""
+    tempfile that LIEF would silently parse as None.
+
+    ``shutil.which`` is pointed at any existing file so the branch is reached
+    without the gitignored objconv binary; ``subprocess.run`` is stubbed."""
     import subprocess
+    import sys
 
     from rebrew.matcher import parsers as parsers_mod
 
@@ -382,6 +387,7 @@ def test_omf_to_coff_failed_conversion_raises(monkeypatch, tmp_path: Path) -> No
         stderr = "Error 2316: Incompatible relocation method"
 
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: _Fail())
+    monkeypatch.setattr("shutil.which", lambda _name: sys.executable)
     out = tmp_path / "out.coff"
     out.write_bytes(b"")  # caller pre-creates the tempfile
     with pytest.raises(ValueError, match="objconv failed"):

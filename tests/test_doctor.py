@@ -653,9 +653,12 @@ class TestCheckIncludes16BitProfiles:
     """The include check must accept every 16-bit-capable profile
     check_compiler accepts, not only msvc-1.52."""
 
-    def test_borland_3_1_not_warned(self, tmp_path: Path) -> None:
+    def test_borland_3_1_not_warned(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.doctor import _WARN
 
+        # The docker-image probe is environment-dependent (the image is not
+        # built on a CI runner); this test is about the include-path guard.
+        monkeypatch.setattr("rebrew.doctor._docker_toolchain_check", lambda *a, **k: None)
         cfg = _make_cfg(tmp_path, arch="x86_16", compiler_profile="borland-3.1")
         result = check_includes(cfg)
         # The missing include dir is a real FAIL; the 16-bit guard must not
@@ -878,11 +881,17 @@ class TestCheckBinsyncState:
         import datetime
 
         old = int(datetime.datetime.now(datetime.UTC).timestamp() - 30 * 86400)
+        # Identity via env, not repo/global config: a CI runner has none set,
+        # and the amend would fail with "please tell me who you are".
         subprocess.run(
             ["git", "-C", str(state), "commit", "-q", "--amend", "--no-edit", "--allow-empty"],
             check=True,
             env={
                 **__import__("os").environ,
+                "GIT_AUTHOR_NAME": "t",
+                "GIT_AUTHOR_EMAIL": "t@t",
+                "GIT_COMMITTER_NAME": "t",
+                "GIT_COMMITTER_EMAIL": "t@t",
                 "GIT_AUTHOR_DATE": f"@{old}",
                 "GIT_COMMITTER_DATE": f"@{old}",
             },

@@ -196,7 +196,7 @@ def _iat_slot_vas(bin_path: Path | None) -> set[int]:
     them.  Thin wrapper over the shared LIEF scan (also used by reloc
     masking); returns ``set()`` on any failure.
     """
-    if not bin_path:
+    if not bin_path or not Path(bin_path).is_file():
         return set()
     from rebrew.binary_loader import iat_slot_vas
 
@@ -267,7 +267,10 @@ def build_function_registry(
     text_data: bytes | None = None
     text_va = 0
     text_size_val = 0
-    if bin_path and bin_path.exists():
+    # is_file(), not exists(): an unset target_binary is the truthy ``Path(".")``
+    # (see list_uncovered's function_list note), and handing a directory to
+    # LIEF aborts the process with bad_alloc instead of returning None.
+    if bin_path and Path(bin_path).is_file():
         try:
             from rebrew.binary_loader import load_binary
 
