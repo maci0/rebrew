@@ -39,7 +39,7 @@ class Delphi16Result:
 
 def find_dcc() -> Path:
     """Locate the vendored DCC.EXE (rebrew-toolchains/delphi/1.0-win16)."""
-    from rebrew.toolchain import toolchains_repo
+    from rebrew.toolchain_paths import toolchains_repo
 
     dcc = toolchains_repo() / "delphi" / "1.0-win16" / "source" / "DCC.EXE"
     if dcc.exists():

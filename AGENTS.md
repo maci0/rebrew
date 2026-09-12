@@ -194,7 +194,10 @@ src/rebrew/
 ├── lzexe.py             # LZEXE 0.90/0.91 DOS unpacker core (CLI in lzexe_cli.py)
 ├── library.py           # rebrew-libraries.toml per-library overrides + `rebrew library` CLI group
 ├── dosbox.py            # Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads)
-├── toolchain.py         # Toolchain abstraction: spec registry, docker-only runner (images for Windows/DOS, native for Linux compilers)
+├── toolchain.py         # Toolchain registry assembly + docker-only runner (images for Windows/DOS, native for Linux compilers)
+├── toolchain_spec.py    # ToolchainSpec / ToolchainSource value types
+├── toolchain_paths.py   # rebrew-toolchains checkout location (toolchains_repo, REPO_TOOLS, vendored_path)
+├── toolchain_data.py    # Packaged registry + source pins (SOURCES, BUILTIN_TOOLCHAINS)
 ├── toolchain_cli.py     # `rebrew toolchain` CLI (list/status/detect/pull/build)
 ├── registry.py          # Declarative component registration: entry-point groups + data-file overlays, single-source conflict policy
 ├── diagnose.py          # `rebrew diagnose` — compile-config resolution trace (why a function compiles with its toolchain+flags)

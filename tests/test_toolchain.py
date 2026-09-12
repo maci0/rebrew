@@ -798,16 +798,16 @@ class TestVc98Wrap:
     archaic-msvc source (msvc600) already carries VC98/ at the top."""
 
     def test_msvc6_source_needs_no_wrap(self) -> None:
-        from rebrew.toolchain import _SOURCES
+        from rebrew.toolchain_data import SOURCES
 
         # archaic-msvc/msvc600 ships VC98/ at the top level already, so no
         # wrap step is needed (the old decomp.me tarball was flat).
-        assert _SOURCES["msvc6"].vc98_wrap is False
+        assert SOURCES["msvc6"].vc98_wrap is False
 
     def test_other_sources_do_not_wrap(self) -> None:
-        from rebrew.toolchain import _SOURCES
+        from rebrew.toolchain_data import SOURCES
 
-        for name, src in _SOURCES.items():
+        for name, src in SOURCES.items():
             if name != "msvc6":
                 assert src.vc98_wrap is False, name
 
@@ -816,14 +816,14 @@ class TestVc98Wrap:
         their host trees are smoke-gated for byte-reproducibility, so a fresh
         clone must be able to reproduce them via `rebrew toolchain vendor`
         (they were vendored but unpinnable before)."""
-        from rebrew.toolchain import _SOURCES
+        from rebrew.toolchain_data import SOURCES
 
         for name, expected_dir in (
             ("msvc400", "msvc/4.0-win32"),
             ("msvc420", "msvc/4.2-win32"),
             ("msvc5", "msvc/5.0-win32"),
         ):
-            src = _SOURCES[name]
+            src = SOURCES[name]
             assert src.host_dir == expected_dir, name
             assert src.url.startswith("https://") and src.sha256, name
             assert len(src.sha256) == 64, name
@@ -866,13 +866,13 @@ class TestToolchainsRepoResolver:
     sibling checkout by default, REBREW_TOOLCHAINS_DIR otherwise."""
 
     def test_default_is_sibling(self) -> None:
-        from rebrew.toolchain import toolchains_repo
+        from rebrew.toolchain_paths import toolchains_repo
 
         repo = Path(__file__).resolve().parents[1]
         assert toolchains_repo() == repo.parent / "rebrew-toolchains"
 
     def test_env_override(self, tmp_path: Path, monkeypatch) -> None:
-        from rebrew.toolchain import toolchains_repo
+        from rebrew.toolchain_paths import toolchains_repo
 
         override = tmp_path / "my-toolchains"
         monkeypatch.setenv("REBREW_TOOLCHAINS_DIR", str(override))
@@ -886,14 +886,15 @@ class TestToolchainsRepoResolver:
             require_toolchains_repo()
 
     def test_in_repo_tarballs_rebased_to_checkout(self) -> None:
-        """The 16-bit _SOURCES in_repo paths are now relative to the
+        """The 16-bit SOURCES in_repo paths are now relative to the
         rebrew-toolchains checkout root (no toolchain/ prefix), sitting in
         the same <family>/<ver>-<arch> dir as the Dockerfile they feed."""
-        from rebrew.toolchain import _SOURCES, toolchains_repo
+        from rebrew.toolchain_data import SOURCES
+        from rebrew.toolchain_paths import toolchains_repo
 
         repo = toolchains_repo()
         for name in ("msvc15", "msvc10", "msvc1.52", "delphi16", "tc20", "tc16"):
-            src = _SOURCES[name]
+            src = SOURCES[name]
             assert src.in_repo, name
             assert not src.in_repo.startswith("toolchain/"), name
             assert (repo / src.in_repo).parent == repo / src.host_dir, name
@@ -913,7 +914,7 @@ class TestDockerfileSanity:
     @classmethod
     def _repo(cls) -> Path:
         if cls._REPO is None:
-            from rebrew.toolchain import toolchains_repo
+            from rebrew.toolchain_paths import toolchains_repo
 
             cls._REPO = toolchains_repo()
         return cls._REPO

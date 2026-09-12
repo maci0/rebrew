@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from rebrew.delphi16 import Delphi16Error, compile_ne
-from rebrew.toolchain import toolchains_repo
+from rebrew.toolchain_paths import toolchains_repo
 
 # compile_ne requires BOTH the vendored Delphi 1.0 toolchain
 # (rebrew-toolchains/delphi/1.0-win16) and a dosbox binary on PATH

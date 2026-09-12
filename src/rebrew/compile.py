@@ -653,7 +653,7 @@ def _is_vendored_toolchain_tree(p: Path) -> bool:
     Those trees are baked into the docker images byte-identical, so the
     container needs no bind mount for them - CL/wcc resolve their own
     includes inside the image."""
-    from rebrew.toolchain import toolchains_repo
+    from rebrew.toolchain_paths import toolchains_repo
 
     root = toolchains_repo()
     try:

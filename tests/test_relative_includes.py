@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from rebrew.compile import compile_and_compare, compile_to_obj
-from rebrew.toolchain import toolchains_repo
+from rebrew.toolchain_paths import toolchains_repo
 
 _REPO = Path(__file__).resolve().parents[1]
 
