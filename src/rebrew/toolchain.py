@@ -264,6 +264,17 @@ def get_toolchain(name: str) -> ToolchainSpec:
         raise ToolchainError(f"unknown toolchain {name!r} (known: {sorted(TOOLCHAINS)})") from None
 
 
+def profile_family(profile: str) -> str:
+    """Registry family for *profile* (``""`` when unregistered).
+
+    The family is derived from the image repository, so callers branch on a
+    compiler family instead of matching profile-name substrings — a plugin
+    toolchain takes the right branch with no host-source edit.
+    """
+    spec = TOOLCHAINS.get(profile)
+    return spec.family if spec is not None else ""
+
+
 def docker_available() -> bool:
     """True when docker is installed and its daemon responds (cached)."""
     global _docker_available_cache

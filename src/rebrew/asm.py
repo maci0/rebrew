@@ -59,6 +59,10 @@ logger = logging.getLogger(__name__)
 # Pre-compiled regex for sanitizing NASM labels (used in disassemble_to_nasm).
 _NASM_LABEL_RE = re.compile(r"[^a-zA-Z0-9_]")
 
+#: Compiler families that spell the naked-function attribute
+#: ``__attribute__((naked))``; MSVC-dialect compilers use ``__declspec(naked)``.
+_GCC_NAKED_FAMILIES = frozenset({"gcc", "clang", "mingw"})
+
 # Per-instruction hint patterns (_hint_for runs for every disassembled insn).
 _ESP_HINT_OPS = frozenset({"lea", "cmp", "add", "sub", "mov", "push", "and", "or", "xor", "test"})
 _ESP_REF_RE = re.compile(r"\[esp")
@@ -971,7 +975,9 @@ def generate_inline_c(
     sym = symbol or f"_func_{va:08x}"
     func_name = sym.lstrip("_")
 
-    is_gcc = any(k in cfg.compiler_profile.lower() for k in ("clang", "gcc", "mingw"))
+    from rebrew.toolchain import profile_family
+
+    is_gcc = profile_family(cfg.compiler_profile) in _GCC_NAKED_FAMILIES
     naked_attr = "__attribute__((naked))" if is_gcc else "__declspec(naked)"
 
     # Disassemble *code* for the per-instruction mnemonic comments (any

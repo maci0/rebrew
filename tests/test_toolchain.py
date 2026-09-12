@@ -1068,6 +1068,18 @@ class TestEffectiveArgStyle:
         assert TOOLCHAINS["watcom-2.0-win16"].effective_arg_style == "watcom"
 
 
+class TestProfileFamily:
+    """Callers branch on the registry family, not on a profile-name match."""
+
+    def test_registered_and_unknown(self) -> None:
+        from rebrew.toolchain import profile_family
+
+        assert profile_family("gcc-14.2.0") == "gcc"
+        assert profile_family("borland-3.1") == "borland"
+        assert profile_family("watcom-2.0-win16") == "watcom"
+        assert profile_family("not-a-toolchain") == ""
+
+
 class TestSmokeGoldenCoverage:
     """`_SMOKE_GOLDEN` is hand-maintained per toolchain, so it must cover
     exactly the packaged image-backed set — a new registry toolchain without a
