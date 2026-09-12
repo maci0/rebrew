@@ -4,13 +4,17 @@ Pins the docs to the code so drift is caught in CI:
 
 - every lint code emitted by ``src/rebrew/lint.py`` is documented in
   ``docs/ANNOTATIONS.md`` (the linter reference tables);
-- every registered CLI command has a dedicated section in ``docs/CLI.md``.
+- every component in the packaged CLI manifest has a dedicated section in
+  ``docs/CLI.md`` and is covered by a bundled agent skill.
 """
 
 from __future__ import annotations
 
 import re
 from pathlib import Path
+
+from rebrew.builtins import BUILTIN_COMPONENTS
+from rebrew.plugin import Panel
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -27,34 +31,40 @@ def test_every_lint_code_documented() -> None:
     )
 
 
+def test_every_builtin_component_has_valid_panel() -> None:
+    """Every packaged component names a panel Rich can render under.
+
+    A component with an unknown (or empty) panel would render outside every
+    help panel, hiding the command; the panel is declared next to the tool so
+    the two cannot drift the way a separate name-keyed table allowed.
+    """
+    assert BUILTIN_COMPONENTS, "no built-in components found — the manifest is empty"
+    bad = sorted(c.name for c in BUILTIN_COMPONENTS if c.panel not in Panel.ALL)
+    assert not bad, f"components with an invalid help panel: {bad}"
+
+
 def test_every_cli_command_documented() -> None:
-    src = (ROOT / "src" / "rebrew" / "main.py").read_text(encoding="utf-8")
-    # `\s*` after `(`: commands registered as multi-line tuples
-    # (    \n    "analyze",\n    "rebrew.analyze", ...) were missed before —
-    # analyze + 15 more slipped past the "every command documented" check.
-    names = set(re.findall(r'\(\s*"([a-z-]+)",\s*"rebrew\.', src))
-    assert names, "no CLI commands found — the regex may be stale"
+    names = {c.name for c in BUILTIN_COMPONENTS}
+    assert names, "no CLI commands found — the manifest is empty"
     cli = (ROOT / "docs" / "CLI.md").read_text(encoding="utf-8")
     missing = sorted(
         n for n in names if f"### `rebrew {n}`" not in cli and f"## `rebrew {n}`" not in cli
     )
     assert not missing, (
-        f"CLI command(s) {missing} registered in main.py but without a section in docs/CLI.md"
+        f"CLI command(s) {missing} registered in the manifest but without a section in docs/CLI.md"
     )
 
 
-#: Commands that are intentionally absent from the agent skills — they are
-#: meta/niche tooling agents never drive (PE resource compare, skill
-#: discovery itself).
+#: Commands intentionally absent from the agent skills — meta/niche tooling
+#: agents never drive (PE resource compare, skill discovery itself).  Every
+#: other command must be named in a SKILL.md; the advanced/manual tools are
+#: listed in the workflow skill's "Advanced commands" section.
 _SKILL_OUT_OF_SCOPE = {"resource", "skills"}
 
 
 def test_every_cli_command_covered_by_agent_skills() -> None:
     """Every workflow command appears in at least one bundled agent skill."""
-    import re as _re
-
-    src = (ROOT / "src" / "rebrew" / "main.py").read_text(encoding="utf-8")
-    names = set(_re.findall(r'\("([a-z-]+)",\s*"rebrew\.', src))
+    names = {c.name for c in BUILTIN_COMPONENTS}
     skills_dir = ROOT / "src" / "rebrew" / "agent-skills"
     skills_text = "\n".join(
         p.read_text(encoding="utf-8", errors="replace") for p in skills_dir.rglob("SKILL.md")
@@ -110,18 +120,22 @@ def test_every_project_script_resolves() -> None:
         )
 
 
-def test_every_registered_command_module_resolves() -> None:
-    """Every ``_SINGLE_COMMANDS`` module in main.py imports and exposes ``main``."""
+def test_every_component_module_resolves() -> None:
+    """Every ``BUILTIN_COMPONENTS`` module imports and exposes its entry point.
+
+    A single-command component must expose a ``main`` callback and a Typer
+    ``app``; a group component must expose a Typer ``app`` for ``add_typer``.
+    """
     import importlib
 
-    src = (ROOT / "src" / "rebrew" / "main.py").read_text(encoding="utf-8")
-    mods = re.findall(r'\(\s*"[a-z-]+",\s*"rebrew\.([\w.]+)",', src)
-    assert mods, "no registered commands found — the regex may be stale"
-    for mod_path in sorted(set(mods)):
-        mod = importlib.import_module(f"rebrew.{mod_path}")
-        # Single-command modules expose main (the callback); multi-command
-        # modules expose app (with @app.command subcommands).
-        assert hasattr(mod, "main") or hasattr(mod, "app"), (
-            f"registered command module rebrew.{mod_path} has neither a main "
-            "callback nor an app with subcommands"
-        )
+    for component in BUILTIN_COMPONENTS:
+        mod = importlib.import_module(component.module)
+        if component.is_group:
+            assert hasattr(mod, "app"), (
+                f"group component {component.name!r} module {component.module} has no app"
+            )
+        else:
+            assert hasattr(mod, "main") and hasattr(mod, "app"), (
+                f"component {component.name!r} module {component.module} has neither "
+                "a main callback nor an app"
+            )

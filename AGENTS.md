@@ -144,7 +144,11 @@ Key libraries:
 
 ```
 src/rebrew/
-├── main.py              # Umbrella CLI (`rebrew`)
+├── main.py              # Umbrella CLI app: builds the Typer app, publishes it as the
+│                        #   `cli` service, activates components (see ADR 014)
+├── plugin.py            # Component/context runtime: Context services + effects,
+│                        #   Component protocol (`needs` = coeffects), activate(), CliComponent
+├── builtins.py          # Packaged CLI components (one CliComponent per built-in tool)
 ├── merge.py             # Merge single-function C files into one
 ├── cli.py               # Shared: TargetOption, require_config(), iter_annotations(),
 │                        #   error_exit(), json_print(), parse_va(),
@@ -364,7 +368,7 @@ if __name__ == "__main__":
 - `TargetOption` + `require_config()` from `rebrew.cli` — never build config manually. Use `load_config()` from `rebrew.config` only for optional loads (e.g. `lint.py`, `doctor.py`).
 - `main_entry()` registered in `pyproject.toml` `[project.scripts]`.
 - Most tools support `--json`; always use it for structured output when invoking them yourself.
-- Multi-command modules (registered via `add_typer()` in `main.py`'s `_MULTI_COMMANDS`): `extract.py` (`list`, `show`, `batch`), `cfg.py` (`list-targets`, `show`, `add-target`, `remove-target`, `add-module`, `remove-module`, `set`, `set-cflags`, `raw`, `path`, `detect-crt`), `cache_cli.py` (`stats`, `clear`), `skills.py` (`list`, `show`), `resource.py`, `library.py`, `toolchain_cli.py` (`list`, `status`, `detect`, `pull`, `build`, `vendor`, `smoke`, `update`, `check-updates`), `binsync_cli.py` (`push`, `pull`, `summary`, `init`, `diff`, `overlay`).
+- Multi-command modules (`is_group=True` in `builtins.py`, mounted with `add_typer()`): `extract.py` (`list`, `show`, `batch`), `cfg.py` (`list-targets`, `show`, `add-target`, `remove-target`, `add-module`, `remove-module`, `set`, `set-cflags`, `raw`, `path`, `detect-crt`), `cache_cli.py` (`stats`, `clear`), `skills.py` (`list`, `show`), `resource.py`, `library.py`, `toolchain_cli.py` (`list`, `status`, `detect`, `pull`, `build`, `vendor`, `smoke`, `update`, `check-updates`), `binsync_cli.py` (`push`, `pull`, `summary`, `init`, `diff`, `overlay`).
 
 ### CLI Conventions
 
@@ -423,6 +427,7 @@ alongside the packaged ones; a duplicate name is a `RegistryError`.
 - **Source glob**: `source_glob(cfg)` from `sources.py` — respects `cfg.source_ext` (`.c`, `.cpp`)
 - **Don't reimplement**: if an imported library provides it, use it
 - **Declarative component registration**: toolchains, decompiler backends, CLI commands, GA mutations, sweep flag sets, library presets, detection-family alignment, binary-family detectors, binary loaders, MSVC version-exact tables, and compile-cache backends register through `rebrew.registry` — setuptools entry-point groups (`rebrew.toolchains`, `rebrew.decompiler_backends`, `rebrew.commands`, `rebrew.multicommands`, `rebrew.mutations`, `rebrew.flag_sets`, `rebrew.library_presets`, `rebrew.toolchain_detectors`, `rebrew.binary_detectors`, `rebrew.binary_loaders`, `rebrew.msvc_versions`, `rebrew.cache_backends`) plus the `REBREW_TOOLCHAIN_OVERLAY_DIR` TOML overlay for project-local toolchains (a spec may declare `bits = 16` to join the arch-alignment set) and the `REBREW_SKILLS_DIR` overlay for community skills.  Built-ins are the packaged base registry; a duplicate name between any two sources is a `RegistryError` (single-source discipline) — except tuning-data registries (`rebrew.flag_sets`, `rebrew.library_presets`, `rebrew.msvc_versions`), where a provider extends/overrides packaged knowledge.  CLI import failures degrade to stub commands; a broken non-CLI registration is reported where it loads.  Adding a component must not require editing host source.  Long-lived processes pick up plugins installed after startup via `rebrew.registry.refresh_all()` (each module also exposes a single-registry `refresh_*`).
+- **CLI composition**: the umbrella app is a component graph (`rebrew/plugin.py`); `rebrew/builtins.py` declares each packaged tool as a `CliComponent` (name, module, help, panel, group) and third-party tools come from the `rebrew.commands`/`rebrew.multicommands` entry-point groups.  Mounting a command or group is a reversible effect (its disposer unregisters it), and a component's `needs` declares the services that must exist before it activates.  See ADR 014.
 - **No backward compat**: one name per function — no aliases/shims/wrappers
 - **Volatile metadata**: fields `STATUS`, `CFLAGS`, `BLOCKER`, `NOTE`, `GHIDRA`, `LOCALS`, `COMMENTS` live in per-directory `rebrew-functions.toml` via `rebrew.metadata` — never edit manually (STATUS via `update_source_status`/`update_statuses_batch`; BLOCKER via `update_field`/`remove_field` through `rebrew blocker set/clear` or the auto-writers `rebrew diff --fix-blocker`/`near-diag --fix-blocker`/`document-unmatched`)
 - **Metadata write-lock**: `rebrew-functions.toml`, `rebrew-data.toml`, and the declib binsync artifacts (`functions/*.toml`, `global_vars.toml`, `structs/*.toml`, `comments.toml`, `enums.toml`, `typedefs.toml`, `metadata.toml`) are written **read-only (mode 0444)** by the tool (`atomic_write_locked` chmods writable before touching and re-locks after). Direct edits fail with Permission denied; to change anything, use the CLI — it chmods writable, updates, and re-locks.
