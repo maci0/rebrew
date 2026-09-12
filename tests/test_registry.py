@@ -1256,7 +1256,8 @@ class TestNativeElfToolchains:
             assert spec is not None
             assert spec.image is not None
             assert spec.image.endswith("-linux-x64")
-            assert spec.image_binary is None  # the image ENTRYPOINT is the wrapper
+            assert spec.image_entrypoint is not None  # the image ENTRYPOINT is published
+            assert spec.image_entrypoint.startswith("/")
             assert spec.runtime == "native"
             assert spec.flags_style == "posix"
             assert spec.obj_ext == ".o"

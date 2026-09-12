@@ -296,10 +296,13 @@ instead of re-implementing the sandbox logic.
 
 **Image entry convention:** every image's `ENTRYPOINT` *is* the compiler
 wrapper (`cl`, `cl16`, `cl15`, `cl10`, `dcc`, `wcc386` — all current
-specs), so images are invoked without an explicit command
-(`image_binary=None`); the wrapper itself dispatches to the real
-compiler (via `rebrew_run` for the wine images, DOSBox for the 16-bit
-ones).  This mirrors Godbolt's "image = toolchain + wrapper" model.
+specs).  The registry publishes each image's wrapper as
+`ToolchainSpec.image_entrypoint`, and the docker runner passes it explicitly
+with `--entrypoint` immediately before the image, so a consumer that
+overrides the entrypoint still names the same wrapper; the wrapper itself
+dispatches to the real compiler (via `rebrew_run` for the wine images,
+DOSBox for the 16-bit ones).  This mirrors Godbolt's "image = toolchain +
+wrapper" model.
 
 Notes:
 

@@ -42,6 +42,10 @@ a pre-commit or CI gate.
 
 from __future__ import annotations
 
+import json
+import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +63,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.gen_flirt_pat import parse_archive, parse_coff_obj
+from rebrew.utils import container_runtime
 
 console = Console(stderr=True)
 
@@ -178,12 +183,211 @@ def _findings(cfg: Any, index: Index, allow: set[int]) -> list[dict[str, str]]:
     return found
 
 
+#: Path substring that marks a source-vendored library tree in a build database.
+REFERENCES_MARKER = "/references/"
+
+#: Default build database, relative to the project root (CMake's export).
+COMPILE_COMMANDS_DEFAULT = Path("build") / "compile_commands.json"
+
+
+def index_objects(objects: list[Path]) -> Index:
+    """Index loose COFF ``.obj`` files the way ``index_library`` indexes an archive.
+
+    A library vendored as source (built from a ``references/`` tree) never
+    ships as a ``.LIB``, so a function reversed out of one is invisible to the
+    archive scan.  Each entry's object name is the file name, so a finding
+    still says which object the bytes came from.  An unreadable or unparsable
+    object is skipped with a note rather than failing the whole scan.
+    """
+    index: Index = {}
+    for path in objects:
+        try:
+            symbols = parse_coff_obj(path.read_bytes())
+        except (OSError, ValueError) as exc:
+            console.print(f"[yellow]skipping unreadable object {path}: {exc}[/yellow]")
+            continue
+        for sym, code, relocs in symbols:
+            index.setdefault(sym, []).append((path.name, code, relocs))
+    return index
+
+
+def vendored_objects(
+    compile_commands: Path,
+    root: Path,
+    *,
+    marker: str = REFERENCES_MARKER,
+) -> list[Path]:
+    """Objects the build produces from a source-vendored library subtree.
+
+    The list comes from the build database rather than a glob over the build
+    directory: a stale object whose source was dropped would otherwise report
+    as a duplicate of the project's own source.  A missing or malformed
+    database yields no objects, and so does an entry with no ``/Fo`` output.
+    """
+    try:
+        entries = json.loads(compile_commands.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(entries, list):
+        return []
+    found: list[Path] = []
+    for entry in entries:
+        if not isinstance(entry, dict) or marker not in str(entry.get("file", "")):
+            continue
+        match = re.search(r"/Fo(\S+)", str(entry.get("command", "")))
+        if match is None:
+            continue
+        produced = Path(match.group(1))
+        if not produced.is_absolute():
+            produced = Path(str(entry.get("directory") or root)) / produced
+        if produced.is_file():
+            found.append(produced)
+    return found
+
+
+def stock_lib_source(profile: str, name: str) -> tuple[str, str]:
+    """``(image, in-image path)`` of a stock archive from *profile*'s image.
+
+    Both halves come from the registry: the image tag, and the container tool
+    directory whose sibling ``Lib`` holds the archives (the derivation
+    ``image_msvc_env`` already uses).  Nothing here hardcodes an image or a
+    path, so a service pack that moves its tree cannot leave a check pointing
+    at a directory that does not exist.
+    """
+    from rebrew.toolchain import ToolchainError, get_toolchain
+
+    spec = get_toolchain(profile)
+    if spec.image is None:
+        raise ToolchainError(f"profile {profile!r} is host-only: no image to extract from")
+    if not spec.tool_root:
+        raise ToolchainError(
+            f"profile {profile!r} declares no container tool_root, so its Lib dir cannot be derived"
+        )
+    return spec.image, str(Path(spec.tool_root).parent / "Lib" / name)
+
+
+def stock_lib_cache(root: Path, name: str) -> Path:
+    """Where a stock archive is cached: ``.scratch/<stem>_stock<suffix>``."""
+    return root / ".scratch" / f"{Path(name).stem.lower()}_stock{Path(name).suffix}"
+
+
+def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
+    """Extract *name* from the profile's image into *dest* when it is absent.
+
+    Returns False when the container runtime is unavailable, which is how a
+    machine without it skips the check instead of failing the gate.  A copy
+    that fails with the runtime present is an error rather than a skip: it
+    means the image does not carry the archive where its spec says it does.
+    """
+    from rebrew.toolchain import ToolchainError
+
+    if dest.is_file():
+        return True
+    runtime = container_runtime()
+    if shutil.which(runtime) is None:
+        return False
+    image, source = stock_lib_source(profile, name)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        [
+            runtime,
+            "run",
+            "--rm",
+            "--entrypoint",
+            "sh",
+            "-v",
+            f"{dest.parent}:/out",
+            image,
+            "-c",
+            'cp "$1" "/out/$2"',
+            "sh",
+            source,
+            dest.name,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if result.returncode != 0 or not dest.is_file():
+        raise ToolchainError(
+            f"cannot extract {name} from {image}: {result.stderr.strip() or 'no copy was written'}"
+        )
+    return True
+
+
+def assert_library_is_stock(path: Path, *, profile: str, name: str) -> None:
+    """Refuse *path* when it differs from the image's copy of *name*.
+
+    One container run hashes both files, so the image's archive and the local
+    copy are compared by the same tool.  An archive that was hand-edited (say,
+    objects stripped to make a link succeed) fails here instead of quietly
+    redefining what "library code" means, and a run that does not hash both
+    files is an error rather than a silent pass.  An unavailable runtime
+    skips, matching ``ensure_stock_lib``.
+    """
+    runtime = container_runtime()
+    if shutil.which(runtime) is None:
+        return
+    image, source = stock_lib_source(profile, name)
+    result = subprocess.run(
+        [
+            runtime,
+            "run",
+            "--rm",
+            "--entrypoint",
+            "sh",
+            "-v",
+            f"{path.parent}:/out",
+            image,
+            "-c",
+            'md5sum "$1" "/out/$2"',
+            "sh",
+            source,
+            path.name,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    digests = [line.split()[0] for line in result.stdout.splitlines() if line.strip()]
+    if len(digests) != 2:
+        error_exit(
+            f"cannot verify {path.name} against {image} ({source}): "
+            f"{result.stderr.strip() or 'the image did not hash both files'}",
+            code=EXIT_ERROR,
+        )
+    if digests[0] != digests[1]:
+        error_exit(
+            f"{path} differs from the toolchain's stock {name} in {image}. The check exists "
+            "because a hand-edited archive makes library code look like target code; delete the "
+            "cached copy to re-extract it, or drop --stock-lib for this run.",
+            code=EXIT_ERROR,
+        )
+
+
 @app.callback(invoke_without_command=True)
 def main(
-    lib: list[Path] = typer.Option(
-        ...,
+    lib: list[Path] | None = typer.Option(
+        None,
         "--lib",
         help="Static library to check against (repeatable).",
+    ),
+    stock_lib: list[str] | None = typer.Option(
+        None,
+        "--stock-lib",
+        help=(
+            "Stock archive from the project toolchain's image (repeatable), e.g. LIBCMT.LIB. "
+            "Cached under .scratch/, extracted when missing, refused when it differs from the "
+            "image's copy."
+        ),
+    ),
+    compile_commands: Path | None = typer.Option(
+        None,
+        "--compile-commands",
+        help=(
+            "Build database used to index objects built from a source-vendored tree "
+            "(default: build/compile_commands.json; skipped when absent)."
+        ),
     ),
     va: str | None = typer.Option(
         None, "--va", help="Check a single VA (hex) instead of every reversed function."
@@ -195,14 +399,37 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Flag reversed functions whose bytes come from a linked library."""
+    from rebrew.toolchain import ToolchainError
+
     cfg = require_config(target=target, json_mode=json_output)
-    if not lib:
+
+    archives = list(lib or [])
+    for name in stock_lib or []:
+        cached = stock_lib_cache(cfg.root, name)
+        try:
+            if not ensure_stock_lib(cached, profile=cfg.compiler_profile, name=name):
+                console.print(
+                    f"[yellow]skipping {name}: {container_runtime()} is not available[/yellow]"
+                )
+                continue
+            assert_library_is_stock(cached, profile=cfg.compiler_profile, name=name)
+        except ToolchainError as exc:
+            error_exit(str(exc), json_mode=json_output, code=EXIT_ERROR)
+        archives.append(cached)
+
+    objects = vendored_objects(compile_commands or (cfg.root / COMPILE_COMMANDS_DEFAULT), cfg.root)
+    if not archives and not objects:
         error_exit(
-            "no --lib given. Point it at the archive(s) the target links, "
-            "e.g. the toolchain's LIBCMT.LIB.",
+            "nothing to check against: pass --lib (an archive the target links), --stock-lib "
+            "(a stock archive from the toolchain's image, e.g. LIBCMT.LIB), or build the "
+            "project with --compile-commands so a source-vendored library can be indexed.",
             json_mode=json_output,
             code=EXIT_ERROR,
         )
+    index = _merge_libraries(archives)
+    for sym, entries in index_objects(objects).items():
+        index.setdefault(sym, []).extend(entries)
+
     if va is not None:
         from rebrew.cli import parse_va
         from rebrew.metadata import get_entry
@@ -210,7 +437,6 @@ def main(
         va_int = parse_va(va)
         module = getattr(cfg, "marker", None) or "SERVER"
         size = (get_entry(cfg.metadata_dir, va_int, module) or {}).get("size") or 0
-        index = _merge_libraries(lib)
         data = extract_raw_bytes(cfg.target_binary, va_int, size or PREFIX_BYTES)
         hit = match_bytes(index, data)
         if hit is None and (size or 0) > PREFIX_BYTES:
@@ -235,7 +461,7 @@ def main(
             )
         raise typer.Exit(code=EXIT_OK)
 
-    found = _findings(cfg, _merge_libraries(lib), load_allowlist(allow, json_mode=json_output))
+    found = _findings(cfg, index, load_allowlist(allow, json_mode=json_output))
     if json_output:
         json_print({"findings": found, "count": len(found)})
     else:

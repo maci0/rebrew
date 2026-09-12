@@ -32,12 +32,12 @@ import subprocess
 import tomllib
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 from rebrew.registry import RegistryError, merge_provider_dict
-from rebrew.toolchain_data import BUILTIN_TOOLCHAINS
+from rebrew.toolchain_data import BUILTIN_TOOLCHAINS, IMAGE_ENTRYPOINTS
 from rebrew.toolchain_paths import TOOLCHAINS_REPO_URL, toolchains_repo
 from rebrew.toolchain_spec import (
     ToolchainSpec,
@@ -128,7 +128,7 @@ def toolchain_from_toml(name: str, table: dict[str, Any], source: str) -> Toolch
         name=name,
         image=table.get("image"),
         binary=str(table.get("binary") or ""),
-        image_binary=table.get("image_binary"),
+        image_entrypoint=table.get("image_entrypoint"),
         runtime=str(table.get("runtime") or "native"),
         flags_style=flags_style,
         arg_style=arg_style,
@@ -149,7 +149,7 @@ def toolchain_to_toml(spec: ToolchainSpec) -> dict[str, Any]:
     for field in (
         "image",
         "binary",
-        "image_binary",
+        "image_entrypoint",
         "runtime",
         "flags_style",
         "arg_style",
@@ -212,6 +212,18 @@ def _merge_toolchain_overlay(registry: dict[str, ToolchainSpec]) -> None:
             TOOLCHAIN_ORIGINS[name] = f"data-file {path}"
 
 
+def _fill_image_entrypoints(registry: dict[str, ToolchainSpec]) -> None:
+    """Publish each image's ENTRYPOINT wrapper for specs that omit one.
+
+    A packaged spec declares no entrypoint of its own: the pinned Dockerfiles
+    (via :data:`IMAGE_ENTRYPOINTS`) supply it.  An entry-point/overlay spec
+    that declares ``image_entrypoint`` keeps it, so a consumer that must
+    override the image entrypoint still names the same wrapper."""
+    for name, spec in registry.items():
+        if spec.image is not None and spec.image_entrypoint is None:
+            registry[name] = replace(spec, image_entrypoint=IMAGE_ENTRYPOINTS.get(spec.image))
+
+
 def build_toolchain_registry() -> dict[str, ToolchainSpec]:
     """The full registry: packaged built-ins + entry points + TOML overlay.
 
@@ -228,6 +240,7 @@ def build_toolchain_registry() -> dict[str, ToolchainSpec]:
     TOOLCHAIN_ORIGINS = dict.fromkeys(registry, "packaged")
     _merge_entry_point_toolchains(registry)
     _merge_toolchain_overlay(registry)
+    _fill_image_entrypoints(registry)
     return registry
 
 
@@ -245,14 +258,16 @@ TOOLCHAINS: dict[str, ToolchainSpec] = build_toolchain_registry()
 
 
 def refresh_toolchain_registry() -> dict[str, ToolchainSpec]:
-    """Re-run discovery and refresh the :data:`TOOLCHAINS` snapshot.
+    """Re-run discovery and refresh the :data:`TOOLCHAINS` snapshot in place.
 
     Long-lived processes (a dashboard, an agent harness) can pick up
-    toolchains installed after startup without a restart.  Also refreshes
-    :data:`TOOLCHAIN_ORIGINS` (built alongside the registry)."""
-    global TOOLCHAINS
-
-    TOOLCHAINS = build_toolchain_registry()
+    toolchains installed after startup without a restart.  The snapshot is
+    updated in place so a module that bound ``TOOLCHAINS`` at import time
+    (``rebrew.compile``, ``rebrew.cmake_tc``) sees the new registrations;
+    also refreshes :data:`TOOLCHAIN_ORIGINS` (built alongside the registry)."""
+    registry = build_toolchain_registry()
+    TOOLCHAINS.clear()
+    TOOLCHAINS.update(registry)
     return TOOLCHAINS
 
 
@@ -570,9 +585,9 @@ def run_toolchain(
             cmd += ["-v", f"{Path(host_dir).resolve()}:{container_dir}"]
         for key, value in image_msvc_env(spec).items():
             cmd += ["-e", f"{key}={value}"]
+        if spec.image_entrypoint is not None:
+            cmd += ["--entrypoint", spec.image_entrypoint]
         cmd.append(spec.image)
-        if spec.image_binary is not None:
-            cmd.append(spec.image_binary)
         cmd.extend(args)
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
