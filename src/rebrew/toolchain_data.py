@@ -123,6 +123,21 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/6.0-sp5-win32",
     ),
+    "msvc600sp5pp": ToolchainSource(
+        # archaic-msvc/msvc600_sp5_vcpp — VC 6.0 SP5 with the Visual C++ 6.0
+        # Processor Pack already applied (extracted tree, so no installer
+        # runs).  The pack replaces the code generator (c2.dll 13.00.9044.0),
+        # adds MASM 6.15 (ml.exe), and ships the MMX/SSE/SSE2 intrinsic
+        # headers (mmintrin.h, xmmintrin.h, emmintrin.h, ...).  cl.exe itself
+        # is unchanged (12.00.8804) and there is no /arch option: SSE/SSE2
+        # code is written with the pack's intrinsics.  The pack is SP5-only:
+        # SP6 removes it.
+        url="https://codeload.github.com/archaic-msvc/msvc600_sp5_vcpp/tar.gz/refs/heads/master",
+        sha256="1bbf177489054698fd5d29bf042692efdb5bec8719f9dc889b9b1c618c645991",
+        commit="762e9382c751613c341daa766f0e22cdeb07152c",
+        layout="tar-strip1",
+        host_dir="msvc/6.0-sp5-pp-win32",
+    ),
     "msvc600sp6": ToolchainSource(
         # archaic-msvc/msvc600_sp6 — VC 6.0 SP6 full product tree
         # (VC98/Bin/CL.EXE, 12.00.8804 — the same compiler the SP4 CD and
@@ -642,6 +657,23 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         else None,
         host_bin="Bin",
         description="MSVC 6.0 SP5 (32-bit PE, C89) — docker image (wine inside)",
+    ),
+    "msvc600sp5pp": ToolchainSpec(
+        name="msvc600sp5pp",
+        image="rebrew/msvc:6.0-sp5-pp-win32",
+        binary="cl",
+        runtime="wine",
+        flags_style="msvc",
+        obj_ext=".obj",
+        tool_root="/opt/msvc6.0-sp5-pp/VC98/Bin",
+        host_path=vendored_path("msvc/6.0-sp5-pp-win32")
+        if vendored_path("msvc/6.0-sp5-pp-win32").exists()
+        else None,
+        host_bin="Bin",
+        description=(
+            "MSVC 6.0 SP5 + VC6 Processor Pack (32-bit PE, C89, SSE/SSE2 intrinsics) "
+            "— docker image (wine inside)"
+        ),
     ),
     "msvc600sp6": ToolchainSpec(
         name="msvc600sp6",

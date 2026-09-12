@@ -39,6 +39,26 @@ for every Windows/DOS toolchain).  The tools inside the image:
 
 ---
 
+## VC6 + Processor Pack (msvc600sp5pp)
+
+`rebrew/msvc:6.0-sp5-pp-win32` is MSVC 6.0 SP5 with the Visual C++ 6.0
+Processor Pack already applied (built from `archaic-msvc/msvc600_sp5_vcpp`).
+The pack replaces the code generator (`c2.dll` 13.00.9044.0), adds MASM 6.15
+(`ml.exe`) to `VC98/Bin`, and installs the MMX/SSE/SSE2 intrinsic headers
+(`mmintrin.h`, `xmmintrin.h`, `emmintrin.h`, `fvec.h`, `dvec.h`, `ivec.h`,
+`mm3dnow.h`).
+
+`cl.exe` itself is **unchanged** (12.00.8804) and VC6 has **no `/arch`
+option** even with the pack: `/arch:SSE` and `/G7` are rejected with D4002,
+while `/G5`, `/G6` and `/QIfist` are accepted.  SSE/SSE2 code is written
+with the pack's intrinsics, or assembled from `.asm` with the shipped MASM.
+
+The `13.10.xxxx` compiler line belongs to VC7.1 (Visual Studio .NET 2003:
+`msvc710` = 13.10.3077, `msvc710_sp1` = 13.10.6030), not to this pack.  The
+pack is SP5-only; SP6 removes it.
+
+---
+
 ## MinGW GCC (gcc-pe profile, for PE/x86_32 targets)
 
 Some PE/x86_32 binaries are built with MinGW GCC instead of MSVC (identifiable
