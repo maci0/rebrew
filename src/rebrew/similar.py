@@ -32,8 +32,13 @@ def disasm_signature(
 ) -> dict[str, Any] | None:
     """Disassemble *code* and build a structural signature.
 
-    Signature: mnemonic histogram plus call/branch counts.  Returns ``None``
-    when nothing disassembles (empty or undecodable input).
+    Signature: mnemonic histogram, call/branch counts and the byte length.
+    The length is part of the signature so :func:`similarity_score` can
+    penalise a size difference on its own: without it a 40-byte function
+    whose opcode mix sits inside a 400-byte function scored in the high 90s
+    against it (cross-import then offered that one source for dozens of
+    unrelated destinations).  Returns ``None`` when nothing disassembles
+    (empty or undecodable input).
     """
     import capstone
 
@@ -55,7 +60,7 @@ def disasm_signature(
             branches += 1
     if not mnemonics:
         return None
-    return {"histogram": mnemonics, "calls": calls, "branches": branches}
+    return {"histogram": mnemonics, "calls": calls, "branches": branches, "size": len(code)}
 
 
 def _cosine(hist_a: dict[str, int], hist_b: dict[str, int]) -> float:
@@ -88,11 +93,15 @@ def similarity_score(
 
     Weights: 50% mnemonic-histogram cosine, 15% call-count agreement,
     15% branch-count agreement, 20% size agreement (a 10B thunk must not
-    score ~100 against a 1000B function with the same opcode mix).  The
-    size term is skipped when either size is unknown (``None`` or 0).
+    score ~100 against a 1000B function with the same opcode mix).  An
+    explicit *size_a*/*size_b* wins; otherwise the signature's own ``size``
+    (its byte length) is used, so the gate applies even when the caller has
+    no size to hand.
     """
     if sig_a is None or sig_b is None:
         return 0.0
+    size_a = size_a or int(sig_a.get("size") or 0)
+    size_b = size_b or int(sig_b.get("size") or 0)
     hist = _cosine(sig_a["histogram"], sig_b["histogram"]) * 100.0
     calls = _ratio(sig_a["calls"], sig_b["calls"]) * 100.0
     branches = _ratio(sig_a["branches"], sig_b["branches"]) * 100.0
