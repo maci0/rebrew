@@ -227,6 +227,51 @@ def _score(
     return float(round(result.match_percent / 100.0 * total)), obj_len
 
 
+def _score_aligned(
+    cfg: ProjectConfig,
+    path: Path,
+    symbol: str,
+    target_bytes: bytes,
+    cflags: str,
+    name_to_va: dict[str, int],
+    section_va: int,
+    toolchain: str | None,
+) -> tuple[float, int]:
+    """Aligned match-byte count for *path*, or ``(-1.0, 0)``.
+
+    The compile path is :func:`_score`'s; the comparison is ``near_diag``'s
+    instruction alignment instead of the positional byte count.  On a function
+    whose byte stream is out of step with the target's the positional count
+    rewards a candidate that merely shifts code into a better offset: measured
+    on gm_AllocSpieler, ten accepted statement swaps raised it 859 -> 909 while
+    the alignment fell 740 -> 728.  Reordered and unpaired instructions are
+    what the alignment charges for, so it is the honest objective there.
+    """
+    result = compile_and_compare(
+        cfg,
+        path,
+        symbol,
+        target_bytes,
+        cflags,
+        name_to_va=name_to_va,
+        section_va=section_va,
+        toolchain=toolchain,
+    )
+    if result.obj_bytes is None:
+        return -1.0, 0
+    obj_len = result.full_obj_size if result.full_obj_size is not None else len(result.obj_bytes)
+    from rebrew.near_diag import align_and_classify, disasm_insns
+
+    arch = getattr(cfg, "capstone_arch", "CS_ARCH_X86")
+    mode = getattr(cfg, "capstone_mode", "CS_MODE_32")
+    counts, _first = align_and_classify(
+        disasm_insns(target_bytes, section_va, arch, mode),
+        disasm_insns(result.obj_bytes, section_va, arch, mode),
+        set(result.reloc_offsets or ()),
+    )
+    return float(counts.get("match", 0) + counts.get("reloc", 0)), obj_len
+
+
 def _within_size_budget(matched: float, obj_len: int, target_len: int, budget: int) -> bool:
     """Whether a scored candidate may be kept.
 
@@ -327,6 +372,13 @@ def main(
     size: int | None = typer.Option(None, "--size", help="Size in bytes"),
     cflags: str | None = typer.Option(None, "--cflags", help="Compiler flags"),
     passes: int = typer.Option(1, "--passes", help="Sweeps of adjacent statement swaps"),
+    objective: str = typer.Option(
+        "positional",
+        "--objective",
+        help="Scoring: 'positional' matches bytes in place (test's count); "
+        "'aligned' counts aligned instructions (near_diag), which is honest when "
+        "the object's byte stream is out of step with the target's",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -336,6 +388,12 @@ def main(
     path = Path(source)
     if not path.is_file():
         error_exit(f"Source file not found: {source}", json_mode=json_output)
+    if objective not in ("positional", "aligned"):
+        error_exit(
+            f"unknown --objective {objective!r} (use 'positional' or 'aligned')",
+            json_mode=json_output,
+        )
+    scorer = _score_aligned if objective == "aligned" else _score
 
     anns = parse_c_file_multi(path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir)
     if not anns:
@@ -376,7 +434,7 @@ def main(
 
     def score_fn(candidate: list[str]) -> float:
         atomic_write_text(path, "".join(candidate), encoding=encoding)
-        matched, obj_len = _score(
+        matched, obj_len = scorer(
             cfg, path, sym, target_bytes, cflags_str, name_to_va, va_int, toolchain_name
         )
         if not _within_size_budget(matched, obj_len, len(target_bytes), size_budget):
@@ -388,7 +446,7 @@ def main(
         console.print(f"  pass {move['pass']} statement {move['index']}: {move['after']:.0f} bytes")
 
     try:
-        baseline, baseline_obj = _score(
+        baseline, baseline_obj = scorer(
             cfg, path, sym, target_bytes, cflags_str, name_to_va, va_int, toolchain_name
         )
         if baseline < 0:

@@ -99,6 +99,37 @@ class TestStatements:
         assert sum(1 for text in joined if text.lstrip().startswith("if (a > 3)")) == 1
 
 
+class TestScoreAligned:
+    def test_sums_aligned_match_and_reloc_bytes(self, monkeypatch, tmp_path) -> None:
+        """The aligned objective is near_diag's match+reloc bytes.
+
+        The positional count cannot judge a function whose stream is out of
+        step (it rewarded a variant that dropped 740 -> 728 aligned), so the
+        aligned objective has to come from the classifier, not from
+        ``match_percent``.
+        """
+        from types import SimpleNamespace
+
+        import rebrew.near_diag
+
+        result = SimpleNamespace(obj_bytes=b"\x90" * 8, full_obj_size=12, reloc_offsets=[0])
+        monkeypatch.setattr(rebrew.climb, "compile_and_compare", lambda *a, **k: result)
+        monkeypatch.setattr(rebrew.near_diag, "disasm_insns", lambda *a, **k: [])
+        monkeypatch.setattr(
+            rebrew.near_diag,
+            "align_and_classify",
+            lambda *a, **k: ({"match": 20, "reloc": 4, "structural": 96}, None),
+        )
+        cfg = SimpleNamespace(capstone_arch="CS_ARCH_X86", capstone_mode="CS_MODE_32")
+
+        score, obj_len = rebrew.climb._score_aligned(
+            cfg, tmp_path / "f.c", "_f", b"\x90" * 24, "/O2", {}, 0x1000, None
+        )
+
+        assert score == 24.0
+        assert obj_len == 12
+
+
 class TestSwap:
     def test_swaps_two_statement_ranges(self) -> None:
         lines = _lines()
