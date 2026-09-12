@@ -281,6 +281,7 @@ src/rebrew/
 ├── data.py              # Global data scanner (.data/.rdata/.bss); --annotate inserts
 │                        # // GLOBAL: markers; --layout-audit/--fill-data placement
 ├── data_render.py       # Rich rendering for the data scanner (dispatch/BSS/globals/summary)
+├── data_annotate.py     # GLOBAL annotation + rebrew_globals.h generation
 ├── data_layout.py       # Shared .data placement model (audit, pad emission, ownership)
 ├── depgraph.py          # Function dependency graph
 ├── flirt.py             # FLIRT signature scanning (project flirt_sigs/ merged
