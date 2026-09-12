@@ -817,7 +817,7 @@ class TestFlagSweepIncludeDirs:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The single-function CLI path resolves the seed file's directory."""
-        from rebrew.match import _run_single_flag_sweep
+        from rebrew.match_sweep import _run_single_flag_sweep
 
         seen: dict = {}
 
@@ -825,9 +825,9 @@ class TestFlagSweepIncludeDirs:
             seen["extra_include_dirs"] = k.get("extra_include_dirs")
             return [(0.0, "/O2")]
 
-        monkeypatch.setattr("rebrew.match.flag_sweep", _fake_flag_sweep)
+        monkeypatch.setattr("rebrew.match_sweep.flag_sweep", _fake_flag_sweep)
         monkeypatch.setattr(
-            "rebrew.match.build_candidate_obj_only",
+            "rebrew.match_sweep.build_candidate_obj_only",
             lambda *a, **k: SimpleNamespace(ok=True, obj_bytes=b"\xc3", reloc_offsets=None),
         )
         p = SimpleNamespace(
@@ -1156,14 +1156,14 @@ class TestFlagSweepJsonShape:
     def test_sweep_items_include_exact(self, tmp_path: Path, monkeypatch, capsys) -> None:
         import json
 
-        from rebrew.match import _run_single_flag_sweep
+        from rebrew.match_sweep import _run_single_flag_sweep
 
         monkeypatch.setattr(
-            "rebrew.match.flag_sweep",
+            "rebrew.match_sweep.flag_sweep",
             lambda *a, **k: [(0.05, "/O2"), (5000.0, "/O1")],
         )
         monkeypatch.setattr(
-            "rebrew.match.build_candidate_obj_only",
+            "rebrew.match_sweep.build_candidate_obj_only",
             lambda *a, **k: SimpleNamespace(ok=True, obj_bytes=b"\xc3", reloc_offsets=None),
         )
         p = SimpleNamespace(
@@ -1536,7 +1536,7 @@ class TestPerFunctionToolchain:
         assert captured["profile"] == "msvc5"
 
     def test_flag_sweep_uses_the_stub_toolchain(self, tmp_path: Path, monkeypatch: Any) -> None:
-        import rebrew.match as M
+        import rebrew.match_sweep as M
 
         captured: dict[str, Any] = {}
 

@@ -142,7 +142,7 @@ class TestRunStackCmp:
         )
         # run_stack_cmp imports these inside the function — patch the modules
         # they are imported from.
-        monkeypatch.setattr(rebrew.match, "resolve_build_params", lambda *a, **k: params)
+        monkeypatch.setattr(rebrew.match_sweep, "resolve_build_params", lambda *a, **k: params)
 
         res_cls = type("_Res", (), {"ok": True, "obj_bytes": obj_bytes, "error_msg": ""})
         monkeypatch.setattr(rebrew.matcher, "build_candidate_obj_only", lambda *a, **k: res_cls())

@@ -210,6 +210,7 @@ src/rebrew/
 ├── binary_similarity.py # Whole-binary structural similarity vs another binary (versions/DLL+EXE)
 ├── match.py             # GA engine — single or batch (--all); absorbs old ga.py
 ├── match_batch.py       # Batch stub/near-miss discovery + STATUS/CFLAGS source updates
+├── match_sweep.py       # Build-params resolution + compiler/flag/toolchain sweeps
 ├── climb.py             # `rebrew climb` — deterministic adjacent-statement hill-climb (GA complement)
 │
 ├── # --- CLI tools (each exports app, main, main_entry) ---

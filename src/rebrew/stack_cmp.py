@@ -253,7 +253,7 @@ def run_stack_cmp(
     original_arg = seed_c
     seed_c = str(resolve_source_arg(cfg, seed_c))
 
-    from rebrew.match import resolve_build_params
+    from rebrew.match_sweep import resolve_build_params
 
     params = resolve_build_params(
         cfg,
