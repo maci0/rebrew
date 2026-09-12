@@ -174,7 +174,9 @@ src/rebrew/
 │                        #   parse_int_literal — the one C int-literal parser)
 ├── analysis.py          # Recon primitives: iter_strings, scan_references (Xref/Insn/StringEntry), string_refs
 ├── analyze.py           # One-shot dossier (toolchain, strings, imports, dispatch, FLIRT, NEAR_MATCHING blockers)
-├── pe_headers.py        # PE header helpers (image base, section math)
+├── pe_headers.py        # The PE header/section walker: pe_lfanew, pe_layout,
+│                        #   sections_at, find_section, plus the field read/patch/parity
+│                        #   helpers used by round-trip --fix-headers
 ├── ne_loader.py         # NE (New Executable) loader — 16-bit Windows 3.x format detection + parsing
 ├── headless.py          # Headless X server management for wine compiler invocations
 ├── wibo.py              # Auto-download + verify wibo (lightweight Wine alternative)

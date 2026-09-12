@@ -58,6 +58,7 @@ from rich.console import Console
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.layout_meta import LayoutMetadata, extract_layout, write_package
+from rebrew.pe_headers import pe_layout, pe_lfanew, sections_at
 from rebrew.utils import atomic_write_text, container_runtime, load_toml_for_write
 
 console = Console(stderr=True)
@@ -170,8 +171,8 @@ def parse_pe(
     """Return (sections, exports, imports, pe_params) from a PE image."""
     if len(data) < 0x40:
         raise ValueError("file too small to be a PE")
-    e = struct.unpack_from("<I", data, 0x3C)[0]
-    if e + 24 > len(data) or data[e : e + 4] != b"PE\0\0":
+    e = pe_lfanew(data)
+    if e is None or e + 24 > len(data):
         raise ValueError("no PE signature")
     nsec = struct.unpack_from("<H", data, e + 6)[0]
     optsz = struct.unpack_from("<H", data, e + 20)[0]
@@ -211,13 +212,17 @@ def parse_pe(
                 return s.raw_ptr + (rva - s.va)
         return None
 
-    sections: list[_Section] = []
-    for i in range(nsec):
-        h = sh + i * 40
-        name = data[h : h + 8].rstrip(b"\0").decode("latin1")
-        vs, va, rsz, roff = struct.unpack_from("<IIII", data, h + 8)
-        chars = struct.unpack_from("<I", data, h + 36)[0]
-        sections.append(_Section(name, va, vs, rsz, roff, chars))
+    sections: list[_Section] = [
+        _Section(
+            s.name,
+            s.virtual_address,
+            s.virtual_size,
+            s.size_of_raw_data,
+            s.pointer_to_raw_data,
+            s.characteristics,
+        )
+        for s in sections_at(data, sh, nsec)
+    ]
 
     def cstr(off: int | None) -> str | None:
         if off is None or off >= len(data):
@@ -645,18 +650,16 @@ def gen_data_restore(data: bytes, marker: str, raw_start: int) -> str:
     Link it first (after crt_imports) so the section-derived header fields
     fall out of the link.
     """
-    e = struct.unpack_from("<I", data, 0x3C)[0]
-    n = struct.unpack_from("<H", data, e + 6)[0]
-    optsz = struct.unpack_from("<H", data, e + 20)[0]
-    sh = e + 24 + optsz
-    data_va = data_raw = data_ro = None
-    for i in range(n):
-        h = sh + i * 40
-        if data[h : h + 8].rstrip(b"\0") == b".data":
-            _vs, data_va, data_raw, data_ro = struct.unpack_from("<IIII", data, h + 8)
-    if data_ro is None or data_raw is None or data_va is None:
+    layout = pe_layout(data)
+    if layout is None:
+        raise ValueError("reference binary is not a PE")
+    section = next((s for s in layout.sections if s.name == ".data"), None)
+    if section is None:
         raise ValueError("no .data section in the reference binary")
-    image_base = struct.unpack_from("<I", data, e + 24 + 28)[0]
+    data_va = section.virtual_address
+    data_raw = section.size_of_raw_data
+    data_ro = section.pointer_to_raw_data
+    image_base = struct.unpack_from("<I", data, layout.optional_header_offset + 28)[0]
     if not 0 <= raw_start < data_raw:
         raise ValueError(f"raw-size {raw_start:#x} outside [0, {data_raw:#x})")
     blob = data[data_ro + raw_start : data_ro + data_raw]
