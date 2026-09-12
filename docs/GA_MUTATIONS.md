@@ -1,6 +1,6 @@
 # GA Mutation Engine Reference
 
-The Genetic Algorithm (GA) matching engine uses **119 C source mutation operators** to
+The Genetic Algorithm (GA) matching engine uses **123 C source mutation operators** to
 explore the MSVC6 code generation space.  Each mutation transforms syntactically valid
 C89 source into a semantically plausible variant, compiles it with MSVC6 (inside the toolchain's docker image),
 and scores the resulting binary against the target function's bytes.
@@ -14,7 +14,7 @@ by [tree-sitter](https://tree-sitter.github.io/) AST queries — never regex.
 
 ```
 Source (.c) ──→ mutate_code(source, rng)
-                  ├─ Pick random mutation from ALL_MUTATIONS (119 operators)
+                  ├─ Pick random mutation from ALL_MUTATIONS (123 operators)
                   ├─ Apply AST-level transform to source text
                   ├─ Validate syntax (fast_syntax_check)
                   └─ Return (mutated_source, mutation_name) or None
@@ -39,10 +39,10 @@ Source (.c) ──→ mutate_code(source, rng)
 ### Key mechanics
 
 - **Population**: Pool of candidates (default 64) evolved over generations
-- **Selection**: Elitist — the top `elitism` candidates carry over unchanged and parents are sampled uniformly from that elite subset
-- **Mutation**: One random mutation per child (35% chance of 2–3 chained mutations)
+- **Selection**: The top `elitism` candidates carry over unchanged; parents are drawn by tournament (best of 3) from the whole scored population, so breeding is not bottlenecked on the elite
+- **Mutation**: One random mutation per child (35% chance of 2–3 chained mutations); the per-child rate rises 0.05 per generation without a new best, up to +0.25 and never past 0.95
 - **Crossover**: Line-level crossover between two parents
-- **Stagnation**: GA stops after 40 generations without improvement
+- **Stagnation**: After half the stagnation budget (20 generations by default) without improvement, a quarter of the population is reseeded from the seed, at most twice per run; the run stops after 40 flat generations
 - **Caching**: SQLite-backed `BuildCache` prevents recompiling identical source
 
 ---
@@ -226,6 +226,7 @@ MSVC6's register allocator has specific, exploitable behaviors around
 | Mutation | Transform | MSVC6 Rationale |
 |----------|-----------|-----------------|
 | `mut_toggle_volatile` | Add/remove `volatile` on local | `volatile` forces stack spills — the variable is always loaded/stored through memory |
+| `mut_volatile_access` | `*(T*)p` → `*(volatile T*)p` (and back) | Qualifies one *access* rather than the declaration. The store stops sinking past the computation producing the value (`fstp [eax]; add eax,0xc` vs `add eax,0xc; fstp [eax-0xc]`), and a qualified load keeps the memory-operand fold from collapsing a compare — levers a declaration-level qualifier cannot reach |
 | `mut_hoist_repeated_deref` | `*(T*)0xADDR` used N times → `void *_p = *(T*)0xADDR;` + use `_p` | Repeated absolute derefs re-read memory N times; hoisting keeps the pointer live in a register — the MSVC6 `mov eax,[mem]; test eax,eax` form (campaign finding: smygb 0x401370 register-only gap) |
 | `mut_add_register_keyword` | Add `register` to local variable | Hints to use ESI/EDI/EBX — MSVC6 respects this hint strongly |
 | `mut_remove_register_keyword` | Remove `register` from local | Let compiler choose — may use stack instead |
@@ -360,7 +361,7 @@ mutated, name = mutate_code(source, rng, mutation_weights=weights)
 Children have a 35% chance of undergoing 2–3 **chained mutations** in a
 single generation step.  This enables larger jumps in the search space
 that single mutations cannot reach.  (Bumped from 30% after expanding
-to 119 operators.)
+to 123 operators.)
 
 ---
 
@@ -386,6 +387,7 @@ deltas.
 | Mutation | Transform | MSVC6 Rationale |
 |----------|-----------|-----------------|
 | `mut_tweak_integer_literal` | `+ 0x70` → `+ 0x6c` (small ±deltas) | The GA could previously never FIX a wrong constant — structural mutations leave an off-by-N offset stuck at the seed score forever (a broken field offset plateaued at 5000 for 960 evals).  Small-biased deltas (±1/±2/±4/±8/±0x10) cover the off-by-N mistakes decompilation actually makes; hex vs decimal radix is preserved.  With it, the same search converges to `exact: True`. |
+| `mut_materialize_constant` | `x + 0x1000` → `int _mk_N = 0x1000;` + `x + _mk_N` | A literal folds into an immediate; a named local must be materialized into a register first.  The local's *width* is the lever (at most 0xff `unsigned char`, at most 0xffff `unsigned short`, else `int`), matching a byte-wide comparison against `0xff` that an immediate `cmp byte ptr [mem], 0xff` cannot express.  The declaration is hoisted to the function body top (C89); literals where C requires a constant expression (case labels, enum values, array bounds, bitfield widths, `static` initializers) are skipped. |
 
 ---
 
@@ -430,7 +432,7 @@ used in ~24k GitHub repos, a staple of MSVC decompilation):
 
 | Operator | Transform | MSVC6 Rationale |
 |----------|-----------|-----------------|
-| `mut_add_optimize_pragma` | wraps the function in `#pragma optimize("X", on\|off)` … `#pragma optimize("", on)` (X ∈ `""`, `"y"`, `"g"`, `"s"`, `"t"`) | `("", off)` turns **all** of g/s/t/y off — the classic lever that forces the unoptimized full-stack-frame layout (complete `push ebp; mov ebp,esp` prologue, every local on the stack) that many original builds exhibit.  `("y", off)` keeps the frame pointer, `("g", off)` disables global opts, `("s"/"t", on)` favor size/speed.  The closing `("", on)` resets to the `/O` baseline.  The pragma must sit **outside** the function (MS requirement); the closing reset is hygiene for any following code. |
+| `mut_add_optimize_pragma` | wraps the function in `#pragma optimize("X", on\|off)` … `#pragma optimize("", on)` (X ∈ `""`, `"a"`, `"y"`, `"g"`, `"s"`, `"t"`) | `("", off)` turns **all** of a/g/s/t/y off — the classic lever that forces the unoptimized full-stack-frame layout (complete `push ebp; mov ebp,esp` prologue, every local on the stack) that many original builds exhibit.  `("a", on)` drops the aliasing assumption, which lets the scheduler move a load across a store to the same object and is the only lever for a transposed field read/write pair.  `("y", off)` keeps the frame pointer, `("g", off)` disables global opts, `("s"/"t", on)` favor size/speed.  The closing `("", on)` resets to the `/O` baseline.  The pragma must sit **outside** the function (MS requirement); the closing reset is hygiene for any following code. |
 | `mut_remove_optimize_pragma` | strips an existing `#pragma optimize(...)` wrapper | Reverts the above; the two form a toggle pair like any add/remove mutation. |
 | `mut_add_intrinsic_pragma` | inserts `#pragma intrinsic(memcmp, memcpy, memset, strcmp, strcpy, strlen, abs, labs, fabs)` before the function | With `/Oi` (included in `/O2`, `/Ox`, `/O1`) the listed library calls become **inline instructions** — `memcpy` → `rep movs`, `memset` → `rep stos`, `strlen` → `repne scasb` — a big codegen difference for string/memory-heavy functions whose original was compiled with intrinsics.  Harmless when the function calls none of them (the pragma only affects listed functions). |
 | `mut_remove_intrinsic_pragma` | strips the `#pragma intrinsic(...)` line | `#pragma function(...)` (force calls) is the inverse lever; not mutated — remove covers the common direction. |

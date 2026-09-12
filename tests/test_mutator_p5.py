@@ -263,11 +263,12 @@ class TestMutDummyStackVars:
         assert "return 1;" in res
 
     def test_injected_size_matches_volatile_char_array(self) -> None:
-        from rebrew.matcher.mutator import mut_dummy_stack_vars
+        from rebrew.matcher.mutator import mut_dummy_stack_vars, quick_validate
 
         # Force a non-4 size by exhausting seed 0..99 for the 4-byte path:
         # _STACK_PAD_SIZES contains exactly one 4; assert any non-int
-        # declaration carries the [N] array + first-element init.
+        # declaration carries the [N] array plus a first-element write placed
+        # where C89 allows a statement (after the block's declarations).
         src = "int foo(void) { return 1; }\n"
         seen = set()
         for seed in range(300):
@@ -275,7 +276,12 @@ class TestMutDummyStackVars:
             if res is None:
                 continue
             if "volatile char _spad_" in res:
-                assert re.search(r"_spad_\d+\[\d+\]; _spad_\d+\[0\] = 0;", res), res
+                m = re.search(r"_spad_(\d+)\[(\d+)\];", res)
+                assert m, res
+                write = f"_spad_{m.group(1)}[0] = 0;"
+                assert write in res, res
+                assert res.index(write) > m.end(), res
+                assert quick_validate(res), res
                 seen.add("char")
             elif "volatile int _spad_" in res:
                 seen.add("int")

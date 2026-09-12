@@ -223,6 +223,7 @@ def _run_single_ga(
             "exact": best_score < 0.1,
             "elapsed_sec": round(ga.elapsed_sec, 2),
             "stagnant_gens": ga.stagnant_gens,
+            "restarts": ga.restarts,
         }
         if best_src is not None:
             best_path = out_dir_path / "best.c"
@@ -255,9 +256,10 @@ def _run_single_ga(
         )
         if ceiling_blocker:
             console.print(
-                "[dim]Documented GA ceiling (register-only delta) — further GA "
-                "runs on this function will be skipped; `rebrew prove` is the "
-                "sanctioned next step.[/dim]"
+                "[dim]Documented GA ceiling: further GA runs on this function "
+                "will be skipped; `rebrew prove` is the sanctioned next step "
+                "(for an encoding delta, `rebrew match --flag-sweep-toolchains` "
+                "as well).[/dim]"
             )
         raise typer.Exit(code=EXIT_MISMATCH)
 
@@ -588,35 +590,40 @@ def _run_one_stub_ga(
 # ---------------------------------------------------------------------------
 
 
-#: Blocker prefix marking a function whose residual byte delta is
-#: register-only ("effective match") — the GA ceiling, not reproducible
-#: from portable C (register allocation is a compiler-internal decision).
-#: Ceiling entries keep their NEAR_MATCHING/SIZE_MISMATCH status (so
-#: `rebrew prove --all` still targets them) but are excluded from further
-#: GA batch runs (--improve / --flag-sweep / --near-miss / --size-mismatch)
-#: — see `_parse_annotations`.
-def _classify_register_only(
+#: Blocker prefix marking a function whose residual byte delta no C change can
+#: close: the GA ceiling.  Two kinds qualify: ``register`` (register
+#: allocation differs, the effective-match case) and ``encoding`` (identical
+#: instructions re-encoded, so byte identity needs the original compiler's
+#: encodings).  Ceiling entries keep their NEAR_MATCHING/SIZE_MISMATCH status
+#: (so `rebrew prove --all` still targets them) but are excluded from further
+#: GA batch runs (--improve / --flag-sweep / --near-miss / --size-mismatch),
+#: see `_parse_annotations`.
+def _classify_ga_ceiling(
     ga: BinaryMatchingGA,
     best_src: str,
     target_bytes: bytes,
     va_int: int,
-) -> bool:
-    """True when the GA champion's residual delta is register-only.
+) -> str | None:
+    """The ceiling kind of the GA champion's residual, or None.
 
     Compiles the champion once (warm-cached — it was just scored) and runs
-    the near-diag classifier on the extracted code.  A register-only delta
-    with zero structural bytes is the effective-match case: byte-exact is not
-    reachable from portable C, so further GA search cannot succeed.
+    the near-diag classifier on the extracted code.  ``"register"`` is a
+    register-only delta with zero structural bytes (the effective-match
+    case); ``"encoding"`` is the same with only re-encoded opcode bytes.  Both
+    are unreachable from portable C, so further GA search cannot succeed:
+    register allocation and encoding choice are compiler-internal decisions.
+    An ``equivalent`` byte (instruction selection) is C-fixable and clears the
+    ceiling.
 
     ``BuildResult.obj_bytes`` is the extracted FUNCTION CODE (not a COFF
     object), so it is classified in memory.  The previous version wrote it to
-    a ``.obj`` and re-parsed it with LIEF, which failed every time — the
+    a ``.obj`` and re-parsed it with LIEF, which failed every time, so the
     ceiling was never documented.
     """
     try:
         res = ga._compile_source(best_src)
         if not res.ok or not res.obj_bytes:
-            return False
+            return None
 
         from rebrew.near_diag import analyze
 
@@ -628,15 +635,42 @@ def _classify_register_only(
             cs_mode=getattr(ga, "cs_mode", "CS_MODE_32"),
         )
         if diag.get("verdict") == "MATCH":
-            return False
+            return None
         cats = diag.get("categories", {}) or {}
         reg = int((cats.get("register") or {}).get("bytes", 0))
+        enc = int((cats.get("encoding") or {}).get("bytes", 0))
         struct = int((cats.get("structural") or {}).get("bytes", 0))
-        return reg > 0 and struct == 0
+        equiv = int((cats.get("equivalent") or {}).get("bytes", 0))
+        if reg > 0 and struct == 0:
+            return "register"
+        if enc > 0 and reg == 0 and struct == 0 and equiv == 0:
+            return "encoding"
+        return None
     except Exception:
         # Best-effort: a classification failure must not crash the run or
         # write a bogus ceiling marker.
-        return False
+        return None
+
+
+#: Ceiling kind → the blocker text.  ``register`` points at `rebrew prove`
+#: (semantic equivalence is establishable); ``encoding`` points at the
+#: toolchain sweep as well, because a different compiler build is the only
+#: thing that changes opcode encodings.
+_CEILING_TEXTS: dict[str, str] = {
+    "register": (
+        "register-only byte delta (effective match), not byte-reproducible "
+        "from portable C (compiler register allocation); GA exhausted "
+        "{generations} generations at best score {score:.2f}; run `rebrew "
+        "prove` for PROVEN"
+    ),
+    "encoding": (
+        "encoding-only byte delta (same instructions, different opcode "
+        "bytes), so byte identity needs the original compiler build's "
+        "encodings, not a C change; GA exhausted {generations} generations at "
+        "best score {score:.2f}; try `rebrew match --flag-sweep-toolchains`, "
+        "or `rebrew prove` for PROVEN"
+    ),
+}
 
 
 def _maybe_document_ga_ceiling(
@@ -649,11 +683,11 @@ def _maybe_document_ga_ceiling(
     best_score: float,
     generations: int,
 ) -> str | None:
-    """Write a ``GA_CEILING`` blocker when the champion is register-only.
+    """Write a ``GA_CEILING`` blocker when the champion is at a wall.
 
     Called after the GA exhausts its budget without a match.  Never clobbers
     an existing blocker; writes nothing when the champion is not cleanly
-    register-only.  Returns the blocker text written, or ``None``.
+    register- or encoding-only.  Returns the blocker text written, or ``None``.
     """
     if not best_src:
         return None
@@ -663,13 +697,13 @@ def _maybe_document_ga_ceiling(
     existing = (get_entry(meta_root, va_int, module) or {}).get("blocker")
     if existing:
         return None
-    if not _classify_register_only(ga, best_src, target_bytes, va_int):
+    kind = _classify_ga_ceiling(ga, best_src, target_bytes, va_int)
+    if kind is None:
         return None
     text = (
-        f"{GA_CEILING_PREFIX} register-only byte delta (effective match) — not "
-        "byte-reproducible from portable C (compiler register allocation); GA "
-        f"exhausted {generations} generations at best score {best_score:.2f}; "
-        "run `rebrew prove` for PROVEN"
+        GA_CEILING_PREFIX
+        + " "
+        + _CEILING_TEXTS[kind].format(generations=generations, score=best_score)
     )
     update_field(meta_root, va_int, "blocker", text, module=module)
     return text

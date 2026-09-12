@@ -69,6 +69,7 @@ from rebrew.matcher.mutations.basic import (
     mut_introduce_local_alias,
     mut_introduce_temp_for_call,
     mut_invert_loop_direction,
+    mut_materialize_constant,
     mut_merge_declaration_init,
     mut_negate_condition,
     mut_pointer_to_int_param,
@@ -99,6 +100,7 @@ from rebrew.matcher.mutations.basic import (
     mut_toggle_volatile,
     mut_tweak_integer_literal,
     mut_unfold_constant_add,
+    mut_volatile_access,
     mut_while_to_dowhile,
     mut_while_to_for,
     mut_xor_zero_toggle,
@@ -177,6 +179,10 @@ _BUILTIN_MUTATIONS = [
     mut_add_cast,
     mut_remove_cast,
     mut_toggle_volatile,
+    # --- Per-access qualifier and constant materialization (MSVC6 codegen
+    #     levers a declaration-level qualifier cannot reach) ---
+    mut_volatile_access,
+    mut_materialize_constant,
     mut_add_register_keyword,
     mut_remove_register_keyword,
     mut_if_false_to_bitand,

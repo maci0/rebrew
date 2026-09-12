@@ -9,7 +9,7 @@ GA engine for binary-matching decompilation. Compiles C through the docker-backe
 | `core.py` | Types (pure, no logic) | `Score`, `BuildResult`, `BuildCache`, `GACheckpoint`, `StructuralSimilarity` |
 | `compiler.py` | Compilation backend | `build_candidate()`, `build_candidate_obj_only(cache=)`, `flag_sweep(cache=)`, `generate_flag_combinations()` |
 | `scoring.py` | Binary comparison (pure) | `score_candidate()`, `diff_functions()`, `structural_similarity()` |
-| `mutator.py` | C mutations (pure) | `mutate_code()`, `mutate_chain()`, `MutationLog`, `crossover()`, `compute_population_diversity()`, 119 `mut_*` operators |
+| `mutator.py` | C mutations (pure) | `mutate_code()`, `mutate_chain()`, `MutationLog`, `crossover()`, `compute_population_diversity()`, 123 `mut_*` operators |
 | `mutations/queries.py` | Shared tree-sitter query library for the mutation operators | `_LazyQuery`, the `_QUERY_*` batch, `_RE_C_ZERO_LITERAL` |
 | `mutations/runtime.py` | Operator plumbing | `_capture`, `_first_caps`, `_cursor`, `_apply_query_once`, `set_target_range`, `brace_block`, `_RE_FUNC_PRAGMA` |
 | `mutations/pragmas.py` | MSVC6 `#pragma` operators | 7 `mut_*_pragma` operators |
@@ -72,7 +72,7 @@ Source (.c) ──→ compiler.build_candidate()
                         │
                         ▼
               mutator.mutate_code(source, rng)
-                  ├─ Pick random mutation from ALL_MUTATIONS (119 ops)
+                  ├─ Pick random mutation from ALL_MUTATIONS (123 ops)
                   ├─ Apply, validate syntax
                   └─ Return (mutated_source, mutation_name)
                         │
@@ -99,7 +99,7 @@ Serializable GA state for resume: `generation`, `best_score`, `best_source`, `po
 
 ## Mutation Operators
 
-119 operators in `mutator.py` (`mut_*`):
+123 operators in `mutator.py` (`mut_*`):
 
 - **Commutative/logic**: `mut_commute_add_general`, `mut_commute_mul_general`, `mut_swap_eq_operands`, `mut_swap_ne_operands`, `mut_swap_or_operands`, `mut_swap_and_operands`, `mut_reassociate_add`, `mut_demorgan`
 - **Comparison/boolean**: `mut_flip_eq_zero`, `mut_flip_lt_ge`, `mut_comparison_boundary`, `mut_toggle_bool_not`, `mut_negate_condition`
@@ -108,11 +108,11 @@ Serializable GA state for resume: `generation`, `best_score`, `best_source`, `po
 - **Ternary/branch**: `mut_if_to_ternary`, `mut_ternary_to_if`, `mut_if_false_to_bitand`, `mut_bitand_to_if_false`, `mut_if_else_call_to_ternary_arg`, `mut_ternary_arg_to_if_else_call`
 - **Cast/type**: `mut_add_cast`, `mut_remove_cast`, `mut_toggle_signedness`, `mut_toggle_char_signedness`, `mut_change_return_type`
 - **Variable layout**: `mut_swap_adjacent_declarations`, `mut_reorder_declarations`, `mut_split_declaration_init`, `mut_merge_declaration_init`, `mut_swap_adjacent_stmts`
-- **Expression**: `mut_compound_assign_toggle`, `mut_postpre_increment`, `mut_xor_zero_toggle`, `mut_add_redundant_parens`, `mut_fold_constant_add`, `mut_unfold_constant_add`, `mut_combine_ptr_arith`, `mut_split_ptr_arith`
+- **Expression**: `mut_compound_assign_toggle`, `mut_postpre_increment`, `mut_xor_zero_toggle`, `mut_add_redundant_parens`, `mut_fold_constant_add`, `mut_unfold_constant_add`, `mut_combine_ptr_arith`, `mut_split_ptr_arith`, `mut_materialize_constant`
 - **Pointer/array**: `mut_change_array_index_order`, `mut_struct_vs_ptr_access`, `mut_array_to_ptr_arith`, `mut_ptr_arith_to_array`, `mut_decouple_index_math`
 - **Calling/params**: `mut_toggle_calling_convention`, `mut_change_param_order`, `mut_pointer_to_int_param`, `mut_int_to_pointer_param`, `mut_register_param`, `mut_unregister_param`
 - **Stack frame (MSVC6)**: `mut_inject_dummy_var`, `mut_inject_dummy_array`, `mut_scope_variable`
-- **Register pressure (MSVC6)**: `mut_toggle_volatile`, `mut_add_register_keyword`, `mut_remove_register_keyword`, `mut_swap_register_keywords`, `mut_add_volatile_intermediate`, `mut_reorder_register_vars`
+- **Register pressure (MSVC6)**: `mut_toggle_volatile`, `mut_volatile_access` (per-access qualifier on a pointer cast), `mut_add_register_keyword`, `mut_remove_register_keyword`, `mut_swap_register_keywords`, `mut_add_volatile_intermediate`, `mut_reorder_register_vars`
 - **Zero-extension (MSVC6)**: `mut_preinit_byte_load`, `mut_cast_to_bitmask`
 - **Branch merging (MSVC6)**: `mut_hoist_common_tail`, `mut_sink_common_tail`
 - **MSVC6 quirks (Phase 6)**: `mut_invert_if_else`, `mut_dummy_stack_vars`, `mut_inject_dummy_registers`, `mut_extract_complex_args`

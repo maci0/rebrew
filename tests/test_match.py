@@ -313,6 +313,142 @@ class TestComputeFitness:
         assert best_src in ga.population
 
 
+class TestGATournamentSelection:
+    """Parents are chosen by tournament over the whole scored population,
+    not uniformly among the elite — elite-only breeding collapses the gene
+    pool onto `elitism` members."""
+
+    def test_lower_fitness_wins_more_often(self, tmp_path: Path) -> None:
+        ga = _make_ga(tmp_path, rng_seed=1)
+        scored = [(1.0, "best"), (2.0, "mid"), (3.0, "worst")]
+        picks = [ga._tournament(scored) for _ in range(300)]
+        assert set(picks) <= {"best", "mid", "worst"}
+        assert picks.count("best") > picks.count("mid") > picks.count("worst")
+
+    def test_deterministic_for_a_seeded_rng(self, tmp_path: Path) -> None:
+        scored = [(float(i), f"s{i}") for i in range(8)]
+        a = _make_ga(tmp_path / "a", rng_seed=7)
+        b = _make_ga(tmp_path / "b", rng_seed=7)
+        picks_a = [a._tournament(scored) for _ in range(25)]
+        picks_b = [b._tournament(scored) for _ in range(25)]
+        assert picks_a == picks_b
+
+    def test_pressure_favours_the_better_half(self, tmp_path: Path) -> None:
+        ga = _make_ga(tmp_path, rng_seed=3)
+        scored = [(float(i), f"s{i}") for i in range(16)]
+        ranks = [int(ga._tournament(scored)[1:]) for _ in range(200)]
+        assert len(set(ranks)) > 1  # spread, not one parent
+        # A uniform draw averages rank 7.5; tournament-3 pulls well below it.
+        assert sum(ranks) / len(ranks) < 7.5
+
+    def test_loop_breeds_from_the_whole_population(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A generation must select over every scored member, so the spy sees
+        the pool size, not `elitism`."""
+        from rebrew.matcher import BuildResult
+
+        ga = _make_ga(tmp_path, pop_size=8, num_generations=2)
+        seen: list[int] = []
+        real = ga._tournament
+
+        def spy(scored_pop: list[tuple[float, str]]) -> str:
+            seen.append(len(scored_pop))
+            return real(scored_pop)
+
+        monkeypatch.setattr(ga, "_tournament", spy)
+        monkeypatch.setattr(
+            ga, "_compile_source", lambda src: BuildResult(ok=True, obj_bytes=b"\x90")
+        )
+        monkeypatch.setattr(ga, "_compute_fitness", lambda res, h, src: 100.0)
+
+        ga.run()
+
+        assert seen
+        assert set(seen) == {8}
+
+
+class TestGAMutationRateRamp:
+    """The per-child mutation probability rises while the search is flat."""
+
+    def test_ramps_with_stagnation_and_caps_the_boost(self, tmp_path: Path) -> None:
+        from rebrew.match_ga import _MUTATION_PROB_BOOST_CAP
+
+        ga = _make_ga(tmp_path, mutation_prob=0.5)
+        ga.stagnant_gens = 0
+        base = ga._effective_mutation_prob()
+        assert base == 0.5
+        ga.stagnant_gens = 1
+        assert ga._effective_mutation_prob() > base
+        ga.stagnant_gens = 10_000
+        assert ga._effective_mutation_prob() == pytest.approx(0.5 + _MUTATION_PROB_BOOST_CAP)
+
+    def test_never_exceeds_max_from_a_high_base(self, tmp_path: Path) -> None:
+        from rebrew.match_ga import _MUTATION_PROB_MAX
+
+        ga = _make_ga(tmp_path, mutation_prob=0.99)
+        ga.stagnant_gens = 100
+        assert ga._effective_mutation_prob() == _MUTATION_PROB_MAX
+
+
+class TestGAStagnationRestart:
+    """A flat search reseeds part of its population instead of stopping."""
+
+    def test_reseed_keeps_elite_and_resets_counter(self, tmp_path: Path) -> None:
+        from rebrew.match_ga import _IMMIGRANT_DIVISOR
+
+        ga = _make_ga(tmp_path, pop_size=8, elitism=2)
+        next_pop = ["elite0", "elite1"]
+        ga.stagnant_gens = 5
+
+        count = ga._reseed(next_pop)
+
+        assert count == 8 // _IMMIGRANT_DIVISOR
+        assert next_pop[:2] == ["elite0", "elite1"]
+        assert len(next_pop) == 2 + count
+        assert ga.restarts == 1
+        assert ga.stagnant_gens == 0
+
+    def test_loop_restarts_then_stops_at_the_limit(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """With fitness that never improves, the loop must restart the capped
+        number of times and then end on the stagnation limit — a restart must
+        not make the run unbounded."""
+        from rebrew.match_ga import _MAX_STAGNATION_RESTARTS
+        from rebrew.matcher import BuildResult
+
+        ga = _make_ga(tmp_path, pop_size=8, num_generations=60, stagnation_limit=6)
+        monkeypatch.setattr(
+            ga, "_compile_source", lambda src: BuildResult(ok=True, obj_bytes=b"\x90")
+        )
+        monkeypatch.setattr(ga, "_compute_fitness", lambda res, h, src: 100.0)
+
+        ga.run()
+
+        assert ga.restarts == _MAX_STAGNATION_RESTARTS
+        assert ga.stagnant_gens >= ga.stagnation_limit
+        assert ga.generation < 60  # ended on stagnation, not the generation budget
+
+    def test_no_restart_when_elitism_fills_the_population(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """There is no room for immigrants, so the restart is skipped rather
+        than consuming a restart slot on an empty reseed."""
+        from rebrew.matcher import BuildResult
+
+        ga = _make_ga(tmp_path, pop_size=2, elitism=2, num_generations=60, stagnation_limit=6)
+        monkeypatch.setattr(
+            ga, "_compile_source", lambda src: BuildResult(ok=True, obj_bytes=b"\x90")
+        )
+        monkeypatch.setattr(ga, "_compute_fitness", lambda res, h, src: 100.0)
+
+        ga.run()
+
+        assert ga.restarts == 0
+        assert ga.stagnant_gens >= ga.stagnation_limit
+
+
 # ---------------------------------------------------------------------------
 # Batch orchestration (_run_all): discovery, filtering, dry-run, execution
 # ---------------------------------------------------------------------------
@@ -1147,7 +1283,7 @@ class TestGaCeiling:
         from rebrew.metadata import get_entry
 
         ga = SimpleNamespace(cs_mode="CS_MODE_32")
-        monkeypatch.setattr("rebrew.match_run._classify_register_only", lambda *a, **k: True)
+        monkeypatch.setattr("rebrew.match_run._classify_ga_ceiling", lambda *a, **k: "register")
         text = _maybe_document_ga_ceiling(
             self._cfg(tmp_path),
             "SERVER",
@@ -1158,7 +1294,33 @@ class TestGaCeiling:
             0.42,
             100,
         )
-        assert text is not None and text.startswith("GA_CEILING:")
+        assert text is not None and text.startswith("GA_CEILING: register-only")
+        entry = get_entry(tmp_path, 0x10001000, "SERVER")
+        assert (entry or {}).get("blocker", "").startswith("GA_CEILING:")
+
+    def test_document_writes_blocker_when_encoding_only(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """An encoding-only champion is also a GA wall — no C change alters a
+        compiler's opcode choice — and the blocker points at the toolchain
+        sweep, not just `prove`."""
+        from rebrew.match_run import _maybe_document_ga_ceiling
+        from rebrew.metadata import get_entry
+
+        ga = SimpleNamespace(cs_mode="CS_MODE_32")
+        monkeypatch.setattr("rebrew.match_run._classify_ga_ceiling", lambda *a, **k: "encoding")
+        text = _maybe_document_ga_ceiling(
+            self._cfg(tmp_path),
+            "SERVER",
+            0x10001000,
+            b"\x55\x8b\xec",
+            ga,
+            "int f(void){return 0;}",
+            0.42,
+            100,
+        )
+        assert text is not None and text.startswith("GA_CEILING: encoding-only")
+        assert "flag-sweep-toolchains" in text
         entry = get_entry(tmp_path, 0x10001000, "SERVER")
         assert (entry or {}).get("blocker", "").startswith("GA_CEILING:")
 
@@ -1169,7 +1331,7 @@ class TestGaCeiling:
 
         self._set_blocker(tmp_path, 0x10001000, "user note: investigated")
         ga = SimpleNamespace(cs_mode="CS_MODE_32")
-        monkeypatch.setattr("rebrew.match_run._classify_register_only", lambda *a, **k: True)
+        monkeypatch.setattr("rebrew.match_run._classify_ga_ceiling", lambda *a, **k: "register")
         text = _maybe_document_ga_ceiling(
             self._cfg(tmp_path),
             "SERVER",
@@ -1182,11 +1344,11 @@ class TestGaCeiling:
         )
         assert text is None  # existing blocker preserved
 
-    def test_document_skips_non_register_only(self, tmp_path: Path, monkeypatch: Any) -> None:
+    def test_document_skips_an_addressable_delta(self, tmp_path: Path, monkeypatch: Any) -> None:
         from rebrew.match_run import _maybe_document_ga_ceiling
 
         ga = SimpleNamespace(cs_mode="CS_MODE_32")
-        monkeypatch.setattr("rebrew.match_run._classify_register_only", lambda *a, **k: False)
+        monkeypatch.setattr("rebrew.match_run._classify_ga_ceiling", lambda *a, **k: None)
         text = _maybe_document_ga_ceiling(
             self._cfg(tmp_path),
             "SERVER",
@@ -1199,11 +1361,11 @@ class TestGaCeiling:
         )
         assert text is None
 
-    def test_classify_register_only_uses_in_memory_code(self, monkeypatch: Any) -> None:
+    def test_classify_ga_ceiling_uses_in_memory_code(self, monkeypatch: Any) -> None:
         """The champion's extracted code is classified in memory: the old
         version wrote it to a `.obj` and LIEF failed to parse code bytes as
         COFF, so the ceiling was never documented."""
-        from rebrew.match_run import _classify_register_only
+        from rebrew.match_run import _classify_ga_ceiling
 
         class _GA:
             cs_mode = "CS_MODE_32"
@@ -1226,9 +1388,51 @@ class TestGaCeiling:
             }
 
         monkeypatch.setattr("rebrew.near_diag.analyze", _fake_analyze)
-        assert _classify_register_only(_GA(), "int f(void){return 0;}", b"\x8b\xc3", 0x1000)
+        assert _classify_ga_ceiling(_GA(), "int f(void){return 0;}", b"\x8b\xc3", 0x1000) == (
+            "register"
+        )
         assert seen["code"] == b"\x8b\xc1"
         assert seen["relocs"] == {0}
+
+    def _classify_with_categories(
+        self, monkeypatch: Any, categories: dict[str, dict[str, int]]
+    ) -> str | None:
+        from rebrew.match_run import _classify_ga_ceiling
+
+        class _GA:
+            cs_mode = "CS_MODE_32"
+
+            def _compile_source(self, src: str) -> Any:
+                from rebrew.matcher.core import BuildResult
+
+                return BuildResult(ok=True, obj_bytes=b"\x8b\xc1", reloc_offsets={})
+
+        monkeypatch.setattr(
+            "rebrew.near_diag.analyze",
+            lambda *a, **k: {"verdict": "NEAR_MATCHING", "categories": categories},
+        )
+        return _classify_ga_ceiling(_GA(), "int f(void){return 0;}", b"\x8b\xc3", 0x1000)
+
+    def test_encoding_only_is_a_ceiling(self, monkeypatch: Any) -> None:
+        assert self._classify_with_categories(monkeypatch, {"encoding": {"bytes": 4}}) == "encoding"
+
+    def test_encoding_with_structural_bytes_is_not_a_ceiling(self, monkeypatch: Any) -> None:
+        assert (
+            self._classify_with_categories(
+                monkeypatch, {"encoding": {"bytes": 4}, "structural": {"bytes": 2}}
+            )
+            is None
+        )
+
+    def test_encoding_with_equivalent_bytes_is_not_a_ceiling(self, monkeypatch: Any) -> None:
+        """An instruction-selection difference is C-fixable, so it clears the
+        ceiling even when re-encoded bytes are present."""
+        assert (
+            self._classify_with_categories(
+                monkeypatch, {"encoding": {"bytes": 4}, "equivalent": {"bytes": 2}}
+            )
+            is None
+        )
 
 
 class TestLiveMutationFocus:
