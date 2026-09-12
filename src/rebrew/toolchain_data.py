@@ -682,7 +682,7 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
-        tool_root="/opt/msvc6.0/VC98/Bin",
+        tool_root="/opt/msvc6.0-sp6/VC98/Bin",
         host_path=vendored_path("msvc/6.0-sp6-win32")
         if vendored_path("msvc/6.0-sp6-win32").exists()
         else None,
