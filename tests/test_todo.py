@@ -128,7 +128,7 @@ class TestCallerCounts:
 class TestCollectors:
     def test_active_functions_compile_error(self, tmp_path: Path) -> None:
         _cfg = _make_cfg(tmp_path)
-        from rebrew.verify import VerifyCacheEntry, VerifyResult
+        from rebrew.verify_cache import VerifyCacheEntry, VerifyResult
 
         entries = {
             "0x00001000": VerifyCacheEntry(
@@ -157,7 +157,7 @@ class TestCollectors:
         sweep cannot fix a missing symbol.  Regression: guild-rebrew's
         EXTRACT_ERROR stubs showed up as fix-delta with ROI 85."""
         _cfg = _make_cfg(tmp_path)
-        from rebrew.verify import VerifyCacheEntry, VerifyResult
+        from rebrew.verify_cache import VerifyCacheEntry, VerifyResult
 
         entries = {
             "0x00001000": VerifyCacheEntry(
@@ -193,7 +193,7 @@ class TestCollectors:
         """A measured NEAR_MATCHING result still carrying the default FUN_
         label is matched work — it must use the verify-driven lanes, not
         the skeleton lane."""
-        from rebrew.verify import VerifyCacheEntry, VerifyResult
+        from rebrew.verify_cache import VerifyCacheEntry, VerifyResult
 
         entries = {
             "0x00001000": VerifyCacheEntry(
@@ -279,7 +279,7 @@ class TestCollectors:
         extracted) — it must NOT appear as a '0B diff' fix-delta quick-win.
         Regression: smygb's intake-documented stubs showed as 0B-diff while
         rebrew test refused them with 'Invalid SIZE: 0'."""
-        from rebrew.verify import VerifyCacheEntry, VerifyResult
+        from rebrew.verify_cache import VerifyCacheEntry, VerifyResult
 
         entries = {
             "0x00001000": VerifyCacheEntry(
@@ -324,7 +324,7 @@ class TestCollectors:
         fix-delta (regression: smygb's 0x00404a90 stayed a '20B diff — try
         flag sweep' item after the sweep already ran and near-diag said
         STRUCTURAL)."""
-        from rebrew.verify import VerifyCacheEntry, VerifyResult
+        from rebrew.verify_cache import VerifyCacheEntry, VerifyResult
 
         entries = {
             "0x00001000": VerifyCacheEntry(
@@ -359,7 +359,7 @@ class TestCollectors:
     def test_active_functions_register_blocker_stays_fix_delta(self) -> None:
         """A register-class blocker is still a flag-sweep quick-win — only
         STRUCTURAL verdicts demote."""
-        from rebrew.verify import VerifyCacheEntry, VerifyResult
+        from rebrew.verify_cache import VerifyCacheEntry, VerifyResult
 
         entries = {
             "0x00001000": VerifyCacheEntry(
@@ -446,7 +446,7 @@ class TestCollectors:
         existing = {
             0x1000: {"status": "NEAR_MATCHING", "symbol": "func_a", "blocker": "register swap"}
         }
-        from rebrew.verify import VerifyCacheEntry, VerifyResult
+        from rebrew.verify_cache import VerifyCacheEntry, VerifyResult
 
         entries = {
             "0x00001000": VerifyCacheEntry(
@@ -484,7 +484,7 @@ class TestCollectors:
                 ),
             }
         }
-        from rebrew.verify import VerifyCacheEntry, VerifyResult
+        from rebrew.verify_cache import VerifyCacheEntry, VerifyResult
 
         entries = {
             "0x00001000": VerifyCacheEntry(
@@ -818,7 +818,7 @@ class TestLoadVerifyEntries:
         import json
 
         from rebrew.todo import _load_verify_entries
-        from rebrew.verify import VerifyCacheEntry, VerifyResult
+        from rebrew.verify_cache import VerifyCacheEntry, VerifyResult
 
         d = tmp_path / ".rebrew"
         d.mkdir()
@@ -859,7 +859,7 @@ class TestLoadVerifyEntries:
         import json
 
         from rebrew.todo import _load_verify_entries
-        from rebrew.verify import VerifyCacheEntry, VerifyResult
+        from rebrew.verify_cache import VerifyCacheEntry, VerifyResult
 
         d = tmp_path / ".rebrew"
         d.mkdir()

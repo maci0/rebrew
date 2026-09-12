@@ -3164,7 +3164,7 @@ def _run_one_stub_ga(
                         # failed cache write must not undo the splice.
                         if spliced_ok:
                             try:
-                                from rebrew.verify import patch_verify_cache_entries
+                                from rebrew.verify_cache import patch_verify_cache_entries
 
                                 patch_verify_cache_entries(
                                     cfg,
@@ -3971,7 +3971,7 @@ def _run_batch_flag_sweep(
             # Keep status/todo in sync with the fresh EXACT metadata (the
             # verify cache may hold a stale NEAR_MATCHING entry).
             try:
-                from rebrew.verify import patch_verify_cache_entries
+                from rebrew.verify_cache import patch_verify_cache_entries
 
                 patch_verify_cache_entries(
                     cfg,

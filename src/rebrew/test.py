@@ -101,10 +101,10 @@ def _patch_verify_cache(
     recomputing from match_percent would store a percent-scale number).
 
     Thin local wrapper over the single shared implementation
-    :func:`rebrew.verify.patch_verify_cache_entries` (identity check +
+    :func:`rebrew.verify_cache.patch_verify_cache_entries` (identity check +
     cross-process lock included).
     """
-    from rebrew.verify import patch_verify_cache_entries
+    from rebrew.verify_cache import patch_verify_cache_entries
 
     patch_verify_cache_entries(
         cfg,
@@ -1511,7 +1511,7 @@ def _run_all_batch(
             )
         # One read + one write for the whole batch (the per-result patch was
         # O(N) full-file rewrites of verify_cache.json).
-        from rebrew.verify import patch_verify_cache_entries
+        from rebrew.verify_cache import patch_verify_cache_entries
 
         patch_verify_cache_entries(cfg, patches)
 

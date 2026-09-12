@@ -176,7 +176,7 @@ def bench_catalog_grid() -> dict[str, float]:
 
 def bench_verify_cache() -> dict[str, float]:
     """VerifyCache save + load round-trip with 500 entries."""
-    from rebrew.verify import VerifyCache, VerifyCacheEntry, VerifyResult
+    from rebrew.verify_cache import VerifyCache, VerifyCacheEntry, VerifyResult
 
     entries: dict[str, VerifyCacheEntry] = {}
     for i in range(500):

@@ -109,7 +109,7 @@ def _cached_verify_status(cfg: Any, va: int) -> str | None:
     if not cache_path.exists():
         return None
     try:
-        from rebrew.verify import VerifyCache
+        from rebrew.verify_cache import VerifyCache
 
         data = VerifyCache.from_dict(json.loads(cache_path.read_text(encoding="utf-8")))
     except (json.JSONDecodeError, OSError, ValueError, AttributeError, ImportError):
