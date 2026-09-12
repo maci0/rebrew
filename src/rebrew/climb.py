@@ -182,6 +182,15 @@ def _statements(lines: list[str], lo: int, hi: int) -> list[tuple[int, int]]:
 # ---------------------------------------------------------------------------
 
 
+#: Address-sized hex (>= 6 digits) — an absolute address, never a constant the
+#: source chose.  Same threshold ``scripts/seqdiff.py`` uses.
+_ADDRESS_RE = re.compile(r"0x[0-9a-f]{6,}")
+
+#: A bracketed short addend, the form an object carries for a relocation
+#: against a global (the target side shows the resolved address).
+_SHORT_ADDEND_RE = re.compile(r"\[0x[0-9a-f]{1,5}\]")
+
+
 def _score(
     cfg: ProjectConfig,
     path: Path,
@@ -264,14 +273,24 @@ def _score_aligned(
     if result.obj_bytes is None:
         return -1.0, 0
     obj_len = result.full_obj_size if result.full_obj_size is not None else len(result.obj_bytes)
-    from rebrew.near_diag import Insn, _normalized_operands, disasm_insns
+    from rebrew.near_diag import Insn, disasm_insns
 
     arch = getattr(cfg, "capstone_arch", "CS_ARCH_X86")
     mode = getattr(cfg, "capstone_mode", "CS_MODE_32")
 
     def text(insn: Insn) -> str:
-        """Instruction text with register churn folded (near_diag's rule)."""
-        return f"{insn.mnemonic} {_normalized_operands(insn)}".strip()
+        """Instruction text as the alignment compares it.
+
+        Address-sized immediates fold to ``g``, and the operands an object
+        carries for a relocation — a
+        bare ``[0]`` or a short addend — fold onto ``g`` too, because the
+        target side has the resolved address there.  ``scripts/seqdiff.py:norm``
+        applies the same folds; without them the aligner paired 624 of the
+        target's instructions where the sequence diff pairs 740.
+        """
+        text = _ADDRESS_RE.sub("g", f"{insn.mnemonic} {insn.op_str}")
+        text = text.replace("[0]", "[g]")
+        return _SHORT_ADDEND_RE.sub("[g]", text).strip()
 
     compiled = disasm_insns(result.obj_bytes, section_va, arch, mode)
     target = disasm_insns(target_bytes, section_va, arch, mode)
