@@ -682,3 +682,87 @@ _QUERY_IF_BODY_RETURN = _LazyQuery(
     ) @expr
 """,
 )
+
+
+_QUERY_IF_STMT = _LazyQuery(_C_LANGUAGE, "(if_statement) @if_stmt")
+
+# --- Queries for new mutations ---
+
+_QUERY_SUBSCRIPT_EXPR = _QUERY_ARRAY_INDEX
+
+_QUERY_BIN_COND_IF = _LazyQuery(
+    _C_LANGUAGE,
+    """
+    (if_statement
+        condition: (parenthesized_expression (binary_expression
+            left: (_) @left
+            right: (_) @right) @bin)
+        consequence: (_) @body) @stmt
+""",
+)
+
+_QUERY_WHILE_LOOP = _LazyQuery(
+    _C_LANGUAGE,
+    """
+    (while_statement
+        condition: (parenthesized_expression) @cond
+        body: (_) @body) @stmt
+""",
+)
+
+_QUERY_DEREF_PTR_ADD = _LazyQuery(
+    _C_LANGUAGE,
+    """
+    (pointer_expression
+        operator: "*"
+        argument: (parenthesized_expression
+            (binary_expression left: (_) @ptr operator: "+" right: (_) @idx)
+        )
+    ) @expr
+""",
+)
+
+_QUERY_SUBSCRIPT_SCALED = _LazyQuery(
+    _C_LANGUAGE,
+    """
+    (subscript_expression
+        argument: (_) @arr
+        index: (binary_expression left: (_) @idx_left operator: "*" right: (_) @idx_right)
+    ) @expr
+""",
+)
+
+_QUERY_BYTE_TYPE_DECL = _LazyQuery(
+    _C_LANGUAGE,
+    """
+    (declaration
+        type: (primitive_type) @type
+        declarator: (init_declarator
+            declarator: (identifier) @var
+            value: (_) @init
+        )
+        (#match? @type "^(char|BYTE|unsigned char|signed char)$")
+    ) @stmt
+""",
+)
+
+_QUERY_BYTE_CAST = _LazyQuery(
+    _C_LANGUAGE,
+    """
+    (cast_expression
+        type: (type_descriptor) @type
+        value: (_) @val
+        (#match? @type "^(WORD|BYTE|unsigned short|unsigned char)$")
+    ) @expr
+""",
+)
+
+_QUERY_REGISTER_DECL = _LazyQuery(
+    _C_LANGUAGE,
+    """
+    (declaration
+        (storage_class_specifier) @sc
+        (#eq? @sc "register")
+    ) @stmt
+""",
+)
