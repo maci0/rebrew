@@ -226,7 +226,11 @@ def main(
         if any(e["marker_type"] not in ("GLOBAL", "DATA") for e in vas)
     }
 
-    covered = covered_bytes(by_va, {va: reg["canonical_size"] for va, reg in registry.items()})
+    covered = covered_bytes(
+        by_va,
+        {va: reg["canonical_size"] for va, reg in registry.items()},
+        section=(getattr(cfg, "text_va", 0), text_size),
+    )
     coverage_pct = (covered / text_size * 100.0) if text_size else 0.0
 
     if summary:
@@ -279,7 +283,7 @@ def main(
     from rebrew.utils import atomic_write_text
 
     if catalog:
-        catalog_text = generate_catalog(entries, funcs, text_size)
+        catalog_text = generate_catalog(entries, funcs, text_size, getattr(cfg, "text_va", 0))
         catalog_path = reversed_dir / "CATALOG.md"
         catalog_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(catalog_path, catalog_text, encoding="utf-8")
