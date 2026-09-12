@@ -532,7 +532,7 @@ class TestKunaSeed:
         from types import SimpleNamespace
 
         import rebrew.decompiler as dc_mod
-        import rebrew.match as match_mod
+        import rebrew.match_run as match_mod
 
         seen: dict = {}
 
@@ -606,7 +606,7 @@ class TestKunaSeed:
         from types import SimpleNamespace
 
         import rebrew.decompiler as dc_mod
-        import rebrew.match as match_mod
+        import rebrew.match_run as match_mod
 
         constructed: list = []
 
