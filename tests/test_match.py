@@ -520,7 +520,7 @@ class TestUpdateStubToMatched:
     def test_splices_second_function_not_first(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.match import update_stub_to_matched
+        from rebrew.match_batch import update_stub_to_matched
 
         f = tmp_path / "multi.c"
         f.write_text(
@@ -548,7 +548,7 @@ class TestUpdateStubToMatched:
     ) -> None:
         """The splice must not drop functions that FOLLOW the stub's block
         (round-3: header + best_src truncated everything after the stub)."""
-        from rebrew.match import update_stub_to_matched
+        from rebrew.match_batch import update_stub_to_matched
 
         f = tmp_path / "multi.c"
         f.write_text(
@@ -798,7 +798,7 @@ class TestFindSizeMismatch:
         )
 
     def test_finds_only_size_mismatch(self, tmp_path: Path) -> None:
-        from rebrew.match import find_size_mismatch
+        from rebrew.match_batch import find_size_mismatch
 
         self._write(tmp_path, "sm.c", "0x10001000", "SIZE_MISMATCH")
         self._write(tmp_path, "stub.c", "0x10002000", "STUB")
@@ -807,7 +807,8 @@ class TestFindSizeMismatch:
         assert [s.va for s in stubs] == ["0x10001000"]
 
     def test_run_all_size_mismatch_mode(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from rebrew.match import _run_all, find_size_mismatch
+        from rebrew.match import _run_all
+        from rebrew.match_batch import find_size_mismatch
 
         real_find = find_size_mismatch
         self._write(tmp_path, "sm.c", "0x10001000", "SIZE_MISMATCH")
@@ -1115,7 +1116,7 @@ class TestGaCeiling:
         )
 
     def test_ceiling_excluded_from_improve_selectors(self, tmp_path: Path) -> None:
-        from rebrew.match import find_all_matching
+        from rebrew.match_batch import find_all_matching
 
         self._write_near(tmp_path, "a.c", "0x10001000")
         self._write_near(tmp_path, "b.c", "0x10002000")
@@ -1129,7 +1130,7 @@ class TestGaCeiling:
         assert [s.va for s in stubs] == ["0x10001000"]
 
     def test_plain_near_matching_still_selected(self, tmp_path: Path) -> None:
-        from rebrew.match import find_all_matching
+        from rebrew.match_batch import find_all_matching
 
         self._write_near(tmp_path, "a.c", "0x10001000")
         stubs = find_all_matching(tmp_path, cfg=self._cfg(tmp_path))

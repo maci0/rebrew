@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from rebrew.match import (
+from rebrew.match_batch import (
     find_all_stubs,
     find_near_miss,
     parse_matching_info,
@@ -103,7 +103,7 @@ class TestFindNearMiss:
 
 class TestUpdateCflagsAnnotation:
     def test_updates_cflags(self, tmp_path: Path) -> None:
-        from rebrew.match import update_cflags_annotation
+        from rebrew.match_batch import update_cflags_annotation
 
         f = _stub_file(tmp_path, status="STUB")
         assert update_cflags_annotation(f, "/O1") is True
@@ -111,12 +111,12 @@ class TestUpdateCflagsAnnotation:
         assert update_cflags_annotation(f, "/O1") is False
 
     def test_no_marker_returns_false(self, tmp_path: Path) -> None:
-        from rebrew.match import update_cflags_annotation
+        from rebrew.match_batch import update_cflags_annotation
 
         f = _write_stub(tmp_path, "plain.c", "int plain(void) { return 0; }\n")
         assert update_cflags_annotation(f, "/O1") is False
 
     def test_unreadable_returns_false(self, tmp_path: Path) -> None:
-        from rebrew.match import update_cflags_annotation
+        from rebrew.match_batch import update_cflags_annotation
 
         assert update_cflags_annotation(tmp_path / "missing.c", "/O1") is False

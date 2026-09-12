@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from rebrew.match import (
+from rebrew.match_batch import (
     find_all_matching,
     find_all_stubs,
     parse_matching_all,
