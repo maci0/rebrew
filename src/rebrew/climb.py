@@ -264,14 +264,22 @@ def _score_aligned(
     if result.obj_bytes is None:
         return -1.0, 0
     obj_len = result.full_obj_size if result.full_obj_size is not None else len(result.obj_bytes)
-    from rebrew.near_diag import disasm_insns
+    from rebrew.near_diag import Insn, _normalized_operands, disasm_insns
 
     arch = getattr(cfg, "capstone_arch", "CS_ARCH_X86")
     mode = getattr(cfg, "capstone_mode", "CS_MODE_32")
+
+    def text(insn: Insn) -> str:
+        """Instruction text with register churn folded (near_diag's rule)."""
+        return f"{insn.mnemonic} {_normalized_operands(insn)}".strip()
+
     compiled = disasm_insns(result.obj_bytes, section_va, arch, mode)
     target = disasm_insns(target_bytes, section_va, arch, mode)
+    # autojunk=False: difflib's default drops "popular" elements, which on a
+    # 1000-instruction stream collapses the alignment (523 pairs against the
+    # 740 the same streams pair with the heuristic off).
     aligner = difflib.SequenceMatcher(
-        a=[i.mnemonic for i in compiled], b=[i.mnemonic for i in target]
+        a=[text(i) for i in compiled], b=[text(i) for i in target], autojunk=False
     )
     return float(sum(block.size for block in aligner.get_matching_blocks())), obj_len
 

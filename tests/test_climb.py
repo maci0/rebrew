@@ -114,9 +114,9 @@ class TestScoreAligned:
         result = SimpleNamespace(obj_bytes=b"\x90" * 8, full_obj_size=12, reloc_offsets=[])
         monkeypatch.setattr(rebrew.climb, "compile_and_compare", lambda *a, **k: result)
         sequence = [
-            SimpleNamespace(mnemonic="mov"),
-            SimpleNamespace(mnemonic="ret"),
-            SimpleNamespace(mnemonic="call"),
+            SimpleNamespace(mnemonic="mov", op_str="eax, ebx"),
+            SimpleNamespace(mnemonic="ret", op_str=""),
+            SimpleNamespace(mnemonic="call", op_str="0x1000"),
         ]
         monkeypatch.setattr(rebrew.near_diag, "disasm_insns", lambda *a, **k: list(sequence))
         cfg = SimpleNamespace(capstone_arch="CS_ARCH_X86", capstone_mode="CS_MODE_32")
