@@ -1001,6 +1001,7 @@ audit log. Nothing in the source tree is modified — the search only reads.
 | `--guess-compiler` | Auto-select the compiler profile from the target binary (diec → PDB → heuristics; prefers the 16-bit profile for DOS/NE binaries — requires the binary in `original/`) |
 | `--wizard` / `--no-wizard` | Interactive onboarding wizard (default: on; TTY only, never under `--json` or piped stdin).  Prompts only for options not passed explicitly: binary pick from `original/`/cwd, compiler profile with detection-based suggestion from the binary, target name (binary stem), a summary confirmation, and shell completions — then reports the profile's docker image state and offers `rebrew toolchain build <profile>` when it is missing. |
 | `--dry-run` | Preview the project layout without writing |
+| `--refresh-agents` | Rewrite `AGENTS.md` from the project's `rebrew-project.toml` and exit (re-render after a profile rename or template change; reads the config, never rewrites it) |
 | `--json` | Output results as JSON |
 
 - `--link-tools-from PATH` — symlink `toolchain/<family>/<version>-<arch>` from a master toolchain
