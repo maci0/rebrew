@@ -171,10 +171,12 @@ class TestMarkerRewrite:
 
         Keeping it left the copy carrying a module the destination target does
         not own, which lint rejects (E012) and which names a VA this target has
-        never matched.
+        never matched.  Data markers count: `// DATA: SERVER 0x...` is the same
+        error as a foreign FUNCTION marker.
         """
         src = (
             "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
+            "// DATA: SRC 0x401008\n\n"
             "// FUNCTION: SRC 0x401010\n// SIZE: 8\nint f2(void){ return 2; }\n"
         )
         out = ci._rewrite_marker(src, "DST", 0x601000, 11)
