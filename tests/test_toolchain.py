@@ -104,6 +104,35 @@ class TestImageMsvcEnv:
             assert env["INCLUDE"].startswith("Z:\\opt\\")
             assert env["LIB"].startswith("Z:\\opt\\")
 
+    def test_tool_root_matches_the_image_install_tree(self) -> None:
+        """``tool_root`` must be the dir the image's ``CL.EXE`` lives in.
+
+        Each image unpacks its media to ``/opt/msvc<tag>`` and runs
+        ``<install>/VC98/Bin/CL.EXE`` (the msvc6 family), so a stale root points
+        INCLUDE/LIB at a tree that does not exist and the compile fails with
+        C1083.
+        """
+        for name, spec in TOOLCHAINS.items():
+            if not (
+                spec.image and spec.image.startswith("rebrew/msvc:") and spec.runtime == "wine"
+            ):
+                continue
+            tag = spec.image.split(":", 1)[1]
+            if not tag.endswith("-win32"):
+                continue
+            install_root = "/opt/msvc" + tag[: -len("-win32")]
+            assert spec.tool_root, f"{name} has no tool_root"
+            assert spec.tool_root.startswith(install_root + "/"), (
+                f"{name}: tool_root {spec.tool_root!r} is outside the image's "
+                f"install tree {install_root!r}"
+            )
+            if install_root.startswith("/opt/msvc6.0"):
+                # The msvc6 images run <install>/VC98/Bin/CL.EXE; the flat
+                # <install>/Bin tree only existed for the pre-sp3 media.
+                assert spec.tool_root.lower() == install_root.lower() + "/vc98/bin", (
+                    f"{name}: tool_root {spec.tool_root!r} is not the image's VC98/Bin dir"
+                )
+
     def test_dirs_are_derived_from_tool_root(self) -> None:
         spec = ToolchainSpec(
             name="t",
@@ -475,6 +504,38 @@ class TestPullToolchain:
         tag, was_present = pull_toolchain("msvc6")
         assert tag == "rebrew/msvc:6.0-win32"
         assert was_present is False
+
+    def test_pull_uses_configured_runtime(self, monkeypatch) -> None:
+        """pull routes through container_runtime(), not a hardcoded docker."""
+        from rebrew.toolchain import pull_toolchain
+
+        monkeypatch.setenv("REBREW_CONTAINER_RUNTIME", "podman")
+        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
+        seen: list[list[str]] = []
+
+        def _run(cmd, **kwargs):
+            seen.append(cmd)
+            if cmd[1] == "image":
+                return type("R", (), {"returncode": 0, "stdout": "sha256:NEW\n", "stderr": ""})()
+            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
+        pull_toolchain("msvc6")
+        pulls = [c for c in seen if c[1] == "pull"]
+        assert pulls and all(c[0] == "podman" for c in pulls)
+
+    def test_every_wine_image_spec_declares_tool_root(self) -> None:
+        """Every image-backed wine spec carries tool_root, so the CMake
+        bridge and INCLUDE/LIB derivation work for all of them."""
+        from rebrew.toolchain import TOOLCHAINS
+
+        missing = [
+            name
+            for name, spec in TOOLCHAINS.items()
+            if spec.image is not None and spec.runtime == "wine" and not spec.tool_root
+        ]
+        assert missing == []
 
     def test_cli_reports_already_present(self, monkeypatch) -> None:
         from typer.testing import CliRunner

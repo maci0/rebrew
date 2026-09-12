@@ -151,13 +151,20 @@ def main(
         error_exit(f"Source file not found: {source_path}", json_mode=json_output)
 
     expected_exts = set(source_exts(cfg)) or {".c"}
-    if source_path.suffix not in expected_exts:
+    # iter_sources matches extensions case-insensitively (FOO.C counts as .c,
+    # documented), so the explicit-file check must too.
+    if source_path.suffix.lower() not in {e.lower() for e in expected_exts}:
         error_exit(
             f"Source must match configured extension(s) '{','.join(sorted(expected_exts))}': {source_path.name}",
             json_mode=json_output,
         )
 
     out_dir = Path(output_dir).resolve() if output_dir else source_path.parent.resolve()
+    # One extension for the output name: ``cfg.source_ext`` may be a
+    # comma-separated list (".c,.cpp"), and the split piece belongs to the same
+    # language as its source file, so the input's own suffix is kept.
+    exts = source_exts(cfg) or [".c"]
+    out_ext = source_path.suffix or exts[0]
 
     try:
         text, encoding = read_source_text(source_path)
@@ -196,7 +203,7 @@ def main(
             )
 
         symbol = matched_meta["symbol"]
-        out_name = _build_output_name(symbol, target_va, cfg.source_ext)
+        out_name = _build_output_name(symbol, target_va, out_ext)
         # Default to a subdirectory named after the source file: sim.c -> sim_c/
         if output_dir is None:
             stem = source_path.stem + source_path.suffix.replace(".", "_")
@@ -317,7 +324,7 @@ def main(
 
         block_va = meta["va"]
         symbol = meta["symbol"]
-        out_name = _build_output_name(symbol, block_va, cfg.source_ext)
+        out_name = _build_output_name(symbol, block_va, out_ext)
         out_path = out_dir / out_name
 
         # Two blocks can sanitize to the same filename (same C symbol after

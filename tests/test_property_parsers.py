@@ -422,6 +422,15 @@ def test_annotation_parsers_robust_on_malformed_lines(lines: list[str]) -> None:
 def lines_with_embedded_marker(draw: st.DrawFn) -> tuple[list[str], int]:
     """Arbitrary garbage lines with one valid ``// FUNCTION: FUZZ 0x...`` marker."""
     lines = draw(st.lists(_annotation_line, max_size=40))
+    # A garbage line opening an unclosed ``/*`` legitimately comments out
+    # everything after it, marker included — the parser tracks block-comment
+    # state on purpose (see parse_new_format_multi).  Neutralize such an opener
+    # so this test exercises marker survival, not C comment semantics; the
+    # malformed-input crash-freedom fuzz above still feeds ``/*`` garbage.
+    lines = [
+        "x" + ln if (stripped := ln.strip()).startswith("/*") and "*/" not in stripped else ln
+        for ln in lines
+    ]
     va = draw(st.integers(min_value=0, max_value=0xFFFFFFFF))
     marker = f"// FUNCTION: FUZZ 0x{va:08x}"
     pos = draw(st.integers(min_value=0, max_value=len(lines)))

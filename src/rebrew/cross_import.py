@@ -42,6 +42,7 @@ from rebrew.cli import (
 from rebrew.config import ProjectConfig
 from rebrew.metadata import MATCHED_STATUSES
 from rebrew.similar import DEFAULT_CS_ARCH, DEFAULT_CS_MODE, disasm_signature, similarity_score
+from rebrew.utils import atomic_write_text, read_source_text
 
 console = Console(stderr=True)
 
@@ -153,11 +154,51 @@ def _target_bytes_by_va(cfg: ProjectConfig, vas: dict[int, int]) -> dict[int, by
     return out
 
 
+def _disasm_sizes(cfg: ProjectConfig, vas: list[int]) -> tuple[dict[int, int], list[int]]:
+    """Disassembly-derived sizes for sizeless registry entries.
+
+    Returns ``(sizes, refused)``: VAs whose extent the disassembler derives
+    cleanly (terminated by a real ``ret``, never by a branch-merge ``jmp``)
+    and VAs it cannot size.  Sizes feed the structural match bytes; refusals
+    surface the ``sizeless, use --va`` guidance instead of silently dropping
+    the function from every match.
+    """
+    from rebrew.binary_loader import function_extent_from_disasm
+
+    sizes: dict[int, int] = {}
+    refused: list[int] = []
+    for va in vas:
+        try:
+            got = function_extent_from_disasm(cfg.target_binary, va, with_kind=True)
+        except (OSError, ValueError):
+            got = None
+        if got is None:
+            refused.append(va)
+            continue
+        extent, kind = got
+        if kind != "ret" or extent <= 0:
+            refused.append(va)
+            continue
+        sizes[va] = extent
+    return sizes, refused
+
+
+def _sizeless_vas(cfg: ProjectConfig) -> tuple[dict[int, int], list[int]]:
+    """Sizeless registry entries (``canonical_size`` 0/missing), split into
+    disassembly-sized matches and refusals (see :func:`_disasm_sizes`)."""
+    registry = _registry(cfg)
+    sizeless = [va for va, reg in registry.items() if not int(reg.get("canonical_size") or 0)]
+    return _disasm_sizes(cfg, sizeless)
+
+
 def matched_source_bytes(cfg_src: ProjectConfig) -> dict[int, bytes]:
     """Source side: target bytes of the source target's matched functions.
 
     Only functions whose metadata STATUS is EXACT/RELOC/PROVEN participate —
-    they are the ones whose source can be trusted to reproduce.
+    they are the ones whose source can be trusted to reproduce.  Entries with
+    no registry size fall back to the disassembly-derived extent (ret-ended
+    only); ones the disassembler cannot size are skipped with the
+    ``sizeless, use --va`` guidance on the result rows.
     """
     statuses = _annotations_by_va(cfg_src)
     registry = _registry(cfg_src)
@@ -166,12 +207,54 @@ def matched_source_bytes(cfg_src: ProjectConfig) -> dict[int, bytes]:
         for va, reg in registry.items()
         if reg.get("canonical_size") and statuses.get(va, ("", ""))[0] in MATCHED_STATUSES
     }
+    sizeless = [
+        va
+        for va, reg in registry.items()
+        if not int(reg.get("canonical_size") or 0)
+        and statuses.get(va, ("", ""))[0] in MATCHED_STATUSES
+    ]
+    if sizeless:
+        disasm_sizes, _refused = _disasm_sizes(cfg_src, sizeless)
+        vas.update(disasm_sizes)
     return _target_bytes_by_va(cfg_src, vas)
+
+
+def sizeless_dest_vas(cfg_dst: ProjectConfig) -> tuple[dict[int, int], list[int]]:
+    """Destination-side sizeless entries: ``(disasm_sizes, refused)``.
+
+    Public (no leading underscore) so the CLI can attach the ``sizeless,
+    use --va`` guidance rows for the refusals.
+    """
+    return _sizeless_vas(cfg_dst)
+
+
+def sizeless_warning(size: int) -> str:
+    """Warning attached to a match sized by disassembly, not the registry."""
+    return (
+        "warning: no registry size — matched on the disassembly-derived "
+        f"extent ({size}B); pass --va to confirm"
+    )
+
+
+def merge_sizeless_warning(res: dict[str, Any], size: int | None) -> dict[str, Any]:
+    """Attach :func:`sizeless_warning` to *res* when it reports no message.
+
+    A verification message of its own (a real mismatch explanation) wins;
+    the sizing caveat only fills the gap.
+    """
+    if size is not None and not res.get("message"):
+        res["message"] = sizeless_warning(size)
+    return res
 
 
 def unmatched_dest_bytes(cfg_dst: ProjectConfig, only_va: int | None = None) -> dict[int, bytes]:
     """Destination side: target bytes of the destination's NOT-yet-matched
-    functions (anything whose STATUS is not EXACT/RELOC/PROVEN)."""
+    functions (anything whose STATUS is not EXACT/RELOC/PROVEN).
+
+    Entries with no registry size fall back to the disassembly-derived
+    extent (ret-ended only); ones the disassembler cannot size stay out of
+    the match and surface as ``sizeless, use --va`` rows from
+    :func:`sizeless_dest_vas`."""
     statuses = _annotations_by_va(cfg_dst)
     registry = _registry(cfg_dst)
     vas = {
@@ -180,7 +263,21 @@ def unmatched_dest_bytes(cfg_dst: ProjectConfig, only_va: int | None = None) -> 
         if reg.get("canonical_size") and statuses.get(va, ("", ""))[0] not in MATCHED_STATUSES
     }
     if only_va is not None:
-        vas = {only_va: vas[only_va]} if only_va in vas else {}
+        if only_va in vas:
+            vas = {only_va: vas[only_va]}
+        elif statuses.get(only_va, ("", ""))[0] in MATCHED_STATUSES:
+            # ``--va`` must not bypass the matched-STATUS filter: an already
+            # EXACT/RELOC function whose registry entry was filtered out above
+            # would otherwise be re-imported and possibly demoted.
+            vas = {}
+        else:
+            disasm_sizes, _refused = _disasm_sizes(cfg_dst, [only_va])
+            vas = disasm_sizes
+    else:
+        _disasm_sizes_out, _ = _sizeless_vas(cfg_dst)
+        for va, size in _disasm_sizes_out.items():
+            if statuses.get(va, ("", ""))[0] not in MATCHED_STATUSES:
+                vas[va] = size
     return _target_bytes_by_va(cfg_dst, vas)
 
 
@@ -189,16 +286,22 @@ def unmatched_dest_bytes(cfg_dst: ProjectConfig, only_va: int | None = None) -> 
 # ---------------------------------------------------------------------------
 
 #: A ``// FUNCTION: MOD 0xVA`` or ``/* FUNCTION: MOD 0xVA */`` marker line.
+#: ``\r?`` before the anchor: ``$`` matches at the end of a ``\r\n`` line only
+#: after the ``\r``, which ``[ \t]*`` cannot consume, so a CRLF source matched
+#: no marker at all ("no FUNCTION/LIBRARY/STUB marker found").
 _MARKER_RE = re.compile(
     r"^(?P<indent>[ \t]*)(?P<open>//|/\*)\s*(?P<type>FUNCTION|LIBRARY|STUB)\s*:\s+"
-    r"(?P<module>[^\s]+)\s+(?P<va>0x[0-9a-fA-F]+)(?P<close>\s*\*/)?[ \t]*$"
+    r"(?P<module>[^\s]+)\s+(?P<va>0x[0-9a-fA-F]+)(?P<close>\s*\*/)?[ \t]*\r?$"
 )
 
 #: A ``// KEY: value`` (or ``/* KEY: value */``) line inside a marker block.
 _KV_RE = re.compile(r"^[ \t]*(?://|/\*)[ \t]*[A-Za-z_][A-Za-z0-9_]*:[ \t]*")
 
-#: A ``// SIZE: N`` key-value line inside the marker block.
-_SIZE_KV_RE = re.compile(r"^[ \t]*//[ \t]*SIZE:[ \t]*\S+")
+#: A ``// SIZE: N`` or ``/* SIZE: N */`` key-value line inside the marker block.
+#: The block form must be matched too: the annotation parser accepts it and is
+#: last-wins, so inserting a second `// SIZE` before an existing `/* SIZE: */`
+#: left the SOURCE's size in force for the destination.
+_SIZE_KV_RE = re.compile(r"^[ \t]*(?://|/\*)[ \t]*SIZE:[ \t]*\S+(?:[ \t]*\*/)?")
 
 
 def _rewrite_marker(text: str, module: str, va: int, size: int) -> str:
@@ -219,14 +322,18 @@ def _rewrite_marker(text: str, module: str, va: int, size: int) -> str:
 
     # 1) Rewrite the FIRST marker to the destination.
     marker_idx = None
+    eol = "\n"
     for idx, line in enumerate(lines):
         m = _MARKER_RE.match(line)
         if m:
             marker_idx = idx
+            # Preserve the source's line ending: hardcoding "\n" left a CRLF
+            # file with one LF-terminated marker line (mixed endings).
+            eol = "\r\n" if line.endswith("\r\n") else "\n"
             close = " */" if m.group("open") == "/*" else ""
             lines[idx] = (
                 f"{m.group('indent')}{m.group('open')} {m.group('type')}: "
-                f"{module} 0x{va:x}{close}\n"
+                f"{module} 0x{va:x}{close}{eol}"
             )
             break
     if marker_idx is None:
@@ -252,14 +359,19 @@ def _rewrite_marker(text: str, module: str, va: int, size: int) -> str:
         collapsed.append(lines[i])
         i += 1
 
-    # 3) SIZE on the (now single) destination block: replace an existing
-    #    SIZE line, else insert right after the marker.
-    for j in range(marker_idx + 1, len(collapsed)):
+    # 3) SIZE on the (now single) destination block: scan only the marker's own
+    #    key-value run (it ends at the first non-KV line), replace a SIZE line,
+    #    else insert right after the marker.  A scan to EOF would clobber a
+    #    LATER function's SIZE in a genuinely multi-function file.
+    block_end = marker_idx + 1
+    while block_end < len(collapsed) and _KV_RE.match(collapsed[block_end]):
+        block_end += 1
+    for j in range(marker_idx + 1, block_end):
         if _SIZE_KV_RE.match(collapsed[j]):
-            collapsed[j] = re.sub(_SIZE_KV_RE, f"// SIZE: {size}", collapsed[j])
+            collapsed[j] = _SIZE_KV_RE.sub(f"// SIZE: {size}", collapsed[j]) + eol
             break
     else:
-        collapsed.insert(marker_idx + 1, f"// SIZE: {size}\n")
+        collapsed.insert(marker_idx + 1, f"// SIZE: {size}{eol}")
     return "".join(collapsed)
 
 
@@ -290,7 +402,7 @@ def import_function(
     """
     src_path = Path(cfg_src.reversed_dir) / src_file
     try:
-        text = src_path.read_text(encoding="utf-8")
+        text, src_encoding = read_source_text(src_path)
     except OSError as exc:
         return {
             "dst_va": f"0x{dst_va:08x}",
@@ -348,8 +460,19 @@ def import_function(
             "message": "",
         }
 
+    # Write with the destination file's own encoding when it exists, else the
+    # source's detected encoding.  The old hardcoded-UTF-8, non-atomic write
+    # could not round-trip a legacy-encoded source and a crash mid-write left a
+    # truncated .c.
+    if dst_path.exists():
+        try:
+            _, dst_encoding = read_source_text(dst_path)
+        except OSError:
+            dst_encoding = src_encoding
+    else:
+        dst_encoding = src_encoding
     try:
-        dst_path.write_text(rewritten, encoding="utf-8")
+        atomic_write_text(dst_path, rewritten, encoding=dst_encoding)
     except OSError as exc:
         return {
             "dst_va": f"0x{dst_va:08x}",
@@ -396,7 +519,7 @@ def import_function(
 def _source_name(src_path: Path) -> str:
     """Best-effort C function name from the source file's text."""
     try:
-        text = src_path.read_text(encoding="utf-8")
+        text, _ = read_source_text(src_path)
     except OSError:
         return src_path.stem
     from rebrew.c_parser import extract_function_name_from_line
@@ -509,7 +632,28 @@ def main(
     results: list[dict[str, Any]] = []
     matched_vas = set(matches)
     statuses_src = _annotations_by_va(cfg_src)
+    # Sizeless refusals: the registry has no size and the disassembler
+    # cannot derive one — surface the guidance instead of silently
+    # dropping the function from every match.
+    _disasm_sized, refused = sizeless_dest_vas(cfg)
+    disasm_sized = {
+        va
+        for va in _disasm_sized
+        if statuses.get(va, ("", ""))[0] not in MATCHED_STATUSES
+        and (only_va is None or va == only_va)
+    }
+    refused = [
+        va
+        for va in refused
+        if statuses.get(va, ("", ""))[0] not in MATCHED_STATUSES
+        and (only_va is None or va == only_va)
+        and va not in dest_bytes
+    ]
     for dst_va in sorted(dest_bytes):
+        # Check the budget BEFORE importing: the old post-import guard ran with
+        # the first import already appended, so ``--limit 0`` still imported one.
+        if limit is not None and len([r for r in results if r["action"] != "skipped"]) >= limit:
+            break
         if dst_va not in matched_vas:
             results.append(
                 {
@@ -527,6 +671,10 @@ def main(
         src_status, src_file = statuses_src.get(src_va, ("", ""))
         dst_status, dst_file = statuses.get(dst_va, ("", ""))
         dst_size = int(registry[dst_va].get("canonical_size") or 0) if dst_va in registry else 0
+        disasm_size: int | None = None
+        if dst_va in disasm_sized:
+            dst_size = len(dest_bytes[dst_va])
+            disasm_size = dst_size
         if not src_file:
             results.append(
                 {
@@ -552,9 +700,22 @@ def main(
             cache=cache,
         )
         res["score"] = score
+        merge_sizeless_warning(res, disasm_size)
         results.append(res)
-        if limit is not None and len([r for r in results if r["action"] != "skipped"]) >= limit:
-            break
+
+    for refused_va in refused:
+        results.append(
+            {
+                "dst_va": f"0x{refused_va:08x}",
+                "src_va": None,
+                "score": None,
+                "action": "skipped",
+                "status": "",
+                "filepath": "",
+                "message": "sizeless function: no registry size and no clean "
+                "disassembly extent — pass --va to match this VA explicitly",
+            }
+        )
 
     if json_output:
         json_print({"target": cfg.target_name, "from": from_target, "results": results})

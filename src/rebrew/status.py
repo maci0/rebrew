@@ -40,7 +40,7 @@ from rebrew.sources import iter_sources
 _W019_INLINE_RE = re.compile(
     r"(?://|/\*)\s*"
     r"(STATUS|ORIGIN|CFLAGS|SKIP|GLOBALS|BLOCKER|BLOCKER_DELTA|SOURCE|NOTE|"
-    r"SECTION|GHIDRA|SIZE|ANALYSIS|PROVE_CONSTRAINTS|TOOLCHAIN)\s*:",
+    r"SECTION|GHIDRA|SIZE|ANALYSIS|PROVE_CONSTRAINTS|TOOLCHAIN|LOCALS|COMMENTS)\s*:",
     re.IGNORECASE,
 )
 # Marker line (same shape as annotation.NEW_FUNC_CAPTURE_RE) — opens a header
@@ -319,7 +319,12 @@ def load_verify_details(cfg: ProjectConfig) -> dict[int, tuple[str, bool]]:
     for va_str, entry_data in entries.items():
         if not isinstance(entry_data, dict):
             continue
-        result = entry_data.get("result", {})
+        # `.get(key, {})` only defaults when the key is ABSENT; a null result
+        # (which the sibling `_load_verify_info` explicitly guards) would raise
+        # AttributeError here and take `rebrew status`/`todo` down with it.
+        result = entry_data.get("result")
+        if not isinstance(result, dict):
+            continue
         status = result.get("status", "")
         if not status:
             continue
@@ -366,8 +371,10 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     # Load function data (same path as rebrew todo)
     try:
         ghidra_funcs, existing, _covered_vas = load_data(cfg)
-    except (OSError, json.JSONDecodeError, KeyError):
-        # Graceful degradation: return zeroed report
+    except (OSError, json.JSONDecodeError, KeyError, ValueError):
+        # Graceful degradation: return zeroed report.  ValueError is what the
+        # loaders raise for a corrupt structure JSON, so omitting it meant the
+        # documented fallback skipped exactly the case it exists for.
         return report
 
     ghidra_vas = {f.va for f in ghidra_funcs}
@@ -557,6 +564,12 @@ def _has_migratable_inline_metadata(
                 # File-borne `// SOURCE: naked` marker (rebrew asm
                 # --inline-c skeletons) — travels with the file like the
                 # naked-guard CFLAGS convention; not migratable metadata.
+                continue
+            if key == "SIZE":
+                # SIZE is the reccmp-native inline contract: lint's W019 never
+                # migrates it (it only reports an inline value that disagrees
+                # with a metadata SIZE), so counting it here told the user to
+                # run `rebrew lint --fix` for a migration that never happens.
                 continue
             if (
                 in_block

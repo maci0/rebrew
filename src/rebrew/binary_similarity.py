@@ -64,10 +64,13 @@ def score_matrix(sigs_a: list[dict[str, Any]], sigs_b: list[dict[str, Any]]) -> 
     """The full N×M similarity score matrix (0-100) between two signature lists.
 
     Each signature is ``{"histogram": {mnemonic: count}, "calls": int,
-    "branches": int}``.  Scores mirror :func:`rebrew.similar.similarity_score`
-    (60% histogram cosine + 20% call agreement + 20% branch agreement) but
-    computed vectorised: one shared mnemonic vocabulary, normalised histogram
-    rows, and a single matrix product for all cosine pairs.
+    "branches": int}``.  Scores mirror the size-less branch of
+    :func:`rebrew.similar.similarity_score` (60% histogram cosine + 20% call
+    agreement + 20% branch agreement; that function adds a 20% size term when
+    both sizes are known, which this matrix cannot — it takes no sizes).  The
+    arithmetic is the same; only the layout differs: computed vectorised with
+    one shared mnemonic vocabulary, normalised histogram rows, and a single
+    matrix product for all cosine pairs.
     """
     if not sigs_a or not sigs_b:
         return np.zeros((len(sigs_a), len(sigs_b)), dtype=float)

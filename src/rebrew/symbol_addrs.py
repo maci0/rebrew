@@ -45,10 +45,14 @@ def main(
 ) -> None:
     """Write ``0xVA,name`` lines for every annotated function, sorted by VA."""
     cfg = require_config(target=target, json_mode=json_output)
+    from rebrew.annotation import min_valid_va_for
+
+    va_floor = min_valid_va_for(cfg)
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     marker = target_marker(cfg)
     rows: list[tuple[int, str]] = []
     skipped = 0
+    skipped_va = 0
     for _path, annos in iter_annotations(sources, target=marker, metadata_dir=cfg.metadata_dir):
         for a in annos:
             if a.marker_type in ("GLOBAL", "DATA"):
@@ -56,6 +60,9 @@ def main(
             name = a.symbol or a.name or ""
             if not name:
                 skipped += 1
+                continue
+            if int(a.va) < va_floor:
+                skipped_va += 1
                 continue
             rows.append((a.va, name))
     rows.sort(key=lambda r: r[0])
@@ -70,12 +77,14 @@ def main(
                 "output": str(output),
                 "symbols": len(rows),
                 "skipped_unnamed": skipped,
+                "skipped_invalid_va": skipped_va,
             }
         )
         return
     console.print(
         f"[green]Wrote {len(rows)} symbol(s) to {output}[/green]"
         + (f" ({skipped} unnamed skipped)" if skipped else "")
+        + (f" ({skipped_va} below-VA-floor skipped)" if skipped_va else "")
     )
 
 

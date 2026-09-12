@@ -180,3 +180,129 @@ class TestReportCli:
         assert "MessageBoxA" in imports_html
         assert "KERNEL32.dll" in imports_html
         assert "Import stubs" in imports_html
+
+
+class TestAdjacencyListLabels:
+    def test_prints_symbols_not_internal_keys(self) -> None:
+        """Node keys are `va:0x…`/`sym:…` internal identifiers; the adjacency
+        fallback must print the symbol (mermaid/dot already do)."""
+        from rebrew.report import _adjacency_list
+
+        nodes = {
+            "va:0x00001000": {"symbol": "func_a", "status": "EXACT", "va": 0x1000},
+            "va:0x00002000": {"symbol": "func_b", "status": "STUB", "va": 0x2000},
+        }
+        edges = [("va:0x00001000", "va:0x00002000")]
+        out = _adjacency_list(nodes, edges, [])
+        assert "func_a [EXACT] 0x00001000 -> func_b" in out
+        assert "va:0x00001000" not in out
+
+    def test_ne_ranges_use_node_keys(self, monkeypatch) -> None:
+        """The NE call-graph augmentation must key ranges like build_graph's
+        nodes (`va:0x…`), not `fcn_…` (phantom nodes)."""
+        from types import SimpleNamespace
+
+        import rebrew.report as report_mod
+
+        monkeypatch.setattr(
+            "rebrew.ne_loader.enumerate_ne_functions",
+            lambda info: [SimpleNamespace(va=0x1000, size=0x20)],
+        )
+        assert report_mod._ne_ranges(None) == [(0x1000, 0x1020, "va:0x00001000")]
+
+
+class TestDecompDevUnitNames:
+    def test_same_basename_files_get_distinct_unit_names(self, tmp_path: Path) -> None:
+        """`rel_display_path(path)` with no base gave bare basenames, so two
+        `pool.c` under different directories collided in report.json."""
+        from types import SimpleNamespace
+
+        from rebrew.report import generate_decomp_dev_report
+
+        src = tmp_path / "src"
+        (src / "engine").mkdir(parents=True)
+        (src / "ui").mkdir()
+        (src / "engine" / "pool.c").write_text(
+            "// FUNCTION: SERVER 0x1000\n// SIZE: 8\nint pool_init(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        (src / "ui" / "pool.c").write_text(
+            "// FUNCTION: SERVER 0x2000\n// SIZE: 8\nint pool_draw(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src,
+            metadata_dir=tmp_path,
+            marker="SERVER",
+            target_name="T",
+            target_binary=tmp_path / "x.dll",
+            source_ext=".c",
+            arch="x86_32",
+            function_list=tmp_path / "functions.txt",
+        )
+        out = tmp_path / "report.json"
+        generate_decomp_dev_report(cfg, out)
+        doc = json.loads(out.read_text(encoding="utf-8"))
+        assert sorted(u["name"] for u in doc["units"]) == ["engine/pool.c", "ui/pool.c"]
+
+
+class TestLibraryHeaderRows:
+    def test_library_header_entries_appear_in_the_table(self, tmp_path: Path) -> None:
+        """`identify-library` writes library_*.h entries that the summary cards
+        count (collect_status scans the headers), but the function table only
+        scanned iter_sources, so they were missing from it."""
+        from types import SimpleNamespace
+
+        from rebrew.report import _collect_functions
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "game.c").write_text(
+            "// FUNCTION: SERVER 0x1000\nint a(void) { return 0; }\n", encoding="utf-8"
+        )
+        (src / "library_msvcrt.h").write_text(
+            "// LIBRARY: SERVER 0x2000\n// _malloc\n// SIZE: 64\n", encoding="utf-8"
+        )
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src,
+            metadata_dir=tmp_path,
+            marker="SERVER",
+            target_name="T",
+            source_ext=".c",
+            arch="x86_32",
+        )
+        rows = _collect_functions(cfg)
+        lib_rows = [r for r in rows if r["va"] == 0x2000]
+        assert len(lib_rows) == 1
+        assert "malloc" in lib_rows[0]["name"]
+        assert lib_rows[0]["file"] == "library_msvcrt.h"
+
+    def test_library_header_entries_are_graph_nodes(self, tmp_path: Path) -> None:
+        """The call graph must show library-header functions too (the summary
+        and the table do); graph.html previously omitted them entirely."""
+        from types import SimpleNamespace
+
+        from rebrew.depgraph import build_graph
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "game.c").write_text(
+            "// FUNCTION: SERVER 0x1000\nint a(void) { return 0; }\n", encoding="utf-8"
+        )
+        (src / "library_msvcrt.h").write_text(
+            "// LIBRARY: SERVER 0x2000\n// _malloc\n// SIZE: 64\n", encoding="utf-8"
+        )
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src,
+            metadata_dir=tmp_path,
+            marker="SERVER",
+            target_name="T",
+            source_ext=".c",
+            arch="x86_32",
+        )
+        nodes, _edges, _dispatch = build_graph(src, cfg=cfg)
+        assert "va:0x00002000" in nodes
+        assert nodes["va:0x00002000"]["file"] == "library_msvcrt.h"

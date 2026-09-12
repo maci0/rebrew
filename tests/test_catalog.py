@@ -190,7 +190,86 @@ class TestGenerateCatalog:
 
 
 class TestGenerateDataJson:
-    def test_basic(self) -> None:
+    @staticmethod
+    def _laid_out(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+        """Fake a binary layout covering 0x10000000 so annotations emit."""
+        from types import SimpleNamespace
+
+        bin_path = tmp_path / "t.dll"
+        bin_path.write_bytes(b"\x00" * 0x3000)
+        info = SimpleNamespace(
+            image_base=0x10000000,
+            text_raw_offset=0,
+            data=b"\x00" * 0x3000,
+            sections={
+                ".text": SimpleNamespace(
+                    va=0x10000000, size=0x3000, file_offset=0, raw_size=0x3000
+                ),
+            },
+        )
+        monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda p: info)
+        monkeypatch.setattr("rebrew.catalog.grid.load_ghidra_data_labels", lambda src: {})
+        monkeypatch.setattr("rebrew.catalog.grid.get_globals", lambda src, cfg=None: {})
+        return bin_path
+
+    def test_basic(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        entries = [
+            Annotation(
+                va=0x10001000,
+                name="func_a",
+                status="EXACT",
+                size=64,
+                symbol="_func_a",
+                filepath="/src/func_a.c",
+                cflags="/O2",
+                marker_type="FUNCTION",
+            ),
+        ]
+        funcs = [make_func_entry(0x10001000, 64, "_func_a")]
+        bin_path = self._laid_out(monkeypatch, tmp_path)
+        data = generate_data_json(entries, funcs, text_size=0x3000, bin_path=bin_path)
+        assert isinstance(data, dict)
+        assert "sections" in data
+        assert "summary" in data
+        assert "functions" in data
+        assert data["summary"]["exactMatches"] == 1
+        assert data["summary"]["totalFunctions"] == 1
+
+    def test_empty_data(self) -> None:
+        data = generate_data_json([], [], text_size=0)
+        assert isinstance(data, dict)
+        assert "sections" in data
+        assert "summary" in data
+        assert "functions" in data
+        assert data["summary"]["totalFunctions"] == 0
+        assert data["summary"]["exactMatches"] == 0
+        assert len(data["functions"]) == 0
+
+    def test_near_matching_status_counted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        entries = [
+            Annotation(
+                va=0x10001000,
+                name="func_a",
+                status="NEAR_MATCHING",
+                size=64,
+                symbol="_func_a",
+                filepath="/src/func_a.c",
+                cflags="/O2",
+                marker_type="FUNCTION",
+            ),
+        ]
+        funcs = [make_func_entry(0x10001000, 64, "_func_a")]
+        bin_path = self._laid_out(monkeypatch, tmp_path)
+        data = generate_data_json(entries, funcs, text_size=0x3000, bin_path=bin_path)
+
+        assert data["summary"]["nearMatchCount"] == 1
+        assert data["summary"]["stubCount"] == 0
+
+    def test_no_layout_counters_reconcile_to_zero(self) -> None:
+        """Without a binary layout nothing emits, so every bucket is 0:
+        counters tally emitted functions only, never the raw annotations."""
         entries = [
             Annotation(
                 va=0x10001000,
@@ -205,40 +284,13 @@ class TestGenerateDataJson:
         ]
         funcs = [make_func_entry(0x10001000, 64, "_func_a")]
         data = generate_data_json(entries, funcs, text_size=1000)
-        assert isinstance(data, dict)
-        assert "sections" in data
-        assert "summary" in data
-        assert "functions" in data
-        assert data["summary"]["exactMatches"] == 1
-
-    def test_empty_data(self) -> None:
-        data = generate_data_json([], [], text_size=0)
-        assert isinstance(data, dict)
-        assert "sections" in data
-        assert "summary" in data
-        assert "functions" in data
-        assert data["summary"]["totalFunctions"] == 0
-        assert data["summary"]["exactMatches"] == 0
-        assert len(data["functions"]) == 0
-
-    def test_near_matching_status_counted(self) -> None:
-        entries = [
-            Annotation(
-                va=0x10001000,
-                name="func_a",
-                status="NEAR_MATCHING",
-                size=64,
-                symbol="_func_a",
-                filepath="/src/func_a.c",
-                cflags="/O2",
-                marker_type="FUNCTION",
-            ),
-        ]
-        funcs = [make_func_entry(0x10001000, 64, "_func_a")]
-        data = generate_data_json(entries, funcs, text_size=1000)
-
-        assert data["summary"]["nearMatchCount"] == 1
-        assert data["summary"]["stubCount"] == 0
+        s = data["summary"]
+        assert data["functions"] == {}
+        assert s["totalFunctions"] == 0
+        assert s["exactMatches"] == 0
+        assert s["relocMatches"] == 0
+        assert s["nearMatchCount"] == 0
+        assert s["stubCount"] == 0
 
     def test_error_status_not_counted_as_matched(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

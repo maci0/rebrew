@@ -34,7 +34,7 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import TargetOption, error_exit, iter_annotations, require_config
-from rebrew.sources import iter_sources, target_marker
+from rebrew.sources import iter_sources, source_exts, target_marker
 
 console = Console(stderr=True)
 
@@ -56,7 +56,6 @@ def write_coff_object(
     path: Path,
     functions: list[tuple[str, int, bytes]],
     *,
-    base_offset: int = 0,
     machine: int = _IMAGE_FILE_MACHINE_I386,
 ) -> None:
     """Write a minimal COFF object with one ``.text`` section.
@@ -77,10 +76,10 @@ def write_coff_object(
         if pad > 0:
             body += b"\x00" * pad
         elif pad < 0:
-            # Overlapping placements: clamp to the current end (keeps the
-            # object valid; the symbol still points at the caller's offset).
-            body += blob
-            continue
+            raise ValueError(
+                f"overlapping placement for {name!r} at offset {offset} "
+                f"(section already {len(body)} bytes)"
+            )
         body += blob
         symbols.append((name, offset))
 
@@ -140,7 +139,6 @@ def _synthesize_target_objects(cfg: Any, out_dir: Path) -> list[dict[str, Any]]:
 
     for path, annos in iter_annotations(sources, target=marker, metadata_dir=cfg.metadata_dir):
         fns: list[tuple[str, int, bytes]] = []
-        min_va: int | None = None
         for a in annos:
             if a.marker_type in ("GLOBAL", "DATA"):
                 continue
@@ -148,16 +146,27 @@ def _synthesize_target_objects(cfg: Any, out_dir: Path) -> list[dict[str, Any]]:
             size = int(a.size or 0)
             if size <= 0:
                 continue
-            raw = extract_raw_bytes(cfg.target_binary, va, size)
+            try:
+                raw = extract_raw_bytes(cfg.target_binary, va, size)
+            except Exception:
+                console.print(
+                    f"[yellow]warning:[/yellow] skipping 0x{va:08x} "
+                    f"({a.symbol or a.name or 'unnamed'}): failed to extract bytes"
+                )
+                continue
             if not raw:
                 continue
             fns.append((a.symbol or a.name or f"func_{va:08x}", va, raw))
-            min_va = va if min_va is None else min(min_va, va)
         if not fns:
             continue
-        # Place functions at their (va - min_va) offsets so the object's
+        # write_coff_object writes functions in list order and rejects a
+        # decreasing offset as an overlap; annotations come in source order,
+        # which need not be VA order, so sort by VA first.
+        fns.sort(key=lambda t: t[1])
+        base_va = fns[0][1]
+        # Place functions at their (va - base_va) offsets so the object's
         # address space mirrors the binary layout.
-        placed = [(name, va - (min_va or va), raw) for name, va, raw in fns]
+        placed = [(name, va - base_va, raw) for name, va, raw in fns]
         file_rel = str(path.relative_to(cfg.reversed_dir))
         target_path = out_dir / f"{file_rel}.o"
         target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -195,10 +204,26 @@ def _build_one_object(cfg: Any, base_object: Path) -> None:
     if not source.exists():
         error_exit(f"rebrew-objdiff-build: no source file for {source_rel} ({source})")
 
+    # Per-file override resolution — the same inputs test/verify use, from the
+    # file's own annotation.  Passing empty strings dropped a persisted
+    # per-function TOOLCHAIN/CFLAGS (and the per-module cflags preset), so
+    # objdiff rebuilt the base object with different flags and showed a
+    # mismatch for a function rebrew reports EXACT.
+    from rebrew.annotation import parse_c_file_multi
     from rebrew.cli import resolve_compile_overrides
     from rebrew.compile import compile_to_obj
 
-    toolchain, cflags = resolve_compile_overrides(cfg, source.parent, "", "", "")
+    annos = parse_c_file_multi(
+        source, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
+    )
+    ann = annos[0] if annos else None
+    toolchain, cflags = resolve_compile_overrides(
+        cfg,
+        source.parent,
+        getattr(ann, "toolchain", "") if ann else "",
+        getattr(ann, "cflags", "") if ann else "",
+        getattr(ann, "module", "") if ann else "",
+    )
     obj_path, err = compile_to_obj(
         cfg,
         source,
@@ -211,6 +236,25 @@ def _build_one_object(cfg: Any, base_object: Path) -> None:
     if obj_path is None:
         error_exit(f"rebrew-objdiff-build: compile failed: {err}")
     console.print(f"[green]Built {base_object}[/green]")
+
+
+def _watch_patterns(cfg: Any) -> list[str]:
+    """objdiff watch globs for the project's source tree.
+
+    Derived from ``cfg.reversed_dir`` (the tree the units come from), not a
+    literal ``src/``: a project whose reversed_dir is ``reversed/`` (or whose
+    sources live anywhere else) would never trigger a rebuild on edit, so the
+    GUI kept showing stale diffs.
+    """
+    from rebrew.utils import rel_display_path
+
+    root = getattr(cfg, "root", None)
+    prefix = ""
+    if root:
+        rel = rel_display_path(cfg.reversed_dir, root).replace("\\", "/")
+        if rel not in (".", ""):
+            prefix = f"{rel}/"
+    return [f"{prefix}**/*{ext}" for ext in source_exts(cfg)] + [f"{prefix}**/*.h"]
 
 
 @app.callback(invoke_without_command=True)
@@ -238,7 +282,7 @@ def main(
         "custom_args": [cfg.target_name],
         "build_base": True,
         "units": units,
-        "watch_patterns": ["src/**/*.c", "src/**/*.h"],
+        "watch_patterns": _watch_patterns(cfg),
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(doc, indent=2), encoding="utf-8")

@@ -121,13 +121,18 @@ def parse_structs(source_text: str) -> dict[str, StructDef]:
     type size is unknown (nested structs, bitfields, function pointers) end
     the parseable prefix — the struct keeps the fields before the gap with
     its size set to what is known so far.
+
+    Layouts are built to a fixed point, so a field whose type is a struct
+    declared LATER in the file resolves instead of truncating the layout.
+    C forbids embedding cycles, so the pass count is bounded by the number
+    of structs.
     """
     from rebrew.c_parser import _parse
 
     tree, source = _parse(source_text)
-    structs: dict[str, StructDef] = {}
+    bodies: dict[str, Any] = {}
 
-    def visit(node: Any) -> None:
+    def collect(node: Any) -> None:
         if node.type == "struct_specifier":
             body = next((c for c in node.children if c.type == "field_declaration_list"), None)
             if body is not None:
@@ -145,11 +150,24 @@ def parse_structs(source_text: str) -> dict[str, StructDef]:
                 if not name:
                     name = _struct_name(node, source)
                 if name:
-                    structs[name] = _build_struct(name, body, source, structs)
+                    bodies.setdefault(name, body)
         for child in node.children:
-            visit(child)
+            collect(child)
 
-    visit(tree.root_node)
+    collect(tree.root_node)
+
+    def signature(defs: dict[str, StructDef]) -> dict[str, tuple[int, bool, tuple[Any, ...]]]:
+        return {n: (d.size, d.complete, tuple(d.fields)) for n, d in defs.items()}
+
+    structs: dict[str, StructDef] = {}
+    for _ in range(len(bodies) + 1):
+        updated = {
+            name: _build_struct(name, body, source, structs) for name, body in bodies.items()
+        }
+        if signature(updated) == signature(structs):
+            structs = updated
+            break
+        structs = updated
     return structs
 
 
@@ -189,25 +207,37 @@ def _field_align(spelling: str, size: int, known: dict[str, StructDef] | None) -
     text = spelling.strip()
     if text.endswith("]"):
         base, _, _count = text[:-1].rpartition("[")
-        base_size = type_size(base.strip(), known)
-        return min(base_size, 4) if base_size else 1
+        base = base.strip()
+        base_size = type_size(base, known)
+        if base_size is None:
+            return 1
+        # An array aligns by its element: ``double arr[2]`` is 8-aligned, not
+        # capped at 4 like a scalar 8-byte type would be.
+        return _field_align(base, base_size, known)
     if text == "double":
         return 8
     return min(size, 4) if size else 1
 
 
-def check_struct(declared: StructDef, evidence: dict[int, int]) -> list[dict[str, object]]:
+def check_struct(
+    declared: StructDef,
+    evidence: dict[int, int],
+    known_structs: dict[str, StructDef] | None = None,
+) -> list[dict[str, object]]:
     """Validate *declared* field offsets against *evidence* (offset → width).
 
     Returns a list of findings; empty means the declaration covers every
     evidenced offset with a compatible width.  Each finding names the
     offset, the evidenced width, and what the declaration has there
     (``missing`` when no field covers it, ``width`` when the covering
-    field is narrower).
+    field is narrower).  Pass *known_structs* so a field whose type is
+    another declared struct gets its real span instead of a zero-width one
+    (which would report every read inside it as ``missing``).
     """
     findings: list[dict[str, object]] = []
     spans = [
-        (off, off + (type_size(spelling) or 0), name) for name, spelling, off in declared.fields
+        (off, off + (type_size(spelling, known_structs) or 0), name)
+        for name, spelling, off in declared.fields
     ]
     for ev_off, ev_width in sorted(evidence.items()):
         cover = next(

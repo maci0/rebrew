@@ -54,6 +54,33 @@ class TestStubRegistration:
         assert result.exit_code == main_mod.EXIT_ERROR
         assert "could not load" in result.output
 
+    def test_stub_cmd_escapes_markup(self) -> None:
+        """Raw exception text is markup-escaped: a `[bold]` in the error
+        must render literally, never as Rich formatting."""
+        from rich.console import Console
+
+        stub = main_mod._make_stub_cmd("rebrew.[bold]evil", ImportError("[red]boom"))
+        console = Console(record=True, width=200)
+        import rebrew.main as m
+
+        orig, m.console = m.console, console
+        try:
+            with pytest.raises(typer.Exit), console.capture() as cap:
+                stub()
+        finally:
+            m.console = orig
+        assert "[bold]evil" in cap.get()
+        assert "[red]boom" in cap.get()
+
+    def test_all_commands_have_panels(self) -> None:
+        """Every registered command has a `_COMMAND_PANELS` entry — None
+        grouping renders outside any panel, hiding the command."""
+        registered = {_n for _n, _m, _h in main_mod._SINGLE_COMMANDS} | {
+            _n for _n, _m, _h in main_mod._MULTI_COMMANDS
+        }
+        missing = registered - set(main_mod._COMMAND_PANELS)
+        assert not missing, f"commands without a help panel: {sorted(missing)}"
+
 
 class TestMainEntry:
     def test_value_error_handled(self, monkeypatch: pytest.MonkeyPatch) -> None:

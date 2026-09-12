@@ -335,6 +335,42 @@ class TestCollectStatus:
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.verify_info is None
 
+    def test_verify_cache_null_result_is_skipped(self, tmp_path: Path) -> None:
+        """`"result": null` is a known cache shape (the sibling reader guards
+        it); it must be skipped, not raise AttributeError out of `rebrew status`
+        (and `rebrew todo`, which shares this loader)."""
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "function_structure.json").write_text("[]", encoding="utf-8")
+        cache_dir = tmp_path / ".rebrew"
+        cache_dir.mkdir()
+        (cache_dir / "verify_cache.json").write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "target": "test",
+                    "entries": {"0x1000": {"result": None}},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.verify_info is not None
+        assert report.verify_info.total == 0
+
+    def test_corrupt_structure_json_degrades(self, tmp_path: Path) -> None:
+        """A corrupt function_structure.json raises ValueError from the loader;
+        collect_status must degrade to a zeroed report, not traceback."""
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "function_structure.json").write_text("[{broken", encoding="utf-8")
+
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.total_functions == 0
+
     def test_status_handles_annotated_vas_not_in_ghidra(self, tmp_path: Path) -> None:
         """When source annotations cover VAs that aren't in function_structure.json,
         total_functions must be the union so percentages stay <= 100%."""
@@ -570,7 +606,10 @@ class TestInlineMetadataWarning:
             encoding="utf-8",
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
-        assert report.inline_metadata_warning == 2
+        # Only func_a's `// STATUS:` counts: SIZE is the reccmp-native inline
+        # contract and lint's W019 never migrates it, so counting it nagged the
+        # user to run `rebrew lint --fix` for a migration that never happens.
+        assert report.inline_metadata_warning == 1
 
     def test_markerless_cflags_not_counted(self, tmp_path: Path) -> None:
         """A markerless // CFLAGS (naked-guard #else convention) is not counted.
@@ -1095,3 +1134,19 @@ class TestEffectiveMatches:
         report = collect_status(cfg)
         assert report.effective_matches == 1
         assert report.to_dict()["verify_cache"]["effective_matches"] == 1
+
+
+class TestInlineTableKeyWarning:
+    def test_inline_locals_is_counted(self, tmp_path: Path) -> None:
+        """The inline-key regex claims to mirror annotation.METADATA_KEYS but
+        omitted LOCALS/COMMENTS, so status' W019 count disagreed with lint's."""
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "function_structure.json").write_text("[]", encoding="utf-8")
+        (src / "func_a.c").write_text(
+            "// FUNCTION: TEST 0x1000\n// LOCALS: eax, ecx\nvoid func_a(void) {}\n",
+            encoding="utf-8",
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.inline_metadata_warning == 1

@@ -65,9 +65,17 @@ _EQUIV_FAMILIES: dict[str, tuple[str, ...]] = {
     "jnz": ("jne", "jnz"),
 }
 
-# x86-32 general-purpose register names, collapsed to ``R`` when comparing operands.
+# x86 register names (32-bit and 64-bit GPRs, r8-r15 variants, vector regs),
+# collapsed to ``R`` when comparing operands.
 _REGISTER_RE = re.compile(
-    r"\b(eax|ebx|ecx|edx|esi|edi|ebp|esp|ax|bx|cx|dx|si|di|bp|sp|al|bl|cl|dl|ah|bh|ch|dh)\b",
+    r"\b(?:"
+    r"r(?:ax|bx|cx|dx|si|di|bp|sp)|"
+    r"r(?:8|9|1[0-5])(?:d|w|b)?|"
+    r"[xyz]mm\d+|"
+    r"eax|ebx|ecx|edx|esi|edi|ebp|esp|"
+    r"ax|bx|cx|dx|si|di|bp|sp|"
+    r"al|bl|cl|dl|ah|bh|ch|dh|sil|dil|spl|bpl"
+    r")\b",
 )
 
 
@@ -96,6 +104,22 @@ def _resolve_capstone(value: str | int) -> int:
     except (AttributeError, TypeError):
         # A numeric string ("3" or "0x3") is a valid capstone constant.
         return int(value, 0)
+
+
+def _is_x86_16_or_32(cs_arch: str | int, cs_mode: str | int) -> bool:
+    """True when (arch, mode) are the x86 16/32-bit disassembly modes.
+
+    Capstone mode values are arch-scoped (``CS_MODE_32 == CS_MODE_MIPS32 ==
+    CS_MODE_PPC32 == 4``, ``CS_MODE_16 == CS_MODE_SH2 == 2``), so a mode-only
+    check admits mips32/ppc32/sh2 and the x86-only frame/CFG analyzers would
+    then disassemble those bytes as x86.
+    """
+    try:
+        arch = _resolve_capstone(cs_arch)
+        mode = _resolve_capstone(cs_mode)
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return arch == capstone.CS_ARCH_X86 and mode in (capstone.CS_MODE_16, capstone.CS_MODE_32)
 
 
 @functools.lru_cache(maxsize=8)
@@ -299,13 +323,13 @@ def _verdict(counts: dict[str, int], raw_total: int) -> tuple[str, str]:
     suggestion = suggestions[dominant]
     # A RELOC-dominant verdict is only "RELOC-level" when there are NO real
     # bytes left over — the invalid-reloc sites surface as structural after
-    # the DIR32/REL32 catalog validation.  Saying "the match is RELOC-level"
-    # for a function whose canonical status is NEAR_MATCHING (real bytes
-    # differ) misleads; name the real deltas instead.
-    if dominant == "reloc" and counts["structural"] > 0:
+    # the DIR32/REL32 catalog validation.  Equivalent/register/encoding bytes
+    # are real deltas too (canonical test/verify calls the pair NEAR_MATCHING),
+    # so "the match is RELOC-level" must not be claimed for any of them.
+    if dominant == "reloc" and non_match > counts["reloc"]:
         suggestion = (
             "Most of the delta sits at relocation sites, but "
-            f"{counts['structural']} real byte(s) differ — the match is "
+            f"{non_match - counts['reloc']} real byte(s) differ — the match is "
             "NEAR_MATCHING-level, not RELOC: inspect the structural spans "
             "(likely a wrong call target or global address)."
         )
@@ -499,7 +523,7 @@ def analyze(
         "mutations": mutations,
         "first_mismatch": first_mismatch,
         "frame": _frame_comparison(target_bytes, compiled_bytes, va, cs_arch, cs_mode),
-        "cfg": _cfg_score(target_bytes, compiled_bytes, va, cs_mode),
+        "cfg": _cfg_score(target_bytes, compiled_bytes, va, cs_mode, cs_arch),
     }
 
 
@@ -508,6 +532,7 @@ def _cfg_score(
     compiled_bytes: bytes,
     va: int,
     cs_mode: str | int,
+    cs_arch: str | int = _DEFAULT_CS_ARCH,
 ) -> dict[str, Any] | None:
     """CFG structural similarity (cfg_ged) for the pair — best-effort.
 
@@ -517,9 +542,9 @@ def _cfg_score(
     fails — never raises.
     """
     try:
-        mode = _resolve_capstone(cs_mode)
-        if mode not in (capstone.CS_MODE_16, capstone.CS_MODE_32):
+        if not _is_x86_16_or_32(cs_arch, cs_mode):
             return None
+        mode = _resolve_capstone(cs_mode)
         from rebrew.cfg_ged import cfg_similarity
 
         return cfg_similarity(target_bytes, compiled_bytes, va, mode)
@@ -543,9 +568,9 @@ def _frame_comparison(
     non-x86 modes or when disassembly fails — never raises.
     """
     try:
-        mode = _resolve_capstone(cs_mode)
-        if mode not in (capstone.CS_MODE_16, capstone.CS_MODE_32):
+        if not _is_x86_16_or_32(cs_arch, cs_mode):
             return None
+        mode = _resolve_capstone(cs_mode)
 
         return compare_frames(
             analyze_frame(target_bytes, va, mode),
@@ -974,7 +999,11 @@ def main(
     if result.get("mutations"):
         console.print("[dim]GA mutations to try:[/dim] " + ", ".join(result["mutations"]))
     if blocker_written:
-        console.print(f"[green]Wrote BLOCKER metadata:[/green] {_blocker_text(result)[:80]}...")
+        # `blocker_written` is also True under --dry-run (the caller previews
+        # the write), so the wording must follow the mode — the batch path in
+        # this module already prints "would write".
+        verb = "would write BLOCKER metadata:" if dry_run else "Wrote BLOCKER metadata:"
+        console.print(f"[green]{verb}[/green] {_blocker_text(result)[:80]}...")
 
 
 def main_entry() -> None:

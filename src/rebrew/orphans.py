@@ -41,6 +41,8 @@ def find_orphans(cfg: Any) -> tuple[list[tuple[str, int, str]], list[tuple[str, 
     ``0xdeadbeef``) are reported.
     """
     from rebrew.catalog import cached_function_list, scan_reversed_dir
+    from rebrew.catalog.loaders import load_function_structure
+    from rebrew.config import FUNCTION_STRUCTURE_JSON
     from rebrew.data_metadata import load_data_metadata
     from rebrew.metadata import load_metadata
 
@@ -58,6 +60,19 @@ def find_orphans(cfg: Any) -> tuple[list[tuple[str, int, str]], list[tuple[str, 
                 known_vas.add(va)
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         known_vas = set()
+    try:
+        structure_path = cfg.reversed_dir / FUNCTION_STRUCTURE_JSON
+        for struct_func in load_function_structure(structure_path):
+            if struct_func.va:
+                known_vas.add(struct_func.va)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        pass
+    for va in getattr(cfg, "dll_exports", {}) or {}:
+        try:
+            if int(va):
+                known_vas.add(int(va))
+        except (TypeError, ValueError):
+            continue
     fn_orphans = [
         (module, va, "rebrew-functions.toml")
         for (module, va) in sorted(load_metadata(cfg.metadata_dir))
@@ -73,9 +88,6 @@ def find_orphans(cfg: Any) -> tuple[list[tuple[str, int, str]], list[tuple[str, 
         # they are inventory, not annotations.  Pruning them would delete the
         # import inventory `rebrew data` maintains.
         and str(data_entries[(module, va)].get("section") or "") not in (".idata", ".edata")
-        # A named data entry is claimed by name even without a VA marker —
-        # only unnamed entries with no marker are true orphans.
-        and not str(data_entries[(module, va)].get("name") or "").strip()
     ]
     return fn_orphans, data_orphans
 

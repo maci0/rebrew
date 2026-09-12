@@ -46,6 +46,7 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
+from rebrew.utils import atomic_write_text, read_source_text
 
 console = Console(stderr=True)
 
@@ -162,7 +163,10 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
         var_type = m.group(1).strip()
         name = m.group(2)
         if name not in ("int", "char", "void", "short", "float", "double", "unsigned", "struct"):
-            size_m = re.search(r"\[(\d+)\]", m.group(3))
+            # Accept a hex bound: `extern unsigned char g_table[0x400];` collapsed
+            # to array_size "1" and the stub then claimed a single byte, shifting
+            # every following .data symbol.
+            size_m = re.search(r"\[(0[xX][0-9a-fA-F]+|\d+)\]", m.group(3))
             return {
                 "name": name,
                 "type": var_type,
@@ -751,7 +755,7 @@ def main(
 
     # 4. Generate.
     spec_dict = _load_specials(specials) if specials is not None else {}
-    footer_text = footer.read_text(encoding="utf-8", errors="replace") if footer is not None else ""
+    footer_text = read_source_text(footer)[0] if footer is not None else ""
     content = generate_stubs(unresolved, extern_info, spec_dict, footer_text, called=called)
 
     # Symbols the existing output defines that this run does not reproduce.
@@ -787,7 +791,7 @@ def main(
             print(content)
         return
 
-    target.write_text(content, encoding="utf-8")
+    atomic_write_text(target, content, encoding="utf-8")
     console.print(f"[green]gen-stubs:[/] wrote {target} ({len(unresolved)} symbols)")
 
 

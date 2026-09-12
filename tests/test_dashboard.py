@@ -65,6 +65,27 @@ def _write_data(db_dir: Path, target: str = "server_dll") -> Path:
                         "state": "stub",
                         "functions": [{"va": 0x10002000}],
                     },
+                    {
+                        "start": 0x10001060,
+                        "end": 0x10001070,
+                        "span": 16,
+                        "state": "proven",
+                        "functions": [],
+                    },
+                    {
+                        "start": 0x10001070,
+                        "end": 0x10001080,
+                        "span": 16,
+                        "state": "size_mismatch",
+                        "functions": [],
+                    },
+                    {
+                        "start": 0x10001080,
+                        "end": 0x10001090,
+                        "span": 16,
+                        "state": "compile_error",
+                        "functions": [],
+                    },
                 ],
             },
             ".data": {
@@ -157,6 +178,24 @@ class TestQueryLayer:
         assert by_name[".text"]["stub"] == 1
         assert by_name[".text"]["size"] == 128
         assert by_name[".data"]["data"] == 1
+        # All 14 view columns surface: proven/size_mismatch/other are real
+        # columns, not dropped.
+        assert by_name[".text"]["proven"] == 1
+        assert by_name[".text"]["size_mismatch"] == 1
+        assert by_name[".text"]["other"] == 1
+        assert by_name[".text"]["total_cells"] == (
+            by_name[".text"]["exact"]
+            + by_name[".text"]["reloc"]
+            + by_name[".text"]["near_match"]
+            + by_name[".text"]["stub"]
+            + by_name[".text"]["padding"]
+            + by_name[".text"]["data"]
+            + by_name[".text"]["thunk"]
+            + by_name[".text"]["none"]
+            + by_name[".text"]["proven"]
+            + by_name[".text"]["size_mismatch"]
+            + by_name[".text"]["other"]
+        )
 
     def test_globals(self, dashboard: Dashboard) -> None:
         data = dashboard.globals("server_dll")
@@ -313,6 +352,16 @@ class TestCli:
         assert result.exit_code == 0
         assert "dashboard" in result.output
 
+    def test_target_option_is_not_advertised(self) -> None:
+        """`--target` was accepted and silently ignored (the dashboard serves
+        every target in the DB through per-request ?target=), so it must not
+        appear in the command's options."""
+        from rebrew.dashboard import app
+
+        result = CliRunner().invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "--target" not in result.output
+
 
 class TestEscapeLike:
     """User search terms must match literally, not as SQL LIKE wildcards."""
@@ -354,6 +403,22 @@ class TestHostValidation:
         assert _host_allowed("192.168.1.10:8000", allowed)
         assert not _host_allowed("localhost:8000", allowed)
         assert not _host_allowed("127.0.0.1:8000", allowed)
+
+    def test_wildcard_bind_accepts_loopback_and_local_ips(self) -> None:
+        """`--host 0.0.0.0` binds every interface, so the requests a user
+        actually makes (`localhost`, `127.0.0.1`, the machine's own address)
+        must be answered — the allow-list used to hold only the literal
+        wildcard, so every real request got 403."""
+        from rebrew.dashboard import _host_allowed, _local_interface_ips, allowed_hosts_for
+
+        allowed = allowed_hosts_for("0.0.0.0", 8000)
+        assert _host_allowed("0.0.0.0:8000", allowed)
+        assert _host_allowed("localhost:8000", allowed)
+        assert _host_allowed("127.0.0.1:8000", allowed)
+        assert not _host_allowed("evil.example:8000", allowed)
+        for ip in _local_interface_ips():
+            display = f"[{ip}]" if ":" in ip else ip
+            assert _host_allowed(f"{display}:8000", allowed), ip
 
     def test_handler_rejects_foreign_host(self) -> None:
         """A request whose Host is not the bound host gets 403 without touching the DB."""

@@ -582,6 +582,42 @@ For most rebrew projects — where you have Ghidra exports with function names
 and the GA engine needs fast inference — **start with a single model**. Add
 Phase 2 later if naming quality becomes a bottleneck.
 
+### SK²Decompile lineage: what is adopted and what changes
+
+Part 6 is an adaptation of SK²Decompile
+([repo](https://github.com/albertan017/LLM4Decompile/tree/main/sk2decompile),
+arXiv:2509.22114), not an independent design. The SFT config above uses its
+LLaMA-Factory `sk2decompile` template, and the two-phase structure follows the
+upstream `sk2decompile-struct-6.7b` (pseudo2norm) then
+`sk2decompile-ident-6.7b` (norm2code) models.
+
+Adopted:
+
+- Two-phase decomposition. Phase 1 (Skeleton) normalizes pseudo-code into a
+  placeholder IR that carries structure only; Phase 2 (Skin) rewrites it with
+  real identifiers. The `Option B` diagram above is the upstream architecture.
+- One model per phase, each with its own objective and reward.
+- tree-sitter-based pseudo-code normalization and source obfuscation.
+
+Changed for MSVC6/Win32 byte matching:
+
+- **Target**: SK²Decompile trains on Linux-x64 ELF with IDA pseudo-code, and
+  its README warns that other architectures or languages may degrade. rebrew
+  targets MSVC6/Win32 x86-32 with Ghidra/IDA pseudo-code.
+- **Reward**: Phase 1 uses this project's byte-match objective
+  (`compile_and_compare`); Phase 2 uses embedding similarity for naming.
+  Variable names do not affect MSVC6 codegen, so naming is invisible to the
+  byte reward, which is why the two objectives are split at all.
+- **Default**: start with a single end-to-end model (`Option A`), because the
+  GA loop needs fast inference and symbols are usually available from the
+  Ghidra/IDA export. Add Phase 2 only when readability is the bottleneck.
+  SK²Decompile always runs both phases.
+- **Goal**: byte-exact reconstruction, stricter than SK²Decompile's
+  re-executability and R2I metrics, and not the same optimization target.
+
+Status: not implemented. No model, dataset, or training run exists in this
+repo; this section is the design of record.
+
 ### Source Normalization via tree-sitter
 
 Source normalization to placeholders is valuable as **training-time data

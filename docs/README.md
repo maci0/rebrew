@@ -25,6 +25,7 @@
 | [DB_FORMAT.md](DB_FORMAT.md) | SQLite schema for `coverage.db`, JSON intermediate format, REST API |
 | [NAME_NORMALIZATION.md](NAME_NORMALIZATION.md) | Cross-tool function name normalization (Ghidra/r2/IDA → canonical `func_` form) |
 | [TOOLCHAIN.md](TOOLCHAIN.md) | The toolchain zoo — compilers (MSVC 1.52–7, Borland C++ 5.5, Open Watcom, Delphi 1.0), docker images, reproducible builds (`rebrew toolchain vendor`/`smoke`), external tools, Python deps |
+| [SDK_MEDIA.md](SDK_MEDIA.md) | DirectX and Platform SDK media provenance: verified archive.org checksums, gaps, official and license-clean sources |
 | [OMF_NOTES.md](OMF_NOTES.md) | OMF object format research (Watcom wcc386 32-bit + MSVC 1.52 16-bit dialects, reloc decoding) |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Module map, data flow, metadata routing rules, architectural conventions |
 | [CI.md](CI.md) | CI pipeline: lint/test/package/cli-contract jobs, gates, reproducibility |
@@ -36,13 +37,13 @@
 | Document | Description |
 |----------|-------------|
 | [GHIDRA_SYNC.md](GHIDRA_SYNC.md) | `rebrew sync` feature matrix and known issues (current state; see [prd/07](prd/07-ghidra-sync.md) for roadmap) |
-| [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) | `rebrew binsync-export` / `rebrew binsync-import` bidirectional bridge (real types + struct fields, `--module`, `--git`, `--accept-binsync`; see [prd/09](prd/09-binsync-full.md) for full `libbs` PRD) |
+| [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) | `rebrew binsync-init/export/import/diff/overlay`: declib-backed state bridge (names, prototypes, globals, structs, enums, typedefs, locals, comments) |
 
 ## Ecosystem
 
 | Document | Description |
 |----------|-------------|
-| [ECOSYSTEM.md](ECOSYSTEM.md) | Cross-repo architecture: how rebrew fits with rebrew-toolchains, resembl, recoverage, recompile, reagent, relumea, decompedia, recondb — mermaid diagrams |
+| [ECOSYSTEM.md](ECOSYSTEM.md) | Cross-repo architecture: how rebrew fits with rebrew-toolchains, resembl, recoverage, reportal, recompile, reagent, relumea, decompedia, recondb — mermaid diagrams |
 | [architecture.drawio](architecture.drawio) | Same map in diagrams.net: ecosystem, compile loop, toolchains, FLIRT/resembl/GA, reverse data flows, config/store tiers, data/globals/layout, LLM training export, AI-decomp research |
 
 ## Project

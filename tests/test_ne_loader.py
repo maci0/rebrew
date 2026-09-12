@@ -138,6 +138,15 @@ class TestParseNeHeader:
 
 
 class TestParseSegments:
+    def test_iterated_flag_bit(self) -> None:
+        """NE_SEGFLAGS_ITERATED is 0x0008 (0x0002 is ALLOCATED): the old 0x02
+        constant marked allocated segments iterated and missed real ones."""
+        raw = _build_ne(segments=[(_CODE, 0x0002), (_DATA, 0x0008)])
+        hdr = parse_ne_header(raw, 0x100)
+        segs = parse_segments(raw, 0x100, hdr)
+        assert segs[0].is_iterated is False
+        assert segs[1].is_iterated is True
+
     def test_sector_offsets(self) -> None:
         raw = _build_ne(segments=[(_CODE, 0x01), (_DATA, 0x00)])
         hdr = parse_ne_header(raw, 0x100)
@@ -283,3 +292,21 @@ class TestEnumerateFunctions:
         info = load_binary(p)
         assert info.sections["SEG1"].raw_size == 0
         assert info.sections["SEG2"].raw_size == len(_DATA)
+
+
+class TestSegmentSectorZero:
+    def test_sector_offset_zero_is_not_file_content(self, tmp_path: Path) -> None:
+        """NE sector offset 0 means "not present in the file" (the segment is
+        allocated zero-filled); reading offset 0 reported the MZ/NE header as
+        the segment's content."""
+        from rebrew.analysis import extract_bytes
+        from rebrew.binary_loader import load_binary
+
+        raw = bytearray(_build_ne(segments=[(_CODE, 0x01)]))
+        struct.pack_into("<H", raw, 0x100 + 0x40, 0)  # segment 1: sector offset 0
+        p = tmp_path / "nores.ne"
+        p.write_bytes(bytes(raw))
+        info = load_binary(p)
+        seg_info = info.sections["SEG1"]
+        assert seg_info.raw_size == 0
+        assert extract_bytes(info, seg_info.va, 0x10) == b""

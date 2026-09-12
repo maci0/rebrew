@@ -1148,6 +1148,23 @@ class TestW021W022:
         assert len(w022) == 1
         assert w022[0][0] == 3
 
+    def test_all_zero_inits_reported(self, tmp_path: Path) -> None:
+        """Every file-scope zero initializer warns — the check must not stop
+        after the first site."""
+        from rebrew.lint import lint_file
+
+        content = (
+            "// FUNCTION: SERVER 0x1000\n"
+            "int g_a[4] = {0};\n"
+            "int g_b = 0;\n"
+            "int g_c[8] = {0};\n"
+            "void f(void) {}\n"
+        )
+        f = _write_c(tmp_path, "all.c", content)
+        result = lint_file(f)
+        w022 = sorted(line for line, c, _ in result.warnings if c == "W022")
+        assert w022 == [2, 3, 4]
+
 
 class TestDuplicateVAMultiBlock:
     """E013 must flag a duplicate VA in a LATER block of a multi-function file
@@ -1254,6 +1271,26 @@ class TestAnnotationStaleness:
         assert _build_function_index(cfg) is None
 
 
+class TestBuildFunctionIndexVaFloor:
+    def test_va_zero_kept_for_16bit(self, tmp_path: Path) -> None:
+        """DOS targets address code from segment 0: VA 0 is legitimate
+        (min_valid_va_for == 0), so dropping it fired a false W028 on every
+        `// FUNCTION: GAME 0x0` annotation."""
+        from rebrew.lint import _build_function_index
+
+        fl = tmp_path / "functions.txt"
+        fl.write_text("0x0 8 seg_start\n0x100 16 other\n", encoding="utf-8")
+        cfg = _make_cfg()
+        cfg.function_list = str(fl)
+        cfg.arch = "x86_16"
+
+        index = _build_function_index(cfg)
+        assert index is not None
+        starts, spans = index
+        assert 0 in starts
+        assert [s[2] for s in spans] == ["seg_start", "other"]
+
+
 class TestW029RedundantCflags:
     """W029: flag settings that only repeat the fallback chain (now in lint)."""
 
@@ -1352,6 +1389,41 @@ class TestW029RedundantCflags:
         assert result.exit_code == 0, result.output
         # W029 should appear either via the attributed file or synthetic entry
         assert "W029" in result.output or "redundant cflags" in result.output.lower()
+
+    def test_passed_never_exceeds_total(self, tmp_path: Path) -> None:
+        """The synthetic W029 entries carry no file: counting them as passed
+        printed 'Checked 1 files: 2 passed' and a JSON passed > total."""
+        import json as json_mod
+        from unittest.mock import patch
+
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+
+        src = tmp_path / "reversed"
+        src.mkdir()
+        (src / "foo.c").write_text(
+            "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8"
+        )
+        (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src,
+            metadata_dir=tmp_path,
+            source_ext=".c",
+            cflags="/O2 /Gd",
+            cflags_presets={"SERVER": "/O2 /Gd"},  # redundant preset → synthetic W029 entry
+            marker="SERVER",
+            function_list=tmp_path / "funcs.txt",
+            library_modules=set(),
+            target_name="",
+        )
+        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
+        with patch("rebrew.lint.load_config", return_value=cfg):
+            result = CliRunner().invoke(app, ["--json"])
+        assert result.exit_code == 0, result.output
+        data = json_mod.loads(result.output)
+        assert data["passed"] <= data["total"]
 
     def _lint_cfg(self, tmp_path: Path, src: Path, **overrides: object) -> SimpleNamespace:
         cfg = SimpleNamespace(
@@ -1714,3 +1786,203 @@ class TestSupportTu:
         f = self._write(tmp_path, "bare.c", "int x;\n")
         result = lint_file(f, None)
         assert [(c) for _, c, _ in result.errors] == ["E001"]
+
+
+class TestE004StatusValue:
+    def test_unknown_status_flagged(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x10001000"]\nstatus = "TOTALLY_MATCHED"\n', encoding="utf-8"
+        )
+        content = "// FUNCTION: SERVER 0x10001000\nint foo(void) { return 0; }\n"
+        f = _write_c(tmp_path, "foo.c", content)
+        result = lint_file(f)
+        assert any((c == "E004" for _, c, _ in result.errors))
+
+    def test_lowercase_inline_status_not_flagged(self, tmp_path: Path) -> None:
+        """canonical_status upper-cases, so `exact` is EXACT to test/verify;
+        lint must compare canonicalized values, not the raw spelling."""
+        f = _make_c_file(
+            tmp_path,
+            content=(
+                "// FUNCTION: SERVER 0x10001000\n// STATUS: exact\n// SIZE: 8\n"
+                "int foo(void) { return 0; }\n"
+            ),
+        )
+        result = lint_file(f)
+        assert not any(c == "E004" for _, c, _ in result.errors)
+
+    def test_w019_hex_metadata_size_agrees_numerically(self, tmp_path: Path) -> None:
+        """E008 accepts `size = "0x20"`, so W019 must compare SIZE numerically:
+        a textual compare warned about `// SIZE: 32` vs metadata `0x20`."""
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x10001000"]\nsize = "0x20"\n', encoding="utf-8"
+        )
+        f = _make_c_file(
+            tmp_path,
+            content="// FUNCTION: SERVER 0x10001000\n// SIZE: 32\nint foo(void) { return 0; }\n",
+        )
+        result = lint_file(f)
+        assert not any(c == "W019" and "disagrees" in m for _, c, m in result.warnings)
+
+    def test_known_status_not_flagged(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8"
+        )
+        content = "// FUNCTION: SERVER 0x10001000\nint foo(void) { return 0; }\n"
+        f = _write_c(tmp_path, "foo.c", content)
+        result = lint_file(f)
+        assert not any((c == "E004" for _, c, _ in result.errors))
+
+
+class TestE008SizeValue:
+    def test_non_integer_size_flagged(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x10001000"]\nsize = "abc"\n', encoding="utf-8"
+        )
+        content = "// FUNCTION: SERVER 0x10001000\nint foo(void) { return 0; }\n"
+        f = _write_c(tmp_path, "foo.c", content)
+        result = lint_file(f)
+        assert any((c == "E008" for _, c, _ in result.errors))
+
+    def test_integer_size_ok(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x10001000"]\nsize = 8\n', encoding="utf-8"
+        )
+        content = "// FUNCTION: SERVER 0x10001000\nint foo(void) { return 0; }\n"
+        f = _write_c(tmp_path, "foo.c", content)
+        result = lint_file(f)
+        assert not any((c == "E008" for _, c, _ in result.errors))
+
+    def test_hex_string_size_ok(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x10001000"]\nsize = "0x20"\n', encoding="utf-8"
+        )
+        content = "// FUNCTION: SERVER 0x10001000\nint foo(void) { return 0; }\n"
+        f = _write_c(tmp_path, "foo.c", content)
+        result = lint_file(f)
+        assert not any((c == "E008" for _, c, _ in result.errors))
+
+
+class TestW019SizeDisagreement:
+    def test_inline_vs_metadata_size_disagrees(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x10001000"]\nsize = 16\n', encoding="utf-8"
+        )
+        f = _write_c(
+            tmp_path,
+            "foo.c",
+            "// FUNCTION: SERVER 0x10001000\n// SIZE: 8\nint foo(void) { return 0; }\n",
+        )
+        result = lint_file(f)
+        assert any(c == "W019" and "disagrees" in m for _, c, m in result.warnings)
+
+    def test_matching_size_no_warning(self, tmp_path: Path) -> None:
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x10001000"]\nsize = 8\n', encoding="utf-8"
+        )
+        f = _write_c(
+            tmp_path,
+            "foo.c",
+            "// FUNCTION: SERVER 0x10001000\n// SIZE: 8\nint foo(void) { return 0; }\n",
+        )
+        result = lint_file(f)
+        assert not any(c == "W019" and "disagrees" in m for _, c, m in result.warnings)
+
+
+class TestBlockCommentMarkers:
+    def test_block_comment_marker_is_valid(self, tmp_path: Path) -> None:
+        """`/* STUB: MAIN 0x1000 */` is the form intake emits for C89-strict
+        profiles (tc20/msvc1.52) and annotation.NEW_FUNC_CAPTURE_RE reads it,
+        so lint must not report E001/E002 on it."""
+        f = _write_c(
+            tmp_path,
+            "stub.c",
+            "/* STUB: MAIN 0x00401000 */\n/* SIZE: 16 */\nint f(void) { return 0; }\n",
+        )
+        result = lint_file(f, cfg=None)
+        codes = [code for _, code, _ in result.errors]
+        assert "E001" not in codes
+        assert "E002" not in codes
+
+
+class TestMultiExtensionFileFilter:
+    def test_explicit_files_match_any_configured_ext(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`source_ext = ".c,.cpp"` must accept a .cpp argument; comparing the
+        raw comma-joined string against `f.suffix` checked 0 files and exited 0,
+        masking every issue in them."""
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "T"\n\n'
+            '[targets.T]\nbinary = "t.exe"\nsource_ext = ".c,.cpp"\n',
+            encoding="utf-8",
+        )
+        src = tmp_path / "src" / "T"
+        src.mkdir(parents=True)
+        f = src / "bad.cpp"
+        f.write_text("// FUNCTION: T 0x00401000\nint f(void) { return 0; }\n", encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, [str(f)])
+        assert "Checked 0 files" not in result.output
+        assert "Checked 1 files" in result.output
+
+
+class TestFixTableTypedInlineKey:
+    def test_table_key_does_not_crash_fix(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`// PROVE_CONSTRAINTS:` (a dict in the metadata) cannot be built from
+        an inline scalar; --fix must report it instead of raising out of
+        `update_field`."""
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            metadata_dir=tmp_path,
+            reversed_dir=tmp_path / "src",
+            marker="SERVER",
+            source_ext=".c",
+            library_modules=set(),
+            cflags_presets={},
+            default_cflags="/O2",
+            origins=["GAME", "SERVER"],
+        )
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        f = src / "f.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n// PROVE_CONSTRAINTS: foo\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
+        result = CliRunner().invoke(app, ["--fix", str(f)])
+        assert result.exit_code == 0, result.output
+        assert "PROVE_CONSTRAINTS" in result.output
+        assert "// PROVE_CONSTRAINTS: foo" in f.read_text(encoding="utf-8")
+
+
+class TestCommentInteriorIsNotCode:
+    def test_commented_out_naked_body_is_not_code(self, tmp_path: Path) -> None:
+        """A commented-out naked body must not raise E023/W020: the interior of
+        a block comment need not start with `*`, and the old filter only skipped
+        lines that did."""
+        f = _write_c(
+            tmp_path,
+            "old.c",
+            "// FUNCTION: SERVER 0x1000\n"
+            "/* old:\n"
+            "__declspec(naked) void f(void) {\n"
+            "    __asm { mov eax, 1 }\n"
+            "}\n"
+            "*/\n"
+            "int f(void) { return 0; }\n",
+        )
+        result = lint_file(f, cfg=None)
+        assert "E023" not in [code for _, code, _ in result.errors]
+        assert "W020" not in [code for _, code, _ in result.warnings]

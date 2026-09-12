@@ -163,6 +163,13 @@ class TestCheckArchFormat:
         result = check_arch_format(cfg)
         assert result.status == _WARN
 
+    def test_mz_format_is_known(self, tmp_path: Path) -> None:
+        """`format = "mz"` is accepted by the config loader, so the doctor must
+        not report it as unknown (and suggest changing it)."""
+        cfg = _make_cfg(tmp_path, binary_format="mz", arch="x86_16")
+        result = check_arch_format(cfg)
+        assert result.status == _PASS
+
 
 class TestCheckIncludes:
     def test_exists(self, tmp_path: Path) -> None:
@@ -245,6 +252,39 @@ class TestCheckFunctionList:
         assert "2 entries" in result.message
 
     def test_missing_is_warn(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path)
+        result = check_function_list(cfg)
+        assert result.status == _WARN
+
+    def test_corrupt_lines_fail(self, tmp_path: Path) -> None:
+        fl = tmp_path / "funcs.txt"
+        fl.write_text("0x1000 func_a\nnot-a-function-line\n0x2000 func_b\n", encoding="utf-8")
+        cfg = _make_cfg(tmp_path)
+        result = check_function_list(cfg)
+        assert result.status == _FAIL
+        assert "1 of 3" in result.message
+
+    def test_comments_and_blanks_ignored(self, tmp_path: Path) -> None:
+        fl = tmp_path / "funcs.txt"
+        fl.write_text("# header\n\n0x1000 func_a\n", encoding="utf-8")
+        cfg = _make_cfg(tmp_path)
+        result = check_function_list(cfg)
+        assert result.status == _PASS
+        assert "1 entries" in result.message
+
+    def test_va_number_lines_are_corrupt(self, tmp_path: Path) -> None:
+        """`VA NUMBER` is malformed (parse_function_list drops it), so a list of
+        only such lines must FAIL, not report a healthy 2-entry list."""
+        fl = tmp_path / "funcs.txt"
+        fl.write_text("0x1000 4096\n0x2000 8192\n", encoding="utf-8")
+        cfg = _make_cfg(tmp_path)
+        result = check_function_list(cfg)
+        assert result.status == _FAIL
+        assert "2 of 2" in result.message
+
+    def test_no_parseable_entries_warns(self, tmp_path: Path) -> None:
+        fl = tmp_path / "funcs.txt"
+        fl.write_text("# only a comment\n\n", encoding="utf-8")
         cfg = _make_cfg(tmp_path)
         result = check_function_list(cfg)
         assert result.status == _WARN
@@ -605,6 +645,20 @@ class TestCheckArchFormat16Bit:
         assert result.status == _PASS
 
 
+class TestCheckIncludes16BitProfiles:
+    """The include check must accept every 16-bit-capable profile
+    check_compiler accepts, not only msvc1.52."""
+
+    def test_tc16_not_warned(self, tmp_path: Path) -> None:
+        from rebrew.doctor import _WARN
+
+        cfg = _make_cfg(tmp_path, arch="x86_16", compiler_profile="tc16")
+        result = check_includes(cfg)
+        # The missing include dir is a real FAIL; the 16-bit guard must not
+        # short-circuit a tc16 project into "configure msvc1.52".
+        assert result.status != _WARN, result.message
+
+
 class TestCrtLinkage:
     def _cfg(self, tmp_path: Path, **overrides: object) -> SimpleNamespace:
         from rebrew.doctor import check_crt_linkage
@@ -712,7 +766,7 @@ class TestOptLevel:
         )
         cfg = self._cfg(tmp_path, cflags="/O2 /Gd")
         res = self.check(cfg)
-        assert res.status == _PASS
+        assert res.status == _WARN
         assert "flag-sweep" in (res.fix or "")
 
     def test_inconclusive_skips(self, tmp_path: Path, monkeypatch: object) -> None:
@@ -832,3 +886,81 @@ class TestCheckBinsyncState:
         r = self._check(tmp_path, binsync_state_dir=str(state))
         assert r.status == _WARN
         assert "not been committed" in r.message
+
+    def test_git_no_commits_warns_never_pass(self, tmp_path: Path) -> None:
+        """A git state dir with no commits has an unchecked relay state —
+        the check must warn, never report ready."""
+        import subprocess
+
+        state = tmp_path / "state"
+        state.mkdir()
+        subprocess.run(["git", "init", "-q", str(state)], check=True)
+        r = self._check(tmp_path, binsync_state_dir=str(state))
+        assert r.status == _WARN
+        assert "no commits" in r.message
+
+    def test_binary_hash_mismatch_warns(self, tmp_path: Path) -> None:
+        """A state dir bound to another binary must never report ready: its
+        addresses do not name this target."""
+        (tmp_path / "test.exe").write_bytes(b"pe-this-binary")
+        state = tmp_path / "state"
+        state.mkdir()
+        (state / "binary_hash").write_text("0" * 32, encoding="utf-8")
+        r = self._check(tmp_path, binsync_state_dir=str(state))
+        assert r.status == _WARN
+        assert "different binary" in r.message
+
+    def test_binary_hash_match_passes(self, tmp_path: Path) -> None:
+        import hashlib
+        import subprocess
+
+        binary = tmp_path / "test.exe"
+        binary.write_bytes(b"pe-this-binary")
+        state = tmp_path / "state"
+        state.mkdir()
+        (state / "binary_hash").write_text(
+            hashlib.md5(binary.read_bytes()).hexdigest(), encoding="utf-8"
+        )
+        subprocess.run(["git", "init", "-q", str(state)], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(state),
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "init",
+            ],
+            check=True,
+        )
+        r = self._check(tmp_path, binsync_state_dir=str(state))
+        assert r.status == _PASS
+
+
+class TestModuleExecution:
+    def test_python_m_doctor_does_not_nameerror(self, tmp_path: Path) -> None:
+        """`python -m rebrew.doctor` ran `main_entry()` at import position 1208,
+        before the six `check_*` helpers defined below it, so the first check
+        raised NameError instead of printing the report."""
+        import subprocess
+        import sys
+
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "T"\n\n[targets.T]\nbinary = "t.exe"\n',
+            encoding="utf-8",
+        )
+        proc = subprocess.run(
+            [sys.executable, "-m", "rebrew.doctor"],
+            cwd=tmp_path,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert "NameError" not in proc.stderr
+        assert "Traceback" not in proc.stderr

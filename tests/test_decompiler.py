@@ -86,11 +86,25 @@ class TestBackendDispatch:
         result = fetch_r2ghidra(binary, 0x1000, tmp_path)
 
         assert result == "int foo() {\n  return 1;\n}"
-        args, kwargs = mock_run.call_args
-        assert args[0][:4] == ["r2", "-q", "-c", "aaa; s 0x00001000; af; pdg"]
-        assert args[0][4] == str(binary)
-        assert kwargs["cwd"] == tmp_path
-        assert kwargs["timeout"] == 120
+        # Session reuse: one full-analysis call (aaa + Ps persist), then the
+        # cheap query reopens the project (-p) with no re-analysis.
+        assert mock_run.call_count == 2
+        init_args, init_kwargs = mock_run.call_args_list[0]
+        assert init_args[0][:3] == ["r2", "-q", "-c"]
+        assert init_args[0][3].startswith("aaa; Ps ") and init_args[0][3].endswith("; q")
+        assert init_args[0][4] == str(binary)
+        assert init_kwargs["cwd"] == tmp_path
+        query_args, query_kwargs = mock_run.call_args_list[1]
+        assert query_args[0][0] == "r2"
+        assert "-p" in query_args[0]
+        assert "aaa" not in query_args[0][5]
+        assert "s 0x00001000; af; pdg" in query_args[0][5]
+        assert query_args[0][6] == str(binary)
+        assert query_kwargs["cwd"] == tmp_path
+        assert query_kwargs["timeout"] == 120
+        import rebrew.decompiler as dc
+
+        dc._clear_re_projects()
 
     @patch(
         "rebrew.decompiler.shutil.which", side_effect=lambda x: "/usr/bin/rz" if x == "rz" else None
@@ -544,8 +558,40 @@ class TestRunRe:
             raise OSError("rz missing")
 
         monkeypatch.setattr(subprocess, "run", _boom)
-        with pytest.warns(UserWarning, match="failed decompiling"):
-            assert dc._run_re(tmp_path / "x", 0x1000, "pdg", tmp_path) is None
+        try:
+            # Analysis runs first: the OSError surfaces as an analysis warning
+            # and no query is attempted.
+            with pytest.warns(UserWarning, match="failed analyzing"):
+                assert dc._run_re(tmp_path / "x", 0x1000, "pdg", tmp_path) is None
+        finally:
+            dc._clear_re_projects()
+
+    def test_query_oserror_warns(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """OSError on the query (analysis healthy) warns 'failed decompiling'."""
+        import subprocess
+
+        import rebrew.decompiler as dc
+
+        monkeypatch.setattr(dc.shutil, "which", lambda *a, **k: "rz")
+        state = {"n": 0}
+
+        def _flaky(*a: object, **k: object) -> object:
+            state["n"] += 1
+            if state["n"] == 1:  # analysis succeeds
+                cmd = a[0]
+                assert isinstance(cmd, list)
+                proj = cmd[3].split("Ps ", 1)[1].split(";", 1)[0].strip()
+                Path(proj).mkdir(exist_ok=True)
+                Path(proj, "rebrew_tool.sha256").write_text("rz\n", encoding="utf-8")
+                return SimpleNamespace(returncode=0, stdout="")
+            raise OSError("rz missing")
+
+        monkeypatch.setattr(subprocess, "run", _flaky)
+        try:
+            with pytest.warns(UserWarning, match="failed decompiling"):
+                assert dc._run_re(tmp_path / "x", 0x1000, "pdg", tmp_path) is None
+        finally:
+            dc._clear_re_projects()
 
 
 class TestFetchBackends:
@@ -696,6 +742,91 @@ class TestKunaBackend:
 
         monkeypatch.setattr(dc, "fetch_kuna", lambda b, va, root: None)
         assert dc.kuna_seed_source(tmp_path / "x.exe", 0x401000, tmp_path) is None
+
+    def test_kuna_seed_declares_address_labels(self, tmp_path: Path, monkeypatch) -> None:
+        """Kuna's s_/dat_/sub_ labels must be declared or the seed cannot build."""
+        import rebrew.decompiler as dc
+
+        monkeypatch.setattr(
+            dc,
+            "fetch_kuna",
+            lambda b, va, root: (
+                "int sub_401000(void) {\n  dat_401100 = 1;\n  return sub_401200(s_401300);\n}\n"
+            ),
+        )
+        seed = dc.kuna_seed_source(tmp_path / "x.exe", 0x401000, tmp_path)
+        assert seed is not None
+        assert "extern int dat_401100;" in seed
+        assert "extern char s_401300[];" in seed
+        assert "int sub_401200();" in seed
+
+    def test_kuna_seed_assignment_is_not_a_declaration(self, tmp_path: Path, monkeypatch) -> None:
+        """`dat_x = ...` at statement level must still get a declaration."""
+        import rebrew.decompiler as dc
+
+        monkeypatch.setattr(
+            dc,
+            "fetch_kuna",
+            lambda b, va, root: "int sub_401000(void) { dat_401100 = 1; return 0; }\n",
+        )
+        seed = dc.kuna_seed_source(tmp_path / "x.exe", 0x401000, tmp_path)
+        assert seed is not None
+        assert "extern int dat_401100;" in seed
+
+    def test_kuna_seed_leaves_own_declaration_alone(self, tmp_path: Path, monkeypatch) -> None:
+        import rebrew.decompiler as dc
+
+        monkeypatch.setattr(
+            dc,
+            "fetch_kuna",
+            lambda b, va, root: (
+                "extern int dat_401100;\nint sub_401000(void) { dat_401100 = 1; return 0; }\n"
+            ),
+        )
+        seed = dc.kuna_seed_source(tmp_path / "x.exe", 0x401000, tmp_path)
+        assert seed is not None
+        assert seed.count("extern int dat_401100;") == 1
+
+    def test_kuna_seed_maps_c99_isms(self, tmp_path: Path, monkeypatch) -> None:
+        """msvc6 is C89: `bool`, `true`/`false` and `NULL` must be spelled out."""
+        import rebrew.decompiler as dc
+
+        monkeypatch.setattr(
+            dc,
+            "fetch_kuna",
+            lambda b, va, root: (
+                "int sub_401000(void) {\n"
+                "  bool v1;\n"
+                "  v1 = (NULL != 0) ? true : false;\n"
+                "  return v1;\n"
+                "}\n"
+            ),
+        )
+        seed = dc.kuna_seed_source(tmp_path / "x.exe", 0x401000, tmp_path)
+        assert seed is not None
+        assert "int v1;" in seed
+        assert "NULL" not in seed
+        assert "true" not in seed
+        assert "false" not in seed
+
+    def test_kuna_seed_rewrites_indirect_call(self, tmp_path: Path, monkeypatch) -> None:
+        """A cast-to-int applied to a dereferenced pointer then called is not C."""
+        import rebrew.decompiler as dc
+
+        monkeypatch.setattr(
+            dc,
+            "fetch_kuna",
+            lambda b, va, root: (
+                "int sub_401000(void) {\n"
+                "  int v1;\n"
+                "  v1 = (int)(**(void **)(sub_401100 * 4))();\n"
+                "  return v1;\n"
+                "}\n"
+            ),
+        )
+        seed = dc.kuna_seed_source(tmp_path / "x.exe", 0x401000, tmp_path)
+        assert seed is not None
+        assert "((int (*)())(*(void **)(sub_401100 * 4)))(" in seed
 
 
 # Synthetic MIPS function (big-endian) used across the m2c tests:
@@ -859,3 +990,190 @@ class TestM2CBackend:
         code = fetch_m2c(bin_path, 0x1000, tmp_path)
         assert code is not None
         assert "func_1000" in code
+
+
+class TestM2CPpcGuard:
+    def test_ppc_returns_none_with_reason(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PPC has no working capstone engine: fail fast with a clear reason."""
+        import rebrew.binary_loader as bl
+        from rebrew.decompiler import fetch_m2c
+
+        bin_path = tmp_path / "x.elf"
+        bin_path.write_bytes(b"\x7fELF")
+        monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())
+        monkeypatch.setattr(
+            bl,
+            "load_binary",
+            lambda p: SimpleNamespace(arch="ppc32", endian="big", format="elf"),
+        )
+        with pytest.warns(UserWarning, match="PPC"):
+            assert fetch_m2c(bin_path, 0x1000, tmp_path) is None
+
+    def test_ppc64_returns_none_with_reason(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.binary_loader as bl
+        from rebrew.decompiler import fetch_m2c
+
+        bin_path = tmp_path / "x.elf"
+        bin_path.write_bytes(b"\x7fELF")
+        monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())
+        monkeypatch.setattr(
+            bl,
+            "load_binary",
+            lambda p: SimpleNamespace(arch="ppc64", endian="big", format="elf"),
+        )
+        with pytest.warns(UserWarning, match="PPC"):
+            assert fetch_m2c(bin_path, 0x1000, tmp_path) is None
+
+
+class TestReSessionReuse:
+    def _setup(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> tuple[list[list[str]], Path]:
+        import rebrew.decompiler as dc
+
+        dc._clear_re_projects()
+        binary = tmp_path / "target.bin"
+        binary.write_bytes(b"MZ")
+        monkeypatch.setattr(dc.shutil, "which", lambda *a, **k: "rz")
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kwargs: object) -> object:
+            calls.append(cmd)
+            if "Ps" in cmd[3]:
+                (Path(cmd[3].split("Ps ", 1)[1].split(";", 1)[0].strip())).mkdir(exist_ok=True)
+                # The marker is `tool\ndigest\n`; the digest is empty here
+                # because `shutil.which` is stubbed to a bare name (the real
+                # `_re_analysis_key` cannot hash it), and `_re_cached_digest_ok`
+                # compares it before reusing the project.
+                Path(
+                    cmd[3].split("Ps ", 1)[1].split(";", 1)[0].strip(), "rebrew_tool.sha256"
+                ).write_text("rz\n\n", encoding="utf-8")
+            return SimpleNamespace(returncode=0, stdout="int f(void) {}\n")
+
+        monkeypatch.setattr("rebrew.decompiler.subprocess.run", fake_run)
+        return calls, binary
+
+    def test_analysis_runs_once_across_calls(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two decompilations of one binary pay full aaa analysis once."""
+        import rebrew.decompiler as dc
+
+        calls, binary = self._setup(tmp_path, monkeypatch)
+        try:
+            assert dc._run_re(binary, 0x1000, "pdg", tmp_path) == "int f(void) {}"
+            assert dc._run_re(binary, 0x2000, "pdg", tmp_path) == "int f(void) {}"
+        finally:
+            dc._clear_re_projects()
+        inits = [c for c in calls if "Ps" in c[3]]
+        queries = [c for c in calls if "Ps" not in c[3]]
+        assert len(inits) == 1  # analysis ran once
+        assert len(queries) == 2  # one cheap query per call
+        assert all("aaa" not in c[3] for c in queries)  # no re-analysis
+        assert all("-p" in c for c in queries)  # reopen the cached project
+
+    def test_failed_query_drops_stale_project(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A stale cached project is dropped so the next call re-analyzes."""
+        import rebrew.decompiler as dc
+
+        calls, binary = self._setup(tmp_path, monkeypatch)
+        try:
+            assert dc._run_re(binary, 0x1000, "pdg", tmp_path) == "int f(void) {}"
+            assert dc._RE_PROJECT_DIRS, "project should be cached after success"
+            # Next query fails: drop + re-analyze on the call after.
+            state = {"n": 0}
+
+            def flaky_run(cmd: list[str], **kwargs: object) -> object:
+                calls.append(cmd)
+                if "Ps" in cmd[3]:  # (re-)analysis always succeeds
+                    return SimpleNamespace(returncode=0, stdout="")
+                state["n"] += 1
+                if state["n"] == 1:  # the next real query fails
+                    return SimpleNamespace(returncode=1, stdout="")
+                return SimpleNamespace(returncode=0, stdout="int f(void) {}\n")
+
+            monkeypatch.setattr("rebrew.decompiler.subprocess.run", flaky_run)
+            assert dc._run_re(binary, 0x2000, "pdg", tmp_path) is None
+            assert not dc._RE_PROJECT_DIRS, "stale project must be dropped"
+            assert dc._run_re(binary, 0x2000, "pdg", tmp_path) == "int f(void) {}"
+            assert [c for c in calls if "Ps" in c[3]], "must have re-analyzed"
+        finally:
+            dc._clear_re_projects()
+
+    def test_failed_query_removes_the_project_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Dropping a stale project must delete its directory: mkdtemp dirs
+        are untracked once popped, so only rmtree keeps them from leaking."""
+        import rebrew.decompiler as dc
+
+        calls, binary = self._setup(tmp_path, monkeypatch)
+        try:
+            assert dc._run_re(binary, 0x1000, "pdg", tmp_path) == "int f(void) {}"
+            proj_dir = next(iter(dc._RE_PROJECT_DIRS.values()))
+            assert Path(proj_dir).is_dir()
+            monkeypatch.setattr(
+                "rebrew.decompiler.subprocess.run",
+                lambda cmd, **kw: SimpleNamespace(returncode=1, stdout=""),
+            )
+            assert dc._run_re(binary, 0x2000, "pdg", tmp_path) is None
+            assert not dc._RE_PROJECT_DIRS
+            assert not Path(proj_dir).exists(), "orphaned project dir leaked"
+        finally:
+            dc._clear_re_projects()
+
+    def test_tool_upgrade_removes_the_stale_project_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A digest mismatch re-inits the project; the old dir must go too."""
+        import rebrew.decompiler as dc
+
+        calls, binary = self._setup(tmp_path, monkeypatch)
+        try:
+            assert dc._run_re(binary, 0x1000, "pdg", tmp_path) == "int f(void) {}"
+            first = next(iter(dc._RE_PROJECT_DIRS.values()))
+            assert Path(first).is_dir()
+            monkeypatch.setattr(dc, "_re_cached_digest_ok", lambda *a, **k: False)
+            assert dc._run_re(binary, 0x2000, "pdg", tmp_path) == "int f(void) {}"
+            second = next(iter(dc._RE_PROJECT_DIRS.values()))
+            assert second != first
+            assert not Path(first).exists(), "stale project dir leaked on tool upgrade"
+        finally:
+            dc._clear_re_projects()
+
+
+class TestReToolDigestInvalidation:
+    def test_tool_change_reanalyses(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The marker records a hash of the tool binary, but it was written and
+        never read: a tool upgrade kept serving the old ``aaa`` results."""
+        import rebrew.decompiler as dc
+
+        dc._clear_re_projects()
+        binary = tmp_path / "target.bin"
+        binary.write_bytes(b"MZ")
+        monkeypatch.setattr(dc.shutil, "which", lambda *a, **k: "rz")
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kwargs: object) -> object:
+            calls.append(cmd)
+            if "Ps" in cmd[3]:
+                proj = cmd[3].split("Ps ", 1)[1].split(";", 1)[0].strip()
+                Path(proj).mkdir(exist_ok=True)
+                Path(proj, "rebrew_tool.sha256").write_text("rz\n\n", encoding="utf-8")
+            return SimpleNamespace(returncode=0, stdout="int f(void) {}\n")
+
+        monkeypatch.setattr("rebrew.decompiler.subprocess.run", fake_run)
+        try:
+            assert dc._run_re(binary, 0x1000, "pdg", tmp_path) == "int f(void) {}"
+            # The tool binary changed under the same name.
+            monkeypatch.setattr(dc, "_re_analysis_key", lambda tool: "upgraded")
+            assert dc._run_re(binary, 0x2000, "pdg", tmp_path) == "int f(void) {}"
+        finally:
+            dc._clear_re_projects()
+        assert len([c for c in calls if "Ps" in c[3]]) == 2

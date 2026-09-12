@@ -116,16 +116,38 @@ def _mcp_apply(
         _report(*_apply_cli())
         return
 
-    from rebrew.ghidra.client import apply_commands_via_mcp
+    from rebrew.ghidra.client import McpApplyAborted, apply_commands_via_mcp
 
     try:
         ok, err = apply_commands_via_mcp(ops, endpoint)
+    except McpApplyAborted as exc:
+        # The transport died after earlier ops landed (or the failed op may
+        # have landed server-side): re-running the full list via the CLI
+        # backend would duplicate them.  Error with the progress instead —
+        # only a clean transport failure (nothing applied) falls back.
+        detail = str(exc).strip() or type(exc).__name__
+        error_exit(
+            f"MCP apply aborted mid-loop ({detail}) — "
+            f"{exc.applied} of {len(ops)} op(s) may have been applied; "
+            "not re-applying via ghidra-cli to avoid duplicates. "
+            "Re-run once Ghidra state is confirmed.",
+            json_mode=json_output,
+        )
     except Exception:
-        # MCP transport failure — fall back to the ghidra-cli binary backend.
-        log.debug("MCP apply failed; falling back to ghidra-cli", exc_info=True)
+        # Clean transport failure (init/session setup — nothing applied):
+        # fall back to the ghidra-cli binary backend.
+        log.debug("MCP apply failed before any op landed; falling back to ghidra-cli")
         _report(*_apply_cli())
         return
     _report(ok, err)
+
+
+def _preview_ops(ops: list[dict[str, Any]], json_output: bool) -> None:
+    """Report the operations a dry run would apply, without touching Ghidra."""
+    if json_output:
+        json_print({"dry_run": True, "operations": len(ops)})
+        return
+    console.print(f"[dim]Would apply {len(ops)} operation(s).[/dim]")
 
 
 @app.callback(invoke_without_command=True)
@@ -232,7 +254,7 @@ def main(
             touched = sorted(int(v) for v in cast(list[Any], result.get("touched_vas") or []))
             if touched:
                 program_path = resolve_program_path(cfg)
-                _probe_program_path(cfg, endpoint, program_path, json_output)
+                program_path = _probe_program_path(cfg, endpoint, program_path, json_output)
                 ops = [
                     {
                         "tool": "create-function",
@@ -248,7 +270,10 @@ def main(
 
     # --- MCP structural ops ---
     program_path = resolve_program_path(cfg)
-    _probe_program_path(cfg, endpoint, program_path, json_output)
+    # A dry run only previews the ops: it must not POST them, and it must not
+    # require Ghidra to be reachable.
+    if not dry_run:
+        program_path = _probe_program_path(cfg, endpoint, program_path, json_output)
 
     if create_functions:
         from rebrew.catalog import build_function_registry, parse_function_list
@@ -263,6 +288,9 @@ def main(
             funcs, cfg, cfg.reversed_dir / FUNCTION_STRUCTURE_JSON, cfg.target_binary
         )
         ops = build_new_function_commands(registry, program_path, iat_thunks=set(cfg.iat_thunks))
+        if dry_run:
+            _preview_ops(ops, json_output)
+            return
         _mcp_apply(ops, endpoint, program_path, json_output, cfg)
         return
 
@@ -274,6 +302,9 @@ def main(
             for e in scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
         ]
         ops = build_bookmark_commands(entries, program_path)
+        if dry_run:
+            _preview_ops(ops, json_output)
+            return
         _mcp_apply(ops, endpoint, program_path, json_output, cfg)
         return
 

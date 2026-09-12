@@ -307,13 +307,20 @@ def _collect_near_match(cfg: Any) -> list[dict[str, Any]] | None:
     return items
 
 
-def _collect_dispatch(info: Any) -> list[dict[str, Any]]:
-    """Dispatch-table / vtable detection in the data sections."""
-    from rebrew.data import find_dispatch_tables
+def _collect_dispatch(info: Any, cfg: Any) -> list[dict[str, Any]]:
+    """Dispatch-table / vtable detection in the data sections.
+
+    *cfg* supplies the known-function names, so each table reports how many of
+    its entries resolve to an annotated/relisted function (the same map
+    ``rebrew data --dispatch`` uses — passing ``{}`` made every ``resolved``
+    count 0).
+    """
+    from rebrew.data import build_dispatch_known_functions, find_dispatch_tables
 
     try:
+        known = build_dispatch_known_functions(cfg, cfg.reversed_dir)
         tables = find_dispatch_tables(
-            info.data, _section_dicts(info), {}, ptr_size=4, min_entries=3, info=info
+            info.data, _section_dicts(info), known, ptr_size=4, min_entries=3, info=info
         )
     except Exception:  # best-effort
         logger.debug("dispatch-table scan failed", exc_info=True)
@@ -419,7 +426,7 @@ def build_dossier(
         "far_calls": _collect_far_calls(binary),
         "functions": _collect_functions(cfg),
         "near_match": _collect_near_match(cfg),
-        "dispatch_tables": _collect_dispatch(info),
+        "dispatch_tables": _collect_dispatch(info, cfg),
         "flirt": _collect_flirt(cfg, info),
         "library": _collect_library(cfg),
     }

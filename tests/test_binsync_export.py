@@ -14,6 +14,21 @@ from rebrew.main import app
 
 runner = CliRunner()
 
+pytest.importorskip("declib")
+
+
+def _load_func(path: Path) -> Any:
+    from rebrew.binsync_serial import load_artifact
+
+    return load_artifact(path, "function")
+
+
+def _load_artifacts(path: Path, kind: str) -> list[Any]:
+    from rebrew.binsync_serial import load_many
+
+    return load_many(path, kind)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -63,13 +78,12 @@ class TestBinsyncExportBasic:
         assert result.exit_code == 0, result.output
         toml_file = outdir / "functions" / "10001000.toml"
         assert toml_file.exists()
-        doc = tomlkit.loads(toml_file.read_text())
-        info = cast(dict[str, Any], doc["info"])
-        assert info["addr"] == 0x10001000
-        assert info["name"] == "_foo"
-        assert info["size"] == 31
+        func = _load_func(toml_file)
+        assert func.addr == 0x10001000
+        assert func.name == "_foo"
+        assert func.size == 31
 
-    def test_size_omitted_when_zero(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_size_zero_written(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(
             tmp_path,
             {
@@ -78,8 +92,9 @@ class TestBinsyncExportBasic:
         )
         result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
-        doc = tomlkit.loads((outdir / "functions" / "20002000.toml").read_text())
-        assert "size" not in cast(dict[str, Any], doc["info"])
+        func = _load_func(outdir / "functions" / "20002000.toml")
+        assert func.addr == 0x20002000
+        assert func.size == 0
 
     def test_fallback_name_when_no_symbol(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -92,8 +107,7 @@ class TestBinsyncExportBasic:
         )
         result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
-        doc = tomlkit.loads((outdir / "functions" / "30003000.toml").read_text())
-        name = cast(dict[str, Any], doc["info"])["name"]
+        name = _load_func(outdir / "functions" / "30003000.toml").name
         # Stub with no body: falls back to symbol from declaration or func_ prefix
         assert isinstance(name, str) and len(name) > 0
 
@@ -196,12 +210,11 @@ class TestBinsyncExportComments:
         )
         result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
-        doc = tomlkit.loads((outdir / "functions" / "10020000.toml").read_text())
-        comments = cast(dict[str, Any], doc["comments"])
-        note_key = str(0x10020000 + 1)
-        assert note_key in comments
-        assert "worth double-checking" in comments[note_key]
-        assert comments[note_key].startswith("[rebrew:note]")
+        comments = _load_artifacts(outdir / "comments.toml", "comment")
+        note = next(c for c in comments if c.addr == 0x10020000 + 1)
+        assert note.func_addr == 0x10020000
+        assert "worth double-checking" in note.comment
+        assert note.comment.startswith("[rebrew:note]")
 
 
 # ---------------------------------------------------------------------------
@@ -224,10 +237,10 @@ class TestBinsyncExportGlobals:
         assert result.exit_code == 0
         gv_path = outdir / "global_vars.toml"
         assert gv_path.exists()
-        doc = tomlkit.loads(gv_path.read_text())
-        assert str(0x01008000) in doc
-        entry = cast(dict[str, Any], doc[str(0x01008000)])
-        assert entry["addr"] == 0x01008000
+        globals_list = _load_artifacts(gv_path, "global_variable")
+        assert [g.addr for g in globals_list] == [0x01008000]
+        assert globals_list[0].name and globals_list[0].type
+        assert globals_list[0].size == 64
 
     def test_data_marker_above_include_not_misparsed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -246,11 +259,11 @@ class TestBinsyncExportGlobals:
         assert result.exit_code == 0
         gv_path = outdir / "global_vars.toml"
         assert gv_path.exists()
-        doc = tomlkit.loads(gv_path.read_text())
-        entry = cast(dict[str, Any], doc["3735928559"])  # 0xDEADBEEF
-        assert entry["name"] == "g_deadbeef"
-        assert entry["type"] != "#include"
-        assert "<windows.h>" not in entry["name"]
+        globals_list = _load_artifacts(gv_path, "global_variable")
+        entry = next(g for g in globals_list if g.addr == 0xDEADBEEF)
+        assert entry.name == "g_deadbeef"
+        assert entry.type != "#include"
+        assert "<windows.h>" not in entry.name
 
     def test_no_global_vars_toml_when_no_globals(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -330,7 +343,7 @@ class TestBinsyncExportJson:
 
 
 class TestBinsyncWriters:
-    def test_global_vars_toml_sorted_and_size_skipped(self, tmp_path: Path) -> None:
+    def test_global_vars_sizes(self, tmp_path: Path) -> None:
         from rebrew.binsync_export import _write_global_vars_toml
 
         out = tmp_path / "global_vars.toml"
@@ -338,38 +351,33 @@ class TestBinsyncWriters:
             out,
             [(0x2000, "g_b", 0, "char", None), (0x1000, "g_a", 4, "char", None)],
         )
-        text = out.read_text()
-        # Sorted by VA → g_a (0x1000) first.
-        assert text.index("g_a") < text.index("g_b")
-        # size omitted when 0, present when > 0.
-        assert "size = 4" in text
-        assert text.count("size =") == 1
+        arts = {g.addr: g for g in _load_artifacts(out, "global_variable")}
+        assert arts[0x1000].size == 4
+        # size 0 is omitted (None), not written as 0x0.
+        assert arts[0x2000].size is None
 
     def test_struct_toml_placeholder(self, tmp_path: Path) -> None:
         from rebrew.binsync_export import _write_struct_toml
+        from rebrew.binsync_serial import load_artifact
 
         out = tmp_path / "structs" / "NPSTATE.toml"
         out.parent.mkdir()
         _write_struct_toml(out, "NPSTATE")
-        assert "NPSTATE" in out.read_text()
+        struct = load_artifact(out, "struct")
+        assert struct is not None
+        assert struct.name == "NPSTATE"
 
 
 class TestBinsyncGhidraComment:
-    def test_ghidra_name_differing_from_symbol(self, tmp_path: Path) -> None:
-        from rebrew.binsync_export import _write_function_toml
+    def test_ghidra_comment_written(self, tmp_path: Path) -> None:
+        from rebrew.binsync_export import _write_comments_toml
 
-        out = tmp_path / "f.toml"
-        _write_function_toml(
-            out,
-            name="local_name",
-            va=0x1000,
-            size=10,
-            prototype="",
-            note="",
-            ghidra="ghidra_name",
-        )
-        content = out.read_text(encoding="utf-8")
-        assert "[rebrew:ghidra] ghidra_name" in content
+        out = tmp_path / "comments.toml"
+        _write_comments_toml(out, [(0x1002, 0x1000, "[rebrew:ghidra] ghidra_name")])
+        comments = _load_artifacts(out, "comment")
+        assert [c.addr for c in comments] == [0x1002]
+        assert comments[0].func_addr == 0x1000
+        assert comments[0].comment == "[rebrew:ghidra] ghidra_name"
 
     def test_export_toml_left_readonly(self, tmp_path: Path) -> None:
         """binsync exports (functions/*.toml, global_vars.toml, structs/*.toml)
@@ -382,15 +390,7 @@ class TestBinsyncGhidraComment:
 
         fn = tmp_path / "functions" / "1000.toml"
         fn.parent.mkdir(parents=True)
-        _write_function_toml(
-            fn,
-            name="f",
-            va=0x1000,
-            size=4,
-            prototype="",
-            note="",
-            ghidra="",
-        )
+        _write_function_toml(fn, name="f", va=0x1000, size=4, prototype="")
         gv = tmp_path / "global_vars.toml"
         _write_global_vars_toml(gv, [(0x2000, "g_var", 4, "char", None)])
         st = tmp_path / "structs" / "S.toml"
@@ -399,20 +399,27 @@ class TestBinsyncGhidraComment:
         for path in (fn, gv, st):
             assert (path.stat().st_mode & 0o777) == 0o444, path
 
-    def test_ghidra_name_matching_symbol_omitted(self, tmp_path: Path) -> None:
-        from rebrew.binsync_export import _write_function_toml
-
-        out = tmp_path / "f.toml"
-        _write_function_toml(
-            out,
-            name="same_name",
-            va=0x1000,
-            size=10,
-            prototype="",
-            note="",
-            ghidra="same_name",
+    def test_ghidra_name_matching_symbol_omitted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A GHIDRA name equal to the exported symbol produces no comment."""
+        _make_project(
+            tmp_path,
+            {
+                "f.c": (
+                    "// FUNCTION: SERVER 0x10001000\n"
+                    "// STATUS: EXACT\n"
+                    "// SIZE: 4\n"
+                    "// GHIDRA: _foo\n"
+                    "int foo(void) { return 1; }\n"
+                )
+            },
         )
-        assert "[rebrew:ghidra]" not in out.read_text(encoding="utf-8")
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        comments_path = outdir / "comments.toml"
+        comments = _load_artifacts(comments_path, "comment") if comments_path.exists() else []
+        assert not any("[rebrew:ghidra]" in (c.comment or "") for c in comments)
 
 
 class TestBinsyncExportModuleFilter:
@@ -466,16 +473,19 @@ class TestBinsyncStructFields:
 
     def test_struct_with_fields_written(self, tmp_path: Path) -> None:
         from rebrew.binsync_export import _write_struct_toml
+        from rebrew.binsync_serial import load_artifact
 
         out = tmp_path / "MyStruct.toml"
         _write_struct_toml(
             out, "MyStruct", fields=[{"name": "x", "type": "int"}, {"name": "y", "type": "float"}]
         )
-        doc = tomlkit.loads(out.read_text())
-        assert "fields" in doc
-        fields = cast(dict[str, Any], doc["fields"])
-        assert fields["x"]["type"] == "int"
-        assert fields["y"]["type"] == "float"
+        struct = load_artifact(out, "struct")
+        assert struct is not None
+        assert struct.name == "MyStruct"
+        assert struct.members[0].name == "x"
+        assert struct.members[0].type == "int"
+        assert struct.members[4].name == "y"
+        assert struct.members[4].type == "float"
 
     def test_struct_fields_from_header(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -495,8 +505,12 @@ class TestBinsyncStructFields:
         assert result.exit_code == 0
         p = outdir / "structs" / "Point.toml"
         assert p.exists()
-        doc = tomlkit.loads(p.read_text())
-        assert "fields" in doc
+        from rebrew.binsync_serial import load_artifact
+
+        struct = load_artifact(p, "struct")
+        assert struct is not None
+        assert struct.members[0].name == "x"
+        assert struct.members[4].name == "y"
 
 
 class TestBinsyncCatalogSync:
@@ -526,10 +540,12 @@ reversed_dir = "src/server"
         assert result.exit_code == 0, result.output
         assert (outdir / "functions" / "10001000.toml").exists()
         assert (outdir / "functions" / "10002000.toml").exists()
-        # Catalog-only gets no rebrew comment; name is raw (no _ prefix for catalog entries)
-        doc = tomlkit.loads((outdir / "functions" / "10002000.toml").read_text())
-        assert "comments" not in doc
-        assert cast(dict[str, Any], doc["info"])["name"] in ("bar_func", "_bar_func")
+        # Catalog-only gets no rebrew provenance comment; name is raw.
+        func = _load_func(outdir / "functions" / "10002000.toml")
+        assert func.name in ("bar_func", "_bar_func")
+        comments_path = outdir / "comments.toml"
+        comments = _load_artifacts(comments_path, "comment") if comments_path.exists() else []
+        assert not any(c.func_addr == 0x10002000 for c in comments)
 
     def test_catalog_clean_removes_orphans(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -652,3 +668,193 @@ class TestManifest:
             "exported_at": "2026-09-10T00:00:00+00:00",
             "content_hash": "abc",
         }
+
+
+class TestBinaryHashAndSharedTypes:
+    _FOO = (
+        "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 31\nint foo() { return 1; }\n"
+    )
+
+    def test_binary_hash_written(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import hashlib
+
+        payload = b"pe-server-binary"
+        (tmp_path / "server.dll").write_bytes(payload)
+        _make_project(tmp_path, {"foo.c": self._FOO})
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        digest = hashlib.md5(payload).hexdigest()
+        assert (outdir / "binary_hash").read_text(encoding="utf-8") == digest
+        doc = tomlkit.parse((outdir / "manifest.toml").read_text(encoding="utf-8"))
+        assert doc["target"] == "server"
+        assert doc["binary_hash"] == digest
+
+    def test_binary_hash_omitted_without_binary(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _make_project(tmp_path, {"foo.c": self._FOO})
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert not (outdir / "binary_hash").exists()
+
+    def test_shared_header_struct_exported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _make_project(tmp_path, {"foo.c": self._FOO})
+        shared = tmp_path / "src" / "shared"
+        shared.mkdir()
+        (shared / "point.h").write_text(
+            "typedef struct {\n    int x;\n    int y;\n} Point;\n", encoding="utf-8"
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert (outdir / "structs" / "Point.toml").exists()
+
+
+class TestBinsyncEnumsAndTypedefs:
+    _FOO = "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint foo() { return 1; }\n"
+
+    def test_enum_and_typedef_exported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        _make_project(tmp_path, {"foo.c": self._FOO})
+        (tmp_path / "src" / "types.h").write_text(
+            "typedef enum { A, B = 5, C } E;\ntypedef unsigned int uint32_t;\n",
+            encoding="utf-8",
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch, "--json")
+        assert result.exit_code == 0, result.output
+
+        enums = _load_artifacts(outdir / "enums.toml", "enum")
+        enum = next(e for e in enums if e.name == "E")
+        assert {str(k): int(v) for k, v in enum.members.items()} == {"A": 0, "B": 5, "C": 6}
+
+        typedefs = _load_artifacts(outdir / "typedefs.toml", "typedef")
+        typedef = next(t for t in typedefs if t.name == "uint32_t")
+        assert typedef.type == "unsigned int"
+
+        payload = json.loads(result.stdout)
+        assert payload["enums"] == 1
+        assert payload["typedefs"] == 1
+        assert str(payload["enums_file"]).endswith("enums.toml")
+        assert str(payload["typedefs_file"]).endswith("typedefs.toml")
+
+    def test_shared_dir_enum_exported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _make_project(tmp_path, {"foo.c": self._FOO})
+        shared = tmp_path / "src" / "shared"
+        shared.mkdir()
+        (shared / "colors.h").write_text("typedef enum { RED, GREEN } Color;\n", encoding="utf-8")
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        enums = tomlkit.loads((outdir / "enums.toml").read_text())
+        assert "Color" in enums
+
+    def test_empty_collections_write_no_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _make_project(tmp_path, {"foo.c": self._FOO})
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert not (outdir / "enums.toml").exists()
+        assert not (outdir / "typedefs.toml").exists()
+
+
+class TestDeclibParse:
+    """The written state dir must parse with declib (not just with rebrew)."""
+
+    def test_exported_dir_parses_with_declib(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from declib.artifacts import Comment, Enum, Function, GlobalVariable, Struct, Typedef
+
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": (
+                    "// FUNCTION: SERVER 0x10001000\n"
+                    "// STATUS: EXACT\n"
+                    "// SIZE: 16\n"
+                    "// NOTE: a note\n"
+                    "int foo(void) { return 1; }\n"
+                ),
+                "data.c": "// GLOBAL: SERVER 0x01008000\n// SIZE: 4\nchar g_x;\n",
+                "types.h": (
+                    "typedef struct { int x; } Point;\n"
+                    "typedef enum { A, B } E;\n"
+                    "typedef unsigned int uint32_t;\n"
+                ),
+            },
+        )
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+
+        func = Function.loads((outdir / "functions" / "10001000.toml").read_text())
+        assert func.addr == 0x10001000
+        assert func.name == "_foo"
+        comments = Comment.loads_many((outdir / "comments.toml").read_text())
+        assert any((c.comment or "").startswith("[rebrew:note]") for c in comments)
+        gvars = GlobalVariable.loads_many((outdir / "global_vars.toml").read_text())
+        assert gvars[0].addr == 0x01008000
+        enums = Enum.loads_many((outdir / "enums.toml").read_text())
+        assert enums[0].name == "E"
+        typedefs = Typedef.loads_many((outdir / "typedefs.toml").read_text())
+        assert typedefs[0].name == "uint32_t"
+        struct = Struct.loads((outdir / "structs" / "Point.toml").read_text())
+        assert struct.name == "Point"
+        assert struct.members[0].name == "x"
+        metadata = tomlkit.parse((outdir / "metadata.toml").read_text())
+        assert metadata["user"]
+        assert metadata["version"]
+
+    def test_locals_and_comments_round_trip(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata import get_entry, update_field
+
+        foo = "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 16\nint foo(void){return 1;}\n"
+        proj_a = tmp_path / "a"
+        proj_a.mkdir()
+        _make_project(proj_a, {"foo.c": foo})
+        update_field(
+            proj_a,
+            0x10001000,
+            "locals",
+            {"-4": {"name": "ret", "type": "int", "size": 4}},
+            "SERVER",
+        )
+        update_field(
+            proj_a,
+            0x10001000,
+            "comments",
+            {"0x10001004": {"comment": "hi", "func_addr": 0x10001000}},
+            "SERVER",
+        )
+        state_a = tmp_path / "state_a"
+        monkeypatch.chdir(proj_a)
+        result = runner.invoke(app, ["binsync-export", str(state_a), "--json"])
+        assert result.exit_code == 0, result.output
+        func = _load_func(state_a / "functions" / "10001000.toml")
+        assert func.stack_vars[-4].name == "ret"
+        assert func.stack_vars[-4].type == "int"
+        comments = _load_artifacts(state_a / "comments.toml", "comment")
+        assert any(c.addr == 0x10001004 and c.comment == "hi" for c in comments)
+
+        proj_b = tmp_path / "b"
+        proj_b.mkdir()
+        _make_project(proj_b, {"foo.c": foo})
+        monkeypatch.chdir(proj_b)
+        result = runner.invoke(app, ["binsync-import", str(state_a), "--json"])
+        assert result.exit_code == 0, result.output
+        entry = get_entry(proj_b, 0x10001000, "SERVER")
+        assert entry.get("locals") == {"-4": {"name": "ret", "type": "int", "size": 4}}
+        assert entry.get("comments")
+
+        state_b = tmp_path / "state_b"
+        result = runner.invoke(app, ["binsync-export", str(state_b), "--json"])
+        assert result.exit_code == 0, result.output
+        func_b = _load_func(state_b / "functions" / "10001000.toml")
+        assert func_b.stack_vars[-4].name == "ret"

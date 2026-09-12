@@ -60,11 +60,28 @@ class TestSmartRelocCompareEdgeCases:
         assert isinstance(invalid, list)
 
     def test_reloc_masking_with_dict(self) -> None:
-        """COFF relocation dict format: {offset: symbol_name}."""
+        """COFF relocation dict format: {offset: symbol_name}.
+
+        Fail closed: with no VA map the symbol is unresolvable, so the slot
+        is invalid (mismatch), never silently masked."""
         obj = b"\x90\x00\x00\x00\x00\x91"
         tgt = b"\x90\x01\x02\x03\x04\x91"
         matched, count, total, valid, invalid = smart_reloc_compare(
             obj, tgt, coff_relocs={1: "_some_func"}
+        )
+        assert matched is False
+        assert valid == []
+        assert invalid == [1]
+
+    def test_reloc_masking_with_dict_validated(self) -> None:
+        """The same dict entry masks once the symbol resolves in the VA map."""
+        import struct
+
+        obj = b"\x90\x00\x00\x00\x00\x91"
+        tgt = b"\x90\x01\x02\x03\x04\x91"
+        va = struct.unpack("<I", tgt[1:5])[0]
+        matched, count, total, valid, invalid = smart_reloc_compare(
+            obj, tgt, coff_relocs={1: "_some_func"}, name_to_va={"_some_func": va}
         )
         assert matched is True
         assert len(valid) == 1
@@ -79,12 +96,21 @@ class TestSmartRelocCompareEdgeCases:
         assert len(valid) == 1
 
     def test_zero_span_fallback(self) -> None:
-        """Without COFF relocs, zero-span detection kicks in."""
+        """Without COFF relocs, zero-span detection kicks in (aligned slot)."""
+        obj = b"\x90\x90\x90\x90\x00\x00\x00\x00\x91\x91\x91\x91"
+        tgt = b"\x90\x90\x90\x90\x01\x02\x03\x04\x91\x91\x91\x91"
+        matched, count, total, valid, invalid = smart_reloc_compare(obj, tgt)
+        assert matched is True
+        assert valid == [4]
+
+    def test_zero_span_unaligned_not_masked(self) -> None:
+        """An unaligned zero dword is coincidental data, not a reloc slot —
+        the aligned-only rule must mismatch instead of masking."""
         obj = b"\x90\x00\x00\x00\x00\x91"
         tgt = b"\x90\x01\x02\x03\x04\x91"
         matched, count, total, valid, invalid = smart_reloc_compare(obj, tgt)
-        assert matched is True
-        assert len(valid) == 1
+        assert matched is False
+        assert valid == []
 
     def test_dir32_addend_matches_symbol_plus_offset(self) -> None:
         """DIR32 with non-zero addend: actual must equal symbol_va + addend."""
@@ -395,4 +421,55 @@ class TestIatRegionBuild:
         )
         assert matched is True
         assert valid == [2]
+        assert invalid == []
+
+
+class TestCatalogScanFailClosed:
+    """build_name_to_va must fail closed: a scan failure raises
+    CatalogScanError (never an empty map), and smart_reloc_compare marks
+    typed/dict relocs invalid without a usable map instead of masking."""
+
+    def test_scan_failure_raises(self) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.core.matching import CatalogScanError, build_name_to_va
+
+        with pytest.raises(CatalogScanError):
+            build_name_to_va(SimpleNamespace())  # no reversed_dir attr
+
+    def test_typed_reloc_unusable_map_mismatches(self) -> None:
+        import struct
+
+        from rebrew.matcher.parsers import CoffRelocRecord
+
+        obj = b"\xa1" + struct.pack("<I", 4) + b"\xc3"
+        tgt = b"\xa1" + struct.pack("<I", 0x10020004) + b"\xc3"
+        rec = CoffRelocRecord(offset=1, type=0x0006, symbol="_g_var")
+        for bad_map in (None, {}):
+            matched, _, _, valid, invalid = smart_reloc_compare(
+                obj, tgt, coff_relocs=[rec], name_to_va=bad_map
+            )
+            assert matched is False
+            assert valid == []
+            assert invalid == [1]
+
+    def test_dict_reloc_unusable_map_mismatches(self) -> None:
+        import struct
+
+        obj = b"\xa1" + struct.pack("<I", 4) + b"\xc3"
+        tgt = b"\xa1" + struct.pack("<I", 0x10020004) + b"\xc3"
+        for bad_map in (None, {}):
+            matched, _, _, valid, invalid = smart_reloc_compare(
+                obj, tgt, coff_relocs={1: "_g_var"}, name_to_va=bad_map
+            )
+            assert matched is False
+            assert invalid == [1]
+
+    def test_plain_offsets_still_mask_without_map(self) -> None:
+        """Plain-offset (symbol-less) masks carry no claims and still mask."""
+        obj = b"\x90\x00\x00\x00\x00\x91"
+        tgt = b"\x90\x01\x02\x03\x04\x91"
+        matched, _, _, valid, invalid = smart_reloc_compare(obj, tgt, coff_relocs=[1])
+        assert matched is True
+        assert valid == [1]
         assert invalid == []

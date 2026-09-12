@@ -12,11 +12,12 @@ partition whose merged translation units compile to the most matched bytes:
 - **Phase B (split)**: greedily split clusters at internal
   ``large_nonpadding`` gaps, accepting strict improvements and ties.
 
-Both phases repeat to a fixpoint (cap: 3 passes, 2n compiles).  Scoring
-compiles each merged TU once via the :mod:`rebrew.merge` machinery plus
-:func:`rebrew.compile.compile_and_compare` per function, and compares the
-sum of matched bytes.  Traversal is VA-ordered, there is no RNG, and every
-accepted move is appended to a JSON audit log.
+Both phases repeat to a fixpoint (cap: 3 passes, 2n compiler invocations).
+Scoring compiles each merged TU once via the :mod:`rebrew.merge` machinery
+plus :func:`rebrew.compile.compile_to_obj`, extracts every member function
+from that single object, and compares the sum of matched bytes.  Traversal
+is VA-ordered, there is no RNG, and every accepted move is appended to a
+JSON audit log.
 """
 
 from __future__ import annotations
@@ -166,7 +167,7 @@ def _rank_key(partition: list[list[int]], score: int) -> tuple[int, int, int]:
 
 def search_partitions(
     initial: list[list[int]],
-    score_fn: Callable[[list[list[int]]], int],
+    score_fn: Callable[[list[list[int]]], tuple[int, int]],
     call_map: dict[int, set[int]],
     func_strings: dict[int, set[int]],
     gap_classes: dict[tuple[int, int], str],
@@ -179,10 +180,12 @@ def search_partitions(
 
     Phase A merges adjacent cluster pairs sharing a call edge or string;
     Phase B splits clusters at internal ``large_nonpadding`` gaps.  Both
-    repeat to a fixpoint.  *score_fn* maps a partition to total matched
-    bytes; scores memoize per partition key so a revisited shape never
-    recompiles.  Returns ``(partition, score, moves, compile_count)`` where
-    each move records its phase, kind, affected VAs, reason, and scores.
+    repeat to a fixpoint.  *score_fn* maps a partition to ``(matched_bytes,
+    compiler_invocations)``; the invocation count is charged against
+    *max_compiles*, so the cap counts real compiler runs, not partitions.
+    Scores memoize per partition key so a revisited shape never recompiles.
+    Returns ``(partition, score, moves, compile_count)`` where each move
+    records its phase, kind, affected VAs, reason, and scores.
     """
     memo: dict[tuple[tuple[int, ...], ...], int] = {}
     compiles = 0
@@ -193,10 +196,10 @@ def search_partitions(
         hit = memo.get(key)
         if hit is not None:
             return hit
-        if max_compiles is not None and compiles >= max_compiles:
+        value, invocations = score_fn(partition)
+        compiles += invocations
+        if max_compiles is not None and compiles > max_compiles:
             raise _BudgetExhausted
-        value = score_fn(partition)
-        compiles += 1
         memo[key] = value
         return value
 
@@ -332,7 +335,7 @@ def _gap_classes(
             continue
         gap_data = extract_bytes_at_va(info, gap_start, gap_len, trim_padding=False)
         if gap_data is None:
-            out[(prev_va, curr_va)] = "large_nonpadding"
+            out[(prev_va, curr_va)] = "unknown"
         else:
             out[(prev_va, curr_va)] = _classify_gap(gap_data, text_va, text_size, padding)
     return out
@@ -359,11 +362,12 @@ class _PartitionScorer:
     """Score one partition as total matched bytes over its merged TUs.
 
     Each cluster becomes one merged TU in a temp dir (via
-    :func:`rebrew.merge` helpers), compiled once; every function in the TU
-    is extracted by symbol and compared with
-    :func:`rebrew.compile.compile_and_compare`, and the matched-byte counts
-    are summed.  A cluster with no reversed source scores 0 without
-    compiling.
+    :func:`rebrew.merge` helpers), compiled **once**; every function in the
+    TU is extracted by symbol from that single object and compared, and the
+    matched-byte counts are summed.  A cluster with no reversed source
+    scores 0 without compiling.  Compile overrides resolve against each
+    function's real source path (never the temp dir), so per-function
+    TOOLCHAIN/CFLAGS and the nearest ``rebrew-libraries.toml`` apply.
     """
 
     def __init__(
@@ -418,52 +422,114 @@ class _PartitionScorer:
         merged = _merge_preambles(preambles) + "\n\n".join(b for _, b in picked) + "\n"
         return merged
 
-    def _score_cluster(self, cluster: list[int], workdir: Path) -> int:
-        from rebrew.compile import compile_and_compare
+    def _real_source_dir(self, va: int) -> Path:
+        """Directory holding *va*'s real source file (override resolution root)."""
+        ann = self._annotations.get(va)
+        path = Path(getattr(ann, "filepath", "") or "")
+        if not path.is_absolute():
+            path = self._cfg.reversed_dir / path
+        return path.parent
+
+    def _cluster_overrides(self, cluster: list[int]) -> tuple[str | None, str]:
+        """Effective (toolchain, cflags) for one merged TU.
+
+        Resolved per member against its real source path, then merged: one
+        TU compiles with one toolchain, so a split vote keeps the first
+        member's toolchain and its cflags (both reported per member in the
+        audit path by the caller).
+        """
+        toolchains: list[str | None] = []
+        cflags_list: list[str] = []
+        for va in cluster:
+            ann = self._annotations.get(va)
+            if ann is None:
+                continue
+            toolchain, cflags = resolve_compile_overrides(
+                self._cfg,
+                self._real_source_dir(va),
+                getattr(ann, "toolchain", ""),
+                getattr(ann, "cflags", ""),
+                getattr(ann, "module", ""),
+            )
+            toolchains.append(toolchain)
+            cflags_list.append(cflags)
+        toolchain = next((t for t in toolchains if t), None)
+        cflags = cflags_list[0] if cflags_list else ""
+        return toolchain, cflags
+
+    def _score_cluster(self, cluster: list[int], workdir: Path) -> tuple[int, int]:
+        """Score one cluster as ``(matched_bytes, compiler_invocations)``."""
+        from rebrew.compile import compile_to_obj
+        from rebrew.core import build_iat_region, smart_reloc_compare
+        from rebrew.matcher import parse_obj_symbol_and_relocs
+        from rebrew.utils import safe_shlex_split
 
         text = self._cluster_text(cluster)
         if text is None:
-            return 0
+            return 0, 0
         tu_path = workdir / f"tu_{cluster[0]:08x}.c"
         tu_path.write_text(text, encoding="utf-8")
+        members = [
+            va for va in cluster if (ann := self._annotations.get(va)) is not None and ann.size > 0
+        ]
+        if not members:
+            return 0, 0
+        toolchain, cflags = self._cluster_overrides(cluster)
+        obj_path, _err = compile_to_obj(
+            self._cfg,
+            tu_path,
+            safe_shlex_split(cflags),
+            workdir,
+            toolchain=toolchain,
+        )
+        if obj_path is None:
+            return 0, 1
+        iat_region = build_iat_region(self._cfg)
         total = 0
-        for va in cluster:
-            ann = self._annotations.get(va)
-            if ann is None or ann.size <= 0:
-                continue
+        for va in members:
+            ann = self._annotations[va]
             symbol = ann.symbol or ("" if ann.name.startswith("_") else "_" + ann.name)
             if not symbol:
                 continue
             target_bytes = extract_raw_bytes(self._cfg.target_binary, va, ann.size)
             if not target_bytes:
                 continue
-            toolchain, cflags = resolve_compile_overrides(
-                self._cfg,
-                tu_path.parent,
-                getattr(ann, "toolchain", ""),
-                getattr(ann, "cflags", ""),
-                getattr(ann, "module", ""),
-            )
-            result = compile_and_compare(
-                self._cfg,
-                tu_path,
-                symbol,
+            obj_bytes, reloc_dict, full_relocs = parse_obj_symbol_and_relocs(obj_path, symbol)
+            if obj_bytes is None:
+                continue
+            coff_relocs = full_relocs if full_relocs else reloc_dict
+            size_mismatch = len(obj_bytes) != len(target_bytes)
+            if size_mismatch:
+                if len(obj_bytes) > len(target_bytes):
+                    obj_bytes = obj_bytes[: len(target_bytes)]
+                else:
+                    target_bytes = target_bytes[: len(obj_bytes)]
+            matched, match_count, match_total, _relocs, _inv = smart_reloc_compare(
+                obj_bytes,
                 target_bytes,
-                cflags,
+                coff_relocs,
                 name_to_va=self._name_to_va,
                 section_va=va,
-                toolchain=toolchain,
+                iat_region=iat_region,
             )
-            if result.obj_bytes is None or result.matched:
-                total += len(target_bytes) if result.matched else 0
-                continue
-            total += int(round(result.match_percent / 100.0 * len(target_bytes)))
-        return total
+            if size_mismatch or not matched:
+                total += (
+                    int(round(match_count / match_total * len(target_bytes))) if match_total else 0
+                )
+            else:
+                total += len(target_bytes)
+        return total, 1
 
-    def __call__(self, partition: list[list[int]]) -> int:
+    def __call__(self, partition: list[list[int]]) -> tuple[int, int]:
         with tempfile.TemporaryDirectory(prefix="merge_sweep_") as tmp:
             workdir = Path(tmp)
-            return sum(self._score_cluster(cluster, workdir) for cluster in partition)
+            matched = 0
+            invokes = 0
+            for cluster in partition:
+                score, n = self._score_cluster(cluster, workdir)
+                matched += score
+                invokes += n
+            return matched, invokes
 
 
 def _load_annotations(cfg: ProjectConfig) -> dict[int, Any]:

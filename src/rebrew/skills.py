@@ -69,12 +69,18 @@ def _parse_frontmatter(text: str) -> dict[str, str]:
 
 
 def _safe_skill_name(name: str) -> str:
-    """A skill name usable as a directory component.
+    """A skill name usable as a directory component, or ``""`` when unusable.
 
     Frontmatter ``name`` is attacker-influenced (community skills); a value
     like ``../../evil`` or ``/abs`` must never escape the skills directory.
-    Non-identifier characters are folded to ``-``."""
+    Non-identifier characters are folded to ``-``.  A dot-ONLY name
+    (``.``/``..``) survives that fold and would resolve to the skills directory
+    or its parent, so it is refused; a leading dot followed by other characters
+    (``.evil``) is a valid in-directory component and is kept.
+    """
     safe = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-")
+    if not safe or safe.strip(".") == "":
+        return ""
     return safe
 
 

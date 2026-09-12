@@ -26,7 +26,7 @@ class TestCompilerDefaults:
     """Tests for the COMPILER_DEFAULTS constant."""
 
     def test_has_expected_profiles(self) -> None:
-        assert len(COMPILER_DEFAULTS) == 39  # 14 legacy + 24 MSVC 1.0-11.0 matrix profiles
+        assert len(COMPILER_DEFAULTS) == 41
 
     def test_known_profiles(self) -> None:
         assert set(COMPILER_DEFAULTS.keys()) == {
@@ -69,7 +69,16 @@ class TestCompilerDefaults:
             "watcom16",
             "tc20",
             "tc16",
+            "ido5.3",
+            "ido7.1",
         }
+
+    def test_ido_profiles_elf_mips(self) -> None:
+        """ido5.3/ido7.1 are ELF/MIPS targets (N64 SGI IDO reimplementations)."""
+        for profile in ("ido5.3", "ido7.1"):
+            data = COMPILER_DEFAULTS[profile]
+            assert data["format"] == "elf"
+            assert data["arch"] == "mips32"
 
     @pytest.mark.parametrize(
         "profile",
@@ -1050,3 +1059,51 @@ class TestGuessCompilerFailure:
         captured = capsys.readouterr()
         assert "cannot guess" in captured.err
         assert "--toolchain" in captured.err  # the actionable hint
+
+
+class TestRegistryDerivedProfiles:
+    """_profile_defaults/_profile_families cover every TOOLCHAINS name, so a
+    registry toolchain without a hand-written entry is still accepted and
+    still gets family-alignment warnings."""
+
+    def test_every_toolchain_has_defaults(self) -> None:
+        from rebrew.init import _profile_defaults
+        from rebrew.toolchain import TOOLCHAINS
+
+        defaults = _profile_defaults()
+        missing = [n for n in TOOLCHAINS if n not in defaults]
+        assert missing == []
+        for name, data in defaults.items():
+            for key in ("command", "includes", "libs", "cflags", "format", "arch"):
+                assert key in data, f"{name} missing '{key}'"
+
+    def test_every_toolchain_has_family(self) -> None:
+        from rebrew.init import _profile_families
+        from rebrew.toolchain import TOOLCHAINS
+
+        families = _profile_families()
+        missing = [n for n in TOOLCHAINS if n not in families]
+        assert missing == []
+        # hand-table entries keep their families (incl. the newly completed ones)
+        assert families["tc16"] == frozenset({"borlandc"})
+        assert families["msvc15"] == frozenset({"msvc"})
+        assert families["ido5.3"] == frozenset({"ido"})
+
+    def test_plugin_toolchain_synthesized(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An overlay toolchain with no hand entry is accepted by init's
+        lookup and flagged on family mismatch."""
+        import rebrew.toolchain as toolchain_mod
+        from rebrew.init import _profile_defaults, _profile_families
+
+        overlay = tmp_path / "overlay"
+        overlay.mkdir()
+        (overlay / "mytc.toml").write_text(
+            '[mytc]\nbinary = "mycc"\nflags_style = "posix"\nobj_ext = ".o"\n',
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("REBREW_TOOLCHAIN_OVERLAY_DIR", str(overlay))
+        monkeypatch.setattr(toolchain_mod, "TOOLCHAINS", toolchain_mod.build_toolchain_registry())
+        assert "mytc" in _profile_defaults()
+        assert "mytc" in _profile_families()

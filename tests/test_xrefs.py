@@ -234,9 +234,14 @@ class TestVaFirstPositional:
         assert _looks_like_va("0x401000") is True
         assert _looks_like_va("0x401000") is True
         assert _looks_like_va("401000") is True  # bare hex
+        assert _looks_like_va("1234") is True  # all digits
         assert _looks_like_va("game.exe") is False
         assert _looks_like_va("original/game.exe") is False
         assert _looks_like_va("") is False
+        assert _looks_like_va("dead") is False  # bare word, not a VA
+        assert _looks_like_va("beef") is False  # bare word, not a VA
+        assert _looks_like_va("deadbeef") is True  # long hex reads as an address
+        assert _looks_like_va("main") is False  # symbol name, not a VA
 
     def test_va_first_with_project_binary(self, tmp_path: Path, monkeypatch) -> None:
         from types import SimpleNamespace as NS

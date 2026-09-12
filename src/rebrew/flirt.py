@@ -108,12 +108,41 @@ def load_signatures_merged(project_dir: Path, repo_dir: Path) -> list[Any]:
 
 
 def find_func_size(code_data: bytes, offset: int) -> int:
-    """Estimate function size by scanning for common end patterns."""
-    # Look for ret (0xC3), ret imm16 (0xC2), or int3 padding (0xCC)
+    """Estimate function size by disassembling to the first return.
+
+    Capstone decodes from *offset* so a ``0xC3``/``0xC2`` byte that is an
+    opcode operand or ModRM (not a real ``ret``) never ends the function
+    early; ``int3`` padding and unknown bytes end the scan without
+    contributing.  Falls back to the old byte window when capstone is
+    unavailable.
+    """
     if offset < 0:
         offset = 0
     max_scan = min(_MAX_FUNC_SCAN, max(0, len(code_data) - offset))
+    if max_scan <= 0:
+        return 0
     scan_end = offset + max_scan
+    try:
+        import capstone
+
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        # skipdata=True makes an undecodable byte emit a `.byte` pseudo-insn
+        # (the default skipdata_mnem).  With skipdata=False capstone simply
+        # STOPS at that byte, so the loop ended without a terminator and the
+        # function was reported as the full 4096-byte window.
+        md.skipdata = True
+    except Exception:
+        md = None
+    if md is not None:
+        for insn in md.disasm(code_data[offset:scan_end], offset):
+            mnemonic = str(insn.mnemonic)
+            if mnemonic.startswith("ret"):
+                return int(insn.address) - offset + int(insn.size)
+            if mnemonic in ("int3", "hlt", "ud2"):
+                return int(insn.address) - offset
+            if mnemonic == ".byte":
+                return int(insn.address) - offset
+        return max_scan
     for i in range(offset, scan_end):
         b = code_data[i]
         if b == 0xC3:  # ret
@@ -149,6 +178,7 @@ def match_text(
     analyze``, and ``rebrew identify-library``.
     """
     matches: list[dict[str, Any]] = []
+    seen_vas: set[int] = set()
     for offset in iter_match_offsets(len(code_data), stride=stride, min_window=_MIN_MATCH_WINDOW):
         hits = matcher.match(code_data[offset : offset + 1024])
         if not hits:
@@ -163,9 +193,11 @@ def match_text(
             continue
         if len(names) > max_ambiguous:
             continue  # ambiguous — never guess
-        matches.append(
-            {"va": base_va + offset, "size": find_func_size(code_data, offset), "name": names[0]}
-        )
+        va = base_va + offset
+        if va in seen_vas:
+            continue  # overlapping stride windows can report the same VA
+        seen_vas.add(va)
+        matches.append({"va": va, "size": find_func_size(code_data, offset), "name": names[0]})
     return matches
 
 
@@ -285,16 +317,16 @@ def main(
                     names.append(label)
         if not names:
             return
-        func_size = find_func_size(code_data, offset)
-        if not force and func_size < min_size:
-            return
         va = base_va + offset
         if len(names) > max_ambiguous:
             # Broad signatures (e.g. crc_len=0 patterns) can match many
             # candidates at once.  Skipped by default; --show-ambiguous keeps
             # them so the identification candidates aren't lost entirely.
+            # Ambiguity is a property of the signature, not the function
+            # size, so the size gate below does not apply here.
             skipped += 1
             if show_ambiguous:
+                func_size = find_func_size(code_data, offset)
                 ambiguous_list.append(
                     {
                         "va": f"0x{va:08x}",
@@ -308,6 +340,9 @@ def main(
                     if len(names) > _MAX_AMBIGUOUS_REPORT:
                         shown += ", ..."
                     console.print(f"[dim]~ 0x{va:08x} ({func_size:4d}B): ambiguous: {shown}[/dim]")
+            return
+        func_size = find_func_size(code_data, offset)
+        if not force and func_size < min_size:
             return
         if json_output:
             matches_list.append({"va": f"0x{va:08x}", "size": func_size, "names": names})

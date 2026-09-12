@@ -71,15 +71,17 @@ def _warnings_for(steps: list[dict[str, Any]], effective_toolchain: str | None) 
             )
 
     if lib_step and lib_step.get("presets"):
-        preset = str(lib_step["presets"][0])
-        expected = all_library_presets().get(preset, {}).get("toolchain", "")
+        presets = all_library_presets()
         resolved = effective_toolchain or ""
-        if expected and resolved and resolved != expected:
-            warnings.append(
-                f"library preset {preset!r} expects toolchain {expected!r} but the "
-                f"resolved toolchain is {resolved!r} — the preset's flags may not be "
-                f"valid for it (conflicting declarations)"
-            )
+        for preset_raw in lib_step["presets"]:
+            preset = str(preset_raw)
+            expected = presets.get(preset, {}).get("toolchain", "")
+            if expected and resolved and resolved != expected:
+                warnings.append(
+                    f"library preset {preset!r} expects toolchain {expected!r} but the "
+                    f"resolved toolchain is {resolved!r} — the preset's flags may not be "
+                    f"valid for it (conflicting declarations)"
+                )
 
     if func_tc and lib_tc:
         fspec = TOOLCHAINS.get(func_tc)

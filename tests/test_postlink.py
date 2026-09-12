@@ -18,6 +18,7 @@ import json
 import struct
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from rebrew.postlink import FIXER_ORDER, app, run_fixers
@@ -230,6 +231,15 @@ class TestImportsFixer:
         assert patched == ref.read_bytes()
         assert reports[0].changed
 
+    def test_converges_reordered_dll_descriptors(self, tmp_path: Path) -> None:
+        """Identical import sets in a different descriptor order (the linker's
+        hash order) must converge, not be refused as a set mismatch."""
+        ref = _write(tmp_path, "ref.dll", make_full_pe(imports=self.IMPORTS))
+        built = _write(tmp_path, "built.dll", make_full_pe(imports=list(reversed(self.IMPORTS))))
+        patched, reports = run_fixers(built, ref, ["imports"])
+        assert patched == ref.read_bytes()
+        assert reports[0].changed
+
     def test_rejects_different_import_set(self, tmp_path: Path) -> None:
         ref = _write(tmp_path, "ref.dll", make_full_pe(imports=self.IMPORTS))
         built = _write(
@@ -248,6 +258,52 @@ class TestImportsFixer:
         patched, reports = run_fixers(built, ref, ["imports"])
         assert patched == ref.read_bytes()
         assert not reports[0].changed
+
+    def test_rewrite_requires_indirect_call_opcode(self, tmp_path: Path) -> None:
+        """Only FF /2 (call [mem]) and FF /5 (jmp [mem]) operands are IAT
+        references.  A bare dword equal to a moved slot VA (e.g. a
+        mov-imm32 constant) must be left alone, not rewritten."""
+        import dataclasses
+
+        from rebrew.binary_loader import load_binary
+        from rebrew.layout_meta import extract_layout
+        from rebrew.postlink import _fix_imports
+
+        imports = [("KERNEL32.dll", ["GetLocalTime", "WriteFile"])]
+        ref = make_full_pe(imports=imports)
+        meta = extract_layout(ref, "ref.dll")
+        # A built link that assigned the two IAT slots swapped: the
+        # reference metadata with the slots exchanged.
+        swapped = dataclasses.replace(
+            meta,
+            imports=[
+                dataclasses.replace(meta.imports[0], iat_va=meta.imports[1].iat_va),
+                dataclasses.replace(meta.imports[1], iat_va=meta.imports[0].iat_va),
+            ],
+        )
+        slot_get = meta.imports[0].iat_va + _IMAGE_BASE
+        slot_wri = meta.imports[1].iat_va + _IMAGE_BASE
+        # .text holds the *built* slot (WriteFile's reference slot) in three
+        # guises: FF 25 and FF 15 (must rewrite) and a mov-imm32 constant
+        # (coincidental, must survive).
+        code = (
+            b"\xff\x25"
+            + struct.pack("<I", slot_wri)
+            + b"\xb8"
+            + struct.pack("<I", slot_wri)
+            + b"\xff\x15"
+            + struct.pack("<I", slot_wri)
+            + b"\xc3"
+        )
+        blob = bytearray(make_full_pe(code=code, imports=imports))
+        built = _write(tmp_path, "built.dll", bytes(blob))
+        report = _fix_imports(blob, swapped, load_binary(built))
+        base = _HEADERS  # .text file offset in the fixture
+        assert struct.unpack_from("<I", blob, base + 2)[0] == slot_get
+        assert struct.unpack_from("<I", blob, base + 7)[0] == slot_wri
+        assert struct.unpack_from("<I", blob, base + 13)[0] == slot_get
+        assert report.stats["slot_operands_rewritten"] == 2
+        assert report.stats["slot_operands_skipped"] == 1
 
 
 class TestDataFixer:
@@ -278,6 +334,119 @@ class TestDataFixer:
         assert patched == ref.read_bytes()
         assert patched[0x1001:0x1008] == b"\xcc" * 7  # padding untouched
 
+    def test_reloc_written_at_built_offset_not_reference(self, tmp_path: Path) -> None:
+        """The .reloc bytes must land at the *built* file's own .reloc raw
+        pointer (from its headers), not the reference's raw_ptr: a built
+        link whose .reloc sits 0x200 later must keep it there."""
+        from rebrew.layout_meta import extract_layout
+        from rebrew.postlink import _fix_data
+
+        reloc = struct.pack("<II", 0x1000, 8) + struct.pack("<HH", 0x123, 0x3000)
+        ref = _write(tmp_path, "ref.dll", make_full_pe(reloc_bytes=reloc))
+        meta = extract_layout(ref.read_bytes(), "ref.dll")
+        assert meta.reloc  # the fixture must carry real reloc content
+
+        sec_reloc = 0x178 + 40 * 3  # .reloc section-table entry in the fixture
+        new_ptr = _RELOC_VA + 0x200
+        raw = bytearray(make_full_pe(reloc_bytes=reloc))
+        raw[new_ptr:new_ptr] = b"\x00" * 0x200  # gap: built .reloc raw sits later
+        struct.pack_into("<I", raw, sec_reloc + 20, new_ptr)
+        built = _write(tmp_path, "built.dll", bytes(raw))
+
+        from rebrew.binary_loader import load_binary
+
+        blob = bytearray(built.read_bytes())
+        _fix_data(blob, meta, load_binary(built))
+        assert bytes(blob[new_ptr : new_ptr + len(meta.reloc)]) == meta.reloc
+        # the built header still points at the built offset (pre-fix the
+        # write went to the reference's raw_ptr and the header was stamped
+        # with it).
+        assert struct.unpack_from("<I", blob, sec_reloc + 20)[0] == new_ptr
+
+    def test_tail_trim_uses_built_geometry(self, tmp_path: Path) -> None:
+        """The .text tail trim resolves the built trim point from the built
+        file's own headers: a built .text raw 0x100 larger than the
+        reference's must be trimmed back to the reference's raw extent."""
+        ref = _write(tmp_path, "ref.dll", make_full_pe(code=b"\xc3"))
+        meta_ptr = _HEADERS + 0x1000  # reference .text raw extent
+        raw = bytearray(make_full_pe(code=b"\xc3"))
+        # grow the built .text raw by 0x100 (header + raw bytes)
+        sec_text = 0x178  # .text section-table entry in the fixture
+        old_raw = struct.unpack_from("<I", raw, sec_text + 16)[0]
+        struct.pack_into("<I", raw, sec_text + 16, old_raw + 0x100)
+        raw[_HEADERS + old_raw : _HEADERS + old_raw] = b"\x90" * 0x100
+        built = _write(tmp_path, "built.dll", bytes(raw))
+
+        from rebrew.binary_loader import load_binary
+        from rebrew.layout_meta import extract_layout
+        from rebrew.postlink import _fix_data
+
+        blob = bytearray(built.read_bytes())
+        _fix_data(blob, extract_layout(ref.read_bytes(), "ref.dll"), load_binary(built))
+        assert bytes(blob[meta_ptr : meta_ptr + 0x100]) == b"\x00" * 0x100
+        assert struct.unpack_from("<I", blob, sec_text + 16)[0] == old_raw
+
+    def test_tail_trim_uses_built_file_offset(self, tmp_path: Path) -> None:
+        """A built link whose raw sections sit 0x200 later must not be trimmed:
+        the trim point resolves from the built section's own file offset, never
+        the reference's ``raw_ptr`` (which indexed the built buffer)."""
+        from rebrew.binary_loader import load_binary
+        from rebrew.layout_meta import extract_layout
+        from rebrew.postlink import _fix_data
+
+        ref = _write(tmp_path, "ref.dll", make_full_pe(code=b"\xc3", text_pad_byte=0xCC))
+        raw = bytearray(make_full_pe(code=b"\xc3", text_pad_byte=0xCC))
+        # Shift every raw section 0x200 later (a gap between headers and .text):
+        # file offsets move, RVAs do not.
+        raw[_HEADERS:_HEADERS] = b"\x00" * 0x200
+        sec_off = 0x178
+        for i in range(4):
+            h = sec_off + 40 * i
+            ptr = struct.unpack_from("<I", raw, h + 20)[0]
+            struct.pack_into("<I", raw, h + 20, ptr + 0x200)
+        built = _write(tmp_path, "built.dll", bytes(raw))
+
+        # Built .text spans [0x1200, 0x2200) and its raw size equals the
+        # reference's, so nothing lies beyond the reference's raw extent.
+        blob = bytearray(built.read_bytes())
+        _fix_data(blob, extract_layout(ref.read_bytes(), "ref.dll"), load_binary(built))
+        assert bytes(blob[0x2000:0x2200]) == b"\xcc" * 0x200
+        assert struct.unpack_from("<I", blob, sec_off + 16)[0] == 0x1000
+
+
+class TestTextAlignmentGuard:
+    """The layout maps are .text-relative, so they only describe a link that
+    placed every function at the reference's VA.  A shifted .text must be
+    refused before anything is patched, not padded to the reference's
+    VirtualSize and shipped."""
+
+    def test_aligned_text_passes(self, tmp_path: Path) -> None:
+        operand = _DATA_VA + 0x10 + _IMAGE_BASE
+        code = b"\xb8" + struct.pack("<I", operand) + b"\xe8\x10\x00\x00\x00\xc3"
+        ref = _write(tmp_path, "ref.dll", make_full_pe(code=code, data=bytes(range(0x20))))
+        patched, _reports = run_fixers(ref, ref, ["data"])
+        assert patched == ref.read_bytes()
+
+    def test_shifted_text_is_refused(self, tmp_path: Path) -> None:
+        operand = _DATA_VA + 0x10 + _IMAGE_BASE
+        code = b"\xb8" + struct.pack("<I", operand) + b"\xe8\x10\x00\x00\x00\xc3"
+        ref = _write(tmp_path, "ref.dll", make_full_pe(code=code, data=bytes(range(0x20))))
+        # every function eight bytes later: the map's offsets no longer point
+        # at the instructions they describe
+        shifted = _write(
+            tmp_path,
+            "shifted.dll",
+            make_full_pe(code=b"\x90" * 8 + code, data=bytes(range(0x20))),
+        )
+
+        with pytest.raises(ValueError, match="not position-aligned"):
+            run_fixers(shifted, ref, ["data"])
+
+    def test_guard_skipped_when_map_is_empty(self, tmp_path: Path) -> None:
+        ref = _write(tmp_path, "ref.dll", make_full_pe(code=b"\xc3"))
+        patched, _reports = run_fixers(ref, ref, ["data"])
+        assert patched == ref.read_bytes()
+
 
 class TestPeMetadataFixer:
     def test_converges_stamped_headers(self, tmp_path: Path) -> None:
@@ -286,6 +455,86 @@ class TestPeMetadataFixer:
         patched, reports = run_fixers(built, ref, ["pe-metadata"])
         assert patched == ref.read_bytes()
         assert reports[0].changed
+
+    def test_shifted_raw_offsets_are_not_overwritten(self, tmp_path: Path) -> None:
+        """The full header copy must require the whole section layout to have
+        converged, not just names+RVAs: ``_fix_data`` wrote ``.reloc`` at the
+        built file's own raw offset, and copying the reference's raw pointers
+        over it would point the header at bytes the fixer never wrote."""
+        ref = _write(tmp_path, "ref.dll", make_full_pe(code=b"\xc3", text_pad_byte=0xCC))
+        raw = bytearray(make_full_pe(code=b"\xc3", text_pad_byte=0xCC))
+        raw[_HEADERS:_HEADERS] = b"\x00" * 0x200
+        sec_off = 0x178
+        for i in range(4):
+            h = sec_off + 40 * i
+            ptr = struct.unpack_from("<I", raw, h + 20)[0]
+            struct.pack_into("<I", raw, h + 20, ptr + 0x200)
+        built = _write(tmp_path, "built.dll", bytes(raw))
+
+        patched, _reports = run_fixers(built, ref, ["data", "pe-metadata"])
+        # .data/.reloc raw pointers stay where the built link put them (and
+        # where the data fixer wrote the bytes), not the reference's 0x3000 /
+        # 0x4000.
+        assert struct.unpack_from("<I", patched, sec_off + 40 * 2 + 20)[0] == 0x3000 + 0x200
+        assert struct.unpack_from("<I", patched, sec_off + 40 * 3 + 20)[0] == 0x4000 + 0x200
+
+    def test_header_pad_uses_reference_size_of_headers(self, tmp_path: Path) -> None:
+        """The DOS-stub relocation pads to the reference's SizeOfHeaders,
+        not a hardcoded 0x1000: with a reference claiming SizeOfHeaders
+        0x2000 the pad must reach 0x2000 and the tail beyond it must be
+        the built bytes (pre-fix the pad stopped at 0x1000)."""
+        import dataclasses
+        import struct
+
+        from rebrew.binary_loader import load_binary
+        from rebrew.layout_meta import extract_layout
+        from rebrew.postlink import _fix_pe_metadata
+
+        ref = _write(tmp_path, "ref.dll", make_full_pe())
+        meta = extract_layout(ref.read_bytes(), "ref.dll")
+        header = bytearray(meta.header)
+        struct.pack_into("<I", header, 0x3C, 0x40)  # reference e_lfanew
+        struct.pack_into("<I", header, 0x40 + 24 + 60, 0x2000)  # SizeOfHeaders
+        meta = dataclasses.replace(meta, header=bytes(header))
+
+        built = _write(tmp_path, "built.dll", make_full_pe())
+        blob = bytearray(built.read_bytes())
+        _fix_pe_metadata(blob, meta, load_binary(built))
+        assert bytes(blob[0x40 + 0x198 : 0x2000]) == b"\x00" * (0x2000 - 0x40 - 0x198)
+        assert bytes(blob[0x2000:]) == built.read_bytes()[0x2000:]
+
+    def test_fixers_see_fresh_geometry(self, tmp_path: Path) -> None:
+        """Fixers after the first must see the headers earlier fixers wrote,
+        not the geometry parsed before the chain ran: the ``data`` fixer
+        grows the built ``.reloc`` raw-size header field, and
+        ``pe-metadata`` must observe the grown value."""
+        import rebrew.postlink as postlink
+
+        reloc = struct.pack("<II", 0x1000, 8)
+        ref = _write(
+            tmp_path,
+            "ref.dll",
+            make_full_pe(reloc_bytes=reloc, timestamp=0x60000000, checksum=0x4D328),
+        )
+        raw = bytearray(make_full_pe(reloc_bytes=reloc, timestamp=0x70000001, checksum=0))
+        sec_reloc = 0x178 + 40 * 3  # .reloc section-table entry in the fixture
+        struct.pack_into("<I", raw, sec_reloc + 16, 0x100)  # built header understates it
+        built = _write(tmp_path, "built.dll", bytes(raw))
+
+        captured: dict[str, int] = {}
+        real = postlink._fix_pe_metadata
+
+        def spy(built_buf: bytearray, meta: object, info: object) -> postlink.FixerReport:
+            captured["reloc_raw"] = info.sections[".reloc"].raw_size  # type: ignore[union-attr]
+            return real(built_buf, meta, info)  # type: ignore[arg-type]
+
+        postlink.FIXERS["pe-metadata"] = spy
+        try:
+            patched, _reports = run_fixers(built, ref, ["data", "pe-metadata"])
+        finally:
+            postlink.FIXERS["pe-metadata"] = real
+        assert captured["reloc_raw"] == 0x200  # the data fixer's rewrite, not 0x100
+        assert patched == ref.read_bytes()
 
 
 class TestCli:
@@ -315,6 +564,16 @@ class TestCli:
         result = runner.invoke(app, ["--fix", "nope", str(built), str(ref)], env={"COLUMNS": "200"})
         assert result.exit_code == 2
         assert "unknown fixer" in result.output
+
+    def test_empty_fixer_selection_is_rejected(self, tmp_path: Path) -> None:
+        """``--fix ""`` selects nothing; it must not silently run every fixer."""
+        ref = _write(tmp_path, "ref.dll", make_full_pe(code=b"\xc3", text_pad_byte=0xCC))
+        built_bytes = make_full_pe()
+        built = _write(tmp_path, "built.dll", built_bytes)
+        result = runner.invoke(app, ["--fix", "", str(built), str(ref)], env={"COLUMNS": "200"})
+        assert result.exit_code == 2
+        assert "no fixer selected" in result.output
+        assert built.read_bytes() == built_bytes
 
 
 def test_fixer_order_constant() -> None:

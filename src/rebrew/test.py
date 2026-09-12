@@ -50,6 +50,7 @@ from rebrew.compile import (
 )
 from rebrew.config import ProjectConfig
 from rebrew.core import build_iat_region, build_name_to_va, smart_reloc_compare
+from rebrew.core.matching import CatalogScanError
 from rebrew.matcher import parse_obj_symbol_and_relocs
 from rebrew.metadata import (
     is_status_sticky,
@@ -136,8 +137,8 @@ _EPILOG = (
     "  6. If EXACT/RELOC: clears any auto-generated BLOCKER from metadata\n\n"
     "[bold]Exit codes:[/bold]\n\n"
     "  0   EXACT or RELOC match (bytes identical or match after relocation masking)\n\n"
-    "  1   NEAR_MATCHING or STUB (code needs improvement)\n\n"
-    "  2   Build error (compilation failed)\n\n"
+    "  1   NEAR_MATCHING, STUB, or SIZE_MISMATCH (code needs improvement)\n\n"
+    "  2   Tooling error (compilation failed, target bytes unextractable, VA-map scan failed)\n\n"
     "[dim]Parameters are auto-detected from // FUNCTION markers in source, "
     "plus STATUS, SIZE, and CFLAGS from rebrew-functions.toml metadata.[/dim]"
 )
@@ -353,9 +354,12 @@ def main(
         return
 
     # Build name -> VA map for relocation validation (shared with verify).
-    name_to_va = build_name_to_va(cfg)
-    if not name_to_va and not json_output:
-        console.print("[dim]Skipping relocation validation (global data scan unavailable)[/dim]")
+    # Fail closed: a VA-map scan failure aborts the run with EXIT_ERROR
+    # instead of masking relocs against an empty map (false RELOC).
+    try:
+        name_to_va = build_name_to_va(cfg)
+    except CatalogScanError as exc:
+        error_exit(str(exc), json_mode=json_output, code=EXIT_ERROR)
 
     # Optional: lint the file first to catch basic annotation errors
     lint_annos = parse_c_file_multi(
@@ -491,6 +495,15 @@ def main(
         target_bytes = Path(target_bin).read_bytes()
         if size_val is not None:
             target_bytes = target_bytes[:size_val]
+        # --target-bin runs compare a raw byte blob with no VA — but the
+        # FUNCTION marker still carries the function's VA, and REL32 callee
+        # validation needs it (section_va=None masks every call as valid).
+        # Resolve it from the annotation so call targets are validated.
+        if section_va is None:
+            if va_str is not None:
+                section_va = parse_va(va_str, json_mode=json_output)
+            elif sel_ann is not None and getattr(sel_ann, "va", None):
+                section_va = sel_ann.va
     else:
         error_exit(
             "Specify either target_bin or (VA and SIZE) via args or source metadata",
@@ -553,7 +566,10 @@ def main(
         )
     ):
         new_size = cmp.full_obj_size
-        anno_module = lint_annos[0].module if lint_annos else ""
+        # The VA-SELECTED annotation's module, like every other metadata write
+        # in this command: `lint_annos[0]` wrote the size under the file's FIRST
+        # module, creating a phantom entry next to the real one.
+        anno_module = _mod
         if not dry_run:
             try:
                 update_field(cfg.metadata_dir, section_va, "size", new_size, anno_module)
@@ -620,6 +636,15 @@ def main(
         # stayed stale).
         promote_ann = sel_ann if sel_ann is not None else (lint_annos[0] if lint_annos else None)
         anno_module = promote_ann.module if promote_ann else ""
+        if not anno_module:
+            # The marker filter can exclude every annotation (e.g. a fresh
+            # file whose module differs from the target marker) — fall back
+            # to the file's own marker for the requested VA so the SIZE /
+            # STATUS writes land under the real (module, VA) key instead of
+            # raising on an empty module (or worse, writing an unreadable one).
+            from rebrew.annotation import module_for_va as _module_for_va
+
+            anno_module = _module_for_va(Path(source), va_int_for_promote)
         # Persist the resolved SIZE alongside STATUS so downstream tools
         # (diff, near-diag) can resolve it from metadata like STATUS — a
         # hand-written fresh function would otherwise stay at SIZE=0 forever
@@ -675,6 +700,20 @@ def main(
         if not force_status and not should_promote_status(old_status, new_status):
             if is_status_sticky(old_status) and not json_output:
                 console.print(f"[dim]STATUS → skipped ({old_status})[/dim]")
+            # A refused promotion with the SAME status still carries fresh
+            # metrics: status/todo rank ROI from the cache's match_percent and
+            # byte delta, so a NEAR_MATCHING improved from 60% to 92% must land
+            # even though there is no status transition to hang the patch on
+            # (the batch path patches every result for this reason).
+            if not dry_run and new_status == old_status:
+                _patch_verify_cache(
+                    cfg,
+                    va_int_for_promote,
+                    new_status,
+                    match_count,
+                    total,
+                    delta=cmp.delta,
+                )
         elif dry_run:
             # --dry-run must not write: preview the STATUS change (the compile
             # itself already ran — it is read-only). Matches verify --dry-run.
@@ -709,8 +748,13 @@ def main(
             if not json_output:
                 console.print(f"[dim]STATUS → {new_status}[/dim]")
 
-    # Documented exit-code contract: 0 = EXACT/RELOC match, 1 = needs work
-    # (NEAR_MATCHING/STUB/SIZE_MISMATCH), 2 = build error (above).
+    # Documented exit-code contract (epilog): 0 = EXACT/RELOC match,
+    # 1 = needs work (NEAR_MATCHING/STUB/SIZE_MISMATCH), 2 = tooling error
+    # (COMPILE_ERROR/EXTRACT_ERROR — set above for COMPILE_ERROR; an
+    # EXTRACT_ERROR here exits 2 as well so single-file, multi-function, and
+    # batch modes agree).
+    if cmp.status == "EXTRACT_ERROR":
+        raise typer.Exit(code=EXIT_ERROR)
     if not is_matched(cmp.status):
         raise typer.Exit(code=EXIT_MISMATCH)
 
@@ -1065,6 +1109,8 @@ def _test_multi(
                 # Size mismatch must be computed on the ORIGINAL lengths — truncating
                 # first makes an over-long obj report false EXACT (and get promoted).
                 size_mismatch = len(obj_bytes) != len(target_bytes)
+                orig_obj_len = len(obj_bytes)
+                orig_tgt_len = len(target_bytes)
                 cmp_obj = obj_bytes
                 cmp_tgt = target_bytes
                 if size_mismatch:
@@ -1081,13 +1127,15 @@ def _test_multi(
                     section_va=ann.va,
                     iat_region=build_iat_region(cfg),
                 )
-            except (ValueError, OSError) as exc:
+            except Exception as exc:
                 # Post-compile object extraction/compare failure — the source
                 # compiled fine, so this is NOT a COMPILE_ERROR.  Mirror
                 # compile_and_compare's EXTRACT_ERROR labeling so a malformed
                 # .obj aborts only this symbol, never the whole multi-function
                 # file (previously a LIEF raise crashed the batch with a
-                # traceback and no JSON output).
+                # traceback and no JSON output).  Per-symbol isolation: ANY
+                # exception here isolates to this symbol (logged below); the
+                # batch continues with the remaining annotations.
                 any_extract_error = True
                 if json_output:
                     results_list.append(
@@ -1170,6 +1218,12 @@ def _test_multi(
                 # Same pre-truncation length diff compile_and_compare threads —
                 # without it, a SIZE_MISMATCH delta misses the length diff.
                 size_delta=abs(len(obj_bytes) - len(target_bytes)) if size_mismatch else 0,
+                # Full (pre-truncation) lengths, like _extract_and_compare: a 20B
+                # candidate against an 8B annotation is a real over-long
+                # SIZE_MISMATCH, not an 8B stub body.
+                full_obj_size=orig_obj_len if size_mismatch else None,
+                full_obj_bytes=obj_bytes if size_mismatch else None,
+                full_target_size=orig_tgt_len if size_mismatch else None,
             )
             matched = cmp.matched
             new_status = cmp.status
@@ -1243,6 +1297,12 @@ def _test_multi(
                         new_status,
                         match_count,
                         total,
+                        # The real byte delta, as the single-file path passes:
+                        # recomputing total - match_count yields 0 for a
+                        # SIZE_MISMATCH (obj truncated to the target), which
+                        # todo then reads as a "0B diff — try flag sweep"
+                        # quick-win.
+                        delta=cmp.delta,
                     )
                     if not json_output:
                         console.print(f"[dim]  STATUS → {new_status}[/dim]")
@@ -1306,6 +1366,7 @@ def _run_all_batch(
         cached_count,
         size_divergences,
         _missing_sizes,
+        _duplicate_vas,
     ) = prepare_entries(
         cfg,
         full=True,  # test --all always recompiles (no incremental)
@@ -1332,15 +1393,15 @@ def _run_all_batch(
     # Filter by batch_dir if specified
     if batch_dir:
         batch_root = (
-            Path(batch_dir).resolve()
-            if Path(batch_dir).is_absolute()
-            else cfg.reversed_dir / batch_dir
-        )
-        batch_root_str = str(batch_root)
+            Path(batch_dir) if Path(batch_dir).is_absolute() else Path(cfg.reversed_dir) / batch_dir
+        ).resolve()
+        # Path-aware containment: a raw string prefix also matched sibling
+        # directories (`game_dll_extra` under `game_dll`) and broke on a root
+        # with `..` in it; resolve both sides and compare real paths.
         unique_entries = [
             e
             for e in unique_entries
-            if str((cfg.reversed_dir / e.filepath).resolve()).startswith(batch_root_str)
+            if (Path(cfg.reversed_dir) / e.filepath).resolve().is_relative_to(batch_root)
         ]
 
     # Filter by origin if specified
@@ -1423,6 +1484,13 @@ def _run_all_batch(
             try:
                 va_int = int(r["va"], 16)
             except (ValueError, TypeError, KeyError):
+                continue
+            # A worker crash is not a verification verdict: the cache writer
+            # refuses to store INTERNAL_ERROR (verify.py:_save_verify_cache) and
+            # metadata deliberately leaves it out of `deferred`, so patching it
+            # here left a phantom failure that status/todo serve forever for a
+            # function whose real metadata status is untouched.
+            if r.get("status") == "INTERNAL_ERROR":
                 continue
             pct = r.get("match_percent") or 0.0
             patches.append(

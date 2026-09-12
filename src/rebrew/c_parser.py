@@ -123,6 +123,37 @@ def _node_text(node: Any, source_bytes: bytes) -> str:
     return source_bytes[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
 
 
+def protected_spans(source: str | bytes) -> list[tuple[int, int]]:
+    """Byte spans of text a rename must NOT rewrite: literals and macro names.
+
+    ``rebrew rename`` documents that macros and string literals are not
+    rewritten; a plain regex substitution over the raw text rewrote
+    ``puts("foo")`` into ``puts("bar")``, changing the data an already
+    byte-matched function emits.
+
+    Returns sorted, non-overlapping ``(start, end)`` byte offsets for every
+    string/character literal and for the NAME of a ``#define`` (the macro's own
+    definition keeps its name; its uses elsewhere are still renamed).
+
+    :raises ImportError: tree-sitter is unavailable.
+    """
+    tree, data = _parse(source)
+    spans: list[tuple[int, int]] = []
+
+    def _walk(node: Any) -> None:
+        if node.type in ("string_literal", "char_literal"):
+            spans.append((int(node.start_byte), int(node.end_byte)))
+        elif node.type in ("preproc_def", "preproc_function_def"):
+            name = node.child_by_field_name("name")
+            if name is not None:
+                spans.append((int(name.start_byte), int(name.end_byte)))
+        for child in node.children:
+            _walk(child)
+
+    _walk(tree.root_node)
+    return sorted(spans)
+
+
 def _strip_cc(source: str) -> str:
     """Remove MSVC calling conventions from C source before tree-sitter parsing.
 

@@ -1,6 +1,7 @@
 """Shared utilities for rebrew."""
 
 import contextlib
+import copy
 import logging
 import os
 import shlex
@@ -43,6 +44,22 @@ def find_install_tool(rel: str | Path) -> Path | None:
     """
     p = _REPO_ROOT / rel
     return p if p.exists() else None
+
+
+def md5_file(path: Path) -> str:
+    """MD5 hex digest of a file, matching BinSync's ``binary_hash``.
+
+    IDA (``retrieve_input_file_md5().hex()``), Ghidra (``executableMD5``),
+    Binary Ninja (``md5(bv.file.raw)``), and declib's file loader all hash the
+    raw binary bytes, so this reproduces the value a BinSync state dir stores.
+    """
+    import hashlib
+
+    digest = hashlib.md5()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 #: Candidate MSVC toolchain layouts per profile, best first: the full master
@@ -495,7 +512,14 @@ def load_toml_for_write(path: Path, description: str) -> TOMLDocument:
 
 #: Per-file thread locks for :func:`metadata_write_lock` (one lock per
 #: metadata filename so the function and data stores don't contend).
-_METADATA_WRITE_LOCKS: dict[str, threading.Lock] = {}
+#: Reentrant: a caller may hold the lock across a compound operation whose
+#: helpers take it again (the GA batch splices a stub and promotes its STATUS
+#: through ``update_source_status`` inside the same critical section).
+_METADATA_WRITE_LOCKS: dict[str, threading.RLock] = {}
+
+#: Per-thread reentrancy depth per metadata filename, so a nested acquisition
+#: skips the ``flock`` (a second fd would deadlock against the first).
+_METADATA_WRITE_DEPTH = threading.local()
 
 
 @contextlib.contextmanager
@@ -510,6 +534,10 @@ def metadata_write_lock(directory: Path, filename: str) -> Iterator[None]:
     ``rebrew test`` promotes in another — without it, interleaved
     read-modify-writes silently drop one process's STATUS promotion).
     Falls back to the thread lock alone on platforms without ``fcntl``.
+
+    Reentrant within one thread: a nested acquisition on the same filename
+    yields without re-``flock``ing (the flock is held until the outermost
+    exit), so a compound critical section can call helpers that lock again.
     """
     try:
         import fcntl
@@ -528,22 +556,39 @@ def metadata_write_lock(directory: Path, filename: str) -> Iterator[None]:
     # only runs later, inside atomic_write_text's own mkdir).  exist_ok
     # keeps concurrent creators safe.
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Use setdefault atomically — double-checked to avoid creating a lock
-    # object that is never stored due to a race.
-    lock = _METADATA_WRITE_LOCKS.get(filename)
-    if lock is None:
-        lock = _METADATA_WRITE_LOCKS.setdefault(filename, threading.Lock())
+    # A single atomic setdefault: the get-then-setdefault race published a
+    # second Lock that no other thread saw, so two writers could hold
+    # different locks for the same file.
+    lock = _METADATA_WRITE_LOCKS.setdefault(filename, threading.RLock())
+    depth: dict[str, int] | None = getattr(_METADATA_WRITE_DEPTH, "depth", None)
+    if depth is None:
+        depth = {}
+        _METADATA_WRITE_DEPTH.depth = depth
     with lock:
-        if fcntl is None:
-            yield
-            return
-        lock_path = path.with_suffix(path.suffix + ".lock")
-        with lock_path.open("w", encoding="utf-8") as lock_fh:
-            fcntl.flock(lock_fh, fcntl.LOCK_EX)
+        if depth.get(filename, 0):
+            # Reentrant: this thread already holds the lock and the flock.
+            # Re-opening the sidecar and flocking a second fd would block
+            # against the first, so only track the depth here.
+            depth[filename] += 1
             try:
                 yield
             finally:
-                fcntl.flock(lock_fh, fcntl.LOCK_UN)
+                depth[filename] -= 1
+            return
+        depth[filename] = 1
+        try:
+            if fcntl is None:
+                yield
+                return
+            lock_path = path.with_suffix(path.suffix + ".lock")
+            with lock_path.open("w", encoding="utf-8") as lock_fh:
+                fcntl.flock(lock_fh, fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(lock_fh, fcntl.LOCK_UN)
+        finally:
+            depth.pop(filename, None)
 
 
 def load_metadata_doc(
@@ -575,7 +620,9 @@ def load_metadata_doc(
         current_mtime = 0
     cached = cache.get(path)
     if cached is not None and cached[0] == current_mtime:
-        return dict(cached[1])
+        # Deep copy: callers mutate the entries they get (merge overlays,
+        # status promotion), and an aliased dict would corrupt the cache.
+        return copy.deepcopy(cached[1])
 
     try:
         doc = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -585,7 +632,8 @@ def load_metadata_doc(
 
     result = parse_metadata_doc(doc)
     cache[path] = (current_mtime, result)
-    return dict(result)
+    # Deep copy for the same reason as the cache-hit path above.
+    return copy.deepcopy(result)
 
 
 def qualified_key(module: str | None, va: int) -> str:
@@ -633,6 +681,29 @@ def parse_metadata_key(key: str) -> tuple[str, int] | None:
     return None
 
 
+def resolve_metadata_key(doc: dict[str, Any], module: str, va: int) -> str:
+    """Return the key naming *(module, va)* in the raw *doc*.
+
+    :func:`parse_metadata_key` reads the VA with ``int(hex, 16)``, so a store
+    may spell one entry ``SERVER.0x24000`` and another ``SERVER.0x00024000``
+    while the loader sees a single ``("SERVER", 0x24000)``.  A writer that
+    only tests :func:`qualified_key` then appends a second table instead of
+    updating the first, and the fields split across the two.
+
+    Prefers the canonical spelling, falls back to whatever spelling the store
+    already uses, and returns the canonical key when the entry is absent so
+    callers can create it.  Shared by ``metadata.py`` and ``data_metadata.py``.
+    """
+    canonical = qualified_key(module, va)
+    if canonical in doc:
+        return canonical
+    want = (module, va)
+    for existing in doc:
+        if parse_metadata_key(str(existing)) == want:
+            return str(existing)
+    return canonical
+
+
 def parse_metadata_doc(doc: dict[str, Any]) -> dict[tuple[str, int], dict[str, Any]]:
     """Convert a parsed metadata TOML document into ``{(module, va): fields}``.
 
@@ -640,13 +711,35 @@ def parse_metadata_doc(doc: dict[str, Any]) -> dict[tuple[str, int], dict[str, A
     from ``tomllib`` (fast reads).  Entries whose key is not a qualified
     ``MODULE.0xVA`` form, or whose value is not a table, are skipped.  Shared
     by ``metadata.py`` and ``data_metadata.py``.
+
+    Two keys that parse to the same ``(module, va)``, e.g. ``0x24000`` and
+    ``0x00024000``, are merged field by field (the later key wins a contested
+    field) and logged.  Whole-table replacement would silently drop the
+    earlier entry's fields, which is how a duplicated key turned a populated
+    entry into a status-only stub.
     """
     result: dict[tuple[str, int], dict[str, Any]] = {}
+    first_key: dict[tuple[str, int], str] = {}
     for key, value in doc.items():
         parsed = parse_metadata_key(key)
         if parsed is None or not isinstance(value, dict):
             continue
-        result[parsed] = dict(value)
+        previous = result.get(parsed)
+        if previous is not None:
+            logger.warning(
+                "Duplicate metadata keys %r and %r both resolve to %s 0x%x; "
+                "merging their fields (later key wins). Collapse them to the "
+                "canonical key %r to stop the split.",
+                first_key[parsed],
+                key,
+                parsed[0],
+                parsed[1],
+                qualified_key(parsed[0], parsed[1]),
+            )
+            previous.update(copy.deepcopy(value))
+            continue
+        result[parsed] = copy.deepcopy(value)
+        first_key[parsed] = key
     return result
 
 

@@ -27,6 +27,15 @@ class TestFindFuncSize:
         # ret at absolute index 2; from offset 2 → size 1.
         assert find_func_size(b"\x55\x89\xc3", 2) == 1
 
+    def test_c3_operand_does_not_end_function(self) -> None:
+        # `mov eax, 0xC3` (B8 C3 00 00 00) embeds a C3 byte that is an
+        # immediate, not a ret — the size must run past it to the real ret.
+        assert find_func_size(bytes.fromhex("b8 c3 00 00 00 90 c3"), 0) == 7
+
+    def test_modrm_c3_does_not_end_function(self) -> None:
+        # `les eax, [ebx+0xC3]`-shaped bytes embed C3 as displacement.
+        assert find_func_size(bytes.fromhex("c4 83 c3 00 00 00 c3"), 0) == 7
+
 
 class TestIterMatchOffsets:
     def test_small_code_no_probes(self) -> None:
@@ -39,6 +48,27 @@ class TestIterMatchOffsets:
     def test_custom_stride(self) -> None:
         offsets = list(iter_match_offsets(64, stride=8, min_window=32))
         assert offsets == [0, 8, 16, 24, 32]
+
+
+class TestMatchTextDedup:
+    def test_duplicate_vas_deduped(self) -> None:
+        """Overlapping stride windows reporting the same VA yield one match."""
+
+        class _M:
+            def __init__(self, names) -> None:
+                self.names = names
+
+        class _Matcher:
+            def match(self, data):
+                return [_M([("printf", 0, 0)])]
+
+        from rebrew.flirt import match_text
+
+        code = b"\x55\x89\xe5\x5d\xc3" + b"\x90" * 64
+        matches = match_text(_Matcher(), code, 0x1000, stride=1)
+        vas = [m["va"] for m in matches]
+        assert len(vas) == len(set(vas))
+        assert vas[0] == 0x1000
 
 
 class TestLoadSignaturesErrors:
@@ -55,3 +85,12 @@ class TestLoadSignaturesErrors:
         (tmp_path / "broken.sig").write_bytes(b"")
         with pytest.warns(UserWarning, match="Error loading"):
             assert load_signatures(str(tmp_path)) == []
+
+
+class TestUndecodableByteEndsScan:
+    def test_invalid_byte_ends_scan(self) -> None:
+        """An undecodable byte ends the scan (the `.byte` pseudo-insn the
+        docstring relies on).  With skipdata=False capstone silently STOPPED at
+        it, so the function was reported as the full window (here 6 bytes)."""
+        # nop; <invalid VEX2 prefix>; nop; ret
+        assert find_func_size(b"\x90\xc4\xe2\x78\x90\xc3", 0) == 1

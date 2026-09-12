@@ -12,6 +12,8 @@ Layout produced::
         global_vars.toml -- DATA/GLOBAL annotations
         structs/
             <name>.toml  -- one per struct definition (with fields when available)
+        enums.toml       -- one table per enum (with member values)
+        typedefs.toml    -- one table per standalone typedef
 
 The export carries only BinSync-native fields — rebrew's STATUS/CFLAGS
 stay in ``rebrew-functions.toml`` (STATUS is verify-earned; an old
@@ -32,10 +34,11 @@ import tomlkit
 import typer
 from rich.console import Console
 
+from rebrew import binsync_serial
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
-from rebrew.utils import atomic_write_locked, strip_body
+from rebrew.utils import atomic_write_locked, md5_file, strip_body
 
 app = typer.Typer(
     help="Export rebrew annotations to a BinSync state directory.",
@@ -251,6 +254,103 @@ def _resolve_global_names(
     return va_to_name
 
 
+def _locals_map(entry: object) -> dict[int, dict[str, object]]:
+    """``{offset: {"name", "type", "size"}}`` from an annotation's LOCALS metadata."""
+    raw = getattr(entry, "locals", None)
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[int, dict[str, object]] = {}
+    for key, value in raw.items():
+        if not isinstance(value, dict):
+            continue
+        try:
+            offset = int(str(key), 0)
+        except (TypeError, ValueError):
+            continue
+        out[offset] = value
+    return out
+
+
+def _iter_comment_metadata(entry: object) -> list[tuple[int, int, str]]:
+    """``(addr, func_addr, comment)`` triples from an annotation's COMMENTS metadata."""
+    raw = getattr(entry, "comments", None)
+    if not isinstance(raw, dict):
+        return []
+    func_addr = int(getattr(entry, "va", 0) or 0)
+    out: list[tuple[int, int, str]] = []
+    for key, value in raw.items():
+        if not isinstance(value, dict):
+            continue
+        try:
+            addr = int(str(key), 0)
+        except (TypeError, ValueError):
+            continue
+        comment = str(value.get("comment") or "")
+        if not comment:
+            continue
+        try:
+            owner = int(value.get("func_addr", func_addr))
+        except (TypeError, ValueError):
+            owner = func_addr
+        out.append((addr, owner, comment))
+    return out
+
+
+def _scan_analysis_comments(
+    cfg: ProjectConfig, func_entries: list[object]
+) -> dict[int, tuple[int, str]]:
+    """``{addr: (func_va, comment)}`` from source ``// ANALYSIS @ 0xADDR: text``.
+
+    Scans the target's sources and the project-shared tree; the owning function
+    VA is resolved by address containment (falling back to the address itself).
+    These markers win over the metadata COMMENTS store for the same address.
+    """
+    from rebrew.binsync_state import containing_va, parse_analysis_markers
+    from rebrew.sources import iter_sources
+
+    ranges = [
+        (int(getattr(e, "va", 0) or 0), int(getattr(e, "size", 0) or 0))
+        for e in func_entries
+        if getattr(e, "va", 0)
+    ]
+    paths: list[Path] = []
+    reversed_dir = getattr(cfg, "reversed_dir", None)
+    if reversed_dir is not None:
+        try:
+            paths.extend(iter_sources(Path(reversed_dir), cfg))
+        except OSError:
+            logger.debug("ANALYSIS scan: cannot list %s", reversed_dir, exc_info=True)
+    shared_dir = getattr(cfg, "shared_dir", None)
+    if shared_dir is not None:
+        try:
+            paths.extend(iter_sources(Path(shared_dir), cfg))
+        except OSError:
+            logger.debug("ANALYSIS scan: cannot list %s", shared_dir, exc_info=True)
+
+    out: dict[int, tuple[int, str]] = {}
+    for path in paths:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for addr, comment in parse_analysis_markers(text).items():
+            owner = containing_va(ranges, addr)
+            out[addr] = (owner if owner is not None else addr, comment)
+    return out
+
+
+def _as_int(value: object, default: int = 0) -> int:
+    """Best-effort int from a metadata value (accepts decimal/hex strings)."""
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value
+    try:
+        return int(str(value), 0)
+    except (TypeError, ValueError):
+        return default
+
+
 def _write_function_toml(
     path: Path,
     *,
@@ -258,77 +358,52 @@ def _write_function_toml(
     va: int,
     size: int,
     prototype: str,
-    note: str,
-    ghidra: str,
+    locals_map: dict[int, dict[str, object]] | None = None,
 ) -> None:
-    """Serialise one function's metadata to a BinSync function TOML file.
+    """Write one declib ``Function`` artifact.
 
-    Only BinSync-native fields are written (name, addr, size, prototype,
-    notes) — rebrew's STATUS/CFLAGS stay in rebrew-functions.toml; the old
-    ``[rebrew] STATUS=… CFLAGS=…`` comment was write-only (nothing parsed it
-    back) and duplicated metadata, so it was removed (metadata-review R2).
-    STATUS is verify-earned and cannot be restored from a shared state.
+    Carries the name, addr, size, prototype (body-stripped), and any stack
+    variables from the LOCALS metadata.  rebrew's note/ghidra provenance and
+    per-instruction comments live in ``comments.toml`` (see
+    :func:`_write_comments_toml`), which is where upstream keeps them.
     """
-    doc = tomlkit.document()
-
-    # [info] — identity
-    info = tomlkit.table()
-    info["name"] = name
-    info["addr"] = va
-    if size > 0:
-        info["size"] = size
-    doc["info"] = info
-
-    # [header] — C-level type/prototype (signature only, no body)
     sig = strip_body(prototype) if prototype else ""
-    if sig:
-        header = tomlkit.table()
-        header["type"] = sig
-        doc["header"] = header
+    func = binsync_serial.new_function(va, size, name=name or None, prototype=sig or None)
+    for offset, variable in (locals_map or {}).items():
+        binsync_serial.add_stack_variable(
+            func,
+            offset=offset,
+            name=str(variable.get("name") or ""),
+            type_=str(variable.get("type") or "") or None,
+            size=_as_int(variable.get("size")) or None,
+            addr=va,
+        )
+    binsync_serial.dump_artifact(path, func)
 
-    # [comments] — rebrew metadata + analyst notes
-    # BinSync uses integer keys (addresses) mapped to comment strings.
-    comments: dict[int, str] = {}
 
-    if note:
-        comments[va + 1] = f"[rebrew:note] {note}"
-
-    # Only include the ghidra name if it differs from the exported symbol name
-    if ghidra and ghidra != name:
-        comments[va + 2] = f"[rebrew:ghidra] {ghidra}"
-
-    if comments:
-        tbl = tomlkit.table()
-        for addr, text in sorted(comments.items()):
-            tbl[str(addr)] = text
-        doc["comments"] = tbl
-
-    atomic_write_locked(path, tomlkit.dumps(doc), encoding="utf-8")
+def _write_comments_toml(path: Path, comments: list[tuple[int, int, str]]) -> None:
+    """Write decib ``Comment`` artifacts keyed by address."""
+    artifacts = [
+        binsync_serial.new_comment(addr, func_addr, comment)
+        for addr, func_addr, comment in sorted(comments)
+    ]
+    binsync_serial.dump_many(path, "comment", artifacts, key="addr")
 
 
 def _write_global_vars_toml(
     path: Path,
     globals_list: list[tuple[int, str, int, str, str | None]],
 ) -> None:
-    """Write global_vars.toml from (va, name, size, type, section) tuples.
+    """Write declib ``GlobalVariable`` artifacts keyed by address.
 
-    Section is one of ``.data``/``.rdata``/``.bss``/``.idata`` — omitted
-    when empty so foreign BinSync tools keep reading the file.
+    Section is not part of declib's ``GlobalVariable``; import/overlay derive
+    it from the binary by address instead of carrying it in the state.
     """
-    doc = tomlkit.document()
-    for raw in sorted(globals_list):
-        va, name, size, type_, section = raw
-        type_str = type_ or "char"
-        entry = tomlkit.table()
-        entry["name"] = name
-        entry["addr"] = va
-        if size > 0:
-            entry["size"] = size
-        entry["type"] = type_str
-        if section:
-            entry["section"] = section
-        doc[str(va)] = entry
-    atomic_write_locked(path, tomlkit.dumps(doc), encoding="utf-8")
+    artifacts = [
+        binsync_serial.new_global_variable(va, name, type_ or "char", size if size > 0 else None)
+        for va, name, size, type_, _section in sorted(globals_list)
+    ]
+    binsync_serial.dump_many(path, "global_variable", artifacts, key="addr")
 
 
 # ---------------------------------------------------------------------------
@@ -336,21 +411,30 @@ def _write_global_vars_toml(
 # ---------------------------------------------------------------------------
 
 
-def _parse_struct_fields(typedef_text: str) -> list[dict[str, str]]:
-    """Extract ``{name, type}`` field dicts from a typedef-struct string.
+def _parse_struct_fields(typedef_text: str) -> list[dict[str, Any]]:
+    """Extract ``{name, type, offset, size}`` field dicts from a typedef-struct string.
 
-    Parses via the shared :mod:`rebrew.types` model (tree-sitter).  Falls
-    back to the legacy brace/body splitter for definitions the shared model
-    cannot size, so unrecognized declarator forms still export.
+    Parses via the shared :mod:`rebrew.types` model (tree-sitter), which
+    supplies real member offsets and scalar sizes for the declib Struct.
+    Falls back to the legacy brace/body splitter for definitions the shared
+    model cannot size, so unrecognized declarator forms still export.
     """
     try:
-        from rebrew.types import parse_structs
+        from rebrew.types import parse_structs, type_size
 
         parsed = parse_structs(typedef_text)
         if parsed:
             struct = next(iter(parsed.values()))
             if struct.fields:
-                return [{"name": name, "type": spelling} for name, spelling, _off in struct.fields]
+                return [
+                    {
+                        "name": name,
+                        "type": spelling,
+                        "offset": offset,
+                        "size": type_size(spelling) or 0,
+                    }
+                    for name, spelling, offset in struct.fields
+                ]
     except Exception:
         logger.debug("shared struct parse failed, falling back to regex", exc_info=True)
 
@@ -359,7 +443,7 @@ def _parse_struct_fields(typedef_text: str) -> list[dict[str, str]]:
     if not m:
         return []
     body = m.group(1)
-    out: list[dict[str, str]] = []
+    out: list[dict[str, Any]] = []
     for raw_field in body.split(";"):
         raw_field = raw_field.strip()
         if not raw_field:
@@ -385,13 +469,13 @@ def _parse_struct_fields(typedef_text: str) -> list[dict[str, str]]:
     return out
 
 
-def _collect_struct_definitions(cfg: ProjectConfig) -> dict[str, tuple[str, list[dict[str, str]]]]:
+def _collect_struct_definitions(cfg: ProjectConfig) -> dict[str, tuple[str, list[dict[str, Any]]]]:
     """Collect struct definitions from ``reversed_dir`` headers and sources.
 
     Returns ``{struct_name: (raw_typedef_text, fields)}``.  Prefers the
     header definition when a name appears in both.
     """
-    result: dict[str, tuple[str, list[dict[str, str]]]] = {}
+    result: dict[str, tuple[str, list[dict[str, Any]]]] = {}
     try:
         from rebrew.sources import iter_sources as _iter_sources
         from rebrew.struct_parser import (
@@ -402,8 +486,14 @@ def _collect_struct_definitions(cfg: ProjectConfig) -> dict[str, tuple[str, list
         if reversed_dir is None:
             return result
         rd = Path(reversed_dir)
-        # Scan headers first (preferred)
-        for hfile in sorted(rd.rglob("*.h")):
+        # Headers first (preferred): target-local ones, then the project-shared
+        # tree (``cfg.shared_dir``) every target compiles against.  A name
+        # declared in both keeps the target-local definition.
+        header_files = sorted(rd.rglob("*.h"))
+        shared_dir = getattr(cfg, "shared_dir", None)
+        if shared_dir is not None:
+            header_files += sorted(Path(shared_dir).rglob("*.h"))
+        for hfile in header_files:
             for typedef_text in extract_structs_from_file(hfile):
                 # Derive struct name from the typedef: last identifier before ;
                 name_match = re.search(r"\}\s*([A-Za-z_][A-Za-z0-9_]*)\s*;", typedef_text)
@@ -437,33 +527,201 @@ def _collect_struct_definitions(cfg: ProjectConfig) -> dict[str, tuple[str, list
 def _write_struct_toml(
     path: Path,
     name: str,
-    fields: list[dict[str, str]] | None = None,
+    fields: list[dict[str, Any]] | None = None,
     raw_definition: str | None = None,
 ) -> None:
-    """Write a BinSync struct TOML.
+    """Write one declib ``Struct`` artifact (members keyed by byte offset).
 
-    When *fields* is provided, emits ``[fields.<name>]`` tables with ``type``
-    (and ``offset`` when known).  Otherwise writes the minimal placeholder
-    ``[info]`` table (back-compat).
+    *raw_definition* is accepted for the placeholder path (a ``STRUCT:`` name
+    with no scanned body); it is not stored because declib's Struct carries no
+    definition text.  Missing member offsets/sizes are filled from the field
+    order and :func:`rebrew.types.type_size`.
     """
-    doc = tomlkit.document()
-    info = tomlkit.table()
-    info["name"] = name
-    doc["info"] = info
-    if raw_definition:
-        doc["definition"] = raw_definition
-    if fields:
-        fields_tbl = tomlkit.table()
-        for f in fields:
-            f_tbl = tomlkit.table()
-            f_tbl["type"] = f.get("type", "int")
-            if "offset" in f:
-                f_tbl["offset"] = f["offset"]
-            if "size" in f:
-                f_tbl["size"] = f["size"]
-            fields_tbl[f["name"]] = f_tbl
-        doc["fields"] = fields_tbl
-    atomic_write_locked(path, tomlkit.dumps(doc), encoding="utf-8")
+    from rebrew.types import type_size
+
+    members: dict[int, tuple[str, str | None, int | None]] = {}
+    next_offset = 0
+    for field in fields or []:
+        member_name = str(field.get("name") or "")
+        if not member_name:
+            continue
+        member_type = str(field.get("type") or "int")
+        size = field.get("size")
+        offset = field.get("offset")
+        if offset is None:
+            offset = next_offset
+        member_size = int(size) if size is not None else (type_size(member_type) or 0)
+        members[int(offset)] = (member_name, member_type, member_size)
+        next_offset = int(offset) + member_size
+    size_total = max((off + (m[2] or 0) for off, m in members.items()), default=0)
+    binsync_serial.dump_artifact(path, binsync_serial.new_struct(name, size_total, members))
+
+
+# ---------------------------------------------------------------------------
+# Enum / typedef extraction
+# ---------------------------------------------------------------------------
+
+
+def _iter_definition_files(cfg: ProjectConfig) -> list[Path]:
+    """Files scanned for type definitions, in preference order.
+
+    Target-local headers first, then the project-shared header tree, then the
+    target's sources; the first definition of a name wins.
+    """
+    reversed_dir = getattr(cfg, "reversed_dir", None)
+    if reversed_dir is None:
+        return []
+    rd = Path(reversed_dir)
+    header_files = sorted(rd.rglob("*.h"))
+    shared_dir = getattr(cfg, "shared_dir", None)
+    if shared_dir is not None:
+        header_files += sorted(Path(shared_dir).rglob("*.h"))
+    try:
+        from rebrew.sources import iter_sources
+
+        return header_files + list(iter_sources(rd, cfg))
+    except OSError:
+        return header_files
+
+
+def _split_top_level(text: str, sep: str = ",") -> list[str]:
+    """Split *text* on *sep* at bracket/paren/brace depth zero."""
+    parts: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for ch in text:
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        if ch == sep and depth == 0:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+    parts.append("".join(current))
+    return parts
+
+
+def _enum_name(definition: str) -> str:
+    """Enum name: the trailing typedef identifier, else the ``enum Tag`` name."""
+    match = re.search(r"\}\s*([A-Za-z_]\w*)\s*;", definition)
+    if match:
+        return match.group(1)
+    match = re.search(r"enum\s+([A-Za-z_]\w*)\s*\{", definition)
+    return match.group(1) if match else ""
+
+
+def _enum_members(definition: str) -> dict[str, int]:
+    """``{member: value}`` for an enum body.
+
+    A bare ``IDENT`` (or one whose literal cannot be parsed) takes the
+    previous value + 1, starting at 0.
+    """
+    match = re.search(r"\{(.*)\}", definition, flags=re.DOTALL)
+    if not match:
+        return {}
+    members: dict[str, int] = {}
+    next_value = 0
+    for entry in _split_top_level(match.group(1)):
+        entry = entry.split("//")[0].strip()
+        if not entry:
+            continue
+        if "=" in entry:
+            ident, _, literal = entry.partition("=")
+            ident = ident.strip()
+            try:
+                value = int(literal.strip(), 0)
+            except ValueError:
+                value = next_value
+        else:
+            ident = entry
+            value = next_value
+        if not re.fullmatch(r"[A-Za-z_]\w*", ident):
+            continue
+        members[ident] = value
+        next_value = value + 1
+    return members
+
+
+def _collect_enum_definitions(cfg: ProjectConfig) -> dict[str, tuple[str, dict[str, int]]]:
+    """Collect ``{enum_name: (raw_definition, {member: value})}``."""
+    result: dict[str, tuple[str, dict[str, int]]] = {}
+    try:
+        from rebrew.struct_parser import extract_enums_from_file
+
+        for path in _iter_definition_files(cfg):
+            for text in extract_enums_from_file(path):
+                name = _enum_name(text)
+                if not name or name in result:
+                    continue
+                members = _enum_members(text)
+                if not members:
+                    continue
+                result[name] = (text.strip(), members)
+    except Exception:
+        logger.debug("enum collection failed", exc_info=True)
+    return result
+
+
+def _typedef_name_and_type(definition: str) -> tuple[str, str] | None:
+    """``(name, underlying_type)`` for a standalone typedef, else None."""
+    text = definition.strip()
+    if not text.startswith("typedef"):
+        return None
+    body = text[len("typedef") :].rstrip().rstrip(";").rstrip()
+    identifiers = re.findall(r"[A-Za-z_]\w*", body)
+    if not identifiers:
+        return None
+    name = identifiers[-1]
+    idx = body.rfind(name)
+    return name, " ".join(body[:idx].split())
+
+
+def _collect_typedef_definitions(cfg: ProjectConfig) -> dict[str, tuple[str, str]]:
+    """Collect ``{name: (raw_definition, underlying_type)}`` for plain typedefs.
+
+    Struct and enum typedefs are excluded (the struct/enum collectors own them).
+    """
+    result: dict[str, tuple[str, str]] = {}
+    try:
+        from rebrew.struct_parser import extract_type_definitions
+
+        for path in _iter_definition_files(cfg):
+            for text in extract_type_definitions(path):
+                if re.search(r"\b(?:struct|enum)\b", text) or "{" in text:
+                    continue
+                parsed = _typedef_name_and_type(text)
+                if parsed is None:
+                    continue
+                name, underlying = parsed
+                if name and name not in result:
+                    result[name] = (text.strip(), underlying)
+    except Exception:
+        logger.debug("typedef collection failed", exc_info=True)
+    return result
+
+
+def _write_enums_toml(path: Path, enums: dict[str, tuple[str, dict[str, int]]]) -> None:
+    """Write declib ``enums.toml`` (``Enum.dumps_many`` keyed by name).
+
+    declib's Enum carries only the name and member values; the raw body text
+    that :func:`_collect_enum_definitions` collected is not representable and
+    is dropped (import synthesizes a typedef from name + members).
+    """
+    artifacts = [
+        binsync_serial.new_enum(name, members) for name, (_raw, members) in sorted(enums.items())
+    ]
+    binsync_serial.dump_many(path, "enum", artifacts, key="name")
+
+
+def _write_typedefs_toml(path: Path, typedefs: dict[str, tuple[str, str]]) -> None:
+    """Write declib ``typedefs.toml`` (``Typedef.dumps_many`` keyed by name)."""
+    artifacts = [
+        binsync_serial.new_typedef(name, underlying)
+        for name, (_raw, underlying) in sorted(typedefs.items())
+    ]
+    binsync_serial.dump_many(path, "typedef", artifacts, key="name")
 
 
 # ---------------------------------------------------------------------------
@@ -472,30 +730,24 @@ def _write_struct_toml(
 
 
 def _validate_binsync_dir(outdir: Path) -> list[str]:
-    """Validate a written BinSync state directory; return warning strings."""
+    """Validate a written declib BinSync state directory; return warning strings."""
     warnings: list[str] = []
-    funcs_dir = outdir / "functions"
+    funcs_dir = outdir / binsync_serial.FUNCTIONS_DIR
     if funcs_dir.is_dir():
         for toml_path in funcs_dir.glob("*.toml"):
-            try:
-                doc = tomlkit.parse(toml_path.read_text(encoding="utf-8"))
-            except Exception as exc:
-                warnings.append(f"{toml_path.name}: unparseable TOML: {exc}")
+            func = binsync_serial.load_artifact(toml_path, "function")
+            if func is None:
+                warnings.append(f"{toml_path.name}: unparseable Function artifact")
                 continue
-            info = doc.get("info", {})
-            if not isinstance(info, dict) or not info.get("name"):
-                warnings.append(f"{toml_path.name}: missing [info].name")
-            if not isinstance(info, dict) or "addr" not in info:
-                warnings.append(f"{toml_path.name}: missing [info].addr")
-    gv = outdir / "global_vars.toml"
+            if func.addr is None:
+                warnings.append(f"{toml_path.name}: missing addr")
+            if not func.name:
+                warnings.append(f"{toml_path.name}: missing name")
+    gv = outdir / binsync_serial.GLOBAL_VARS_FILE
     if gv.exists():
-        try:
-            doc = tomlkit.parse(gv.read_text(encoding="utf-8"))
-            for key, entry in doc.items():
-                if not isinstance(entry, dict) or "name" not in entry or "addr" not in entry:
-                    warnings.append(f"global_vars.toml[{key}]: missing name/addr")
-        except Exception as exc:
-            warnings.append(f"global_vars.toml: unparseable: {exc}")
+        for gvar in binsync_serial.load_many(gv, "global_variable"):
+            if gvar.addr is None or not gvar.name:
+                warnings.append("global_vars.toml: entry missing addr/name")
     return warnings
 
 
@@ -719,9 +971,16 @@ def export_state(
             "functions": 0,
             "globals": 0,
             "structs": 0,
+            "enums": 0,
+            "typedefs": 0,
             "function_files": [],
             "global_vars_file": None,
             "struct_files": [],
+            "enums_file": None,
+            "typedefs_file": None,
+            "comments": 0,
+            "comments_file": None,
+            "metadata_file": None,
             "empty": True,
         }
 
@@ -743,6 +1002,9 @@ def export_state(
         if e.struct and e.struct not in struct_defs:
             struct_defs[e.struct] = (f"/* placeholder for {e.struct} */", [])
 
+    enum_defs = _collect_enum_definitions(cfg)
+    typedef_defs = _collect_typedef_definitions(cfg)
+
     if not dry_run:
         funcs_dir = outdir / "functions"
         funcs_dir.mkdir(parents=True, exist_ok=True)
@@ -752,6 +1014,8 @@ def export_state(
     # Merge annotation funcs + catalog-only funcs for export
     all_func_entries: list[object] = list(func_entries) + list(catalog_func_entries)
     written_funcs: list[str] = []
+    comment_artifacts: list[tuple[int, int, str]] = []
+    metadata_comments: dict[int, tuple[int, str]] = {}
     for entry in all_func_entries:
         va = entry.va  # type: ignore[attr-defined]
         name = getattr(entry, "symbol", "") or getattr(entry, "name", "") or f"func_{va:08x}"
@@ -764,10 +1028,36 @@ def export_state(
                 va=va,
                 size=getattr(entry, "size", 0),
                 prototype=getattr(entry, "prototype", ""),
-                note=getattr(entry, "note", ""),
-                ghidra=getattr(entry, "ghidra", ""),
+                locals_map=_locals_map(entry),
             )
         written_funcs.append(str(func_path))
+
+        # rebrew provenance comments live in comments.toml (upstream's home
+        # for them), not the function file.
+        note = getattr(entry, "note", "")
+        ghidra = getattr(entry, "ghidra", "")
+        if note:
+            comment_artifacts.append((va + 1, va, f"[rebrew:note] {note}"))
+        if ghidra and ghidra != name:
+            comment_artifacts.append((va + 2, va, f"[rebrew:ghidra] {ghidra}"))
+        for addr, owner, text in _iter_comment_metadata(entry):
+            metadata_comments[addr] = (owner, text)
+
+    # A source ``// ANALYSIS @ 0xADDR: text`` marker wins over the metadata
+    # entry for the same address (the analyst edited it in source), so edits
+    # flow out to comments.toml.
+    merged_comments = dict(metadata_comments)
+    merged_comments.update(_scan_analysis_comments(cfg, all_func_entries))
+    comment_artifacts.extend(
+        (addr, owner, text) for addr, (owner, text) in sorted(merged_comments.items())
+    )
+
+    written_comments = ""
+    if comment_artifacts:
+        comments_path = outdir / "comments.toml"
+        if not dry_run:
+            _write_comments_toml(comments_path, comment_artifacts)
+        written_comments = str(comments_path)
 
     written_globals = ""
     if globals_list:
@@ -779,14 +1069,39 @@ def export_state(
     written_structs: list[str] = []
     for sname in sorted(struct_defs):
         raw_def, fields = struct_defs[sname]
-        # Sanitize struct name: whitelist alphanumeric + _ - to prevent path traversal
-        safe_name = "".join(c if c.isalnum() or c in "_-" else "_" for c in sname) or "unnamed"
-        spath = outdir / "structs" / f"{safe_name}.toml"
+        spath = outdir / "structs" / f"{binsync_serial.sanitize_name(sname)}.toml"
         if not dry_run:
             _write_struct_toml(
                 spath, sname, fields=fields or None, raw_definition=raw_def if fields else None
             )
         written_structs.append(str(spath))
+
+    written_enums = ""
+    if enum_defs:
+        enum_path = outdir / "enums.toml"
+        if not dry_run:
+            _write_enums_toml(enum_path, enum_defs)
+        written_enums = str(enum_path)
+
+    written_typedefs = ""
+    if typedef_defs:
+        typedef_path = outdir / "typedefs.toml"
+        if not dry_run:
+            _write_typedefs_toml(typedef_path, typedef_defs)
+        written_typedefs = str(typedef_path)
+
+    # State.parse requires metadata.toml; user is the repo identity or rebrew.
+    metadata_file = ""
+    if not dry_run:
+        binsync_serial.write_metadata(outdir, user=binsync_serial.state_user(outdir))
+        metadata_file = str(outdir / binsync_serial.METADATA_FILE)
+
+    # BinSync binds a repo to one binary through the MD5 at its root.  Emit it
+    # so a state dir is self-identifying and doctor can catch a dir pointed at
+    # the wrong target.
+    binary_hash = ""
+    if not dry_run:
+        binary_hash = _write_binary_hash(outdir, cfg)
 
     # Optional git commit (opt-in, after all writes)
     commit_hash: str | None = None
@@ -830,7 +1145,12 @@ def export_state(
     # whether the state dir is newer, older, or divergent from local.
     manifest_hash = ""
     if not dry_run:
-        manifest_hash = _write_manifest(outdir, commit_hash)
+        manifest_hash = _write_manifest(
+            outdir,
+            commit_hash,
+            target=getattr(cfg, "target_name", "") or "",
+            binary_hash=binary_hash,
+        )
 
     return {
         "outdir": str(outdir),
@@ -838,19 +1158,47 @@ def export_state(
         "functions": len(written_funcs),
         "globals": len(globals_list),
         "structs": len(written_structs),
+        "enums": len(enum_defs),
+        "typedefs": len(typedef_defs),
         "function_files": written_funcs,
         "global_vars_file": written_globals or None,
         "struct_files": written_structs,
+        "enums_file": written_enums or None,
+        "typedefs_file": written_typedefs or None,
+        "comments": len(comment_artifacts),
+        "comments_file": written_comments or None,
+        "metadata_file": metadata_file or None,
         "warnings": warnings_list,
         "cleaned": cleaned,
         "commit": commit_hash,
         "manifest": manifest_hash,
+        "binary_hash": binary_hash,
         "module": module,
         "empty": False,
     }
 
 
-def _write_manifest(outdir: Path, commit_hash: str | None) -> str:
+def _write_binary_hash(outdir: Path, cfg: ProjectConfig) -> str:
+    """Write ``binary_hash`` (MD5 of the target binary) to the state root.
+
+    Returns the digest, or "" when the target binary is unavailable (the
+    check that consumes it skips rather than reporting a false mismatch).
+    """
+    binary = getattr(cfg, "target_binary", None)
+    if binary is None or not Path(binary).exists():
+        return ""
+    digest = md5_file(Path(binary))
+    atomic_write_locked(outdir / "binary_hash", digest, encoding="utf-8")
+    return digest
+
+
+def _write_manifest(
+    outdir: Path,
+    commit_hash: str | None,
+    *,
+    target: str = "",
+    binary_hash: str = "",
+) -> str:
     """Write ``manifest.toml`` (timestamp, content hash, commit) and return the hash."""
     import hashlib
     from datetime import UTC, datetime
@@ -867,6 +1215,10 @@ def _write_manifest(outdir: Path, commit_hash: str | None) -> str:
     doc = tomlkit.document()
     doc["exported_at"] = datetime.now(UTC).isoformat()
     doc["content_hash"] = content_hash
+    if target:
+        doc["target"] = target
+    if binary_hash:
+        doc["binary_hash"] = binary_hash
     if commit_hash:
         doc["commit"] = commit_hash
     atomic_write_locked(outdir / "manifest.toml", tomlkit.dumps(doc), encoding="utf-8")
@@ -883,6 +1235,9 @@ def _print_export_result(result: dict[str, object], *, json_output: bool, dry_ru
     written_funcs = int(cast(int, result["functions"]))
     globals_list = int(cast(int, result["globals"]))
     written_structs = int(cast(int, result["structs"]))
+    written_enums = int(cast(int, result.get("enums") or 0))
+    written_typedefs = int(cast(int, result.get("typedefs") or 0))
+    written_comments = int(cast(int, result.get("comments") or 0))
     warnings_list = list(cast(list[Any], result.get("warnings") or []))
     cleaned = list(cast(list[Any], result.get("cleaned") or []))
     commit_hash = result.get("commit")
@@ -894,9 +1249,16 @@ def _print_export_result(result: dict[str, object], *, json_output: bool, dry_ru
             "functions": written_funcs,
             "globals": globals_list,
             "structs": written_structs,
+            "enums": written_enums,
+            "typedefs": written_typedefs,
+            "comments": written_comments,
             "function_files": list(cast(list[Any], result.get("function_files") or [])),
             "global_vars_file": result.get("global_vars_file"),
             "struct_files": list(cast(list[Any], result.get("struct_files") or [])),
+            "enums_file": result.get("enums_file"),
+            "typedefs_file": result.get("typedefs_file"),
+            "comments_file": result.get("comments_file"),
+            "metadata_file": result.get("metadata_file"),
         }
         if warnings_list:
             payload["warnings"] = warnings_list
@@ -912,7 +1274,10 @@ def _print_export_result(result: dict[str, object], *, json_output: bool, dry_ru
         console.print(
             f"{action} [bold]{written_funcs}[/bold] functions, "
             f"[bold]{globals_list}[/bold] globals, "
-            f"[bold]{written_structs}[/bold] structs "
+            f"[bold]{written_structs}[/bold] structs, "
+            f"[bold]{written_enums}[/bold] enums, "
+            f"[bold]{written_typedefs}[/bold] typedefs, "
+            f"[bold]{written_comments}[/bold] comments "
             f"to [cyan]{outdir}[/cyan]"
         )
 

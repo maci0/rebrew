@@ -19,7 +19,11 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.rename_ops import collect_matching_files, rename_function_everywhere
+from rebrew.rename_ops import (
+    collect_matching_files,
+    rename_function_everywhere,
+    substitute_name,
+)
 from rebrew.utils import rel_display_path
 
 # C89 keywords cannot be used as function names; `str.isidentifier()` alone
@@ -167,7 +171,10 @@ def main(
     if not old_sym:
         old_sym = old_name
 
-    actual_old_name = old_sym.lstrip("_") if old_sym.startswith("_") else old_name
+    # Exactly one leading underscore (MSVC's cdecl decoration): a function
+    # genuinely named `_foo` carries `__foo`, and `lstrip("_")` searched for
+    # `foo` — renaming an unrelated function instead of this one.
+    actual_old_name = old_sym.removeprefix("_") if old_sym.startswith("_") else old_name
     actual_old_name = re.sub(r"@\d+$", "", actual_old_name)
 
     target_func = new_name
@@ -355,9 +362,10 @@ def _rename_data(
                     json_mode=json_output,
                 )
 
-    stored = get_data_entry(cfg.metadata_dir, va, module)
-    stored_name = str(stored.get("name") or "")
-    pattern = re.compile(r"\b" + re.escape(old_name) + r"\b")
+    # `_name_pattern`, not a bare `\b...\b`: `\b` never matches before a leading
+    # `$`, so a `$SG…` data name matched nothing while the metadata was renamed
+    # anyway (the tool still reported success).
+    pattern = _name_pattern(old_name)
     if not old_fp:
         error_exit(
             f"DATA/GLOBAL '{old_name}' has no source file — cannot rewrite references.",
@@ -390,21 +398,21 @@ def _rename_data(
             content, encoding = read_source_text(src)
         except OSError:
             continue
-        new_content = re.sub(r"\b" + re.escape(old_name) + r"\b", lambda _m: new_name, content)
+        new_content = substitute_name(_name_pattern(old_name), new_name, content)
         if new_content != content:
             try:
                 atomic_write_text(src, new_content, encoding=encoding)
                 updated += 1
-            except OSError:
+            except (OSError, UnicodeEncodeError):
+                # An undefined byte in the source's encoding (e.g. CP1252 0x81
+                # read back with errors="replace" as U+FFFD) makes the write
+                # raise UnicodeEncodeError; catching only OSError let it escape
+                # as a traceback mid-rename.
                 error_exit(f"Cannot write {src}", json_mode=json_output)
-    if stored_name == old_name:
-        set_data_field(cfg.metadata_dir, va, "name", new_name, module)
-    elif stored_name and stored_name != new_name:
-        error_exit(
-            f"Metadata name {stored_name!r} disagrees with source {old_name!r} — "
-            "resolve first (rebrew data --json), then rename.",
-            json_mode=json_output,
-        )
+    # `old_name` came from this same store (see above), so there is no
+    # source-vs-metadata disagreement to resolve here — the field is renamed
+    # unconditionally after the cross-references were rewritten.
+    set_data_field(cfg.metadata_dir, va, "name", new_name, module)
     if json_output:
         json_print(
             {

@@ -40,7 +40,11 @@ Architecture notes:
   (the operand rewrites assume the import bookkeeping is already converged).
 - ``data`` and ``pe-metadata`` assume the built ``.text`` is position-aligned
   with the reference (functions at the same VAs) — the normal state for a
-  decompilation that has passed ``rebrew test``.
+  decompilation that has passed ``rebrew test``.  ``check_text_alignment``
+  enforces that assumption up front: it validates the layout package's sparse
+  maps against the built bytes and refuses to patch when they do not line up,
+  because a wrong-offset patch is skipped silently by both the operand and the
+  call rewrite.
 
 Usage:
     rebrew postlink <built.dll> [<reference.dll> | --layout layout/<target>]
@@ -49,6 +53,7 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import struct
 from collections.abc import Callable, Iterable
@@ -59,7 +64,7 @@ import lief
 import typer
 from rich.console import Console
 
-from rebrew.binary_loader import BinaryInfo, load_binary
+from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary
 from rebrew.cli import EXIT_ERROR, error_exit, json_print
 from rebrew.layout_meta import ImportMeta, LayoutMetadata, extract_layout, load_package
 from rebrew.utils import atomic_write_bytes
@@ -104,6 +109,55 @@ def _pe(raw: bytes) -> lief.PE.Binary:
     if binary is None:
         raise ValueError("not a PE binary")
     return binary
+
+
+def _binary_info_from_bytes(raw: bytes, path: Path) -> BinaryInfo:
+    """A :class:`BinaryInfo` parsed from already-patched bytes.
+
+    ``load_binary`` reads geometry from the on-disk file, which lags the
+    in-memory ``built`` buffer once a fixer rewrites the headers — later
+    fixers would then patch at stale offsets.  Re-parse the buffer instead
+    (mirroring :func:`binary_loader._load_pe`'s mapping so section kinds
+    stay identical), falling back to ``load_binary`` for non-PE input.
+    """
+    if not lief.is_pe(list(raw)):
+        return load_binary(path)
+    pe = _pe(raw)
+    sections = {}
+    text_va = pe.optional_header.imagebase
+    text_size = 0
+    text_raw_offset = 0
+    for section in pe.sections:
+        raw_name = section.name
+        name = (
+            raw_name.decode("utf-8", errors="replace")
+            if isinstance(raw_name, (bytes, bytearray))
+            else str(raw_name)
+        ).rstrip("\x00")
+        va = pe.optional_header.imagebase + section.virtual_address
+        sections[name] = SectionInfo(
+            name=name,
+            va=va,
+            size=section.virtual_size,
+            file_offset=section.pointerto_raw_data,
+            raw_size=section.sizeof_raw_data,
+        )
+        if name == ".text":
+            text_va = va
+            text_size = section.virtual_size
+            text_raw_offset = section.pointerto_raw_data
+    return BinaryInfo(
+        path=path,
+        format="pe",
+        arch="",
+        endian="little",
+        image_base=pe.optional_header.imagebase,
+        text_va=text_va,
+        text_size=text_size,
+        text_raw_offset=text_raw_offset,
+        sections=sections,
+        _data=raw,
+    )
 
 
 def _rva_to_offset(info: BinaryInfo, rva: int) -> int:
@@ -168,6 +222,9 @@ def _import_signature(meta_imports: Iterable[ImportMeta]) -> list[tuple[str, lis
         per_dll.setdefault(imp.dll, []).append(key)
     for dll, names in per_dll.items():
         sig.append((dll, sorted(names)))
+    # Sort the outer list too: the MSVC6 linker orders descriptors by hash, so
+    # the built DLL order need not match the reference's — only the set does.
+    sig.sort()
     return sig
 
 
@@ -177,6 +234,7 @@ def _built_import_signature(raw: bytes) -> list[tuple[str, list[str]]]:
     for imp in pe.imports:
         names = sorted(str(e.name) if e.name else f"#{e.ordinal}" for e in imp.entries)
         sig.append((str(imp.name), names))
+    sig.sort()  # descriptor order is linker-hash-driven — compare as a set
     return sig
 
 
@@ -231,13 +289,22 @@ def _fix_imports(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> 
     if remap and iat_rva:
         text = info_b.sections[".text"]
         moved = 0
-        for off in range(text.file_offset, text.file_offset + text.raw_size - 4):
+        skipped = 0
+        for off in range(text.file_offset + 2, text.file_offset + text.raw_size - 4):
             v = struct.unpack_from("<I", built, off)[0]
             slot = v - info_b.image_base
-            if slot in remap:
-                struct.pack_into("<I", built, off, remap[slot] + info_b.image_base)
-                moved += 1
+            if slot not in remap:
+                continue
+            # Only indirect call/jump slots (FF /2, FF /5 with a disp32
+            # modrm) are IAT references.  A bare dword equal to a moved
+            # slot VA (e.g. a mov-imm32 constant) is left alone.
+            if built[off - 2] != 0xFF or built[off - 1] not in (0x15, 0x25):
+                skipped += 1
+                continue
+            struct.pack_into("<I", built, off, remap[slot] + info_b.image_base)
+            moved += 1
         report.stats["slot_operands_rewritten"] = moved
+        report.stats["slot_operands_skipped"] = skipped
         report.changed = report.changed or moved > 0
 
     # ---- 2. safety: the .rdata prefix must already match ----
@@ -343,12 +410,18 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
     # trimmed.  (The fixer deliberately carries no reference .text bytes —
     # operands/calls are sparse maps — so the reference's tail region is
     # left as the built binary's, which for X X is the reference itself.)
+    # Both sides resolve through their own headers: the built trim point
+    # from the built geometry, not the reference's file offsets.
     text_m = meta.section(".text")
-    ref_raw_end = text_m.raw_ptr + text_m.raw
-    if ref_raw_end < text.file_offset + text.raw_size:
-        built[ref_raw_end : text.file_offset + text.raw_size] = b"\x00" * (
-            text.file_offset + text.raw_size - ref_raw_end
-        )
+    text_b = info_b.sections[".text"]
+    # The trim start is the BUILT section's own file offset plus the
+    # reference's raw size.  Using the reference's ``raw_ptr`` here would index
+    # the built buffer with the reference's layout: a built link whose .text
+    # sits at a different file offset would zero real built .text bytes.
+    trim_start = text_b.file_offset + text_m.raw
+    built_raw_end = text_b.file_offset + text_b.raw_size
+    if trim_start < built_raw_end:
+        built[trim_start:built_raw_end] = b"\x00" * (built_raw_end - trim_start)
         struct.pack_into("<I", built, _section_header_offset(info_b, ".text") + 16, text_m.raw)
         struct.pack_into("<I", built, _section_header_offset(info_b, ".text") + 8, text_m.vs)
         report.changed = True
@@ -360,10 +433,12 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
     built[data_b.file_offset : data_b.file_offset + len(meta.data)] = meta.data
     struct.pack_into("<I", built, _section_header_offset(info_b, ".data") + 16, len(meta.data))
 
-    # ---- 5. replace .reloc (at the reference's file offset) ----
+    # ---- 5. replace .reloc (at the built file's own .reloc offset) ----
+    # The built file's .reloc raw pointer comes from its own headers —
+    # the reference's raw_ptr belongs to the reference's layout.
     reloc_b = info_b.sections[".reloc"]
     reloc_m = meta.section(".reloc")
-    new_rptr = reloc_m.raw_ptr
+    new_rptr = reloc_b.file_offset
     reloc_raw = meta.reloc + b"\x00" * max(0, reloc_m.raw - len(meta.reloc))
     if new_rptr + len(reloc_raw) > len(built):
         built.extend(b"\x00" * (new_rptr + len(reloc_raw) - len(built)))
@@ -409,19 +484,23 @@ def _fix_pe_metadata(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo)
 
     e_b, opt_b, _ = _section_table(info_b)
 
+    # The header block ends at the reference's SizeOfHeaders (from the
+    # reference optional header) — never a hardcoded file alignment.
+    size_of_headers = struct.unpack_from("<I", header, e_r + 24 + 60)[0]
+
     # ---- 1. DOS stub + e_lfanew (header block is relocated losslessly) ----
     if e_b != e_r or b[:e_r] != header[:e_r]:
         coff = e_b + 4
         n = struct.unpack_from("<H", b, coff + 2)[0]
         opt_size = struct.unpack_from("<H", b, coff + 16)[0]
         hdr_size = 4 + 20 + opt_size + n * 40
-        if e_r + hdr_size > 0x1000:
+        if e_r + hdr_size > size_of_headers:
             raise ValueError("headers would overlap the first section")
         new = bytearray()
         new += header[:e_r]  # reference DOS stub (carries e_lfanew = e_r)
         new += b[e_b : e_b + hdr_size]
-        new += b"\x00" * (0x1000 - len(new))
-        new += b[0x1000:]
+        new += b"\x00" * (size_of_headers - len(new))
+        new += b[size_of_headers:]
         b[:] = new
         report.changed = True
         # e_lfanew changed — recompute the header offsets before step 2
@@ -431,24 +510,39 @@ def _fix_pe_metadata(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo)
     # ---- 2. copy the reference's full header block ----
     # COFF Characteristics, SizeOfInitializedData, BaseOfData, SizeOfImage,
     # TimeDateStamp, CheckSum and the section table are all linker-stamped.
-    # If the section layout already converged (same names + RVAs), every one
-    # of those fields is derivable from the reference and can be copied
-    # verbatim — recomputing any of them would never match a reference whose
-    # .text still differs.
+    # If the section layout already converged (same names, RVAs and raw
+    # pointers), every one of those fields is derivable from the reference and
+    # can be copied verbatim — recomputing any of them would never match a
+    # reference whose .text still differs.
     n_b = struct.unpack_from("<H", b, e_b + 4 + 2)[0]
     opt_size_b = struct.unpack_from("<H", b, e_b + 4 + 16)[0]
 
-    def names_at(raw: bytes | bytearray, e: int, n: int, opt_size: int) -> list[str]:
-        sec_off = e + 4 + 20 + opt_size
-        return [
-            raw[sec_off + 40 * i : sec_off + 40 * i + 8].rstrip(b"\x00").decode(errors="replace")
-            for i in range(n)
-        ]
+    def section_layout(
+        raw: bytes | bytearray, e: int, n: int, opt_size: int
+    ) -> list[tuple[str, int, int]]:
+        """``(name, VirtualAddress, PointerToRawData)`` per section-table entry.
 
-    meta_names = [s.name for s in meta.sections]
+        The full header copy is only safe when the complete section layout
+        already converged: the built section table carries the offsets
+        ``_fix_data`` wrote ``.data``/``.reloc`` at, and copying the
+        reference's raw pointers over them would point the header at bytes the
+        fixer never wrote.
+        """
+        sec_off = e + 4 + 20 + opt_size
+        out: list[tuple[str, int, int]] = []
+        for i in range(n):
+            h = sec_off + 40 * i
+            name = raw[h : h + 8].rstrip(b"\x00").decode(errors="replace")
+            rva = struct.unpack_from("<I", raw, h + 12)[0]
+            raw_ptr = struct.unpack_from("<I", raw, h + 20)[0]
+            out.append((name, rva, raw_ptr))
+        return out
+
     opt_size_r = struct.unpack_from("<H", header, e_r + 4 + 16)[0]
     hdr_size_r = 4 + 20 + opt_size_r + len(meta.sections) * 40  # bytes after e_r
-    if n_b == len(meta.sections) and names_at(b, e_b, n_b, opt_size_b) == meta_names:
+    if section_layout(b, e_b, n_b, opt_size_b) == section_layout(
+        header, e_r, len(meta.sections), opt_size_r
+    ):
         b[e_b : e_b + hdr_size_r] = header[e_r : e_r + hdr_size_r]
         report.changed = True
     else:
@@ -494,6 +588,101 @@ FIXERS: dict[str, Fixer] = {
 
 FIXER_ORDER: tuple[str, ...] = ("imports", "data", "pe-metadata")
 
+#: Minimum share of the layout package's sparse maps that must validate before
+#: the fixers are allowed to run.  The maps are keyed by .text-relative offset,
+#: so they only describe the built binary when the link placed every function
+#: at the reference's VA.  Calibration: the reference validates 100%, a link
+#: that is 0x3a29 bytes short on the library side (guild-rebrew, 2026-09-11)
+#: validates 4%.  A wrong-offset patch is silent by construction — the operand
+#: rewrite skips values outside .rdata/.data and the call rewrite checks the
+#: E8/E9 opcode plus two bytes of context either side — so without this check a
+#: misaligned .text is padded to the reference's VirtualSize and shipped.
+MIN_LAYOUT_MAP_COVERAGE = 0.9
+
+
+def _map_coverage(
+    built: bytes, meta: LayoutMetadata, info_b: BinaryInfo
+) -> tuple[int, int, int, int]:
+    """Return ``(operands_ok, operands_total, calls_ok, calls_total)``.
+
+    An operand entry validates when the slot already holds the reference value
+    or a pointer into the reference's .rdata/.data span; a call entry validates
+    when it already holds the reference value or sits on an E8/E9 with the
+    recorded two-byte context on either side.  Both are the conditions the
+    ``data`` fixer itself patches under.
+    """
+    text = info_b.sections[".text"]
+    rdata = meta.section(".rdata")
+    data_m = meta.section(".data")
+    spans = (
+        (rdata.va, rdata.va + rdata.vs),
+        (data_m.va, data_m.va + data_m.vs),
+    )
+
+    def dword(off: int) -> int | None:
+        if off < 0 or off + 4 > len(built):
+            return None
+        value: int = struct.unpack_from("<I", built, off)[0]
+        return value
+
+    operands_ok = 0
+    for off_rel, val in meta.operands.items():
+        cur = dword(text.file_offset + off_rel)
+        if cur is None:
+            continue
+        if cur == val or any(lo <= cur - info_b.image_base < hi for lo, hi in spans):
+            operands_ok += 1
+
+    calls_ok = 0
+    for off_rel, (val, pre, suf) in meta.calls.items():
+        off = text.file_offset + off_rel
+        cur = dword(off)
+        if cur is None:
+            continue
+        context_matches = (
+            off >= 3
+            and off + 6 <= len(built)
+            and built[off - 1] in (0xE8, 0xE9)
+            and built[off - 3 : off - 1] == pre.to_bytes(2, "big")
+            and built[off + 4 : off + 6] == suf.to_bytes(2, "big")
+        )
+        if cur == val or context_matches:
+            calls_ok += 1
+
+    return operands_ok, len(meta.operands), calls_ok, len(meta.calls)
+
+
+def check_text_alignment(built: bytes, meta: LayoutMetadata, info_b: BinaryInfo) -> None:
+    """Raise ``ValueError`` when the built .text is not position-aligned.
+
+    The ``data`` and ``pe-metadata`` fixers patch by .text-relative offset, so
+    they are only meaningful when the link put every function at the reference's
+    VA.  Failing here is the difference between a loud build break and a binary
+    that looks converged (section table, imports, header fields all copied from
+    the reference) while most of its code sits at the wrong offsets.
+    """
+    op_ok, op_total, call_ok, call_total = _map_coverage(built, meta, info_b)
+    total = op_total + call_total
+    if total == 0:
+        return
+    ok = op_ok + call_ok
+    coverage = ok / total
+    if coverage >= MIN_LAYOUT_MAP_COVERAGE:
+        return
+
+    text_b = info_b.sections[".text"]
+    text_m = meta.section(".text")
+    raise ValueError(
+        "built .text is not position-aligned with the reference — "
+        f"only {ok}/{total} layout-map entries validate ({100 * coverage:.1f}%, "
+        f"minimum {100 * MIN_LAYOUT_MAP_COVERAGE:.0f}%). "
+        f".text VirtualSize built 0x{text_b.size:x} vs reference 0x{text_m.vs:x}. "
+        "The layout package patches by .text-relative offset, so every function "
+        "must link at the reference's VA. Compare the built .text against the "
+        "reference per function to find what the link no longer emits before "
+        "re-running."
+    )
+
 
 def run_fixers(
     built_path: Path,
@@ -521,6 +710,9 @@ def run_fixers(
     info_b = load_binary(built_path)
     built = bytearray(info_b.data)
 
+    if "data" in (fixer_names or FIXER_ORDER):
+        check_text_alignment(bytes(built), meta, info_b)
+
     names = list(fixer_names) if fixer_names else list(FIXER_ORDER)
     unknown = [n for n in names if n not in FIXERS]
     if unknown:
@@ -530,6 +722,13 @@ def run_fixers(
     reports: list[FixerReport] = []
     for name in names:
         before = bytes(built)
+        # Earlier fixers rewrite the headers (section RVAs/sizes, e_lfanew),
+        # so the geometry parsed up front is stale for later fixers.
+        # Re-parse the patched bytes (LIEF parses buffers directly) so each
+        # fixer sees the current layout; fall back to the stale view only
+        # when the intermediate bytes are momentarily unparsable.
+        with contextlib.suppress(ValueError):
+            info_b = _binary_info_from_bytes(bytes(built), built_path)
         report = FIXERS[name](built, meta, info_b)
         report.changed = before != bytes(built)  # byte-diff is authoritative
         reports.append(report)
@@ -604,6 +803,15 @@ def main(
         )
 
     fixers = [f.strip() for f in fix.split(",") if f.strip()]
+    if not fixers:
+        # ``--fix ""`` / ``--fix ","`` select nothing.  ``run_fixers`` treats an
+        # empty iterable as "all fixers", so without this the user asking for no
+        # fixer would get every fixer run.
+        error_exit(
+            f"no fixer selected — choose from {_FIX_CHOICES}",
+            json_mode=json_output,
+            code=EXIT_ERROR,
+        )
     if "all" in fixers:
         fixers = list(FIXER_ORDER)
     if any(f not in FIXERS for f in fixers):

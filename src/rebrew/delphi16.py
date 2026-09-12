@@ -151,6 +151,13 @@ def compile_ne(
     from rebrew.dosbox import DosboxError, read_uppercase, run_dosbox
 
     cmd = f"C:\\DCC.EXE {staged_name} > C:\\dccout.txt"
+    # A reused caller-supplied workdir keeps the PREVIOUS run's executable, so a
+    # failed compile still "found" output and was reported as success (stale NE
+    # bytes then fed to the matcher); drop any file the search below would match.
+    stem_upper = Path(staged_name).stem.upper()
+    for stale in sandbox.iterdir():
+        if stale.suffix.upper() == ".EXE" and stale.stem.upper() == stem_upper:
+            stale.unlink()
     try:
         run_dosbox(sandbox, [cmd], timeout=timeout)
     except DosboxError as exc:

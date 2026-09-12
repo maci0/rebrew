@@ -223,6 +223,64 @@ class TestVaToFileOffset:
         offset = va_to_file_offset(info, 0x10001100)
         assert offset == 0x500
 
+    def test_virtual_size_authoritative(self) -> None:
+        """Containment uses the virtual size: a VA past raw_size but inside
+        virtual size maps (same rule as extract_bytes_at_va)."""
+        info = BinaryInfo(
+            path=Path("/tmp/test"),
+            format="pe",
+            image_base=0x10000000,
+            text_va=0x10001000,
+            text_size=0x1000,
+            text_raw_offset=0x400,
+            sections={
+                ".text": SectionInfo(
+                    name=".text", va=0x10001000, size=0x1000, file_offset=0x400, raw_size=0x100
+                )
+            },
+        )
+        assert va_to_file_offset(info, 0x10001800) == 0xC00
+
+    def test_zero_virtual_falls_back_to_raw(self) -> None:
+        info = BinaryInfo(
+            path=Path("/tmp/test"),
+            format="pe",
+            image_base=0x10000000,
+            text_va=0x10001000,
+            text_size=0x100,
+            text_raw_offset=0x400,
+            sections={
+                ".text": SectionInfo(
+                    name=".text", va=0x10001000, size=0, file_offset=0x400, raw_size=0x100
+                )
+            },
+        )
+        assert va_to_file_offset(info, 0x10001080) == 0x480
+
+    def test_extract_and_offset_agree(self, tmp_path: Path) -> None:
+        """extract_bytes_at_va and va_to_file_offset accept the same VAs."""
+        f = tmp_path / "test.bin"
+        f.write_bytes(b"\x00" * 0x400 + b"\xaa" * 0x100)
+        info = BinaryInfo(
+            path=f,
+            format="pe",
+            image_base=0x10000000,
+            text_va=0x10001000,
+            text_size=0x1000,
+            text_raw_offset=0x400,
+            sections={
+                ".text": SectionInfo(
+                    name=".text", va=0x10001000, size=0x1000, file_offset=0x400, raw_size=0x100
+                )
+            },
+        )
+        # Inside virtual, past raw: extraction clamps to b"" (no file bytes
+        # for the BSS tail) while the offset still maps.
+        assert extract_bytes_at_va(info, 0x10001800, 4) == b""
+        assert va_to_file_offset(info, 0x10001800) == 0xC00
+        # Past the virtual extent: both refuse.
+        assert extract_bytes_at_va(info, 0x10002000, 4) is None
+
 
 # -------------------------------------------------------------------------
 # detect_format_and_arch

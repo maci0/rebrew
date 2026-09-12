@@ -20,6 +20,41 @@ class TestIsPadding:
     def test_code_is_not_padding(self) -> None:
         assert _is_padding(_mk_info(b"\x55\x8b\xec"), 0, 3) is False
 
+    def test_documented_multibyte_nop_is_padding(self) -> None:
+        # 0F 1F 00 — 3-byte NOP (ModRM mod=00, no disp)
+        assert _is_padding(_mk_info(b"\x0f\x1f\x00"), 0, 3) is True
+        # 0F 1F 40 00 — 4-byte NOP (ModRM mod=01 disp8)
+        assert _is_padding(_mk_info(b"\xcc\x0f\x1f\x40\x00"), 0, 5) is True
+
+    def test_bare_0f_is_not_padding(self) -> None:
+        # 0F 85 xx xx xx xx — jnz rel32: a real opcode, never padding.
+        assert _is_padding(_mk_info(b"\x0f\x85\x10\x00\x00\x00"), 0, 6) is False
+        # Truncated 0F 1F with no ModRM byte — not a valid NOP.
+        assert _is_padding(_mk_info(b"\x0f\x1f"), 0, 2) is False
+        # Register-direct 0F 1F C0 — not documented padding.
+        assert _is_padding(_mk_info(b"\x0f\x1f\xc0"), 0, 3) is False
+
+    def test_66_90_nop_is_padding(self) -> None:
+        assert _is_padding(_mk_info(b"\x66\x90"), 0, 2) is True
+
+
+class TestMultibyteNopLen:
+    def test_sib_disp_forms(self) -> None:
+        from rebrew.discover import _multibyte_nop_len
+
+        # 0F 1F 44 00 00 — ModRM mod=01 rm=100 (SIB) disp8
+        assert _multibyte_nop_len(bytes([0x0F, 0x1F, 0x44, 0x00, 0x00]), 0) == 5
+        # 0F 1F 84 00 + disp32 — ModRM mod=10 rm=100 (SIB) disp32
+        assert _multibyte_nop_len(bytes([0x0F, 0x1F, 0x84, 0x00, 0, 0, 0, 0]), 0) == 8
+        # 0F 1F 05 + disp32 — ModRM mod=00 rm=101 (disp32, no base)
+        assert _multibyte_nop_len(bytes([0x0F, 0x1F, 0x05, 0, 0, 0, 0]), 0) == 7
+
+    def test_truncated_returns_zero(self) -> None:
+        from rebrew.discover import _multibyte_nop_len
+
+        assert _multibyte_nop_len(bytes([0x0F, 0x1F]), 0) == 0
+        assert _multibyte_nop_len(bytes([0x0F, 0x1F, 0x44]), 0) == 0
+
 
 def _mk_info(raw: bytes):
     class Fake:
@@ -139,3 +174,44 @@ class TestDiscoverMZ:
         assert 0 in vas
         # The cdecl prologue pattern (push bp; mov bp,sp) must fire somewhere.
         assert len(vas) > 3
+
+
+class TestInteriorFalsePositiveDrop:
+    def test_candidate_without_a_boundary_is_dropped(self, monkeypatch) -> None:
+        """A candidate whose predecessor decodes straight into it (no ret, no
+        decodable boundary) is a call target inside that function.  The old
+        `insn.va >= nxt` test could never fire — the disasm window IS the gap —
+        so the phantom candidate stayed in the list."""
+        from rebrew.discover import _validate_and_refine
+
+        class Insn:
+            def __init__(self, va: int, size: int, mnemonic: str) -> None:
+                self.va = va
+                self.size = size
+                self.mnemonic = mnemonic
+
+        def _iter(info, va, size):
+            yield Insn(va, 4, "mov")
+            yield Insn(va + 4, 2, "jne")
+
+        monkeypatch.setattr("rebrew.discover.iter_instructions", _iter)
+        out = _validate_and_refine(None, [(0x401000, 0, "outer"), (0x401034, 0, "interior")])
+        assert [va for va, _s, _n in out] == [0x401000]
+
+    def test_tail_call_candidate_is_kept(self, monkeypatch) -> None:
+        """A predecessor ending in an unconditional `jmp` is a tail call, not
+        code running into the next candidate — do not drop it."""
+        from rebrew.discover import _validate_and_refine
+
+        class Insn:
+            def __init__(self, va: int, size: int, mnemonic: str) -> None:
+                self.va = va
+                self.size = size
+                self.mnemonic = mnemonic
+
+        def _iter(info, va, size):
+            yield Insn(va, 5, "jmp")
+
+        monkeypatch.setattr("rebrew.discover.iter_instructions", _iter)
+        out = _validate_and_refine(None, [(0x401000, 0, "outer"), (0x401034, 0, "thunk")])
+        assert [va for va, _s, _n in out] == [0x401000, 0x401034]

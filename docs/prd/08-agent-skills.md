@@ -114,8 +114,12 @@ Excludes: function bodies, deep matching.
 ### `rebrew-ghidra-sync` (Ghidra ↔ rebrew)
 
 Trigger keywords: `Ghidra`, `sync`, `push`, `pull`, `ReVa`, `MCP`,
-`labels`, `pull-signatures`, `pull-structs`, `pull-comments`,
-`pull-data`.
+`labels`, `pull-data`.
+
+> **Correction (2026-09):** field sync is BinSync-primary
+> (`--push`/`--pull --state-dir`, `--accept-binsync` / `--accept-local`); the
+> removed `--pull-signatures` / `--pull-structs` / `--pull-comments` triggers
+> above are superseded. PRDs are historical records, kept as written.
 
 Scope:
 

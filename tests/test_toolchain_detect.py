@@ -58,6 +58,13 @@ class TestDiecVersionHint:
         dets = [{"values": [{"name": "Microsoft Linker", "version": "9.00.30729"}]}]
         assert _diec_version_hint(dets) == "MSVC 9.0 (linker 9.00.30729)"
 
+    def test_linker_fallback_msvc10_and_11(self) -> None:
+        # VC 10.0/11.0 linkers report 10.00 / 11.00; the era map stopped at 9.
+        dets = [{"values": [{"name": "Microsoft Linker", "version": "10.00.40219"}]}]
+        assert _diec_version_hint(dets) == "MSVC 10.0 (linker 10.00.40219)"
+        dets = [{"values": [{"name": "Microsoft Linker", "version": "11.00.51106"}]}]
+        assert _diec_version_hint(dets) == "MSVC 11.0 (linker 11.00.51106)"
+
 
 class TestProfileMatches:
     def test_msvc_profile_matches_msvc(self) -> None:
@@ -304,6 +311,32 @@ class TestOrchestration:
         monkeypatch.setattr("rebrew.toolchain_detect._run_diec", lambda *a, **k: dets)
         info = detect_with_die(Path("x.exe"))
         assert info.family == "borlandc"
+
+
+class TestConfidenceMerge:
+    def test_pe_meta_high_not_demoted(self, monkeypatch, tmp_path: Path) -> None:
+        """Merging with ``max()`` on raw strings is lexicographic
+        ('high' < 'low' < 'medium'), so a coarse backend's 'low' demoted the
+        high-confidence PE-meta verdict."""
+        exe = tmp_path / "prog.exe"
+        exe.write_bytes(b"MZ" + b"\x00" * 64)
+        monkeypatch.setattr(
+            "rebrew.toolchain_detect.detect_with_die",
+            lambda *a, **k: ToolchainInfo(family="msvc", confidence="low", detected_by="die"),
+        )
+        monkeypatch.setattr("rebrew.toolchain_detect.detect_with_pdb", lambda *a, **k: None)
+        monkeypatch.setattr(
+            "rebrew.toolchain_detect.detect_with_pe_meta",
+            lambda *a, **k: ToolchainInfo(
+                family="msvc", confidence="high", msvc_version="12.00.8168"
+            ),
+        )
+        monkeypatch.setattr(
+            "rebrew.toolchain_detect.load_binary",
+            lambda *a, **k: (_ for _ in ()).throw(Exception("no parse")),
+        )
+        info = detect_toolchain(exe)
+        assert info.confidence == "high"
 
 
 class _FakeSection:

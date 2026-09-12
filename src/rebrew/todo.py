@@ -418,7 +418,17 @@ def _collect_active_functions(
             desc = "Symbol not found in .obj — check STUB/FUNCTION marker, symbol name, or implementation"
             score = 150.0  # High priority: nothing else can proceed until resolved
 
-        elif not name or name.startswith("FUN_"):
+        elif (not name or name.startswith("FUN_")) and v_status not in (
+            "NEAR_MATCHING",
+            "MISSING_SIZE",
+        ):
+            # Verify state wins over the placeholder name: a measured
+            # NEAR_MATCHING result is matched work and belongs to the
+            # verify-driven branches below (which apply the STRUCTURAL demotion
+            # and surface blockers/GA hints), and MISSING_SIZE has its own
+            # self-heal lane.  Handling them here duplicated that logic minus
+            # the demotion, so a STRUCTURAL 20B diff was offered as a flag-sweep
+            # quick-win and a placeholder MISSING_SIZE was sent to `skeleton`.
             category = CAT_MISSING_ANNOTATION
             desc = "Missing C function definition (needs skeleton)"
             score = calculate_roi(size, v_match, calc_delta)
@@ -436,13 +446,24 @@ def _collect_active_functions(
         elif info.get("blocker", "").startswith(GA_CEILING_PREFIX):
             # The GA exhausted on a register-only delta — byte-exact is not
             # reproducible from portable C, so no flag sweep / GA item helps.
-            # Route to the prover lane (surfaces even when angr is absent —
-            # _collect_prover_candidates gates on it and would otherwise drop
-            # this function to a wasted fix-delta item).
-            category = CAT_RUN_PROVER
-            desc = "GA ceiling (register-only delta) — prove semantic equivalence for PROVEN"
-            score = calculate_roi(size, v_match, calc_delta) + 10.0
-            cmd = f"rebrew prove 0x{va:08x}"
+            # The prover lane needs angr: without it, there is nothing to
+            # run, so classify as improve-match with a match/near-diag
+            # command instead of routing to a prover that cannot execute.
+            from rebrew.cli import angr_available
+
+            if angr_available():
+                category = CAT_RUN_PROVER
+                desc = "GA ceiling (register-only delta) — prove semantic equivalence for PROVEN"
+                score = calculate_roi(size, v_match, calc_delta) + 10.0
+                cmd = f"rebrew prove 0x{va:08x}"
+            else:
+                category = CAT_IMPROVE_MATCH
+                desc = (
+                    "GA ceiling (register-only delta) — angr unavailable, "
+                    "no prover to run; try match variants or near-diag"
+                )
+                score = calculate_roi(size, v_match, calc_delta)
+                cmd = f"rebrew near-diag 0x{va:08x}"
 
         elif calc_delta is not None and calc_delta <= 20:
             category = CAT_FIX_DELTA
@@ -623,10 +644,40 @@ def _load_verify_entries(cfg: ProjectConfig) -> dict[str, "VerifyCacheEntry"]:
         return {}
     if data.version != 1:
         return {}
-    # Defensive getattr: callers may hold a minimal config (tests, tools).
-    if data.target and data.target != getattr(cfg, "target_name", None):
+    # Mirrors status.py's target guard: any mismatch is rejected, including a
+    # legacy cache with no `target` against a named target (the old
+    # `and data.target` accepted that one, so todo's categories/deltas could be
+    # driven by a cache `rebrew status` refuses to read).  A minimal config with
+    # no `target_name` still accepts a target-less cache (tests, tools).
+    cache_target = data.target
+    cfg_target = getattr(cfg, "target_name", None)
+    if cache_target != cfg_target and (cache_target or cfg_target):
         return {}
-    return data.entries
+    # Re-key canonically: the cache is a JSON file, so a VA may be spelled
+    # "0x1000" instead of "0x00001000" (the union at `:317` already normalizes
+    # with `canonical_va_key`, and every consumer looks entries up with
+    # `f"0x{va:08x}"` — an unnormalized key was seen by the coverage header but
+    # missed by the category/delta selection and the prove queue).
+    from rebrew.verify import canonical_va_key
+
+    normalized: dict[str, VerifyCacheEntry] = {}
+    for key, entry in data.entries.items():
+        va = canonical_va_key(key)
+        normalized[f"0x{va:08x}" if isinstance(va, int) else str(key)] = entry
+    return normalized
+
+
+def _inferred_module(name: str) -> str:
+    """Library module for a bare function name, or "" when unclassified.
+
+    ``FunctionEntry`` carries no module (only va/size/name/tool_name), so every
+    module-aware branch here (the identify-library lane and
+    ``estimate_difficulty``'s reference-source levels) infers it from the name
+    with the same heuristic the FLIRT/import backends use.
+    """
+    from rebrew.identify_library import _infer_module
+
+    return _infer_module(name, "")
 
 
 def _collect_new_functions(
@@ -675,7 +726,9 @@ def _collect_new_functions(
         if reason:
             continue
 
-        difficulty, desc = estimate_difficulty(size, name, ignored=ignored, cfg=cfg)
+        difficulty, desc = estimate_difficulty(
+            size, name, _inferred_module(name), ignored=ignored, cfg=cfg
+        )
         if difficulty == 0:
             continue
 
@@ -711,15 +764,38 @@ def _collect_library_candidates(
 ) -> list[TodoItem]:
     """Collect uncovered functions with library module for identification."""
     lib_modules = set(cfg.library_modules) if cfg.library_modules else {"ZLIB", "MSVCRT"}
+    # Same non-targets the start-function lane skips: an IAT thunk or ASM
+    # builtin is import glue / compiler support, not a library function to
+    # identify, and a sub-10B row is not actionable.  This lane used to check
+    # only `va in existing`, so `// import` stubs surfaced as identify-library
+    # work whenever their name happened to infer a CRT module.
+    ignored: set[str] = set(getattr(cfg, "ignored_symbols", None) or [])
+    iat_set: set[int] = set(getattr(cfg, "iat_thunks", None) or [])
+    binary_info = None
+    bin_path = getattr(cfg, "target_binary", None)
+    if bin_path and bin_path.exists():
+        with contextlib.suppress(OSError, ValueError, RuntimeError):
+            from rebrew.binary_loader import load_binary
+
+            binary_info = load_binary(bin_path)
     items: list[TodoItem] = []
     for func in ghidra_funcs:
         va = func.va
-        if va in existing:
+        if va in existing or va in iat_set:
             continue
         size = func.size
         name = func.name or f"FUN_{va:08x}"
-        module = func.module if hasattr(func, "module") else ""
-        if module not in lib_modules:
+        if name in ignored or size < 10:
+            continue
+        with contextlib.suppress(TypeError, ValueError, AttributeError):
+            if detect_unmatchable(va, size, binary_info, iat_set, ignored, name):
+                continue
+        # FunctionEntry carries no module (only va/size/name/tool_name), so the
+        # old `hasattr(func, "module")` was always False and this lane never
+        # emitted.  The module is inferred from the name; an unclassifiable name
+        # infers "" and is skipped.
+        module = _inferred_module(name)
+        if not module or module not in lib_modules:
             continue
 
         items.append(
@@ -737,16 +813,21 @@ def _collect_library_candidates(
     return items
 
 
-def _caller_counts(cfg: ProjectConfig) -> dict[str, int]:
+def _caller_counts(cfg: ProjectConfig, matched_files: set[str] | None = None) -> dict[str, int]:
     """Count unresolved callers per callee name from extern declarations.
 
     Scans reversed sources for ``extern`` function declarations: each file
     whose own function is still unmatched counts as one unresolved caller
     of every extern callee it declares.  Best-effort (unparseable files
     skipped); returns ``{callee name: caller count}``.
+
+    *matched_files* (relative paths, from the metadata store) are skipped: a
+    caller that is already byte-matched no longer needs its callees
+    implemented, so it must not add ROI or an "unblocks N caller(s)" note.
     """
     from rebrew.c_parser import find_extern_function_names
     from rebrew.sources import iter_sources
+    from rebrew.utils import rel_display_path
 
     counts: dict[str, int] = {}
     try:
@@ -754,6 +835,8 @@ def _caller_counts(cfg: ProjectConfig) -> dict[str, int]:
     except OSError:
         return counts
     for path in files:
+        if matched_files and rel_display_path(path, cfg.reversed_dir) in matched_files:
+            continue
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
@@ -819,9 +902,17 @@ def collect_all(
     verify_entries = _load_verify_entries(cfg)
 
     # 1. Collect all active functions tracked in the project
+    # A caller whose own function is already byte-matched does not need its
+    # callees implemented, so it must not boost them (the caller-count
+    # docstring's "unresolved caller" contract).
+    matched_files = {
+        str(info.get("filename", ""))
+        for info in existing.values()
+        if str(info.get("status", "")).upper() in MATCHED_STATUSES
+    }
     items.extend(
         _collect_active_functions(
-            existing, size_by_va, name_by_va, verify_entries, _caller_counts(cfg)
+            existing, size_by_va, name_by_va, verify_entries, _caller_counts(cfg, matched_files)
         )
     )
 
@@ -944,11 +1035,16 @@ def main(
     matching = status_counts.get("NEAR_MATCHING", 0)
     stub = status_counts.get("STUB", 0)
     # status_counts is built over the COVERED population (source files +
-    # library headers).  Dividing by len(ghidra_funcs) — the function_structure
-    # list, which excludes library-header functions — produced >100% figures
-    # (e.g. 527 matched / 219 ghidra funcs = 240.6%).  Use the covered count,
-    # matching `rebrew status`'s matched_pct.
-    pct = round(100.0 * (exact + reloc + proven) / covered, 1) if covered else 0.0
+    # library headers), and status_counts can therefore include library-header
+    # functions the ghidra list lacks.  The denominator is the same union
+    # `rebrew status` uses (`ghidra ∪ covered`), so `todo --json` and `status`
+    # cannot disagree: dividing by `covered` alone reported 60% where status
+    # reported 30% for the same project (an uncovered ghidra function is
+    # unmatched by definition), while dividing by `ghidra_funcs` alone produced
+    # >100% figures (e.g. 527 matched / 219 ghidra funcs).
+    ghidra_vas = {f.va for f in ghidra_funcs}
+    denominator = len(ghidra_vas | set(covered_vas))
+    pct = round(100.0 * (exact + reloc + proven) / denominator, 1) if denominator else 0.0
 
     if category:
         all_items = [i for i in all_items if i.category == category]

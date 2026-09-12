@@ -510,3 +510,40 @@ class TestResolveGlobalNames:
         diff_mod._global_name_map = lambda cfg: {0x10027078: "g_log_level_table"}
         _resolve_global_names(rows, cfg)
         assert rows[0]["target"]["disasm"] == "mov eax, dword ptr [g_log_level_table]"
+
+
+class TestFixBlockerTargetsDiffedVa:
+    def test_multi_marker_seed_writes_only_the_diffed_va(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The diffed VA is authoritative: taking `annos[0].va` wrote the
+        blocker onto the seed file's first function when a later VA was diffed."""
+        from rebrew.diff import run_diff
+        from rebrew.metadata import get_entry
+
+        meta_dir = tmp_path / "meta"
+        meta_dir.mkdir()
+        seed = tmp_path / "f.c"
+        seed.write_text(
+            "// FUNCTION: SERVER 0x1000\nint f1(void) { return 0; }\n"
+            "// FUNCTION: SERVER 0x2000\nint f2(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        p = _params(
+            seed_c=seed,
+            va_int=0x2000,
+            cfg=SimpleNamespace(metadata_dir=meta_dir, compile_timeout=30),
+        )
+        summary = _summary(
+            instructions=[
+                {
+                    "match": "RR",
+                    "target": {"disasm": "mov eax, ebx"},
+                    "candidate": {"disasm": "mov eax, ecx"},
+                }
+            ]
+        )
+        _patch_matcher(monkeypatch, summary=summary, obj=b"\x90\x8b\xec\x5d\xc3")
+        run_diff("f.c", False, False, False, True, False, p)
+        assert "register allocation" in get_entry(meta_dir, 0x2000, "SERVER").get("blocker", "")
+        assert get_entry(meta_dir, 0x1000, "SERVER").get("blocker", "") == ""

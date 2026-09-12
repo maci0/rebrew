@@ -158,6 +158,34 @@ class TestGetGlobalsSizes:
         globals_dict = self._scan(tmp_path, "extern int g_i;")
         assert globals_dict[0x1000]["size"] == 4
 
+    def test_sizes_match_shared_estimator(self, tmp_path: Path) -> None:
+        """get_globals must size through data_layout.estimate_type_size —
+        the single source of truth (a second heuristic here drifts)."""
+        from rebrew.catalog.sections import get_globals
+        from rebrew.data_layout import estimate_type_size
+
+        decls = [
+            "int g_a;",
+            "extern short g_b;",
+            "char g_c[16];",
+            "extern double g_d;",
+            "extern char *g_e;",
+            "unsigned long g_f;",
+            "int g_g[0x10];",
+            "extern DWORD g_h;",
+            "struct Foo g_i;",
+            "int g_shorty;",
+        ]
+        src = "".join(
+            f"// GLOBAL: SERVER 0x{0x1000 + i * 0x100:x}\n{d}\n" for i, d in enumerate(decls)
+        )
+        p = tmp_path / "g.c"
+        p.write_text(src, encoding="utf-8")
+        globals_dict = get_globals(tmp_path)
+        assert len(globals_dict) == len(decls)
+        for i, d in enumerate(decls):
+            assert globals_dict[0x1000 + i * 0x100]["size"] == estimate_type_size(d)
+
 
 class TestSectionsFromInfo:
     """The .data → .data + .bss split mirrors the loader's BSS model."""

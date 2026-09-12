@@ -141,6 +141,23 @@ class TestDeclaredResolutionValidation:
         fn = diagnose_source(_cfg(tmp_path), src)["functions"][0]
         assert fn["warnings"] == []
 
+    def test_second_preset_contradiction_warned(self) -> None:
+        """Every declared preset is validated — a contradiction in
+        presets[1] must warn even when presets[0] is consistent."""
+        steps = [
+            {"source": "function", "toolchain": "", "cflags": ""},
+            {
+                "source": "library",
+                "path": "rebrew-libraries.toml",
+                "toolchain": "msvc6",
+                "cflags": "",
+                "presets": ["msvcrt-static", "watcom-runtime"],
+            },
+        ]
+        warnings = _warnings_for(steps, "msvc6")
+        assert any("watcom-runtime" in w and "conflicting" in w for w in warnings)
+        assert not any("msvcrt-static" in w and "conflicting" in w for w in warnings)
+
 
 class TestWarningsHelper:
     def test_empty_steps_no_warnings(self) -> None:

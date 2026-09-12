@@ -66,10 +66,19 @@ _BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.S)
 _DIM_RE = re.compile(r"\[([^\]]*)\]")
 
 
-def _dim_value(s: str) -> int:
-    """Parse a C array dimension (hex ``0x10`` or decimal ``4``)."""
+def _dim_value(s: str) -> int | None:
+    """Parse a C array dimension (hex ``0x10`` or decimal ``4``).
+
+    Returns ``None`` for a non-numeric dimension (``[]`` or a symbolic
+    ``[N]``), which the caller treats as unsized rather than crashing.
+    """
     s = s.strip()
-    return int(s, 16) if s.lower().startswith("0x") else int(s, 10)
+    if not s:
+        return None
+    try:
+        return int(s, 16) if s.lower().startswith("0x") else int(s, 10)
+    except ValueError:
+        return None
 
 
 @dataclass
@@ -86,15 +95,15 @@ class FieldLayout:
     complete: bool = True
 
 
-def struct_field_layout(definition: str) -> FieldLayout:
+def struct_field_layout(definition: str, pointer_width: int = 4) -> FieldLayout:
     """Compute ``{offset: (field_name, width)}`` for a typedef struct body.
 
     Handles the guild/decomp conventions: typed primitives (``int flags``),
-    pointer fields (``int *p`` → 4 on x86-32), explicit byte arrays
-    (``char gap_0004[0x264260]`` → width 0x264260), and multi-dim arrays
-    (``[2][4]`` → 8 elements).  Bitfields, embedded ``struct`` members, or
-    anything else unsized mark the layout ``complete = False`` so it is
-    never matched against evidence.
+    pointer fields (``int *p`` → *pointer_width* on the target arch),
+    explicit byte arrays (``char gap_0004[0x264260]`` → width 0x264260), and
+    multi-dim arrays (``[2][4]`` → 8 elements).  Bitfields, embedded ``struct``
+    members, or anything else unsized mark the layout ``complete = False`` so
+    it is never matched against evidence.
     """
     body = _BLOCK_COMMENT_RE.sub(" ", definition)
     lay = FieldLayout()
@@ -113,7 +122,7 @@ def struct_field_layout(definition: str) -> FieldLayout:
         base = m.group("base")
         width: int | None
         if m.group("ptr"):
-            width = 4  # x86-32 pointer
+            width = pointer_width
         elif base in TYPE_WIDTHS:
             width = TYPE_WIDTHS[base]
         else:
@@ -123,8 +132,19 @@ def struct_field_layout(definition: str) -> FieldLayout:
             continue
         if m.group("arr"):
             count = 1
+            unsized = False
             for dim in _DIM_RE.findall(m.group("arr")):
-                count *= _dim_value(dim)
+                dim_value = _dim_value(dim)
+                if dim_value is None:
+                    unsized = True
+                    break
+                count *= dim_value
+            if unsized:
+                # ``char x[]`` / ``[N]``: the field has no computable width, so
+                # every later offset is unknown.  Mark incomplete (never
+                # matched) instead of raising inside the parse.
+                lay.complete = False
+                continue
             width *= count
         lay.fields[offset] = (m.group("name"), width)
         offset += width
@@ -132,12 +152,15 @@ def struct_field_layout(definition: str) -> FieldLayout:
     return lay
 
 
-def struct_definitions_to_layouts(definitions: dict[str, str]) -> dict[str, FieldLayout]:
+def struct_definitions_to_layouts(
+    definitions: dict[str, str], pointer_width: int = 4
+) -> dict[str, FieldLayout]:
     """Map struct name → parsed layout for every raw definition.
 
     Parses via the shared :mod:`rebrew.types` model (tree-sitter offsets
     with MSVC alignment); falls back to the legacy line parser for bodies
     the shared model cannot size, so existing behavior is preserved.
+    *pointer_width* sizes pointer fields in the legacy fallback.
     """
     from rebrew.types import parse_structs, type_size
 
@@ -156,7 +179,7 @@ def struct_definitions_to_layouts(definitions: dict[str, str]) -> dict[str, Fiel
             lay.size = struct.size
             layouts[name] = lay
         else:
-            layouts[name] = struct_field_layout(definition)
+            layouts[name] = struct_field_layout(definition, pointer_width=pointer_width)
     return layouts
 
 
@@ -209,6 +232,54 @@ _SIG_TYPE_RE = re.compile(
 #: ``vN = a0;`` alias assignments (Kuna copies params into locals).
 _ALIAS_RE = re.compile(r"\b(?P<alias>[A-Za-z_]\w*)\s*=\s*(?P<src>[A-Za-z_]\w*)\s*;")
 
+#: ``(T *)var`` casts — pointer evidence for item 15's gate.
+_CAST_PTR_RE = re.compile(r"\(\s*[A-Za-z_]\w*(?:\s+\w+)*?\s*\*\s*\)\s*(?P<var>[A-Za-z_]\w*)")
+
+#: ``var[i]`` / ``&var[i]`` uses — pointer evidence for item 15's gate.
+_INDEX_USE_RE = re.compile(r"&?\s*(?P<var>[A-Za-z_]\w*)\s*\[\s*\d+\s*\]")
+
+
+def _pointer_vars(text: str) -> set[str]:
+    """Vars with evidence of being a pointer: ``T *var`` decls/params,
+    ``(T *)var`` casts, ``*(T *)(var + N)`` / ``*(T *)&var + N`` cast-derefs,
+    ``*(T *)&var[i]`` derefs, or ``var[i]`` index uses.
+
+    The anonymous rewrite pass only renames these; a plain ``int`` used in
+    ``var + N`` arithmetic has no such evidence and a bare ``var + N`` on it
+    is integer math, not a member access.
+    """
+    from rebrew.struct_recover import (
+        _ARRAY_DEREF_RE,
+        _ARRAY_IDX_RE,
+        _CAST_DEREF_RE,
+        _CAST_RE,
+        _DECL_RE,
+        _FIELD_ACCESS_RE,
+    )
+
+    out: set[str] = set()
+    for m in _DECL_RE.finditer(text):
+        out.add(m.group("var"))
+    for m in _CAST_RE.finditer(text):
+        out.add(m.group("var"))
+    for m in _CAST_PTR_RE.finditer(text):
+        out.add(m.group("var"))
+    for m in _CAST_DEREF_RE.finditer(text):
+        var = m.group("var1") or m.group("var2")
+        if var is not None:
+            out.add(var)
+    for m in _ARRAY_DEREF_RE.finditer(text):
+        out.add(m.group("var"))
+    for m in _ARRAY_IDX_RE.finditer(text):
+        out.add(m.group("var"))
+    for m in _FIELD_ACCESS_RE.finditer(text):
+        var = m.group("var")
+        if var is not None:
+            out.add(var)
+    for m in _INDEX_USE_RE.finditer(text):
+        out.add(m.group("var"))
+    return out
+
 
 @dataclass
 class NamingResult:
@@ -218,21 +289,36 @@ class NamingResult:
     applied: list[dict[str, Any]]  # {var, struct, offsets: [...]}
 
 
-def apply_known_names(text: str, definitions: dict[str, str]) -> NamingResult:
+def apply_known_names(
+    text: str, definitions: dict[str, str], pointer_width: int = 4
+) -> NamingResult:
     """Rewrite *text* to use known structs for anonymous pointer variables.
 
     *definitions* maps struct name → raw ``typedef struct ...`` text (e.g.
-    ``rebrew.struct_recover.existing_structs``).  Returns the rewritten code
-    and the list of ``{var, struct, offsets}`` applications (empty when
-    nothing matched).
+    ``rebrew.struct_recover.existing_structs``).  *pointer_width* is the
+    target's pointer size in bytes (4 for 32-bit, 2 for 16-bit, 8 for 64-bit)
+    — it sizes pointer fields in the legacy line parser.  Returns the
+    rewritten code and the list of ``{var, struct, offsets}`` applications
+    (empty when nothing matched).
+
+    A variable is only rewritten when there is evidence it is a pointer:
+    a ``T *var`` declaration/param, a ``(T *)var`` cast, or an array-index
+    use (``var[i]``); a plain ``int`` variable with integer arithmetic
+    (``a0 + 0x10`` where ``a0`` is never dereferenced as a pointer) is left
+    alone, since a bare ``var + N`` is address arithmetic on an unknown base.
     """
-    layouts = struct_definitions_to_layouts(definitions)
+    layouts = struct_definitions_to_layouts(definitions, pointer_width=pointer_width)
     elem_widths = pointer_element_widths(text)
+    pointer_vars = _pointer_vars(text)
 
     # Anonymous pointer vars → evidence offsets (temps excluded already).
+    # Only vars with pointer evidence are rewritten: a bare ``int`` loop
+    # counter used in ``var + N`` address arithmetic must not be renamed.
     parsed = parse_decomp_for_structs(text)
     var_structs: dict[str, str] = {}
     for var, ev in parsed.anonymous.items():
+        if var not in pointer_vars:
+            continue
         struct = _match_struct(set(ev.offsets), layouts)
         if struct is not None:
             var_structs[var] = struct
@@ -256,7 +342,9 @@ def apply_known_names(text: str, definitions: dict[str, str]) -> NamingResult:
         offsets = sorted(entry.offsets) if entry is not None else []
         applied.append({"var": var, "struct": struct, "offsets": [f"0x{o:x}" for o in offsets]})
 
-    code = _ACCESS_RE.sub(lambda m: _rewrite_access(m, var_structs, layouts, elem_widths), text)
+    code = _ACCESS_RE.sub(
+        lambda m: _rewrite_access(m, var_structs, layouts, elem_widths, pointer_vars), text
+    )
     lines = code.split("\n")
     if lines:
         lines[0] = _SIG_TYPE_RE.sub(lambda m: _rewrite_sig_type(m, var_structs), lines[0], count=0)
@@ -280,6 +368,7 @@ def _rewrite_access(
     var_structs: dict[str, str],
     layouts: dict[str, FieldLayout],
     elem_widths: dict[str, int],
+    pointer_vars: set[str] | None = None,
 ) -> str:
     if m.group("cvar") is not None:
         var, off, cast = m.group("cvar"), offset_value(m.group("coff")), m.group("cast")
@@ -300,6 +389,10 @@ def _rewrite_access(
         form = "bare_index"
     else:
         var, off = m.group("pvar"), offset_value(m.group("poff"))
+        # A bare ``var + N`` on a non-pointer is integer arithmetic, not a
+        # member access — never rewrite it.
+        if pointer_vars is not None and var not in pointer_vars:
+            return m.group(0)
         form = "bare"
 
     struct = var_structs.get(var)
@@ -377,9 +470,10 @@ def main(
         from rebrew.struct_recover import existing_structs
 
         sources = list(iter_sources(cfg.reversed_dir, cfg))
-        sources += list(iter_library_headers(cfg.reversed_dir))
+        sources += list(iter_library_headers(cfg.reversed_dir, cfg))
         definitions = existing_structs(sources)
-        result = apply_known_names(code, definitions)
+        pointer_width = int(getattr(cfg, "pointer_size", 4) or 4)
+        result = apply_known_names(code, definitions, pointer_width=pointer_width)
         code = result.code
         applied = result.applied
         if not json_output:

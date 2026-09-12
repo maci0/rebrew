@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from hypothesis import given, settings
@@ -144,6 +145,7 @@ class TestWriteCandidates:
                 kind="crt",
                 confidence=0.9,
                 source_ref="crt/malloc.c",
+                source_line=42,
             ),
             LibCandidate(
                 va=0x2000,
@@ -152,6 +154,7 @@ class TestWriteCandidates:
                 kind="crt",
                 confidence=0.5,
                 source_ref="crt/free.c",
+                source_line=7,
             ),
         ]
         write_candidates(cfg, cands, existing=set())
@@ -159,6 +162,121 @@ class TestWriteCandidates:
         args, _kwargs = calls[0]
         assert args[2] == "SOURCE"
         assert args[3] == "crt/malloc.c"
+
+    def test_filename_only_never_auto_writes_source(self, tmp_path: Path, monkeypatch) -> None:
+        """A filename-only CRT candidate (line 0) at the 0.85 threshold must
+        not get SOURCE metadata — only a parsed definition qualifies."""
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir).mkdir()
+        monkeypatch.setattr(
+            "rebrew.annotation.update_annotation_key",
+            lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not write")),
+        )
+        cands = [
+            LibCandidate(
+                va=0x1000,
+                name="qsort",
+                module="MSVCRT",
+                kind="crt",
+                confidence=0.85,
+                source_ref="QSORT.C",
+                source_line=0,
+            ),
+        ]
+        assert write_candidates(cfg, cands, existing=set()) == 1
+        assert (cfg.reversed_dir / "library_msvcrt.h").is_file()
+
+    def test_parsed_definition_still_writes_source(self, tmp_path: Path, monkeypatch) -> None:
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir).mkdir()
+        calls: list[object] = []
+        monkeypatch.setattr(
+            "rebrew.annotation.update_annotation_key",
+            lambda *a, **k: calls.append((a, k)),
+        )
+        cands = [
+            LibCandidate(
+                va=0x1000,
+                name="_malloc",
+                module="MSVCRT",
+                kind="crt",
+                confidence=0.9,
+                source_ref="crt/malloc.c",
+                source_line=42,
+            ),
+        ]
+        write_candidates(cfg, cands, existing=set())
+        assert len(calls) == 1
+
+
+class TestExistingVas:
+    def test_target_function_markers_are_respected(self, tmp_path: Path) -> None:
+        """A decompiled FUNCTION marker must count as existing so a LIBRARY
+        marker is not appended over it: the old helper
+        (collect_library_annotations) drops FUNCTION markers outside
+        library_modules."""
+        import rebrew.identify_library as il
+
+        cfg = _cfg(tmp_path)
+        cfg.source_ext = ".c"
+        cfg.reversed_dir.mkdir(parents=True)
+        (cfg.reversed_dir / "foo.c").write_text(
+            "// FUNCTION: SERVER 0x401000\n// SIZE: 8\nint f(void){return 0;}\n",
+            encoding="utf-8",
+        )
+        assert 0x401000 in il._existing_vas(cfg)
+
+
+class TestDefaultModuleDeterminism:
+    def test_default_module_is_sorted_first(self, tmp_path: Path, monkeypatch) -> None:
+        """The default module must not depend on set iteration order (hash
+        randomization): it is the alphabetically-first configured module."""
+        import rebrew.identify_library as il
+
+        cfg = _cfg(tmp_path)
+        # A list makes the pre-fix behaviour deterministic (first element) so
+        # the assertion is reproducible; ProjectConfig stores a set in practice.
+        cfg.library_modules = ["ZLIB", "MSVCRT"]
+        monkeypatch.setattr(il, "_crt_candidates", lambda cfg: [])
+        monkeypatch.setattr(il, "_import_candidates", lambda cfg, m: [])
+        seen: dict[str, str] = {}
+
+        def _flirt(cfg: Any, default_module: str) -> list[Any]:
+            seen["module"] = default_module
+            return []
+
+        monkeypatch.setattr(il, "_flirt_candidates", _flirt)
+        collect_candidates(cfg)
+        assert seen["module"] == "MSVCRT"
+
+
+class TestCrtSourceRef:
+    def test_source_ref_includes_line(self, tmp_path: Path, monkeypatch) -> None:
+        """SOURCE is written as ``file:line`` (the crt-match --fix-source
+        spelling), not the bare filename the docstring promises parity with."""
+        import rebrew.identify_library as il
+        from rebrew.crt_match import CrtMatch, CrtSourceEntry
+
+        cfg = _cfg(tmp_path)
+        entry = CrtSourceEntry(
+            name="_malloc", file="crt/malloc.c", line=42, is_asm=False, module="MSVCRT"
+        )
+        monkeypatch.setattr(
+            "rebrew.crt_match.match_all",
+            lambda cfg: [
+                CrtMatch(
+                    va=0x1000,
+                    binary_name="_malloc",
+                    binary_size=8,
+                    source=entry,
+                    confidence=0.9,
+                    reason="name_match",
+                    is_asm_only=False,
+                )
+            ],
+        )
+        cands = il._crt_candidates(cfg)
+        assert [c.source_ref for c in cands] == ["crt/malloc.c:42"]
 
 
 class TestIdentifyLibraryCli:
@@ -202,6 +320,32 @@ timeout = 60
         payload = json.loads(result.stdout)  # pure JSON
         assert payload["identified"] == 0
         assert payload["to_write"] == 0
+
+    def test_json_still_writes(self, tmp_path: Path, monkeypatch) -> None:
+        """--json changes only the output encoding: it must still write the
+        library headers it reports to_write."""
+        cfg = _cfg(tmp_path)
+        (tmp_path / "src").mkdir(parents=True, exist_ok=True)
+        monkeypatch.setattr(
+            "rebrew.identify_library.require_config", lambda target=None, json_mode=False: cfg
+        )
+        monkeypatch.setattr(
+            "rebrew.identify_library.collect_candidates",
+            lambda cfg, module: [
+                LibCandidate(
+                    va=0x1000, name="_malloc", module="MSVCRT", kind="flirt", confidence=0.5
+                )
+            ],
+        )
+        monkeypatch.setattr("rebrew.identify_library._existing_vas", lambda cfg: set())
+        result = CliRunner().invoke(app, ["identify-library", "--json"])
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)  # pure JSON, even after a write
+        assert payload["to_write"] == 1
+        assert payload["written"] == 1
+        header = tmp_path / "src" / "library_msvcrt.h"
+        assert header.exists()
+        assert "0x00001000" in header.read_text(encoding="utf-8")
 
     def test_dry_run_lists_candidates(self, tmp_path: Path, monkeypatch) -> None:
         cfg = _cfg(tmp_path)
@@ -430,3 +574,31 @@ def test_module_from_sig_file_properties(filename: str) -> None:
         assert module == "MSVCRT"
     elif stem == "zlib":
         assert module == "ZLIB"
+
+
+class TestAppendEntryNewline:
+    def test_append_adds_missing_newline(self, tmp_path: Path) -> None:
+        """A header lacking a trailing newline must not have its last line
+        spliced together with the appended LIBRARY block."""
+        cfg = _cfg(tmp_path)
+        cfg.reversed_dir.mkdir()
+        header = cfg.reversed_dir / "library_msvcrt.h"
+        header.write_text("// existing tail", encoding="utf-8")  # no trailing newline
+        cands = [
+            LibCandidate(va=0x1000, name="_malloc", module="MSVCRT", kind="crt", confidence=0.9)
+        ]
+        assert write_candidates(cfg, cands, existing=set()) == 1
+        text = header.read_text(encoding="utf-8")
+        assert "// existing tail\n// LIBRARY: MSVCRT 0x00001000\n" in text
+
+    def test_append_no_extra_newline_when_present(self, tmp_path: Path) -> None:
+        cfg = _cfg(tmp_path)
+        cfg.reversed_dir.mkdir()
+        header = cfg.reversed_dir / "library_msvcrt.h"
+        header.write_text("// existing tail\n", encoding="utf-8")
+        cands = [
+            LibCandidate(va=0x1000, name="_malloc", module="MSVCRT", kind="crt", confidence=0.9)
+        ]
+        assert write_candidates(cfg, cands, existing=set()) == 1
+        text = header.read_text(encoding="utf-8")
+        assert text.startswith("// existing tail\n// LIBRARY: MSVCRT 0x00001000\n")

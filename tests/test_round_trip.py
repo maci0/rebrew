@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
@@ -452,7 +453,7 @@ class TestLoadCatalogs:
         )
         funcs, data = _load_catalogs(cfg)
         assert funcs[0x5000] == "ExportFn"  # from dll_exports
-        assert funcs[0x10001000] == "func_a"  # from annotation
+        assert funcs[0x10001000] == "_func_a"  # catalog keys on the COFF symbol
         assert data == {}  # no rebrew-data.toml
 
     def test_data_names_from_data_metadata(self, tmp_path: Path) -> None:
@@ -488,9 +489,9 @@ class TestLoadCatalogs:
             encoding="utf-8",
         )
         funcs, data = _load_catalogs(cfg)
-        assert funcs.get(0x1000) == "CreateListenSocket"
+        assert funcs.get(0x1000) == "_CreateListenSocket"
         assert 0x2000 not in funcs
-        assert data.get("CreateListenSocket") == 0x2000
+        assert data.get("_CreateListenSocket") == 0x2000
         resolver = build_symbol_resolver(funcs, data)
         assert resolver("_CreateListenSocket") == 0x1000  # the function, not the slot
 
@@ -503,7 +504,74 @@ class TestLoadCatalogs:
             "// LIBRARY: SERVER 0x3000\n// _strlen\n", encoding="utf-8"
         )
         funcs, _data = _load_catalogs(cfg)
-        assert funcs.get(0x3000) == "_strlen"
+        assert funcs.get(0x3000) == "__strlen"  # symbol derived from the `_strlen` hint
+
+    def test_catalog_key_prefers_symbol(self, tmp_path: Path) -> None:
+        """The catalog key is the COFF symbol, not the bare name.
+
+        Regression: `_load_catalogs` keyed on `ann.name` (e.g. `foo`) while
+        the splice resolver looked up `ann.symbol` (e.g. `_foo@8`), so every
+        stdcall/static function missed the catalog as `unresolved_symbol`.
+        """
+        from rebrew.round_trip import _catalog_key, _load_catalogs
+
+        cfg = self._cfg(tmp_path)
+        cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
+        (cfg.reversed_dir / "func.c").write_text(
+            "// FUNCTION: SERVER 0x10004000\nint __stdcall foo(void) { return 1; }\n",
+            encoding="utf-8",
+        )
+        funcs, _data = _load_catalogs(cfg)
+        assert funcs.get(0x10004000) == "_foo@0"
+        ann = SimpleNamespace(symbol="_foo@0", name="foo", module="SERVER", va=0x10004000)
+        assert _catalog_key(ann, cfg.reversed_dir / "func.c") == "_foo@0"
+
+    def test_nameless_function_stays_resolvable(self, tmp_path: Path) -> None:
+        """A nameless FUNCTION annotation (hint-only, no body) keys on its
+        name instead of vanishing — previously `not ann.name` skipped it, so
+        the splice side reported `unresolved_symbol`."""
+        from rebrew.round_trip import _catalog_key, _load_catalogs
+
+        cfg = self._cfg(tmp_path)
+        cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
+        (cfg.reversed_dir / "hint.c").write_text(
+            "// FUNCTION: SERVER 0x10005000\n// hint_only\n", encoding="utf-8"
+        )
+        funcs, _data = _load_catalogs(cfg)
+        assert funcs.get(0x10005000) == "_hint_only"
+        # The parsed annotation derives `_hint_only` from the hint, so a bare
+        # SimpleNamespace without a symbol falls back to the filename stem —
+        # both sides still agree because they share `_catalog_key`.
+        from rebrew.annotation import parse_c_file_multi
+
+        parsed = parse_c_file_multi(cfg.reversed_dir / "hint.c", target_name="SERVER")
+        assert len(parsed) == 1
+        assert _catalog_key(parsed[0], cfg.reversed_dir / "hint.c") == "_hint_only"
+
+    def test_splice_and_catalog_share_key(self, tmp_path: Path) -> None:
+        """`_collect_splice_set` and `_load_catalogs` must agree on the key:
+        both resolve through `_catalog_key` (symbol, then name)."""
+        from rebrew.metadata import update_source_status
+        from rebrew.round_trip import _collect_splice_set, _load_catalogs
+
+        cfg = SimpleNamespace(
+            reversed_dir=tmp_path / "src",
+            metadata_dir=tmp_path,
+            marker="SERVER",
+            source_ext=".c",
+            cflags="/O2 /Gd",
+            dll_exports={},
+        )
+        cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
+        (cfg.reversed_dir / "func.c").write_text(
+            "// FUNCTION: SERVER 0x10006000\nint __stdcall foo(void) { return 1; }\n",
+            encoding="utf-8",
+        )
+        update_source_status(cfg.metadata_dir, "EXACT", "SERVER", 0x10006000)
+        splice, _proven, _other = _collect_splice_set(cfg, None)
+        funcs, _data = _load_catalogs(cfg)
+        assert len(splice) == 1
+        assert splice[0].symbol == funcs[0x10006000] == "_foo@0"
 
 
 class TestCollectSpliceSet:
@@ -561,6 +629,66 @@ class TestCollectSpliceSet:
         assert [f.symbol for f in splice] == ["_exact_fn", "_reloc_fn"]
         assert [f.symbol for f in proven] == ["_proven_fn"]
         assert other == 1
+
+    def test_lowercase_status_is_canonicalized(self, tmp_path: Path) -> None:
+        """A hand-edited lowercase status must still land in the splice set:
+        ann.status is canonicalized, the raw store value is not."""
+        from rebrew.round_trip import _collect_splice_set
+
+        cfg = self._cfg(tmp_path)
+        self._write_fn(cfg, "_exact_fn", 0x10001000, "EXACT", size=32)
+        # Simulate a hand edit: update_field refuses the status key on purpose.
+        from rebrew.utils import atomic_write_locked
+
+        meta = cfg.metadata_dir / "rebrew-functions.toml"
+        atomic_write_locked(
+            meta, meta.read_text(encoding="utf-8").replace('status = "EXACT"', 'status = "exact"')
+        )
+
+        splice, _proven, other = _collect_splice_set(cfg, None)
+        assert [f.symbol for f in splice] == ["_exact_fn"]
+        assert other == 0
+
+    def test_module_cflags_preset_is_applied(self, tmp_path: Path) -> None:
+        """The cflags chain is resolve_cflags: a per-module preset (and the
+        MSVC default) must reach the compile, or round-trip compiles different
+        bytes than verify/test."""
+        from rebrew.round_trip import _collect_splice_set
+
+        cfg = self._cfg(tmp_path)
+        cfg.cflags_presets = {"SERVER": "/O1"}
+        self._write_fn(cfg, "_exact_fn", 0x10001000, "EXACT", size=32)
+
+        splice, _proven, _other = _collect_splice_set(cfg, None)
+        assert splice[0].cflags == ["/O1"]
+
+    def test_per_function_toolchain_is_carried_and_used(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A TOOLCHAIN override must reach compile_to_obj (verify applies it;
+        round-trip used to compile every function with the project default)."""
+        from rebrew.metadata import update_field
+        from rebrew.round_trip import _collect_splice_set, _compile_and_extract
+
+        cfg = self._cfg(tmp_path)
+        path = self._write_fn(cfg, "_exact_fn", 0x10001000, "EXACT", size=32)
+        update_field(cfg.metadata_dir, 0x10001000, "toolchain", "msvc5", "SERVER")
+
+        splice, _proven, _other = _collect_splice_set(cfg, None)
+        fn = splice[0]
+        assert fn.toolchain == "msvc5"
+
+        seen: dict[str, Any] = {}
+
+        def _fake_compile(cfg_: Any, src: Any, cflags: Any, workdir: Any, **kw: Any):
+            seen.update(kw)
+            seen["src"] = src
+            return None, "stub"
+
+        monkeypatch.setattr("rebrew.round_trip.compile_to_obj", _fake_compile)
+        _compile_and_extract(cfg, fn, tmp_path)
+        assert seen["toolchain"] == "msvc5"
+        assert seen["src"] == path
 
     def test_missing_metadata_defaults_to_stub(self, tmp_path: Path) -> None:
         """No metadata entry → status defaults to STUB → counted as other."""
@@ -1078,6 +1206,15 @@ class TestNameEncodedVa:
 
         assert _name_encoded_va("_g_counter") is None
         assert _name_encoded_va("main") is None
+
+    def test_dollar_symbols_rejected(self) -> None:
+        # `$SG<N>` (string literal) and `$L<N>` (jump-table label) encode an
+        # index, not a VA; a six-digit suffix must not decode to an address.
+        from rebrew.round_trip import _name_encoded_va
+
+        assert _name_encoded_va("$SG123456") is None
+        assert _name_encoded_va("$L123456") is None
+        assert _name_encoded_va("$SG_1003546c") is None
 
     def test_below_image_base_floor_ignored(self) -> None:
         # Sub-0x100000 suffixes are not plausible VAs for this binary's layout.

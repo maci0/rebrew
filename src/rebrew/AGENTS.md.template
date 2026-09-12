@@ -66,8 +66,8 @@ Use `--json` for structured output (preferred for agents).
 | `rebrew flirt --json` | FLIRT scan for known library functions |
 | `rebrew extract list --json` | Extract and disassemble functions (list/show/batch) |
 | `rebrew asm 0x<VA> --size 128 --json` | Quick offline disassembly |
-| `rebrew sync --push` | Push annotations to Ghidra |
-| `rebrew sync --summary --json` | Preview what would be synced |
+| `rebrew sync --push --state-dir <dir>` | Push annotations to the BinSync state dir |
+| `rebrew sync --summary --state-dir <dir> --json` | Preview what would be synced |
 
 ## Annotation Format
 

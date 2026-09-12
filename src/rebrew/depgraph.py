@@ -12,6 +12,7 @@ Usage:
     rebrew graph --include-dispatch       # Fold dispatch-table edges into the graph
 """
 
+import bisect
 import contextlib
 import re
 from pathlib import Path
@@ -86,6 +87,45 @@ class NodeInfo(TypedDict):
     va: int
     size: int
     file: str
+    symbol: str
+
+
+def _func_key(entry: Any, fallback: str) -> str:
+    """Stable node key for one annotation entry: VA when known, else symbol."""
+    va = int(getattr(entry, "va", 0) or 0)
+    if va:
+        return f"va:0x{va:08x}"
+    symbol = getattr(entry, "symbol", "") or fallback
+    return f"sym:{symbol}"
+
+
+def _func_label(entry: Any, fallback: str) -> str:
+    """Display label for one annotation entry (symbol as written)."""
+    return getattr(entry, "symbol", "") or fallback
+
+
+def _block_va(block: str) -> int | None:
+    """VA from the first marker line in *block*, or None."""
+    from rebrew.annotation import NEW_FUNC_CAPTURE_RE
+
+    for line in block.splitlines():
+        m = NEW_FUNC_CAPTURE_RE.match(line.strip())
+        if m:
+            with contextlib.suppress(ValueError):
+                return int(m.group("va"), 16)
+    return None
+
+
+def _split_entry_blocks(text: str) -> list[str]:
+    """Split *text* into per-annotation blocks at marker lines."""
+    from rebrew.annotation import NEW_FUNC_CAPTURE_RE
+
+    lines = text.splitlines(keepends=True)
+    starts = [idx for idx, line in enumerate(lines) if NEW_FUNC_CAPTURE_RE.match(line.strip())]
+    if not starts:
+        return [text]
+    ends = [*starts[1:], len(lines)]
+    return ["".join(lines[a:b]) for a, b in zip(starts, ends, strict=True)]
 
 
 def _sanitize_id(name: str) -> str:
@@ -120,13 +160,20 @@ def binary_call_edges(info: Any, ranges: list[tuple[int, int, str]]) -> list[tup
 
     ``ranges`` maps ``(lo, hi, name)``; a reference from a call site inside
     one range to a target inside another becomes an edge (deduplicated).
+    Lookup is a binary search over the sorted range starts.
     """
     from rebrew.analysis import scan_references
 
+    ordered = sorted(ranges, key=lambda r: r[0])
+    starts = [lo for lo, _, _ in ordered]
+
     def func_at(va: int) -> str | None:
-        for lo, hi, name in ranges:
-            if lo <= va < hi:
-                return name
+        idx = bisect.bisect_right(starts, va) - 1
+        if idx < 0:
+            return None
+        lo, hi, name = ordered[idx]
+        if lo <= va < hi:
+            return name
         return None
 
     edges: list[tuple[str, str]] = []
@@ -149,6 +196,13 @@ def build_graph(
 ) -> tuple[dict[str, NodeInfo], list[tuple[str, str]], list[tuple[str, str]]]:
     """Build a call graph from reversed source files.
 
+    Nodes key on the function VA (``va:0x<VA>``) when known, else the raw
+    symbol (``sym:<symbol>``): two spellings of one function (``_foo`` vs
+    ``foo``) share one node instead of colliding.  Renderers show the raw
+    symbol as the label.  Callees come from each
+    annotation's own block, so a merged multi-function file attributes
+    each ``extern`` to the function whose block declares it.
+
     Args:
         reversed_dir: Directory containing reversed .c source files.
         cfg: Optional project configuration.
@@ -158,16 +212,16 @@ def build_graph(
             entry function target via dispatch edges.
 
     Returns:
-        nodes: {func_name: {"status": str, "va": int, "file": str}}
-        edges: [(caller_name, callee_name)]  — direct extern-call edges
-        dispatch_edges: [(dispatch_node_name, callee_name)]  — indirect dispatch edges
+        nodes: {node_key: {"status": str, "va": int, "file": str, "symbol": str}}
+        edges: [(caller_key, callee_key)]  — direct extern-call edges
+        dispatch_edges: [(dispatch_node_key, callee_key)]  — indirect dispatch edges
 
     """
     nodes: dict[str, NodeInfo] = {}
     edges: list[tuple[str, str]] = []
-    name_lookup: dict[str, str] = {}  # symbol -> display name
-    # Store (cfile, display_name, cached_text) for edge extraction
-    file_callers: list[tuple[Path, str, str]] = []
+    name_lookup: dict[str, str] = {}  # spelling -> node key
+    # Store (cfile, node_key, caller_label, block_text) for edge extraction
+    file_callers: list[tuple[Path, str, str, str]] = []
 
     # Single pass: collect all reversed functions and cache file text.
     # Uses parse_c_file_multi to capture every annotation in multi-function files.
@@ -184,41 +238,77 @@ def build_graph(
                 _file_text_cache[cfile] = cfile.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
+        text = _file_text_cache[cfile]
+        blocks = _split_entry_blocks(text)
         for entry in parse_c_file_multi(
             cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir if cfg else None
         ):
             if entry.marker_type in ("GLOBAL", "DATA"):
                 continue
 
-            # Use symbol without leading underscore as display name
-            display = entry.symbol.lstrip("_") if entry.symbol else cfile.stem
-            nodes[display] = {
+            key = _func_key(entry, cfile.stem)
+            label = _func_label(entry, cfile.stem)
+            nodes[key] = {
                 "status": entry.status,
                 "va": entry.va,
                 "size": entry.size,
                 "file": rel_name,
+                "symbol": label,
             }
-            # Map both the raw symbol and display name
-            if entry.symbol:
-                name_lookup[entry.symbol.lstrip("_")] = display
-                name_lookup[entry.symbol] = display
-            file_callers.append((cfile, display, _file_text_cache.get(cfile, "")))
+            # Every spelling of the symbol resolves to this node
+            name_lookup[label] = key
+            name_lookup[label.lstrip("_")] = key
+            if not label.startswith("_"):
+                name_lookup["_" + label] = key
+            # The entry's own annotation block carries its externs — a
+            # merged TU's union of externs no longer leaks across functions.
+            own_va = int(getattr(entry, "va", 0) or 0)
+            own = next((b for b in blocks if _block_va(b) == own_va), text)
+            file_callers.append((cfile, key, label, own))
+
+    # library_*.h entries (identify-library / crt-match --fix-source) are
+    # counted by the summary and now listed in the function table, so the graph
+    # must show them too.  The minimal marker format needs parse_library_header
+    # (parse_c_file_multi does not read it) and headers carry no bodies, so only
+    # nodes are added.
+    from rebrew.annotation import min_valid_va_for, parse_library_header
+    from rebrew.sources import iter_library_headers
+
+    for header in iter_library_headers(reversed_dir, cfg):
+        header_rel = rel_display_path(header, reversed_dir)
+        for entry in parse_library_header(header, target_name=target_marker(cfg)):
+            if entry.va < min_valid_va_for(cfg):
+                continue
+            key = _func_key(entry, header.stem)
+            label = _func_label(entry, header.stem)
+            nodes[key] = {
+                "status": entry.status,
+                "va": entry.va,
+                "size": entry.size,
+                "file": header_rel,
+                "symbol": label,
+            }
+            name_lookup[label] = key
+            name_lookup[label.lstrip("_")] = key
+            if not label.startswith("_"):
+                name_lookup["_" + label] = key
 
     # Extract extern callees and build edges (reuses cached file text)
-    for cfile, caller, cached_text in file_callers:
+    for cfile, caller_key, _caller_label, cached_text in file_callers:
         callees = _extract_callees(cfile, text=cached_text)
         for callee in callees:
-            callee_display = name_lookup.get(callee, callee)
+            callee_key = name_lookup.get(callee, callee)
             # Add unknown callee as an unreversed node
-            if callee_display not in nodes:
-                nodes[callee_display] = {
+            if callee_key not in nodes:
+                nodes[callee_key] = {
                     "status": "UNKNOWN",
                     "va": 0,
                     "size": 0,
                     "file": "",
+                    "symbol": callee,
                 }
-            if caller != callee_display:  # no self-edges
-                edges.append((caller, callee_display))
+            if caller_key != callee_key:  # no self-edges
+                edges.append((caller_key, callee_key))
 
     # Build VA -> display-name reverse lookup for dispatch resolution
     va_lookup: dict[int, str] = {info["va"]: name for name, info in nodes.items() if info["va"]}
@@ -233,16 +323,14 @@ def build_graph(
                 "va": tbl.va,
                 "size": 0,
                 "file": "",
+                "symbol": dispatch_node,
             }
             for entry in tbl.entries:
                 # Resolve target VA to a known function name if possible
                 target_name = va_lookup.get(entry.target_va)
                 if target_name is None:
                     # Fall back to entry's resolved name or a VA-based placeholder
-                    if entry.name:
-                        target_name = entry.name.lstrip("_")
-                    else:
-                        target_name = f"fn_0x{entry.target_va:08x}"
+                    target_name = entry.name or f"fn_0x{entry.target_va:08x}"
                 # Ensure target node exists
                 if target_name not in nodes:
                     nodes[target_name] = {
@@ -250,6 +338,7 @@ def build_graph(
                         "va": entry.target_va,
                         "size": 0,
                         "file": "",
+                        "symbol": target_name,
                     }
                 dispatch_edges.append((dispatch_node, target_name))
 
@@ -271,13 +360,14 @@ def _focus_graph(
     dispatch_edges = dispatch_edges or []
     all_edges = edges + dispatch_edges
 
-    # Find focus node: exact name, then (for hex-looking input) VA match,
-    # then partial name — a `fn_0x..._*` placeholder must not shadow the
-    # real function at the VA.
+    # Find focus node: exact name (key or symbol label), then (for
+    # hex-looking input) VA match, then partial name — a `fn_0x..._*`
+    # placeholder must not shadow the real function at the VA.
     focus_lower = focus.strip().lower()
     focus_name = None
-    for name in nodes:
-        if name.lower() == focus_lower:
+    for name, info in nodes.items():
+        candidates = {name.lower(), (info.get("symbol", "") or "").lower()}
+        if focus_lower in candidates:
             focus_name = name
             break
     va_int: int | None = None
@@ -294,8 +384,9 @@ def _focus_graph(
         # when the focus looks like a VA and no real node matched it, skip
         # `fn_0x..._*` placeholder names (their hex is a fragment, not the
         # function the user asked about).
-        for name in nodes:
-            if focus_lower in name.lower():
+        for name, info in nodes.items():
+            haystacks = (name.lower(), (info.get("symbol", "") or "").lower())
+            if any(focus_lower in h for h in haystacks):
                 if va_int is not None and re.match(r"fn_0x[0-9a-f]+_", name.lower()):
                     continue
                 focus_name = name
@@ -370,9 +461,9 @@ def render_mermaid(
     for name, info in sorted(nodes.items()):
         nid = _sanitize_id(name)
         status = info["status"]
-        label = name
+        label = info.get("symbol", "") or name
         if status not in ("UNKNOWN", ""):
-            label = f"{name} [{status}]"
+            label = f"{label} [{status}]"
         style = _status_style(status)
         lines.append(f'    {nid}["{label}"]:::{style}')
 
@@ -423,7 +514,8 @@ def render_dot(
         status = info["status"]
         color = color_map.get(status, "#95a5a6")
         font_color = "black" if status == "NEAR_MATCHING" else "white"
-        label = f"{name}\\n[{status}]" if status not in ("UNKNOWN", "DISPATCH") else name
+        shown = info.get("symbol", "") or name
+        label = f"{shown}\\n[{status}]" if status not in ("UNKNOWN", "DISPATCH") else shown
         lines.append(f'    {nid} [label="{label}", fillcolor="{color}", fontcolor="{font_color}"];')
 
     lines.append("")
@@ -693,6 +785,7 @@ def main(
                         "status": info["status"],
                         "va": f"0x{info['va']:08x}" if info["va"] else "0x0",
                         "file": info["file"],
+                        "symbol": info.get("symbol", "") or name,
                     }
                     for name, info in sorted(nodes.items())
                 },

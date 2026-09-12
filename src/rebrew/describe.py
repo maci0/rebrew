@@ -157,9 +157,16 @@ def _containing_name(va: int, names: dict[int, str], ranges: list[tuple[int, int
     name = names.get(va)
     if name:
         return name
+    # The SMALLEST containing range: a stale/oversized annotation SIZE can
+    # overlap the next function, and returning the first (earliest-starting)
+    # hit attributed the call site to the outer range instead of the function
+    # that actually encloses it.
+    best: tuple[int, int, str] | None = None
     for start, end, candidate in ranges:
-        if start <= va < end:
-            return candidate
+        if start <= va < end and (best is None or end - start < best[1] - best[0]):
+            best = (start, end, candidate)
+    if best is not None:
+        return best[2]
     return f"fcn_{va:08x}"
 
 

@@ -461,6 +461,15 @@ class TestDetectFormatAndArch:
         assert fmt == "pe"
         assert arch == "x86_64"
 
+    def test_plain_mz_defaults_x86_16(self, tmp_path: Path) -> None:
+        """A plain DOS MZ (no NE/PE signature) detects as mz/x86_16, not the
+        pe/x86_32 default that would mis-disassemble it."""
+        f = tmp_path / "game.exe"
+        f.write_bytes(b"MZ" + b"\x00" * 200)
+        fmt, arch = _detect_format_and_arch(f)
+        assert fmt == "mz"
+        assert arch == "x86_16"
+
 
 # ---------------------------------------------------------------------------
 # CLI-level tests (end-to-end via CliRunner)
@@ -1006,14 +1015,19 @@ class TestCLIAddTargetMissingBinary:
 
 class TestCLISetCompiler:
     def test_set_compiler_msvc6(self, tmp_path: Path, monkeypatch) -> None:
-        """set-compiler writes command/includes/libs for known profile."""
+        """set-compiler writes profile + includes/libs for known profile.
+
+        msvc6 is image-backed, so the legacy host wine command/runner are
+        blanked docker-native (like init writes fresh projects).
+        """
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "msvc6"])
         assert result.exit_code == 0
         doc, _ = load_toml(tmp_path)
         compiler_tbl = doc["targets"]["server.dll"]["compiler"]
-        assert "CL.EXE" in compiler_tbl["command"]
+        assert compiler_tbl["command"] == ""
+        assert compiler_tbl["runner"] == ""
         assert "Include" in compiler_tbl["includes"] or "include" in compiler_tbl["includes"]
         # profile is the routing key every tool reads — must be written too
         # (config-review F1: the old code wrote only command/includes/libs,
@@ -1066,8 +1080,19 @@ class TestCLISetCompiler:
         runner.invoke(cfg_app, ["set-compiler", "server.dll", "gcc"])
         result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "msvc6"])
         assert result.exit_code == 0
-        doc, _ = load_toml(tmp_path)
-        assert "CL.EXE" in doc["targets"]["server.dll"]["compiler"]["command"]
+        compiler_tbl = load_toml(tmp_path)[0]["targets"]["server.dll"]["compiler"]
+        assert compiler_tbl["profile"] == "msvc6"
+        assert compiler_tbl["command"] == ""  # image-backed: docker-native blank
+
+    def test_set_compiler_native_keeps_command(self, tmp_path: Path, monkeypatch) -> None:
+        """set-compiler on a native (imageless) profile keeps its host command."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "gcc-pe"])
+        assert result.exit_code == 0
+        compiler_tbl = load_toml(tmp_path)[0]["targets"]["server.dll"]["compiler"]
+        assert compiler_tbl["profile"] == "gcc-pe"
+        assert compiler_tbl["command"] == "i686-w64-mingw32-gcc"
 
 
 class TestResolveDottedKeyEdges:
@@ -1231,3 +1256,17 @@ class TestCLISetCflagsDryRun:
         # the global GAME preset already exists in the fixture).
         tgt = doc["targets"]["server.dll"]
         assert "compiler" not in tgt or "cflags_presets" not in tgt["compiler"]
+
+
+class TestSetBinsyncStateDir:
+    def test_bare_key_routes_to_default_target(self, tmp_path: Path, monkeypatch) -> None:
+        """`binsync_state_dir` lives under [targets.<name>]; the routing set
+        omitted it, so `cfg set binsync_state_dir <dir>` wrote an ignored
+        top-level key (later reported as an unrecognized top-level key)."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set", "binsync_state_dir", "/tmp/state"])
+        assert result.exit_code == 0, result.output
+        doc, _ = load_toml(tmp_path)
+        assert doc["targets"]["server.dll"]["binsync_state_dir"] == "/tmp/state"
+        assert "binsync_state_dir" not in doc

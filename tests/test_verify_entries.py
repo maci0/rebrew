@@ -48,7 +48,7 @@ class TestPrepareEntries:
                 _ann(0x4000, filepath="lib.h"),
             ],
         )
-        entries, passed, failed, fail_details, results, cached, size_div, _miss = (
+        entries, passed, failed, fail_details, results, cached, size_div, _miss, _dup = (
             verify_mod.prepare_entries(cfg, full=True, json_output=False)
         )
         vas = [e.va for e in entries]
@@ -60,6 +60,28 @@ class TestPrepareEntries:
         _patch(monkeypatch, [])
         with pytest.raises(typer.Exit):
             verify_mod.prepare_entries(_cfg(tmp_path), full=True, json_output=False)
+
+    def test_duplicate_va_warns_and_names_files(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
+        """A duplicate VA keeps the first source and warns loudly naming the
+        dropped file — on stderr and in the returned duplicate rows."""
+        cfg = _cfg(tmp_path)
+        cfg.src_dir = cfg.reversed_dir
+        (tmp_path / "x.dll").write_bytes(b"MZ")
+        _patch(
+            monkeypatch,
+            [
+                _ann(0x1000, filepath="kept.c"),
+                _ann(0x1000, filepath="dropped.c"),
+            ],
+        )
+        entries, *_rest, duplicates = verify_mod.prepare_entries(cfg, full=True, json_output=False)
+        assert [e.va for e in entries] == [0x1000]
+        assert duplicates == [{"va": "0x00001000", "kept": "kept.c", "dropped": "dropped.c"}]
+        err = capsys.readouterr().err
+        assert "duplicate VA 0x00001000" in err
+        assert "dropped.c" in err
 
 
 def cfg_reversed_dir() -> Path:
@@ -158,7 +180,7 @@ class TestPrepareEntriesCache:
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        entries, passed, failed, fail_details, results, cached, size_div, _miss = (
+        entries, passed, failed, fail_details, results, cached, size_div, _miss, _dup = (
             verify_mod.prepare_entries(cfg, full=False, json_output=False)
         )
         assert cached == 1
@@ -188,7 +210,9 @@ class TestPrepareEntriesCache:
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
+            cfg, full=False, json_output=False
+        )
         assert cached == 0
 
     def test_cached_proven_invalidated(
@@ -216,7 +240,9 @@ class TestPrepareEntriesCache:
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
+            cfg, full=False, json_output=False
+        )
         assert cached == 0
 
     def test_cached_entry_invalidated_by_cflags_change(
@@ -237,7 +263,9 @@ class TestPrepareEntriesCache:
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
+            cfg, full=False, json_output=False
+        )
         assert cached == 0
 
     def test_config_cflags_change_invalidates_cache(
@@ -264,12 +292,16 @@ class TestPrepareEntriesCache:
             ),
         )
         # First pass: cache hit (resolved flags match the cached entry).
-        _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
+            cfg, full=False, json_output=False
+        )
         assert cached == 1
         # Config-level cflags change: the same source now compiles differently
         # → the cached result is stale and must be re-verified.
         cfg.cflags = "/O1"
-        _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
+            cfg, full=False, json_output=False
+        )
         assert cached == 0
         entry = _ann(0x1000)
         cfg = self._setup(tmp_path, monkeypatch, entry)
@@ -285,7 +317,7 @@ class TestPrepareEntriesCache:
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        entries, passed, failed, fail_details, results, cached, size_div, _miss = (
+        entries, passed, failed, fail_details, results, cached, size_div, _miss, _dup = (
             verify_mod.prepare_entries(cfg, full=False, json_output=False)
         )
         assert cached == 1
@@ -315,7 +347,9 @@ class TestPrepareEntriesCache:
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
+            cfg, full=False, json_output=False
+        )
         assert cached == 0
 
     def test_cached_toolchain_match_served(
@@ -332,7 +366,9 @@ class TestPrepareEntriesCache:
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
+            cfg, full=False, json_output=False
+        )
         assert cached == 1
 
     def test_cflags_order_only_change_keeps_cache(
@@ -358,7 +394,9 @@ class TestPrepareEntriesCache:
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
+            cfg, full=False, json_output=False
+        )
         assert cached == 1
 
     def test_defines_change_invalidates_cache(
@@ -382,7 +420,9 @@ class TestPrepareEntriesCache:
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
+            cfg, full=False, json_output=False
+        )
         assert cached == 0
 
     def test_defines_match_served(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -402,7 +442,9 @@ class TestPrepareEntriesCache:
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _, _, _, _, _, cached, _, _ = verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
+            cfg, full=False, json_output=False
+        )
         assert cached == 1
 
     def test_cached_filepath_mismatch_skipped(
@@ -418,7 +460,7 @@ class TestPrepareEntriesCache:
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _entries, passed, _failed, _fd, results, cached, size_div, _miss = (
+        _entries, passed, _failed, _fd, results, cached, size_div, _miss, _dup = (
             verify_mod.prepare_entries(cfg, full=False, json_output=False)
         )
         assert cached == 0
@@ -443,7 +485,7 @@ class TestPrepareEntriesCache:
                 version=1, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _entries, passed, _failed, _fd, results, cached, size_div, _miss = (
+        _entries, passed, _failed, _fd, results, cached, size_div, _miss, _dup = (
             verify_mod.prepare_entries(cfg, full=False, json_output=False)
         )
         assert cached == 0
@@ -461,7 +503,7 @@ class TestPrepareEntriesCache:
             "build_function_registry",
             lambda *a, **k: {0x1000: {"canonical_size": 80, "size_reason": "list"}},
         )
-        _e, _p, _f, _fd, _r, _c, size_div, _miss = verify_mod.prepare_entries(
+        _e, _p, _f, _fd, _r, _c, size_div, _miss, _dup = verify_mod.prepare_entries(
             cfg, full=True, json_output=False
         )
         assert len(size_div) == 1
@@ -483,7 +525,7 @@ class TestPrepareEntriesCache:
             "build_function_registry",
             lambda *a, **k: {0x1000: {"canonical_size": 80, "size_reason": "list"}},
         )
-        _e, _p, _f, _fd, _r, _c, size_div, _miss = verify_mod.prepare_entries(
+        _e, _p, _f, _fd, _r, _c, size_div, _miss, _dup = verify_mod.prepare_entries(
             cfg, full=True, json_output=False
         )
         assert size_div == []
@@ -516,7 +558,7 @@ class TestPrepareEntriesCache:
             "build_function_registry",
             lambda *a, **k: {0x1000: {"canonical_size": 64, "size_reason": "list"}},
         )
-        _e, _p, _f, _fd, _r, _c, size_div, _miss = verify_mod.prepare_entries(
+        _e, _p, _f, _fd, _r, _c, size_div, _miss, _dup = verify_mod.prepare_entries(
             cfg, full=True, json_output=False
         )
         assert size_div == []
@@ -539,7 +581,7 @@ class TestPrepareEntriesCache:
             "build_function_registry",
             lambda *a, **k: {0x1000: {"canonical_size": 235, "size_reason": "list"}},
         )
-        _e, _p, _f, _fd, _r, _c, size_div, missing = verify_mod.prepare_entries(
+        _e, _p, _f, _fd, _r, _c, size_div, missing, _dup = verify_mod.prepare_entries(
             cfg, full=True, json_output=False
         )
         assert size_div == []  # not a divergence — it's absent, not stale

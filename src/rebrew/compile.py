@@ -48,8 +48,10 @@ All functions read from ``cfg`` (a ``ProjectConfig`` instance):
 """
 
 import contextlib
+import hashlib
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import uuid
@@ -528,7 +530,10 @@ def resolve_compiler_env(
         may be None if the cache database cannot be opened.
 
     """
-    cl_cmd = " ".join(resolve_cl_command(cfg))
+    # shlex.join, not " ".join: consumers re-split with shlex, and a compiler
+    # path containing a space was split into two argv elements ("Compiler not
+    # found").  shlex.join round-trips through shlex.split exactly.
+    cl_cmd = shlex.join(resolve_cl_command(cfg))
 
     inc_dir = str(cfg.compiler_includes)
     inc_path = cfg.root / inc_dir
@@ -569,9 +574,11 @@ def _merged_include_tokens(flags: list[str]) -> Iterator[str]:
     """Yield *flags* with the two-token include form merged.
 
     ``("/I", "../Units")`` becomes ``"/I../Units"``; every other flag passes
-    through unchanged.  A lone trailing ``/I`` (or one followed by another
-    flag) stays a separate token — but an orphan ``/I`` followed by a path-like
-    absolute (``/usr/include``) IS merged so stray includes are not dropped.
+    through unchanged.  A lone trailing ``/I`` stays a separate token.  A bare
+    ``/I`` always consumes the following token: the old ``len(nxt) <= 4``
+    heuristic read ``/opt``, ``/usr``, ``/tmp`` as flags, so a header reached
+    only through ``/I /opt`` was never fingerprinted (a stale cache hit after
+    editing it).
     """
     i = 0
     while i < len(flags):
@@ -579,25 +586,14 @@ def _merged_include_tokens(flags: list[str]) -> Iterator[str]:
         if flag in ("/I", "-I"):
             nxt = flags[i + 1] if i + 1 < len(flags) else None
             if nxt is not None and nxt not in ("/I", "-I"):
-                # Two-token form: "/I path" — path may be absolute or relative.
-                # Flags starting with "-" (e.g. "-Ifoo") are not paths.
-                # For "/"-prefixed tokens, short "/O2"/"/Fo" patterns are flags,
-                # longer absolute paths with additional "/" segments are dirs.
-                if nxt.startswith("-"):
-                    yield flag
-                    i += 1
+                # Two-token form: "/I path" — the path may be absolute, and a
+                # "-"-prefixed token is another flag rather than a path.
+                if not nxt.startswith("-"):
+                    yield flag + nxt
+                    i += 2
                     continue
-                if nxt.startswith("/"):
-                    # Heuristic: "/O2", "/Ox", "/Fo" are flags; "/usr/include" is a path.
-                    is_short_flag = (
-                        len(nxt) <= 4 and len(nxt) >= 2 and nxt[1].isalpha() and "/" not in nxt[1:]
-                    )
-                    if is_short_flag:
-                        yield flag
-                        i += 1
-                        continue
-                yield flag + nxt
-                i += 2
+                yield flag
+                i += 1
                 continue
         yield flag
         i += 1
@@ -708,9 +704,9 @@ def _native_toolchain_id(spec: "ToolchainSpec") -> str:
     """The compile-cache toolchain id for a host-only (native) compiler.
 
     Image-backed specs key on the docker content id (:func:`_toolchain_cache_id`);
-    a native binary has no image, so the resolved executable's (mtime, size)
+    a native binary has no image, so the resolved executable's content hash
     stands in for identity — upgrading or replacing the compiler on PATH
-    changes the stat, and objects cached from the OLD binary are never
+    changes the bytes, and objects cached from the OLD binary are never
     served under the new one.  Falls back to the bare ``native:<name>`` when
     the binary is missing or unresolvable (the compile itself fails with a
     clear error).  Cached per process, mirroring ``_toolchain_digest_cache``.
@@ -719,16 +715,35 @@ def _native_toolchain_id(spec: "ToolchainSpec") -> str:
     cached = _native_binary_cache.get(name)
     if cached is None:
         cached = f"native:{name}"
-        resolved = shutil.which(name)
-        if resolved:
-            try:
-                st = Path(resolved).resolve().stat()
-            except OSError:
-                st = None
-            if st is not None:
-                cached = f"native:{name}@{st.st_mtime_ns:x}.{st.st_size:x}"
+        # Resolve the binary the runner will actually execute, in the same
+        # order as toolchain._resolve_binary: the VENDORED tree first, then
+        # PATH.  Hashing only `shutil.which` gave `native:wcc` (no digest) for
+        # watcom16, whose `wcc` resolves from the vendored tree — so replacing
+        # that tree kept serving objects built by the old compiler.
+        from rebrew.toolchain import vendored_binary
+
+        resolved = vendored_binary(spec)
+        if resolved is None:
+            found = shutil.which(name)
+            resolved = Path(found) if found else None
+        if resolved is not None:
+            digest = _native_binary_digest(Path(resolved).resolve())
+            if digest is not None:
+                cached = f"native:{name}@{digest}"
         _native_binary_cache[name] = cached
     return cached
+
+
+def _native_binary_digest(path: Path) -> str | None:
+    """Short SHA-256 of a native compiler binary, or None when unreadable."""
+    try:
+        h = hashlib.sha256()
+        with path.open("rb") as fh:
+            for chunk in iter(lambda: fh.read(1 << 20), b""):
+                h.update(chunk)
+    except OSError:
+        return None
+    return h.hexdigest()[:16]
 
 
 def _toolchain_cache_id(spec: "ToolchainSpec") -> str:
@@ -1073,7 +1088,7 @@ def _extract_and_compare(
         # Length differs even if the common prefix matches - never EXACT/RELOC.
         # The hint uses the VA when known (rebrew diff resolves VAs);
         # otherwise the generic source placeholder.
-        va_hint = f"0x{section_va:08x}" if section_va else "<source>"
+        va_hint = f"0x{section_va:08x}" if section_va is not None else "<source>"
         return classify_compare_result(
             False,
             (
@@ -1280,15 +1295,12 @@ def build_linked_link_cmd(
             f"{spec.name!r} has image={spec.image!r}, tool_root={spec.tool_root!r})"
         )
     win_root = str(Path(spec.tool_root).parent).replace("/", "\\")
-    # Double the backslashes so the shell's double-quoted string yields the
-    # Windows path (wine's Z: drive = the container root).
-    esc = win_root.replace("\\", "\\\\")
-    script = (
-        ". /usr/local/lib/rebrew/wrapper-common.sh && "
-        f'export INCLUDE="Z:{esc}\\Include" && '
-        f'export LIB="Z:{esc}\\Lib" && '
-        f'rebrew_run {spec.tool_root}/LINK.EXE "$@"'
-    )
+    # Every value travels as a docker `-e` variable, never spliced into the
+    # script body: `tool_root` comes from a toolchain spec (a project-local
+    # overlay can define it), so a path with a space broke the link and a
+    # `$(...)`/`;`/`"` injected commands into a container that sees the project
+    # root mounted read-write.
+    script = '. /usr/local/lib/rebrew/wrapper-common.sh && rebrew_run "$REBREW_LINK_EXE" "$@"'
     link_args = [
         "/nologo",
         "/DLL",
@@ -1313,6 +1325,14 @@ def build_linked_link_cmd(
         # the container under dockerd - same discipline as run_toolchain).
         "--name",
         f"rebrew-link-{uuid.uuid4().hex[:12]}",
+        # Wine needs the MSVC include/lib trees; the shell inherits these from
+        # its environment, so no `export` is needed.
+        "--env",
+        f"INCLUDE=Z:{win_root}\\Include",
+        "--env",
+        f"LIB=Z:{win_root}\\Lib",
+        "--env",
+        f"REBREW_LINK_EXE={spec.tool_root}/LINK.EXE",
         "-v",
         f"{Path(workdir).resolve()}:/work",
         "-w",

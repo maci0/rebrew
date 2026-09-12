@@ -199,6 +199,10 @@ def parse_pe(
     heap_reserve = struct.unpack_from("<I", data, opt + 80)[0]
     heap_commit = struct.unpack_from("<I", data, opt + 84)[0]
     sh = opt + optsz
+    # Same guard as layout_meta.parse_pe: an unhandled struct.error here would
+    # escape main's ``except ValueError`` as a raw traceback.
+    if sh + 40 * nsec > len(data):
+        raise ValueError("truncated section table")
 
     def rva_to_off(rva: int) -> int | None:
         for s in sections:
@@ -242,7 +246,10 @@ def parse_pe(
         for i in range(nfuncs):
             addr = struct.unpack_from("<I", data, funcs_off + 4 * i)[0] if funcs_off else 0
             if addr == 0:
-                continue  # forwarder
+                continue  # true null entry: no function at this ordinal
+            if exp_rva <= addr < exp_rva + exp_sz:
+                continue  # forwarder: the RVA points at a forwarder string
+                # inside the export directory, not at code
             ordinal = ordinal_base + i
             exports.append(
                 {
@@ -262,11 +269,17 @@ def parse_pe(
             ent = io + i * 20
             if ent + 20 > len(data):
                 break
-            oft_rva, _ts, _fwd, name_rva, _iat = struct.unpack_from("<IIIII", data, ent)
+            oft_rva, _ts, _fwd, name_rva, iat_rva = struct.unpack_from("<IIIII", data, ent)
             if oft_rva == 0 and name_rva == 0:
                 break
             dll = cstr(rva_to_off(name_rva)) or "?"
-            oo = rva_to_off(oft_rva)
+            # An unbound descriptor (OFT == 0) carries its names in the IAT
+            # itself, so the IAT array is the lookup table (the same fallback
+            # layout_meta.extract_layout uses).  Reading only the OFT left such
+            # a DLL's imports empty: no /include pragmas in the emitted
+            # crt_imports.c and an empty `imports` list in layout_config_dict.
+            lookup_rva = oft_rva or iat_rva
+            oo = rva_to_off(lookup_rva)
             j = 0
             while oo is not None:
                 nm = struct.unpack_from("<I", data, oo + 4 * j)[0]
@@ -397,7 +410,15 @@ def _resolve_imports(imports: list[_Import], lib_symbols: set[str]) -> list[dict
         name = imp.name
         if name is None and imp.ordinal is not None and imp.dll.upper() == "WS2_32.DLL":
             name = _WS2_32_ORDINALS.get(imp.ordinal)
-        entry = {"dll": imp.dll, "name": name, "ordinal": imp.ordinal}
+        entry: dict[str, Any] = {
+            "dll": imp.dll,
+            "name": name,
+            "ordinal": imp.ordinal,
+            # Always present: gen_crt_imports indexes it unconditionally, and an
+            # ordinal-only import (name None) from any DLL other than WS2_32
+            # previously left the key out and raised KeyError there.
+            "include": None,
+        }
         if name:
             suffix = _imp_suffix(name, lib_symbols, _WS2_32_ARGS)
             entry["include"] = f"__imp__{suffix}" if suffix else None
@@ -478,20 +499,25 @@ def derive_link_options(pe: dict[str, Any]) -> tuple[list[str], str]:
     if sub != DEF_SUBSYSTEM:
         subsys = {1: "NATIVE", 2: "WINDOWS", 3: "CONSOLE", 9: "WINDOWSCE"}.get(sub, f"{sub}")
         opts.append(f"/SUBSYSTEM:{subsys}")
-    if (pe.get("stack_reserve") or DEF_STACK_RESERVE) != DEF_STACK_RESERVE or (
-        pe.get("stack_commit") or DEF_STACK_COMMIT
-    ) != DEF_STACK_COMMIT:
-        opts.append(
-            f"/STACK:0x{pe.get('stack_reserve') or DEF_STACK_RESERVE:x},"
-            f"0x{pe.get('stack_commit') or DEF_STACK_COMMIT:x}"
-        )
-    if (pe.get("heap_reserve") or DEF_HEAP_RESERVE) != DEF_HEAP_RESERVE or (
-        pe.get("heap_commit") or DEF_HEAP_COMMIT
-    ) != DEF_HEAP_COMMIT:
-        opts.append(
-            f"/HEAP:0x{pe.get('heap_reserve') or DEF_HEAP_RESERVE:x},"
-            f"0x{pe.get('heap_commit') or DEF_HEAP_COMMIT:x}"
-        )
+
+    # ``.get(key) or DEF`` treated a legitimate 0 as "absent" and dropped the
+    # option, so the built binary never matched a reference whose field is 0.
+    def _size(key: str, default: int) -> int:
+        value = pe.get(key)
+        return default if value is None else int(value)
+
+    stack_reserve, stack_commit = (
+        _size("stack_reserve", DEF_STACK_RESERVE),
+        _size("stack_commit", DEF_STACK_COMMIT),
+    )
+    if (stack_reserve, stack_commit) != (DEF_STACK_RESERVE, DEF_STACK_COMMIT):
+        opts.append(f"/STACK:0x{stack_reserve:x},0x{stack_commit:x}")
+    heap_reserve, heap_commit = (
+        _size("heap_reserve", DEF_HEAP_RESERVE),
+        _size("heap_commit", DEF_HEAP_COMMIT),
+    )
+    if (heap_reserve, heap_commit) != (DEF_HEAP_RESERVE, DEF_HEAP_COMMIT):
+        opts.append(f"/HEAP:0x{heap_reserve:x},0x{heap_commit:x}")
     if pe.get("characteristics", 0) & 0x20:
         opts.append("/LARGEADDRESSAWARE")
     if (pe.get("machine") or DEF_MACHINE) != DEF_MACHINE:
@@ -505,10 +531,10 @@ def derive_link_options(pe: dict[str, Any]) -> tuple[list[str], str]:
     link.append("# Derived by 'rebrew gen-layout' from the original binary.")
     if pe.get("file_alignment"):
         link.append(f'file_align = "0x{pe["file_alignment"]:x}"')
-    if pe.get("stack_reserve"):
-        link.append(f'stack_reserve = "0x{pe["stack_reserve"]:x}"')
-    if pe.get("stack_commit"):
-        link.append(f'stack_commit = "0x{pe["stack_commit"]:x}"')
+    if stack_reserve != DEF_STACK_RESERVE:
+        link.append(f'stack_reserve = "0x{stack_reserve:x}"')
+    if stack_commit != DEF_STACK_COMMIT:
+        link.append(f'stack_commit = "0x{stack_commit:x}"')
     if pe.get("dll_characteristics", 0) & 0x8000:
         link.append("tsaware = true")
     link.append(f'timestamp = "0x{pe["time_date_stamp"]:x}"')

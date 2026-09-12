@@ -261,6 +261,20 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
     )
 
 
+#: Mach-O section types that occupy no file bytes (`__DATA.__bss` and friends):
+#: their ``offset`` points at unrelated file data, so they must report
+#: ``raw_size == 0`` like ELF NOBITS and PE sections with no raw data.
+_MACHO_ZEROFILL_TYPES: frozenset[Any] = frozenset(
+    t
+    for t in (
+        getattr(lief.MachO.Section.TYPE, "ZEROFILL", None),
+        getattr(lief.MachO.Section.TYPE, "GB_ZEROFILL", None),
+        getattr(lief.MachO.Section.TYPE, "THREAD_LOCAL_ZEROFILL", None),
+    )
+    if t is not None
+)
+
+
 def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: Path) -> BinaryInfo:
     """Extract layout information from a Mach-O binary.
 
@@ -298,7 +312,7 @@ def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: P
         va = section.virtual_address
         vsize = section.size
         raw_offset = section.offset
-        raw_size = vsize  # Mach-O section size == file size for non-zerofill
+        raw_size = 0 if getattr(section, "type", None) in _MACHO_ZEROFILL_TYPES else vsize
 
         sections[name] = SectionInfo(
             name=name,
@@ -535,6 +549,11 @@ def section_dict(info: BinaryInfo) -> dict[str, dict[str, int]]:
     }
 
 
+def _section_extent(section: SectionInfo) -> int:
+    """Mapped extent of *section* (virtual size; raw size when virtual is 0)."""
+    return section.size or section.raw_size
+
+
 def extract_bytes_at_va(
     info: BinaryInfo,
     va: int,
@@ -571,7 +590,7 @@ def extract_bytes_at_va(
     if size > _MAX_BINARY_SIZE:
         raise ValueError(f"Requested size too large: {size}")
     for section in info.sections.values():
-        if section.va <= va < section.va + section.size:
+        if section.va <= va < section.va + _section_extent(section):
             offset = va - section.va
             file_pos = section.file_offset + offset
             # Clamp to raw_size for file-backed bytes (BSS tail has no bytes)
@@ -582,6 +601,9 @@ def extract_bytes_at_va(
             if file_pos < 0 or file_pos + max_read > len(info.data):
                 return None
             data = info.data[file_pos : file_pos + max_read]
+            # A request that runs past the raw bytes but inside the mapped
+            # extent (BSS tail) returns what is on disk — same rule as
+            # va_to_file_offset's containment.
             if trim_padding:
                 # Trim trailing linker padding (single slice instead of per-byte)
                 end = len(data)
@@ -595,10 +617,12 @@ def extract_bytes_at_va(
 def va_to_file_offset(info: BinaryInfo, va: int) -> int:
     """Convert a virtual address to a raw file offset.
 
-    Falls back to the .text section shortcut if no section contains the VA.
+    Containment uses the mapped extent (virtual size, raw as fallback) —
+    the same rule as :func:`extract_bytes_at_va`.  Falls back to the .text
+    section shortcut if no section contains the VA.
     """
     for section in info.sections.values():
-        if section.va <= va < section.va + section.raw_size:
+        if section.va <= va < section.va + _section_extent(section):
             return section.file_offset + (va - section.va)
     # Fallback: use .text section constants
     return va - info.text_va + info.text_raw_offset

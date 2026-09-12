@@ -43,20 +43,39 @@ console = Console(stderr=True)
 
 app = typer.Typer(help="One-shot binary onboarding: init + detect + functions + document.")
 
-#: profile -> (project tools/ link name, vendored toolchain dir in the repo)
-_TOOLCHAIN_LINKS: dict[str, tuple[str, str]] = {
-    "msvc6": ("msvc/6.0-win32", "msvc/6.0-win32"),
-    "msvc600sp3": ("msvc/6.0-sp3-win32", "msvc/6.0-sp3-win32"),
-    "msvc600sp6": ("msvc/6.0-sp6-win32", "msvc/6.0-sp6-win32"),
-    "msvc7": ("msvc/7.0-win32", "msvc/7.0-win32"),
-    "msvc5": ("msvc/5.0-win32", "msvc/5.0-win32"),
-    "msvc420": ("msvc/4.2-win32", "msvc/4.2-win32"),
-    "msvc1.52": ("msvc/1.52-win16", "msvc/1.52-win16"),
-    "watcom": ("watcom/2.0-win32", "watcom/2.0-win32"),
-    "watcom16": ("watcom/2.0-win32", "watcom/2.0-win32"),
-    "tc16": ("borland/3.1-win16", "borland/3.1-win16"),
-    "tc20": ("borland/2.0-win16", "borland/2.0-win16"),
-}
+#: Vendored-toolchain link overrides: profile -> (project tools/ link name,
+#: vendored toolchain dir in the repo).  Empty by default — link names
+#: derive from the toolchain registry (:func:`_link_names_for`), so every
+#: profile works without a hand-maintained list.
+_TOOLCHAIN_LINK_OVERRIDES: dict[str, tuple[str, str]] = {}
+
+#: Back-compat alias for the old hand-maintained map (kept as the override
+#: table; empty — derivation from the registry covers every profile).
+_TOOLCHAIN_LINKS: dict[str, tuple[str, str]] = _TOOLCHAIN_LINK_OVERRIDES
+
+
+def _link_names_for(profile: str) -> tuple[str, str] | None:
+    """Derive the ``(link_name, src_name)`` toolchain symlink for *profile*.
+
+    Image ``rebrew/<family>:<tag>`` maps to ``<family>/<tag>`` (the
+    vendored toolchain layout, e.g. msvc6 → ``msvc/6.0-win32``); explicit
+    overrides in :data:`_TOOLCHAIN_LINK_OVERRIDES` win.  ``None`` for
+    imageless native profiles (gcc-pe — PATH binary, nothing to link) and
+    unknown profiles.
+    """
+    if profile in _TOOLCHAIN_LINK_OVERRIDES:
+        return _TOOLCHAIN_LINK_OVERRIDES[profile]
+    from rebrew.toolchain import TOOLCHAINS
+
+    spec = TOOLCHAINS.get(profile)
+    if spec is None or spec.image is None:
+        return None
+    _repo, _, tag = spec.image.partition(":")
+    if not tag:
+        return None
+    name = f"{spec.family}/{tag}"
+    return name, name
+
 
 REPO_TOOLS = Path(__file__).resolve().parents[2] / "tools"
 
@@ -323,7 +342,7 @@ def _link_toolchain(project: Path, profile: str) -> str | None:
     """Symlink the vendored toolchain into project/tools; None when not needed/available."""
     if profile == "gcc-pe":
         return None
-    entry = _TOOLCHAIN_LINKS.get(profile)
+    entry = _link_names_for(profile)
     if entry is None:
         return None
     link_name, src_name = entry
@@ -340,6 +359,40 @@ def _link_toolchain(project: Path, profile: str) -> str | None:
         return str(link)
     except OSError:
         return None
+
+
+def _warn_explicit_toolchain(binary: Path, profile: str, notes: list[str]) -> None:
+    """Warn when an explicit ``--toolchain`` contradicts the detected binary.
+
+    Same alignment checks ``init`` applies to its profile choice (compiler
+    family + 16/32-bit arch); warnings only — the explicit profile still
+    wins.  Detection failure is silent (best-effort, like init).
+    """
+    import logging
+
+    from rebrew.binary_loader import is_mz, is_ne
+
+    log = logging.getLogger(__name__)
+    try:
+        from rebrew.toolchain_detect import detect_toolchain
+
+        tc = detect_toolchain(binary)
+    except Exception:
+        log.debug("toolchain detection failed for %s", binary, exc_info=True)
+        return
+    from rebrew.init import _warn_profile_family_mismatch, _warn_profile_mismatch
+
+    if is_ne(binary):
+        _warn_profile_mismatch(profile, "ne", "x86_16")
+    elif is_mz(binary):
+        _warn_profile_mismatch(profile, "mz", "x86_16")
+    elif tc.arch:
+        _warn_profile_mismatch(profile, "pe", tc.arch)
+    _warn_profile_family_mismatch(profile, tc)
+    notes.append(
+        f"explicit --toolchain {profile} — alignment with the detected "
+        f"{tc.family or 'unknown'} toolchain checked (see warnings above)"
+    )
 
 
 @app.callback(invoke_without_command=True)
@@ -367,8 +420,13 @@ def main(
         profile, family, hint, notes = _suggest_profile(bin_path)
         toolchain = profile
     else:
+        profile = toolchain
         family, hint = "unknown", ""
         notes = []
+        # An explicit --toolchain must face the same alignment checks as
+        # init's profile choice: warn (don't silently onboard) when the
+        # binary's family/arch contradicts the requested profile.
+        _warn_explicit_toolchain(bin_path, profile, notes)
 
     if dry_run:
         # Preview mode: enumerate functions too (rizin is a read-only

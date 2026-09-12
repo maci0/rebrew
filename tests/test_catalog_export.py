@@ -125,7 +125,15 @@ class TestGenerateReccmpCsv:
     def test_unmatched_no_name(self) -> None:
         registry = {0x1000: {"canonical_size": 0, "is_thunk": False}}
         out = generate_reccmp_csv([], [], registry=registry)
-        assert "0x00001000|||function|" in out
+        assert "0x00001000|||function|0" in out
+
+    def test_size_zero_emits_zero_not_empty(self) -> None:
+        """A size-0 row must emit `0`: an empty size field violates the
+        reccmp contract (address|name|symbol|type|size)."""
+        registry = {0x1000: {"canonical_size": 0, "is_thunk": False}}
+        out = generate_reccmp_csv([], [], registry=registry)
+        row = next(line for line in out.splitlines() if line.startswith("0x00001000"))
+        assert row == "0x00001000|||function|0"
 
     def test_thunk_type(self) -> None:
         registry = {0x1000: {"canonical_size": 5, "is_thunk": True}}

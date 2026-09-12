@@ -68,26 +68,75 @@ class TestBuildGraph:
         lines.append(f"int __cdecl {name}(void) {{ return 0; }}")
         (d / f"{name}.c").write_text("\n".join(lines), encoding="utf-8")
 
+    def _va_key(self, va: int) -> str:
+        return f"va:0x{va:08x}"
+
     def test_basic_graph(self, tmp_path) -> None:
         self._make_c_file(tmp_path, "FuncA", 0x10001000, "RELOC", "GAME", ["FuncB"])
         self._make_c_file(tmp_path, "FuncB", 0x10002000, "STUB", "GAME")
         nodes, edges, dispatch_edges = build_graph(tmp_path)
-        assert "FuncA" in nodes
-        assert "FuncB" in nodes
-        assert ("FuncA", "FuncB") in edges
+        assert self._va_key(0x10001000) in nodes
+        assert self._va_key(0x10002000) in nodes
+        assert nodes[self._va_key(0x10001000)]["symbol"] == "_FuncA"
+        assert (self._va_key(0x10001000), self._va_key(0x10002000)) in edges
         assert dispatch_edges == []
+
+    def test_symbol_spellings_share_one_node(self, tmp_path) -> None:
+        """``_foo`` and ``foo`` spellings key one VA node, not two."""
+        self._make_c_file(tmp_path, "foo", 0x10001000, "RELOC", "GAME", ["_foo"])
+        nodes, edges, _ = build_graph(tmp_path)
+        assert list(nodes) == [self._va_key(0x10001000)]
+        assert edges == []  # the extern resolves to the same node: no self-edge
 
     def test_unknown_callee(self, tmp_path) -> None:
         self._make_c_file(tmp_path, "FuncA", 0x10001000, "RELOC", "GAME", ["UnknownFunc"])
         nodes, edges, dispatch_edges = build_graph(tmp_path)
         assert "UnknownFunc" in nodes
         assert nodes["UnknownFunc"]["status"] == "UNKNOWN"
-        assert ("FuncA", "UnknownFunc") in edges
+        assert (self._va_key(0x10001000), "UnknownFunc") in edges
 
     def test_no_self_edges(self, tmp_path) -> None:
         self._make_c_file(tmp_path, "FuncA", 0x10001000, "RELOC", "GAME", ["FuncA"])
         _, edges, _ = build_graph(tmp_path)
-        assert ("FuncA", "FuncA") not in edges
+        assert edges == []
+
+    def test_merged_tu_externs_stay_with_their_block(self, tmp_path) -> None:
+        """Each annotation block contributes only its own externs: no false
+        FuncA -> Helper edge from FuncB's block in a merged TU."""
+        merged = "\n".join(
+            [
+                "// FUNCTION: SERVER 0x10001000",
+                "// STATUS: RELOC",
+                "// ORIGIN: GAME",
+                "// SIZE: 100",
+                "// CFLAGS: /O2 /Gd",
+                "// SYMBOL: _FuncA",
+                "",
+                "extern int __cdecl Other(void);",
+                "int __cdecl FuncA(void) { return Other(); }",
+                "",
+                "// FUNCTION: SERVER 0x10002000",
+                "// STATUS: STUB",
+                "// ORIGIN: GAME",
+                "// SIZE: 100",
+                "// CFLAGS: /O2 /Gd",
+                "// SYMBOL: _FuncB",
+                "",
+                "extern int __cdecl Helper(void);",
+                "int __cdecl FuncB(void) { return Helper(); }",
+            ]
+        )
+        (tmp_path / "merged.c").write_text(merged, encoding="utf-8")
+        _, edges, _ = build_graph(tmp_path)
+        by_caller = {a for a, _ in edges}
+        assert self._va_key(0x10001000) in by_caller
+        assert self._va_key(0x10002000) in by_caller
+        callees_a = {b for a, b in edges if a == self._va_key(0x10001000)}
+        callees_b = {b for a, b in edges if a == self._va_key(0x10002000)}
+        assert "Other" in callees_a
+        assert "Helper" not in callees_a
+        assert "Helper" in callees_b
+        assert "Other" not in callees_b
 
     def test_multi_function_file(self, tmp_path) -> None:
         """build_graph should capture ALL annotations from multi-function files.
@@ -120,10 +169,14 @@ class TestBuildGraph:
         (tmp_path / "multi.c").write_text(multi_content, encoding="utf-8")
 
         nodes, _, _ = build_graph(tmp_path)
-        assert "FirstFunc" in nodes, "First annotation in multi-function file should be captured"
-        assert "SecondFunc" in nodes, "Second annotation in multi-function file should be captured"
-        assert nodes["FirstFunc"]["status"] == "RELOC"
-        assert nodes["SecondFunc"]["status"] == "STUB"
+        assert self._va_key(0x10001000) in nodes, (
+            "First annotation in multi-function file should be captured"
+        )
+        assert self._va_key(0x10002000) in nodes, (
+            "Second annotation in multi-function file should be captured"
+        )
+        assert nodes[self._va_key(0x10001000)]["status"] == "RELOC"
+        assert nodes[self._va_key(0x10002000)]["status"] == "STUB"
 
     def test_dispatch_tables_add_nodes_and_edges(self, tmp_path) -> None:
         """build_graph folds dispatch table entries into dispatch_edges."""
@@ -150,8 +203,8 @@ class TestBuildGraph:
 
         # dispatch_edges connect the virtual node to every entry target
         dispatch_targets = {b for a, b in dispatch_edges if a == dispatch_node}
-        assert "FuncA" in dispatch_targets
-        assert "FuncB" in dispatch_targets
+        assert self._va_key(0x10001000) in dispatch_targets
+        assert self._va_key(0x10002000) in dispatch_targets
         # Unresolved entry resolves to VA-based placeholder
         assert "fn_0x10003000" in dispatch_targets
 
@@ -393,3 +446,25 @@ class TestBinaryCallEdges:
         assert len(edges) == 1  # fn1 -> fn2
         assert edges[0][0] != edges[0][1]
         assert "fcn_" in edges[0][0] and "fcn_" in edges[0][1]
+
+    def test_unsorted_ranges_resolve(self, tmp_path) -> None:
+        """Range lookup sorts internally: shuffled input still maps call
+        sites to the right function (the bisect path)."""
+        from test_ne_loader import _build_ne
+
+        from rebrew.binary_loader import load_binary
+        from rebrew.depgraph import binary_call_edges
+        from rebrew.ne_loader import enumerate_ne_functions
+
+        code = bytes.fromhex("55 8b ec e8 0a 00 5d c390 90 90 9055 8b ec 33 c0 5d c3")
+        raw = _build_ne(segments=[(b"\x01\x00" + code, 0x01)])
+        p = tmp_path / "app.ne"
+        p.write_bytes(raw)
+        info = load_binary(p)
+        funcs = enumerate_ne_functions(info)
+        assert len(funcs) >= 2
+        ranges = [(f.va, f.va + f.size, f"fcn_{f.va:08x}") for f in funcs]
+        forward = binary_call_edges(info, ranges)
+        backward = binary_call_edges(info, list(reversed(ranges)))
+        assert forward == backward
+        assert len(forward) == 1

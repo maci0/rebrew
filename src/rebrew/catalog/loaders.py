@@ -308,18 +308,11 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
         )
         entries.extend(parsed)
 
-    # Scan library_*.h files for LIBRARY markers (CRT/zlib identifications)
-    for hfile in iter_library_headers(reversed_dir):
+    # Scan library_*.h files for LIBRARY markers (CRT/zlib identifications).
+    # `cfg` makes the scan include the project's shared root, which
+    # scan_reversed_dir already covered for the catalog.
+    for hfile in iter_library_headers(reversed_dir, cfg):
         parsed = parse_library_header(hfile, target_name=target_marker(cfg))
         entries.extend(parsed)
-
-    # Shared sources: the project-level shared root serves every target, so
-    # its library_*.h LIBRARY markers participate in each target's scan too.
-    if cfg is not None:
-        shared = getattr(cfg, "shared_dir", None)
-        if shared is not None and shared.is_dir():
-            for hfile in iter_library_headers(shared):
-                parsed = parse_library_header(hfile, target_name=target_marker(cfg))
-                entries.extend(parsed)
 
     return entries

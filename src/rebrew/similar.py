@@ -78,17 +78,27 @@ def _ratio(a: int, b: int) -> float:
     return min(a, b) / max(a, b)
 
 
-def similarity_score(sig_a: dict[str, Any] | None, sig_b: dict[str, Any] | None) -> float:
+def similarity_score(
+    sig_a: dict[str, Any] | None,
+    sig_b: dict[str, Any] | None,
+    size_a: int | None = None,
+    size_b: int | None = None,
+) -> float:
     """Structural similarity of two signatures as a 0-100 score.
 
-    Weights: 60% mnemonic-histogram cosine, 20% call-count agreement,
-    20% branch-count agreement.
+    Weights: 50% mnemonic-histogram cosine, 15% call-count agreement,
+    15% branch-count agreement, 20% size agreement (a 10B thunk must not
+    score ~100 against a 1000B function with the same opcode mix).  The
+    size term is skipped when either size is unknown (``None`` or 0).
     """
     if sig_a is None or sig_b is None:
         return 0.0
     hist = _cosine(sig_a["histogram"], sig_b["histogram"]) * 100.0
     calls = _ratio(sig_a["calls"], sig_b["calls"]) * 100.0
     branches = _ratio(sig_a["branches"], sig_b["branches"]) * 100.0
+    if size_a and size_b:
+        size = _ratio(size_a, size_b) * 100.0
+        return round(0.5 * hist + 0.15 * calls + 0.15 * branches + 0.2 * size, 1)
     return round(0.6 * hist + 0.2 * calls + 0.2 * branches, 1)
 
 
@@ -131,6 +141,15 @@ def find_similar(
     if query_sig is None:
         return []
 
+    # One signature per candidate VA: repeated queries against the same
+    # binary re-disassemble unchanged bytes, so memoize within the call.
+    sig_cache: dict[int, dict[str, Any] | None] = {}
+
+    def _cached_sig(va: int, cand_bytes: bytes) -> dict[str, Any] | None:
+        if va not in sig_cache:
+            sig_cache[va] = disasm_signature(cand_bytes, va, cs_arch, cs_mode)
+        return sig_cache[va]
+
     results: list[dict[str, Any]] = []
     for va, cand in registry.items():
         if va == query_va:
@@ -139,10 +158,10 @@ def find_similar(
         if not cand_size:
             continue
         cand_bytes = extract_raw_bytes(cfg.target_binary, va, cand_size)
-        sig = disasm_signature(cand_bytes, va, cs_arch, cs_mode)
+        sig = _cached_sig(va, cand_bytes)
         if sig is None:
             continue
-        score = similarity_score(query_sig, sig)
+        score = similarity_score(query_sig, sig, query_size, cand_size)
         if score >= min_score:
             name = cand.get("list_name") or cand.get("ghidra_name") or ""
             results.append({"va": f"0x{va:08x}", "size": cand_size, "name": name, "score": score})
@@ -159,8 +178,8 @@ app = typer.Typer(
         "  rebrew similar 0x10001000 · · · · · · · · · Top 10 structural matches\n\n"
         "  rebrew similar 0x10001000 --top 5 --min-score 50 · · Raise the bar\n\n"
         "  rebrew similar 0x10001000 --json · · · · · · · Machine-readable output\n\n"
-        "[dim]Scores: 0-100 blend of mnemonic histogram (60%), call count (20%),\n"
-        "branch count (20%). Use it to find which STUBs likely share the same\n"
+        "[dim]Scores: 0-100 blend of mnemonic histogram (50%), call count (15%),\n"
+        "branch count (15%), size agreement (20%). Use it to find which STUBs likely share the same\n"
         "source and optimisation approach as a solved function.[/dim]"
     ),
 )

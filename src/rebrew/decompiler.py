@@ -20,12 +20,15 @@ Usage (internal)::
         print(code)
 """
 
+import atexit
+import hashlib
 import importlib
 import logging
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import warnings
 from collections.abc import Callable
 from pathlib import Path
@@ -75,21 +78,155 @@ def _find_re_tool() -> str | None:
 
 _ALLOWED_RE_CMDS = frozenset({"pdg", "pdd"})
 
+#: Per-process rizin/radare2 project dirs, keyed by
+#: ``(resolved binary path, tool)``.  The first ``_run_re`` call for a binary
+#: pays the full ``aaa`` analysis (the 120s timeout exists for that), then
+#: stores the analyzed project ``dir``; later calls reopen the project
+#: (``-p``) so analysis runs once per binary per process instead of once per
+#: function.  Entries are removed when the project export fails or the tool
+#: vanishes, so a later call retries from scratch.
+_RE_PROJECT_DIRS: dict[tuple[str, str], str] = {}
+
+
+def _re_project_key(binary: Path, tool: str) -> tuple[str, str]:
+    """Cache key for the session dir: resolved binary path + tool name."""
+    try:
+        resolved = str(binary.resolve())
+    except OSError:
+        resolved = str(binary)
+    return (resolved, tool)
+
+
+def _re_analysis_key(tool: str) -> str:
+    """Hash of the tool binary, so a tool upgrade invalidates stale projects."""
+    exe = shutil.which(tool)
+    if exe is None:
+        return ""
+    try:
+        digest = hashlib.sha256(Path(exe).read_bytes()).hexdigest()[:16]
+    except OSError:
+        return ""
+    return digest
+
+
+def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
+    """Run full ``aaa`` analysis once and persist the project; return its dir."""
+    digest = _re_analysis_key(tool)
+    try:
+        proj_dir = tempfile.mkdtemp(prefix="rebrew_re_")
+    except OSError as e:
+        warnings.warn(f"{tool} could not create project dir: {e}", stacklevel=3)
+        return None
+    try:
+        result = subprocess.run(
+            [
+                tool,
+                "-q",
+                "-c",
+                f"aaa; Ps {proj_dir}; q",
+                str(binary),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=root,
+            timeout=300,
+        )
+    except subprocess.TimeoutExpired:
+        warnings.warn(f"{tool} timed out analyzing {binary.name}", stacklevel=3)
+        shutil.rmtree(proj_dir, ignore_errors=True)
+        return None
+    except (OSError, subprocess.SubprocessError) as e:
+        warnings.warn(f"{tool} failed analyzing {binary.name}: {e}", stacklevel=3)
+        shutil.rmtree(proj_dir, ignore_errors=True)
+        return None
+    if result.returncode != 0:
+        shutil.rmtree(proj_dir, ignore_errors=True)
+        return None
+    try:
+        Path(proj_dir, "rebrew_tool.sha256").write_text(f"{tool}\n{digest}\n", encoding="utf-8")
+    except OSError:
+        shutil.rmtree(proj_dir, ignore_errors=True)
+        return None
+    return proj_dir
+
+
+def _re_cached_digest_ok(proj_dir: str, tool: str) -> bool:
+    """True when a cached project's recorded tool digest is still current.
+
+    The marker (``rebrew_tool.sha256``) records the tool name + a hash of the
+    tool binary; writing it without ever reading it back meant a tool upgrade
+    kept serving the old ``aaa`` results.  A missing or single-line marker (an
+    older format) is treated as stale.
+    """
+    try:
+        lines = Path(proj_dir, "rebrew_tool.sha256").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    if len(lines) != 2 or lines[0] != tool:
+        return False
+    return lines[1] == _re_analysis_key(tool)
+
+
+def _re_cached_project(binary: Path, tool: str, root: Path) -> str | None:
+    """Return the analyzed project dir for (*binary*, *tool*), creating it once."""
+    key = _re_project_key(binary, tool)
+    cached = _RE_PROJECT_DIRS.get(key)
+    if cached is not None:
+        if _re_cached_digest_ok(cached, tool):
+            return cached
+        # A tool upgrade invalidates the analysis; remove the old project dir
+        # (a full rizin database) instead of orphaning it — only the entries
+        # still in the map get cleaned at exit.
+        shutil.rmtree(cached, ignore_errors=True)
+        del _RE_PROJECT_DIRS[key]
+    proj_dir = _re_init_project(binary, tool, root)
+    if proj_dir is None:
+        return None
+    _RE_PROJECT_DIRS[key] = proj_dir
+    return proj_dir
+
+
+def _re_drop_project(binary: Path, tool: str) -> None:
+    """Forget the cached project dir (analysis failed — retry fresh next call)."""
+    proj_dir = _RE_PROJECT_DIRS.pop(_re_project_key(binary, tool), None)
+    if proj_dir is not None:
+        # The dir was created by mkdtemp and is not tracked anywhere else once
+        # popped, so it must be removed here or it leaks for the process
+        # lifetime (every decompile of a failing project would add one).
+        shutil.rmtree(proj_dir, ignore_errors=True)
+
+
+def _clear_re_projects() -> None:
+    """Remove every cached rizin/radare2 project dir (test hook + atexit)."""
+    for proj_dir in _RE_PROJECT_DIRS.values():
+        shutil.rmtree(proj_dir, ignore_errors=True)
+    _RE_PROJECT_DIRS.clear()
+
+
+atexit.register(_clear_re_projects)
+
 
 def _run_re(binary: Path, va: int, cmd: str, root: Path) -> str | None:
     """Run a radare2/rizin command and return cleaned output.
 
     Automatically detects whether ``rz`` or ``r2`` is on PATH.
     ``cmd`` must be one of the allowed radare2 commands (pdg, pdd).
+
+    Full ``aaa`` analysis runs once per binary per process (cached project
+    dir); each call reopens the analyzed project and only seeks + decompiles,
+    so batch decompilation of many functions pays analysis once.
     """
     if cmd not in _ALLOWED_RE_CMDS:
         raise ValueError(f"disallowed radare2 command: {cmd!r}")
     tool = _find_re_tool()
     if tool is None:
         return None
+    proj_dir = _re_cached_project(binary, tool, root)
+    if proj_dir is None:
+        return None
     try:
         result = subprocess.run(
-            [tool, "-q", "-c", f"aaa; s 0x{va:08x}; af; {cmd}", str(binary)],
+            [tool, "-q", "-p", proj_dir, "-c", f"s 0x{va:08x}; af; {cmd}", str(binary)],
             capture_output=True,
             text=True,
             cwd=root,
@@ -101,6 +238,11 @@ def _run_re(binary: Path, va: int, cmd: str, root: Path) -> str | None:
         warnings.warn(f"{tool} timed out decompiling 0x{va:08x}", stacklevel=2)
     except (OSError, subprocess.SubprocessError) as e:
         warnings.warn(f"{tool} failed decompiling 0x{va:08x}: {e}", stacklevel=2)
+    else:
+        if result.returncode != 0:
+            # The cached project may be stale (tool upgrade, truncated export);
+            # drop it so the next call re-analyzes instead of failing forever.
+            _re_drop_project(binary, tool)
     return None
 
 
@@ -257,8 +399,72 @@ def fetch_ghidra(
         return None
 
 
+#: Kuna renders every address as a label it never declares: ``s_<hex>`` for a
+#: string/rodata base, ``dat_<hex>`` for a data global, ``sub_<hex>`` for a
+#: callee.  Without a declaration the seed fails to compile and the GA drops
+#: it, so ``--seed-kuna`` silently contributes nothing.
+_KUNA_LABEL_RE = re.compile(r"\b((?:s|dat|sub)_[0-9a-f]{6,})\b")
+_KUNA_DECL_FOR = {
+    "s": "extern char {name}[];",
+    "dat": "extern int {name};",
+    "sub": "int {name}();",
+}
+_KUNA_BOOL_RE = re.compile(r"\bbool\b")
+_KUNA_BOOL_LITERAL_RE = re.compile(r"\b(true|false)\b")
+_KUNA_NULL_RE = re.compile(r"\bNULL\b")
+
+#: Kuna renders a call through a computed function pointer as
+#: ``(int)(**(void **)(EXPR))(args)`` — an int cast applied to a dereferenced
+#: pointer and then called, which no compiler accepts (and the second ``*``
+#: dereferences a ``void *``).  The intended shape is a cast to a function
+#: pointer over a single dereference, followed by the call.
+_KUNA_INDIRECT_CALL_RE = re.compile(
+    r"\(\s*(?P<ret>[A-Za-z_]\w*(?:\s*\*)*)\s*\)\s*"
+    r"\(\s*\*\*\(\s*void\s*\*\*\s*\)\s*"
+    r"\((?P<expr>(?:[^()]|\((?:[^()]|\([^()]*\))*\))*)\)\s*\)\s*\("
+)
+
+
+def _kuna_indirect_calls(source: str) -> str:
+    """Rewrite Kuna's indirect-call rendering into a callable cast."""
+    return _KUNA_INDIRECT_CALL_RE.sub(
+        lambda m: f"(({m.group('ret')} (*)())(*(void **)({m.group('expr')})))( ",
+        source,
+    )
+
+
+def _kuna_declarations(source: str) -> list[str]:
+    """Declarations for the address labels *source* references.
+
+    Only names with no declaration already present are emitted, so a snippet
+    that defines its own label is left alone.
+    """
+    out: list[str] = []
+    for name in sorted(set(_KUNA_LABEL_RE.findall(source))):
+        # A declaration needs a type before the name; an assignment like
+        # `dat_1003543c = ...` must not be mistaken for one.
+        declared = re.search(
+            rf"\b(?:extern|static|typedef)\b[^;\n]*\b{re.escape(name)}\b", source
+        ) or re.search(
+            rf"^[ \t]*(?!(?:return|if|else|while|for|do|switch|goto|case|sizeof|break|continue)\b)"
+            rf"(?:[A-Za-z_]\w*[ \t]+)+\**[ \t]*{re.escape(name)}\b",
+            source,
+            re.MULTILINE,
+        )
+        if declared:
+            continue
+        prefix = name.split("_", 1)[0]
+        out.append(_KUNA_DECL_FOR[prefix].format(name=name))
+    return out
+
+
 def kuna_seed_source(binary: Path, va: int, root: Path) -> str | None:
     """Fetch Kuna's decompilation of *va* and make it compilable (rebrew fix).
+
+    Two repairs beyond :func:`sanitize_tokens` are needed for Kuna output: its
+    address labels (``s_``/``dat_``/``sub_``) must be declared, and its C99-isms
+    (``bool``, ``NULL``, ``true``/``false``) must be spelled for msvc6's C89.
+    Without them the seed never compiles and is discarded from the GA.
 
     Returns the fixup'd C — a GA seed candidate — or ``None`` when kuna is
     unavailable, fails, or the output is not valid C.
@@ -270,6 +476,13 @@ def kuna_seed_source(binary: Path, va: int, root: Path) -> str | None:
     from rebrew.llm_seed import valid_c_source
 
     fixed, _ = sanitize_tokens(raw)
+    fixed = _KUNA_BOOL_RE.sub("int", fixed)
+    fixed = _KUNA_BOOL_LITERAL_RE.sub(lambda m: "1" if m.group(1) == "true" else "0", fixed)
+    fixed = _KUNA_NULL_RE.sub("0", fixed)
+    fixed = _kuna_indirect_calls(fixed)
+    declarations = _kuna_declarations(fixed)
+    if declarations:
+        fixed = "\n".join(declarations) + "\n\n" + fixed
     return fixed if valid_c_source(fixed) else None
 
 
@@ -421,6 +634,17 @@ def fetch_m2c(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     )
 
     info = load_binary(binary)
+    arch = getattr(info, "arch", "") or ""
+    if arch in ("ppc32", "ppc64"):
+        # capstone 5 ships no working PPC engine (it misdecodes `blr`), so
+        # there is no disassembler to feed m2c yet (Phase 3).  Fail fast
+        # instead of feeding m2c garbage disassembly.
+        warnings.warn(
+            f"m2c decompilation unsupported for PPC ({arch}): "
+            "capstone 5 ships no working PPC engine",
+            stacklevel=2,
+        )
+        return None
     target = _m2c_target(info)
     if target is None:
         return None

@@ -264,13 +264,21 @@ class TestSmartRelocCompare:
         assert count == 5  # 5 matching, 1 mismatch
 
     def test_zero_span_detected_as_reloc(self) -> None:
-        """Fallback: 4-byte zero span in obj that differs in target → reloc."""
-        obj = b"\x55\x00\x00\x00\x00\xc3"
-        tgt = b"\x55\x78\x56\x34\x12\xc3"
+        """Fallback: aligned 4-byte zero span in obj that differs in target → reloc."""
+        obj = b"\x55\x90\x90\x90\x00\x00\x00\x00\xc3"
+        tgt = b"\x55\x90\x90\x90\x78\x56\x34\x12\xc3"
         match, count, maxlen, relocs, _ = smart_reloc_compare(obj, tgt)
         assert match is True  # relocs mask the difference
         assert len(relocs) == 1
-        assert relocs[0] == 1
+        assert relocs[0] == 4
+
+    def test_zero_span_unaligned_not_masked(self) -> None:
+        """An unaligned zero dword is coincidental data, not a reloc slot."""
+        obj = b"\x55\x00\x00\x00\x00\xc3"
+        tgt = b"\x55\x78\x56\x34\x12\xc3"
+        match, count, maxlen, relocs, _ = smart_reloc_compare(obj, tgt)
+        assert match is False
+        assert relocs == []
 
     def test_explicit_coff_relocs(self) -> None:
         """When COFF relocs are provided, use them instead of zero-span."""

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any
 
 _PROMPT_TEMPLATE = """\
@@ -56,11 +57,15 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
     return {"endpoint": endpoint, "api_key": api_key}
 
 
+#: ```c fenced block — code may start on the fence line itself
+#: (```c int f(void) {...}```) or on the next line; the fence may also carry
+#: a language tag in either case (```C) or none.
+_FENCE_RE = re.compile(r"```(?:c|C)?[ \t]*(?:\n)?(.*?)(?:\n```|```)", re.DOTALL)
+
+
 def extract_seeds(text: str) -> list[str]:
     """Extract ```c fenced code blocks from an LLM response."""
-    import re
-
-    blocks = re.findall(r"```(?:c|C)?\s*\n(.*?)```", text, re.DOTALL)
+    blocks = _FENCE_RE.findall(text)
     return [b.strip() for b in blocks if b.strip()]
 
 

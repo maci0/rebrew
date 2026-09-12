@@ -461,17 +461,16 @@ class TestScanCallTargetsEdge:
 
 
 class TestClusterFunctionsEdge:
-    def test_overlapping_functions_single_cluster(self) -> None:
-        """Overlapping function ranges are treated as the same cluster."""
+    def test_overlapping_functions_raise_registry_error(self) -> None:
+        """Overlapping function ranges are corrupt input, not padding: fail."""
         text_va = 0x1000
         info = _make_binary_info(text_va, 64, b"\x90" * 64)
         registry = {
             0x1000: _make_entry(0x1000, 32, "A"),
             0x1010: _make_entry(0x1010, 8, "B"),  # overlaps A's range
         }
-        clusters = cluster_functions(registry, info, None)  # type: ignore[arg-type]
-        assert len(clusters) == 1
-        assert clusters[0].functions == [0x1000, 0x1010]
+        with pytest.raises(ValueError, match="[Oo]verlap"):
+            cluster_functions(registry, info, None)  # type: ignore[arg-type]
 
     def test_zero_gap_single_cluster(self) -> None:
         """Adjacent functions (zero-byte gap) stay in one cluster."""
@@ -484,8 +483,10 @@ class TestClusterFunctionsEdge:
         clusters = cluster_functions(registry, info, None)  # type: ignore[arg-type]
         assert len(clusters) == 1
 
-    def test_extract_failure_gap_starts_new_cluster(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """When the gap cannot be extracted, treat as a boundary."""
+    def test_extract_failure_gap_is_unknown_no_boundary(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When the gap cannot be extracted, classify unknown (no boundary)."""
         import rebrew.cu_map as cu_map
 
         text_va = 0x1000
@@ -494,10 +495,36 @@ class TestClusterFunctionsEdge:
             0x1000: _make_entry(0x1000, 4, "A"),
             0x1008: _make_entry(0x1008, 4, "B"),  # 4-byte gap
         }
-        # Force the gap extraction to fail → large_nonpadding → boundary.
+        # Forced extraction failure → unknown gap → same cluster, no penalty.
         monkeypatch.setattr(cu_map, "extract_bytes_at_va", lambda *a, **k: None)
         clusters = cluster_functions(registry, info, None)  # type: ignore[arg-type]
-        assert len(clusters) == 2
+        assert len(clusters) == 1
+        assert clusters[0].gap_classes == ["unknown"]
+        assert clusters[0].confidence == 1.0
+
+    def test_unknown_gaps_carry_no_signal(self) -> None:
+        score, evidence = _contiguity_score(["padding", "unknown"])
+        assert score == 1.0
+        assert any("1 unknown" in e for e in evidence)
+
+    def test_exhausted_raw_bytes_gap_is_unknown_not_padding(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``extract_bytes_at_va`` returns ``b""`` when the section's
+        file-backed bytes are exhausted (a zero-filled tail): unavailable, not
+        padding — it must not count as a same-TU signal."""
+        import rebrew.cu_map as cu_map
+
+        text_va = 0x1000
+        info = _make_binary_info(text_va, 64, b"\x90" * 64)
+        registry = {
+            0x1000: _make_entry(0x1000, 4, "A"),
+            0x1008: _make_entry(0x1008, 4, "B"),  # 4-byte gap
+        }
+        monkeypatch.setattr(cu_map, "extract_bytes_at_va", lambda *a, **k: b"")
+        clusters = cluster_functions(registry, info, None)  # type: ignore[arg-type]
+        assert len(clusters) == 1
+        assert clusters[0].gap_classes == ["unknown"]
 
     def test_call_graph_boost_applied(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A call edge between clustered functions boosts the score."""

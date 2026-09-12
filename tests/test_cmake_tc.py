@@ -290,6 +290,38 @@ def test_generate_toolchain_file(tmp_path: Path) -> None:
     assert 'CMAKE_C_OUTPUT_EXTENSION ".obj"' in text
 
 
+def test_per_toolchain_version_stamping(tmp_path: Path) -> None:
+    """Each MSVC profile stamps its own compiler version (linker era +
+    Rich-header build), not msvc6's 12.00.8168."""
+    assert 'CMAKE_C_COMPILER_VERSION "12.00.8168"' in generate_toolchain_file(
+        TOOLCHAINS["msvc6"], tmp_path
+    ).read_text(encoding="utf-8")
+    assert 'CMAKE_C_COMPILER_VERSION "12.00.8447"' in generate_toolchain_file(
+        TOOLCHAINS["msvc600sp3"], tmp_path
+    ).read_text(encoding="utf-8")
+    assert 'CMAKE_C_COMPILER_VERSION "13.10.3077"' in generate_toolchain_file(
+        TOOLCHAINS["msvc710"], tmp_path
+    ).read_text(encoding="utf-8")
+
+
+def test_resolve_spec_rejects_dosbox_image() -> None:
+    """Non-wine image toolchains (dosbox entrypoint wrappers) degrade with
+    an actionable error instead of a missing-tool_root dead end."""
+    import typer
+
+    from rebrew.cmake_tc import _resolve_spec
+
+    with pytest.raises(typer.Exit):
+        _resolve_spec("tc16")
+
+    # every wine image spec resolves (tool_root derived for all of them)
+    from rebrew.toolchain import TOOLCHAINS
+
+    for name, spec in TOOLCHAINS.items():
+        if spec.image is not None and spec.runtime == "wine":
+            assert _resolve_spec(name) is spec, name
+
+
 def test_tc_main_dispatch_and_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """tc_main resolves the toolchain from the project toml and runs docker."""
     proj = tmp_path / "proj"

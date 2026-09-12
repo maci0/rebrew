@@ -558,9 +558,63 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_16",
         "lang": "C89",
     },
+    "ido5.3": {
+        "runner": "",
+        "command": "",
+        "includes": "",
+        "libs": "",
+        "cflags": "-O2",
+        "base_cflags": "",
+        "format": "elf",
+        "arch": "mips32",
+        "lang": "C89",
+    },
+    "ido7.1": {
+        "runner": "",
+        "command": "",
+        "includes": "",
+        "libs": "",
+        "cflags": "-O2",
+        "base_cflags": "",
+        "format": "elf",
+        "arch": "mips32",
+        "lang": "C89",
+    },
 }
 
 _AGENTS_MD_TEMPLATE = Path(__file__).parent / "AGENTS.md.template"
+
+
+def _profile_defaults() -> dict[str, dict[str, str]]:
+    """Defaults for every known profile: :data:`COMPILER_DEFAULTS` merged
+    with registry-derived entries.
+
+    Any ``TOOLCHAINS`` name without a hand-written entry (a plugin
+    toolchain, or a future packaged profile) is synthesized from its spec —
+    flags style drives cflags, ``bits = 16`` drives the arch — so every
+    ``toolchain list`` name is accepted by ``init``/``cfg set-compiler``.
+    The binary is detection-corrected at write time when it is in place, so
+    the synthesized format/arch only matter for empty projects.
+    """
+    from rebrew.toolchain import TOOLCHAINS
+
+    merged = dict(COMPILER_DEFAULTS)
+    for name, spec in TOOLCHAINS.items():
+        if name in merged:
+            continue
+        posix = spec.flags_style == "posix"
+        merged[name] = {
+            "runner": "",
+            "command": spec.binary if spec.image is None else "",
+            "includes": "",
+            "libs": "",
+            "cflags": "-O2" if posix else "/O2 /Gd",
+            "base_cflags": "" if posix else "/nologo /c",
+            "format": "elf" if posix and spec.image is None else "pe",
+            "arch": "x86_16" if spec.bits == 16 else "x86_32",
+            "lang": "C99" if posix else "C89",
+        }
+    return merged
 
 
 MSVC_CONSTRAINTS = """- **C89 only**: no `for(int i=...)`, declare all variables at block top
@@ -588,7 +642,9 @@ _PRINCIPLES_SRC = Path(__file__).parent / "PRINCIPLES.md"
 
 
 #: Compiler families each profile expects (for init's family-alignment
-#: warning; "unknown" detections never warn).
+#: warning; "unknown" detections never warn).  The packaged base table;
+#: :func:`_profile_families` extends it from the toolchain registry so every
+#: `toolchain list` name is covered.
 _PROFILE_FAMILIES: dict[str, frozenset[str]] = {
     "msvc400": frozenset({"msvc"}),
     "msvc420": frozenset({"msvc"}),
@@ -596,19 +652,57 @@ _PROFILE_FAMILIES: dict[str, frozenset[str]] = {
     "msvc6": frozenset({"msvc"}),
     "msvc600sp1": frozenset({"msvc"}),
     "msvc600sp2": frozenset({"msvc"}),
+    "msvc600sp3": frozenset({"msvc"}),
     "msvc600sp4": frozenset({"msvc"}),
+    "msvc600sp5": frozenset({"msvc"}),
+    "msvc600sp6": frozenset({"msvc"}),
     "msvc900sp1": frozenset({"msvc"}),
     "msvc1100": frozenset({"msvc"}),
     "msvc7": frozenset({"msvc"}),
     "msvc1.52": frozenset({"msvc"}),
+    "msvc15": frozenset({"msvc"}),
+    "msvc10": frozenset({"msvc"}),
     "borlandc55": frozenset({"borlandc"}),
+    "tc16": frozenset({"borlandc"}),
+    "tc20": frozenset({"borlandc"}),
     "delphi16": frozenset({"delphi"}),
     "watcom16": frozenset({"watcom"}),
+    "watcom": frozenset({"watcom"}),
     "gcc-pe": frozenset({"zig", "gcc", "clang", "mingw"}),
     "gcc": frozenset({"gcc", "clang", "icc"}),
     "clang": frozenset({"gcc", "clang", "icc"}),
-    "watcom": frozenset({"watcom"}),
+    "ido5.3": frozenset({"ido"}),
+    "ido7.1": frozenset({"ido"}),
 }
+
+
+def _profile_families() -> dict[str, frozenset[str]]:
+    """Expected detection families per profile: the packaged table plus the
+    registry.
+
+    Any ``TOOLCHAINS`` name missing from :data:`_PROFILE_FAMILIES` (a plugin
+    toolchain, or a future packaged profile) joins with the detection
+    families its name is compatible with (inverted
+    ``_PROFILE_COMPAT_ALL``) plus its own spec family — an uncovered profile
+    otherwise skips the alignment warning entirely, silently onboarding the
+    wrong compiler.
+    """
+    from rebrew.toolchain import TOOLCHAINS
+    from rebrew.toolchain_detect import _PROFILE_COMPAT_ALL
+
+    merged = dict(_PROFILE_FAMILIES)
+    compat_of: dict[str, set[str]] = {}
+    for family, profiles in _PROFILE_COMPAT_ALL.items():
+        if not profiles:
+            continue
+        for p in profiles:
+            compat_of.setdefault(p, set()).add(family)
+    for name, spec in TOOLCHAINS.items():
+        if name in merged:
+            continue
+        merged[name] = frozenset(compat_of.get(name, set()) | {spec.family})
+    return merged
+
 
 #: Opposite profile to suggest when the detection contradicts the choice.
 _FAMILY_COUNTERPART: dict[str, str] = {
@@ -630,7 +724,7 @@ def _warn_profile_family_mismatch(profile: str, tc: ToolchainInfo) -> None:
     chosen profile — a Zig-built DLL with an ``msvc6`` profile can never
     byte-match, so say so at init instead of after the first verify."""
     family = getattr(tc, "family", "") or ""
-    expected = _PROFILE_FAMILIES.get(profile)
+    expected = _profile_families().get(profile)
     if not expected or family in expected or family == "unknown":
         return
     if getattr(tc, "confidence", "") != "high":
@@ -651,14 +745,14 @@ def _warn_profile_mismatch(profile: str, binary_format: str, arch: str) -> None:
     The config is still written with the detected format/arch (so doctor's
     alignment check sees the truth), but the user is told up front — a
     16-bit binary with a 32-bit profile would otherwise fail doctor
-    immediately after init.  The 16-bit profile set is derived from
-    COMPILER_DEFAULTS so newly added 16-bit profiles (tc16, watcom16, ...)
-    are covered automatically instead of a hardcoded list.
+    immediately after init.  The 16-bit profile set is derived from the
+    registry-merged defaults so newly added 16-bit profiles (tc16,
+    watcom16, ...) are covered automatically instead of a hardcoded list.
     """
-    profile_arch = COMPILER_DEFAULTS.get(profile, {}).get("arch", "")
+    profile_arch = _profile_defaults().get(profile, {}).get("arch", "")
     if not profile_arch:
         return
-    _bitness_16 = {name for name, cfg in COMPILER_DEFAULTS.items() if cfg.get("arch") == "x86_16"}
+    _bitness_16 = {name for name, cfg in _profile_defaults().items() if cfg.get("arch") == "x86_16"}
     if arch == "x86_16" and profile not in _bitness_16:
         msg = (
             f"detected a 16-bit binary ({binary_format}/{arch}) but profile "
@@ -1026,11 +1120,11 @@ def _run_wizard(
         answer = Prompt.ask(
             "Compiler profile", default=suggestion or compiler_profile, console=console
         )
-        if answer not in COMPILER_DEFAULTS:
+        if answer not in _profile_defaults():
             # Reprompt once, then fall back to the current value.
             console.print(f"[yellow]unknown profile '{answer}' (see --help for the list)[/]")
             retry = Prompt.ask("Compiler profile", default=compiler_profile, console=console)
-            if retry not in COMPILER_DEFAULTS:
+            if retry not in _profile_defaults():
                 console.print(f"[yellow]unknown '{retry}' too — keeping {compiler_profile}[/]")
                 retry = compiler_profile
             answer = retry
@@ -1238,14 +1332,16 @@ def main(
             )
             compiler_profile = guess
 
-    # Look up compiler defaults for the profile
-    if compiler_profile not in COMPILER_DEFAULTS:
-        known = ", ".join(sorted(COMPILER_DEFAULTS))
+    # Look up compiler defaults for the profile (registry-merged, so every
+    # `toolchain list` name is accepted, not just the hand-written table).
+    defaults = _profile_defaults()
+    if compiler_profile not in defaults:
+        known = ", ".join(sorted(defaults))
         error_exit(
             f"Unknown compiler profile '{compiler_profile}'. Known profiles: {known}",
             json_mode=json_output,
         )
-    profile = COMPILER_DEFAULTS[compiler_profile]
+    profile = defaults[compiler_profile]
     if compiler_profile in ("msvc6", "msvc7"):
         # The msvc6/msvc7 defaults point at the full master layouts
         # (toolchain/msvc/6.0-win32/source/VC98, toolchain/msvc/7.0-win32).  Machines that only vendor the

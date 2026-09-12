@@ -502,6 +502,10 @@ def _linker_era_hint(ver: str) -> str:
         return "MSVC 8.0"
     if ver.startswith("9."):
         return "MSVC 9.0"
+    if ver.startswith("10."):
+        return "MSVC 10.0"
+    if ver.startswith("11."):
+        return "MSVC 11.0"
     return ""
 
 
@@ -1039,6 +1043,12 @@ def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
     return info
 
 
+#: Ordering for ``ToolchainInfo.confidence``.  ``max()`` on the raw strings is
+#: lexicographic ("high" < "low" < "medium"), so merging backends that way
+#: demoted a high PE-meta result to "low" whenever DIE had said "low".
+_CONFIDENCE_RANK: dict[str, int] = {"low": 0, "medium": 1, "high": 2}
+
+
 def _detect_toolchain_core(path: Path | str) -> ToolchainInfo:
     """The packaged detection pipeline (DIE/PDB/PE-meta/heuristics).
 
@@ -1100,7 +1110,10 @@ def _detect_toolchain_core(path: Path | str) -> ToolchainInfo:
             # always beats a coarser DIE/PDB era hint ("MSVC 6.0").
             if pe_info.msvc_version:
                 info.version_hint = pe_info.version_hint
-            info.confidence = max(info.confidence, pe_info.confidence)
+            if _CONFIDENCE_RANK.get(pe_info.confidence, 0) > _CONFIDENCE_RANK.get(
+                info.confidence, 0
+            ):
+                info.confidence = pe_info.confidence
 
     # --- Backend 3: structural heuristics (always available) ---
     # String signals run FIRST — they decide the family for formats
@@ -1875,20 +1888,31 @@ def suggest_profile(info: ToolchainInfo, binary: Path | None = None) -> str | No
 
     The single source of truth for family→profile selection, used by
     ``rebrew init --guess-compiler``, ``rebrew intake``, and doctor.  Uses
-    ``_PROFILE_COMPAT`` (the byte-match compatibility table) and prefers the
+    ``_PROFILE_COMPAT_ALL`` (the byte-match compatibility table) and prefers the
     16-bit profile when the binary is 16-bit (NE x86_16 or a plain DOS MZ
-    executable).  Returns ``None`` when no rebrew profile can match.
+    executable).  Version-exact ``suggested_profiles`` (Rich header / linker
+    era, or plugin evidence) win over the generic preference lists, so e.g.
+    an msvc15/msvc10/tc20-pinned 16-bit target suggests that profile rather
+    than the msvc1.52 default.  Returns ``None`` when no rebrew profile can
+    match.
     """
     compatible = _PROFILE_COMPAT_ALL.get(info.family)
     if not compatible:
         return None
-    # Version-exact: the PE metadata pinned the compiler build — prefer a
-    # profile carrying that build over the generic family default.
+    is16 = _is_16bit_target(info, binary)
+    # Version-exact: the metadata pinned the compiler build — prefer a
+    # profile carrying that build over the generic family default.  The
+    # suggestion must agree with the target bitness (a 32-bit suggestion on
+    # a 16-bit binary, or vice versa, can never byte-match).
     if info.suggested_profiles:
+        bit16 = set(_bitness16_profiles())
         for p in info.suggested_profiles:
-            if p in compatible and not _is_16bit_target(info, binary):
-                return p
-    if _is_16bit_target(info, binary):
+            if p not in compatible:
+                continue
+            if is16 != (p in bit16):
+                continue
+            return p
+    if is16:
         # Prefer the established 16-bit profiles, then plugin-registered
         # bits=16 toolchains (sorted for determinism).
         for p in ("msvc1.52", "tc16", "watcom16"):

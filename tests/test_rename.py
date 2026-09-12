@@ -493,3 +493,70 @@ class TestRenameData:
         monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
         res = CliRunner().invoke(app, ["g_old", "f", "--data"])
         assert res.exit_code != 0
+
+
+class TestUnderscoreNameDerivation:
+    def test_double_underscore_symbol_matches_the_underscored_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A function named `_foo` carries the cdecl symbol `__foo`.
+        `lstrip("_")` produced `foo`, so the rename either matched nothing or
+        rewrote an unrelated `foo` in the same project."""
+        target = _src(
+            tmp_path, "a.c", "int _foo(void) { return 1; }\nint foo(void) { return 2; }\n"
+        )
+        _patch_sources(monkeypatch, [target])
+        count = rename_function_everywhere(_cfg(tmp_path), target, "_foo", "__foo", "renamed_fn")
+        assert count == 1
+        text = target.read_text(encoding="utf-8")
+        assert "int renamed_fn(void)" in text
+        # The unrelated single-underscore function is untouched.
+        assert "int foo(void) { return 2; }" in text
+
+
+class TestProtectedSpans:
+    def test_substitution_skips_literals_and_macro_names(self) -> None:
+        """`rebrew rename` documents that macros and string literals are not
+        rewritten: a raw-text substitution rewrote `puts("foo")`, changing the
+        data a byte-matched function emits."""
+        import re
+
+        from rebrew.rename_ops import substitute_name
+
+        src = (
+            "int foo(void) { return 1; }\n"
+            'void caller(void) { puts("foo"); foo(); }\n'
+            "#define foo(x) ((x) + 1)\n"
+        )
+        out = substitute_name(re.compile(r"\bfoo\b"), "bar", src)
+        assert "int bar(void)" in out
+        assert "bar();" in out
+        # Literal and macro definition keep the old name.
+        assert 'puts("foo")' in out
+        assert "#define foo(x)" in out
+
+    def test_macro_name_spans_cover_defines(self) -> None:
+        from rebrew.c_parser import protected_spans
+
+        src = "int foo(void) { return 1; }\n#define foo 2\nchar c = 'f';\n"
+        spans = [src.encode("utf-8")[s:e].decode("utf-8") for s, e in protected_spans(src)]
+        # Exactly two spans: the macro's NAME (not its body) and the char literal.
+        # The function's own name is NOT protected (it must be renamed).
+        assert spans == ["foo", "'f'"]
+
+
+class TestRenameDoesNotTouchLiterals:
+    def test_rename_keeps_string_literal(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        a = _src(
+            tmp_path,
+            "func_a.c",
+            'int func_a(void) { puts("func_a"); return 1; }\n',
+        )
+        _patch_sources(monkeypatch, [a])
+        count = rename_function_everywhere(_cfg(tmp_path), a, "func_a", "_func_a", "renamed_fn")
+        assert count == 1
+        text = (tmp_path / "renamed_fn.c").read_text(encoding="utf-8")
+        assert "int renamed_fn(void)" in text
+        assert 'puts("func_a")' in text  # literal untouched

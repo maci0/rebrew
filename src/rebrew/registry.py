@@ -66,17 +66,23 @@ def entry_point_registrations(group: str) -> list[Registration]:
     """Every entry point declared in *group*, as registrations.
 
     Entry-point *values* follow the ``module`` or ``module:attr`` shape; a
-    malformed value (no module) raises :class:`RegistryError` naming the
-    group and name, so a broken declaration is reported where it is loaded.
+    malformed value (no module) is skipped with a warning naming the group
+    and name — one broken declaration must not abort discovery of the whole
+    group (a bad plugin must not brick the importing module).
     """
     out: list[Registration] = []
+    log = logging.getLogger(__name__)
     for ep in entry_points().select(group=group):
         module, sep, attr = ep.value.partition(":")
         if not module:
-            raise RegistryError(
-                f"bad registration in group {group!r}: {ep.name} = {ep.value!r} "
-                "(expected 'module' or 'module:attr')"
+            log.warning(
+                "skipping bad registration in group %r: %s = %r "
+                "(expected 'module' or 'module:attr')",
+                group,
+                ep.name,
+                ep.value,
             )
+            continue
         out.append(
             Registration(
                 name=ep.name,
@@ -92,24 +98,28 @@ def entry_point_registrations(group: str) -> list[Registration]:
 def import_registration(reg: Registration) -> Any:
     """Import the object a registration names (module or module:attr).
 
-    Raises :class:`RegistryError` wrapping the underlying ImportError /
-    AttributeError, so a failing plugin is reported with its origin rather
-    than a bare traceback."""
+    Raises :class:`RegistryError` wrapping ANY failure, so a failing plugin is
+    reported with its origin rather than a bare traceback.  ``ImportError``
+    alone was too narrow: a plugin module that raises ``SyntaxError`` (or any
+    other exception) at import time escaped the caller's skip/degrade policy
+    and bricked the module that was importing it.
+    """
     try:
         mod = importlib.import_module(reg.module)
-    except ImportError as exc:
+    except Exception as exc:
         raise RegistryError(
             f"cannot load {reg.group} registration {reg.name!r} from {reg.origin}: "
-            f"module {reg.module!r} not importable ({exc})"
+            f"module {reg.module!r} not importable ({type(exc).__name__}: {exc})"
         ) from exc
     if not reg.attr:
         return mod
     try:
         return getattr(mod, reg.attr)
-    except AttributeError as exc:
+    except Exception as exc:
         raise RegistryError(
             f"cannot load {reg.group} registration {reg.name!r} from {reg.origin}: "
-            f"{reg.module!r} has no attribute {reg.attr!r}"
+            f"{reg.module!r} has no usable attribute {reg.attr!r} "
+            f"({type(exc).__name__}: {exc})"
         ) from exc
 
 

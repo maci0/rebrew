@@ -83,6 +83,21 @@ class TestScanGlobalsBranches:
         assert entry.annotated is True
         assert entry.declared_in == ["a_extern.c", "b_annotated.c"]
 
+    def test_annotated_entry_survives_later_extern_file(self, tmp_path: Path) -> None:
+        """The reverse order must not lose the annotated entry: the extern-only
+        file (sorted last) used to fork a duplicate ``(name, 0)`` entry that the
+        final pass wrote over the annotated one."""
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "a_annotated.c").write_text(
+            "// GLOBAL: SERVER 0x2000\nextern int g_data;\n", encoding="utf-8"
+        )
+        (cfg.reversed_dir / "b_extern.c").write_text("extern int g_data;\n", encoding="utf-8")
+        scan = scan_globals(cfg.reversed_dir, cfg)
+        entry = scan.globals["g_data"]
+        assert entry.va == 0x2000
+        assert entry.annotated is True
+        assert entry.declared_in == ["a_annotated.c", "b_extern.c"]
+
     def test_scan_data_annotations_missing_dir(self, tmp_path: Path) -> None:
         assert scan_data_annotations(tmp_path / "nope") == []
 
@@ -414,6 +429,29 @@ class TestDataCli:
         assert "Type Conflicts" in result.output
         assert "g_x" in result.output
 
+    def test_conflicts_json_filters_to_conflicting_globals(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`--conflicts` is documented as "Show only globals with type
+        conflicts"; JSON mode used to return every global regardless."""
+        cfg = _cfg(tmp_path)
+        self._write_global(cfg)  # g_counter, no conflict
+        (cfg.reversed_dir / "a.c").write_text(
+            "// GLOBAL: SERVER 0x2000\nextern int g_x;\n", encoding="utf-8"
+        )
+        (cfg.reversed_dir / "b.c").write_text(
+            "// GLOBAL: SERVER 0x2000\nextern float g_x;\n", encoding="utf-8"
+        )
+        result = self._invoke(tmp_path, monkeypatch, ["--conflicts", "--json"])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert list(data["globals"]) == ["g_x"]
+        assert data["summary"]["total"] == 1
+        assert data["summary"]["conflicts"] == 1
+        # Control: without --conflicts the full set comes back.
+        result = self._invoke(tmp_path, monkeypatch, ["--json"])
+        assert "g_counter" in json.loads(result.output)["globals"]
+
     def test_gen_header_writes_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _cfg(tmp_path)
         self._write_global(cfg)
@@ -421,6 +459,27 @@ class TestDataCli:
         assert result.exit_code == 0
         out = cfg.reversed_dir / "rebrew_globals.h"
         assert out.exists()
+
+    def test_gen_header_json_reports_the_write(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """docs/CLI.md documents `--json` for all modes; `--gen-header` used to
+        print only to the Rich console and emit nothing on stdout."""
+        cfg = _cfg(tmp_path)
+        self._write_global(cfg)
+        result = self._invoke(tmp_path, monkeypatch, ["--gen-header", "--json"])
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["written"] is True
+        assert data["globals"] >= 1
+        assert data["path"] == str(cfg.reversed_dir / "rebrew_globals.h")
+        # Re-run with --force: identical body → written=False (nothing rewritten).
+        result = self._invoke(tmp_path, monkeypatch, ["--gen-header", "--force", "--json"])
+        assert json.loads(result.output)["written"] is False
+        result = self._invoke(
+            tmp_path, monkeypatch, ["--gen-header", "--force", "--dry-run", "--json"]
+        )
+        assert json.loads(result.output)["dry_run"] is True
 
     def test_gen_header_out_custom_path(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

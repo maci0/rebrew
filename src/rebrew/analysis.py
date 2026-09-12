@@ -78,13 +78,16 @@ class StringEntry:
 def capstone_mode_for_arch(arch: str) -> int:
     """Return the capstone mode for a target arch string.
 
-    16-bit for DOS/NE (``x86_16``), 32-bit otherwise.  Single
-    definition of the arch→mode mapping shared by the diff/compare layers.
+    16-bit for DOS/NE (``x86_16``), 64-bit for ``x86_64``, 32-bit otherwise.
+    Single definition of the x86 arch→mode mapping shared by the diff/compare
+    layers (``binary_loader.capstone_config_for`` uses the same table).
     """
-    from capstone import CS_MODE_16, CS_MODE_32
+    from capstone import CS_MODE_16, CS_MODE_32, CS_MODE_64
 
     if arch == "x86_16":
         return int(CS_MODE_16)
+    if arch == "x86_64":
+        return int(CS_MODE_64)
     return int(CS_MODE_32)
 
 
@@ -126,7 +129,7 @@ def _capstone(skipdata: bool = False, info: BinaryInfo | None = None) -> Any:
         raise RuntimeError("capstone not installed") from exc
 
     # Arch-aware (multi-arch P0): the binary's detected arch selects the
-    # disassembler; x86 stays the 16/32-bit default (NE/MZ → 16-bit).
+    # disassembler; x86 picks 16/32/64-bit by arch (NE/MZ → 16-bit).
     arch = getattr(info, "arch", "") if info is not None else ""
     if arch == "mips32":
         cs_arch, mode = CS_ARCH_MIPS, CS_MODE_MIPS32
@@ -142,6 +145,8 @@ def _capstone(skipdata: bool = False, info: BinaryInfo | None = None) -> Any:
         cs_arch, mode = CS_ARCH_ARM64, CS_MODE_ARM
     elif arch == "sh2":
         cs_arch, mode = CS_ARCH_SH, CS_MODE_SH2
+    elif arch == "x86_64":
+        cs_arch, mode = CS_ARCH_X86, CS_MODE_64
     else:
         mode_16 = info is not None and info.format in ("ne", "mz")
         cs_arch, mode = CS_ARCH_X86, CS_MODE_16 if mode_16 else CS_MODE_32
@@ -204,16 +209,26 @@ def iter_instructions(info: BinaryInfo, va: int, size: int) -> list[Insn]:
 
 
 def extract_bytes(info: BinaryInfo, va: int, size: int) -> bytes:
-    """Return *size* file bytes at virtual address *va* (clamped to the file)."""
+    """Return *size* file bytes at virtual address *va*.
+
+    Clamped to the containing section's file-backed span (``raw_size``) and to
+    the file length: a section whose virtual size exceeds its raw size (an NE
+    iterated segment with ``raw_size == 0``, a PE BSS-like tail) has no file
+    bytes there, and returning the neighbouring data would fabricate content.
+    """
     if size <= 0:
         return b""
     data = info.data
     offset = va_to_file_offset(info, va)
-    if offset < 0:
+    if offset < 0 or offset >= len(data):
         return b""
-    if offset >= len(data):
-        return b""
-    return data[offset : offset + size]
+    avail = len(data) - offset
+    for section in info.sections.values():
+        sec_va = int(getattr(section, "va", 0))
+        if section.size > 0 and sec_va <= va < sec_va + section.size:
+            avail = max(0, int(getattr(section, "raw_size", 0)) - (va - sec_va))
+            break
+    return data[offset : offset + min(size, avail)]
 
 
 def section_range(info: BinaryInfo, name: str) -> tuple[int, int] | None:
@@ -236,15 +251,22 @@ def is_inside(info: BinaryInfo, va: int) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _mem_absolute(mem: Any) -> int | None:
+def _mem_absolute(mem: Any, insn: Any = None) -> int | None:
     """Return the absolute address for a capstone memory operand, or None.
 
     Only mod=00/rm=101-style operands (base and index absent) are absolute
-    addresses; register-relative offsets (``[esi+0xd]``) are not.
+    addresses; register-relative offsets (``[esi+0xd]``) are not.  On x86-64 a
+    RIP-relative operand (``[rip+disp]``) is absolute too: its target is
+    ``insn.address + insn.size + disp``, so *insn* is required for that form.
     """
     if mem is None:
         return None
     if mem.base != 0 or mem.index != 0:
+        if insn is not None and mem.index == 0:
+            from capstone.x86 import X86_REG_RIP
+
+            if mem.base == X86_REG_RIP:
+                return int(insn.address) + int(insn.size) + int(mem.disp or 0)
         return None
     disp = mem.disp
     return int(disp) if disp is not None else None
@@ -366,7 +388,7 @@ def _classify_insn(info: BinaryInfo, insn: Any) -> tuple[str, int, int] | None:
         if op.type == op_imm:
             return mnemonic, from_va, op.imm
         if op.type == op_mem:
-            addr = _mem_absolute(op.mem)
+            addr = _mem_absolute(op.mem, insn)
             if addr is not None:
                 return f"iat_{mnemonic}", from_va, addr
         return None
@@ -376,14 +398,14 @@ def _classify_insn(info: BinaryInfo, insn: Any) -> tuple[str, int, int] | None:
         if op.type == op_imm:
             return "push", from_va, op.imm
         if op.type == op_mem:  # push [abs] — reads a global
-            addr = _mem_absolute(op.mem)
+            addr = _mem_absolute(op.mem, insn)
             if addr is not None:
                 return "push_mem", from_va, addr
         return None
 
     if mnemonic == "lea":
         if len(ops) >= 2 and ops[1].type == op_mem:
-            addr = _mem_absolute(ops[1].mem)
+            addr = _mem_absolute(ops[1].mem, insn)
             if addr is not None:
                 return "lea", from_va, addr
         return None
@@ -395,11 +417,11 @@ def _classify_insn(info: BinaryInfo, insn: Any) -> tuple[str, int, int] | None:
         if a.type == op_reg and b.type == op_imm:  # mov reg, imm32
             return "mov", from_va, b.imm
         if a.type == op_reg and b.type == op_mem:  # mov reg, [abs] — data read
-            addr = _mem_absolute(b.mem)
+            addr = _mem_absolute(b.mem, insn)
             if addr is not None:
                 return "mov_mem", from_va, addr
         if a.type == op_mem and b.type == op_reg:  # mov [abs], reg — data write
-            addr = _mem_absolute(a.mem)
+            addr = _mem_absolute(a.mem, insn)
             if addr is not None:
                 return "mov_mem_store", from_va, addr
         return None
@@ -407,7 +429,7 @@ def _classify_insn(info: BinaryInfo, insn: Any) -> tuple[str, int, int] | None:
     # Generic absolute memory operand (and/or/cmp/test/inc/... [abs]).
     for op in ops:
         if op.type == op_mem:
-            addr = _mem_absolute(op.mem)
+            addr = _mem_absolute(op.mem, insn)
             if addr is not None:
                 return f"{mnemonic}_mem", from_va, addr
     return None
@@ -419,6 +441,12 @@ def _classify_insn(info: BinaryInfo, insn: Any) -> tuple[str, int, int] | None:
 
 _PRINTABLE = set(range(0x20, 0x7F))
 _UTF16_PRINTABLE = set(range(0x20, 0x7F))
+
+#: Borland/Delphi ``ShortString`` maximum length: the length prefix is one byte,
+#: so a string runs to 255 bytes.  The old cap of 63 silently dropped every
+#: 64..255-byte string, and a long printable run is *stronger* evidence of a
+#: real string than a short one, not weaker.
+_PASCAL_MAX_LEN = 255
 
 
 def iter_strings(
@@ -466,7 +494,7 @@ def _scan_pascal(raw: bytes, va: int, section: str, min_len: int) -> list[String
     n = len(raw)
     while i < n:
         ln = raw[i]
-        if 1 <= ln <= 63 and i + 1 + ln <= n:
+        if 1 <= ln <= _PASCAL_MAX_LEN and i + 1 + ln <= n:
             body = raw[i + 1 : i + 1 + ln]
             if all(b in _PRINTABLE for b in body) and ln >= min_len:
                 out.append(
@@ -537,13 +565,19 @@ def _scan_utf16(raw: bytes, va: int, section: str, min_len: int) -> list[StringE
                 )
             start = -1
         i += 2
-    if start >= 0 and (len(raw) - start) // 2 >= min_len:
-        text = raw[start::2].decode("ascii")
-        out.append(
-            StringEntry(
-                va=va + start, size=len(raw) - start, text=text, kind="utf16", section=section
+    if start >= 0:
+        # Only COMPLETE pairs: the loop stops before an unpaired trailing byte,
+        # but the flush used to include it in both the text and the size (an
+        # odd-length region reported a bogus final character, e.g. "ABCDE" for
+        # raw "A\0B\0C\0D\0E").
+        end = start + ((len(raw) - start) // 2) * 2
+        if (end - start) // 2 >= min_len:
+            text = raw[start:end:2].decode("ascii")
+            out.append(
+                StringEntry(
+                    va=va + start, size=end - start, text=text, kind="utf16", section=section
+                )
             )
-        )
     return out
 
 

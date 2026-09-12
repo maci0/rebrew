@@ -89,3 +89,35 @@ def test_lookup_symbol_va_prefers_exact_spelling() -> None:
     # Tolerant lookup still works when only the stripped form exists.
     assert _lookup_symbol_va({"bar": 0x10003000}, "_bar") == 0x10003000
     assert _lookup_symbol_va({}, "nope") is None
+
+
+def test_absolute_reloc_is_skipped_in_patch() -> None:
+    """IMAGE_REL_I386_ABSOLUTE (0x0000) is a no-op with no symbol; it must be
+    ignored, not resolved (which raised UnresolvedSymbolError on '')."""
+    text = b"\xa1\x00\x00\x00\x00\xc3"
+    relocs = [
+        CoffRelocRecord(offset=1, type=0x0000, symbol=""),  # ABSOLUTE
+        CoffRelocRecord(offset=1, type=0x0006, symbol="_g_var"),
+    ]
+    patched = apply_coff_relocations(text, relocs, _resolve, section_va=0x10001000)
+    assert struct.unpack("<I", patched[1:5])[0] == 0x10025000
+
+
+def test_absolute_reloc_alone_is_a_noop() -> None:
+    text = b"\x90\x90\x90\x90\xc3"
+    relocs = [CoffRelocRecord(offset=0, type=0x0000, symbol="")]
+    assert apply_coff_relocations(text, relocs, _resolve, section_va=0) == text
+
+
+def test_absolute_reloc_offset_is_not_masked() -> None:
+    """A no-op ABSOLUTE entry must not mask a real difference at its offset."""
+    from rebrew.core.matching import smart_reloc_compare
+
+    obj = b"\x00\x00\x00\x00\xc3"
+    target = b"\x11\x22\x33\x44\xc3"
+    relocs = [CoffRelocRecord(offset=0, type=0x0000, symbol="")]
+    matched, _count, _total, valid, _invalid = smart_reloc_compare(
+        obj, target, relocs, name_to_va={"g": 0x1000}
+    )
+    assert not matched
+    assert valid == []

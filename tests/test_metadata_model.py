@@ -17,6 +17,28 @@ def _entry(tmp_path: Path) -> MetadataEntry:
     return MetadataEntry.load(tmp_path, 0x1000, "MAIN")
 
 
+def test_load_corrupt_value_collects_problem(tmp_path: Path) -> None:
+    from rebrew.metadata import _set_field
+    from rebrew.metadata_model import MetadataEntry
+
+    _set_field(tmp_path, 0x1000, "size", "abc", module="MAIN")
+    _set_field(tmp_path, 0x1000, "note", "kept", module="MAIN")
+    e = MetadataEntry.load(tmp_path, 0x1000, "MAIN")
+    assert e.size is None
+    assert e.note == "kept"
+    assert any("size" in p for p in e.problems())
+    with pytest.raises(MetadataValidationError):
+        e.validate()
+
+
+def test_load_problems_empty_when_clean(tmp_path: Path) -> None:
+    e = _entry(tmp_path)
+    e.apply(tmp_path, size=8)
+    loaded = MetadataEntry.load(tmp_path, 0x1000, "MAIN")
+    assert loaded.load_problems == []
+    assert loaded.problems() == []
+
+
 def test_load_empty_entry_has_defaults(tmp_path: Path) -> None:
     e = _entry(tmp_path)
     assert e.status is None
@@ -75,10 +97,14 @@ def test_apply_proven_not_silently_demoted(tmp_path: Path) -> None:
     """PROVEN is sticky: a non-force write can't demote it."""
     e = _entry(tmp_path)
     e.apply(tmp_path, status="PROVEN")
-    # apply() uses force=True (explicit user intent); the promotion gate's
-    # stickiness applies to test/verify flows.  Verify force semantics:
-    e.apply(tmp_path, status="EXACT")
-    assert MetadataEntry.load(tmp_path, 0x1000, "MAIN").status == "EXACT"
+    # A plain apply routes through the same stickiness as the raw writers —
+    # the demotion to a non-byte status is refused.  (EXACT/RELOC still win:
+    # a byte match is strictly stronger than PROVEN.)
+    e.apply(tmp_path, status="STUB")
+    assert MetadataEntry.load(tmp_path, 0x1000, "MAIN").status == "PROVEN"
+    # force=True is the explicit user-intent override (lint --fix migration).
+    e.apply(tmp_path, status="STUB", force=True)
+    assert MetadataEntry.load(tmp_path, 0x1000, "MAIN").status == "STUB"
 
 
 def test_remove_roundtrip(tmp_path: Path) -> None:
@@ -200,3 +226,33 @@ class TestPersistedVerdictsAreKnownStatuses:
         """INTERNAL_ERROR stays out of KNOWN_STATUSES on purpose: verify
         filters tooling crashes out of deferred_fixes, never writing them."""
         assert "INTERNAL_ERROR" not in KNOWN_STATUSES
+
+
+class TestCoercionRejectsWrongTypes:
+    def test_bool_is_not_an_int(self) -> None:
+        """bool is an int subclass; `size = true` must not load as 1 (the
+        sibling metadata.update_field rejects bools)."""
+        import pytest
+
+        from rebrew.metadata_model import MetadataValidationError, _coerce
+
+        with pytest.raises(MetadataValidationError):
+            _coerce("size", True)
+
+    def test_hex_string_still_coerces(self) -> None:
+        from rebrew.metadata_model import _coerce
+
+        assert _coerce("size", "0x20") == 32
+
+    def test_non_string_status_is_a_load_problem(self, tmp_path: Path) -> None:
+        """`status = 5` used to load uncoerced and then crash problems() on
+        `.upper()`; it must surface as a load problem instead."""
+        from rebrew.metadata_model import MetadataEntry
+
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x1000"]\nstatus = 5\n', encoding="utf-8"
+        )
+        entry = MetadataEntry.load(tmp_path, 0x1000, "SERVER")
+        assert entry.status is None
+        problems = entry.problems()  # must not raise
+        assert any("status" in p for p in problems)

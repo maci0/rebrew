@@ -23,7 +23,7 @@ def _patch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, files: list[Path]) -
     monkeypatch.setattr(
         context, "require_config", lambda target=None, json_mode=False, root=None: cfg
     )
-    monkeypatch.setattr(context, "iter_library_headers", lambda _d: files)
+    monkeypatch.setattr(context, "iter_library_headers", lambda _d, cfg=None: files)
     monkeypatch.setattr(context, "iter_sources", lambda _d, cfg=None: [])
     return cfg
 
@@ -51,6 +51,35 @@ class TestContext:
         assert "void draw(struct Vec *v);" in text
         # Dedup: the same struct declared twice yields one block.
         assert text.count("struct Vec {") == 1
+
+    def test_sources_only_excludes_library_headers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`--sources-only` must drop the library headers; the flag used to
+        gate only the sources, i.e. do the opposite of its help text."""
+        hdr = tmp_path / "library_gfx.h"
+        hdr.write_text("struct H { int x; };\n", encoding="utf-8")
+        src = tmp_path / "mod.c"
+        src.write_text("struct S { int y; };\n", encoding="utf-8")
+        cfg = SimpleNamespace(
+            target_binary=tmp_path / "x.dll",
+            reversed_dir=tmp_path / "src",
+            root=tmp_path,
+            target_name="T",
+            metadata_dir=tmp_path,
+        )
+        cfg.reversed_dir.mkdir(exist_ok=True)
+        monkeypatch.setattr(
+            context, "require_config", lambda target=None, json_mode=False, root=None: cfg
+        )
+        monkeypatch.setattr(context, "iter_library_headers", lambda _d: [hdr])
+        monkeypatch.setattr(context, "iter_sources", lambda _d, cfg=None: [src])
+        out = tmp_path / "ctx.c"
+        r = CliRunner().invoke(context.app, ["--output", str(out), "--sources-only"])
+        assert r.exit_code == 0
+        text = out.read_text(encoding="utf-8")
+        assert "struct S { int y; };" in text
+        assert "struct H { int x; };" not in text
 
     def test_dedups_across_files(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         a = tmp_path / "a.h"

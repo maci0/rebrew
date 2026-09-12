@@ -47,6 +47,24 @@ def test_order_sources_first_va_and_exclude(tmp_path: Path) -> None:
     assert excluded == ["uncompr.c"]
 
 
+def test_order_sources_first_va_matches_prefixed_key(tmp_path: Path) -> None:
+    """A --first-va key carrying a directory (zlib/adler32.c) matches the
+    file's basename, so library tables resolve instead of sorting last."""
+    sub = tmp_path / "src" / "zlib"
+    sub.mkdir(parents=True)
+    adler = _mk_src(sub, "adler32.c", None)
+    game = _mk_src(tmp_path, "game.c", 0x10002000)
+    ordered, _ = order_sources([game, adler], {"zlib/adler32.c": 0x10001000}, set())
+    assert ordered == [adler, game]
+
+
+def test_order_sources_exclude_matches_basename(tmp_path: Path) -> None:
+    dead = _mk_src(tmp_path, "dead.c", 0x10001000)
+    ordered, excluded = order_sources([dead], {}, {"src/dead.c"})
+    assert ordered == []
+    assert excluded == ["dead.c"]
+
+
 # ---------------------------------------------------------------------------
 # gen-link-stubs
 # ---------------------------------------------------------------------------

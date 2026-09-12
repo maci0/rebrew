@@ -76,7 +76,7 @@ jobs:
       - name: Fixture freshness (checked-in fixtures match the generator)
         run: uv run python tools/gen_fixtures.py --check
       - name: Idempotency sweep (every --json command, run twice)
-        run: uv run python tools/check_idempotency.py --fixture-dir /tmp/rebrew-idem
+        run: uv run python tools/check_idempotency.py --fixture-dir .scratch/rebrew-idem
 
   # Pre-commit hook parity: run the repo's own hook set (hygiene + ruff + mypy,
   # plus import-cycle and skills checks) against a clean checkout. The pytest

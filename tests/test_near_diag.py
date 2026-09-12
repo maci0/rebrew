@@ -42,6 +42,24 @@ class TestClassifyPair:
         b = _insn("mov", "eax, ecx", MOV_EAX_ECX)
         assert nd.classify_pair(a, b) == "register"
 
+    def test_register_difference_x86_64(self) -> None:
+        # 64-bit GPR churn must classify as register, not structural.
+        a = _insn("mov", "rax, rbx", b"\x01")
+        b = _insn("mov", "rcx, rdx", b"\x02")
+        assert nd.classify_pair(a, b) == "register"
+
+    def test_register_difference_64bit_byte_regs(self) -> None:
+        """sil/dil/spl/bpl are the 64-bit low-byte GPRs: a pure register swap
+        must classify as register, not structural."""
+        a = _insn("mov", "sil, al", b"\x40\x88\xc6")
+        b = _insn("mov", "dil, al", b"\x40\x88\xc7")
+        assert nd.classify_pair(a, b) == "register"
+
+    def test_r15_and_vector_registers_normalize(self) -> None:
+        a = _insn("movd", "r15d, xmm0", b"\x01")
+        b = _insn("movd", "r8d, xmm1", b"\x02")
+        assert nd.classify_pair(a, b) == "register"
+
     def test_encoding_difference(self) -> None:
         # Same instruction, same operands, different opcode bytes: mov esi,eax
         # as 89 c6 (mov r/m32, r32) vs 8b f0 (mov r32, r/m32).
@@ -339,6 +357,46 @@ class TestRelocVerdictHonesty:
             100,
         )
         assert "RELOC-level" in suggestion
+
+    def test_reloc_with_equivalent_bytes_names_them(self) -> None:
+        """``equivalent`` bytes are real deltas too (canonically
+        NEAR_MATCHING), so a reloc-dominant verdict must not claim RELOC-level."""
+        _, suggestion = self._verdict(
+            {
+                "match": 0,
+                "register": 0,
+                "encoding": 0,
+                "equivalent": 10,
+                "reloc": 90,
+                "structural": 0,
+            },
+            100,
+        )
+        assert "NEAR_MATCHING-level" in suggestion
+        assert "RELOC-level" not in suggestion
+        assert "10 real byte(s)" in suggestion
+
+
+class TestNonX86ArchGate:
+    """Capstone mode values are arch-scoped (CS_MODE_32 == CS_MODE_MIPS32), so
+    the x86-only frame/CFG analyzers must also check the arch."""
+
+    def test_mode_value_from_another_arch_is_not_x86(self) -> None:
+        assert nd._is_x86_16_or_32("CS_ARCH_X86", "CS_MODE_32") is True
+        assert nd._is_x86_16_or_32("CS_ARCH_X86", "CS_MODE_16") is True
+        assert nd._is_x86_16_or_32("CS_ARCH_MIPS", "CS_MODE_MIPS32") is False
+
+    def test_analyze_omits_frame_and_cfg_for_another_arch(self) -> None:
+        out = nd.analyze(
+            b"\xc3",
+            b"\xc3",
+            None,
+            0x1000,
+            cs_arch="CS_ARCH_MIPS",
+            cs_mode="CS_MODE_MIPS32",
+        )
+        assert out["frame"] is None
+        assert out["cfg"] is None
 
 
 class TestSecondarySuggestionBoundary:
@@ -919,6 +977,65 @@ class TestFixBlockerDryRun:
         assert result.exit_code == 0, result.output
         data = json.loads(result.output)
         assert data["blocker_written"] is True  # would write, but dry-run skipped it
+
+    def test_dry_run_human_output_says_would_write(self, tmp_path: Path, monkeypatch) -> None:
+        """`--dry-run` is documented as "Preview changes without writing", so the
+        human output must not claim "Wrote BLOCKER metadata" (the batch path in
+        the same module already words it "would write")."""
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        from rebrew.near_diag import app
+
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=tmp_path,
+            metadata_dir=tmp_path,
+            marker="S",
+            source_ext=".c",
+            target_name="S",
+            target_binary=tmp_path / "x.exe",
+        )
+        monkeypatch.setattr(
+            "rebrew.near_diag.require_config", lambda target=None, json_mode=False: cfg
+        )
+        monkeypatch.setattr("rebrew.cli.resolve_source_arg", lambda cfg, s: s)
+        src = tmp_path / "f.c"
+        src.write_text(
+            "// FUNCTION: S 0x1000\n// SIZE: 8\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        writes: list[tuple] = []
+        monkeypatch.setattr("rebrew.metadata.update_field", lambda *a, **k: writes.append(a))
+        monkeypatch.setattr(
+            "rebrew.near_diag.analyze",
+            lambda *a, **k: {
+                "verdict": "STRUCTURAL (90% of delta)",
+                "suggestion": "Different layout.",
+                "mutations": [],
+                "categories": {},
+            },
+        )
+        monkeypatch.setattr(
+            "rebrew.annotation.parse_c_file_multi",
+            lambda *a, **k: [
+                SimpleNamespace(va=0x1000, size=8, symbol="_f", module="S", cflags="")
+            ],
+        )
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x55\x8b\xec\x5d\xc3"
+        )
+        monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
+        monkeypatch.setattr(
+            "rebrew.matcher.parse_obj_symbol_and_relocs",
+            lambda *a, **k: (b"\x90" * 8, {}, []),
+        )
+        result = CliRunner().invoke(app, ["--fix-blocker", "--dry-run", str(src)])
+        assert result.exit_code == 0, result.output
+        assert "would write BLOCKER metadata" in result.output
+        assert "Wrote BLOCKER metadata" not in result.output
+        assert writes == []
 
 
 class TestFixBlockerStatus:

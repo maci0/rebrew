@@ -215,6 +215,18 @@ class TestRenderHelpers:
         assert "gone.c" not in rendered
         assert "a.c" in rendered
 
+    def test_appended_entry_joins_on_own_line(self) -> None:
+        """Appended entries join with the block's own separator: in a
+        newline-separated block the new entry lands on its own line, not
+        glued to the last entry (the probe used to slice end-before-start,
+        yielding a separator with no newline)."""
+        text = "set(SOURCES\n  b.c\n  a.c\n)\n"
+        block = find_sources_block(text, {".c"})
+        assert block is not None
+        rendered = render_block(text, block, ["b.c", "a.c", "c.c"])
+        assert "\n  c.c\n" in rendered
+        assert "a.cc.c" not in rendered
+
     def test_normalize_listed_maps_absolute(self, tmp_path: Path) -> None:
         listed = normalize_listed(
             tmp_path, [str(tmp_path / "src" / "a.c")], {str(tmp_path / "src" / "a.c"): "src/a.c"}

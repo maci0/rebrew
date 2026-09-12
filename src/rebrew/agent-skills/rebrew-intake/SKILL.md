@@ -6,7 +6,7 @@ license: MIT
 
 ```mermaid
 graph TD
-    Doctor{Doctor passes?<br/>rebrew doctor} -->|fail| Fix[Repair from doctor report<br/>rebrew init --install-wibo]
+    Doctor{Doctor passes?<br/>rebrew doctor} -->|fail| Fix[Repair from doctor report<br/>rebrew toolchain build <profile>]
     Fix --> Doctor
     Doctor -->|pass| Flirt[FLIRT library scan<br/>rebrew cfg detect-crt --write<br/>rebrew flirt --json]
     Flirt --> CrtMatch[Annotate library sources<br/>rebrew crt-match --all --fix-source]
@@ -37,7 +37,7 @@ A `rebrew-project.toml` must exist with the new target configured. If starting f
 
 ```bash
 rebrew init --target <name> --binary <filename> --guess-compiler   # auto-selects the profile from the binary
-rebrew init --install-wibo            # fresh Linux/macOS setup: download wibo runner now
+rebrew toolchain build <profile>      # fetch the profile's docker image (wibo/host-wine are gone: docker-only)
 ```
 
 ## Linker-script scaffolding (optional, after the catalog)
@@ -70,9 +70,9 @@ in VCS (it is plain text) so later fixes never need `original/` around.
 Then place the binary at the path specified in `rebrew-project.toml` (default: `original/<filename>`).
 
 `rebrew init` creates `rebrew-project.toml`, `AGENTS.md`, `original/`, `src/<target>/`, and
-empty `src/rebrew-functions.toml` + `src/rebrew-data.toml` metadata files. Prefer
-`--install-wibo` from a fresh environment so compiles run through wibo (a lightweight Win32
-PE loader) instead of full Wine — it also writes `runner = "tools/wibo"` into the config.
+empty `src/rebrew-functions.toml` + `src/rebrew-data.toml` metadata files. Every
+Windows/DOS toolchain compiles through its docker image (`rebrew toolchain build <profile>`);
+`--install-wibo` is ignored for image-backed profiles (see `docs/TOOLCHAIN.md`).
 
 ### Multi-Target File Layout
 When adding a new target that shares codebase with an existing target (e.g., adding `BETA10` to a `LEGO1`
@@ -146,30 +146,61 @@ pipeline (MSVC6 vs MinGW GCC):
   1988/89-era-built or `tc16` output drifts).  See
   `docs/TOOLCHAIN.md`.
 
+### 0c. Binary Fingerprint
+
+Record the binary's identity before analysis.  `rebrew fingerprints` returns
+the file digests, imphash, Rich-header hash, and per-section entropy in one
+bundle, which tells two builds of the same target apart and flags a changed
+import set or linker stamp after a rebuild.
+
+```bash
+rebrew fingerprints --json                 # fingerprint the target binary
+rebrew fingerprints original/<filename>    # fingerprint a specific binary
+```
+
+The `imphash` and `rich_header_hash` fields are the cheap build-identity
+checks; `format` / `arch` confirm the toolchain family the rest of intake
+assumes.
+
+A crypto scan complements the fingerprint: `rebrew crypto-scan` finds the
+fixed AES/SHA/MD5 constant tables in the data sections and matches crypto
+imports and function names, so a target with an embedded hash or cipher is
+known before function triage starts.
+
+```bash
+rebrew crypto-scan --json                  # scan the target binary for crypto
+rebrew crypto-scan original/<filename>     # scan a specific binary
+```
+
+Constants (AES S-boxes, SHA-256 K/H, SHA-1 H, MD5 T) are `high` confidence;
+crypto imports are `high`; crypto-named project functions are `medium`. An
+empty finding list is a valid result.
+
 ### 1. Health Check — run `rebrew doctor` first
 
 ```bash
 rebrew doctor                           # validate config, binary, toolchain, metadata
 rebrew doctor --json                    # machine-readable per-check report
-rebrew doctor --install-wibo            # auto-download wibo if Wine is unavailable
+rebrew toolchain build <profile>        # fetch the profile's docker image when the toolchain check fails
 rebrew cfg list-targets                 # confirm target is configured
 ```
 
 Run `rebrew doctor` before anything else. It checks that `rebrew-project.toml` parses, the
-target binary loads, the compiler (CL.EXE) + runner (wine/wibo) are reachable, include/lib
+target binary loads, the toolchain image is present, include/lib
 paths exist, `flirt_sigs/` parses, and `rebrew-functions.toml`/`rebrew-data.toml` exist.
 
 - **Exit code is 1 if any check failed** — treat `fail` checks as blockers, not warnings.
 - `--json` prints `{"target", "passed", "summary": {"pass","fail","warn"}, "checks": [{name, status, message, fix}]}`.
   Use it to decide what to fix: each `checks[].fix` contains the repair command.
-- On Linux, `--install-wibo` downloads wibo (SHA256-verified from GitHub) and rewrites
-  `runner = "tools/wibo"` in `rebrew-project.toml`.
+- Toolchain check failing means the profile's docker image is missing — build it
+  with `rebrew toolchain build <profile>` (every Windows/DOS toolchain compiles
+  through its image; host wine/wibo are gone).
 
 Common failures and fixes:
 
 - Config parse fails → run `rebrew init` in the project directory.
 - "Target binary not found" → place the binary at the configured path.
-- "CL.EXE not found" → fetch the MSVC6 toolchain into `tools/` (see `checks[].fix` for the URL).
+- Toolchain image missing → `rebrew toolchain build <profile>` (see `checks[].fix`).
 - FLIRT signatures missing → generate from a `.lib` or drop `.sig` files into `flirt_sigs/`:
 
 ```bash
@@ -291,12 +322,12 @@ For library functions identified by FLIRT, check if reference source is availabl
 If a Ghidra instance is available with ReVa MCP:
 
 ```bash
-rebrew sync --push                      # push annotations + FLIRT labels to Ghidra
+rebrew sync --push --state-dir <dir>      # export annotations to the BinSync state dir
 ```
 
-`--push` exports and applies in one step (also supports the `ghidra_backend = "cli"` config
-option). `--sync-sizes` additionally pushes corrected function sizes; `--sync-data` (default
-on) pushes `// DATA:` / `// GLOBAL:` labels.
+`--push` exports to the state dir; `--pull --state-dir <dir>` imports it back
+(conflicts via `--accept-binsync` / `--accept-local`). MCP structural ops
+(`--create-functions`, `--bookmarks`, `--pull-data`) still need ReVa.
 
 ### 10. Coverage Dashboard — the handoff
 

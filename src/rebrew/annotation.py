@@ -102,6 +102,8 @@ METADATA_KEYS: frozenset[str] = frozenset(
         "ANALYSIS",
         "PROVE_CONSTRAINTS",
         "TOOLCHAIN",
+        "LOCALS",
+        "COMMENTS",
     }
 )
 ALL_KNOWN_KEYS = OPTIONAL_KEYS | METADATA_KEYS | {"MARKER", "VA"}
@@ -143,7 +145,7 @@ _MARKER_VA_RE = re.compile(
     re.IGNORECASE,
 )
 _MARKER_BLOCK_RE = re.compile(
-    r"(?://|/\*)\s*(FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*\S+\s+(0x[0-9a-fA-F]+)"
+    r"(?://|/\*)\s*(FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*(\S+)\s+(0x[0-9a-fA-F]+)"
 )
 _VA_ONLY_RE = re.compile(
     r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*\S+\s+(0x[0-9a-fA-F]+)"
@@ -352,6 +354,8 @@ class Annotation:
     callers: str = ""
     inline_error: str = ""
     globals_list: list[str] = field(default_factory=list)
+    locals: dict[str, Any] = field(default_factory=dict)
+    comments: dict[str, Any] = field(default_factory=dict)
     section: str = ""  # .data, .rdata, .bss — used by DATA annotations
     line: int = 0  # 1-based line number of the marker in the source file
     prove_constraints: dict[str, Any] = field(default_factory=dict)
@@ -422,6 +426,10 @@ class Annotation:
             d["section"] = self.section
         if self.prove_constraints:
             d["prove_constraints"] = self.prove_constraints
+        if self.locals:
+            d["locals"] = self.locals
+        if self.comments:
+            d["comments"] = self.comments
         return d
 
     def validate(
@@ -549,6 +557,15 @@ def module_for_va(filepath: Path, va: int) -> str:
         text, _ = read_source_text(filepath)
     except OSError:
         return ""
+    return _module_for_va_in_text(text, va)
+
+
+def _module_for_va_in_text(text: str, va: int) -> str:
+    """Return the marker module for *va* in already-read *text* ("" when absent).
+
+    Shared by :func:`module_for_va` and the in-file edit paths, which already
+    hold the file text and must not re-read it.
+    """
     for line in text.splitlines():
         m = _MARKER_VA_RE.search(line)
         if m and int(m.group(2), 16) == va:
@@ -599,7 +616,10 @@ def update_size_annotation(
     module = module_for_va(filepath, va)
     _dir = metadata_dir if metadata_dir is not None else filepath.parent
     entry = get_entry(_dir, va, module=module)
-    old_size = int(entry.get("size", 0))
+    try:
+        old_size = int(entry.get("size", 0))
+    except (TypeError, ValueError):
+        old_size = 0
     if new_size <= old_size:
         return False
     update_field(_dir, va, "size", new_size, module=module)
@@ -752,7 +772,7 @@ def _kv_to_annotation(
 
     size_str = kv.get("SIZE", "0")
     try:
-        size = int(size_str)
+        size = int(size_str.strip(), 0)
     except ValueError:
         size = 0
 
@@ -1246,7 +1266,8 @@ def update_annotation_key(
             # Idempotent: a write with the same value is a no-op (False).
             if existing is not None and str(existing) == str(new_value):
                 return False
-            entry.apply(_dir, **{key: new_value})
+            fields: dict[str, Any] = {key.lower(): new_value}
+            entry.apply(_dir, **fields)
         return True
     try:
         text, encoding = read_source_text(filepath)
@@ -1254,6 +1275,9 @@ def update_annotation_key(
         warnings.warn(f"Cannot read {filepath} for annotation update: {e}", stacklevel=2)
         return False
 
+    target_module = _module_for_va_in_text(text, va)
+    if not target_module:
+        return False
     lines = text.splitlines(keepends=True)
     in_target_block = False
     last_annotation_idx = -1
@@ -1262,14 +1286,18 @@ def update_annotation_key(
 
     for i, line in enumerate(lines):
         # Check for marker: // FUNCTION: GAME 0x1000 or STUB or DATA etc.
+        # Routing is (module, VA): a multi-target file can hold two blocks at
+        # the same VA, and an edit must land in the block of THIS file's own
+        # marker module — never in a sibling target's block.
         marker_match = _MARKER_BLOCK_RE.search(line)
         if marker_match:
-            found_va = int(marker_match.group(2), 16)
-            if in_target_block and found_va != va:
+            found_module = marker_match.group(2)
+            found_va = int(marker_match.group(3), 16)
+            if in_target_block and (found_module != target_module or found_va != va):
                 # A new annotation block started after our target block.
                 # Stop here — edits must not bleed into subsequent blocks.
                 break
-            in_target_block = found_va == va
+            in_target_block = found_module == target_module and found_va == va
 
         if in_target_block:
             if line.strip().startswith("//") or line.strip().startswith("/*"):
@@ -1469,14 +1497,18 @@ def _strip_key_lines(filepath: Path, va: int, key: str, text: str, encoding: str
     ``// FUNCTION:`` line) and following keys up to the first code line.  A
     non-comment, non-blank line (code, ``#include``, a prototype) ends the
     attachment on that side, so a same-named key in a sibling block is never
-    touched.  Multi-function files route on the VA: the scan only arms inside
-    the block whose marker carries *va*.
+    touched.  Multi-function files route on the (module, VA): the scan only
+    arms inside the block whose marker carries *va* for THIS file's own
+    marker module — a sibling target's block at the same VA is left alone.
 
     *encoding* is the source file's detected encoding (see
     :func:`rebrew.utils.read_source_text`) and is preserved on write-back.
 
     Returns True if a line was removed.
     """
+    target_module = _module_for_va_in_text(text, va)
+    if not target_module:
+        return False
     raw_lines = text.splitlines(keepends=True)
     _key_pattern = _compile_key_pattern(key)
 
@@ -1487,7 +1519,7 @@ def _strip_key_lines(filepath: Path, va: int, key: str, text: str, encoding: str
         marker_match = _MARKER_BLOCK_RE.search(line)
         if not marker_match:
             return False
-        return int(marker_match.group(2), 16) == va
+        return marker_match.group(2) == target_module and int(marker_match.group(3), 16) == va
 
     def _is_block_marker(line: str) -> bool:
         return bool(_MARKER_BLOCK_RE.search(line))
@@ -1508,15 +1540,18 @@ def _strip_key_lines(filepath: Path, va: int, key: str, text: str, encoding: str
         return False
 
     drop: set[int] = set()
-    # Walk back over attached preceding lines: key lines drop, other
-    # attachable lines are skipped over, and the first non-attachable line
-    # (or another block's marker) stops the walk.
+    # A `// KEY:` line above the marker belongs to THIS block only when the
+    # parser buffered it as pending — i.e. when no earlier block marker exists
+    # in the file.  Once a marker precedes it, the key attached to that earlier
+    # block (the shared multi-version form stacks `marker + keys` blocks), and
+    # deleting it silently dropped the other function's live annotation.
+    earlier_marker = any(_is_block_marker(line) for line in raw_lines[:marker_idx])
     idx = marker_idx - 1
     while idx >= 0:
         line = raw_lines[idx]
         if _is_block_marker(line) or not _is_attachable(line):
             break
-        if _is_key_line(line):
+        if _is_key_line(line) and not earlier_marker:
             drop.add(idx)
         idx -= 1
     # Walk forward the same way: the marker line itself drops when it is a

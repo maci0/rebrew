@@ -280,6 +280,26 @@ class TestGenerateSkeletonModules:
         content = generate_skeleton(cfg, 0x10001000, "my_func", "SERVER")
         assert "TODO: Implement" in content
 
+    def test_custom_name_is_sanitized(self) -> None:
+        """`--name "my-func"` must not emit an invalid C identifier."""
+        cfg = self._make_cfg()
+        content = generate_skeleton(cfg, 0x10001000, "FUN_10001000", custom_name="my-func")
+        assert "my_func" in content
+        assert "my-func" not in content
+
+    def test_custom_name_leading_digit_guarded(self) -> None:
+        cfg = self._make_cfg()
+        content = generate_skeleton(cfg, 0x10001000, "FUN_10001000", custom_name="2fast")
+        assert "_2fast" in content
+
+    def test_ghidra_name_leading_digit_guarded(self) -> None:
+        """A Ghidra name starting with a digit must keep the guard underscore,
+        not have it stripped by the old ``lstrip("_")``."""
+        cfg = self._make_cfg()
+        content = generate_skeleton(cfg, 0x10001000, "2foo", "SERVER")
+        assert "_2foo" in content
+        assert "__2foo" not in content
+
 
 # -------------------------------------------------------------------------
 # find_neighbor_file
@@ -751,6 +771,27 @@ class TestConventionStub:
         assert sig is None
         assert note is None
 
+    def test_neighbour_ret_does_not_leak_into_convention(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """The padded window can bleed into the next function; when its start
+        VA is known, the neighbour's ``ret 8`` must not be read as this
+        function's epilogue."""
+        from rebrew.skeleton import _convention_stub
+
+        # this function: mov eax,[esp+4]; ret (cdecl); then 11 NOPs; the next
+        # function starts at 0x1010 with a stdcall `ret 8`.
+        code = bytes.fromhex("8b 44 24 04 c3") + b"\x90" * 11 + bytes.fromhex("c2 08 00")
+        monkeypatch.setattr(
+            "rebrew.binary_loader.function_extent_from_disasm",
+            lambda p, va, with_kind=True: (20, "jmp"),  # padded window bleeds on
+        )
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code[:n])
+        monkeypatch.setattr("rebrew.asm._next_function_va", lambda cfg, va: 0x1010)
+        sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "f")
+        assert sig is None  # cdecl — not the neighbour's __stdcall
+        assert note is None
+
     def test_non_x86_arch_default(self, tmp_path: Path) -> None:
         from types import SimpleNamespace as NS
 
@@ -823,6 +864,26 @@ class TestConventionStub:
         sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "f")
         assert sig is None
         assert note is not None and "tail call" in note
+
+    def test_tail_call_zero_arg_callee_is_resolved(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A decorated ``name@0`` is a legitimate zero-arg __stdcall callee, not
+        the unresolved sentinel: the forwarding thunk gets ``int __stdcall
+        f(void)`` instead of the generic note."""
+        from rebrew.skeleton import _convention_stub
+
+        # The disassembled `jmp` target (`e9 00 00 00 00` at 0x1007) is 0x100c.
+        monkeypatch.setattr(
+            "rebrew.asm.build_function_lookup", lambda c: {0x100C: ("_fcn@0", "RELOC")}
+        )
+        monkeypatch.setattr(
+            "rebrew.binary_loader.function_extent_from_disasm",
+            lambda p, va, with_kind=True: (42, "jmp"),
+        )
+        code = bytes.fromhex("8b f1 8b 01 ff 50 04 e9 00 00 00 00")
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code)
+        sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "f")
+        assert sig == "int __stdcall f(void)"
+        assert note is not None and "_fcn@0" in note and "0 stack arg(s)" in note
 
     def test_tail_call_thunk_stays_exact(self, tmp_path: Path, monkeypatch: Any) -> None:
         """A small jmp-terminated region (≤16 B) is a real tail-call thunk —

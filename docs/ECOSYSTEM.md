@@ -2,9 +2,9 @@
 
 How rebrew fits together with the sibling repositories in the `relumea`
 workspace (`~/Desktop/Projects/relumea/`): the toolchain image source, the
-assembly-similarity engine, the coverage dashboard, the compiler service,
-the autonomous agent, and the product vision. It also covers the external
-tools rebrew interoperates with — most notably
+assembly-similarity engine, the coverage dashboard, the self-hosted portal,
+the compiler service, the autonomous agent, and the product vision. It also
+covers the external tools rebrew interoperates with — most notably
 [reccmp](https://github.com/isledecomp/reccmp) and
 [BinSync](https://github.com/binsync/binsync).
 
@@ -30,6 +30,7 @@ flowchart TB
     subgraph L2["Intelligence & visualization"]
         RES["resembl<br/>MinHash + LSH asm similarity<br/>own DB (SQLite/Postgres/…)"]
         RECOV["recoverage<br/>Bottle + VanJS coverage SPA<br/>reads db/coverage.db"]
+        REPORTAL["reportal<br/>self-hosted portal: binaries ·<br/>functions · matches · scans · reports"]
         REAGENT["reagent<br/>autonomous LLM RE agent<br/>imports rebrew internals"]
     end
 
@@ -50,11 +51,15 @@ flowchart TB
     RB -->|"docker run"| IMG
     RB -->|"similarity extra:<br/>resembl/scoring.py"| RES
     RB -->|"rebrew catalog + rebrew build-db"| RECOV
+    RB -->|"rebrew CLI: analyze · asm · decompile ·<br/>fingerprints · crypto-scan · xrefs"| REPORTAL
+    RECOV -.->|"coverage.db format"| REPORTAL
+    RES -.->|"scoring core (similarity extra)"| REPORTAL
     RB -.->|"operates on"| PRJ
     REAGENT -->|"direct rebrew.* imports"| RB
     RC -->|"path dep: rebrew.toolchain catalog"| RB
     RC -->|"docker run"| IMG
     REL -.->|"productizes the whole stack"| RB
+    REPORTAL -.->|"self-hosted portal UX"| REL
     REL -.->|"snowball datasets from matched pairs"| REAGENT
     REL -.->|"community knowledge"| DECOMP
     RB -.->|"reccmp-compatible markers +<br/>catalog CSV export"| RECCMP
@@ -125,6 +130,27 @@ The contract is the database file alone: `rebrew catalog --json` →
 `db/data_*.json` → `rebrew build-db` → `db/coverage.db` → `recoverage serve`.
 recoverage imports nothing from rebrew and runs on any machine with a
 compiled `coverage.db` — no toolchain required.
+
+### reportal — the self-hosted portal
+
+A self-hosted portal: a Bottle JSON API plus a
+zero-build ES-module SPA over a SQLite store, replacing hosted SaaS tooling with the
+sibling engines. It registers binaries (`add-binary`, `import-rebrew`), stores
+fingerprints, strings, and imports, browses functions with disassembly and
+decompilation, ranks cross-corpus matches with a softmax confidence, records
+rename history with revert and applies a match as a rename, organizes
+collections and tags, searches, runs triage (`rebrew analyze`), report,
+recovered-struct, and crypto scans, and serves the generated report site.
+
+Backing engines: `rebrew` is invoked through its CLI (`analyze`, `asm`,
+`decompile`, `imports`, `strings`, `xrefs`, `fingerprints`, `crypto-scan`,
+`recover-structs`, `report`), and `resembl`'s scoring core supplies the
+matching similarity (the optional `similarity` extra). The contract is
+rebrew's `db/coverage.db` plus its project directories; reportal imports
+nothing from rebrew at runtime and runs offline. The hosted AI surfaces
+(embedding matching, AI decompilation prose, the security and LM agents,
+dynamic execution, auth/teams) are deliberately out of scope, and its
+`docs/PARITY.md` tracks each portal capability and its status.
 
 ### recompile — compiler-as-a-service
 
@@ -203,23 +229,30 @@ project is a drop-in for a reccmp-based one and vice versa.
 
 [BinSync](https://github.com/binsync/binsync) is the decompilation
 community's collaboration framework: a shared state format plus plugins for
-IDA Pro, Binary Ninja, and Ghidra that synchronize names, prototypes,
-structs, and comments between analysts and tools. rebrew bridges to it at
-the **state directory** level — no `libbs` dependency, the state is plain
-TOML (via `tomlkit`):
+IDA Pro, Binary Ninja, and Ghidra that synchronize names, prototypes, types,
+locals, and comments between analysts and tools. rebrew bridges to it at the
+**state directory** level, serializing artifacts with
+[declib](https://github.com/binsync/declib) (BinSync's artifact layer, the
+`binsync` extra):
 
-- `rebrew binsync-export <outdir>` writes a BinSync state directory from
-  the project: one `functions/<hex>.toml` per function (reversed +
-  catalog-only, canonical sizes), `global_vars.toml` (DATA/GLOBAL
-  annotations with real C types), and `structs/<name>.toml`
-  (tree-sitter-collected definitions with fields). Rebrew-specific fields
-  with no BinSync counterpart (STATUS, CFLAGS) are stored as structured
-  comments (`[rebrew] STATUS=EXACT CFLAGS=/O1 /Gd`).
-- `rebrew binsync-import <state-dir>` is the inverse — it reads a state
+- `rebrew binsync-init <state-dir>` creates the git envelope upstream
+  requires: the `binsync/__root__` root commit (`.gitignore` +
+  `binary_hash`) and a `binsync/<user>` branch.
+- `rebrew binsync-export <outdir>` writes a BinSync state directory: declib
+  `Function` artifacts (one per function, reversed + catalog-only with
+  canonical sizes; header, stack vars, and comments included),
+  `global_vars.toml`, `structs/`, `enums.toml`, `typedefs.toml`, and
+  `metadata.toml`. STATUS/CFLAGS are verify-earned and never exported.
+- `rebrew binsync-import <state-dir>` is the inverse: it reads a state
   directory produced by any BinSync-aware decompiler and applies names,
-  prototypes, and global labels back into rebrew metadata/source, with the
-  same conflict resolution as `rebrew sync` (`--accept-binsync` /
-  `--accept-local`, `--module`, `--dry-run`, `--create-missing`).
+  prototypes, globals, stack vars, comments, and type definitions back into
+  rebrew, with the same conflict resolution as `rebrew sync`
+  (`--accept-binsync` / `--accept-local`, `--module`, `--dry-run`,
+  `--create-missing`).
+- `rebrew binsync-overlay <state-dir>` maps a related target's BinSync data
+  onto structurally matched functions of this target (the same code at
+  different VAs): names, prototypes, notes, globals by content, and shifted
+  stack vars/comments.
 - `rebrew binsync-diff <state-dir>` is a read-only divergence report (exit
   1 on any divergence, JSON output) for previewing imports and guarding
   sync drift in CI.
@@ -227,9 +260,7 @@ TOML (via `tomlkit`):
 BinSync is the *team/tool* boundary, complementary to the Ghidra-only ReVa
 MCP bridge (`rebrew sync`): anything BinSync-aware can consume rebrew's
 exports and feed renames back, while the Ghidra bridge stays interactive.
-Full details: [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md); the planned
-`libbs`-based umbrella (`rebrew binsync` push/pull, stack vars, enums) is
-in [prd/09-binsync-full.md](prd/09-binsync-full.md).
+Full details: [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md).
 
 ### Interop flows
 

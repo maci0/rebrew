@@ -8,6 +8,7 @@ import pytest
 
 from rebrew.data_layout import (
     data_symbols,
+    fill_data,
     hex_list,
     insert_definition,
     layout_geometry,
@@ -381,7 +382,7 @@ def test_converge_layout_single_tu(tmp_path: Path) -> None:
     raw = b"\x01\x00\x00\x00"
     dll_dir = tmp_path / "build"
     dll_dir.mkdir(exist_ok=True)
-    (dll_dir / "server.dll").write_bytes(_make_pe(raw, image_base=0x10000000, data_va=0x18000))
+    (dll_dir / "game.dll").write_bytes(_make_pe(raw, image_base=0x10000000, data_va=0x18000))
     (tmp_path / "original").mkdir(exist_ok=True)
     (tmp_path / "original" / "x.dll").write_bytes(_make_pe(raw))
     src = tmp_path / "src"
@@ -392,9 +393,73 @@ def test_converge_layout_single_tu(tmp_path: Path) -> None:
         f'["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n',
         encoding="utf-8",
     )
-    # expected (0x10027000) == current (build data_va + offset) — no pad needed
+    # expected (0x10027000) == current (build data_va + offset) — no pad needed.
+    # The target matches the fixture's [targets."game.dll"] layout section: the
+    # geometry is resolved per target now, so a name with no layout entry fails
+    # loud instead of silently borrowing another target's numbers.
+    result = converge_layout(
+        tmp_path, meta, tmp_path / "original" / "x.dll", src, dry_run=True, target="game.dll"
+    )
+    assert result["adjustments"] == []
+
+
+def test_converge_layout_resolves_target_from_config(tmp_path: Path) -> None:
+    """The build output is ``build/<target>``, never hardcoded: with a
+    ``default_target`` of game.dll only ``build/game.dll`` is consulted."""
+    from rebrew.data_layout import _converge_target, converge_layout
+
+    data_base = 0x10027000
+    obj_a = _mingw_obj(tmp_path, "a", "int g_a = 1;\n")
+    _write_rsp(tmp_path, [obj_a])
+    (tmp_path / "rebrew-project.toml").write_text(
+        "[project]\n"
+        'default_target = "game.dll"\n'
+        f'[targets."game.dll"]\n'
+        'binary = "original/x.dll"\n'
+        'reversed_dir = "src"\n'
+        f'[targets."game.dll".layout]\n'
+        f"image_base = {0x10000000}\n"
+        'sections = [{ name = ".data", va = 0x18000, raw = 4096, vs = 4096 }]\n',
+        encoding="utf-8",
+    )
+    assert _converge_target(tmp_path, None) == "game.dll"
+    assert _converge_target(tmp_path, "other.dll") == "other.dll"
+
+    raw = b"\x01\x00\x00\x00"
+    (tmp_path / "build").mkdir(exist_ok=True)
+    (tmp_path / "build" / "game.dll").write_bytes(
+        _make_pe(raw, image_base=0x10000000, data_va=0x18000)
+    )
+    (tmp_path / "original").mkdir(exist_ok=True)
+    (tmp_path / "original" / "x.dll").write_bytes(_make_pe(raw))
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.c").write_text("int g_a = 1;\n", encoding="utf-8")
+    meta = tmp_path / "rebrew-data.toml"
+    meta.write_text(
+        f'["SERVER.0x{data_base:x}"]\nname = "g_a"\nsection = ".data"\ntype = "int"\n',
+        encoding="utf-8",
+    )
     result = converge_layout(tmp_path, meta, tmp_path / "original" / "x.dll", src, dry_run=True)
     assert result["adjustments"] == []
+    # no build/server.dll anywhere — the hardcoded name is gone
+    assert not (tmp_path / "build" / "server.dll").exists()
+
+
+def test_converge_layout_missing_output_names_target(tmp_path: Path) -> None:
+    """The not-built error names the resolved output, not a hardcoded name."""
+    from rebrew.data_layout import converge_layout
+
+    _write_layout(tmp_path, 0x10027000, 0x1000, 0x1000)
+    (tmp_path / "original").mkdir(exist_ok=True)
+    binp = tmp_path / "original" / "x.dll"
+    binp.write_bytes(_make_pe(b"\x00" * 16))
+    meta = tmp_path / "rebrew-data.toml"
+    meta.write_text("", encoding="utf-8")
+    src = tmp_path / "src"
+    src.mkdir()
+    with pytest.raises(FileNotFoundError, match="build/game.dll"):
+        converge_layout(tmp_path, meta, binp, src, target="game.dll")
 
 
 # ---------------------------------------------------------------------------
@@ -552,6 +617,40 @@ class TestObjSectionSymbols:
         assert obj_data_symbols(tmp_path / "f.obj") == (0x10, 0x04, {"g_data"}, set())
 
 
+class TestObjdumpHexSpellings:
+    """objdump emits uppercase and variable-width hex; the parsers must take
+    every spelling (8-digit lowercase is just one)."""
+
+    def test_section_sizes_uppercase(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.data_layout import _obj_section_sizes
+
+        def fake_run(obj: Path, flag: str) -> str:
+            assert flag == "-h"
+            return "  1 .data  0000001A\n  2 .rdata DEADBEEF\n  3 .bss   4\n"
+
+        monkeypatch.setattr("rebrew.data_layout._run_objdump", fake_run)
+        _secname, sizes = _obj_section_sizes(tmp_path / "f.obj")
+        assert sizes == {".data": 0x1A, ".rdata": 0xDEADBEEF, ".bss": 0x4}
+
+    def test_symbols_uppercase_and_short(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.data_layout import obj_section_symbols
+
+        def fake_run(obj: Path, flag: str) -> str:
+            if flag == "-h":
+                return "  1 .data  00000010\n"
+            assert flag == "-t"
+            return (
+                "[  1](sec  2)(fl 0x00)(ty 300)(scl 2) (nx 0) 0x0000000A _g_upper\n"
+                "[  2](sec  2)(fl 0x00)(ty 300)(scl 2) (nx 0) 0x4 _g_short\n"
+                "[  3](sec  2)(fl 0x00)(ty 300)(scl 2) (nx 0) 00000000 _g_bare\n"
+            )
+
+        monkeypatch.setattr("rebrew.data_layout._run_objdump", fake_run)
+        sizes, buckets = obj_section_symbols(tmp_path / "f.obj", ".data")
+        assert sizes == {".data": 0x10}
+        assert buckets[".data"] == {"g_upper", "g_short", "g_bare"}
+
+
 class TestAuditLayoutSection:
     def test_rdata_audit(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.data_layout import audit_layout
@@ -582,3 +681,170 @@ class TestAuditLayoutSection:
         row = report["rows"][0]
         assert row["dsyms"] == ["g_c"]
         assert row["bsyms"] == []
+
+
+def test_converge_layout_preserves_source_encoding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A legacy-encoded TU must not be rewritten as UTF-8 (byte 0xA9 kept)."""
+    from rebrew import data_layout as dl
+
+    src = tmp_path / "src"
+    src.mkdir()
+    f = src / "a.c"
+    # 0xA9 is a valid Shift-JIS/cp1252 byte but not valid UTF-8.
+    f.write_bytes(b"// \xa9 note\n// FUNCTION: SERVER 0x10027000\nint g_a = 1;\n")
+
+    build = tmp_path / "build"
+    build.mkdir()
+    (build / "server.dll").write_bytes(b"MZ")
+    orig = tmp_path / "orig.dll"
+    orig.write_bytes(b"\x00" * 0x40)
+
+    data_base = 0x10027000
+    monkeypatch.setattr(dl, "layout_geometry", lambda p, target=None: (data_base, 0x1000, 0x1000))
+    monkeypatch.setattr(dl, "data_raw_from_binary", lambda p: b"\x00" * 0x40)
+    monkeypatch.setattr(dl, "data_symbols", lambda m: {"g_a": data_base + 0x20})
+    monkeypatch.setattr(dl, "_converge_target", lambda root, target: "server.dll")
+    monkeypatch.setattr(dl, "built_data_va", lambda d: data_base)
+    monkeypatch.setattr(dl, "link_objects", lambda root: [tmp_path / "a.obj"])
+    monkeypatch.setattr(dl, "obj_data_symbol_offsets", lambda o: (0x10, {"g_a": 0}))
+    monkeypatch.setattr(dl, "_obj_to_source", lambda o, root, src_dir: f)
+
+    result = dl.converge_layout(
+        tmp_path, tmp_path / "m.toml", orig, src, rounds=1, target="server.dll"
+    )
+    assert result["adjustments"], result
+    raw = f.read_bytes()
+    assert b"\xa9" in raw
+    assert b"_dlead_a" in raw
+
+
+def test_layout_geometry_honours_the_requested_target(tmp_path: Path) -> None:
+    """A multi-target project must read the REQUESTED target's .data geometry.
+
+    The old reader returned the first `[targets.*]` match, so
+    `data --converge --target B` sized its pads against target A's data_base.
+    """
+    toml = tmp_path / "rebrew-project.toml"
+    toml.write_text(
+        "[project]\n"
+        'default_target = "A"\n'
+        '[targets."A".layout]\n'
+        "image_base = 4194304\n"
+        'sections = [{ name = ".data", va = 4096, raw = 256, vs = 512 }]\n'
+        '[targets."B".layout]\n'
+        "image_base = 8388608\n"
+        'sections = [{ name = ".data", va = 8192, raw = 1024, vs = 2048 }]\n',
+        encoding="utf-8",
+    )
+    # No target → the project default (A).
+    assert layout_geometry(toml) == (0x400000 + 0x1000, 0x400000 + 0x1100, 0x400000 + 0x1200)
+    # Explicit target → that target's numbers.
+    assert layout_geometry(toml, "B") == (0x800000 + 0x2000, 0x800000 + 0x2400, 0x800000 + 0x2800)
+    # Unknown target fails loud rather than borrowing another target's geometry.
+    with pytest.raises(ValueError, match=r"no \[targets\.C\]"):
+        layout_geometry(toml, "C")
+
+
+def test_data_symbols_includes_bss_when_asked(tmp_path: Path) -> None:
+    """`.bss` globals carry section=".bss"; a `.data`-only read drops them, so
+    `--fill-data` never emitted BSS pads."""
+    meta = tmp_path / "rebrew-data.toml"
+    meta.write_text(
+        '["T.0x1000"]\nname = "g_init"\nsection = ".data"\n'
+        '["T.0x2000"]\nname = "g_zero"\nsection = ".bss"\n',
+        encoding="utf-8",
+    )
+    assert data_symbols(meta) == {"g_init": 0x1000}
+    assert data_symbols(meta, (".data", ".bss")) == {"g_init": 0x1000, "g_zero": 0x2000}
+
+
+def test_fill_data_emits_bss_pads(tmp_path: Path) -> None:
+    """`.bss` globals live past the raw end and must become zero-init pads.
+
+    `fill_data` read the metadata with the default `section=".data"`, so every
+    `.bss` symbol was filtered out before the region split: no BSS pad was ever
+    emitted and `--bss-only` was a no-op.
+    """
+    raw = b"\x01\x00\x00\x00"
+    data_base = 0x10027000
+    _write_layout(tmp_path, data_base, 0x1000, 0x2000)  # vs > raw → BSS tail
+    orig = tmp_path / "original"
+    orig.mkdir(exist_ok=True)
+    (orig / "x.dll").write_bytes(_make_pe(raw, image_base=0x10000000, data_va=0x18000))
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.c").write_text("int g_zero;\n", encoding="utf-8")
+    meta = tmp_path / "rebrew-data.toml"
+    # One `.bss` symbol PAST the raw end (raw_end = base + 0x1000) and well
+    # before the section end: the gap to section_end becomes the zero-init pad.
+    meta.write_text(
+        f'["SERVER.0x{data_base + 0x1500:x}"]\nname = "g_zero"\nsection = ".bss"\ntype = "int"\n',
+        encoding="utf-8",
+    )
+    result = fill_data(tmp_path, meta, tmp_path / "original" / "x.dll", src)
+    assert result["bss_pads"] == 1, result
+    assert "_dpad_" in (src / "a.c").read_text(encoding="utf-8")
+
+
+class TestMergedDefinitionLine:
+    def test_unsized_extern_array_takes_the_array_form(self) -> None:
+        """An unsized `extern char g[];` plus a brace initializer used to emit
+        `extern char g = { … };` — uncompilable C."""
+        from rebrew.data_layout import _merged_definition_line
+
+        out = _merged_definition_line(
+            "extern char", None, "g_buf", "char g_buf[4] = {0x68, 1, 2, 3};"
+        )
+        assert out == "char g_buf[4] = {0x68, 1, 2, 3};"
+        assert not out.startswith("extern")
+
+    def test_sized_declaration_keeps_its_size(self) -> None:
+        from rebrew.data_layout import _merged_definition_line
+
+        out = _merged_definition_line("extern int", 8, "g_a", "int g_a[4] = {1, 2, 3, 4};")
+        assert out == "int g_a[8] = {1, 2, 3, 4};"
+
+    def test_scalar_initializer_stays_scalar(self) -> None:
+        from rebrew.data_layout import _merged_definition_line
+
+        assert _merged_definition_line("extern int", None, "g_a", "int g_a = 7;") == "int g_a = 7;"
+
+
+class TestDataModeTarget:
+    """`--fill-data`, `--own` and `--fix-ownership` must size against the
+    requested target, not the project default (a multi-target project
+    otherwise padded against another binary's `.data` geometry)."""
+
+    def test_data_modes_forward_the_target_to_the_geometry(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.data_layout as dl
+
+        seen: list[str | None] = []
+
+        class _Probe(Exception):
+            pass
+
+        def _probe(toml: Path, target: str | None = None) -> tuple[int, int, int]:
+            seen.append(target)
+            raise _Probe
+
+        monkeypatch.setattr(dl, "layout_geometry", _probe)
+        meta = tmp_path / "rebrew-data.toml"
+        meta.write_text('["A.0x1000"]\nname = "g"\nsection = ".data"\n', encoding="utf-8")
+        stub = tmp_path / "link_stubs.c"
+        stub.write_text("int g;\n", encoding="utf-8")
+        src = tmp_path / "src"
+        src.mkdir()
+        binp = tmp_path / "x.dll"
+        binp.write_bytes(b"MZ")
+
+        with pytest.raises(_Probe):
+            dl.fill_data(tmp_path, meta, binp, src, target="B")
+        with pytest.raises(_Probe):
+            dl.own_data_globals(tmp_path, meta, binp, src, stub, target="B")
+        with pytest.raises(_Probe):
+            dl.fix_ownership(tmp_path, meta, binp, src, target="B")
+        assert seen == ["B", "B", "B"]

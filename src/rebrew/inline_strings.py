@@ -35,6 +35,7 @@ from rich.console import Console
 
 from rebrew.cli import TargetOption, json_print, require_config
 from rebrew.data_layout import data_raw_from_binary, layout_geometry
+from rebrew.utils import atomic_write_text, read_source_text
 
 console = Console(stderr=True)
 
@@ -100,6 +101,29 @@ def _mask_keep_regions(text: str) -> bytearray:
                 in_asm = 1
                 i += 1
             continue
+        if text[i] in ('"', "'"):
+            # A C string/char literal is not a replaceable token use: rewriting
+            # a token inside it nests quotes and yields invalid C.  Masking the
+            # span also stops a `//` inside a literal from starting a comment
+            # (which silently protected the rest of the line).
+            quote = text[i]
+            mask[i] = 48
+            i += 1
+            while i < n:
+                if text[i] == "\\":
+                    mask[i] = 48
+                    i += 1
+                    if i < n:
+                        mask[i] = 48
+                        i += 1
+                    continue
+                if text[i] == "\n":  # unterminated literal: stop at end of line
+                    break
+                mask[i] = 48
+                i += 1
+                if text[i - 1] == quote:
+                    break
+            continue
         if text[i] == "/" and i + 1 < n and text[i + 1] == "/":
             while i < n and text[i] != "\n":
                 mask[i] = 48
@@ -141,7 +165,7 @@ def inline_string_uses(
     dry_run: bool,
 ) -> int:
     """Rewrite *path*'s token uses to inline literals; returns the count."""
-    text = path.read_text(encoding="utf-8", errors="replace")
+    text, encoding = read_source_text(path)
     mask = _mask_keep_regions(text)
     out: list[str] = []
     last = 0
@@ -163,7 +187,7 @@ def inline_string_uses(
     if n_changed:
         out.append(text[last:])
         if not dry_run:
-            path.write_text("".join(out), encoding="utf-8")
+            atomic_write_text(path, "".join(out), encoding=encoding)
         console.print(f"  {path}: {n_changed} string(s) inlined")
     return n_changed
 
@@ -180,28 +204,32 @@ def define_remaining_strings(
     Owner = the file with the most non-extern uses of the token (asm-referenced
     tokens have no inlinable uses left).  Returns the number of definitions.
     """
-    texts = {f: f.read_text(encoding="utf-8", errors="replace") for f in files}
+    pairs = {f: read_source_text(f) for f in files}
+    texts = {f: text for f, (text, _enc) in pairs.items()}
+    encodings = {f: enc for f, (_text, enc) in pairs.items()}
+
+    def real_use_lines(text: str) -> list[str]:
+        """Lines that count as token uses (no comments, no extern declarations)."""
+        return [
+            ln for ln in text.splitlines() if not ln.strip().startswith(("//", "*", "/*", "extern"))
+        ]
 
     def real_uses(text: str) -> set[str]:
         uses: set[str] = set()
-        for ln in text.splitlines():
-            s = ln.strip()
-            if (
-                s.startswith("//")
-                or s.startswith("*")
-                or s.startswith("/*")
-                or s.startswith("extern")
-            ):
-                continue
+        for ln in real_use_lines(text):
             uses.update(m.group(0) for m in token_re.finditer(ln))
         return uses
 
     owner: dict[str, Path] = {}
+    use_lines = {f: real_use_lines(text) for f, text in texts.items()}
     for tok in sorted({t for text in texts.values() for t in real_uses(text)}):
         tok_re = re.compile(r"\b" + re.escape(tok) + r"\b")
         counts: dict[Path, int] = defaultdict(int)
-        for other, text in texts.items():
-            counts[other] += len(tok_re.findall(text))
+        for other, lines in use_lines.items():
+            # Count only real uses: the docstring says "the most non-extern
+            # uses", but counting the whole text let extern lines and comment
+            # mentions pick the owner (and therefore the string's .data slot).
+            counts[other] += sum(len(tok_re.findall(ln)) for ln in lines)
         owner[tok] = max(counts, key=counts.__getitem__)
 
     extern_re = re.compile(r"^(\s*)extern\s+(?:char|unsigned char)\s+")
@@ -225,7 +253,7 @@ def define_remaining_strings(
             changed = True
             done += 1
         if changed and not dry_run:
-            f.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            atomic_write_text(f, "\n".join(lines) + "\n", encoding=encodings[f])
     return done
 
 

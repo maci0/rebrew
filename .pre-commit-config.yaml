@@ -9,9 +9,10 @@ repos:
     hooks:
       - id: trailing-whitespace
       - id: check-added-large-files
-        # 10 MB: the repo vendors two toolchain tarballs (msvc152.tar.xz,
-        # delphi10.tar.xz) so the images build without host files.
-        args: [--maxkb=10240]
+        # 35 MB: the repo vendors MSVC toolchain tarballs (tools/msvc6.3.tar.gz,
+        # msvc6.6.tar.gz, msvc7.0.tar.gz) so toolchain vendoring works without
+        # host files.
+        args: [--maxkb=35840]
       - id: debug-statements
       - id: end-of-file-fixer
       - id: check-merge-conflict
@@ -39,7 +40,7 @@ repos:
 
       - id: ruff-check
         name: Ruff Lint
-        entry: uv run ruff check --fix
+        entry: uv run ruff check
         language: system
         types: [python]
 

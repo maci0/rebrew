@@ -44,6 +44,24 @@ from .parsers import extract_function_from_binary, parse_obj_symbol_bytes
 log = logging.getLogger(__name__)
 
 
+def _sweep_scoring_params(cfg: Any) -> tuple[int, int]:
+    """Capstone mode and pointer size for sweep scoring, from config.
+
+    Shared by ``flag_sweep`` so the sweep scores in the same mode the match.py
+    GA path uses (``analysis.capstone_mode_for_arch``): 16-bit for x86_16,
+    64-bit for x86_64, 32-bit otherwise.  The mode used to be hardcoded to
+    32-bit for everything but x86_16, so an x86_64 sweep decoded REX-prefixed
+    instructions as 32-bit and ranked flags differently from ``rebrew match``.
+    ``capstone`` and ``rebrew.analysis`` import lazily: compiler.py loads early
+    and analysis pulls binary_loader, which must not cycle back here.
+    """
+    from rebrew.analysis import capstone_mode_for_arch
+
+    cs_mode = capstone_mode_for_arch(getattr(cfg, "arch", "") or "")
+    pointer_size = getattr(cfg, "pointer_size", 4) or 4
+    return cs_mode, int(pointer_size)
+
+
 def _filter_wine_stderr(text: str) -> str:
     """Filter Wine noise from stderr text (lazy-imported from rebrew.compile).
 
@@ -169,7 +187,21 @@ def _merged_flag_sets() -> tuple[dict[str, Flags], dict[str, dict[str, list[str]
                 type(provided).__name__,
             )
             continue
-        for name, (profile_flags, profile_tiers) in provided.items():
+        for name, value in provided.items():
+            # Validate each entry before unpacking: a malformed provider value
+            # (e.g. {"msvc6": None}) raised TypeError out of module import,
+            # defeating the documented skip, because this loop sits outside the
+            # try that guards provider().
+            if not (isinstance(value, tuple) and len(value) == 2):
+                log.warning(
+                    "skipping %s provider %r entry %r: expected (Flags, tiers), got %s",
+                    reg.group,
+                    reg.name,
+                    name,
+                    type(value).__name__,
+                )
+                continue
+            profile_flags, profile_tiers = value
             flags[name] = profile_flags
             tiers[name] = profile_tiers
     return flags, tiers
@@ -694,8 +726,16 @@ def flag_sweep(
     combos = generate_flag_combinations(tier=tier, profile=profile)
     log.info("Sweeping %d flag combinations (tier=%s)...", len(combos), tier)
 
-    # Pre-compute target normalization and mnemonics once for all workers
-    pre_norm_target, pre_target_mnems = precompute_target(target_bytes)
+    # Pre-compute target normalization and mnemonics once for all workers.
+    # The arch comes from config: 16-bit DOS/NE targets (x86_16) must score
+    # in 16-bit mode with 2-byte reloc slots, matching the match.py GA path
+    # (which derives both from the same config fields).  The old code left
+    # both at their 32-bit defaults, so a 16-bit sweep compared 16-bit
+    # candidate bytes with 32-bit mnemonics and masked two bytes past every
+    # reloc slot.
+    sweep_cs_mode, sweep_ptr_size = _sweep_scoring_params(cfg)
+
+    pre_norm_target, pre_target_mnems = precompute_target(target_bytes, cs_mode=sweep_cs_mode)
 
     # First compiler error(s) collected from workers — surfaced when the whole
     # sweep fails so a broken toolchain is visible, not a silent empty result.
@@ -728,6 +768,8 @@ def flag_sweep(
                 res.reloc_offsets,
                 _pre_norm_target=pre_norm_target,
                 _pre_target_mnems=pre_target_mnems,
+                cs_mode=sweep_cs_mode,
+                pointer_size=sweep_ptr_size,
             )
             return score.total, flags
         if res.error_msg:

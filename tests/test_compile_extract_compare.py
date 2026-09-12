@@ -43,6 +43,8 @@ class TestExtractAndCompare:
 
     def test_reloc_normalized_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # 8-byte buffers so a reloc at offset 4 (4-byte span) is in-range.
+        # The symbol resolves in the VA map, so DIR32 validation passes and
+        # the differing slot is masked.
         obj = bytearray(b"\x55\x8b\xec\x90\x00\x00\x00\x00")
         tgt = bytearray(b"\x55\x8b\xec\x90\xaa\xbb\xcc\xdd")
         monkeypatch.setattr(
@@ -52,8 +54,30 @@ class TestExtractAndCompare:
                 typed=[CoffRelocRecord(offset=4, type=0x06, symbol="_other")],
             ),
         )
+        monkeypatch.setattr(
+            "rebrew.compile.build_iat_region",
+            lambda cfg: set(),
+        )
+        import struct
+
+        from rebrew.core import smart_reloc_compare
+
+        matched, _, _, valid, invalid = smart_reloc_compare(
+            bytes(obj),
+            bytes(tgt),
+            [CoffRelocRecord(offset=4, type=0x06, symbol="_other")],
+            name_to_va={"_other": struct.unpack("<I", bytes(tgt[4:8]))[0]},
+        )
+        assert matched is True
+        assert valid == [4]
+        assert invalid == []
         # Typed reloc records are preferred; the differing slot is masked.
-        r = _extract_and_compare("/x.obj", "_f", bytes(tgt))
+        r = _extract_and_compare(
+            "/x.obj",
+            "_f",
+            bytes(tgt),
+            name_to_va={"_other": struct.unpack("<I", bytes(tgt[4:8]))[0]},
+        )
         assert r.matched is True
         assert r.status == "RELOC"
 

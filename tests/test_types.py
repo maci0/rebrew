@@ -23,6 +23,17 @@ class TestParseStructs:
         structs = parse_structs("struct Baz { int a; int b; };")
         assert structs["Baz"].size == 8
 
+    def test_forward_reference_resolves(self) -> None:
+        """A field typed as a struct declared LATER still gets its size."""
+        structs = parse_structs(
+            "typedef struct { Inner inner; int tail; } Outer;\n"
+            "typedef struct { int a; int b; } Inner;"
+        )
+        outer = structs["Outer"]
+        assert outer.complete
+        assert [f[2] for f in outer.fields] == [0, 8]
+        assert outer.size == 12
+
     def test_unknown_returns_empty(self) -> None:
         assert parse_structs("int x;") == {}
         assert parse_structs("") == {}
@@ -48,6 +59,17 @@ class TestStructSizes:
         assert type_size("struct Unknown") is None
         assert type_size("") is None
 
+    def test_array_of_double_aligns_to_eight(self) -> None:
+        """An array aligns by its element: ``double arr[2]`` is 8-aligned."""
+        s = parse_structs("typedef struct { char c; double arr[2]; } S;")["S"]
+        assert [f[2] for f in s.fields] == [0, 8]
+        assert s.size == 24
+
+    def test_array_of_int_still_aligns_to_four(self) -> None:
+        s = parse_structs("typedef struct { char c; int arr[2]; } S;")["S"]
+        assert [f[2] for f in s.fields] == [0, 4]
+        assert s.size == 12
+
 
 class TestCheckStruct:
     def test_clean_declaration(self) -> None:
@@ -69,6 +91,19 @@ class TestCheckStruct:
         structs = parse_structs("typedef struct { char x; } Foo;")
         findings = check_struct(structs["Foo"], {0: 4})
         assert findings == [{"offset": 0, "evidenced_width": 4, "issue": "width", "field": "x"}]
+
+    def test_nested_struct_field_span_resolved(self) -> None:
+        """A read inside a nested-struct field is not reported as missing when
+        the known-structs map supplies its size."""
+        from rebrew.types import check_struct, parse_structs
+
+        structs = parse_structs(
+            "typedef struct { int a; int b; } Inner;\n"
+            "typedef struct { char c; Inner inner; int tail; } Outer;"
+        )
+        # Without the map the "Inner" span is zero-width and this read is
+        # reported missing.
+        assert check_struct(structs["Outer"], {4: 4}, known_structs=structs) == []
 
 
 class TestCollectEvidence:

@@ -34,6 +34,7 @@ from rich.table import Table
 
 from rebrew.cli import EXIT_MISMATCH, TargetOption, json_print, require_config
 from rebrew.config import ProjectConfig, load_config
+from rebrew.utils import md5_file
 
 console = Console(stderr=True)
 logger = logging.getLogger(__name__)
@@ -114,7 +115,12 @@ class DoctorReport:
 # Individual checks
 # ---------------------------------------------------------------------------
 
-_KNOWN_FORMATS = {"pe", "elf", "macho", "ne"}
+_KNOWN_FORMATS = {"pe", "elf", "macho", "ne", "mz"}
+
+#: Compiler profiles that can build a 16-bit target (msvc1.52 DOSBox CL.EXE,
+#: tc16/tc20 DOSBox TCC.EXE, watcom16 native wcc).  Shared by the compiler and
+#: include checks so they cannot disagree about which profiles are valid.
+_16BIT_PROFILES = frozenset({"msvc1.52", "tc16", "tc20", "watcom16"})
 _KNOWN_ARCHES = {
     "x86_16",
     "x86_32",
@@ -289,7 +295,7 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
     # 32-bit compiler cannot build the target, so a missing toolchain is
     # expected, not a project defect.  Downgrade to a warning instead of a
     # hard failure, and suggest the right profile via the detector.
-    _16BIT = {"msvc1.52", "tc16", "tc20", "watcom16"}
+    _16BIT = _16BIT_PROFILES
     if getattr(cfg, "arch", "") == "x86_16" and getattr(cfg, "compiler_profile", "") not in _16BIT:
         hint = "msvc1.52, tc16, tc20, or watcom16"
         try:
@@ -791,17 +797,23 @@ def _docker_toolchain_check(cfg: ProjectConfig, name: str, what: str) -> CheckRe
 
 def check_includes(cfg: ProjectConfig) -> CheckResult:
     """Check that the compiler include directory exists."""
-    # A 16-bit NE target without the msvc1.52 profile has no usable compile
-    # path — the include dir is moot, same as the compiler check.  With
-    # msvc1.52 configured, the vendored msvc-1.52-win16/INCLUDE is staged into the
-    # DOSBox sandbox as C:\INCLUDE, so the host path check still applies.
-    if getattr(cfg, "arch", "") == "x86_16" and getattr(cfg, "compiler_profile", "") != "msvc1.52":
+    # A 16-bit NE target without a 16-bit-capable profile has no usable compile
+    # path — the include dir is moot, same as the compiler check.  The profile
+    # set is shared with check_compiler: exempting only msvc1.52 told a working
+    # tc16/tc20/watcom16 project to switch toolchains.  With one configured, the
+    # vendored INCLUDE is staged into the sandbox as C:\INCLUDE, so the host path
+    # check still applies.
+    if (
+        getattr(cfg, "arch", "") == "x86_16"
+        and getattr(cfg, "compiler_profile", "") not in _16BIT_PROFILES
+    ):
         return CheckResult(
             name="Include path",
             status=_WARN,
-            message="16-bit NE target — configure msvc1.52 for includes",
-            fix='Set compiler.profile = "msvc1.52" (vendored INCLUDE is '
-            "staged as C:\\INCLUDE in the DOSBox sandbox).",
+            message="16-bit NE target — configure a 16-bit profile for includes",
+            fix="Set compiler.profile to one of "
+            + ", ".join(sorted(_16BIT_PROFILES))
+            + " (its vendored INCLUDE is staged as C:\\INCLUDE in the sandbox).",
         )
     docker = _docker_toolchain_check(cfg, "Include path", "includes")
     if docker is not None:
@@ -859,12 +871,52 @@ def check_function_list(cfg: ProjectConfig) -> CheckResult:
         )
 
     try:
-        lines = func_list.read_text(encoding="utf-8", errors="replace").splitlines()
-        non_empty = [line for line in lines if line.strip()]
+        from rebrew.catalog.loaders import (
+            _FUNC_LINE_RE_NAME_FIRST,
+            _FUNC_LINE_RE_NAME_ONLY,
+            _FUNC_LINE_RE_SIZE_FIRST,
+        )
+
+        text = func_list.read_text(encoding="utf-8", errors="replace")
+        valid = 0
+        corrupt = 0
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if (
+                _FUNC_LINE_RE_SIZE_FIRST.match(line)
+                or _FUNC_LINE_RE_NAME_FIRST.match(line)
+                # `VA NAME` only: the loader treats a bare `VA NUMBER` line as
+                # malformed (`m3.group(2).isdigit()`), so the doctor must too —
+                # otherwise a list with zero parsable functions reports healthy.
+                or (
+                    (m3 := _FUNC_LINE_RE_NAME_ONLY.match(line)) is not None
+                    and not m3.group(2).isdigit()
+                )
+            ):
+                valid += 1
+            else:
+                corrupt += 1
+        if corrupt > 0:
+            return CheckResult(
+                name="Function list",
+                status=_FAIL,
+                message=f"{func_list.name}: {corrupt} of {valid + corrupt} lines "
+                "do not parse as VA + name entries",
+                fix="Regenerate the list (e.g. 'r2 -qc \"afl\" binary > functions.txt').",
+            )
+        if valid == 0:
+            return CheckResult(
+                name="Function list",
+                status=_WARN,
+                message=f"{func_list.name} has no parseable entries",
+                fix="Regenerate the list (e.g. 'r2 -qc \"afl\" binary > functions.txt').",
+            )
         return CheckResult(
             name="Function list",
             status=_PASS,
-            message=f"{func_list.name} ({len(non_empty)} entries)",
+            message=f"{func_list.name} ({valid} entries)",
         )
     except OSError as e:
         return CheckResult(
@@ -1153,10 +1205,6 @@ def main_entry() -> None:
     _standalone()
 
 
-if __name__ == "__main__":
-    main_entry()
-
-
 def check_optional_tools(cfg: ProjectConfig) -> CheckResult:
     """Check availability of optional symbolic-proving tools (angr + claripy).
 
@@ -1356,6 +1404,26 @@ def check_binsync_state(cfg: ProjectConfig) -> CheckResult:
             message=f"configured BinSync state path is not a directory: {state}",
             fix="Point binsync_state_dir at the state directory.",
         )
+    # A BinSync-authored state dir records the MD5 of the binary it belongs to
+    # at its root (``binary_hash``).  When that disagrees with this target's
+    # binary, every address in the state names a different binary, so the relay
+    # would bind another binary's symbols to this target's VAs.
+    hash_file = state_path / "binary_hash"
+    binary = getattr(cfg, "target_binary", None)
+    if hash_file.exists() and binary is not None and Path(binary).exists():
+        try:
+            stored = hash_file.read_text(encoding="utf-8").strip()
+        except OSError:
+            stored = ""
+        if stored and stored.lower() != md5_file(Path(binary)):
+            return CheckResult(
+                name="BinSync sync",
+                status=_WARN,
+                message=f"BinSync state dir {state} belongs to a different binary "
+                "(binary_hash mismatch) — its addresses do not name this target",
+                fix="Point binsync_state_dir at this target's state dir, or export "
+                "a fresh one for this binary.",
+            )
     # The BinSync workflow expects a git-versioned shared state (the plugin
     # commits/rebase-pulls it).  Without git, the relay cannot sync back.
     git_dir = state_path / ".git"
@@ -1391,6 +1459,17 @@ def check_binsync_state(cfg: ProjectConfig) -> CheckResult:
                 fix="Check that the BinSync Ghidra plugin is installed and "
                 "watching this state dir.",
             )
+    else:
+        # No commit timestamp (empty repo, unreadable history): the relay
+        # state is unchecked — never report it as ready.
+        return CheckResult(
+            name="BinSync sync",
+            status=_WARN,
+            message=f"BinSync state dir {state} has no commits yet — sync state "
+            "is unchecked (Ghidra may not see exports)",
+            fix="Export once with 'rebrew sync --push --state-dir <dir>' and "
+            "confirm the BinSync Ghidra plugin is watching this state dir.",
+        )
     return CheckResult(
         name="BinSync sync",
         status=_PASS,
@@ -1481,7 +1560,7 @@ def check_opt_level(cfg: ProjectConfig) -> CheckResult:
         if "/O1" in cflags or "/O2" in cflags:
             return CheckResult(
                 name="Optimization level",
-                status=_PASS,
+                status=_WARN,
                 message=f"binary shows {info.opt_level} wrapper styles — project cflags "
                 f"'{cflags}' can only match one half; use per-function flag sweeps",
                 fix="rebrew match <file> --flag-sweep-only",
@@ -1505,3 +1584,7 @@ def check_opt_level(cfg: ProjectConfig) -> CheckResult:
         message=f"binary fingerprint shows {detected}, project cflags is '{cflags or '(unset)'}'",
         fix=f'Set compiler cflags to "{detected}" in rebrew-project.toml (or per-function metadata)',
     )
+
+
+if __name__ == "__main__":
+    main_entry()

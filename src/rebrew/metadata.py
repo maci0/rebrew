@@ -25,6 +25,11 @@ file — the full key is unambiguous even if two targets happen to have a
 function at the same VA.  The format mirrors the ``// FUNCTION: SERVER
 0x01006364`` marker.
 
+Tools write :func:`rebrew.utils.qualified_key`'s zero-padded spelling.  Reads
+key on the parsed ``(module, va)``, so a file carrying another hex padding
+(``SERVER.0x1000`` beside ``SERVER.0x00001000``) resolves to one entry, and
+writes update the spelling the file already uses instead of appending a twin.
+
 Owned fields per entry::
 
     size, cflags, toolchain, status, blocker, blocker_delta, note, ghidra,
@@ -81,7 +86,7 @@ import contextlib
 import logging
 import tomllib
 import typing
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -95,8 +100,7 @@ from rebrew.utils import (
     load_metadata_doc,
     load_toml_for_write,
     metadata_write_lock,
-    parse_metadata_key,
-    qualified_key,
+    resolve_metadata_key,
 )
 
 if TYPE_CHECKING:
@@ -111,18 +115,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _metadata_cache: dict[Path, tuple[int, dict[tuple[str, int], dict[str, Any]]]] = {}
-
-
-@contextlib.contextmanager
-def _metadata_write_lock(directory: Path) -> Iterator[None]:
-    """Thread + cross-process lock around a metadata read-modify-write.
-
-    Delegates to the shared :func:`rebrew.utils.metadata_write_lock`
-    (per-filename lock + advisory ``flock`` sidecar) so the function and
-    data stores serialize on the same mechanism.
-    """
-    with metadata_write_lock(directory, METADATA_FILENAME):
-        yield
 
 
 def clear_metadata_cache() -> None:
@@ -154,6 +146,8 @@ _CANONICAL_ORDER = [
     "analysis",
     "skip",
     "globals",
+    "locals",
+    "comments",
     "source",
 ]
 
@@ -171,6 +165,10 @@ METADATA_FIELDS: frozenset[str] = frozenset(
         "ANALYSIS",
         "SKIP",
         "GLOBALS",
+        # LOCALS is the stack-variable map (rebrew-functions.toml [<mod>.<va>.locals]);
+        # COMMENTS is the per-instruction comment map.  Both are declib-backed.
+        "LOCALS",
+        "COMMENTS",
         # ORIGIN is derivable from the FUNCTION: marker module field.
         "SOURCE",
         "PROVE_CONSTRAINTS",
@@ -188,11 +186,11 @@ __all__ = [
     "KNOWN_STATUSES",
     "clear_metadata_cache",
     "is_metadata_key",
+    "is_table_field",
     "metadata_path",
     "load_metadata",
     "save_metadata",
     "get_entry",
-    "set_field",
     "update_field",
     "remove_field",
     "coerce_metadata_value",
@@ -209,6 +207,17 @@ __all__ = [
 def is_metadata_key(key: str) -> bool:
     """Return True if *key* (annotation KV name, upper-case) belongs in the metadata."""
     return key.upper() in METADATA_FIELDS
+
+
+def is_table_field(key: str) -> bool:
+    """True when *key*'s metadata value is a TOML table (``dict``), not a scalar.
+
+    Inline ``// KEY: value`` comments carry scalars only, so a caller migrating
+    an inline key must not hand a string to a table field — ``update_field``
+    rejects it (``_validate_field``), which surfaced as a traceback out of
+    ``rebrew lint --fix``.
+    """
+    return _FIELD_TYPES.get(key.lower()) is dict
 
 
 def metadata_path(directory: Path) -> Path:
@@ -264,7 +273,7 @@ def save_metadata(
     """
     path = (directory / METADATA_FILENAME).resolve()
     doc = build_metadata_doc(data, _CANONICAL_ORDER)
-    with _metadata_write_lock(directory):
+    with metadata_write_lock(directory, METADATA_FILENAME):
         atomic_write_locked(path, tomlkit.dumps(doc))
         _metadata_cache.pop(path, None)
 
@@ -301,6 +310,66 @@ def _require_module(module: str) -> None:
         raise ValueError("metadata writes require a non-empty module")
 
 
+_FIELD_TYPES: dict[str, type | tuple[type, ...]] = {
+    "size": int,
+    "blocker_delta": (int, str),
+    "cflags": str,
+    "toolchain": str,
+    "status": str,
+    "blocker": str,
+    "note": str,
+    "ghidra": str,
+    "analysis": str,
+    "skip": (str, int, bool),
+    "globals": (list, str),
+    "locals": dict,
+    "comments": dict,
+    "source": str,
+    "prove_constraints": dict,
+    "updated_by": str,
+    "updated_at": str,
+}
+"""Lower-case TOML key → accepted value type(s) for :func:`update_field`.
+
+Fields absent here accept any value (no single unambiguous type).
+``size`` is strictly int (coerced from hex/decimal strings); ``skip`` accepts
+the truthy spellings the readers understand.
+"""
+
+
+def _validate_field(key: str, value: Any) -> Any:
+    """Validate *value* for lower-case TOML *key*; return the value to store.
+
+    Raises :class:`ValueError` on an unknown key or a wrongly-typed value.
+    ``size`` accepts hex/decimal string spellings (``"0x2A"``) and coerces
+    them to int; ``blocker_delta`` coerces the same way when parseable and
+    passes other spellings through (the merge layer treats them as unknown).
+    """
+    if key.upper() not in METADATA_FIELDS:
+        raise ValueError(
+            f"unknown metadata field {key!r} (expected one of {sorted(METADATA_FIELDS)})"
+        )
+    if key == "size":
+        if isinstance(value, bool):
+            raise ValueError(f"size must be an int, got {value!r}")
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str):
+            try:
+                return int(value.strip(), 0)
+            except ValueError:
+                raise ValueError(f"size must be an int, got {value!r}") from None
+        raise ValueError(f"size must be an int, got {value!r}")
+    if key == "blocker_delta" and isinstance(value, str):
+        with contextlib.suppress(ValueError):
+            return int(value.strip(), 0)
+        return value
+    want = _FIELD_TYPES.get(key)
+    if want is not None and not isinstance(value, want):
+        raise ValueError(f"{key} must be {want}, got {type(value).__name__}")
+    return value
+
+
 def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> None:
     """Set one field for *(module, va)* in the metadata.  **Private** — use
     :func:`update_field` or :func:`update_source_status` instead.
@@ -310,10 +379,10 @@ def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> N
     """
     _require_module(module)
     path = (directory / METADATA_FILENAME).resolve()
-    toml_key = qualified_key(module, va)
 
-    with _metadata_write_lock(directory):
+    with metadata_write_lock(directory, METADATA_FILENAME):
         doc = load_toml_for_write(path, "metadata")
+        toml_key = resolve_metadata_key(doc, module, va)
 
         if toml_key not in doc:
             doc[toml_key] = tomlkit.table()
@@ -334,11 +403,11 @@ def _set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) -
         return
     _require_module(module)
     path = (directory / METADATA_FILENAME).resolve()
-    toml_key = qualified_key(module, va)
 
-    with _metadata_write_lock(directory):
+    with metadata_write_lock(directory, METADATA_FILENAME):
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
+        toml_key = resolve_metadata_key(doc_dict, module, va)
         if toml_key not in doc_dict:
             doc_dict[toml_key] = tomlkit.table()
         entry = typing.cast(dict[str, Any], doc_dict[toml_key])
@@ -360,7 +429,7 @@ def _set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) -
 def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
     """Set fields for many ``(module, va)`` entries in ONE TOML read-modify-write.
 
-    Perf-review F2 sibling: ``verify --fix-sizes`` called ``set_field`` per
+    Perf-review F2 sibling: ``verify --fix-sizes`` called ``_set_field`` per
     entry — each a full tomlkit parse + dumps + atomic write under the
     global lock.  Batches the I/O while keeping per-field idempotency.
     Rejects ``status`` (use :func:`update_statuses_batch`, which enforces
@@ -370,7 +439,7 @@ def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
         return 0
     path = (metadata_dir / METADATA_FILENAME).resolve()
     changed_entries = 0
-    with _metadata_write_lock(metadata_dir):
+    with metadata_write_lock(metadata_dir, METADATA_FILENAME):
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
         for u in updates:
@@ -380,7 +449,7 @@ def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
             va = u.get("va")
             if va is None:
                 continue
-            toml_key = qualified_key(module, int(va))
+            toml_key = resolve_metadata_key(doc_dict, module, int(va))
             if toml_key not in doc_dict:
                 doc_dict[toml_key] = tomlkit.table()
             entry = typing.cast(dict[str, Any], doc_dict[toml_key])
@@ -413,7 +482,7 @@ def remove_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> in
     if not path.exists():
         return 0
     changed_entries = 0
-    with _metadata_write_lock(metadata_dir):
+    with metadata_write_lock(metadata_dir, METADATA_FILENAME):
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
         for u in updates:
@@ -426,17 +495,9 @@ def remove_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> in
             keys = u.get("keys") or ()
             if not keys:
                 continue
-            want = (str(module), int(va))
-            toml_key = qualified_key(module, int(va))
+            toml_key = resolve_metadata_key(doc_dict, str(module), int(va))
             if toml_key not in doc_dict:
-                toml_key = ""
-                for existing in doc_dict:
-                    parsed = parse_metadata_key(str(existing))
-                    if parsed == want:
-                        toml_key = str(existing)
-                        break
-                if not toml_key:
-                    continue
+                continue
             entry = typing.cast(dict[str, Any], doc_dict[toml_key])
             changed = False
             for key in keys:
@@ -467,23 +528,15 @@ def delete_entries_batch(metadata_dir: Path, targets: list[tuple[str, int]]) -> 
     if not path.exists():
         return 0
     removed = 0
-    with _metadata_write_lock(metadata_dir):
+    with metadata_write_lock(metadata_dir, METADATA_FILENAME):
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
         for module, va in targets:
             if not module:
                 continue
-            want = (str(module), int(va))
-            toml_key = qualified_key(module, int(va))
+            toml_key = resolve_metadata_key(doc_dict, str(module), int(va))
             if toml_key not in doc_dict:
-                toml_key = ""
-                for existing in doc_dict:
-                    parsed = parse_metadata_key(str(existing))
-                    if parsed == want:
-                        toml_key = str(existing)
-                        break
-                if not toml_key:
-                    continue
+                continue
             del doc_dict[toml_key]
             removed += 1
         if removed:
@@ -507,19 +560,15 @@ def _mutate_entry_doc(
     """
     path = (directory / METADATA_FILENAME).resolve()
     _require_module(module)
-    if not path.exists():
-        return False
-    toml_key = qualified_key(module, va)
 
-    with _metadata_write_lock(directory):
-        try:
-            doc = tomlkit.parse(path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            logger.warning("Failed to parse metadata %s: %s", path, exc)
+    with metadata_write_lock(directory, METADATA_FILENAME):
+        doc = load_toml_for_write(path, "metadata")
+        if not doc:
             return False
 
         # Use dict access for type checking on tomlkit Container
         doc_dict = typing.cast(dict[str, Any], doc)
+        toml_key = resolve_metadata_key(doc_dict, module, va)
         if toml_key not in doc_dict:
             return False
         if not mutate(doc_dict, toml_key):
@@ -570,6 +619,8 @@ def update_field(directory: Path, va: int, key: str, value: Any, module: str) ->
 
     Business rules enforced here:
     - STATUS writes are blocked; callers must use :func:`update_source_status`.
+    - *key* must be a known metadata field (:data:`METADATA_FIELDS`) of the
+      right value type — unknown keys and mistyped values raise.
 
     Args:
         directory: The metadata root directory (``cfg.metadata_dir``).
@@ -580,31 +631,14 @@ def update_field(directory: Path, va: int, key: str, value: Any, module: str) ->
 
     Raises:
         ValueError: If *key* is ``"status"`` — use :func:`update_source_status`.
+        ValueError: If *key* is unknown or *value* has the wrong type.
 
     """
     if key == "status":
         raise ValueError(
             "Use update_source_status() for STATUS changes — it enforces promotion rules"
         )
-    _set_field(directory, va, key, value, module=module)
-
-
-def set_field(directory: Path, va: int, key: str, value: Any, module: str) -> None:
-    """Raw field writer — sets *key* to *value* without any guards.
-
-    Unlike :func:`update_field`, this does **not** reject STATUS writes.
-    Use this only when you need to bypass business rules (e.g. tests,
-    data migration scripts).
-
-    Args:
-        directory: The metadata root directory (``cfg.metadata_dir``).
-        va: Virtual address integer.
-        key: Lower-case TOML key (e.g. ``"cflags"``, ``"status"``).
-        value: Value to write.
-        module: Target module name (e.g. ``"SERVER"``).
-
-    """
-    _set_field(directory, va, key, value, module=module)
+    _set_field(directory, va, key, _validate_field(key, value), module=module)
 
 
 def remove_field(directory: Path, va: int, key: str, module: str) -> bool:
@@ -628,6 +662,10 @@ def remove_field(directory: Path, va: int, key: str, module: str) -> bool:
     """
     if key == "status":
         raise ValueError("Cannot delete STATUS directly")
+    if key.lower() not in {f.lower() for f in METADATA_FIELDS}:
+        raise ValueError(
+            f"unknown metadata field {key!r} (expected one of {sorted(METADATA_FIELDS)})"
+        )
     return _delete_field(directory, va, key, module=module)
 
 
@@ -720,9 +758,12 @@ def update_source_status(
             ``lint``/``binsync-import``/``intake``/``match``).  Recorded as
             ``updated_by`` with a UTC ``updated_at`` timestamp.
 
+    Raises:
+        ValueError: If *module* is empty — nothing would be written (the
+            loader only reads qualified ``MODULE.0xVA`` keys).
+
     """
-    if not module:
-        return
+    _require_module(module)
     update_statuses_batch(
         metadata_dir,
         [
@@ -763,7 +804,7 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
         return 0
     path = (metadata_dir / METADATA_FILENAME).resolve()
     changed = 0
-    with _metadata_write_lock(metadata_dir):
+    with metadata_write_lock(metadata_dir, METADATA_FILENAME):
         # Single read for the whole batch
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
@@ -772,12 +813,22 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
             module = u.get("module") or ""
             if not module:
                 continue
-            toml_key = qualified_key(module, u["va"])
+            va = u.get("va")
+            if va is None:
+                continue
+            if u.get("new_status") is None:
+                continue
+            try:
+                new_status = canonical_status(str(u.get("new_status")))
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if not new_status:
+                continue
+            toml_key = resolve_metadata_key(doc_dict, module, int(va))
             if toml_key not in doc_dict:
                 doc_dict[toml_key] = tomlkit.table()
             entry = typing.cast(dict[str, Any], doc_dict[toml_key])
 
-            new_status = canonical_status(u["new_status"])
             clear_blockers = u.get("clear_blockers", True)
             force = u.get("force", False)
 
@@ -897,6 +948,16 @@ def _apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
             ann.globals_list = [str(g) for g in raw_g]
         elif isinstance(raw_g, str):
             ann.globals_list = [g.strip() for g in raw_g.split(",") if g.strip()]
+
+    if "locals" in entry:
+        raw_locals = entry["locals"]
+        if isinstance(raw_locals, dict):
+            ann.locals = {str(k): v for k, v in raw_locals.items()}
+
+    if "comments" in entry:
+        raw_comments = entry["comments"]
+        if isinstance(raw_comments, dict):
+            ann.comments = {str(k): v for k, v in raw_comments.items()}
 
     if "source" in entry:
         ann.source = str(entry["source"])

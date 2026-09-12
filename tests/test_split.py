@@ -59,6 +59,36 @@ def _invoke(
     return result, src
 
 
+class TestSplitExtensionHandling:
+    def test_multi_ext_config_writes_one_extension(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """`source_ext = ".c,.cpp"` must not become part of the filename."""
+        src = tmp_path / "multi.cpp"
+        _write(src, _multi_two())
+        monkeypatch.setattr(
+            "rebrew.split.require_config",
+            lambda target=None, json_mode=False: SimpleNamespace(
+                marker="SERVER", source_ext=".c,.cpp", reversed_dir=tmp_path, metadata_dir=tmp_path
+            ),
+        )
+        result = runner.invoke(app, [str(src)])
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "func_a.cpp").exists()
+        assert not (tmp_path / "func_a.c,.cpp").exists()
+
+    def test_uppercase_extension_accepted(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """iter_sources matches FOO.C as .c; the explicit-file check must too."""
+        src = tmp_path / "MULTI.C"
+        _write(src, _multi_two())
+        monkeypatch.setattr(
+            "rebrew.split.require_config",
+            lambda target=None, json_mode=False: SimpleNamespace(
+                marker="SERVER", source_ext=".c", reversed_dir=tmp_path, metadata_dir=tmp_path
+            ),
+        )
+        result = runner.invoke(app, [str(src)])
+        assert result.exit_code == 0, result.output
+
+
 class TestSplitBasic:
     def test_splits_two_functions(self, tmp_path: Path, monkeypatch: Any) -> None:
         _write(tmp_path / "multi.c", _multi_two())

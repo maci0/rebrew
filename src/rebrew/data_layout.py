@@ -27,12 +27,13 @@ import struct
 import subprocess
 import tomllib
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
 from rebrew.binary_loader import load_binary
 from rebrew.data_metadata import iter_data_symbols
+from rebrew.utils import atomic_write_text, read_source_text
 
 # ---------------------------------------------------------------------------
 # Link order + per-TU symbol inventory (objdump-based)
@@ -103,7 +104,7 @@ def _obj_sections(obj: Path) -> tuple[dict[int, str], int, int]:
 def _obj_section_sizes(obj: Path) -> tuple[dict[int, str], dict[str, int]]:
     """``(section index → name, {section name: size})`` from ``objdump -h``."""
     h = _run_objdump(obj, "-h")
-    secs = re.findall(r"^\s+(\d+)\s+(\S+)\s+([0-9a-f]+)\s", h, re.M)
+    secs = re.findall(r"^\s+(\d+)\s+(\S+)\s+([0-9a-fA-F]+)\s", h, re.M)
     secname = {int(a): b for a, b, _ in secs}
     sizes: dict[str, int] = {}
     for _a, b, c in secs:
@@ -118,7 +119,7 @@ def _iter_obj_symbols(obj: Path) -> Iterator[tuple[int, int, str]]:
         m = re.match(r"\[ *\d+\]\(sec +(-?\d+)\)", line)
         if not m:
             continue
-        vm = re.search(r"\s(?:0x)?([0-9a-f]{8})\s+(\S+)\s*$", line[m.end() :])
+        vm = re.search(r"\s(?:0x)?([0-9a-fA-F]+)\s+(\S+)\s*$", line[m.end() :])
         if not vm:
             continue
         yield int(m.group(1)), int(vm.group(1), 16), vm.group(2)
@@ -177,24 +178,51 @@ def obj_text_symbol_offsets(obj: Path) -> tuple[int, dict[str, int]]:
 # ---------------------------------------------------------------------------
 
 
-def data_symbols(metadata: Path, section: str | None = ".data") -> dict[str, int]:
-    """``{name: full VA}`` for every symbol in *section* of the metadata."""
+def data_symbols(metadata: Path, section: str | Sequence[str] | None = ".data") -> dict[str, int]:
+    """``{name: full VA}`` for every symbol in *section* of the metadata.
+
+    *section* is one name, a set of names, or ``None`` for every section.  The
+    default (``.data``) is the historical contract; callers that model the
+    section tail pass ``(".data", ".bss")`` — BSS globals carry
+    ``section=".bss"`` (``rebrew data --set-type`` / the Ghidra import), so a
+    ``.data``-only read silently drops them.
+    """
     with open(metadata, "rb") as fh:
         db = tomllib.load(fh)
+    wanted = None if section is None else {section} if isinstance(section, str) else set(section)
     return {
-        str(val["name"]): va for _, va, val in iter_data_symbols(db, section) if val.get("name")
+        str(val["name"]): va
+        for _, va, val in iter_data_symbols(db, None)
+        if val.get("name") and (wanted is None or val.get("section") in wanted)
     }
 
 
-def layout_geometry(project_toml: Path) -> tuple[int, int, int]:
+def layout_geometry(project_toml: Path, target: str | None = None) -> tuple[int, int, int]:
     """``(data_base, raw_end, section_end)`` full-VA from the layout metadata.
 
     ``data_base`` = image_base + .data va; ``raw_end`` = base + raw size;
     ``section_end`` = base + VirtualSize (the BSS tail end).
+
+    *target* selects the ``[targets.*]`` entry; without it the project's
+    ``default_target`` is used, falling back to the first declared target.  The
+    old code always read the FIRST target, so a multi-target project sized
+    ``data --converge``'s pads against another binary's geometry.
     """
     with open(project_toml, "rb") as fh:
         cfg = tomllib.load(fh)
-    for _target, tcfg in cfg.get("targets", {}).items():
+    targets = cfg.get("targets", {})
+    if target:
+        tcfg = targets.get(target)
+        if tcfg is None:
+            raise ValueError(f"no [targets.{target}] in {project_toml}")
+        candidates = [(target, tcfg)]
+    else:
+        default = str(cfg.get("project", {}).get("default_target") or "")
+        if default and default in targets:
+            candidates = [(default, targets[default])]
+        else:
+            candidates = list(targets.items())
+    for _target, tcfg in candidates:
         for s in tcfg.get("layout", {}).get("sections", []):
             if s.get("name") == ".data":
                 image_base = int(tcfg.get("layout", {}).get("image_base", 0) or 0)
@@ -385,6 +413,7 @@ def fill_data(
     src_dir: Path,
     dry_run: bool = False,
     bss_only: bool = False,
+    target: str | None = None,
 ) -> dict[str, int]:
     """Emit ``_dpad_<addr>[N]`` pads for the uncovered .data byte runs.
 
@@ -393,10 +422,17 @@ def fill_data(
     become zero-init pads.  The owner TU of each pad is the most-referencing
     file of the following symbol (leading run: the first symbol's owner).
     Returns ``{"init_pads": n, "bss_pads": n}``.
+
+    *target* selects which ``[targets.*]`` geometry the pads are sized
+    against; without it the project default applies (a multi-target project
+    otherwise placed pads against another binary's ``.data``).
     """
-    data_base, raw_end, section_end = layout_geometry(root / "rebrew-project.toml")
+    data_base, raw_end, section_end = layout_geometry(root / "rebrew-project.toml", target=target)
     orig = data_raw_from_binary(bin_path)
-    toml = data_symbols(metadata)
+    # Both sections: `.bss` globals (section=".bss" in the metadata) live past
+    # raw_end and become the zero-init pads — a `.data`-only read dropped them,
+    # so BSS pads were never emitted and `--bss-only` was a no-op.
+    toml = data_symbols(metadata, (".data", ".bss"))
     files = sorted(p for p in src_dir.rglob("*.c") if not p.is_symlink())
     by_addr = sorted(toml.items(), key=lambda kv: kv[1])
     if not by_addr:
@@ -505,12 +541,45 @@ _TYPE_SIZES: dict[str, int] = {
 
 _ARRAY_SUFFIX_RE = re.compile(r"\[\s*(0x[0-9a-fA-F]+|\d+)\s*\]")
 
+#: Words that are not part of a declared type: storage classes and
+#: qualifiers precede it, the declared name follows it.
+_NON_TYPE_WORDS = frozenset({"extern", "static", "auto", "register", "const", "volatile", "signed"})
+
+#: Multi-word type spellings that survive qualifier/name stripping below.
+_TYPE_PHRASES = frozenset(
+    {
+        "unsigned char",
+        "signed char",
+        "unsigned short",
+        "signed short",
+        "unsigned int",
+        "signed int",
+        "unsigned long",
+        "long",
+        "unsigned __int64",
+    }
+)
+
 
 def c_type_size(ctype: str) -> int:
     """Byte size of a C type on the 32-bit target (pointers are 4)."""
     if "*" in ctype:
         return 4
-    return _TYPE_SIZES.get(_ARRAY_SUFFIX_RE.sub("", ctype).strip(), 4)
+    # Strip the declared name (trailing identifier) and any [] suffix, then
+    # drop storage-class/qualifier words: `extern short g_s;` -> `short`.
+    # A bare trailing word with no type before it (`g_thing;`) is unknown.
+    text = _ARRAY_SUFFIX_RE.sub("", ctype).strip().rstrip(";").strip()
+    words = re.findall(r"[A-Za-z_][A-Za-z0-9_]*|__int64", text)
+    while words and words[0] in _NON_TYPE_WORDS:
+        words.pop(0)
+    while words and words[-1] not in _TYPE_SIZES and " ".join(words[-2:]) not in _TYPE_PHRASES:
+        words.pop()
+    if not words:
+        return 4
+    for width in (3, 2, 1):
+        if len(words) >= width and " ".join(words[-width:]) in _TYPE_SIZES:
+            return _TYPE_SIZES[" ".join(words[-width:])]
+    return 4
 
 
 def estimate_type_size(type_str: str) -> int:
@@ -593,6 +662,7 @@ def own_data_globals(
     src_dir: Path,
     stub_file: Path,
     dry_run: bool = False,
+    target: str | None = None,
 ) -> dict[str, Any]:
     """Materialize stub-file globals as real definitions in their owner TUs.
 
@@ -608,7 +678,7 @@ def own_data_globals(
     *stub_file*'s symbols then drop out of the unresolved set on regeneration
     (``rebrew gen-stubs``).
     """
-    data_base, raw_end, _section_end = layout_geometry(root / "rebrew-project.toml")
+    data_base, raw_end, _section_end = layout_geometry(root / "rebrew-project.toml", target=target)
     orig = data_raw_from_binary(bin_path)
     toml = data_symbols(metadata)
     stub_resolved = stub_file.resolve()
@@ -754,6 +824,28 @@ def _decl_info(text: str, name: str) -> tuple[str, int | None] | None:
     return m.group(1).strip(), (int(size_m.group(1)) if size_m else None)
 
 
+def _merged_definition_line(dtyp: str, dsize: int | None, name: str, def_line: str) -> str:
+    """The definition line to append when *name* is already declared in the TU.
+
+    *dtyp*/*dsize* come from :func:`_decl_info` (the existing declaration);
+    *def_line* is the intended definition (e.g. ``char g_buf[4] = {…};``).  A
+    DEFINITION must not keep a declaration's ``extern``, and a brace
+    initializer needs the array form: an unsized ``extern char g_buf[];`` used
+    to produce ``extern char g_buf = { … };`` — uncompilable C.
+    """
+    dtyp = re.sub(r"\bextern\b\s*", "", dtyp).strip() or dtyp
+    init_m = re.search(r"=\s*(\{[^;]*\}|[^;]+);?$", def_line)
+    init = init_m.group(1) if init_m else "0"
+    if not init.startswith("{"):
+        return f"{dtyp} {name} = {init};"
+    if dsize is not None:
+        size = str(dsize)
+    else:
+        size_m = re.search(r"\[(\d+)\]", def_line)
+        size = size_m.group(1) if size_m else str(init.count(",") + 1)
+    return f"{dtyp} {name}[{size}] = {init};"
+
+
 def _data_symbol_types(metadata: Path) -> dict[str, tuple[int, str]]:
     """``{name: (full VA, type)}`` for the .data symbols in the metadata."""
     with open(metadata, "rb") as fh:
@@ -771,6 +863,7 @@ def fix_ownership(
     bin_path: Path,
     src_dir: Path,
     dry_run: bool = False,
+    target: str | None = None,
 ) -> dict[str, Any]:
     """Re-assign global ownership so each TU owns one contiguous address run.
 
@@ -781,7 +874,7 @@ def fix_ownership(
     emitted with their original bytes.
     """
     toml = _data_symbol_types(metadata)
-    data_base, raw_end, _section_end = layout_geometry(root / "rebrew-project.toml")
+    data_base, raw_end, _section_end = layout_geometry(root / "rebrew-project.toml", target=target)
     orig = data_raw_from_binary(bin_path)
     files = sorted(p for p in src_dir.rglob("*.c") if not p.is_symlink())
 
@@ -841,7 +934,7 @@ def fix_ownership(
 
     n_edit = 0
     for tu, names in removals.items():
-        text = tu.read_text(encoding="utf-8", errors="replace")
+        text, encoding = read_source_text(tu)
         for name in names:
             r = _find_definition(text, name)
             if r:
@@ -849,9 +942,10 @@ def fix_ownership(
                 text = text[:s] + f"extern {typ} {name}{sz};" + text[e:]
                 n_edit += 1
         if not dry_run:
-            tu.write_text(text, encoding="utf-8")
+            atomic_write_text(tu, text, encoding=encoding)
     for tu, lines in additions.items():
-        text = tu.read_text(encoding="utf-8", errors="replace").rstrip("\n") + "\n"
+        text, encoding = read_source_text(tu)
+        text = text.rstrip("\n") + "\n"
         for line in lines:
             name_m = re.search(r"\s(\w+)(?:\[|\s*=)", line)
             if not name_m:
@@ -863,17 +957,11 @@ def fix_ownership(
             if di and not di[0].startswith("extern"):
                 continue
             if di:
-                dtyp, dsize = di
-                init_m = re.search(r"=\s*(\{[^;]*\}|[^;]+);?$", line)
-                init = init_m.group(1) if init_m else "0"
-                if dsize is not None and init.startswith("{"):
-                    line = f"{dtyp} {name}[{dsize}] = {init};"
-                else:
-                    line = f"{dtyp} {name} = {init};"
+                line = _merged_definition_line(di[0], di[1], name, line)
             text += line + "\n"
             n_edit += 1
         if not dry_run:
-            tu.write_text(text, encoding="utf-8")
+            atomic_write_text(tu, text, encoding=encoding)
     return {"edits": n_edit, "moved": sum(len(v) for v in removals.values())}
 
 
@@ -882,6 +970,29 @@ def fix_ownership(
 # ---------------------------------------------------------------------------
 
 _DLEAD_RE = re.compile(r"^unsigned char (_dlead_\w+)\[(\d+)\]")
+
+
+def _converge_target(root: Path, target: str | None) -> str:
+    """The build output name for :func:`converge_layout` (``build/<target>``).
+
+    *target* wins when given; else the project's ``default_target``; else
+    the first ``[targets.*]`` entry (same fallback ``load_config`` applies
+    when ``--target`` is omitted).
+    """
+    if target:
+        return target
+    with open(root / "rebrew-project.toml", "rb") as fh:
+        cfg = tomllib.load(fh)
+    project = cfg.get("project", {})
+    default = project.get("default_target")
+    if isinstance(default, str) and default:
+        return default
+    targets: object = cfg.get("targets", {})
+    if isinstance(targets, dict) and targets:
+        first: object = next(iter(targets))
+        if isinstance(first, str):
+            return first
+    raise ValueError("no targets in rebrew-project.toml (cannot resolve converge build output)")
 
 
 def built_data_va(dll: Path) -> int:
@@ -909,21 +1020,37 @@ def converge_layout(
     src_dir: Path,
     rounds: int = 1,
     dry_run: bool = False,
+    target: str | None = None,
 ) -> dict[str, Any]:
     """Fixed-point convergence of .data placement via ``_dlead_<tu>[N]`` pads.
 
-    Per-OBJ walk of the build (in link order) gives each TU's actual .data
+    per-OBJ walk of the build (in link order) gives each TU's actual .data
     start.  For every TU owning metadata symbols, delta = expected VA of its
     first symbol - current VA; a leading ``unsigned char _dlead_<n>[N] = {...}``
     pad (original bytes from the reference) is inserted/adjusted so the TU's
-    contribution shifts by delta.  Iterate: rebuild -> measure.
+    contribution shifts by delta.  Iterate: measure -> adjust.
+
+    rebrew does not invoke the build: ``rounds`` re-measures the SAME
+    ``build/<target>``, so a new fixed point requires the caller to rebuild and
+    re-run (the flag help and docs/CLI.md say so).  The pads themselves are
+    derived from ``link_objects`` + the reference, so one round of measure+adjust
+    is what moves the layout.
+
+    The built binary is resolved as ``build/<target>``: pass *target*
+    explicitly, else the project's ``default_target``.  Callers that already
+    hold a config should pass ``config.target_name``; the backstop read of
+    ``rebrew-project.toml`` is only for direct (test/helper) callers.
 
     Returns per-round pad adjustments.
     """
-    data_base, raw_end, _section_end = layout_geometry(root / "rebrew-project.toml")
+    # Same target the build output is read from, so the pads are sized against
+    # THIS target's .data geometry (the old call always read the first target).
+    data_base, raw_end, _section_end = layout_geometry(
+        root / "rebrew-project.toml", target=_converge_target(root, target)
+    )
     orig = data_raw_from_binary(bin_path)
     toml = data_symbols(metadata)
-    dll = root / "build" / "server.dll"
+    dll = root / "build" / _converge_target(root, target)
     if not dll.exists():
         raise FileNotFoundError(f"build output not found: {dll} — build the project first")
 
@@ -950,7 +1077,7 @@ def converge_layout(
             f = _obj_to_source(obj, root, src_dir)
             if f is None:
                 continue
-            text = f.read_text(encoding="utf-8", errors="replace")
+            text, encoding = read_source_text(f)
             m = _DLEAD_RE.search(text)
             old_size = int(m.group(2)) if m else 0
             new_size = max(0, old_size + delta)
@@ -978,7 +1105,7 @@ def converge_layout(
                 if line not in text:
                     text = line + "\n" + text
             if not dry_run:
-                f.write_text(text, encoding="utf-8")
+                atomic_write_text(f, text, encoding=encoding)
             changes.append(
                 {
                     "tu": str(f.relative_to(root)),

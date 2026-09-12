@@ -24,15 +24,15 @@ def _default_padding() -> tuple[int, ...]:
 
 
 def trim_trailing_padding(data: bytes, padding: tuple[int, ...] | None = None) -> int:
-    if padding is None:
-        padding = _default_padding()
     r"""Return the length of *data* after stripping trailing padding bytes.
 
-    >>> trim_trailing_padding(b'\\x55\\x89\\xe5\\xcc\\xcc')
+    >>> trim_trailing_padding(b'\x55\x89\xe5\xcc\xcc')
     3
-    >>> trim_trailing_padding(b'\\xcc\\xcc\\xcc')
+    >>> trim_trailing_padding(b'\xcc\xcc\xcc')
     0
     """
+    if padding is None:
+        padding = _default_padding()
     end = len(data)
     while end > 0 and data[end - 1] in padding:
         end -= 1
@@ -95,7 +95,6 @@ def has_back_jumps(
 
 _GLOBAL_COMMENT_RE = re.compile(r"(?://|/\*)\s*GLOBAL:\s*(?P<target>[A-Z0-9_]+)\s+(0x[0-9a-fA-F]+)")
 _DECL_NAME_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[.*\])?\s*;")
-_ARRAY_SIZE_RE = re.compile(r"\[(\d+)\]")
 
 
 if TYPE_CHECKING:
@@ -135,7 +134,12 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
     """Scan annotated sources and return globals keyed by VA.
 
     Each value is a dict with keys: va, name, decl, files, module, size.
+    Sizes come from the shared data_layout type-size model (the same table
+    that sizes materialized definitions, BSS coverage, and annotated bytes),
+    so the estimates cannot drift apart.
     """
+    from rebrew.data_layout import estimate_type_size
+
     globals_dict: dict[int, dict[str, Any]] = {}
     for p in iter_sources(src_dir, cfg):
         try:
@@ -158,24 +162,7 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
 
                     origin = m.group("target")  # MODULE from // GLOBAL: MODULE 0xVA
 
-                    # Estimate size from declaration type.  Pointer types
-                    # (incl. char *) are pointer-sized — the old ordering let
-                    # the `elif "char" in decl` branch misclassify `char *p`
-                    # as a 1-byte global (code-review F2).
-                    size = 4  # default pointer-sized
-                    if decl:
-                        if "char" in decl and "[" in decl:
-                            arr_m = _ARRAY_SIZE_RE.search(decl)
-                            if arr_m:
-                                size = int(arr_m.group(1))
-                        elif "*" in decl:
-                            size = 4
-                        elif "short" in decl:
-                            size = 2
-                        elif "char" in decl:
-                            size = 1
-                        elif "double" in decl:
-                            size = 8
+                    size = estimate_type_size(decl) if decl else 4
 
                     if va not in globals_dict:
                         globals_dict[va] = {

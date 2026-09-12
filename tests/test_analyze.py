@@ -341,7 +341,7 @@ timeout = 60
 class TestDispatchTablesShape:
     """Corpus regression: analyze must not assume DispatchTable internals."""
 
-    def test_collect_dispatch_uses_real_fields(self, monkeypatch) -> None:
+    def test_collect_dispatch_uses_real_fields(self, monkeypatch, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
         from rebrew.analyze import _collect_dispatch
@@ -358,8 +358,54 @@ class TestDispatchTablesShape:
             )
         ]
         monkeypatch.setattr("rebrew.data.find_dispatch_tables", lambda *a, **k: tables)
-        out = _collect_dispatch(SimpleNamespace(data=b"", sections={}))
+        cfg = SimpleNamespace(
+            reversed_dir=tmp_path / "src",
+            metadata_dir=None,
+            function_list=tmp_path / "functions.txt",
+            target_binary=tmp_path / "t.dll",
+            marker="SERVER",
+            source_ext=".c",
+            iat_thunks=[],
+        )
+        out = _collect_dispatch(SimpleNamespace(data=b"", sections={}), cfg)
         assert out == [{"va": "0x00005000", "section": ".rdata", "entries": 2, "resolved": 1}]
+
+    def test_known_functions_reach_the_scanner(self, monkeypatch, tmp_path: Path) -> None:
+        """The dossier must hand the table scanner the project's known names.
+
+        Passing ``{}`` made every entry name empty, so `resolved` was always 0
+        even for tables whose targets are annotated.
+        """
+        from types import SimpleNamespace
+
+        from rebrew.analyze import _collect_dispatch
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "f.c").write_text(
+            "// FUNCTION: SERVER 0x401000\n// SIZE: 8\nint f1(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        funcs = tmp_path / "functions.txt"
+        funcs.write_text("", encoding="utf-8")
+        seen: dict[str, object] = {}
+
+        def _fake(data, sections, known, **kwargs):
+            seen["known"] = known
+            return []
+
+        monkeypatch.setattr("rebrew.data.find_dispatch_tables", _fake)
+        cfg = SimpleNamespace(
+            reversed_dir=src,
+            metadata_dir=None,
+            function_list=funcs,
+            target_binary=tmp_path / "t.dll",
+            marker="SERVER",
+            source_ext=".c",
+            iat_thunks=[],
+        )
+        _collect_dispatch(SimpleNamespace(data=b"", sections={}), cfg)
+        assert 0x401000 in seen["known"]  # type: ignore[operator]
 
 
 class TestLibrarySection:

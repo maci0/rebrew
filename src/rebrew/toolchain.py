@@ -542,6 +542,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc4.0/BIN",
         host_path=_vendored("msvc/4.0-win32") if _vendored("msvc/4.0-win32").exists() else None,
         description="MSVC 4.0 (32-bit PE, C89) — docker image (wine inside)",
     ),
@@ -552,6 +553,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc4.2/bin",
         host_path=_vendored("msvc/4.2-win32") if _vendored("msvc/4.2-win32").exists() else None,
         description="MSVC 4.2 (32-bit PE, C89) — docker image (wine inside)",
     ),
@@ -562,6 +564,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc5.0/bin",
         host_path=_vendored("msvc/5.0-win32") if _vendored("msvc/5.0-win32").exists() else None,
         description="MSVC 5.0 (32-bit PE, C89) — docker image (wine inside)",
     ),
@@ -664,6 +667,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc2.0/bin",
         host_path=_vendored("msvc/2.0-win32") if _vendored("msvc/2.0-win32").exists() else None,
         host_bin="bin",
         description="MSVC 2.0 (32-bit PE, C89) — docker image (wine inside)",
@@ -675,6 +679,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc4.1/bin",
         host_path=_vendored("msvc/4.1-win32") if _vendored("msvc/4.1-win32").exists() else None,
         host_bin="bin",
         description="MSVC 4.1 (32-bit PE, C89) — docker image (wine inside)",
@@ -686,6 +691,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc5.0-sp1/bin",
         host_path=_vendored("msvc/5.0-sp1-win32")
         if _vendored("msvc/5.0-sp1-win32").exists()
         else None,
@@ -699,6 +705,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc5.0-sp2/bin",
         host_path=_vendored("msvc/5.0-sp2-win32")
         if _vendored("msvc/5.0-sp2-win32").exists()
         else None,
@@ -712,6 +719,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc5.0-sp3/bin",
         host_path=_vendored("msvc/5.0-sp3-win32")
         if _vendored("msvc/5.0-sp3-win32").exists()
         else None,
@@ -725,7 +733,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
-        tool_root="/opt/msvc6.0-sp3/Bin",
+        tool_root="/opt/msvc6.0-sp3/VC98/Bin",
         host_path=_vendored("msvc/6.0-sp3-win32")
         if _vendored("msvc/6.0-sp3-win32").exists()
         else None,
@@ -795,7 +803,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
-        tool_root="/opt/msvc6.0/VC98/Bin",
+        tool_root="/opt/msvc6.0-sp6/VC98/Bin",
         host_path=_vendored("msvc/6.0-sp6-win32")
         if _vendored("msvc/6.0-sp6-win32").exists()
         else None,
@@ -809,6 +817,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc7.0/Vc7/bin",
         host_path=_vendored("msvc/7.0-win32") if _vendored("msvc/7.0-win32").exists() else None,
         host_bin="Bin",
         description="MSVC 7.0 (32-bit PE, C89) — docker image (wine inside) (13.10.3077 build)",
@@ -820,6 +829,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc7.0-rtm/Vc7/bin",
         host_path=_vendored("msvc/7.0-rtm-win32")
         if _vendored("msvc/7.0-rtm-win32").exists()
         else None,
@@ -833,6 +843,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc7.0-sp1/Vc7/bin",
         host_path=_vendored("msvc/7.0-sp1-win32")
         if _vendored("msvc/7.0-sp1-win32").exists()
         else None,
@@ -846,6 +857,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc7.1/Vc7/bin",
         host_path=_vendored("msvc/7.1-win32") if _vendored("msvc/7.1-win32").exists() else None,
         host_bin="bin",
         description="MSVC 7.1 (32-bit PE, C89, 13.10.3077) — docker image (wine inside)",
@@ -857,6 +869,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc7.1-sp1/Vc7/bin",
         host_path=_vendored("msvc/7.1-sp1-win32")
         if _vendored("msvc/7.1-sp1-win32").exists()
         else None,
@@ -870,6 +883,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc8.0/VC/bin",
         host_path=_vendored("msvc/8.0-win32") if _vendored("msvc/8.0-win32").exists() else None,
         host_bin="bin",
         description="MSVC 8.0 (32-bit PE, C89, 14.00.50727) — docker image (wine inside)",
@@ -881,6 +895,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc8.0-sp1/VC/bin",
         host_path=_vendored("msvc/8.0-sp1-win32")
         if _vendored("msvc/8.0-sp1-win32").exists()
         else None,
@@ -894,6 +909,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc9.0/VC/bin",
         host_path=_vendored("msvc/9.0-win32") if _vendored("msvc/9.0-win32").exists() else None,
         host_bin="bin",
         description="MSVC 9.0 (32-bit PE, C89, 15.00.21022) — docker image (wine inside)",
@@ -905,6 +921,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc9.0-sp1/VC/bin",
         host_path=_vendored("msvc/9.0-sp1-win32")
         if _vendored("msvc/9.0-sp1-win32").exists()
         else None,
@@ -918,6 +935,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc11.0/VC/bin",
         host_path=_vendored("msvc/11.0-win32") if _vendored("msvc/11.0-win32").exists() else None,
         host_bin="bin",
         description="MSVC 11.0 (32-bit PE, C++, 17.00.50522) — docker image (wine inside)",
@@ -929,6 +947,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc10.0/VC/bin",
         host_path=_vendored("msvc/10.0-win32") if _vendored("msvc/10.0-win32").exists() else None,
         host_bin="bin",
         description="MSVC 10.0 (32-bit PE, C89, 16.00.30319) — docker image (wine inside)",
@@ -940,6 +959,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="msvc",
         obj_ext=".obj",
+        tool_root="/opt/msvc10.0-sp1/VC/bin",
         host_path=_vendored("msvc/10.0-sp1-win32")
         if _vendored("msvc/10.0-sp1-win32").exists()
         else None,
@@ -1007,6 +1027,7 @@ _BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         runtime="wine",
         flags_style="posix",
         obj_ext=".obj",
+        tool_root="/opt/bcc55/Bin",
         host_path=_vendored("borland/5.5-win32")
         if _vendored("borland/5.5-win32").exists()
         else None,
@@ -1569,14 +1590,14 @@ def pull_toolchain(name: str, timeout: int = 1200) -> tuple[str, bool]:
 
     def _pull() -> None:
         r = subprocess.run(
-            ["docker", "pull", image],
+            [container_runtime(), "pull", image],
             capture_output=True,
             text=True,
             timeout=timeout,
         )
         if r.returncode != 0:
             raise ToolchainError(
-                f"docker pull {spec.image} failed: {r.stderr[-400:]}.  "
+                f"{container_runtime()} pull {spec.image} failed: {r.stderr[-400:]}.  "
                 f"rebrew images are BUILT from pinned sources, not pushed to a "
                 f"registry — run `rebrew toolchain build {name}` instead"
             )

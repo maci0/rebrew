@@ -194,7 +194,7 @@ def normalize_listed(root: Path, listed: list[str], by_key: dict[str, str]) -> l
 def _entry_sep(text: str, block: _Block) -> str:
     """Separator to join list entries: newline+indent in block style, space inline."""
     if len(block.spans) >= 2:
-        gap = text[block.spans[-2][1] : block.spans[0][0]]
+        gap = text[block.spans[-2][1] : block.spans[-1][0]]
         if "\n" in gap:
             return "\n" + _line_indent(text, block.spans[-1][0])
         return " "

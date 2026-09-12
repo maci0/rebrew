@@ -72,6 +72,17 @@ class TestWriteCoffObject:
         machine = struct.unpack_from("<H", path.read_bytes(), 0)[0]
         assert machine == 0x01C0
 
+    def test_overlapping_placements_raise(self, tmp_path: Path) -> None:
+        """Overlapping placements must fail loud, never emit a corrupt
+        object (the old code skipped `symbols.append`, desyncing the symbol
+        table from the section bytes)."""
+        path = tmp_path / "overlap.o"
+        with pytest.raises(ValueError, match="overlapping placement"):
+            objdiff_project.write_coff_object(
+                path,
+                [("_first", 0, b"\x55\x8b\xec"), ("_overlap", 1, b"\xb8\x01")],
+            )
+
 
 class TestObjdiffProject:
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
@@ -127,6 +138,42 @@ class TestObjdiffProject:
         assert target.exists()
         assert struct.unpack_from("<H", target.read_bytes(), 0)[0] == 0x014C
 
+    def test_extract_failure_skips_function_with_warning(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One bad function must not abort the project: it is skipped with a
+        warning while good functions still synthesize (binary_similarity
+        `_load_side` parity)."""
+        cfg = self._cfg(tmp_path)
+        (cfg.reversed_dir / "funcs").mkdir(exist_ok=True)
+        src_file = cfg.reversed_dir / "funcs" / "a.c"
+        src_file.write_text("// FUNCTION: T 0x1000\nint a(void){return 0;}\n", encoding="utf-8")
+
+        monkeypatch.setattr(
+            objdiff_project,
+            "iter_annotations",
+            lambda sources, target=None, metadata_dir=None: [
+                (
+                    src_file,
+                    [
+                        _fake_ann(0x1000, 5, "good", "_good"),
+                        _fake_ann(0x2000, 5, "bad", "_bad"),
+                    ],
+                )
+            ],
+        )
+
+        def _fake_extract(p: object, va: int, size: int) -> bytes:
+            if va == 0x2000:
+                raise RuntimeError("bad section")
+            return b"\x55\x8b\xec\x5d\xc3"
+
+        monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", _fake_extract)
+        units = objdiff_project._synthesize_target_objects(cfg, tmp_path / "target")
+        assert len(units) == 1
+        target = Path(units[0]["target_path"])
+        assert target.exists()
+
     def test_build_entry_maps_object_to_source(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -156,3 +203,106 @@ class TestObjdiffProject:
         assert len(calls) == 1
         assert calls[0][0] == src_file
         assert calls[0][3] == base.name
+
+    def test_build_entry_uses_annotation_overrides(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The shim must resolve the file's own TOOLCHAIN/CFLAGS and module;
+        passing empty strings compiled the base object with different flags
+        than test/verify (objdiff showed a mismatch for an EXACT function)."""
+        cfg = self._cfg(tmp_path)
+        (cfg.reversed_dir / "funcs").mkdir(exist_ok=True)
+        src_file = cfg.reversed_dir / "funcs" / "a.c"
+        src_file.write_text(
+            "// FUNCTION: T 0x1000\n// SIZE: 5\n// TOOLCHAIN: msvc5\n// CFLAGS: /O1\n"
+            "int a(void){return 0;}\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            objdiff_project, "require_config", lambda target=None, json_mode=False: cfg
+        )
+        base = tmp_path / "build" / "objdiff" / "current" / "funcs" / "a.c.o"
+        base.parent.mkdir(parents=True, exist_ok=True)
+        seen: dict[str, str] = {}
+        monkeypatch.setattr(
+            "rebrew.cli.resolve_compile_overrides",
+            lambda cfg_, d, tool, cfl, mod: (
+                seen.update(tool=tool, cflags=cfl, module=mod),
+                ("msvc5", "/O1"),
+            )[1],
+        )
+        monkeypatch.setattr(
+            "rebrew.compile.compile_to_obj",
+            lambda cfg_, source, cflags, workdir, **kw: (str(workdir / kw["obj_name"]), ""),
+        )
+        import sys
+
+        monkeypatch.setattr(sys, "argv", ["rebrew-objdiff-build", "T", str(base)])
+        objdiff_project.objdiff_build_entry()
+        assert seen == {"tool": "msvc5", "cflags": "/O1", "module": "T"}
+
+    def test_watch_patterns_follow_reversed_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The config's watch globs come from cfg.reversed_dir, not a literal
+        ``src/``: a project under ``reversed/`` never triggered a rebuild."""
+        cfg = self._cfg(tmp_path)
+        cfg.reversed_dir = tmp_path / "reversed"
+        cfg.reversed_dir.mkdir(exist_ok=True)
+        (cfg.reversed_dir / "funcs").mkdir(exist_ok=True)
+        src_file = cfg.reversed_dir / "funcs" / "a.c"
+        src_file.write_text("// FUNCTION: T 0x1000\nint a(void){return 0;}\n", encoding="utf-8")
+        monkeypatch.setattr(
+            objdiff_project, "require_config", lambda target=None, json_mode=False: cfg
+        )
+        monkeypatch.setattr(
+            objdiff_project,
+            "iter_annotations",
+            lambda sources, target=None, metadata_dir=None: [
+                (src_file, [_fake_ann(0x1000, 5, "a", "_a")])
+            ],
+        )
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, size: b"\x55\x8b\xec\x5d\xc3"
+        )
+        out = tmp_path / "objdiff.json"
+        r = runner.invoke(
+            objdiff_project.app,
+            ["--output", str(out), "--target-dir", str(tmp_path / "target")],
+        )
+        assert r.exit_code == 0
+        doc = json.loads(out.read_text(encoding="utf-8"))
+        assert doc["watch_patterns"] == ["reversed/**/*.c", "reversed/**/*.h"]
+
+    def test_watch_patterns_default_src_layout(self, tmp_path: Path) -> None:
+        """The default src/ layout keeps the historical globs."""
+        cfg = self._cfg(tmp_path)
+        assert objdiff_project._watch_patterns(cfg) == ["src/**/*.c", "src/**/*.h"]
+
+
+class TestSynthesizeOrdering(TestObjdiffProject):
+    def test_out_of_va_order_functions_do_not_overlap(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Annotations arrive in source order; a file listing a higher VA first
+        must still synthesize (write_coff_object rejects decreasing offsets)."""
+        cfg = self._cfg(tmp_path)
+        (cfg.reversed_dir / "funcs").mkdir(exist_ok=True)
+        src_file = cfg.reversed_dir / "funcs" / "a.c"
+        src_file.write_text("// FUNCTION: T 0x2000\nint b(void){return 0;}\n", encoding="utf-8")
+        monkeypatch.setattr(
+            objdiff_project,
+            "iter_annotations",
+            lambda sources, target=None, metadata_dir=None: [
+                (
+                    src_file,
+                    [_fake_ann(0x2000, 5, "b", "_b"), _fake_ann(0x1000, 5, "a", "_a")],
+                )
+            ],
+        )
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, size: b"\x55\x8b\xec\x5d\xc3"
+        )
+        units = objdiff_project._synthesize_target_objects(cfg, tmp_path / "target")
+        assert len(units) == 1
+        assert Path(units[0]["target_path"]).read_bytes()[:2] == b"\x4c\x01"

@@ -1,40 +1,16 @@
 """Tests for multi-arch Phase 0 — arch presets, detection, the arch-aware
 extent walker, per-arch reloc tables, and the non-x86 discovery/jump-table
 gates.  Synthetic bytes only (no cross compilers in CI); the first real
-MIPS/PPC fixtures land with Phase 1's gcc-mips target."""
+MIPS/PPC fixtures land with Phase 1's gcc-mips target.
+
+These tests assert public behavior (load_config values, detect/discover
+results, reloc application), never private table contents.
+"""
 
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
-from rebrew.config import _ARCH_PRESETS, ProjectConfig
-
-
-class TestArchPresets:
-    def test_mips32_preset(self) -> None:
-        p = _ARCH_PRESETS["mips32"]
-        assert p["capstone_arch"] == "CS_ARCH_MIPS"
-        assert p["capstone_mode"] == "CS_MODE_MIPS32"
-        assert p["pointer_size"] == 4
-        assert 0x00 in p["padding_bytes"]
-
-    def test_ppc32_preset(self) -> None:
-        p = _ARCH_PRESETS["ppc32"]
-        assert p["capstone_arch"] == "CS_ARCH_PPC"
-        assert p["pointer_size"] == 4
-        assert bytes(p["padding_bytes"]) == b"\x60\x00\x00\x00"  # `nop`
-
-    def test_sh2_preset(self) -> None:
-        p = _ARCH_PRESETS["sh2"]
-        assert p["capstone_arch"] == "CS_ARCH_SH"
-        assert p["capstone_mode"] == "CS_MODE_SH2"
-        assert p["pointer_size"] == 4
-
-    def test_presets_drive_capstone_properties(self) -> None:
-        cfg = SimpleNamespace(arch="mips32")
-        assert ProjectConfig.capstone_arch.__get__(cfg) == _CS("CS_ARCH_MIPS")
-        assert ProjectConfig.capstone_mode.__get__(cfg) == _CS("CS_MODE_MIPS32")
 
 
 def _CS(name: str) -> int:
@@ -43,23 +19,81 @@ def _CS(name: str) -> int:
     return int(getattr(capstone, name))
 
 
+# Arch-aware behavior goes through load_config (public): per-arch values
+# land on the cfg the rest of the pipeline reads.
+
+
+def _make_project(tmp_path: Path, arch: str) -> Path:
+    (tmp_path / "rebrew-project.toml").write_text(
+        '[project]\ndefault_target = "T"\n'
+        '[targets.T]\nbinary = "x.bin"\nreversed_dir = "src"\n'
+        f'arch = "{arch}"\n'
+    )
+    return tmp_path
+
+
+class TestArchPresets:
+    """Per-arch values surface on load_config (public), driving capstone props."""
+
+    @pytest.mark.parametrize(
+        ("arch", "capstone_arch", "capstone_mode", "pointer_size"),
+        [
+            ("mips32", "CS_ARCH_MIPS", "CS_MODE_MIPS32", 4),
+            ("ppc32", "CS_ARCH_PPC", "CS_MODE_32", 4),
+            ("sh2", "CS_ARCH_SH", "CS_MODE_SH2", 4),
+            ("x86_32", "CS_ARCH_X86", "CS_MODE_32", 4),
+            ("x86_64", "CS_ARCH_X86", "CS_MODE_64", 8),
+        ],
+    )
+    def test_load_config_arch_values(
+        self, tmp_path: Path, arch: str, capstone_arch: str, capstone_mode: str, pointer_size: int
+    ) -> None:
+        from rebrew.config import ProjectConfig, load_config
+
+        cfg = load_config(_make_project(tmp_path, arch))
+        assert cfg.pointer_size == pointer_size
+        cap = SimpleNamespace(arch=cfg.arch)
+        assert ProjectConfig.capstone_arch.__get__(cap) == _CS(capstone_arch)
+        assert ProjectConfig.capstone_mode.__get__(cap) == _CS(capstone_mode)
+
+    def test_mips_padding_is_zero_byte(self, tmp_path: Path) -> None:
+        from rebrew.config import load_config
+
+        assert 0x00 in load_config(_make_project(tmp_path, "mips32")).padding_bytes
+
+    def test_unknown_arch_warns_and_falls_back(self, tmp_path: Path) -> None:
+        from rebrew.config import load_config
+
+        with pytest.warns(UserWarning, match="unknown arch"):
+            cfg = load_config(_make_project(tmp_path, "notanarch"))
+        assert cfg.arch == "x86_32"
+        assert cfg.pointer_size == 4
+
+
 class TestArchDetection:
-    def test_elf_machine_maps(self) -> None:
-        import lief
+    def test_detect_pe_i386_end_to_end(self) -> None:
+        """The checked-in mini PE detects as (pe, x86_32) via the public API."""
+        from pathlib import Path as _Path
 
-        from rebrew.binary_loader import _ELF_MACHINE_TO_ARCH
+        from rebrew.binary_loader import detect_format_and_arch
 
-        assert _ELF_MACHINE_TO_ARCH[lief.ELF.ARCH.MIPS] == "mips32"
-        assert _ELF_MACHINE_TO_ARCH[lief.ELF.ARCH.PPC] == "ppc32"
-        assert _ELF_MACHINE_TO_ARCH[lief.ELF.ARCH.PPC64] == "ppc64"
-        assert _ELF_MACHINE_TO_ARCH[lief.ELF.ARCH.SH] == "sh2"
+        fmt, arch = detect_format_and_arch(_Path(__file__).parent / "fixtures" / "mini_pe.exe")
+        assert fmt == "pe"
+        assert arch == "x86_32"
 
-    def test_macho_ppc_map(self) -> None:
-        import lief
+    def test_detect_unknown_format_raises(self, tmp_path: Path) -> None:
+        from rebrew.binary_loader import detect_format_and_arch
 
-        from rebrew.binary_loader import _MACHO_CPU_TO_ARCH
+        blob = tmp_path / "x.bin"
+        blob.write_bytes(b"\x00" * 64)
+        with pytest.raises(ValueError, match="Cannot detect"):
+            detect_format_and_arch(blob)
 
-        assert _MACHO_CPU_TO_ARCH[lief.MachO.Header.CPU_TYPE.POWERPC] == "ppc32"
+    def test_detect_missing_file_raises(self, tmp_path: Path) -> None:
+        from rebrew.binary_loader import detect_format_and_arch
+
+        with pytest.raises(FileNotFoundError):
+            detect_format_and_arch(tmp_path / "nope.exe")
 
     def test_load_binary_sets_arch(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.binary_loader as bl

@@ -19,6 +19,7 @@ Usage in a tool::
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 from typing import Any, NoReturn
@@ -91,13 +92,17 @@ def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
         return None
     key = (str(cache_path), st.st_mtime_ns, st.st_size)
     if key in _VERIFY_CACHE_MEMO:
-        return _VERIFY_CACHE_MEMO[key]
+        cached = _VERIFY_CACHE_MEMO[key]
+        return copy.deepcopy(cached) if cached is not None else None
     try:
         raw: dict[str, Any] | None = json.loads(cache_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        # UnicodeDecodeError is a ValueError, not an OSError: a cache holding
+        # non-UTF-8 bytes (truncated/tampered) used to escape this guard and
+        # crash `status`/`todo` instead of degrading to "no cache".
         raw = None
     _VERIFY_CACHE_MEMO[key] = raw
-    return raw
+    return copy.deepcopy(raw) if raw is not None else None
 
 
 def require_config(
@@ -222,9 +227,10 @@ def iter_annotations(
     for src in sources:
         try:
             annos = parse_c_file_multi(src, target_name=target, metadata_dir=metadata_dir)
-        except ValueError:
-            # A malformed annotation block silently drops the whole function
-            # from verify/todo/status output — visible at WARNING, not DEBUG.
+        except Exception:
+            # Any per-source failure (parse error, I/O, encoding) silently
+            # drops the whole function from verify/todo/status output — one
+            # bad file must never abort a batch run.  Visible at WARNING.
             logging.warning("Skipping %s due to annotation parse error", src, exc_info=True)
             continue
         if annos:
@@ -391,9 +397,17 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
                 if a.va == va_int:
                     return src
 
-    # Symbol name — match against the file stem.
+    # Symbol name — match against the file stem, tolerating the MSVC leading
+    # underscore on either side (``_foo.c`` for symbol ``foo``, ``foo.c`` for
+    # ``_foo``).  The EXACT stem must win over an underscore variant: comparing
+    # both sides stripped made `__foo.c`/`_foo.c` (path order 0x5F) beat
+    # `foo.c`, so the wrong file was compiled and its VA got the STATUS write.
     for src in iter_sources(src_dir, cfg):
-        if src.stem == source_arg or src.stem == source_arg.lstrip("_"):
+        if src.stem == source_arg:
+            return src
+    arg_stem = source_arg.lstrip("_")
+    for src in iter_sources(src_dir, cfg):
+        if src.stem.lstrip("_") == arg_stem:
             return src
 
     return p

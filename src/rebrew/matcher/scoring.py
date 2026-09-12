@@ -85,7 +85,12 @@ def _normalize_with_reloc_offsets(
     out = bytearray(code)
     code_len = len(out)
     for ro in reloc_offsets:
-        start = max(0, ro)
+        # Negative offsets are nonsensical (same rule as
+        # _build_invalid_reloc_mask): the old max(0, ro) clamp turned a
+        # negative slot into a zeroed [0, pointer_size) span.
+        if ro < 0:
+            continue
+        start = ro
         end = min(ro + pointer_size, code_len)
         if start < end:
             out[start:end] = b"\x00" * (end - start)
@@ -138,7 +143,11 @@ def _zero_reloc_fields(insn: capstone.CsInsn, out: bytearray) -> None:
     # call rel32 / jmp rel32 / MOV abs32 (A0-A3)
     if insn.opcode[0] in (0xE8, 0xE9, 0xA0, 0xA1, 0xA2, 0xA3):
         if size >= 5:
-            for i in range(1, 5):
+            # The field starts after the opcode byte: with a legacy prefix
+            # (66 A1 …) that is not offset 1, and zeroing from 1 also clobbered
+            # the opcode itself.
+            start = _opcode_index(insn.bytes) + 1
+            for i in range(start, start + 4):
                 if addr + i < len(out):
                     out[addr + i] = 0
     # cmp [abs32], imm8 / conditional jmp near
@@ -244,10 +253,21 @@ def _normalize_and_mnems_x86_32(
 
 
 #: x86 legacy prefixes — skipped to recover the first real opcode byte from
-#: raw instruction bytes (capstone's ``opcode[0]`` skips them too).
+#: raw instruction bytes (capstone's ``opcode[0]`` skips them too).  LOCK/ICEBP
+#: (F0/F1) belong here as well: `f0 08 …` is `lock or […], dl`, and treating F0
+#: as the opcode dropped the displacement the detail path masks.
 _PREFIX_BYTES: frozenset[int] = frozenset(
-    (0x26, 0x2E, 0x36, 0x3E, 0x64, 0x65, 0x66, 0x67, 0xF2, 0xF3)
+    (0x26, 0x2E, 0x36, 0x3E, 0x64, 0x65, 0x66, 0x67, 0xF0, 0xF1, 0xF2, 0xF3)
 )
+
+
+def _opcode_index(insn_bytes: bytes) -> int:
+    """Index of the first real opcode byte of *insn_bytes* (prefixes skipped)."""
+    i = 0
+    n = len(insn_bytes)
+    while i < n and insn_bytes[i] in _PREFIX_BYTES:
+        i += 1
+    return i if i < n else 0
 
 
 def _first_opcode_byte(insn_bytes: bytes) -> int:
@@ -257,10 +277,7 @@ def _first_opcode_byte(insn_bytes: bytes) -> int:
     :func:`_zero_reloc_fields_raw` checks — x86-32 has no REX/VEX, so the
     legacy prefix set is complete.
     """
-    for b in insn_bytes:
-        if b not in _PREFIX_BYTES:
-            return b
-    return insn_bytes[0] if insn_bytes else 0
+    return insn_bytes[_opcode_index(insn_bytes)] if insn_bytes else 0
 
 
 def _has_disp32(insn_bytes: bytes) -> bool:
@@ -315,7 +332,12 @@ def _zero_reloc_fields_raw(insn: capstone.CsInsn, out: bytearray, md_det: capsto
     op0 = _first_opcode_byte(b)
     # call rel32 / jmp rel32 / MOV abs32 (A0-A3)
     if op0 in (0xE8, 0xE9, 0xA0, 0xA1, 0xA2, 0xA3):
-        for i in range(1, 5):
+        # The relocatable field starts right after the opcode byte; with a
+        # legacy prefix (66 A1 …) that is not offset 1.  Zeroing from offset 1
+        # also clobbered the opcode and left the top displacement byte, so the
+        # raw and detail normalizations disagreed on the same instruction.
+        start = _opcode_index(b) + 1
+        for i in range(start, start + 4):
             if addr + i < len(out):
                 out[addr + i] = 0
         return
@@ -470,10 +492,11 @@ def score_candidate(
         # Vectorized span marking: every reloc covers [ro, ro + pointer_size),
         # so build one index array from all offsets at once instead of
         # slicing per offset in a Python loop.
-        if isinstance(reloc_offsets, dict):
-            offsets = np.asarray(list(reloc_offsets), dtype=np.int64)
-        else:
-            offsets = np.asarray(reloc_offsets, dtype=np.int64)
+        # Negative offsets are ignored everywhere else (a reloc before the
+        # function start).  The `idx >= 0` filter below would otherwise keep the
+        # in-range TAIL of their span (ro=-2, pointer_size=4 → indices
+        # [-2,-1,0,1] → 0,1 survive) and mask bytes no reloc covers.
+        offsets = np.asarray([ro for ro in list(reloc_offsets) if ro >= 0], dtype=np.int64)
         if offsets.size:
             idx = (offsets[:, None] + np.arange(pointer_size)).ravel()
             idx = idx[(idx >= 0) & (idx < min_len)]

@@ -99,9 +99,12 @@ def match_bytes(index: Index, data: bytes) -> tuple[str, str] | None:
         for obj_name, body, relocs in entries:
             if len(body) < len(data):
                 continue
-            if len(data) - len(relocs) < MIN_FIXED_FRACTION * len(data):
-                continue  # a mostly-relocation table trivially matches anything
+            # Only reloc offsets inside the compared window mask a byte here;
+            # relocs past len(data) (a longer library body) must not make the
+            # mostly-relocation guard stricter than the comparison itself.
             fixed = {i for i in range(len(data)) if i not in relocs}
+            if len(fixed) < MIN_FIXED_FRACTION * len(data):
+                continue  # a mostly-relocation table trivially matches anything
             if all(data[i] == body[i] for i in fixed):
                 return sym, obj_name
     return None
@@ -116,14 +119,24 @@ def _merge_libraries(libs: list[Path]) -> Index:
     return merged
 
 
-def load_allowlist(path: Path | None) -> set[int]:
+def load_allowlist(path: Path | None, *, json_mode: bool = False) -> set[int]:
+    """Parse a ``#``-comment allow-list of hex VAs (one per line).
+
+    BOM-safe: a file saved with a UTF-8 BOM would otherwise make the first
+    entry ``"\\ufeff0x..."`` and crash ``int``.  A malformed entry is a user
+    error, reported via ``error_exit`` rather than an uncaught ``ValueError``.
+    """
     if path is None:
         return set()
     out: set[int] = set()
-    for raw in path.read_text(errors="replace").splitlines():
+    for raw in path.read_text(encoding="utf-8-sig", errors="replace").splitlines():
         line = raw.split("#", 1)[0].strip()
-        if line:
+        if not line:
+            continue
+        try:
             out.add(int(line, 16))
+        except ValueError:
+            error_exit(f"invalid allow-list entry {line!r} in {path}", json_mode=json_mode)
     return out
 
 
@@ -222,7 +235,7 @@ def main(
             )
         raise typer.Exit(code=EXIT_OK)
 
-    found = _findings(cfg, _merge_libraries(lib), load_allowlist(allow))
+    found = _findings(cfg, _merge_libraries(lib), load_allowlist(allow, json_mode=json_output))
     if json_output:
         json_print({"findings": found, "count": len(found)})
     else:

@@ -154,6 +154,28 @@ class TestHintFor:
         insns = _insns("1b c0 40")
         assert _hint_for(insns, 0) is None
 
+    def test_one_arg_forwarder_hint(self) -> None:
+        # mov eax,[esp+4]; push eax; call [IAT] — 1-arg forwarder.
+        insns = _insns("8b 44 24 04 50 ff 15 5c 12 00 01")
+        call_idx = next(i for i, x in enumerate(insns) if x.mnemonic == "call")
+        hint = _hint_for(insns, call_idx) or ""
+        assert "forwarder" in hint
+        assert "1-arg" in hint
+
+    def test_two_arg_compact_forwarder_hint(self) -> None:
+        # push [esp+4]; push [esp+8]; call [IAT] — compact 2-arg form.
+        insns = _insns("ff 74 24 04 ff 74 24 08 ff 15 5c 12 00 01")
+        call_idx = next(i for i, x in enumerate(insns) if x.mnemonic == "call")
+        hint = _hint_for(insns, call_idx) or ""
+        assert "forwarder" in hint
+        assert "2-arg" in hint
+
+    def test_plain_push_call_is_not_forwarder(self) -> None:
+        # push imm; push reg; call [IAT] — plain argument call, no hint.
+        insns = _insns("68 10 00 00 00 50 ff 15 5c 12 00 01")
+        call_idx = next(i for i, x in enumerate(insns) if x.mnemonic == "call")
+        assert _hint_for(insns, call_idx) is None
+
 
 class TestAnnotationForOperand:
     def test_plain_immediate(self) -> None:

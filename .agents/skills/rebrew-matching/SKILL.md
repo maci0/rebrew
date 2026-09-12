@@ -143,6 +143,7 @@ rebrew match src/bench/<file>.c --flag-sweep-only --tier full          # 6.2M co
 rebrew match --all --flag-sweep                                           # batch: all NEAR_MATCHING
 rebrew match --all --flag-sweep --fix-cflags                             # auto-update CFLAGS on hit
 rebrew merge-sweep --dry-run                         # TU-partition search (original was amalgamated)
+rebrew climb src/bench/<file>.c --json                # deterministic single-statement hill-climb (statement-order pass)
 rebrew match --all --flag-sweep-then-ga                                        # sweep flags, then GA with best flags
 rebrew match --all --flag-sweep-then-ga --skip-recent 24                       # resume: skip stubs GA-run in last 24h
 ```

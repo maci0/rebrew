@@ -34,22 +34,36 @@ console = Console(stderr=True)
 # ---------------------------------------------------------------------------
 
 
+#: Minimum length for a prefix-less all-letter hex token to read as a VA.
+#: Shorter all-letter tokens (``dead``, ``beef``, ``face``) read as plain
+#: words/names; a full 32-bit width (``deadbeef``) reads as an address.
+_MIN_BARE_HEX_LETTERS = 8
+
+
 def _looks_like_va(arg: str) -> bool:
     """True when *arg* reads as a hex/int address rather than a file path.
 
     Used to disambiguate ``rebrew xrefs <va> [binary]`` positionals — a VA
-    is ``0x...`` hex or a bare integer, never a path with a dot extension.
+    is ``0x...`` hex or a prefix-less number with at least one digit
+    (``401000``, ``1dead``), never a path or a bare word.  A bare word
+    like ``dead`` parses as hex but is far likelier a name/path, so only
+    a full-width all-letter token (``deadbeef``) still counts as a VA.
     """
     a = arg.strip()
     if a.lower().startswith("0x") or a.lower().startswith("-0x"):
         return True
     if not a or any(ch in a for ch in "/\\."):
         return False
-    try:
-        int(a, 16)
-        return True
-    except ValueError:
+    low = a.lower()
+    if low.startswith("+") or low.startswith("-"):
+        low = low[1:]
+        if not low:
+            return False
+    if not low or any(ch not in "0123456789abcdef" for ch in low):
         return False
+    if any(ch.isdigit() for ch in low):
+        return True
+    return len(low) >= _MIN_BARE_HEX_LETTERS
 
 
 def _insn_text_by_va(info: BinaryInfo) -> dict[int, str]:

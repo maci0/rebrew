@@ -45,6 +45,7 @@ from rebrew.catalog import (
     scan_reversed_dir,
 )
 from rebrew.cli import (
+    EXIT_ERROR,
     EXIT_MISMATCH,
     STATUS_COLORS,
     TargetOption,
@@ -330,9 +331,9 @@ _STATUS_RANK: dict[str, int] = {
     # other MISSING_* annotation problems so it never shows up as a bogus
     # "compile error" in the summary or the CI gate.
     "INVALID_VA": 4,
-    # A tooling failure, not a code verdict — kept out of the --compare
-    # regression gate entirely (see diff_reports), so a worker crash on a
-    # previously-EXACT function never looks like a code regression in CI.
+    # A tooling failure that fails the gate in both modes (fail closed): a
+    # worker crash on a previously-EXACT function must fail CI, not pass
+    # silently.  See diff_reports, which reports it as a regression.
     "INTERNAL_ERROR": 6,
     "FAIL": 5,
 }
@@ -872,18 +873,30 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             if entry is None:
                 continue  # No cached entry to patch
             result = entry.get("result", {})
-            old_status = result.get("status", "")
-            if old_status == p["status"]:
-                continue  # Already in sync
-            result["status"] = p["status"]
             total = p["total"]
             match_pct = round(100.0 * p["match_count"] / total, 1) if total > 0 else 0.0
-            result["match_percent"] = match_pct
-            result["passed"] = p["status"] in MATCHED_STATUSES
+            passed = p["status"] in MATCHED_STATUSES
             if p.get("delta") is not None:
-                result["delta"] = p["delta"]
+                delta = p["delta"]
             elif total > 0:
-                result["delta"] = total - p["match_count"]
+                delta = total - p["match_count"]
+            else:
+                delta = result.get("delta")
+            # An unchanged status can still carry a fresh match count/percent
+            # (a GA run improving NEAR_MATCHING 60% -> 92%): skipping only on
+            # status equality left todo's prover queue reading the stale
+            # percent and dropping the candidate.
+            if (
+                result.get("status", "") == p["status"]
+                and result.get("match_percent") == match_pct
+                and result.get("passed") == passed
+                and result.get("delta") == delta
+            ):
+                continue  # Already in sync
+            result["status"] = p["status"]
+            result["match_percent"] = match_pct
+            result["passed"] = passed
+            result["delta"] = delta
             entry["result"] = result
             entries[va_key] = entry
             changed = True
@@ -932,6 +945,7 @@ def _save_verify_cache(
     results: list[dict[str, Any]],
     entries: list[Annotation],
     raw_statuses: dict[str, tuple[str, bool]] | None = None,
+    preserve_keys: set[str] | None = None,
 ) -> None:
     filepath_info: dict[str, tuple[int, str]] = {}
     cflags_by_va: dict[str, str] = {}
@@ -995,6 +1009,12 @@ def _save_verify_cache(
             "passed": result.get("passed", False),
             "message": result.get("message", ""),
             "similarity": result.get("similarity", None),
+            # reg_delta/effective_match drive the prove queue (status.py) and
+            # the coverage DB; dropping them here made every cached entry read
+            # back as "not effective" and kept ``rebrew status`` reporting 0
+            # effective matches.
+            "reg_delta": result.get("reg_delta"),
+            "effective_match": result.get("effective_match", False),
         }
         # Overlaid PROVEN entries store their pre-overlay byte result so a
         # later metadata STATUS demotion is not masked by a stale cache hit.
@@ -1012,6 +1032,24 @@ def _save_verify_cache(
             "toolchain": toolchain_by_va.get(str(va_key), ""),
             "defines": defines_norm,
         }
+
+    # A filtered run (--nolib) drops its excluded VAs from `results`, but this
+    # function rewrites the whole cache file from `results` — without carrying
+    # the excluded entries over, one `--nolib` run erases the measured truth
+    # for every library function (`status`/`todo` then fall back to metadata
+    # and the next plain run recompiles them all).  Copy them from the file
+    # being replaced; a VA this run did produce always wins.
+    if preserve_keys:
+        try:
+            previous = json.loads(cache_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            previous = {}
+        prev_entries = previous.get("entries") if isinstance(previous, dict) else None
+        if isinstance(prev_entries, dict):
+            for key in preserve_keys:
+                kept = prev_entries.get(key)
+                if key not in cache_entries and isinstance(kept, dict):
+                    cache_entries[key] = kept
 
     cache_data = VerifyCache(
         version=1,
@@ -1092,15 +1130,29 @@ def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str,
         current_item = current_results[va]
         current_status = str(current_item.get("status", "FAIL"))
 
-        # A tooling crash is not a code verdict: skip INTERNAL_ERROR rows
-        # entirely (no regression/improvement/new classification), so a
-        # worker exception on a previously-EXACT function never shows up as
-        # a code regression in the --compare CI gate.  The count is still
-        # surfaced separately by run_verification's internal_errors report.
+        # A tooling crash on a previously-passing function IS a regression:
+        # fail closed in --compare too (plain verify already exits 1 via the
+        # failed total).  INTERNAL_ERROR now lands in fail_details, so the
+        # only rows not counted here are ones that also failed before.
         if current_status == "INTERNAL_ERROR":
+            previous_status = str(previous_results.get(va, {}).get("status", "FAIL"))
+            if va not in previous_results or previous_status != "INTERNAL_ERROR":
+                regressions.append(
+                    {
+                        "va": _va_display(va),
+                        "name": str(
+                            current_item.get("name") or previous_results.get(va, {}).get("name", "")
+                        ),
+                        "previous_status": previous_status,
+                        "current_status": current_status,
+                        "delta": int(current_item.get("delta", 0)),
+                    }
+                )
+            else:
+                unchanged_count += 1
             continue
 
-        current_order = _STATUS_ORDER.get(current_status, fail_rank)
+        current_order = _STATUS_ORDER.get(current_status, fail_rank + 1)
 
         if va not in previous_results:
             new_items.append(
@@ -1114,17 +1166,17 @@ def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str,
 
         previous_item = previous_results[va]
         previous_status = str(previous_item.get("status", "FAIL"))
-        previous_order = _STATUS_ORDER.get(previous_status, fail_rank)
+        previous_order = _STATUS_ORDER.get(previous_status, fail_rank + 1)
 
         if current_order == previous_order:
-            # Same fine-grained status: only a match-percentage drop is a
-            # regression (e.g. NEAR_MATCHING 95% → 40%).
+            # Same fine-grained status: only a match-percentage drop beyond
+            # _COMPARE_DROP_PCT is a regression (e.g. NEAR_MATCHING 95% → 40%).
             prev_pct = previous_item.get("match_percent")
             curr_pct = current_item.get("match_percent")
             if (
                 isinstance(prev_pct, (int, float))
                 and isinstance(curr_pct, (int, float))
-                and curr_pct < prev_pct - 5.0
+                and curr_pct < prev_pct - _COMPARE_DROP_PCT
             ):
                 regressions.append(
                     {
@@ -1171,6 +1223,11 @@ def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str,
         "removed": removed,
         "unchanged_count": unchanged_count,
     }
+
+
+# Same-rank match-percentage drop that counts as a --compare regression
+# (e.g. NEAR_MATCHING 95% → 40%).  Smaller wobbles are measurement noise.
+_COMPARE_DROP_PCT = 5.0
 
 
 @app.callback(invoke_without_command=True)
@@ -1283,7 +1340,11 @@ def main(
                 json_print({"skipped": True, "reason": msg, "arch": "x86_16"})
             else:
                 console.print(f"[yellow]{msg}[/yellow]")
-            return
+            # A skip that verifies zero functions must not read as success —
+            # CI would green on skipped work.  EXIT_ERROR (2): the project
+            # cannot verify this target as configured (usage/config error),
+            # not "code needs work" (1).
+            raise typer.Exit(code=EXIT_ERROR)
 
     if watch:
         from rebrew.sources import iter_sources
@@ -1514,6 +1575,7 @@ def main(
         cached_count,
         size_divergences,
         missing_sizes,
+        duplicate_vas,
     ) = prepare_entries(
         cfg,
         full,
@@ -1527,10 +1589,12 @@ def main(
     # audit — so the gate reflects game code only.  Excluded functions are
     # neither compiled nor counted, exactly like reccmp's --nolib filter.
     library_excluded = 0
+    nolib_excluded_keys: set[str] = set()
     if nolib:
         lib_vas = {e.va for e in unique_entries if getattr(e, "marker_type", "") == "LIBRARY"}
         if lib_vas:
             lib_keys = {f"0x{v:08x}" for v in lib_vas}
+            nolib_excluded_keys = lib_keys
             unique_entries = [e for e in unique_entries if e.va not in lib_vas]
             results = [r for r in results if r.get("va") not in lib_keys]
             fail_details = [(e, m) for e, m in fail_details if e.va not in lib_vas]
@@ -1626,8 +1690,19 @@ def main(
         # PROVEN stickiness protects earned claims, but a STUB/COMPILE_ERROR
         # body demonstrably no longer contains the proven code, so the claim
         # is void and the warning must fire exactly once).
+        # A stale claim is a byte state that cannot support PROVEN.  Two
+        # statuses are excluded: EXACT/RELOC are the documented PROVEN upgrade
+        # (`should_promote_status` allows PROVEN → EXACT/RELOC, and the
+        # promotion above already wrote it), and INTERNAL_ERROR is a tooling
+        # crash, not a verdict — it is not in metadata's KNOWN_STATUSES, so
+        # persisting it over PROVEN would store an invalid status (and log a
+        # phantom demotion for a function whose bytes were never compared).
         stale_proven = sorted(
-            r["va"] for r in results if r["va"] in proven_vas and r["va"] not in overlaid_vas
+            r["va"]
+            for r in results
+            if r["va"] in proven_vas
+            and r["va"] not in overlaid_vas
+            and r["status"] not in ("EXACT", "RELOC", "INTERNAL_ERROR")
         )
         if stale_proven and not dry_run:
             from rebrew.metadata import update_statuses_batch
@@ -1689,6 +1764,7 @@ def main(
         },
         "size_divergences": size_divergences,
         "missing_sizes": missing_sizes,
+        "duplicate_vas": duplicate_vas,
         "results": results,
         "data": data_report,
         "text": text_report,
@@ -1745,7 +1821,14 @@ def main(
     if not dry_run and not (diff_mode and gate_failed):
         cache_path = cfg.root / ".rebrew" / "verify_cache.json"
         try:
-            _save_verify_cache(cache_path, cfg, results, unique_entries, raw_statuses)
+            _save_verify_cache(
+                cache_path,
+                cfg,
+                results,
+                unique_entries,
+                raw_statuses,
+                preserve_keys=nolib_excluded_keys,
+            )
         except (OSError, TypeError):
             # Warn on stderr regardless of json mode — silent cache-I/O
             # failures degrade performance invisibly.
@@ -1844,8 +1927,11 @@ def _gate_fails(
     if diff_result is not None:
         if diff_result["regressions"]:
             return True
+        # Unknown statuses rank worse than any known failure (fail closed):
+        # they never read as "no worse than FAIL".
+        unknown_rank = max(_STATUS_RANK.values()) + 1
         return any(
-            _STATUS_RANK.get(str(i.get("status", "FAIL")), _STATUS_RANK["FAIL"])
+            _STATUS_RANK.get(str(i.get("status", "FAIL")), unknown_rank)
             >= _STATUS_RANK["COMPILE_ERROR"]
             for i in diff_result.get("new", [])
         )
@@ -1946,11 +2032,14 @@ def prepare_entries(
     int,
     list[dict[str, Any]],
     list[dict[str, Any]],
+    list[dict[str, str]],
 ]:
     """Scan reversed_dir, deduplicate entries, and check the verify cache.
 
     Returns (unique_entries, passed, failed, fail_details, results,
-    cached_count, size_divergences, missing_sizes).
+    cached_count, size_divergences, missing_sizes, duplicate_vas).
+    ``duplicate_vas`` names the dropped sources: ``{"va", "kept", "dropped"}``
+    per duplicate-VA annotation (first source wins, the rest never compile).
     """
     reversed_dir = cfg.reversed_dir
     ghidra_json_path = reversed_dir / FUNCTION_STRUCTURE_JSON
@@ -1977,6 +2066,7 @@ def prepare_entries(
     unique_entries: list[Annotation] = []
     data_count = 0
     library_header_count = 0
+    duplicate_vas: list[tuple[int, str, str]] = []
     for entry in sorted(entries, key=lambda x: x.va):
         if getattr(entry, "marker_type", "FUNCTION") in ("DATA", "GLOBAL", "BSS", "RODATA", "VTBL"):
             data_count += 1
@@ -1988,6 +2078,28 @@ def prepare_entries(
         if entry.va not in seen_vas:
             seen_vas.add(entry.va)
             unique_entries.append(entry)
+        else:
+            # Duplicate VA: the first source wins and the rest are DROPPED
+            # from this run (they are never compiled).  Say so loudly — a
+            # silent keep-first hides a stale annotation in CI.
+            kept = next(e for e in unique_entries if e.va == entry.va)
+            duplicate_vas.append(
+                (entry.va, getattr(kept, "filepath", ""), getattr(entry, "filepath", ""))
+            )
+    if duplicate_vas:
+        for va, kept_fp, dropped_fp in duplicate_vas:
+            msg = (
+                f"duplicate VA 0x{va:08x}: keeping {kept_fp or '<unknown>'}; "
+                f"dropping {dropped_fp or '<unknown>'} from this run"
+            )
+            log.warning("prepare_entries: %s", msg)
+            console.print(f"[yellow]warning:[/yellow] {msg}")
+        if json_output:
+            console.print(
+                "[yellow]warning:[/yellow] "
+                f"{len(duplicate_vas)} duplicate VA(s) dropped "
+                "(see 'duplicate_vas' in the report JSON)"
+            )
     if data_count and not json_output:
         console.print(f"Skipped {data_count} DATA/GLOBAL/BSS/RODATA/VTBL entries (not compilable)")
     if library_header_count and not json_output:
@@ -2168,6 +2280,10 @@ def prepare_entries(
     size_divergences.sort(key=lambda d: d["va"])
     missing_sizes.sort(key=lambda d: d["va"])
 
+    duplicate_rows = [
+        {"va": f"0x{va:08x}", "kept": kept, "dropped": dropped}
+        for va, kept, dropped in duplicate_vas
+    ]
     return (
         unique_entries,
         passed,
@@ -2177,6 +2293,7 @@ def prepare_entries(
         cached_count,
         size_divergences,
         missing_sizes,
+        duplicate_rows,
     )
 
 
@@ -2211,9 +2328,15 @@ def run_verification(
         compile_cache = None
 
     # Shared once for the whole batch — same catalog `rebrew test` uses.
+    # Fail closed: a VA-map scan failure aborts the run instead of masking
+    # relocs against an empty map (false RELOC).
     from rebrew.core import build_name_to_va
+    from rebrew.core.matching import CatalogScanError
 
-    name_to_va = build_name_to_va(cfg)
+    try:
+        name_to_va = build_name_to_va(cfg)
+    except CatalogScanError as exc:
+        error_exit(str(exc), json_mode=json_output)
 
     def _verify(
         e: Annotation,
@@ -2289,11 +2412,12 @@ def run_verification(
                         passed += 1
                     else:
                         failed += 1
-                        # Tooling failures are reported via the internal-errors
-                        # warning, not the code-failure list — a crash is not a
-                        # verdict on the function's source.
-                        if not is_internal_error:
-                            fail_details.append((entry, result.message))
+                        # A tooling crash fails the gate in BOTH modes: plain
+                        # verify counts it in the failed total (exit 1 below),
+                        # and --compare must not skip it either (fail closed —
+                        # a crashed worker on a previously-EXACT function is a
+                        # gate failure, not a silent pass).
+                        fail_details.append((entry, result.message))
 
                     # An INTERNAL_ERROR is a tooling failure, not a verification
                     # verdict — never let it overwrite the function's real STATUS
@@ -2324,8 +2448,8 @@ def run_verification(
     if internal_errors > 0 and not json_output:
         console.print(
             f"[yellow]warning:[/yellow] {internal_errors} function(s) failed with internal errors "
-            f"(tooling failures — counted in the failed total but NOT treated as "
-            f"code regressions by --compare)"
+            f"(tooling failures — counted as failures so the gate fails closed in "
+            f"both plain and --compare modes)"
         )
 
     return passed, failed, fail_details, results, deferred_fixes

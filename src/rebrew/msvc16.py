@@ -100,6 +100,13 @@ def compile_c(
 
     flags = cflags if cflags is not None else ["/c", "/nologo"]
     cmd = "C:\\BIN\\CL.EXE " + " ".join(flags) + f" {staged_name} > C:\\clout.txt"
+    # A reused caller-supplied workdir keeps the PREVIOUS run's object, so a
+    # failed compile still "found" output and was reported as success; drop any
+    # file the search below would match before running.
+    stem_upper = Path(staged_name).stem.upper()
+    for stale in sandbox.iterdir():
+        if stale.suffix.upper() == ".OBJ" and stale.stem.upper() == stem_upper:
+            stale.unlink()
     try:
         run_dosbox(
             sandbox,

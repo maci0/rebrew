@@ -1,5 +1,1085 @@
-## [Unreleased]
+## [0.12.0] - 2026-09-12
+### Added
+- **`match --all --collect-pairs` writes the training pairs**: the option is documented under the
+  Batch Mode panel, but only the single-function path consumed it, so a batch run silently wrote
+  nothing. Every stub's GA now receives the JSONL path; pairs append, so parallel stubs share the
+  file.
+- **`rebrew crypto-scan` detects cryptography in a binary**: a new command
+  (and `rebrew.crypto_scan` module) reports two independent signals, with no
+  new dependencies.  Constant-table detection searches the data sections for
+  the AES forward/inverse S-boxes, the SHA-256 round constants K and initial
+  hash H, the SHA-1 initial hash H, and the MD5 T table (uint32 tables in
+  both endiannesses), reporting each hit's VA and section.  Name detection
+  matches imported APIs (high confidence) and project function names (medium)
+  against curated CryptoAPI/CNG, OpenSSL, and common hash/cipher patterns.
+  `--json` prints `{binary, findings, count, by_confidence}`; no findings is
+  exit 0, not an error.
+- **`rebrew fingerprints` reports a binary fingerprint bundle**: a new
+  command (and `rebrew.fingerprints` module) derives the streamed file
+  digests (MD5/SHA1/SHA256/CRC32), the Mandiant imphash (LIEF import table,
+  declaration order preserved, ordinals as `dll.ord<N>`), the MSVC
+  Rich-header hash, per-section Shannon entropy, and optional TLSH/ssdeep
+  values when their backend is importable. A field that cannot be derived
+  is `null`; `--json` prints the bundle.
+- **`doctor` flags a BinSync state dir bound to a different binary** — a
+  BinSync-authored state dir records the MD5 of its binary (`binary_hash`,
+  the value IDA, Ghidra, and Binary Ninja all derive from the raw bytes).
+  When it disagrees with the target's binary, every address names another
+  binary; the check warns instead of reporting the relay ready.
+- **`binsync-export` writes the target binary's `binary_hash` and records the
+  target in `manifest.toml`** — the per-binary binding BinSync uses was
+  previously absent from rebrew-written state dirs, so nothing could tell
+  which binary a directory belonged to (the overlay and `doctor` now consume
+  both values).  Struct export also scans the project-shared header tree
+  (`[project].shared_dir`) so types declared once export for every target.
+- **`binsync-overlay` shares BinSync knowledge across a project's targets**:
+  the new command structurally matches a related target's BinSync functions
+  against this target's unmatched functions (same code, different VAs) and
+  overlays names, prototypes, and notes. Source defaults to the state
+  manifest's `target`; conflicts follow the `binsync-import` policy
+  (`--accept-binsync` / `--accept-local`, exit 1 while unresolved).
+- **`binsync-init` creates the BinSync git envelope**: a new command builds the
+  repo upstream BinSync's `Client` requires, the `binsync/__root__` root commit
+  (`.gitignore` + `binary_hash`) plus a `binsync/<user>` branch. The root commit
+  adds only those two files, so existing export files stay untracked; `--user`,
+  `--dry-run`, and `--json` are supported.
+- **`binsync-overlay --fields global` maps globals across binaries by content**:
+  a source global's bytes are searched in the destination's same-named section
+  and applied only to a unique occurrence (duplicates and missing sections are
+  skipped). Globals are opt-in, so the default `--fields name,prototype,note`
+  behavior is unchanged.
+- **BinSync enums and typedefs round-trip**: `binsync-export` writes
+  `enums.toml` (name + member values) and `typedefs.toml` (name + underlying
+  type) from the same header/shared/source scan as structs; `binsync-import`
+  and `binsync-overlay` import unknown definitions into the local
+  `binsync_types.h` without overwriting known names.
+- **BinSync state I/O now goes through declib (the `binsync` extra)**: the
+  hand-rolled TOML is replaced with declib artifacts (`Function`,
+  `Struct`, `Enum`, `Typedef`, `GlobalVariable`, `Comment`), the upstream
+  layout (`metadata.toml`, `comments.toml`, hex-keyed `global_vars.toml`),
+  so a real BinSync/IDA/Ghidra/Binary Ninja state dir parses (and rebrew's
+  parses in those tools). New `LOCALS` (stack vars) and `COMMENTS`
+  (per-instruction) rebrew metadata fields round-trip; `binsync-overlay`
+  transfers locals and shifts comments by the matched pair's VA delta.
+  `rebrew[binsync]` installs `declib>=4.5`.
+- **`rebrew binsync` umbrella with git automation**: a multi-command group
+  reuses the flat commands and adds `push` (export + git commit, `--no-git`
+  to skip, `--git-push` to publish the root and current branches), `pull`
+  (git `--ff-only` then import; unresolved conflicts exit 1), and `summary`
+  (read-only preview of both directions). `init`/`diff`/`overlay` dispatch to
+  the existing commands; the flat `binsync-export/import/...` stay.
+- **Per-instruction comments get a source representation**: import/pull writes
+  `// ANALYSIS @ 0xADDR: text` lines in a sorted trailing block at the end of
+  the owning `.c` file (idempotent, no duplicates; comments outside any known
+  function range stay metadata-only), and export/push merges the metadata
+  `comments` store with a scan of those markers, with the source marker winning
+  for the same address. Overlay writes shifted markers too.
+### Changed
+- **Removed dead code found by the review**: `catalog/sections.py`'s `_ARRAY_SIZE_RE` (no
+  references inside or outside the module since the `estimate_type_size` refactor).
 ### Fixed
+- **MSVC's ASM helper names are matchable again** — `crt_match._ASM_PROC_RE` swallowed one leading
+  underscore into the captured name, so `__allmul PROC` indexed as `_allmul`; since
+  `normalize_name` preserves a double underscore, the entire `_MSVC6_ASM_FUNCTIONS` set
+  (`__alldiv`, `__allshr`, …) could never equal a binary name. The name is now captured verbatim
+  and the decoration stripping stays in `normalize_name`.
+- **`todo`'s caller boost counts only unresolved callers** — `_caller_counts` scanned every
+  discovered file's extern declarations with no status lookup, so a caller whose own function was
+  already byte-matched still added up to +15 ROI and printed "unblocks N caller(s)", contradicting
+  its own docstring. Matched files (from the metadata store's `filename`/`status`) are now skipped.
+- **`todo --json`'s `pct_matched` matches `status`** — todo divided matched-by-covered-VAs over
+  `len(covered_vas)` while `StatusReport.matched_pct` divides over `len(ghidra_vas | covered_vas)`,
+  so the two commands disagreed for any project with uncovered Ghidra functions (100% vs 50% in
+  the fixture). Both now use the same union, which also keeps the figure ≤100%.
+- **`todo`'s identify-library lane skips the non-targets its sibling skips** — it checked only
+  `va in existing`, so an IAT thunk or ASM builtin whose name inferred a CRT module surfaced as
+  "identify library" work with a `rebrew flirt --va` command attached. It now applies the same
+  IAT-thunk / ignored-symbol / sub-10-byte / unmatchable filters as the start-function lane.
+- **`todo` reads short-spelled verify-cache keys** — a cache entry keyed `"0x1000"` rather than
+  `"0x00001000"` was seen by todo's coverage union (which normalizes) but missed by its
+  category/delta selection and the prove queue, which look up `f"0x{va:08x}"`. `_load_verify_entries`
+  now re-keys canonically, exactly as `status`'s loader does.
+- **`todo` and `status` now agree about which verify cache to trust** — `todo`'s guard accepted a
+  cache with no `target` field whenever the config named one (`if data.target and ...`), while
+  `status` rejects any mismatch. So a legacy cache could drive todo's categories and deltas while
+  `rebrew status` refused to read the same file. Todo now rejects the mismatch too, and still
+  accepts a target-less cache for a minimal config with no `target_name`.
+- **`status` no longer tells you to migrate an inline `// SIZE:`** — lint's W019 never migrates
+  SIZE (it is the reccmp-native inline contract; lint only reports an inline value that disagrees
+  with a metadata SIZE), so status counted a row as migratable that `rebrew lint --fix` would
+  never touch. The status warning now covers only the keys lint actually migrates.
+- **`library_*.h` scanning skips excluded directories** — the header scan walked `build/`,
+  `.venv/`, and staged dependency trees, so any `library_*.h` copied there counted as a project
+  library marker for coverage, `status`, `todo`, and `crt-match`. It now applies the same
+  exclusion set as the source scan.
+- **Shared `.cpp`/`.cc` sources are visible again** — the shared-sources half of `iter_sources`
+  was globbed through a `cfg=None` recursive call, which also reset the extension filter to
+  `[".c"]`: with `source_ext = ".cpp"` every shared file was invisible to coverage, status, and
+  matching. Both halves now share one extension/exclusion-aware glob.
+- **`trim_trailing_padding`'s docstring and doctests are live** — the `if padding is None` line
+  preceded the docstring, so `__doc__` was `None` and the two examples were never collected; once
+  made real they failed (double-escaped `\\x55` under an `r"""` literal) and are now correct.
+- **`verify --nolib` no longer erases the library entries from the verify cache** — the run removes
+  library rows from `results`, and `verify_cache.json` is rebuilt from `results` alone, so one
+  `--nolib` invocation dropped the measured truth for every library function (`status`/`todo` then
+  fell back to metadata and the next plain run recompiled them all). The excluded keys are now
+  carried over from the file being replaced.
+- **`near-diag --fix-blocker --dry-run` no longer claims it wrote metadata** — the human output
+  printed "Wrote BLOCKER metadata" although `--dry-run` skips the write (the batch path in the
+  same module already said "would write"). It now follows the mode.
+- **The prover no longer certifies an over-long copy prefix** — a *concrete* `memcpy`/`memset`
+  length above the 1024-byte cap was silently truncated (a 2000-byte copy was modelled as 1024 with
+  the tail unconstrained on both sides, i.e. PROVEN over a prefix), while the symbolic branch
+  already refused exactly that. It now fails closed like the symbolic case.
+- **`prove` recognizes `static void` functions** — `is_void` compared the raw return-type group
+  against `"void"`, so a leading `static`/`extern`/`inline` (the declaration line is the source)
+  made a void function look value-returning and the prover compared the undefined EAX at exit,
+  reporting a spurious counterexample that could never be PROVEN.
+- **A verify worker crash no longer overwrites a PROVEN status** — the stale-PROVEN loop wrote
+  `INTERNAL_ERROR` (a status metadata does not accept) over PROVEN and warned about a "demotion",
+  and it reported a PROVEN → EXACT/RELOC byte match (the documented upgrade) as an unbacked claim.
+- **`--converge`'s help no longer promises a rebuild rebrew cannot perform** — the `--converge` and
+  `--rounds` help text (and `docs/CLI.md`) claimed a rebuild per round, but `converge_layout`
+  never invokes the project's build: a second round re-measures the same `build/<target>`. The text
+  now states the boundary (rebuild and re-run for the next round), matching the code.
+- **`dashboard --host 0.0.0.0` answers real requests** — the Host allow-list held only the literal
+  wildcard, so a wildcard bind 403'd every request a user actually makes (`localhost:port`,
+  `127.0.0.1:port`, the machine's own address). A wildcard bind now accepts the loopback aliases
+  plus the host's own interface addresses; a specific non-loopback bind is unchanged.
+- **Removed a dead guard and a false docstring in `round_trip._catalog_key`** — `resolve_symbol`
+  never returns `"?"`, so the guard was always true and the documented hint-name fallback never
+  ran for a caller that passed a path. No behavior change.
+- **`data --gen-header --json` emits JSON** — the mode wrote only to the Rich console and left
+  stdout empty (exit 0), though `docs/CLI.md` documents `--json` for all modes. The write,
+  unchanged, and `--dry-run` paths now emit a `{path, written, dry_run, globals, sections}` payload.
+- **`--fill-data` / `--own` / `--fix-ownership` size against `--target`** — all three resolved the
+  geometry from the project default, so a multi-target project padded against another binary's
+  `.data` (the same defect already fixed for `--converge`); they now pass the selected target.
+- **`switch`'s dispatch header shows the operand it actually decoded** — the header hardcoded
+  `jmp dword ptr [reg*4 + ...]` for every target (wrong for an x86_64 `qword*8` dispatch and an
+  x86_16 base-form one), and Rich parsed the operand's `[...]` as markup, so the operand was
+  swallowed and only `jmp dword ptr` printed. `find_switches` now reports the table entry width;
+  the header renders and escapes the decoded operand.
+- **`data --conflicts --json` honors the filter** — JSON mode returned every global. The payload
+  and its summary counts now describe only the conflicting globals, matching the Rich path.
+- **A dropped rizin/radare2 project dir is deleted, not orphaned** — `_re_drop_project` and the
+  stale-digest branch only removed the map entry, so every failing decompile of a persistently
+  failing project (or a tool upgrade) leaked a full rizin project dir for the process lifetime.
+- **Batch GA and flag sweep honor a per-function/per-library TOOLCHAIN** — `StubInfo` carried no
+  toolchain, so `--all`/`--improve`/`--near-miss`/`--size-mismatch` and the batch flag sweep
+  recompiled each function with the project default compiler, contradicting `docs/TOOLCHAIN.md`
+  ("any tool that compiles a function ... uses the overridden compiler"). Both batch paths now
+  resolve the shared override chain for flags and compiler, and their confirmation re-verify uses
+  the same toolchain it scored.
+- **The GA ceiling marker is actually written** — `_classify_register_only` wrote the champion's
+  extracted *code* bytes (not a COFF object) to a `.obj` and re-parsed them with LIEF, which failed
+  on every input, so a register-only champion never got its `GA_CEILING` blocker and
+  `--improve`/`--near-miss` kept re-running a function portable C cannot byte-match. The
+  classification now uses the in-memory code and its reloc offsets.
+- **`--ga-history` reports the real scores** — the batch GA driver recorded each run without
+  `score`/`generations`, so `avg_score` and `best_score` were always `null`. `_run_one_stub_ga`
+  now returns the champion's score and the generations it actually executed (resume-aware), and
+  the driver records both.
+- **`match --min-size` below the default floor reaches small functions** — the stub parser dropped
+  every annotation smaller than 10 bytes before the caller's `--min-size` filter ran, so
+  `--min-size 5` could never include a genuine 5-9 byte function. The floor is now the requested
+  `--min-size` when set, and 10 otherwise (the default behavior is unchanged).
+- **`match --all --flag-sweep-only` reports its exact rows** — the batch sweep incremented
+  `exact_count` only inside the promotion block, which is gated on `--fix-cflags`; without that
+  flag a run with exact rows printed `exact: 0` and exited 1 (a false red for a CI gate). An exact
+  row now counts when the authoritative re-verify cannot run at all; when it can, only a confirmed
+  match counts (nothing is promoted without `--fix-cflags`).
+- **`--sweep-toolchains` no longer sweeps the configured profile anyway** — the toolchain sweep
+  prepended the project's own profile unconditionally, so `--sweep-toolchains 4.0` also compiled
+  with the configured msvc6 (the help says "Sweep only these toolchains"), and the unfiltered
+  default listed the configured profile twice. The baseline now obeys the same include/exclude
+  filters and is prepended without duplication.
+- **The GA build cache key includes the toolchain profile** — every image-backed profile compiles
+  through docker, so the resolved `cl_cmd` is empty and `inc_dir` is the same default for all of
+  them. The persisted `output/ga_runs/<rel>/build_cache.db` therefore reused an msvc6 object for a
+  borlandc55/tc16 run on the same source and flags, silently scoring the wrong bytes.
+- **`rebrew test --fix-sizes` writes the corrected SIZE under the selected module** — with
+  `--va` on a multi-module file it wrote through the file's first annotation's module, so the
+  fixed size landed in a phantom entry beside the real one (the symbol/status promotion already
+  used the VA-selected annotation).
+- **`rebrew test` classifies an over-long candidate as SIZE_MISMATCH** — the multi-function path
+  passed the truncated object/target to `classify_compare_result` without the pre-truncation
+  lengths, so a 20B compiled symbol against an 8B annotation was labeled a minimal 8B stub body,
+  and `obj_size`/`total` in `--json` reported the annotation size instead of the compiled length.
+- **`rebrew test --all --dir` filters by real path** — a raw string-prefix test matched sibling
+  directories (`game_dll_extra` under `game_dll`) and missed everything under a root containing
+  `..`; both sides now resolve and compare with `Path.is_relative_to`.
+- **`build_db` recognizes the data verification verdicts** — the coverage grid emits the
+  lowercased `rebrew-data.toml` STATUS (`verified`/`drift`/`unchecked`) as a data cell's state;
+  `_KNOWN_CELL_STATES` lacked them, so every data cell warned "not in known set", a VERIFIED
+  global fell out of `.data` `exact_count` into `other_count`, and the section summary counted no
+  data match. `verified` now counts as exact (view and summary); `drift`/`unchecked` stay in the
+  documented `other_count` catch-all.
+- **Removed three unreachable guards** — a GLOBAL/DATA marker check in `catalog/grid.py` after the
+  entry list was already filtered, a `list_end <= ghidra_end` clause in `catalog/registry.py`
+  inside the `list_size > ghidra_size` branch, and an `absorb_size` assignment in `catalog/grid.py`
+  overwritten on the next conditional.
+- **`data --converge` sizes its pads against the requested target** — the CLI never
+  forwarded `--target` to `converge_layout`, so the `.data` geometry came from the
+  project default while the build output came from `build/<target>`; a two-target
+  project converged one binary's numbers onto another's build.
+- **`data fix-ownership` no longer emits uncompilable C for an unsized extern** — when a
+  moved symbol's new TU declared it `extern char g_buf[];`, the merge rewrote the
+  definition as `extern char g_buf = {0x68, ...};` (scalar form with a brace
+  initializer, and the declaration's `extern` kept). The merge now strips `extern` and
+  always uses the array form for a brace initializer.
+- **`rebrew test <multi-function file>` patches the cache with the real byte delta** —
+  `_test_multi` passed no `delta`, so the patcher recomputed `total - match_count`,
+  which is 0 for a SIZE_MISMATCH (the object is truncated to the target length) and
+  `todo` then filed the function as a "0B diff — try flag sweep" quick-win. The
+  single-file and batch paths already passed the compare's delta.
+- **`strings` no longer invents a trailing UTF-16 character** — `_scan_utf16`'s final
+  flush used `raw[start::2]` with `len(raw) - start`, so a region of odd length
+  contributed its unpaired last byte to both the text and `size` (raw
+  `A\0B\0C\0D\0E` reported `"ABCDE"`, size 9). The flush is now bounded to
+  complete pairs.
+- **`data --fill-data` emits the BSS pads** — `fill_data` read the data metadata with
+  the default `section=".data"`, so `.bss` globals (written with `section=".bss"` by
+  `rebrew data --set-type` and the Ghidra import) were filtered out before the
+  raw-end/section-end split: BSS pads were never emitted, the built `.data`
+  VirtualSize stayed short of the reference, and `--bss-only` was a no-op.
+  `data_symbols` now accepts a set of section names and the call site passes
+  `(".data", ".bss")`.
+- **`layout_geometry` reads the requested target** — it returned the FIRST
+  `[targets.*]` `.data` geometry, so `data --converge --target B` sized its
+  `_dlead_*` pads against target A's `data_base`. The geometry and the built
+  binary (`build/<target>`) now resolve from the same target name, an omitted
+  target follows `[project].default_target` (not document order), and a target
+  with no layout section fails loud instead of borrowing another binary's
+  numbers.
+- **`test --all` no longer writes a worker crash into the verify cache** — the batch patch
+  loop iterated every result, so an `INTERNAL_ERROR` (which `verify.py`'s cache writer
+  refuses to store and which metadata keeps out of the promotion list) became a cached
+  `INTERNAL_ERROR` that `status`/`todo` then served as a phantom failure for a function
+  whose real status was untouched.
+- **`rebrew test <file>` refreshes the cached metrics when the status is unchanged** — the
+  refused-promotion branch skipped the cache patch entirely, so a NEAR_MATCHING improved
+  from 60% to 92% still read as 60% in `status`/`todo` and mis-ranked ROI. The branch now
+  patches when the status is unchanged, matching the batch path and the `verify.py`
+  contract ("an unchanged status can still carry a fresh match count/percent").
+- **`rename` no longer rewrites string literals or macro names** — the CLI
+  documented that they are left alone, but the substitution ran over raw text, so
+  renaming `foo` turned `puts("foo")` into `puts("bar")`: a rename silently
+  changed the data an already byte-matched function emits. New
+  `c_parser.protected_spans` collects the byte spans of string/char literals and
+  `#define` names, and `rename_ops.substitute_name` substitutes only in the gaps
+  (on bytes, so a multibyte character cannot shift a span); it falls back to the
+  plain substitution with a warning when tree-sitter is unavailable. This covers
+  both the CLI and the library callers (`sync pull`, BinSync import).
+- **Dead metadata-disagreement guard removed from the data rename** —
+  `stored_name` and `old_name` were read from the same `get_data_entry` result,
+  so the "metadata disagrees with source" abort could never fire; the name is
+  written unconditionally after the cross-references were rewritten.
+- **`library_*.h` markers in the shared root are seen by every target** —
+  `iter_library_headers` scanned only the directory it was handed, so a
+  `library_*.h` under `cfg.shared_dir` was invisible to `rebrew status`/`todo`
+  coverage, `crt-match`, `name-decomp`, `recover-structs`, the call graph and
+  `rebrew context`, while `rebrew catalog` (which special-cased the shared root)
+  reported it. The function now takes an optional `cfg` and applies the same
+  shared-root rule `iter_sources` already uses; every call site passes it and the
+  catalog's duplicate special case is gone.
+- **`--linked` compare no longer splices the toolchain path into its shell
+  script** — `build_linked_link_cmd` interpolated `spec.tool_root` into the
+  `sh -c` body, so a path with a space broke the link and a `$(...)`/`;`/`"`
+  injected commands into a container that mounts the project root read-write.
+  INCLUDE, LIB, and the LINK.EXE path now travel as docker `-e` variables.
+- **The native compile-cache id hashes the binary the runner executes** — it
+  hashed `shutil.which(spec.binary)`, but an image-less spec resolves the
+  VENDORED tree first (`toolchain._resolve_binary`), so `watcom16` (whose `wcc`
+  is vendored, not on PATH) got the digest-free `native:wcc`: replacing the
+  vendored compiler kept serving objects built by the old one.
+- **A bare `/I` consumes the following token** — the `len(nxt) <= 4` heuristic
+  read `/opt`, `/usr`, `/tmp` as another flag and dropped them from header
+  tracking, so a header reached only through `/I /opt` was never fingerprinted
+  and an edit to it produced a stale cache hit.
+- **A compiler path containing a space survives the GA/sweep round trip** —
+  `resolve_compiler_env` flattened argv with `" ".join` while consumers re-split
+  with shlex, so `/opt/My Tools/gcc` became two argv elements ("Compiler not
+  found"). It is now `shlex.join`, which round-trips through `shlex.split`.
+- **The size-mismatch hint keeps VA 0** — `if section_va` treated a legitimate
+  VA 0 (16-bit/MZ targets) as unknown and told the user to run
+  `rebrew diff <source>` instead of the real address.
+- **Two GA mutations emitted broken C, and their output is now checked** —
+  `mut_toggle_calling_convention`'s insert branch captured the whole
+  `function_definition` as `@stmt`, which `_apply_query_once` splices over, so
+  the function body was replaced by `int __cdecl` (40 of 4840
+  source/seed combinations); the query now captures the TYPE node as `@expr`.
+  `mut_add_redundant_parens` could parenthesize a function definition's declared
+  name (`int (f)(int x) { ... }`) — legal C, but `quick_validate`'s
+  function-start gate rejects it, so the mutant never reached the compiler. A
+  new property test runs every operator over a valid-C corpus and requires None
+  or a validating result.
+- **`rename` derives the search name with `removeprefix`, not `lstrip`** — a
+  function named `_foo` carries the cdecl symbol `__foo`; stripping every
+  underscore searched for `foo`, so the rename either matched nothing or rewrote
+  an unrelated `foo` in the same project. Same fix in `rename.py` and
+  `rename_ops.py`.
+- **`rename` uses the `$`-aware name pattern for data symbols** — `_rename_data`
+  built a bare `\b…\b`, which never matches before a leading `$`, so a `$SG…`
+  data rename left every source reference stale while reporting success.
+- **`rename` survives a source whose encoding cannot round-trip** — the write
+  path caught only `OSError`, but an undefined byte (CP1252 0x81 read back as
+  U+FFFD) makes `atomic_write_text` raise `UnicodeEncodeError`, leaving a
+  half-applied rename and a traceback.
+- **`cross_import` handles block-comment SIZE and CRLF sources** — `_SIZE_KV_RE`
+  matched only `//`, so importing a C89-strict source inserted a second
+  `// SIZE` before its `/* SIZE: N */` and the (last-wins) parser kept the
+  SOURCE size, slicing the wrong length for verification; and `_MARKER_RE`'s
+  `$` never matched a CRLF line, so importing from any CRLF source failed with
+  "no FUNCTION/LIBRARY/STUB marker found". The rewritten marker and inserted
+  SIZE now keep the source's line ending.
+- **`resolve_source_arg` prefers the exact file stem** — comparing both sides
+  with `lstrip("_")` let `_foo.c` (path order `_` < `f`) win over the exact
+  `foo.c`, so `rebrew test foo` compiled the wrong file and wrote STATUS for the
+  wrong VA.
+- **`find_neighbor_file` skips `library_*.h`** — the covered-VA maps include
+  library-header markers, and the result becomes a `rebrew skeleton --append`
+  target, which would have appended C into a header.
+- **`detect_unmatchable` disassembles only the function's own bytes** — the scan
+  ran over `max(size, 8)` bytes, so the NEXT function's first instruction (e.g.
+  `bt`) marked an ordinary short C function as unmatchable and dropped it from
+  `todo`.
+- **A non-UTF-8 verify cache degrades instead of crashing** — the reader caught
+  `(JSONDecodeError, OSError)` but `read_text` raises `UnicodeDecodeError` (a
+  `ValueError`), which escaped the "missing or corrupt → no cache" contract.
+- **`objdiff`'s `write_coff_object` dropped its unused `base_offset`** parameter.
+- **`prove`'s struct-argument constraints reach both states as the same input** —
+  `_apply_arg_constraints` minted a fresh `claripy.BVS` per state, and claripy
+  creates a new variable per call even for an identical name, so the original and
+  compiled states read unrelated struct fields: Z3 "proved" a difference the
+  constraint was meant to remove and a semantically identical function was
+  reported NOT PROVEN with a bogus field-value counterexample. The batch prover
+  now passes one symbol table to both states (keyword-only, so the existing
+  single-state callers keep their per-call behaviour).
+- **`decompiler` re-analyses when the rizin tool changes** — the cached project's
+  marker records the tool name and a hash of the tool binary, but only the
+  marker's *existence* was checked, so a tool upgrade kept serving stale `aaa`
+  results. The recorded name + digest are now compared.
+- **A plugin command can no longer shadow a packaged command** — on a duplicate
+  name the discovered-command registration added a stub under the SAME name, and
+  typer keys commands by name with the plugin group registering last, so the stub
+  replaced the built-in: `rebrew test` exited 2 with "duplicate CLI command"
+  instead of compiling. The packaged command now wins and the collision is
+  reported on stderr.
+- **`cfg set binsync_state_dir` writes the target-scoped key** —
+  `_TARGET_SCOPED_KEYS` omitted it (though `config._KNOWN_TARGET_KEYS` has it), so
+  a bare `set` wrote an ignored top-level key and the next load warned about an
+  unrecognized top-level key while `cfg.binsync_state_dir` stayed empty.
+- **A broken optional plugin cannot brick its importer** — `import_registration`
+  wrapped only `ImportError`/`AttributeError`, so a plugin module raising
+  `SyntaxError`/`ValueError` at import escaped the `RegistryError` that the
+  skip/degrade policy keys on.
+- **`python -m rebrew.doctor` no longer raises NameError** — six `check_*`
+  helpers were defined after the `if __name__ == "__main__": main_entry()` guard,
+  so running the module directly hit `NameError: check_crt_linkage` instead of
+  printing the report. The guard moved to the end of the file.
+- **A skill named `.`/`..` can no longer escape the skills directory** — the
+  frontmatter sanitizer kept dots, so `name: ..` resolved `dest` to the parent
+  directory (an untrusted community skill could copy its files outside).
+- **The flag sweep scores in the target's real instruction mode** —
+  `_sweep_scoring_params` hardcoded 32-bit for everything but x86_16, so an
+  x86_64 sweep decoded REX-prefixed instructions as 32-bit and ranked flags
+  differently from the GA (`analysis.capstone_mode_for_arch`).
+- **A malformed `rebrew.flag_sets` provider is skipped, not fatal** — the
+  provider dict was unpacked outside the guard, so `{"msvc6": None}` raised
+  `TypeError` at package import despite the documented skip.
+- **`describe` resolves the smallest containing range** — an oversized outer
+  `SIZE` overlapping the next function made callers/callees report the outer
+  name; the resolver returned the first (earliest-starting) hit.
+- **`pdb-info` reads `_ID` proc records and no longer treats CompileSym3Flags as
+  CFLAGS** — the proc regex required `S_GPROC32 ` (missing `S_GPROC32_ID`/
+  `S_LPROC32_ID`, which LLVM/clang and modern MSVC emit) so a full PDB reported
+  zero functions; and the S_COMPILE3 `flags` field is a symbolic CodeView
+  bitmask (`sdl | pgo`), not a command line — only `/`- or `-`-prefixed tokens
+  are written as CFLAGS and the symbolic list is reported instead.
+- **`prove --all --json` emits one schema** — the empty-candidate branch omitted
+  `schema_version`/`already_matched`, so a script reading those keys failed with
+  `KeyError` exactly on an empty result.
+- **A failed 16-bit compile cannot return the previous run's output** —
+  `tc16`/`msvc16`/`delphi16` searched a caller-supplied `workdir` for their
+  fixed output name (`SRC.OBJ`, `<stem>.EXE`) without clearing it, so a failed
+  compile over a reused sandbox reported success with stale bytes for the
+  matcher. Any file the search would match is now removed before the run.
+- **`status` counts inline `LOCALS`/`COMMENTS`** — its inline-key regex claimed
+  to mirror `annotation.METADATA_KEYS` but omitted both, so `rebrew status`'s
+  W019 count disagreed with `rebrew lint` on those files.
+- **`lint` no longer reads a commented-out body as code** — the E023/W020
+  scanners skipped only comment lines beginning with `//`, `/*`, or `*`, so the
+  interior of a block comment (`/* old:\n__declspec(naked) ...`) counted as a
+  naked asm dump and a file with no asm at all got a false E023. Both scanners
+  now strip comments and string literals with the same
+  `_strip_c_comments_strings` helper the W022 check already used.
+- **`strings` finds 64..255-byte Pascal strings** — the NE Pascal-string scanner
+  capped the length prefix at 63, silently dropping every `ShortString` longer
+  than that. Borland's length byte runs to 255, and a long printable run is
+  stronger evidence of a real string, not weaker; the cap is now the named
+  `_PASCAL_MAX_LEN`.
+- **`discover` drops a candidate with no boundary before it** — the
+  interior-false-positive guard tested `insn.va >= nxt`, which could never fire
+  (the disassembly window *is* the gap), so the documented drop was dead code and
+  phantom call targets stayed in `functions.txt`. It now keys on "the
+  predecessor decoded to the candidate with no `ret` and no terminator", keeping
+  the tail-call (`jmp`) and int3/hlt/ud2 cases.
+- **NE segment-table sector offset 0 is no longer read as file content** — sector
+  offset 0 means the segment is "not present in the file" (allocated zero-filled
+  at load), but the loader computed `file_offset = 0` and then
+  `raw_size = min(length, len(data))`, so the MZ/NE header was reported as the
+  segment's content (byte extraction returned header bytes and the code probe
+  ran against file offset 0). Such segments now report `raw_size == 0` and are
+  never probed for code.
+- **`gen-layout` binds imports for a descriptor with OFT == 0** — the parser read
+  names only through the descriptor's OriginalFirstThunk, so an unbound
+  descriptor yielded no imports: the emitted `crt_imports.c` lost its `/include`
+  pragmas (IAT order not forced for the raw link) and `layout_config_dict` wrote
+  an empty `imports` list. The IAT array is now the fallback lookup table,
+  matching `layout_meta.extract_layout`.
+- **`lint --fix` no longer crashes on a table-typed inline key** — an inline
+  `// PROVE_CONSTRAINTS:` (also `LOCALS`/`COMMENTS`) was recorded for migration
+  as a scalar string and `update_field`'s validator rejected it (a dict is
+  expected), so the CLI died with a traceback. Those keys carry TOML tables that
+  an inline scalar cannot build: the W019 warning still fires and `--fix` leaves
+  the line in place. New `metadata.is_table_field` names the predicate.
+- **`flirt` sizes a function at the first undecodable byte** — `find_func_size`
+  relies on capstone's `.byte` pseudo-instruction, but `md.skipdata = False`
+  makes capstone *stop* at an undecodable byte rather than emit it, so the loop
+  ended with no terminator and the function was reported as the full 4096-byte
+  window, inflating every match size.
+- **`analysis.extract_bytes` clamps to the section's file-backed span** — reads
+  were clamped only to the file length, so a section whose virtual size exceeds
+  its raw size (an NE iterated segment with `raw_size == 0`, a PE BSS-like tail)
+  returned the neighbouring bytes as if they were content.
+- **`lint` accepts block-comment markers** — `_HEADER_MARKER_RE` was anchored on
+  `//`, so `/* STUB: MAIN 0x1000 */` (the C89-strict form `intake` emits for
+  tc20/msvc1.52 skeletons) left MARKER/VA empty: a valid file got a false E001
+  plus E002 and the CLI exited 1, while the annotation parser reads the form
+  fine.
+- **`lint --fix` no longer deletes the previous block's inline key** — the
+  backward walk in `_strip_key_lines` dropped any `// KEY:` above the marker,
+  but a key above an earlier marker belongs to THAT block (the shared
+  multi-version form stacks `marker + keys` blocks). Removing e.g. CFLAGS for a
+  later VA deleted the earlier function's live annotation. Preceding keys are
+  dropped only when no earlier marker exists (the buffered-for-this-block case).
+- **`lint <files>` honours a multi-extension `source_ext`** — the explicit-file
+  filter compared `f.suffix` against the raw comma-joined `".c,.cpp"`, which
+  matched nothing, so the command reported `Checked 0 files` and exited 0 over
+  files with real issues. It now uses `source_exts(cfg)`.
+- **`gen-layout`/`postlink` no longer copy a garbage import-bookkeeping region** —
+  `layout_meta.extract_layout` computed `region(imp_rva, exp_rva - imp_rva)`; a
+  binary with imports and no exports (EXE, stripped-export DLL) has
+  `exp_rva == 0`, so the size was negative and the slice (a negative stop, i.e.
+  `len(data) + stop`) returned a huge wrong region that `postlink._fix_imports`
+  then copied over the built binary. The region is emitted only when
+  `exp_rva > imp_rva`.
+- **`calibrate-bss` reads `default_target` from `[project]`** — the key was read
+  at the TOML top level, where it never lives, so the command always fell back
+  to the first declared target and sized the BSS pad against the wrong binary in
+  a multi-target project.
+- **`gen-stubs` keeps hexadecimal array bounds** — the array-size regex matched
+  decimal digits only, so `extern unsigned char g_table[0x400];` collapsed to
+  `unsigned char g_table[1] = {0};` and every following `.data` symbol in the
+  stub TU was placed too early.
+- **`diff --fix-blocker` writes the blocker on the diffed VA** — `_write_blocker`
+  took the seed file's first annotation, so `diff f.c --va 0x2000` on a
+  two-marker file recorded BLOCKER against 0x1000.
+- **`switch` no longer reads a register operand as a compare bound** —
+  `_CMP_IMM_RE` accepted any hex digits, so `cmp ecx, edx` bound a table at
+  `0xed` and pulled unrelated handler addresses into the case list. The
+  immediate must now be a numeric literal (`0x...` or decimal).
+- **`stack-cmp` adjusts the frame only for `lea esp, ...`** — the `lea` branch
+  checked only that the operand string mentioned `sp`, so `lea eax, [esp - 0x10]`
+  (an address computation) inflated `frame_size`.
+- **`asm --hints` classifies a scaled `jmp [reg*4 + table]` as a switch
+  dispatch** — the import-thunk test matched it first and reported linker glue,
+  steering skip-vs-decompile the wrong way.
+- **Mach-O zerofill sections report no raw data** — `__DATA.__bss` was given
+  `raw_size = virtual size`, so extracting one of its VAs returned unrelated file
+  bytes instead of nothing (PE sections with no raw data and ELF NOBITS were
+  already handled).
+- **`round-trip` no longer decodes `$SG`/`$L` symbol names as addresses** — the
+  Ghidra auto-name fallback read the trailing hex digits of any symbol, so
+  `$SG123456` (an MSVC string literal) and `$L123456` (a jump-table label)
+  resolved to address 0x123456, relocating a reference to the wrong place.
+  Names starting with `$` are now refused; `$L` labels still resolve through
+  the compiled object's local-label table.
+- **`link.file_align` warns instead of silently doing nothing** — the key is
+  parsed into `LinkConfig` but no path applies it (FileAlignment needs a relink;
+  `pe_headers.PATCHABLE` excludes it and the parity report iterates
+  `PATCHABLE`), so a configured value had no effect and no warning. Loading a
+  project with `link.file_align` set now warns that the value is informational.
+- **`sync --pull-data` maps Ghidra `undefined` arrays to `unsigned char`** — the
+  array branch of the generated C-type mapper passed the element type straight
+  through `_normalize_ghidra_type`, which does not know Ghidra's
+  `undefined`/`undefinedN`, so `undefined[16]` emitted
+  `extern undefined g_blob[16];` (uncompilable) even though the scalar branch
+  already mapped it. The array branch now applies the same mapping.
+- **`sync --bookmarks` keeps a function at VA 0** — the builder skipped any
+  entry whose VA was falsy, so a 16-bit target's function at address 0 lost its
+  bookmark. The guard is now `va is None`.
+- **A tool result without `content` is no longer counted as applied** —
+  `apply_commands_via_mcp` accepted a JSON-RPC success whose `result` carried no
+  `content` as a successful mutation, while the sibling `_call_mcp_tool` treats
+  it as a failure. A dropped op was reported as applied; it now fails closed.
+- **An "already exists" error naming a different op is rejected in bare-noun
+  form** — the guard matched only the other op's slug spellings, so a
+  `create-label` op accepted `"function 0x1000 already exists"` as its own
+  idempotent success. It now rejects the bare noun too.
+- **`toolchain-detect` names MSVC 10.0/11.0 from the linker version** —
+  `_linker_era_hint` mapped linker `2.x`..`9.x` and fell through for `10.00` /
+  `11.00`, so a VC 2010/2012 binary whose DIE record carries only a Linker entry
+  reported "MSVC-era" instead of "MSVC 10.0"/"MSVC 11.0" (both versions are in
+  `_MSVC_LINKER_VERSIONS`).
+- **A high PE-meta confidence is no longer demoted** — the PE-meta merge used
+  `max()` on the confidence strings, which is lexicographic ("high" < "low" <
+  "medium"), so a coarser backend reporting "low" dragged a high-confidence
+  Rich-header verdict down to "low". The merge now compares an explicit rank.
+- **MSVC 6.0 SP3/SP6 toolchain roots point at the images' real trees** —
+  `msvc600sp3` declared `/opt/msvc6.0-sp3/Bin` (its image unpacks to
+  `/opt/msvc6.0-sp3/VC98/Bin`) and `msvc600sp6` declared
+  `/opt/msvc6.0/VC98/Bin` (its image is `/opt/msvc6.0-sp6/...`). `image_msvc_env`
+  derived INCLUDE/LIB from those roots, so every compile on either profile
+  failed with C1083; the smoke gate missed it because those images export no
+  includes of their own. Both now name their own `VC98/Bin`.
+- **GA mutations no longer treat every `0x…` literal as false** — the
+  `#match?` predicate `"^0|FALSE$"` is the Rust-regex alternation
+  `(^0)|(FALSE$)`, so the unanchored `^0` matched any literal starting with
+  `0`. `mut_if_false_to_bitand` rewrote `if (!c) v = 0x100;` to `v &= c;`
+  (dropping the assignment) and `mut_return_to_goto` turned `return 0x100;`
+  into `goto ret_false;` whose tail returns `0`. Both queries now use one
+  anchored zero pattern (`0`, `00`, `0x0`, `0L`, `0UL`).
+- **`mut_hoist_return` puts its `end:` label in the mutated function** — the
+  label was inserted before the file's *last* `}` (`rfind`), so any sibling
+  function or trailing struct after the target received a stray label while the
+  target's `goto end;` dangled (compile error). The label is anchored to the
+  validated enclosing function body.
+- **`mut_extract_else_body` uses the return type of the function it mutates** —
+  `_early_exit_return` scanned the file's *first* `function_definition`, so an
+  if/else in a later `void` function got `return 0;` (compile error) and a later
+  pointer function got `return 0;` instead of `return NULL;`. It now resolves
+  the enclosing function from the mutated statement.
+- **`mut_hoist_repeated_deref` slices bytes, not the `str`** — tree-sitter's
+  offsets are UTF-8 byte positions; slicing the decoded string shifted every
+  index by one per multibyte character before the body (one `é` in a comment
+  dropped the function's opening brace and inserted the local declaration
+  inside a nested block). The mutation now works on the encoded bytes.
+- **The verify cache keeps `reg_delta`/`effective_match`** — `_save_verify_cache`
+  enumerated the result fields by hand and dropped both, so every reader of the
+  cache (`rebrew status`, `todo`'s prove queue, the coverage DB) saw
+  `effective_match: false` for a function whose entire delta was register
+  allocation. `rebrew status` reported 0 effective matches and never queued the
+  candidate; the two fields are now written.
+- **A verify-cache patch refreshes metrics even when the status is unchanged** —
+  `patch_verify_cache_entries` skipped the write whenever the status equaled the
+  patched one, discarding a fresh match count/percent/delta. A GA run improving
+  NEAR_MATCHING 60% → 92% left the stale 60% in the cache, and `todo`'s prover
+  queue then filtered the candidate out (estimated diff above the prove cap).
+  The guard now compares every field and writes when any differs.
+- **`report`'s call graph lists library-header entries** — following the table
+  fix, `depgraph.build_graph` also scanned only `iter_sources`, so the functions
+  `identify-library` records in `library_*.h` were absent from graph.html. The
+  headers are now parsed with `parse_library_header` and added as nodes (no
+  callee extraction: headers carry no bodies).
+- **`report`'s function table lists library-header entries** — `_collect_functions`
+  scanned only `iter_sources`, which does not glob `library_*.h`, so the
+  functions `rebrew identify-library` records there were counted by the summary
+  cards (`collect_status` scans the headers via `naming.load_data`) but absent
+  from the table. The headers are now parsed with `parse_library_header` (their
+  minimal marker format) and merged as rows. The call-graph page still scans
+  only `iter_sources`; recorded in the queue.
+- **`rebrew todo` estimates library-function difficulty from the name** — the
+  `estimate_difficulty` call omitted `module=`, so its reference-source levels
+  (`"small MSVCRT function, reference source available"`) never applied: a CRT
+  function was described as a plain tiny getter. Both module-aware call sites
+  now share one `_inferred_module(name)` helper.
+- **`rebrew todo` routes placeholder-named functions by their verify state** —
+  the placeholder lane (`FUN_…`/empty name) handled NEAR_MATCHING itself with a
+  trimmed copy of the general branch, so a STRUCTURAL blocker still produced a
+  "20B diff — try flag sweep" item and a placeholder `MISSING_SIZE` entry was
+  sent to `rebrew skeleton` instead of the `verify --fix-sizes` self-heal lane.
+  NEAR_MATCHING and MISSING_SIZE now fall through to the branches that own them.
+- **`report --decomp-dev` unit names are reversed-dir-relative** — the report
+  generator called `rel_display_path(path)` with no base, so every unit was a
+  bare basename: two `pool.c` under different directories collided in
+  `report.json` and the names did not line up with the objdiff project's units.
+- **`metadata_model` rejects wrong types instead of coercing them** — a `bool`
+  is an `int` subclass, so `size = true` loaded as a plausible `1` (the sibling
+  `metadata.update_field` rejects bools); and `_coerce` validated only the int
+  and JSON fields, so `status = 5` loaded uncoerced and then crashed
+  `MetadataEntry.problems()` on `.upper()`. Bools are now rejected, the
+  string-typed fields require `str`, and a bad value surfaces as a load problem.
+- **`rebrew todo`'s identify-library lane can fire again** — it read
+  `func.module`, an attribute `FunctionEntry` does not have, so the
+  `hasattr(...)` check was always False and `CAT_IDENTIFY_LIBRARY` never
+  emitted (the pinning test fed a `SimpleNamespace` with a fake `module`). The
+  module is now inferred from the function name with
+  `identify_library._infer_module`, the same heuristic the FLIRT/import
+  backends use; an unclassifiable name is skipped as before.
+- **`report`'s call-graph page names nodes and links NE edges correctly** — the
+  adjacency-list fallback printed the internal node key (`va:0x…`/`sym:…`)
+  instead of the symbol that `render_mermaid`/`render_dot` use, and the NE
+  call-graph augmentation keyed its ranges `fcn_<va>`, which can never match a
+  node key: the page rendered phantom `fcn_…` nodes and counted edges it could
+  not list. Ranges now use the same `va:0x…` key scheme.
+- **`data --set-*` fails loud on a scalar metadata entry instead of crashing** —
+  `set_data_field` only created a table when the key was absent, so a scalar at
+  an existing key (`"SERVER.0x1000" = "scalar"`, which the loader deliberately
+  tolerates by skipping) made the field assignment raise `TypeError: 'String'
+  object does not support item assignment`. It now raises a clear `ValueError`
+  naming the entry. `DATA_METADATA_FIELDS` also omitted `TYPE`, a field the
+  tool writes (`data --set-type`, binsync import/overlay) and lists in
+  `_CANONICAL_ORDER`.
+- **`rebrew lint` false positives and a count bug** — W028 dropped VA 0 from the
+  function index, but a 16-bit DOS target legitimately addresses code from
+  segment 0 (`min_valid_va_for` returns 0), so `// FUNCTION: GAME 0x0` was
+  reported as "no function in the list"; E004 compared the raw STATUS spelling
+  while `test`/`verify` canonicalize it (`// STATUS: exact` was an error
+  there but EXACT everywhere else); W019 compared SIZE textually though E008
+  accepts hex (`// SIZE: 32` vs metadata `0x20` warned about a disagreement
+  that did not exist); and the batch `passed` count included the synthetic
+  W029 entries, which have no file, so it could exceed `total` ("Checked 1
+  files: 2 passed", JSON `passed > total`).
+- **`catalog` grid cells carry the global's `rebrew-data.toml` verdict** — the
+  merge stored `DRIFT`/`VERIFIED`/… on the global, but its covering cell was
+  hardcoded `EXACT`, so `build_db`'s per-section tally (and the dashboard)
+  counted a DRIFTing global as an exact match.
+- **`ne_loader`'s `SEG_ITERATED` named the wrong bit** — it was `0x02`
+  (`NE_SEGFLAGS_ALLOCATED`); the spec's iterated-data bit is `0x0008`. An
+  iterated segment therefore reported `is_iterated == False` (its iteration
+  table was exposed as raw bytes) and an allocated one was marked iterated
+  (`raw_size` forced to 0).
+- **`catalog` global discovery now receives the project config** —
+  `generate_data_json` called `get_globals(src_dir)` with no `cfg`, so
+  `iter_sources` fell back to `.c` only and never appended `cfg.shared_dir`:
+  every global in a `.cpp` or shared source disappeared from `data.json` and
+  the coverage DB while the annotation scan (which does pass `cfg`) saw them.
+- **`doctor` and `status` diagnostics agree with the paths they check** —
+  `doctor`'s include check rejected every 16-bit-capable profile except
+  `msvc1.52` (so a working `tc16`/`tc20`/`watcom16` project was told to switch
+  toolchains; the set is now shared with `check_compiler`), reported the
+  config-accepted `format = "mz"` as unknown, and accepted `VA NUMBER` function
+  list lines that `parse_function_list` treats as malformed (reporting a healthy
+  list for a file with zero parsable entries). `status.collect_status` used
+  `.get("result", {})`, which does not cover a `"result": null` cache entry (the
+  sibling reader guards it) and would `AttributeError` out of `rebrew
+  status`/`todo`; its degradation `except` also omitted the `ValueError` the
+  structure-JSON loader raises for a corrupt file, so the documented fallback
+  was skipped.
+- **`rebrew round-trip` compiles with the same configuration `verify`/`test` do**
+  — `_collect_splice_set` built its flag list by hand (`ann.cflags or
+  metadata cflags or cfg.cflags`), skipping the per-module `cflags_presets` and
+  the `/O2 /Gd` default, so a function verify reports EXACT compiled to
+  different bytes here and surfaced as `compile_drift`; it now goes through
+  `resolve_compile_overrides` (the documented single source of truth). The same
+  call supplies the per-function/per-library **toolchain**, which round-trip
+  never applied at all (every function was compiled with the project default
+  image). The partition also used the raw metadata `status`, so a hand-edited
+  `status = "exact"` silently dropped the function into `other_count`; it now
+  uses the canonicalized `ann.status`.
+- **PE checksum no longer folds away the file-length term** —
+  `pe_headers._pe_checksum` folded the sum again after adding `FileLength`,
+  collapsing a value like `0x2A492` to `0xA494`. `round-trip --fix-headers`
+  therefore wrote a checksum Windows and pefile reject for every PE larger than
+  ~64 KiB. It now matches the spec/pefile (verified against 40 real MSVC PEs
+  and pefile's own verifier).
+- **`catalog` grid no longer hangs on a zero-size global** — a zero-length
+  declaration (`extern char g_pad[0];`) produced a zero-length cell, whose
+  `off + 0` end never advanced the segment walk; the loop appended empty
+  segments forever and `rebrew catalog --data-json` never returned. Such globals
+  now carry no cell.
+- **`matcher/scoring.py` normalization: prefixed `mov`-abs, LOCK, and negative
+  reloc offsets** — the raw/detail reloc normalizers must agree byte-for-byte
+  (the GA hot path uses the raw one). Three ways they did not: the `A0-A3`
+  branch zeroed offsets 1..4, which for `66 A1 <disp32>` clobbered the opcode
+  and missed the top address byte (both paths now start after the opcode);
+  `0xF0`/`0xF1` were missing from the legacy-prefix set, so `lock or [disp32]`
+  never reached the disp32 fallback; and the vectorized relocation mask built
+  spans from negative offsets, keeping their in-range tail (`ro=-2,
+  pointer_size=4` → indices 0,1) and excusing real byte diffs.
+- **`rebrew inline-strings` leaves string literals alone and picks owners by
+  real uses** — the keep/rewrite mask did not understand C string or char
+  literals, so a token mentioned inside a `"..."` literal was replaced with the
+  string content, nesting quotes into invalid C (`"use "hello" here"`); and a
+  `//` inside a literal started a comment mask that silently protected a real
+  token use later on the line. The mask now consumes literal spans, including
+  escapes and unterminated-at-EOL. Separately, the definition owner was chosen
+  by counting the whole file text, so extern lines and comment mentions
+  outvoted the single real use (the docstring says "the most non-extern uses",
+  and the choice determines the string's `.data` slot).
+- **`rebrew identify-library` respects existing FUNCTION markers, is
+  deterministic, and writes `file:line` SOURCE** — the existing-VA guard used
+  `crt_match.collect_library_annotations`, which drops FUNCTION markers outside
+  `library_modules`, so a LIBRARY marker could be appended over an
+  already-decompiled function; it now scans through `naming.load_existing_vas`
+  (every FUNCTION/LIBRARY marker). The default module came from `set[0]`
+  (`library_modules` is a set), making the file a hit lands in depend on hash
+  randomization; it is now the alphabetically-first module. And the SOURCE
+  value omitted the line number, so identify-library and
+  `crt-match --fix-source` flipped the same key between `file` and `file:line`.
+- **`split` / `merge` output naming, extension casing, encoding, and
+  self-input** — `split` built the output name from the raw `cfg.source_ext`,
+  so a comma-separated config (`.c,.cpp`) produced `func.c,.cpp`; it now keeps
+  the input file's own suffix. Both tools compared an explicit file's extension
+  case-sensitively while `iter_sources` matches `FOO.C` as `.c`, so an
+  uppercase source was rejected by `split` and silently dropped by `merge`.
+  `merge` then inherited the output encoding from files it skipped (no matching
+  target marker), which aborted a pure-UTF-8 merge with a spurious encode
+  failure or a false "conflicting source encodings" error. And a directory
+  input that already contained the output file fed it back in, so `merge ...
+  --force` re-runs failed with a duplicate-VA error.
+- **`rebrew build-db` parses global VAs properly and keeps verify history** —
+  the globals loop's fallback called `int(<int>, 16)` on the `va` field the
+  catalog emits (a TypeError that aborted the rebuild), treated a decimal
+  string as hex, and inserted a `(target, 0)` poison row when nothing parsed;
+  it now parses int/`0x…`/decimal and skips an unresolvable VA with a warning,
+  matching the functions path. A scoped `--target` rebuild also deleted that
+  target's `verify_results` rows while re-importing only when the shared
+  `db/verify_results.json` names it, so verifying another target last wiped
+  this one's history (the full-rebuild path documents the table as never
+  dropped).
+- **`rebrew dashboard` no longer advertises `--target`** — the flag was
+  accepted and silently ignored (the server serves every target through
+  per-request `?target=`), so it is removed rather than misleading.
+- **`layout_meta` export extraction reads the whole name and skips forwarders**
+  — an export-name string running to EOF was sliced with `find()`'s `-1`,
+  dropping its last character (the DLL and import-name paths in the same
+  function already guarded this). Export entries whose RVA points inside the
+  export directory (forwarder strings) were also recorded as functions at a
+  `.rdata` VA; `gen_layout.parse_pe` drops them, and the two parsers must agree
+  on the export set written to `layout.txt` and `rebrew-project.toml`.
+- **`layout_meta`'s sparse `.text` maps include the last scan position** — the
+  operand scan stopped one dword early and the call scan one suffix early, so
+  an operand or `E8/E9` site at the very end of `.text` was never mapped and
+  `postlink` could not rewrite it.
+- **`rebrew gen-layout` no longer crashes on ordinal-only imports** — the
+  entry dict only carried `include` when the import had a name, so
+  `gen_crt_imports`'s unconditional `imp["include"]` raised `KeyError` for an
+  ordinal-only thunk from any DLL other than `WS2_32.DLL` (the ordinal-comment
+  branch below it was dead code). The key is now always present. Also: a
+  truncated section table raised a raw `struct.error` past `main`'s
+  `except ValueError` (now `ValueError("truncated section table")`, matching
+  `layout_meta.parse_pe`), and `pe.get("stack_reserve") or DEFAULT` treated a
+  legitimate 0 as absent, dropping `/STACK`/`/HEAP` (and the toml keys) for a
+  reference whose field is 0.
+- **`rebrew context --sources-only` does what it says** — the flag was wired
+  to `include_sources=not sources_only` while library headers were collected
+  unconditionally, so the "sources only" run emitted headers and no sources.
+  Header collection is now gated too (`include_headers`).
+- **`rebrew cu-map` no longer reads an exhausted gap as padding** —
+  `extract_bytes_at_va` returns `b""` when a section's file-backed bytes are
+  exhausted (a zero-filled tail with `VirtualSize > SizeOfRawData`), and that
+  empty result reached `_classify_gap`, whose first branch returns "padding" —
+  a positive same-TU signal for bytes that were never read. It is now
+  "unknown" (no signal), matching the function's own docstring.
+- **`near-diag` gates its x86-only analyses on the architecture, not just the
+  mode** — capstone mode values are arch-scoped (`CS_MODE_32 ==
+  CS_MODE_MIPS32`), so a mips32/ppc32/sh2 project passed the mode-only check and
+  `analyze` returned a real `frame`/`cfg` dict produced by disassembling those
+  bytes as x86. Also: the RELOC verdict claimed "the match is RELOC-level"
+  whenever any `equivalent` byte remained (real deltas that canonical
+  `test`/`verify` call NEAR_MATCHING), and `_REGISTER_RE` omitted the 64-bit
+  byte registers `sil`/`dil`/`spl`/`bpl`, turning a pure register swap into
+  structural churn.
+- **`rebrew objdiff` follows the configured source tree and per-function
+  flags** — the generated `objdiff.json` hardcoded `watch_patterns` of
+  `src/**/*.c`, so a project whose `reversed_dir` is anywhere else never
+  triggered a rebuild on edit (stale diffs); the globs now derive from
+  `cfg.reversed_dir` (with `cfg.source_ext`). The `rebrew-objdiff-build` shim
+  also resolved toolchain/flags with empty override strings, dropping a
+  persisted per-function `TOOLCHAIN`/`CFLAGS` and the per-module cflags preset,
+  so objdiff compiled a different configuration than `test`/`verify` for the
+  same function; it now reads the file's own annotation.
+- **`rebrew cross-import` fences `--va`, `--limit`, and its SIZE rewrite** —
+  `--va` on an already matched destination VA re-added it through the
+  disassembler, bypassing the matched-STATUS filter, so an EXACT function could
+  be re-imported and demoted; `--limit 0` imported one function (the budget was
+  checked after the first import was appended); and the SIZE rewrite scanned to
+  EOF, clobbering a *later* function's `// SIZE:` line in a multi-function
+  source while leaving the imported block sizeless.
+- **`rebrew decompme` honours `--size`, `--compiler`, and the project profile**
+  — `_resolve_annotation` raised "has no size … or pass --size" before the CLI
+  `--size` was consulted, so the flag could not supply what it was told to;
+  `map_compiler` was called with the possibly-`None` toolchain instead of
+  falling back to `cfg.compiler_profile` (default projects exited 2); and the
+  cflags resolution lived inside `if compiler is None`, so passing `--compiler`
+  silently uploaded the scratch with empty flags.
+- **`rebrew cross-import` reads and writes source with the detected encoding**
+  — it read with a hardcoded `encoding="utf-8"`, so a legacy-encoded matched
+  source (cp1252/shift-JIS) raised `UnicodeDecodeError` (a `ValueError`, not
+  caught by the `except OSError` guard) and aborted the whole run instead of
+  reporting a `READ_ERROR` row. The write was non-atomic and re-encoded as
+  UTF-8. It now uses `read_source_text` / `atomic_write_text`, keeping the
+  source's encoding (or the destination file's own when it exists).
+- **`rebrew skeleton` resolves a zero-arg tail-call callee** — a decorated
+  `name@0` (zero-arg `__stdcall` callee) returned count 0, which the caller
+  treated as the "unresolved" sentinel, so a forwarding thunk got the generic
+  "ends in a tail call" note instead of `int __stdcall f(void)`. The sentinel
+  is now the empty callee name.
+- **Ghidra idempotent-op guard no longer accepts a different operation's
+  failure** — `_is_idempotent_success` rejected a *different* op only when it
+  was spelled with a hyphen, so `create function 0x1000 already exists` was
+  counted as an idempotent success for a `create-label` op. All op spellings
+  (slug, space, underscore) are now checked, using the previously unused
+  `_IDEMPOTENT_OPS` constant. Addresses also compare numerically, so a server
+  echoing `0x1000` for an op carrying `0x00001000` is recognized as the same
+  address instead of a mismatch.
+- **`base_cflags` is never dropped when the resolved CFLAGS already contain
+  `/c`** — `_compile_cflags` had a final `return cflags` branch that discarded a
+  non-`/c` base such as `/MT`, and the flag-sweep path skipped the helper
+  entirely when the resolved flags carried `/c`. Both compiled a different
+  runtime configuration than the metadata declares, so a sweep-reported EXACT
+  could demote on the next `test`/`verify`. The helper now keeps the base, and
+  the sweep calls it unconditionally like the single/batch paths.
+- **`rebrew match --symbol` on a multi-function file compiles with the
+  selected function's flags** — the per-function TOOLCHAIN/CFLAGS came from
+  `parse_source_metadata`, which returns the file's *first* annotation only, so
+  a `--symbol`/VA-targeted run used the first block's flags and toolchain
+  (batch GA already used the selected function's). The selected annotation's
+  `toolchain`/`cflags` are now preferred.
+- **GA disk cache now reuses successful builds across processes** — the GA
+  stored a scored result under the bare source digest (`_run_inner` passes
+  `source_digest(src)` to `_compute_fitness` for memoization) while
+  `_compile_source` reads under `_ga_cache_key(...)[:16]`, so a successful
+  build was never found on a later run and every winner was recompiled.
+  Both paths now use one `_cache_key` helper.
+- **`postlink` header copy no longer overwrites a shifted section layout** —
+  `_fix_pe_metadata` gated its full reference-header copy on section *names*
+  matching, though the comment required names and RVAs. When the built link's
+  raw pointers differed (the same drift `_fix_data` handles by writing
+  `.data`/`.reloc` at the built offsets), the copy stamped the reference's
+  pointers over them, pointing the header at bytes the fixer never wrote. The
+  gate now compares name, VirtualAddress, and PointerToRawData per section.
+- **`postlink` accepts a reordered import descriptor list** — the import-set
+  signature sorted entry names within each DLL but not the DLL list, so an
+  identical import set whose descriptors were ordered differently (the MSVC6
+  linker's hash order) was refused as "import sets differ" instead of the very
+  case the fixer repairs. Both signatures are now sorted.
+- **`rebrew skeleton` no longer bleeds the next function's epilogue into the
+  signature** — `_convention_stub` called `calling_convention(insns)` without
+  `next_va`, so a padded extent window that ran past the function into its
+  neighbour read the neighbour's `ret N` as this function's epilogue: a cdecl
+  function followed by an stdcall one got `int __stdcall f(int a1, int a2)`.
+  It now passes `_next_function_va`, matching `calling_convention_at`.
+- **`rebrew skeleton --name` sanitizes the custom name** — a custom name went
+  straight into the C definition (`--name "my-func"` emitted
+  `int __cdecl my-func(void)`, invalid C), and a name starting with a digit
+  lost the guard underscore to `lstrip("_")`. Both custom and Ghidra names now
+  go through `sanitize_name` (characters, leading digit, length).
+- **`rebrew data` no longer loses an annotated global to an extern-only file**
+  — when the annotated file sorted before the extern-only one, `scan_globals`
+  forked a duplicate `(name, 0)` entry that the final pass wrote over the
+  annotated entry, dropping its VA and `annotated` flag. The extern-only pass
+  now reuses an existing same-named entry.
+- **`rebrew data --annotate` discovers sources like the scan does** — it
+  walked `rglob("*.c")`, ignoring `cfg.source_ext` (`.cpp` sources missed), the
+  shared-sources root, and the exclude-dir list, and could descend into build
+  directories. It now uses `iter_sources`. The skipped-unnamed count is the
+  number of name-less metadata entries, not the arithmetic difference (two
+  entries sharing a name were misreported as unnamed).
+- **`rebrew sync --dry-run` no longer writes to Ghidra** — the standalone
+  `--create-functions` and `--bookmarks` MCP branches ignored `--dry-run` and
+  POSTed their ops (the `--pull --create-functions` path and `--pull-data`
+  already honored it). A dry run now previews the op count, skips the apply,
+  and does not require Ghidra to be reachable. The validated program path
+  returned by the MCP probe is also used now; it was computed and discarded,
+  so ops targeted the derived path even when Ghidra had a different one open.
+- **`link-sweep` compared only the major OS/subsystem version** — the
+  `OSVersion`/`SubsystemVersion` field specs packed `u8@opt+40:u8@opt+41` (and
+  `+48:+49`), but `opt+41`/`opt+49` are the high byte of the *major* u16
+  (always 0); the minor field lives at `opt+42`/`opt+50`. A reference with
+  subsystem version 4.10 and a candidate at 4.0 both read as `0x0400`, so the
+  sweep reported a field as reproduced when the candidate had changed it.
+- **`postlink` no longer zeroes real `.text` bytes on a shifted build** — the
+  tail trim start was computed as `reference.raw_ptr + reference.raw` and used
+  to index the *built* buffer, so a built link whose raw sections sit at a
+  different file offset had the last bytes of its `.text` zeroed. The trim
+  start now resolves from the built section's own file offset plus the
+  reference's raw size. Also, `--fix ""` (which selects no fixer) is now
+  rejected instead of silently running every fixer (`run_fixers` treats an
+  empty iterable as "all").
+- **GA batch promotion no longer deadlocks or promotes unconfirmed matches** —
+  the batch GA driver wrapped `update_stub_to_matched` in
+  `metadata_write_lock("rebrew-functions.toml")`, but that function promotes
+  STATUS through `update_source_status` → `update_statuses_batch`, which
+  re-acquires the same (non-reentrant) lock: `rebrew match --all` wedged on the
+  first solved stub. `metadata_write_lock` is now reentrant within a thread
+  (nested acquisition skips the re-`flock`). Separately, a reloc-masked-only
+  champion that `compile_and_compare` rejected was still spliced and promoted
+  RELOC; the splice is now gated on confirmation, matching the flag-sweep path.
+- **`climb` brace/statement tracking is comment- and literal-aware** — the
+  per-line comment strip was not quote-aware and only handled single-line
+  `/* */`, so `//` inside a string literal truncated real code and a
+  multi-line decompiler comment block (or a brace inside a string) corrupted
+  brace depth, mis-chunking statements. A stateful stripper now tracks block
+  comments and string/char literals across lines.
+- **`climb` no longer rewrites sources in the wrong encoding, non-atomically**
+  — it read/wrote the user's `.c` with the locale default (`path.read_text`),
+  which fails on Shift-JIS/CP1252 sources and can truncate on a crash mid-write.
+  It now uses `read_source_text`/`atomic_write_text` with the detected encoding.
+- **COFF `IMAGE_REL_I386_ABSOLUTE` (0x0000) relocations are handled** — the
+  type was absent from the relocation table, so `apply_coff_relocations` raised
+  (via the empty-symbol resolve) on an object carrying the defined no-op entry,
+  and the compare path masked its offset, hiding a real difference there. It is
+  now a `"none"` kind: skipped in both the patch and compare paths.
+- **`merge` rejects conflicting legacy source encodings instead of silently
+  picking one** — the output encoding took the last non-UTF-8 input's encoding,
+  so merging a cp1252 file with a shift_jis file either wrote in the wrong
+  encoding or raised an uncaught `UnicodeEncodeError`; it now errors with
+  guidance, and an unencodable merged result reports cleanly rather than with a
+  traceback.
+- **`decompme` uploads the source without degrading legacy encodings** —
+  `build_scratch_payload` read the `.c` with `errors="replace"`, so a
+  Shift-JIS/CP1252 comment was uploaded to decomp.me as U+FFFD; it now reads
+  through `read_source_text`.
+- **`objdiff` target-object synthesis sorts functions by VA** —
+  `_synthesize_target_objects` placed functions in source order, but
+  `write_coff_object` treats a decreasing offset as an overlap and raises, so a
+  multi-function file that listed a higher VA first aborted with `ValueError`.
+  Functions are now sorted by VA before layout (and the `min_va or va`
+  falsy-zero form is gone).
+- **`identify-library` appends safely to a header without a trailing newline** —
+  `_append_entry` opened the header in append mode unconditionally, so a
+  pre-existing `library_*.h` not ending in a newline had the new `// LIBRARY:`
+  block spliced onto its last line (joining the marker to whatever preceded it).
+  It now inserts a newline when one is missing.
+- **The decomp.dev report's `total_data` is no longer always 0** —
+  `report.py` summed `getattr(sec, "virtual_size", 0)` over rebrew's
+  `SectionInfo`, which exposes `size` (the virtual size) and has no
+  `virtual_size` attribute, so the getattr default silently yielded 0 for every
+  section. (`postlink`'s `section.virtual_size` is a LIEF attribute and stays.)
+- **x86-64 RIP-relative references now resolve** — `analysis._mem_absolute`
+  returned `None` for `[rip+disp]` operands (a non-zero base), so `xrefs` and
+  `analyze` missed every RIP-relative global reference on x86_64 targets. It
+  now resolves them to `insn.address + insn.size + disp`; the `_classify_insn`
+  call sites pass the instruction.
+- **`lib-match` reloc guard counts only in-window relocations** — `match_bytes`
+  tested `len(data) - len(relocs)`, which subtracts reloc offsets beyond
+  `len(data)` (a longer library body), so a genuine match could be rejected as
+  "mostly relocations"; the guard now uses the actual fixed-byte set.
+- **`x86_64` targets decode in 64-bit mode** — `analysis.capstone_mode_for_arch`
+  returned `CS_MODE_32` for every arch except `x86_16`, and `analysis._capstone`
+  had no `x86_64` branch, so the diff/match/analysis layers (and `stack-cmp`,
+  which reads the helper) disassembled x86_64 code as 32-bit: REX prefixes and
+  8-byte operands were mis-decoded and the byte diff mis-aligned. Both now match
+  `binary_loader.capstone_config_for` (`x86_64 → CS_MODE_64`).
+- **`stack-cmp` handles x86-64 frames** — `analyze_frame` used a 2-byte word
+  for every mode except 32-bit, and its `[ebp±N]`/`[esp±N]` regexes plus the
+  frame-pointer check only knew `ebp`/`esp`. A 64-bit function therefore got a
+  wrong `frame_size` and no `rbp` slots, so the frame comparison was meaningless
+  for the x86_64 (gcc/clang) profiles. It now uses 8-byte words for 64-bit and
+  recognizes `rbp`/`rsp` (including `push rbp; mov rbp, rsp`).
+- **`gen-layout` raises a clean error on a truncated section table** —
+  `layout_meta.parse_pe` validated the optional header but not the section
+  table, so a PE cut before its section headers made `extract_layout` crash
+  with `struct.error` from the section reader instead of a `ValueError`.
+- **`lint` W019 inline-vs-metadata SIZE disagreement now fires** — the override
+  lookup read `_metadata_override.get("SIZE")` from a dict keyed by lowercase
+  TOML fields, so it was always `None` and the "inline SIZE disagrees with
+  metadata" warning was dead code. Corrected to `"size"`.
+- **`lint` E008 validates the metadata SIZE value** — a non-integer `size` in
+  `rebrew-functions.toml` (`size = "abc"`) was accepted silently; it now
+  reports E008. Inline `// SIZE:` stays out of scope, per the reserved rule and
+  the reccmp-native inline contract.
+- **`near-diag` normalizes x86-64 register names** — the register-collapsing
+  regex knew only 32-bit GPRs, so 64-bit register churn (`mov rax, rbx` vs
+  `mov rcx, rdx`) was classified `structural` instead of `register`, skewing
+  NEAR_MATCHING classification for the x86_64 (gcc/clang) profiles. It now
+  covers `rax`-`r15` (with d/w/b sub-forms) and `xmm`/`ymm`/`zmm`.
+- **CFG similarity keeps `jecxz`/`jcxz` edges** — both mnemonics are block
+  terminators but were missing from the conditional-jump set, so a block ending
+  in either produced no branch target and no fallthrough edge at all (they are
+  conditional: target + fallthrough), distorting `cfg_ged` node/edge similarity
+  for the 16/32-bit loop code that uses them.
+- **`lint` E004 flags unknown STATUS values** — a persisted metadata `status`
+  outside `metadata.KNOWN_STATUSES` (a typo or legacy word) passed through
+  `canonical_status`, which only upper-cases, and was treated as a real
+  classification. `rebrew lint` now reports E004 with the known vocabulary.
+- **`resolve_source_arg` tolerates the MSVC leading underscore on both sides** —
+  it stripped `_` from the argument but not from the file stem, so
+  `rebrew test foo` failed to resolve `_foo.c` (while `_foo` did resolve
+  `foo.c`). The stem comparison is now underscore-insensitive in both
+  directions.
+- **`parse_structs` resolves forward-referenced struct fields** — layouts were
+  built in source order against only the structs already seen, so a field typed
+  as a struct declared later (`typedef struct { Inner inner; int tail; } Outer;`
+  before `Inner`) truncated `Outer` to `complete=False` with no fields. Builds
+  now run to a fixed point, so out-of-order and nested references resolve.
+- **`rebrew types` resolves nested-struct field spans** — `check_struct`
+  computed field spans with `type_size(spelling)` and no struct map, so a field
+  typed as another declared struct got a zero-width span and every read inside
+  it was reported `missing`. `check_struct` now takes `known_structs`, and
+  `rebrew types` passes the parsed map.
+- **Struct arrays align by their element type** — `types._field_align` capped
+  every array's alignment at 4, bypassing the `double` → 8 rule, so
+  `struct { char c; double arr[2]; }` placed `arr` at offset 4 with size 20
+  (MSVC: offset 8, size 24). Arrays now recurse to the element's alignment
+  (`int`/`char` arrays are unchanged at 4/1). This affects every consumer of
+  the shared type model: `name_decomp`, `types`, `recover-structs`.
+- **`gen-stubs --footer` preserves a legacy-encoded footer, and the output
+  write is atomic** — the footer was read with `errors="replace"` and embedded
+  verbatim, so a Shift-JIS/CP1252 footer lost every non-ASCII byte (U+FFFD) in
+  the generated TU; the output write could also truncate on a crash. Both now
+  go through `read_source_text` / `atomic_write_text`.
+- **Inline-strings, `data --annotate`, and `fixup` no longer degrade legacy
+  encodings** — each read sources with `errors="replace"` and wrote UTF-8.
+  `inline-strings` and `data --annotate` rewrote the same files, so every
+  non-ASCII byte became U+FFFD (and the writes were non-atomic); `fixup`'s
+  fixed output inherited the replacement characters. Reads now use
+  `read_source_text`; same-file writes use `atomic_write_text` with the
+  detected encoding.
+- **Data-layout source rewrites are encoding-safe and atomic** — the three
+  read-modify-write paths in `data_layout.py` (`--fill-data` removals and
+  additions, `--converge` pads) read TUs as UTF-8 with `errors="replace"` and
+  wrote UTF-8, so a Shift-JIS/CP1252 source lost every non-ASCII byte (replaced
+  by U+FFFD) on the next rewrite; the writes were also non-atomic. All now use
+  `read_source_text`/`atomic_write_text` with the detected encoding.
+- **`lib-match --allow` is BOM-safe and rejects malformed entries cleanly** —
+  the allow-list was read without an explicit encoding, so a UTF-8 BOM made the
+  first entry `"\ufeff0x..."` and crashed `int`; a malformed line raised an
+  uncaught `ValueError`. Now reads `utf-8-sig` and reports a bad entry via
+  `error_exit`.
+- **`switch` binds the nearest bounds compare, not the earliest** — the
+  bounds-check scan walked the 8-instruction window oldest-first and stopped at
+  the first matching `cmp`, so an earlier range check on the same index
+  register overrode the switch's own bound (a byte-range check would yield a
+  255 bound instead of the real case count). The scan is now nearest-first, as
+  its docstring already described.
+- **`recover-structs` warns when the image base is unavailable** — the
+  absolute-address member-offset cap silently fell back to the 16 MiB
+  `_MAX_MEMBER_OFFSET` when the target binary could not be read, so a low
+  absolute address (e.g. `0x401000` under a 4 MiB base) could be reported as a
+  struct member. The fallback now prints a warning; the lookup is extracted to
+  `_member_offset_cap` with tests.
+- **`name_decomp` no longer crashes on unsized or symbolic array members** —
+  the legacy layout parser ran `int("")`/`int("N")` for `char x[]` / `char
+  buf[N]`, raising `ValueError` out of `struct_field_layout`; such fields now
+  mark the layout incomplete (never matched) instead of aborting the run.
+- **`patch_pe_headers` no longer crashes on a truncated optional header** —
+  the field loop guards each write (`pos + size > len`), but the final checksum
+  `struct.pack_into` did not, so a PE whose optional header stopped before
+  `CheckSum` raised `struct.error`; the checksum write is now skipped when the
+  field is out of range.
+- **`order-sources` reads block-style markers and honors `--first-va =0x0`** —
+  the VA regex only matched `// FUNCTION:` markers, so files using the
+  `/* FUNCTION: ... */` form (emitted for C89-strict 16-bit compilers) were
+  treated as unknown-VA and pushed to the tail of the order; and the explicit
+  override used `or`, so a literal `0x0` silently fell through to the file's
+  own marker.
+- **`types apply-type --json` now performs the write** — `--json` returned
+  before `atomic_write_text`, so the command reported success while leaving the
+  source unchanged. The rewrite now happens in both output modes (`--dry-run`
+  still writes nothing).
+- **`calibrate-bss` restores the stub when calibration fails** — the loop
+  rewrote `src/link_stubs.c` in place each iteration with no revert, so a link
+  error, stub compile error, or non-convergence left a wrong tail pad behind
+  (silently breaking later raw links). The original is snapshotted and restored
+  on any failure, and the stub writes are atomic.
+- **`calibrate-bss` validates `--max-iters` and `--target-vs`** — `--max-iters 0`
+  raised `NameError` on the unbound `delta` and a non-numeric `--target-vs`
+  raised a raw traceback; both now exit with a clear message.
 - **`rename --data` handles metadata-only entries** — a VA with a name in
   `rebrew-data.toml` but no marker in the tree (e.g. an `$SG` string
   constant) no longer errors; the metadata name is renamed and source
@@ -13,6 +1093,170 @@
   (`extern <type> <name>; /* 0xVA */`) now wins for both type and name;
   metadata remains the fallback. The stub TU (`src/link_stubs.c`) is
   scanned too — it holds markers the reversed tree lacks.
+### Fixed
+- **Test/docs/build hygiene pass, no back-compat** — twenty-one items:
+  `test_ast_engine` covers malformed input, error nodes, multi-function files,
+  bytes input, and `replace_node`; `test_multi_arch_p0` asserts public
+  behavior (`load_config` arch values, `detect_format_and_arch`, extent,
+  reloc, discover, jump-table gates) instead of private tables;
+  `test_prove` shares one module-scoped angr Project with fresh blank states
+  per test and parametrizes the scalar constraint cases (message-substring
+  asserts left as-is, low value to change);
+  `test_headless` Barrier race test uses lock-held spawn assertions, no
+  `time.sleep` timing window; new `test_pe_headers` / `test_order_sources` /
+  `test_types_cli` / `test_calibrate_bss` / `test_gen_layout_pure` pin the
+  pure helpers (`gen_layout`/`link_sweep` docker paths documented as
+  untested); `test_init_wizard` spies are fully hermetic (no
+  `subprocess.run` delegation);
+  `ANNOTATIONS.md` / `CLI.md` point at `parse_c_file_multi` (deleted
+  `parse_c_file` removed); PRD 07/08/09 + the gap report carry correction
+  notes for the BinSync-primary sync flags (`--push`/`--pull --state-dir`,
+  `--accept-binsync`/`--accept-local`; PRDs stay historical);
+  `rebrew-intake` skill advises `rebrew toolchain build` instead of
+  `--install-wibo`; `AGENTS.md.template` sync lines pass `--state-dir`;
+  `rebrew-matching` skill adds the `rebrew climb` line;
+  `similarity` extra documents the uv-only bare `resembl` name (path dep,
+  no PyPI release to confuse);
+  `make all` runs the mypy, fixture-freshness, and idempotency gates CI
+  runs; CI idempotency uses `.scratch/` not `/tmp`;
+  dead `tools/verify_baseline.py` + its tests deleted (no `baselines/` dir,
+  nothing invoked it);
+  slipcover `fail_under = 80` enforced (AGENTS.md coverage ratchets);
+  `make release-check` documented as the manual pre-tag gate;
+  `tools/audit_projects.py` takes a root arg / `REBREW_PROJECTS_ROOT` with a
+  repo-relative default instead of the hardcoded home path;
+  the ruff pre-commit hook is check-only (no `--fix` rewrites);
+  the large-files hook comment matches the vendored MSVC tarballs.
+- **Orphans/data/catalog/dashboard correctness pass, no back-compat** — eight fixes:
+  `orphans` drops the named-data-entry exemption (same VA-no-marker rule for
+  all; `.idata`/`.edata` import inventory still excluded);
+  `section_symbol_bytes` clamps reads to the owning section's mapped extent
+  and raises on an oversized SIZE instead of a silent cross-section read
+  (BSS-tail symbols stay skipped); `catalog get_globals` sizes through the
+  shared `data_layout.estimate_type_size` (the estimator now strips the
+  declared name and qualifier words instead of substring-matching the type);
+  `scan_globals` keys by `(name, VA)` so a same-named global in a second file
+  is kept (extern-first VA fill-in merge preserved; collisions publish as
+  `name@0xVA`); `cross-import` sizes sizeless registry entries from the
+  disassembly-derived ret extent with an explicit warning, and surfaces
+  unsizable ones as `sizeless, use --va` rows; the reccmp CSV emits `0` for
+  unknown sizes, never an empty field; the coverage-grid status buckets tally
+  emitted functions only so they reconcile with `totalFunctions`; the
+  dashboard `sections()` selects all 14 `section_cell_stats` columns
+  (`proven`, `size_mismatch`, `other` included). `build_db` `globals.status`
+  persist and `data.py` estimator reuse were verified already landed, skipped.
+- **Round-trip/objdiff/decompme/export/CLI correctness pass, no back-compat** — seven fixes:
+  round-trip catalogs key on the shared `_catalog_key` (COFF symbol via
+  `resolve_symbol`, hint name fallback) on both the catalog and splice sides,
+  so nameless/stdcall functions no longer vanish into `unresolved_symbol`
+  skips; `write_coff_object` raises on overlapping placements instead of
+  emitting a symbol-desynced object; objdiff skips extract-failed functions
+  with a warning (`_load_side` parity) instead of aborting the project;
+  decompme uploads the selected function plus the file preamble, not the whole
+  C file; `symbol-addrs` skips below-VA-floor rows with a warning count
+  (`skipped_invalid_va`) instead of exporting `0x00000000` lines; the umbrella
+  stub errors escape module/exception text with `rich.markup.escape`;
+  every registered command has a `_COMMAND_PANELS` entry.
+- **Doctor/todo/lint/xrefs/similar/diagnose correctness pass, no back-compat** — nine fixes:
+  `check_binsync_state` warns on a commit-less state dir instead of reporting
+  ready; `check_opt_level` returns WARN (not PASS) when a mixed-build binary
+  meets pinned cflags while carrying a sweep fix; `check_function_list`
+  fails on lines that do not parse as VA + name entries; todo classifies
+  verify-measured NEAR_MATCHING before the FUN_ placeholder name and only
+  routes GA-ceiling items to the prover when angr imports (else near-diag);
+  W022 reports every file-scope zero initializer in the file; xrefs treats
+  prefix-less all-letter words as names, not VAs; `similarity_score` adds a
+  20% size-agreement term with a per-call signature cache; diagnose validates
+  every declared library preset, not just the first. Item 10 (match
+  ThreadPool/cache/hash/`mut_extract_else_body`) verified already fixed via
+  grep — no changes.
+- **CLI/registry/lock hardening pass, no back-compat** — nine fixes:
+  `iter_annotations` catches per-source `Exception` (one bad file never
+  aborts batch runs); CLI module registration degrades `RegistryError` to a
+  stub like other import failures; plugin name collisions and wrong-kind
+  plugin objects degrade to stubs naming the conflict instead of killing the
+  whole CLI at import; malformed entry points skip with a warning instead of
+  aborting group discovery; `load_verify_cache_raw` returns a copy so
+  callers cannot corrupt the memo; config load lets toolchain
+  `RegistryError` propagate instead of swallowing it; the metadata lock uses
+  a single atomic `setdefault`; match's batch write path holds the
+  flock-backed `metadata_write_lock` (cross-process) instead of a
+  `threading.Lock`.
+- **Toolchain/cfg/init/intake/cmake pass, no back-compat** — ten fixes:
+  `cfg set-compiler` blanks command/runner for image-backed profiles like
+  init; every image-backed wine toolchain declares `tool_root`
+  (Dockerfile-verified paths) so the CMake bridge resolves all of them, and
+  non-wine image profiles fail with an actionable error; `cfg add-target`
+  detects NE/MZ (native probes before LIEF), defaults their arch to x86_16,
+  and lists ne/mz in `--format` help; the CMake toolchain file stamps each
+  MSVC profile's own compiler version from the linker-era/Rich-build tables
+  (msvc6 unchanged at 12.00.8168); `toolchain pull` routes through
+  `container_runtime()`; init's family table and profile defaults merge from
+  the toolchain registry (ido5.3/ido7.1 added as ELF/mips32; every
+  `toolchain list` name accepted); `suggest_profile` honors version-exact
+  suggestions on 16-bit targets (msvc15/msvc10/tc20 beat the msvc1.52
+  default, bitness mismatches ignored); intake warns on an explicit
+  `--toolchain` that contradicts the detected family/arch; intake's
+  toolchain symlink derives from the registry image
+  (`<family>/<tag>`) for every profile.
+- **Decompiler/sync/fixup correctness pass, no back-compat** — seven fixes:
+  `fetch_m2c` returns None with a clear reason on PPC (no working capstone
+  engine to feed m2c); `_run_re` runs full `aaa` analysis once per binary
+  per process (cached project dir, reopened with `-p`) instead of once per
+  function; the MCP→ghidra-cli fallback only fires when nothing was applied
+  (a mid-loop transport failure raises `McpApplyAborted` with progress
+  instead of re-applying); "already exists" counts as success only when the
+  error pins the same op noun/address (different op or address is a real
+  error); fixup `_existing_identifiers` covers multiword bases (`unsigned
+  int`, `long long`, ...); `extract_seeds` accepts code on the fence line;
+  the `recover-structs` failure envelope carries the `code` key per the
+  `{"error", "code"}` JSON contract.
+- **Post-link/data layout correctness pass, no back-compat** — ten fixes:
+  the imports fixer rewrites only FF /2 and FF /5 indirect call/jump
+  operands (coincidental constants equal to a moved slot VA are left
+  alone); the data fixer writes `.reloc` at the built file's own raw
+  pointer and trims the `.text` tail against the built geometry instead of
+  the reference's; the header relocation pads to the reference's
+  SizeOfHeaders instead of a hardcoded 0x1000; `run_fixers` re-parses the
+  built headers between fixers so later fixers see earlier rewrites;
+  `converge_layout` resolves `build/<target>` from the config target
+  instead of a hardcoded name; the objdump parsers take uppercase and
+  variable-width hex; `link-order` probes the separator between the last
+  two spans so appended entries join on their own line; OFT=0 descriptors
+  fall back to the IAT as the lookup table; `gen-layout` skips both null
+  and forwarder-RVA export entries.
+- **TU/sweep/graph correctness pass, no back-compat** — ten fixes:
+  `order_sources` matches `--first-va`/`--exclude` on basenames both sides
+  (`zlib/adler32.c=0x...` hits `src/zlib/adler32.c`); merge-sweep scores a
+  cluster with one TU compile (all members extracted from the one object)
+  and resolves overrides against each member's real source path instead of
+  the temp staging dir; `search_partitions` charges real compiler
+  invocations against `--max-compiles` (`score_fn` returns
+  `(matched_bytes, invocations)`); `build_graph` attributes externs per
+  annotation block (no false edges in merged TUs), keys nodes by VA
+  (`va:0x...`, raw symbol kept as the label) so `_foo`/`foo` share one
+  node, and resolves binary ranges by binary search; `cluster_functions`
+  raises `ValueError` on overlapping registry ranges instead of merging
+  them as padding, and classifies unavailable gap bytes as `unknown` (no
+  boundary, no confidence signal) instead of `large_nonpadding`;
+  `consolidate_declarations` returns `(text, ExternReport)` and `rebrew
+  merge --consolidate` warns on stderr plus reports `extern_dropped` /
+  `extern_conflicts` in `--json` instead of dropping externs silently.
+- **Attribution/analysis correctness pass, no back-compat** — ten fixes:
+  `crt-match --fix-source` and `identify-library` auto-write SOURCE only
+  for parsed definitions (filename-only evidence never auto-writes);
+  discovery treats only documented multi-byte NOP forms (0F 1F with valid
+  ModRM, 66 90, 66 0F 1F) as padding, never a bare 0F; `rebrew switch`
+  derives the disassembler mode and entry width from the target arch
+  (16-bit/64-bit support), requires the bound compare to feed the table
+  index register through mov copies, and tests containment against the
+  virtual size (raw as fallback); FLIRT `find_func_size` disassembles to
+  the first real ret instead of byte-scanning for C3/C2, `match_text`
+  dedups matches by VA, and ambiguous matches skip the size gate;
+  `calling_convention` trims the bleed window at the next function start;
+  IAT-forwarder hints cover 1-2 arg forms and `push [esp+X]`;
+  `va_to_file_offset` agrees with extraction (virtual size authoritative,
+  raw as fallback).
 ### Added
 - **Layout reproduction pipeline** — five commands closing the
   measure→order→check→search→normalize loop postlink needs: `rebrew
@@ -33,6 +1277,68 @@
   `_write_global_vars_toml`; narrowed `analyze reloc_offsets` to
   `set[int]`. Callers and tests migrated.
 ### Fixed
+- **Fail-closed verification pass, no back-compat** — ten fixes:
+  `build_name_to_va` raises `CatalogScanError` on scan failure (test/verify
+  abort with exit 2 instead of masking relocs against an empty map) and
+  `smart_reloc_compare` marks typed/dict relocs invalid without a usable map;
+  `rebrew test --target-bin` resolves `section_va` from the FUNCTION marker
+  so REL32 call targets are validated; the zero-span fallback masks only
+  4-byte-aligned zero dwords; worker crashes (`INTERNAL_ERROR`) fail the gate
+  in both plain verify (counted in `fail_details`) and `--compare`
+  (regression, not skipped); the 16-bit NE profile-mismatch skip exits 2 so
+  CI never greens on zero verified functions; single-function `rebrew test`
+  exits 2 on `EXTRACT_ERROR` like the multi/batch paths (contract: 0 match,
+  1 needs work, 2 tooling error); `_test_multi` catches `Exception` so one
+  bad symbol never crashes the batch; duplicate-VA dedup warns on stderr
+  naming kept/dropped files and reports `duplicate_vas` in the JSON (a ninth
+  `prepare_entries` return); the native compile-cache key hashes the compiler
+  binary content instead of (mtime, size); unknown `--compare` statuses rank
+  worse than any known failure and the 5.0 match-percent threshold is the
+  named `_COMPARE_DROP_PCT`.
+- **P0 correctness pass, no back-compat** — sixteen fixes:
+  file-edit paths (`update_annotation_key`, `_strip_key_lines`) route by
+  (module, VA) so multi-target files edit the right block; `update_field`
+  validates keys against `METADATA_FIELDS` and value types (unknown keys and
+  mistyped values raise `ValueError`); inline SIZE parses with `int(str, 0)`
+  so hex spellings work; `update_size_annotation` treats corrupt stored sizes
+  as unknown instead of crashing; `MetadataEntry.load` collects per-field
+  coercion failures into `load_problems`/`problems()` instead of raising;
+  `update_statuses_batch` skips malformed rows via `.get()` like its
+  siblings; metadata reads return deep copies so caller mutation cannot
+  corrupt the cache; `_mutate_entry_doc` takes the lock first and preserves
+  corrupt TOML via the shared path; `MetadataEntry.apply` takes `force`
+  (default False) and routes STATUS through the promotion policy;
+  `update_source_status` raises on empty module instead of silently dropping;
+  orphan pruning treats Ghidra-structure and export VAs as known;
+  `build_db` skips unparseable-VA rows with a warning instead of inserting
+  `(target, 0)` poison rows; the decomp.dev fuzzy lookup normalizes
+  string-keyed verify-cache entries; anonymous struct evidence keys by
+  `(function VA, var)`; `name_decomp` rewrites only pointer-evidenced vars
+  and sizes pointers from the target arch.
+- **MSVC 6.0 service-pack images compile again**: the SP1/SP2/SP3/SP5 `cl`
+  wrappers never export INCLUDE/LIB, so every compile died with C1083 and
+  `rebrew match --flag-sweep-toolchains` reported five of the seven MSVC 6.0
+  builds as compile failures.  All seven now declare their container
+  `tool_root`, and `run_toolchain` exports INCLUDE/LIB from it
+  (`image_msvc_env`), the derivation the CMake bridge already used.
+- **GA/matcher correctness pass, no back-compat** — ten fixes: `_ga_cache_key`
+  folds in the symbol (stubs sharing one cache DB no longer collide);
+  `mutate_code` converts the full-source target range to body coordinates once
+  at the split boundary (`_cursor` keeps querying body text); `flag_sweep`
+  scores in the config's capstone mode/pointer size (`_sweep_scoring_params`,
+  so 16-bit sweeps stop comparing 16-bit bytes with 32-bit mnemonics);
+  `quick_validate` scopes the duplicate-label check per function (sibling
+  functions may reuse label names); `_split_preamble_body` keeps
+  `;`-terminated prototypes in the preamble (only brace-carrying definitions
+  start the body); `_normalize_with_reloc_offsets` skips negative offsets
+  like `_build_invalid_reloc_mask` already did; `_run_inner` shares one
+  `ThreadPoolExecutor` for the whole run; `_compile_source` no longer writes
+  the disk cache before scoring (one write per candidate; failures still
+  store on compile since they never reach the scoring put); `_ga_args_hash`
+  uses canonical JSON (`sort_keys`, compact separators) instead of
+  `str(tuple)` so equal `mutation_weights` in different insertion orders hash
+  identically; `mut_extract_else_body` derives the early-exit return from the
+  function type (`return;` for void, `return NULL;` for pointers).
 - **`--seed-kuna` works without manual env setup** — kuna reads SLEIGH specs
   from `KUNA_SPECS` (default `/specs/`, which rarely exists) and rejects the
   rizin-bundled XML debug-format `.sla` files ("Missing SLA format header").
@@ -40,7 +1346,42 @@
   then uv-tool pypcode installs, then the rizin tree; only dirs containing
   `x86.sla` qualify) unless `KUNA_SPECS` is already set. Documented on the
   `--seed-kuna` CLI row.
+- **`postlink` refuses a `.text` that is not position-aligned** — the `data`
+  and `pe-metadata` fixers patch by `.text`-relative offset, and each rewrite
+  silently skips a patch whose context does not match, so a link that emitted
+  less code than the reference was padded to the reference's `VirtualSize` and
+  shipped (92% of `.text` bytes wrong in guild-rebrew, invisible to every
+  gate). `postlink` now validates the layout package's sparse maps against the
+  built bytes before patching, and fails with the coverage plus both `.text`
+  sizes when they do not line up (reference 100%, a misaligned link 4%).
+- **`rebrew prove` fails closed on four soundness holes** — a timeout with
+  incomplete path cover returned PROVEN from partial states (now
+  INCONCLUSIVE, never PROVEN); `memcpy`/`memset` with a symbolic length
+  copied one concretised length up to the 1024B cap and claimed the whole
+  copy (now refuses PROVEN when the length is symbolic and unbounded above
+  the cap, honours concrete and solver-bounded lengths); a call-site count
+  mismatch patched the original blob at compiled offsets and proved the
+  corrupted bytes (now INCONCLUSIVE); one shared return BV per stub equated
+  distinct `strcmp`/`malloc` results (now keyed per call site plus argument
+  formula). No verdict enum exists (plain `(bool, str)` tuples) and
+  `set_field` was already migrated to `update_field`, so no shim work was
+  needed. New `tests/test_prove_soundness.py` (15 tests, mocked
+  solver/engine) pins each fix.
 ### Added
+- **`rebrew text-audit [--built build/server.dll] [--limit 15] [--json]`** —
+  the `.text` placement verifier, mirroring `verify-placement` (`.data`
+  becomes `.text`): walks the link's object files in link order, computes
+  every annotated function's current `.text` VA, and compares it against the
+  `// FUNCTION:` marker. Per-function OK/MISPLACED/MISSING with address
+  deltas, exit 1 on any misplaced function. Falls back to exported-symbol VA
+  lookup on the built binary when no objects are inventoried. The
+  position-alignment gate `postlink` assumes but never checks.
+- **`rebrew verify --text`** — the `.text` placement check as part of
+  verification: runs `text-audit`'s `audit_text` on the built binary
+  (default `build/<target>`, overridable via `--built`), reports misplaced
+  functions in human and `--json` output (a `text` block mirroring
+  `text-audit`), and fails the gate (exit 1) on any misplacement. Off by
+  default; MISSING functions are reported but not gated.
 - **`rebrew climb <source>`** — deterministic single-statement hill-climb, the
   counterpart to `match`'s genetic search. Where a residual is statement *order*
   rather than expression shape the GA can stall: on one 3689-byte function it
@@ -51,6 +1392,14 @@
   match count). Multi-line blocks move as a unit; the source is written only
   when a move wins and restored on any exception, and each accepted move is
   reported to stderr so `--json` stays parseable.
+- **`rebrew merge-sweep [--passes N] [--max-compiles N] [--audit FILE]`** —
+  deterministic TU-partition search over `cu-map` clusters: Phase A merges
+  adjacent pairs sharing a call edge or string (strictly more matched bytes
+  only), Phase B splits at internal `large_nonpadding` gaps (ties accepted),
+  both to a fixpoint (3 passes / 2n compiles). Each merged TU compiles once
+  via the `merge` machinery with per-function `compile_and_compare` scoring;
+  VA-ordered, no RNG, memoized per partition, JSON audit log of every
+  accepted move. Read-only over the source tree.
 ### Fixed
 - **Docs/skills/flowcharts synced to the CLI** — `CLI.md` flag drift fixed
   (`report --output`, `verify --full` without `-f`, phantom

@@ -31,7 +31,7 @@ import typer
 from rich.console import Console
 
 from rebrew.analysis import StringEntry, Xref, iter_strings, string_refs
-from rebrew.annotation import Annotation, min_valid_va_for
+from rebrew.annotation import Annotation, min_valid_va_for, parse_library_header
 from rebrew.binary_loader import load_binary
 from rebrew.cli import (
     DISPLAY_STATUSES,
@@ -44,6 +44,7 @@ from rebrew.config import ProjectConfig
 from rebrew.depgraph import NodeInfo, build_graph, render_mermaid
 from rebrew.imports import find_import_stubs, parse_imports
 from rebrew.sources import (
+    iter_library_headers,
     iter_sources,
     target_marker,
 )
@@ -198,6 +199,26 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
                     "module": ann.module,
                     "file": rel_display_path(src, reversed_path),
                     "blocker": str(md.get("blocker", "")),
+                }
+            )
+    # library_*.h entries (identify-library / crt-match --fix-source) are counted
+    # by the summary cards (collect_status scans them via naming.load_data) but
+    # were missing from this table: iter_sources does not glob library_*.h, and
+    # their minimal marker format needs parse_library_header.
+    for header in iter_library_headers(reversed_path, cfg):
+        for ann in parse_library_header(header, target_name=target_marker(cfg)):
+            if ann.va < min_valid_va_for(cfg):
+                continue
+            functions.append(
+                {
+                    "name": ann.symbol or ann.name or f"func_{ann.va:08x}",
+                    "va": ann.va,
+                    "status": ann.status or "UNKNOWN",
+                    "size": ann.size,
+                    "cflags": ann.cflags,
+                    "module": ann.module,
+                    "file": rel_display_path(header, reversed_path),
+                    "blocker": "",
                 }
             )
     functions.sort(key=lambda fn: (fn["va"], fn["name"]))
@@ -478,14 +499,10 @@ def _render_graph(cfg: ProjectConfig) -> str:
                 try:
                     from rebrew.binary_loader import load_binary
                     from rebrew.depgraph import binary_call_edges
-                    from rebrew.ne_loader import enumerate_ne_functions
 
                     info = load_binary(bin_path)
                     if info.format == "ne":
-                        ranges = [
-                            (f.va, f.va + f.size, f"fcn_{f.va:08x}")
-                            for f in enumerate_ne_functions(info)
-                        ]
+                        ranges = _ne_ranges(info)
                         edges.extend(binary_call_edges(info, ranges))
                 except Exception:  # best-effort augmentation
                     pass
@@ -513,6 +530,18 @@ def _render_graph(cfg: ProjectConfig) -> str:
     return _page("Call graph", target, "graph.html", body)
 
 
+def _ne_ranges(info: Any) -> list[tuple[int, int, str]]:
+    """``(lo, hi, node-key)`` ranges for an NE target's functions.
+
+    The key uses depgraph's node-key scheme (``va:0x…``) so the augmented edges
+    link to the nodes ``build_graph`` produced; a bare ``fcn_…`` label rendered
+    phantom nodes disconnected from the real ones.
+    """
+    from rebrew.ne_loader import enumerate_ne_functions
+
+    return [(f.va, f.va + f.size, f"va:0x{f.va:08x}") for f in enumerate_ne_functions(info)]
+
+
 def _adjacency_list(
     nodes: dict[str, NodeInfo],
     edges: list[tuple[str, str]],
@@ -520,6 +549,7 @@ def _adjacency_list(
 ) -> str:
     """Plain-text adjacency list over *nodes*: ``name [status] va -> callees``."""
     lines = [f"{len(nodes)} nodes, {len(edges)} direct edges, {len(dispatch_edges)} dispatch edges"]
+    labels = {name: (info.get("symbol", "") or name) for name, info in nodes.items()}
     # Build callee sets once instead of scanning the full edge list per node.
     callees_by_src: dict[str, list[str]] = {}
     for a, b in edges:
@@ -536,12 +566,15 @@ def _adjacency_list(
         status = info.get("status", "")
         va = info.get("va", 0)
         va_str = f"0x{va:08x}" if va else "-"
-        callees = callees_by_src.get(name, [])
-        dispatch = dispatch_by_src.get(name, [])
+        # Display the symbol, not the internal node key (`va:0x…`/`sym:…`) —
+        # render_mermaid/render_dot already do, this fallback was missed.
+        label = info.get("symbol", "") or name
+        callees = [labels.get(c, c) for c in callees_by_src.get(name, [])]
+        dispatch = [labels.get(c, c) for c in dispatch_by_src.get(name, [])]
         if not callees and not dispatch:
-            lines.append(f"{name} [{status}] {va_str}")
+            lines.append(f"{label} [{status}] {va_str}")
             continue
-        parts = [f"{name} [{status}] {va_str} ->", ", ".join(callees)]
+        parts = [f"{label} [{status}] {va_str} ->", ", ".join(callees)]
         if dispatch:
             parts.append(f"(dispatch: {', '.join(dispatch)})")
         lines.append(" ".join(parts))
@@ -620,9 +653,14 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     marker = target_marker(cfg)
     annos_by_file: list[tuple[str, list[Any]]] = []
     for path, annos in iter_annotations(sources, target=marker, metadata_dir=cfg.metadata_dir):
-        annos_by_file.append((rel_display_path(path), annos))
+        # Relative to reversed_dir, like every other source-path computation in
+        # this module: a bare basename made two `pool.c` under different
+        # directories indistinguishable in report.json.
+        annos_by_file.append((rel_display_path(path, cfg.reversed_dir), annos))
 
-    # Cached match_percent for NEAR_MATCHING (the fuzzy measure).
+    # Cached match_percent for NEAR_MATCHING (the fuzzy measure).  Verify-cache
+    # keys are strings (JSON object keys); VAs here are ints, so normalize
+    # both sides through int() instead of testing key types.
     cached_pct: dict[int, float] = {}
     try:
         from rebrew.verify import _load_verify_cache
@@ -631,8 +669,13 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
         if cache is not None:
             for key, entry in cache.entries.items():
                 mp = entry.result.match_percent
-                if mp is not None and isinstance(key, int):
-                    cached_pct[key] = float(mp)
+                if mp is None:
+                    continue
+                try:
+                    va_key = int(str(key), 0)
+                except (TypeError, ValueError):
+                    continue
+                cached_pct[va_key] = float(mp)
     except (OSError, ValueError, TypeError):
         pass
 
@@ -714,7 +757,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
         for name in (".data", ".rdata", ".bss"):
             sec = info.sections.get(name)
             if sec is not None:
-                data_size += int(getattr(sec, "virtual_size", 0) or 0)
+                data_size += int(getattr(sec, "size", 0) or 0)
     except (ImportError, OSError, KeyError, ValueError, RuntimeError):
         pass
 

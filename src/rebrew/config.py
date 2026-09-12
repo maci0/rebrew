@@ -643,9 +643,12 @@ def _split_compiler_runner(compiler: dict[str, Any]) -> tuple[str, str]:
         # one and are rejected below.
         profile = str(compiler.get("profile") or "").strip()
         try:
+            from rebrew.registry import RegistryError
             from rebrew.toolchain import TOOLCHAINS
 
             spec = TOOLCHAINS.get(profile)
+        except RegistryError:  # a plugin registration conflict is reported at load
+            raise
         except Exception:  # toolchain import is best-effort
             spec = None
         if spec is not None and spec.image is not None:
@@ -1294,6 +1297,15 @@ def load_config(
         subsystem_version=_opt_str("subsystem_version"),
         timestamp=_parse_optional_int(link_raw.get("timestamp"), "link.timestamp"),
     )
+    # link.file_align is informational: VC6's /ALIGN cannot raise FileAlignment,
+    # so no patch path applies it (pe_headers.PATCHABLE excludes it and the
+    # parity report iterates PATCHABLE).  Warn instead of silently ignoring it.
+    if cfg.link.file_align is not None:
+        _config_warn(
+            "link.file_align is informational only — FileAlignment cannot be "
+            "patched into the header (it needs a relink) and is not applied by "
+            "round-trip --fix-headers"
+        )
 
     # --- [llm] section: optional LLM-assisted GA seeding ---
     # Documented in CONFIG.md but previously never parsed — the TOML keys
