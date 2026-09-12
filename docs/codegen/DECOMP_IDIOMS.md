@@ -266,7 +266,7 @@ as corpus validation negatives, not claims of absence elsewhere.
   in exactly one toolchain** (the per-version era markers C35-C41 /
   D12-D16 / E24-E25 / F51 / G7 + every non-Microsoft toolchain's own
   forms — bcc32's ebp-framed `/O2`, Watcom's real-idiv + `ret 8` FP
-  cleanup, gcc-pe's cmov min/max, zig's ebp + cmov, TC/MSVC-16's
+  cleanup, mingw-16.2.0's cmov min/max, zig's ebp + cmov, TC/MSVC-16's
   16-bit forms).  **SP scan**: 3777 SP rows compared, 28 mismatches —
   the known 7.0-sp1 set grows by 4 probe29 shapes (`div7_`, `div12_`,
   `div1000_` magic-tail register-role swap, `fpcmp_eq0` operand
@@ -289,7 +289,7 @@ as corpus validation negatives, not claims of absence elsewhere.
   appear in exactly one toolchain** (the C42-C46 / E26-E28 / F52-F53 /
   G8 / H5-H6 / I9 era markers + the non-MSVC toolchains' own forms —
   bcc32 ebp-frames + real idiv for the new divisors, Watcom real-idiv
-  + `ret 8` FP cleanup, gcc-pe/zig `jmp strlen` tail-calls, TC/MSVC-16
+  + `ret 8` FP cleanup, mingw/zig `jmp strlen` tail-calls, TC/MSVC-16
   16-bit forms).  **SP scan**: 4466 rows compared, 33 mismatches — the
   known 7.0-sp1 set grows by 5 probe30 shapes (`div3_/div5_/div6_/div9_`
   magic-tail register-role swaps + `mul17_` switching from `shl 4; add`

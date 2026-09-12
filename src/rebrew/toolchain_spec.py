@@ -14,7 +14,7 @@ from pathlib import Path
 class ToolchainSpec:
     """How to invoke one compiler version."""
 
-    name: str  # e.g. "msvc6", "delphi16", "watcom"
+    name: str  # e.g. "msvc-6.0", "delphi-1.0", "watcom-2.0-win32"
     image: str | None  # docker image tag, e.g. "rebrew/msvc:6.0-win32"; None = host-only
     binary: str = ""  # host executable name (vendored dir / PATH)
     image_binary: str | None = None  # entry binary inside the container (a shim,

@@ -33,7 +33,7 @@ def _git(state: Path, *args: str) -> subprocess.CompletedProcess[str]:
 def _make_project(tmp_path: Path, *, write_binary: bool = True) -> Path:
     (tmp_path / "rebrew-project.toml").write_text(
         "[project]\nname = 'probe'\ndefault_target = 'A'\n"
-        "[compiler]\nprofile = 'msvc6'\ncommand = 'CL.EXE'\n"
+        "[compiler]\nprofile = 'msvc-6.0'\ncommand = 'CL.EXE'\n"
         "[targets.A]\nbinary = 'a.exe'\nreversed_dir = 'src/a'\n",
         encoding="utf-8",
     )

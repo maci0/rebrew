@@ -190,7 +190,9 @@ def main(
     size: int | None = typer.Option(None, "--size", help="Size in bytes"),
     cflags: str | None = typer.Option(None, "--cflags", help="Compiler flags"),
     toolchain: str | None = typer.Option(
-        None, "--toolchain", help="Vendored compiler (e.g. msvc5) - overrides the project default"
+        None,
+        "--toolchain",
+        help="Vendored compiler (e.g. msvc-5.0) - overrides the project default",
     ),
     all_sources: bool = typer.Option(False, "--all", help="Batch test all reversed .c files"),
     batch_dir: str | None = typer.Option(

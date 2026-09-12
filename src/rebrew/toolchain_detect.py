@@ -34,11 +34,11 @@ Families:
 - ``borlandc`` — Borland C/C++ (Turbo C, C++Builder).  Same ``CODE``/``DATA``/
   ``BSS`` layout as Delphi but no Delphi RTL strings; runtime imports
   (``CW32.DLL``, ``CC3250MT.DLL``, ``BORLNDMM.DLL``) or Borland runtime strings.
-  Byte-matching: ``tc16`` (Turbo C++ 3.1, 16-bit DOS) and ``borlandc55``
+  Byte-matching: ``borland-3.1`` (Turbo C++ 3.1, 16-bit DOS) and ``borland-5.5``
   (bcc32, 32-bit) both produce Borland-flavored objects rebrew can match.
 - ``watcom`` — Watcom C/C++ (watcom-win32 9.x–11.0, Open Watcom).  Evidence:
   underscore-prefixed ``_TEXT``/``_DATA``/``_BSS`` sections and Watcom runtime
-  strings.  Byte-matching: ``watcom`` (wcc386) and ``watcom16`` (wcc, 16-bit
+  strings.  Byte-matching: ``watcom`` (wcc386) and ``watcom-2.0-win16`` (wcc, 16-bit
   DOS) profiles exist; ``rebrew doctor`` no longer flags these as blockers.
 
 Usage::
@@ -175,22 +175,22 @@ _MSVC_LINKER_VERSIONS: dict[str, tuple[int, int]] = {
 #: service packs is the C1.DLL build (8168 RTM, 8447 SP3, 8966 SP5, 9782
 #: SP6 — SP builds are NOT the same compiler).  A tuple = profiles sharing
 #: the same build; the linker version further narrows it
-#: (13.10.3077 -> msvc7 vs msvc710).
+#: (13.10.3077 -> msvc-7.0 vs msvc-7.1).
 _RICH_BUILD_PROFILES: dict[int, tuple[str, ...]] = {
-    8168: ("msvc6", "msvc600sp1", "msvc600sp2"),  # 12.00.8168 (VC6 RTM..SP3 driver)
-    8447: ("msvc600sp3",),  # 12.00.8447
-    8966: ("msvc600sp4", "msvc600sp5"),  # 12.00.8966 (SP4 = SP5 C1)
-    9782: ("msvc600sp6",),  # 12.00.9782
-    9466: ("msvc700", "msvc700sp1"),  # 13.00.9466
-    9955: ("msvc700sp1",),  # 13.00.9955 (7.0 SP1 C1)
-    3077: ("msvc710",),  # 13.10.3077 (msvc7 is a deprecated alias)
-    6030: ("msvc710sp1",),  # 13.10.6030
-    50727: ("msvc800", "msvc800sp1"),  # 14.00.50727 (+.762 for SP1)
-    21022: ("msvc900",),  # 15.00.21022
-    30729: ("msvc900sp1",),  # 15.00.30729 (VC9 SP1 — the compiler the msvc900 repo lacks)
-    30319: ("msvc1000",),  # 16.00.30319
-    40219: ("msvc1000sp1",),  # 16.00.40219
-    50522: ("msvc1100",),  # 17.00.50522 (VC11 / VS 2012)
+    8168: ("msvc-6.0", "msvc-6.0-sp1", "msvc-6.0-sp2"),  # 12.00.8168 (VC6 RTM..SP3 driver)
+    8447: ("msvc-6.0-sp3",),  # 12.00.8447
+    8966: ("msvc-6.0-sp4", "msvc-6.0-sp5"),  # 12.00.8966 (SP4 = SP5 C1)
+    9782: ("msvc-6.0-sp6",),  # 12.00.9782
+    9466: ("msvc-7.0-rtm", "msvc-7.0-sp1"),  # 13.00.9466
+    9955: ("msvc-7.0-sp1",),  # 13.00.9955 (7.0 SP1 C1)
+    3077: ("msvc-7.1",),  # 13.10.3077 (msvc-7.0 is a deprecated alias)
+    6030: ("msvc-7.1-sp1",),  # 13.10.6030
+    50727: ("msvc-8.0", "msvc-8.0-sp1"),  # 14.00.50727 (+.762 for SP1)
+    21022: ("msvc-9.0",),  # 15.00.21022
+    30729: ("msvc-9.0-sp1",),  # 15.00.30729 (VC9 SP1 — the compiler the msvc-9.0 repo lacks)
+    30319: ("msvc-10.0",),  # 16.00.30319
+    40219: ("msvc-10.0-sp1",),  # 16.00.40219
+    50522: ("msvc-11.0",),  # 17.00.50522 (VC11 / VS 2012)
 }
 
 
@@ -200,26 +200,26 @@ _RICH_BUILD_PROFILES: dict[int, tuple[str, ...]] = {
 #: default.  The Rich build table (_RICH_BUILD_PROFILES) overrides this when
 #: the exact build is known.
 _LINKER_ERA_PROFILES: dict[tuple[int, int], tuple[str, ...]] = {
-    (9, 0): ("msvc200",),
-    (10, 0): ("msvc400",),
-    (10, 10): ("msvc410",),
-    (10, 20): ("msvc420",),
-    (11, 0): ("msvc5", "msvc500sp1", "msvc500sp2", "msvc500sp3"),
+    (9, 0): ("msvc-2.0",),
+    (10, 0): ("msvc-4.0",),
+    (10, 10): ("msvc-4.1",),
+    (10, 20): ("msvc-4.2",),
+    (11, 0): ("msvc-5.0", "msvc-5.0-sp1", "msvc-5.0-sp2", "msvc-5.0-sp3"),
     (12, 0): (
-        "msvc6",
-        "msvc600sp1",
-        "msvc600sp2",
-        "msvc600sp3",
-        "msvc600sp4",
-        "msvc600sp5",
-        "msvc600sp6",
+        "msvc-6.0",
+        "msvc-6.0-sp1",
+        "msvc-6.0-sp2",
+        "msvc-6.0-sp3",
+        "msvc-6.0-sp4",
+        "msvc-6.0-sp5",
+        "msvc-6.0-sp6",
     ),
-    (13, 0): ("msvc700", "msvc700sp1"),
-    (13, 10): ("msvc7", "msvc710", "msvc710sp1"),
-    (14, 0): ("msvc800", "msvc800sp1"),
-    (15, 0): ("msvc900", "msvc900sp1"),
-    (16, 0): ("msvc1000", "msvc1000sp1"),
-    (17, 0): ("msvc1100",),
+    (13, 0): ("msvc-7.0-rtm", "msvc-7.0-sp1"),
+    (13, 10): ("msvc-7.0", "msvc-7.1", "msvc-7.1-sp1"),
+    (14, 0): ("msvc-8.0", "msvc-8.0-sp1"),
+    (15, 0): ("msvc-9.0", "msvc-9.0-sp1"),
+    (16, 0): ("msvc-10.0", "msvc-10.0-sp1"),
+    (17, 0): ("msvc-11.0",),
 }
 
 #: Entry-point group whose members declare which exact MSVC builds/linker
@@ -1107,7 +1107,7 @@ def _detect_toolchain_core(path: Path | str) -> ToolchainInfo:
         if pe_info.suggested_profiles:
             info.suggested_profiles = pe_info.suggested_profiles
         if pe_info.family == "msvc":
-            # The precise PE-meta hint ("MSVC 12.00.8168 — matches msvc6")
+            # The precise PE-meta hint ("MSVC 12.00.8168 — matches msvc-6.0")
             # always beats a coarser DIE/PDB era hint ("MSVC 6.0").
             if pe_info.msvc_version:
                 info.version_hint = pe_info.version_hint
@@ -1259,7 +1259,7 @@ def _detect_toolchain_core(path: Path | str) -> ToolchainInfo:
                 info.version_hint = "16-bit MSVC-style NE (no Borland segment markers)"
             info.detected_by = "ne"
             # NE executables are 16-bit x86 — only 16-bit-capable profiles
-            # (msvc1.52, watcom) can ever byte-match them.
+            # (msvc-1.52, watcom) can ever byte-match them.
             info.arch = "x86_16"
         return info
 
@@ -1667,7 +1667,9 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
 #: profile_matches_detection's arch alignment check).  The packaged set; a
 #: registered toolchain with ``bits = 16`` joins it via
 #: :func:`_bitness16_profiles`.
-_BITNESS_16_PROFILES = frozenset({"msvc1.52", "msvc15", "msvc10", "tc16", "tc20", "watcom16"})
+_BITNESS_16_PROFILES = frozenset(
+    {"msvc-1.52", "msvc-1.5", "msvc-1.0", "borland-3.1", "borland-2.0", "watcom-2.0-win16"}
+)
 
 
 def _bitness16_profiles() -> tuple[str, ...]:
@@ -1685,47 +1687,47 @@ def _bitness16_profiles() -> tuple[str, ...]:
 #: Compiler profiles that can byte-match each detected family.
 #: ``None`` means no supported rebrew compiler can match that family.
 _PROFILE_COMPAT: dict[str, set[str] | None] = {
-    # msvc1.52 is the 16-bit profile — the detection hint distinguishes
+    # msvc-1.52 is the 16-bit profile — the detection hint distinguishes
     # "16-bit MSVC-style NE" from 32-bit targets.
     "msvc": {
-        "msvc400",
-        "msvc420",
-        "msvc410",
-        "msvc200",
-        "msvc5",
-        "msvc500sp1",
-        "msvc500sp2",
-        "msvc500sp3",
-        "msvc6",
-        "msvc600sp1",
-        "msvc600sp2",
-        "msvc600sp3",
-        "msvc600sp4",
-        "msvc600sp5",
-        "msvc600sp6",
-        "msvc7",
-        "msvc700",
-        "msvc700sp1",
-        "msvc710",
-        "msvc710sp1",
-        "msvc800",
-        "msvc800sp1",
-        "msvc900",
-        "msvc900sp1",
-        "msvc1000",
-        "msvc1000sp1",
-        "msvc1100",
-        "msvc1.52",
-        "msvc15",
-        "msvc10",
+        "msvc-4.0",
+        "msvc-4.2",
+        "msvc-4.1",
+        "msvc-2.0",
+        "msvc-5.0",
+        "msvc-5.0-sp1",
+        "msvc-5.0-sp2",
+        "msvc-5.0-sp3",
+        "msvc-6.0",
+        "msvc-6.0-sp1",
+        "msvc-6.0-sp2",
+        "msvc-6.0-sp3",
+        "msvc-6.0-sp4",
+        "msvc-6.0-sp5",
+        "msvc-6.0-sp6",
+        "msvc-7.0",
+        "msvc-7.0-rtm",
+        "msvc-7.0-sp1",
+        "msvc-7.1",
+        "msvc-7.1-sp1",
+        "msvc-8.0",
+        "msvc-8.0-sp1",
+        "msvc-9.0",
+        "msvc-9.0-sp1",
+        "msvc-10.0",
+        "msvc-10.0-sp1",
+        "msvc-11.0",
+        "msvc-1.52",
+        "msvc-1.5",
+        "msvc-1.0",
     },
-    "mingw": {"gcc-pe"},
-    "zig": {"gcc-pe"},  # may match structurally only (LLVM vs GCC codegen)
-    "watcom": {"watcom", "watcom16"},  # wcc386 (32-bit) + wcc (16-bit DOS)
+    "mingw": {"mingw-16.2.0"},
+    "zig": {"mingw-16.2.0"},  # may match structurally only (LLVM vs GCC codegen)
+    "watcom": {"watcom-2.0-win32", "watcom-2.0-win16"},  # wcc386 (32-bit) + wcc (16-bit DOS)
     "delphi": None,
-    # Turbo C/C++ 3.1 (tc16, 16-bit DOS) and Borland C++ 5.5 (bcc32, 32-bit)
+    # Turbo C/C++ 3.1 (borland-3.1, 16-bit DOS) and Borland C++ 5.5 (bcc32, 32-bit)
     # both emit Borland-flavored OMF/COFF that rebrew can byte-match.
-    "borlandc": {"tc20", "tc16", "borlandc55"},
+    "borlandc": {"borland-2.0", "borland-3.1", "borland-5.5"},
     "symantec": None,
     "zortech": None,
     "icc": None,
@@ -1821,7 +1823,7 @@ def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, 
     # Version-exact check: when the PE metadata pinned the exact MSVC build
     # (Rich header / linker), a different-compiler profile cannot byte-match
     # every MSVC version is a different codegen.  This catches e.g. an
-    # msvc6 profile on a VC 8.0 binary (silent COMPILE_ERROR for every
+    # msvc-6.0 profile on a VC 8.0 binary (silent COMPILE_ERROR for every
     # function) before the first compile.
     if info.family == "msvc" and info.suggested_profiles and profile not in info.suggested_profiles:
         return (
@@ -1831,11 +1833,11 @@ def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, 
             f"{', '.join(sorted(info.suggested_profiles))}",
         )
     # Arch dimension: a 16-bit DOS/NE binary can only be byte-matched by
-    # 16-bit-capable profiles; conversely msvc1.52 cannot match a 32/64-bit
-    # PE/ELF.  This catches the "msvc6 profile on a 16-bit project"
+    # 16-bit-capable profiles; conversely msvc-1.52 cannot match a 32/64-bit
+    # PE/ELF.  This catches the "msvc-6.0 profile on a 16-bit project"
     # misconfiguration that silently produces COMPILE_ERROR for every
     # function (skifree16-rebrew regression).  The 16-bit-capable set is
-    # explicit (msvc1.52 = NE/DOS, tc16/tc20/watcom16 = DOS); watcom's
+    # explicit (msvc-1.52 = NE/DOS, borland-3.1/borland-2.0/watcom-2.0-win16 = DOS); watcom's
     # wcc386 is a 32-bit compiler (Open Watcom 2.0 x86-32) and must NOT be
     # flagged as 16-bit.
     if info.arch == "x86_16" and profile not in _bitness16_profiles():
@@ -1843,18 +1845,18 @@ def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, 
             False,
             f"detected 16-bit binary but profile '{profile}' is a 32/64-bit "
             f"compiler — switch to one of: {', '.join(_bitness16_profiles())} "
-            "(e.g. msvc1.52 / tc16 / tc20) or document the functions as blockers",
+            "(e.g. msvc-1.52 / borland-3.1 / borland-2.0) or document the functions as blockers",
         )
     if info.arch and info.arch != "x86_16" and profile in _bitness16_profiles():
         return (
             False,
             f"profile '{profile}' is a 16-bit compiler but the binary is "
-            f"{info.arch} — use a 32/64-bit profile (e.g. msvc6)",
+            f"{info.arch} — use a 32/64-bit profile (e.g. msvc-6.0)",
         )
     if info.family == "zig":
         return (
             True,
-            "binary looks Zig-built (LLVM codegen) — gcc-pe may only match structurally; "
+            "binary looks Zig-built (LLVM codegen) — mingw-16.2.0 may only match structurally; "
             "see docs/TOOLCHAIN.md",
         )
     return True, None
@@ -1889,8 +1891,8 @@ def suggest_profile(info: ToolchainInfo, binary: Path | None = None) -> str | No
     16-bit profile when the binary is 16-bit (NE x86_16 or a plain DOS MZ
     executable).  Version-exact ``suggested_profiles`` (Rich header / linker
     era, or plugin evidence) win over the generic preference lists, so e.g.
-    an msvc15/msvc10/tc20-pinned 16-bit target suggests that profile rather
-    than the msvc1.52 default.  Returns ``None`` when no rebrew profile can
+    an msvc-1.5/msvc-1.0/borland-2.0-pinned 16-bit target suggests that profile rather
+    than the msvc-1.52 default.  Returns ``None`` when no rebrew profile can
     match.
     """
     compatible = _PROFILE_COMPAT_ALL.get(info.family)
@@ -1912,13 +1914,20 @@ def suggest_profile(info: ToolchainInfo, binary: Path | None = None) -> str | No
     if is16:
         # Prefer the established 16-bit profiles, then plugin-registered
         # bits=16 toolchains (sorted for determinism).
-        for p in ("msvc1.52", "tc16", "watcom16"):
+        for p in ("msvc-1.52", "borland-3.1", "watcom-2.0-win16"):
             if p in compatible:
                 return p
         for p in _bitness16_profiles():
             if p in compatible:
                 return p
-    for p in ("msvc6", "borlandc55", "watcom", "gcc-pe", "clang", "gcc"):
+    for p in (
+        "msvc-6.0",
+        "borland-5.5",
+        "watcom-2.0-win32",
+        "mingw-16.2.0",
+        "clang-18.1.8",
+        "gcc-14.2.0",
+    ):
         if p in compatible:
             return p
     return sorted(compatible)[0]

@@ -222,13 +222,22 @@ class LinkConfig:
 #: the MSVC glue (``/nologo /c /MT``) or every compile breaks.
 #:
 #: This set names profiles WITHOUT a registry spec.  Every shipped profile
-#: (gcc/clang/gcc-pe/watcom included) is a registry toolchain, so
+#: (gcc/clang/mingw/watcom included) is a registry toolchain, so
 #: :func:`_profile_flags_style` resolves them from the spec's ``flags_style``;
 #: the set is the fallback for a profile name that has no spec at all (a
 #: plugin-free local config naming ``gcc`` before the registry loads, or an
 #: unregistered fork of a shipped name).
 POSIX_PROFILES = frozenset(
-    {"gcc", "gcc-pe", "clang", "watcom", "watcom16", "borlandc55", "tc20", "tc16"}
+    {
+        "gcc-14.2.0",
+        "mingw-16.2.0",
+        "clang-18.1.8",
+        "watcom-2.0-win32",
+        "watcom-2.0-win16",
+        "borland-5.5",
+        "borland-2.0",
+        "borland-3.1",
+    }
 )
 
 
@@ -282,7 +291,7 @@ class ProjectConfig:
     output_dir: Path = field(default_factory=lambda: Path())
 
     # --- compiler ---
-    compiler_profile: str = "msvc6"
+    compiler_profile: str = "msvc-6.0"
     compiler_command: str = "wine CL.EXE"
     compiler_runner: str = ""
     compiler_includes: Path = field(default_factory=lambda: Path())
@@ -341,7 +350,7 @@ class ProjectConfig:
     def posix_style(self) -> bool:
         """True when the compiler profile uses POSIX-style flags (-I/-o/-c).
 
-        POSIX-style profiles (gcc, gcc-pe, clang, watcom — wcc386 takes
+        POSIX-style profiles (gcc, mingw-16.2.0, clang, watcom — wcc386 takes
         ``-I``/``-fo=``/``-c``) take dash flags and ship their own headers;
         MSVC profiles use ``/I``/``/Fo``/``/c``.  Watcom was previously
         missing from this check, so ``_compile_cflags`` prepended the
@@ -899,51 +908,51 @@ _KNOWN_PROJECT_KEYS = {
 
 _KNOWN_FORMATS = {"pe", "elf", "macho", "ne", "mz"}
 _KNOWN_PROFILES = {
-    "msvc400",
-    "msvc420",
-    "msvc5",
-    "msvc6",
-    "msvc7",
-    "msvc700",
-    "msvc700sp1",
-    "msvc710",
-    "msvc710sp1",
-    "msvc800",
-    "msvc800sp1",
-    "msvc900",
-    "msvc900sp1",
-    "msvc1000",
-    "msvc1100",
-    "msvc1000sp1",
-    "msvc200",
-    "msvc410",
-    "msvc500sp1",
-    "msvc500sp2",
-    "msvc500sp3",
-    "msvc600sp1",
-    "msvc600sp2",
-    "msvc600sp3",
-    "msvc600sp4",
-    "msvc600sp5",
-    "msvc600sp5pp",
-    "msvc600sp6",
-    "msvc15",
-    "msvc10",
-    "msvc1.52",
-    "gcc",
-    "gcc-pe",
-    "gcc-pe14",
-    "gcc12",
-    "clang",
-    "clang16",
-    "watcom",
-    "watcom16",
-    "borlandc55",
-    "delphi16",
-    "ido5.3",
-    "ido7.1",
-    "tc20",
-    "tc16",
+    "msvc-4.0",
+    "msvc-4.2",
+    "msvc-5.0",
+    "msvc-6.0",
+    "msvc-7.0",
+    "msvc-7.0-rtm",
+    "msvc-7.0-sp1",
+    "msvc-7.1",
+    "msvc-7.1-sp1",
+    "msvc-8.0",
+    "msvc-8.0-sp1",
+    "msvc-9.0",
+    "msvc-9.0-sp1",
+    "msvc-10.0",
+    "msvc-11.0",
+    "msvc-10.0-sp1",
+    "msvc-2.0",
+    "msvc-4.1",
+    "msvc-5.0-sp1",
+    "msvc-5.0-sp2",
+    "msvc-5.0-sp3",
+    "msvc-6.0-sp1",
+    "msvc-6.0-sp2",
+    "msvc-6.0-sp3",
+    "msvc-6.0-sp4",
+    "msvc-6.0-sp5",
+    "msvc-6.0-sp5-pp",
+    "msvc-6.0-sp6",
+    "msvc-1.5",
+    "msvc-1.0",
+    "msvc-1.52",
+    "gcc-14.2.0",
+    "mingw-16.2.0",
+    "mingw-14.2.0",
+    "gcc-12.3.0",
+    "clang-18.1.8",
+    "clang-16.0.4",
+    "watcom-2.0-win32",
+    "watcom-2.0-win16",
+    "borland-5.5",
+    "delphi-1.0",
+    "ido-5.3",
+    "ido-7.1",
+    "borland-2.0",
+    "borland-3.1",
 }
 
 
@@ -1080,12 +1089,12 @@ def load_config(
     from rebrew.toolchain import TOOLCHAINS
 
     _known_profiles = _KNOWN_PROFILES | set(TOOLCHAINS)
-    profile_val = compiler.get("profile", "msvc6")
+    profile_val = compiler.get("profile", "msvc-6.0")
     # Retired legacy aliases (docs/TOOLCHAIN.md): migrate to the modern
     # registry names at load so an old config keeps the right compiler
-    # instead of silently falling back to msvc6 RTM or failing late with
+    # instead of silently falling back to msvc-6.0 RTM or failing late with
     # "unknown toolchain" at compile time.
-    _LEGACY_PROFILE_ALIASES = {"msvc6.3": "msvc600sp3", "msvc6.6": "msvc600sp6"}
+    _LEGACY_PROFILE_ALIASES = {"msvc6.3": "msvc-6.0-sp3", "msvc6.6": "msvc-6.0-sp6"}
     if profile_val in _LEGACY_PROFILE_ALIASES:
         migrated = _LEGACY_PROFILE_ALIASES[profile_val]
         _config_warn(
@@ -1096,9 +1105,9 @@ def load_config(
     if not isinstance(profile_val, str) or profile_val not in _known_profiles:
         _config_warn(
             f"rebrew-project.toml [compiler]: unknown profile {profile_val!r} "
-            f"(known: {', '.join(sorted(_known_profiles))}); falling back to msvc6",
+            f"(known: {', '.join(sorted(_known_profiles))}); falling back to msvc-6.0",
         )
-        profile_val = "msvc6"
+        profile_val = "msvc-6.0"
 
     arch_preset = _ARCH_PRESETS.get(arch_name, _ARCH_PRESETS["x86_32"])
     bin_rel = tgt.get("binary")
@@ -1137,7 +1146,7 @@ def load_config(
     )
 
     # An explicitly empty includes/libs is valid and means "no extra dir" —
-    # needed by gcc-pe/mingw (own headers) and by decomp.me MSVC tarballs
+    # needed by mingw/mingw (own headers) and by decomp.me MSVC tarballs
     # (msvc-6.0-sp3-win32/6.6/7.0 ship Bin+Include but no Lib).  A *missing* key still
     # falls back to the conventional default path.
     def _explicit_empty(key: str) -> bool:
@@ -1238,7 +1247,7 @@ def load_config(
         base_cflags=_as_str(
             compiler.get("base_cflags"),
             # The MSVC glue default is wrong for posix-style profiles
-            # (gcc-pe/mingw, watcom, tc16/20, borland): /nologo /c /MT breaks
+            # (mingw/mingw, watcom, borland-3.1/20, borland): /nologo /c /MT breaks
             # gcc.  init writes base_cflags = "" for those profiles; the
             # loader default must match so hand-written tomls work too.
             ""

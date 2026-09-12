@@ -89,7 +89,7 @@ class TestAnnotationDataclass:
             status="EXACT",
             module="SERVER",
             cflags="/O2",
-            toolchain="msvc5",
+            toolchain="msvc-5.0",
             marker_type="FUNCTION",
             filepath="foo.c",
             source="",
@@ -107,7 +107,7 @@ class TestAnnotationDataclass:
         assert d["cflags"] == "/O2"
         # to_dict completeness: every volatile compile-routing field must be
         # serialised — toolchain routes the compiler image just like cflags.
-        assert d["toolchain"] == "msvc5"
+        assert d["toolchain"] == "msvc-5.0"
         assert d["marker_type"] == "FUNCTION"
         assert d["filepath"] == "foo.c"
         assert d["globals"] == ["g1"]

@@ -3,14 +3,14 @@
 MSVC 4.0 / 4.1 / 4.2 (1995–1996, CL 10.00/10.10/10.20).  The last
 real-`div` era; codegen-identical to VC 2.0 for the probe.
 
-**Profiles:** `msvc400` (4.0, linker 3.0), `msvc410` (4.1, linker 3.10),
-`msvc420` (4.2, linker 4.20).  No Rich header — the linker version names
+**Profiles:** `msvc-4.0` (4.0, linker 3.0), `msvc-4.1` (4.1, linker 3.10),
+`msvc-4.2` (4.2, linker 4.20).  No Rich header — the linker version names
 the version.
 
 ## Prologue & frame pointer
 
 - `/O2`: no frame pointer; args `[esp+4]`+ (identical to VC 2.0).
-- Unoptimized: `55 8b ec` frame (smoke `msvc410/t.obj`).
+- Unoptimized: `55 8b ec` frame (smoke `msvc-4.1/t.obj`).
 
 ## Argument passing
 
@@ -172,7 +172,7 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 
 Probe compiled with `rebrew/msvc:4.0-win32`, `4.1-win32`, `4.2-win32` at
 `/O1` and `/O2` (`probe_4.0.obj`, `probe_4.1.obj`/`msvc410_O2.obj`,
-`probe_4.2.obj`); smoke `msvc410/t.obj`.  Object sizes and disassembly
+`probe_4.2.obj`); smoke `msvc-4.1/t.obj`.  Object sizes and disassembly
 confirmed identical across the three minors and vs VC 2.0.
 ## Probe29: round-29 era markers (4.1)
 

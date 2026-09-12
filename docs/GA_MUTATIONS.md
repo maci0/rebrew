@@ -459,6 +459,6 @@ linger invisible in the preamble.  File-level pragmas (`pack`, `warning`,
 - `#pragma function(...)` — the intrinsic inverse; rare in matching
   practice, and `remove_intrinsic` covers the frequent direction.
 
-**Toolchain note**: MSVC 6 accepts all of the above.  gcc-pe (posix)
+**Toolchain note**: MSVC 6 accepts all of the above.  mingw-16.2.0 (posix)
 ignores them with a warning — the GA explores them on MSVC targets
 and wastes nothing on posix ones.

@@ -39,8 +39,8 @@ def _monkey_docker(monkeypatch, *, available: bool = True, image: bool = True) -
 
 class TestRegistry:
     def test_known_toolchains(self) -> None:
-        assert {"msvc6", "delphi16", "gcc-pe"} <= set(TOOLCHAINS)
-        assert {"ido5.3", "ido7.1"} <= set(TOOLCHAINS)
+        assert {"msvc-6.0", "delphi-1.0", "mingw-16.2.0"} <= set(TOOLCHAINS)
+        assert {"ido-5.3", "ido-7.1"} <= set(TOOLCHAINS)
 
     def test_get_unknown_raises(self) -> None:
         with pytest.raises(ToolchainError, match="unknown toolchain"):
@@ -49,7 +49,7 @@ class TestRegistry:
     def test_ido_specs(self) -> None:
         """IDO reimplementations: native-Linux docker images, POSIX flags,
         ELF MIPS objects."""
-        for name in ("ido5.3", "ido7.1"):
+        for name in ("ido-5.3", "ido-7.1"):
             spec = TOOLCHAINS[name]
             assert spec.image is not None and spec.image.startswith("rebrew/ido:")
             assert spec.image.endswith("-linux")
@@ -57,12 +57,12 @@ class TestRegistry:
             assert spec.flags_style == "posix"
             assert spec.obj_ext == ".o"
             assert spec.runtime == "native"
-        assert TOOLCHAINS["ido7.1"].family == "ido"
+        assert TOOLCHAINS["ido-7.1"].family == "ido"
 
-    def test_delphi16_host_binary_name(self) -> None:
+    def test_delphi_1_0_host_binary_name(self) -> None:
         # The host executable is DCC.EXE (uppercase on disk); the docker
         # image's ENTRYPOINT is the dcc wrapper, so no command is passed.
-        spec = TOOLCHAINS["delphi16"]
+        spec = TOOLCHAINS["delphi-1.0"]
         assert spec.binary == "DCC.EXE"
         assert spec.image_binary is None
 
@@ -72,13 +72,13 @@ class TestRegistry:
         wrapper, nothing runs from a host tree, and the default profiles point
         at the newest version."""
         expected = {
-            "gcc": "rebrew/gcc:14.2.0-linux-x64",
-            "gcc12": "rebrew/gcc:12.3.0-linux-x64",
-            "clang": "rebrew/clang:18.1.8-linux-x64",
-            "clang16": "rebrew/clang:16.0.4-linux-x64",
-            "gcc-pe": "rebrew/gcc-pe:16.2.0-win32",
-            "gcc-pe14": "rebrew/gcc-pe:14.2.0-win32",
-            "watcom16": "rebrew/watcom:2.0-win16",
+            "gcc-14.2.0": "rebrew/gcc:14.2.0-linux-x64",
+            "gcc-12.3.0": "rebrew/gcc:12.3.0-linux-x64",
+            "clang-18.1.8": "rebrew/clang:18.1.8-linux-x64",
+            "clang-16.0.4": "rebrew/clang:16.0.4-linux-x64",
+            "mingw-16.2.0": "rebrew/mingw:16.2.0-win32",
+            "mingw-14.2.0": "rebrew/mingw:14.2.0-win32",
+            "watcom-2.0-win16": "rebrew/watcom:2.0-win16",
         }
         for name, image in expected.items():
             spec = TOOLCHAINS[name]
@@ -86,18 +86,26 @@ class TestRegistry:
             assert spec.image_binary is None, name  # the ENTRYPOINT is the wrapper
             assert spec.flags_style == "posix", name
             assert spec.host_path is None, name  # no host fallback tree
-        assert TOOLCHAINS["gcc"].obj_ext == ".o"
-        assert TOOLCHAINS["clang16"].obj_ext == ".o"
-        assert TOOLCHAINS["gcc-pe"].obj_ext == ".obj"
-        assert TOOLCHAINS["watcom16"].obj_ext == ".obj"
-        assert TOOLCHAINS["watcom16"].bits == 16
+        assert TOOLCHAINS["gcc-14.2.0"].obj_ext == ".o"
+        assert TOOLCHAINS["clang-16.0.4"].obj_ext == ".o"
+        assert TOOLCHAINS["mingw-16.2.0"].obj_ext == ".obj"
+        assert TOOLCHAINS["watcom-2.0-win16"].obj_ext == ".obj"
+        assert TOOLCHAINS["watcom-2.0-win16"].bits == 16
 
     def test_image_backed_native_sources_pinned(self) -> None:
         """Each image-backed native profile has a pinned SOURCES entry (the
         image build source) — no unpinned host-tree dependency."""
         from rebrew.toolchain_data import SOURCES
 
-        for name in ("gcc", "gcc12", "clang", "clang16", "gcc-pe", "gcc-pe14", "watcom16"):
+        for name in (
+            "gcc-14.2.0",
+            "gcc-12.3.0",
+            "clang-18.1.8",
+            "clang-16.0.4",
+            "mingw-16.2.0",
+            "mingw-14.2.0",
+            "watcom-2.0-win16",
+        ):
             src = SOURCES[name]
             assert src.url.startswith("https://"), name
             assert len(src.sha256) == 64, name
@@ -107,15 +115,15 @@ class TestRegistry:
     def test_family_derived_from_image_tag(self) -> None:
         """The toolchain-images/ top-level dir is the unversioned family
         (Godbolt-style), derived from the image repository — never the
-        version-encoded profile id (msvc1.52 -> msvc/, delphi16 ->
+        version-encoded profile id (msvc-1.52 -> msvc/, delphi-1.0 ->
         delphi/)."""
-        assert TOOLCHAINS["msvc6"].family == "msvc"
-        assert TOOLCHAINS["msvc1.52"].family == "msvc"
-        assert TOOLCHAINS["delphi16"].family == "delphi"
-        assert TOOLCHAINS["watcom"].family == "watcom"
-        # the hyphens in the repository name (gcc-pe, not gcc_pe) are kept
-        assert TOOLCHAINS["gcc-pe"].family == "gcc-pe"
-        assert TOOLCHAINS["clang16"].family == "clang"
+        assert TOOLCHAINS["msvc-6.0"].family == "msvc"
+        assert TOOLCHAINS["msvc-1.52"].family == "msvc"
+        assert TOOLCHAINS["delphi-1.0"].family == "delphi"
+        assert TOOLCHAINS["watcom-2.0-win32"].family == "watcom"
+        # the MinGW family is derived from the image repository (rebrew/mingw)
+        assert TOOLCHAINS["mingw-16.2.0"].family == "mingw"
+        assert TOOLCHAINS["clang-16.0.4"].family == "clang"
 
 
 class TestImageMsvcEnv:
@@ -127,16 +135,16 @@ class TestImageMsvcEnv:
     way before the runner supplied the env itself.
     """
 
-    def test_every_msvc6_profile_declares_the_container_root(self) -> None:
+    def test_every_msvc_6_0_profile_declares_the_container_root(self) -> None:
         for name in (
-            "msvc6",
-            "msvc600sp1",
-            "msvc600sp2",
-            "msvc600sp3",
-            "msvc600sp4",
-            "msvc600sp5",
-            "msvc600sp5pp",
-            "msvc600sp6",
+            "msvc-6.0",
+            "msvc-6.0-sp1",
+            "msvc-6.0-sp2",
+            "msvc-6.0-sp3",
+            "msvc-6.0-sp4",
+            "msvc-6.0-sp5",
+            "msvc-6.0-sp5-pp",
+            "msvc-6.0-sp6",
         ):
             spec = TOOLCHAINS[name]
             assert spec.tool_root, f"{name} has no tool_root"
@@ -148,7 +156,7 @@ class TestImageMsvcEnv:
         """``tool_root`` must be the dir the image's ``CL.EXE`` lives in.
 
         A stale root points INCLUDE/LIB at a tree that does not exist and the
-        compile fails with C1083.  Every msvc6 image unpacks to
+        compile fails with C1083.  Every msvc-6.0 image unpacks to
         ``<install>/VC98/Bin``: the flat ``<install>/Bin`` layout an older
         6.0-sp3 build had is gone now that the image is rebuilt from its
         Dockerfile.
@@ -198,7 +206,7 @@ class TestImageMsvcEnv:
             )
             == {}
         )
-        assert image_msvc_env(TOOLCHAINS["gcc-pe"]) == {}
+        assert image_msvc_env(TOOLCHAINS["mingw-16.2.0"]) == {}
 
 
 class TestRunToolchain:
@@ -376,10 +384,10 @@ class TestCli:
 
         data = json.loads(result.stdout)
         assert {t["name"] for t in data["toolchains"]} >= {
-            "msvc5",
-            "msvc420",
-            "msvc6",
-            "delphi16",
+            "msvc-5.0",
+            "msvc-4.2",
+            "msvc-6.0",
+            "delphi-1.0",
         }
 
     def test_unknown_status_errors(self) -> None:
@@ -440,7 +448,7 @@ class TestCli:
         assert data["family"] == "msvc"
         assert data["version_hint"] == "MSVC 6.0"
         assert data["confidence"] == "high"
-        assert "msvc6" in data["compatible_profiles"]
+        assert "msvc-6.0" in data["compatible_profiles"]
         assert "profile" not in data and "aligned" not in data
 
     def test_detect_alignment_mismatch(self, tmp_path: Path, monkeypatch) -> None:
@@ -455,7 +463,7 @@ class TestCli:
         (tmp_path / "rebrew-project.toml").write_text(
             '[project]\nname = "t"\ndefault_target = "main"\n'
             '[targets."main"]\nbinary = "original/x.exe"\n'
-            '[compiler]\nprofile = "msvc6"\n'
+            '[compiler]\nprofile = "msvc-6.0"\n'
         )
         bin_path = tmp_path / "x.exe"
         bin_path.write_bytes(b"MZ\x90\x00")
@@ -471,9 +479,9 @@ class TestCli:
         result = CliRunner().invoke(umbrella, ["toolchain", "detect", "x.exe", "--json"])
         assert result.exit_code == 0, result.output
         data = json.loads(result.stdout)
-        assert data["profile"] == "msvc6"
+        assert data["profile"] == "msvc-6.0"
         assert data["aligned"] is False
-        assert "msvc1.52" in data["explanation"]
+        assert "msvc-1.52" in data["explanation"]
 
     def test_detect_missing_binary_errors(self, tmp_path: Path, monkeypatch) -> None:
         import json
@@ -508,7 +516,7 @@ class TestCli:
         from rebrew.main import app as umbrella
 
         monkeypatch.setattr("rebrew.toolchain_cli.Path.exists", lambda self: False)
-        result = CliRunner().invoke(umbrella, ["toolchain", "build", "watcom"])
+        result = CliRunner().invoke(umbrella, ["toolchain", "build", "watcom-2.0-win32"])
         assert result.exit_code == 2
         assert "Dockerfile" in result.output
 
@@ -527,7 +535,7 @@ class TestPullToolchain:
             "rebrew.toolchain.subprocess.run",
             lambda *a, **k: called.append(a) or type("R", (), {"returncode": 0})(),
         )
-        tag, was_present = pull_toolchain("msvc6")
+        tag, was_present = pull_toolchain("msvc-6.0")
         assert tag == "rebrew/msvc:6.0-win32"
         assert was_present is True
         assert not called  # no docker pull subprocess for a local image
@@ -550,7 +558,7 @@ class TestPullToolchain:
             return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
         monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
-        tag, was_present = pull_toolchain("msvc6")
+        tag, was_present = pull_toolchain("msvc-6.0")
         assert tag == "rebrew/msvc:6.0-win32"
         assert was_present is False
 
@@ -570,13 +578,13 @@ class TestPullToolchain:
             return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
         monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
-        pull_toolchain("msvc6")
+        pull_toolchain("msvc-6.0")
         pulls = [c for c in seen if c[1] == "pull"]
         assert pulls and all(c[0] == "podman" for c in pulls)
 
     def test_every_wine_image_spec_declares_tool_root(self) -> None:
         """Every image-backed MSVC wine spec carries tool_root, so the CMake
-        bridge and INCLUDE/LIB derivation work for all of them.  (gcc-pe's
+        bridge and INCLUDE/LIB derivation work for all of them.  (mingw-16.2.0's
         image is wine-driven too but holds a single gcc, no CL/LINK/LIB
         tools, so it declares no tool_root — the bridge refuses it, see
         tests/test_cmake_tc.py.)"""
@@ -591,7 +599,7 @@ class TestPullToolchain:
             and not spec.tool_root
         ]
         assert missing == []
-        assert TOOLCHAINS["gcc-pe"].tool_root is None
+        assert TOOLCHAINS["mingw-16.2.0"].tool_root is None
 
     def test_cli_reports_already_present(self, monkeypatch) -> None:
         from typer.testing import CliRunner
@@ -600,7 +608,7 @@ class TestPullToolchain:
 
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
         monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
-        result = CliRunner().invoke(umbrella, ["toolchain", "pull", "msvc6", "--json"])
+        result = CliRunner().invoke(umbrella, ["toolchain", "pull", "msvc-6.0", "--json"])
         assert result.exit_code == 0
         assert '"already_present": true' in result.output
         assert '"pulled": "rebrew/msvc:6.0-win32"' in result.output
@@ -726,7 +734,7 @@ class TestResolveBinaryCaseInsensitive:
         (tmp_path / "BIN").mkdir()
         (tmp_path / "BIN" / "CL.EXE").write_bytes(b"")
         spec = ToolchainSpec(
-            name="msvc1.52",
+            name="msvc-1.52",
             image=None,
             binary="CL.EXE",
             host_bin="Bin",  # spec says Bin, disk says BIN
@@ -741,7 +749,7 @@ class TestResolveBinaryCaseInsensitive:
         (tmp_path / "Bin").mkdir()
         (tmp_path / "Bin" / "cl").write_bytes(b"")
         spec = ToolchainSpec(
-            name="watcom",
+            name="watcom-2.0-win32",
             image=None,
             binary="cl",
             host_bin="Bin",
@@ -757,7 +765,7 @@ class TestResolveBinaryCaseInsensitive:
         (tmp_path / "Bin").mkdir()
         (tmp_path / "Bin" / "CL.EXE").write_bytes(b"")
         spec = ToolchainSpec(
-            name="msvc5",
+            name="msvc-5.0",
             image=None,
             binary="cl",
             host_bin="Bin",
@@ -771,7 +779,7 @@ class TestResolveBinaryCaseInsensitive:
 
         (tmp_path / "cl.exe").write_bytes(b"")
         spec = ToolchainSpec(
-            name="msvc5",
+            name="msvc-5.0",
             image=None,
             binary="cl",
             host_path=str(tmp_path),
@@ -792,10 +800,10 @@ class TestResolveBinaryCaseInsensitive:
         monkeypatch.setattr(
             "rebrew.toolchain.TOOLCHAINS",
             {
-                "msvc1.52": __import__(
+                "msvc-1.52": __import__(
                     "rebrew.toolchain", fromlist=["ToolchainSpec"]
                 ).ToolchainSpec(
-                    name="msvc1.52",
+                    name="msvc-1.52",
                     image=None,
                     binary="CL.EXE",
                     host_bin="Bin",
@@ -803,7 +811,7 @@ class TestResolveBinaryCaseInsensitive:
                 )
             },
         )
-        result = CliRunner().invoke(umbrella, ["toolchain", "status", "msvc1.52", "--json"])
+        result = CliRunner().invoke(umbrella, ["toolchain", "status", "msvc-1.52", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["host_binary_present"] is True
@@ -822,23 +830,23 @@ class TestDockerOnlyGuard:
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
         monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
         with pytest.raises(ToolchainError, match="not built"):
-            run_toolchain(TOOLCHAINS["msvc1.52"], ["t.c", "/O1"], workdir=tmp_path)
+            run_toolchain(TOOLCHAINS["msvc-1.52"], ["t.c", "/O1"], workdir=tmp_path)
 
-    def test_delphi16_image_missing_raises(self, tmp_path: Path, monkeypatch) -> None:
+    def test_delphi_1_0_image_missing_raises(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
 
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
         monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
         with pytest.raises(ToolchainError, match="not built"):
-            run_toolchain(TOOLCHAINS["delphi16"], ["hello.dpr"], workdir=tmp_path)
+            run_toolchain(TOOLCHAINS["delphi-1.0"], ["hello.dpr"], workdir=tmp_path)
 
-    def test_watcom16_image_backed(self, tmp_path: Path, monkeypatch) -> None:
-        """watcom16 runs through its own image (the 16-bit wcc) — a missing
+    def test_watcom_2_0_win16_image_backed(self, tmp_path: Path, monkeypatch) -> None:
+        """watcom-2.0-win16 runs through its own image (the 16-bit wcc) — a missing
         image is a hard error like every other image-backed profile, never a
         direct vendored-binary exec."""
         from rebrew.toolchain import TOOLCHAINS, ToolchainError, run_toolchain
 
-        spec = TOOLCHAINS["watcom16"]
+        spec = TOOLCHAINS["watcom-2.0-win16"]
         assert spec.image == "rebrew/watcom:2.0-win16"
         assert spec.image_binary is None
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
@@ -853,31 +861,31 @@ class TestVc98Wrap:
     tarball was flat, so vendor wrapped it via vc98_wrap; the current
     archaic-msvc source (msvc600) already carries VC98/ at the top."""
 
-    def test_msvc6_source_needs_no_wrap(self) -> None:
+    def test_msvc_6_0_source_needs_no_wrap(self) -> None:
         from rebrew.toolchain_data import SOURCES
 
         # archaic-msvc/msvc600 ships VC98/ at the top level already, so no
         # wrap step is needed (the old decomp.me tarball was flat).
-        assert SOURCES["msvc6"].vc98_wrap is False
+        assert SOURCES["msvc-6.0"].vc98_wrap is False
 
     def test_other_sources_do_not_wrap(self) -> None:
         from rebrew.toolchain_data import SOURCES
 
         for name, src in SOURCES.items():
-            if name != "msvc6":
+            if name != "msvc-6.0":
                 assert src.vc98_wrap is False, name
 
     def test_old_msvc_sources_pinned(self) -> None:
-        """msvc400/msvc420/msvc5 must have pinned, sha256-verified sources:
+        """msvc-4.0/msvc-4.2/msvc-5.0 must have pinned, sha256-verified sources:
         their host trees are smoke-gated for byte-reproducibility, so a fresh
         clone must be able to reproduce them via `rebrew toolchain vendor`
         (they were vendored but unpinnable before)."""
         from rebrew.toolchain_data import SOURCES
 
         for name, expected_dir in (
-            ("msvc400", "msvc/4.0-win32"),
-            ("msvc420", "msvc/4.2-win32"),
-            ("msvc5", "msvc/5.0-win32"),
+            ("msvc-4.0", "msvc/4.0-win32"),
+            ("msvc-4.2", "msvc/4.2-win32"),
+            ("msvc-5.0", "msvc/5.0-win32"),
         ):
             src = SOURCES[name]
             assert src.host_dir == expected_dir, name
@@ -949,7 +957,14 @@ class TestToolchainsRepoResolver:
         from rebrew.toolchain_paths import toolchains_repo
 
         repo = toolchains_repo()
-        for name in ("msvc15", "msvc10", "msvc1.52", "delphi16", "tc20", "tc16"):
+        for name in (
+            "msvc-1.5",
+            "msvc-1.0",
+            "msvc-1.52",
+            "delphi-1.0",
+            "borland-2.0",
+            "borland-3.1",
+        ):
             src = SOURCES[name]
             assert src.in_repo, name
             assert not src.in_repo.startswith("toolchain/"), name
@@ -1009,7 +1024,7 @@ class TestDockerfileSanity:
     def test_every_image_spec_has_dockerfile_in_checkout(self) -> None:
         """Every image-backed toolchain must have its Dockerfile in the
         rebrew-toolchains checkout — a fresh clone must be able to rebuild
-        the image (tc16/tc20 images were built from UNTRACKED Dockerfiles,
+        the image (borland-3.1/borland-2.0 images were built from UNTRACKED Dockerfiles,
         silently unreproducible)."""
         from rebrew.toolchain import TOOLCHAINS
 
@@ -1057,15 +1072,15 @@ class TestSmokePrintGoldens:
 
         monkeypatch.setattr(subprocess, "run", _fake_run)
         result = CliRunner().invoke(
-            umbrella, ["toolchain", "smoke", "msvc6", "--print-goldens", "--json"]
+            umbrella, ["toolchain", "smoke", "msvc-6.0", "--print-goldens", "--json"]
         )
         assert result.exit_code == 0, result.output
         payload = json.loads(result.stdout)
         assert set(payload) == {"goldens"}
-        # msvc6 mask is (4,8): the TimeDateStamp is zeroed before hashing.
+        # msvc-6.0 mask is (4,8): the TimeDateStamp is zeroed before hashing.
         masked = bytearray(obj)
         masked[4:8] = b"\x00" * 4
-        assert payload["goldens"]["msvc6"] == hashlib.sha256(bytes(masked)).hexdigest()
+        assert payload["goldens"]["msvc-6.0"] == hashlib.sha256(bytes(masked)).hexdigest()
 
 
 class TestPullToolchainHint:
@@ -1084,8 +1099,8 @@ class TestPullToolchainHint:
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
         monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
         monkeypatch.setattr("rebrew.toolchain.subprocess.run", _fake_run)
-        with pytest.raises(ToolchainError, match="toolchain build msvc420"):
-            pull_toolchain("msvc420")
+        with pytest.raises(ToolchainError, match="toolchain build msvc-4.2"):
+            pull_toolchain("msvc-4.2")
 
 
 class TestVendorFlatten:

@@ -39,10 +39,10 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew init · · · · · · · · · · · · · · · · · Defaults (msvc6, program.exe)\n\n"
+        "  rebrew init · · · · · · · · · · · · · · · · · Defaults (msvc-6.0, program.exe)\n\n"
         "  rebrew init --target mygame --binary mygame.exe  Name the target and binary\n\n"
-        "  rebrew init --compiler msvc7 · · · · · · · · · Use MSVC 7.x compiler profile\n\n"
-        "  rebrew init --compiler gcc · · · · · · · · · · Use GCC (ELF targets)\n\n"
+        "  rebrew init --compiler msvc-7.0 · · · · · · · · · Use MSVC 7.x compiler profile\n\n"
+        "  rebrew init --compiler gcc-14.2.0 · · · · · Use GCC (ELF targets)\n\n"
         "[bold]What it creates:[/bold]\n\n"
         "  rebrew-project.toml · · · Project configuration (compiler, paths, targets)\n\n"
         "  AGENTS.md · · · · · · · · AI agent instructions for the project\n\n"
@@ -50,13 +50,13 @@ app = typer.Typer(
         "  src/<target>/ · · · · · · Directory for reversed .c files\n\n"
         "  bin/<target>/ · · · · · · Directory for extracted .bin files\n\n"
         "[bold]Compiler profiles:[/bold]\n\n"
-        "  msvc6 · · · MSVC 6.0 (C89, PE/x86_32) — default\n\n"
+        "  msvc-6.0 · · · MSVC 6.0 (C89, PE/x86_32) — default\n\n"
         "  msvc# · · · MSVC 1.52–7.1 variants (PE/x86_32, 16-bit NE/MZ for 1.52)\n\n"
-        "  borlandc55 / tc16 / tc20 · Borland/Turbo C (PE/x86_32, 16-bit DOS)\n\n"
-        "  watcom / watcom16 · Open Watcom (32-bit / 16-bit DOS)\n\n"
-        "  delphi16 · · Delphi 1.0 (16-bit NE)\n\n"
-        "  gcc-pe · · GCC/MinGW (C99, PE/x86_32; also gcc-pe14)\n\n"
-        "  gcc / clang · ELF/x86_64 (also gcc12 / clang16)\n\n"
+        "  borland-5.5 / borland-3.1 / borland-2.0 · Borland/Turbo C (PE/x86_32, 16-bit DOS)\n\n"
+        "  watcom-2.0-win32 / watcom-2.0-win16 · Open Watcom (32-bit / 16-bit DOS)\n\n"
+        "  delphi-1.0 · · Delphi 1.0 (16-bit NE)\n\n"
+        "  mingw-16.2.0 · · GCC/MinGW (C99, PE/x86_32; also mingw-14.2.0)\n\n"
+        "  gcc-14.2.0 / clang-18.1.8 · ELF/x86_64 (also gcc-12.3.0 / clang-16.0.4)\n\n"
         "[dim]Every profile compiles inside its docker image (wine/DOSBox/native runtime included); there is no host compiler fallback. Full list: rebrew toolchain list.[/dim]\n\n"
         "[dim]Run this once in an empty directory, then place your binary in original/.[/dim]"
     ),
@@ -72,7 +72,7 @@ _PRINCIPLES_SRC = Path(__file__).parent / "PRINCIPLES.md"
 
 def _warn_profile_family_mismatch(profile: str, tc: ToolchainInfo) -> None:
     """Warn when a high-confidence compiler-family detection contradicts the
-    chosen profile — a Zig-built DLL with an ``msvc6`` profile can never
+    chosen profile — a Zig-built DLL with an ``msvc-6.0`` profile can never
     byte-match, so say so at init instead of after the first verify."""
     family = getattr(tc, "family", "") or ""
     expected = profile_families().get(profile)
@@ -97,8 +97,8 @@ def _warn_profile_mismatch(profile: str, binary_format: str, arch: str) -> None:
     alignment check sees the truth), but the user is told up front — a
     16-bit binary with a 32-bit profile would otherwise fail doctor
     immediately after init.  The 16-bit profile set is derived from the
-    registry-merged defaults so newly added 16-bit profiles (tc16,
-    watcom16, ...) are covered automatically instead of a hardcoded list.
+    registry-merged defaults so newly added 16-bit profiles (borland-3.1,
+    watcom-2.0-win16, ...) are covered automatically instead of a hardcoded list.
     """
     profile_arch = profile_defaults().get(profile, {}).get("arch", "")
     if not profile_arch:
@@ -116,7 +116,7 @@ def _warn_profile_mismatch(profile: str, binary_format: str, arch: str) -> None:
     elif arch and arch != "x86_16" and profile in _bitness_16:
         msg = (
             f"profile '{profile}' is a 16-bit compiler but the binary is "
-            f"{binary_format}/{arch} — use a 32-bit profile (e.g. msvc6)"
+            f"{binary_format}/{arch} — use a 32-bit profile (e.g. msvc-6.0)"
         )
         console.print(f"[yellow]warning:[/yellow] {msg}")
 
@@ -237,19 +237,19 @@ def _write_completion_scripts(project_root: Path) -> list[Path]:
 
 #: Vendored tools/ subdirectory per compiler profile (for --link-tools-from).
 _PROFILE_TOOLS: dict[str, str] = {
-    "msvc400": "MSVC400",
-    "msvc420": "msvc/4.2-win32",
-    "msvc5": "msvc/5.0-win32",
-    "msvc6": "msvc/6.0-win32",
-    "msvc600sp1": "msvc/6.0-sp1-win32",
-    "msvc600sp2": "msvc/6.0-sp2-win32",
-    "msvc600sp4": "msvc/6.0-sp4-win32",
-    "msvc900sp1": "msvc/9.0-sp1-win32",
-    "msvc1100": "msvc/11.0-win32",
-    "msvc7": "msvc/7.0-win32",  # deprecated alias of msvc710 (dir holds the 7.1 compiler)
-    "borlandc55": "borland/5.5-win32",
-    "tc20": "borland/2.0-win16",
-    "tc16": "borland/3.1-win16",
+    "msvc-4.0": "MSVC400",
+    "msvc-4.2": "msvc/4.2-win32",
+    "msvc-5.0": "msvc/5.0-win32",
+    "msvc-6.0": "msvc/6.0-win32",
+    "msvc-6.0-sp1": "msvc/6.0-sp1-win32",
+    "msvc-6.0-sp2": "msvc/6.0-sp2-win32",
+    "msvc-6.0-sp4": "msvc/6.0-sp4-win32",
+    "msvc-9.0-sp1": "msvc/9.0-sp1-win32",
+    "msvc-11.0": "msvc/11.0-win32",
+    "msvc-7.0": "msvc/7.0-win32",  # deprecated alias of msvc-7.1 (dir holds the 7.1 compiler)
+    "borland-5.5": "borland/5.5-win32",
+    "borland-2.0": "borland/2.0-win16",
+    "borland-3.1": "borland/3.1-win16",
 }
 
 
@@ -576,7 +576,9 @@ def main(
         "-b",
         help="Name of the executable binary file (an 'original/' prefix is accepted and stripped).",
     ),
-    compiler_profile: str = typer.Option("msvc6", "--toolchain", help="Compiler profile to use."),
+    compiler_profile: str = typer.Option(
+        "msvc-6.0", "--toolchain", help="Compiler profile to use."
+    ),
     guess_compiler: bool = typer.Option(
         False,
         "--guess-compiler",
@@ -600,7 +602,7 @@ def main(
         help=(
             "Master toolchain directory to symlink tools/<profile> from "
             "(e.g. ~/zine/tools).  Skips profiles with nothing to link "
-            "(gcc/gcc-pe/clang run from their docker images)."
+            "(gcc-14.2.0/mingw-16.2.0/clang-18.1.8 run from their docker images)."
         ),
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -693,8 +695,8 @@ def main(
             json_mode=json_output,
         )
     profile = defaults[compiler_profile]
-    if compiler_profile in ("msvc6", "msvc7"):
-        # The msvc6/msvc7 defaults point at the full master layouts
+    if compiler_profile in ("msvc-6.0", "msvc-7.0"):
+        # The msvc-6.0/msvc-7.0 defaults point at the full master layouts
         # (toolchain/msvc/6.0-win32/source/VC98, toolchain/msvc/7.0-win32).  Machines that only vendor the
         # compile-only mirrors (toolchain/msvc/6.0-sp6-win32 / msvc-6.0-sp3-win32 / msvc-7.0-win32) must not
         # get a broken path — resolve the best layout actually present
@@ -742,12 +744,12 @@ def main(
             binary_format, target_arch = detected
 
     # Warn when the detected format/arch contradicts the chosen profile —
-    # e.g. a 16-bit NE binary with a 32-bit msvc6 profile (doctor will flag
+    # e.g. a 16-bit NE binary with a 32-bit msvc-6.0 profile (doctor will flag
     # it as a misalignment; surface it here instead of after the fact).
     _warn_profile_mismatch(compiler_profile, binary_format, target_arch)
 
     # Compiler-family alignment: a high-confidence detection that contradicts
-    # the profile (Zig-built DLL with msvc6) can never byte-match — warn at
+    # the profile (Zig-built DLL with msvc-6.0) can never byte-match — warn at
     # init, not after the first verify.  Also used below for CRT linkage.
     tc = None
     if binary_path.exists():
@@ -822,9 +824,9 @@ def main(
     console.print(f"[green]Created {toml_path.name}[/]")
 
     # 2. Write AGENTS.md (for LLM agents)
-    if compiler_profile.startswith("msvc6"):
+    if compiler_profile.startswith("msvc-6.0"):
         constraints = MSVC_CONSTRAINTS
-    elif compiler_profile == "delphi16":
+    elif compiler_profile == "delphi-1.0":
         constraints = DELPHI16_CONSTRAINTS
     elif compiler_profile.startswith("msvc"):
         constraints = MSVC7_CONSTRAINTS
@@ -900,7 +902,7 @@ def main(
         # The link may have just created a better layout than the pre-write
         # resolution saw (e.g. a master toolchain/msvc/6.0-win32) — re-resolve and
         # point the written [compiler] section at it.
-        if compiler_profile in ("msvc6", "msvc7"):
+        if compiler_profile in ("msvc-6.0", "msvc-7.0"):
             from rebrew.utils import resolve_msvc_toolchain
 
             layout = resolve_msvc_toolchain(cwd, compiler_profile)

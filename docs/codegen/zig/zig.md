@@ -5,7 +5,7 @@ indistinguishable from MinGW GCC** (LLVM codegen behind a GNU-ld
 front-end) — there is no verified codegen marker that separates Zig
 from MinGW GCC by bytes alone.
 
-**Profiles:** `gcc-pe` (structural matching only — LLVM vs GCC codegen
+**Profiles:** `mingw-16.2.0` (structural matching only — LLVM vs GCC codegen
 means byte-exact matching is not expected).
 
 ## What is verified

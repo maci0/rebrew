@@ -66,7 +66,7 @@ Piped/CI invocations (non-TTY stdin, `--json`) never prompt.
 
 ```bash
 rebrew intake original/server.dll          # auto-detects the compiler profile
-rebrew intake original/server.dll --toolchain msvc6   # or pin it explicitly
+rebrew intake original/server.dll --toolchain msvc-6.0   # or pin it explicitly
 ```
 
 `intake` does the whole first pass automatically:
@@ -82,10 +82,10 @@ rebrew intake original/server.dll --toolchain msvc6   # or pin it explicitly
 When it finishes you get a summary like:
 
 ```
-Intake complete: server (msvc800)
+Intake complete: server (msvc-8.0)
   detected family: msvc (MSVC 14.00 …)
   functions: 259, documented: 259
-  toolchain: msvc800 runs through docker image rebrew/msvc:8.0-win32 — run 'rebrew toolchain build msvc800' if the image is missing
+  toolchain: msvc-8.0 runs through docker image rebrew/msvc:8.0-win32 — run 'rebrew toolchain build msvc-8.0' if the image is missing
   next: rebrew doctor && rebrew status --json
   first run? see docs/ONBOARDING.md for the walkthrough
 ```
@@ -105,7 +105,7 @@ Every `fail` line names its fix.  The common ones after a fresh intake:
   `rebrew toolchain build <profile>` (execution is docker-only).
 - **`Toolchain alignment` fail** — the detected compiler family doesn't match
   the configured profile: switch the profile (e.g. `rebrew cfg set
-  compiler.profile msvc6`) or document it as a blocker.
+  compiler.profile msvc-6.0`) or document it as a blocker.
 - **`Include path`/`Lib path`** — for docker-backed profiles these are
   provided *by the image* (it is built from the pinned source in the sibling
   `rebrew-toolchains` checkout), so a dangling host path is informational,
@@ -149,8 +149,8 @@ step-by-step instructions for AI agents.
 ## 16-bit DOS targets
 
 For MZ/NE (DOS) binaries `intake` sets `arch = "x86_16"` automatically and
-the profile must be a 16-bit-capable compiler (`msvc1.52`, `tc16`, `tc20`,
-`watcom16`).  `rebrew doctor` explains exactly which profile to configure.
+the profile must be a 16-bit-capable compiler (`msvc-1.52`, `borland-3.1`, `borland-2.0`,
+`watcom-2.0-win16`).  `rebrew doctor` explains exactly which profile to configure.
 
 ## Next
 

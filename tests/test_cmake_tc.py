@@ -182,7 +182,7 @@ def test_docker_run_builds_command(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
 
     monkeypatch.setattr("rebrew.cmake_tc.subprocess.run", fake_run)
 
-    spec = TOOLCHAINS["msvc6"]
+    spec = TOOLCHAINS["msvc-6.0"]
     rc = _docker_run(spec, "cl", ["/c", "x.c"])
     assert rc == 3
 
@@ -241,7 +241,7 @@ def test_docker_run_timeout_kills_container(
 
     monkeypatch.setattr("rebrew.cmake_tc.subprocess.run", fake_run)
 
-    spec = TOOLCHAINS["msvc6"]
+    spec = TOOLCHAINS["msvc-6.0"]
     with pytest.raises(sp.TimeoutExpired):
         _docker_run(spec, "cl", ["/c", "x.c"])
 
@@ -271,16 +271,16 @@ def test_wineprefix_init_timeout_kills_container(
     monkeypatch.setattr("rebrew.cmake_tc.subprocess.run", fake_run)
 
     with pytest.raises(typer.Exit):
-        _ensure_wineprefix(Path(os.environ["REBREW_WINEPREFIX"]), TOOLCHAINS["msvc6"])
+        _ensure_wineprefix(Path(os.environ["REBREW_WINEPREFIX"]), TOOLCHAINS["msvc-6.0"])
 
     assert len(calls) == 2
     assert calls[1][:2] == ["docker", "kill"]
 
 
 def test_generate_toolchain_file(tmp_path: Path) -> None:
-    spec = TOOLCHAINS["msvc6"]
+    spec = TOOLCHAINS["msvc-6.0"]
     out = generate_toolchain_file(spec, tmp_path)
-    assert out.name == "toolchain-msvc6-docker.cmake"
+    assert out.name == "toolchain-msvc-6.0-docker.cmake"
     text = out.read_text(encoding="utf-8")
     assert 'set(CMAKE_C_COMPILER "rebrew-cmake-cl")' in text
     assert 'set(CMAKE_LINKER "rebrew-cmake-link")' in text
@@ -292,15 +292,15 @@ def test_generate_toolchain_file(tmp_path: Path) -> None:
 
 def test_per_toolchain_version_stamping(tmp_path: Path) -> None:
     """Each MSVC profile stamps its own compiler version (linker era +
-    Rich-header build), not msvc6's 12.00.8168."""
+    Rich-header build), not msvc-6.0's 12.00.8168."""
     assert 'CMAKE_C_COMPILER_VERSION "12.00.8168"' in generate_toolchain_file(
-        TOOLCHAINS["msvc6"], tmp_path
+        TOOLCHAINS["msvc-6.0"], tmp_path
     ).read_text(encoding="utf-8")
     assert 'CMAKE_C_COMPILER_VERSION "12.00.8447"' in generate_toolchain_file(
-        TOOLCHAINS["msvc600sp3"], tmp_path
+        TOOLCHAINS["msvc-6.0-sp3"], tmp_path
     ).read_text(encoding="utf-8")
     assert 'CMAKE_C_COMPILER_VERSION "13.10.3077"' in generate_toolchain_file(
-        TOOLCHAINS["msvc710"], tmp_path
+        TOOLCHAINS["msvc-7.1"], tmp_path
     ).read_text(encoding="utf-8")
 
 
@@ -313,13 +313,13 @@ def test_resolve_spec_rejects_dosbox_image() -> None:
     from rebrew.toolchain import TOOLCHAINS
 
     with pytest.raises(typer.Exit):
-        _resolve_spec("tc16")
+        _resolve_spec("borland-3.1")
 
-    # gcc-pe is a wine-driven image too (its driver is a PE32 binary), but it
+    # mingw-16.2.0 is a wine-driven image too (its driver is a PE32 binary), but it
     # is one gcc with no separate link/lib tools — refused, like any other
     # wine image without a tool_root.
     with pytest.raises(typer.Exit):
-        _resolve_spec("gcc-pe")
+        _resolve_spec("mingw-16.2.0")
 
     # every wine image spec that declares a tool_root resolves.
     for name, spec in TOOLCHAINS.items():
@@ -331,7 +331,9 @@ def test_tc_main_dispatch_and_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     """tc_main resolves the toolchain from the project toml and runs docker."""
     proj = tmp_path / "proj"
     (proj / "build").mkdir(parents=True)
-    (proj / "rebrew-project.toml").write_text('[compiler]\nprofile = "msvc6"\n', encoding="utf-8")
+    (proj / "rebrew-project.toml").write_text(
+        '[compiler]\nprofile = "msvc-6.0"\n', encoding="utf-8"
+    )
 
     calls: list[tuple[str, list[str]]] = []
 

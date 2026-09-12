@@ -69,70 +69,70 @@ class TestDiecVersionHint:
 class TestProfileMatches:
     def test_msvc_profile_matches_msvc(self) -> None:
         info = ToolchainInfo(family="msvc")
-        aligned, expl = profile_matches_detection("msvc6", info)
+        aligned, expl = profile_matches_detection("msvc-6.0", info)
         assert aligned is True
         assert expl is None
 
     def test_msvc5_profile_matches_msvc(self) -> None:
         """Corpus regression: bind-rebrew (VC5.0) must not fail doctor."""
         info = ToolchainInfo(family="msvc")
-        aligned, expl = profile_matches_detection("msvc5", info)
+        aligned, expl = profile_matches_detection("msvc-5.0", info)
         assert aligned is True
         assert expl is None
 
-    def test_gcc_pe_matches_mingw(self) -> None:
+    def test_mingw_matches_mingw(self) -> None:
         info = ToolchainInfo(family="mingw")
-        aligned, expl = profile_matches_detection("gcc-pe", info)
+        aligned, expl = profile_matches_detection("mingw-16.2.0", info)
         assert aligned is True
 
-    def test_msvc6_does_not_match_mingw(self) -> None:
+    def test_msvc_6_0_does_not_match_mingw(self) -> None:
         info = ToolchainInfo(family="mingw")
-        aligned, expl = profile_matches_detection("msvc6", info)
+        aligned, expl = profile_matches_detection("msvc-6.0", info)
         assert aligned is False
-        assert "gcc-pe" in (expl or "")
+        assert "mingw-16.2.0" in (expl or "")
 
     def test_delphi_never_matches(self) -> None:
         info = ToolchainInfo(family="delphi")
-        aligned, expl = profile_matches_detection("msvc6", info)
+        aligned, expl = profile_matches_detection("msvc-6.0", info)
         assert aligned is False
 
     def test_msvc152_profile_matches_msvc(self) -> None:
         info = ToolchainInfo(family="msvc")
-        aligned, expl = profile_matches_detection("msvc1.52", info)
+        aligned, expl = profile_matches_detection("msvc-1.52", info)
         assert aligned is True
 
     def test_watcom_profile_matches_watcom(self) -> None:
         """Open Watcom now has a profile — doctor alignment must pass."""
         info = ToolchainInfo(family="watcom")
-        aligned, expl = profile_matches_detection("watcom", info)
+        aligned, expl = profile_matches_detection("watcom-2.0-win32", info)
         assert aligned is True
 
     def test_symantec_never_matches(self) -> None:
         info = ToolchainInfo(family="symantec")
-        aligned, expl = profile_matches_detection("msvc6", info)
+        aligned, expl = profile_matches_detection("msvc-6.0", info)
         assert aligned is False
         assert "symantec" in (expl or "")
 
     def test_zig_is_structural_caveat(self) -> None:
         info = ToolchainInfo(family="zig")
-        aligned, expl = profile_matches_detection("gcc-pe", info)
+        aligned, expl = profile_matches_detection("mingw-16.2.0", info)
         assert aligned is True
         assert expl is not None
 
     def test_unknown_family_not_second_guessed(self) -> None:
         info = ToolchainInfo(family="unknown")
-        aligned, expl = profile_matches_detection("msvc6", info)
+        aligned, expl = profile_matches_detection("msvc-6.0", info)
         assert aligned is True
 
     def test_watcom_never_matches(self) -> None:
         info = ToolchainInfo(family="watcom")
-        aligned, expl = profile_matches_detection("msvc6", info)
+        aligned, expl = profile_matches_detection("msvc-6.0", info)
         assert aligned is False
         assert "watcom" in (expl or "")
 
     def test_borlandc_never_matches(self) -> None:
         info = ToolchainInfo(family="borlandc")
-        aligned, expl = profile_matches_detection("gcc-pe", info)
+        aligned, expl = profile_matches_detection("mingw-16.2.0", info)
         assert aligned is False
         assert "borlandc" in (expl or "")
 
@@ -542,30 +542,30 @@ class TestNEStringDetection:
         assert "MSVC" in info.version_hint
 
     def test_16bit_ne_rejects_32bit_profile(self) -> None:
-        """skifree16 regression: msvc6 (32-bit) on a 16-bit NE binary must
+        """skifree16 regression: msvc-6.0 (32-bit) on a 16-bit NE binary must
         NOT pass alignment — every function would be COMPILE_ERROR."""
         info = ToolchainInfo(family="msvc", arch="x86_16")
-        aligned, expl = profile_matches_detection("msvc6", info)
+        aligned, expl = profile_matches_detection("msvc-6.0", info)
         assert aligned is False
-        assert "msvc1.52" in (expl or "")
+        assert "msvc-1.52" in (expl or "")
 
     def test_16bit_ne_accepts_msvc152(self) -> None:
         info = ToolchainInfo(family="msvc", arch="x86_16")
-        aligned, _ = profile_matches_detection("msvc1.52", info)
+        aligned, _ = profile_matches_detection("msvc-1.52", info)
         assert aligned is True
 
     def test_32bit_pe_rejects_msvc152(self) -> None:
-        """msvc1.52 is a 16-bit compiler — it cannot match a 32-bit PE."""
+        """msvc-1.52 is a 16-bit compiler — it cannot match a 32-bit PE."""
         info = ToolchainInfo(family="msvc", arch="x86_32")
-        aligned, expl = profile_matches_detection("msvc1.52", info)
+        aligned, expl = profile_matches_detection("msvc-1.52", info)
         assert aligned is False
-        assert "msvc6" in (expl or "")
+        assert "msvc-6.0" in (expl or "")
 
     def test_unknown_arch_not_second_guessed(self) -> None:
         """PE/ELF detection does not set arch — existing projects must not
         start failing doctor after this change."""
         info = ToolchainInfo(family="msvc", arch="")
-        aligned, _ = profile_matches_detection("msvc6", info)
+        aligned, _ = profile_matches_detection("msvc-6.0", info)
         assert aligned is True
 
     def test_watcom_32bit_not_rejected(self) -> None:
@@ -573,12 +573,12 @@ class TestNEStringDetection:
         binary must pass alignment (regression: watcom was wrongly in the
         16-bit-only set, false-failing doctor on Watcom PE targets)."""
         info = ToolchainInfo(family="watcom", arch="x86_32")
-        aligned, expl = profile_matches_detection("watcom", info)
+        aligned, expl = profile_matches_detection("watcom-2.0-win32", info)
         assert aligned is True, expl
 
     def test_watcom_unknown_arch_not_rejected(self) -> None:
         info = ToolchainInfo(family="watcom", arch="")
-        aligned, expl = profile_matches_detection("watcom", info)
+        aligned, expl = profile_matches_detection("watcom-2.0-win32", info)
         assert aligned is True, expl
 
 
@@ -722,29 +722,29 @@ class TestBackendDisplayName:
 class TestBorlandAndWatcomProfileCompat:
     """borlandc/watcom families now have byte-matchable profiles."""
 
-    def test_tc16_matches_borlandc(self) -> None:
+    def test_borland_3_1_matches_borlandc(self) -> None:
         info = ToolchainInfo(family="borlandc")
-        aligned, expl = profile_matches_detection("tc16", info)
+        aligned, expl = profile_matches_detection("borland-3.1", info)
         assert aligned is True
         assert expl is None
 
     def test_borlandc55_matches_borlandc(self) -> None:
         info = ToolchainInfo(family="borlandc")
-        aligned, _ = profile_matches_detection("borlandc55", info)
+        aligned, _ = profile_matches_detection("borland-5.5", info)
         assert aligned is True
 
-    def test_watcom16_matches_watcom(self) -> None:
+    def test_watcom_2_0_win16_matches_watcom(self) -> None:
         info = ToolchainInfo(family="watcom")
-        aligned, _ = profile_matches_detection("watcom16", info)
+        aligned, _ = profile_matches_detection("watcom-2.0-win16", info)
         assert aligned is True
 
 
 class TestTc16BuiltBinary:
     """A real Turbo C++ 3.1 + TLINK-built DOS executable (built under
     DOSBox with the vendored toolchain) must detect as borlandc and align
-    with the tc16/borlandc55 profiles."""
+    with the borland-3.1/borland-5.5 profiles."""
 
-    def test_detect_tc16_binary(self) -> None:
+    def test_detect_borland_3_1_binary(self) -> None:
         from rebrew.toolchain_detect import detect_toolchain, profile_matches_detection
 
         binary = Path(__file__).parent / "fixtures" / "tc16_hello.exe"
@@ -756,13 +756,13 @@ class TestTc16BuiltBinary:
         assert info.family == "borlandc"
         assert "Borland" in (info.version_hint or "")
         assert info.arch == "x86_16"  # an MZ binary is always 16-bit
-        aligned, _ = profile_matches_detection("tc16", info)
+        aligned, _ = profile_matches_detection("borland-3.1", info)
         assert aligned is True
-        # borlandc55 is the 32-bit bcc32 — it cannot byte-match a 16-bit
-        # binary (the arch dimension rejects it), while tc16 can.
-        aligned, _ = profile_matches_detection("borlandc55", info)
+        # borland-5.5 is the 32-bit bcc32 — it cannot byte-match a 16-bit
+        # binary (the arch dimension rejects it), while borland-3.1 can.
+        aligned, _ = profile_matches_detection("borland-5.5", info)
         assert aligned is False
-        aligned, _ = profile_matches_detection("msvc6", info)
+        aligned, _ = profile_matches_detection("msvc-6.0", info)
         assert aligned is False
 
     def test_detect_lzexe_packed(self) -> None:

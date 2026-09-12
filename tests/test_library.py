@@ -41,11 +41,11 @@ class TestLibraryMetadata:
 
     def test_walk_up_finds_nearest(self, tmp_path: Path) -> None:
         proj, lib, fn = _tree(tmp_path)
-        (proj / LIBRARY_METADATA_FILE).write_text('toolchain = "msvc6"\n', encoding="utf-8")
-        (lib / LIBRARY_METADATA_FILE).write_text('toolchain = "msvc600sp6"\n', encoding="utf-8")
+        (proj / LIBRARY_METADATA_FILE).write_text('toolchain = "msvc-6.0"\n', encoding="utf-8")
+        (lib / LIBRARY_METADATA_FILE).write_text('toolchain = "msvc-6.0-sp6"\n', encoding="utf-8")
         ovr = find_library_override(fn, proj)
         assert ovr is not None and ovr.path == lib / LIBRARY_METADATA_FILE
-        assert ovr.toolchain == "msvc600sp6"  # nearest wins
+        assert ovr.toolchain == "msvc-6.0-sp6"  # nearest wins
 
     def test_no_override_returns_none(self, tmp_path: Path) -> None:
         proj, _, fn = _tree(tmp_path)
@@ -54,14 +54,14 @@ class TestLibraryMetadata:
     def test_presets_fill_missing_fields(self) -> None:
         merged, presets = apply_library_presets({"library": "msvcrt-static"})
         assert presets == ("msvcrt-static",)
-        assert merged["toolchain"] == "msvc6"
+        assert merged["toolchain"] == "msvc-6.0"
         assert merged["cflags"] == "/O2 /Gd /MT"
 
     def test_explicit_fields_win_over_presets(self) -> None:
         merged, _ = apply_library_presets(
-            {"library": "msvcrt-static", "toolchain": "msvc600sp6", "cflags": "/O1"}
+            {"library": "msvcrt-static", "toolchain": "msvc-6.0-sp6", "cflags": "/O1"}
         )
-        assert merged["toolchain"] == "msvc600sp6"
+        assert merged["toolchain"] == "msvc-6.0-sp6"
         assert merged["cflags"] == "/O1"
 
     def test_unknown_preset_no_merge(self) -> None:
@@ -84,24 +84,24 @@ class TestResolveCompileOverrides:
     def test_per_function_beats_library(self, tmp_path: Path) -> None:
         proj, lib, fn = _tree(tmp_path)
         (lib / LIBRARY_METADATA_FILE).write_text(
-            'toolchain = "msvc6"\ncflags = "/O2 /Gd"\n', encoding="utf-8"
+            'toolchain = "msvc-6.0"\ncflags = "/O2 /Gd"\n', encoding="utf-8"
         )
         tc, cf = resolve_compile_overrides(
             self._cfg(tmp_path, root=proj),
             fn,
-            "msvc5",
+            "msvc-5.0",
             "/O1",
         )
-        assert tc == "msvc5"  # per-function wins
+        assert tc == "msvc-5.0"  # per-function wins
         assert cf == "/O1"
 
     def test_library_beats_default(self, tmp_path: Path) -> None:
         proj, lib, fn = _tree(tmp_path)
         (lib / LIBRARY_METADATA_FILE).write_text(
-            'toolchain = "msvc600sp6"\ncflags = "/O2 /Gd /MT"\n', encoding="utf-8"
+            'toolchain = "msvc-6.0-sp6"\ncflags = "/O2 /Gd /MT"\n', encoding="utf-8"
         )
         tc, cf = resolve_compile_overrides(self._cfg(tmp_path, root=proj), fn, None, None)
-        assert tc == "msvc600sp6"
+        assert tc == "msvc-6.0-sp6"
         assert cf == "/O2 /Gd /MT"
 
     def test_default_fallback(self, tmp_path: Path) -> None:
@@ -114,7 +114,7 @@ class TestResolveCompileOverrides:
         proj, lib, fn = _tree(tmp_path)
         (lib / LIBRARY_METADATA_FILE).write_text('library = "msvcrt-static"\n', encoding="utf-8")
         tc, cf = resolve_compile_overrides(self._cfg(tmp_path, root=proj), fn, None, None)
-        assert tc == "msvc6"
+        assert tc == "msvc-6.0"
         assert cf == "/O2 /Gd /MT"
 
 
@@ -126,24 +126,24 @@ class TestLibraryCli:
 
     def test_list_finds_all_overrides(self, tmp_path: Path) -> None:
         proj, lib, _ = _tree(tmp_path)
-        (lib / LIBRARY_METADATA_FILE).write_text('toolchain = "msvc6"\n', encoding="utf-8")
+        (lib / LIBRARY_METADATA_FILE).write_text('toolchain = "msvc-6.0"\n', encoding="utf-8")
         res = self._invoke("list", str(proj), "--json")
         assert res.exit_code == 0, res.output
         import json
 
         payload = json.loads(res.output)
         assert len(payload["libraries"]) == 1
-        assert payload["libraries"][0]["toolchain"] == "msvc6"
+        assert payload["libraries"][0]["toolchain"] == "msvc-6.0"
 
     def test_set_show_rm_roundtrip(self, tmp_path: Path) -> None:
         lib = tmp_path / "lib"
         lib.mkdir()
-        res = self._invoke("set", str(lib), "--toolchain", "msvc6", "--cflags", "/O2 /Gd")
+        res = self._invoke("set", str(lib), "--toolchain", "msvc-6.0", "--cflags", "/O2 /Gd")
         assert res.exit_code == 0, res.output
         assert (lib / LIBRARY_METADATA_FILE).exists()
         shown = self._invoke("show", str(lib), "--json")
         assert shown.exit_code == 0
-        assert '"toolchain": "msvc6"' in shown.output
+        assert '"toolchain": "msvc-6.0"' in shown.output
         removed = self._invoke("rm", str(lib))
         assert removed.exit_code == 0
         assert not (lib / LIBRARY_METADATA_FILE).exists()
@@ -152,12 +152,12 @@ class TestLibraryCli:
         lib = tmp_path / "lib"
         lib.mkdir()
         res = self._invoke(
-            "set", str(lib), "--preset", "msvcrt-static", "--toolchain", "msvc600sp6"
+            "set", str(lib), "--preset", "msvcrt-static", "--toolchain", "msvc-6.0-sp6"
         )
         assert res.exit_code == 0, res.output
         text = (lib / LIBRARY_METADATA_FILE).read_text(encoding="utf-8")
         assert "msvcrt-static" in text
-        assert "msvc600sp6" in text
+        assert "msvc-6.0-sp6" in text
         # the preset's cflags still fill in
         ovr = find_library_override(lib, tmp_path)
         assert ovr is not None and ovr.cflags == "/O2 /Gd /MT"
@@ -165,7 +165,7 @@ class TestLibraryCli:
     def test_set_dry_run_writes_nothing(self, tmp_path: Path) -> None:
         lib = tmp_path / "lib"
         lib.mkdir()
-        res = self._invoke("set", str(lib), "--toolchain", "msvc6", "--dry-run")
+        res = self._invoke("set", str(lib), "--toolchain", "msvc-6.0", "--dry-run")
         assert res.exit_code == 0, res.output
         assert "would write" in res.output
         assert not (lib / LIBRARY_METADATA_FILE).exists()
@@ -173,7 +173,7 @@ class TestLibraryCli:
     def test_rm_dry_run_keeps_file(self, tmp_path: Path) -> None:
         lib = tmp_path / "lib"
         lib.mkdir()
-        (lib / LIBRARY_METADATA_FILE).write_text('toolchain = "msvc6"\n', encoding="utf-8")
+        (lib / LIBRARY_METADATA_FILE).write_text('toolchain = "msvc-6.0"\n', encoding="utf-8")
         res = self._invoke("rm", str(lib), "--dry-run")
         assert res.exit_code == 0, res.output
         assert "would remove" in res.output

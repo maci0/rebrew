@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 
 #: 16-bit DOS profiles whose C compiler rejects ``//`` comments (C89-strict).
 #: Their skeleton markers are emitted as ``/* ... */`` instead.
-C89_STRICT_PROFILES = frozenset({"tc20", "msvc1.52", "watcom16"})
+C89_STRICT_PROFILES = frozenset({"borland-2.0", "msvc-1.52", "watcom-2.0-win16"})
 
 
 def c_comment_safe(text: str) -> str:
@@ -146,14 +146,14 @@ def _render_annotation_block(
         elif convention_stub is not None:
             signature = convention_stub
         elif profile in (
-            "tc20",
-            "tc16",
-            "borlandc55",
-            "watcom",
-            "watcom16",
-            "gcc",
-            "gcc-pe",
-            "clang",
+            "borland-2.0",
+            "borland-3.1",
+            "borland-5.5",
+            "watcom-2.0-win32",
+            "watcom-2.0-win16",
+            "gcc-14.2.0",
+            "mingw-16.2.0",
+            "clang-18.1.8",
         ):
             # TCC/bcc32/wcc/gcc: cdecl is the default convention; __cdecl is
             # a syntax error in TCC 3.1 ("Declaration syntax error").
@@ -285,7 +285,11 @@ def _convention_stub(
             n = _ret_arg_count(insns, word_size)
             args = ", ".join(f"int a{i}" for i in range(1, n + 1))
             profile = str(getattr(cfg, "compiler_profile", ""))
-            keyword = "pascal" if profile in ("tc16", "tc20", "borlandc55") else "__stdcall"
+            keyword = (
+                "pascal"
+                if profile in ("borland-3.1", "borland-2.0", "borland-5.5")
+                else "__stdcall"
+            )
             return (
                 f"int {keyword} {func_name}({args or 'void'})",
                 None if keyword == "pascal" else f"{n} word arg(s) popped by callee (__stdcall)",

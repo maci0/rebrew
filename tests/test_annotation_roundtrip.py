@@ -272,9 +272,9 @@ def test_skeleton_marker_style_matches_profile() -> None:
             profile=profile,
         ).splitlines()[0]
 
-    assert first_line("tc20") == "/* FUNCTION: MAIN 0x0000042e */"
-    assert first_line("msvc1.52") == "/* FUNCTION: MAIN 0x0000042e */"
-    assert first_line("tc16") == "// FUNCTION: MAIN 0x0000042e"
+    assert first_line("borland-2.0") == "/* FUNCTION: MAIN 0x0000042e */"
+    assert first_line("msvc-1.52") == "/* FUNCTION: MAIN 0x0000042e */"
+    assert first_line("borland-3.1") == "// FUNCTION: MAIN 0x0000042e"
     # cdecl is the default convention for the Borland family — no __cdecl.
     body = _render_annotation_block(
         marker="FUNCTION",
@@ -286,7 +286,7 @@ def test_skeleton_marker_style_matches_profile() -> None:
         func_name="fcn_042e",
         ghidra_name="",
         convention_stub=None,
-        profile="tc20",
+        profile="borland-2.0",
     )
     assert "int fcn_042e(void)" in body
     assert "__cdecl" not in body

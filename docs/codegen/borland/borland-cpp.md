@@ -3,7 +3,7 @@
 Borland C++ 5.5 (1999) — the free 32-bit Windows command-line tools
 (`bcc32`, wine/wibo).  Emits OMF objects.  Verified with **`-O1`**.
 
-**Profiles:** `borlandc55` — image `rebrew/borland:5.5-win32`.
+**Profiles:** `borland-5.5` — image `rebrew/borland:5.5-win32`.
 
 ## Prologue & frame pointer — the Borland signature
 

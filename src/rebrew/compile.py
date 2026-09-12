@@ -487,7 +487,7 @@ def resolve_cl_command(cfg: ProjectConfig) -> list[str]:
         and "\\" not in cmd_parts[0]
         and not runner
     ):
-        # Bare executable name (e.g. a gcc-pe/mingw toolchain on PATH) -
+        # Bare executable name (e.g. a mingw/mingw toolchain on PATH) -
         # resolve via PATH instead of the project root.
         found = shutil.which(cmd_parts[0])
         cl_abs = found or str(cfg.root / cl_rel)
@@ -899,7 +899,7 @@ def compile_to_obj(
         return None, f"obj_name must be a plain filename, got {obj_name!r}"
     inc_path = str(cfg.compiler_includes)
     profile = getattr(cfg, "compiler_profile", "")
-    # Per-function toolchain override (metadata TOOLCHAIN, e.g. "msvc5"):
+    # Per-function toolchain override (metadata TOOLCHAIN, e.g. "msvc-5.0"):
     # compile with THAT toolchain's image.  Every compile runs through the
     # standardized runner - there is no host wine path.
     tc_spec = None
@@ -1047,7 +1047,7 @@ def compile_to_obj(
             # 16-bit DOSBox wrappers stage their own include tree - follow the
             # ACTIVE spec (a per-function TOOLCHAIN override may swap in a
             # 16-bit toolchain under a 32-bit project profile).
-            if spec.name not in ("msvc1.52", "msvc15", "msvc10", "tc16", "tc20"):
+            if spec.name not in ("msvc-1.52", "msvc-1.5", "msvc-1.0", "borland-3.1", "borland-2.0"):
                 extra_inc: list[str] = []
                 if src_parent.resolve() != workdir.resolve():
                     extra_inc.append(str(src_parent))
@@ -1065,17 +1065,17 @@ def compile_to_obj(
                 # Same-path mounts may repeat across dirs - docker rejects
                 # duplicate -v targets.
                 mounts = list(dict.fromkeys(mounts))
-        if spec.name in ("msvc1.52", "msvc15", "msvc10", "tc16", "tc20"):
+        if spec.name in ("msvc-1.52", "msvc-1.5", "msvc-1.0", "borland-3.1", "borland-2.0"):
             # 16-bit DOSBox wrappers stage their own include tree.
             args = [src_name, *all_flags]
-        elif spec.name == "borlandc55":
+        elif spec.name == "borland-5.5":
             # bcc32: `-c` compiles only; the object name follows the source
             # stem (add.c → add.obj), which matches obj_name.
             args = all_flags + ["-c", src_name]
-        elif spec.name in ("watcom", "watcom16"):
+        elif spec.name in ("watcom-2.0-win32", "watcom-2.0-win16"):
             args = all_flags + [f"-fo={obj_name}", "-zq", src_name]
         elif spec.flags_style == "posix":
-            # POSIX-style compilers (gcc, gcc-pe, clang, watcom): -I/-c/-o,
+            # POSIX-style compilers (gcc, mingw-16.2.0, clang, watcom): -I/-c/-o,
             # no MSVC /Fo.
             inc_flags = [f"-I{inc_path}"] if inc_path else []
             args = all_flags + inc_flags + [f"-I{str(src_parent)}", "-c", "-o", obj_name, src_name]
@@ -1086,7 +1086,10 @@ def compile_to_obj(
         except ToolchainError as exc:
             return None, str(exc)
         obj_file = workdir / obj_name
-        if spec.name in ("msvc1.52", "msvc15", "msvc10", "tc16", "tc20") and not obj_file.exists():
+        if (
+            spec.name in ("msvc-1.52", "msvc-1.5", "msvc-1.0", "borland-3.1", "borland-2.0")
+            and not obj_file.exists()
+        ):
             # The DOSBox wrappers FAT-uppercase the object (T.OBJ).
             stem = Path(obj_name).stem
             obj_file = next(

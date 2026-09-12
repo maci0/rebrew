@@ -4,7 +4,7 @@ MSVC 11.0 (VS 2012, CL 17.00.50522).  The newest preserved MSVC; the
 first to emit **SSE2 FP instructions** in the probe — the only verified
 codegen marker unique to a single 32-bit MSVC version.
 
-**Profiles:** `msvc1100` — Rich build 50522; linker 11.0.
+**Profiles:** `msvc-11.0` — Rich build 50522; linker 11.0.
 
 ## Prologue & frame pointer
 
@@ -212,7 +212,7 @@ probe2 (`msvc1100_O2.obj` — `cmov` in `imax/imin/clamp`, SSE2 `addsd`
 handoff in `fadd1`) and probe3 (`msvc1100.obj` — `movq` copies,
 `xorps` memset, z128 libcall, push-memory i64 args) diffed against
 10.0; probe4 (`msvc1100_{O1,O2}.obj` — `cvttsd2si`, the struct-return
-verified negative) at both opt levels; smoke `msvc1100/t.obj`.  Census:
+verified negative) at both opt levels; smoke `msvc-11.0/t.obj`.  Census:
 `f2 0f 58`=1, `f2 0f 59`=1, `f3 0f
 58`=1 at /O2 — vs 0 for every other MSVC object.
 ## Probe29: round-29 era markers (11.0)

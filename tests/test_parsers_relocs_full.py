@@ -313,7 +313,7 @@ def test_msvc16_omf_far_code_model() -> None:
 
 def test_parse_obj_symbol_bytes_handles_omf() -> None:
     """parse_obj_symbol_bytes must route OMF (16-bit MSVC) through the
-    built-in parser — the GA flag sweep for msvc1.52 depends on it."""
+    built-in parser — the GA flag sweep for msvc-1.52 depends on it."""
     from rebrew.matcher.parsers import parse_obj_symbol_bytes
 
     obj = _FIXTURES / "tg_msvc16.obj"

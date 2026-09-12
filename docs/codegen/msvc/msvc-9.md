@@ -3,7 +3,7 @@
 MSVC 9.0 (VS 2008, CL 15.00.21022; SP1 = 15.00.30729).  First version to
 **unroll small loops** in the probe; /GS unchanged.
 
-**Profiles:** `msvc900`, `msvc900sp1` — Rich builds 21022, 30729; linker
+**Profiles:** `msvc-9.0`, `msvc-9.0-sp1` — Rich builds 21022, 30729; linker
 9.0.
 
 ## Prologue & frame pointer
@@ -166,7 +166,7 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:9.0-win32` (`msvc900_{O1,O2}.obj`);
-smoke `msvc900/t.obj`.  `/GS` + unrolling reproduced at /O2.
+smoke `msvc-9.0/t.obj`.  `/GS` + unrolling reproduced at /O2.
 ## Probe29: round-29 era markers (9.0)
 
 - **9.0 opens the full-movzx combine era** (E25): `ld24_combine` uses

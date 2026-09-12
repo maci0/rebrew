@@ -1,6 +1,6 @@
 """Tests for rebrew.dosbox — sandbox lifecycle guarantees.
 
-The auto-created DOSBox sandboxes (msvc16/tc16/delphi16 compile staging)
+The auto-created DOSBox sandboxes (msvc16/borland-3.1/delphi-1.0 compile staging)
 each hold a compiler tree + staged source; they must be removed at process
 exit instead of accumulating one directory per compile under
 ~/.cache/rebrew/tmp.

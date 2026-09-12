@@ -20,12 +20,12 @@ That deletion cannot land with the artifacts at hand:
   (`rebrew/gcc:pe-win32`, `rebrew/gcc:linux-x64`, `rebrew/clang:linux-x64`,
   `rebrew/watcom:2.0-win16`), and `sources.json` pins no compiler media for
   them;
-- the one local MinGW image, `rebrew/gcc-pe:2.0`, contains GCC 14-win32
-  while the native `gcc-pe` resolves GCC 16.2.0 on this host;
+- the one local MinGW image, `rebrew/mingw:2.0`, contains GCC 14-win32
+  while the native `mingw-16.2.0` resolves GCC 16.2.0 on this host;
 - byte-exact matching requires the author's exact compiler
-  (`docs/TOOLCHAIN.md`, MinGW GCC caveat), so pointing `gcc-pe` at that
+  (`docs/TOOLCHAIN.md`, MinGW GCC caveat), so pointing `mingw-16.2.0` at that
   image would silently change every match result;
-- `watcom16` needs the 16-bit media, which is user-supplied and absent.
+- `watcom-2.0-win16` needs the 16-bit media, which is user-supplied and absent.
 
 ## Decision
 
@@ -43,7 +43,7 @@ service as a second, opt-in backend.
 
 The native path stays.
 
-Making `gcc`, `gcc-pe`, `clang` and `watcom16` image-backed is deferred
+Making `gcc-14.2.0`, `mingw-16.2.0`, `clang-18.1.8` and `watcom-2.0-win16` image-backed is deferred
 until a pinned source with the author's exact compiler version exists for
 each, recorded in `sources.json`, and the 16-bit Watcom media is available.
 
@@ -52,7 +52,7 @@ each, recorded in `sources.json`, and the 16-bit Watcom media is available.
 - A compile runs locally (docker images) or against a shared recompile
   service without a project-config change, and a backend switch cannot
   serve the other's cached object.
-- `gcc`, `gcc-pe`, `clang` and `watcom16` remain native specs; `command`,
+- `gcc-14.2.0`, `mingw-16.2.0`, `clang-18.1.8` and `watcom-2.0-win16` remain native specs; `command`,
   `runner`, `wibo.py` and `headless.py` stay in place.
 - The all-image migration, when it lands, removes the native branch, the
   `command`/`runner` keys, `wibo.py` and `headless.py`. Whether it also

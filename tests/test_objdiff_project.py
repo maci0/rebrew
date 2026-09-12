@@ -214,7 +214,7 @@ class TestObjdiffProject:
         (cfg.reversed_dir / "funcs").mkdir(exist_ok=True)
         src_file = cfg.reversed_dir / "funcs" / "a.c"
         src_file.write_text(
-            "// FUNCTION: T 0x1000\n// SIZE: 5\n// TOOLCHAIN: msvc5\n// CFLAGS: /O1\n"
+            "// FUNCTION: T 0x1000\n// SIZE: 5\n// TOOLCHAIN: msvc-5.0\n// CFLAGS: /O1\n"
             "int a(void){return 0;}\n",
             encoding="utf-8",
         )
@@ -228,7 +228,7 @@ class TestObjdiffProject:
             "rebrew.cli.resolve_compile_overrides",
             lambda cfg_, d, tool, cfl, mod: (
                 seen.update(tool=tool, cflags=cfl, module=mod),
-                ("msvc5", "/O1"),
+                ("msvc-5.0", "/O1"),
             )[1],
         )
         monkeypatch.setattr(
@@ -239,7 +239,7 @@ class TestObjdiffProject:
 
         monkeypatch.setattr(sys, "argv", ["rebrew-objdiff-build", "T", str(base)])
         objdiff_project.objdiff_build_entry()
-        assert seen == {"tool": "msvc5", "cflags": "/O1", "module": "T"}
+        assert seen == {"tool": "msvc-5.0", "cflags": "/O1", "module": "T"}
 
     def test_watch_patterns_follow_reversed_dir(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

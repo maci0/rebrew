@@ -4,7 +4,7 @@ MSVC 6.0 (1998, CL 12.00).  The most-used Windows-era compiler for
 matching; codegen-identical to VC 5.0 for the probe, with the SP levels
 indistinguishable by code shape.
 
-**Profiles:** `msvc6` + `msvc600sp1..sp6`.  Rich-header C1 builds:
+**Profiles:** `msvc-6.0` + `msvc-6.0-sp1..sp6`.  Rich-header C1 builds:
 **8168 (RTM–SP3), 8447 (SP3), 8966 (SP4/SP5), 9782 (SP6)** — the exact
 build is the only reliable SP discriminator (see below).  Linker 6.0.
 
@@ -12,7 +12,7 @@ build is the only reliable SP discriminator (see below).  Linker 6.0.
 
 - `/O1`/`/O2`: no frame pointer — args `[esp+4]`+; `push ebp; mov
   ebp,esp` (`55 8b ec`) appears only unoptimized or with `/Oy-`
-  (smoke `msvc6/t.obj` is unoptimized and framed).
+  (smoke `msvc-6.0/t.obj` is unoptimized and framed).
 - `bigstack` (6 KB frame): `mov eax,0x1770; call __chkstk; …; add
   esp,0x1770; ret` — no /GS cookie (VS2005 /GS arrives in VC 8.0).
 
@@ -241,8 +241,8 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 
 Probe `/O1`/`/O2` via `rebrew/msvc:6.0-win32` (`msvc600_{O1,O2}.obj`);
 probe2 at `/O2` across **all six SP images** (`out2/msvc600sp{1..6}_O2.obj`)
-— every probe2 function byte-identical across SP1–SP6; smoke `msvc6/t.obj`
-+ `msvc600sp3/sp5/sp6/t.obj` (identical `_add`);
+— every probe2 function byte-identical across SP1–SP6; smoke `msvc-6.0/t.obj`
++ `msvc-6.0-sp3/sp5/sp6/t.obj` (identical `_add`);
 corpus: rt63, rt7, skifree32, tcmd (VC 6.0) — rep string ops, frame
 prologues, `mov edi,edi` counts, magic constants, `/O1`-style wrappers
 in explorer-adjacent builds.

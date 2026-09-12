@@ -111,7 +111,7 @@ class VerifyCacheEntry:
     re-verified once."""
 
     toolchain: str = ""
-    """Resolved per-function toolchain override at cache time (e.g. ``watcom``).
+    """Resolved per-function toolchain override at cache time (e.g. ``watcom-2.0-win32``).
 
     The TOOLCHAIN field lives in ``rebrew-functions.toml`` / ``rebrew-libraries.toml``,
     not in the ``.c`` file, so the source hash cannot detect a toolchain

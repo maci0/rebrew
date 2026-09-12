@@ -27,7 +27,7 @@ def _run_main(tmp_path: Path, monkeypatch, *, argv: list[str]) -> str:
     monkeypatch.setattr("rebrew.intake._run_rizin_functions", _fake_rizin)
     monkeypatch.setattr(
         "rebrew.intake._suggest_profile",
-        lambda b: ("msvc6", "msvc", "MSVC 6.0", []),
+        lambda b: ("msvc-6.0", "msvc", "MSVC 6.0", []),
     )
     result = runner.invoke(main_mod.app, ["intake", *argv])
     assert result.exit_code == 0, result.output
@@ -41,7 +41,7 @@ class TestIntake:
         out = _run_main(tmp_path, monkeypatch, argv=["game.exe", "--dry-run", "--json"])
         data = json.loads(out)
         assert data["dry_run"] is True
-        assert data["profile"] == "msvc6"
+        assert data["profile"] == "msvc-6.0"
         assert data["family"] == "msvc"
         # The preview now runs rizin (read-only) so the user sees the real
         # function count before committing to the onboarding.
@@ -97,7 +97,7 @@ class TestIntake:
         monkeypatch.setattr("rebrew.intake._run_rizin_functions", lambda b: FAKE_FUNCS)
         monkeypatch.setattr(
             "rebrew.intake._suggest_profile",
-            lambda b: ("msvc6", "msvc", "MSVC 6.0", []),
+            lambda b: ("msvc-6.0", "msvc", "MSVC 6.0", []),
         )
         monkeypatch.setattr("rebrew.intake._link_toolchain", lambda project, profile: None)
         runner = CliRunner()
@@ -122,7 +122,7 @@ class TestIntake:
         monkeypatch.setattr("rebrew.intake._run_rizin_functions", lambda b: [])
         monkeypatch.setattr(
             "rebrew.intake._suggest_profile",
-            lambda b: ("msvc6", "msvc", "MSVC 6.0", []),
+            lambda b: ("msvc-6.0", "msvc", "MSVC 6.0", []),
         )
         runner = CliRunner()
         monkeypatch.chdir(tmp_path)
@@ -150,7 +150,7 @@ class TestIntake:
         monkeypatch.setattr("rebrew.intake._run_rizin_functions", _fake_rizin_v1)
         monkeypatch.setattr(
             "rebrew.intake._suggest_profile",
-            lambda b: ("msvc6", "msvc", "MSVC 6.0", []),
+            lambda b: ("msvc-6.0", "msvc", "MSVC 6.0", []),
         )
         runner = CliRunner()
         monkeypatch.chdir(tmp_path)
@@ -188,7 +188,7 @@ class TestIntake:
         )
         monkeypatch.setattr(
             "rebrew.intake._suggest_profile",
-            lambda b: ("msvc6", "msvc", "MSVC 6.0", []),
+            lambda b: ("msvc-6.0", "msvc", "MSVC 6.0", []),
         )
         runner = CliRunner()
         monkeypatch.chdir(tmp_path)
@@ -226,7 +226,7 @@ class TestIntake:
         )
         monkeypatch.setattr(
             "rebrew.intake._suggest_profile",
-            lambda b: ("msvc6", "msvc", "MSVC 6.0", []),
+            lambda b: ("msvc-6.0", "msvc", "MSVC 6.0", []),
         )
         runner = CliRunner()
         monkeypatch.chdir(tmp_path)
@@ -276,7 +276,7 @@ class TestSuggestProfile:
 
         monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", _fake_detect)
         profile, family, hint, notes = _suggest_profile(Path("x.exe"))
-        assert profile == "watcom"
+        assert profile == "watcom-2.0-win32"
         assert family == "watcom"
         assert any("watcom" in n for n in notes)
 
@@ -288,13 +288,13 @@ class TestSuggestProfile:
 
         monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", _fake_detect)
         profile, family, hint, notes = _suggest_profile(Path("x.exe"))
-        assert profile == "gcc-pe"
+        assert profile == "mingw-16.2.0"
         assert family == "mingw"
 
 
 class TestSuggestProfile16Bit:
-    """intake must pick the msvc1.52 (DOSBox) profile for 16-bit NE targets —
-    a 32-bit msvc6 profile would produce a project that fails doctor."""
+    """intake must pick the msvc-1.52 (DOSBox) profile for 16-bit NE targets —
+    a 32-bit msvc-6.0 profile would produce a project that fails doctor."""
 
     def test_ne_routes_to_msvc152(self, monkeypatch) -> None:
         from rebrew.toolchain_detect import ToolchainInfo
@@ -309,11 +309,11 @@ class TestSuggestProfile16Bit:
 
         monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", _fake_detect)
         profile, family, hint, notes = _suggest_profile(Path("x.exe"))
-        assert profile == "msvc1.52"
+        assert profile == "msvc-1.52"
         assert family == "msvc"
         assert any("16-bit NE" in n for n in notes)
 
-    def test_32bit_msvc_still_routes_to_msvc6(self, monkeypatch) -> None:
+    def test_32bit_msvc_still_routes_to_msvc_6_0(self, monkeypatch) -> None:
         from rebrew.toolchain_detect import ToolchainInfo
 
         def _fake_detect(path) -> ToolchainInfo:
@@ -321,7 +321,7 @@ class TestSuggestProfile16Bit:
 
         monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", _fake_detect)
         profile, family, hint, notes = _suggest_profile(Path("x.exe"))
-        assert profile == "msvc6"
+        assert profile == "msvc-6.0"
         assert family == "msvc"
 
 
@@ -333,19 +333,19 @@ class TestToolchainLinks:
     def test_msvc152_derived(self) -> None:
         from rebrew.intake import _link_names_for
 
-        assert _link_names_for("msvc1.52") == ("msvc/1.52-win16", "msvc/1.52-win16")
+        assert _link_names_for("msvc-1.52") == ("msvc/1.52-win16", "msvc/1.52-win16")
 
     def test_every_matchable_profile_derived(self) -> None:
         from rebrew.intake import _link_names_for
 
-        assert _link_names_for("msvc6") == ("msvc/6.0-win32", "msvc/6.0-win32")
-        assert _link_names_for("msvc5") == ("msvc/5.0-win32", "msvc/5.0-win32")
-        assert _link_names_for("msvc420") == ("msvc/4.2-win32", "msvc/4.2-win32")
-        assert _link_names_for("msvc600sp3") == ("msvc/6.0-sp3-win32", "msvc/6.0-sp3-win32")
-        assert _link_names_for("msvc600sp6") == ("msvc/6.0-sp6-win32", "msvc/6.0-sp6-win32")
-        assert _link_names_for("msvc7") == ("msvc/7.0-win32", "msvc/7.0-win32")
-        assert _link_names_for("tc16") == ("borland/3.1-win16", "borland/3.1-win16")
-        assert _link_names_for("tc20") == ("borland/2.0-win16", "borland/2.0-win16")
+        assert _link_names_for("msvc-6.0") == ("msvc/6.0-win32", "msvc/6.0-win32")
+        assert _link_names_for("msvc-5.0") == ("msvc/5.0-win32", "msvc/5.0-win32")
+        assert _link_names_for("msvc-4.2") == ("msvc/4.2-win32", "msvc/4.2-win32")
+        assert _link_names_for("msvc-6.0-sp3") == ("msvc/6.0-sp3-win32", "msvc/6.0-sp3-win32")
+        assert _link_names_for("msvc-6.0-sp6") == ("msvc/6.0-sp6-win32", "msvc/6.0-sp6-win32")
+        assert _link_names_for("msvc-7.0") == ("msvc/7.0-win32", "msvc/7.0-win32")
+        assert _link_names_for("borland-3.1") == ("borland/3.1-win16", "borland/3.1-win16")
+        assert _link_names_for("borland-2.0") == ("borland/2.0-win16", "borland/2.0-win16")
 
     def test_unknown_profile_has_no_link(self) -> None:
         from rebrew.intake import _link_names_for
@@ -353,12 +353,12 @@ class TestToolchainLinks:
         assert _link_names_for("no-such-profile") is None
 
     def test_image_backed_native_profile_derived(self) -> None:
-        """gcc-pe is image-backed now (rebrew/gcc-pe:16.2.0-win32), so its
+        """mingw-16.2.0 is image-backed now (rebrew/mingw:16.2.0-win32), so its
         link name derives from the image like every other profile."""
         from rebrew.intake import _link_names_for
 
-        assert _link_names_for("gcc-pe") == ("gcc-pe/16.2.0-win32", "gcc-pe/16.2.0-win32")
-        assert _link_names_for("watcom16") == ("watcom/2.0-win16", "watcom/2.0-win16")
+        assert _link_names_for("mingw-16.2.0") == ("mingw/16.2.0-win32", "mingw/16.2.0-win32")
+        assert _link_names_for("watcom-2.0-win16") == ("watcom/2.0-win16", "watcom/2.0-win16")
 
 
 class TestExplicitToolchainWarns:
@@ -379,10 +379,10 @@ class TestExplicitToolchainWarns:
 
         monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", _fake_detect)
         notes: list[str] = []
-        # 16-bit MZ binary with a 32-bit msvc6 profile: arch warning expected
-        _warn_explicit_toolchain(binary, "msvc6", notes)
+        # 16-bit MZ binary with a 32-bit msvc-6.0 profile: arch warning expected
+        _warn_explicit_toolchain(binary, "msvc-6.0", notes)
         assert "16-bit binary" in capsys.readouterr().err
-        assert any("explicit --toolchain msvc6" in n for n in notes)
+        assert any("explicit --toolchain msvc-6.0" in n for n in notes)
 
     def test_aligned_explicit_toolchain_silent(
         self, tmp_path: Path, monkeypatch, capsys: pytest.CaptureFixture[str]
@@ -403,26 +403,26 @@ class TestExplicitToolchainWarns:
 
         monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", _fake_detect)
         notes: list[str] = []
-        _warn_explicit_toolchain(binary, "tc16", notes)
+        _warn_explicit_toolchain(binary, "borland-3.1", notes)
         assert "warning" not in capsys.readouterr().err
 
 
 class TestWatcomLink:
     """watcom derives a registry link so intake on a Watcom binary auto-links
-    toolchain/watcom/2.0-win32 (like msvc1.52's msvc/1.52-win16)."""
+    toolchain/watcom/2.0-win32 (like msvc-1.52's msvc/1.52-win16)."""
 
     def test_watcom_has_link_entry(self) -> None:
         from rebrew.intake import _link_names_for
 
-        assert _link_names_for("watcom") == ("watcom/2.0-win32", "watcom/2.0-win32")
+        assert _link_names_for("watcom-2.0-win32") == ("watcom/2.0-win32", "watcom/2.0-win32")
 
 
 class TestSuggestProfileBorland:
     """intake's profile suggestion now shares the detector's
-    family→profile mapping — a Borland DOS binary must suggest tc16 (was
-    wrongly defaulting to msvc6 before the unification)."""
+    family→profile mapping — a Borland DOS binary must suggest borland-3.1 (was
+    wrongly defaulting to msvc-6.0 before the unification)."""
 
-    def test_borlandc_suggests_tc16_from_real_exe(self) -> None:
+    def test_borlandc_suggests_borland_3_1_from_real_exe(self) -> None:
         import pytest as _pt
 
         fixture = Path(__file__).parent / "fixtures" / "tc16_hello.exe"
@@ -430,8 +430,8 @@ class TestSuggestProfileBorland:
             _pt.skip("tc16_hello.exe fixture not present")
         profile, family, _, notes = _suggest_profile(fixture)
         assert family == "borlandc"
-        assert profile == "tc16"
-        assert any("tc16" in n for n in notes)
+        assert profile == "borland-3.1"
+        assert any("borland-3.1" in n for n in notes)
 
     def test_msvc16_ne_suggests_msvc152(self, monkeypatch) -> None:
         from rebrew.toolchain_detect import ToolchainInfo
@@ -448,5 +448,5 @@ class TestSuggestProfileBorland:
         monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", _fake_detect)
         profile, family, _, notes = _suggest_profile(Path("/tmp/fake.exe"))
         assert family == "msvc"
-        assert profile == "msvc1.52"
-        assert any("msvc1.52" in n for n in notes)
+        assert profile == "msvc-1.52"
+        assert any("msvc-1.52" in n for n in notes)

@@ -114,7 +114,7 @@ def set_cmd(
         ".", help="Library directory (writes rebrew-libraries.toml here)"
     ),
     toolchain: str | None = typer.Option(
-        None, "--toolchain", help="Compiler profile, e.g. msvc6 / msvc600sp6"
+        None, "--toolchain", help="Compiler profile, e.g. msvc-6.0 / msvc-6.0-sp6"
     ),
     cflags: str | None = typer.Option(None, "--cflags", help="Compiler flags, e.g. /O2 /Gd /MT"),
     preset: str | None = typer.Option(

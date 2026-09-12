@@ -1066,7 +1066,7 @@ class LibraryOverride:
     """
 
     path: Path  # the rebrew-libraries.toml that matched (nearest ancestor)
-    toolchain: str = ""  # override compiler profile, e.g. "msvc6"
+    toolchain: str = ""  # override compiler profile, e.g. "msvc-6.0"
     cflags: str = ""  # override flags, e.g. "/O2 /Gd /MT"
     library: str = ""  # declared library name (may drive presets)
     presets: tuple[str, ...] = ()  # preset names that filled empty fields
@@ -1082,11 +1082,11 @@ class LibraryOverride:
 LIBRARY_PRESETS: dict[str, dict[str, str]] = {
     # MSVC shipped CRT: libc.lib (static single-thread), libcmt.lib (static
     # multi-thread = /MT), msvcrt.lib (dynamic = /MD) — the classic /O2 /Gd
-    "msvcrt-static": {"toolchain": "msvc6", "cflags": "/O2 /Gd /MT"},
-    "msvcrt-dynamic": {"toolchain": "msvc6", "cflags": "/O2 /Gd /MD"},
-    "msvc16-runtime": {"toolchain": "msvc1.52", "cflags": "/O1 /Gd"},
-    "borland-runtime": {"toolchain": "tc16", "cflags": "-O2"},
-    "watcom-runtime": {"toolchain": "watcom", "cflags": "-ot"},
+    "msvcrt-static": {"toolchain": "msvc-6.0", "cflags": "/O2 /Gd /MT"},
+    "msvcrt-dynamic": {"toolchain": "msvc-6.0", "cflags": "/O2 /Gd /MD"},
+    "msvc16-runtime": {"toolchain": "msvc-1.52", "cflags": "/O1 /Gd"},
+    "borland-runtime": {"toolchain": "borland-3.1", "cflags": "-O2"},
+    "watcom-runtime": {"toolchain": "watcom-2.0-win32", "cflags": "-ot"},
 }
 
 #: setuptools entry-point group whose members register library presets.  A

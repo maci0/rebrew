@@ -47,7 +47,7 @@ marker = "{marker}"                  # annotation marker (e.g. // FUNCTION: SERV
 # Windows/DOS toolchains run ONLY through their docker image; leave the
 # command/runner empty (the profile drives the image).  E.g.:
 # [targets."{target_name}".compiler]
-# profile = "msvc600sp6"
+# profile = "msvc-6.0-sp6"
 
 # ---------------------------------------------------------------------------
 # Global compiler settings — shared across all targets
@@ -69,7 +69,7 @@ GAME = "{cflags}"
 # Per-directory overrides — rebrew-libraries.toml at a library root can
 # declare toolchain + flags for a whole subtree; per-function TOOLCHAIN/CFLAGS
 # metadata wins.  See docs/TOOLCHAIN.md.
-# [compiler.profiles.clang]
+# [compiler.profiles."clang-18.1.8"]
 # command = "clang"
 # includes = "/usr/include"
 # libs = "/usr/lib"
@@ -78,7 +78,7 @@ GAME = "{cflags}"
 
 
 COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
-    "msvc400": {
+    "msvc-4.0": {
         "runner": "wine",
         "command": "wine tools/MSVC400/bin/cl.exe",
         "includes": "tools/MSVC400/include",
@@ -89,7 +89,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    "msvc420": {
+    "msvc-4.2": {
         "runner": "wine",
         "command": "wine toolchain/msvc/4.2-win32/source/bin/cl.exe",
         "includes": "toolchain/msvc/4.2-win32/source/include",
@@ -100,7 +100,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    "msvc5": {
+    "msvc-5.0": {
         "runner": "wine",
         "command": "wine toolchain/msvc/5.0-win32/source/bin/cl.exe",
         "includes": "toolchain/msvc/5.0-win32/source/include",
@@ -111,7 +111,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    "msvc6": {
+    "msvc-6.0": {
         "runner": "wine",
         "command": "wine toolchain/msvc/6.0-win32/source/VC98/Bin/CL.EXE",
         "includes": "toolchain/msvc/6.0-win32/source/VC98/Include",
@@ -122,9 +122,9 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    # Deprecated alias of msvc710: the "7.0-win32" dir/image actually holds
+    # Deprecated alias of msvc-7.1: the "7.0-win32" dir/image actually holds
     # the VC 7.1 compiler (cl 13.10.3077) — the 7.0 name is a mislabel.
-    "msvc7": {
+    "msvc-7.0": {
         "runner": "wine",
         "command": "wine toolchain/msvc/7.0-win32/source/Bin/cl.exe",
         "includes": "toolchain/msvc/7.0-win32/source/Include",
@@ -135,7 +135,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C99",
     },
-    "msvc700": {
+    "msvc-7.0-rtm": {
         "runner": "wine",
         "command": "wine toolchain/msvc/7.0-rtm-win32/source/Vc7/bin/cl.exe",
         "includes": "toolchain/msvc/7.0-rtm-win32/source/Vc7/include",
@@ -146,7 +146,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C99",
     },
-    "msvc700sp1": {
+    "msvc-7.0-sp1": {
         "runner": "wine",
         "command": "wine toolchain/msvc/7.0-sp1-win32/source/Vc7/bin/cl.exe",
         "includes": "toolchain/msvc/7.0-sp1-win32/source/Vc7/include",
@@ -157,7 +157,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C99",
     },
-    "msvc710": {
+    "msvc-7.1": {
         "runner": "wine",
         "command": "wine toolchain/msvc/7.1-win32/source/Vc7/bin/cl.exe",
         "includes": "toolchain/msvc/7.1-win32/source/Vc7/include",
@@ -168,7 +168,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C99",
     },
-    "msvc710sp1": {
+    "msvc-7.1-sp1": {
         "runner": "wine",
         "command": "wine toolchain/msvc/7.1-sp1-win32/source/Vc7/bin/cl.exe",
         "includes": "toolchain/msvc/7.1-sp1-win32/source/Vc7/include",
@@ -179,7 +179,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C99",
     },
-    "msvc800": {
+    "msvc-8.0": {
         "runner": "wine",
         "command": "wine toolchain/msvc/8.0-win32/source/VC/bin/cl.exe",
         "includes": "toolchain/msvc/8.0-win32/source/VC/include",
@@ -190,7 +190,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C99",
     },
-    "msvc800sp1": {
+    "msvc-8.0-sp1": {
         "runner": "wine",
         "command": "wine toolchain/msvc/8.0-sp1-win32/source/VC/bin/cl.exe",
         "includes": "toolchain/msvc/8.0-sp1-win32/source/VC/include",
@@ -201,7 +201,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C99",
     },
-    "msvc900": {
+    "msvc-9.0": {
         "runner": "wine",
         "command": "wine toolchain/msvc/9.0-win32/source/VC/bin/cl.exe",
         "includes": "toolchain/msvc/9.0-win32/source/VC/include",
@@ -212,7 +212,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C99",
     },
-    "msvc1000": {
+    "msvc-10.0": {
         "runner": "wine",
         "command": "wine toolchain/msvc/10.0-win32/source/VC/bin/cl.exe",
         "includes": "toolchain/msvc/10.0-win32/source/VC/include",
@@ -223,7 +223,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C99",
     },
-    "msvc1000sp1": {
+    "msvc-10.0-sp1": {
         "runner": "wine",
         "command": "wine toolchain/msvc/10.0-sp1-win32/source/VC/bin/cl.exe",
         "includes": "toolchain/msvc/10.0-sp1-win32/source/VC/include",
@@ -234,7 +234,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C99",
     },
-    "msvc200": {
+    "msvc-2.0": {
         "runner": "wine",
         "command": "wine toolchain/msvc/2.0-win32/source/bin/cl.exe",
         "includes": "toolchain/msvc/2.0-win32/source/include",
@@ -245,7 +245,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    "msvc410": {
+    "msvc-4.1": {
         "runner": "wine",
         "command": "wine toolchain/msvc/4.1-win32/source/bin/CL.EXE",
         "includes": "toolchain/msvc/4.1-win32/source/include",
@@ -256,7 +256,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    "msvc500sp1": {
+    "msvc-5.0-sp1": {
         "runner": "wine",
         "command": "wine toolchain/msvc/5.0-sp1-win32/source/bin/cl.exe",
         "includes": "toolchain/msvc/5.0-sp1-win32/source/include",
@@ -267,7 +267,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    "msvc500sp2": {
+    "msvc-5.0-sp2": {
         "runner": "wine",
         "command": "wine toolchain/msvc/5.0-sp2-win32/source/bin/cl.exe",
         "includes": "toolchain/msvc/5.0-sp2-win32/source/include",
@@ -278,7 +278,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    "msvc500sp3": {
+    "msvc-5.0-sp3": {
         "runner": "wine",
         "command": "wine toolchain/msvc/5.0-sp3-win32/source/bin/cl.exe",
         "includes": "toolchain/msvc/5.0-sp3-win32/source/include",
@@ -289,7 +289,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    "msvc600sp1": {
+    "msvc-6.0-sp1": {
         "runner": "wine",
         "command": "wine toolchain/msvc/6.0-sp1-win32/source/VC98/bin/CL.EXE",
         "includes": "toolchain/msvc/6.0-sp1-win32/source/VC98/include",
@@ -300,7 +300,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    "msvc600sp2": {
+    "msvc-6.0-sp2": {
         "runner": "wine",
         "command": "wine toolchain/msvc/6.0-sp2-win32/source/VC98/bin/CL.EXE",
         "includes": "toolchain/msvc/6.0-sp2-win32/source/VC98/include",
@@ -311,7 +311,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    "msvc600sp3": {
+    "msvc-6.0-sp3": {
         "runner": "wine",
         "command": "wine toolchain/msvc/6.0-sp3-win32/source/Bin/CL.EXE",
         "includes": "toolchain/msvc/6.0-sp3-win32/source/Include",
@@ -322,7 +322,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    "msvc600sp4": {
+    "msvc-6.0-sp4": {
         "runner": "wine",
         "command": "wine toolchain/msvc/6.0-sp4-win32/source/VC98/bin/CL.EXE",
         "includes": "toolchain/msvc/6.0-sp4-win32/source/VC98/include",
@@ -333,7 +333,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    "msvc600sp5": {
+    "msvc-6.0-sp5": {
         "runner": "wine",
         "command": "wine toolchain/msvc/6.0-sp5-win32/source/VC98/Bin/CL.EXE",
         "includes": "toolchain/msvc/6.0-sp5-win32/source/VC98/Include",
@@ -344,7 +344,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    "msvc600sp5pp": {
+    "msvc-6.0-sp5-pp": {
         "runner": "wine",
         "command": "wine toolchain/msvc/6.0-sp5-pp-win32/source/VC98/Bin/CL.EXE",
         "includes": "toolchain/msvc/6.0-sp5-pp-win32/source/VC98/Include",
@@ -355,7 +355,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    "msvc600sp6": {
+    "msvc-6.0-sp6": {
         "runner": "wine",
         "command": "wine toolchain/msvc/6.0-sp6-win32/source/Bin/CL.EXE",
         "includes": "toolchain/msvc/6.0-sp6-win32/source/Include",
@@ -366,7 +366,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    "msvc900sp1": {
+    "msvc-9.0-sp1": {
         "runner": "wine",
         "command": "wine toolchain/msvc/9.0-sp1-win32/source/VC/bin/cl.exe",
         "includes": "toolchain/msvc/9.0-sp1-win32/source/VC/include",
@@ -377,7 +377,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    "msvc1100": {
+    "msvc-11.0": {
         "runner": "wine",
         "command": "wine toolchain/msvc/11.0-win32/source/VC/bin/cl.exe",
         "includes": "toolchain/msvc/11.0-win32/source/VC/include",
@@ -388,7 +388,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    "msvc15": {
+    "msvc-1.5": {
         "runner": "",
         "command": "toolchain/msvc/1.5-win16/source/BIN/CL.EXE",
         "includes": "toolchain/msvc/1.5-win16/source/INCLUDE",
@@ -399,7 +399,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_16",
         "lang": "C89",
     },
-    "msvc10": {
+    "msvc-1.0": {
         "runner": "",
         "command": "toolchain/msvc/1.0-win16/source/BIN/CL.EXE",
         "includes": "toolchain/msvc/1.0-win16/source/INCLUDE",
@@ -410,7 +410,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_16",
         "lang": "C89",
     },
-    "clang": {
+    "clang-18.1.8": {
         # Docker-only (rebrew/clang:18.1.8-linux-x64): command/runner are
         # blanked by the image check below.  No includes/libs — the system
         # headers ship inside the image, and a host /usr/include path here
@@ -425,7 +425,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_64",
         "lang": "C99",
     },
-    "clang16": {
+    "clang-16.0.4": {
         # Docker-only (rebrew/clang:16.0.4-linux-x64) — see the clang entry.
         "runner": "",
         "command": "clang",
@@ -437,7 +437,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_64",
         "lang": "C99",
     },
-    "gcc": {
+    "gcc-14.2.0": {
         # Docker-only (rebrew/gcc:14.2.0-linux-x64) — see the clang entry.
         "runner": "",
         "command": "gcc",
@@ -449,7 +449,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_64",
         "lang": "C99",
     },
-    "gcc12": {
+    "gcc-12.3.0": {
         # Docker-only (rebrew/gcc:12.3.0-linux-x64) — see the clang entry.
         "runner": "",
         "command": "gcc",
@@ -461,8 +461,8 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_64",
         "lang": "C99",
     },
-    "gcc-pe": {
-        # Docker-only (rebrew/gcc-pe:16.2.0-win32): the mingw tree ships
+    "mingw-16.2.0": {
+        # Docker-only (rebrew/mingw:16.2.0-win32): the mingw tree ships
         # inside the image, so no host include/lib paths.
         "runner": "",
         "command": "i686-w64-mingw32-gcc",
@@ -474,8 +474,8 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C99",
     },
-    "gcc-pe14": {
-        # Docker-only (rebrew/gcc-pe:14.2.0-win32) — see the gcc-pe entry.
+    "mingw-14.2.0": {
+        # Docker-only (rebrew/mingw:14.2.0-win32) — see the mingw-16.2.0 entry.
         "runner": "",
         "command": "i686-w64-mingw32-gcc",
         "includes": "",
@@ -486,7 +486,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C99",
     },
-    "watcom": {
+    "watcom-2.0-win32": {
         "runner": "",
         "command": "toolchain/watcom/2.0-win32/source/binl/wcc386",
         "includes": "toolchain/watcom/2.0-win32/source/h",
@@ -497,7 +497,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    "msvc1.52": {
+    "msvc-1.52": {
         "runner": "",
         "command": "toolchain/msvc/1.52-win16/source/BIN/CL.EXE",
         "includes": "toolchain/msvc/1.52-win16/source/INCLUDE",
@@ -508,7 +508,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_16",
         "lang": "C89",
     },
-    "tc20": {
+    "borland-2.0": {
         "runner": "",
         "command": "toolchain/borland/2.0-win16/source/BIN/TCC.EXE",
         "includes": "toolchain/borland/2.0-win16/source/INCLUDE",
@@ -519,7 +519,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_16",
         "lang": "C89",
     },
-    "tc16": {
+    "borland-3.1": {
         "runner": "",
         "command": "toolchain/borland/3.1-win16/source/BIN/TCC.EXE",
         "includes": "toolchain/borland/3.1-win16/source/INCLUDE",
@@ -530,7 +530,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_16",
         "lang": "C89",
     },
-    "borlandc55": {
+    "borland-5.5": {
         "runner": "wine",
         "command": "wine toolchain/borland/5.5-win32/source/Bin/bcc32.exe",
         "includes": "toolchain/borland/5.5-win32/source/Include",
@@ -541,7 +541,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_32",
         "lang": "C89",
     },
-    "delphi16": {
+    "delphi-1.0": {
         # Docker-only (rebrew/delphi:1.0-win16) — command/includes/libs are
         # blanked by the image check below; compile_ne stages its own DCC.CFG.
         # Matching is NOT wired for Delphi (ADR-001): this profile sets up a
@@ -556,7 +556,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_16",
         "lang": "Object Pascal",
     },
-    "watcom16": {
+    "watcom-2.0-win16": {
         "runner": "",
         "command": "toolchain/watcom/2.0-win32/source/binl/wcc",
         "includes": "toolchain/watcom/2.0-win32/source/h",
@@ -567,7 +567,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "x86_16",
         "lang": "C89",
     },
-    "ido5.3": {
+    "ido-5.3": {
         "runner": "",
         "command": "",
         "includes": "",
@@ -578,7 +578,7 @@ COMPILER_DEFAULTS: dict[str, dict[str, str]] = {
         "arch": "mips32",
         "lang": "C89",
     },
-    "ido7.1": {
+    "ido-7.1": {
         "runner": "",
         "command": "",
         "includes": "",
@@ -649,37 +649,37 @@ DELPHI16_CONSTRAINTS = """- **Object Pascal**: Delphi 1.0 compiles Pascal, not C
 #: :func:`profile_families` extends it from the toolchain registry so every
 #: `toolchain list` name is covered.
 PROFILE_FAMILIES: dict[str, frozenset[str]] = {
-    "msvc400": frozenset({"msvc"}),
-    "msvc420": frozenset({"msvc"}),
-    "msvc5": frozenset({"msvc"}),
-    "msvc6": frozenset({"msvc"}),
-    "msvc600sp1": frozenset({"msvc"}),
-    "msvc600sp2": frozenset({"msvc"}),
-    "msvc600sp3": frozenset({"msvc"}),
-    "msvc600sp4": frozenset({"msvc"}),
-    "msvc600sp5": frozenset({"msvc"}),
-    "msvc600sp5pp": frozenset({"msvc"}),
-    "msvc600sp6": frozenset({"msvc"}),
-    "msvc900sp1": frozenset({"msvc"}),
-    "msvc1100": frozenset({"msvc"}),
-    "msvc7": frozenset({"msvc"}),
-    "msvc1.52": frozenset({"msvc"}),
-    "msvc15": frozenset({"msvc"}),
-    "msvc10": frozenset({"msvc"}),
-    "borlandc55": frozenset({"borlandc"}),
-    "tc16": frozenset({"borlandc"}),
-    "tc20": frozenset({"borlandc"}),
-    "delphi16": frozenset({"delphi"}),
-    "watcom16": frozenset({"watcom"}),
-    "watcom": frozenset({"watcom"}),
-    "gcc-pe": frozenset({"zig", "gcc", "clang", "mingw"}),
-    "gcc-pe14": frozenset({"zig", "gcc", "clang", "mingw"}),
-    "gcc": frozenset({"gcc", "clang", "icc"}),
-    "gcc12": frozenset({"gcc", "clang", "icc"}),
-    "clang": frozenset({"gcc", "clang", "icc"}),
-    "clang16": frozenset({"gcc", "clang", "icc"}),
-    "ido5.3": frozenset({"ido"}),
-    "ido7.1": frozenset({"ido"}),
+    "msvc-4.0": frozenset({"msvc"}),
+    "msvc-4.2": frozenset({"msvc"}),
+    "msvc-5.0": frozenset({"msvc"}),
+    "msvc-6.0": frozenset({"msvc"}),
+    "msvc-6.0-sp1": frozenset({"msvc"}),
+    "msvc-6.0-sp2": frozenset({"msvc"}),
+    "msvc-6.0-sp3": frozenset({"msvc"}),
+    "msvc-6.0-sp4": frozenset({"msvc"}),
+    "msvc-6.0-sp5": frozenset({"msvc"}),
+    "msvc-6.0-sp5-pp": frozenset({"msvc"}),
+    "msvc-6.0-sp6": frozenset({"msvc"}),
+    "msvc-9.0-sp1": frozenset({"msvc"}),
+    "msvc-11.0": frozenset({"msvc"}),
+    "msvc-7.0": frozenset({"msvc"}),
+    "msvc-1.52": frozenset({"msvc"}),
+    "msvc-1.5": frozenset({"msvc"}),
+    "msvc-1.0": frozenset({"msvc"}),
+    "borland-5.5": frozenset({"borlandc"}),
+    "borland-3.1": frozenset({"borlandc"}),
+    "borland-2.0": frozenset({"borlandc"}),
+    "delphi-1.0": frozenset({"delphi"}),
+    "watcom-2.0-win16": frozenset({"watcom"}),
+    "watcom-2.0-win32": frozenset({"watcom"}),
+    "mingw-16.2.0": frozenset({"zig", "gcc", "clang", "mingw"}),
+    "mingw-14.2.0": frozenset({"zig", "gcc", "clang", "mingw"}),
+    "gcc-14.2.0": frozenset({"gcc", "clang", "icc"}),
+    "gcc-12.3.0": frozenset({"gcc", "clang", "icc"}),
+    "clang-18.1.8": frozenset({"gcc", "clang", "icc"}),
+    "clang-16.0.4": frozenset({"gcc", "clang", "icc"}),
+    "ido-5.3": frozenset({"ido"}),
+    "ido-7.1": frozenset({"ido"}),
 }
 
 
@@ -713,14 +713,14 @@ def profile_families() -> dict[str, frozenset[str]]:
 
 #: Opposite profile to suggest when the detection contradicts the choice.
 FAMILY_COUNTERPART: dict[str, str] = {
-    "zig": "gcc-pe",
-    "gcc": "gcc-pe",
-    "clang": "gcc-pe",
-    "mingw": "gcc-pe",
-    "msvc": "msvc6",
-    "watcom": "watcom",
-    "borlandc": "borlandc55",
-    "delphi": "delphi16",
-    "symantec": "borlandc55",  # Digital Mars — closest free match
-    "zortech": "borlandc55",
+    "zig": "mingw-16.2.0",
+    "gcc": "mingw-16.2.0",
+    "clang": "mingw-16.2.0",
+    "mingw": "mingw-16.2.0",
+    "msvc": "msvc-6.0",
+    "watcom": "watcom-2.0-win32",
+    "borlandc": "borland-5.5",
+    "delphi": "delphi-1.0",
+    "symantec": "borland-5.5",  # Digital Mars — closest free match
+    "zortech": "borland-5.5",
 }

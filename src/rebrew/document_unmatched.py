@@ -52,7 +52,7 @@ app = typer.Typer(
 
 #: compiler profile -> blocker family ("" = generic application code).
 _PROFILE_FAMILY: dict[str, str] = {
-    "gcc-pe": "mingw",
+    "mingw-16.2.0": "mingw",
     "delphi": "delphi",
 }
 

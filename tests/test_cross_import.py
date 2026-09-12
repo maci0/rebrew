@@ -3,7 +3,7 @@
 Covers the pure matching core (structural signatures), the two-PE fixture
 scenario (shared functions at different VAs, differing and absent functions),
 the import mechanics (marker remap + SIZE, file write, verify + STATUS), and
-the CLI wiring.  The gcc-pe end-to-end test runs a real compile+verify
+the CLI wiring.  The mingw-16.2.0 end-to-end test runs a real compile+verify
 round-trip when the native toolchain is installed (it is on this host).
 """
 
@@ -472,7 +472,7 @@ class TestCLI:
     def _project(self, tmp_path: Path) -> Path:
         (tmp_path / "rebrew-project.toml").write_text(
             "[project]\nname = 'probe'\ndefault_target = 'DST'\n"
-            "[compiler]\nprofile = 'msvc6'\ncommand = 'CL.EXE'\n"
+            "[compiler]\nprofile = 'msvc-6.0'\ncommand = 'CL.EXE'\n"
             "[targets.SRC]\nbinary = 'a.exe'\n"
             "[targets.DST]\nbinary = 'b.exe'\n",
             encoding="utf-8",
@@ -654,12 +654,12 @@ class TestCLI:
         assert res["message"] == ""
 
 
-class TestGccPeEndToEnd:
-    """Real compile+verify round-trip with the native gcc-pe toolchain."""
+class TestMingwEndToEnd:
+    """Real compile+verify round-trip with the native mingw-16.2.0 toolchain."""
 
     @pytest.mark.skipif(
         shutil.which("i686-w64-mingw32-gcc") is None,
-        reason="gcc-pe toolchain not installed",
+        reason="mingw-16.2.0 toolchain not installed",
     )
     def test_import_compiles_and_verifies(self, tmp_path: Path) -> None:
         from rebrew.config import ProjectConfig
@@ -688,8 +688,8 @@ class TestGccPeEndToEnd:
                 reversed_dir=rev,
                 function_list=fl,
                 compiler_command="i686-w64-mingw32-gcc",
-                compiler_profile="gcc-pe",
-                # gcc-pe projects set gcc-style flags explicitly (the MSVC
+                compiler_profile="mingw-16.2.0",
+                # mingw-16.2.0 projects set gcc-style flags explicitly (the MSVC
                 # "/O2 /Gd" / "/nologo /c /MT" defaults are invalid for gcc).
                 base_cflags="",
                 cflags="-O2",
@@ -715,7 +715,7 @@ class TestGccPeEndToEnd:
 
         res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", len(F1), dst_file="f1.c")
         # The round-trip must produce a REAL verification outcome — not a
-        # tooling failure.  Byte-exactness is not guaranteed (gcc-pe matches
+        # tooling failure.  Byte-exactness is not guaranteed (mingw-16.2.0 matches
         # structurally per docs/TOOLCHAIN.md), so accept any compare verdict.
         assert res["status"] not in (
             "COMPILE_ERROR",

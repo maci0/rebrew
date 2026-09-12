@@ -91,11 +91,11 @@ class TestParseStubInfo:
         f = self._make_stub_file(tmp_path, size=64)
         meta = tmp_path / "rebrew-functions.toml"
         meta.write_text(
-            meta.read_text(encoding="utf-8") + 'toolchain = "msvc5"\n', encoding="utf-8"
+            meta.read_text(encoding="utf-8") + 'toolchain = "msvc-5.0"\n', encoding="utf-8"
         )
         result = parse_stub_info(f)
         assert len(result) == 1
-        assert result[0].toolchain == "msvc5"
+        assert result[0].toolchain == "msvc-5.0"
 
     def test_no_annotations(self, tmp_path: Path) -> None:
         f = tmp_path / "bad.c"
@@ -1240,8 +1240,8 @@ class TestGABuildCacheKey:
         # A different toolchain profile must not reuse the object: image-backed
         # profiles compile through docker with an empty cl_cmd and the same
         # default inc_dir, so the profile is the only discriminator left.
-        assert _ga_cache_key(src, "/O2", "", "inc", profile="msvc6") != _ga_cache_key(
-            src, "/O2", "", "inc", profile="borlandc55"
+        assert _ga_cache_key(src, "/O2", "", "inc", profile="msvc-6.0") != _ga_cache_key(
+            src, "/O2", "", "inc", profile="borland-5.5"
         )
 
     def test_same_instance_recompile_only_on_flag_change(
@@ -1515,7 +1515,7 @@ class TestPerFunctionToolchain:
             cflags="/O2",
             status="STUB",
             module="SERVER",
-            toolchain="msvc5",
+            toolchain="msvc-5.0",
         )
 
     def test_batch_ga_uses_the_stub_toolchain(self, tmp_path: Path, monkeypatch: Any) -> None:
@@ -1540,7 +1540,7 @@ class TestPerFunctionToolchain:
         monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
 
         M._run_one_stub_ga(self._stub(tmp_path), self._cfg(tmp_path), 1, 4, 1, 5)
-        assert captured["profile"] == "msvc5"
+        assert captured["profile"] == "msvc-5.0"
 
     def test_flag_sweep_uses_the_stub_toolchain(self, tmp_path: Path, monkeypatch: Any) -> None:
         import rebrew.match_sweep as M
@@ -1556,7 +1556,7 @@ class TestPerFunctionToolchain:
         monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
 
         M.run_flag_sweep(self._stub(tmp_path), self._cfg(tmp_path))
-        assert captured["profile"] == "msvc5"
+        assert captured["profile"] == "msvc-5.0"
 
 
 class TestRunOneStubGaPersistsFlags:
@@ -1970,7 +1970,7 @@ class TestCrossProjectSeeding:
 
 class TestToolchainRoutedBuildCandidate:
     """build_candidate_obj_only must route toolchain-backed profiles
-    (watcom, msvc1.52) through the shared compile_to_obj runner — the raw
+    (watcom, msvc-1.52) through the shared compile_to_obj runner — the raw
     subprocess path invokes `wine toolchain/msvc/1.52-win16/BIN/CL.EXE` and silently
     drops the 16-bit flag sweep."""
 
@@ -2003,17 +2003,17 @@ class TestToolchainRoutedBuildCandidate:
             "/inc",
             "/O1",
             "_f",
-            profile="msvc1.52",
+            profile="msvc-1.52",
             cfg=SimpleNamespace(
                 root=Path.cwd(),
-                compiler_profile="msvc1.52",
+                compiler_profile="msvc-1.52",
                 compiler_command="toolchain/msvc/1.52-win16/BIN/CL.EXE",
                 compiler_includes="/inc",
                 base_cflags="",
                 compile_timeout=30,
             ),
         )
-        assert seen.get("profile") == "msvc1.52"
+        assert seen.get("profile") == "msvc-1.52"
         assert seen.get("cflags") == ["/O1"]
         assert res.ok is False  # fake obj isn't parseable — routing is what matters
 
@@ -2033,13 +2033,13 @@ class TestToolchainRoutedBuildCandidate:
             "",
             "-os",
             "f_",
-            profile="watcom",
+            profile="watcom-2.0-win32",
         )
-        assert seen.get("profile") == "watcom"
+        assert seen.get("profile") == "watcom-2.0-win32"
         assert "boom" in (res.error_msg or "")
 
-    def test_msvc6_profile_delegates_to_runner(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """msvc6 is docker-backed — GA compiles route through compile_to_obj
+    def test_msvc_6_0_profile_delegates_to_runner(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """msvc-6.0 is docker-backed — GA compiles route through compile_to_obj
         (the shared docker runner), never a host wine subprocess."""
         from rebrew.matcher.compiler import build_candidate_obj_only
 
@@ -2056,7 +2056,7 @@ class TestToolchainRoutedBuildCandidate:
             "",
             "/O2",
             "_f",
-            profile="msvc6",
+            profile="msvc-6.0",
         )
         assert called == ["compile_to_obj"]  # docker runner delegation
         assert res.ok is False  # fake compile failed — routing is what matters

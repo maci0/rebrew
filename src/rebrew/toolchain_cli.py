@@ -74,7 +74,7 @@ def list_cmd(
 
 @app.command("status")
 def status_cmd(
-    name: str = typer.Argument(..., help="Toolchain name (e.g. msvc6, delphi16)"),
+    name: str = typer.Argument(..., help="Toolchain name (e.g. msvc-6.0, delphi-1.0)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Show how one toolchain resolves (image built? vendored tree present?).
@@ -191,7 +191,7 @@ def detect_cmd(
                 f"[yellow]warning:[/yellow] config error ({exc}); alignment check disabled"
             )
     if cfg is not None:
-        profile = getattr(cfg, "compiler_profile", "") or "msvc6"
+        profile = getattr(cfg, "compiler_profile", "") or "msvc-6.0"
         aligned, explanation = profile_matches_detection(profile, info)
         data["profile"] = profile
         data["aligned"] = aligned
@@ -239,7 +239,7 @@ def detect_cmd(
 
 @app.command("pull")
 def pull_cmd(
-    name: str = typer.Argument(..., help="Toolchain name (e.g. delphi16)"),
+    name: str = typer.Argument(..., help="Toolchain name (e.g. delphi-1.0)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Pull a toolchain's docker image."""
@@ -269,7 +269,7 @@ def _flatten_wrapper_dir(payload: Path, extract_dir: Path) -> None:
 
 @app.command("vendor")
 def vendor_cmd(
-    name: str = typer.Argument(..., help="Toolchain name (e.g. msvc1.52, borlandc55)"),
+    name: str = typer.Argument(..., help="Toolchain name (e.g. msvc-1.52, borland-5.5)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Assemble the host toolchain tree from the pinned source.
@@ -387,8 +387,8 @@ def vendor_cmd(
                 elif src.layout == "tar-strip1":
                     subprocess.run(
                         # Auto-detect compression (no -z/-J): the pinned
-                        # sources are gzip codeload tarballs (msvc400/420/5)
-                        # and xz snapshots (watcom) alike.
+                        # sources are gzip codeload tarballs (msvc-4.0/420/5)
+                        # and xz snapshots (watcom-2.0-win32) alike.
                         ["tar", "xf", str(archive), "-C", str(extract_dir), "--strip-components=1"],
                         check=True,
                         capture_output=True,
@@ -459,232 +459,232 @@ _SMOKE_GOLDEN: dict[
     str, tuple[list[str], str, str, str, tuple[int, int] | list[tuple[int, int]] | None]
 ] = {
     # name -> (flags, out, golden, src, timestamp-mask (zeroed before hashing) | None)
-    "msvc400": (
+    "msvc-4.0": (
         ["/c", "t.c"],
         "t.obj",
         "d420f2d9626c270866ba1d1d718a19cd39a59d07c8fe9d2999bde3ffd4bd9f4a",
         "t.c",
         (4, 8),
-    ),  # COFF TimeDateStamp — identical masked object to msvc420 (same
+    ),  # COFF TimeDateStamp — identical masked object to msvc-4.2 (same
     # compiler lineage; cross-validates both goldens) (host-only — wine)
-    "msvc420": (
+    "msvc-4.2": (
         ["/c", "t.c"],
         "t.obj",
         "d420f2d9626c270866ba1d1d718a19cd39a59d07c8fe9d2999bde3ffd4bd9f4a",
         "t.c",
         (4, 8),
     ),  # COFF TimeDateStamp (host-only — wine runner, see smoke_cmd)
-    "msvc5": (
+    "msvc-5.0": (
         ["/c", "t.c"],
         "t.obj",
         "3fdf875c176b0abc8614f7208053d0b53193e73466f0c52c3cabc80a065dc897",
         "t.c",
         (4, 8),
     ),  # COFF TimeDateStamp (host-only — wine runner, see smoke_cmd)
-    "msvc6": (
+    "msvc-6.0": (
         ["/c", "t.c"],
         "t.obj",
         "4b50f0dbba945a5bc80f9e40ed05bcfb06505fff2204a4b567192c7e5fb1e224",
         "t.c",
         (4, 8),
     ),  # COFF TimeDateStamp
-    "msvc200": (
+    "msvc-2.0": (
         ["/c", "t.c"],
         "t.obj",
         "3df39750075ba99bba6f9418a9cb399eedfe48149132bb6a49f2045239cad25f",
         "t.c",
         (4, 8),
     ),  # COFF TimeDateStamp
-    "msvc410": (
+    "msvc-4.1": (
         ["/c", "t.c"],
         "t.obj",
         "d420f2d9626c270866ba1d1d718a19cd39a59d07c8fe9d2999bde3ffd4bd9f4a",
         "t.c",
         (4, 8),
-    ),  # COFF TimeDateStamp — identical masked object to msvc400/msvc420
-    "msvc500sp1": (
+    ),  # COFF TimeDateStamp — identical masked object to msvc-4.0/msvc-4.2
+    "msvc-5.0-sp1": (
         ["/c", "t.c"],
         "t.obj",
         "3fdf875c176b0abc8614f7208053d0b53193e73466f0c52c3cabc80a065dc897",
         "t.c",
         (4, 8),
-    ),  # COFF TimeDateStamp — identical masked object to msvc5 (same CL)
-    "msvc500sp2": (
-        ["/c", "t.c"],
-        "t.obj",
-        "3fdf875c176b0abc8614f7208053d0b53193e73466f0c52c3cabc80a065dc897",
-        "t.c",
-        (4, 8),
-    ),
-    "msvc500sp3": (
+    ),  # COFF TimeDateStamp — identical masked object to msvc-5.0 (same CL)
+    "msvc-5.0-sp2": (
         ["/c", "t.c"],
         "t.obj",
         "3fdf875c176b0abc8614f7208053d0b53193e73466f0c52c3cabc80a065dc897",
         "t.c",
         (4, 8),
     ),
-    "msvc600sp1": (
+    "msvc-5.0-sp3": (
+        ["/c", "t.c"],
+        "t.obj",
+        "3fdf875c176b0abc8614f7208053d0b53193e73466f0c52c3cabc80a065dc897",
+        "t.c",
+        (4, 8),
+    ),
+    "msvc-6.0-sp1": (
         ["/c", "t.c"],
         "t.obj",
         "4b50f0dbba945a5bc80f9e40ed05bcfb06505fff2204a4b567192c7e5fb1e224",
         "t.c",
         (4, 8),
-    ),  # COFF TimeDateStamp — identical masked object to msvc6 (same CL+C1)
-    "msvc600sp2": (
+    ),  # COFF TimeDateStamp — identical masked object to msvc-6.0 (same CL+C1)
+    "msvc-6.0-sp2": (
         ["/c", "t.c"],
         "t.obj",
         "4b50f0dbba945a5bc80f9e40ed05bcfb06505fff2204a4b567192c7e5fb1e224",
         "t.c",
         (4, 8),
     ),
-    "msvc600sp3": (
+    "msvc-6.0-sp3": (
         ["/c", "t.c"],
         "t.obj",
         "7e4ff03b2845d2268b2c0d27d35e63cea41d2e44320e821f6f6438da41873774",
         "t.c",
         (4, 8),
-    ),  # COFF TimeDateStamp — comp.id differs from msvc6 (SP3 passes)
-    "msvc600sp4": (
+    ),  # COFF TimeDateStamp — comp.id differs from msvc-6.0 (SP3 passes)
+    "msvc-6.0-sp4": (
         ["/c", "t.c"],
         "t.obj",
         "e9427fee0356ef5f8f569e2450a75b753e5fc28070b5d31916516992bbb20687",
         "t.c",
         (4, 8),
     ),  # COFF TimeDateStamp — same C1 as sp5 but distinct comp.id (image path)
-    "msvc600sp5": (
+    "msvc-6.0-sp5": (
         ["/c", "t.c"],
         "t.obj",
         "547b88f827c13e9273f46b1a72415002289fac62d0f65dc0ef9289dbc5a3e546",
         "t.c",
         (4, 8),
     ),
-    "msvc600sp6": (
+    "msvc-6.0-sp6": (
         ["/c", "t.c"],
         "t.obj",
         "7ec66aebd67075b5e1482d9ee05f4a53134925a4e6a79101446e9a7b31eb3994",
         "t.c",
         (4, 8),
     ),
-    "msvc7": (
+    "msvc-7.0": (
         ["/c", "t.c"],
         "t.obj",
         "77c906d5556114c01e11cb6d6afa1beed3e0b0dea6f9f04351ce6775f9303071",
         "t.c",
         (4, 8),
-    ),  # COFF TimeDateStamp — identical masked object to msvc710 (same CL)
-    "msvc700": (
+    ),  # COFF TimeDateStamp — identical masked object to msvc-7.1 (same CL)
+    "msvc-7.0-rtm": (
         ["/c", "t.c"],
         "t.obj",
         "9e42bfe45c02ff046d13ce6c32b7fc1d422b30bf225ff4b64f659a16cadd9f4b",
         "t.c",
         (4, 8),
     ),
-    "msvc700sp1": (
+    "msvc-7.0-sp1": (
         ["/c", "t.c"],
         "t.obj",
         "138377065cf5e3ac2f7afd6252f9f39e18996cbb5f0e8cf2956ab20fb42d0af7",
         "t.c",
         (4, 8),
     ),
-    "msvc710": (
+    "msvc-7.1": (
         ["/c", "t.c"],
         "t.obj",
         "77c906d5556114c01e11cb6d6afa1beed3e0b0dea6f9f04351ce6775f9303071",
         "t.c",
         (4, 8),
     ),
-    "msvc710sp1": (
+    "msvc-7.1-sp1": (
         ["/c", "t.c"],
         "t.obj",
         "edf732bc642630021456f567636c08dac2ee2ef5a5cc6f69b646fcc0dc3377bf",
         "t.c",
         (4, 8),
     ),
-    "msvc800": (
+    "msvc-8.0": (
         ["/c", "t.c"],
         "t.obj",
         "c6d82406d884675a4be4910786da9350baa8b9e4ad1fb60de94abaa4e2e5bee2",
         "t.c",
         (4, 8),
-    ),  # identical masked object to msvc800sp1 (same CL)
-    "msvc800sp1": (
+    ),  # identical masked object to msvc-8.0-sp1 (same CL)
+    "msvc-8.0-sp1": (
         ["/c", "t.c"],
         "t.obj",
         "c6d82406d884675a4be4910786da9350baa8b9e4ad1fb60de94abaa4e2e5bee2",
         "t.c",
         (4, 8),
     ),
-    "msvc900sp1": (
+    "msvc-9.0-sp1": (
         ["/c", "t.c"],
         "t.obj",
         "c11006fdd4ae42814472be29f400b8147bd3d42e4f976de9248727bb7459b8d8",
         "t.c",
         (4, 8),
     ),  # COFF TimeDateStamp — 15.00.30729 SP1 compiler
-    "msvc1100": (
+    "msvc-11.0": (
         ["/c", "t.c"],
         "t.obj",
         "90f064ea1bd8f8b76e7df38a8d3bfc0905b68f9b523d219e575bf3bda9e20bd5",
         "t.c",
         (4, 8),
     ),  # COFF TimeDateStamp — 17.00.50522 VS2012 compiler
-    "msvc900": (
+    "msvc-9.0": (
         ["/c", "t.c"],
         "t.obj",
         "8fed9b3cbb029773d2a5ec6aeb7a9643cee319005554a127a814c2862f1a80d4",
         "t.c",
         (4, 8),
     ),
-    "msvc1000": (
+    "msvc-10.0": (
         ["/c", "t.c"],
         "t.obj",
         "df2bfe3ec2234bb4525ae45136b7fe47b0e7f3af353662e13e8ae156b984ea0e",
         "t.c",
         (4, 8),
     ),
-    "msvc1000sp1": (
+    "msvc-10.0-sp1": (
         ["/c", "t.c"],
         "t.obj",
         "778fe81a9d24c919e7f19026f5ff4ef5f08435cbda4e33659435fd0ca96351be",
         "t.c",
         (4, 8),
     ),
-    "msvc15": (
+    "msvc-1.5": (
         ["/c", "t.c"],
         "t.OBJ",
         "d3bf67158b4d52bd24cb7b137e803491080cf221ffcd6b5dc9dafb885ab36dc2",
         "t.c",
         None,
-    ),  # identical OMF to msvc1.52 (same 16-bit codegen)
-    "msvc10": (
+    ),  # identical OMF to msvc-1.52 (same 16-bit codegen)
+    "msvc-1.0": (
         ["/c", "t.c"],
         "t.OBJ",
         "d3bf67158b4d52bd24cb7b137e803491080cf221ffcd6b5dc9dafb885ab36dc2",
         "t.c",
         None,
-    ),  # identical OMF to msvc1.52/msvc15 (same 16-bit codegen)
-    "msvc1.52": (
+    ),  # identical OMF to msvc-1.52/msvc-1.5 (same 16-bit codegen)
+    "msvc-1.52": (
         ["/c", "t.c"],
         "t.OBJ",
         "d3bf67158b4d52bd24cb7b137e803491080cf221ffcd6b5dc9dafb885ab36dc2",
         "t.c",
         None,
     ),
-    "borlandc55": (
+    "borland-5.5": (
         ["-c", "t.c"],
         "t.obj",
         "76f45489734e9e2d58ed42d999f570204755566d135e757d27a754c194fdc8f1",
         "t.c",
         None,
     ),
-    "watcom": (
+    "watcom-2.0-win32": (
         ["-fo=w.o", "t.c"],
         "w.o",
         "44a6354f779f2c504384019c6786ec1831ca7b5cc20721e1a678295753f08220",
         "t.c",
         None,
     ),
-    "watcom16": (
+    "watcom-2.0-win16": (
         ["-fo=w.o", "t.c"],
         "w.o",
         "85244b6c95dc68fc7de450a4ef422c0bf4ab3a13a882b3cbb5d0e346bb9b01c4",
@@ -692,14 +692,14 @@ _SMOKE_GOLDEN: dict[
         None,  # wcc embeds the source path (fixed /tmp/rebrew-smoke) but no
         # timestamp — fixed-workdir runs are byte-identical.
     ),
-    "delphi16": (
+    "delphi-1.0": (
         ["hello.dpr"],
         "hello.EXE",
         "efd1ee34584a19852afe42cccf0b9e03b217c006c7132f50651a601c595630b9",
         "hello.dpr",
         None,
     ),
-    "tc16": (
+    "borland-3.1": (
         ["t.c"],
         "t.OBJ",
         "2fc719cfdfa0ba7c61667505f41f8bbccf22cf716614ff53056073f40a48cd85",
@@ -709,7 +709,7 @@ _SMOKE_GOLDEN: dict[
             (201, 207),
         ],  # Borland COMENT run-timestamp (sub-second ticks) + record checksums
     ),
-    "tc20": (
+    "borland-2.0": (
         ["t.c"],
         "t.OBJ",
         "20f53956d747afe5d0d66f2e3f2b9a8dbc8b7c150fd85dfdf774d12b5925cecc",
@@ -719,56 +719,56 @@ _SMOKE_GOLDEN: dict[
             (57, 58),
         ],  # Borland COMENT run-timestamp (sub-second ticks) + record checksum
     ),
-    "ido5.3": (
+    "ido-5.3": (
         ["-c", "-O2", "-o", "t.o", "t.c"],
         "t.o",
         "23d42a2d1b2bf56d013a803db6d0d458c693e48f932d1859ad9ec5df881018a6",
         "t.c",
         None,  # ELF object — no timestamp; src path/mtime are fixed by the gate
     ),
-    "ido7.1": (
+    "ido-7.1": (
         ["-c", "-O2", "-o", "t.o", "t.c"],
         "t.o",
         "6af67c000618e1acb476b58ff8dae30e727934ad78e819bc87305d7e2ebc8672",
         "t.c",
         None,  # ELF object — no timestamp; src path/mtime are fixed by the gate
     ),
-    "gcc": (
+    "gcc-14.2.0": (
         ["-c", "-O2", "-o", "t.o", "t.c"],
         "t.o",
         "37e63745119ab217e65378fd5b5ab5c5aa22fcece3f4d397b7f10f6c0b9e62f6",
         "t.c",
         None,  # ELF object — no timestamp; src path/mtime are fixed by the gate
     ),
-    "gcc12": (
+    "gcc-12.3.0": (
         ["-c", "-O2", "-o", "t.o", "t.c"],
         "t.o",
         "b80235b3ec4b75d3f9a5d32db64660911d6f1ce9e2c9e67319b378095987d198",
         "t.c",
         None,  # ELF object — no timestamp; src path/mtime are fixed by the gate
     ),
-    "clang": (
+    "clang-18.1.8": (
         ["-c", "-O2", "-o", "t.o", "t.c"],
         "t.o",
         "fed0b5f644dcc6dff27e0e2178987cfa49d17c4ee4c785ddbafe7c5f0d5f4067",
         "t.c",
         None,  # ELF object — no timestamp; src path/mtime are fixed by the gate
     ),
-    "clang16": (
+    "clang-16.0.4": (
         ["-c", "-O2", "-o", "t.o", "t.c"],
         "t.o",
         "f2a7e6e5310741bc84b99c9c3674f9909510c867c8349686d0467dcaf07b1ea7",
         "t.c",
         None,  # ELF object — no timestamp; src path/mtime are fixed by the gate
     ),
-    "gcc-pe": (
+    "mingw-16.2.0": (
         ["-c", "-O2", "-o", "t.o", "t.c"],
         "t.o",
         "385f1a688e6490af5978106aa59169cc4d434fd8ee60eb2547d7bdfb34689981",
         "t.c",
         (4, 8),  # COFF TimeDateStamp
     ),
-    "gcc-pe14": (
+    "mingw-14.2.0": (
         ["-c", "-O2", "-o", "t.o", "t.c"],
         "t.o",
         "bd6533f8062fefa16fcf2e52fad761feabbf1c54f0583a64d3c5004a049c140d",
@@ -913,7 +913,7 @@ def smoke_cmd(
 
 @app.command("build")
 def build_cmd(
-    name: str = typer.Argument(..., help="Toolchain name (e.g. watcom, msvc6)"),
+    name: str = typer.Argument(..., help="Toolchain name (e.g. watcom-2.0-win32, msvc-6.0)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Build a toolchain's docker image from the rebrew-toolchains checkout."""
@@ -1258,7 +1258,7 @@ def _rewrite_dockerfile_sha(name: str, sha256: str) -> None:
 
 @app.command("update")
 def update_cmd(
-    name: str = typer.Argument(..., help="Toolchain name (e.g. msvc6, watcom)"),
+    name: str = typer.Argument(..., help="Toolchain name (e.g. msvc-6.0, watcom-2.0-win32)"),
     apply: bool = typer.Option(
         False, "--apply", help="Apply the re-pin, re-vendor, rebuild and re-golden"
     ),

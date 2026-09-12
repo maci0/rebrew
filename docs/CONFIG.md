@@ -33,7 +33,7 @@ bin_dir = "bin/target_name"
 # ...
 
 [compiler]
-profile = "msvc6"                        # Compiler profile (see `rebrew toolchain list`)
+profile = "msvc-6.0"                        # Compiler profile (see `rebrew toolchain list`)
 command = ""                             # Empty for docker-backed profiles — the image IS the
                                          # compiler; only native profiles set a real command
 includes = "toolchain/msvc/6.0-win32/source/VC98/Include"
@@ -129,14 +129,14 @@ The lint tool (`rebrew lint`) validates that each marker's module matches the co
 
 | Profile | Flag Source | Obj Format | Symbol Naming |
 |---------|-------------|------------|---------------|
-| `msvc6` | 13 axes from decomp.me (excludes 7.x-only `/fp:*`, `/GS-`) | COFF | `_func` |
-| `msvc7` | 15 axes from decomp.me (full set, incl. `/fp:*`, `/GS-`) | COFF | `_func` |
-| `gcc` | none — the flag sweep is MSVC-only; native compiles use the profile's `cflags` | ELF | `func` |
-| `clang` | none — same as GCC | ELF/Mach-O | `func` |
+| `msvc-6.0` | 13 axes from decomp.me (excludes 7.x-only `/fp:*`, `/GS-`) | COFF | `_func` |
+| `msvc-7.0` | 15 axes from decomp.me (full set, incl. `/fp:*`, `/GS-`) | COFF | `_func` |
+| `gcc-14.2.0` | none — the flag sweep is MSVC-only; native compiles use the profile's `cflags` | ELF | `func` |
+| `clang-18.1.8` | none — same as GCC | ELF/Mach-O | `func` |
 
-Other profiles carry their own axis sets (`msvc1.52` 16-bit, `watcom`/`watcom16`,
-`tc16`/`tc20`/`borlandc55`); the remaining MSVC variants fall back to the
-`msvc6` axis set.
+Other profiles carry their own axis sets (`msvc-1.52` 16-bit, `watcom-2.0-win32`/`watcom-2.0-win16`,
+`borland-3.1`/`borland-2.0`/`borland-5.5`); the remaining MSVC variants fall back to the
+`msvc-6.0` axis set.
 
 Flag axes are synced from [decomp.me](https://github.com/decompme/decomp.me) via `tools/sync_decomp_flags.py`.
 Sweep tiers: `quick` (~192), `targeted` (~1.1K), `normal` (~5.4K), `thorough` (~258K), `full` (~6.2M).
@@ -155,7 +155,7 @@ Compiler settings are resolved in layers. Each layer overrides the previous:
 ```toml
 # Global defaults — all targets inherit these
 [compiler]
-profile = "msvc6"                 # selects the docker image (rebrew/msvc:6.0-win32)
+profile = "msvc-6.0"                 # selects the docker image (rebrew/msvc:6.0-win32)
 command = ""                      # empty for docker-backed profiles; the image IS the compiler
 includes = "toolchain/msvc/6.0-win32/source/VC98/Include"
 libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
@@ -165,19 +165,19 @@ timeout = 60
 
 # Per-target override — only the profile differs, everything else inherited
 [targets."client.exe".compiler]
-profile = "msvc7"
+profile = "msvc-7.0"
 ```
 
 ### Compiler Keys
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `profile` | `string` | `"msvc6"` | Selects the toolchain (docker image or native binary) and the flag-sweep axes for `rebrew match` |
+| `profile` | `string` | `"msvc-6.0"` | Selects the toolchain (docker image or native binary) and the flag-sweep axes for `rebrew match` |
 | `command` | `string` | `"wine CL.EXE"` | Host compiler invocation (resolved relative to project root). **Empty for docker-backed profiles** — the image IS the compiler (that is what `rebrew init` writes for every shipped profile); only a plugin toolchain registered without an image sets a real command. The `wine CL.EXE` fallback default is inert under docker-only execution |
-| `includes` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Include"` | Path to compiler include directory. For `msvc6`/`msvc7` the default resolves the best layout actually present (full master, then the vendored compile-only mirrors `toolchain/msvc/6.0-sp6-win32`/`toolchain/msvc/6.0-sp3-win32`/`toolchain/msvc/7.0-win32`) — see `rebrew init` output and docs/TOOLCHAIN.md. Empty is valid ("no extra dir"; e.g. `gcc-pe` ships its own headers) |
+| `includes` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Include"` | Path to compiler include directory. For `msvc-6.0`/`msvc-7.0` the default resolves the best layout actually present (full master, then the vendored compile-only mirrors `toolchain/msvc/6.0-sp6-win32`/`toolchain/msvc/6.0-sp3-win32`/`toolchain/msvc/7.0-win32`) — see `rebrew init` output and docs/TOOLCHAIN.md. Empty is valid ("no extra dir"; e.g. `mingw-16.2.0` ships its own headers) |
 | `libs` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Lib"` | Path to compiler lib directory (empty is valid — the compile-only mirrors ship no `Lib/`) |
 | `cflags` | `string` | `""` | Default compiler flags |
-| `base_cflags` | `string` | `"/nologo /c /MT"` | Always-on flags prepended to every compile. Posix-style profiles (`gcc`, `gcc-pe`, `clang`, `watcom`, `watcom16`, `borlandc55`, `tc16`, `tc20`) default to `""` — the MSVC glue would break them |
+| `base_cflags` | `string` | `"/nologo /c /MT"` | Always-on flags prepended to every compile. Posix-style profiles (`gcc-14.2.0`, `mingw-16.2.0`, `clang-18.1.8`, `watcom-2.0-win32`, `watcom-2.0-win16`, `borland-5.5`, `borland-3.1`, `borland-2.0`) default to `""` — the MSVC glue would break them |
 | `runner` | `string` | `""` | Win32 PE runner (`wine`, `wibo`, or empty). Auto-detected from `command` if not set explicitly. Under docker-only execution the runner is empty for image-backed profiles; `rebrew init --install-wibo` writes `tools/wibo` only for native (non-image) profiles — it is ignored for docker-backed ones. A relative runner path resolves against the project root and needs a `command` without the runner prefix |
 | `recompile_url` | `string` | `""` | Base URL of the recompile compile service (e.g. `http://localhost:8000`). When set (or `REBREW_RECOMPILE_URL`), every compile routes through `POST /api/v1/compile` instead of local docker images: the same pinned images, plus the opt-in training tap |
 | `recompile_emit_assembly` | `bool` | `false` | Pass `emit_assembly=true` on remote compiles (the training-data tap). Off by default; the GA `--collect-pairs` path enables it per run |
@@ -218,13 +218,13 @@ When different targets need different compilers (e.g. one DLL was built with MSV
 binary = "original/Server/server.dll"
 
 [targets."server.dll".compiler]
-profile = "msvc6"
+profile = "msvc-6.0"
 
 [targets."client.exe"]
 binary = "original/Client/client.exe"
 
 [targets."client.exe".compiler]
-profile = "msvc7"
+profile = "msvc-7.0"
 ```
 
 Only the keys you specify in the per-target `[compiler]` section override the global `[compiler]`. Unspecified keys fall back to the global defaults.
@@ -284,14 +284,14 @@ The config loader fail-fasts on missing/invalid structure:
   `db_dir`, `output_dir`) or an empty `compiler.command` on a native (non-image)
   profile (these otherwise resolve to the project root or fail only when a compiler
   subprocess is launched). `includes`/`libs` may be empty — that means "no extra
-  dir" (e.g. `gcc-pe` ships its own headers).
+  dir" (e.g. `mingw-16.2.0` ships its own headers).
 
 It emits warnings (and applies safe defaults) if:
 - Unrecognized keys are found in top-level, project, global compiler, target, or per-target
   compiler tables (likely typos).
 - `format` is not one of `pe`, `elf`, `macho`, `ne`, `mz` (falls back to `pe` — never stores the bad value).
 - `arch` is not one of the known presets (falls back to `x86_32`).
-- `profile` is not a known compiler profile (falls back to `msvc6`).
+- `profile` is not a known compiler profile (falls back to `msvc-6.0`).
 - String fields (`cflags`, `base_cflags`, `marker`, …) have non-string types.
 - The target binary is missing — `image_base`/`text_va` auto-detection is skipped
   (warning emitted at load time).
@@ -357,7 +357,7 @@ resolves through the `server.dll` key.
 | `add-target NAME` | Add a target section + create dirs | `rebrew cfg add-target client.exe -b original/client.exe` |
 | `remove-target NAME` | Remove a target section | `rebrew cfg remove-target old_target` |
 | `set-cflags ORIGIN FLAGS` | Set cflags preset for an origin | `rebrew cfg set-cflags ZLIB "/O3" -t server.dll` |
-| `set-compiler TARGET PROFILE` | Set compiler profile for a target | `rebrew cfg set-compiler client.exe msvc7` |
+| `set-compiler TARGET PROFILE` | Set compiler profile for a target | `rebrew cfg set-compiler client.exe msvc-7.0` |
 | `add-module MODULE` | Add a module to a target's origins list | `rebrew cfg add-module ZLIB -t server.dll` |
 | `remove-module MODULE` | Remove a module from a target's origins list | `rebrew cfg remove-module ZLIB -t server.dll` |
 | `detect-crt` | Auto-detect MSVC CRT source directories | `rebrew cfg detect-crt --write` |
@@ -387,10 +387,11 @@ rebrew cfg path                                 # print path to config file
 `rebrew init --toolchain <profile>` supports the full toolchain matrix (run
 `rebrew toolchain list` for the exact names): every MSVC variant — 4.0/4.2/5.0
 (and sp1–sp3), 6.0 (and sp1–sp6), 7.0–11.0 (rtm/sp variants), 2.0/4.1, and the
-16-bit 1.0 (`msvc10`)/1.5 (`msvc15`)/1.52 (`msvc1.52`) — plus borlandc55,
-tc16/tc20, watcom/watcom16, delphi16, gcc/gcc12/gcc-pe/gcc-pe14 and
-clang/clang16.  Every profile gets an empty `command`/`runner` in the
+16-bit 1.0 (`msvc-1.0`)/1.5 (`msvc-1.5`)/1.52 (`msvc-1.52`) — plus borland-5.5,
+borland-3.1/borland-2.0, watcom-2.0-win32/watcom-2.0-win16, delphi-1.0,
+gcc-14.2.0/gcc-12.3.0/mingw-16.2.0/mingw-14.2.0 and
+clang-18.1.8/clang-16.0.4.  Every profile gets an empty `command`/`runner` in the
 generated config (the docker image is the compiler); only a plugin toolchain
 registered without an image keeps a real host command.  The target
-`arch` follows the profile (`msvc1.52` → `x86_16`); if a binary is already in
+`arch` follows the profile (`msvc-1.52` → `x86_16`); if a binary is already in
 `original/`, `format`/`arch` are auto-detected from it instead.

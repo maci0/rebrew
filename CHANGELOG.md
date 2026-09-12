@@ -24,7 +24,7 @@
   on the backend that produced an object, and passes the opt-in
   `recompile_emit_assembly` training tap.  Local docker images stay the
   default.
-- **`msvc600sp5pp` — VC6 with the Processor Pack**: a new toolchain profile runs
+- **`msvc-6.0-sp5-pp` — VC6 with the Processor Pack**: a new toolchain profile runs
   MSVC 6.0 SP5 with the Visual C++ 6.0 Processor Pack applied (image
   `rebrew/msvc:6.0-sp5-pp-win32`, built from `archaic-msvc/msvc600_sp5_vcpp`).
   The pack replaces the code generator (`c2.dll` 13.00.9044.0), adds MASM 6.15
@@ -32,20 +32,54 @@
   `xmmintrin.h`, `emmintrin.h`, ...).  `cl.exe` itself is unchanged
   (12.00.8804) and VC6 has no `/arch` option even with the pack: SSE/SSE2 code
   uses the intrinsics.  The pack is SP5-only (SP6 removes it).
-- **Every shipped profile is image-backed**: `gcc`/`gcc12` (GNU GCC 14.2.0 /
+- **Every shipped profile is image-backed**: `gcc-14.2.0`/`gcc-12.3.0` (GNU GCC 14.2.0 /
   12.3.0, images `rebrew/gcc:14.2.0-linux-x64` / `rebrew/gcc:12.3.0-linux-x64`,
   built C-only from the GNU release tarball inside the image),
-  `clang`/`clang16` (Clang 18.1.8 / 16.0.4, images
+  `clang-18.1.8`/`clang-16.0.4` (Clang 18.1.8 / 16.0.4, images
   `rebrew/clang:18.1.8-linux-x64` / `rebrew/clang:16.0.4-linux-x64`, LLVM's
-  prebuilt releases), `gcc-pe`/`gcc-pe14` (MinGW-w64 i686 GCC 16.2.0 / 14.2.0,
-  images `rebrew/gcc-pe:16.2.0-win32` / `rebrew/gcc-pe:14.2.0-win32`; the
+  prebuilt releases), `mingw-16.2.0`/`mingw-14.2.0` (MinGW-w64 i686 GCC 16.2.0 / 14.2.0,
+  images `rebrew/mingw:16.2.0-win32` / `rebrew/mingw:14.2.0-win32`; the
   mingw-builds driver is a Windows PE binary, so the image runs it under wine)
-  and `watcom16` (Open Watcom 2.0 `wcc`, image `rebrew/watcom:2.0-win16`).
-  The generic names stay the defaults (`gcc` → 14.2.0, `clang` → 18.1.8,
-  `gcc-pe` → 16.2.0); the versioned profiles select the older build.  A
+  and `watcom-2.0-win16` (Open Watcom 2.0 `wcc`, image `rebrew/watcom:2.0-win16`).
+  The newest build of each family is the default (`gcc-14.2.0`,
+  `clang-18.1.8`, `mingw-16.2.0`); the versioned profiles select the
+  older build.  A
   compile no longer needs a host gcc/clang/mingw, and `rebrew toolchain
   smoke` covers the new images.  ADR 015 noted this as deferred; the pinned
   sources now exist.
+
+### Changed
+- **BREAKING: standardized toolchain profile names**: every profile is now
+  `"<image-family>-<version>"` (lowercase, version dots kept), e.g.
+  `msvc-6.0`, `gcc-14.2.0`, `mingw-16.2.0`.  A target suffix is appended only
+  where one family and version span more than one target, so Watcom 2.0 is
+  `watcom-2.0-win32`/`watcom-2.0-win16`.  Service-pack and variant markers
+  keep their words (`msvc-6.0-sp1`, `msvc-7.0-rtm`, `msvc-6.0-sp5-pp`).
+  Every old profile name is gone; projects and plugins must update
+  `profile = "..."`, `TOOLCHAIN` metadata, library presets and entry-point
+  registrations using this mapping: `msvc10`→`msvc-1.0`, `msvc15`→`msvc-1.5`,
+  `msvc1.52`→`msvc-1.52`, `msvc200`→`msvc-2.0`, `msvc400`→`msvc-4.0`,
+  `msvc410`→`msvc-4.1`, `msvc420`→`msvc-4.2`, `msvc5`→`msvc-5.0`,
+  `msvc500sp1`→`msvc-5.0-sp1`, `msvc500sp2`→`msvc-5.0-sp2`,
+  `msvc500sp3`→`msvc-5.0-sp3`, `msvc6`→`msvc-6.0`,
+  `msvc600sp1`→`msvc-6.0-sp1`, `msvc600sp2`→`msvc-6.0-sp2`,
+  `msvc600sp3`→`msvc-6.0-sp3`, `msvc600sp4`→`msvc-6.0-sp4`,
+  `msvc600sp5`→`msvc-6.0-sp5`, `msvc600sp5pp`→`msvc-6.0-sp5-pp`,
+  `msvc600sp6`→`msvc-6.0-sp6`, `msvc7`→`msvc-7.0`, `msvc700`→`msvc-7.0-rtm`,
+  `msvc700sp1`→`msvc-7.0-sp1`, `msvc710`→`msvc-7.1`,
+  `msvc710sp1`→`msvc-7.1-sp1`, `msvc800`→`msvc-8.0`,
+  `msvc800sp1`→`msvc-8.0-sp1`, `msvc900`→`msvc-9.0`,
+  `msvc900sp1`→`msvc-9.0-sp1`, `msvc1000`→`msvc-10.0`,
+  `msvc1000sp1`→`msvc-10.0-sp1`, `msvc1100`→`msvc-11.0`,
+  `tc20`→`borland-2.0`, `tc16`→`borland-3.1`, `borlandc55`→`borland-5.5`,
+  `delphi16`→`delphi-1.0`, `watcom`→`watcom-2.0-win32`,
+  `watcom16`→`watcom-2.0-win16`, `ido5.3`→`ido-5.3`, `ido7.1`→`ido-7.1`,
+  `gcc`→`gcc-14.2.0`, `gcc12`→`gcc-12.3.0`, `clang`→`clang-18.1.8`,
+  `clang16`→`clang-16.0.4`, `gcc-pe`→`mingw-16.2.0`,
+  `gcc-pe14`→`mingw-14.2.0`.  The confusing `gcc-pe` image family is renamed
+  `mingw` (`rebrew/gcc-pe:*` → `rebrew/mingw:*`); the existing images are
+  retagged, not rebuilt.  A profile name used as a TOML table header must be
+  quoted (`["msvc-6.0"]`).  See ADR 017.
 
 ## [1.0.0] - 2026-09-12
 ### Added

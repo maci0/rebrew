@@ -215,8 +215,8 @@ def _ga_cache_key(
     CFLAGS-metadata change must not reuse an .obj compiled under different
     flags.  The profile matters because every image-backed toolchain compiles
     through docker: ``cl_cmd`` is empty and ``inc_dir`` is the same default
-    for all of them, so without the profile an msvc6 object is reused for a
-    borlandc55 or tc16 run on the same source.
+    for all of them, so without the profile an msvc-6.0 object is reused for a
+    borland-5.5 or borland-3.1 run on the same source.
     """
     # Incremental hashing — the old code built a full material buffer per
     # candidate (src.encode() + joins), and the source hash was recomputed
@@ -283,7 +283,7 @@ class BinaryMatchingGA:
         # 16-bit DOS/NE targets disassemble in 16-bit mode for structural
         # scoring; None keeps the 32-bit default for PE/ELF targets.
         self.cs_mode = cs_mode if cs_mode is not None else capstone.CS_MODE_32
-        # Toolchain-backed profiles (tc16/tc20/watcom16/...) route GA
+        # Toolchain-backed profiles (borland-3.1/borland-2.0/watcom-2.0-win16/...) route GA
         # compiles through compile_to_obj (DOSBox); without these the GA
         # ran the DOS compiler binary natively.
         self.profile = profile

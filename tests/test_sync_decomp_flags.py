@@ -64,8 +64,8 @@ class TestCountCombos:
 class TestGenerateFlagDataPy:
     def test_header_and_lists(self) -> None:
         msvc = [FlagSet(id="o", flags=("/O1", "/O2"))]
-        msvc6 = [Checkbox(id="zi", flag="/ZI")]
-        out = sdf.generate_flag_data_py(msvc, msvc6, "2026-08-07")
+        msvc6_flags = [Checkbox(id="zi", flag="/ZI")]
+        out = sdf.generate_flag_data_py(msvc, msvc6_flags, "2026-08-07")
         assert "Auto-generated compiler flag axes from decomp.me" in out
         assert "Synced: 2026-08-07" in out
         assert "COMMON_MSVC_FLAGS: Flags = [" in out

@@ -56,7 +56,7 @@ class TestConfig:
     def test_shared_dir_and_defines_parsed(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-project.toml").write_text(
             "[project]\nname = 'p'\ndefault_target = 'V1'\nshared_dir = 'src/shared'\n"
-            "[compiler]\nprofile = 'msvc6'\ncommand = 'CL.EXE'\n"
+            "[compiler]\nprofile = 'msvc-6.0'\ncommand = 'CL.EXE'\n"
             "[targets.V1]\nbinary = 'a.exe'\ndefines = ['V1']\n"
             "[targets.V2]\nbinary = 'b.exe'\ndefines = ['V2', 'DEBUG']\n",
             encoding="utf-8",
@@ -75,7 +75,7 @@ class TestConfig:
     def test_shared_dir_can_be_disabled(self, tmp_path: Path) -> None:
         (tmp_path / "rebrew-project.toml").write_text(
             "[project]\nname = 'p'\ndefault_target = 'V1'\nshared_dir = ''\n"
-            "[compiler]\nprofile = 'msvc6'\ncommand = 'CL.EXE'\n"
+            "[compiler]\nprofile = 'msvc-6.0'\ncommand = 'CL.EXE'\n"
             "[targets.V1]\nbinary = 'a.exe'\n",
             encoding="utf-8",
         )
@@ -100,13 +100,13 @@ class TestConfig:
         ]
 
     def test_base_cflags_default_per_profile(self, tmp_path: Path) -> None:
-        """A posix profile (gcc-pe) must NOT default to the MSVC glue
+        """A posix profile (mingw-16.2.0) must NOT default to the MSVC glue
         base_cflags (/nologo /c /MT) — that breaks every gcc compile for
         hand-written tomls that omit base_cflags."""
         for profile, command, expected in (
-            ("gcc-pe", "i686-w64-mingw32-gcc", ""),
-            ("watcom", "wcc386", ""),
-            ("msvc6", "CL.EXE", "/nologo /c /MT"),
+            ("mingw-16.2.0", "i686-w64-mingw32-gcc", ""),
+            ("watcom-2.0-win32", "wcc386", ""),
+            ("msvc-6.0", "CL.EXE", "/nologo /c /MT"),
         ):
             proj = tmp_path / profile
             proj.mkdir(parents=True, exist_ok=True)
@@ -325,15 +325,15 @@ class TestDefinesCompile:
         return captured["args"]
 
     def test_msvc_style_slash_d(self, tmp_path: Path, monkeypatch) -> None:
-        args = self._run_compile(tmp_path, monkeypatch, "msvc6", ["V2"])
+        args = self._run_compile(tmp_path, monkeypatch, "msvc-6.0", ["V2"])
         assert "/DV2" in args
 
     def test_posix_style_dash_d(self, tmp_path: Path, monkeypatch) -> None:
-        args = self._run_compile(tmp_path, monkeypatch, "gcc-pe", ["V2"])
+        args = self._run_compile(tmp_path, monkeypatch, "mingw-16.2.0", ["V2"])
         assert "-DV2" in args
 
     def test_matcher_raw_path_applies_defines(self, tmp_path: Path, monkeypatch) -> None:
-        """The GA's raw subprocess path (native gcc-pe) must compile with the
+        """The GA's raw subprocess path (native mingw-16.2.0) must compile with the
         per-target defines too, or GA results diverge from verify."""
         from rebrew.matcher.compiler import build_candidate_obj_only
 
@@ -415,7 +415,7 @@ class TestDefinesCompile:
         """The flag sweep needs a registered flag database for the profile —
         a posix-style plugin toolchain without one would get the MSVC combo
         fallback (every combo invalid for that compiler); it must refuse
-        loudly instead of silently wasting compiles.  (gcc/clang/gcc-pe now
+        loudly instead of silently wasting compiles.  (gcc/clang/mingw-16.2.0 now
         sweep normally — they ship posix flag axes.)"""
         import pytest
 
@@ -436,14 +436,14 @@ class TestDefinesCompile:
 
 
 class TestGANativeEndToEnd:
-    """The full GA with the gcc-pe toolchain (MinGW GCC, PE/COFF) — real
+    """The full GA with the mingw-16.2.0 toolchain (MinGW GCC, PE/COFF) — real
     compiles through its docker image."""
 
     @pytest.mark.skipif(
-        not _image_built("gcc-pe"),
-        reason="rebrew/gcc-pe:16.2.0-win32 not built",
+        not _image_built("mingw-16.2.0"),
+        reason="rebrew/mingw:16.2.0-win32 not built",
     )
-    def test_ga_finds_exact_match_with_gcc_pe(self, tmp_path: Path) -> None:
+    def test_ga_finds_exact_match_with_mingw(self, tmp_path: Path) -> None:
         from bin_util import make_pe
 
         from rebrew.binary_loader import extract_raw_bytes
@@ -463,7 +463,7 @@ class TestGANativeEndToEnd:
             shared_dir=None,
             function_list=tmp_path / "functions.txt",
             compiler_command="i686-w64-mingw32-gcc",
-            compiler_profile="gcc-pe",
+            compiler_profile="mingw-16.2.0",
             base_cflags="",
             cflags="-O2",
             compiler_includes="",
@@ -484,7 +484,7 @@ class TestGANativeEndToEnd:
             rng_seed=42,
             env=None,
             posix_style=True,
-            profile="gcc-pe",
+            profile="mingw-16.2.0",
             cfg=cfg,
         )
         best_src, best_score = ga.run()
@@ -495,8 +495,8 @@ class TestVerifySharedFile:
     """verify_entry resolves a shared filepath (../shared/...) and compiles it."""
 
     @pytest.mark.skipif(
-        not _image_built("gcc-pe"),
-        reason="rebrew/gcc-pe:16.2.0-win32 not built",
+        not _image_built("mingw-16.2.0"),
+        reason="rebrew/mingw:16.2.0-win32 not built",
     )
     def test_verify_compiles_shared_function(self, tmp_path: Path) -> None:
         from bin_util import make_pe
@@ -514,7 +514,7 @@ class TestVerifySharedFile:
             shared_dir=tmp_path / "src" / "shared",
             function_list=tmp_path / "functions.txt",
             compiler_command="i686-w64-mingw32-gcc",
-            compiler_profile="gcc-pe",
+            compiler_profile="mingw-16.2.0",
             base_cflags="",
             cflags="-O2",
             compiler_includes="",
@@ -535,7 +535,7 @@ class TestVerifySharedFile:
         assert len(entries) == 1
         result = verify_entry(entries[0], cfg)
         # The shared file was found and compiled (not a tooling failure);
-        # byte-exactness is not guaranteed with gcc-pe.
+        # byte-exactness is not guaranteed with mingw-16.2.0.
         assert result.status not in (
             "COMPILE_ERROR",
             "EXTRACT_ERROR",

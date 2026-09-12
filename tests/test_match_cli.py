@@ -489,7 +489,7 @@ class TestMatchCliLink:
             source_ext=".c",
             default_jobs=2,
             compile_timeout=30,
-            compiler_profile="gcc-pe",
+            compiler_profile="mingw-16.2.0",
             posix_style=True,
         )
 
@@ -563,7 +563,7 @@ class TestKunaSeed:
             root=tmp_path,
             compile_timeout=60,
             posix_style=False,
-            compiler_profile="gcc-pe",
+            compiler_profile="mingw-16.2.0",
         )
         p = SimpleNamespace(
             cfg=cfg,

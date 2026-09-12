@@ -6,7 +6,7 @@ and old GCC (4.x–7.x) differ in argument passing, stack probing and
 scheduling, so old MinGW-built binaries usually match only
 structurally.  Verified with **GCC 16.1** at `/O1`/`/O2`.
 
-**Profiles:** `gcc-pe`.
+**Profiles:** `mingw-16.2.0`.
 
 ## Prologue & frame pointer
 
@@ -264,7 +264,7 @@ cmov/`2e`-nop findings; corpus: cpubench, test_sse2 (MinGW 16 —
 `0f 1f`=278/308, `f3 c3`=1, SSE2 FP, magic division present).
 ## Probe29: round-29 markers (MinGW GCC 16.1)
 
-- **gcc-pe emits `cmov` for min/max at /O2** (`39 d0 0f 4c c2` /
+- **mingw-16.2.0 emits `cmov` for min/max at /O2** (`39 d0 0f 4c c2` /
   `0f 4f` — shared with 11.0, unlike every other MSVC version), the
   branchless `test; jns; neg`-free abs via `test; setl; neg; cmovs`
   (`85 d2 0f 9f c0 c1 ea 1f 29 d0`-family), magic division with its
@@ -275,7 +275,7 @@ cmov/`2e`-nop findings; corpus: cpubench, test_sse2 (MinGW 16 —
   See RULES.md C39/A11.
 ## Probe30: round-30 markers (MinGW GCC 16.1)
 
-- **gcc-pe**: `jmp strlen` tail-call (`e9 rel32` — no inline loop,
+- **mingw-16.2.0**: `jmp strlen` tail-call (`e9 rel32` — no inline loop,
   E26), lea-pair muls (`8d 14 80 8d 04 50` ×11), magic /3 with its
   own tail (`b8 56 55 55 55 f7 e9 c1 f9 1f`), `a1 [g] 8d 50 01 89 15`
   global RMW, `0f 1f` nops.  See RULES.md E26.

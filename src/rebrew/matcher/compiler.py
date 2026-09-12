@@ -113,40 +113,40 @@ def _map_symbol_re(symbol: str) -> re.Pattern[str]:
 # _merged_flag_sets below).
 _FLAGS_MAP: dict[str, Flags] = {
     "msvc": COMMON_MSVC_FLAGS,
-    "msvc7": COMMON_MSVC_FLAGS,  # deprecated alias of msvc710
-    "msvc700": COMMON_MSVC_FLAGS,
-    "msvc710": COMMON_MSVC_FLAGS,
-    "msvc800": COMMON_MSVC_FLAGS,
-    "msvc6": MSVC6_FLAGS,  # excludes MSVC 7.x+ only flags (/fp:*, /GS-)
-    "msvc1.52": MSVC152_FLAGS,
-    "watcom": WATCOM_FLAGS,
-    "watcom16": WATCOM_FLAGS,  # same wcc flag family (16-bit wcc)
-    "tc16": BORLAND_FLAGS,
-    "tc20": BORLAND_FLAGS,
-    "borlandc55": BORLAND_FLAGS,
-    "gcc": GCC_FLAGS,
-    "gcc12": GCC_FLAGS,  # same GCC flag family
-    "gcc-pe": GCC_FLAGS,  # MinGW accepts the same GCC flag family
-    "gcc-pe14": GCC_FLAGS,
-    "clang": GCC_FLAGS,
-    "clang16": GCC_FLAGS,
+    "msvc-7.0": COMMON_MSVC_FLAGS,  # deprecated alias of msvc-7.1
+    "msvc-7.0-rtm": COMMON_MSVC_FLAGS,
+    "msvc-7.1": COMMON_MSVC_FLAGS,
+    "msvc-8.0": COMMON_MSVC_FLAGS,
+    "msvc-6.0": MSVC6_FLAGS,  # excludes MSVC 7.x+ only flags (/fp:*, /GS-)
+    "msvc-1.52": MSVC152_FLAGS,
+    "watcom-2.0-win32": WATCOM_FLAGS,
+    "watcom-2.0-win16": WATCOM_FLAGS,  # same wcc flag family (16-bit wcc)
+    "borland-3.1": BORLAND_FLAGS,
+    "borland-2.0": BORLAND_FLAGS,
+    "borland-5.5": BORLAND_FLAGS,
+    "gcc-14.2.0": GCC_FLAGS,
+    "gcc-12.3.0": GCC_FLAGS,  # same GCC flag family
+    "mingw-16.2.0": GCC_FLAGS,  # MinGW accepts the same GCC flag family
+    "mingw-14.2.0": GCC_FLAGS,
+    "clang-18.1.8": GCC_FLAGS,
+    "clang-16.0.4": GCC_FLAGS,
 }
 
 #: Packaged sweep-tier dispatch: profile → {tier: [flag-axis ids]}.  Profiles
 #: without an entry fall back to MSVC_SWEEP_TIERS (the historic default).
 _PACKAGED_FLAG_TIERS: dict[str, dict[str, list[str] | None]] = {
-    "gcc": GCC_SWEEP_TIERS,
-    "gcc12": GCC_SWEEP_TIERS,
-    "gcc-pe": GCC_SWEEP_TIERS,
-    "gcc-pe14": GCC_SWEEP_TIERS,
-    "clang": GCC_SWEEP_TIERS,
-    "clang16": GCC_SWEEP_TIERS,
-    "watcom": WATCOM_SWEEP_TIERS,
-    "watcom16": WATCOM_SWEEP_TIERS,
-    "msvc1.52": MSVC152_SWEEP_TIERS,
-    "tc16": BORLAND_SWEEP_TIERS,
-    "tc20": BORLAND_SWEEP_TIERS,
-    "borlandc55": BORLAND_SWEEP_TIERS,
+    "gcc-14.2.0": GCC_SWEEP_TIERS,
+    "gcc-12.3.0": GCC_SWEEP_TIERS,
+    "mingw-16.2.0": GCC_SWEEP_TIERS,
+    "mingw-14.2.0": GCC_SWEEP_TIERS,
+    "clang-18.1.8": GCC_SWEEP_TIERS,
+    "clang-16.0.4": GCC_SWEEP_TIERS,
+    "watcom-2.0-win32": WATCOM_SWEEP_TIERS,
+    "watcom-2.0-win16": WATCOM_SWEEP_TIERS,
+    "msvc-1.52": MSVC152_SWEEP_TIERS,
+    "borland-3.1": BORLAND_SWEEP_TIERS,
+    "borland-2.0": BORLAND_SWEEP_TIERS,
+    "borland-5.5": BORLAND_SWEEP_TIERS,
 }
 
 #: setuptools entry-point group whose members register sweep flag sets.  A
@@ -195,7 +195,7 @@ def _merged_flag_sets() -> tuple[dict[str, Flags], dict[str, dict[str, list[str]
             continue
         for name, value in provided.items():
             # Validate each entry before unpacking: a malformed provider value
-            # (e.g. {"msvc6": None}) raised TypeError out of module import,
+            # (e.g. {"msvc-6.0": None}) raised TypeError out of module import,
             # defeating the documented skip, because this loop sits outside the
             # try that guards provider().
             if not (isinstance(value, tuple) and len(value) == 2):
@@ -341,19 +341,19 @@ def _get_pe_symbol_size(exe_path: Path, symbol: str) -> int | None:
         return None
 
 
-def generate_flag_combinations(tier: str = "targeted", profile: str = "msvc6") -> list[str]:
+def generate_flag_combinations(tier: str = "targeted", profile: str = "msvc-6.0") -> list[str]:
     """Generate flag combinations for the given compiler profile.
 
     Args:
         tier: Sweep effort level — "quick", "targeted", "normal", "thorough", or "full".
               Controls how many flag axes are included.
-        profile: Compiler profile name — "msvc6", "msvc7", or "msvc".
+        profile: Compiler profile name — "msvc-6.0", "msvc-7.0", or "msvc".
 
     """
-    # Use synced Flags for this profile, falling back to msvc6.  Sweep tiers
+    # Use synced Flags for this profile, falling back to msvc-6.0.  Sweep tiers
     # come from the merged registry (packaged dispatch + rebrew.flag_sets
     # providers); an unknown profile falls back to the MSVC tiers.
-    flags = _FLAGS_MAP.get(profile, _FLAGS_MAP["msvc6"])
+    flags = _FLAGS_MAP.get(profile, _FLAGS_MAP["msvc-6.0"])
     tiers = _TIERS_MAP.get(profile, MSVC_SWEEP_TIERS)
     if tier not in tiers:
         raise ValueError(f"Unknown sweep tier {tier!r}, valid: {list(tiers)}")
@@ -424,7 +424,7 @@ def build_candidate_obj_only(
     16-bit DOS compilers) routes through the shared ``compile_to_obj``
     runner (docker image — there is no host wine/dosbox fallback) instead
     of the raw subprocess path.  The raw subprocess path below serves only
-    native Linux compilers without an image (gcc-pe and friends).
+    native Linux compilers without an image (mingw-16.2.0 and friends).
     """
     if profile in _DOCKER_BACKED_PROFILES:
         if cfg is None:
@@ -493,7 +493,7 @@ def build_candidate_obj_only(
     # subprocess path must compile with the same flags compile_to_obj
     # applies, or GA/diff results diverge from verify for shared
     # multi-version sources.  (Docker-backed profiles get them inside
-    # compile_to_obj; this path serves native compilers like gcc-pe.)
+    # compile_to_obj; this path serves native compilers like mingw-16.2.0.)
     for define in getattr(cfg, "defines", None) or []:
         all_flags.append(f"{'-D' if posix_style else '/D'}{define}")
     extra_inc = extra_include_dirs or []
@@ -707,7 +707,7 @@ def flag_sweep(
         source_ext: Extension of the source file.
         cache: Optional ``CacheBackend`` for cross-run persistence.
         timeout: Subprocess timeout in seconds.
-        profile: Compiler profile id ("msvc6", "watcom", "msvc1.52", ...) —
+        profile: Compiler profile id ("msvc-6.0", "watcom-2.0-win32", "msvc-1.52", ...) —
             selects the flag set and (for toolchain-backed profiles) the
             compile runner.
         cfg: Optional project config for toolchain-backed compile routing.
@@ -722,7 +722,7 @@ def flag_sweep(
         # WITHOUT one (a plugin toolchain that declared no flag sets) would
         # get the MSVC fallback — every combo invalid for the compiler, so
         # refuse loudly instead of silently wasting compiles.  Profiles with
-        # posix tiers (watcom, msvc1.52, tc16/20, borlandc55, gcc, clang)
+        # posix tiers (watcom, msvc-1.52, borland-3.1/20, borland-5.5, gcc, clang)
         # sweep normally.
         raise ValueError(
             f"flag sweep: profile {profile!r} uses posix-style flags but has no "

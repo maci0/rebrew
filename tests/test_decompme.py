@@ -21,7 +21,7 @@ def _ann(va: int = 0x401000, size: int = 16, name: str = "func_a", symbol: str =
         symbol=symbol,
         marker_type="FUNCTION",
         module="GAME",
-        toolchain="msvc6",
+        toolchain="msvc-6.0",
         cflags="/O2",
     )
 
@@ -33,7 +33,7 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
         root=tmp_path,
         target_name="T",
         metadata_dir=tmp_path,
-        compiler_profile="msvc6",
+        compiler_profile="msvc-6.0",
         binary_format="pe",
         source_ext=".c",
         marker="T",
@@ -43,14 +43,14 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
 
 class TestMappings:
     def test_compiler_map(self) -> None:
-        assert decompme.map_compiler("msvc6") == "msvc6.0"
-        assert decompme.map_compiler("msvc600sp6") == "msvc6.0"
-        assert decompme.map_compiler("msvc710") == "msvc7.1"  # canonical VC 7.1
-        assert decompme.map_compiler("msvc7") == "msvc7.1"  # deprecated alias of msvc710
-        assert decompme.map_compiler("msvc700") == "msvc7.0"  # the genuine VC 7.0
-        assert decompme.map_compiler("msvc1000") == "msvc10.0"
-        assert decompme.map_compiler("msvc1100") == "msvc11.0"
-        assert decompme.map_compiler("gcc-pe") is None  # must be explicit
+        assert decompme.map_compiler("msvc-6.0") == "msvc6.0"
+        assert decompme.map_compiler("msvc-6.0-sp6") == "msvc6.0"
+        assert decompme.map_compiler("msvc-7.1") == "msvc7.1"  # canonical VC 7.1
+        assert decompme.map_compiler("msvc-7.0") == "msvc7.1"  # deprecated alias of msvc-7.1
+        assert decompme.map_compiler("msvc-7.0-rtm") == "msvc7.0"  # the genuine VC 7.0
+        assert decompme.map_compiler("msvc-10.0") == "msvc10.0"
+        assert decompme.map_compiler("msvc-11.0") == "msvc11.0"
+        assert decompme.map_compiler("mingw-16.2.0") is None  # must be explicit
         assert decompme.map_compiler(None) is None
 
     def test_platform_map(self) -> None:
@@ -275,7 +275,7 @@ class TestCli:
             lambda p, target_name=None, metadata_dir=None: [_ann()],
         )
         monkeypatch.setattr(
-            "rebrew.cli.resolve_compile_overrides", lambda cfg, d, a, b, c: ("msvc6", "/O1")
+            "rebrew.cli.resolve_compile_overrides", lambda cfg, d, a, b, c: ("msvc-6.0", "/O1")
         )
         monkeypatch.setattr(
             "rebrew.context._collect_context", lambda cfg: (["struct Vec { int x; };"], 1)
@@ -305,7 +305,7 @@ class TestCli:
     ) -> None:
         cfg, src = self._patch(tmp_path, monkeypatch)
         monkeypatch.setattr(
-            "rebrew.cli.resolve_compile_overrides", lambda cfg, d, a, b, c: ("gcc-pe", "-O2")
+            "rebrew.cli.resolve_compile_overrides", lambda cfg, d, a, b, c: ("mingw-16.2.0", "-O2")
         )
         r = runner.invoke(decompme.app, ["--dry-run", str(src)])
         assert r.exit_code == 2
@@ -397,7 +397,7 @@ class TestVerifyCompiler:
 
         monkeypatch.setattr(httpx, "get", _fake_get)
         with pytest.raises(RuntimeError, match="not in the decomp.me registry"):
-            decompme.verify_compiler("gcc-pe")
+            decompme.verify_compiler("mingw-16.2.0")
         with pytest.raises(RuntimeError, match="msvc6.0"):
             decompme.verify_compiler("nope")  # suggestion lists known ids
 

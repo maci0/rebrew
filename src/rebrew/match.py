@@ -205,7 +205,7 @@ def main(
         "",
         "--sweep-toolchains",
         "--toolchain",
-        help="Sweep only these toolchains (comma-separated profile names or version prefixes, e.g. msvc6,6.0,win16; a Y2K binary likely rules out 2.0/4.x — exclude them with --sweep-exclude-toolchains 2.0,4.0)",
+        help="Sweep only these toolchains (comma-separated profile names or version prefixes, e.g. msvc-6.0,6.0,win16; a Y2K binary likely rules out 2.0/4.x — exclude them with --sweep-exclude-toolchains 2.0,4.0)",
         rich_help_panel="Single-Function",
     ),
     sweep_exclude_toolchains: str = typer.Option(

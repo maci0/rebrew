@@ -13,12 +13,12 @@
 ADR-006 standardized docker-first toolchain invocation, but left gaps that
 made the zoo not fully reproducible:
 
-- **msvc420 / msvc5 / msvc400 were host-only** — the OmniBlade decomp.me
+- **msvc-4.2 / msvc-5.0 / msvc-4.0 were host-only** — the OmniBlade decomp.me
   mirror has no 4.0/4.2/5.0 tarballs, so they had no images and no smoke
   gate.  Their vendored trees existed but had **no pinned source**:
   `rebrew toolchain vendor` answered "no pinned source" on a fresh clone,
   so they were unreproducible by definition.
-- **tc16 / tc20 images were built from UNTRACKED Dockerfiles** (and the
+- **borland-3.1 / borland-2.0 images were built from UNTRACKED Dockerfiles** (and the
   tc `tc*-run.sh` wrappers + `tc20.tar.xz`/`tc31.tar.xz` tarballs were
   never committed): the images existed locally, but a fresh clone could
   neither `toolchain build` nor `toolchain vendor` them.
@@ -36,14 +36,14 @@ invariants:
    checkout).  The docker image downloads the SAME pinned source
    (checksum verified inside the Dockerfile) and `rebrew toolchain vendor`
    assembles the host tree from it — so images and host trees are
-   byte-identical **by construction**, not by accident.  msvc420/msvc5 pin
+   byte-identical **by construction**, not by accident.  msvc-4.2/msvc-5.0 pin
    the archaic-msvc codeload snapshots (verified byte-identical to the
-   pre-existing committed trees); msvc400 pins itsmattkc/MSVC400.
-2. **A docker image (or a documented exception).**  msvc400/msvc420/msvc5
+   pre-existing committed trees); msvc-4.0 pins itsmattkc/MSVC400.
+2. **A docker image (or a documented exception).**  msvc-4.0/msvc-4.2/msvc-5.0
    gained `rebrew/msvc:<ver>-win32` Dockerfiles (same `rebrew/base`
-   pattern as msvc6: sha256-verified download, `cl` wrapper from
+   pattern as msvc-6.0: sha256-verified download, `cl` wrapper from
    `wrapper-common.sh`, OCI labels).  The only registry toolchain without
-   an image is `gcc-pe`, deliberately: it is a PATH tool, not a vendored
+   an image is `mingw-16.2.0`, deliberately: it is a PATH tool, not a vendored
    tree, so there is nothing to pin or reproduce.
 3. **A smoke-gate slot.**  The gate now runs image-backed toolchains via
    docker AND host-only vendored trees via the uniform host runner (the
@@ -56,7 +56,7 @@ invariants:
 Enforcement: a test asserts every image-backed spec's Dockerfile is
 git-tracked in the rebrew-toolchains checkout (`git ls-files` against the
 external repo) — an untracked Dockerfile is now a gate failure, closing
-the tc16/tc20 class of regression (the guard moved with the build source
+the borland-3.1/borland-2.0 class of regression (the guard moved with the build source
 per ADR-011 and is no longer xfail).
 
 ## Consequences
@@ -71,7 +71,7 @@ per ADR-011 and is no longer xfail).
   gated, roundtrip-tested set (compile → parse → compare → EXACT), with
   `--sweep-toolchain` covering the full range.
 - The git-tracked Dockerfile guard is a hard, non-xfail test; the
-  previously-uncommitted tc16/tc20 Dockerfiles and wrapper scripts are now
+  previously-uncommitted borland-3.1/borland-2.0 Dockerfiles and wrapper scripts are now
   committed in the rebrew-toolchains checkout (ADR-011) — the 16-bit media
   tarballs stay untracked by design, user-supplied next to their Dockerfile.
 - Cost: larger image set to maintain (three new `rebrew/msvc` images),

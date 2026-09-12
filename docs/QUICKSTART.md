@@ -26,7 +26,7 @@ graph TD
 ## Prerequisites
 
 - Docker, with the `rebrew/msvc:6.0-win32` toolchain image built or pulled
-  (`rebrew toolchain build msvc6` / `rebrew toolchain pull msvc6`; see
+  (`rebrew toolchain build msvc-6.0` / `rebrew toolchain pull msvc-6.0`; see
   [TOOLCHAIN.md](TOOLCHAIN.md))
 - Python dependencies: `uv sync`
 - Ghidra with ReVa MCP (optional but strongly recommended)
@@ -36,7 +36,7 @@ graph TD
 ### Step 1 — Initialize the project
 
 ```bash
-rebrew init --target server.dll --binary original/server.dll --toolchain msvc6
+rebrew init --target server.dll --binary original/server.dll --toolchain msvc-6.0
 ```
 
 This creates `rebrew-project.toml` in the current directory, registering the target

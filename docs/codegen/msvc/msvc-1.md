@@ -4,7 +4,7 @@ MSVC 1.0 / 1.5 / 1.52 (1992–1995, Windows 3.x / DOS).  16-bit
 compilers; `CL.EXE` is a Phar Lap TNT DOS-extender binary run under
 DOSBox.  Emits 16-bit OMF objects.
 
-**Profiles:** `msvc1.52`, `msvc15`, `msvc10` — images
+**Profiles:** `msvc-1.52`, `msvc-1.5`, `msvc-1.0` — images
 `rebrew/msvc:{1.52,1.5,1.0}-win16` (cl16 wrapper).
 
 ## Prologue & frame pointer

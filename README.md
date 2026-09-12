@@ -136,7 +136,7 @@ All CLI tools must be run **from within a project directory** that contains a `r
 cd /path/to/your-decomp-project    # must contain rebrew-project.toml
 
 # Project Setup
-rebrew init --target mygame --binary mygame.exe --compiler msvc6 # initialize project
+rebrew init --target mygame --binary mygame.exe --compiler msvc-6.0 # initialize project
 rebrew cfg list-targets              # list configured targets
 rebrew cfg set-cflags ZLIB "/O3"        # set cflags for origin
 rebrew cfg set compiler.cflags "/O1" # set a config value
@@ -247,7 +247,7 @@ Typical progress runs `STUB` → `NEAR_MATCHING` → `EXACT` / `RELOC`, with
 | x86 (16-bit) | NE (Windows 3.x) | MSVC 16-bit (C 7.0 / VC 1.x) | ✅ | ⬜ | ⬜ | ⬜ |
 | x86 (32-bit) | PE (`.exe`/`.dll`) | MSVC 5.0 / 6.0 | ✅ | ✅ | ✅ | ✅ |
 | x86 (32-bit) | PE | MSVC 7.x+ | ✅ | ✅ | ✅ | ✅ |
-| x86 (32-bit) | PE | MinGW GCC / Zig (`gcc-pe` profile) | ✅ | ✅ | ✅ | ✅ |
+| x86 (32-bit) | PE | MinGW GCC / Zig (`mingw-16.2.0` profile) | ✅ | ✅ | ✅ | ✅ |
 | x86 (32-bit) | PE | Watcom C | ✅ | ✅ (OMF→COFF via objconv) | ✅ | ⬜ |
 | x86 (32-bit) | ELF (`.so`/exec) | GCC/Clang| ✅ | ✅ | ⬜ | ⬜ |
 | x86_64     | PE | MSVC     | ✅ | ✅ | ⬜ | ⬜ |
@@ -271,14 +271,14 @@ structural heuristics (strings, imports, codegen style, section layout).
 (`delphi` vs MSVC-style markerless segments).  When diec misses a compiler
 record, the Microsoft Linker version still pins the MSVC era.
 
-**Compiler profiles:** `msvc6` is the default — every profile (all `msvc*`
-from 1.0 through 11.0, `borlandc55`, `tc16`/`tc20`, `watcom`/`watcom16`,
-`delphi16`, `gcc`/`gcc12`, `clang`/`clang16`, `gcc-pe`/`gcc-pe14`) compiles
+**Compiler profiles:** `msvc-6.0` is the default — every profile (all `msvc*`
+from 1.0 through 11.0, `borland-5.5`, `borland-3.1`/`borland-2.0`, `watcom-2.0-win32`/`watcom-2.0-win16`,
+`delphi-1.0`, `gcc-14.2.0`/`gcc-12.3.0`, `clang-18.1.8`/`clang-16.0.4`, `mingw-16.2.0`/`mingw-14.2.0`) compiles
 inside a per-toolchain **docker image** (wine/DOSBox/a native Linux compiler
-live in the image; there is no host wine/wibo path).  `gcc-pe` targets MinGW
-GCC / Zig PE builds, `gcc`/`clang` cover ELF/x86_64, and `watcom16` is the
+live in the image; there is no host wine/wibo path).  `mingw-16.2.0` targets MinGW
+GCC / Zig PE builds, `gcc-14.2.0`/`clang-18.1.8` cover ELF/x86_64, and `watcom-2.0-win16` is the
 16-bit DOS Watcom profile.  Service-pack variants
-(`msvc600sp1`–`msvc600sp6`, `msvc700sp1`, …) cover the pin-specific
+(`msvc-6.0-sp1`–`msvc-6.0-sp6`, `msvc-7.0-sp1`, …) cover the pin-specific
 codegen differences.  Profile selection happens automatically on
 `rebrew intake` from the detected family; the full list is
 `rebrew toolchain list`.
@@ -298,7 +298,7 @@ python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me
 
 ### Flag Sweep Tiers
 
-The flag sweep uses compiler flag definitions synced from [decomp.me](https://github.com/decompme/decomp.me). The `generate_flag_combinations(tier)` function supports five effort levels: `quick` (192 combos), `targeted` (~1.2K combos), `normal` (~5.4K combos), `thorough` (~258K combos), and `full` (~6.2M combos; stride-sampled down to a 100K memory bound). The `msvc6` compiler profile automatically excludes incompatible MSVC 7.x+ flags. See [docs/FLAG_SWEEP_TIERS.md](docs/FLAG_SWEEP_TIERS.md).
+The flag sweep uses compiler flag definitions synced from [decomp.me](https://github.com/decompme/decomp.me). The `generate_flag_combinations(tier)` function supports five effort levels: `quick` (192 combos), `targeted` (~1.2K combos), `normal` (~5.4K combos), `thorough` (~258K combos), and `full` (~6.2M combos; stride-sampled down to a 100K memory bound). The `msvc-6.0` compiler profile automatically excludes incompatible MSVC 7.x+ flags. See [docs/FLAG_SWEEP_TIERS.md](docs/FLAG_SWEEP_TIERS.md).
 
 ## 🌐 Ecosystem & Related Tools
 

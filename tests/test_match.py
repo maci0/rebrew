@@ -116,7 +116,7 @@ class TestFlagSweepBaseCflags:
             target_binary=tmp_path / "t.dll",
             base_cflags="/MT",
             posix_style=False,
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             compile_timeout=60,
         )
         run_flag_sweep(stub, cfg, tier="quick")

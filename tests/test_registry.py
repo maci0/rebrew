@@ -190,7 +190,7 @@ class TestToolchainRegistry:
         from rebrew.toolchain import build_toolchain_registry
 
         registry = build_toolchain_registry()
-        assert "msvc6" in registry  # built-ins intact
+        assert "msvc-6.0" in registry  # built-ins intact
         spec = registry["mytc"]
         assert spec.image == "rebrew/custom:1.0-win32"
         assert spec.flags_style == "posix"
@@ -198,10 +198,10 @@ class TestToolchainRegistry:
 
     def test_overlay_conflict_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("REBREW_TOOLCHAIN_OVERLAY_DIR", str(tmp_path))
-        (tmp_path / "dup.toml").write_text('[msvc6]\nbinary = "cl"\n', encoding="utf-8")
+        (tmp_path / "dup.toml").write_text('["msvc-6.0"]\nbinary = "cl"\n', encoding="utf-8")
         from rebrew.toolchain import build_toolchain_registry
 
-        with pytest.raises(RegistryError, match="duplicate.*msvc6"):
+        with pytest.raises(RegistryError, match="duplicate.*msvc-6.0"):
             build_toolchain_registry()
 
     def test_overlay_unknown_field_raises(
@@ -248,15 +248,15 @@ class TestToolchainRegistry:
         monkeypatch.delenv("REBREW_TOOLCHAIN_OVERLAY_DIR", raising=False)
         _install_fake_module(
             "tc_provider_conflict",
-            provider=lambda: {"msvc6": ToolchainSpec(name="msvc6", image=None, binary="cl")},
+            provider=lambda: {"msvc-6.0": ToolchainSpec(name="msvc-6.0", image=None, binary="cl")},
         )
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(
-                **{"rebrew.toolchains": [("msvc6", "tc_provider_conflict:provider")]}
+                **{"rebrew.toolchains": [("msvc-6.0", "tc_provider_conflict:provider")]}
             ),
         )
-        with pytest.raises(RegistryError, match="duplicate.*msvc6"):
+        with pytest.raises(RegistryError, match="duplicate.*msvc-6.0"):
             build_toolchain_registry()
 
 
@@ -525,7 +525,7 @@ class TestFlagSetRegistry:
         self._patch(monkeypatch)
         flags, tiers = compiler._merged_flag_sets()
         assert "mytc" in flags and "mytc" in tiers
-        assert "msvc6" in flags and "watcom" in tiers  # packaged intact
+        assert "msvc-6.0" in flags and "watcom-2.0-win32" in tiers  # packaged intact
 
     def test_plugin_sweep_uses_plugin_axes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.matcher import compiler
@@ -547,7 +547,7 @@ class TestFlagSetRegistry:
             _fake_entry_points(**{"rebrew.flag_sets": [("p", "flag_provider_bad:provider")]}),
         )
         flags, tiers = compiler._merged_flag_sets()
-        assert "msvc6" in flags  # packaged axes intact
+        assert "msvc-6.0" in flags  # packaged axes intact
 
 
 class TestLibraryPresetRegistry:
@@ -577,7 +577,7 @@ class TestLibraryPresetRegistry:
         assert merged["toolchain"] == "mytc"
         assert merged["cflags"] == "-O2"
         merged2, _ = metadata.apply_library_presets({"library": "msvcrt-static"})
-        assert merged2["toolchain"] == "msvc6"
+        assert merged2["toolchain"] == "msvc-6.0"
 
     def test_plugin_preset_recognized_by_library_cli(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -631,7 +631,7 @@ class TestToolchainDetectorRegistry:
             ),
         )
         compat = _merged_profile_compat()
-        assert "msvc6" in compat["msvc"]  # packaged family table intact
+        assert "msvc-6.0" in compat["msvc"]  # packaged family table intact
 
 
 class TestPluginToolchainConfig:
@@ -680,7 +680,7 @@ class TestPluginToolchainConfig:
         monkeypatch.delenv("REBREW_TOOLCHAIN_OVERLAY_DIR", raising=False)
         root = self._project(tmp_path, "not-a-real-toolchain")
         cfg = load_config(root=root)
-        assert cfg.compiler_profile == "msvc6"  # unknown → historic fallback
+        assert cfg.compiler_profile == "msvc-6.0"  # unknown → historic fallback
 
 
 class TestBinaryDetectorRegistry:
@@ -752,7 +752,7 @@ class TestSixteenBitAlignment:
         monkeypatch.setattr(toolchain, "TOOLCHAINS", toolchain.build_toolchain_registry())
 
         assert "mytc16" in td._bitness16_profiles()
-        assert "tc16" in td._bitness16_profiles()  # packaged set intact
+        assert "borland-3.1" in td._bitness16_profiles()  # packaged set intact
 
         compat = dict(td._PROFILE_COMPAT_ALL)
         compat.setdefault("acme-c", set()).add("mytc16")
@@ -801,10 +801,10 @@ class TestMsvcVersionRegistry:
         rich, eras = td._merged_msvc_version_tables()
         # plugin appended after packaged profiles (packaged order preserved)
         assert "mytc" in rich[8168]
-        assert rich[8168][0] == "msvc6"
+        assert rich[8168][0] == "msvc-6.0"
         assert "mytc" in eras[(12, 0)]
-        assert eras[(12, 0)][0] == "msvc6"
-        assert rich[3077] == ("msvc710",)  # msvc7 is a deprecated alias of msvc710
+        assert eras[(12, 0)][0] == "msvc-6.0"
+        assert rich[3077] == ("msvc-7.1",)  # msvc-7.0 is a deprecated alias of msvc-7.1
 
     def test_bad_key_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.toolchain_detect as td
@@ -1014,11 +1014,11 @@ class TestToolchainOrigin:
         (overlay / "mytc.toml").write_text('[mytc]\nbinary = "mycc"\n', encoding="utf-8")
         monkeypatch.setenv("REBREW_TOOLCHAIN_OVERLAY_DIR", str(overlay))
         monkeypatch.setattr(toolchain, "TOOLCHAINS", toolchain.build_toolchain_registry())
-        assert toolchain.TOOLCHAIN_ORIGINS["msvc6"] == "packaged"
+        assert toolchain.TOOLCHAIN_ORIGINS["msvc-6.0"] == "packaged"
         assert toolchain.TOOLCHAIN_ORIGINS["mytc"] == f"data-file {overlay / 'mytc.toml'}"
         rows = {r["name"]: r for r in toolchain.list_toolchains()}
         assert rows["mytc"]["origin"] == f"data-file {overlay / 'mytc.toml'}"
-        assert rows["msvc6"]["origin"] == "packaged"
+        assert rows["msvc-6.0"]["origin"] == "packaged"
 
 
 class TestDoctorCacheCheck:
@@ -1136,7 +1136,7 @@ class TestLegacyProfileAliases:
 
     @pytest.mark.parametrize(
         ("legacy", "modern"),
-        [("msvc6.3", "msvc600sp3"), ("msvc6.6", "msvc600sp6")],
+        [("msvc6.3", "msvc-6.0-sp3"), ("msvc6.6", "msvc-6.0-sp6")],
     )
     def test_legacy_alias_migrates(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, legacy: str, modern: str
@@ -1170,7 +1170,7 @@ class TestLegacyProfileAliases:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             cfg = load_config(root=tmp_path)
-        assert cfg.compiler_profile == "msvc6"
+        assert cfg.compiler_profile == "msvc-6.0"
 
 
 class TestDecompilerAutoProbe:
@@ -1249,7 +1249,7 @@ class TestNativeElfToolchains:
     def test_gcc_clang_in_registry(self) -> None:
         from rebrew.toolchain import TOOLCHAINS
 
-        for name in ("gcc", "clang"):
+        for name in ("gcc-14.2.0", "clang-18.1.8"):
             spec = TOOLCHAINS.get(name)
             assert spec is not None
             assert spec.image is not None
@@ -1259,7 +1259,7 @@ class TestNativeElfToolchains:
             assert spec.flags_style == "posix"
             assert spec.obj_ext == ".o"
 
-    @pytest.mark.parametrize("profile", ["gcc", "clang"])
+    @pytest.mark.parametrize("profile", ["gcc-14.2.0", "clang-18.1.8"])
     def test_elf_profile_compiles(self, tmp_path: Path, profile: str) -> None:
         import warnings
 
@@ -1348,10 +1348,10 @@ class TestNativeCacheKey:
             spec = TOOLCHAINS[cfg.compiler_profile]
             return f"native:{spec.binary}"
 
-        k_gcc = compile_cache_key("int f(){}", "f.c", [], [], _id("gcc"))
-        k_clang = compile_cache_key("int f(){}", "f.c", [], [], _id("clang"))
+        k_gcc = compile_cache_key("int f(){}", "f.c", [], [], _id("gcc-14.2.0"))
+        k_clang = compile_cache_key("int f(){}", "f.c", [], [], _id("clang-18.1.8"))
         assert k_gcc != k_clang
-        assert "wine" not in _id("gcc")  # not the MSVC default
+        assert "wine" not in _id("gcc-14.2.0")  # not the MSVC default
 
 
 class TestSkillNameSanitization:

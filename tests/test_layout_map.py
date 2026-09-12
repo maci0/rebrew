@@ -31,7 +31,7 @@ reversed_dir = "src"
 function_list = "src/functions.txt"
 
 [compiler]
-profile = "msvc6"
+profile = "msvc-6.0"
 command = "cl"
 cflags = "/O2"
 """

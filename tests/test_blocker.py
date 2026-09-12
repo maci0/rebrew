@@ -15,7 +15,7 @@ def _mock_cfg(tmp_path: Path, monkeypatch) -> None:
         metadata_dir=tmp_path,
         marker="SERVER",
         function_list=tmp_path / "functions.txt",
-        compiler_profile="msvc6",
+        compiler_profile="msvc-6.0",
     )
     # Used by metadata helpers + resolve_source_arg scan
     import rebrew.blocker as blk

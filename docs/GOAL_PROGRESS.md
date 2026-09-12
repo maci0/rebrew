@@ -3586,7 +3586,7 @@ fixtures), gen_flirt_pat.py (needs .lib archives).
 
 ### Slice 164 (16h goal) — FLIRT fixup-width + CRC-window fixes; real-data validation — DONE
 - Follow-up to slice 163: regenerated the workspace's flirt_sigs/*.pat from
-  the VC6 libs (found at ~/.wine/drive_c/msvc6/lib) — old ones had the buggy
+  the VC6 libs (found at ~/.wine/drive_c/msvc-6.0/lib) — old ones had the buggy
   CRC and never matched (backups in /tmp/*.pat.oldcrc).
 - Real scan surfaced a second latent bug: even with the correct CRC, only 15
   functions matched, and functions with data references (isalpha family)
@@ -5092,7 +5092,7 @@ Batch of probes, all clean:
 - `rebrew graph --format summary` (262 nodes / 170 edges) and
   `--focus 0x10013230` — the focus error noted in an old GOAL_PROGRESS
   entry is fixed; mermaid output is correct and color-coded.
-- `rebrew init --target ... --binary ... --compiler msvc6 --json` in a
+- `rebrew init --target ... --binary ... --compiler msvc-6.0 --json` in a
   fresh dir: creates the full scaffold (rebrew-project.toml, AGENTS.md,
   PRINCIPLES.md, original/, src/, bin/); generated config loads cleanly
   (`cfg list-targets` reads it back).
@@ -6518,11 +6518,11 @@ genuine NE 6.01 Windows 3.10 GUI executable headlessly — DOSBox directly
 `C:\DELPHI\LIB` (extracted in the holiday mission).  Result:
 `5 lines, 1710 bytes code, 252 bytes data` → HELLO.EXE (2816 B), which
 `rebrew` loads natively (is_ne ✓, 15 functions enumerated, detect →
-`delphi`).  What remains for byte matching: a `delphi16` compiler profile
+`delphi`).  What remains for byte matching: a `delphi-1.0` compiler profile
 wrapping this invocation + segment-relative reloc comparison.  Recorded in
 `toolchain/delphi/1.0-win16/README.md`.
 
-## 2026-08-11 — Full docs refresh for the NE/delphi16 session
+## 2026-08-11 — Full docs refresh for the NE/delphi-1.0 session
 
 Audited all docs/ + agent skills for staleness against the session's
 changes and updated: CONFIG.md (format `ne` accepted, x86_16 arch row with
@@ -6545,7 +6545,7 @@ implemented it as ADR-006:
   vendored-host/PATH fallback; `rebrew toolchain list/status/pull` CLI;
   `toolchain-images/<name>/Dockerfile` build specs (watcom).
 - Shared `rebrew.dosbox` headless runner (mount sandbox as C:, FAT-uppercase
-  reads); delphi16 refactored onto it; new `rebrew.msvc16` (MSVC 1.52).
+  reads); delphi-1.0 refactored onto it; new `rebrew.msvc16` (MSVC 1.52).
 - **Open Watcom 2.0**: installed toolchain/watcom/2.0-win32 (native wcc386 verified
   compiling; installer SIGFPEs on modern glibc — used the CI snapshot
   tarball).  Emits OMF objects — mapped the record layout empirically
@@ -6561,7 +6561,7 @@ implemented it as ADR-006:
 - **Detection hints**: Symantec/Zortech/ICC families from runtime strings;
   watcom family now aligns with the watcom profile.
 
-Tests: toolchain 9, msvc16 6, delphi16 5, detection +4.
+Tests: toolchain 9, msvc16 6, delphi-1.0 5, detection +4.
 
 ## 2026-08-11 — bcc32 survey (Turbo C++ 4.5 CD) — compiler absent
 
@@ -6580,21 +6580,21 @@ Surveyed `turbo-c-v-4.5` exhaustively for bcc32:
 
 Continuing the docker-first standardization (ADR-006) to full delivery:
 
-- **Image matrix complete**: `rebrew/msvc6:6.0-linux-x64` (wine + OmniBlade
+- **Image matrix complete**: `rebrew/msvc-6.0:6.0-linux-x64` (wine + OmniBlade
   msvcwin9x tarball + cl wrapper), `rebrew/watcom:2.0-win32` (native),
-  `rebrew/delphi16:1.0-linux-x64` (DOSBox + DCC + RTL units + dcc wrapper),
+  `rebrew/delphi-1.0:1.0-linux-x64` (DOSBox + DCC + RTL units + dcc wrapper),
   `rebrew/msvc152:1.52-linux-x64` (DOSBox + BIN/INCLUDE/LIB + cl16 wrapper)
   all built and verified — containerized compiles produce real objects
-  (i386 COFF, OMF, NE 6.01).  gcc-pe stays native.  Wrapper scripts are
+  (i386 COFF, OMF, NE 6.01).  mingw-16.2.0 stays native.  Wrapper scripts are
   tracked; build-context binaries gitignored.
 - **Compile loop**: watcom routes through run_toolchain (wcc386 -fo=/-I);
-  msvc1.52 prefers the cl16 image (FAT-uppercase .OBJ handled) with host
+  msvc-1.52 prefers the cl16 image (FAT-uppercase .OBJ handled) with host
   DOSBox fallback.
 - **OMF**: objconv (vendored) converts Watcom 32-bit OMF→COFF for LIEF —
   Watcom byte matching enabled; 16-bit MSVC OMF dialect recorded (objconv
   crashes on it — custom parser deferred).
 - **GA flag sweeps**: watcom (wcc386 -os/-ot/-ol/-ox, -3..-6, -zp, -mf/-fpc)
-  and msvc1.52 (16-bit /O, /G2/G3, /Aw/Au, /Gs//Za) axes — quick/targeted
+  and msvc-1.52 (16-bit /O, /G2/G3, /Aw/Au, /Gs//Za) axes — quick/targeted
   combos verified.
 - **Doctor**: generic check_toolchain_backed (vendored/image readiness with
   `rebrew toolchain pull` fix); intake routes watcom family to the watcom
@@ -6609,10 +6609,10 @@ dialect parser, console port (docs/ROADMAP_CONSOLES.md proposal).
 - `rebrew toolchain build <name>` — builds the image from its
   toolchain-images/<name>/<ver>-<arch>/Dockerfile; CLI lifecycle complete
   (list/status/pull/build).
-- `rebrew init --compiler watcom/msvc1.52` — working configs (command +
+- `rebrew init --compiler watcom/msvc-1.52` — working configs (command +
   includes/libs from the toolchain); fixed the target arch hardcode
-  (now follows the profile: msvc1.52 → x86_16).
-- GA flag sweeps for watcom (wcc386 -flags) + msvc1.52 (16-bit /flags).
+  (now follows the profile: msvc-1.52 → x86_16).
+- GA flag sweeps for watcom (wcc386 -flags) + msvc-1.52 (16-bit /flags).
 - Agent skills (matching/workflow) reflect the toolchain model; minimalism
   review of the new modules: clean (no dead code).
 - Commits c5f0871 → latest (init, build, sweeps, skills).
@@ -6765,7 +6765,7 @@ different VAs; DLL+EXE pairs sharing code).
   matched, differing function skipped at 92.9, absent function untouched);
   marker rewrite (both comment styles, SIZE insert/replace); import writes
   file + verifies + promotes; dry-run writes nothing; CLI guard + JSON
-  flow; real gcc-pe end-to-end round-trip (native toolchain installed).
+  flow; real mingw-16.2.0 end-to-end round-trip (native toolchain installed).
 - **Docs**: ADR-009, `docs/CLI.md` section, registered in the umbrella CLI.
 - Gates: full suite green, ruff check/format + pre-commit clean.
 
@@ -6792,7 +6792,7 @@ per-target defines.
 - **Tests** (`tests/test_shared_sources.py`, 11): config parsing
   (shared_dir/defines/disable), `iter_sources` inclusion, multi-marker
   scan per target with `../shared/` filepaths, defines reaching the
-  compiler with the right flag style, real gcc-pe verify of a shared
+  compiler with the right flag style, real mingw-16.2.0 verify of a shared
   function; plus verify-cache defines guards (2).
 - **Docs**: ADR-010, `docs/CLI.md` section, CHANGELOG entry.
 - Gates: full suite green, ruff check/format + pre-commit clean.
@@ -6806,7 +6806,7 @@ Three work streams after the shared-sources feature:
 **1. Adversarial review of the new code (7 bugs fixed, each with a regression test):**
 - `iter_sources` leaked shared sources into scans of unrelated directories
   (now scoped to the target's `reversed_dir`).
-- The GA's raw subprocess path (native gcc-pe) dropped per-target `defines`;
+- The GA's raw subprocess path (native mingw-16.2.0) dropped per-target `defines`;
   `_ga_cache_key` now covers them too.
 - The stacked-marker name fallback misnamed bodyless LIBRARY/STUB blocks
   (restricted to FUNCTION).
@@ -6818,16 +6818,16 @@ Three work streams after the shared-sources feature:
   errors as JSON.
 
 **2. GA verified without docker (native toolchains):**
-- `base_cflags` defaults per profile — posix profiles (gcc-pe, watcom,
-  tc16/20, borland) get `""` instead of the MSVC `/nologo /c /MT` glue
+- `base_cflags` defaults per profile — posix profiles (mingw-16.2.0, watcom,
+  borland-3.1/20, borland) get `""` instead of the MSVC `/nologo /c /MT` glue
   that broke hand-written tomls; the matcher raw path guards empty
   include dirs (no bare `-I`).
 - `--flag-sweep-only` / batch `--flag-sweep` refuse loudly on posix
   profiles (the sweep explores MSVC flag combos — previously every combo
   failed silently under gcc).
-- Real end-to-end: `rebrew match` (gcc-pe, no docker) finds EXACT; test/
+- Real end-to-end: `rebrew match` (mingw-16.2.0, no docker) finds EXACT; test/
   verify pass 1/1; new tests include a full `BinaryMatchingGA` run with
-  real gcc-pe (skip-gated).
+  real mingw-16.2.0 (skip-gated).
 
 **3. Pragma levers for the GA (research + 5 new operators, 114 → 119):**
 - Research (MSVC 6.0 docs + community usage — `#pragma optimize("", off)`
@@ -6839,7 +6839,7 @@ Three work streams after the shared-sources feature:
 - Operators: `mut_add/remove_optimize_pragma` (wrapper + `("", on)` reset),
   `mut_add/remove_intrinsic_pragma`, `mut_toggle_check_stack_pragma`.
   `_split_preamble_body` keeps function-level pragmas with the body so
-  removals are complete; gcc-pe ignores the pragmas harmlessly.
+  removals are complete; mingw-16.2.0 ignores the pragmas harmlessly.
 - Docs: `docs/GA_MUTATIONS.md` §20 (research table + not-mutated list),
   operator counts 114 → 119 in GA_MUTATIONS.md/matcher-AGENTS.md/AGENTS.md.
 - Tests: 9 new (optimize letters/modes, round-trips, no-op guards,
@@ -7075,13 +7075,13 @@ which a fresh project doesn't have.  Root cause: for docker-backed profiles
 execution is docker-only and the image (built from the vendored toolchain)
 IS the include/lib provider — the host path is a non-load-bearing placeholder
 intake inherits from the template.  `intake._link_toolchain` also has no
-msvc800+ entries, so it printed the confusing "symlink tools/ yourself".
+msvc-8.0+ entries, so it printed the confusing "symlink tools/ yourself".
 
 **Fixes (in scope: doctor/intake/init/config):**
 - `doctor.check_includes`/`check_libs` are now docker-aware via
   `_docker_toolchain_check`: image present → PASS "provided by docker image
   rebrew/…"; image missing → WARN with `rebrew toolchain build <profile>`;
-  native profiles (gcc-pe, image=None) keep the host-path check.  Fresh
+  native profiles (mingw-16.2.0, image=None) keep the host-path check.  Fresh
   intake on this machine: doctor 15 pass / 0 fail / 2 informational warns.
 - `intake` terminal summary: docker-backed profile without a tools/ link
   now says the image is the toolchain + the build command; both `init`'s
@@ -8361,7 +8361,7 @@ Gates: suite 5810 passed / 29 skipped, ruff clean, mypy clean (164 files).
     TOOLCHAIN metadata nor a library override names a compiler (the normal
     case for profile-based projects); `map_compiler(None)` returns `None`, so
     `rebrew decompme <file>` exited 2 with "no decomp.me compiler mapped for
-    toolchain 'msvc6'" — the profile was applied in the message only. Now
+    toolchain 'msvc-6.0'" — the profile was applied in the message only. Now
     `map_compiler(toolchain or cfg.compiler_profile)`.
 62. **`--compiler` dropped the resolved-cflags default.** The cflags resolution
     sat inside `if compiler is None:`, so `--compiler msvc6.0` alone uploaded
@@ -8727,7 +8727,7 @@ Gates: suite 5858 passed / 29 skipped, ruff clean, mypy clean (164 files).
 96. **`round-trip` ignored the per-function/per-library toolchain.**
     `_compile_and_extract` called `compile_to_obj(cfg, path, cflags, work_dir)`
     with no `toolchain=` (and `_SpliceFn` had no such field), so a function
-    whose byte match depends on `toolchain = "msvc5"` compiled with the project
+    whose byte match depends on `toolchain = "msvc-5.0"` compiled with the project
     default and reported `compile_drift`. `_SpliceFn` now carries the resolved
     toolchain and the compile passes it.
 97. **The cflags chain was not `resolve_cflags`.** The manual
@@ -8753,8 +8753,8 @@ Gates: suite 5861 passed / 29 skipped, ruff clean, mypy clean (164 files).
 ## 2026-09-12 — Review/fix loop: doctor + status diagnostics
 
 99. **`doctor`'s include check rejected the other 16-bit profiles.**
-    `check_includes` exempted only `msvc1.52` while `check_compiler` accepts
-    `{msvc1.52, tc16, tc20, watcom16}`, so a working tc16 project was told to
+    `check_includes` exempted only `msvc-1.52` while `check_compiler` accepts
+    `{msvc-1.52, borland-3.1, borland-2.0, watcom-2.0-win16}`, so a working borland-3.1 project was told to
     switch toolchains. The set is now a module constant shared by both checks.
 100. **`doctor` reported `format = "mz"` as unknown.** The config loader accepts
      it and `binary_loader` routes MZ before format dispatch; `_KNOWN_FORMATS`
@@ -9101,7 +9101,7 @@ Gates: suite 5895 passed / 29 skipped, ruff clean, mypy clean (164 files).
        comment calls out).
      - `6.0-sp6-win32`: `-C /opt/msvc6.0-sp6`, CL.EXE at
        `/opt/msvc6.0-sp6/VC98/Bin/CL.EXE`; the spec declared
-       `/opt/msvc6.0/VC98/Bin` (copied from the base `msvc6` spec).
+       `/opt/msvc6.0/VC98/Bin` (copied from the base `msvc-6.0` spec).
 
      `image_msvc_env` takes `Path(tool_root).parent` for INCLUDE/LIB, so both
      profiles exported paths under a nonexistent tree and every compile failed
@@ -9113,7 +9113,7 @@ test_tool_root_matches_the_image_install_tree`): every wine MSVC spec's
 `tool_root` must be under its own image's install root (`/opt/msvc<tag>` minus
 the arch suffix), and for the msvc6.0 family must be exactly
 `<install>/VC98/bin` (case-insensitive). Proven to fail against each reverted
-value in turn: `msvc600sp3` for the missing `VC98` level, `msvc600sp6` for the
+value in turn: `msvc-6.0-sp3` for the missing `VC98` level, `msvc-6.0-sp6` for the
 wrong install root.
 
 Gates: suite 5896 passed / 29 skipped, ruff clean, mypy clean (164 files).
@@ -9464,7 +9464,7 @@ clean (164 files).
      capstone mode for everything but x86_16, so an x86_64 flag sweep ranked
      flags differently from the GA (`analysis.capstone_mode_for_arch`); it now
      shares that mapping. `_merged_flag_sets` unpacked provider values outside
-     the guard, so `{"msvc6": None}` raised `TypeError` at package import instead
+     the guard, so `{"msvc-6.0": None}` raised `TypeError` at package import instead
      of the documented skip. `prove --all --json` emitted a different key set
      when no candidate matched (no `schema_version`/`already_matched`).
 
@@ -9476,7 +9476,7 @@ clean (164 files).
      symbolic list is reported. `_containing_name` returned the earliest-starting
      containing range instead of the smallest, misattributing callers/callees
      when an oversized outer SIZE overlaps the next function.
-     `tc16`/`msvc16`/`delphi16` reported a failed compile as success when a
+     `borland-3.1`/`msvc16`/`delphi-1.0` reported a failed compile as success when a
      caller-supplied `workdir` still held the previous run's fixed-name output.
 
      **Not fixed here** (queued): `prove.py`'s per-state struct-constraint
@@ -9562,7 +9562,7 @@ clean (164 files).
      `// LOCALS:` reported W019, left the line in place, and exited 0.
 
      Two observations, no action: `doctor` exits 1 on this project because
-     `mini_pe.exe` is an MSVC-built fixture while the config declares `gcc-pe`
+     `mini_pe.exe` is an MSVC-built fixture while the config declares `mingw-16.2.0`
      (an expected mismatch, not a defect), and the new `link.file_align`
      informational warning prints on every command when the key is set (the
      intended signal, at the cost of one stderr block).
@@ -9643,7 +9643,7 @@ clean (164 files).
 
      **The native cache id ignored the executed binary** (`compile.py:712`).
      `_native_toolchain_id` hashed `shutil.which(spec.binary)`; the runner picks
-     the VENDORED tree first (`toolchain._resolve_binary`), so `watcom16` — whose
+     the VENDORED tree first (`toolchain._resolve_binary`), so `watcom-2.0-win16` — whose
      `wcc` lives in the vendored tree and is not on PATH — keyed as the
      digest-free `native:wcc` and a replaced vendored compiler kept serving old
      objects. It now resolves through the public `vendored_binary` with the same
@@ -9975,8 +9975,8 @@ clean (164 files).
      returns `[]` (the image is the compiler) and the resolved `cl_cmd` is `""`,
      with the same default `inc_dir` for every profile. The cache key hashed
      source/cflags/cmd/inc/symbol/extra-dirs/defines only, so the persisted
-     `output/ga_runs/<rel>/build_cache.db` handed an msvc6 object to a borlandc55
-     or tc16 run on the same source and flags — the GA scored the wrong bytes.
+     `output/ga_runs/<rel>/build_cache.db` handed an msvc-6.0 object to a borland-5.5
+     or borland-3.1 run on the same source and flags — the GA scored the wrong bytes.
      `_ga_cache_key` now takes and hashes `profile`, and `BinaryMatchingGA._cache_key`
      passes `self.profile`.
 
@@ -9993,7 +9993,7 @@ clean (164 files).
 
      **`_vendored_msvc_toolchains` prepended the configured profile
      unconditionally.** `--sweep-toolchains msvc4.0` (help: "Sweep only these
-     toolchains") still swept the configured msvc6, so the report included a
+     toolchains") still swept the configured msvc-6.0, so the report included a
      toolchain the user excluded. The unfiltered default also listed the
      configured profile twice (once from the enumeration loop, once as the
      inserted baseline), doubling its compiles. The baseline is now dropped
@@ -10003,7 +10003,7 @@ clean (164 files).
 Test (`tests/test_sweep_toolchain.py::test_vendored_enumeration_respects_only_exclude`):
 `only="4.0"` must return only `msvc4*` profiles, and the unfiltered enumeration
 must contain no duplicate profile. Reverted (the unconditional insert restored)
-and the test failed with `['msvc6', 'msvc400']`, then restored.
+and the test failed with `['msvc-6.0', 'msvc-4.0']`, then restored.
 
 Gates: suite 5976 passed / 29 skipped, ruff clean, ruff format 391 files, mypy
 clean (164 files).

@@ -183,7 +183,7 @@ class TestSizePersistence:
         (tmp_path / "rebrew-project.toml").write_text(
             '[project]\ndefault_target = "x"\n'
             '[targets.x]\nbinary = "original/x.exe"\n'
-            '[compiler]\nprofile = "msvc6"\n'
+            '[compiler]\nprofile = "msvc-6.0"\n'
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
@@ -230,7 +230,7 @@ class TestSizePersistence:
         (tmp_path / "rebrew-project.toml").write_text(
             '[project]\ndefault_target = "x"\n'
             '[targets.x]\nbinary = "original/x.exe"\nmarker = ""\n'
-            '[compiler]\nprofile = "msvc6"\n'
+            '[compiler]\nprofile = "msvc-6.0"\n'
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
@@ -279,7 +279,7 @@ class TestSizePersistence:
         (tmp_path / "rebrew-project.toml").write_text(
             '[project]\ndefault_target = "x"\n'
             '[targets.x]\nbinary = "original/x.exe"\n'
-            '[compiler]\nprofile = "msvc6"\n'
+            '[compiler]\nprofile = "msvc-6.0"\n'
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
@@ -330,7 +330,7 @@ class TestFixSize:
         (tmp_path / "rebrew-project.toml").write_text(
             '[project]\ndefault_target = "x"\n'
             '[targets.x]\nbinary = "original/x.exe"\n'
-            '[compiler]\nprofile = "msvc6"\n'
+            '[compiler]\nprofile = "msvc-6.0"\n'
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
@@ -474,7 +474,7 @@ class TestFixSize:
         (tmp_path / "rebrew-project.toml").write_text(
             '[project]\ndefault_target = "x"\n'
             '[targets.x]\nbinary = "original/x.exe"\nmarker = ""\n'
-            '[compiler]\nprofile = "msvc6"\n'
+            '[compiler]\nprofile = "msvc-6.0"\n'
         )
         src = tmp_path / "src" / "x" / "f.c"
         src.write_text(
@@ -532,7 +532,7 @@ class TestUnchangedStatusCachePatch:
         (tmp_path / "rebrew-project.toml").write_text(
             '[project]\ndefault_target = "x"\n'
             '[targets.x]\nbinary = "original/x.exe"\n'
-            '[compiler]\nprofile = "msvc6"\n'
+            '[compiler]\nprofile = "msvc-6.0"\n'
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
@@ -597,7 +597,7 @@ class TestCflagsPersistence:
         (tmp_path / "rebrew-project.toml").write_text(
             '[project]\ndefault_target = "x"\n'
             '[targets.x]\nbinary = "original/x.exe"\n'
-            '[compiler]\nprofile = "msvc6"\n'
+            '[compiler]\nprofile = "msvc-6.0"\n'
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
@@ -650,7 +650,7 @@ class TestCliSizeLintSuppression:
         (tmp_path / "rebrew-project.toml").write_text(
             '[project]\ndefault_target = "x"\n'
             '[targets.x]\nbinary = "original/x.exe"\n'
-            '[compiler]\nprofile = "msvc6"\n'
+            '[compiler]\nprofile = "msvc-6.0"\n'
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)

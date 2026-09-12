@@ -463,7 +463,7 @@ def kuna_seed_source(binary: Path, va: int, root: Path) -> str | None:
 
     Two repairs beyond :func:`sanitize_tokens` are needed for Kuna output: its
     address labels (``s_``/``dat_``/``sub_``) must be declared, and its C99-isms
-    (``bool``, ``NULL``, ``true``/``false``) must be spelled for msvc6's C89.
+    (``bool``, ``NULL``, ``true``/``false``) must be spelled for msvc-6.0's C89.
     Without them the seed never compiles and is discarded from the GA.
 
     Returns the fixup'd C — a GA seed candidate — or ``None`` when kuna is

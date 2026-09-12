@@ -455,7 +455,7 @@ class TestPartitionScorer:
         cfg = _scorer_cfg(tmp_path)
         _write_source(cfg.reversed_dir / "a.c", A, "_func_a")
         (cfg.reversed_dir / "rebrew-libraries.toml").write_text(
-            'toolchain = "msvc6"\ncflags = "/O2 /Gd /MT"\n', encoding="utf-8"
+            'toolchain = "msvc-6.0"\ncflags = "/O2 /Gd /MT"\n', encoding="utf-8"
         )
         annotations = {A: _make_ann(A, "a.c", "_func_a")}
         calls: list[dict[str, Any]] = []
@@ -465,5 +465,5 @@ class TestPartitionScorer:
         matched, invokes = scorer([[A]])
         assert invokes == 1
         assert matched == 10
-        assert calls[0]["toolchain"] == "msvc6"
+        assert calls[0]["toolchain"] == "msvc-6.0"
         assert calls[0]["cflags"] == ["/O2", "/Gd", "/MT"]

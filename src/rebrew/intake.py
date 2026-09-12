@@ -58,7 +58,7 @@ def _link_names_for(profile: str) -> tuple[str, str] | None:
     """Derive the ``(link_name, src_name)`` toolchain symlink for *profile*.
 
     Image ``rebrew/<family>:<tag>`` maps to ``<family>/<tag>`` (the
-    vendored toolchain layout, e.g. msvc6 → ``msvc/6.0-win32``); explicit
+    vendored toolchain layout, e.g. msvc-6.0 → ``msvc/6.0-win32``); explicit
     overrides in :data:`_TOOLCHAIN_LINK_OVERRIDES` win.  ``None`` for an
     image-less spec (a plugin toolchain — nothing to link) and unknown
     profiles.
@@ -106,12 +106,12 @@ def _suggest_profile(binary: Path) -> tuple[str, str, str, list[str]]:
     profile = suggest_profile(info, binary)
     if family == "msvc" and info.arch == "x86_16":
         notes.append(
-            "binary is 16-bit NE (x86_16) — using the msvc1.52 profile "
+            "binary is 16-bit NE (x86_16) — using the msvc-1.52 profile "
             "(DOSBox CL.EXE, 16-bit OMF objects)"
         )
     elif family == "watcom":
         notes.append(
-            "binary looks Watcom C/C++ — byte matching works via the watcom "
+            "binary looks Watcom C/C++ — byte matching works via the watcom-2.0-win32 "
             "profile (OMF objects, see docs/OMF_NOTES.md)"
         )
     elif family == "delphi":
@@ -120,8 +120,10 @@ def _suggest_profile(binary: Path) -> tuple[str, str, str, list[str]]:
             "intake will document functions as blockers"
         )
     if profile is None:
-        profile = "msvc6"
-        notes.append("compiler family not identified — defaulting to msvc6 (check `rebrew doctor`)")
+        profile = "msvc-6.0"
+        notes.append(
+            "compiler family not identified — defaulting to msvc-6.0 (check `rebrew doctor`)"
+        )
     elif family == "borlandc":
         notes.append(
             f"binary looks Borland C/C++ — using the {profile} profile "
