@@ -1,5 +1,11 @@
 ## [Unreleased]
 ### Added
+- **`rebrew init --refresh-agents` re-renders an existing project's `AGENTS.md`**:
+  the generated file follows the packaged template and the project's own
+  profile, so a renamed toolchain or a template change reaches projects already
+  on disk.  It reads `rebrew-project.toml` and never rewrites it; `rebrew init`
+  previously refused an existing project outright, which left the generated
+  file hand-edit-only.
 - **`rebrew pe-info` dumps PE metadata**: a new read-only command (and
   `rebrew.pe_info` module) reports the binary identity (format, arch, bits,
   image base, entry point, subsystem, timestamp, checksum, size), the section
@@ -83,6 +89,9 @@
   must be quoted (`["msvc-6.0"]`).  See ADR 017.
 
 ### Fixed
+- **A generated `AGENTS.md` no longer prints an empty compiler command**: the
+  template rendered an empty pair of backticks, because every profile compiles
+  inside its docker image with no host command; it now names the image.
 - **`watcom-2.0-win32` builds again**: its source was Open Watcom's rolling
   `Last-CI-build` release asset, which upstream republished, so the recorded
   sha256 stopped resolving and a fresh build failed.  Both Watcom images now
