@@ -347,7 +347,7 @@ class TestResolveCflags:
         assert resolve_cflags(cfg2, "", "GAME") == "/O2 /Gd"
 
     def test_posix_profile_never_gets_msvc_fallback(self) -> None:
-        """A posix-style profile (gcc-pe/watcom/tc16/...) with no configured
+        """A posix-style profile (mingw/watcom/borland-3.1/...) with no configured
         cflags must not inherit the MSVC-only `/O2 /Gd` fallback — gcc rejects
         "/O2" as a nonexistent input file (mirrors the base_cflags loader
         default in config.py, same bug class)."""

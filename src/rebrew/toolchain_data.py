@@ -14,7 +14,7 @@ from rebrew.toolchain_spec import ToolchainSource, ToolchainSpec
 #: vendor`` and mirrored in the Dockerfiles).  Same sha256 as the images
 #: download, so host trees and containers are byte-identical.
 SOURCES: dict[str, ToolchainSource] = {
-    "msvc6": ToolchainSource(
+    "msvc-6.0": ToolchainSource(
         # archaic-msvc/msvc600 — the flagship MSVC 6.0 base (VC98/Bin/CL.EXE,
         # 12.00.8168).  Byte-reproducible with the old decomp.me msvc6.0
         # source (masked-object sha256 identical), now pinned to the
@@ -25,7 +25,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/6.0-win32",
     ),
-    "msvc200": ToolchainSource(
+    "msvc-2.0": ToolchainSource(
         # archaic-msvc/msvc200 — VC 2.0 (1994), the first 32-bit compiler; bin/cl.exe.
         url="https://codeload.github.com/archaic-msvc/msvc200/tar.gz/refs/heads/master",
         sha256="0b058f103fe6b615987a85d518d7fd23389fab67c9df3cadfae22f5a70d5d000",
@@ -33,7 +33,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/2.0-win32",
     ),
-    "msvc410": ToolchainSource(
+    "msvc-4.1": ToolchainSource(
         # archaic-msvc/msvc410 — VC 4.1 (1996); bin/CL.EXE (10.10.6038).
         url="https://codeload.github.com/archaic-msvc/msvc410/tar.gz/refs/heads/master",
         sha256="21486aecd108397bdced6e2cf6a5170a3cc30280a3eba97a4a8f92985a9cc5c4",
@@ -41,7 +41,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/4.1-win32",
     ),
-    "msvc500sp1": ToolchainSource(
+    "msvc-5.0-sp1": ToolchainSource(
         # archaic-msvc/msvc500sp1 — VC 5.0 SP1 (CL.EXE identical to base 11.00.7022).
         url="https://codeload.github.com/archaic-msvc/msvc500sp1/tar.gz/refs/heads/master",
         sha256="f41e9e5a05bd7a4da97fdcc9d168aaac7898e5bfec11791c630735a7da13d303",
@@ -49,7 +49,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/5.0-sp1-win32",
     ),
-    "msvc500sp2": ToolchainSource(
+    "msvc-5.0-sp2": ToolchainSource(
         # archaic-msvc/msvc500sp2 — VC 5.0 SP2.
         url="https://codeload.github.com/archaic-msvc/msvc500sp2/tar.gz/refs/heads/master",
         sha256="551137506a6a98ca890bfe20df7d5833bc475cf7e2279d959eccce0485525c8e",
@@ -57,7 +57,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/5.0-sp2-win32",
     ),
-    "msvc500sp3": ToolchainSource(
+    "msvc-5.0-sp3": ToolchainSource(
         # archaic-msvc/msvc500sp3 — VC 5.0 SP3.
         url="https://codeload.github.com/archaic-msvc/msvc500sp3/tar.gz/refs/heads/master",
         sha256="cdba2878eaacd07cb289b73f08250e2c39596fc9b31a2ad7a4fd887879be1e38",
@@ -65,7 +65,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/5.0-sp3-win32",
     ),
-    "msvc600sp1": ToolchainSource(
+    "msvc-6.0-sp1": ToolchainSource(
         # archaic-toolchains/msvc600_sp1 — VC 6.0 SP1 (1998).  The full RTM
         # product tree (archaic-msvc msvc600 + VS6 Enterprise CD1 CRT/debug/
         # redist) plus the files SP1 is documented to have fixed (strftime.c,
@@ -79,7 +79,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/6.0-sp1-win32",
     ),
-    "msvc600sp2": ToolchainSource(
+    "msvc-6.0-sp2": ToolchainSource(
         # archaic-toolchains/msvc600_sp2 — VC 6.0 SP2 (1999).  The full RTM
         # tree plus the entire official SP2 payload (crt/src, debug, lib,
         # mfc/src, mfc/lib from the MSDN Disc 18 VS6SP2 CABs) and the SP2
@@ -91,7 +91,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/6.0-sp2-win32",
     ),
-    "msvc600sp4": ToolchainSource(
+    "msvc-6.0-sp4": ToolchainSource(
         # archaic-toolchains/msvc600_sp4 — VC 6.0 SP4 (2000) full tree with
         # Bin: the archaic-msvc msvc600_sp4 headers/libs plus the decomp.me
         # msvc6.4 Bin (CL.EXE 12.00.8804 — the SP4+ driver; sha-verified
@@ -102,9 +102,9 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/6.0-sp4-win32",
     ),
-    "msvc600sp3": ToolchainSource(
+    "msvc-6.0-sp3": ToolchainSource(
         # OmniBlade decomp.me msvc6.3 — VC 6.0 SP3 (CL.EXE 12.00.8168, the
-        # RTM..SP3 build; identical to the flagship msvc6 compiler).  The
+        # RTM..SP3 build; identical to the flagship msvc-6.0 compiler).  The
         # archaic-msvc msvc600_sp3 repo carries no Bin/, so the decomp.me
         # mirror (which matches the vendored tree byte-for-byte) is pinned.
         url="https://github.com/OmniBlade/decomp.me/releases/download/msvcwin9x/msvc6.3.tar.gz",
@@ -112,7 +112,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar",
         host_dir="msvc/6.0-sp3-win32",
     ),
-    "msvc600sp5": ToolchainSource(
+    "msvc-6.0-sp5": ToolchainSource(
         # archaic-msvc/msvc600_sp5 — VC 6.0 SP5 full product tree (VC98/Bin,
         # CL.EXE 12.00.8804).  The archaic sp3/sp4 repos carry no Bin/, and
         # decomp.me's msvc6.4/6.5 mislabel the SP6 compiler, so SP5 is the
@@ -123,7 +123,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/6.0-sp5-win32",
     ),
-    "msvc600sp5pp": ToolchainSource(
+    "msvc-6.0-sp5-pp": ToolchainSource(
         # archaic-msvc/msvc600_sp5_vcpp — VC 6.0 SP5 with the Visual C++ 6.0
         # Processor Pack already applied (extracted tree, so no installer
         # runs).  The pack replaces the code generator (c2.dll 13.00.9044.0),
@@ -138,7 +138,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/6.0-sp5-pp-win32",
     ),
-    "msvc600sp6": ToolchainSource(
+    "msvc-6.0-sp6": ToolchainSource(
         # archaic-msvc/msvc600_sp6 — VC 6.0 SP6 full product tree
         # (VC98/Bin/CL.EXE, 12.00.8804 — the same compiler the SP4 CD and
         # SP5 carry).  The repo stashes mspdb60.dll under Common/MSDev98/Bin
@@ -149,8 +149,8 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/6.0-sp6-win32",
     ),
-    "msvc7": ToolchainSource(
-        # archaic-msvc/msvc710 — the legacy "msvc7" profile's compiler is
+    "msvc-7.0": ToolchainSource(
+        # archaic-msvc/msvc710 — the legacy "msvc-7.0" profile's compiler is
         # cl.exe 13.10.3077 (the .NET 2003 build); archaic-msvc carries it
         # in msvc710 (Vc7/bin layout).  The vendored 7.0-win32 host tree
         # keeps its flat Bin/ layout (established config); the image builds
@@ -161,17 +161,17 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/7.0-win32",
     ),
-    "msvc700": ToolchainSource(
+    "msvc-7.0-rtm": ToolchainSource(
         # archaic-msvc/msvc700 — the true VC 7.0 (2002) compiler (13.00.9466;
         # 7.0-SP1 shipped the identical binary).  Vc7/bin/cl.exe layout; the
-        # canonical 7.0-win32 dir stays with the established msvc7 profile.
+        # canonical 7.0-win32 dir stays with the established msvc-7.0 profile.
         url="https://codeload.github.com/archaic-msvc/msvc700/tar.gz/refs/heads/master",
         sha256="5f75462fb6134ad56c3ae28cf8b1e3b2869578d4171568b7a1fcdfb0bf97830b",
         commit="97fe4cdeaeb0bb934591d4b05eb52c2e8ab3e34b",
         layout="tar-strip1",
         host_dir="msvc/7.0-rtm-win32",
     ),
-    "msvc700sp1": ToolchainSource(
+    "msvc-7.0-sp1": ToolchainSource(
         # archaic-msvc/msvc700_sp1 — VC 7.0 SP1 (same 13.00.9466 compiler,
         # updated headers/libs).
         url="https://codeload.github.com/archaic-msvc/msvc700_sp1/tar.gz/refs/heads/master",
@@ -180,16 +180,16 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/7.0-sp1-win32",
     ),
-    "msvc710": ToolchainSource(
+    "msvc-7.1": ToolchainSource(
         # archaic-msvc/msvc710 — VC 7.1 (.NET 2003; cl.exe 13.10.3077, the
-        # same build the legacy msvc7 profile carries).  Vc7/bin/cl.exe.
+        # same build the legacy msvc-7.0 profile carries).  Vc7/bin/cl.exe.
         url="https://codeload.github.com/archaic-msvc/msvc710/tar.gz/refs/heads/master",
         sha256="618e876bc06431498fa98e71a408d822a5fad979219ce3253318d099a6917b27",
         commit="2932d76fe417b0bc49010b26d4be2e5b743cc4be",
         layout="tar-strip1",
         host_dir="msvc/7.1-win32",
     ),
-    "msvc710sp1": ToolchainSource(
+    "msvc-7.1-sp1": ToolchainSource(
         # archaic-msvc/msvc710_sp1 — VC 7.1 SP1 (cl.exe 13.10.6030).
         url="https://codeload.github.com/archaic-msvc/msvc710_sp1/tar.gz/refs/heads/master",
         sha256="44246ff2980d715c2d05eaed505344a0b87850a04606482c13ba4832ddf5ec70",
@@ -197,7 +197,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/7.1-sp1-win32",
     ),
-    "msvc800": ToolchainSource(
+    "msvc-8.0": ToolchainSource(
         # archaic-msvc/msvc800 — VC 8.0 (2005; cl.exe 14.00.50727).  VC/bin.
         url="https://codeload.github.com/archaic-msvc/msvc800/tar.gz/refs/heads/master",
         sha256="ab819164ebd9e9d367c1178a86eb9c3337b1a8d85d1357322a3252b63ad64453",
@@ -205,7 +205,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/8.0-win32",
     ),
-    "msvc800sp1": ToolchainSource(
+    "msvc-8.0-sp1": ToolchainSource(
         # archaic-msvc/msvc800_sp1 — VC 8.0 SP1 (cl.exe 14.00.50727.762).
         url="https://codeload.github.com/archaic-msvc/msvc800_sp1/tar.gz/refs/heads/master",
         sha256="9b53b515d79839c7404944c29cdae862d3a8c1ff0d0a27a202bfc37a31f587c5",
@@ -213,7 +213,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/8.0-sp1-win32",
     ),
-    "msvc900": ToolchainSource(
+    "msvc-9.0": ToolchainSource(
         # archaic-msvc/msvc900 — VC 9.0 (2008; cl.exe 15.00.21022).  VC/bin;
         # the repo carries no SP1 tarball (VC 2008 SP1's 15.00.30729 compiler
         # is not preserved publicly) — the base 9.0 profile is the matchable
@@ -224,8 +224,8 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/9.0-win32",
     ),
-    "msvc900sp1": ToolchainSource(
-        # archaic-toolchains/msvc900_sp1 — VC 9.0 SP1 (2008): the msvc900 base
+    "msvc-9.0-sp1": ToolchainSource(
+        # archaic-toolchains/msvc900_sp1 — VC 9.0 SP1 (2008): the msvc-9.0 base
         # plus the 15.00.30729.01 compiler (cl/c1/c1xx/c2/link/mspdb80,
         # Professional-edition series) and 122 SP1 headers/libs, extracted
         # from the official VS2008 SP1 DVD (VS90sp1-KB945140-X86-ENU.msp).
@@ -236,7 +236,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/9.0-sp1-win32",
     ),
-    "msvc1100": ToolchainSource(
+    "msvc-11.0": ToolchainSource(
         # archaic-msvc/msvc1100 — VC 11.0 / VS 2012 (cl.exe 17.00.50522.1).
         # VC/bin + Windows Kits + a wine/ runner dir; the newest compiler the
         # archaic-msvc org carries.
@@ -246,7 +246,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/11.0-win32",
     ),
-    "msvc1000": ToolchainSource(
+    "msvc-10.0": ToolchainSource(
         # archaic-msvc/msvc1000 — VC 10.0 (2010; cl.exe 16.00.30319).  VC/bin.
         url="https://codeload.github.com/archaic-msvc/msvc1000/tar.gz/refs/heads/master",
         sha256="5f0b4486eb68e0069bb11506bcc8834710ac92ac1e7f311b3e4400a9d5d9409f",
@@ -254,7 +254,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/10.0-win32",
     ),
-    "msvc1000sp1": ToolchainSource(
+    "msvc-10.0-sp1": ToolchainSource(
         # archaic-msvc/msvc1000_sp1 — VC 10.0 SP1 (cl.exe 16.00.40219).
         url="https://codeload.github.com/archaic-msvc/msvc1000_sp1/tar.gz/refs/heads/master",
         sha256="2e5fbb9b71ed8cb2673594484d6a8fad7484c809ecefffaf3319e0164af6f89b",
@@ -262,7 +262,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/10.0-sp1-win32",
     ),
-    "msvc15": ToolchainSource(
+    "msvc-1.5": ToolchainSource(
         # Committed tree extracted from the archive.org en_vc152 item
         # (VC 1.5, 1993, 16-bit) — RAR SFX extracts cleanly for 1.5 (the
         # 1.52 SFX corrupts), so the verified tree is vendored under the
@@ -271,7 +271,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar",
         host_dir="msvc/1.5-win16",
     ),
-    "msvc10": ToolchainSource(
+    "msvc-1.0": ToolchainSource(
         # Assembled from the WinWorldPC "Microsoft Visual C++ 1.0
         # Professional" 3.5" floppy set (20×1.44MB, SZDD-compressed payload;
         # 7z-extracted + renamed), then vendored under the rebrew-toolchains
@@ -282,17 +282,17 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar",
         host_dir="msvc/1.0-win16",
     ),
-    "msvc1.52": ToolchainSource(
+    "msvc-1.52": ToolchainSource(
         in_repo="msvc/1.52-win16/msvc152.tar.xz",
         layout="tar",
         host_dir="msvc/1.52-win16",
     ),
-    "delphi16": ToolchainSource(
+    "delphi-1.0": ToolchainSource(
         in_repo="delphi/1.0-win16/delphi10.tar.xz",
         layout="tar",
         host_dir="delphi/1.0-win16",
     ),
-    "ido5.3": ToolchainSource(
+    "ido-5.3": ToolchainSource(
         # decompals/ido-static-recomp v1.2 — statically recompiled SGI IDO 5.3
         # (MIPS-II big-endian, N64).  Native Linux x86_64 binaries; the same
         # sha256 the rebrew/ido:5.3-linux image downloads at build time.
@@ -301,7 +301,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar",
         host_dir="ido/5.3-linux",
     ),
-    "ido7.1": ToolchainSource(
+    "ido-7.1": ToolchainSource(
         # decompals/ido-static-recomp v1.2 — statically recompiled SGI IDO 7.1
         # (MIPS-II big-endian, N64).  Native Linux x86_64 binaries; the same
         # sha256 the rebrew/ido:7.1-linux image downloads at build time.
@@ -310,7 +310,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar",
         host_dir="ido/7.1-linux",
     ),
-    "clang": ToolchainSource(
+    "clang-18.1.8": ToolchainSource(
         # LLVM's official prebuilt x86_64 Linux release (llvmorg-18.1.8 — the
         # only x86_64 Linux asset that release published).  Native ELF
         # binaries; the same sha256 the rebrew/clang:18.1.8-linux-x64 image
@@ -320,7 +320,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="clang/18.1.8-linux-x64",
     ),
-    "clang16": ToolchainSource(
+    "clang-16.0.4": ToolchainSource(
         # llvmorg-16.0.4 — the newest 16.x release with an x86_64 Linux
         # asset (16.0.5/16.0.6 shipped aarch64 and powerpc64le only).
         url="https://github.com/llvm/llvm-project/releases/download/llvmorg-16.0.4/clang+llvm-16.0.4-x86_64-linux-gnu-ubuntu-22.04.tar.xz",
@@ -328,36 +328,36 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="clang/16.0.4-linux-x64",
     ),
-    "gcc": ToolchainSource(
+    "gcc-14.2.0": ToolchainSource(
         # GNU GCC 14.2.0 release tarball; the image builds C-only from it.
         url="https://ftp.gnu.org/gnu/gcc/gcc-14.2.0/gcc-14.2.0.tar.xz",
         sha256="a7b39bc69cbf9e25826c5a60ab26477001f7c08d85cec04bc0e29cabed6f3cc9",
         layout="tar-strip1",
         host_dir="gcc/14.2.0-linux-x64",
     ),
-    "gcc12": ToolchainSource(
+    "gcc-12.3.0": ToolchainSource(
         # GNU GCC 12.3.0 release tarball; the image builds C-only from it.
         url="https://ftp.gnu.org/gnu/gcc/gcc-12.3.0/gcc-12.3.0.tar.xz",
         sha256="949a5d4f99e786421a93b532b22ffab5578de7321369975b91aec97adfda8c3b",
         layout="tar-strip1",
         host_dir="gcc/12.3.0-linux-x64",
     ),
-    "gcc-pe": ToolchainSource(
+    "mingw-16.2.0": ToolchainSource(
         # niXman/mingw-builds-binaries — the i686-w64-mingw32 target, Windows
         # host (the driver is a PE32 binary the image runs under wine); the
         # archive wraps its tree in mingw32/.
         url="https://github.com/niXman/mingw-builds-binaries/releases/download/16.2.0-rt_v14-rev1/i686-16.2.0-release-posix-dwarf-msvcrt-rt_v14-rev1.7z",
         sha256="9773342cba88efe50e6f3ddd021ac6f1d9ac1957301705fe64def22f501f0dd4",
         layout="7z-strip1",
-        host_dir="gcc-pe/16.2.0-win32",
+        host_dir="mingw/16.2.0-win32",
     ),
-    "gcc-pe14": ToolchainSource(
+    "mingw-14.2.0": ToolchainSource(
         url="https://github.com/niXman/mingw-builds-binaries/releases/download/14.2.0-rt_v12-rev2/i686-14.2.0-release-posix-dwarf-msvcrt-rt_v12-rev2.7z",
         sha256="895d22c902e22d4b7b1c1b4160d1b3d70bbd6fc653b04f46b7736ef0ef5e4bc2",
         layout="7z-strip1",
-        host_dir="gcc-pe/14.2.0-win32",
+        host_dir="mingw/14.2.0-win32",
     ),
-    "watcom16": ToolchainSource(
+    "watcom-2.0-win16": ToolchainSource(
         # Open Watcom 2.0 snapshot, dated 2026-09-01.  The Last-CI-build tag
         # the `watcom` pin uses is republished on every CI run, so its
         # recorded sha256 no longer resolves upstream; the dated release is
@@ -367,13 +367,13 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="watcom/2.0-win16",
     ),
-    "borlandc55": ToolchainSource(
+    "borland-5.5": ToolchainSource(
         url="https://archive.org/download/BorlandC55/Borland%20C%2B%2B%205.5.zip",
         sha256="12affb942db2b9823292697faaa6f465b18c381ba347f9f4bf8efae6ff34cca1",
         layout="zip-installshield",
         host_dir="borland/5.5-win32",
     ),
-    "tc20": ToolchainSource(
+    "borland-2.0": ToolchainSource(
         in_repo="borland/2.0-win16/tc20.tar.xz",
         # Assembled from the archive.org turboc20 item (floppy disk images:
         # TCC.EXE 2.0/TLINK.EXE/CPP.EXE + runtime libs + headers), then
@@ -382,7 +382,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar",
         host_dir="borland/2.0-win16",
     ),
-    "tc16": ToolchainSource(
+    "borland-3.1": ToolchainSource(
         in_repo="borland/3.1-win16/tc31.tar.xz",
         # Original download (sha256-verified once, then vendored under the
         # rebrew-toolchains checkout for deterministic builds): archive.org
@@ -391,14 +391,14 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar",
         host_dir="borland/3.1-win16",
     ),
-    "watcom": ToolchainSource(
+    "watcom-2.0-win32": ToolchainSource(
         url="https://github.com/open-watcom/open-watcom-v2/releases/download/Last-CI-build/ow-snapshot.tar.xz",
         sha256="99e494d9a3871f58a6398268e8f04003affa73421ca5fb49e3815a8ef1bb7b1f",
         commit="",
         layout="tar-strip1",
         host_dir="watcom/2.0-win32",
     ),
-    "msvc420": ToolchainSource(
+    "msvc-4.2": ToolchainSource(
         # archaic-msvc snapshot — the vendored toolchain/msvc/4.2-win32 tree
         # is a byte-identical extraction of this repo tarball (verified: file
         # list + CL.EXE match).  Previously vendored but NOT pinned, so a
@@ -409,7 +409,7 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/4.2-win32",
     ),
-    "msvc5": ToolchainSource(
+    "msvc-5.0": ToolchainSource(
         # archaic-msvc snapshot — vendored toolchain/msvc/5.0-win32 is a
         # byte-identical extraction (verified).  Same sha256 the doctor hint
         # for the 5.0 layout already pointed at (codeload archaic-msvc/msvc500).
@@ -419,10 +419,10 @@ SOURCES: dict[str, ToolchainSource] = {
         layout="tar-strip1",
         host_dir="msvc/5.0-win32",
     ),
-    "msvc400": ToolchainSource(
+    "msvc-4.0": ToolchainSource(
         # itsmattkc/MSVC400 — the classic MSVC 4.0 (1995) tree; BIN/CL.EXE
         # at the repo root.  Completes the msvc4x/5/6/7 profile set (config,
-        # init, and the detector already knew msvc400; only the toolchain
+        # init, and the detector already knew msvc-4.0; only the toolchain
         # registry lacked it).
         url="https://codeload.github.com/itsmattkc/MSVC400/tar.gz/refs/heads/master",
         sha256="c076ab51bb5a52c805c85603d565ac406beec1a0accf3829127369294f1aff11",
@@ -438,8 +438,8 @@ SOURCES: dict[str, ToolchainSource] = {
 #: this plus entry-point providers and the project-level TOML overlay; keep
 #: the distinction so "packaged specs" and "user components" never blur.
 BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
-    "msvc400": ToolchainSpec(
-        name="msvc400",
+    "msvc-4.0": ToolchainSpec(
+        name="msvc-4.0",
         image="rebrew/msvc:4.0-win32",
         binary="cl",
         runtime="wine",
@@ -451,8 +451,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         else None,
         description="MSVC 4.0 (32-bit PE, C89) — docker image (wine inside)",
     ),
-    "msvc420": ToolchainSpec(
-        name="msvc420",
+    "msvc-4.2": ToolchainSpec(
+        name="msvc-4.2",
         image="rebrew/msvc:4.2-win32",
         binary="cl",
         runtime="wine",
@@ -464,8 +464,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         else None,
         description="MSVC 4.2 (32-bit PE, C89) — docker image (wine inside)",
     ),
-    "msvc5": ToolchainSpec(
-        name="msvc5",
+    "msvc-5.0": ToolchainSpec(
+        name="msvc-5.0",
         image="rebrew/msvc:5.0-win32",
         binary="cl",
         runtime="wine",
@@ -477,8 +477,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         else None,
         description="MSVC 5.0 (32-bit PE, C89) — docker image (wine inside)",
     ),
-    "msvc6": ToolchainSpec(
-        name="msvc6",
+    "msvc-6.0": ToolchainSpec(
+        name="msvc-6.0",
         image="rebrew/msvc:6.0-win32",
         binary="cl",
         runtime="wine",
@@ -490,8 +490,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         else None,
         description="MSVC 6.0 (32-bit PE, C89) — docker image (wine inside)",
     ),
-    "delphi16": ToolchainSpec(
-        name="delphi16",
+    "delphi-1.0": ToolchainSpec(
+        name="delphi-1.0",
         image="rebrew/delphi:1.0-win16",
         binary="DCC.EXE",
         image_binary=None,  # the image ENTRYPOINT is the dcc wrapper
@@ -502,28 +502,28 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_path=vendored_path("delphi/1.0-win16"),
         description="Borland Delphi 1.0 (16-bit NE) — DOSBox",
     ),
-    "gcc-pe": ToolchainSpec(
-        name="gcc-pe",
-        image="rebrew/gcc-pe:16.2.0-win32",
+    "mingw-16.2.0": ToolchainSpec(
+        name="mingw-16.2.0",
+        image="rebrew/mingw:16.2.0-win32",
         binary="i686-w64-mingw32-gcc",
-        image_binary=None,  # the image ENTRYPOINT is the gcc-pe wrapper
+        image_binary=None,  # the image ENTRYPOINT is the mingw-16.2.0 wrapper
         runtime="wine",  # the mingw-builds driver is a Windows PE binary
         flags_style="posix",
         obj_ext=".obj",  # PE/COFF object for the i686-w64-mingw32 target
         description="MinGW-w64 GCC 16.2.0 (PE/x86_32) — docker image (wine inside)",
     ),
-    "gcc-pe14": ToolchainSpec(
-        name="gcc-pe14",
-        image="rebrew/gcc-pe:14.2.0-win32",
+    "mingw-14.2.0": ToolchainSpec(
+        name="mingw-14.2.0",
+        image="rebrew/mingw:14.2.0-win32",
         binary="i686-w64-mingw32-gcc",
-        image_binary=None,  # the image ENTRYPOINT is the gcc-pe wrapper
+        image_binary=None,  # the image ENTRYPOINT is the mingw-16.2.0 wrapper
         runtime="wine",  # the mingw-builds driver is a Windows PE binary
         flags_style="posix",
         obj_ext=".obj",  # PE/COFF object for the i686-w64-mingw32 target
         description="MinGW-w64 GCC 14.2.0 (PE/x86_32) — docker image (wine inside)",
     ),
-    "gcc": ToolchainSpec(
-        name="gcc",
+    "gcc-14.2.0": ToolchainSpec(
+        name="gcc-14.2.0",
         image="rebrew/gcc:14.2.0-linux-x64",
         binary="gcc",
         image_binary=None,  # the image ENTRYPOINT is the gcc wrapper
@@ -532,8 +532,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         obj_ext=".o",  # ELF x86_64 object
         description="GCC 14.2.0 (ELF/x86_64) — docker image (native, built from source)",
     ),
-    "gcc12": ToolchainSpec(
-        name="gcc12",
+    "gcc-12.3.0": ToolchainSpec(
+        name="gcc-12.3.0",
         image="rebrew/gcc:12.3.0-linux-x64",
         binary="gcc",
         image_binary=None,  # the image ENTRYPOINT is the gcc wrapper
@@ -542,8 +542,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         obj_ext=".o",  # ELF x86_64 object
         description="GCC 12.3.0 (ELF/x86_64) — docker image (native, built from source)",
     ),
-    "clang": ToolchainSpec(
-        name="clang",
+    "clang-18.1.8": ToolchainSpec(
+        name="clang-18.1.8",
         image="rebrew/clang:18.1.8-linux-x64",
         binary="clang",
         image_binary=None,  # the image ENTRYPOINT is the clang wrapper
@@ -552,8 +552,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         obj_ext=".o",  # ELF x86_64 object
         description="Clang 18.1.8 (ELF/x86_64) — docker image (native, LLVM release build)",
     ),
-    "clang16": ToolchainSpec(
-        name="clang16",
+    "clang-16.0.4": ToolchainSpec(
+        name="clang-16.0.4",
         image="rebrew/clang:16.0.4-linux-x64",
         binary="clang",
         image_binary=None,  # the image ENTRYPOINT is the clang wrapper
@@ -562,8 +562,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         obj_ext=".o",  # ELF x86_64 object
         description="Clang 16.0.4 (ELF/x86_64) — docker image (native, LLVM release build)",
     ),
-    "ido5.3": ToolchainSpec(
-        name="ido5.3",
+    "ido-5.3": ToolchainSpec(
+        name="ido-5.3",
         image="rebrew/ido:5.3-linux",
         binary="cc",
         runtime="native",  # ido-static-recomp binaries run natively on Linux
@@ -571,8 +571,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         obj_ext=".o",  # ELF MIPS object
         description="IDO 5.3 reimplementation (MIPS-II BE, N64) — docker image (native Linux)",
     ),
-    "ido7.1": ToolchainSpec(
-        name="ido7.1",
+    "ido-7.1": ToolchainSpec(
+        name="ido-7.1",
         image="rebrew/ido:7.1-linux",
         binary="cc",
         runtime="native",  # ido-static-recomp binaries run natively on Linux
@@ -580,8 +580,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         obj_ext=".o",  # ELF MIPS object
         description="IDO 7.1 reimplementation (MIPS-II BE, N64) — docker image (native Linux)",
     ),
-    "watcom": ToolchainSpec(
-        name="watcom",
+    "watcom-2.0-win32": ToolchainSpec(
+        name="watcom-2.0-win32",
         image="rebrew/watcom:2.0-win32",
         binary="wcc386",
         image_binary=None,  # the image ENTRYPOINT is wcc386
@@ -594,8 +594,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="binl",
         description="Open Watcom 2.0 (x86 32-bit) — docker image (native Linux wcc386)",
     ),
-    "msvc1.52": ToolchainSpec(
-        name="msvc1.52",
+    "msvc-1.52": ToolchainSpec(
+        name="msvc-1.52",
         image="rebrew/msvc:1.52-win16",
         binary="CL.EXE",
         image_binary=None,  # the image ENTRYPOINT is the cl16 wrapper
@@ -608,8 +608,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         else None,
         description="MSVC 1.52 (16-bit, Windows 3.x) — DOSBox via rebrew.msvc16",
     ),
-    "msvc200": ToolchainSpec(
-        name="msvc200",
+    "msvc-2.0": ToolchainSpec(
+        name="msvc-2.0",
         image="rebrew/msvc:2.0-win32",
         binary="cl",
         runtime="wine",
@@ -622,8 +622,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="bin",
         description="MSVC 2.0 (32-bit PE, C89) — docker image (wine inside)",
     ),
-    "msvc410": ToolchainSpec(
-        name="msvc410",
+    "msvc-4.1": ToolchainSpec(
+        name="msvc-4.1",
         image="rebrew/msvc:4.1-win32",
         binary="cl",
         runtime="wine",
@@ -636,8 +636,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="bin",
         description="MSVC 4.1 (32-bit PE, C89) — docker image (wine inside)",
     ),
-    "msvc500sp1": ToolchainSpec(
-        name="msvc500sp1",
+    "msvc-5.0-sp1": ToolchainSpec(
+        name="msvc-5.0-sp1",
         image="rebrew/msvc:5.0-sp1-win32",
         binary="cl",
         runtime="wine",
@@ -650,8 +650,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="bin",
         description="MSVC 5.0 SP1 (32-bit PE, C89) — docker image (wine inside)",
     ),
-    "msvc500sp2": ToolchainSpec(
-        name="msvc500sp2",
+    "msvc-5.0-sp2": ToolchainSpec(
+        name="msvc-5.0-sp2",
         image="rebrew/msvc:5.0-sp2-win32",
         binary="cl",
         runtime="wine",
@@ -664,8 +664,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="bin",
         description="MSVC 5.0 SP2 (32-bit PE, C89) — docker image (wine inside)",
     ),
-    "msvc500sp3": ToolchainSpec(
-        name="msvc500sp3",
+    "msvc-5.0-sp3": ToolchainSpec(
+        name="msvc-5.0-sp3",
         image="rebrew/msvc:5.0-sp3-win32",
         binary="cl",
         runtime="wine",
@@ -678,8 +678,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="bin",
         description="MSVC 5.0 SP3 (32-bit PE, C89) — docker image (wine inside)",
     ),
-    "msvc600sp3": ToolchainSpec(
-        name="msvc600sp3",
+    "msvc-6.0-sp3": ToolchainSpec(
+        name="msvc-6.0-sp3",
         image="rebrew/msvc:6.0-sp3-win32",
         binary="cl",
         runtime="wine",
@@ -692,8 +692,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="Bin",
         description="MSVC 6.0 SP3 (32-bit PE, C89) — docker image (wine inside)",
     ),
-    "msvc600sp1": ToolchainSpec(
-        name="msvc600sp1",
+    "msvc-6.0-sp1": ToolchainSpec(
+        name="msvc-6.0-sp1",
         image="rebrew/msvc:6.0-sp1-win32",
         binary="cl",
         runtime="wine",
@@ -706,8 +706,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="Bin",
         description="MSVC 6.0 SP1 (32-bit PE, C89) — docker image (wine inside)",
     ),
-    "msvc600sp2": ToolchainSpec(
-        name="msvc600sp2",
+    "msvc-6.0-sp2": ToolchainSpec(
+        name="msvc-6.0-sp2",
         image="rebrew/msvc:6.0-sp2-win32",
         binary="cl",
         runtime="wine",
@@ -720,8 +720,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="Bin",
         description="MSVC 6.0 SP2 (32-bit PE, C89) — docker image (wine inside)",
     ),
-    "msvc600sp4": ToolchainSpec(
-        name="msvc600sp4",
+    "msvc-6.0-sp4": ToolchainSpec(
+        name="msvc-6.0-sp4",
         image="rebrew/msvc:6.0-sp4-win32",
         binary="cl",
         runtime="wine",
@@ -734,8 +734,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="Bin",
         description="MSVC 6.0 SP4 (32-bit PE, C89) — docker image (wine inside)",
     ),
-    "msvc600sp5": ToolchainSpec(
-        name="msvc600sp5",
+    "msvc-6.0-sp5": ToolchainSpec(
+        name="msvc-6.0-sp5",
         image="rebrew/msvc:6.0-sp5-win32",
         binary="cl",
         runtime="wine",
@@ -748,8 +748,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="Bin",
         description="MSVC 6.0 SP5 (32-bit PE, C89) — docker image (wine inside)",
     ),
-    "msvc600sp5pp": ToolchainSpec(
-        name="msvc600sp5pp",
+    "msvc-6.0-sp5-pp": ToolchainSpec(
+        name="msvc-6.0-sp5-pp",
         image="rebrew/msvc:6.0-sp5-pp-win32",
         binary="cl",
         runtime="wine",
@@ -765,8 +765,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
             "— docker image (wine inside)"
         ),
     ),
-    "msvc600sp6": ToolchainSpec(
-        name="msvc600sp6",
+    "msvc-6.0-sp6": ToolchainSpec(
+        name="msvc-6.0-sp6",
         image="rebrew/msvc:6.0-sp6-win32",
         binary="cl",
         runtime="wine",
@@ -779,8 +779,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="Bin",
         description="MSVC 6.0 SP6 (32-bit PE, C89) — docker image (wine inside)",
     ),
-    "msvc7": ToolchainSpec(
-        name="msvc7",
+    "msvc-7.0": ToolchainSpec(
+        name="msvc-7.0",
         image="rebrew/msvc:7.0-win32",
         binary="cl",
         runtime="wine",
@@ -793,8 +793,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="Bin",
         description="MSVC 7.0 (32-bit PE, C89) — docker image (wine inside) (13.10.3077 build)",
     ),
-    "msvc700": ToolchainSpec(
-        name="msvc700",
+    "msvc-7.0-rtm": ToolchainSpec(
+        name="msvc-7.0-rtm",
         image="rebrew/msvc:7.0-rtm-win32",
         binary="cl",
         runtime="wine",
@@ -807,8 +807,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="bin",
         description="MSVC 7.0 RTM (32-bit PE, C89, 13.00.9466) — docker image (wine inside)",
     ),
-    "msvc700sp1": ToolchainSpec(
-        name="msvc700sp1",
+    "msvc-7.0-sp1": ToolchainSpec(
+        name="msvc-7.0-sp1",
         image="rebrew/msvc:7.0-sp1-win32",
         binary="cl",
         runtime="wine",
@@ -821,8 +821,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="bin",
         description="MSVC 7.0 SP1 (32-bit PE, C89, 13.00.9466) — docker image (wine inside)",
     ),
-    "msvc710": ToolchainSpec(
-        name="msvc710",
+    "msvc-7.1": ToolchainSpec(
+        name="msvc-7.1",
         image="rebrew/msvc:7.1-win32",
         binary="cl",
         runtime="wine",
@@ -835,8 +835,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="bin",
         description="MSVC 7.1 (32-bit PE, C89, 13.10.3077) — docker image (wine inside)",
     ),
-    "msvc710sp1": ToolchainSpec(
-        name="msvc710sp1",
+    "msvc-7.1-sp1": ToolchainSpec(
+        name="msvc-7.1-sp1",
         image="rebrew/msvc:7.1-sp1-win32",
         binary="cl",
         runtime="wine",
@@ -849,8 +849,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="bin",
         description="MSVC 7.1 SP1 (32-bit PE, C89, 13.10.6030) — docker image (wine inside)",
     ),
-    "msvc800": ToolchainSpec(
-        name="msvc800",
+    "msvc-8.0": ToolchainSpec(
+        name="msvc-8.0",
         image="rebrew/msvc:8.0-win32",
         binary="cl",
         runtime="wine",
@@ -863,8 +863,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="bin",
         description="MSVC 8.0 (32-bit PE, C89, 14.00.50727) — docker image (wine inside)",
     ),
-    "msvc800sp1": ToolchainSpec(
-        name="msvc800sp1",
+    "msvc-8.0-sp1": ToolchainSpec(
+        name="msvc-8.0-sp1",
         image="rebrew/msvc:8.0-sp1-win32",
         binary="cl",
         runtime="wine",
@@ -877,8 +877,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="bin",
         description="MSVC 8.0 SP1 (32-bit PE, C89, 14.00.50727.762) — docker image (wine inside)",
     ),
-    "msvc900": ToolchainSpec(
-        name="msvc900",
+    "msvc-9.0": ToolchainSpec(
+        name="msvc-9.0",
         image="rebrew/msvc:9.0-win32",
         binary="cl",
         runtime="wine",
@@ -891,8 +891,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="bin",
         description="MSVC 9.0 (32-bit PE, C89, 15.00.21022) — docker image (wine inside)",
     ),
-    "msvc900sp1": ToolchainSpec(
-        name="msvc900sp1",
+    "msvc-9.0-sp1": ToolchainSpec(
+        name="msvc-9.0-sp1",
         image="rebrew/msvc:9.0-sp1-win32",
         binary="cl",
         runtime="wine",
@@ -905,8 +905,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="bin",
         description="MSVC 9.0 SP1 (32-bit PE, C89, 15.00.30729) — docker image (wine inside)",
     ),
-    "msvc1100": ToolchainSpec(
-        name="msvc1100",
+    "msvc-11.0": ToolchainSpec(
+        name="msvc-11.0",
         image="rebrew/msvc:11.0-win32",
         binary="cl",
         runtime="wine",
@@ -919,8 +919,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="bin",
         description="MSVC 11.0 (32-bit PE, C++, 17.00.50522) — docker image (wine inside)",
     ),
-    "msvc1000": ToolchainSpec(
-        name="msvc1000",
+    "msvc-10.0": ToolchainSpec(
+        name="msvc-10.0",
         image="rebrew/msvc:10.0-win32",
         binary="cl",
         runtime="wine",
@@ -933,8 +933,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="bin",
         description="MSVC 10.0 (32-bit PE, C89, 16.00.30319) — docker image (wine inside)",
     ),
-    "msvc1000sp1": ToolchainSpec(
-        name="msvc1000sp1",
+    "msvc-10.0-sp1": ToolchainSpec(
+        name="msvc-10.0-sp1",
         image="rebrew/msvc:10.0-sp1-win32",
         binary="cl",
         runtime="wine",
@@ -947,8 +947,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="bin",
         description="MSVC 10.0 SP1 (32-bit PE, C89, 16.00.40219) — docker image (wine inside)",
     ),
-    "msvc15": ToolchainSpec(
-        name="msvc15",
+    "msvc-1.5": ToolchainSpec(
+        name="msvc-1.5",
         image="rebrew/msvc:1.5-win16",
         binary="CL.EXE",
         image_binary=None,  # the image ENTRYPOINT is the cl15 wrapper
@@ -962,8 +962,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="BIN",
         description="MSVC 1.5 (16-bit, Windows 3.x) — DOSBox via rebrew.msvc16 (version=1.5-win16)",
     ),
-    "msvc10": ToolchainSpec(
-        name="msvc10",
+    "msvc-1.0": ToolchainSpec(
+        name="msvc-1.0",
         image="rebrew/msvc:1.0-win16",
         binary="CL.EXE",
         image_binary=None,  # the image ENTRYPOINT is the cl10 wrapper
@@ -977,8 +977,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="BIN",
         description="MSVC 1.0 (16-bit, Windows 3.x) — DOSBox via rebrew.msvc16 (version=1.0-win16)",
     ),
-    "tc20": ToolchainSpec(
-        name="tc20",
+    "borland-2.0": ToolchainSpec(
+        name="borland-2.0",
         image="rebrew/borland:2.0-win16",
         binary="TCC.EXE",
         runtime="dosbox",
@@ -991,8 +991,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="BIN",
         description="Turbo C 2.0 (16-bit DOS) — DOSBox via rebrew.tc16 (version=2.0)",
     ),
-    "tc16": ToolchainSpec(
-        name="tc16",
+    "borland-3.1": ToolchainSpec(
+        name="borland-3.1",
         image="rebrew/borland:3.1-win16",
         binary="TCC.EXE",
         runtime="dosbox",
@@ -1005,8 +1005,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         host_bin="BIN",
         description="Turbo C++ 3.1 (16-bit DOS) — DOSBox via rebrew.tc16",
     ),
-    "borlandc55": ToolchainSpec(
-        name="borlandc55",
+    "borland-5.5": ToolchainSpec(
+        name="borland-5.5",
         image="rebrew/borland:5.5-win32",
         binary="bcc32.exe",
         runtime="wine",
@@ -1018,8 +1018,8 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         else None,
         description="Borland C++ 5.5 (32-bit PE, C89) — docker image (wine inside) (free command-line tools)",
     ),
-    "watcom16": ToolchainSpec(
-        name="watcom16",
+    "watcom-2.0-win16": ToolchainSpec(
+        name="watcom-2.0-win16",
         image="rebrew/watcom:2.0-win16",
         binary="wcc",
         image_binary=None,  # the image ENTRYPOINT is the wcc wrapper

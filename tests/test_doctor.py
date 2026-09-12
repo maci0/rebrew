@@ -194,7 +194,7 @@ class TestDockerIncludeLibs:
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         return _make_cfg(
             tmp_path,
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             compiler_includes=tmp_path / "nope" / "include",
             compiler_libs=tmp_path / "nope" / "lib",
         )
@@ -216,15 +216,15 @@ class TestDockerIncludeLibs:
         lib = check_libs(self._cfg(tmp_path))
         assert lib.status == _WARN
 
-    def test_image_backed_gcc_pe_ignores_the_host_include_path(
+    def test_image_backed_mingw_ignores_the_host_include_path(
         self, tmp_path: Path, monkeypatch
     ) -> None:
-        """gcc-pe is image-backed: its headers come from the image, so a
+        """mingw-16.2.0 is image-backed: its headers come from the image, so a
         dangling host includes path is not a failure."""
         monkeypatch.setattr("rebrew.toolchain.image_present", lambda img: True)
         cfg = _make_cfg(
             tmp_path,
-            compiler_profile="gcc-pe",
+            compiler_profile="mingw-16.2.0",
             compiler_includes=tmp_path / "nope" / "include",
         )
         result = check_includes(cfg)
@@ -636,7 +636,7 @@ class TestCheckGhidraSync:
 
 
 class TestCheckArchFormat16Bit:
-    """ne/x86_16 are valid for 16-bit NE targets (msvc1.52 pipeline live)."""
+    """ne/x86_16 are valid for 16-bit NE targets (msvc-1.52 pipeline live)."""
 
     def test_ne_format_valid(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path, binary_format="ne", arch="x86_16")
@@ -651,15 +651,15 @@ class TestCheckArchFormat16Bit:
 
 class TestCheckIncludes16BitProfiles:
     """The include check must accept every 16-bit-capable profile
-    check_compiler accepts, not only msvc1.52."""
+    check_compiler accepts, not only msvc-1.52."""
 
-    def test_tc16_not_warned(self, tmp_path: Path) -> None:
+    def test_borland_3_1_not_warned(self, tmp_path: Path) -> None:
         from rebrew.doctor import _WARN
 
-        cfg = _make_cfg(tmp_path, arch="x86_16", compiler_profile="tc16")
+        cfg = _make_cfg(tmp_path, arch="x86_16", compiler_profile="borland-3.1")
         result = check_includes(cfg)
         # The missing include dir is a real FAIL; the 16-bit guard must not
-        # short-circuit a tc16 project into "configure msvc1.52".
+        # short-circuit a borland-3.1 project into "configure msvc-1.52".
         assert result.status != _WARN, result.message
 
 
@@ -673,7 +673,7 @@ class TestCrtLinkage:
         return SimpleNamespace(
             root=tmp_path,
             target_binary=exe,
-            compiler_profile=overrides.pop("compiler_profile", "msvc6"),
+            compiler_profile=overrides.pop("compiler_profile", "msvc-6.0"),
             base_cflags=overrides.pop("base_cflags", "/nologo /c /MT"),
         )
 
@@ -707,7 +707,7 @@ class TestCrtLinkage:
         assert "/MD" in res.fix
 
     def test_non_msvc_skips(self, tmp_path: Path) -> None:
-        cfg = self._cfg(tmp_path, compiler_profile="gcc-pe")
+        cfg = self._cfg(tmp_path, compiler_profile="mingw-16.2.0")
         res = self.check(cfg)
         assert res.status == "skip"
 
@@ -737,7 +737,7 @@ class TestOptLevel:
         return SimpleNamespace(
             root=tmp_path,
             target_binary=exe,
-            compiler_profile=overrides.pop("compiler_profile", "msvc6"),
+            compiler_profile=overrides.pop("compiler_profile", "msvc-6.0"),
             cflags=overrides.pop("cflags", "/O2 /Gd"),
         )
 
@@ -782,7 +782,7 @@ class TestOptLevel:
         assert res.status == "skip"
 
     def test_non_msvc_skips(self, tmp_path: Path) -> None:
-        cfg = self._cfg(tmp_path, compiler_profile="gcc-pe")
+        cfg = self._cfg(tmp_path, compiler_profile="mingw-16.2.0")
         res = self.check(cfg)
         assert res.status == "skip"
 

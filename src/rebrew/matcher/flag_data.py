@@ -193,7 +193,7 @@ MSVC152_SWEEP_TIERS: dict[str, list[str] | None] = {
 }
 
 
-# Borland Turbo C++ 3.1 (tc16, 16-bit DOS) / Borland C++ 5.5 (borlandc55,
+# Borland Turbo C++ 3.1 (borland-3.1, 16-bit DOS) / Borland C++ 5.5 (borland-5.5,
 # 32-bit) — shared Borland flag dialect (-O1 size / -O2 speed / -Od none;
 # -K unsigned char default; -Z suppress redundant reloads).  Verified
 # against the real compilers (TCC under DOSBox, bcc32 under wine).
@@ -215,8 +215,8 @@ BORLAND_SWEEP_TIERS: dict[str, list[str] | None] = {
 }
 
 
-# GCC / Clang (ELF/x86_64) — posix flag family for the gcc/gcc12 and
-# clang/clang16 images.  A minimal posix flag
+# GCC / Clang (ELF/x86_64) — posix flag family for the GCC and
+# Clang images.  A minimal posix flag
 # space so `rebrew match --flag-sweep` emits flags these compilers accept
 # (the MSVC fallback would produce /O2 etc. that gcc rejects).  Clang
 # accepts the same opt levels and frame-pointer switch.

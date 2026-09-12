@@ -86,7 +86,7 @@ Delivers: *a MIPS ELF binary can be onboarded, annotated, and matched with
 
 1. Toolchain spec `gcc-mips` (native Linux cross compiler,
    `mipsel-linux-gnu-gcc` for PS1 / `mips-linux-gnu-gcc` BE for N64; per-target
-   `arch`/endianness in the spec) — copy the `gcc`/`gcc-pe` image-spec pattern
+   `arch`/endianness in the spec) — copy the `gcc-14.2.0`/`mingw-16.2.0` image-spec pattern
    (Dockerfile in the rebrew-toolchains checkout, wrapper that `rebrew_exec`s
    the compiler); `bits=32`, `arch=mips32`.
 2. `flag_data.py`: MIPS GCC flag family (minimal posix axes: `-march`, `-mabi`,
@@ -105,7 +105,7 @@ Delivers: *a MIPS ELF binary can be onboarded, annotated, and matched with
    objdiff reads ELF natively), `symbol-addrs`, `context` — all already work;
    only the objdiff machine constant needs a MIPS value.
 
-Caveat (same as `gcc-pe`, documented in AGENTS.md): `gcc-mips` gives
+Caveat (same as `mingw-16.2.0`, documented in AGENTS.md): `gcc-mips` gives
 **structural** matches; byte-exact matching for console titles needs the original
 compiler → Phase 2.
 
@@ -113,7 +113,7 @@ compiler → Phase 2.
 
 Byte-exact for N64/PS1/GC requires the actual compilers:
 
-1. ~~**IDO (SGI) reimplementation** (MIPS, N64)~~ *(DONE — `ido5.3`/`ido7.1`,
+1. ~~**IDO (SGI) reimplementation** (MIPS, N64)~~ *(DONE — `ido-5.3`/`ido-7.1`,
    images `rebrew/ido:5.3-linux`/`:7.1-linux`, in the smoke gate)* and **MWCC
    PPC** (GC/Wii) via the rebrew-toolchains image pattern — wine/wibo under
    the image, same as MSVC.  IDO uses the decompals/ido-static-recomp
@@ -154,7 +154,7 @@ Byte-exact for N64/PS1/GC requires the actual compilers:
   arch entries alongside, lean on the existing test suite + new MIPS reloc tests.
 - **Byte-exact requires the original compiler** — structural-only matches with
   cross gcc are the honest default until Phase 2 images land; document per-target
-  in AGENTS.md like the gcc-pe caveat.
+  in AGENTS.md like the mingw-16.2.0 caveat.
 - **16-bit DOS lane (OMF16/NE/MZ) stays separate** — the arch work targets
   ELF/COFF 32/64-bit; do not entangle the 16-bit paths.
 - **Naming**: new presets follow `mips32`/`ppc32` convention; `cfg.arch` is the

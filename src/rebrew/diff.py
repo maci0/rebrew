@@ -259,7 +259,7 @@ def run_diff(
         timeout=p.cfg.compile_timeout,
         extra_include_dirs=[str(p.seed_c.parent.resolve())],
         posix_style=bool(getattr(p.cfg, "posix_style", False)),
-        # Toolchain-backed profiles (watcom, msvc1.52) route through the
+        # Toolchain-backed profiles (watcom-2.0-win32, msvc-1.52) route through the
         # shared compile_to_obj runner — without this, diff compiled them
         # via the raw subprocess path and failed on the relative command.
         profile=getattr(p.cfg, "compiler_profile", ""),

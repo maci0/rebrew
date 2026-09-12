@@ -4,7 +4,7 @@ MSVC 7.0 (VS .NET 2002, CL 13.00.9466).  The first compiler to emit
 **`lea esp,[esp]` loop-alignment nops inside function bodies**, and the
 first to post-shift division magic.
 
-**Profiles:** `msvc700`, `msvc700sp1` — Rich builds 9466 (RTM), 9955
+**Profiles:** `msvc-7.0-rtm`, `msvc-7.0-sp1` — Rich builds 9466 (RTM), 9955
 (SP1); linker 7.0.
 
 ## Prologue & frame pointer
@@ -244,7 +244,7 @@ first to post-shift division magic.
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:7.0-win32` (`msvc700_{O1,O2}.obj`);
-smoke `msvc700/t.obj` and `msvc700sp1/t.obj`.  Census: `lea esp,[esp]`
+smoke `msvc-7.0-rtm/t.obj` and `msvc-7.0-sp1/t.obj`.  Census: `lea esp,[esp]`
 = 3 at /O2 (0 for every VC ≤6.0 probe), `8b ff` = 2 (operand noise —
 see [msvc-6.md](msvc-6.md) for the padding caveat).
 ## Probe29: round-29 era markers (7.0)

@@ -34,7 +34,7 @@ origins = ["GAME", "ZLIB"]
 ZLIB = "/O3"
 
 [compiler]
-profile = "msvc6"
+profile = "msvc-6.0"
 command = "wine CL.EXE"
 cflags = "/O2 /Gd"
 
@@ -492,7 +492,7 @@ class TestCLIListTargets:
 
     def test_list_targets_no_targets(self, tmp_path: Path, monkeypatch) -> None:
         (tmp_path / "rebrew-project.toml").write_text(
-            "[compiler]\nprofile = 'msvc6'\n", encoding="utf-8"
+            "[compiler]\nprofile = 'msvc-6.0'\n", encoding="utf-8"
         )
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["list-targets"])
@@ -516,7 +516,7 @@ class TestCLIShow:
         result = runner.invoke(cfg_app, ["show"])
         assert result.exit_code == 0
         assert "server.dll" in result.output
-        assert "msvc6" in result.output
+        assert "msvc-6.0" in result.output
 
     def test_show_key(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
@@ -847,7 +847,7 @@ class TestDetectCrtSources:
         (tmp_path / "tools").mkdir()
         assert detect_crt_sources(tmp_path) == {}
 
-    def test_msvc600_detected(self, tmp_path: Path) -> None:
+    def test_msvc_6_0_detected(self, tmp_path: Path) -> None:
         """Standard msvc-6.0-win32 layout is detected."""
         crt_dir = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "CRT" / "SRC"
         crt_dir.mkdir(parents=True)
@@ -1014,15 +1014,15 @@ class TestCLIAddTargetMissingBinary:
 
 
 class TestCLISetCompiler:
-    def test_set_compiler_msvc6(self, tmp_path: Path, monkeypatch) -> None:
+    def test_set_compiler_msvc_6_0(self, tmp_path: Path, monkeypatch) -> None:
         """set-compiler writes profile + includes/libs for known profile.
 
-        msvc6 is image-backed, so the legacy host wine command/runner are
+        msvc-6.0 is image-backed, so the legacy host wine command/runner are
         blanked docker-native (like init writes fresh projects).
         """
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "msvc6"])
+        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "msvc-6.0"])
         assert result.exit_code == 0
         doc, _ = load_toml(tmp_path)
         compiler_tbl = doc["targets"]["server.dll"]["compiler"]
@@ -1032,24 +1032,24 @@ class TestCLISetCompiler:
         # profile is the routing key every tool reads — must be written too
         # (config-review F1: the old code wrote only command/includes/libs,
         # so the target stayed on the default profile with wrong flag routing).
-        assert compiler_tbl["profile"] == "msvc6"
+        assert compiler_tbl["profile"] == "msvc-6.0"
 
     def test_set_compiler_gcc(self, tmp_path: Path, monkeypatch) -> None:
         """set-compiler writes correct gcc profile."""
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "gcc"])
+        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "gcc-14.2.0"])
         assert result.exit_code == 0
         doc, _ = load_toml(tmp_path)
         compiler_tbl = doc["targets"]["server.dll"]["compiler"]
         assert compiler_tbl["command"] == ""  # image-backed: docker-native blank
-        assert compiler_tbl["profile"] == "gcc"
+        assert compiler_tbl["profile"] == "gcc-14.2.0"
 
     def test_set_compiler_dry_run(self, tmp_path: Path, monkeypatch) -> None:
         """set-compiler --dry-run previews without writing."""
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "msvc6", "--dry-run"])
+        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "msvc-6.0", "--dry-run"])
         assert result.exit_code == 0
         assert "dry-run" in result.output
         doc, _ = load_toml(tmp_path)
@@ -1064,24 +1064,24 @@ class TestCLISetCompiler:
         combined = result.output + (result.stderr or "")
         assert "Unknown" in combined or "unknown" in combined
         # Must list valid options
-        assert "msvc6" in combined or "gcc" in combined or "clang" in combined
+        assert "msvc-6.0" in combined or "gcc" in combined or "clang" in combined
 
     def test_set_compiler_missing_target_rejected(self, tmp_path: Path, monkeypatch) -> None:
         """set-compiler on a non-existent target must fail."""
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cfg_app, ["set-compiler", "nonexistent", "msvc6"])
+        result = runner.invoke(cfg_app, ["set-compiler", "nonexistent", "msvc-6.0"])
         assert result.exit_code != 0
 
     def test_set_compiler_overwrites_existing(self, tmp_path: Path, monkeypatch) -> None:
         """set-compiler replaces a previously set compiler stanza."""
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        runner.invoke(cfg_app, ["set-compiler", "server.dll", "gcc"])
-        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "msvc6"])
+        runner.invoke(cfg_app, ["set-compiler", "server.dll", "gcc-14.2.0"])
+        result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "msvc-6.0"])
         assert result.exit_code == 0
         compiler_tbl = load_toml(tmp_path)[0]["targets"]["server.dll"]["compiler"]
-        assert compiler_tbl["profile"] == "msvc6"
+        assert compiler_tbl["profile"] == "msvc-6.0"
         assert compiler_tbl["command"] == ""  # image-backed: docker-native blank
 
     def test_set_compiler_native_keeps_command(self, tmp_path: Path, monkeypatch) -> None:

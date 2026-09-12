@@ -76,7 +76,7 @@ source_ext = ".c"
 marker = "SERVER"
 
 [compiler]
-profile = "gcc-pe"
+profile = "mingw-16.2.0"
 runner = ""
 command = "i686-w64-mingw32-gcc"
 includes = ""

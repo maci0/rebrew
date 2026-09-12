@@ -66,7 +66,7 @@ def _compile_cflags(cflags: str, base_cf: str, posix_style: bool = False) -> str
     sweep path silently dropped ``base_cflags`` (e.g. ``/MT``), so a
     sweep-reported exact could demote on the next test/verify.
 
-    For POSIX-style compilers (gcc-pe/mingw, clang) the ``/nologo /c`` glue
+    For POSIX-style compilers (mingw-16.2.0, clang-18.1.8) the ``/nologo /c`` glue
     is omitted — ``-c`` is added by the compile command builders.
 
     A ``base_cf`` WITHOUT ``/c`` (e.g. a bare ``/MT``) is preserved AND gets
@@ -494,10 +494,10 @@ def run_flag_sweep(
 
 
 def _sweep_filter_matches(name: str, verarch: str, filters: list[str]) -> bool:
-    """True when *name* (profile id, e.g. msvc600sp6) matches a sweep filter.
+    """True when *name* (profile id, e.g. msvc-6.0-sp6) matches a sweep filter.
 
-    A filter matches when it is the profile name itself ("msvc6"), a prefix
-    of the profile id ("msvc2" -> msvc200), or a substring of the version-arch
+    A filter matches when it is the profile name itself ("msvc-6.0"), a prefix
+    of the profile id ("msvc-2" -> msvc-2.0), or a substring of the version-arch
     ("6.0" -> every 6.0 line incl. SPs; "win16" -> all 16-bit DOSBox
     toolchains).  This is what lets a Y2K binary exclude the pre-5.0 line
     with --sweep-exclude-toolchains 2.0,4.0."""
@@ -542,10 +542,10 @@ def _vendored_msvc_toolchains(
             out.append((name, "", ""))
     # The configured profile's own compiler joins the sweep as the baseline
     # under the same filters: "--sweep-toolchains msvc4.0" means ONLY that
-    # toolchain, so the configured msvc6 must not be silently swept anyway.
+    # toolchain, so the configured msvc-6.0 must not be silently swept anyway.
     # Drop any loop entry for it first, then prepend: the baseline stays
     # first without being listed twice.
-    configured = getattr(cfg, "compiler_profile", "") or "msvc6"
+    configured = getattr(cfg, "compiler_profile", "") or "msvc-6.0"
     out = [entry for entry in out if entry[0] != configured]
     cfg_spec = TOOLCHAINS.get(configured)
     verarch = cfg_spec.image.rsplit(":", 1)[-1] if cfg_spec is not None and cfg_spec.image else ""

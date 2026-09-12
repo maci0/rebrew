@@ -322,7 +322,7 @@
         <mxCell id="run-lane" value="Execution" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;fontStyle=1;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="860" y="80" width="780" height="420" as="geometry"/>
         </mxCell>
-        <mxCell id="dock" value="&lt;b&gt;docker-only (every toolchain)&lt;/b&gt;&lt;br&gt;docker run --rm -v project:/work &amp;lt;image&amp;gt; &amp;lt;cc&amp;gt; &amp;lt;flags&amp;gt;&lt;br&gt;wine / DOSBox / native binary is inside the image.&lt;br&gt;&lt;br&gt;msvc 1.0–11.0 · borlandc55 · watcom (win32)&lt;br&gt;tc16 · msvc1.52 · delphi16 · gcc-pe · gcc · clang" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="dock" value="&lt;b&gt;docker-only (every toolchain)&lt;/b&gt;&lt;br&gt;docker run --rm -v project:/work &amp;lt;image&amp;gt; &amp;lt;cc&amp;gt; &amp;lt;flags&amp;gt;&lt;br&gt;wine / DOSBox / native binary is inside the image.&lt;br&gt;&lt;br&gt;msvc 1.0–11.0 · borland-5.5 · watcom (win32)&lt;br&gt;borland-3.1 · msvc-1.52 · delphi-1.0 · mingw-16.2.0 · gcc · clang" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="880" y="116" width="360" height="170" as="geometry"/>
         </mxCell>
         <mxCell id="nat" value="&lt;b&gt;recompile service (remote)&lt;/b&gt;&lt;br&gt;POST /api/v1/compile + artifact GET&lt;br&gt;same images, backend-pinned cache id&lt;br&gt;&lt;br&gt;[compiler] recompile_url&lt;br&gt;or REBREW_RECOMPILE_URL&lt;br&gt;opt-in emit_assembly tap" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
@@ -363,7 +363,7 @@
         <mxCell id="d1" value="&lt;b&gt;1. Detect&lt;/b&gt;&lt;br&gt;toolchain_detect.py&lt;br&gt;diec → PDB S_COMPILE3&lt;br&gt;→ codegen heuristics&lt;br&gt;(.buildid, 0f 1f nops, chkstk_ms)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="556" width="280" height="140" as="geometry"/>
         </mxCell>
-        <mxCell id="d2" value="&lt;b&gt;2. Init / cfg set&lt;/b&gt;&lt;br&gt;rebrew init --compiler msvc6|gcc-pe|…&lt;br&gt;writes [compiler] in project toml&lt;br&gt;seeds CRT / opt from detect" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="d2" value="&lt;b&gt;2. Init / cfg set&lt;/b&gt;&lt;br&gt;rebrew init --compiler msvc-6.0|mingw-16.2.0|…&lt;br&gt;writes [compiler] in project toml&lt;br&gt;seeds CRT / opt from detect" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="380" y="556" width="280" height="140" as="geometry"/>
         </mxCell>
         <mxCell id="d3" value="&lt;b&gt;3. Per-library override&lt;/b&gt;&lt;br&gt;rebrew library set&lt;br&gt;rebrew-libraries.toml walk-up&lt;br&gt;whole subtree, one image+flags" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
@@ -388,7 +388,7 @@
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
 
-        <mxCell id="caveat" value="gcc-pe caveat: byte-exact match needs the author's exact GCC (the image pins one version). Modern GCC vs 4.x–7.x usually only matches structurally (resembl / rebrew diff). Document the semantic decomp and BLOCKER rather than forcing EXACT." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
+        <mxCell id="caveat" value="mingw-16.2.0 caveat: byte-exact match needs the author's exact GCC (the image pins one version). Modern GCC vs 4.x–7.x usually only matches structurally (resembl / rebrew diff). Document the semantic decomp and BLOCKER rather than forcing EXACT." style="text;html=1;align=left;fontSize=11;fontColor=#475569;" vertex="1" parent="1">
           <mxGeometry x="40" y="736" width="1600" height="24" as="geometry"/>
         </mxCell>
       </root>
@@ -738,7 +738,7 @@
         <mxCell id="p-link" value="&lt;b&gt;[link] + [targets.&amp;lt;t&amp;gt;.layout]&lt;/b&gt;&lt;br&gt;file_align · stack_* · tsaware · timestamp&lt;br&gt;layout copy for UI + bss calibration&lt;br&gt;written by gen-layout / calibrate-bss" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefce8;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
           <mxGeometry x="80" y="356" width="370" height="80" as="geometry"/>
         </mxCell>
-        <mxCell id="p-note" value="Fail-fast: missing [targets], empty binary. Unknown keys warn. format/arch/profile fall back (pe / x86_32 / msvc6). --target selects among [targets.*]. command/runner keys are retired (ignored)." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#ea580c;fontColor=#7c2d12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
+        <mxCell id="p-note" value="Fail-fast: missing [targets], empty binary. Unknown keys warn. format/arch/profile fall back (pe / x86_32 / msvc-6.0). --target selects among [targets.*]. command/runner keys are retired (ignored)." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#ea580c;fontColor=#7c2d12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
           <mxGeometry x="470" y="356" width="370" height="80" as="geometry"/>
         </mxCell>
 
@@ -1132,7 +1132,7 @@
         <mxCell id="r3" value="&lt;b&gt;no original game PE / NE&lt;/b&gt;&lt;br&gt;in a public set. Private packs may&lt;br&gt;keep bytes; public gets C + flags only" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="720" y="1300" width="300" height="86" as="geometry"/>
         </mxCell>
-        <mxCell id="r4" value="&lt;b&gt;pin image digest&lt;/b&gt;&lt;br&gt;on every record. gcc-pe needs the&lt;br&gt;author's exact GCC or it is not truth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="r4" value="&lt;b&gt;pin image digest&lt;/b&gt;&lt;br&gt;on every record. mingw-16.2.0 needs the&lt;br&gt;author's exact GCC or it is not truth" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1050" y="1300" width="300" height="86" as="geometry"/>
         </mxCell>
         <mxCell id="r5" value="&lt;b&gt;no secrets&lt;/b&gt;&lt;br&gt;REBREW_LLM_API_KEY, [llm] keys,&lt;br&gt;claim tokens stay out of JSONL" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ef4444;fontColor=#7f1d1d;align=center;fontSize=11;" vertex="1" parent="1">

@@ -35,17 +35,17 @@ int f(int n)
 
 #: Legacy vendored toolchain dir -> rebrew profile (docker image).
 _TOOLCHAIN_PROFILES = {
-    "msvc-7.0-win32": "msvc7",
-    "msvc-4.2-win32": "msvc420",
-    "msvc-5.0-win32": "msvc5",
-    "msvc-4.0-win32": "msvc400",
+    "msvc-7.0-win32": "msvc-7.0",
+    "msvc-4.2-win32": "msvc-4.2",
+    "msvc-5.0-win32": "msvc-5.0",
+    "msvc-4.0-win32": "msvc-4.0",
 }
 
 
 def _cfg(root: Path, toolchain: str) -> SimpleNamespace:
     """Build a compile config that routes through the toolchain's docker
     image (execution is docker-only; the vendored tree is never exec'd)."""
-    profile = _TOOLCHAIN_PROFILES.get(toolchain, "msvc6")
+    profile = _TOOLCHAIN_PROFILES.get(toolchain, "msvc-6.0")
     return SimpleNamespace(
         root=root,
         compiler_command="",
@@ -64,7 +64,7 @@ def _toolchain_available(toolchain: str) -> bool:
     """True when the toolchain's docker image is built locally."""
     from rebrew.toolchain import TOOLCHAINS, image_present
 
-    profile = _TOOLCHAIN_PROFILES.get(toolchain, "msvc6")
+    profile = _TOOLCHAIN_PROFILES.get(toolchain, "msvc-6.0")
     spec = TOOLCHAINS[profile]
     return spec.image is not None and image_present(spec.image)
 
@@ -97,8 +97,8 @@ def _compile_extract_compare(tmp_path: Path, toolchain: str, cflags: list[str]) 
 @pytest.mark.parametrize(
     ("toolchain", "cflags"),
     [
-        ("msvc600sp3", ["/O2", "/Gd"]),
-        ("msvc600sp6", ["/O2", "/Gd"]),
+        ("msvc-6.0-sp3", ["/O2", "/Gd"]),
+        ("msvc-6.0-sp6", ["/O2", "/Gd"]),
         ("msvc-7.0-win32", ["/O2", "/Ob0", "/Gd"]),
         ("msvc-4.2-win32", ["/O2", "/Gd"]),
         ("msvc-5.0-win32", ["/O2", "/Gd"]),

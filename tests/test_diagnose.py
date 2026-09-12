@@ -18,7 +18,7 @@ def _cfg(tmp_path: Path, **over: object) -> SimpleNamespace:
     base: dict[str, object] = {
         "root": tmp_path,
         "metadata_dir": None,
-        "compiler_profile": "msvc6",
+        "compiler_profile": "msvc-6.0",
         "cflags": "",
         "cflags_explicit": False,
         "cflags_presets": {},
@@ -53,7 +53,7 @@ class TestDiagnoseSource:
         assert [s["source"] for s in fn["steps"]] == ["function", "library", "project"]
         assert fn["steps"][0] == {"source": "function", "toolchain": "", "cflags": ""}
         assert fn["steps"][1] == {"source": "library", "path": None}
-        assert fn["effective"] == {"toolchain": "msvc6", "cflags": "/O2 /Gd"}
+        assert fn["effective"] == {"toolchain": "msvc-6.0", "cflags": "/O2 /Gd"}
         assert fn["warnings"] == []
 
     def test_library_preset_chain(self, tmp_path: Path) -> None:
@@ -62,23 +62,23 @@ class TestDiagnoseSource:
         fn = diagnose_source(_cfg(tmp_path), src)["functions"][0]
         lib_step = fn["steps"][1]
         assert lib_step["presets"] == ["watcom-runtime"]
-        assert fn["effective"] == {"toolchain": "watcom", "cflags": "-ot"}
+        assert fn["effective"] == {"toolchain": "watcom-2.0-win32", "cflags": "-ot"}
         assert fn["warnings"] == []
 
     def test_function_metadata_beats_all(self, tmp_path: Path) -> None:
         src = _src(
             tmp_path,
             "f2.c",
-            "// FUNCTION: DEMO 0x01003000\n// TOOLCHAIN: msvc600sp6\n// CFLAGS: /O1\n"
+            "// FUNCTION: DEMO 0x01003000\n// TOOLCHAIN: msvc-6.0-sp6\n// CFLAGS: /O1\n"
             "int f2(int a) { return a - 1; }\n",
         )
         fn = diagnose_source(_cfg(tmp_path), src)["functions"][0]
         assert fn["steps"][0] == {
             "source": "function",
-            "toolchain": "msvc600sp6",
+            "toolchain": "msvc-6.0-sp6",
             "cflags": "/O1",
         }
-        assert fn["effective"] == {"toolchain": "msvc600sp6", "cflags": "/O1"}
+        assert fn["effective"] == {"toolchain": "msvc-6.0-sp6", "cflags": "/O1"}
 
     def test_explicit_empty_cflags_suppresses_fallback(self, tmp_path: Path) -> None:
         src = _src(tmp_path, "f.c", _FN)
@@ -88,7 +88,7 @@ class TestDiagnoseSource:
 
     def test_posix_profile_no_fallback(self, tmp_path: Path) -> None:
         src = _src(tmp_path, "f.c", _FN)
-        cfg = _cfg(tmp_path, compiler_profile="gcc-pe", posix_style=True)
+        cfg = _cfg(tmp_path, compiler_profile="mingw-16.2.0", posix_style=True)
         fn = diagnose_source(cfg, src)["functions"][0]
         assert fn["effective"]["cflags"] == ""
 
@@ -96,7 +96,7 @@ class TestDiagnoseSource:
         src = _src(tmp_path, "plain.c", "int f(int a) { return a; }\n")
         fn = diagnose_source(_cfg(tmp_path), src)["functions"][0]
         assert fn["va"] is None
-        assert fn["effective"] == {"toolchain": "msvc6", "cflags": "/O2 /Gd"}
+        assert fn["effective"] == {"toolchain": "msvc-6.0", "cflags": "/O2 /Gd"}
 
 
 class TestDeclaredResolutionValidation:
@@ -120,23 +120,23 @@ class TestDeclaredResolutionValidation:
         src = _src(
             lib,
             "g.c",
-            "// FUNCTION: DEMO 0x01006000\n// TOOLCHAIN: msvc6\nint g(int a) { return a; }\n",
+            "// FUNCTION: DEMO 0x01006000\n// TOOLCHAIN: msvc-6.0\nint g(int a) { return a; }\n",
         )
         fn = diagnose_source(_cfg(tmp_path), src)["functions"][0]
         assert any("watcom-runtime" in w and "conflicting" in w for w in fn["warnings"])
 
     def test_family_mismatch_warning(self, tmp_path: Path) -> None:
-        lib = _lib(tmp_path, 'toolchain = "watcom"\n')
+        lib = _lib(tmp_path, 'toolchain = "watcom-2.0-win32"\n')
         src = _src(
             lib,
             "g.c",
-            "// FUNCTION: DEMO 0x01007000\n// TOOLCHAIN: msvc6\nint g(int a) { return a; }\n",
+            "// FUNCTION: DEMO 0x01007000\n// TOOLCHAIN: msvc-6.0\nint g(int a) { return a; }\n",
         )
         fn = diagnose_source(_cfg(tmp_path), src)["functions"][0]
         assert any("family msvc" in w and "family watcom" in w for w in fn["warnings"])
 
     def test_consistent_declarations_no_warnings(self, tmp_path: Path) -> None:
-        lib = _lib(tmp_path, 'toolchain = "watcom"\n')
+        lib = _lib(tmp_path, 'toolchain = "watcom-2.0-win32"\n')
         src = _src(lib, "g.c", "// FUNCTION: DEMO 0x01008000\nint g(int a) { return a; }\n")
         fn = diagnose_source(_cfg(tmp_path), src)["functions"][0]
         assert fn["warnings"] == []
@@ -149,12 +149,12 @@ class TestDeclaredResolutionValidation:
             {
                 "source": "library",
                 "path": "rebrew-libraries.toml",
-                "toolchain": "msvc6",
+                "toolchain": "msvc-6.0",
                 "cflags": "",
                 "presets": ["msvcrt-static", "watcom-runtime"],
             },
         ]
-        warnings = _warnings_for(steps, "msvc6")
+        warnings = _warnings_for(steps, "msvc-6.0")
         assert any("watcom-runtime" in w and "conflicting" in w for w in warnings)
         assert not any("msvcrt-static" in w and "conflicting" in w for w in warnings)
 

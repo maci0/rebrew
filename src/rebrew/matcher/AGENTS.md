@@ -128,7 +128,7 @@ callable joins `ALL_MUTATIONS` at import; a duplicate name raises
 
 ## Gotchas
 
-- **Profile-parametrized sweep**: `generate_flag_combinations(tier=, profile=)` picks the flag set per profile (`msvc6` default; `watcom`/`watcom16`, `msvc1.52`, `tc16`/`borlandc55` tiers) and `build_candidate()` resolves the docker image via the toolchain abstraction — no host wine.
+- **Profile-parametrized sweep**: `generate_flag_combinations(tier=, profile=)` picks the flag set per profile (`msvc-6.0` default; `watcom-2.0-win32`/`watcom-2.0-win16`, `msvc-1.52`, `borland-3.1`/`borland-5.5` tiers) and `build_candidate()` resolves the docker image via the toolchain abstraction — no host wine.
 - **Heuristic reloc/register detection**: `scoring.py` zeros reloc slots / masks register diffs via pattern matching, not COFF metadata.
 - **60s timeout**: `build_candidate()` kills hung compilers → `BuildResult(ok=False)`, never raises.
 - **Wine stderr**: `compiler.py` calls `rebrew.compile.filter_wine_stderr()` via lazy import (avoids cycle).

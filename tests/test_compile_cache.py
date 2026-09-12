@@ -398,7 +398,7 @@ class TestCompileToObjCacheIntegration:
             compiler_libs=tmp_path,
             compiler_runner="",
             root=tmp_path,
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             posix_style=False,
         )
         src_dir = tmp_path / "src"
@@ -463,7 +463,7 @@ class TestCompileToObjCacheIntegration:
             compiler_libs=tmp_path,
             compiler_runner="",
             root=tmp_path,
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             posix_style=False,
         )
         src_dir = tmp_path / "src"
@@ -504,7 +504,7 @@ class TestCompileToObjCacheIntegration:
             compiler_libs=tmp_path,
             compiler_runner="",
             root=tmp_path,
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             posix_style=False,
         )
         src_dir = tmp_path / "src"
@@ -548,7 +548,7 @@ class TestCompileToObjCacheIntegration:
             compiler_libs=tmp_path,
             compiler_runner="",
             root=tmp_path,
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             posix_style=False,
         )
         src_dir = tmp_path / "src"

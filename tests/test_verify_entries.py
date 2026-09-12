@@ -343,7 +343,7 @@ class TestPrepareEntriesCache:
                 self._cache_entry("f.c", cflags="/O2 /Gd")
             )
         }
-        cache["0x00001000"].toolchain = "watcom"  # cached under a library override
+        cache["0x00001000"].toolchain = "watcom-2.0-win32"  # cached under a library override
         monkeypatch.setattr(
             verify_mod,
             "_load_verify_cache",

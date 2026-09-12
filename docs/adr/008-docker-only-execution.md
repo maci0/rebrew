@@ -36,7 +36,7 @@ Execution is **docker-only for every Windows/DOS toolchain**:
 - `run_toolchain` invokes the image and nothing else for wine/dosbox
   runtime specs; a missing image is a hard `ToolchainError` telling the
   user to `rebrew toolchain build <name>`.  Native-Linux toolchains
-  without an image (gcc-pe, watcom16 `wcc`) still exec their vendored/PATH
+  without an image (mingw-16.2.0, watcom-2.0-win16 `wcc`) still exec their vendored/PATH
   binary directly — they are not Windows binaries, no wine involved.
 - `compile_to_obj` routes every registered profile through the runner;
   the direct-wine branch is gone.  Project include dirs are

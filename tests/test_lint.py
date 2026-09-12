@@ -1892,7 +1892,7 @@ class TestW019SizeDisagreement:
 class TestBlockCommentMarkers:
     def test_block_comment_marker_is_valid(self, tmp_path: Path) -> None:
         """`/* STUB: MAIN 0x1000 */` is the form intake emits for C89-strict
-        profiles (tc20/msvc1.52) and annotation.NEW_FUNC_CAPTURE_RE reads it,
+        profiles (borland-2.0/msvc-1.52) and annotation.NEW_FUNC_CAPTURE_RE reads it,
         so lint must not report E001/E002 on it."""
         f = _write_c(
             tmp_path,

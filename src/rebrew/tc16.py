@@ -13,8 +13,8 @@ BIN/INCLUDE/LIB at the top after the floppy/``TC/`` wrapper is stripped by
 
 The two compiler generations emit different codegen — a binary built with
 Turbo C 2.0 (e.g. 1989-91 games like Commander Keen) will not byte-match a
-Turbo C++ 3.1 build, so the version is selectable per compile (``tc20``
-vs ``tc16`` profiles).
+Turbo C++ 3.1 build, so the version is selectable per compile (``borland-2.0``
+vs ``borland-3.1`` profiles).
 """
 
 from __future__ import annotations

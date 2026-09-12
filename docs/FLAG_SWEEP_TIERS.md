@@ -123,11 +123,11 @@ The MSVC6 tier definitions above are the CLI sweep.  The other grids in
 `flag_data.py` are reached only through the toolchain sweep
 (`--flag-sweep-only --flag-sweep-toolchains`), which enumerates the image-backed
 **MSVC** toolchains (`--sweep-only`/`--sweep-exclude` filter by profile
-name or version prefix, e.g. `msvc6,6.0,win16`).
+name or version prefix, e.g. `msvc-6.0,6.0,win16`).
 
 ### MSVC 1.52 (16-bit)
 
-`rebrew match --flag-sweep-only --flag-sweep-toolchains --sweep-toolchains msvc1.52`
+`rebrew match --flag-sweep-only --flag-sweep-toolchains --sweep-toolchains msvc-1.52`
 sweeps the 16-bit CL flags (`/Od /O1 /O2 /Ox` opt, `/AS /AM /AC /AL`
 **memory models**, `/G2 /G3` codegen, `/Aw /Au` far-data, `/Gs`/`/Za`
 toggles) — quick=25, targeted=75, normal=450, thorough=900 combinations.

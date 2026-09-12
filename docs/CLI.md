@@ -53,7 +53,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew lint` | `lint.py` | Lint source marker standards in decomp C files |
 | `rebrew extract` | `extract.py` | Batch extract and disassemble functions from binary |
 | `rebrew match` | `match.py` / `matcher/` | GA matching engine (single-function or `--all` batch); `--json` structured output |
-| `rebrew verify` | `verify.py` | Compile all `.c` files and verify byte match against target binary; `--compare` regression detection; `--json` structured reports. 16-bit NE targets run when `profile = "msvc1.52"` is configured, otherwise short-circuit with a notice naming the required profile |
+| `rebrew verify` | `verify.py` | Compile all `.c` files and verify byte match against target binary; `--compare` regression detection; `--json` structured reports. 16-bit NE targets run when `profile = "msvc-1.52"` is configured, otherwise short-circuit with a notice naming the required profile |
 | `rebrew todo` | `todo.py` | Prioritized action list: what to work on next, ROI-ranked across all signals |
 | `rebrew cache` | `cache_cli.py` | Compile cache management (`stats` reports hit rate + disk usage, `clear` purges cache) |
 | `rebrew cfg` | `cfg.py` | Read and edit `rebrew-project.toml` programmatically (see [CONFIG.md](CONFIG.md)) |
@@ -215,7 +215,7 @@ skills.
 | `--cl COMMAND` | CL.EXE command (auto from rebrew-project.toml) |
 | `--lib DIR` | Lib dir (for non-obj comparison) |
 | `--ldflags FLAGS` | Linker flags (for non-obj comparison) |
-| `--flag-sweep-only` | Exhaustive flag-combination sweep; skip GA (**MSVC-only** — posix profiles like gcc-pe refuse with a clear error) |
+| `--flag-sweep-only` | Exhaustive flag-combination sweep; skip GA (**MSVC-only** — posix profiles like mingw-16.2.0 refuse with a clear error) |
 | `--flag-sweep-toolchains` | Try each vendored MSVC toolchain (the full 4.0→7.0 line: 6.0-sp3/sp6, 7.0, 4.2, 5.0, 4.0); combine with `--flag-sweep-only` to flag-sweep with each toolchain ("which MSVC version + flags built this function?" — the combined mode reports the best flags per toolchain) |
 | `--tier NAME` | Flag-sweep tier: `quick`, `targeted` (default), `normal`, `thorough`, `full` — see [FLAG_SWEEP_TIERS.md](FLAG_SWEEP_TIERS.md) |
 | `--collect-pairs FILE` | Save source/binary pairs to JSONL for ML training |
@@ -665,7 +665,7 @@ manifest including per-gap rows.
 
 ### `rebrew cmake-toolchain`
 
-`rebrew cmake-toolchain [--toolchain msvc6] [--output cmake/] [--dry-run] [--json]`
+`rebrew cmake-toolchain [--toolchain msvc-6.0] [--output cmake/] [--dry-run] [--json]`
 
 Write a CMake toolchain file that drives a docker toolchain's tools from
 CMake: `CMAKE_C_COMPILER/LINKER/AR` point at the `rebrew-cmake-{cl,link,lib}`
@@ -997,7 +997,7 @@ audit log. Nothing in the source tree is modified — the search only reads.
 |------|-------------|
 | `--target NAME` / `-t NAME` | Name of the initial target (default: `main`) |
 | `--binary NAME` | Binary filename (default: `program.exe`) |
-| `--toolchain PROFILE` | Compiler profile (default: `msvc6`) |
+| `--toolchain PROFILE` | Compiler profile (default: `msvc-6.0`) |
 | `--guess-compiler` | Auto-select the compiler profile from the target binary (diec → PDB → heuristics; prefers the 16-bit profile for DOS/NE binaries — requires the binary in `original/`) |
 | `--wizard` / `--no-wizard` | Interactive onboarding wizard (default: on; TTY only, never under `--json` or piped stdin).  Prompts only for options not passed explicitly: binary pick from `original/`/cwd, compiler profile with detection-based suggestion from the binary, target name (binary stem), a summary confirmation, and shell completions — then reports the profile's docker image state and offers `rebrew toolchain build <profile>` when it is missing. |
 | `--dry-run` | Preview the project layout without writing |
@@ -1329,7 +1329,7 @@ history (`.rebrew/ga_runs.jsonl`).  Read-only.
 | `add-target NAME --binary F [--arch A] [--format FMT] [--modules M] [--source-ext E] [--copy/--no-copy] [--force] [--dry-run] [--json]` / `remove-target NAME [--force] [--dry-run] [--json]` | Manage targets |
 | `add-module NAME [--dry-run]` / `remove-module NAME [--force] [--dry-run]` | Manage `reversed_dir` modules |
 | `set-cflags MODULE FLAGS [--target T] [--dry-run]` | Set a module's cflags preset (global, or per-target with `--target`) |
-| `set-compiler TARGET PROFILE [--dry-run]` | Write a compiler profile (`msvc6`, `msvc7`, `clang`, `gcc`) onto a target |
+| `set-compiler TARGET PROFILE [--dry-run]` | Write a compiler profile (`msvc-6.0`, `msvc-7.0`, `clang-18.1.8`, `gcc-14.2.0`) onto a target |
 | `detect-crt [--write] [--dry-run]` | Scan `toolchain/` for known MSVC CRT source dirs |
 | `raw` | Dump `rebrew-project.toml` as JSON (`--format toml` for TOML) |
 | `path` | Print the path to `rebrew-project.toml` |
@@ -1353,7 +1353,7 @@ resolved by walking up from each function's directory (per-function
 `TOOLCHAIN`/`CFLAGS` metadata still wins; then the library file; then
 project defaults).  Known shipped libraries can be declared by name via
 `--preset` — rebrew fills the build settings it knows (e.g.
-`msvcrt-static` = the MSVC shipped static CRT, `msvc6` + `/O2 /Gd /MT`).
+`msvcrt-static` = the MSVC shipped static CRT, `msvc-6.0` + `/O2 /Gd /MT`).
 
 | Flag | Description |
 |------|-------------|
@@ -1364,7 +1364,7 @@ project defaults).  Known shipped libraries can be declared by name via
 ```toml
 # refs/zlib/rebrew-libraries.toml
 library = "msvcrt-static"   # known-library preset
-toolchain = "msvc600sp6"     # compiler profile (docker image)
+toolchain = "msvc-6.0-sp6"     # compiler profile (docker image)
 cflags = "/O2 /Gd /MT"       # compiler flags
 ```
 
@@ -1382,8 +1382,8 @@ Standardized toolchain management — the docker-first abstraction
 | `detect BINARY` | Detect which compiler/toolchain built a binary (diec → PE metadata: Rich header/linker version → PDB → heuristics) — pins the exact MSVC version (e.g. 12.00.9782) and suggests the version-exact rebrew profile; with a project present, also reports whether the configured profile can byte-match it (`--json`) |
 | `pull NAME` | Pull a toolchain's docker image (locally-built images are reported as already present, not re-pulled; a failed pull on an absent image points at `toolchain build`, since rebrew images are built from pinned sources, not hosted on a registry) |
 | `build NAME` | Build a toolchain's docker image from its `<family>/<ver>-<arch>/Dockerfile` in the rebrew-toolchains checkout (builds the shared `rebrew/base` dependency first) |
-| `vendor NAME` | Assemble the host tree from the pinned source — a 16-bit media tarball (msvc1.52/15/10, delphi, tc16, tc20) next to its Dockerfile in the rebrew-toolchains checkout, or a sha256-verified download (borland 5.5, watcom, msvc6, msvc400/4.2/5.0 via the archaic-msvc / itsmattkc codeload snapshots).  MSVC 6.0 is wrapped into the classic `VC98/` layout; the tree lands in `<family>/<ver>-<arch>/source` under that checkout.  Refuses to clobber an existing tree; fails loudly if the compiler binary is missing |
-| `smoke [NAME]` | Compile the fixed smoke source in each image and verify the object sha256 against the golden bytes — the byte-reproducibility gate (all toolchains pass: msvc6/5/4.2/4.0/1.52, borlandc55, watcom/watcom16, tc16/tc20, delphi16 — image-only; MSVC's COFF and Turbo C's COMENT build-time stamps are masked).  `--print-goldens` recomputes the masked hashes WITHOUT comparing, so bumping a pinned source is a mechanical two-step (run twice, verify stable, paste into `_SMOKE_GOLDEN`) |
+| `vendor NAME` | Assemble the host tree from the pinned source — a 16-bit media tarball (msvc-1.52/15/10, delphi, borland-3.1, borland-2.0) next to its Dockerfile in the rebrew-toolchains checkout, or a sha256-verified download (borland 5.5, watcom, msvc-6.0, msvc-4.0/4.2/5.0 via the archaic-msvc / itsmattkc codeload snapshots).  MSVC 6.0 is wrapped into the classic `VC98/` layout; the tree lands in `<family>/<ver>-<arch>/source` under that checkout.  Refuses to clobber an existing tree; fails loudly if the compiler binary is missing |
+| `smoke [NAME]` | Compile the fixed smoke source in each image and verify the object sha256 against the golden bytes — the byte-reproducibility gate (all toolchains pass: msvc-6.0/5/4.2/4.0/1.52, borland-5.5, watcom/watcom-2.0-win16, borland-3.1/borland-2.0, delphi-1.0 — image-only; MSVC's COFF and Turbo C's COMENT build-time stamps are masked).  `--print-goldens` recomputes the masked hashes WITHOUT comparing, so bumping a pinned source is a mechanical two-step (run twice, verify stable, paste into `_SMOKE_GOLDEN`) |
 
 ### `rebrew binsync-export`
 
@@ -1842,9 +1842,9 @@ Upload a function to decomp.me as a collaborative scratch: the target
 function's bytes synthesized into a COFF object (`target_obj`), the
 function's C as `source_code`, the universal context file (`rebrew
 context`) as `context`, and the resolved toolchain/flags mapped to a
-decomp.me compiler (`msvc6` → `msvc6.0`, ...) and platform (`pe` → `win32`,
+decomp.me compiler (`msvc-6.0` → `msvc6.0`, ...) and platform (`pe` → `win32`,
 `mz`/`ne` → `msdos`).  Override the mapping with `--compiler`/`--platform`
-for anything else (console targets, gcc-pe).  Anonymous create (like
+for anything else (console targets, mingw-16.2.0).  Anonymous create (like
 objdiff's integration): the printed claim URL
 (`/scratch/<slug>/claim?token=...`) keeps the scratch.  `--dry-run` prints
 the payload without uploading.

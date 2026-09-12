@@ -148,10 +148,10 @@ rebrew match --all --flag-sweep-then-ga                                        #
 rebrew match --all --flag-sweep-then-ga --skip-recent 24                       # resume: skip stubs GA-run in last 24h
 ```
 
-The sweep axes are per-profile: `msvc6/msvc7` (decomp.me-synced `/` flags),
-`watcom`/`watcom16` (wcc386/wcc `-os/-ot/-ol/-ox`, `-3..-6`, `-zp`,
-`-mf/-fpc` — quick=5, targeted=25), `msvc1.52` (16-bit `/O`, `/G2/G3`,
-`/Aw/Au`, `/Gs`/`/Za` — quick=5, targeted=15), `tc16`/`borlandc55`
+The sweep axes are per-profile: `msvc-6.0/msvc-7.0` (decomp.me-synced `/` flags),
+`watcom-2.0-win32`/`watcom-2.0-win16` (wcc386/wcc `-os/-ot/-ol/-ox`, `-3..-6`, `-zp`,
+`-mf/-fpc` — quick=5, targeted=25), `msvc-1.52` (16-bit `/O`, `/G2/G3`,
+`/Aw/Au`, `/Gs`/`/Za` — quick=5, targeted=15), `borland-3.1`/`borland-5.5`
 (Borland `-O1/-O2/-Od`, `-K`, `-Z` — quick=4).  The compiler itself comes
 from the toolchain abstraction (`rebrew.toolchain`): docker image first
 (`rebrew toolchain pull <profile>`), vendored `tools/` binary fallback —

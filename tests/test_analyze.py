@@ -158,7 +158,7 @@ bin_dir = "bin/S"
 marker = "S"
 
 [compiler]
-profile = "gcc-pe"
+profile = "mingw-16.2.0"
 command = "i686-w64-mingw32-gcc"
 includes = ""
 libs = ""
@@ -209,7 +209,7 @@ bin_dir = "bin/S"
 marker = "S"
 
 [compiler]
-profile = "gcc-pe"
+profile = "mingw-16.2.0"
 command = "i686-w64-mingw32-gcc"
 includes = ""
 libs = ""
@@ -295,7 +295,7 @@ bin_dir = "bin/S"
 marker = "S"
 
 [compiler]
-profile = "gcc-pe"
+profile = "mingw-16.2.0"
 command = "i686-w64-mingw32-gcc"
 includes = ""
 libs = ""

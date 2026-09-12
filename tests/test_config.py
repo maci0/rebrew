@@ -131,7 +131,7 @@ reversed_dir = "src/client_exe"
 function_list = "src/client_exe/funcs.txt"
 
 [compiler]
-profile = "gcc"
+profile = "gcc-14.2.0"
 command = "gcc"
 includes = "/usr/include"
 libs = "/usr/lib"
@@ -181,7 +181,7 @@ binary = "test.exe"
     def test_compiler_profile(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path, self.MULTI_TOML)
         cfg = load_config(root)
-        assert cfg.compiler_profile == "gcc"
+        assert cfg.compiler_profile == "gcc-14.2.0"
 
     def test_arch_derived_values(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path, self.MULTI_TOML)
@@ -209,7 +209,7 @@ class TestLoadConfigEdgeCases:
             load_config(tmp_path)
 
     def test_empty_targets_raises(self, tmp_path: Path) -> None:
-        root = _make_project(tmp_path, "[compiler]\nprofile = 'msvc6'\n")
+        root = _make_project(tmp_path, "[compiler]\nprofile = 'msvc-6.0'\n")
         with pytest.raises(KeyError):
             load_config(root)
 
@@ -575,7 +575,7 @@ default_target = "main"
 binary = "test.exe"
 
 [compiler]
-profile = "msvc6"
+profile = "msvc-6.0"
 misspelled_option = "bad"
 """
         root = _make_project(tmp_path, toml)
@@ -650,7 +650,7 @@ arch = "x86_16"
             cfg = load_config(root)
         assert cfg.binary_format == "ne"
 
-    def test_unknown_profile_falls_back_to_msvc6(self, tmp_path: Path) -> None:
+    def test_unknown_profile_falls_back_to_msvc_6_0(self, tmp_path: Path) -> None:
         toml = """\
 [project]
 default_target = "main"
@@ -664,12 +664,12 @@ profile = "turbo_c"
         root = _make_project(tmp_path, toml)
         with pytest.warns(UserWarning, match=r"unknown profile 'turbo_c'"):
             cfg = load_config(root)
-        assert cfg.compiler_profile == "msvc6"
+        assert cfg.compiler_profile == "msvc-6.0"
 
     def test_registered_toolchain_profile_accepted(self, tmp_path: Path) -> None:
         """Every name in toolchain.TOOLCHAINS must pass config validation —
-        a registered profile (delphi16) must not be rejected and silently
-        fall back to msvc6."""
+        a registered profile (delphi-1.0) must not be rejected and silently
+        fall back to msvc-6.0."""
         from rebrew.toolchain import TOOLCHAINS
 
         toml = """\
@@ -682,7 +682,7 @@ format = "ne"
 arch = "x86_16"
 
 [compiler]
-profile = "delphi16"
+profile = "delphi-1.0"
 """
         root = _make_project(tmp_path, toml)
         # A real (minimal) NE binary so layout detection succeeds silently
@@ -697,7 +697,7 @@ profile = "delphi16"
         with warnings.catch_warnings():
             warnings.simplefilter("error", UserWarning)  # no unknown-profile warn
             cfg = load_config(root)
-        assert cfg.compiler_profile == "delphi16"
+        assert cfg.compiler_profile == "delphi-1.0"
         assert cfg.binary_format == "ne"
         assert cfg.arch == "x86_16"
         # every registry-backed profile is a valid rebrew-project.toml value
@@ -765,11 +765,11 @@ default_target = "main"
 binary = "test.exe"
 
 [compiler]
-profile = "msvc400"
+profile = "msvc-4.0"
 """
         root = _make_project(tmp_path, toml)
         cfg = load_config(root)
-        assert cfg.compiler_profile == "msvc400"
+        assert cfg.compiler_profile == "msvc-4.0"
 
     def test_non_positive_jobs_and_timeout_default(self, tmp_path: Path) -> None:
         toml = """\
@@ -801,7 +801,7 @@ arch = "x86_32"
 marker = "MAIN"
 
 [compiler]
-profile = "msvc6"
+profile = "msvc-6.0"
 command = "wine CL.EXE"
 """
         root = _make_project(tmp_path, toml)
@@ -885,7 +885,7 @@ default_target = "main"
 binary = "test.exe"
 
 [compiler]
-profile = "msvc6"
+profile = "msvc-6.0"
 command = ""
 """,
         )
@@ -893,7 +893,7 @@ command = ""
 
         def _boom(name, *args, **kwargs):
             if name == "rebrew.toolchain":
-                raise RegistryError("duplicate toolchain registration 'msvc6'")
+                raise RegistryError("duplicate toolchain registration 'msvc-6.0'")
             return real_import(name, *args, **kwargs)
 
         monkeypatch.setattr("builtins.__import__", _boom)
@@ -911,7 +911,7 @@ default_target = "main"
 binary = "test.exe"
 
 [targets.main.compiler]
-commmand = "clang"
+commmand = "clang-18.1.8"
 """,
         )
         with pytest.warns(UserWarning, match=r"targets.main.compiler.*commmand"):
@@ -1051,17 +1051,23 @@ class TestPosixStyleProfiles:
     watcom (wcc386, -I/-fo=/-zq) must be POSIX-style, not MSVC."""
 
     def test_posix_profiles(self) -> None:
-        for prof in ("gcc", "gcc-pe", "clang", "watcom", "watcom16"):
+        for prof in (
+            "gcc-14.2.0",
+            "mingw-16.2.0",
+            "clang-18.1.8",
+            "watcom-2.0-win32",
+            "watcom-2.0-win16",
+        ):
             cfg = ProjectConfig(root=Path("."), compiler_profile=prof)
             assert cfg.posix_style is True, prof
 
     def test_msvc_profiles_not_posix(self) -> None:
-        for prof in ("msvc6", "msvc1.52", "msvc7"):
+        for prof in ("msvc-6.0", "msvc-1.52", "msvc-7.0"):
             cfg = ProjectConfig(root=Path("."), compiler_profile=prof)
             assert cfg.posix_style is False, prof
 
     def test_watcom_default_profile(self) -> None:
-        cfg = ProjectConfig(root=Path("."), compiler_profile="watcom")
+        cfg = ProjectConfig(root=Path("."), compiler_profile="watcom-2.0-win32")
         assert cfg.posix_style is True  # regression: was False -> /nologo /c glue -> E1139
 
 
@@ -1078,7 +1084,7 @@ default_target = "main"
 binary = "original/main.exe"
 
 [compiler]
-profile = "msvc6"
+profile = "msvc-6.0"
 command = "wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE"
 """
 

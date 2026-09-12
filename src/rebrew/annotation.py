@@ -341,7 +341,7 @@ class Annotation:
     module: str = ""
     status: str = ""
     cflags: str = ""
-    toolchain: str = ""  # per-function toolchain override (e.g. "msvc5")
+    toolchain: str = ""  # per-function toolchain override (e.g. "msvc-5.0")
     marker_type: str = ""
     filepath: str = ""
     source: str = ""

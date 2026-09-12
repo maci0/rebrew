@@ -69,7 +69,7 @@ from rebrew.utils import (
 console = Console(stderr=True)
 
 # Marker header line in either comment style.  annotation.NEW_FUNC_CAPTURE_RE
-# accepts `//` and `/*` (the C89-strict form intake emits for tc20/msvc1.52), so
+# accepts `//` and `/*` (the C89-strict form intake emits for borland-2.0/msvc-1.52), so
 # lint must not report E001/E002 on a file the parser reads fine.
 _HEADER_MARKER_RE = re.compile(r"(?://|/\*)\s*(\w+):\s*(\S+)\s+(0x[0-9a-fA-F]+)")
 _SIZE_ANNOTATION_RE = re.compile(r"//\s*SIZE\s+0x[0-9a-fA-F]+")

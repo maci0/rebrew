@@ -4,7 +4,7 @@ objdiff (https://github.com/encounter/objdiff) is the decomp-scene's diffing
 GUI: it shows per-function byte diffs between a *target* object (from the
 original binary) and a *base* object (compiled from current source), with
 instruction-level rendering.  It fully supports x86/x86_64 COFF/ELF objects,
-so rebrew's MSVC/gcc-pe targets fit natively.
+so rebrew's MSVC/mingw-16.2.0 targets fit natively.
 
 This module provides two entry points:
 

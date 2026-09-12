@@ -40,7 +40,7 @@ Project Onboarding solves all of this with `rebrew init`, `rebrew doctor`, and t
   (`original/`, `src/<target>/`, `bin/<target>/`), an empty function list,
   metadata TOMLs, and a valid `rebrew-project.toml`.
 - Compiler profile selection: `--compiler` picks the profile explicitly
-  (default `msvc6`; full list via `rebrew toolchain list`), or `--guess-compiler`
+  (default `msvc-6.0`; full list via `rebrew toolchain list`), or `--guess-compiler`
   auto-selects from the target binary (diec → PDB → heuristics; prefers the
   16-bit profile for DOS/NE binaries).
 - Doctor command that validates:
@@ -81,10 +81,10 @@ Project Onboarding solves all of this with `rebrew init`, `rebrew doctor`, and t
 - Writes an `AGENTS.md` from the bundled template so AI agents have project
   context, copies the bundled `agent-skills/` into `.agents/skills/` (with
   `<target>` substituted), and copies `PRINCIPLES.md`.
-- Picks the compiler profile from `--compiler` (default `msvc6`). Accepted
-  profiles are the full toolchain list — MSVC 1.0–11.0 variants (`msvc6`,
-  `msvc7`, `msvc600sp6`, ...), Borland/Turbo C (`borlandc55`, `tc16`, `tc20`),
-  Open Watcom (`watcom`, `watcom16`), `delphi16`, `gcc-pe`, `gcc`, `clang`
+- Picks the compiler profile from `--compiler` (default `msvc-6.0`). Accepted
+  profiles are the full toolchain list — MSVC 1.0–11.0 variants (`msvc-6.0`,
+  `msvc-7.0`, `msvc-6.0-sp6`, ...), Borland/Turbo C (`borland-5.5`, `borland-3.1`, `borland-2.0`),
+  Open Watcom (`watcom-2.0-win32`, `watcom-2.0-win16`), `delphi-1.0`, `mingw-16.2.0`, `gcc-14.2.0`, `clang-18.1.8`
   (see `rebrew toolchain list`).
 - When the binary is already in `original/`, auto-detects format/arch (PE/ELF/
   Mach-O/NE/MZ) and seeds CRT linkage + optimization flags from the toolchain
@@ -180,7 +180,7 @@ Project Onboarding solves all of this with `rebrew init`, `rebrew doctor`, and t
 rebrew init [OPTIONS]
   -t, --target TEXT          Name of the initial target (default: main)
   -b, --binary TEXT          Binary filename; an 'original/' prefix is accepted (default: program.exe)
-  -c, --compiler TEXT        Compiler profile to use (default: msvc6)
+  -c, --compiler TEXT        Compiler profile to use (default: msvc-6.0)
       --guess-compiler       Auto-select the profile from the target binary (diec → PDB → heuristics)
       --install-wibo         Download wibo runner to tools/wibo (legacy; ignored for image-backed profiles)
       --install-completions  Write bash/zsh/fish completion scripts into completions/

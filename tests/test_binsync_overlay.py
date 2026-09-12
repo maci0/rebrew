@@ -47,7 +47,7 @@ def _pe_b() -> bytes:
 def _make_project(tmp_path: Path) -> Path:
     (tmp_path / "rebrew-project.toml").write_text(
         "[project]\nname = 'probe'\ndefault_target = 'B'\n"
-        "[compiler]\nprofile = 'msvc6'\ncommand = 'CL.EXE'\n"
+        "[compiler]\nprofile = 'msvc-6.0'\ncommand = 'CL.EXE'\n"
         "[targets.A]\nbinary = 'a.exe'\nreversed_dir = 'src/a'\n"
         "function_list = 'src/a/functions.txt'\n"
         "[targets.B]\nbinary = 'b.exe'\nreversed_dir = 'src/b'\n"

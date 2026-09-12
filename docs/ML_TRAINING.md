@@ -21,7 +21,7 @@ that produce target binaries.
 ### Prerequisites
 
 - One or more rebrew projects configured with `rebrew-project.toml`
-- MSVC6 toolchain image available (`rebrew toolchain build msvc6`)
+- MSVC6 toolchain image available (`rebrew toolchain build msvc-6.0`)
 - Sufficient disk space (a 100k-pair dataset ≈ 2-5 GB of JSONL)
 
 ### Collecting Pairs from a Single Function

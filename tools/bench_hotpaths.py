@@ -145,7 +145,7 @@ def bench_catalog_grid() -> dict[str, float]:
             'bin_dir = "bin/SERVER"\n'
             'marker = "SERVER"\n\n'
             "[compiler]\n"
-            'profile = "gcc-pe"\n'
+            'profile = "mingw-16.2.0"\n'
             'command = "i686-w64-mingw32-gcc"\n'
             'includes = ""\nlibs = ""\ncflags = "-O2"\n',
             encoding="utf-8",

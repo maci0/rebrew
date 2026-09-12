@@ -32,56 +32,56 @@ class TestCompilerDefaults:
 
     def test_known_profiles(self) -> None:
         assert set(COMPILER_DEFAULTS.keys()) == {
-            "msvc400",
-            "msvc420",
-            "msvc410",
-            "msvc200",
-            "msvc5",
-            "msvc500sp1",
-            "msvc500sp2",
-            "msvc500sp3",
-            "msvc6",
-            "msvc600sp1",
-            "msvc600sp2",
-            "msvc600sp3",
-            "msvc600sp4",
-            "msvc600sp5",
-            "msvc600sp5pp",
-            "msvc600sp6",
-            "msvc7",
-            "msvc700",
-            "msvc700sp1",
-            "msvc710",
-            "msvc710sp1",
-            "msvc800",
-            "msvc800sp1",
-            "msvc900",
-            "msvc900sp1",
-            "msvc1000",
-            "msvc1000sp1",
-            "msvc1100",
-            "msvc1.52",
-            "msvc15",
-            "msvc10",
-            "clang",
-            "clang16",
-            "gcc",
-            "gcc12",
-            "gcc-pe",
-            "gcc-pe14",
-            "watcom",
-            "borlandc55",
-            "delphi16",
-            "watcom16",
-            "tc20",
-            "tc16",
-            "ido5.3",
-            "ido7.1",
+            "msvc-4.0",
+            "msvc-4.2",
+            "msvc-4.1",
+            "msvc-2.0",
+            "msvc-5.0",
+            "msvc-5.0-sp1",
+            "msvc-5.0-sp2",
+            "msvc-5.0-sp3",
+            "msvc-6.0",
+            "msvc-6.0-sp1",
+            "msvc-6.0-sp2",
+            "msvc-6.0-sp3",
+            "msvc-6.0-sp4",
+            "msvc-6.0-sp5",
+            "msvc-6.0-sp5-pp",
+            "msvc-6.0-sp6",
+            "msvc-7.0",
+            "msvc-7.0-rtm",
+            "msvc-7.0-sp1",
+            "msvc-7.1",
+            "msvc-7.1-sp1",
+            "msvc-8.0",
+            "msvc-8.0-sp1",
+            "msvc-9.0",
+            "msvc-9.0-sp1",
+            "msvc-10.0",
+            "msvc-10.0-sp1",
+            "msvc-11.0",
+            "msvc-1.52",
+            "msvc-1.5",
+            "msvc-1.0",
+            "clang-18.1.8",
+            "clang-16.0.4",
+            "gcc-14.2.0",
+            "gcc-12.3.0",
+            "mingw-16.2.0",
+            "mingw-14.2.0",
+            "watcom-2.0-win32",
+            "borland-5.5",
+            "delphi-1.0",
+            "watcom-2.0-win16",
+            "borland-2.0",
+            "borland-3.1",
+            "ido-5.3",
+            "ido-7.1",
         }
 
     def test_ido_profiles_elf_mips(self) -> None:
-        """ido5.3/ido7.1 are ELF/MIPS targets (N64 SGI IDO reimplementations)."""
-        for profile in ("ido5.3", "ido7.1"):
+        """ido-5.3/ido-7.1 are ELF/MIPS targets (N64 SGI IDO reimplementations)."""
+        for profile in ("ido-5.3", "ido-7.1"):
             data = COMPILER_DEFAULTS[profile]
             assert data["format"] == "elf"
             assert data["arch"] == "mips32"
@@ -89,16 +89,16 @@ class TestCompilerDefaults:
     @pytest.mark.parametrize(
         "profile",
         [
-            "msvc400",
-            "msvc420",
-            "msvc5",
-            "msvc6",
-            "msvc600sp3",
-            "msvc600sp6",
-            "msvc7",
-            "clang",
-            "gcc",
-            "gcc-pe",
+            "msvc-4.0",
+            "msvc-4.2",
+            "msvc-5.0",
+            "msvc-6.0",
+            "msvc-6.0-sp3",
+            "msvc-6.0-sp6",
+            "msvc-7.0",
+            "clang-18.1.8",
+            "gcc-14.2.0",
+            "mingw-16.2.0",
         ],
     )
     def test_required_keys(self, profile: str) -> None:
@@ -107,41 +107,41 @@ class TestCompilerDefaults:
         for key in ("command", "includes", "libs", "cflags"):
             assert key in data, f"{profile} missing '{key}'"
 
-    @pytest.mark.parametrize("profile", ["msvc6", "msvc7", "clang", "gcc"])
+    @pytest.mark.parametrize("profile", ["msvc-6.0", "msvc-7.0", "clang-18.1.8", "gcc-14.2.0"])
     def test_format_and_arch(self, profile: str) -> None:
         """Every profile has format and arch."""
         data = COMPILER_DEFAULTS[profile]
         assert "format" in data
         assert "arch" in data
 
-    def test_msvc6_uses_wine(self) -> None:
-        assert "wine" in COMPILER_DEFAULTS["msvc6"]["command"].lower()
+    def test_msvc_6_0_uses_wine(self) -> None:
+        assert "wine" in COMPILER_DEFAULTS["msvc-6.0"]["command"].lower()
 
     def test_msvc7_uses_wine(self) -> None:
-        assert "wine" in COMPILER_DEFAULTS["msvc7"]["command"].lower()
+        assert "wine" in COMPILER_DEFAULTS["msvc-7.0"]["command"].lower()
 
     def test_gcc_no_wine(self) -> None:
-        assert "wine" not in COMPILER_DEFAULTS["gcc"]["command"].lower()
+        assert "wine" not in COMPILER_DEFAULTS["gcc-14.2.0"]["command"].lower()
 
     def test_clang_no_wine(self) -> None:
-        assert "wine" not in COMPILER_DEFAULTS["clang"]["command"].lower()
+        assert "wine" not in COMPILER_DEFAULTS["clang-18.1.8"]["command"].lower()
 
     def test_pe_profiles(self) -> None:
         """MSVC profiles produce PE format."""
-        assert COMPILER_DEFAULTS["msvc6"]["format"] == "pe"
-        assert COMPILER_DEFAULTS["msvc7"]["format"] == "pe"
+        assert COMPILER_DEFAULTS["msvc-6.0"]["format"] == "pe"
+        assert COMPILER_DEFAULTS["msvc-7.0"]["format"] == "pe"
 
     def test_elf_profiles(self) -> None:
         """GCC and Clang produce ELF format."""
-        assert COMPILER_DEFAULTS["gcc"]["format"] == "elf"
-        assert COMPILER_DEFAULTS["clang"]["format"] == "elf"
+        assert COMPILER_DEFAULTS["gcc-14.2.0"]["format"] == "elf"
+        assert COMPILER_DEFAULTS["clang-18.1.8"]["format"] == "elf"
 
     def test_lang_field(self) -> None:
         """MSVC6 is C89, others are C99."""
-        assert COMPILER_DEFAULTS["msvc6"]["lang"] == "C89"
-        assert COMPILER_DEFAULTS["msvc7"]["lang"] == "C99"
-        assert COMPILER_DEFAULTS["gcc"]["lang"] == "C99"
-        assert COMPILER_DEFAULTS["clang"]["lang"] == "C99"
+        assert COMPILER_DEFAULTS["msvc-6.0"]["lang"] == "C89"
+        assert COMPILER_DEFAULTS["msvc-7.0"]["lang"] == "C99"
+        assert COMPILER_DEFAULTS["gcc-14.2.0"]["lang"] == "C99"
+        assert COMPILER_DEFAULTS["clang-18.1.8"]["lang"] == "C99"
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +161,7 @@ class TestTemplateRendering:
             target_name="game.exe",
             binary_name="game.exe",
             marker="GAME",
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             compiler_command="wine CL.EXE",
             compiler_includes="tools/include",
             compiler_libs="tools/lib",
@@ -178,7 +178,7 @@ class TestTemplateRendering:
             target_name="t",
             binary_name="t.exe",
             marker="T",
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             compiler_command="cl",
             compiler_includes="inc",
             compiler_libs="lib",
@@ -197,7 +197,7 @@ class TestTemplateRendering:
             binary_name="game.exe",
             binary_format="pe",
             arch="x86_32",
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             compiler_command="wine CL.EXE",
             compiler_constraints=MSVC_CONSTRAINTS,
             cflags="/O2 /Gd",
@@ -251,7 +251,7 @@ class TestInit:
         main(
             target_name="server",
             binary_name="server.dll",
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
             install_completions=False,
@@ -268,7 +268,7 @@ class TestInit:
         main(
             target_name="server",
             binary_name="server.dll",
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
             install_completions=False,
@@ -277,23 +277,23 @@ class TestInit:
         assert not (tmp_path / "rebrew-project.toml").exists()
         assert not (tmp_path / "AGENTS.md").exists()
 
-    def test_msvc6_resolves_available_toolchain(
+    def test_msvc_6_0_resolves_available_toolchain(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """msvc6 is docker-backed — init writes a docker-native config (empty
+        """msvc-6.0 is docker-backed — init writes a docker-native config (empty
         host command; the image is the compiler), no stale wine path, even
         when a vendored toolchain layout exists on disk."""
         monkeypatch.chdir(tmp_path)
         main(
             target_name="server",
             binary_name="server.dll",
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
             install_completions=False,
         )
         content = (tmp_path / "rebrew-project.toml").read_text()
-        assert 'profile = "msvc6"' in content
+        assert 'profile = "msvc-6.0"' in content
         assert 'command = ""' in content
         assert 'runner = ""' in content
         # no host wine invocation in the active [compiler] block
@@ -305,19 +305,19 @@ class TestInit:
     def test_msvc7_resolves_available_toolchain(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """msvc7 is docker-backed — init writes a docker-native config (empty
+        """msvc-7.0 is docker-backed — init writes a docker-native config (empty
         host command; the image is the compiler), no stale wine path."""
         monkeypatch.chdir(tmp_path)
         main(
             target_name="server",
             binary_name="server.dll",
-            compiler_profile="msvc7",
+            compiler_profile="msvc-7.0",
             install_wibo=False,
             json_output=False,
             install_completions=False,
         )
         content = (tmp_path / "rebrew-project.toml").read_text()
-        assert 'profile = "msvc7"' in content
+        assert 'profile = "msvc-7.0"' in content
         assert 'command = ""' in content
         assert 'runner = ""' in content
         # no host wine invocation in the active [compiler] block
@@ -332,7 +332,7 @@ class TestInit:
         main(
             target_name="main",
             binary_name="prog.exe",
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
             install_completions=False,
@@ -348,7 +348,7 @@ class TestInit:
         main(
             target_name="game",
             binary_name="game.exe",
-            compiler_profile="gcc",
+            compiler_profile="gcc-14.2.0",
             install_wibo=False,
             json_output=False,
             install_completions=False,
@@ -363,7 +363,7 @@ class TestInit:
         main(
             target_name="t",
             binary_name="t.exe",
-            compiler_profile="clang",
+            compiler_profile="clang-18.1.8",
             install_wibo=False,
             json_output=False,
             install_completions=False,
@@ -379,7 +379,7 @@ class TestInit:
         main(
             target_name="server",
             binary_name="original/bench.exe",
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
             install_completions=False,
@@ -395,7 +395,7 @@ class TestInit:
         main(
             target_name="server",
             binary_name="original\\bench.exe",
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
             install_completions=False,
@@ -413,7 +413,7 @@ class TestInit:
         main(
             target_name="t",
             binary_name="t.exe",
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
             install_completions=False,
@@ -435,7 +435,7 @@ class TestInit:
         main(
             target_name="t",
             binary_name="t.exe",
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
             install_completions=False,
@@ -459,7 +459,7 @@ class TestInit:
             main(
                 target_name="t",
                 binary_name="t.exe",
-                compiler_profile="msvc6",
+                compiler_profile="msvc-6.0",
                 install_wibo=False,
                 json_output=False,
                 install_completions=False,
@@ -469,14 +469,14 @@ class TestInit:
     def test_link_tools_from_path_profiles_skipped(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """PATH-based profiles (gcc-pe) have nothing to link — no error."""
+        """PATH-based profiles (mingw-16.2.0) have nothing to link — no error."""
         master = tmp_path / "master"
         master.mkdir()
         monkeypatch.chdir(tmp_path)
         main(
             target_name="t",
             binary_name="t.exe",
-            compiler_profile="gcc-pe",
+            compiler_profile="mingw-16.2.0",
             install_wibo=False,
             json_output=False,
             install_completions=False,
@@ -492,7 +492,7 @@ class TestInit:
             main(
                 target_name="t",
                 binary_name="t.exe",
-                compiler_profile="msvc6",
+                compiler_profile="msvc-6.0",
                 install_wibo=False,
                 json_output=False,
                 install_completions=False,
@@ -516,12 +516,12 @@ class TestInit:
     def test_msvc7_uses_msvc7_constraints(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """msvc7 profile generates AGENTS.md with C99 constraints."""
+        """msvc-7.0 profile generates AGENTS.md with C99 constraints."""
         monkeypatch.chdir(tmp_path)
         main(
             target_name="t",
             binary_name="t.exe",
-            compiler_profile="msvc7",
+            compiler_profile="msvc-7.0",
             install_wibo=False,
             json_output=False,
             install_completions=False,
@@ -537,7 +537,7 @@ class TestInit:
         main(
             target_name="t",
             binary_name="t.exe",
-            compiler_profile="gcc",
+            compiler_profile="gcc-14.2.0",
             install_wibo=False,
             json_output=False,
             install_completions=False,
@@ -555,7 +555,7 @@ class TestInit:
 
 class TestFamilyMismatchWarning:
     """init warns when a high-confidence compiler-family detection
-    contradicts the chosen profile (Zig/MinGW binary + msvc6)."""
+    contradicts the chosen profile (Zig/MinGW binary + msvc-6.0)."""
 
     def _tc(self, family: str, confidence: str = "high", hint: str = "") -> SimpleNamespace:
         return SimpleNamespace(family=family, confidence=confidence, version_hint=hint)
@@ -563,28 +563,28 @@ class TestFamilyMismatchWarning:
     def test_mismatch_warns(self, capsys: pytest.CaptureFixture[str]) -> None:
         from rebrew.init import _warn_profile_family_mismatch
 
-        _warn_profile_family_mismatch("msvc6", self._tc("zig", hint="Zig/LLVM 20.1"))
+        _warn_profile_family_mismatch("msvc-6.0", self._tc("zig", hint="Zig/LLVM 20.1"))
         out = capsys.readouterr()
         assert "looks like zig" in out.err
-        assert "gcc-pe" in out.err  # suggests the counterpart profile
+        assert "mingw-16.2.0" in out.err  # suggests the counterpart profile
 
     def test_matching_family_silent(self, capsys: pytest.CaptureFixture[str]) -> None:
         from rebrew.init import _warn_profile_family_mismatch
 
-        _warn_profile_family_mismatch("gcc-pe", self._tc("mingw"))
-        _warn_profile_family_mismatch("msvc6", self._tc("msvc"))
+        _warn_profile_family_mismatch("mingw-16.2.0", self._tc("mingw"))
+        _warn_profile_family_mismatch("msvc-6.0", self._tc("msvc"))
         assert "looks like" not in capsys.readouterr().err
 
     def test_low_confidence_silent(self, capsys: pytest.CaptureFixture[str]) -> None:
         from rebrew.init import _warn_profile_family_mismatch
 
-        _warn_profile_family_mismatch("msvc6", self._tc("zig", confidence="low"))
+        _warn_profile_family_mismatch("msvc-6.0", self._tc("zig", confidence="low"))
         assert "looks like" not in capsys.readouterr().err
 
     def test_unknown_family_silent(self, capsys: pytest.CaptureFixture[str]) -> None:
         from rebrew.init import _warn_profile_family_mismatch
 
-        _warn_profile_family_mismatch("msvc6", self._tc("unknown"))
+        _warn_profile_family_mismatch("msvc-6.0", self._tc("unknown"))
         assert "looks like" not in capsys.readouterr().err
 
 
@@ -662,7 +662,7 @@ class TestInitCompletions:
         main(
             target_name="t",
             binary_name="t.exe",
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
             install_completions=True,
@@ -687,7 +687,7 @@ class TestInitCompletions:
         main(
             target_name="t",
             binary_name="t.exe",
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
             install_completions=False,
@@ -699,7 +699,7 @@ class TestInitCompletions:
         main(
             target_name="t",
             binary_name="t.exe",
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=False,
             install_completions=True,
@@ -724,7 +724,7 @@ class TestInitCompletions:
         main(
             target_name="t",
             binary_name="t.exe",
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             install_wibo=False,
             json_output=True,
             install_completions=True,
@@ -808,36 +808,36 @@ class TestBinaryFormatDetection:
 
 class TestProfileMismatchWarning:
     """init warns when the detected binary contradicts the chosen profile
-    (a 16-bit NE binary with a 32-bit msvc6 profile would fail doctor)."""
+    (a 16-bit NE binary with a 32-bit msvc-6.0 profile would fail doctor)."""
 
-    def test_ne_binary_warns_on_msvc6(self, capsys) -> None:
+    def test_ne_binary_warns_on_msvc_6_0(self, capsys) -> None:
         from rebrew.init import _warn_profile_mismatch
 
-        _warn_profile_mismatch("msvc6", "ne", "x86_16")
+        _warn_profile_mismatch("msvc-6.0", "ne", "x86_16")
         out = capsys.readouterr().err
         assert "16-bit binary (ne/x86_16)" in out
         # the suggestion lists the 16-bit-capable profiles (derived from
-        # COMPILER_DEFAULTS, so tc16/watcom16 are included too)
-        assert "msvc1.52" in out
-        assert "tc16" in out
+        # COMPILER_DEFAULTS, so borland-3.1/watcom-2.0-win16 are included too)
+        assert "msvc-1.52" in out
+        assert "borland-3.1" in out
 
     def test_ne_binary_silent_on_msvc152(self, capsys) -> None:
         from rebrew.init import _warn_profile_mismatch
 
-        _warn_profile_mismatch("msvc1.52", "ne", "x86_16")
+        _warn_profile_mismatch("msvc-1.52", "ne", "x86_16")
         assert "warning" not in capsys.readouterr().err
 
     def test_32bit_pe_warns_on_msvc152(self, capsys) -> None:
         from rebrew.init import _warn_profile_mismatch
 
-        _warn_profile_mismatch("msvc1.52", "pe", "x86_32")
+        _warn_profile_mismatch("msvc-1.52", "pe", "x86_32")
         out = capsys.readouterr().err
         assert "16-bit compiler" in out
 
-    def test_32bit_pe_silent_on_msvc6(self, capsys) -> None:
+    def test_32bit_pe_silent_on_msvc_6_0(self, capsys) -> None:
         from rebrew.init import _warn_profile_mismatch
 
-        _warn_profile_mismatch("msvc6", "pe", "x86_32")
+        _warn_profile_mismatch("msvc-6.0", "pe", "x86_32")
         assert "warning" not in capsys.readouterr().err
 
     def test_init_emits_warning_stderr_not_stdout(
@@ -862,7 +862,7 @@ class TestProfileMismatchWarning:
         main(
             target_name="game",
             binary_name="game.exe",
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             json_output=True,
         )
         out = capsys.readouterr()
@@ -874,11 +874,11 @@ class TestProfileMismatchWarning:
 
 
 class TestInitTc16:
-    """rebrew init --toolchain tc16 must generate a config that loads
+    """rebrew init --toolchain borland-3.1 must generate a config that loads
     without an unknown-profile fallback (COMPILER_DEFAULTS + _KNOWN_PROFILES
     cover the new profile)."""
 
-    def test_init_tc16_project(self, tmp_path: Path, monkeypatch) -> None:
+    def test_init_borland_3_1_project(self, tmp_path: Path, monkeypatch) -> None:
         import warnings
 
         from rebrew.config import load_config
@@ -888,29 +888,29 @@ class TestInitTc16:
         main(
             target_name="main",
             binary_name="main.exe",
-            compiler_profile="tc16",
+            compiler_profile="borland-3.1",
             install_wibo=False,
             json_output=False,
             install_completions=False,
         )
         content = (tmp_path / "rebrew-project.toml").read_text()
-        assert 'profile = "tc16"' in content
+        assert 'profile = "borland-3.1"' in content
         # docker-backed: no host TCC.EXE command, empty docker-native command
         assert 'command = ""' in content
         assert "TCC.EXE" not in content
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             cfg = load_config(tmp_path, "main")
-        assert cfg.compiler_profile == "tc16"
+        assert cfg.compiler_profile == "borland-3.1"
         assert not any("unknown profile" in str(x.message) for x in w)
 
 
 class TestInitDelphi16:
-    """rebrew init --toolchain delphi16 must generate a config that loads
+    """rebrew init --toolchain delphi-1.0 must generate a config that loads
     without an unknown-profile fallback — the profile is advertised in the
     CLI epilog, registered in TOOLCHAINS, and validated by _KNOWN_PROFILES."""
 
-    def test_init_delphi16_project(self, tmp_path: Path, monkeypatch) -> None:
+    def test_init_delphi_1_0_project(self, tmp_path: Path, monkeypatch) -> None:
         import warnings
 
         from rebrew.config import load_config
@@ -920,13 +920,13 @@ class TestInitDelphi16:
         main(
             target_name="main",
             binary_name="main.exe",
-            compiler_profile="delphi16",
+            compiler_profile="delphi-1.0",
             install_wibo=False,
             json_output=False,
             install_completions=False,
         )
         content = (tmp_path / "rebrew-project.toml").read_text()
-        assert 'profile = "delphi16"' in content
+        assert 'profile = "delphi-1.0"' in content
         assert 'format = "ne"' in content
         assert 'arch = "x86_16"' in content
         # docker-only: no host DCC.EXE command
@@ -935,12 +935,12 @@ class TestInitDelphi16:
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             cfg = load_config(tmp_path, "main")
-        assert cfg.compiler_profile == "delphi16"
+        assert cfg.compiler_profile == "delphi-1.0"
         assert cfg.binary_format == "ne"
         assert cfg.arch == "x86_16"
         assert not any("unknown profile" in str(x.message) for x in w)
 
-    def test_init_delphi16_agents_md(self, tmp_path: Path, monkeypatch) -> None:
+    def test_init_delphi_1_0_agents_md(self, tmp_path: Path, monkeypatch) -> None:
         """The generated AGENTS.md must describe the Pascal/research path,
         not fall through to the GCC constraints (ELF / objdump / C99)."""
         from rebrew.init import main
@@ -949,7 +949,7 @@ class TestInitDelphi16:
         main(
             target_name="main",
             binary_name="main.exe",
-            compiler_profile="delphi16",
+            compiler_profile="delphi-1.0",
             install_wibo=False,
             json_output=False,
             install_completions=False,
@@ -985,7 +985,7 @@ class TestInitGuessCompiler:
             install_completions=False,
         )
         content = (tmp_path / "rebrew-project.toml").read_text()
-        assert 'profile = "tc16"' in content
+        assert 'profile = "borland-3.1"' in content
 
     def test_guess_msvc16_ne_binary(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.init import main
@@ -1013,7 +1013,7 @@ class TestInitGuessCompiler:
             install_completions=False,
         )
         content = (tmp_path / "rebrew-project.toml").read_text()
-        assert 'profile = "msvc1.52"' in content
+        assert 'profile = "msvc-1.52"' in content
 
     def test_guess_missing_binary_errors(self, tmp_path: Path, monkeypatch, capsys) -> None:
         from rebrew.init import main
@@ -1091,9 +1091,9 @@ class TestRegistryDerivedProfiles:
         missing = [n for n in TOOLCHAINS if n not in families]
         assert missing == []
         # hand-table entries keep their families (incl. the newly completed ones)
-        assert families["tc16"] == frozenset({"borlandc"})
-        assert families["msvc15"] == frozenset({"msvc"})
-        assert families["ido5.3"] == frozenset({"ido"})
+        assert families["borland-3.1"] == frozenset({"borlandc"})
+        assert families["msvc-1.5"] == frozenset({"msvc"})
+        assert families["ido-5.3"] == frozenset({"ido"})
 
     def test_plugin_toolchain_synthesized(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

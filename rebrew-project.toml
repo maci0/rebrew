@@ -8,4 +8,4 @@ reversed_dir = "src/rebrew"
 function_list = "dummy.txt"
 
 [compiler]
-profile = "msvc6"
+profile = "msvc-6.0"

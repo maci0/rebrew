@@ -538,7 +538,7 @@ class TestVerifyCli:
 
     def test_ne_target_skips_compile_loop(self, tmp_path: Path, monkeypatch) -> None:
         """A 16-bit NE target with no 16-bit compiler profile (default
-        msvc6) short-circuits with a clear notice instead of compiling every
+        msvc-6.0) short-circuits with a clear notice instead of compiling every
         stub into COMPILE_ERROR rows.  The skip verifies zero functions, so
         it exits non-zero (EXIT_ERROR) — CI must never green on skipped
         work."""
@@ -559,7 +559,7 @@ class TestVerifyCli:
         assert "NE" in data["reason"]
 
     def test_ne_target_with_msvc152_profile_runs(self, tmp_path: Path, monkeypatch) -> None:
-        """With the msvc1.52 profile configured, verify must NOT short-circuit
+        """With the msvc-1.52 profile configured, verify must NOT short-circuit
         a 16-bit NE target — the DOSBox compile pipeline (omf16 objects) is
         live.  The fake cfg lacks the fields the deeper pipeline needs, so the
         run fails for an unrelated reason — the point is the NE gate no longer
@@ -572,7 +572,7 @@ class TestVerifyCli:
         data[0x3C:0x40] = (0x100).to_bytes(4, "little")
         data[0x100:0x102] = b"NE"
         ne.write_bytes(bytes(data))
-        cfg = _cfg(tmp_path, target_binary=ne, compiler_profile="msvc1.52")
+        cfg = _cfg(tmp_path, target_binary=ne, compiler_profile="msvc-1.52")
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json"])
         # exit code is not 0 (deeper pipeline needs a fuller cfg), but the

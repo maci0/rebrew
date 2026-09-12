@@ -4,7 +4,7 @@ First 32-bit MSVC (1994, "Microsoft C/C++ 9.00").  The 32-bit cdecl/COFF
 line starts here; everything VC 2.0–11.0 shares is listed once in this
 file and referenced from the later ones.
 
-**Profiles:** `msvc200` — image `rebrew/msvc:2.0-win32`, linker 2.50,
+**Profiles:** `msvc-2.0` — image `rebrew/msvc:2.0-win32`, linker 2.50,
 no Rich header (early linkers write none).
 
 ## Prologue & frame pointer
@@ -12,7 +12,7 @@ no Rich header (early linkers write none).
 - `/O2`: **no frame pointer** — args at `[esp+4]`/`[esp+8]`, e.g.
   `mov eax, dword ptr [esp+4]` (`8b 44 24 04`).
 - Unoptimized: `push ebp; mov ebp,esp` (`55 8b ec`), args at `[ebp+8]`
-  (smoke object `.cache/smoke/msvc200/t.obj`: `55 8b ec 8b 45 08 03 45 0c
+  (smoke object `.cache/smoke/msvc-2.0/t.obj`: `55 8b ec 8b 45 08 03 45 0c
   5d c3`).
 
 ## Argument passing
@@ -203,7 +203,7 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 
 Probe compiled with `rebrew/msvc:2.0-win32` at `/O1` and `/O2`
 (`.cache/fp_probe/out/msvc200_{O1,O2}.obj`), disassembled via objconv and
-capstone; smoke object `.cache/smoke/msvc200/t.obj` (unoptimized `add`).
+capstone; smoke object `.cache/smoke/msvc-2.0/t.obj` (unoptimized `add`).
 All patterns above reproduced from those objects.
 ## Probe29: round-29 era markers (2.0)
 

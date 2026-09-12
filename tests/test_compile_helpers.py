@@ -167,12 +167,12 @@ class TestNativeToolchainId:
     def test_vendored_binary_wins_over_path(self, tmp_path: Path, monkeypatch) -> None:
         """The id must track the binary the runner EXECUTES: for an image-less
         spec, `toolchain._resolve_binary` prefers the vendored tree over PATH,
-        so hashing only `shutil.which` left watcom16's `wcc` (not on PATH)
+        so hashing only `shutil.which` left watcom-2.0-win16's `wcc` (not on PATH)
         with a digest-free id — replacing the vendored tree kept serving the
         old compiler's objects."""
         from rebrew.compile import _native_binary_cache, _native_toolchain_id
 
-        vendored = tmp_path / "watcom" / "source" / "binl"
+        vendored = tmp_path / "watcom-2.0-win32" / "source" / "binl"
         vendored.mkdir(parents=True)
         wcc = vendored / "WCC.EXE"
         wcc.write_bytes(b"vendored compiler")
@@ -181,7 +181,10 @@ class TestNativeToolchainId:
         monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: str(on_path))
         _native_binary_cache.clear()
         spec = SimpleNamespace(
-            binary="wcc", host_path=tmp_path / "watcom", host_bin="binl", name="watcom16"
+            binary="wcc",
+            host_path=tmp_path / "watcom-2.0-win32",
+            host_bin="binl",
+            name="watcom-2.0-win16",
         )
         tid = _native_toolchain_id(spec)
         assert tid.startswith("native:wcc@")
@@ -217,12 +220,12 @@ class TestNativeToolchainId:
         os.utime(gcc, (1767225600, 1767225600))  # fixed old mtime
         monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: str(gcc))
         _native_binary_cache.clear()
-        id_old = _native_toolchain_id(self._spec("gcc-pe"))
+        id_old = _native_toolchain_id(self._spec("mingw-16.2.0"))
         # "Upgrade": same path, new content + a later mtime.
         gcc.write_bytes(b"#!/bin/sh\nexit 0\n# newer compiler\n")
         os.utime(gcc, (1767226000, 1767226000))
         _native_binary_cache.clear()
-        id_new = _native_toolchain_id(self._spec("gcc-pe"))
+        id_new = _native_toolchain_id(self._spec("mingw-16.2.0"))
         assert id_old != id_new
 
     def test_same_stat_different_bytes_changes_id(self, tmp_path: Path, monkeypatch) -> None:
@@ -239,12 +242,12 @@ class TestNativeToolchainId:
         os.utime(gcc, (mtime, mtime))
         monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: str(gcc))
         _native_binary_cache.clear()
-        id_old = _native_toolchain_id(self._spec("gcc-pe"))
+        id_old = _native_toolchain_id(self._spec("mingw-16.2.0"))
         # Same size, same mtime, different bytes.
         gcc.write_bytes(b"BBBB")
         os.utime(gcc, (mtime, mtime))
         _native_binary_cache.clear()
-        id_new = _native_toolchain_id(self._spec("gcc-pe"))
+        id_new = _native_toolchain_id(self._spec("mingw-16.2.0"))
         assert id_old != id_new
 
 

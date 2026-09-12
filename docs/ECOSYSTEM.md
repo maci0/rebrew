@@ -73,7 +73,7 @@ flowchart TB
 
 Compiler-in-the-loop decompilation: annotated C source is compiled with the
 target's original compiler (MSVC 1.0–11.0 — 16-bit 1.0/1.5/1.52 plus 32-bit
-2.0–11.0 — Borland C++ 5.5 / Turbo C 2.0/3.1, Watcom, Delphi 1.0, gcc-pe),
+2.0–11.0 — Borland C++ 5.5 / Turbo C 2.0/3.1, Watcom, Delphi 1.0, mingw-16.2.0),
 byte-compared against the target binary, and the result drives
 `STATUS` promotion, diff analysis, and the GA matching engine. It is both
 the CLI workbench and a Python library (`rebrew.*`) that the sibling agent

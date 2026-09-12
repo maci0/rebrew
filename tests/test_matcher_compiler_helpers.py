@@ -21,18 +21,18 @@ class TestFlagsToAxes:
 
 class TestGenerateFlagCombinations:
     def test_quick_tier_nonempty(self) -> None:
-        combos = generate_flag_combinations("quick", "msvc6")
+        combos = generate_flag_combinations("quick", "msvc-6.0")
         assert isinstance(combos, list)
         assert len(combos) > 0
         assert all(isinstance(c, str) for c in combos)
 
     def test_combinations_are_valid_flag_strings(self) -> None:
-        combos = generate_flag_combinations("targeted", "msvc6")
+        combos = generate_flag_combinations("targeted", "msvc-6.0")
         for c in combos[:20]:
             assert c.startswith("/") or c == ""
 
     def test_watcom_profile_uses_watcom_flags(self) -> None:
-        combos = generate_flag_combinations("targeted", "watcom")
+        combos = generate_flag_combinations("targeted", "watcom-2.0-win32")
         assert len(combos) > 0
         # wcc386 flags are -style: -os/-ot/-ol/-ox x -3..-6 + none = 25
         assert len(combos) == 25
@@ -42,11 +42,11 @@ class TestGenerateFlagCombinations:
         assert not any("/" in c for c in combos)  # no MSVC flags
 
     def test_watcom_quick_tier(self) -> None:
-        combos = generate_flag_combinations("quick", "watcom")
+        combos = generate_flag_combinations("quick", "watcom-2.0-win32")
         assert len(combos) == 5  # opt axis only
 
     def test_msvc152_profile_uses_16bit_flags(self) -> None:
-        combos = generate_flag_combinations("targeted", "msvc1.52")
+        combos = generate_flag_combinations("targeted", "msvc-1.52")
         # 5 opt x 5 model (incl. none) x 3 codegen (+none each) = 75; flags
         # are /-style.  The memory-model axis (/AS /AM /AC /AL) is
         # essential: far-code models emit retf/lcall and are what 16-bit
@@ -66,11 +66,11 @@ class TestMapSymbolRe:
 
 
 class TestFlagSweepsNewProfiles:
-    """tc16/borlandc55 sweep the Borland flag dialect (-O1/-O2/-Od, no
-    msvc-style / flags); watcom16 shares the wcc flag family."""
+    """borland-3.1/borland-5.5 sweep the Borland flag dialect (-O1/-O2/-Od, no
+    msvc-style / flags); watcom-2.0-win16 shares the wcc flag family."""
 
-    def test_tc16_uses_borland_flags(self) -> None:
-        combos = generate_flag_combinations("targeted", "tc16")
+    def test_borland_3_1_uses_borland_flags(self) -> None:
+        combos = generate_flag_combinations("targeted", "borland-3.1")
         assert len(combos) > 0
         for c in combos:
             assert c.startswith("-") or c == ""
@@ -78,11 +78,11 @@ class TestFlagSweepsNewProfiles:
         assert any("-O2" in c for c in combos)
 
     def test_borlandc55_uses_borland_flags(self) -> None:
-        combos = generate_flag_combinations("quick", "borlandc55")
+        combos = generate_flag_combinations("quick", "borland-5.5")
         assert combos == ["", "-O1", "-O2", "-Od"]
 
-    def test_watcom16_shares_watcom_flags(self) -> None:
-        combos = generate_flag_combinations("targeted", "watcom16")
+    def test_watcom_2_0_win16_shares_watcom_flags(self) -> None:
+        combos = generate_flag_combinations("targeted", "watcom-2.0-win16")
         assert len(combos) == 25  # same wcc axes as watcom
         for c in combos:
             assert c.startswith("-") or c == ""
@@ -117,7 +117,7 @@ class TestMalformedFlagSetProvider:
         monkeypatch.setattr("rebrew.registry.entry_point_registrations", lambda group: [reg])
         monkeypatch.setattr(
             "rebrew.registry.load_registration_optional",
-            lambda r, log: lambda: {"msvc6": None},
+            lambda r, log: lambda: {"msvc-6.0": None},
         )
         flags, _tiers = compiler_mod._merged_flag_sets()
-        assert flags["msvc6"] is compiler_mod._FLAGS_MAP["msvc6"]
+        assert flags["msvc-6.0"] is compiler_mod._FLAGS_MAP["msvc-6.0"]

@@ -184,7 +184,7 @@ class TestCompileToObj:
             compiler_command="CL.EXE",
             compiler_runner="",
             compiler_libs=tmp_path,
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             posix_style=False,
             msvc_env=lambda: {},
         )
@@ -229,7 +229,7 @@ class TestCompileToObj:
             compiler_command="CL.EXE",
             compiler_runner="",
             compiler_libs=tmp_path,
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             posix_style=False,
             msvc_env=lambda: {},
         )
@@ -254,10 +254,10 @@ class TestCompileToObj:
 
 
 class TestCompileToObjPosix:
-    """gcc-pe / mingw (POSIX-style) compiler routing."""
+    """mingw-16.2.0 / mingw (POSIX-style) compiler routing."""
 
-    def test_gcc_pe_uses_posix_flags(self, tmp_path: Path, monkeypatch) -> None:
-        """gcc-pe is image-backed, and the argv compile_to_obj hands the
+    def test_mingw_uses_posix_flags(self, tmp_path: Path, monkeypatch) -> None:
+        """mingw-16.2.0 is image-backed, and the argv compile_to_obj hands the
         toolchain is still POSIX-style: -I/-c/-o, no MSVC /Fo."""
         captured: dict[str, list[str]] = {}
 
@@ -277,7 +277,7 @@ class TestCompileToObjPosix:
             compiler_command="i686-w64-mingw32-gcc",
             compiler_runner="",
             compiler_libs=tmp_path,
-            compiler_profile="gcc-pe",
+            compiler_profile="mingw-16.2.0",
             posix_style=True,
             msvc_env=lambda: {},
         )
@@ -304,7 +304,7 @@ class TestCompileToObjPosix:
         assert "-fno-builtin" in cmd
 
     def test_msvc_profile_routes_through_docker(self, tmp_path: Path, monkeypatch) -> None:
-        """msvc6 is docker-backed: compile_to_obj routes through run_toolchain
+        """msvc-6.0 is docker-backed: compile_to_obj routes through run_toolchain
         with MSVC-style flags (/Fo), not a host wine subprocess."""
         captured: dict[str, list[str]] = {}
 
@@ -324,7 +324,7 @@ class TestCompileToObjPosix:
             compiler_command="wine CL.EXE",
             compiler_runner="wine",
             compiler_libs=tmp_path,
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             posix_style=False,
             msvc_env=lambda: {},
         )
@@ -364,7 +364,7 @@ class TestFilterWineStderr:
 
 
 class TestCompileToObjToolchainProfiles:
-    """watcom / msvc1.52 profiles route through rebrew.toolchain's runner."""
+    """watcom / msvc-1.52 profiles route through rebrew.toolchain's runner."""
 
     def _cfg(self, tmp_path: Path, profile: str) -> SimpleNamespace:
         return SimpleNamespace(
@@ -397,14 +397,16 @@ class TestCompileToObjToolchainProfiles:
         src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
         workdir = tmp_path / "work"
         workdir.mkdir()
-        obj, err = compile_to_obj(self._cfg(tmp_path, "watcom"), src, [], workdir, use_cache=False)
+        obj, err = compile_to_obj(
+            self._cfg(tmp_path, "watcom-2.0-win32"), src, [], workdir, use_cache=False
+        )
         assert obj is not None and err == ""
         # wcc386 flag shape: -fo= output, -I includes, -zq quiet
         assert "-fo=t.obj" in captured["args"]
         assert "-zq" in captured["args"]
 
-    def test_watcom16_uses_toolchain_runner(self, tmp_path: Path, monkeypatch) -> None:
-        """watcom16 (wcc 16-bit) routes through rebrew.toolchain's runner with
+    def test_watcom_2_0_win16_uses_toolchain_runner(self, tmp_path: Path, monkeypatch) -> None:
+        """watcom-2.0-win16 (wcc 16-bit) routes through rebrew.toolchain's runner with
         the same posix flag shape as wcc386 — but without -c (wcc16 rejects
         it: E1073)."""
         from rebrew.compile import compile_to_obj
@@ -427,7 +429,7 @@ class TestCompileToObjToolchainProfiles:
         workdir = tmp_path / "work"
         workdir.mkdir()
         obj, err = compile_to_obj(
-            self._cfg(tmp_path, "watcom16"), src, [], workdir, use_cache=False
+            self._cfg(tmp_path, "watcom-2.0-win16"), src, [], workdir, use_cache=False
         )
         assert obj is not None and err == ""
         # wcc flag shape: -fo= output, -I includes, -zq quiet; no -c
@@ -449,18 +451,20 @@ class TestCompileToObjToolchainProfiles:
         src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
         workdir = tmp_path / "work"
         workdir.mkdir()
-        obj, err = compile_to_obj(self._cfg(tmp_path, "watcom"), src, [], workdir, use_cache=False)
+        obj, err = compile_to_obj(
+            self._cfg(tmp_path, "watcom-2.0-win32"), src, [], workdir, use_cache=False
+        )
         assert obj is None
         assert "E1139" in err
 
 
 class TestCompileToObjMsvc152Image:
-    """msvc1.52 prefers the docker image (cl16 wrapper) when pulled."""
+    """msvc-1.52 prefers the docker image (cl16 wrapper) when pulled."""
 
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         return SimpleNamespace(
             root=tmp_path,
-            compiler_profile="msvc1.52",
+            compiler_profile="msvc-1.52",
             compiler_command="CL.EXE",
             base_cflags="",
             compiler_includes=tmp_path,
@@ -652,14 +656,14 @@ class TestRelativeRunnerResolution:
 
 
 class TestCompileToObjBorlandc55:
-    """borlandc55 routes through the toolchain runner with bcc32 flags
+    """borland-5.5 routes through the toolchain runner with bcc32 flags
     (`-c` compile-only; the object follows the source stem — `-o obj` would
     misparse obj as an input file in Borland's flag dialect)."""
 
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         return SimpleNamespace(
             root=tmp_path,
-            compiler_profile="borlandc55",
+            compiler_profile="borland-5.5",
             compiler_command="bcc32.exe",
             base_cflags="",
             compiler_includes=tmp_path / "h",
@@ -714,7 +718,7 @@ class TestPerFunctionOverrideArgShape:
 
         cfg: Any = SimpleNamespace(
             root=tmp_path,
-            compiler_profile="msvc6",  # 32-bit config profile
+            compiler_profile="msvc-6.0",  # 32-bit config profile
             compiler_command="",
             compiler_runner="",
             compiler_includes="toolchain/msvc/6.0-win32/VC98/Include",
@@ -731,7 +735,7 @@ class TestPerFunctionOverrideArgShape:
         source.write_text("int f(void){return 1;}\n", encoding="utf-8")
         work = tmp_path / "work"
         work.mkdir()
-        obj, err = compile_to_obj(cfg, source, [], work, use_cache=False, toolchain="msvc1.52")
+        obj, err = compile_to_obj(cfg, source, [], work, use_cache=False, toolchain="msvc-1.52")
         assert obj is not None and err == ""
         assert captured["args"][0] == "f.c"  # source first (wrapper convention)
         assert not any(a.startswith("/Fo") for a in captured["args"])
@@ -744,7 +748,7 @@ class TestCompileEdgeCases:
         monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
         cfg: Any = SimpleNamespace(
             root=tmp_path,
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             compiler_command="",
             compiler_runner="",
             compiler_includes="",
@@ -774,7 +778,7 @@ class TestCompileEdgeCases:
         monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
         cfg: Any = SimpleNamespace(
             root=tmp_path,
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             compiler_command="",
             compiler_runner="",
             compiler_includes="",
@@ -874,7 +878,7 @@ class TestLinkedLinkCmd:
         from rebrew.toolchain import ToolchainSpec
 
         return ToolchainSpec(
-            name="msvc6",
+            name="msvc-6.0",
             image="rebrew/msvc:6.0-win32",
             binary="cl",
             runtime="wine",
@@ -930,7 +934,7 @@ class TestLinkedLinkCmd:
         from rebrew.compile import build_linked_link_cmd
         from rebrew.toolchain import ToolchainError, ToolchainSpec
 
-        native = ToolchainSpec(name="gcc-pe", image=None, binary="i686-w64-mingw32-gcc")
+        native = ToolchainSpec(name="mingw-16.2.0", image=None, binary="i686-w64-mingw32-gcc")
         try:
             build_linked_link_cmd(
                 native, base=0x10000000, obj_name="f.o", out_name="o.dll", workdir="/tmp/w"
@@ -945,9 +949,9 @@ class TestLinkedSpec:
     def test_msvc_profile_resolves(self) -> None:
         from rebrew.compile import _linked_spec
 
-        cfg: Any = SimpleNamespace(compiler_profile="msvc6")
+        cfg: Any = SimpleNamespace(compiler_profile="msvc-6.0")
         spec, err = _linked_spec(cfg, None)
-        assert spec is not None and spec.name == "msvc6"
+        assert spec is not None and spec.name == "msvc-6.0"
         assert err == ""
 
     def test_native_profile_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -963,19 +967,19 @@ class TestLinkedSpec:
         assert spec is None
         assert "host-native" in err
 
-    def test_gcc_pe_profile_rejected(self) -> None:
-        """gcc-pe is image-backed but has no LINK.EXE — the linked compare
+    def test_mingw_profile_rejected(self) -> None:
+        """mingw-16.2.0 is image-backed but has no LINK.EXE — the linked compare
         drives MSVC's linkers only."""
         from rebrew.compile import _linked_spec
 
-        spec, err = _linked_spec(SimpleNamespace(compiler_profile="gcc-pe"), None)
+        spec, err = _linked_spec(SimpleNamespace(compiler_profile="mingw-16.2.0"), None)
         assert spec is None
         assert "MSVC toolchains only" in err
 
     def test_non_msvc_image_rejected(self) -> None:
         from rebrew.compile import _linked_spec
 
-        cfg: Any = SimpleNamespace(compiler_profile="borlandc55")
+        cfg: Any = SimpleNamespace(compiler_profile="borland-5.5")
         spec, err = _linked_spec(cfg, None)
         assert spec is None
         assert "MSVC" in err

@@ -92,7 +92,7 @@ class TestWizardGating:
         main(
             target_name="demo",
             binary_name="demo.exe",
-            compiler_profile="msvc6",
+            compiler_profile="msvc-6.0",
             install_completions=False,
             json_output=True,
             wizard=True,
@@ -101,7 +101,7 @@ class TestWizardGating:
         assert payload["target"] == "demo"
         content = (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
         assert 'default_target = "demo"' in content
-        assert 'profile = "msvc6"' in content
+        assert 'profile = "msvc-6.0"' in content
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +114,7 @@ class TestWizardFlow:
 
     def test_auto_pick_applies_suggested_profile(self, tmp_path: Path, monkeypatch) -> None:
         """Choosing the offered binary + accepting the Enter-defaults writes
-        the detected profile (msvc800 for mini_pe) and a stem-based target."""
+        the detected profile (msvc-8.0 for mini_pe) and a stem-based target."""
         _place_mini_pe(tmp_path)
         _force_wizard(monkeypatch)
         image_present(monkeypatch, True)
@@ -124,11 +124,11 @@ class TestWizardFlow:
         result = CliRunner().invoke(app, [], input="1\n\n\ny\nn\n")
         assert result.exit_code == 0, result.output + result.stderr
         content = (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
-        assert 'profile = "msvc800"' in content
+        assert 'profile = "msvc-8.0"' in content
         assert 'default_target = "mini_pe"' in content
         assert 'binary = "original/mini_pe.exe"' in content
         assert not (tmp_path / "completions").exists()
-        assert "msvc800" in result.stderr  # detection summary surfaced
+        assert "msvc-8.0" in result.stderr  # detection summary surfaced
 
     def test_explicit_compiler_flag_skips_profile_prompt(self, tmp_path: Path, monkeypatch) -> None:
         """--compiler counts as explicit: its prompt is skipped and the
@@ -137,10 +137,10 @@ class TestWizardFlow:
         _force_wizard(monkeypatch)
         image_present(monkeypatch, True)
         monkeypatch.chdir(tmp_path)
-        result = CliRunner().invoke(app, ["--toolchain", "msvc6"], input="1\n\ny\nn\n")
+        result = CliRunner().invoke(app, ["--toolchain", "msvc-6.0"], input="1\n\ny\nn\n")
         assert result.exit_code == 0, result.output + result.stderr
         content = (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
-        assert 'profile = "msvc6"' in content
+        assert 'profile = "msvc-6.0"' in content
         assert 'default_target = "mini_pe"' in content
 
     def test_typed_profile_overrides_suggestion(self, tmp_path: Path, monkeypatch) -> None:
@@ -150,10 +150,10 @@ class TestWizardFlow:
         _force_wizard(monkeypatch)
         image_present(monkeypatch, True)
         monkeypatch.chdir(tmp_path)
-        result = CliRunner().invoke(app, [], input="1\nmsvc600sp6\n\ny\nn\n")
+        result = CliRunner().invoke(app, [], input="1\nmsvc-6.0-sp6\n\ny\nn\n")
         assert result.exit_code == 0, result.output + result.stderr
         content = (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
-        assert 'profile = "msvc600sp6"' in content
+        assert 'profile = "msvc-6.0-sp6"' in content
         assert "suggests" in result.stderr  # suggestion vs default made visible
 
     def test_unknown_profile_reprompts_then_falls_back(self, tmp_path: Path, monkeypatch) -> None:
@@ -165,7 +165,7 @@ class TestWizardFlow:
         result = CliRunner().invoke(app, [], input="1\njunk1\njunk2\n\ny\nn\n")
         assert result.exit_code == 0, result.output + result.stderr
         content = (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
-        assert 'profile = "msvc6"' in content  # fallback: the current default
+        assert 'profile = "msvc-6.0"' in content  # fallback: the current default
         assert "unknown profile 'junk1'" in result.stderr
         assert "unknown 'junk2'" in result.stderr
 
@@ -216,14 +216,14 @@ class TestWizardFullyFlagged:
                 "--binary",
                 "mini_pe.exe",
                 "--toolchain",
-                "msvc6",
+                "msvc-6.0",
                 "--install-completions",
             ],
         )
         assert result.exit_code == 0, result.output + result.stderr
         content = (tmp_path / "rebrew-project.toml").read_text(encoding="utf-8")
         assert 'default_target = "mytarget"' in content
-        assert 'profile = "msvc6"' in content
+        assert 'profile = "msvc-6.0"' in content
         # wizard-active extras still fire on the forced-on gate
         assert "toolchain image rebrew/msvc:6.0-win32 present" in result.stderr
         assert "rebrew doctor" in result.stderr
@@ -240,7 +240,7 @@ _FLAGGED = [
     "--binary",
     "mini_pe.exe",
     "--toolchain",
-    "msvc6",
+    "msvc-6.0",
     "--install-completions",
 ]
 
@@ -256,7 +256,7 @@ class TestToolchainImageStep:
         result = CliRunner().invoke(app, _FLAGGED, input="n\n")
         assert result.exit_code == 0, result.output + result.stderr
         assert "not present" in result.stderr
-        assert "rebrew toolchain build msvc6" in result.stderr
+        assert "rebrew toolchain build msvc-6.0" in result.stderr
 
     def test_missing_image_accepted_runs_build(self, tmp_path: Path, monkeypatch) -> None:
         _place_mini_pe(tmp_path)
@@ -278,7 +278,7 @@ class TestToolchainImageStep:
         monkeypatch.setattr("rebrew.init.subprocess.run", _fake_run)
         result = CliRunner().invoke(app, _FLAGGED, input="y\n")
         assert result.exit_code == 0, result.output + result.stderr
-        assert calls == [["/fake/rebrew", "toolchain", "build", "msvc6"]]
+        assert calls == [["/fake/rebrew", "toolchain", "build", "msvc-6.0"]]
 
     def test_build_failure_warns_but_completes(self, tmp_path: Path, monkeypatch) -> None:
         _place_mini_pe(tmp_path)
@@ -300,8 +300,8 @@ class TestToolchainImageStep:
         assert "build failed" in result.stderr
 
     def test_image_backed_native_profile_offers_build(self, tmp_path: Path, monkeypatch) -> None:
-        """gcc-pe is image-backed now — the wizard offers to build its image
-        (rebrew/gcc-pe:16.2.0-win32) like any other profile instead of
+        """mingw-16.2.0 is image-backed now — the wizard offers to build its image
+        (rebrew/mingw:16.2.0-win32) like any other profile instead of
         reporting nothing to build."""
         _place_mini_pe(tmp_path)
         _force_wizard(monkeypatch)
@@ -321,11 +321,11 @@ class TestToolchainImageStep:
 
         monkeypatch.setattr("rebrew.init.subprocess.run", _fake_run)
         flags = [*_FLAGGED]
-        flags[flags.index("msvc6")] = "gcc-pe"
+        flags[flags.index("msvc-6.0")] = "mingw-16.2.0"
         result = CliRunner().invoke(app, flags, input="y\n")
         assert result.exit_code == 0, result.output + result.stderr
         assert "nothing to build" not in result.stderr
-        assert calls == [["/fake/rebrew", "toolchain", "build", "gcc-pe"]]
+        assert calls == [["/fake/rebrew", "toolchain", "build", "mingw-16.2.0"]]
 
     def test_non_wizard_run_has_no_followup(self, tmp_path: Path, monkeypatch) -> None:
         """Unchanged non-wizard flow: no image lines, no doctor/intake extras."""

@@ -103,7 +103,7 @@ class TestGenerateInlineC:
         assert "/* push ebp */" in out
 
     def test_gcc_clang(self) -> None:
-        cfg = _cfg(Path("/tmp"), compiler_profile="clang")
+        cfg = _cfg(Path("/tmp"), compiler_profile="clang-18.1.8")
         out = generate_inline_c(b"\xb8\x01\x00\x00\x00", cfg, 0x1000, None)
         assert "__asm__(" in out
         assert '".byte 0xb8, 0x01, 0x00, 0x00, 0x00' in out
@@ -130,7 +130,7 @@ class TestGenerateInlineC:
         assert "void my_func(void)" in out
 
     def test_naked_gcc_attribute(self) -> None:
-        cfg = _cfg(Path("/tmp"), compiler_profile="gcc-pe")
+        cfg = _cfg(Path("/tmp"), compiler_profile="mingw-16.2.0")
         out = generate_inline_c(b"\xb8\x01\x00\x00\x00", cfg, 0x1000, None)
         assert "__attribute__((naked))" in out
 
@@ -411,7 +411,7 @@ source_ext = ".c"
 marker = "SERVER"
 
 [compiler]
-profile = "gcc-pe"
+profile = "mingw-16.2.0"
 runner = ""
 command = "i686-w64-mingw32-gcc"
 includes = ""

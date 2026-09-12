@@ -117,10 +117,10 @@ class DoctorReport:
 
 _KNOWN_FORMATS = {"pe", "elf", "macho", "ne", "mz"}
 
-#: Compiler profiles that can build a 16-bit target (msvc1.52 DOSBox CL.EXE,
-#: tc16/tc20 DOSBox TCC.EXE, watcom16 native wcc).  Shared by the compiler and
+#: Compiler profiles that can build a 16-bit target (msvc-1.52 DOSBox CL.EXE,
+#: borland-3.1/borland-2.0 DOSBox TCC.EXE, watcom-2.0-win16 native wcc).  Shared by the compiler and
 #: include checks so they cannot disagree about which profiles are valid.
-_16BIT_PROFILES = frozenset({"msvc1.52", "tc16", "tc20", "watcom16"})
+_16BIT_PROFILES = frozenset({"msvc-1.52", "borland-3.1", "borland-2.0", "watcom-2.0-win16"})
 _KNOWN_ARCHES = {
     "x86_16",
     "x86_32",
@@ -244,7 +244,7 @@ def _toolchain_download_hint(path_str: str) -> str:
     Matches the nested ``toolchain/<family>/<version>-<arch>`` layout and the
     legacy names (old projects may still reference pre-restructure dirs).
     Order matters: the SP mirrors contain ``msvc/6.0`` and the legacy
-    ``msvc6.3``/``msvc6.6`` contain bare ``msvc6``.  Returns the hint text
+    ``msvc6.3``/``msvc6.6`` contain bare ``msvc-6.0``.  Returns the hint text
     (with the leading space) or "" when unknown.
     """
     if "6.0-sp3-win32" in path_str or "msvc6.3" in path_str:
@@ -257,20 +257,20 @@ def _toolchain_download_hint(path_str: str) -> str:
             " Download: https://github.com/OmniBlade/decomp.me/"
             "releases/download/msvcwin9x/msvc-6.0-sp6-win32.tar.gz"
         )
-    if "7.0-win32" in path_str or "msvc7" in path_str:
+    if "7.0-win32" in path_str or "msvc-7.0" in path_str:
         return (
             " Download: https://github.com/OmniBlade/decomp.me/"
             "releases/download/msvcwin9x/msvc-7.0-win32.tar.gz"
         )
-    if "5.0-win32" in path_str or "msvc500" in path_str or "msvc5" in path_str:
+    if "5.0-win32" in path_str or "msvc500" in path_str or "msvc-5.0" in path_str:
         return (
             " Download: https://codeload.github.com/archaic-msvc/msvc500/tar.gz/refs/heads/master"
         )
-    if "6.0-win32" in path_str or "msvc6" in path_str:
+    if "6.0-win32" in path_str or "msvc-6.0" in path_str:
         return " Download: https://github.com/itsmattkc/msvc-6.0-win32"
-    if "4.0-win32" in path_str or "msvc400" in path_str:
+    if "4.0-win32" in path_str or "msvc-4.0" in path_str:
         return " Download: https://codeload.github.com/itsmattkc/MSVC400/tar.gz/refs/heads/master"
-    if "4.2-win32" in path_str or "msvc420" in path_str:
+    if "4.2-win32" in path_str or "msvc-4.2" in path_str:
         # The vendored 4.2 tree comes from the archaic-msvc repo (its own
         # README + the pinned ToolchainSource); the itsmattkc mirror is a
         # different, older snapshot.
@@ -289,15 +289,15 @@ def _toolchain_download_hint(path_str: str) -> str:
 
 def check_compiler(cfg: ProjectConfig) -> CheckResult:
     """Check that the compiler command is executable."""
-    # A 16-bit target needs a 16-bit-capable profile (msvc1.52 DOSBox
-    # CL.EXE, tc16 DOSBox TCC.EXE, watcom16 native wcc).  With one
+    # A 16-bit target needs a 16-bit-capable profile (msvc-1.52 DOSBox
+    # CL.EXE, borland-3.1 DOSBox TCC.EXE, watcom-2.0-win16 native wcc).  With one
     # configured, proceed to the normal executable check; otherwise a
     # 32-bit compiler cannot build the target, so a missing toolchain is
     # expected, not a project defect.  Downgrade to a warning instead of a
     # hard failure, and suggest the right profile via the detector.
     _16BIT = _16BIT_PROFILES
     if getattr(cfg, "arch", "") == "x86_16" and getattr(cfg, "compiler_profile", "") not in _16BIT:
-        hint = "msvc1.52, tc16, tc20, or watcom16"
+        hint = "msvc-1.52, borland-3.1, borland-2.0, or watcom-2.0-win16"
         try:
             from rebrew.toolchain_detect import detect_toolchain, suggest_profile
 
@@ -363,7 +363,7 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
     exe_path = shutil.which(exe)
     is_wibo_runner = Path(exe).name == "wibo"
     # A relative command (e.g. toolchain/msvc/1.52-win16/BIN/CL.EXE) resolves against the
-    # project root — do not require it on PATH (msvc1.52's direct DOSBox
+    # project root — do not require it on PATH (msvc-1.52's direct DOSBox
     # command, or a plugin toolchain's vendored path).
     if exe_path is None and exe != "wine" and not is_wibo_runner:
         local_exe = Path(exe) if Path(exe).is_absolute() else cfg.root / Path(exe)
@@ -537,7 +537,7 @@ def check_toolchain_alignment(cfg: ProjectConfig) -> CheckResult:
             name="Toolchain alignment", status=_SKIP, message=f"detection failed: {exc}"
         )
 
-    profile = getattr(cfg, "compiler_profile", "") or "msvc6"
+    profile = getattr(cfg, "compiler_profile", "") or "msvc-6.0"
     if info.family == "unknown":
         return CheckResult(
             name="Toolchain alignment",
@@ -800,8 +800,8 @@ def check_includes(cfg: ProjectConfig) -> CheckResult:
     """Check that the compiler include directory exists."""
     # A 16-bit NE target without a 16-bit-capable profile has no usable compile
     # path — the include dir is moot, same as the compiler check.  The profile
-    # set is shared with check_compiler: exempting only msvc1.52 told a working
-    # tc16/tc20/watcom16 project to switch toolchains.  With one configured, the
+    # set is shared with check_compiler: exempting only msvc-1.52 told a working
+    # borland-3.1/borland-2.0/watcom-2.0-win16 project to switch toolchains.  With one configured, the
     # vendored INCLUDE is staged into the sandbox as C:\INCLUDE, so the host path
     # check still applies.
     if (

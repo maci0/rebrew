@@ -6,7 +6,7 @@ DPMI app, run headless under DOSBox per the proven recipe in the
 NE executable with the native NE loader.
 
 Used for research (compile + NE parse) on Delphi targets.  Note: 16-bit
-matching in rebrew is implemented via the separate ``msvc1.52`` profile
+matching in rebrew is implemented via the separate ``msvc-1.52`` profile
 (DOSBox CL.EXE → OMF objects); Delphi's Borland ABI has no matchable
 rebrew profile, so its functions are documented as blockers.
 """
@@ -48,7 +48,7 @@ def find_dcc() -> Path:
         "vendored Delphi 1.0 toolchain not found under "
         "rebrew-toolchains/delphi/1.0-win16/source (DCC.EXE + DELPHI.DSL + "
         "DPMI16BI.OVL are required) — run `rebrew toolchain vendor "
-        "delphi16` with the delphi10.tar.xz media tarball next to the "
+        "delphi-1.0` with the delphi10.tar.xz media tarball next to the "
         "Dockerfile in the rebrew-toolchains checkout"
     )
 

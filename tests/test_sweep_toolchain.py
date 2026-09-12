@@ -18,7 +18,7 @@ class _FakeRes:
 
 def _make_params() -> SimpleNamespace:
     return SimpleNamespace(
-        cfg=SimpleNamespace(compiler_profile="msvc6", compile_timeout=60),
+        cfg=SimpleNamespace(compiler_profile="msvc-6.0", compile_timeout=60),
         seed_c=Path("seed.c"),
         seed_src="int f(void){return 1;}",
         cl="wine cl",
@@ -39,14 +39,14 @@ def test_vendored_enumeration_includes_msvc400() -> None:
     these profiles, so the sweep must be able to try each."""
     from rebrew.match_sweep import _vendored_msvc_toolchains
 
-    toolchains = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc6"))
+    toolchains = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc-6.0"))
     profiles = [p for p, _cl, _inc in toolchains]
-    assert "msvc400" in profiles
-    assert "msvc420" in profiles
-    assert "msvc6" in profiles
-    assert "msvc600sp6" in profiles
-    assert "msvc1.52" not in profiles  # 16-bit DOSBox, not a cl sweep target
-    assert profiles[0] == "msvc6"  # configured profile first
+    assert "msvc-4.0" in profiles
+    assert "msvc-4.2" in profiles
+    assert "msvc-6.0" in profiles
+    assert "msvc-6.0-sp6" in profiles
+    assert "msvc-1.52" not in profiles  # 16-bit DOSBox, not a cl sweep target
+    assert profiles[0] == "msvc-6.0"  # configured profile first
     # docker-only: the cl_cmd/inc_dir are inert for image-backed profiles
     assert all(cl == "" and inc == "" for _p, cl, inc in toolchains[1:])
 
@@ -56,45 +56,47 @@ def test_sweep_filter_matches() -> None:
     arch substring."""
     from rebrew.match_sweep import _sweep_filter_matches
 
-    assert _sweep_filter_matches("msvc600sp6", "6.0-sp6-win32", ["msvc600sp6"])
-    assert _sweep_filter_matches("msvc200", "2.0-win32", ["msvc2"])  # prefix
-    assert _sweep_filter_matches("msvc600sp1", "6.0-sp1-win32", ["6.0"])
-    assert _sweep_filter_matches("msvc1.52", "1.52-win16", ["win16"])
-    assert _sweep_filter_matches("msvc6", "6.0-win32", ["6.0"])
-    assert not _sweep_filter_matches("msvc1000", "10.0-win32", ["msvc2"])
-    assert not _sweep_filter_matches("msvc400", "4.0-win32", ["5.0"])
+    assert _sweep_filter_matches("msvc-6.0-sp6", "6.0-sp6-win32", ["msvc-6.0-sp6"])
+    assert _sweep_filter_matches("msvc-2.0", "2.0-win32", ["msvc-2"])  # prefix
+    assert _sweep_filter_matches("msvc-6.0-sp1", "6.0-sp1-win32", ["6.0"])
+    assert _sweep_filter_matches("msvc-1.52", "1.52-win16", ["win16"])
+    assert _sweep_filter_matches("msvc-6.0", "6.0-win32", ["6.0"])
+    assert not _sweep_filter_matches("msvc-10.0", "10.0-win32", ["msvc-2"])
+    assert not _sweep_filter_matches("msvc-4.0", "4.0-win32", ["5.0"])
 
 
 def test_vendored_enumeration_respects_only_exclude() -> None:
     """--sweep-toolchains / --sweep-exclude-toolchains narrow the registry enumeration."""
     from rebrew.match_sweep import _vendored_msvc_toolchains
 
-    all_ = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc6"))
+    all_ = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc-6.0"))
     profiles = [p for p, _cl, _inc in all_]
-    assert "msvc200" in profiles and "msvc1000" in profiles
+    assert "msvc-2.0" in profiles and "msvc-10.0" in profiles
 
-    only = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc6"), only="6.0")
+    only = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc-6.0"), only="6.0")
     only_p = [p for p, _cl, _inc in only]
-    assert "msvc6" in only_p and "msvc600sp6" in only_p
-    assert "msvc200" not in only_p and "msvc1000" not in only_p
+    assert "msvc-6.0" in only_p and "msvc-6.0-sp6" in only_p
+    assert "msvc-2.0" not in only_p and "msvc-10.0" not in only_p
 
-    excl = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc6"), exclude="2.0,4.0")
+    excl = _vendored_msvc_toolchains(
+        SimpleNamespace(compiler_profile="msvc-6.0"), exclude="2.0,4.0"
+    )
     excl_p = [p for p, _cl, _inc in excl]
-    assert "msvc200" not in excl_p and "msvc400" not in excl_p
-    assert "msvc6" in excl_p
+    assert "msvc-2.0" not in excl_p and "msvc-4.0" not in excl_p
+    assert "msvc-6.0" in excl_p
 
     # the configured profile is the baseline when it survives the filters,
     # and is never listed twice
     only_sp6 = _vendored_msvc_toolchains(
-        SimpleNamespace(compiler_profile="msvc600sp6"), only="6.0-sp6"
+        SimpleNamespace(compiler_profile="msvc-6.0-sp6"), only="6.0-sp6"
     )
-    assert only_sp6[0][0] == "msvc600sp6"
+    assert only_sp6[0][0] == "msvc-6.0-sp6"
 
-    # "--sweep-toolchains 4.0" means ONLY 4.0: the configured msvc6 baseline
+    # "--sweep-toolchains 4.0" means ONLY 4.0: the configured msvc-6.0 baseline
     # must not be swept anyway (help: "Sweep only these toolchains").
-    only_400 = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc6"), only="4.0")
+    only_400 = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc-6.0"), only="4.0")
     only_400_p = [p for p, _cl, _inc in only_400]
-    assert only_400_p and all(p.startswith("msvc4") for p in only_400_p), only_400_p
+    assert only_400_p and all(p.startswith("msvc-4") for p in only_400_p), only_400_p
 
     # No duplicates: the unfiltered enumeration includes the configured
     # profile once, not once from the loop plus once as the baseline.
@@ -171,14 +173,14 @@ def test_toolchain_flag_sweep_reports_per_toolchain(monkeypatch, capsys) -> None
     assert by_name["bad"]["best_score"] == 42.0
 
 
-def test_flag_combos_msvc_line_share_msvc6_flags() -> None:
-    """msvc400/msvc420/msvc5/6.3/6.6 all fall back to the msvc6 flag set in
+def test_flag_combos_msvc_line_share_msvc_6_0_flags() -> None:
+    """msvc-4.0/msvc-4.2/msvc-5.0/6.3/6.6 all fall back to the msvc-6.0 flag set in
     the sweep (they are MSVC-style compilers) — a future profile-specific
     flag set must not silently diverge the sweep for the expanded line."""
     from rebrew.matcher.compiler import generate_flag_combinations
 
-    base = generate_flag_combinations(tier="quick", profile="msvc6")
-    for prof in ("msvc400", "msvc420", "msvc5", "msvc600sp3", "msvc600sp6", "msvc7"):
+    base = generate_flag_combinations(tier="quick", profile="msvc-6.0")
+    for prof in ("msvc-4.0", "msvc-4.2", "msvc-5.0", "msvc-6.0-sp3", "msvc-6.0-sp6", "msvc-7.0"):
         combos = generate_flag_combinations(tier="quick", profile=prof)
         assert combos == base, prof
         nonempty = [c for c in combos if c]

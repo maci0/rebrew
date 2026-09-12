@@ -31,7 +31,7 @@ def _cfg(**overrides: object) -> SimpleNamespace:
 
 class TestCheckCompiler:
     def test_x86_16_target_warns_not_fails(self) -> None:
-        """A 16-bit NE target WITHOUT the msvc1.52 profile has no usable
+        """A 16-bit NE target WITHOUT the msvc-1.52 profile has no usable
         compile path — a missing toolchain is expected, so the compiler
         check downgrades to a warning instead of failing the project."""
         result = check_compiler(_cfg(arch="x86_16", compiler_command="wine missing/CL.EXE"))
@@ -39,14 +39,14 @@ class TestCheckCompiler:
         assert "16-bit" in result.message
 
     def test_x86_16_with_msvc152_checks_image(self, monkeypatch) -> None:
-        """With the msvc1.52 profile configured, the compiler check must
+        """With the msvc-1.52 profile configured, the compiler check must
         validate the docker image (execution is docker-only), not hand-wave
         with the stale 'future 16-bit profile' notice."""
         monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
         result = check_compiler(
             _cfg(
                 arch="x86_16",
-                compiler_profile="msvc1.52",
+                compiler_profile="msvc-1.52",
                 compiler_command="",
             )
         )
@@ -58,7 +58,7 @@ class TestCheckCompiler:
         result2 = check_compiler(
             _cfg(
                 arch="x86_16",
-                compiler_profile="msvc1.52",
+                compiler_profile="msvc-1.52",
                 compiler_command="toolchain/msvc/1.52-win16/BIN/CL.EXE",
                 root=Path("/"),
             )
@@ -133,22 +133,22 @@ class TestCheckDelphi16Toolchain:
             "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
         )
         result = check_compiler(
-            _cfg(compiler_command="wine tools/CL.EXE", root=Path("/tmp/msvc6toolchain"))
+            _cfg(compiler_command="wine tools/CL.EXE", root=Path("/tmp/msvc-6.0toolchain"))
         )
         assert result.status == _FAIL
         assert "CL.EXE not found" in result.message
-        assert "msvc-6.0-win32" in result.fix  # msvc6 hint
+        assert "msvc-6.0-win32" in result.fix  # msvc-6.0 hint
 
     def test_wine_cl_missing_msvc400_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
             "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
         )
         result = check_compiler(
-            _cfg(compiler_command="wine tools/CL.EXE", root=Path("/opt/msvc400"))
+            _cfg(compiler_command="wine tools/CL.EXE", root=Path("/opt/msvc-4.0"))
         )
         assert "MSVC400" in result.fix
 
-    def test_wine_cl_missing_msvc63_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_wine_cl_missing_msvc_6_03_hint(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The SP3 toolchain ships from the decomp.me mirror, not itsmattkc."""
         monkeypatch.setattr(
             "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
@@ -312,7 +312,7 @@ class TestCheckCompilerMore:
             "rebrew.doctor.shutil.which", lambda exe: "/usr/bin/wine" if exe == "wine" else None
         )
         result = check_compiler(
-            _cfg(compiler_command="wine tools/CL.EXE", root=Path("/opt/msvc420"))
+            _cfg(compiler_command="wine tools/CL.EXE", root=Path("/opt/msvc-4.2"))
         )
         # The hint must match the PINNED ToolchainSource (archaic-msvc/msvc420),
         # not the older itsmattkc mirror — vendor reproduces the vendored tree.
@@ -402,7 +402,7 @@ class TestDoctorCli:
 
         from rebrew.doctor import app
 
-        cfg = SimpleNamespace(root=tmp_path, target_name="SERVER", compiler_profile="msvc6")
+        cfg = SimpleNamespace(root=tmp_path, target_name="SERVER", compiler_profile="msvc-6.0")
         monkeypatch.setattr("rebrew.doctor.require_config", lambda **kw: cfg)
         monkeypatch.setattr("rebrew.wibo.download_wibo", lambda p: "v1.0")
         toml = tmp_path / "rebrew-project.toml"
@@ -533,7 +533,7 @@ class TestCheckToolchainAlignment:
     def _cfg(self, **overrides: object) -> SimpleNamespace:
         defaults: dict = {
             "target_binary": Path("/nonexistent.exe"),
-            "compiler_profile": "msvc6",
+            "compiler_profile": "msvc-6.0",
             "compiler_command": "wine CL.EXE",
             "compiler_runner": "wine",
             "root": Path("/tmp/proj"),
@@ -557,7 +557,7 @@ class TestCheckToolchainAlignment:
         from rebrew.doctor import _FAIL, check_toolchain_alignment
         from rebrew.toolchain_detect import ToolchainInfo
 
-        # A genuine mismatch — a MinGW-built binary with the msvc6 profile
+        # A genuine mismatch — a MinGW-built binary with the msvc-6.0 profile
         # configured — is a hard failure (a compiler exists but is wrong).
         monkeypatch.setattr(
             "rebrew.toolchain_detect.detect_toolchain",
@@ -608,7 +608,7 @@ class TestCheckToolchainAlignment:
             lambda *a, **k: ToolchainInfo(family="zig", confidence="high", version_hint="Zig/LLVM"),
         )
         result = check_toolchain_alignment(
-            self._cfg_with_binary(tmp_path, compiler_profile="gcc-pe")
+            self._cfg_with_binary(tmp_path, compiler_profile="mingw-16.2.0")
         )
         assert result.status == _WARN
         assert "structural" in (result.fix or "")
@@ -628,23 +628,23 @@ class TestCheckToolchainBacked:
         )
         assert result.status == _SKIP
 
-    def test_gcc_pe_reports_its_image(self, monkeypatch) -> None:
-        """gcc-pe is image-backed now — the docker-backed check reports the
+    def test_mingw_reports_its_image(self, monkeypatch) -> None:
+        """mingw-16.2.0 is image-backed now — the docker-backed check reports the
         image state instead of skipping it as a native profile."""
         from rebrew.doctor import _PASS, check_toolchain_backed
 
         monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
         result = check_toolchain_backed(
-            SimpleNamespace(compiler_profile="gcc-pe", root=Path("/tmp"))
+            SimpleNamespace(compiler_profile="mingw-16.2.0", root=Path("/tmp"))
         )
         assert result.status == _PASS
-        assert "rebrew/gcc-pe:16.2.0-win32" in result.message
+        assert "rebrew/mingw:16.2.0-win32" in result.message
 
     def test_watcom_image_present_passes(self, monkeypatch) -> None:
         from rebrew.doctor import _PASS, check_toolchain_backed
 
         monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
-        cfg = SimpleNamespace(compiler_profile="watcom", root=Path("/tmp"))
+        cfg = SimpleNamespace(compiler_profile="watcom-2.0-win32", root=Path("/tmp"))
         result = check_toolchain_backed(cfg)
         assert result.status == _PASS
         assert "pulled" in result.message
@@ -653,7 +653,7 @@ class TestCheckToolchainBacked:
         from rebrew.doctor import _FAIL, check_toolchain_backed
 
         monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
-        cfg = SimpleNamespace(compiler_profile="watcom", root=Path("/tmp"))
+        cfg = SimpleNamespace(compiler_profile="watcom-2.0-win32", root=Path("/tmp"))
         result = check_toolchain_backed(cfg)
         assert result.status == _FAIL
         assert "toolchain build" in (result.fix or "")
@@ -661,7 +661,7 @@ class TestCheckToolchainBacked:
 
 class TestCheckCompilerRelativeCommand:
     """check_compiler resolves a project-relative command (e.g.
-    toolchain/msvc/1.52-win16/BIN/CL.EXE) against the project root — the msvc1.52
+    toolchain/msvc/1.52-win16/BIN/CL.EXE) against the project root — the msvc-1.52
     direct command is not on PATH."""
 
     def test_relative_command_resolves(self, tmp_path: Path, monkeypatch) -> None:
@@ -674,7 +674,7 @@ class TestCheckCompilerRelativeCommand:
         cfg = SimpleNamespace(
             root=tmp_path,
             arch="x86_16",
-            compiler_profile="msvc1.52",
+            compiler_profile="msvc-1.52",
             compiler_command="toolchain/msvc/1.52-win16/BIN/CL.EXE",
             compiler_runner="",
         )
@@ -688,7 +688,7 @@ class TestCheckCompilerRelativeCommand:
         cfg = SimpleNamespace(
             root=tmp_path,
             arch="x86_16",
-            compiler_profile="msvc1.52",
+            compiler_profile="msvc-1.52",
             compiler_command="toolchain/msvc/1.52-win16/BIN/CL.EXE",
             compiler_runner="",
         )
@@ -699,7 +699,7 @@ class TestCheckCompilerRelativeCommand:
 
 class TestToolchainDownloadHint:
     """check_compiler's fix text includes a download URL for the missing
-    vendored toolchain — including msvc1.52 (direct DOSBox command)."""
+    vendored toolchain — including msvc-1.52 (direct DOSBox command)."""
 
     def test_msvc152_hint(self) -> None:
         from rebrew.doctor import _toolchain_download_hint
@@ -714,11 +714,11 @@ class TestToolchainDownloadHint:
         hint = _toolchain_download_hint("tools/watcom/binl/wcc386")
         assert "watcom" in hint.lower()
 
-    def test_msvc6_3_before_msvc6_order(self) -> None:
+    def test_msvc_6_0_3_before_msvc_6_0_order(self) -> None:
         from rebrew.doctor import _toolchain_download_hint
 
         hint = _toolchain_download_hint("toolchain/msvc/6.0-sp3-win32/bin/cl.exe")
-        assert "msvc-6.0-sp3-win32" in hint  # must not match the generic msvc6 branch
+        assert "msvc-6.0-sp3-win32" in hint  # must not match the generic msvc-6.0 branch
 
     def test_unknown_no_hint(self) -> None:
         from rebrew.doctor import _toolchain_download_hint
@@ -732,7 +732,7 @@ class TestToolchainDownloadHint:
         cfg = SimpleNamespace(
             root=tmp_path,
             arch="x86_16",
-            compiler_profile="msvc1.52",
+            compiler_profile="msvc-1.52",
             compiler_command="toolchain/msvc/1.52-win16/BIN/CL.EXE",
             compiler_runner="",
         )
@@ -742,11 +742,11 @@ class TestToolchainDownloadHint:
 
 
 class TestCheckToolchainBackedNewProfiles:
-    def test_tc16_image_present_passes(self, monkeypatch) -> None:
+    def test_borland_3_1_image_present_passes(self, monkeypatch) -> None:
         from rebrew.doctor import _PASS, check_toolchain_backed
 
         monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
-        cfg = SimpleNamespace(compiler_profile="tc16", root=Path("/tmp"))
+        cfg = SimpleNamespace(compiler_profile="borland-3.1", root=Path("/tmp"))
         result = check_toolchain_backed(cfg)
         assert result.status == _PASS
         assert "pulled" in result.message
@@ -755,18 +755,18 @@ class TestCheckToolchainBackedNewProfiles:
         from rebrew.doctor import _PASS, check_toolchain_backed
 
         monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
-        cfg = SimpleNamespace(compiler_profile="borlandc55", root=Path("/tmp"))
+        cfg = SimpleNamespace(compiler_profile="borland-5.5", root=Path("/tmp"))
         result = check_toolchain_backed(cfg)
         assert result.status == _PASS
 
-    def test_watcom16_reports_its_image(self, monkeypatch) -> None:
-        """watcom16 is image-backed now (rebrew/watcom:2.0-win16) — the
+    def test_watcom_2_0_win16_reports_its_image(self, monkeypatch) -> None:
+        """watcom-2.0-win16 is image-backed now (rebrew/watcom:2.0-win16) — the
         docker-backed check reports the image state, not a native skip."""
         from rebrew.doctor import _PASS, check_toolchain_backed
 
         monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
         result = check_toolchain_backed(
-            SimpleNamespace(compiler_profile="watcom16", root=Path("/tmp"))
+            SimpleNamespace(compiler_profile="watcom-2.0-win16", root=Path("/tmp"))
         )
         assert result.status == _PASS
         assert "rebrew/watcom:2.0-win16" in result.message
@@ -774,22 +774,24 @@ class TestCheckToolchainBackedNewProfiles:
 
 class TestCheckCompiler16BitProfiles:
     """The 16-bit compiler check accepts any 16-bit-capable profile
-    (msvc1.52, tc16, watcom16) and suggests the right one via the
+    (msvc-1.52, borland-3.1, watcom-2.0-win16) and suggests the right one via the
     detector for 32-bit profiles on 16-bit targets."""
 
-    def test_tc16_profile_not_warned(self, monkeypatch) -> None:
+    def test_borland_3_1_profile_not_warned(self, monkeypatch) -> None:
         monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
-        result = check_compiler(_cfg(arch="x86_16", compiler_profile="tc16", compiler_command=""))
+        result = check_compiler(
+            _cfg(arch="x86_16", compiler_profile="borland-3.1", compiler_command="")
+        )
         assert result.status == _FAIL  # image not built -> real failure, not the 16-bit warn
         assert "16-bit" not in (result.message or "")
 
-    def test_watcom16_profile_not_warned(self) -> None:
+    def test_watcom_2_0_win16_profile_not_warned(self) -> None:
         result = check_compiler(
-            _cfg(arch="x86_16", compiler_profile="watcom16", compiler_command="")
+            _cfg(arch="x86_16", compiler_profile="watcom-2.0-win16", compiler_command="")
         )
         assert "16-bit" not in (result.message or "")
 
-    def test_borland_mz_suggests_tc16(self, monkeypatch) -> None:
+    def test_borland_mz_suggests_borland_3_1(self, monkeypatch) -> None:
         from rebrew.toolchain_detect import ToolchainInfo
 
         monkeypatch.setattr(
@@ -802,7 +804,7 @@ class TestCheckCompiler16BitProfiles:
             ),
         )
         result = check_compiler(
-            _cfg(arch="x86_16", compiler_profile="msvc6", compiler_command="missing")
+            _cfg(arch="x86_16", compiler_profile="msvc-6.0", compiler_command="missing")
         )
         assert result.status == _WARN
-        assert "tc16" in (result.message or "") + (result.fix or "")
+        assert "borland-3.1" in (result.message or "") + (result.fix or "")

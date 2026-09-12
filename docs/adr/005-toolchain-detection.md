@@ -39,7 +39,7 @@ the corpus:
   holiday → delphi (high conf), ski32/win2k → msvc with era hints;
   explorer.exe gets "MSVC 5.0 (linker 5.12.9049)" instead of a blank hint.
 - The NE family feeds `intake` profile selection and blocker wording —
-  the "compiler family not identified — defaulting to msvc6" note
+  the "compiler family not identified — defaulting to msvc-6.0" note
   disappears for 16-bit MSVC targets.
 - The linker fallback is honest about its source (labels the raw linker
   version), so a mislabeled era is diagnosable.

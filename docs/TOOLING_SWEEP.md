@@ -3,7 +3,7 @@
 Exercised the rebrew CLI across the `../rebrew-projects` fleet (~45
 projects: win2k-* set, notepad/calc/pinball/skifree, the `test_*`
 fixtures, bench/cpubench/dhrystone, errlook/guidgen/makehm/smygb,
-16-bit skifree16/tc16).  Tools swept: `doctor`, `status`, `lint`,
+16-bit skifree16/borland-3.1).  Tools swept: `doctor`, `status`, `lint`,
 `test` (single + `--all`), `verify` (single + `--json`),
 `diff`, `match` (single + `--all`), `prove`, `skeleton` (batch),
 `asm` (incl. `--imports/--strings/--hints`), `data`
@@ -44,8 +44,8 @@ fixtures, bench/cpubench/dhrystone, errlook/guidgen/makehm/smygb,
 
 ## Project-state findings (correctly reported by tools, not rebrew bugs)
 
-- notepad-rebrew: profile `msvc6` but binary is VC 5.0 (linker 5.12,
-  cl 11.00) — doctor correctly flags + suggests msvc5 profiles.
+- notepad-rebrew: profile `msvc-6.0` but binary is VC 5.0 (linker 5.12,
+  cl 11.00) — doctor correctly flags + suggests msvc-5.0 profiles.
 - skifree16-rebrew: configured Delphi but the binary is MSVC-style NE
   (C runtime strings "C RUNTIME ERROR", "Assertion Failed") — analyze
   correctly detects MSVC-style NE; project config question.
@@ -74,8 +74,8 @@ created during testing (`notepad/src/link_stubs.c` from
 Round 2 went deeper on the round-1 hot spots: the compile pipeline at
 scale (`verify`/`match --all`/`test --all` on every real-content project,
 multi-function files, `--fix-sizes`/`--fix-blocker` status writers on temp
-copies), the 16-bit/DOSBox/NE paths (skifree16 + a synthetic msvc1.52
-project, OMF relocs, delphi16), file-writing tools on temp copies only,
+copies), the 16-bit/DOSBox/NE paths (skifree16 + a synthetic msvc-1.52
+project, OMF relocs, delphi-1.0), file-writing tools on temp copies only,
 the linking family, and malformed-input edge cases.
 
 ## Bugs fixed (4, each with a regression test)
@@ -95,14 +95,14 @@ the linking family, and malformed-input edge cases.
    temp (17 STUB→SIZE_MISMATCH promotions) and skifree16 (16-bit, 4
    promotions); `match --all` on makehm (all pre-skeleton STUBs, correctly
    skipped); multi-function `.c` files verified end-to-end (synthetic
-   two-function project); gcc-pe native compile path exercised.  The
+   two-function project); mingw-16.2.0 native compile path exercised.  The
    `->`-alias bug (#7) surfaced precisely because `--fix-sizes` on errlook
    backfills *canonical* sizes into metadata — the wrong canonical size
    would have corrupted the project.
 2. **16-bit / DOSBox / NE** — `test`/`diff`/`verify`/`imports`/`asm`/
    `switch`/`strings`/`analyze`/`describe`/`xrefs`/`round-trip` all run on
-   skifree16's NE binary; a synthetic msvc1.52 project compiled a 16-bit
-   function through DOSBox → OMF object → byte compare.  delphi16 has no
+   skifree16's NE binary; a synthetic msvc-1.52 project compiled a 16-bit
+   function through DOSBox → OMF object → byte compare.  delphi-1.0 has no
    fleet project (unit-tested only; the 6 tests pass).  `mini_ne.exe` is a
    degenerate 0-segment fixture (no code VAs) — fine for format-detection
    tests, unusable for end-to-end compile.
@@ -220,7 +220,7 @@ compile) surfaced no new actionable bug.  Reported well-dry at 7/20.
    (notepad's AddDefaultExtension, incl. `--named`); kuna/r2dec/ghidra
    error cleanly (backend unavailable); prove needs angr (not installed —
    guarded error).
-4. **CMake bridge** — `cmake-toolchain` generates the msvc6 toolchain
+4. **CMake bridge** — `cmake-toolchain` generates the msvc-6.0 toolchain
    file; `rebrew-cmake-cl` compiles an in-project file through the docker
    translation; other profiles error cleanly (no tool_root / no image).
    Out-of-project paths surface as a raw wine-drive CL error (minor UX
@@ -236,8 +236,8 @@ compile) surfaced no new actionable bug.  Reported well-dry at 7/20.
    link command; round-trip splices byte-identically on notepad/bench/
    smygb; `data --layout-audit` works on the Makefile build via #11.
 8. **16-bit/NE** — `extract list` on skifree16 now shows 136 candidates
-   (via #14); `extract batch` disassembles NE functions; the msvc1.52
-   DOSBox compile path works end-to-end (the synthetic tc16 project; the
+   (via #14); `extract batch` disassembles NE functions; the msvc-1.52
+   DOSBox compile path works end-to-end (the synthetic borland-3.1 project; the
    mini_ne fixture is degenerate — zero segments — so its `test --all`
    EXTRACT_ERROR is honest).
 
@@ -274,7 +274,7 @@ compile) surfaced no new actionable bug.  Reported well-dry at 7/20.
 - smygb has 98 sized STUBs — a viable `match --all` batch target.
 - `tests/fixtures/mini_ne.exe` has zero NE segments — fine for
   format-detection tests, unusable for end-to-end 16-bit compile
-  comparisons (the tc16 EXTRACT_ERROR is a fixture artifact).
+  comparisons (the borland-3.1 EXTRACT_ERROR is a fixture artifact).
 - cpubench `.text` VirtualSize (0x29d11) < raw size (0x29e00) with 0xCC
   padding — the layout postlink now preserves (bug #17).
 

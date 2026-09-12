@@ -75,7 +75,7 @@ class TestCompileSource:
         }
         client = _patch(monkeypatch, _Resp(200, json_body=body), _Resp(200, content=b"OBJ"))
 
-        res = compile_source("http://svc/", "msvc6", "int f(void){}", ["/c"])
+        res = compile_source("http://svc/", "msvc-6.0", "int f(void){}", ["/c"])
 
         assert res.ok and res.obj_bytes == b"OBJ"
         assert res.compiler_version == "12.0"
@@ -87,24 +87,24 @@ class TestCompileSource:
 
     def test_service_error_is_not_ok(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch(monkeypatch, _Resp(200, json_body={"status": "error", "log": "syntax error"}))
-        res = compile_source("http://svc", "msvc6", "bad", [])
+        res = compile_source("http://svc", "msvc-6.0", "bad", [])
         assert not res.ok and "syntax error" in res.log
 
     def test_http_error_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch(monkeypatch, _Resp(500, text="boom"))
         with pytest.raises(RecompileError, match="HTTP 500"):
-            compile_source("http://svc", "msvc6", "int f(void){}", [])
+            compile_source("http://svc", "msvc-6.0", "int f(void){}", [])
 
     def test_unreachable_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch(monkeypatch, httpx.ConnectError("refused"))
         with pytest.raises(RecompileError, match="unreachable"):
-            compile_source("http://svc", "msvc6", "int f(void){}", [])
+            compile_source("http://svc", "msvc-6.0", "int f(void){}", [])
 
     def test_flag_caps_are_enforced(self) -> None:
         with pytest.raises(RecompileError, match="too many flags"):
-            compile_source("http://svc", "msvc6", "x", ["/c"] * 65)
+            compile_source("http://svc", "msvc-6.0", "x", ["/c"] * 65)
         with pytest.raises(RecompileError, match="flag too long"):
-            compile_source("http://svc", "msvc6", "x", ["/" + "a" * 300])
+            compile_source("http://svc", "msvc-6.0", "x", ["/" + "a" * 300])
 
 
 class TestRecompileUrl:
@@ -142,12 +142,12 @@ class TestCompileViaRecompile:
         src.write_text("int f(void) { return 0; }")
 
         out, err = _compile_via_recompile(
-            self._cfg(), src, ["/c"], tmp_path, "f.obj", "msvc6", True
+            self._cfg(), src, ["/c"], tmp_path, "f.obj", "msvc-6.0", True
         )
 
         assert err == ""
         assert out is not None and Path(out).read_bytes() == b"\x01\x02"
-        assert seen["compiler"] == "msvc6"
+        assert seen["compiler"] == "msvc-6.0"
         assert seen["emit_assembly"] is True
         assert seen["filename"] == "f.c"
 
@@ -161,11 +161,13 @@ class TestCompileViaRecompile:
         )
         src = tmp_path / "f.c"
         src.write_text("bad")
-        out, err = _compile_via_recompile(self._cfg(), src, [], tmp_path, "f.obj", "msvc6", False)
+        out, err = _compile_via_recompile(
+            self._cfg(), src, [], tmp_path, "f.obj", "msvc-6.0", False
+        )
         assert out is None and "C2065" in err
 
     def test_missing_url_is_a_bug(self, tmp_path: Path) -> None:
         src = tmp_path / "f.c"
         src.write_text("int f(void) {}")
         with pytest.raises(AssertionError):
-            _compile_via_recompile(self._cfg(""), src, [], tmp_path, "f.obj", "msvc6", False)
+            _compile_via_recompile(self._cfg(""), src, [], tmp_path, "f.obj", "msvc-6.0", False)

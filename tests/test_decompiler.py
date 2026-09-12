@@ -788,7 +788,7 @@ class TestKunaBackend:
         assert seed.count("extern int dat_401100;") == 1
 
     def test_kuna_seed_maps_c99_isms(self, tmp_path: Path, monkeypatch) -> None:
-        """msvc6 is C89: `bool`, `true`/`false` and `NULL` must be spelled out."""
+        """msvc-6.0 is C89: `bool`, `true`/`false` and `NULL` must be spelled out."""
         import rebrew.decompiler as dc
 
         monkeypatch.setattr(

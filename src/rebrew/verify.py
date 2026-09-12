@@ -602,21 +602,21 @@ def main(
     if jobs is None:
         jobs = cfg.default_jobs
 
-    # 16-bit NE targets need a 16-bit compiler profile (msvc1.52 — DOSBox
+    # 16-bit NE targets need a 16-bit compiler profile (msvc-1.52 — DOSBox
     # image / rebrew.msvc16).  When one is configured, verify runs normally
     # through compile_and_compare (which routes the 16-bit OMF objects via
     # omf16).  Only short-circuit when the project has no 16-bit profile —
     # otherwise every stub would burn the compile loop into COMPILE_ERROR
-    # rows.  (The original skip predated the msvc1.52 profile and silently
+    # rows.  (The original skip predated the msvc-1.52 profile and silently
     # hid the working 16-bit pipeline.)
     from rebrew.binary_loader import is_ne
 
     if getattr(cfg, "target_binary", None) and is_ne(cfg.target_binary):
-        profile = getattr(cfg, "compiler_profile", "") or "msvc6"
-        if profile != "msvc1.52":
+        profile = getattr(cfg, "compiler_profile", "") or "msvc-6.0"
+        if profile != "msvc-1.52":
             msg = (
-                "verify: 16-bit NE targets need the msvc1.52 profile "
-                "(DOSBox CL.EXE — 'profile = \"msvc1.52\"' in rebrew-project.toml); "
+                "verify: 16-bit NE targets need the msvc-1.52 profile "
+                "(DOSBox CL.EXE — 'profile = \"msvc-1.52\"' in rebrew-project.toml); "
                 f"current profile is {profile!r}.  Skipping the compile/compare loop."
             )
             if json_output:

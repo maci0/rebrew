@@ -363,7 +363,7 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
     """
     from rebrew.toolchain import TOOLCHAINS
 
-    spec = TOOLCHAINS.get("msvc6")
+    spec = TOOLCHAINS.get("msvc-6.0")
     if spec is None or spec.image is None or spec.tool_root is None:
         return set()
     lib_dir = str(Path(spec.tool_root).parent / "Lib")

@@ -51,8 +51,8 @@ def _project(name: str) -> tuple[Path, Path, Path]:
 
 
 @pytest.mark.skipif(
-    not _image_available("msvc6"),
-    reason="rebrew/msvc:6.0-win32 image not built (run `rebrew toolchain build msvc6`)",
+    not _image_available("msvc-6.0"),
+    reason="rebrew/msvc:6.0-win32 image not built (run `rebrew toolchain build msvc-6.0`)",
 )
 def test_relative_include_resolves_through_image() -> None:
     """compile_to_obj on a source with a relative ../../ include must not
@@ -60,7 +60,7 @@ def test_relative_include_resolves_through_image() -> None:
     root, src, _ = _project("one")
     cfg = SimpleNamespace(
         root=root,
-        compiler_profile="msvc6",
+        compiler_profile="msvc-6.0",
         compiler_command="",
         compiler_runner="",
         compiler_includes=_INSTALL_INCLUDES,  # skipped (image has its own)
@@ -79,8 +79,8 @@ def test_relative_include_resolves_through_image() -> None:
 
 
 @pytest.mark.skipif(
-    not _image_available("msvc6"),
-    reason="rebrew/msvc:6.0-win32 image not built (run `rebrew toolchain build msvc6`)",
+    not _image_available("msvc-6.0"),
+    reason="rebrew/msvc:6.0-win32 image not built (run `rebrew toolchain build msvc-6.0`)",
 )
 def test_relative_include_deep_nesting() -> None:
     """Three-level ../../../ include still resolves (the root mount covers
@@ -99,7 +99,7 @@ def test_relative_include_deep_nesting() -> None:
     )
     cfg = SimpleNamespace(
         root=root,
-        compiler_profile="msvc6",
+        compiler_profile="msvc-6.0",
         compiler_command="",
         compiler_runner="",
         compiler_includes=_INSTALL_INCLUDES,
@@ -117,8 +117,8 @@ def test_relative_include_deep_nesting() -> None:
 
 
 @pytest.mark.skipif(
-    not _image_available("msvc6"),
-    reason="rebrew/msvc:6.0-win32 image not built (run `rebrew toolchain build msvc6`)",
+    not _image_available("msvc-6.0"),
+    reason="rebrew/msvc:6.0-win32 image not built (run `rebrew toolchain build msvc-6.0`)",
 )
 def test_compile_and_compare_resolves_relative_include() -> None:
     """The batch path (compile_and_compare — rebrew test / verify) compiles
@@ -126,7 +126,7 @@ def test_compile_and_compare_resolves_relative_include() -> None:
     root, src, _ = _project("compare")
     cfg = SimpleNamespace(
         root=root,
-        compiler_profile="msvc6",
+        compiler_profile="msvc-6.0",
         compiler_command="",
         compiler_runner="",
         compiler_includes=_INSTALL_INCLUDES,

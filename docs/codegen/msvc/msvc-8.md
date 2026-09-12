@@ -4,7 +4,7 @@ MSVC 8.0 (VS 2005, CL 14.00.50727; SP1 = 14.00.50727.762).  **/GS
 security cookies become default-on for buffer functions** — the big
 codegen change of this version.
 
-**Profiles:** `msvc800`, `msvc800sp1` — Rich builds 50727; linker 8.0.
+**Profiles:** `msvc-8.0`, `msvc-8.0-sp1` — Rich builds 50727; linker 8.0.
 
 ## Prologue & frame pointer
 
@@ -213,7 +213,7 @@ the VC 7.0+ era marker.  Verified in probe12 (`f1`/`f2`/`fl`).
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:8.0-win32` (`msvc800_{O1,O2}.obj`);
-smoke `msvc800/t.obj`, `msvc800sp1/t.obj`.  `/GS` cookie pattern
+smoke `msvc-8.0/t.obj`, `msvc-8.0-sp1/t.obj`.  `/GS` cookie pattern
 reproduced in `bigstack` at /O2.
 ## Probe29: round-29 era markers (8.0)
 

@@ -33,8 +33,8 @@ finicky installer — build once, share).
   host path) and a runner that picks backend in order: **docker image
   present → vendored host path → PATH binary**.  *(The docker→host
   fallback was removed for every Windows/DOS toolchain by ADR-008 —
-  execution is docker-only there; native-Linux specs like gcc-pe and
-  watcom16 still exec their vendored/PATH binary directly.)*
+  execution is docker-only there; native-Linux specs like mingw-16.2.0 and
+  watcom-2.0-win16 still exec their vendored/PATH binary directly.)*
 - `rebrew toolchain list/status/pull/build/vendor/smoke` exposes the
   registry.
 - `toolchain/<family>/<version>-<arch>/Dockerfile` are the
@@ -47,11 +47,11 @@ finicky installer — build once, share).
   reproducible from a clean checkout with only docker.
 - The shared `rebrew.dosbox` runner (mount a sandbox as `C:`, run
   autoexec, read FAT-uppercased outputs) is reused by both 16-bit
-  compilers (delphi16, msvc16).
-- Toolchains through the abstraction (as of 2026-08): `watcom` (native
-  Open Watcom 2.0), `msvc1.52` (DOSBox), `watcom16` (native wcc),
-  `tc16` (Turbo C++ 3.1, DOSBox), `borlandc55` (bcc32, wine),
-  `delphi16`, alongside the existing `msvc6`/`gcc-pe` — each with a
+  compilers (delphi-1.0, msvc16).
+- Toolchains through the abstraction (as of 2026-08): `watcom-2.0-win32` (native
+  Open Watcom 2.0), `msvc-1.52` (DOSBox), `watcom-2.0-win16` (native wcc),
+  `borland-3.1` (Turbo C++ 3.1, DOSBox), `borland-5.5` (bcc32, wine),
+  `delphi-1.0`, alongside the existing `msvc-6.0`/`mingw-16.2.0` — each with a
   vendored tree, docker image, and a slot in the byte-reproducibility
   smoke gate (6/6 images).  The model was subsequently completed — every
   registry toolchain now has a pinned source shared by image and host

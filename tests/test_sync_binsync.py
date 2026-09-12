@@ -25,7 +25,7 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
         function_list=tmp_path / "functions.txt",
         marker="T",
         iat_thunks=[],
-        compiler_profile="msvc6",
+        compiler_profile="msvc-6.0",
         source_ext=".c",
     )
 

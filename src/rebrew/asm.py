@@ -971,7 +971,7 @@ def generate_inline_c(
     sym = symbol or f"_func_{va:08x}"
     func_name = sym.lstrip("_")
 
-    is_gcc = "clang" in cfg.compiler_profile.lower() or "gcc" in cfg.compiler_profile.lower()
+    is_gcc = any(k in cfg.compiler_profile.lower() for k in ("clang", "gcc", "mingw"))
     naked_attr = "__attribute__((naked))" if is_gcc else "__declspec(naked)"
 
     # Disassemble *code* for the per-instruction mnemonic comments (any

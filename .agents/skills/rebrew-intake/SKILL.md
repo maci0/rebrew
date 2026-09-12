@@ -104,7 +104,7 @@ pipeline (MSVC6 vs MinGW GCC):
   `HeapCreate`, ...).  A standalone MinGW build imports only a handful
   (`ExitProcess`, `GetStdHandle`, `WriteFile`, ...) and FLIRT finds zero
   matches (no MSVC CRT).
-- If MinGW: `rebrew init --toolchain gcc-pe` (see `docs/TOOLCHAIN.md`).
+- If MinGW: `rebrew init --toolchain mingw-16.2.0` (see `docs/TOOLCHAIN.md`).
   Function discovery needs `rizin -qc 'aa; aap; afl'` — `aaa` mis-merges
   functions on this toolchain.  Note that byte-exact matching requires the
   author's exact GCC version; old builds typically match structurally only
@@ -119,10 +119,10 @@ pipeline (MSVC6 vs MinGW GCC):
   discovery/detection see almost nothing until unpacked).  For LZEXE run
   `rebrew unpack-lzexe <binary>` first and analyze the unpacked file;
   PKLITE has no built-in unpacker — find an unpacked copy.  Borland Turbo C/C++ targets
-  byte-match with the `tc16` profile (Turbo C++ 3.1) or `tc20` (Turbo C
+  byte-match with the `borland-3.1` profile (Turbo C++ 3.1) or `borland-2.0` (Turbo C
   2.0 — the 1988/89-era compiler diec reports as "Borland C/C++ 1991";
   C89-strict, so skeletons use `/* */` markers); Open Watcom wcc16-built
-  DOS targets use `watcom16`.  `rebrew init --guess-compiler` picks the
+  DOS targets use `watcom-2.0-win16`.  `rebrew init --guess-compiler` picks the
   profile automatically, and `rebrew discover-functions` runs the 16-bit
   capstone sweep over the MZ code region (rizin cannot analyze MZ) — the
   full unpack → init → discover → skeleton → test loop is verified
@@ -133,7 +133,7 @@ pipeline (MSVC6 vs MinGW GCC):
   the loader's linear sweep for function discovery (rizin cannot analyze
   NE), auto `format = "ne"` + `arch = "x86_16"`, and family detection from
   the Borland segment-marker convention (`delphi` vs MSVC-style).
-  **MSVC-style NE byte-matches with the `msvc1.52` profile** (DOSBox
+  **MSVC-style NE byte-matches with the `msvc-1.52` profile** (DOSBox
   CL.EXE → 16-bit OMF, parsed by `rebrew.matcher.omf16` — skifree16-class
   targets).  Borland *Delphi* NE remains unmatchable (ADR-001): `rebrew
   verify` short-circuits, `rebrew doctor` reports Delphi 1.0 toolchain
@@ -141,9 +141,9 @@ pipeline (MSVC6 vs MinGW GCC):
   only.  `rebrew.delphi16.compile_ne` can already compile 16-bit
   executables headless (the future matching foundation).  Borland *Turbo
   C/C++* DOS targets (plain MZ, e.g. 1990s shareware games) byte-match
-  with the `tc16` profile (Turbo C++ 3.1) or `tc20` (Turbo C 2.0 — the
+  with the `borland-3.1` profile (Turbo C++ 3.1) or `borland-2.0` (Turbo C 2.0 — the
   earlier codegen generation; pick it when the binary is
-  1988/89-era-built or `tc16` output drifts).  See
+  1988/89-era-built or `borland-3.1` output drifts).  See
   `docs/TOOLCHAIN.md`.
 
 ### 0c. Binary Fingerprint

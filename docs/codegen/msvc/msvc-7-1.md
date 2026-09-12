@@ -3,13 +3,13 @@
 MSVC 7.1 (VS .NET 2003, CL 13.10.3077; SP1 = 13.10.6030).  The last pure
 x87 MSVC of the .NET era; codegen-identical to 7.0 for the probe.
 
-**Profiles:** `msvc7`, `msvc710`, `msvc710sp1` — Rich builds 3077
+**Profiles:** `msvc-7.0`, `msvc-7.1`, `msvc-7.1-sp1` — Rich builds 3077
 (RTM), 6030 (SP1); linker 7.10.
 
 ## Prologue & frame pointer
 
 - `/O2`: no frame pointer; args `[esp+4]`+.  Unoptimized: `55 8b ec`
-  (smoke `msvc710/t.obj`).
+  (smoke `msvc-7.1/t.obj`).
 
 ## Argument passing
 
@@ -164,7 +164,7 @@ feature (SP spot-check).  Verified in probe12 (`f1`/`f2`/`fl`).
 ## Verification
 
 Probe `/O1`/`/O2` via `rebrew/msvc:7.1-win32` (`msvc710_{O1,O2}.obj`);
-smoke `msvc710/t.obj`, `msvc710sp1/t.obj`, `msvc7/t.obj` (all
+smoke `msvc-7.1/t.obj`, `msvc-7.1-sp1/t.obj`, `msvc-7.0/t.obj` (all
 unoptimized `_add`, byte-identical).
 ## Probe29: round-29 era markers (7.1)
 

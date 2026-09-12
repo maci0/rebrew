@@ -240,7 +240,7 @@ rebrew binsync push git@team:binsync-state.git --git-push   # push back
 Someone with an IDA Pro + BinSync project decides to migrate to rebrew.
 
 ```bash
-rebrew init --target legacy --binary original/legacy.dll --compiler msvc6
+rebrew init --target legacy --binary original/legacy.dll --compiler msvc-6.0
 rebrew binsync init ./binsync_state                   # initialises a state dir if migrating from scratch
 # OR if they already have one from IDA:
 rebrew binsync pull /path/to/ida_binsync_state        # imports names, types, locals, comments

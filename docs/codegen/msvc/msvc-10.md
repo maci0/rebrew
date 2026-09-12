@@ -3,7 +3,7 @@
 MSVC 10.0 (VS 2010, CL 16.00.30319; SP1 = 16.00.40219).  Codegen-wise a
 clone of VC 9.0 in the probe.
 
-**Profiles:** `msvc1000`, `msvc1000sp1` — Rich builds 30319, 40219;
+**Profiles:** `msvc-10.0`, `msvc-10.0-sp1` — Rich builds 30319, 40219;
 linker 10.0.
 
 ## Prologue & frame pointer
@@ -167,7 +167,7 @@ the VC 7.0+ era marker; 10.0 SP1 is identical to RTM on this feature
 Probe `/O1`/`/O2` via `rebrew/msvc:10.0-win32`
 (`msvc1000_{O1,O2}.obj`); probe2 (`msvc1000_O2.obj` — memory-imul div
 magic, cdq-abs, `jns` clamp) diffed against 9.0 and 11.0; smoke
-`msvc1000/t.obj`, `msvc1000sp1/t.obj`.
+`msvc-10.0/t.obj`, `msvc-10.0-sp1/t.obj`.
 ## Probe29: round-29 era markers (10.0)
 
 - **10.0 returns to the branchless cdq-abs** (`99 33 c2 2b c2` — the

@@ -9,7 +9,7 @@ verified**: a Pascal probe (`probe.dpr`: `add`, `div3`, `fmul`, `fadd1`,
 compiled with `DCC.EXE` through `rebrew/delphi:1.0-win16` and the NE
 output disassembled.  Findings below are from that object unless marked.
 
-**Profiles:** `delphi16` — image `rebrew/delphi:1.0-win16` (DCC
+**Profiles:** `delphi-1.0` — image `rebrew/delphi:1.0-win16` (DCC
 wrapper, DOSBox).
 
 ## Prologue & frame pointer — the stack-check call

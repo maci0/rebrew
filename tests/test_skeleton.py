@@ -986,7 +986,7 @@ class TestProfileAwareSignature:
             library_modules=set(),
         )
 
-    def test_tc16_signature_omits_cdecl(self, tmp_path: Path) -> None:
+    def test_borland_3_1_signature_omits_cdecl(self, tmp_path: Path) -> None:
         from rebrew.skeleton import _render_annotation_block
 
         out = _render_annotation_block(
@@ -999,12 +999,12 @@ class TestProfileAwareSignature:
             func_name="main",
             ghidra_name="fcn.1000",
             todo_text="stub",
-            profile="tc16",
+            profile="borland-3.1",
         )
         assert "int main(void)" in out
         assert "__cdecl" not in out
 
-    def test_msvc6_signature_keeps_cdecl(self, tmp_path: Path) -> None:
+    def test_msvc_6_0_signature_keeps_cdecl(self, tmp_path: Path) -> None:
         from rebrew.skeleton import _render_annotation_block
 
         out = _render_annotation_block(
@@ -1017,7 +1017,7 @@ class TestProfileAwareSignature:
             func_name="main",
             ghidra_name="fcn.1000",
             todo_text="stub",
-            profile="msvc6",
+            profile="msvc-6.0",
         )
         assert "int __cdecl main(void)" in out
 
@@ -1044,12 +1044,12 @@ def test_convention_stub_16bit_pascal(tmp_path: Path) -> None:
     exe = tmp_path / "stdcall16.exe"
     exe.write_bytes(bytes(header) + b"\x00" * func_va + code)
 
-    cfg = SimpleNamespace(arch="x86_16", target_binary=exe, compiler_profile="tc16")
+    cfg = SimpleNamespace(arch="x86_16", target_binary=exe, compiler_profile="borland-3.1")
     stub, note = _convention_stub(cfg, func_va, "add")
     assert stub == "int pascal add(int a1, int a2)"
     assert note is None
     # non-Borland 16-bit profiles keep __stdcall
-    cfg2 = SimpleNamespace(arch="x86_16", target_binary=exe, compiler_profile="msvc1.52")
+    cfg2 = SimpleNamespace(arch="x86_16", target_binary=exe, compiler_profile="msvc-1.52")
     stub2, _ = _convention_stub(cfg2, func_va, "add")
     assert stub2 == "int __stdcall add(int a1, int a2)"
 

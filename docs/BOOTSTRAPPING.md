@@ -29,7 +29,7 @@ Run the initialize command inside an empty or existing directory. Pass the
 target name, original executable filename, and compiler profile.
 
 ```bash
-rebrew init --target mygame --binary mygame.exe --toolchain msvc6
+rebrew init --target mygame --binary mygame.exe --toolchain msvc-6.0
 ```
 
 This will automatically create your `rebrew-project.toml` as well as the
@@ -115,7 +115,7 @@ if pe.has_rich_header:
 | Presence of `__libc_start_main` | GCC/Linux |
 
 Once identified, ensure the matching toolchain is available (e.g. `rebrew
-toolchain build msvc6`, or vendor its tree from the rebrew-toolchains
+toolchain build msvc-6.0`, or vendor its tree from the rebrew-toolchains
 checkout, for MSVC6; a system GCC for ELF targets).
 
 ## 5. Scan with FLIRT signatures

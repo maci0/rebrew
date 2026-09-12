@@ -5,7 +5,7 @@ DOS) and `wcc386` (32-bit).  The only family here with native Linux
 binaries.  Verified with **wcc386 `-otexan`** and the `tg_watcom.o`
 fixture.
 
-**Profiles:** `watcom` (wcc386, 32-bit), `watcom16` (wcc, 16-bit DOS).
+**Profiles:** `watcom-2.0-win32` (wcc386, 32-bit), `watcom-2.0-win16` (wcc, 16-bit DOS).
 
 ## Prologue & frame pointer
 
@@ -115,7 +115,7 @@ The 16-bit `wcc` dispatches the 8-case probe12 `sw8` switch via
 `cmp ax,7; ja; mov bx,ax; shl bx,1; jmp word ptr cs:[bx]` + `dw`
 entries — the `shl bx,1` (`d1 e3`) scaling, same family trait as TC
 (not MSVC 1.52's `add ax,ax; xchg bx,ax`).  Verified in probe12
-(`out12/watcom16/sw16.obj`, native `wcc`).
+(`out12/watcom-2.0-win16/sw16.obj`, native `wcc`).
 
 ## Probe13: char signedness + struct return — verified
 

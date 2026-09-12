@@ -18,7 +18,7 @@ uses, reusable from any project's CMake build:
 - ``INCLUDE``/``LIB`` point at the image's own toolchain tree, so the image
   is self-contained.
 
-``rebrew cmake-toolchain --toolchain msvc6`` writes the CMake toolchain file
+``rebrew cmake-toolchain --toolchain msvc-6.0`` writes the CMake toolchain file
 that points ``CMAKE_C_COMPILER/LINKER/AR`` at these scripts.
 """
 
@@ -64,7 +64,7 @@ _TOOL_EXES = {"cl": "CL.EXE", "link": "LINK.EXE", "lib": "LIB.EXE"}
 
 #: CMake's if(MSVC_VERSION) needs a version string; per-toolchain, derived
 #: from the detection tables (linker era + Rich-header compiler build) so
-#: every MSVC profile stamps its own compiler version instead of msvc6's.
+#: every MSVC profile stamps its own compiler version instead of msvc-6.0's.
 #: Unknown (non-MSVC) profiles stamp "0.0.0" — the generated file already
 #: hardcodes CMAKE_C_COMPILER_ID MSVC, and the bridge rejects non-wine
 #: profiles before generation (see _resolve_spec).
@@ -74,9 +74,9 @@ _CMAKE_C_COMPILER_VERSION_FALLBACK = "0.0.0"
 def _cmake_c_compiler_versions() -> dict[str, str]:
     """Per-toolchain ``CMAKE_C_COMPILER_VERSION`` from the version tables.
 
-    ``{M}.{mm:02d}.{build}`` (the CL file-version shape, e.g. msvc6's
+    ``{M}.{mm:02d}.{build}`` (the CL file-version shape, e.g. msvc-6.0's
     ``12.00.8168``); era-only when no Rich build is known for the profile
-    (e.g. msvc200 → ``9.00``).
+    (e.g. msvc-2.0 → ``9.00``).
     """
     from rebrew.toolchain_detect import _LINKER_ERA_PROFILES_ALL, _RICH_BUILD_PROFILES_ALL
 
@@ -95,7 +95,7 @@ def _cmake_c_compiler_versions() -> dict[str, str]:
     return out
 
 
-_CMAKE_C_COMPILER_VERSION = {"msvc6": "12.00.8168"}
+_CMAKE_C_COMPILER_VERSION = {"msvc-6.0": "12.00.8168"}
 
 _WINE = "/usr/bin/wine"  # the rebrew base image installs wine here
 
@@ -140,7 +140,7 @@ def _load_profile(root: Path) -> str:
             cfg = tomllib.load(f)
     except (OSError, tomllib.TOMLDecodeError) as exc:
         error_exit(f"cannot read {root}/rebrew-project.toml: {exc}")
-    return str(cfg.get("compiler", {}).get("profile", "msvc6"))
+    return str(cfg.get("compiler", {}).get("profile", "msvc-6.0"))
 
 
 def _resolve_spec(name: str) -> ToolchainSpec:
@@ -155,7 +155,7 @@ def _resolve_spec(name: str) -> ToolchainSpec:
             "the CMake bridge drives wine-runnable CL.EXE/LINK.EXE/LIB.EXE only; "
             f"{spec.runtime}-encapsulated images expose entrypoint wrappers, not "
             "separate link/lib tools. Use a wine-based MSVC profile "
-            "(e.g. --toolchain msvc6) for CMake builds"
+            "(e.g. --toolchain msvc-6.0) for CMake builds"
         )
     if spec.tool_root is None:
         error_exit(
@@ -463,7 +463,7 @@ set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 
 @app.callback(invoke_without_command=True)
 def main(
-    toolchain: str = typer.Option("msvc6", "--toolchain", help="Toolchain name"),
+    toolchain: str = typer.Option("msvc-6.0", "--toolchain", help="Toolchain name"),
     output: Path = typer.Option(
         Path("cmake"), "--output", "-o", help="Output dir for the toolchain file"
     ),

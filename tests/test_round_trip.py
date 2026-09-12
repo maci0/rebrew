@@ -672,11 +672,11 @@ class TestCollectSpliceSet:
 
         cfg = self._cfg(tmp_path)
         path = self._write_fn(cfg, "_exact_fn", 0x10001000, "EXACT", size=32)
-        update_field(cfg.metadata_dir, 0x10001000, "toolchain", "msvc5", "SERVER")
+        update_field(cfg.metadata_dir, 0x10001000, "toolchain", "msvc-5.0", "SERVER")
 
         splice, _proven, _other = _collect_splice_set(cfg, None)
         fn = splice[0]
-        assert fn.toolchain == "msvc5"
+        assert fn.toolchain == "msvc-5.0"
 
         seen: dict[str, Any] = {}
 
@@ -687,7 +687,7 @@ class TestCollectSpliceSet:
 
         monkeypatch.setattr("rebrew.round_trip.compile_to_obj", _fake_compile)
         _compile_and_extract(cfg, fn, tmp_path)
-        assert seen["toolchain"] == "msvc5"
+        assert seen["toolchain"] == "msvc-5.0"
         assert seen["src"] == path
 
     def test_missing_metadata_defaults_to_stub(self, tmp_path: Path) -> None:

@@ -153,7 +153,7 @@ def test_tc16_compile_parse_match_roundtrip() -> None:
     src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
     cfg = SimpleNamespace(
         root=Path("."),
-        compiler_profile="tc16",
+        compiler_profile="borland-3.1",
         compiler_command="TCC.EXE",
         compiler_runner="",
         posix_style=True,
@@ -224,7 +224,7 @@ def test_mz_fixture_add_matches() -> None:
     res = compile_and_compare(
         SimpleNamespace(
             root=Path("."),
-            compiler_profile="tc16",
+            compiler_profile="borland-3.1",
             compiler_command="TCC.EXE",
             compiler_runner="",
             posix_style=True,
@@ -273,7 +273,7 @@ def test_mz_fixture_main_matches_with_reloc() -> None:
     res = compile_and_compare(
         SimpleNamespace(
             root=Path("."),
-            compiler_profile="tc16",
+            compiler_profile="borland-3.1",
             compiler_command="TCC.EXE",
             compiler_runner="",
             posix_style=True,
@@ -343,7 +343,7 @@ class TestStaleOutputIsNotSuccess:
         a failed compile still found "output" and was reported as success."""
         from rebrew.tc16 import Tc16Error, compile_c
 
-        tree = tmp_path / "tc16"
+        tree = tmp_path / "borland-3.1"
         for sub in ("BIN", "INCLUDE", "LIB"):
             (tree / sub).mkdir(parents=True)
         monkeypatch.setattr("rebrew.tc16._find_tc16", lambda version="3.1": tree)

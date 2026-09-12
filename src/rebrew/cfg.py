@@ -809,7 +809,7 @@ def set_compiler(
     # `profile` is the routing key every tool reads (load_config →
     # posix_style, toolchain branches, 16-bit gate).  The old code wrote
     # only command/includes/libs — the target's profile stayed whatever it
-    # was (default msvc6), so `cfg set-compiler T gcc` compiled with gcc
+    # was (default msvc-6.0), so `cfg set-compiler T gcc-14.2.0` compiled with gcc
     # command but MSVC-style /I /Fo flag routing and never engaged the
     # posix/toolchain branches (config-review F1).
     compiler_tbl["profile"] = profile

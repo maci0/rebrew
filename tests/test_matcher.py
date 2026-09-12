@@ -344,7 +344,7 @@ class TestDockerPathForwardsExtraIncludes:
             "",
             "/O2",
             "_f",
-            profile="msvc6",
+            profile="msvc-6.0",
             extra_include_dirs=["/proj/src/server_c"],
         )
         assert res.ok is True

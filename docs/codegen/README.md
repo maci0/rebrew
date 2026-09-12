@@ -16,23 +16,23 @@ One folder per compiler class; one file per version inside.
 
 | File | Compiler | rebrew profiles |
 |---|---|---|
-| [msvc/msvc-1.md](msvc/msvc-1.md) | MSVC 1.0 / 1.5 / 1.52 (16-bit, Windows 3.x) | `msvc1.52`, `msvc15`, `msvc10` |
-| [msvc/msvc-2.md](msvc/msvc-2.md) | MSVC 2.0 (first 32-bit) | `msvc200` |
-| [msvc/msvc-4.md](msvc/msvc-4.md) | MSVC 4.0 / 4.1 / 4.2 | `msvc400`, `msvc410`, `msvc420` |
-| [msvc/msvc-5.md](msvc/msvc-5.md) | MSVC 5.0 (SP1–SP3) | `msvc5`, `msvc500sp1..sp3` |
-| [msvc/msvc-6.md](msvc/msvc-6.md) | MSVC 6.0 (RTM + SP1–SP6) | `msvc6`, `msvc600sp1..sp6` |
-| [msvc/msvc-7.md](msvc/msvc-7.md) | MSVC 7.0 (.NET 2002) | `msvc700`, `msvc700sp1` |
-| [msvc/msvc-7-1.md](msvc/msvc-7-1.md) | MSVC 7.1 (.NET 2003) | `msvc7`, `msvc710`, `msvc710sp1` |
-| [msvc/msvc-8.md](msvc/msvc-8.md) | MSVC 8.0 (VS 2005) | `msvc800`, `msvc800sp1` |
-| [msvc/msvc-9.md](msvc/msvc-9.md) | MSVC 9.0 (VS 2008) | `msvc900`, `msvc900sp1` |
-| [msvc/msvc-10.md](msvc/msvc-10.md) | MSVC 10.0 (VS 2010) | `msvc1000`, `msvc1000sp1` |
-| [msvc/msvc-11.md](msvc/msvc-11.md) | MSVC 11.0 (VS 2012) | `msvc1100` |
-| [mingw/gcc.md](mingw/gcc.md) | MinGW GCC (PE/x86_32, by era) | `gcc-pe` |
-| [watcom/open-watcom.md](watcom/open-watcom.md) | Open Watcom wcc (16-bit) / wcc386 (32-bit) | `watcom`, `watcom16` |
-| [borland/turbo-c.md](borland/turbo-c.md) | Turbo C 2.0 / Turbo C++ 3.1 (16-bit DOS) | `tc16`, `tc20` |
-| [borland/borland-cpp.md](borland/borland-cpp.md) | Borland C++ 5.5 `bcc32` (32-bit) | `borlandc55` |
-| [delphi/delphi.md](delphi/delphi.md) | Delphi 1.0 (16-bit NE Pascal) | `delphi16` |
-| [zig/zig.md](zig/zig.md) | Zig (`zig cc` → MinGW-w64) | `gcc-pe` (structural) |
+| [msvc/msvc-1.md](msvc/msvc-1.md) | MSVC 1.0 / 1.5 / 1.52 (16-bit, Windows 3.x) | `msvc-1.52`, `msvc-1.5`, `msvc-1.0` |
+| [msvc/msvc-2.md](msvc/msvc-2.md) | MSVC 2.0 (first 32-bit) | `msvc-2.0` |
+| [msvc/msvc-4.md](msvc/msvc-4.md) | MSVC 4.0 / 4.1 / 4.2 | `msvc-4.0`, `msvc-4.1`, `msvc-4.2` |
+| [msvc/msvc-5.md](msvc/msvc-5.md) | MSVC 5.0 (SP1–SP3) | `msvc-5.0`, `msvc-5.0-sp1..sp3` |
+| [msvc/msvc-6.md](msvc/msvc-6.md) | MSVC 6.0 (RTM + SP1–SP6) | `msvc-6.0`, `msvc-6.0-sp1..sp6` |
+| [msvc/msvc-7.md](msvc/msvc-7.md) | MSVC 7.0 (.NET 2002) | `msvc-7.0-rtm`, `msvc-7.0-sp1` |
+| [msvc/msvc-7-1.md](msvc/msvc-7-1.md) | MSVC 7.1 (.NET 2003) | `msvc-7.0`, `msvc-7.1`, `msvc-7.1-sp1` |
+| [msvc/msvc-8.md](msvc/msvc-8.md) | MSVC 8.0 (VS 2005) | `msvc-8.0`, `msvc-8.0-sp1` |
+| [msvc/msvc-9.md](msvc/msvc-9.md) | MSVC 9.0 (VS 2008) | `msvc-9.0`, `msvc-9.0-sp1` |
+| [msvc/msvc-10.md](msvc/msvc-10.md) | MSVC 10.0 (VS 2010) | `msvc-10.0`, `msvc-10.0-sp1` |
+| [msvc/msvc-11.md](msvc/msvc-11.md) | MSVC 11.0 (VS 2012) | `msvc-11.0` |
+| [mingw/gcc.md](mingw/gcc.md) | MinGW GCC (PE/x86_32, by era) | `mingw-16.2.0` |
+| [watcom/open-watcom.md](watcom/open-watcom.md) | Open Watcom wcc (16-bit) / wcc386 (32-bit) | `watcom-2.0-win32`, `watcom-2.0-win16` |
+| [borland/turbo-c.md](borland/turbo-c.md) | Turbo C 2.0 / Turbo C++ 3.1 (16-bit DOS) | `borland-3.1`, `borland-2.0` |
+| [borland/borland-cpp.md](borland/borland-cpp.md) | Borland C++ 5.5 `bcc32` (32-bit) | `borland-5.5` |
+| [delphi/delphi.md](delphi/delphi.md) | Delphi 1.0 (16-bit NE Pascal) | `delphi-1.0` |
+| [zig/zig.md](zig/zig.md) | Zig (`zig cc` → MinGW-w64) | `mingw-16.2.0` (structural) |
 
 Cross-cutting references: the **[rules catalog](RULES.md)** categorizes
 behavior-level codegen rules, and the **[decomp idiom cheat-sheet](DECOMP_IDIOMS.md)**
@@ -144,7 +144,7 @@ claims are explicitly downgraded in the per-version files.
 | **Delphi `case` = compare chain** | `3d … 75 …` | Delphi 1.0 (no jump table) | ✓ probe2.dpr (`casesel`) |
 | **Delphi set/record copy via `rep movsw`** | `fc … c5 76 … b9 04 00 f3 a5` | Delphi 1.0 (`cld; lds si; les di; mov cx,N; rep movsw`) | ✓ probe3.dpr (`setadd`) |
 | **no-op `sub esp,4; add esp,4` after `fild`** | `83 ec 04 83 c4 04` | **MSVC 2.0 & 4.x** | ✓ probe4 (`i2d`/`i2f`) |
-| `leave` epilogues (16-bit) | `c9` | MSVC 1.x (16-bit) | ✓ probe msvc1.52 (TC 2.0/3.1 never) |
+| `leave` epilogues (16-bit) | `c9` | MSVC 1.x (16-bit) | ✓ probe msvc-1.52 (TC 2.0/3.1 never) |
 | **`enter` frame setup** | `c8` | **MSVC 1.5x (16-bit)** (TC/Delphi use `push bp;mov bp,sp`) | ✓ probe3 (`c8 02 00 00`) |
 | **80-bit `long double`** | `db 6e` (`fld tbyte`) | MSVC 1.5x, TC, bcc32, GCC (32-bit MSVC/Watcom: `fld qword`) | ✓ probe3 (`ldadd`) |
 | `ret N` callee cleanup for FP args | `c2 04 00` / `c2 08 00` | Open Watcom wcc386 | ✓ probe |

@@ -37,7 +37,7 @@ def _find_vc152(version: str = "1.52-win16") -> Path:
     raise Msvc16Error(
         f"vendored MSVC {version} not found under "
         f"rebrew-toolchains/msvc/{version}/source (BIN/INCLUDE/LIB "
-        "required — run `rebrew toolchain vendor msvc1.52`/`msvc15` with "
+        "required — run `rebrew toolchain vendor msvc-1.52`/`msvc-1.5` with "
         "the media tarball next to the Dockerfile)"
     )
 

@@ -4,7 +4,7 @@ MSVC 5.0 (1997, CL 11.00.7022; SP1–SP3 ship the same CL.EXE).  The
 **magic-number division era begins here** — and the magic tail still lacks
 the post-shift VC 7.0+ adds.
 
-**Profiles:** `msvc5`, `msvc500sp1`, `msvc500sp2`, `msvc500sp3` — linker
+**Profiles:** `msvc-5.0`, `msvc-5.0-sp1`, `msvc-5.0-sp2`, `msvc-5.0-sp3` — linker
 5.0/5.10/5.12.  VC 5.0-era linkers write a Rich header with C1 build 0
 (the Win2K binaries — linker 5.12 — show `C1/C2 build 0`), so the Rich
 header does not pin the exact compiler here; the linker version (5.x)
@@ -223,7 +223,7 @@ Small static helpers called once/twice/in a loop are NOT inlined: VC
 Probe at `/O1`/`/O2` via `rebrew/msvc:5.0-win32`
 (`msvc500_{O1,O2}.obj`); probe2 (`msvc500_O2.obj` — division tails, FP
 constants) disassembled and diffed against every other version; smoke
-`msvc500sp1/sp2/sp3/t.obj`; corpus:
+`msvc-5.0-sp1/sp2/sp3/t.obj`; corpus:
 win2k-* binaries (linker 5.12, VC 5.0 — `rep movs/stos` counts, frame
 prologues, magic `0x66666667`/`0xCCCCCCCD` hits).
 ## Probe29: round-29 era markers (5.0)

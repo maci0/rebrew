@@ -3,15 +3,15 @@
 Turbo C 2.0 (1988) and Turbo C++ 3.1 (1992) — 16-bit DOS compilers
 (`TCC.EXE` under DOSBox); the classic DOS-game compilers.
 
-**Profiles:** `tc16` (3.1), `tc20` (2.0) — images
+**Profiles:** `borland-3.1` (3.1), `borland-2.0` (2.0) — images
 `rebrew/borland:{3.1,2.0}-win16` (tcc wrapper).
 
-**Toolchain caveat:** the tc20 image's wrapper runs `TCC.EXE` without
+**Toolchain caveat:** the borland-2.0 image's wrapper runs `TCC.EXE` without
 `PATH=C:\BIN`, so the preprocessor `CPP.EXE` is never found and **any
 source containing `#` fails** ("Illegal character '#'") — a packaging
 bug in the rebrew-toolchains wrapper, not the compiler.  Probe3 for
-tc20 was compiled from a pre-resolved `#`-free source variant; real
-tc20 use needs the wrapper fixed first.
+borland-2.0 was compiled from a pre-resolved `#`-free source variant; real
+borland-2.0 use needs the wrapper fixed first.
 
 ## Prologue & frame pointer
 
@@ -215,8 +215,8 @@ MSVC-1.5x-specific (see README).
 ## Verification
 
 Probes via `rebrew/borland:{3.1,2.0}-win16` — probe1 (`-O1`:
-`probe.OBJ`, `tc20/probe.OBJ`) and probe3 (default flags, `#`-free
-source: `out3/tc31/probe3_notc.OBJ`, `out3/tc20/probe3_notc.OBJ`; TC
+`probe.OBJ`, `borland-2.0/probe.OBJ`) and probe3 (default flags, `#`-free
+source: `out3/tc31/probe3_notc.OBJ`, `out3/borland-2.0/probe3_notc.OBJ`; TC
 3.1 also at `-O2`), disassembled with objconv and diffed
 instruction-by-instruction; census compared against the MSVC 1.52
 probe (`leave` counts: 0 vs 25).
