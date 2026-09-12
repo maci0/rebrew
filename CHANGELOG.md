@@ -138,6 +138,18 @@
   sources now exist.
 
 ### Changed
+- **A profile's argument dialect is declared, not guessed**: `compile_to_obj`
+  picked the compiler invocation from hardcoded profile-name tuples, so a
+  plugin toolchain with the same call shape could not get its arguments built.
+  `ToolchainSpec.arg_style` (`msvc` | `posix` | `dos` | `borland` | `watcom`)
+  now says how a compiler takes input and emits its object, defaulting to what
+  `flags_style` implies; the DOS, Borland and Watcom specs declare theirs.
+  `flags_style` and `arg_style` are validated where a toolchain is declared, so
+  a typo is a load-time error instead of a silent MSVC fallback.
+- **The GA flag sweep follows the profile's flag syntax**: a profile with no
+  packaged/plugin flag set used to sweep MSVC's axes regardless of its
+  compiler, so `ido-5.3` swept `/G3 /Gd /Op /Oy`.  It now uses the axes its
+  `flags_style` implies.
 - **`quick_validate` rejects C89 declaration-order violations**: a declaration
   after a statement in a block is an MSVC6 hard error (`missing ';' before
   'type'`), so the validator now rejects it before a compile is spent.  The
@@ -201,6 +213,16 @@
   must be quoted (`["msvc-6.0"]`).  See ADR 017.
 
 ### Fixed
+- **`msvc-7.0` is accepted for the compiler build it actually carries**: the
+  13.10.3077 Rich-header build listed only `msvc-7.1`, so a project on
+  `msvc-7.0` (the same cl.exe build, in the canonical `7.0-win32` tree) was told
+  its compiler did not match the target.  `msvc-6.0-sp5-pp` also joins the VC
+  6.0 linker era.
+- **A registry scan no longer hands a directory to LIEF**: an unset
+  `target_binary` is the truthy `Path(".")`, and `build_function_registry`
+  parsed it whenever it existed, which aborts the process with
+  `std::bad_alloc` on some platforms.  The binary scan and the IAT-slot scan
+  now require a file.
 - **A generated `AGENTS.md` no longer prints an empty compiler command**: the
   template rendered an empty pair of backticks, because every profile compiles
   inside its docker image with no host command; it now names the image.
