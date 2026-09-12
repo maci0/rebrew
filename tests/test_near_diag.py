@@ -435,18 +435,14 @@ class TestMutationSuggestions:
         assert MUTATION_SUGGESTIONS["encoding"] == []
 
     def test_operators_exist_in_mutator(self) -> None:
-        """Every suggested operator must be a real mut_* in mutator.py."""
-        import re
-        from pathlib import Path
-
-        from rebrew.matcher import mutator
+        """Every suggested operator must be a real registered mutation."""
+        from rebrew.matcher.mutator import ALL_MUTATIONS
         from rebrew.near_diag import MUTATION_SUGGESTIONS
 
-        source = Path(mutator.__file__).read_text(encoding="utf-8")
-        defined = set(re.findall(r"^def (mut_\w+)\(", source, re.M))
+        defined = {fn.__name__ for fn in ALL_MUTATIONS}
         for category, ops in MUTATION_SUGGESTIONS.items():
             for op in ops:
-                assert op in defined, f"{op} (for {category}) not in mutator.py"
+                assert op in defined, f"{op} (for {category}) not in ALL_MUTATIONS"
 
     def test_analyze_returns_mutations(self) -> None:
         from rebrew.near_diag import analyze

@@ -766,3 +766,19 @@ _QUERY_REGISTER_DECL = _LazyQuery(
     ) @stmt
 """,
 )
+
+
+_QUERY_INJECT_DUMMY_VAR = _LazyQuery(
+    _C_LANGUAGE, "(function_definition body: (compound_statement) @body)"
+)
+_QUERY_INJECT_DUMMY_ARRAY = _LazyQuery(
+    _C_LANGUAGE, "(function_definition body: (compound_statement) @body)"
+)
+_QUERY_SCOPE_VARIABLE = _LazyQuery(
+    _C_LANGUAGE,
+    "\n        (function_definition body: (compound_statement\n            (declaration type: (_) @type declarator: (_) @decl) @d1\n            .\n            (expression_statement) @next_stmt\n        ))\n    ",
+)
+_QUERY_ADD_VOLATILE_INTERMEDIATE = _LazyQuery(
+    _C_LANGUAGE,
+    '\n        (expression_statement\n            (assignment_expression\n                left: (identifier) @var\n                operator: "="\n                right: (binary_expression) @rhs\n            )\n        ) @stmt\n    ',
+)

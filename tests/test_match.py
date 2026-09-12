@@ -1071,17 +1071,13 @@ class TestMutationFocusWeights:
 
     def test_weights_match_mutator_names(self) -> None:
         """Every weighted operator must exist in mutator.ALL_MUTATIONS."""
-        import re
-        from pathlib import Path
-
         from rebrew.match import _mutation_focus_weights
-        from rebrew.matcher import mutator
+        from rebrew.matcher.mutator import ALL_MUTATIONS
 
         weights = _mutation_focus_weights("equivalent")
-        source = Path(mutator.__file__).read_text(encoding="utf-8")
-        defined = set(re.findall(r"^def (mut_\w+)\(", source, re.M))
+        defined = {fn.__name__ for fn in ALL_MUTATIONS}
         for op in weights:
-            assert op in defined, f"{op} not in mutator.py"
+            assert op in defined, f"{op} not in ALL_MUTATIONS"
 
 
 # ---------------------------------------------------------------------------
