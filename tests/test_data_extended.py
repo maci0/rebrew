@@ -603,7 +603,7 @@ class TestRenderDispatchAndBss:
     def test_render_dispatch_empty(self) -> None:
         from io import StringIO
 
-        from rebrew.data import _render_dispatch
+        from rebrew.data_render import _render_dispatch
 
         buf = StringIO()
         _render_dispatch(_console(buf), [])  # type: ignore[arg-type]
@@ -612,7 +612,8 @@ class TestRenderDispatchAndBss:
     def test_render_dispatch_with_tables(self) -> None:
         from io import StringIO
 
-        from rebrew.data import DispatchEntry, DispatchTable, _render_dispatch
+        from rebrew.data import DispatchEntry, DispatchTable
+        from rebrew.data_render import _render_dispatch
 
         buf = StringIO()
         tbl = DispatchTable(
@@ -733,7 +734,8 @@ class TestGenGlobalsHeaderMetadata:
 
 class TestDataMoreBranches:
     def test_render_summary_with_conflicts(self, tmp_path: Path) -> None:
-        from rebrew.data import _render_summary, scan_globals
+        from rebrew.data import scan_globals
+        from rebrew.data_render import _render_summary
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "a.c").write_text(
