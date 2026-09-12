@@ -62,7 +62,7 @@ _WINDOWS_RESERVED_BASENAMES = frozenset(
 def avoid_windows_reserved(name: str) -> str:
     """Append ``_`` when *name* is a Windows reserved device basename.
 
-    Applied to generated *filenames* (:func:`make_filename`, binsync_import);
+    Applied to generated *filenames* (:func:`make_filename`, binsync.importer);
     symbol names keep their binary fidelity for byte matching.
     """
     if name.upper() in _WINDOWS_RESERVED_BASENAMES:

@@ -232,13 +232,15 @@ src/rebrew/
 │                        # bridge: run the toolchain image's tools via docker from CMake
 ├── cross_import.py      # `rebrew cross-import` — import functions matched in another target
 ├── lzexe_cli.py         # `rebrew unpack-lzexe` — unpack LZEXE 0.90/0.91 DOS executables
-├── binsync_import.py    # Import a BinSync state dir into rebrew metadata
-├── binsync_init.py      # `rebrew binsync-init`: create the BinSync git envelope (root + user branches)
-├── binsync_diff.py      # Read-only BinSync divergence report
-├── binsync_state.py     # Shared declib-backed state readers for the binsync CLIs
-├── binsync_serial.py    # Thin declib wrapper: artifact dump/load + state layout
-├── binsync_overlay.py   # `rebrew binsync-overlay` — map a related target's BinSync data across VAs
-├── binsync_cli.py       # `rebrew binsync` umbrella: push/pull/summary + flat commands
+├── binsync/             # BinSync state I/O (see binsync/__init__.py)
+│   ├── state.py         #   Shared declib-backed state readers
+│   ├── serial.py        #   Thin declib wrapper: artifact dump/load + state layout
+│   ├── export.py        #   Export annotations to a declib BinSync state dir
+│   ├── importer.py      #   Import a BinSync state dir into rebrew metadata
+│   ├── diff.py          #   Read-only BinSync divergence report
+│   ├── init.py          #   `rebrew binsync-init`: create the git envelope (root + user branches)
+│   ├── overlay.py       #   `rebrew binsync-overlay`: map a related target's data across VAs
+│   └── cli.py           #   `rebrew binsync` umbrella: push/pull/summary + flat commands
 ├── lint.py              # Lint C annotations + corpus consistency (W028: markers vs function list)
 ├── llm_seed.py          # LLM alternative-implementation seeding for GA (--llm-seed)
 ├── near_diag.py         # Classify why NEAR_MATCHING doesn't byte-match (register/equiv/reloc/structural + EFFECTIVE)
@@ -278,7 +280,6 @@ src/rebrew/
 ├── flirt.py             # FLIRT signature scanning (project flirt_sigs/ merged
 │                        # with the sibling rebrew-flirt-sigs checkout)
 ├── build_db.py          # Build SQLite coverage DB from data JSON
-├── binsync_export.py    # Export annotations to a declib BinSync state dir
 ├── round_trip.py        # Splice matched functions back into PE, verify byte equality
 ├── resource.py          # PE resource comparison
 ├── cfg.py               # Multi-command: list-targets, show, add-target, set, set-cflags, etc.
@@ -373,7 +374,7 @@ if __name__ == "__main__":
 - `TargetOption` + `require_config()` from `rebrew.cli` — never build config manually. Use `load_config()` from `rebrew.config` only for optional loads (e.g. `lint.py`, `doctor.py`).
 - `main_entry()` registered in `pyproject.toml` `[project.scripts]`.
 - Most tools support `--json`; always use it for structured output when invoking them yourself.
-- Multi-command modules (`is_group=True` in `builtins.py`, mounted with `add_typer()`): `extract.py` (`list`, `show`, `batch`), `cfg.py` (`list-targets`, `show`, `add-target`, `remove-target`, `add-module`, `remove-module`, `set`, `set-cflags`, `raw`, `path`, `detect-crt`), `cache_cli.py` (`stats`, `clear`), `skills.py` (`list`, `show`), `resource.py`, `library.py`, `toolchain_cli.py` (`list`, `status`, `detect`, `pull`, `build`, `vendor`, `smoke`, `update`, `check-updates`), `binsync_cli.py` (`push`, `pull`, `summary`, `init`, `diff`, `overlay`).
+- Multi-command modules (`is_group=True` in `builtins.py`, mounted with `add_typer()`): `extract.py` (`list`, `show`, `batch`), `cfg.py` (`list-targets`, `show`, `add-target`, `remove-target`, `add-module`, `remove-module`, `set`, `set-cflags`, `raw`, `path`, `detect-crt`), `cache_cli.py` (`stats`, `clear`), `skills.py` (`list`, `show`), `resource.py`, `library.py`, `toolchain_cli.py` (`list`, `status`, `detect`, `pull`, `build`, `vendor`, `smoke`, `update`, `check-updates`), `binsync/cli.py` (`push`, `pull`, `summary`, `init`, `diff`, `overlay`).
 
 ### CLI Conventions
 
