@@ -42,6 +42,7 @@ from rebrew.cli import (
 from rebrew.config import ProjectConfig
 from rebrew.metadata import MATCHED_STATUSES
 from rebrew.similar import DEFAULT_CS_ARCH, DEFAULT_CS_MODE, disasm_signature, similarity_score
+from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import atomic_write_text, read_source_text
 
 console = Console(stderr=True)
@@ -116,13 +117,12 @@ def _annotations_by_va(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
     ``cfg.metadata_dir``); filepath is relative to ``cfg.reversed_dir``.
     """
     from rebrew.annotation import parse_c_file_multi
-    from rebrew.sources import iter_sources
 
     out: dict[int, tuple[str, str]] = {}
     for path in iter_sources(cfg.reversed_dir, cfg):
         for ann in parse_c_file_multi(
             path,
-            target_name=cfg.target_name,
+            target_name=target_marker(cfg),
             base_dir=cfg.reversed_dir,
             metadata_dir=cfg.metadata_dir,
         ):
@@ -414,7 +414,7 @@ def import_function(
             "message": str(exc),
         }
 
-    module = cfg_dst.target_name
+    module = target_marker(cfg_dst) or cfg_dst.target_name
     rewritten = _rewrite_marker(text, module, dst_va, dst_size)
     if dst_file is None:
         dst_file = src_path.name

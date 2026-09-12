@@ -203,7 +203,9 @@ class TestOnlyVaGuard:
 
 
 class TestImportMechanics:
-    def _cfg(self, tmp_path: Path, target: str, binary: Path) -> SimpleNamespace:
+    def _cfg(
+        self, tmp_path: Path, target: str, binary: Path, marker: str | None = None
+    ) -> SimpleNamespace:
         rev = tmp_path / f"src_{target}"
         rev.mkdir(parents=True, exist_ok=True)
         return SimpleNamespace(
@@ -213,7 +215,25 @@ class TestImportMechanics:
             metadata_dir=tmp_path,
             target_binary=binary,
             function_list=tmp_path / f"{target}.txt",
+            source_ext=".c",
+            marker=marker if marker is not None else target,
         )
+
+    def test_annotations_by_va_uses_the_marker_not_the_target_name(self, tmp_path: Path) -> None:
+        """The real parser must be filtered by ``marker``.
+
+        Annotations carry the marker (``// FUNCTION: FIXT 0x...``), never the
+        target name, so filtering by ``target_name`` finds nothing and every
+        cross-import reports an empty source set.
+        """
+        cfg = self._cfg(tmp_path, "fixture.dll", tmp_path / "a.exe", marker="FIXT")
+        (cfg.reversed_dir / "f1.c").write_text(
+            "// FUNCTION: FIXT 0x00401040\n// SIZE: 11\nint f1(void){ return 1; }\n"
+        )
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["FIXT.0x00401040"]\nstatus = "EXACT"\nsize = 11\n'
+        )
+        assert ci._annotations_by_va(cfg) == {0x401040: ("EXACT", "f1.c")}
 
     def test_import_writes_file_and_verifies(self, tmp_path: Path, monkeypatch) -> None:
         cfg_src = self._cfg(tmp_path, "SRC", tmp_path / "a.exe")
