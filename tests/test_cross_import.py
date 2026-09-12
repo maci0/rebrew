@@ -235,6 +235,33 @@ class TestImportMechanics:
         )
         assert ci._annotations_by_va(cfg) == {0x401040: ("EXACT", "f1.c")}
 
+    def test_source_symbol_comes_from_the_definition(self, tmp_path: Path) -> None:
+        """A leading prototype or ``extern`` must not name the import.
+
+        Those lines parse as definitions once ``extract_function_name_from_line``
+        appends ``{}``, so the old first-line heuristic named the import after
+        a symbol the object never defines: verification failed with
+        ``EXTRACT_ERROR: Symbol '_LogMessageInternal' not found in .obj`` and
+        the import landed with no usable status.
+        """
+        src = tmp_path / "f1.c"
+        src.write_text(
+            "void __cdecl LogMessageInternal(char*, unsigned int, char*, int);\n"
+            "extern int g_counter;\n"
+            "int __cdecl f1(int value)\n"
+            "{\n"
+            "    return value + g_counter;\n"
+            "}\n"
+        )
+        assert ci._source_name(src) == "f1"
+        assert ci._source_symbol(src) == "_f1"
+
+    def test_source_name_falls_back_to_the_stem(self, tmp_path: Path) -> None:
+        """Nothing parseable in the file: the stem is still the answer."""
+        src = tmp_path / "f2.c"
+        src.write_text("// no code here\n")
+        assert ci._source_name(src) == "f2"
+
     def test_import_writes_file_and_verifies(self, tmp_path: Path, monkeypatch) -> None:
         cfg_src = self._cfg(tmp_path, "SRC", tmp_path / "a.exe")
         cfg_dst = self._cfg(tmp_path, "DST", tmp_path / "b.exe")

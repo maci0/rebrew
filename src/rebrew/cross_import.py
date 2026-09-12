@@ -517,13 +517,22 @@ def import_function(
 
 
 def _source_name(src_path: Path) -> str:
-    """Best-effort C function name from the source file's text."""
+    """Best-effort C function name from the source file's text.
+
+    The definition wins over the first parseable line: that line is usually a
+    prototype or an ``extern`` declaration, and naming the import after one of
+    those leaves verification looking for a symbol the object never defines
+    (``EXTRACT_ERROR: Symbol '_rand' not found in .obj``).
+    """
     try:
         text, _ = read_source_text(src_path)
     except OSError:
         return src_path.stem
-    from rebrew.c_parser import extract_function_name_from_line
+    from rebrew.c_parser import extract_function_name_from_line, find_c_function_definitions
 
+    definitions = find_c_function_definitions(text)
+    if definitions:
+        return definitions[0][0]
     for line in text.splitlines():
         stripped = line.strip()
         if stripped and not stripped.startswith(("//", "/*", "*", "#")):
