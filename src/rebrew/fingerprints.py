@@ -1,10 +1,11 @@
 """fingerprints.py: Content fingerprint bundle for a target binary.
 
 Derives the hashes and layout signatures that identify a binary build:
-streamed file digests (MD5 / SHA1 / SHA256 / CRC32), the Mandiant import
-hash, the MSVC Rich-header hash, per-section Shannon entropy, and, when a
-backend is importable, TLSH / ssdeep fuzzy hashes.  Everything comes from
-the raw file plus LIEF's PE import table, so the same binary yields the
+streamed file digests (MD5 / SHA1 / SHA256 / SHA512 / SHA3-224 / SHA3-256 /
+SHA3-384 / SHA3-512 / CRC32), the Mandiant import hash, the PE export hash,
+the MSVC Rich-header hash, per-section Shannon entropy, and, when a backend
+is importable, TLSH / ssdeep fuzzy hashes.  Everything comes from the raw
+file plus LIEF's PE import and export tables, so the same binary yields the
 same bundle on any machine.
 
 LIEF's ``RichHeader`` splits the comp-id dword into ``id`` / ``build_id``
@@ -49,26 +50,46 @@ _RICH_PADDING = 12
 
 
 def file_hashes(path: str | Path) -> dict[str, str]:
-    """Return ``md5`` / ``sha1`` / ``sha256`` / ``crc32`` for *path*.
+    """Return the streamed file digests for *path*.
 
-    The file is streamed once in :data:`_CHUNK_SIZE` chunks, feeding all
-    four digests.  ``crc32`` is the zlib CRC-32 rendered as 8 lowercase hex
-    digits.  Raises ``FileNotFoundError`` when *path* does not exist.
+    ``md5`` / ``sha1`` / ``sha256`` / ``sha512`` plus the SHA-3 family
+    (``sha3_224`` / ``sha3_256`` / ``sha3_384`` / ``sha3_512``) and ``crc32``.
+    The file is streamed once in :data:`_CHUNK_SIZE` chunks, feeding every
+    digest.  ``crc32`` is the zlib CRC-32 rendered as 8 lowercase hex digits.
+    Raises ``FileNotFoundError`` when *path* does not exist.
     """
     md5 = hashlib.md5()
     sha1 = hashlib.sha1()
     sha256 = hashlib.sha256()
+    sha512 = hashlib.sha512()
+    sha3_224 = hashlib.sha3_224()
+    sha3_256 = hashlib.sha3_256()
+    sha3_384 = hashlib.sha3_384()
+    sha3_512 = hashlib.sha3_512()
     crc = 0
     with Path(path).open("rb") as f:
         while chunk := f.read(_CHUNK_SIZE):
-            md5.update(chunk)
-            sha1.update(chunk)
-            sha256.update(chunk)
+            for digest in (
+                md5,
+                sha1,
+                sha256,
+                sha512,
+                sha3_224,
+                sha3_256,
+                sha3_384,
+                sha3_512,
+            ):
+                digest.update(chunk)
             crc = zlib.crc32(chunk, crc)
     return {
         "md5": md5.hexdigest(),
         "sha1": sha1.hexdigest(),
         "sha256": sha256.hexdigest(),
+        "sha512": sha512.hexdigest(),
+        "sha3_224": sha3_224.hexdigest(),
+        "sha3_256": sha3_256.hexdigest(),
+        "sha3_384": sha3_384.hexdigest(),
+        "sha3_512": sha3_512.hexdigest(),
         "crc32": f"{crc & 0xFFFFFFFF:08x}",
     }
 
@@ -123,6 +144,62 @@ def imphash(path: str | Path) -> str | None:
     if not pairs:
         return None
     return imphash_from_pairs(pairs)
+
+
+def export_hash_from_pairs(pairs: Iterable[tuple[int, str]]) -> str:
+    """SHA-256 over a PE export table's ``ordinal:name`` records.
+
+    Each record is ``<ordinal>:<lowercased name>``; records are sorted
+    lexicographically and joined with newlines, so the hash depends on the
+    export set rather than the table's on-disk order.  No exports hashes the
+    empty string, which keeps the value stable for a stripped binary.
+    """
+    lines = sorted(f"{ordinal}:{name.lower()}" for ordinal, name in pairs)
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+def export_hash(path: str | Path) -> str | None:
+    """SHA-256 over the PE export table of *path*, or ``None``.
+
+    ``None`` means the export table cannot be read (a missing file, a non-PE,
+    a PE LIEF fails to parse, or an export directory LIEF reports but cannot
+    expose); a readable PE without exports hashes the empty string.  An
+    ordinal-only export keeps its ordinal and an empty name; a forwarded
+    export keeps its record too, since the entry identifies the export
+    regardless of the address resolving in another module.
+    """
+    p = Path(path)
+    if not p.exists():
+        return None
+    import lief
+
+    try:
+        if not lief.is_pe(str(p)):
+            return None
+        pe = lief.PE.parse(str(p))
+    except Exception:
+        return None
+    if pe is None:
+        return None
+    try:
+        table = pe.get_export()
+    except (AttributeError, TypeError, ValueError, RuntimeError):
+        table = None
+    if table is None:
+        # LIEF returns None for an image with no export directory: a real
+        # "no exports" answer, not an unreadable table.
+        if not bool(getattr(pe, "has_exports", False)):
+            return export_hash_from_pairs([])
+        return None
+    entries = getattr(table, "entries", None)
+    if entries is None:
+        return None
+    pairs: list[tuple[int, str]] = []
+    for entry in entries:
+        ordinal = int(getattr(entry, "ordinal", 0) or 0)
+        name = str(getattr(entry, "name", "") or "")
+        pairs.append((ordinal, name))
+    return export_hash_from_pairs(pairs)
 
 
 def rich_header_bytes_from_parts(key: int, entries: Iterable[tuple[int, int]]) -> bytes:
@@ -305,14 +382,14 @@ def _backend_hash(backend: Any, data: bytes) -> str | None:
 def fingerprint_bundle(path: str | Path) -> dict[str, object]:
     """Fingerprint bundle for *path*.
 
-    Carries ``md5`` / ``sha1`` / ``sha256`` / ``crc32`` (from
-    :func:`file_hashes`), ``format`` / ``arch`` (from
+    Carries ``md5`` / ``sha1`` / ``sha256`` / ``sha512`` plus the SHA-3 family
+    and ``crc32`` (from :func:`file_hashes`), ``format`` / ``arch`` (from
     :func:`rebrew.binary_loader.detect_format_and_arch`), ``size``,
-    ``imphash``, ``rich_header_hash``, and ``section_entropies``.  The
-    ``tlsh`` / ``ssdeep`` keys appear only when their backend is importable.
-    A field that cannot be derived (unknown format, no imports, no Rich
-    header) is ``None``; only a missing path raises, as
-    ``FileNotFoundError``.
+    ``imphash``, ``export_hash``, ``rich_header_hash``, and
+    ``section_entropies``.  The ``tlsh`` / ``ssdeep`` keys appear only when
+    their backend is importable.  A field that cannot be derived (unknown
+    format, no imports, no exports, no Rich header) is ``None``; only a
+    missing path raises, as ``FileNotFoundError``.
     """
     p = Path(path)
     if not p.exists():
@@ -331,6 +408,7 @@ def fingerprint_bundle(path: str | Path) -> dict[str, object]:
         "arch": arch,
         "size": p.stat().st_size,
         "imphash": imphash(p),
+        "export_hash": export_hash(p),
         "rich_header_hash": rich_header_hash(p),
         "section_entropies": section_entropies(p),
     }
@@ -339,7 +417,7 @@ def fingerprint_bundle(path: str | Path) -> dict[str, object]:
 
 
 app = typer.Typer(
-    help="Fingerprint a binary: file hashes, imphash, Rich-header hash, section entropy.",
+    help="Fingerprint a binary: file hashes, imphash, export hash, Rich-header hash, section entropy.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
@@ -347,8 +425,9 @@ app = typer.Typer(
         "  rebrew fingerprints original/game.exe · Fingerprint a specific binary\n\n"
         "  rebrew fingerprints game.exe --json · · Machine-readable bundle\n\n"
         "[bold]What it shows:[/bold]\n\n"
-        "  File hashes · · · · · · · · MD5 / SHA1 / SHA256 / CRC32 of the raw file\n\n"
+        "  File hashes · · · · · · · · MD5 / SHA1 / SHA256 / SHA512 / SHA3-224/256/384/512 / CRC32\n\n"
         "  imphash · · · · · · · · · · Mandiant import hash (DLL.API order)\n\n"
+        "  export_hash · · · · · · · · SHA-256 over the sorted ordinal:name export lines\n\n"
         "  rich_header_hash · · · · · MD5 of the MSVC Rich header (toolchain stamp)\n\n"
         "  Section entropy · · · · · · Per-section Shannon entropy over raw bytes\n\n"
         "[dim]TLSH and ssdeep are reported only when their optional backend "

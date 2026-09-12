@@ -274,6 +274,7 @@ src/rebrew/
 │                        #   profile family tables, and the registry-merged lookups
 ├── imports.py           # List PE imports + detect jmp [iat] stubs
 ├── exports.py           # Verify recompiled binary export table vs target (verexp equivalent)
+├── pe_info.py           # `rebrew pe-info` — PE metadata: identity, sections (entropy + IMAGE_SCN_*), security flags + 11-item checklist, exports, resources, Authenticode, debug, Rich header
 ├── pdb_info.py          # PDB metadata (S_COMPILE3 compiler + command line)
 ├── identify_library.py  # Library-function backends (CRT/ZLIB marking)
 ├── intake.py            # One-shot binary onboarding (FLIRT scan, catalog, triage)
@@ -294,7 +295,7 @@ src/rebrew/
 ├── toolchain_detect.py  # Compiler/version detection (diec → PDB → heuristics)
 ├── dashboard.py         # Read-only web dashboard over db/coverage.db
 ├── crypto_scan.py       # `rebrew crypto-scan` — constant-table + API/name crypto detection
-├── fingerprints.py      # `rebrew fingerprints` — digests, imphash, Rich header, entropy, TLSH/ssdeep
+├── fingerprints.py      # `rebrew fingerprints` — MD5/SHA1/SHA256/SHA512/SHA3 digests + CRC32, imphash, export hash, Rich header, entropy, TLSH/ssdeep
 ├── data.py              # Global data scanner (.data/.rdata/.bss); --annotate inserts
 │                        # // GLOBAL: markers; --layout-audit/--fill-data placement
 ├── data_render.py       # Rich rendering for the data scanner (dispatch/BSS/globals/summary)

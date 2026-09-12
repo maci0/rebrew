@@ -12,6 +12,8 @@ from typer.testing import CliRunner
 
 import rebrew.main
 from rebrew.fingerprints import (
+    export_hash,
+    export_hash_from_pairs,
     file_hashes,
     fingerprint_bundle,
     function_boundaries_hash,
@@ -36,7 +38,17 @@ runner = CliRunner()
 
 class TestFileHashes:
     def test_keys(self) -> None:
-        assert set(file_hashes(MINI_PE)) == {"md5", "sha1", "sha256", "crc32"}
+        assert set(file_hashes(MINI_PE)) == {
+            "md5",
+            "sha1",
+            "sha256",
+            "sha512",
+            "sha3_224",
+            "sha3_256",
+            "sha3_384",
+            "sha3_512",
+            "crc32",
+        }
 
     def test_mini_pe_sha256_golden(self) -> None:
         assert file_hashes(MINI_PE)["sha256"] == MINI_PE_SHA256
@@ -49,6 +61,22 @@ class TestFileHashes:
         assert digest["md5"] == hashlib.md5(payload).hexdigest()
         assert digest["sha1"] == hashlib.sha1(payload).hexdigest()
         assert digest["sha256"] == hashlib.sha256(payload).hexdigest()
+        assert digest["sha512"] == hashlib.sha512(payload).hexdigest()
+        assert digest["sha3_224"] == hashlib.sha3_224(payload).hexdigest()
+        assert digest["sha3_256"] == hashlib.sha3_256(payload).hexdigest()
+        assert digest["sha3_384"] == hashlib.sha3_384(payload).hexdigest()
+        assert digest["sha3_512"] == hashlib.sha3_512(payload).hexdigest()
+
+    def test_digest_lengths(self) -> None:
+        digest = file_hashes(MINI_PE)
+        assert len(digest["md5"]) == 32
+        assert len(digest["sha1"]) == 40
+        assert len(digest["sha256"]) == 64
+        assert len(digest["sha512"]) == 128
+        assert len(digest["sha3_224"]) == 56
+        assert len(digest["sha3_256"]) == 64
+        assert len(digest["sha3_384"]) == 96
+        assert len(digest["sha3_512"]) == 128
 
     def test_crc32_is_eight_hex_digits(self, tmp_path: Path) -> None:
         payload = b"crc"
@@ -118,6 +146,39 @@ class TestRichHeader:
         assert rich_header_hash(tmp_path / "absent.exe") is None
 
 
+class TestExportHash:
+    def test_golden_single_record(self) -> None:
+        assert (
+            export_hash_from_pairs([(1, "AddAtomA")]) == hashlib.sha256(b"1:addatoma").hexdigest()
+        )
+
+    def test_names_lowercased(self) -> None:
+        assert export_hash_from_pairs([(5, "MessageBoxA")]) == export_hash_from_pairs(
+            [(5, "messageboxa")]
+        )
+
+    def test_order_independent(self) -> None:
+        a = export_hash_from_pairs([(2, "Bravo"), (1, "Alpha")])
+        b = export_hash_from_pairs([(1, "Alpha"), (2, "Bravo")])
+        assert a == b
+
+    def test_ordinal_change_changes_hash(self) -> None:
+        assert export_hash_from_pairs([(1, "Alpha")]) != export_hash_from_pairs([(2, "Alpha")])
+
+    def test_empty_table_hashes_empty_string(self) -> None:
+        assert export_hash_from_pairs([]) == hashlib.sha256(b"").hexdigest()
+
+    def test_mini_pe_has_no_exports(self) -> None:
+        # mini_pe.exe carries no export directory, so the table is empty.
+        assert export_hash(MINI_PE) == hashlib.sha256(b"").hexdigest()
+
+    def test_non_pe_returns_none(self) -> None:
+        assert export_hash(MINI_ELF) is None
+
+    def test_missing_returns_none(self, tmp_path: Path) -> None:
+        assert export_hash(tmp_path / "absent.dll") is None
+
+
 class TestFunctionBoundariesHash:
     def test_order_independent(self) -> None:
         a = function_boundaries_hash([(0x1000, 0x20), (0x2000, 0x10)])
@@ -165,11 +226,17 @@ class TestFingerprintBundle:
             "md5",
             "sha1",
             "sha256",
+            "sha512",
+            "sha3_224",
+            "sha3_256",
+            "sha3_384",
+            "sha3_512",
             "crc32",
             "format",
             "arch",
             "size",
             "imphash",
+            "export_hash",
             "rich_header_hash",
             "section_entropies",
         } <= set(bundle)
@@ -179,7 +246,9 @@ class TestFingerprintBundle:
     def test_mini_pe_values(self) -> None:
         bundle = fingerprint_bundle(MINI_PE)
         assert bundle["sha256"] == MINI_PE_SHA256
+        assert bundle["sha512"] == file_hashes(MINI_PE)["sha512"]
         assert bundle["imphash"] == MINI_PE_IMPHASH
+        assert bundle["export_hash"] == hashlib.sha256(b"").hexdigest()
         assert bundle["format"] == "pe"
         assert bundle["size"] == 1024
 
@@ -194,6 +263,7 @@ class TestFingerprintBundle:
         assert bundle["format"] is None
         assert bundle["arch"] is None
         assert bundle["imphash"] is None
+        assert bundle["export_hash"] is None
         assert bundle["rich_header_hash"] is None
         assert bundle["section_entropies"] == []
 
