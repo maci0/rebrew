@@ -50,14 +50,14 @@ def _sweep_scoring_params(cfg: Any) -> tuple[int, int]:
     """Capstone mode and pointer size for sweep scoring, from config.
 
     Shared by ``flag_sweep`` so the sweep scores in the same mode the match.py
-    GA path uses (``analysis.capstone_mode_for_arch``): 16-bit for x86_16,
+    GA path uses (``binary_loader.capstone_mode_for_arch``): 16-bit for x86_16,
     64-bit for x86_64, 32-bit otherwise.  The mode used to be hardcoded to
     32-bit for everything but x86_16, so an x86_64 sweep decoded REX-prefixed
     instructions as 32-bit and ranked flags differently from ``rebrew match``.
-    ``capstone`` and ``rebrew.analysis`` import lazily: compiler.py loads early
-    and analysis pulls binary_loader, which must not cycle back here.
+    ``capstone`` and ``rebrew.binary_loader`` import lazily: compiler.py loads
+    early, and binary_loader must not be pulled in at import time.
     """
-    from rebrew.analysis import capstone_mode_for_arch
+    from rebrew.binary_loader import capstone_mode_for_arch
 
     cs_mode = capstone_mode_for_arch(getattr(cfg, "arch", "") or "")
     pointer_size = getattr(cfg, "pointer_size", 4) or 4

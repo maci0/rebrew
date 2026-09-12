@@ -229,7 +229,7 @@ def test_cs_mode_for_16bit_target() -> None:
     whole byte diff."""
     import capstone
 
-    from rebrew.analysis import capstone_mode_for_arch
+    from rebrew.binary_loader import capstone_mode_for_arch
 
     assert capstone_mode_for_arch("x86_16") == capstone.CS_MODE_16
     assert capstone_mode_for_arch("x86_32") == capstone.CS_MODE_32
