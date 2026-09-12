@@ -176,6 +176,25 @@ Constants (AES S-boxes, SHA-256 K/H, SHA-1 H, MD5 T) are `high` confidence;
 crypto imports are `high`; crypto-named project functions are `medium`. An
 empty finding list is a valid result.
 
+### 0d. Source Security Scan
+
+The reversed sources carry the target's own unsafe calls.  `rebrew
+security-scan` matches the C call sites on the tree-sitter AST and reports
+them by CWE, severity, and confidence: unbounded copies (CWE-120),
+non-literal format strings (CWE-134), command execution (CWE-78), unchecked
+`memcpy` sizes (CWE-787), weak randomness (CWE-338), and non-literal
+`alloca` (CWE-770).  It needs no project: a directory argument selects any C
+source tree, and the project's reversed sources are the default.
+
+```bash
+rebrew security-scan --json                       # scan the project's reversed sources
+rebrew security-scan src/NP                        # scan an explicit C source tree
+rebrew security-scan --min-severity high             # only high-severity findings
+```
+
+A finding is a review indicator, not proof of an exploitable bug: the same
+call can be safe in context.  No findings is a valid result.
+
 ### 1. Health Check — run `rebrew doctor` first
 
 ```bash

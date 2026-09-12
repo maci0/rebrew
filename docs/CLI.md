@@ -66,6 +66,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew imports` | `imports.py` | List import-table symbols — PE IAT (with `jmp [iat]` stub detection) or 16-bit NE module references (library identification) |
 | `rebrew fingerprints` | `fingerprints.py` | Binary fingerprint bundle: file hashes, imphash, Rich-header hash, per-section entropy (TLSH/ssdeep when installed) |
 | `rebrew crypto-scan` | `crypto_scan.py` | Detect crypto constant tables, crypto imports, and crypto-named functions |
+| `rebrew security-scan` | `security_scan.py` | Scan C sources for unsafe API use (unbounded copies, format strings, command execution) |
 | `rebrew strings` | `strings.py` | Extract printable ASCII/UTF-16 strings from data sections, with cross-references (`--xref`, `--filter`, `--min-len`, `--section`) |
 | `rebrew xrefs` | `xrefs.py` | Cross-reference explorer: find code that references an address (calls, jumps, `push`/`mov`/`lea`, IAT slots) |
 | `rebrew describe` | `describe.py` | Per-function recon dossier: callers, callees, strings, globals, imports (project-based) |
@@ -1105,6 +1106,42 @@ sorted by confidence then name.  Each finding is a constant
 `detail`, `confidence`).  No findings is a valid result (exit 0), not an
 error.  A finding is an indicator, not proof the code is called: a
 statically linked library leaves tables whether or not they are used.
+
+### `rebrew security-scan`
+
+`rebrew security-scan [DIR] [--min-severity high|medium|low] [--json] [--target NAME]`
+
+Scan a C source tree for unsafe API use.  `DIR` may be any C source tree
+(no project needed); it defaults to the project's reversed source directory.
+Every call expression is resolved on the tree-sitter AST — the callee
+identifier and argument nodes are read from the parse tree, never from a
+regex over the raw text.
+
+| Rule | Matches | CWE | Severity | Confidence |
+|------|---------|-----|----------|------------|
+| `unbounded-copy` | `strcpy`, `strcat`, `sprintf`, `vsprintf`, `gets`, `lstrcpyA/W`, `lstrcatA/W`, `wcscpy`, `wcscat` | CWE-120 | high | high |
+| `format-string` | `printf`, `fprintf`, `sprintf`, `snprintf`, `vprintf`, `vfprintf`, `vsnprintf` with a non-literal format argument | CWE-134 | medium | medium |
+| `command-exec` | `system`, `popen`, `WinExec`, `ShellExecuteA/W`, `CreateProcessA/W` | CWE-78 | medium | medium |
+| `unchecked-memcpy` | `memcpy`, `memmove`, `RtlCopyMemory`, `CopyMemory` with a non-literal size argument | CWE-787 | low | low |
+| `insecure-random` | `rand`, `srand`, `random`, `srandom` used as a value source | CWE-338 | low | low |
+| `stack-alloc` | `alloca`, `_alloca` with a non-literal size | CWE-770 | low | low |
+
+The format argument index is per callee (`printf` 0, `fprintf`/`sprintf` 1,
+`snprintf`/`vsnprintf` 2).  `insecure-random` fires when the call's result is
+consumed (`x = rand()`, `if (rand())`) rather than discarded as a statement.
+
+Each finding carries `rule`, `cwe`, `severity`, `confidence`, `file`, `line`
+(1-based), `function` (the enclosing function, empty outside one), `snippet`
+(the trimmed source line), and `message`.  Findings are sorted by file, then
+line, then rule.
+
+`--min-severity` drops findings below the given level (`low`, the default,
+reports everything).  `--json` prints `{"root", "files_scanned", "findings",
+"count", "by_severity"}` with `by_severity` always carrying `high`, `medium`,
+and `low` keys.  No findings is a valid result (exit 0), not an error.
+
+A finding is a review indicator, not proof of an exploitable bug: the same
+call can be safe in context.
 
 ### `rebrew verify-exports`
 
