@@ -23,7 +23,7 @@ import difflib
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import capstone  # module-level: per-call `import capstone` was ~half of analyze() time
 import typer
@@ -138,10 +138,21 @@ def disasm_insns(
     return [Insn(i.address, i.mnemonic, i.op_str, bytes(i.bytes)) for i in md.disasm(code, va)]
 
 
-def _normalized_operands(insn: Insn) -> str:
+class _OperandCarrier(Protocol):
+    """Anything with an operand string: the diff path's ``Insn`` or a view over one."""
+
+    op_str: str
+
+
+def normalized_operands(insn: _OperandCarrier) -> str:
     """Operand string with register names stripped — detects register-alloc churn.
 
     ``mov eax, ebx`` vs ``mov ecx, edx`` both normalise to ``mov R, R``.
+
+    Takes anything with an ``op_str`` (not just ``Insn``) because the codegen
+    comparison surfaces share it: ``coddog`` normalises through a lightweight
+    view and masks immediates on top, and any future instruction-level matcher
+    should normalise registers the same way rather than growing a second rule.
     """
     return _REGISTER_RE.sub("R", insn.op_str)
 
@@ -161,7 +172,7 @@ def classify_pair(target: Insn, compiled: Insn) -> str:
             # vs 8b /r, add reg,reg as 01 /r vs 03 /r).  Not register churn —
             # register allocation is untouched.
             return "encoding"
-        if _normalized_operands(target) == _normalized_operands(compiled):
+        if normalized_operands(target) == normalized_operands(compiled):
             return "register"
         return "structural"
     if compiled.mnemonic in _equiv_class(target.mnemonic):

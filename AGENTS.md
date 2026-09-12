@@ -216,6 +216,7 @@ src/rebrew/
 ├── cu_map.py            # Compilation-unit boundary inference (contiguity + call graph)
 ├── todo.py              # Prioritized action list
 ├── similar.py           # Find structurally similar functions
+├── coddog.py            # Sub-function common runs + duplicate clustering (rebrew similar --submatch/--cluster)
 ├── binary_similarity.py # Whole-binary structural similarity vs another binary (versions/DLL+EXE)
 ├── match.py             # `rebrew match` CLI (typer app + main)
 ├── match_batch.py       # Batch stub/near-miss discovery + STATUS/CFLAGS source updates
