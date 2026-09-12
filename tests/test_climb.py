@@ -7,7 +7,16 @@ the stub makes the expected winning order explicit.
 
 from __future__ import annotations
 
+import os
+import signal
+import subprocess
+import sys
+from pathlib import Path
+
+import rebrew.climb
 from rebrew.climb import _climb, _function_span, _statements, _swap
+
+REPO_SRC = str(Path(rebrew.climb.__file__).resolve().parents[1])
 
 SOURCE = """// FUNCTION: SERVER 0x10001000
 // demo
@@ -204,3 +213,33 @@ class TestCommentAndLiteralSafety:
         assert lo == 5 and lines[lo].startswith("int demo(void)")
         assert lines[hi].strip() == "}"
         assert len(_statements(lines, lo, hi)) == 1
+
+
+class TestRestoreOnSignal:
+    """Scoring writes candidates into the real source, so a signal that skips
+    the normal and exception paths must still put the original back."""
+
+    def test_sigterm_restores_the_source(self, tmp_path: Path) -> None:
+        source = tmp_path / "probe.c"
+        original = "int demo(void) { return 0; }\n"
+        source.write_text(original)
+        script = tmp_path / "probe.py"
+        script.write_text(
+            "import os, signal, sys\n"
+            "from pathlib import Path\n"
+            f"sys.path.insert(0, {REPO_SRC!r})\n"
+            "from rebrew.climb import _install_restore_handler\n"
+            "path = Path(sys.argv[1])\n"
+            "original = path.read_text()\n"
+            "_install_restore_handler(path, original, 'utf-8')\n"
+            "path.write_text('int demo(void) { return 1; }\\n')\n"
+            "os.kill(os.getpid(), signal.SIGTERM)\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, str(script), str(source)],
+            capture_output=True,
+            env={**os.environ, "PYTHONPATH": REPO_SRC},
+            timeout=60,
+        )
+        assert proc.returncode == -signal.SIGTERM
+        assert source.read_text() == original
