@@ -42,6 +42,12 @@ _RE_RET_FALSE_LABEL = re.compile(r"^[ \t]*ret_false:[ \t]*", flags=re.MULTILINE)
 
 # Pre-compiled regex for mut_return_to_goto (GA hot path).
 # Pre-compiled regex for mut_sink_return (GA hot path).
+_RE_FUNC_PRAGMA = re.compile(
+    r"^[ \t]*#pragma[ \t]+(?:optimize|intrinsic|function|check_stack|auto_inline)\b",
+    re.MULTILINE,
+)
+
+
 _RE_SINK_RETURN = re.compile(rb"(\w+)\s*=\s*([^;]+);\s*\n\s*goto\s+end\s*;")
 
 # Pre-compiled regex for mut_guard_clause (GA hot path).
