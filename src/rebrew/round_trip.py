@@ -39,7 +39,6 @@ from rich.text import Text
 
 from rebrew.annotation import resolve_symbol
 from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary, va_to_file_offset
-from rebrew.catalog import trim_trailing_padding
 from rebrew.cli import (
     EXIT_MISMATCH,
     EXIT_OK,
@@ -60,6 +59,7 @@ from rebrew.compile import compile_to_obj
 from rebrew.config import ProjectConfig
 from rebrew.matcher import parse_obj_relocs_full, parse_obj_symbol_bytes
 from rebrew.metadata import get_entry
+from rebrew.sections import trim_trailing_padding
 from rebrew.sources import (
     iter_sources,
     target_marker,

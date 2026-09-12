@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
 from bin_util import make_elf
 
 from rebrew.binary_loader import load_binary
-from rebrew.catalog.sections import sections_from_info
+from rebrew.sections import sections_from_info
 
 CODE = b"\x55\x8b\xec\x5d\xc3\x90" * 8
 

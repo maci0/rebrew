@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from rebrew.catalog.sections import (
+from rebrew.sections import (
     get_globals,
     get_text_section_size,
     has_back_jumps,
@@ -69,7 +69,7 @@ class TestGetGlobals:
     def _scan(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, src: str) -> dict[int, dict]:
         f = tmp_path / "data.c"
         f.write_text(src, encoding="utf-8")
-        monkeypatch.setattr("rebrew.catalog.sections.iter_sources", lambda _d, _c: [f])
+        monkeypatch.setattr("rebrew.sections.iter_sources", lambda _d, _c: [f])
         return get_globals(tmp_path)
 
     def test_int_global(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -102,7 +102,7 @@ class TestGetGlobals:
         f2 = tmp_path / "b.c"
         f1.write_text("// GLOBAL: SERVER 0x10005000\nint g;\n", encoding="utf-8")
         f2.write_text("// GLOBAL: SERVER 0x10005000\n", encoding="utf-8")
-        monkeypatch.setattr("rebrew.catalog.sections.iter_sources", lambda _d, _c: [f1, f2])
+        monkeypatch.setattr("rebrew.sections.iter_sources", lambda _d, _c: [f1, f2])
         globals_dict = get_globals(tmp_path)
         assert sorted(globals_dict[0x10005000]["files"]) == ["a.c", "b.c"]
 
@@ -116,14 +116,14 @@ class TestGetGlobals:
 
 class TestBackJumpsForward:
     def test_near_jmp_forward_out_of_range(self) -> None:
-        from rebrew.catalog.sections import has_back_jumps
+        from rebrew.sections import has_back_jumps
 
         # E9 rel32 jmp far forward → target 0x1060+5+0x100=0x1165 (outside range)
         data = b"\xe9\x00\x01\x00\x00"
         assert has_back_jumps(data, 0x1060, 0x1080, base_offset=0x1060) is False
 
     def test_near_jcc_forward_out_of_range(self) -> None:
-        from rebrew.catalog.sections import has_back_jumps
+        from rebrew.sections import has_back_jumps
 
         # 0F 85 rel32 = jnz far forward → target outside the range
         data = b"\x0f\x85\x00\x01\x00\x00"
@@ -132,7 +132,7 @@ class TestBackJumpsForward:
 
 class TestGetGlobalsSizes:
     def _scan(self, tmp_path: Path, decl: str) -> dict:
-        from rebrew.catalog.sections import get_globals
+        from rebrew.sections import get_globals
 
         p = tmp_path / "g.c"
         p.write_text(f"// GLOBAL: SERVER 0x1000\n{decl}\n", encoding="utf-8")
@@ -161,8 +161,8 @@ class TestGetGlobalsSizes:
     def test_sizes_match_shared_estimator(self, tmp_path: Path) -> None:
         """get_globals must size through data_layout.estimate_type_size —
         the single source of truth (a second heuristic here drifts)."""
-        from rebrew.catalog.sections import get_globals
         from rebrew.data_layout import estimate_type_size
+        from rebrew.sections import get_globals
 
         decls = [
             "int g_a;",
@@ -202,7 +202,7 @@ class TestSectionsFromInfo:
         return info
 
     def test_data_without_bss_tail_passes_through(self) -> None:
-        from rebrew.catalog.sections import sections_from_info
+        from rebrew.sections import sections_from_info
 
         info = self._info(
             **{".text": (0x1000, 0x40, 0x40, 0x400), ".data": (0x2000, 0x20, 0x20, 0x800)}
@@ -212,7 +212,7 @@ class TestSectionsFromInfo:
         assert sections[".data"] == {"va": 0x2000, "size": 0x20, "fileOffset": 0x800}
 
     def test_data_splits_bss_zero_fill_tail(self) -> None:
-        from rebrew.catalog.sections import sections_from_info
+        from rebrew.sections import sections_from_info
 
         # raw 0x10 of 0x30 virtual: 0x20 zero-fill tail becomes .bss.
         info = self._info(**{".data": (0x2000, 0x30, 0x10, 0x800)})
@@ -221,7 +221,7 @@ class TestSectionsFromInfo:
         assert sections[".bss"] == {"va": 0x2010, "size": 0x20, "fileOffset": 0}
 
     def test_raw_larger_than_virtual_never_splits(self) -> None:
-        from rebrew.catalog.sections import sections_from_info
+        from rebrew.sections import sections_from_info
 
         info = self._info(**{".data": (0x2000, 0x10, 0x30, 0x800)})
         assert set(sections_from_info(info)) == {".data"}

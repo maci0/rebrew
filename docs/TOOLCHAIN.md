@@ -147,7 +147,7 @@ parse via objconv; vendored from the archive.org `BorlandC55` item),
 `watcom16` (Open Watcom 2.0 `wcc`, 16-bit DOS, native — same snapshot as
 `watcom`), `tc16` (Turbo C++ 3.1, 16-bit DOS under DOSBox via
 `rebrew.tc16`; image `rebrew/borland:3.1-win16` — TCC.EXE produces
-Borland 16-bit OMF that parses via `rebrew.matcher.omf16`; vendored
+Borland 16-bit OMF that parses via `rebrew.omf16`; vendored
 from the archive.org `turboc3.1_202112` item — the classic
 DOS-game compiler, e.g. id Software's early titles; verified:
 `compile_and_compare` returns EXACT against a TCC-built object),
@@ -256,7 +256,7 @@ Notes:
   `profile = "watcom"` compiles through the toolchain runner in
   `rebrew compile` (`-fo=`/`-I` flag shape, docker image or vendored
   host binary), so `rebrew test`/`verify` work for Watcom targets.
-  objconv crashes on 16-bit OMF — `rebrew.matcher.omf16` now decodes the
+  objconv crashes on 16-bit OMF — `rebrew.omf16` now decodes the
   MSVC 1.52 dialect in both flavors (unoptimized: code from 0xA0 records,
   publics from MODEND; **/O-optimized: code from 0xC2 records, publics
   from 0x96/0xCA name lists** — the GA flag sweep emits this), so 16-bit
@@ -613,13 +613,13 @@ Notes:
 
 - **`msvc15`/`msvc1.52` (16-bit)** compile through their `cl15`/`cl16`
   image wrappers (DOSBox inside the image); objects are 16-bit
-  OMF decoded by `rebrew.matcher.omf16` — verified end-to-end (VC 1.5
+  OMF decoded by `rebrew.omf16` — verified end-to-end (VC 1.5
   produces a parseable `push bp`-style function object).
 - **`msvc10` (VC 1.0)** compiles end-to-end: the tree was assembled from
   the WinWorld 3.5" floppy set (SZDD payload decompressed, pinned tarball);
   CL.EXE is a Phar Lap TNT DOS-extender (PE32) that runs headless under
   DOSBox in the image (`cl10` wrapper), producing 16-bit OMF decoded
-  by `rebrew.matcher.omf16` — smoke-gated and verified (the object for the
+  by `rebrew.omf16` — smoke-gated and verified (the object for the
   smoke source is byte-identical to 1.5/1.52's, the shared 16-bit codegen).
 - **Service packs share compiler binaries**: the real VC 6.0 compiler line is
   **12.00.8168 through SP3** (the RTM..SP3 driver is byte-identical — sha

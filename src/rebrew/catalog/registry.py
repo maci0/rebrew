@@ -9,8 +9,8 @@ import struct
 from pathlib import Path
 from typing import Any, TypedDict
 
-from rebrew.catalog.sections import has_back_jumps, trim_trailing_padding
 from rebrew.config import ProjectConfig
+from rebrew.sections import has_back_jumps, trim_trailing_padding
 
 logger = logging.getLogger(__name__)
 

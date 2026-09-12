@@ -55,18 +55,6 @@ from rebrew.catalog.registry import (
 from rebrew.catalog.registry import (
     is_jump_table as is_jump_table,
 )
-from rebrew.catalog.sections import (
-    get_globals as get_globals,
-)
-from rebrew.catalog.sections import (
-    get_text_section_size as get_text_section_size,
-)
-from rebrew.catalog.sections import (
-    sections_from_info as sections_from_info,
-)
-from rebrew.catalog.sections import (
-    trim_trailing_padding as trim_trailing_padding,
-)
 
 __all__ = [
     "FunctionEntry",
@@ -79,9 +67,6 @@ __all__ = [
     "generate_catalog",
     "generate_data_json",
     "generate_reccmp_csv",
-    "get_globals",
-    "get_text_section_size",
-    "sections_from_info",
     "is_jump_table",
     "load_function_structure",
     "load_ghidra_data_labels",
@@ -91,5 +76,4 @@ __all__ = [
     "parse_function_list",
     "parse_rizin_afl",
     "scan_reversed_dir",
-    "trim_trailing_padding",
 ]

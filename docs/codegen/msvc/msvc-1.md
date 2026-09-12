@@ -182,7 +182,7 @@ DOSBox.  Emits 16-bit OMF objects.
 Probe `/O1` via `rebrew/msvc:1.52-win16` (`out16/probe.OBJ` and the
 probe3 `out16b/probe3.OBJ` — `enter`, `fld tbyte`, real `div`,
 `leave; ret` — disassembled with capstone through
-`rebrew.matcher.omf16`); fixtures `tests/fixtures/tg_msvc16.obj`,
+`rebrew.omf16`); fixtures `tests/fixtures/tg_msvc16.obj`,
 `tg_msvc16_o1.obj`, `tg_msvc16_far.obj` (near/far models,
 `__aNchkstk`).
 

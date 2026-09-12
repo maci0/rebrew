@@ -1849,7 +1849,7 @@ def main(
     if bin_path and bin_path.exists():
         try:
             from rebrew.binary_loader import load_binary, section_dict
-            from rebrew.catalog import sections_from_info
+            from rebrew.sections import sections_from_info
 
             bin_info = load_binary(bin_path)
             sections = sections_from_info(bin_info)
