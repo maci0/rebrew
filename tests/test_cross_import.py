@@ -159,19 +159,35 @@ class TestMarkerRewrite:
         """A genuinely multi-function source keeps its later markers — only
         STACKED leading blocks (the shared-source pattern) are collapsed."""
         src = (
-            "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
-            "// FUNCTION: SRC 0x401010\nint f2(void){ return 2; }\n"
+            "// FUNCTION: DST 0x601000\nint f1(void){ return 1; }\n"
+            "// FUNCTION: DST 0x601010\nint f2(void){ return 2; }\n"
         )
         out = ci._rewrite_marker(src, "DST", 0x601000, 11)
         markers = [line.strip() for line in out.splitlines() if "FUNCTION:" in line]
-        assert markers == ["// FUNCTION: DST 0x601000", "// FUNCTION: SRC 0x401010"]
+        assert markers == ["// FUNCTION: DST 0x601000", "// FUNCTION: DST 0x601010"]
+
+    def test_foreign_target_marker_dropped(self) -> None:
+        """A later marker for ANOTHER target goes, with its key-value block.
+
+        Keeping it left the copy carrying a module the destination target does
+        not own, which lint rejects (E012) and which names a VA this target has
+        never matched.
+        """
+        src = (
+            "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
+            "// FUNCTION: SRC 0x401010\n// SIZE: 8\nint f2(void){ return 2; }\n"
+        )
+        out = ci._rewrite_marker(src, "DST", 0x601000, 11)
+        assert "SRC" not in out
+        assert "// SIZE: 8" not in out
+        assert "int f2(void){ return 2; }" in out  # the body stays
 
     def test_size_rewrite_stops_at_block_boundary(self) -> None:
         """The SIZE rewrite must stay inside the imported marker's own block —
         a scan to EOF clobbered the NEXT function's SIZE line."""
         src = (
             "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
-            "// FUNCTION: SRC 0x401010\n// SIZE: 8\nint f2(void){ return 2; }\n"
+            "// FUNCTION: DST 0x601010\n// SIZE: 8\nint f2(void){ return 2; }\n"
         )
         out = ci._rewrite_marker(src, "DST", 0x601000, 11)
         lines = out.splitlines()
@@ -217,6 +233,7 @@ class TestImportMechanics:
             function_list=tmp_path / f"{target}.txt",
             source_ext=".c",
             marker=marker if marker is not None else target,
+            posix_style=False,
         )
 
     def test_annotations_by_va_uses_the_marker_not_the_target_name(self, tmp_path: Path) -> None:
@@ -261,6 +278,50 @@ class TestImportMechanics:
         src = tmp_path / "f2.c"
         src.write_text("// no code here\n")
         assert ci._source_name(src) == "f2"
+
+    def test_import_mirrors_the_source_path_and_records_flags(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The copy keeps the source's relative path, and its flags.
+
+        Flattening to the bare name made two imports out of one multi-function
+        source collide (TARGET_CONFLICT) and dropped the directory depth the
+        copy's relative ``#include``s assume; the recorded flags carry the
+        source directory, which is what makes those includes resolve.
+        """
+        cfg_src = self._cfg(tmp_path, "SRC", tmp_path / "a.exe")
+        cfg_dst = self._cfg(tmp_path, "DST", tmp_path / "b.exe")
+        sub = cfg_src.reversed_dir / "Units" / "vfs"
+        sub.mkdir(parents=True)
+        (sub / "f1.c").write_text(
+            "// FUNCTION: SRC 0x401000\n// CFLAGS: /O1 /Gd\nint f1(void){ return 1; }\n",
+            encoding="utf-8",
+        )
+
+        from rebrew.compile import CompareResult
+
+        monkeypatch.setattr(
+            "rebrew.verify.verify_entry",
+            lambda entry, cfg, cache=None, **kw: CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"x",
+                reloc_offsets=[],
+                message="EXACT MATCH",
+            ),
+        )
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda fixes, cfg: None)
+
+        res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "Units/vfs/f1.c", 11)
+        assert res["action"] == "imported"
+        assert res["filepath"] == "Units/vfs/f1.c"
+        assert (cfg_dst.reversed_dir / "Units" / "vfs" / "f1.c").exists()
+
+        from rebrew.metadata import load_metadata
+
+        assert load_metadata(cfg_dst.metadata_dir)[("DST", B_F1)]["cflags"] == f"/O1 /Gd /I{sub}"
 
     def test_import_writes_file_and_verifies(self, tmp_path: Path, monkeypatch) -> None:
         cfg_src = self._cfg(tmp_path, "SRC", tmp_path / "a.exe")

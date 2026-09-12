@@ -342,14 +342,22 @@ def _rewrite_marker(text: str, module: str, va: int, size: int) -> str:
     # 2) Drop stacked leading marker blocks from other targets — only the
     #    consecutive markers + key-value lines BEFORE any code (the shared
     #    multi-version pattern).  A marker after code (a genuinely
-    #    multi-function file) is kept.
+    #    multi-function file) is kept only when it belongs to this target:
+    #    another target's marker in the destination tree is a lint error
+    #    (E012), and this import has no destination VA for that function.
     collapsed: list[str] = lines[: marker_idx + 1]
     i = marker_idx + 1
     seen_code = False
     while i < len(lines):
         m = _MARKER_RE.match(lines[i])
         is_marker = m is not None
-        if not seen_code and m is not None and m.group("type") in ("FUNCTION", "LIBRARY", "STUB"):
+        drop = False
+        if m is not None and m.group("type") in ("FUNCTION", "LIBRARY", "STUB"):
+            if not seen_code:
+                drop = True  # stacked leading block for another version
+            elif m.group("module") != module:
+                drop = True  # a later function that belongs to another target
+        if drop:
             i += 1
             while i < len(lines) and _KV_RE.match(lines[i]):
                 i += 1
@@ -391,9 +399,11 @@ def import_function(
 
     Writes the .c (marker remapped to the destination VA/SIZE) to the
     destination's reversed_dir — *dst_file* if given (the destination VA's
-    existing file), else a new file next to the source name — then compiles +
+    existing file), else at the source's own relative path — then compiles +
     verifies it against the destination binary and promotes STATUS via the
-    standard verify flow (``verify_entry`` + ``apply_status_updates``).
+    standard verify flow (``verify_entry`` + ``apply_status_updates``).  The
+    destination metadata records the flags the copy needs, which include the
+    source's directory so its relative ``#include``s still resolve.
 
     With *dry_run* nothing is written or verified; the result carries the
     planned action.
@@ -417,7 +427,11 @@ def import_function(
     module = target_marker(cfg_dst) or cfg_dst.target_name
     rewritten = _rewrite_marker(text, module, dst_va, dst_size)
     if dst_file is None:
-        dst_file = src_path.name
+        # Keep the source's path relative to its own reversed_dir: it gives
+        # one destination file per source file (two imports out of one
+        # multi-function source no longer collide on the bare name) and keeps
+        # the directory depth the copy's relative #includes assume.
+        dst_file = src_file if not Path(src_file).is_absolute() else src_path.name
     dst_path = Path(cfg_dst.reversed_dir) / dst_file
     rel_dst = str(Path(dst_file))
 
@@ -489,7 +503,19 @@ def import_function(
     # compiles to bytes that don't compare → NEAR_MATCHING/STUB — the source
     # stays but is not promoted as matched.
     from rebrew.annotation import Annotation
+    from rebrew.metadata import update_field
     from rebrew.verify import apply_status_updates, verify_entry
+
+    # The copy compiles where the source did, so it needs the source's flags
+    # and, because the destination tree does not carry the source's headers,
+    # the source's own directory on the include path: MSVC resolves
+    # `#include "../../Units/Error/error.h"` against it.  Without this the copy
+    # fails with C1083 and keeps the source's inline `// CFLAGS:` line without
+    # its metadata counterpart (lint W019).
+    src_flags = _source_flags(cfg_src, src_path)
+    include = "-I" if cfg_dst.posix_style else "/I"
+    cflags = f"{src_flags} {include}{src_path.parent}".strip()
+    update_field(cfg_dst.metadata_dir, dst_va, "cflags", cflags, module)
 
     entry = Annotation(
         va=dst_va,
@@ -500,6 +526,7 @@ def import_function(
         marker_type="FUNCTION",
         status="STUB",
         module=module,
+        cflags=cflags,
     )
     result = verify_entry(entry, cfg_dst, cache=cache)
     apply_status_updates([(entry, result.status, result.delta)], cfg_dst)
@@ -545,6 +572,28 @@ def _source_name(src_path: Path) -> str:
 def _source_symbol(src_path: Path) -> str:
     name = _source_name(src_path)
     return "_" + name if not name.startswith("_") else name
+
+
+def _source_flags(cfg_src: ProjectConfig, src_path: Path) -> str:
+    """The source entry's effective flags: inline CFLAGS, else preset, else default.
+
+    The copy must compile with the flags its source build used — a MSVCRT
+    source built at ``/O1`` would not compare under the destination's ``/O2``.
+    """
+    from rebrew.annotation import parse_c_file_multi
+    from rebrew.cli import resolve_cflags
+
+    try:
+        anns = parse_c_file_multi(
+            src_path,
+            target_name=target_marker(cfg_src),
+            metadata_dir=cfg_src.metadata_dir,
+        )
+    except OSError:
+        anns = []
+    if anns:
+        return resolve_cflags(cfg_src, anns[0].cflags, anns[0].module)
+    return resolve_cflags(cfg_src, "", "")
 
 
 # ---------------------------------------------------------------------------

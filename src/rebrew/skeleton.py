@@ -604,9 +604,15 @@ def fetch_xref_context(
         return None
 
 
-def generate_test_command(filepath: str, symbol: str, va: int, size: int, cflags: str) -> str:
-    """Generate the rebrew test command to verify this function."""
-    return f'rebrew test {filepath} --symbol {symbol} --va 0x{va:08x} --size {size} --cflags "{cflags}"'
+def generate_test_command(filepath: str, symbol: str, va: int, size: int) -> str:
+    """Generate the rebrew test command to verify this function.
+
+    No ``--cflags``: the skeleton's flags are the ones ``test`` already
+    resolves from the module preset and the target default, and passing them
+    explicitly persists a redundant copy into ``rebrew-functions.toml`` — the
+    value lint W029 then reports as redundant.
+    """
+    return f"rebrew test {filepath} --symbol {symbol} --va 0x{va:08x} --size {size}"
 
 
 def _stale_size_note(cfg: ProjectConfig, va: int, size: int) -> str | None:
@@ -1059,11 +1065,7 @@ def _run_batch_mode(
             _write_skeleton_metadata(cfg, va_val, size_val, cfg.marker)
 
         symbol_val = "_" + sanitize_name(name_val)
-        # User-facing cflags only — base_cflags (/nologo /c /MT) are prepended by compile_to_obj.
-        # resolve_cflags keeps the suggested TEST command in sync with what
-        # test/verify actually compile with (no MSVC fallback on posix profiles).
-        cflags_val = resolve_cflags(cfg, "")
-        test_cmd = generate_test_command(rel_path, symbol_val, va_val, size_val, cflags_val)
+        test_cmd = generate_test_command(rel_path, symbol_val, va_val, size_val)
         size_warning = _stale_size_note(cfg, va_val, size_val)
 
         if not dry_run:
@@ -1267,7 +1269,7 @@ def _run_single_va_mode(
     # test/verify actually compile with (no MSVC fallback on posix profiles).
     cflags_val = resolve_cflags(cfg, "")
 
-    test_cmd = generate_test_command(str(rel_path_val), symbol_val, va_int, size, cflags_val)
+    test_cmd = generate_test_command(str(rel_path_val), symbol_val, va_int, size)
     diff_cmd = generate_diff_command(str(rel_path_val), symbol_val, cflags_val)
 
     if json_output:
