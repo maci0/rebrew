@@ -829,3 +829,47 @@ _QUERY_HOIST_RETURN = _LazyQuery(_C_LANGUAGE, "(return_statement (_) @val) @stmt
 _QUERY_NEGATE_CONDITION = _LazyQuery(
     _C_LANGUAGE, "(if_statement condition: (parenthesized_expression) @cond) @stmt"
 )
+
+# --- Lever queries: C shapes a real 2002 MSVC6 build keys its codegen off ---
+
+#: Every conditional, so the caller can keep the equal-arm ones.  Narrowed in
+#: Python because "both arms are the same constant" is a text comparison.
+_QUERY_CONDITIONAL = _LazyQuery(_C_LANGUAGE, "(conditional_expression) @cond")
+
+#: A negated comparison, ``-(a != b)``: MSVC6 compiles it to the setne form
+#: where the ternary spelling gets the fused ``sbb`` (7 bytes shorter).
+_QUERY_NEGATED_COMPARISON = _LazyQuery(
+    _C_LANGUAGE,
+    "(unary_expression argument: (parenthesized_expression (binary_expression) @cmp)) @un",
+)
+
+#: An initialized declaration, the shape a pointer walk into a local copy takes.
+_QUERY_INIT_DECLARATION = _LazyQuery(
+    _C_LANGUAGE,
+    "(declaration (init_declarator declarator: (_) @declarator value: (_) @init) @decl) @stmt",
+)
+
+#: A byte-typed local (with or without an initializer): the value a dead
+#: parameter slot can home instead of spilling a fresh dword.
+_QUERY_BYTE_LOCAL_DECL = _LazyQuery(
+    _C_LANGUAGE,
+    """
+    (declaration
+        type: [(primitive_type) (sized_type_specifier)] @type
+        declarator: [
+            (identifier) @name
+            (init_declarator
+                declarator: (identifier) @name
+                value: (_) @init
+            )
+        ]
+    ) @stmt
+""",
+)
+
+#: A call through a plain function name: the site whose caller-side prototype
+#: view a function-pointer cast can change.
+_QUERY_PLAIN_CALL = _LazyQuery(
+    _C_LANGUAGE,
+    "(call_expression function: (identifier) @fn arguments: (argument_list) @args) @call",
+)

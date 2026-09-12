@@ -1,6 +1,6 @@
 # GA Mutation Engine Reference
 
-The Genetic Algorithm (GA) matching engine uses **123 C source mutation operators** to
+The Genetic Algorithm (GA) matching engine uses **128 C source mutation operators** to
 explore the MSVC6 code generation space.  Each mutation transforms syntactically valid
 C89 source into a semantically plausible variant, compiles it with MSVC6 (inside the toolchain's docker image),
 and scores the resulting binary against the target function's bytes.
@@ -14,7 +14,7 @@ by [tree-sitter](https://tree-sitter.github.io/) AST queries — never regex.
 
 ```
 Source (.c) ──→ mutate_code(source, rng)
-                  ├─ Pick random mutation from ALL_MUTATIONS (123 operators)
+                  ├─ Pick random mutation from ALL_MUTATIONS (128 operators)
                   ├─ Apply AST-level transform to source text
                   ├─ Validate syntax (fast_syntax_check)
                   └─ Return (mutated_source, mutation_name) or None
@@ -361,7 +361,7 @@ mutated, name = mutate_code(source, rng, mutation_weights=weights)
 Children have a 35% chance of undergoing 2–3 **chained mutations** in a
 single generation step.  This enables larger jumps in the search space
 that single mutations cannot reach.  (Bumped from 30% after expanding
-to 123 operators.)
+to 128 operators.)
 
 ---
 
@@ -464,3 +464,31 @@ linger invisible in the preamble.  File-level pragmas (`pack`, `warning`,
 **Toolchain note**: MSVC 6 accepts all of the above.  mingw-16.2.0 (posix)
 ignores them with a warning — the GA explores them on MSVC targets
 and wastes nothing on posix ones.
+
+---
+
+### 21. C-shape levers from a real 2002 build
+
+Five operators taken from measured findings in the *Europa 1400: The Guild*
+`server.dll` reconstruction (a `/O2 /MT /Gd` MSVC6 build), where each shape
+was shown to change codegen without changing what the C computes.  They are
+the levers that a register-only diff otherwise leaves unreachable.
+
+| Operator | Transform | MSVC6 Rationale |
+|----------|-----------|-----------------|
+| `mut_ternary_lift_constant` | `p + (c ? K : K)` → `(c) ? (p + K) : (p + K)` | Equal constant arms fold, which kills the byte's liveness and yields the `xor`-form preamble.  Lifting the conditional over the enclosing expression keeps the comparison and the byte live, producing the `and reg,0xff` preamble the reference uses.  Probed: 8 → 10 bytes on a minimal function. |
+| `mut_compare_negate_to_ternary` | `-(a != b)` → `(a != b ? -1 : 0)`, `-(a == b)` → `(a == b ? 0 : -1)` | The negated comparison compiles to `setne` plus `neg`; the ternary spelling reaches the fused `sub`/`neg`/`sbb` compare-and-negate.  Probed: 15 → 12 bytes.  Both forms yield 0 or -1. |
+| `mut_walk_in_parameter` | `cur = cursor + 0x14; ... cur = cur + 0x14;` → the same walk written into `cursor` | A local copy is a second live range over one pointer, so MSVC6 spends a callee-saved register on it and rotates every assignment in the function.  Advancing the parameter merges the ranges. |
+| `mut_home_byte_in_param_slot` | `unsigned char b; ... b ...` → `((unsigned char*)&arg)[0 or 1]` | A byte that must survive across a loop has no register home, so it gets a fresh spill dword and the frame grows by four.  A parameter the body no longer reads already owns a dead slot, and its spare bytes are legal homes.  Byte 2 loses the frame instead, so only bytes 0 and 1 are used. |
+| `mut_call_prototype_view` | `f(a, b)` → `((int (*)(int, unsigned char)) f)(a, b)` | The caller-side prototype decides how an argument is materialized: a raw byte load for `unsigned char`, `movsx` for `char`, `xor` plus a byte load for an explicit cast.  Reproduces a prototype view the callee's current definition no longer declares.  Argument types are inferred, so a wrong guess costs one failed compile. |
+
+`mut_walk_in_parameter` and `mut_home_byte_in_param_slot` both remove a
+declaration, so they fire only when nothing declares after it in the same
+block (a statement ahead of a declaration is `error C2143`).  The byte home
+additionally requires a parameter the body never reads, so the rewritten slot
+cannot change an observable value.
+
+The first two were probed against the real toolchain and moved the object; the
+last three compiled but produced byte-identical objects on the minimal probe
+shapes.  They are context-dependent levers, not general rewrites: expect them
+to bite only on a function already near a register or frame boundary.

@@ -9,7 +9,7 @@ GA engine for binary-matching decompilation. Compiles C through the docker-backe
 | `core.py` | Types (pure, no logic) | `Score`, `BuildResult`, `BuildCache`, `GACheckpoint`, `StructuralSimilarity` |
 | `compiler.py` | Compilation backend | `build_candidate()`, `build_candidate_obj_only(cache=)`, `flag_sweep(cache=)`, `generate_flag_combinations()` |
 | `scoring.py` | Binary comparison (pure) | `score_candidate()`, `diff_functions()`, `structural_similarity()` |
-| `mutator.py` | C mutations (pure) | `mutate_code()`, `mutate_chain()`, `MutationLog`, `crossover()`, `compute_population_diversity()`, 123 `mut_*` operators |
+| `mutator.py` | C mutations (pure) | `mutate_code()`, `mutate_chain()`, `MutationLog`, `crossover()`, `compute_population_diversity()`, 128 `mut_*` operators |
 | `mutations/queries.py` | Shared tree-sitter query library for the mutation operators | `_LazyQuery`, the `_QUERY_*` batch, `_RE_C_ZERO_LITERAL` |
 | `mutations/runtime.py` | Operator plumbing | `_capture`, `_first_caps`, `_cursor`, `_apply_query_once`, `set_target_range`, `brace_block`, `_RE_FUNC_PRAGMA` |
 | `mutations/pragmas.py` | MSVC6 `#pragma` operators | 7 `mut_*_pragma` operators |
@@ -72,7 +72,7 @@ Source (.c) ──→ compiler.build_candidate()
                         │
                         ▼
               mutator.mutate_code(source, rng)
-                  ├─ Pick random mutation from ALL_MUTATIONS (123 ops)
+                  ├─ Pick random mutation from ALL_MUTATIONS (128 ops)
                   ├─ Apply, validate syntax
                   └─ Return (mutated_source, mutation_name)
                         │
@@ -99,7 +99,7 @@ Serializable GA state for resume: `generation`, `best_score`, `best_source`, `po
 
 ## Mutation Operators
 
-123 operators in `mutator.py` (`mut_*`):
+128 operators in `mutator.py` (`mut_*`):
 
 - **Commutative/logic**: `mut_commute_add_general`, `mut_commute_mul_general`, `mut_swap_eq_operands`, `mut_swap_ne_operands`, `mut_swap_or_operands`, `mut_swap_and_operands`, `mut_reassociate_add`, `mut_demorgan`
 - **Comparison/boolean**: `mut_flip_eq_zero`, `mut_flip_lt_ge`, `mut_comparison_boundary`, `mut_toggle_bool_not`, `mut_negate_condition`
@@ -113,6 +113,7 @@ Serializable GA state for resume: `generation`, `best_score`, `best_source`, `po
 - **Calling/params**: `mut_toggle_calling_convention`, `mut_change_param_order`, `mut_pointer_to_int_param`, `mut_int_to_pointer_param`, `mut_register_param`, `mut_unregister_param`
 - **Stack frame (MSVC6)**: `mut_inject_dummy_var`, `mut_inject_dummy_array`, `mut_scope_variable`
 - **Register pressure (MSVC6)**: `mut_toggle_volatile`, `mut_volatile_access` (per-access qualifier on a pointer cast), `mut_add_register_keyword`, `mut_remove_register_keyword`, `mut_swap_register_keywords`, `mut_add_volatile_intermediate`, `mut_reorder_register_vars`
+- **C-shape levers (`structural.py`)**: `mut_ternary_lift_constant` (equal-arm ternary lifted over its enclosing expression), `mut_compare_negate_to_ternary` (fused compare-and-negate), `mut_walk_in_parameter` (advance the parameter, not a local copy), `mut_home_byte_in_param_slot` (home a byte in a dead parameter's slot), `mut_call_prototype_view` (call through a cast pointer with a different parameter type).  Each mirrors a measured finding in a real 2002 MSVC6 build; see `docs/GA_MUTATIONS.md` section 21
 - **Zero-extension (MSVC6)**: `mut_preinit_byte_load`, `mut_cast_to_bitmask`
 - **Branch merging (MSVC6)**: `mut_hoist_common_tail`, `mut_sink_common_tail`
 - **MSVC6 quirks (Phase 6)**: `mut_invert_if_else`, `mut_dummy_stack_vars`, `mut_inject_dummy_registers`, `mut_extract_complex_args`
