@@ -318,10 +318,9 @@ src/rebrew/
 │   ├── commands.py      # MCP structural op builders (create-function, bookmarks, data pull)
 │   ├── cli_backend.py   # ghidra-cli subprocess backend for MCP ops (alternative to ReVa)
 │   └── cli.py           # Typer CLI (`rebrew sync` — push/pull via --state-dir, MCP ops)
-├── core/                # Matching + toolchain utilities
-│   ├── __init__.py      # Re-exports: smart_reloc_compare, msvc_env_from_config
-│   ├── matching.py      # smart_reloc_compare (relocation-aware byte compare)
-│   └── toolchain.py     # msvc_env_from_config (MSVC env setup)
+├── coff_reloc.py        # Relocation-aware byte compare + catalog symbol resolution
+│                        #   (smart_reloc_compare, CoffRelocRecord, build_name_to_va, build_iat_region)
+├── msvc_env.py          # MSVC env setup (msvc_env_from_config, resolve_runner_path)
 └── agent-skills/        # AI workflow skills (SKILL.md per skill)
     ├── rebrew-intake/   # Binary onboarding, FLIRT scan, catalog, triage
     ├── rebrew-workflow/  # End-to-end reversing loop

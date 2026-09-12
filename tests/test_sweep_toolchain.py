@@ -109,7 +109,7 @@ def test_toolchain_sweep_orders_best_first(monkeypatch, capsys) -> None:
         "rebrew.match._vendored_msvc_toolchains",
         lambda cfg, cl, inc, *a, **k: [("good", "wine good", "/good"), ("bad", "wine bad", "/bad")],
     )
-    monkeypatch.setattr("rebrew.core.build_name_to_va", lambda cfg: {"_f": 0x1000})
+    monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {"_f": 0x1000})
     calls: dict[str, bytes] = {}
 
     def _fake_build(src, cl_cmd, inc_dir, cflags, symbol, **kw):

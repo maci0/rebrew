@@ -35,9 +35,9 @@ from rebrew.cli import (
     require_config,
     resolve_compile_overrides,
 )
+from rebrew.coff_reloc import build_name_to_va
 from rebrew.compile import compile_and_compare
 from rebrew.config import ProjectConfig
-from rebrew.core import build_name_to_va
 from rebrew.sources import target_marker
 from rebrew.utils import atomic_write_text, read_source_text
 

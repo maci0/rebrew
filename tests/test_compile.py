@@ -642,7 +642,7 @@ class TestRelativeRunnerResolution:
     def test_msvc_env_runner_resolved_and_winedebug(self, tmp_path: Path) -> None:
         """msvc_env_from_config resolves the relative runner for the GA path
         and sets WINEDEBUG by basename (tools/wibo is still wibo)."""
-        from rebrew.core.toolchain import msvc_env_from_config
+        from rebrew.msvc_env import msvc_env_from_config
 
         cfg = ProjectConfig(
             root=tmp_path,

@@ -952,8 +952,8 @@ class TestCompareLogicHashMembership:
         — an omitted module means a logic fix won't invalidate stale caches."""
         import rebrew.annotation
         import rebrew.binary_loader
+        import rebrew.coff_reloc
         import rebrew.compile
-        import rebrew.core.matching
         import rebrew.matcher.parsers
         from rebrew.verify import _compare_logic_hash
 
@@ -961,7 +961,7 @@ class TestCompareLogicHashMembership:
             rebrew.annotation._kv_to_annotation.__code__.co_filename,
             rebrew.compile.classify_compare_result.__code__.co_filename,
             rebrew.compile._extract_and_compare.__code__.co_filename,
-            rebrew.core.matching.smart_reloc_compare.__code__.co_filename,
+            rebrew.coff_reloc.smart_reloc_compare.__code__.co_filename,
             rebrew.matcher.parsers.parse_obj_symbol_and_relocs.__code__.co_filename,
             rebrew.binary_loader.extract_raw_bytes.__code__.co_filename,
         }

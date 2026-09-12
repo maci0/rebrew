@@ -1422,7 +1422,7 @@ class TestRunVerification:
         monkeypatch.setattr(
             "rebrew.compile_cache.get_compile_cache", lambda root, backend="diskcache": None
         )
-        monkeypatch.setattr("rebrew.core.build_name_to_va", lambda cfg: {})
+        monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {})
 
     def test_all_passed(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.verify import run_verification
@@ -1497,7 +1497,7 @@ class TestRunVerification:
         monkeypatch.setattr(
             "rebrew.compile_cache.get_compile_cache", lambda root, backend="diskcache": None
         )
-        monkeypatch.setattr("rebrew.core.build_name_to_va", lambda cfg: {})
+        monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {})
         passed, failed, fail_details, results, deferred = run_verification(
             [_ann(0x1000)], _cfg(tmp_path), jobs=1, total=1, cached_count=0, json_output=True
         )

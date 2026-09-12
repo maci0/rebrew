@@ -264,7 +264,7 @@ class TestSplicePipeline:
         expected_code: int,
     ) -> None:
         """Unresolved symbols are skipped by default; --strict-catalog exits non-zero."""
-        from rebrew.core.matching import UnresolvedSymbolError
+        from rebrew.coff_reloc import UnresolvedSymbolError
         from rebrew.matcher.parsers import CoffRelocRecord
 
         cfg = _make_fake_cfg(tmp_path)
@@ -476,7 +476,7 @@ class TestLoadCatalogs:
         the real function made REL32 calls resolve to the data slot
         (CreateListenSocket: function@0x10009e60 vs data@0x101deb14).
         """
-        from rebrew.core.matching import build_symbol_resolver
+        from rebrew.coff_reloc import build_symbol_resolver
         from rebrew.round_trip import _load_catalogs
 
         cfg = self._cfg(tmp_path)
@@ -1091,7 +1091,7 @@ class TestReasonCounts:
     def test_reason_counts_aggregate(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import json
 
-        from rebrew.core.matching import UnresolvedSymbolError
+        from rebrew.coff_reloc import UnresolvedSymbolError
         from rebrew.matcher.parsers import CoffRelocRecord
 
         cfg = _make_fake_cfg(tmp_path)

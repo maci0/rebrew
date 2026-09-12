@@ -827,9 +827,9 @@ class TestValidatedRelocMasking:
             "rebrew.matcher.parse_obj_symbol_and_relocs",
             lambda *a, **k: (compiled, {0: "_g", 5: "_h"}, []),
         )
-        monkeypatch.setattr("rebrew.core.build_name_to_va", lambda cfg: {"_g": 0x5000})
+        monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {"_g": 0x5000})
         monkeypatch.setattr(
-            "rebrew.core.smart_reloc_compare",
+            "rebrew.coff_reloc.smart_reloc_compare",
             reloc_fn or (lambda *a, **k: (False, 0, 10, [0], [5])),
         )
         result = CliRunner().invoke(app, ["--json", str(src)])

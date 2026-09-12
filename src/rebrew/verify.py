@@ -375,7 +375,7 @@ def _compare_logic_hash() -> str:
 
     The hash covers the WHOLE ``rebrew`` package source rather than a
     hand-maintained module list: result-affecting code lives across
-    ``core.matching`` (reloc validation), ``core.toolchain`` (compiler env),
+    ``coff_reloc`` (reloc validation), ``msvc_env`` (compiler env),
     ``cli.resolve_cflags`` (flags), ``binary_loader`` (IAT masking) and
     others, and a manual list inevitably drifts — a missed module then ships
     a fix without invalidating caches written by the pre-fix build.
@@ -2330,8 +2330,7 @@ def run_verification(
     # Shared once for the whole batch — same catalog `rebrew test` uses.
     # Fail closed: a VA-map scan failure aborts the run instead of masking
     # relocs against an empty map (false RELOC).
-    from rebrew.core import build_name_to_va
-    from rebrew.core.matching import CatalogScanError
+    from rebrew.coff_reloc import CatalogScanError, build_name_to_va
 
     try:
         name_to_va = build_name_to_va(cfg)
