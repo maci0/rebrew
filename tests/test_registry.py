@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 import typer
+from rich.console import Console
 from typer.testing import CliRunner
 
 from rebrew.registry import (
@@ -48,6 +49,31 @@ def _install_fake_module(name: str, **attrs: Any) -> types.ModuleType:
         setattr(mod, k, v)
     sys.modules[name] = mod
     return mod
+
+
+def _activate_cli_plugins(app: typer.Typer, existing: set[str] | None = None) -> Any:
+    """Mount third-party CLI components onto *app*.
+
+    The caller patches ``rebrew.registry.entry_points``; this builds a fresh
+    context with the app as the ``cli`` service and activates the discovered
+    components on it, the same path :func:`rebrew.main.compose` uses.
+    """
+    from rich.console import Console
+
+    from rebrew.plugin import (
+        CLI_SERVICE,
+        CONSOLE_SERVICE,
+        Context,
+        activate,
+        entry_point_components,
+    )
+
+    console = Console(stderr=True)
+    ctx = Context()
+    ctx.provide(CLI_SERVICE, app)
+    ctx.provide(CONSOLE_SERVICE, console)
+    activate(entry_point_components(set(existing or ()), console), ctx)
+    return ctx
 
 
 class TestEntryPointRegistrations:
@@ -331,53 +357,41 @@ class TestMutationRegistry:
 
 class TestCliRegistry:
     def test_discovered_single_command_registered(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.main
-
         fresh = typer.Typer()
-        monkeypatch.setattr(rebrew.main, "app", fresh)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.commands": [("diagtest", "rebrew.diagnose")]}),
         )
-        rebrew.main._register_discovered_commands()
+        _activate_cli_plugins(fresh)
         names = [c.name for c in fresh.registered_commands]
         assert "diagtest" in names
 
     def test_discovered_multi_command_registered(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.main
-
         fresh = typer.Typer()
-        monkeypatch.setattr(rebrew.main, "app", fresh)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.multicommands": [("libtest", "rebrew.library")]}),
         )
-        rebrew.main._register_discovered_commands()
+        _activate_cli_plugins(fresh)
         names = [g.name for g in fresh.registered_groups]
         assert "libtest" in names
 
     def test_attr_form_registered(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.main
-
         fresh = typer.Typer()
-        monkeypatch.setattr(rebrew.main, "app", fresh)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.commands": [("diagattr", "rebrew.diagnose:main")]}),
         )
-        rebrew.main._register_discovered_commands()
+        _activate_cli_plugins(fresh)
         assert "diagattr" in [c.name for c in fresh.registered_commands]
 
     def test_stub_fallback_for_broken_plugin(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.main
-
         fresh = typer.Typer()
-        monkeypatch.setattr(rebrew.main, "app", fresh)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.commands": [("broken", "rebrew.no_such_module")]}),
         )
-        rebrew.main._register_discovered_commands()
+        _activate_cli_plugins(fresh)
         names = [c.name for c in fresh.registered_commands]
         assert "broken" in names
         result = CliRunner().invoke(fresh, ["broken"])
@@ -388,32 +402,52 @@ class TestCliRegistry:
     ) -> None:
         """A module whose import raises RegistryError (e.g. a conflicting
         plugin registry) degrades to a stub instead of bricking the CLI."""
-        import rebrew.main
-        from rebrew.registry import RegistryError
+        from rebrew.plugin import (
+            CLI_SERVICE,
+            CONSOLE_SERVICE,
+            CliComponent,
+            Context,
+            Panel,
+            activate,
+        )
 
         fresh = typer.Typer()
-        monkeypatch.setattr(rebrew.main, "app", fresh)
+        console = Console(stderr=True)
+        ctx = Context()
+        ctx.provide(CLI_SERVICE, fresh)
+        ctx.provide(CONSOLE_SERVICE, console)
 
         def _boom(name: str, *args: object, **kwargs: object) -> object:
             raise RegistryError("duplicate toolchain registration 'x'")
 
-        monkeypatch.setattr("rebrew.main.importlib.import_module", _boom)
-        rebrew.main._register_single_module("somecmd", "rebrew.diagnose", "help", None)
-        rebrew.main._register_multi_module("somegroup", "rebrew.library", "help", None)
-        result = CliRunner().invoke(fresh, ["somecmd"])
-        assert result.exit_code == 2
-        multi = CliRunner().invoke(fresh, ["somegroup"])
-        assert multi.exit_code == 2
+        monkeypatch.setattr("rebrew.registry.importlib.import_module", _boom)
+        activate(
+            [
+                CliComponent(
+                    name="somecmd",
+                    module="rebrew.diagnose",
+                    help="help",
+                    panel=Panel.DEVELOPMENT,
+                ),
+                CliComponent(
+                    name="somegroup",
+                    module="rebrew.library",
+                    help="help",
+                    panel=Panel.PROJECT_SETUP,
+                    is_group=True,
+                ),
+            ],
+            ctx,
+        )
+        assert CliRunner().invoke(fresh, ["somecmd"]).exit_code == 2
+        assert CliRunner().invoke(fresh, ["somegroup"]).exit_code == 2
 
     def test_duplicate_does_not_shadow_builtin(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A colliding plugin must NOT replace the packaged command.
 
-        Typer keys commands by name and the plugin group registers last, so the
-        old "degrade to a stub under the same name" made every built-in named by
-        a plugin unusable (the stub shadowed it).
+        The loader skips a third-party name already held by a built-in, so the
+        built-in stays usable instead of being shadowed by a stub.
         """
-        import rebrew.main
-
         fresh = typer.Typer()
 
         @fresh.command(name="test")
@@ -424,12 +458,11 @@ class TestCliRegistry:
         def _other() -> None:
             """keeps the app a multi-command group"""
 
-        monkeypatch.setattr(rebrew.main, "app", fresh)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.commands": [("test", "rebrew.diagnose")]}),
         )
-        rebrew.main._register_discovered_commands()
+        _activate_cli_plugins(fresh, existing={"test"})
         # The packaged command still runs; a shadowing stub would exit 2.
         result = CliRunner().invoke(fresh, ["test"])
         assert result.exit_code == 0
@@ -437,10 +470,7 @@ class TestCliRegistry:
     def test_wrong_kind_plugin_degrades_to_stub(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A module:attr plugin of the wrong kind (non-callable single
         command) degrades to a stub instead of bricking registration."""
-        import rebrew.main
-
         fresh = typer.Typer()
-        monkeypatch.setattr(rebrew.main, "app", fresh)
         _install_fake_module("wrong_kind_plugin", not_a_command=42)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
@@ -448,7 +478,7 @@ class TestCliRegistry:
                 **{"rebrew.commands": [("wrongkind", "wrong_kind_plugin:not_a_command")]}
             ),
         )
-        rebrew.main._register_discovered_commands()
+        _activate_cli_plugins(fresh)
         names = [c.name for c in fresh.registered_commands]
         assert "wrongkind" in names
         result = CliRunner().invoke(fresh, ["wrongkind"])
@@ -458,10 +488,7 @@ class TestCliRegistry:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A non-Typer-app object in rebrew.multicommands degrades to a stub."""
-        import rebrew.main
-
         fresh = typer.Typer()
-        monkeypatch.setattr(rebrew.main, "app", fresh)
         _install_fake_module("wrong_kind_multi", not_an_app=42)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
@@ -469,7 +496,7 @@ class TestCliRegistry:
                 **{"rebrew.multicommands": [("wrongmulti", "wrong_kind_multi:not_an_app")]}
             ),
         )
-        rebrew.main._register_discovered_commands()
+        _activate_cli_plugins(fresh)
         result = CliRunner().invoke(fresh, ["wrongmulti"])
         assert result.exit_code == 2
 
@@ -865,15 +892,12 @@ class TestBinaryLoaderRegistry:
 
 class TestPluginHelpPanel:
     def test_discovered_command_in_plugins_panel(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.main
-
         fresh = typer.Typer()
-        monkeypatch.setattr(rebrew.main, "app", fresh)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.commands": [("diagtest", "rebrew.diagnose")]}),
         )
-        rebrew.main._register_discovered_commands()
+        _activate_cli_plugins(fresh)
         cmd = next(c for c in fresh.registered_commands if c.name == "diagtest")
         assert cmd.rich_help_panel == "Plugins"
 
@@ -1090,8 +1114,6 @@ class TestRealEntryPointMetadata:
     def test_command_discovered_via_real_dist_info(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import rebrew.main
-
         dist = tmp_path / "rebrew_plugin_cmd-0.1.dist-info"
         dist.mkdir(parents=True)
         (dist / "METADATA").write_text(
@@ -1105,8 +1127,7 @@ class TestRealEntryPointMetadata:
         monkeypatch.syspath_prepend(str(tmp_path))
 
         fresh = typer.Typer()
-        monkeypatch.setattr(rebrew.main, "app", fresh)
-        rebrew.main._register_discovered_commands()
+        _activate_cli_plugins(fresh)
         assert "demo-cmd" in [c.name for c in fresh.registered_commands]
 
 
