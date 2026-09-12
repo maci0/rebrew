@@ -71,8 +71,12 @@ def count_statuses(by_va: dict[int, list[Annotation]]) -> dict[str, int]:
     return counters
 
 
-def covered_bytes(by_va: dict[int, list[Annotation]], sizes: dict[int, int]) -> int:
-    """Sum covered bytes for annotated function VAs.
+def covered_bytes(
+    by_va: dict[int, list[Annotation]],
+    sizes: dict[int, int],
+    section: tuple[int, int] | None = None,
+) -> int:
+    """Bytes of *section* claimed by at least one annotated function.
 
     Uses the *sizes* lookup (registry canonical sizes in the CLI, the
     disassembler function list in the catalog export) when the VA is present,
@@ -80,16 +84,47 @@ def covered_bytes(by_va: dict[int, list[Annotation]], sizes: dict[int, int]) -> 
     diverged — the CLI counted 0 for registry-missing VAs while CATALOG.md
     counted the annotation size — so the summary and report disagreed
     (catalog-review F9).  GLOBAL/DATA markers are excluded.
+
+    The ranges are merged and clipped to *section* (``(va, size)``) rather
+    than summed.  Both steps are load-bearing on real projects: summing
+    double-counts the overlapping sizes a function list carries, and counting
+    a size that runs past the section reports coverage above 100% (measured
+    197% for one target whose list spans more than its ``.text``).  Callers
+    that do not know the section base pass ``None`` and get the merged total.
     """
-    total = 0
+    ranges: list[tuple[int, int]] = []
     for va, vas in by_va.items():
         if not any(e.get("marker_type") not in ("GLOBAL", "DATA") for e in vas):
             continue
         canonical = sizes.get(va)
         if not canonical:
             canonical = vas[0]["size"]
-        total += canonical
-    return total
+        if not canonical or canonical < 0:
+            continue
+        ranges.append((va, va + canonical))
+    if not ranges:
+        return 0
+    if section is not None:
+        section_va, section_size = section
+        limit = section_va + section_size
+        clipped = [
+            (max(start, section_va), min(end, limit))
+            for start, end in ranges
+            if min(end, limit) > max(start, section_va)
+        ]
+        if not clipped:
+            return 0
+        ranges = clipped
+    ranges.sort()
+    total = 0
+    current_start, current_end = ranges[0]
+    for start, end in ranges[1:]:
+        if start <= current_end:
+            current_end = max(current_end, end)
+        else:
+            total += current_end - current_start
+            current_start, current_end = start, end
+    return total + (current_end - current_start)
 
 
 def _build_section_index(

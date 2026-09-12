@@ -76,8 +76,24 @@ class TestGenerateCatalog:
 
     def test_covered_bytes_fallback(self) -> None:
         entries = [_ann(0x1000, "fn_a", "EXACT", size=42)]
-        out = generate_catalog(entries, [], text_size=100)
+        out = generate_catalog(entries, [], text_size=100, text_va=0x1000)
         assert "42/100 bytes" in out
+
+    def test_overlapping_sizes_count_once(self) -> None:
+        """A function list that lists one range twice must not inflate coverage."""
+        entries = [
+            _ann(0x1000, "fn_a", "EXACT", size=0x40),
+            _ann(0x1010, "fn_a_alias", "EXACT", size=0x40),
+        ]
+        out = generate_catalog(entries, [], text_size=0x100, text_va=0x1000)
+        assert f"{0x50}/256 bytes" in out
+
+    def test_sizes_past_the_section_are_clipped(self) -> None:
+        """A size running past .text cannot push coverage over 100%."""
+        entries = [_ann(0x1000, "fn_a", "EXACT", size=0x1000)]
+        out = generate_catalog(entries, [], text_size=0x100, text_va=0x1000)
+        assert f"{0x100}/256 bytes" in out
+        assert "Coverage: 100.0%" in out
 
 
 class TestReccmpType:

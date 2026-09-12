@@ -18,6 +18,7 @@ def generate_catalog(
     entries: list[Annotation],
     funcs: list[dict[str, Any]],
     text_size: int,
+    text_va: int = 0,
 ) -> str:
     """Generate CATALOG.md content."""
     # Deduplicate by VA (keep first occurrence per VA)
@@ -36,9 +37,10 @@ def generate_catalog(
 
     # Coverage bytes — shared helper keeps CATALOG.md and the CLI summary
     # denominator identical (registry/function-list size preferred, annotation
-    # size as fallback).
+    # size as fallback), merged and clipped to the section so the percentage
+    # cannot exceed 100.
     sizes_by_va = {f["va"]: f["size"] for f in funcs}
-    covered = covered_bytes(by_va, sizes_by_va)
+    covered = covered_bytes(by_va, sizes_by_va, section=(text_va, text_size))
 
     total_funcs = len(funcs)
     matched_count = len(unique_vas)

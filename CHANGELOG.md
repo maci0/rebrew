@@ -213,6 +213,13 @@
   must be quoted (`["msvc-6.0"]`).  See ADR 017.
 
 ### Fixed
+- **Catalog coverage can no longer exceed 100%**: `covered_bytes` summed every
+  annotated function's size, so a function list that overlaps its own ranges
+  or sizes a function past the end of `.text` reported more bytes than the
+  section holds (measured 197% for one target, 105% for another).  The ranges
+  are now merged and clipped to the section, which is the same question
+  `recoverage` answers from the cell table; both projects land within a point
+  of the dashboard's figure.
 - **`msvc-7.0` is accepted for the compiler build it actually carries**: the
   13.10.3077 Rich-header build listed only `msvc-7.1`, so a project on
   `msvc-7.0` (the same cl.exe build, in the canonical `7.0-win32` tree) was told
