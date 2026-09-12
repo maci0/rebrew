@@ -149,7 +149,7 @@ class TestCompileViaRecompile:
         assert out is not None and Path(out).read_bytes() == b"\x01\x02"
         assert seen["compiler"] == "msvc6"
         assert seen["emit_assembly"] is True
-        assert seen["filename"] == "f.obj"
+        assert seen["filename"] == "f.c"
 
     def test_service_failure_returns_the_log(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
