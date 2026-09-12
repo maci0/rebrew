@@ -14,6 +14,15 @@ outside it would be invisible to the container) and the original text is
 restored unless a move wins.  A hard kill can therefore leave an accepted
 candidate in place -- two statements of the same function exchanged, still valid
 C -- and ``git diff`` shows it.
+
+A candidate is rejected when its object diverges further from the target's
+length than the function already does (``_within_size_budget``).  Matched bytes
+alone is not enough: ``total`` is ``max(target, object)``, so on a
+size-mismatched function the search can raise its score by emitting more code.
+On gm_CreateEntityFromParents (3689 B target, 3681 B object) that took the score
+from ~583 to 861 matched bytes while growing the object to 3706 and ordering the
+``slot[2] == 0x15 || 0x16`` test after the location block, against the target's
+own order at 0x10018c49 / 0x10018c59.
 """
 
 from __future__ import annotations
@@ -181,14 +190,19 @@ def _score(
     name_to_va: dict[str, int],
     section_va: int,
     toolchain: str | None,
-) -> float:
-    """Matched-byte count for *path*, or -1.0 when it does not compile.
+) -> tuple[float, int]:
+    """Matched-byte count and object length for *path*, or ``(-1.0, 0)``.
 
     The arguments and the arithmetic mirror ``rebrew test`` exactly, including
     ``name_to_va``/``section_va`` (DIR32 absolute validation) and the
     match_percent -> match_count reconstruction.  Scoring a differently computed
     percentage once made a move look like an improvement while
     ``rebrew test`` reported one byte fewer.
+
+    The object length comes back alongside the score because matched bytes
+    alone is not a safe objective: ``total`` is ``max(target, object)``, so a
+    candidate that emits more code can match more bytes while walking away from
+    the target's length.  ``_within_size_budget`` is what refuses those.
     """
     result = compile_and_compare(
         cfg,
@@ -201,11 +215,29 @@ def _score(
         toolchain=toolchain,
     )
     if result.obj_bytes is None:
-        return -1.0
+        return -1.0, 0
+    # The longer side is truncated before comparison, so ``obj_bytes`` is not
+    # the object's real length on a size mismatch; ``full_obj_size`` is.  The
+    # score's ``total`` keeps using the truncated bytes exactly as before, so
+    # it still mirrors ``rebrew test``.
+    obj_len = result.full_obj_size if result.full_obj_size is not None else len(result.obj_bytes)
     total = max(len(target_bytes), len(result.obj_bytes))
     if result.matched:
-        return float(total)
-    return float(round(result.match_percent / 100.0 * total))
+        return float(total), obj_len
+    return float(round(result.match_percent / 100.0 * total)), obj_len
+
+
+def _within_size_budget(matched: float, obj_len: int, target_len: int, budget: int) -> bool:
+    """Whether a scored candidate may be kept.
+
+    *matched* is negative when the candidate does not compile.  Otherwise the
+    candidate must not diverge further from the target's length than the
+    function already does (*budget*): the target's size is a hard fact, and a
+    byte-exact result cannot come from an object of a different length.
+    """
+    if matched < 0.0:
+        return False
+    return abs(obj_len - target_len) <= budget
 
 
 def _swap(lines: list[str], a: tuple[int, int], b: tuple[int, int]) -> list[str]:
@@ -344,16 +376,24 @@ def main(
 
     def score_fn(candidate: list[str]) -> float:
         atomic_write_text(path, "".join(candidate), encoding=encoding)
-        return _score(cfg, path, sym, target_bytes, cflags_str, name_to_va, va_int, toolchain_name)
+        matched, obj_len = _score(
+            cfg, path, sym, target_bytes, cflags_str, name_to_va, va_int, toolchain_name
+        )
+        if not _within_size_budget(matched, obj_len, len(target_bytes), size_budget):
+            return -1.0
+        return matched
 
     def report(move: dict[str, int | float]) -> None:
         # stderr, so --json output on stdout stays parseable
         console.print(f"  pass {move['pass']} statement {move['index']}: {move['after']:.0f} bytes")
 
     try:
-        baseline = score_fn(lines)
+        baseline, baseline_obj = _score(
+            cfg, path, sym, target_bytes, cflags_str, name_to_va, va_int, toolchain_name
+        )
         if baseline < 0:
             error_exit("baseline does not compile -- fix the function first", json_mode=json_output)
+        size_budget = abs(baseline_obj - len(target_bytes))
         console.print(f"baseline {sym}: {baseline:.0f} matched bytes")
         lines, best, moves = _climb(lines, chunks, score_fn, passes, sym, on_move=report)
         applied = best > baseline and not dry_run

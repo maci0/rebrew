@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 import rebrew.climb
-from rebrew.climb import _climb, _function_span, _statements, _swap
+from rebrew.climb import _climb, _function_span, _statements, _swap, _within_size_budget
 
 REPO_SRC = str(Path(rebrew.climb.__file__).resolve().parents[1])
 
@@ -107,6 +107,28 @@ class TestSwap:
         texts = ["".join(swapped[a : b + 1]).strip() for a, b in chunks]
         assert texts[0] == "a = arg;"
         assert texts[1] == "int a;"
+
+
+class TestSizeBudget:
+    """Matched bytes alone can be raised by emitting more code, so a candidate
+    is admissible only while it stays within the function's own divergence from
+    the target's length."""
+
+    def test_compiling_candidate_inside_budget_is_kept(self) -> None:
+        assert _within_size_budget(900.0, 3681, 3689, 8)
+
+    def test_candidate_that_grows_further_is_refused(self) -> None:
+        assert not _within_size_budget(861.0, 3706, 3689, 8)
+
+    def test_candidate_that_shrinks_closer_is_kept(self) -> None:
+        assert _within_size_budget(500.0, 3689, 3689, 8)
+
+    def test_exact_length_raises_the_bar_to_zero(self) -> None:
+        assert _within_size_budget(2434.0, 2434, 2434, 0)
+        assert not _within_size_budget(2433.0, 2433, 2434, 0)
+
+    def test_failed_compile_is_refused_whatever_the_length(self) -> None:
+        assert not _within_size_budget(-1.0, 3689, 3689, 8)
 
 
 class TestClimb:
