@@ -785,12 +785,6 @@ def recompile_url(cfg: ProjectConfig) -> str | None:
     return (getattr(cfg, "recompile_url", "") or "").strip() or None
 
 
-def _recompile_obj_name(source_path: Path) -> str:
-    """Artifact filename for a recompile request (basename + ``.obj``)."""
-    stem = source_path.stem or "input"
-    return f"{stem}.obj"
-
-
 def _compile_via_recompile(
     cfg: ProjectConfig,
     source_path: Path,
@@ -823,7 +817,7 @@ def _compile_via_recompile(
             compiler=profile,
             source=source_text,
             flags=all_flags,
-            filename=_recompile_obj_name(source_path),
+            filename=source_path.name,
             timeout=float(getattr(cfg, "compile_timeout", 60) or 60) + 120.0,
             emit_assembly=emit_assembly,
         )
