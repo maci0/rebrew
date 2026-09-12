@@ -161,7 +161,9 @@ src/rebrew/
 ├── c_parser.py          # tree-sitter C parsing (function defs, extern decls/vars)
 ├── compile.py           # Compile helpers (compile_to_obj, compile_and_compare → CompareResult,
 │                        #   classify_compare_result, classify_match_status, is_matched,
-│                        #   NEAR_MATCH_THRESHOLD)
+│                        #   NEAR_MATCH_THRESHOLD; picks the local-docker or recompile backend)
+├── recompile_client.py  # HTTP transport for the recompile compile service (POST /api/v1/compile
+│                        #   + artifact download; request caps and RecompileError)
 ├── naming.py            # Naming/difficulty/origin helpers (next, skeleton, triage)
 ├── binary_loader.py     # PE/COFF/ELF/Mach-O loading + format detection (via LIEF)
 ├── extract.py           # Batch extract + disassemble functions
@@ -198,7 +200,7 @@ src/rebrew/
 ├── lzexe.py             # LZEXE 0.90/0.91 DOS unpacker core (CLI in lzexe_cli.py)
 ├── library.py           # rebrew-libraries.toml per-library overrides + `rebrew library` CLI group
 ├── dosbox.py            # Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads)
-├── toolchain.py         # Toolchain registry assembly + docker-only runner (images for Windows/DOS, native for Linux compilers)
+├── toolchain.py         # Toolchain registry assembly + docker-only runner (images for Windows/DOS, native for Linux compilers); ADR 015
 ├── toolchain_spec.py    # ToolchainSpec / ToolchainSource value types
 ├── toolchain_paths.py   # rebrew-toolchains checkout location (toolchains_repo, REPO_TOOLS, vendored_path)
 ├── toolchain_data.py    # Packaged registry + source pins (SOURCES, BUILTIN_TOOLCHAINS)
@@ -453,3 +455,4 @@ alongside the packaged ones; a duplicate name is a `RegistryError`.
 - **Metadata write-lock**: `rebrew-functions.toml`, `rebrew-data.toml`, and the declib binsync artifacts (`functions/*.toml`, `global_vars.toml`, `structs/*.toml`, `comments.toml`, `enums.toml`, `typedefs.toml`, `metadata.toml`) are written **read-only (mode 0444)** by the tool (`atomic_write_locked` chmods writable before touching and re-locks after). Direct edits fail with Permission denied; to change anything, use the CLI — it chmods writable, updates, and re-locks.
 - **STATUS promotion**: only via `rebrew.metadata` writers — `update_source_status(metadata_dir, new_status, module, va)` (single; `rebrew test`) or `update_statuses_batch(metadata_dir, updates)` (batch; `rebrew verify`) — never write `STATUS` in `.c` files. BLOCKER likewise only via `update_field`/`remove_field` (see above). Status is *earned*: `rebrew verify` promotes/demotes from the actual byte comparison; a hand-claimed `PROVEN` is honored only over the byte states a proven function legitimately produces, and a stale claim is demoted to the real byte result with a `metadata: warning`.
 - **Compile result**: `compile_and_compare` (`rebrew.compile`) / `verify_entry` (`rebrew.verify`) → `CompareResult`; use `.matched`, `.status`, `.delta`, `.match_percent` — never tuple-unpack.
+- **Compile backends**: `compile_to_obj` compiles through the profile's local docker image by default; `[compiler] recompile_url` (or `REBREW_RECOMPILE_URL`) switches to the sibling `recompile` service over HTTP via `rebrew.recompile_client`, and the compile-cache id pins the backend that produced an object.  `gcc`/`gcc-pe`/`clang`/`watcom16` stay native specs; making them image-backed is deferred until pinned exact-version sources exist (ADR 015).
