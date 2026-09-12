@@ -40,6 +40,7 @@ from rebrew.matcher.mutator import (
     mut_for_to_while,
     mut_goto_to_return,
     mut_guard_clause,
+    mut_hoist_repeated_deref,
     mut_hoist_return,
     mut_if_chain_to_switch,
     mut_if_false_to_bitand,
@@ -339,6 +340,100 @@ int __cdecl my_func(int a, int b) {
 # -------------------------------------------------------------------------
 
 
+class TestTargetRangeBodyCoordinates:
+    """The GA's target range is full-source offsets, but mutations query the
+    preamble-stripped body — mutate_code converts once at the boundary."""
+
+    def test_full_source_range_scopes_body_query(self) -> None:
+        import random
+
+        from rebrew.matcher import mutator as _mut_mod
+        from rebrew.matcher.mutator import mutate_code, set_target_range
+
+        src = (
+            "#include <windows.h>\n"
+            "\n"
+            "int target_fn(int a) {\n"
+            "    int result = 0;\n"
+            "    int i;\n"
+            "    for (i = 0; i < a; i++) {\n"
+            "        result = result + a;\n"
+            "    }\n"
+            "    return result;\n"
+            "}\n"
+        )
+        fn_start = src.index("int target_fn")
+        fn_end = len(src)
+        set_target_range(fn_start, fn_end)
+        try:
+            from rebrew.matcher.mutator import _split_preamble_body as _split
+
+            preamble, body = _split(src)
+            body_offset = len(preamble) + 1 if preamble else 0
+            expected = (
+                max(0, fn_start - body_offset),
+                max(0, fn_end - body_offset),
+            )
+            seen: list[tuple[int | None, int | None]] = []
+            orig_cursor = _mut_mod._cursor
+
+            def _spying_cursor(query: object) -> object:
+                seen.append(getattr(_mut_mod._target_range, "range", None))
+                return orig_cursor(query)  # type: ignore[arg-type]
+
+            _mut_mod._cursor = _spying_cursor  # type: ignore[method-assign]
+            try:
+                for seed in range(30):
+                    mutate_code(src, random.Random(seed))
+                    if seen:
+                        break
+            finally:
+                _mut_mod._cursor = orig_cursor  # type: ignore[method-assign]
+            assert seen, "no mutation query ran"
+            assert seen[0] == expected
+        finally:
+            set_target_range(None, None)
+        assert getattr(_mut_mod._target_range, "range", None) is None
+
+    def test_leading_prototype_keeps_range_covering_function(self) -> None:
+        """A prototype above the includes (item: prototypes are preamble)
+        shifts the body offset — the converted range must still cover the
+        function, not point past it into empty body space."""
+        import random
+
+        from rebrew.matcher.mutator import _split_preamble_body, mutate_code, set_target_range
+
+        src = (
+            "int target_fn(int a);\n"
+            "#include <windows.h>\n"
+            "\n"
+            "int target_fn(int a) {\n"
+            "    int result = 0;\n"
+            "    int i;\n"
+            "    for (i = 0; i < a; i++) {\n"
+            "        result = result + a;\n"
+            "    }\n"
+            "    return result;\n"
+            "}\n"
+        )
+        preamble, body = _split_preamble_body(src)
+        assert "int target_fn(int a);" in preamble
+        body_offset = len(preamble) + 1
+        fn_start = src.index("int target_fn(int a) {")
+        set_target_range(fn_start, len(src))
+        try:
+            converted = (fn_start - body_offset, len(src) - body_offset)
+            assert 0 <= converted[0] < len(body)
+            # Body coordinates index the body text: the converted end lands
+            # within it (up to the trailing-newline rounding of the split).
+            assert converted[1] - len(body) <= 1
+            for seed in range(30):
+                out = mutate_code(src, random.Random(seed))
+                assert out.startswith(preamble)
+        finally:
+            set_target_range(None, None)
+
+
 class TestSplitPreambleBody:
     def test_splits_correctly(self) -> None:
         pre, body = _split_preamble_body(SAMPLE_SOURCE)
@@ -350,6 +445,27 @@ class TestSplitPreambleBody:
         pre, body = _split_preamble_body("")
         assert pre == ""
         assert body == ""
+
+    def test_prototype_stays_in_preamble(self) -> None:
+        """A ;-terminated prototype is a declaration, not the body start:
+        includes below it must stay in the preamble."""
+        src = "int f(int x);\n#include <a.h>\ntypedef int T;\nint f(int x) { return x; }\n"
+        pre, body = _split_preamble_body(src)
+        assert "int f(int x);" in pre
+        assert "#include <a.h>" in pre
+        assert "typedef int T;" in pre
+        assert "int f(int x) { return x; }" in body
+
+    def test_prototype_only_never_starts_body(self) -> None:
+        pre, body = _split_preamble_body("int f(int x);\n")
+        assert "int f(int x);" in pre
+        assert body == ""
+
+    def test_one_line_definition_still_starts_body(self) -> None:
+        """A one-line definition carries a ; too — the brace marks it."""
+        pre, body = _split_preamble_body("int f(int x) { return x; }\n")
+        assert pre == ""
+        assert "int f(int x)" in body
 
 
 class TestQuickValidate:
@@ -386,6 +502,23 @@ done:
 }
 """
         assert quick_validate(code) is False
+
+    def test_sibling_functions_may_reuse_labels(self) -> None:
+        """Identical labels in sibling functions are legal C — the global
+        duplicate check discarded every mutant of such files."""
+        code = """\
+int a(void) {
+    goto done;
+done:
+    return 1;
+}
+int b(void) {
+    goto done;
+done:
+    return 2;
+}
+"""
+        assert quick_validate(code) is True
 
 
 class TestPopulationDiversity:
@@ -540,6 +673,18 @@ class TestReturnGoto:
         assert result is not None
         assert "return" in result
 
+    def test_nonzero_return_not_matched(self) -> None:
+        """`return 0x100;` must not become `goto ret_false;` (whose tail is 0)."""
+        src = "int f() {\n  if (err) return 0x100;\n  return 1;\n}"
+        assert mut_return_to_goto(src, _rng()) is None
+
+    def test_hex_zero_still_matched(self) -> None:
+        """The narrowed predicate keeps every zero spelling (0x0 here)."""
+        src = "int f() {\n  if (err) return 0x0;\n  return 1;\n}"
+        result = mut_return_to_goto(src, _rng())
+        assert result is not None
+        assert "goto" in result
+
 
 class TestLocalAlias:
     def test_introduce(self) -> None:
@@ -608,6 +753,11 @@ class TestBitandIfFalse:
         result = mut_bitand_to_if_false(src, _rng())
         assert result is not None
         assert "if" in result
+
+    def test_nonzero_assignment_not_matched(self) -> None:
+        """`0x100` is not false; the unanchored `^0` predicate matched it."""
+        src = "void f() { if (!check()) { var = 0x100; } }"
+        assert mut_if_false_to_bitand(src, _rng()) is None
 
 
 class TestTempVar:
@@ -895,6 +1045,43 @@ class TestExtractElseBody:
         src = "if (a) { x = 1; } else if (b) { x = 2; }"
         assert mut_extract_else_body(src, _rng()) is None
 
+    def test_void_function_uses_bare_return(self) -> None:
+        """A void function cannot compile `return 0;` — the early exit must
+        be a bare return."""
+        src = "void f(int c) { if (c) { a = 1; } else { b = 2; } }"
+        result = mut_extract_else_body(src, _rng())
+        assert result is not None
+        assert "return;" in result
+        assert "return 0;" not in result
+        assert quick_validate(result)
+
+    def test_pointer_function_returns_null(self) -> None:
+        src = "int * f(int c) { if (c) { a = 1; } else { b = 2; } return p; }"
+        result = mut_extract_else_body(src, _rng())
+        assert result is not None
+        assert "return NULL;" in result
+        assert quick_validate(result)
+
+    def test_int_function_returns_zero(self) -> None:
+        src = "int f(int c) { if (c) { a = 1; } else { b = 2; } }"
+        result = mut_extract_else_body(src, _rng())
+        assert result is not None
+        assert "return 0;" in result
+
+    def test_return_type_from_enclosing_function(self) -> None:
+        # The early exit must match the function CONTAINING the if/else.  The
+        # old scan took the file's first function, so an if/else in a later
+        # void function got `return 0;` — a compile error.
+        src = (
+            "int g(int a) {\n    return a;\n}\n\n"
+            "void f(int c) {\n    if (c) { a = 1; } else { b = 2; }\n}\n"
+        )
+        result = mut_extract_else_body(src, _rng())
+        assert result is not None
+        assert "return;" in result
+        assert "return 0;" not in result
+        assert quick_validate(result)
+
 
 class TestForToWhile:
     def test_basic(self) -> None:
@@ -984,6 +1171,15 @@ class TestHoistReturn:
     def test_existing_end_label_skips(self) -> None:
         src = "int f() {\n    goto end;\nend:\n    return 0;\n}"
         assert mut_hoist_return(src, _rng()) is None
+
+    def test_label_lands_in_its_own_function(self) -> None:
+        # A later `}` (struct or sibling function) must not receive the label:
+        # the old `rfind(b"}")` put `end:` in the struct, leaving `goto end;`
+        # dangling in f1 (compile error).
+        src = "int f1(int a) {\n    int r = a;\n    return r;\n}\n\nstruct S { int x; };\n"
+        result = mut_hoist_return(src, _rng())
+        assert result is not None
+        assert result.index("goto end;") < result.index("end:") < result.index("struct S")
 
     def test_no_match(self) -> None:
         assert mut_hoist_return("x = 1;", _rng()) is None
@@ -1763,3 +1959,60 @@ class TestReorderElseIf:
         assert "if (b && !(a)) { return 2; }" in result
         assert "else if (a) { return 1; }" in result
         assert quick_validate(result)
+
+
+class TestHoistRepeatedDeref:
+    _SRC = (
+        "void f(void) {\n"
+        "    if (*(int *)0x415880) {\n"
+        "        g = *(int *)0x415880;\n"
+        "    }\n"
+        "    h = *(int *)0x415880;\n"
+        "}\n"
+    )
+
+    def test_hoists_repeated_deref(self) -> None:
+        result = mut_hoist_repeated_deref(self._SRC, _rng())
+        assert result is not None
+        # The declaration carries the one remaining copy of the expression.
+        assert result.count("*(int *)0x415880") == 1
+        assert "void *_ptr" in result
+        assert quick_validate(result)
+
+    def test_multibyte_offsets_do_not_garble(self) -> None:
+        # AST offsets are UTF-8 byte positions; slicing the str shifted every
+        # index by one per multibyte char, dropping the function's opening brace
+        # and inserting the declaration inside the nested if.
+        src = "/* caf\u00e9 */\n" + self._SRC
+        result = mut_hoist_repeated_deref(src, _rng())
+        assert result is not None
+        assert "/* caf\u00e9 */" in result
+        assert "void f(void) {\n    void *_ptr" in result
+        assert result.count("*(int *)0x415880") == 1
+        assert quick_validate(result)
+
+
+class TestCallConvInsertionKeepsBody:
+    def test_insert_does_not_delete_the_body(self) -> None:
+        """The insert branch captured the whole `function_definition` as
+        `@stmt`, and `_apply_query_once` splices `stmt`, so the body vanished
+        and the mutant could not compile."""
+        src = "int f(int x) { return x + 1; }\n"
+        result = mut_toggle_calling_convention(src, _rng())
+        assert result is not None
+        assert "return x + 1" in result
+        assert ("__cdecl" in result) or ("__stdcall" in result)
+        assert quick_validate(result)
+
+
+class TestRedundantParensSkipsFunctionName:
+    def test_declared_name_is_not_wrapped(self) -> None:
+        """`int (f)(int x) { ... }` is legal C but the validator's function-start
+        gate rejects it, so the mutant never reached the compiler."""
+        src = "int f(int x) { return x + 1; }\n"
+        for seed in range(20):
+            result = mut_add_redundant_parens(src, random.Random(seed))
+            if result is None:
+                continue
+            assert not result.startswith("int (f)"), result
+            assert quick_validate(result), result

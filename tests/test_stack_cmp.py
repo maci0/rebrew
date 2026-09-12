@@ -67,6 +67,14 @@ class TestAnalyzeFrame:
         assert f["frame_pointer"] is True
         assert f["slots"] == [-4]
 
+    def test_64bit_word_size_and_rbp_slots(self) -> None:
+        # push rbp; mov rbp,rsp; sub rsp,0x20; mov eax,[rbp-4]; pop rbp; ret
+        code = bytes.fromhex("55 48 89 e5 48 83 ec 20 8b 45 fc 5d c3")
+        f = analyze_frame(code, 0x1000, 8)  # CS_MODE_64
+        assert f["frame_pointer"] is True
+        assert f["slots"] == [-4]
+        assert f["frame_size"] == 0x28  # push rbp (8) + sub rsp 0x20
+
     def test_garbage_does_not_raise(self) -> None:
         f = analyze_frame(b"\xff\xff\xff\xff\xff", 0x1000, 4)
         assert isinstance(f["frame_size"], int)
@@ -176,3 +184,15 @@ class TestRunStackCmp:
         monkeypatch.setattr(rebrew.matcher, "build_candidate_obj_only", lambda *a, **k: bad_cls())
         result = CliRunner().invoke(app, [str(src)])
         assert result.exit_code == EXIT_ERROR
+
+
+class TestLeaDestination:
+    def test_lea_to_other_register_does_not_adjust(self) -> None:
+        """`lea eax, [esp - 0x10]` computes an address; only `lea esp, ...`
+        moves the stack pointer (the old guard was `"sp" in op_str`)."""
+        code = bytes.fromhex("83 ec 20 8d 44 24 f0 c3")  # sub esp,0x20; lea eax,[esp-0x10]; ret
+        assert analyze_frame(code, 0x1000, 4)["frame_size"] == 0x20
+
+    def test_lea_to_esp_still_adjusts(self) -> None:
+        code = bytes.fromhex("8d 64 24 f0 c3")  # lea esp,[esp-0x10]; ret
+        assert analyze_frame(code, 0x1000, 4)["frame_size"] == 0x10

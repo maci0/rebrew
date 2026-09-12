@@ -21,6 +21,8 @@ from rebrew.metadata import (
     remove_fields_batch,
     save_metadata,
     update_field,
+    update_source_status,
+    update_statuses_batch,
 )
 from rebrew.utils import parse_metadata_key as _parse_key
 from rebrew.utils import qualified_key as _qualified_key
@@ -246,17 +248,9 @@ class TestDeleteMetadataEntry:
         assert delete_metadata_entry(tmp_path, 0x10008880, "CLIENT") is True
         assert get_entry(tmp_path, 0x10008880, "SERVER")["status"] == "EXACT"
 
-
-# ---------------------------------------------------------------------------
-# set_field
-# ---------------------------------------------------------------------------
-
-
-class TestSetField:
-    def test_creates_file_and_entry(self, tmp_path: Path) -> None:
-        _set_field(tmp_path, 0x01006364, "status", "EXACT", module="SERVER")
-        entry = get_entry(tmp_path, 0x01006364, module="SERVER")
-        assert entry["status"] == "EXACT"
+    # ---------------------------------------------------------------------------
+    # update_field
+    # ---------------------------------------------------------------------------
 
     def test_updates_existing_entry(self, tmp_path: Path) -> None:
         save_metadata(tmp_path, {("SERVER", 0x01006364): {"size": 80, "status": "NEAR_MATCHING"}})
@@ -284,6 +278,22 @@ class TestSetField:
         _set_field(tmp_path, 0x01006364, "status", "EXACT", module="SERVER")
         entry = get_entry(tmp_path, 0x01006364, module="SERVER")
         assert entry["status"] == "EXACT"
+
+    def test_updates_non_canonical_key_in_place(self, tmp_path: Path) -> None:
+        """A store spelling the key SERVER.0x1000 must gain the field, not a
+        second canonically-spelled table: the loader parses both spellings to
+        one (module, va), so a duplicate would split the entry."""
+        path = tmp_path / METADATA_FILENAME
+        path.write_text('["SERVER.0x1000"]\nstatus = "STUB"\n', encoding="utf-8")
+
+        _set_field(tmp_path, 0x1000, "cflags", "/O2", module="SERVER")
+
+        text = path.read_text(encoding="utf-8")
+        assert "SERVER.0x00001000" not in text
+        assert get_entry(tmp_path, 0x1000, module="SERVER") == {
+            "status": "STUB",
+            "cflags": "/O2",
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -321,6 +331,17 @@ class TestDeleteField:
         # No metadata file is created on a no-op delete.
         assert not (tmp_path / METADATA_FILENAME).exists()
 
+    def test_removes_field_from_non_canonical_key(self, tmp_path: Path) -> None:
+        path = tmp_path / METADATA_FILENAME
+        path.write_text(
+            '["SERVER.0x1000"]\nstatus = "STUB"\nblocker = "register allocation"\n',
+            encoding="utf-8",
+        )
+
+        assert _delete_field(tmp_path, 0x1000, "blocker", module="SERVER") is True
+        assert get_entry(tmp_path, 0x1000, module="SERVER") == {"status": "STUB"}
+        assert "SERVER.0x00001000" not in path.read_text(encoding="utf-8")
+
 
 # ---------------------------------------------------------------------------
 # update_field / remove_field (public API with STATUS blocking)
@@ -328,6 +349,11 @@ class TestDeleteField:
 
 
 class TestUpdateField:
+    def test_raw_write_no_guard(self, tmp_path: Path) -> None:
+        _set_field(tmp_path, 0x01006364, "status", "EXACT", module="SERVER")
+        entry = get_entry(tmp_path, 0x01006364, module="SERVER")
+        assert entry["status"] == "EXACT"
+
     def test_updates_non_status_field(self, tmp_path: Path) -> None:
         save_metadata(tmp_path, {("SERVER", 0x01006364): {"size": 80, "status": "NEAR_MATCHING"}})
         update_field(tmp_path, 0x01006364, "blocker", "1B diff", module="SERVER")
@@ -337,6 +363,60 @@ class TestUpdateField:
     def test_status_blocked_via_update_field(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="update_source_status"):
             update_field(tmp_path, 0x01006364, "status", "EXACT", module="SERVER")
+
+    def test_unknown_key_rejected(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="unknown metadata field"):
+            update_field(tmp_path, 0x1000, "author", "x", module="SERVER")
+        assert get_entry(tmp_path, 0x1000, "SERVER") == {}
+
+    def test_wrong_type_rejected(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="must be"):
+            update_field(tmp_path, 0x1000, "size", [1], module="SERVER")
+        with pytest.raises(ValueError, match="must be"):
+            update_field(tmp_path, 0x1000, "cflags", 42, module="SERVER")
+
+    def test_hex_size_string_coerced(self, tmp_path: Path) -> None:
+        update_field(tmp_path, 0x1000, "size", "0x2A", module="SERVER")
+        assert get_entry(tmp_path, 0x1000, "SERVER").get("size") == 42
+
+    def test_unknown_key_rejected_on_remove(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="unknown metadata field"):
+            remove_field(tmp_path, 0x1000, "author", module="SERVER")
+
+    def test_cache_returns_copies_not_aliases(self, tmp_path: Path) -> None:
+        from rebrew.metadata import load_metadata
+
+        save_metadata(tmp_path, {("SERVER", 0x1000): {"size": 80, "note": "n"}})
+        first = load_metadata(tmp_path)
+        first[("SERVER", 0x1000)]["size"] = 999
+        first[("SERVER", 0x1000)]["note"] = "mutated"
+        assert load_metadata(tmp_path)[("SERVER", 0x1000)] == {"size": 80, "note": "n"}
+
+    def test_empty_module_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="non-empty module"):
+            update_source_status(tmp_path, "EXACT", "", 0x1000)
+
+    def test_batch_skips_malformed_rows(self, tmp_path: Path) -> None:
+        changed = update_statuses_batch(
+            tmp_path,
+            [
+                {"module": "T", "va": 0x1000, "new_status": "STUB"},
+                {"module": "T", "new_status": "STUB"},
+                {"module": "", "va": 0x2000, "new_status": "STUB"},
+                {"module": "T", "va": 0x3000},
+            ],
+        )
+        assert changed == 1
+        assert get_entry(tmp_path, 0x1000, "T").get("status") == "STUB"
+        assert get_entry(tmp_path, 0x2000, "T") == {}
+
+    def test_mutate_recovers_corrupt_via_preserve_path(self, tmp_path: Path) -> None:
+        from rebrew.metadata import METADATA_FILENAME, remove_field
+
+        original = "{broken"
+        (tmp_path / METADATA_FILENAME).write_text(original, encoding="utf-8")
+        assert remove_field(tmp_path, 0x1000, "size", "SERVER") is False
+        assert (tmp_path / (METADATA_FILENAME + ".corrupt")).read_text(encoding="utf-8") == original
 
 
 class TestRemoveField:
@@ -505,9 +585,9 @@ class TestIdempotentStatusUpdate:
             encoding="utf-8",
         )
         bak = tmp_path / "func.c.bak"
-        from rebrew.metadata import set_field, update_source_status
+        from rebrew.metadata import _set_field, update_source_status
 
-        set_field(tmp_path, 0x10008880, "status", "EXACT", module="SERVER")
+        _set_field(tmp_path, 0x10008880, "status", "EXACT", module="SERVER")
         update_source_status(tmp_path, "EXACT", "SERVER", 0x10008880)
         assert not bak.exists(), "Should not create backup for no-op update"
 
@@ -524,6 +604,22 @@ class TestIdempotentStatusUpdate:
         entry = get_entry(tmp_path, 0x10008880, module="SERVER")
         assert entry["status"] == "RELOC"
         assert "STATUS: EXACT" in p.read_text(encoding="utf-8")
+
+
+class TestStatusWriteNonCanonicalKey:
+    def test_status_update_lands_on_existing_key_spelling(self, tmp_path: Path) -> None:
+        """The status path must not append a canonically-spelled twin of a key
+        the store already holds in another spelling."""
+        path = tmp_path / METADATA_FILENAME
+        path.write_text('["SERVER.0x1000"]\nsize = 42\n', encoding="utf-8")
+
+        from rebrew.metadata import update_source_status
+
+        update_source_status(tmp_path, "EXACT", "SERVER", 0x1000)
+
+        text = path.read_text(encoding="utf-8")
+        assert "SERVER.0x00001000" not in text
+        assert get_entry(tmp_path, 0x1000, module="SERVER") == {"size": 42, "status": "EXACT"}
 
 
 class TestMetadataEdgeCases:
@@ -662,12 +758,12 @@ class TestConcurrentWrites:
     def test_parallel_set_field_no_lost_updates(self, tmp_path: Path) -> None:
         import threading
 
-        from rebrew.metadata import load_metadata, set_field
+        from rebrew.metadata import load_metadata, update_field
 
         threads = []
         for i in range(8):
             t = threading.Thread(
-                target=set_field, args=(tmp_path, 0x1000 + i, "note", f"n{i}", "T")
+                target=update_field, args=(tmp_path, 0x1000 + i, "note", f"n{i}", "T")
             )
             threads.append(t)
         for t in threads:
@@ -680,18 +776,18 @@ class TestConcurrentWrites:
             assert md.get(("T", 0x1000 + i), {}).get("note") == f"n{i}", f"lost update {i}"
 
     def test_parallel_mixed_writers(self, tmp_path: Path) -> None:
-        """set_field + remove_field + update_field racing on the same file."""
+        """update_field + remove_field racing on the same file."""
         import threading
 
-        from rebrew.metadata import load_metadata, remove_field, set_field, update_field
+        from rebrew.metadata import load_metadata, remove_field, update_field
 
         def _writer(i: int) -> None:
             if i % 3 == 0:
-                set_field(tmp_path, 0x2000 + i, "note", f"w{i}", "T")
+                _set_field(tmp_path, 0x2000 + i, "note", f"w{i}", "T")
             elif i % 3 == 1:
                 update_field(tmp_path, 0x3000 + i, "cflags", f"/O{i}", "T")
             else:
-                set_field(tmp_path, 0x4000 + i, "note", f"x{i}", "T")
+                _set_field(tmp_path, 0x4000 + i, "note", f"x{i}", "T")
                 remove_field(tmp_path, 0x4000 + i, "note", "T")
 
         threads = [threading.Thread(target=_writer, args=(i,)) for i in range(9)]
@@ -764,10 +860,10 @@ class TestUpdateStatusesBatchPromotionPolicy:
         """An already-classified entry with a stale blocker is cleaned up by
         the same-status clear_blockers write (the blocker-clearing path must
         not be swallowed by the unchanged-status refusal)."""
-        from rebrew.metadata import set_field, update_statuses_batch
+        from rebrew.metadata import _set_field, update_statuses_batch
 
         update_statuses_batch(tmp_path, [{"module": "T", "va": 0x1000, "new_status": "EXACT"}])
-        set_field(tmp_path, 0x1000, "blocker", "stale note", module="T")
+        _set_field(tmp_path, 0x1000, "blocker", "stale note", module="T")
         changed = update_statuses_batch(
             tmp_path,
             [{"module": "T", "va": 0x1000, "new_status": "EXACT", "clear_blockers": True}],
@@ -781,10 +877,10 @@ class TestUpdateStatusesBatchPromotionPolicy:
         """An entry carrying only a stale ``blocker_delta`` (no blocker text)
         is cleaned up too — the idempotency guard must not treat the delta as
         invisible state and leave it behind after clear_blockers."""
-        from rebrew.metadata import set_field, update_statuses_batch
+        from rebrew.metadata import _set_field, update_statuses_batch
 
         update_statuses_batch(tmp_path, [{"module": "T", "va": 0x1000, "new_status": "EXACT"}])
-        set_field(tmp_path, 0x1000, "blocker_delta", 12, module="T")
+        _set_field(tmp_path, 0x1000, "blocker_delta", 12, module="T")
         changed = update_statuses_batch(
             tmp_path,
             [{"module": "T", "va": 0x1000, "new_status": "EXACT", "clear_blockers": True}],

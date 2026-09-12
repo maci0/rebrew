@@ -273,7 +273,7 @@ class TestRebrewTestBatchJson:
 
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
-            lambda *args, **kwargs: ([], 0, 0, [], [], 0, [], []),
+            lambda *args, **kwargs: ([], 0, 0, [], [], 0, [], [], []),
         )
 
         _run_all_batch(
@@ -314,6 +314,7 @@ class TestRebrewTestBatchJson:
                 0,
                 [],
                 [],
+                [],
             )
 
         monkeypatch.setattr("rebrew.verify.prepare_entries", _fake_entries)
@@ -339,6 +340,7 @@ class TestRebrewTestBatchJson:
                 [(object(), "syntax error")],
                 [{"va": "0x00001000", "status": "COMPILE_ERROR", "passed": False}],
                 0,
+                [],
                 [],
                 [],
             )
@@ -785,6 +787,7 @@ class TestRebrewTestBatchDir:
                 0,
                 [],
                 [],
+                [],
             )
 
         monkeypatch.setattr("rebrew.verify.prepare_entries", _fake_entries)
@@ -807,6 +810,95 @@ class TestRebrewTestBatchDir:
         payload = json.loads(capsys.readouterr().out)
         assert payload["files"] == ["Units/mem/a.c"]
 
+    def test_batch_dir_excludes_sibling_prefix(
+        self, monkeypatch: Any, tmp_path: Path, capsys: Any
+    ) -> None:
+        """`Units` must not match the sibling `Units_extra` (a raw string
+        prefix did)."""
+        from rebrew.annotation import Annotation
+        from rebrew.test import _run_all_batch
+
+        cfg = self._cfg(tmp_path)
+        (cfg.reversed_dir / "Units" / "mem").mkdir(parents=True)
+        (cfg.reversed_dir / "Units_extra").mkdir(parents=True)
+
+        def _fake_entries(*a: Any, **k: Any) -> Any:
+            return (
+                [
+                    Annotation(
+                        va=0x1000, name="a", status="STUB", size=10, filepath="Units/mem/a.c"
+                    ),
+                    Annotation(
+                        va=0x2000, name="b", status="STUB", size=10, filepath="Units_extra/b.c"
+                    ),
+                ],
+                0,
+                0,
+                [],
+                [],
+                0,
+                [],
+                [],
+                [],
+            )
+
+        monkeypatch.setattr("rebrew.verify.prepare_entries", _fake_entries)
+        monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+
+        _run_all_batch(
+            cfg,
+            batch_dir="Units",
+            origin_filter=None,
+            dry_run=True,
+            no_promote=True,
+            json_output=True,
+        )
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["files"] == ["Units/mem/a.c"]
+
+    def test_batch_dir_with_dotdot_resolves(
+        self, monkeypatch: Any, tmp_path: Path, capsys: Any
+    ) -> None:
+        """A `..`-bearing root still matches after resolution."""
+        from rebrew.annotation import Annotation
+        from rebrew.test import _run_all_batch
+
+        cfg = self._cfg(tmp_path)
+        (cfg.reversed_dir / "Units" / "mem").mkdir(parents=True)
+
+        def _fake_entries(*a: Any, **k: Any) -> Any:
+            return (
+                [
+                    Annotation(
+                        va=0x1000, name="a", status="STUB", size=10, filepath="Units/mem/a.c"
+                    ),
+                ],
+                0,
+                0,
+                [],
+                [],
+                0,
+                [],
+                [],
+                [],
+            )
+
+        monkeypatch.setattr("rebrew.verify.prepare_entries", _fake_entries)
+        monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+
+        _run_all_batch(
+            cfg,
+            batch_dir="Units/mem/../mem",
+            origin_filter=None,
+            dry_run=True,
+            no_promote=True,
+            json_output=True,
+        )
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["files"] == ["Units/mem/a.c"]
+
 
 class TestRebrewTestBatchDryRunJson:
     def test_dry_run_empty_batch_uses_total(
@@ -819,7 +911,7 @@ class TestRebrewTestBatchDryRunJson:
         cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
-            lambda *args, **kwargs: ([], 0, 0, [], [], 0, [], []),
+            lambda *args, **kwargs: ([], 0, 0, [], [], 0, [], [], []),
         )
         _run_all_batch(
             cfg,
@@ -847,7 +939,7 @@ class TestRebrewTestBatchDryRunJson:
         cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
-            lambda *args, **kwargs: (entries, 0, 0, [], [], 0, [], []),
+            lambda *args, **kwargs: (entries, 0, 0, [], [], 0, [], [], []),
         )
         _run_all_batch(
             cfg,
@@ -878,7 +970,7 @@ class TestRebrewTestBatchDryRunJson:
         cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
-            lambda *args, **kwargs: ([entry], 0, 0, [], [], 0, [], []),
+            lambda *args, **kwargs: ([entry], 0, 0, [], [], 0, [], [], []),
         )
         _run_all_batch(
             cfg,
@@ -899,6 +991,60 @@ class TestRebrewTestBatchDryRunJson:
                 "current_status": "RELOC",
             }
         ]
+
+
+class TestRebrewTestBatchCachePatch:
+    """The `test --all` cache patch must store verification verdicts only:
+    an INTERNAL_ERROR worker crash is not one and is never cached."""
+
+    def test_patch_skips_internal_error(
+        self, monkeypatch: Any, capsys: Any, tmp_path: Path
+    ) -> None:
+        from types import SimpleNamespace
+
+        import typer
+
+        from rebrew.test import _run_all_batch
+
+        entries = [
+            SimpleNamespace(va=0x1000, name="a", filepath="a.c", status="STUB"),
+            SimpleNamespace(va=0x2000, name="b", filepath="b.c", status="STUB"),
+        ]
+        cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
+        monkeypatch.setattr(
+            "rebrew.verify.prepare_entries",
+            lambda *a, **k: (entries, 0, 0, [], [], 0, [], [], []),
+        )
+        monkeypatch.setattr(
+            "rebrew.verify.run_verification",
+            lambda *a, **k: (
+                1,
+                1,
+                [],
+                [
+                    {"va": "0x00001000", "status": "EXACT", "match_percent": 100.0, "delta": 0},
+                    {"va": "0x00002000", "status": "INTERNAL_ERROR", "match_percent": 0.0},
+                ],
+                [],
+            ),
+        )
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        captured: list[list[dict[str, Any]]] = []
+        monkeypatch.setattr(
+            "rebrew.verify.patch_verify_cache_entries",
+            lambda cfg_, patches: captured.append(patches),
+        )
+
+        with pytest.raises(typer.Exit):
+            _run_all_batch(
+                cfg,
+                batch_dir=None,
+                origin_filter=None,
+                dry_run=False,
+                no_promote=False,
+                json_output=True,
+            )
+        assert [p["va"] for p in captured[0]] == [0x1000]
 
 
 class TestForceStatus:
@@ -1068,3 +1214,196 @@ class TestForceStatus:
             cfg, "multi.c", anns, None, no_promote=False, dry_run=False, json_output=False
         )
         assert len(calls) == 2  # real run promotes both
+
+
+class TestSinglePathExitCodes:
+    """Single-function `rebrew test` honors the documented exit-code contract
+    (epilog): EXTRACT_ERROR exits 2 like COMPILE_ERROR, not 1."""
+
+    def _cfg(self, tmp_path: Path, monkeypatch: Any, cmp: CompareResult) -> None:
+        import rebrew.test as testmod
+
+        cfg = SimpleNamespace(
+            target_binary=tmp_path / "x.bin",
+            reversed_dir=tmp_path,
+            metadata_dir=tmp_path,
+            root=tmp_path,
+            target_name="X",
+            marker="X",
+            default_jobs=1,
+        )
+        (tmp_path / "x.bin").write_bytes(b"\x90" * 8)
+        src = tmp_path / "f.c"
+        src.write_text("// FUNCTION: X 0x1000\nint f(void) { return 1; }\n", encoding="utf-8")
+        monkeypatch.setattr("rebrew.test.require_config", lambda target=None, json_mode=False: cfg)
+        monkeypatch.setattr("rebrew.test.resolve_source_arg", lambda cfg, s: s)
+        monkeypatch.setattr("rebrew.test.build_name_to_va", lambda cfg: {"_f": 0x1000})
+        monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
+        monkeypatch.setattr("rebrew.test.parse_source_metadata", lambda *a, **k: {})
+        monkeypatch.setattr("rebrew.cli.resolve_compile_overrides", lambda *a, **k: (None, "/O2"))
+        monkeypatch.setattr("rebrew.test.compile_and_compare", lambda *a, **k: cmp)
+        monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: None)
+
+    def _cmp(self, status: str) -> CompareResult:
+        return CompareResult(
+            matched=False,
+            status=status,
+            match_percent=10.0,
+            delta=2,
+            obj_bytes=b"\x90",
+            reloc_offsets=[],
+            message=status,
+        )
+
+    def test_extract_error_exits_2(self, tmp_path: Path, monkeypatch: Any) -> None:
+        import typer
+
+        import rebrew.test as testmod
+
+        self._cfg(tmp_path, monkeypatch, self._cmp("EXTRACT_ERROR"))
+        with pytest.raises(typer.Exit) as exc:
+            testmod.main(
+                str(tmp_path / "f.c"),
+                va="0x1000",
+                size=8,
+                symbol="_f",
+                target_bin=None,
+                cflags=None,
+                toolchain=None,
+                all_sources=False,
+                batch_dir=None,
+                origin=None,
+                dry_run=False,
+                jobs=None,
+                no_promote=True,
+                force_status=False,
+                fix_sizes=False,
+                linked=False,
+                watch=False,
+                json_output=True,
+                target=None,
+            )
+        assert exc.value.exit_code == EXIT_ERROR
+
+    def test_near_matching_exits_1(self, tmp_path: Path, monkeypatch: Any) -> None:
+        import typer
+
+        import rebrew.test as testmod
+
+        self._cfg(tmp_path, monkeypatch, self._cmp("NEAR_MATCHING"))
+        with pytest.raises(typer.Exit) as exc:
+            testmod.main(
+                str(tmp_path / "f.c"),
+                va="0x1000",
+                size=8,
+                symbol="_f",
+                target_bin=None,
+                cflags=None,
+                toolchain=None,
+                all_sources=False,
+                batch_dir=None,
+                origin=None,
+                dry_run=False,
+                jobs=None,
+                no_promote=True,
+                force_status=False,
+                fix_sizes=False,
+                linked=False,
+                watch=False,
+                json_output=True,
+                target=None,
+            )
+        assert exc.value.exit_code == EXIT_MISMATCH
+
+    def test_multi_isolates_unexpected_exception(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A non-(ValueError, OSError) raise in one symbol's parse/compare is
+        isolated to that symbol as EXTRACT_ERROR — the batch continues and
+        exits 2, never crashing with a traceback."""
+        import typer
+
+        import rebrew.test as testmod
+        from rebrew.annotation import Annotation
+
+        cfg = SimpleNamespace(
+            target_binary=tmp_path / "x.bin",
+            metadata_dir=tmp_path,
+            reversed_dir=tmp_path,
+            default_jobs=1,
+        )
+        (tmp_path / "x.bin").write_bytes(b"\x90" * 8)
+        (tmp_path / "f.c").write_text("int f(void){return 1;}\n", encoding="utf-8")
+
+        def _boom(obj_path: str, sym: str) -> object:
+            raise RuntimeError("unexpected LIEF failure")
+
+        monkeypatch.setattr(testmod, "compile_to_obj", lambda *a, **k: ("f.obj", ""))
+        monkeypatch.setattr(testmod, "parse_obj_symbol_and_relocs", _boom)
+        monkeypatch.setattr(testmod, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
+        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: None)
+        monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: None)
+        ann = Annotation(
+            va=0x1000,
+            name="f",
+            symbol="_f",
+            module="X",
+            status="STUB",
+            size=8,
+            marker_type="FUNCTION",
+            filepath="f.c",
+            cflags="",
+        )
+        with pytest.raises(typer.Exit) as exc:
+            testmod._test_multi(cfg, str(tmp_path / "f.c"), [ann], None, json_output=True)
+        assert exc.value.exit_code == EXIT_ERROR
+
+    def test_target_bin_resolves_section_va(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """--target-bin runs resolve section_va from the FUNCTION marker so
+        REL32 call targets are validated, not silently masked."""
+
+        import rebrew.test as testmod
+
+        captured: dict[str, Any] = {}
+        cmp = CompareResult(
+            matched=True,
+            status="EXACT",
+            match_percent=100.0,
+            delta=0,
+            obj_bytes=b"\x90" * 8,
+            reloc_offsets=[],
+            message="match",
+        )
+
+        def _capture(*a: Any, **k: Any) -> CompareResult:
+            captured["kwargs"] = dict(k)
+            captured["nargs"] = len(a)
+            return cmp
+
+        blob = tmp_path / "t.bin"
+        blob.write_bytes(b"\x90" * 8)
+        self._cfg(tmp_path, monkeypatch, self._cmp("EXACT"))
+        monkeypatch.setattr("rebrew.test.compile_and_compare", _capture)
+        try:
+            testmod.main(
+                str(tmp_path / "f.c"),
+                None,
+                None,
+                str(blob),
+                None,
+                None,
+                None,
+                False,
+                None,
+                None,
+                False,
+                None,
+                True,
+                False,
+                False,
+                False,
+                False,
+                True,
+                None,
+            )
+        except __import__("typer").Exit:
+            pass
+        assert captured["kwargs"].get("section_va") == 0x1000

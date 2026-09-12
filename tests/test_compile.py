@@ -899,10 +899,15 @@ class TestLinkedLinkCmd:
         # Named so a timed-out run can be killed instead of leaking under dockerd.
         assert cmd[4] == "--name"
         assert cmd[5].startswith("rebrew-link-")
-        assert cmd[6:12] == ["-v", "/tmp/w:/work", "-w", "/work", "--entrypoint", "sh"]
-        assert cmd[12] == "rebrew/msvc:6.0-win32"
+        # The MSVC include/lib trees and LINK.EXE travel as env vars, never
+        # spliced into the script body.
+        assert cmd[6] == "--env"
+        assert cmd[8] == "--env"
+        assert cmd[10] == "--env"
+        assert cmd[12:18] == ["-v", "/tmp/w:/work", "-w", "/work", "--entrypoint", "sh"]
+        assert cmd[18] == "rebrew/msvc:6.0-win32"
         # LINK flags: DLL / NOENTRY at the target base, /OPT:NOREF + /OPT:NOICF.
-        args = cmd[16:]
+        args = cmd[22:]
         assert "/DLL" in args and "/NOENTRY" in args
         assert "/BASE:0x10000000" in args
         assert "/ALIGN:4096" in args and "/FILEALIGN:4096" in args
@@ -911,18 +916,20 @@ class TestLinkedLinkCmd:
         assert "/OUT:out.dll" in args and "f.obj" in args
         assert args.index("/OUT:out.dll") < args.index("f.obj")
 
-    def test_script_exports_msvc_env_and_runs_link(self) -> None:
+    def test_env_passed_as_docker_env_and_runs_link(self) -> None:
         from rebrew.compile import build_linked_link_cmd
 
-        _cmd, script = build_linked_link_cmd(
+        cmd, script = build_linked_link_cmd(
             self._spec(), base=0x10000000, obj_name="f.obj", out_name="out.dll", workdir="/tmp/w"
         )
         assert "wrapper-common.sh" in script
-        # Windows paths with escaped backslashes (wine Z: drive): the shell
-        # turns each \\ into one \, yielding Z:\opt\msvc6.0\VC98\Include.
-        assert 'INCLUDE="Z:\\\\opt\\\\msvc6.0\\\\VC98\\Include"' in script
-        assert 'LIB="Z:\\\\opt\\\\msvc6.0\\\\VC98\\Lib"' in script
-        assert 'rebrew_run /opt/msvc6.0/VC98/Bin/LINK.EXE "$@"' in script
+        assert 'rebrew_run "$REBREW_LINK_EXE" "$@"' in script
+        # Values travel as `-e`, so a path with a space cannot split and a
+        # `$(...)` cannot inject a command.
+        assert "INCLUDE=Z:\\opt\\msvc6.0\\VC98\\Include" in cmd
+        assert "LIB=Z:\\opt\\msvc6.0\\VC98\\Lib" in cmd
+        assert "REBREW_LINK_EXE=/opt/msvc6.0/VC98/Bin/LINK.EXE" in cmd
+        assert "msvc6.0" not in script
 
     def test_no_image_raises(self) -> None:
         from rebrew.compile import build_linked_link_cmd

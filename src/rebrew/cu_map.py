@@ -48,7 +48,8 @@ class TUCluster:
         cluster_id: Unique cluster identifier.
         functions: Sorted list of function VAs in this cluster.
         gap_classes: Classification of each inter-function gap
-            (``'padding'``, ``'jump_table'``, ``'small_nonpadding'``, ``'large_nonpadding'``).
+            (``'padding'``, ``'jump_table'``, ``'small_nonpadding'``,
+            ``'large_nonpadding'``, ``'unknown'`` — bytes unavailable).
         confidence: Confidence score 0.0–1.0; higher means stronger TU evidence.
         evidence: Human-readable justifications for the clustering decision.
     """
@@ -97,6 +98,8 @@ def _contiguity_score(gap_classes: list[str]) -> tuple[float, list[str]]:
     """Compute a confidence score from gap classifications.
 
     Returns ``(score, evidence)`` where score is in [0.40, 1.0].
+    ``"unknown"`` gaps (bytes unavailable) carry no signal either way: no
+    penalty, no confidence.
     """
     if not gap_classes:
         return 1.0, ["single function"]
@@ -106,6 +109,7 @@ def _contiguity_score(gap_classes: list[str]) -> tuple[float, list[str]]:
     n_padding = 0
     n_jt = 0
     n_small = 0
+    n_unknown = 0
 
     for gc in gap_classes:
         if gc == "padding":
@@ -116,6 +120,8 @@ def _contiguity_score(gap_classes: list[str]) -> tuple[float, list[str]]:
         elif gc == "small_nonpadding":
             score -= 0.10
             n_small += 1
+        elif gc == "unknown":
+            n_unknown += 1
 
     if n_padding == len(gap_classes):
         evidence.append("all gaps are padding")
@@ -127,6 +133,8 @@ def _contiguity_score(gap_classes: list[str]) -> tuple[float, list[str]]:
             parts.append(f"{n_jt} jump table")
         if n_small:
             parts.append(f"{n_small} small non-padding")
+        if n_unknown:
+            parts.append(f"{n_unknown} unknown")
         evidence.append("gaps: " + ", ".join(parts))
 
     score = max(score, 0.40)
@@ -231,6 +239,11 @@ def cluster_functions(
 
     Pass 1: contiguity clustering based on gap analysis.
     Pass 2: call-graph refinement (if capstone available).
+
+    Overlapping registry ranges are a registry error (``ValueError``), not
+    padding: merging them would inflate same-TU confidence from corrupt
+    input.  Gaps whose bytes are unavailable classify as ``"unknown"`` (no
+    boundary, no signal) rather than ``large_nonpadding``.
     """
     padding_bytes = tuple(cfg.padding_bytes) if cfg else (0xCC, 0x90)
     text_va = info.text_va
@@ -265,14 +278,24 @@ def cluster_functions(
         gap_len = curr_va - gap_start
 
         if gap_len < 0:
-            # Overlapping functions — treat as same cluster, gap = padding
-            gc = "padding"
+            # Overlapping functions mean the registry contradicts itself —
+            # merging them would inflate same-TU confidence from corrupt
+            # input, so fail instead of labeling padding.
+            prev_end = prev_va + prev_size
+            raise ValueError(
+                f"overlapping functions 0x{prev_va:08x} (ends 0x{prev_end:08x}) "
+                f"and 0x{curr_va:08x}: fix the registry before clustering"
+            )
         elif gap_len == 0:
             gc = "padding"
         else:
             gap_data = extract_bytes_at_va(info, gap_start, gap_len, trim_padding=False)
-            if gap_data is None:
-                gc = "large_nonpadding"
+            # ``b""`` means the section's file-backed bytes are exhausted (a
+            # zero-filled tail with VirtualSize > SizeOfRawData): unavailable,
+            # NOT padding.  Classifying it as padding kept two functions in one
+            # TU on a positive signal that does not exist.
+            if not gap_data:
+                gc = "unknown"
             else:
                 gc = _classify_gap(gap_data, text_va, text_size, padding_bytes)
 

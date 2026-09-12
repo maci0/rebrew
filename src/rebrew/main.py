@@ -17,8 +17,10 @@ from collections.abc import Callable
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from rebrew.cli import EXIT_ERROR
+from rebrew.registry import RegistryError
 
 console = Console(stderr=True)
 _stdout_console = Console()
@@ -103,14 +105,21 @@ def _global_options(
 # ---------------------------------------------------------------------------
 
 # Command panel groupings for rich help output.
-# Style: short descriptive nouns, 5 balanced groups.
+# Style: short descriptive nouns, 5 groups; every registered command has an
+# entry (None grouping renders outside any panel).
 _COMMAND_PANELS: dict[str, str] = {
     # Project Setup — one-time / infrequent management tasks
     "init": "Project Setup",
+    "intake": "Project Setup",
     "doctor": "Project Setup",
     "cfg": "Project Setup",
     "cache": "Project Setup",
     "skills": "Project Setup",
+    "toolchain": "Project Setup",
+    "library": "Project Setup",
+    "cmake-toolchain": "Project Setup",
+    "orphans": "Project Setup",
+    "link-order": "Project Setup",
     # Development — the daily reversing loop
     "skeleton": "Development",
     "test": "Development",
@@ -119,6 +128,12 @@ _COMMAND_PANELS: dict[str, str] = {
     "rename": "Development",
     "split": "Development",
     "merge": "Development",
+    "fix": "Development",
+    "decompile": "Development",
+    "recover-structs": "Development",
+    "document-unmatched": "Development",
+    "cross-import": "Development",
+    "climb": "Development",
     # Analysis — understanding the binary and progress
     "blocker": "Analysis",
     "status": "Analysis",
@@ -130,6 +145,8 @@ _COMMAND_PANELS: dict[str, str] = {
     "gen-flirt-pat": "Analysis",
     "identify-library": "Analysis",
     "imports": "Analysis",
+    "fingerprints": "Analysis",
+    "crypto-scan": "Analysis",
     "strings": "Analysis",
     "xrefs": "Analysis",
     "describe": "Analysis",
@@ -138,6 +155,16 @@ _COMMAND_PANELS: dict[str, str] = {
     "diagnose": "Analysis",
     "crt-match": "Analysis",
     "refactor": "Analysis",
+    "solutions": "Analysis",
+    "similar": "Analysis",
+    "binary-similarity": "Analysis",
+    "near-diag": "Analysis",
+    "pdb-info": "Analysis",
+    "discover-functions": "Analysis",
+    "lib-match": "Analysis",
+    "resource": "Analysis",
+    "context": "Analysis",
+    "layout-map": "Analysis",
     # Matching — solving byte-level differences
     "match": "Matching",
     "diff": "Matching",
@@ -145,10 +172,21 @@ _COMMAND_PANELS: dict[str, str] = {
     "asm": "Matching",
     "switch": "Matching",
     "prove": "Matching",
-    "solutions": "Analysis",
     "round-trip": "Matching",
     "postlink": "Matching",
     "merge-sweep": "Matching",
+    "stack-cmp": "Matching",
+    "verify-placement": "Matching",
+    "text-audit": "Matching",
+    "verify-exports": "Matching",
+    "gen-layout": "Matching",
+    "gen-link-stubs": "Matching",
+    "gen-stubs": "Matching",
+    "inline-strings": "Matching",
+    "order-sources": "Matching",
+    "calibrate-bss": "Matching",
+    "link-sweep": "Matching",
+    "unpack-lzexe": "Matching",
     # Export & Sync — generating data and syncing with external tools
     "catalog": "Export & Sync",
     "build-db": "Export & Sync",
@@ -157,6 +195,12 @@ _COMMAND_PANELS: dict[str, str] = {
     "binsync-export": "Export & Sync",
     "binsync-import": "Export & Sync",
     "binsync-diff": "Export & Sync",
+    "binsync-init": "Export & Sync",
+    "binsync-overlay": "Export & Sync",
+    "binsync": "Export & Sync",
+    "symbol-addrs": "Export & Sync",
+    "objdiff": "Export & Sync",
+    "decompme": "Export & Sync",
 }
 
 # Single-command modules – registered as flat commands via app.command().
@@ -301,6 +345,16 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
     ),
     ("imports", "rebrew.imports", "List PE import-table symbols and detect import stubs."),
     (
+        "fingerprints",
+        "rebrew.fingerprints",
+        "Binary fingerprint bundle: hashes, imphash, rich-header hash, section entropy.",
+    ),
+    (
+        "crypto-scan",
+        "rebrew.crypto_scan",
+        "Detect crypto constant tables, crypto imports, and crypto-named functions.",
+    ),
+    (
         "verify-exports",
         "rebrew.exports",
         "Verify the recompiled binary's export table matches the original target.",
@@ -378,6 +432,16 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "Show where rebrew and a BinSync state diverge (read-only).",
     ),
     (
+        "binsync-init",
+        "rebrew.binsync_init",
+        "Initialize a BinSync git repo (root + user branches) for a target.",
+    ),
+    (
+        "binsync-overlay",
+        "rebrew.binsync_overlay",
+        "Overlay a related target's BinSync names onto this target.",
+    ),
+    (
         "catalog",
         "rebrew.catalog",
         "Build coverage catalog, data JSON, CSV/Ghidra exports, and DB.",
@@ -396,6 +460,11 @@ _SINGLE_COMMANDS: list[tuple[str, str, str]] = [
         "merge-sweep",
         "rebrew.merge_sweep",
         "Deterministic TU-partition search over cu-map clusters.",
+    ),
+    (
+        "climb",
+        "rebrew.climb",
+        "Deterministic single-statement hill-climb for one function.",
     ),
     (
         "cross-import",
@@ -456,6 +525,11 @@ _MULTI_COMMANDS: list[tuple[str, str, str]] = [
         "rebrew.toolchain_cli",
         "Manage toolchains (Windows/DOS profiles run in docker).",
     ),
+    (
+        "binsync",
+        "rebrew.binsync_cli",
+        "BinSync state sync: push/pull/summary plus init/diff/overlay.",
+    ),
 ]
 
 
@@ -463,7 +537,7 @@ def _make_stub_cmd(mod_name: str, err: Exception) -> Callable[[], None]:
     """Create a stub command function that reports a missing dependency."""
 
     def _stub() -> None:
-        console.print(f"[red]Error:[/red] could not load '{mod_name}': {err}")
+        console.print(f"[red]Error:[/red] could not load '{escape(mod_name)}': {escape(str(err))}")
         raise typer.Exit(code=EXIT_ERROR)
 
     return _stub
@@ -475,7 +549,7 @@ def _make_stub_app(mod_name: str, err: Exception) -> typer.Typer:
 
     @stub.callback(invoke_without_command=True)
     def _stub_main() -> None:
-        console.print(f"[red]Error:[/red] could not load '{mod_name}': {err}")
+        console.print(f"[red]Error:[/red] could not load '{escape(mod_name)}': {escape(str(err))}")
         raise typer.Exit(code=EXIT_ERROR)
 
     return stub
@@ -504,7 +578,7 @@ def _register_single_module(name: str, module: str, fallback_help: str, panel: s
         if not isinstance(_epilog, str):
             _epilog = None
         app.command(name=name, help=_mod_help, epilog=_epilog, rich_help_panel=panel)(_mod.main)
-    except (ImportError, AttributeError) as exc:
+    except (ImportError, AttributeError, RegistryError) as exc:
         app.command(name=name, help=f"[unavailable] {fallback_help}", rich_help_panel=panel)(
             _make_stub_cmd(module, exc)
         )
@@ -516,7 +590,7 @@ def _register_multi_module(name: str, module: str, fallback_help: str, panel: st
         _mod = importlib.import_module(module)
         _mod_help = getattr(_mod.app.info, "help", None) or fallback_help
         app.add_typer(_mod.app, name=name, help=_mod_help, rich_help_panel=panel)
-    except (ImportError, AttributeError) as exc:
+    except (ImportError, AttributeError, RegistryError) as exc:
         app.add_typer(
             _make_stub_app(module, exc),
             name=name,
@@ -531,10 +605,12 @@ def _register_discovered_commands() -> None:
     Runs after the built-in lists, so the packaged commands always win the
     name space.  A plugin module that cannot be imported degrades to a stub
     command (same as a built-in with a missing optional dependency); a name
-    that collides with an already-registered command is a configuration
-    error — :class:`RegistryError` names both origins (single-source
-    discipline: a command name has exactly one provider)."""
-    from rebrew.registry import RegistryError, entry_point_registrations, import_registration
+    that collides with an already-registered command degrades to a stub
+    naming the conflict instead of killing the whole CLI at import.
+    A plugin object of the wrong kind (non-callable single command,
+    non-Typer-app multi command) degrades to a stub naming the conflict.
+    """
+    from rebrew.registry import entry_point_registrations, import_registration
 
     existing = {_name for _name, _module, _help in _SINGLE_COMMANDS} | {
         _name for _name, _module, _help in _MULTI_COMMANDS
@@ -544,15 +620,21 @@ def _register_discovered_commands() -> None:
         (_MULTI_COMMANDS_ENTRY_POINT_GROUP, True),
     ):
         for reg in entry_point_registrations(group):
-            if reg.name in existing:
-                raise RegistryError(
-                    f"duplicate CLI command {reg.name!r} from {reg.origin}: "
-                    f"'{reg.name}' is already registered (single-source discipline)"
-                )
             # Third-party commands group under a dedicated help panel, so
             # plugin commands are discoverable and clearly separated from
             # the packaged ones.
             _plugin_panel = "Plugins"
+            if reg.name in existing:
+                # A duplicate name must not shadow the packaged command: typer
+                # keeps commands in a name-keyed dict (last registration wins),
+                # so registering a stub here REPLACED the built-in and made it
+                # unusable.  Keep the packaged command, report the collision on
+                # stderr (the only place a broken plugin was visible before).
+                console.print(
+                    f"[yellow]warning:[/yellow] duplicate CLI command {reg.name!r} from "
+                    f"{reg.origin} ignored — the packaged '{reg.name}' command wins"
+                )
+                continue
             try:
                 obj = import_registration(reg)
             except RegistryError as exc:
@@ -575,6 +657,30 @@ def _register_discovered_commands() -> None:
                 continue
             if reg.attr:
                 # module:attr form — the object is the command callable / app.
+                shape: str | None = None
+                if is_multi and not isinstance(obj, typer.Typer):
+                    shape = f"expected a typer.Typer app, got {type(obj).__name__}"
+                elif not is_multi and not callable(obj):
+                    shape = f"expected a callable, got {type(obj).__name__}"
+                if shape is not None:
+                    err = RegistryError(
+                        f"bad CLI plugin {reg.name!r} from {reg.origin} ({reg.target}): {shape}"
+                    )
+                    if is_multi:
+                        app.add_typer(
+                            _make_stub_app(reg.module, err),
+                            name=reg.name,
+                            help=f"[unavailable] {reg.name}",
+                            rich_help_panel=_plugin_panel,
+                        )
+                    else:
+                        app.command(
+                            name=reg.name,
+                            help=f"[unavailable] {reg.name}",
+                            rich_help_panel=_plugin_panel,
+                        )(_make_stub_cmd(reg.module, err))
+                    existing.add(reg.name)
+                    continue
                 if is_multi:
                     app.add_typer(obj, name=reg.name, help=reg.name, rich_help_panel=_plugin_panel)
                 else:

@@ -147,6 +147,74 @@ class TestParseMetadataKey:
         assert parse_metadata_key("not_a_key") is None
 
 
+class TestResolveMetadataKey:
+    def test_absent_entry_returns_canonical(self) -> None:
+        from rebrew.utils import resolve_metadata_key
+
+        assert resolve_metadata_key({}, "SERVER", 0x24000) == "SERVER.0x00024000"
+
+    def test_canonical_key_preferred(self) -> None:
+        from rebrew.utils import resolve_metadata_key
+
+        doc = {"SERVER.0x00024000": {"status": "UNCHECKED"}}
+        assert resolve_metadata_key(doc, "SERVER", 0x24000) == "SERVER.0x00024000"
+
+    def test_non_canonical_spelling_resolved(self) -> None:
+        from rebrew.utils import resolve_metadata_key
+
+        doc = {"SERVER.0x24000": {"name": "g_iat_region"}}
+        assert resolve_metadata_key(doc, "SERVER", 0x24000) == "SERVER.0x24000"
+
+    def test_other_module_ignored(self) -> None:
+        from rebrew.utils import resolve_metadata_key
+
+        doc = {"OTHER.0x24000": {"name": "x"}}
+        assert resolve_metadata_key(doc, "SERVER", 0x24000) == "SERVER.0x00024000"
+
+
+class TestParseMetadataDocDuplicates:
+    def test_duplicate_keys_merge_fields(self, caplog: pytest.LogCaptureFixture) -> None:
+        """SERVER.0x24000 and SERVER.0x00024000 parse to one (module, va) —
+        the fields must merge instead of the later table replacing the earlier."""
+        import tomllib
+
+        from rebrew.utils import parse_metadata_doc
+
+        text = (
+            '["SERVER.0x24000"]\n'
+            'name = "g_iat_region"\n'
+            'section = ".rdata"\n'
+            "\n"
+            '["SERVER.0x00024000"]\n'
+            'status = "UNCHECKED"\n'
+        )
+        with caplog.at_level("WARNING", logger="rebrew.utils"):
+            parsed = parse_metadata_doc(tomllib.loads(text))
+
+        assert parsed[("SERVER", 0x24000)] == {
+            "name": "g_iat_region",
+            "section": ".rdata",
+            "status": "UNCHECKED",
+        }
+        assert "Duplicate metadata keys" in caplog.text
+
+    def test_later_key_wins_contested_field(self) -> None:
+        from rebrew.utils import parse_metadata_doc
+
+        parsed = parse_metadata_doc(
+            {"SERVER.0x24000": {"size": 4}, "SERVER.0x00024000": {"size": 8}}
+        )
+        assert parsed[("SERVER", 0x24000)]["size"] == 8
+
+    def test_no_duplicates_no_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        from rebrew.utils import parse_metadata_doc
+
+        with caplog.at_level("WARNING", logger="rebrew.utils"):
+            parse_metadata_doc({"SERVER.0x1000": {"status": "STUB"}})
+
+        assert caplog.text == ""
+
+
 class TestSafeShlexSplit:
     def test_normal(self) -> None:
         from rebrew.utils import safe_shlex_split
@@ -314,6 +382,35 @@ class TestMetadataWriteLock:
 
         doc = parse_metadata_doc(tomllib.loads(target.read_text(encoding="utf-8")))
         assert {va for _, va in doc} == set(range(16))
+
+    def test_reentrant_nested_acquisition_does_not_deadlock(self, tmp_path: Path) -> None:
+        """A nested acquisition on the same filename must not deadlock.
+
+        The GA batch holds ``metadata_write_lock("rebrew-functions.toml")``
+        while ``update_stub_to_matched`` promotes STATUS through
+        ``update_source_status`` -> ``update_statuses_batch``, which locks the
+        same file again.  A non-reentrant lock wedges the worker thread forever.
+        """
+        import threading
+
+        from rebrew.utils import metadata_write_lock
+
+        done = threading.Event()
+        result: list[str] = []
+
+        def _nested() -> None:
+            with (
+                metadata_write_lock(tmp_path, "rebrew-functions.toml"),
+                metadata_write_lock(tmp_path, "rebrew-functions.toml"),
+            ):
+                result.append("inner")
+            result.append("outer")
+            done.set()
+
+        worker = threading.Thread(target=_nested, daemon=True)
+        worker.start()
+        assert done.wait(timeout=10), "nested metadata_write_lock deadlocked"
+        assert result == ["inner", "outer"]
 
 
 # ---------------------------------------------------------------------------

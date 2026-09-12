@@ -82,6 +82,13 @@ _KNOWN_CELL_STATES = {
     "padding",
     "data",
     "thunk",
+    # Data verdicts (data_metadata.py DATA_STATUS_*): the grid emits the
+    # lowercased rebrew-data.toml STATUS for a global's covering cell, so
+    # without these every data cell warned "not in known set" and a VERIFIED
+    # global fell out of the section's exact_count into other_count.
+    "verified",
+    "drift",
+    "unchecked",
 }
 
 
@@ -587,7 +594,7 @@ def build_db(
                 target,
                 section_name,
                 COUNT(*) as total_cells,
-                SUM(CASE WHEN state = 'exact' THEN 1 ELSE 0 END) as exact_count,
+                SUM(CASE WHEN state IN ('exact', 'verified') THEN 1 ELSE 0 END) as exact_count,
                 SUM(CASE WHEN state = 'reloc' THEN 1 ELSE 0 END) as reloc_count,
                 SUM(CASE WHEN state IN ('near_match', 'near_matching') THEN 1 ELSE 0 END) as near_match_count,
                 SUM(CASE WHEN state = 'stub' THEN 1 ELSE 0 END) as stub_count,
@@ -598,12 +605,15 @@ def build_db(
                 SUM(CASE WHEN state = 'proven' THEN 1 ELSE 0 END) as proven_count,
                 SUM(CASE WHEN state = 'size_mismatch' THEN 1 ELSE 0 END) as size_mismatch_count,
                 -- Catch-all for every other state (compile_error,
-                -- missing_file, missing_size, skip, unknown, ...): without
-                -- it total_cells never equals the sum of the counted columns
-                -- and per-section stats silently undercount (db-review F4).
+                -- missing_file, missing_size, skip, unknown, plus the data
+                -- drift/unchecked verdicts): without it total_cells never
+                -- equals the sum of the counted columns and per-section stats
+                -- silently undercount (db-review F4).  `verified` is excluded
+                -- here because it is counted as exact_count above.
                 SUM(CASE WHEN state NOT IN (
-                    'exact', 'reloc', 'near_match', 'near_matching', 'stub',
-                    'padding', 'data', 'thunk', 'none', 'proven', 'size_mismatch'
+                    'exact', 'verified', 'reloc', 'near_match', 'near_matching',
+                    'stub', 'padding', 'data', 'thunk', 'none', 'proven',
+                    'size_mismatch'
                 ) THEN 1 ELSE 0 END) as other_count
             FROM cells
             GROUP BY target, section_name
@@ -612,10 +622,15 @@ def build_db(
         # Scoped rebuild: delete only this target's rows (sections first so
         # the cells FK CASCADE clears cell rows too).  Runs after all tables
         # exist (a fresh DB may lack verify_results until created above).
+        #
+        # verify_results is NOT deleted here: it is a persistent history table
+        # (DB_FORMAT.md: "never dropped on rebuild"), and the import below only
+        # repopulates a target when the shared db/verify_results.json names it.
+        # Deleting here wiped the target's history whenever another target had
+        # verified last — the same reason the full-rebuild path does not drop it.
         if target:
             for table in ("sections", "functions", "globals", "metadata"):
                 c.execute(f"DELETE FROM {table} WHERE target = ?", (target,))
-            c.execute("DELETE FROM verify_results WHERE target = ?", (target,))
 
         # Process data_*.json files, optionally filtered by target
         json_files = list(db_dir.glob("data_*.json"))
@@ -652,6 +667,7 @@ def build_db(
                     )
 
             fn_rows = []
+            bad_va = 0
             for va, fn in data.get("functions", {}).items():
                 va_int = 0
                 if isinstance(va, str):
@@ -659,16 +675,22 @@ def build_db(
                         va_int = int(va, 0)
                     except ValueError:
                         va_int = 0
-                elif isinstance(va, int):
+                elif isinstance(va, int) and not isinstance(va, bool):
                     va_int = va
 
                 if va_int == 0:
-                    va_start = fn.get("vaStart")
+                    va_start = fn.get("vaStart") if isinstance(fn, dict) else None
                     if isinstance(va_start, str):
                         try:
                             va_int = int(va_start, 0)
                         except ValueError:
                             va_int = 0
+                    elif isinstance(va_start, int) and not isinstance(va_start, bool):
+                        va_int = va_start
+
+                if va_int <= 0 or not isinstance(fn, dict):
+                    bad_va += 1
+                    continue
 
                 va_start_text = str(fn.get("vaStart") or (f"0x{va_int:08x}" if va_int else ""))
                 # build_db CHECK constraints reject negative fileOffset/
@@ -721,6 +743,12 @@ def build_db(
                     )
                 )
 
+            if bad_va:
+                console.print(
+                    f"[yellow]warning:[/yellow] {json_path.name}: skipped {bad_va} "
+                    "function row(s) with unparseable VA (no valid key or vaStart)"
+                )
+
             c.executemany(
                 "INSERT INTO functions "
                 "(target, va, name, vaStart, size, fileOffset, status, module, cflags, "
@@ -733,12 +761,37 @@ def build_db(
             )
 
             g_rows = []
+            bad_global_va = 0
             globals_data: dict[str, Any] = data.get("globals", {})
             for va, g in globals_data.items():
-                try:
-                    va_int = int(va, 16) if isinstance(va, str) and va.startswith("0x") else int(va)
-                except (ValueError, TypeError):
-                    va_int = int(g.get("va", "0"), 16) if g.get("va") else 0
+                if not isinstance(g, dict):
+                    bad_global_va += 1
+                    continue
+                # ``int(va, 16)`` treated an int key/``va`` field as a base-16
+                # string (TypeError) and a decimal string as hex.  Base 0 parses
+                # both int and "0x…"/decimal string, and an unresolvable VA is
+                # SKIPPED (a va=0 row is a poison entry the readers mis-group),
+                # mirroring the functions path.
+                va_int = 0
+                if isinstance(va, int) and not isinstance(va, bool):
+                    va_int = va
+                elif isinstance(va, str):
+                    try:
+                        va_int = int(va, 0)
+                    except ValueError:
+                        va_int = 0
+                if va_int <= 0:
+                    raw_va = g.get("va")
+                    if isinstance(raw_va, int) and not isinstance(raw_va, bool):
+                        va_int = raw_va
+                    elif isinstance(raw_va, str):
+                        try:
+                            va_int = int(raw_va, 0)
+                        except ValueError:
+                            va_int = 0
+                if va_int <= 0:
+                    bad_global_va += 1
+                    continue
                 g_rows.append(
                     (
                         target_name,
@@ -750,6 +803,13 @@ def build_db(
                         g.get("size") if g.get("size") is not None else 4,
                         str(g.get("status") or ""),
                     )
+                )
+
+            if bad_global_va:
+                console.print(
+                    f"[yellow]warning:[/yellow] {json_path.name}: skipped "
+                    f"{bad_global_va} global row(s) with unparseable VA "
+                    "(no valid key or va field)"
                 )
 
             c.executemany(
@@ -789,7 +849,7 @@ def build_db(
                             funcs = cell.get("functions", [])
                             total_items += len(funcs) if funcs else 0
 
-                            if state == "exact":
+                            if state in ("exact", "verified"):
                                 exact_count += 1
                                 exact_bytes += size
                             elif state == "reloc":

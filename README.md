@@ -16,6 +16,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 |------|-------------|
 | `rebrew test` | Compile your C and diff it byte-by-byte against the original binary |
 | `rebrew match` | GA engine — single file or batch (`--all`); brute-force compiler flags and mutate source to find exact byte matches |
+| `rebrew climb` | Deterministic hill-climb over adjacent statements in one function body — the complement to `match` when the residual is statement order |
 | `rebrew verify` | Bulk compile + report match status; always auto-updates metadata; `--compare` for CI regression checks; `--watch` re-verifies on every change |
 | `rebrew prove` | Symbolic equivalence via angr + Z3 — mathematically prove NEAR_MATCHING functions are equivalent |
 | `rebrew near-diag` | Classify *why* a NEAR_MATCHING function misses: register allocation, equivalent instruction selection, relocation masking, or structural layout |
@@ -41,6 +42,8 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew flirt` | Identify known library functions via FLIRT signatures — no IDA required |
 | `rebrew crt-match` | Cross-reference functions against CRT/library source directories |
 | `rebrew similar` | Rank binary functions by structural similarity to a solved function — find which STUBs share its source family |
+| `rebrew fingerprints` | File hashes, imphash, MSVC Rich-header hash, and per-section entropy for a binary |
+| `rebrew crypto-scan` | Detect crypto constant tables (AES/SHA/MD5), crypto imports, and crypto-named functions |
 
 ### Infrastructure
 
@@ -53,6 +56,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew cache` | Compile cache management (`stats`, `clear`) |
 | `rebrew cfg` | Read/write `rebrew-project.toml` settings |
 | `rebrew extract` | Batch extract function bytes and disassembly |
+| `rebrew binsync` | Umbrella for BinSync sync: `push` (export + git commit, optional `--git-push`), `pull` (git fast-forward + import), `summary`, plus `init`/`diff`/`overlay` |
 | `rebrew binsync-export` | Export source markers and metadata to BinSync state directory (IDA/BinNinja import; real types + struct fields, `--module`, `--git`) |
 | `rebrew binsync-import` | Import a BinSync state directory into rebrew metadata (names + prototypes + globals, `--accept-binsync`/`--accept-local`, `--module`) |
 | `rebrew round-trip` | Splice matched functions back into the target PE and verify byte equality |
@@ -306,6 +310,7 @@ Rebrew is part of a broader decompilation ecosystem. These are the notable proje
 | [LIEF](https://github.com/lief-project/LIEF) | Binary format parsing (PE/ELF/Mach-O) | Used for binary loading, format detection, and PE section analysis |
 | [Capstone](https://github.com/capstone-engine/capstone) | Disassembly engine | Powers `rebrew asm`, byte-diff scoring, relocation masking, and mnemonic comparison |
 | [angr](https://github.com/angr/angr) | Binary analysis + symbolic execution | Powers `rebrew prove` for Z3-based semantic equivalence proving (optional dep) |
+| [declib](https://github.com/binsync/declib) | BinSync artifact layer | BinSync state export/import/diff/overlay (`binsync` extra, `declib>=4.5`) |
 | [ReVa](https://github.com/cyberkaida/reverse-engineering-assistant) | Ghidra MCP bridge | `rebrew sync` pushes/pulls source markers, metadata, labels, structs, and comments to Ghidra |
 
 ### Adjacent Tools

@@ -15,6 +15,8 @@ def _mock_cfg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespac
         marker="SERVER",
         source_ext=".c",
         shared_dir=None,
+        function_list=tmp_path / "functions.txt",
+        dll_exports={},
     )
     import rebrew.cli as cli_mod
     import rebrew.orphans as orph
@@ -149,6 +151,118 @@ class TestOrphansPrune:
         assert out["held_back"] == 0
         assert get_entry(tmp_path, 0x2000, "SERVER") == {}
         assert get_entry(tmp_path, 0x3000, "SERVER") == {}
+
+
+class TestKnownSourceWidening:
+    """Ghidra/exports-only VAs are known functions, not orphans.
+
+    A metadata block whose VA appears only in the Ghidra structure cache or
+    the export table must survive orphan pruning — the source marker may
+    simply not be reversed yet.
+    """
+
+    def _project_with_extra_known(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> SimpleNamespace:
+        from rebrew.config import FUNCTION_STRUCTURE_JSON
+
+        cfg = _mock_cfg(tmp_path, monkeypatch)
+        src = tmp_path / "reversed"
+        src.mkdir(exist_ok=True)
+        (src / "foo.c").write_text(
+            "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8"
+        )
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x1000"]\nstatus = "STUB"\n\n'
+            '["SERVER.0x2000"]\nstatus = "STUB"\nsize = 16\n\n'
+            '["SERVER.0x3000"]\nstatus = "STUB"\nsize = 16\n\n'
+            '["SERVER.0x4000"]\nstatus = "STUB"\nsize = 16\n',
+            encoding="utf-8",
+        )
+        (tmp_path / "functions.txt").write_text("0x1000 16 foo\n", encoding="utf-8")
+        (src / FUNCTION_STRUCTURE_JSON).write_text(
+            '[{"va": 8192, "size": 16, "name": "ghidra_fn"}]', encoding="utf-8"
+        )
+        cfg.dll_exports = {0x3000: "exp_fn"}
+        return cfg
+
+    def test_ghidra_and_export_vas_not_orphans(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from rebrew.orphans import app
+
+        self._project_with_extra_known(tmp_path, monkeypatch)
+        res = CliRunner().invoke(app, ["--json"])
+        assert res.exit_code == 0, res.output
+        payload = json.loads(res.output)
+        vas = sorted(o["va"] for o in payload["orphans"])
+        # 0x2000 lives only in the Ghidra structure cache, 0x3000 only in
+        # dll_exports — both are known functions, not orphans.
+        assert "0x2000" not in vas
+        assert "0x3000" not in vas
+        assert "0x4000" in vas  # truly unknown → orphan
+
+    def test_prune_keeps_ghidra_and_export_blocks(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata import get_entry
+        from rebrew.orphans import app
+
+        self._project_with_extra_known(tmp_path, monkeypatch)
+        res = CliRunner().invoke(app, ["--prune", "--include-matched"])
+        assert res.exit_code == 0, res.output
+        assert get_entry(tmp_path, 0x2000, "SERVER").get("status") == "STUB"
+        assert get_entry(tmp_path, 0x3000, "SERVER").get("status") == "STUB"
+        assert get_entry(tmp_path, 0x4000, "SERVER") == {}
+
+
+class TestDataOrphansNameExemption:
+    """A name never claims a data block: named entries with no VA marker
+    are orphans like any other (stale names used to accumulate silently)."""
+
+    def _data_project(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _mock_cfg(tmp_path, monkeypatch)
+        src = tmp_path / "reversed"
+        src.mkdir(exist_ok=True)
+        (src / "g.c").write_text("// GLOBAL: SERVER 0x1000\nint g_live;\n", encoding="utf-8")
+        (tmp_path / "rebrew-data.toml").write_text(
+            '["SERVER.0x1000"]\nname = "g_live"\nsection = ".data"\nsize = 4\n\n'
+            '["SERVER.0x2000"]\nname = "g_stale"\nsection = ".data"\nsize = 4\n\n'
+            '["SERVER.0x3000"]\nsection = ".data"\nsize = 4\n\n'
+            '["SERVER.0x4000"]\nname = "import_slot"\nsection = ".idata"\nsize = 4\n',
+            encoding="utf-8",
+        )
+
+    def test_named_stale_entry_is_orphan(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from rebrew.orphans import app
+
+        self._data_project(tmp_path, monkeypatch)
+        res = CliRunner().invoke(app, ["--json"])
+        assert res.exit_code == 0, res.output
+        vas = sorted(
+            o["va"] for o in json.loads(res.output)["orphans"] if o["store"] == "rebrew-data.toml"
+        )
+        assert vas == ["0x2000", "0x3000"]
+
+    def test_prune_deletes_named_stale_keeps_import_inventory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.data_metadata import get_data_entry
+        from rebrew.orphans import app
+
+        self._data_project(tmp_path, monkeypatch)
+        res = CliRunner().invoke(app, ["--prune", "--include-matched"])
+        assert res.exit_code == 0, res.output
+        assert get_data_entry(tmp_path, 0x2000, "SERVER") == {}
+        assert get_data_entry(tmp_path, 0x3000, "SERVER") == {}
+        assert get_data_entry(tmp_path, 0x1000, "SERVER").get("name") == "g_live"
+        assert get_data_entry(tmp_path, 0x4000, "SERVER").get("name") == "import_slot"
 
 
 class TestOrphansDrop:

@@ -193,14 +193,12 @@ class TestRecover:
         ]
         results = recover_structs(decomp)
         anon = [r for r in results if r["anonymous"]]
-        assert len(anon) == 1
-        (r,) = anon
-        assert r["var"] == "a0"
-        assert r["semantic"] is False
-        assert r["functions"] == 2
-        assert set(r["offsets"]) == {"0x10", "0x11"}
-        # definition is offered so the user can see the layout
-        assert "typedef struct a0_s {" in r["definition"]
+        assert len(anon) == 2
+        by_va = {r["va"]: r for r in anon}
+        assert by_va[0x401000]["var"] == "a0"
+        assert by_va[0x401000]["offsets"] == ["0x10"]
+        assert by_va[0x401100]["offsets"] == ["0x11"]
+        assert by_va[0x401000]["functions"] == 1
 
     def test_anonymous_semantic_var_gets_type_name(self) -> None:
         decomp = [(0x401000, "f", "int pPlayer;\n*(char *)(pPlayer + 0x10) = 1;\n")]
@@ -269,7 +267,7 @@ class TestCli:
             main_mod.app, ["recover-structs", "--functions", "0x401000", "--json"]
         )
         assert result.exit_code == 0, result.output
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)
         assert data["decompiled"] == 1
         assert any(s["name"] == "PlayerInfo" and s["new"] for s in data["structs"])
         assert "typedef struct PlayerInfo_s {" in data["structs"][0]["definition"]
@@ -308,7 +306,7 @@ class TestCli:
             main_mod.app, ["recover-structs", "--functions", "0x401000", "--json"]
         )
         assert result.exit_code == 0, result.output
-        data = json.loads(result.output)
+        data = json.loads(result.stdout)
         anon = [s for s in data["structs"] if s["anonymous"]]
         assert len(anon) == 1
         assert anon[0]["var"] == "a0"
@@ -329,3 +327,73 @@ class TestTypeWidthSharedModel:
         assert type_width("uint32_t") == 4
         assert type_width("undefined4") == 4
         assert type_width("SomeStruct") is None
+
+
+class TestFailureEnvelope:
+    def test_no_decompilation_json_has_code(self, tmp_path, monkeypatch) -> None:
+        """The failure envelope matches the {"error", "code"} JSON contract."""
+        import json
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        import rebrew.main as main_mod
+        from rebrew.cli import EXIT_ERROR
+
+        src = tmp_path / "src" / "SERVER"
+        src.mkdir(parents=True)
+        (src / "f.c").write_text(
+            "// FUNCTION: SERVER 0x401000\nint f(void) { return 0; }\n", encoding="utf-8"
+        )
+        (src / "functions.txt").write_text("0x00401000 8 f\n", encoding="utf-8")
+        cfg = SimpleNamespace(
+            target_name="SERVER",
+            target_binary=tmp_path / "x.exe",
+            reversed_dir=src,
+            metadata_dir=tmp_path,
+            function_list=src / "functions.txt",
+            marker="SERVER",
+            source_ext=".c",
+            root=tmp_path,
+        )
+        monkeypatch.setattr("rebrew.struct_recover.require_config", lambda **kw: cfg)
+
+        def _fake_fetch(backend, binary, va, root):
+            return None, backend
+
+        monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _fake_fetch)
+        result = CliRunner().invoke(
+            main_mod.app, ["recover-structs", "--functions", "0x401000", "--json"]
+        )
+        assert result.exit_code == EXIT_ERROR
+        data = json.loads(result.output)
+        assert data["code"] == EXIT_ERROR
+        assert "error" in data
+
+
+class TestMemberOffsetCap:
+    """The image base caps member offsets; a load failure must be visible."""
+
+    def test_uses_image_base(self, tmp_path, monkeypatch) -> None:
+        from types import SimpleNamespace
+
+        import rebrew.binary_loader as bl
+        from rebrew import struct_recover as sr
+
+        monkeypatch.setattr(bl, "load_binary", lambda _p: SimpleNamespace(image_base=0x400000))
+        cfg = SimpleNamespace(target_binary=tmp_path / "a.exe")
+        assert sr._member_offset_cap(cfg) == 0x400000
+
+    def test_unloadable_binary_warns_and_falls_back(self, tmp_path, monkeypatch, capsys) -> None:
+        from types import SimpleNamespace
+
+        import rebrew.binary_loader as bl
+        from rebrew import struct_recover as sr
+
+        def boom(_p):
+            raise OSError("no such binary")
+
+        monkeypatch.setattr(bl, "load_binary", boom)
+        cfg = SimpleNamespace(target_binary=tmp_path / "a.exe")
+        assert sr._member_offset_cap(cfg) == sr._MAX_MEMBER_OFFSET
+        assert "member-offset cap" in capsys.readouterr().err

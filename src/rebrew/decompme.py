@@ -45,6 +45,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
+from rebrew.utils import read_source_text
 
 console = Console(stderr=True)
 
@@ -111,6 +112,32 @@ def map_platform(binary_format: str | None) -> str | None:
     return _FORMAT_TO_PLATFORM.get((binary_format or "").lower())
 
 
+def extract_function_text(text: str, name: str) -> str | None:
+    """Isolate one function definition plus the file preamble from *text*.
+
+    The preamble is everything before the first function definition
+    (includes, typedefs, globals, prototypes) — what the snippet needs to
+    compile standalone.  Returns None when the function cannot be isolated
+    (no tree-sitter, no definitions, ambiguous name); the caller then falls
+    back to the whole file.
+    """
+    from rebrew.c_parser import find_c_function_definitions
+
+    defs = find_c_function_definitions(text)
+    if not defs:
+        return None
+    idx: int | None = next((i for i, (n, _ln) in enumerate(defs) if n == name), None)
+    if idx is None:
+        if len(defs) != 1:
+            return None
+        idx = 0
+    lines = text.splitlines(keepends=True)
+    start = defs[idx][1]  # 1-based line of the selected definition
+    end = defs[idx + 1][1] if idx + 1 < len(defs) else len(lines) + 1
+    chunk = "".join(lines[: defs[0][1] - 1] + lines[start - 1 : end - 1])
+    return chunk if chunk.strip() else None
+
+
 def build_scratch_payload(
     cfg: Any,
     source: Path,
@@ -144,6 +171,9 @@ def build_scratch_payload(
         obj_bytes = obj.read_bytes()
 
     diff_label = symbol or name or f"func_{va:08x}"
+    full_text, _encoding = read_source_text(source)
+    c_name = name or (symbol.lstrip("_") if symbol else "") or diff_label
+    source_code = extract_function_text(full_text, c_name) or full_text
     data = {
         "compiler": compiler,
         "platform": platform,
@@ -151,7 +181,7 @@ def build_scratch_payload(
         "diff_label": diff_label,
         "diff_flags": json.dumps([f"--disassemble={diff_label}"]),
         "context": context,
-        "source_code": source.read_text(encoding="utf-8", errors="replace"),
+        "source_code": source_code,
         "name": name or diff_label,
     }
     files = {"target_obj": (f"{source.stem}.o", obj_bytes, "application/octet-stream")}
@@ -236,8 +266,14 @@ def verify_compiler(compiler: str, api: str = _DEFAULT_API, timeout: float = 15.
     )
 
 
-def _resolve_annotation(cfg: Any, source: Path, va: int | None) -> tuple[Any, int, int, str]:
-    """Pick the annotation for *source* (by *va* or the first FUNCTION entry)."""
+def _resolve_annotation(
+    cfg: Any, source: Path, va: int | None, size_override: int | None = None
+) -> tuple[Any, int, int, str]:
+    """Pick the annotation for *source* (by *va* or the first FUNCTION entry).
+
+    *size_override* (the CLI ``--size``) supplies the size when the annotation
+    has none — the check must not reject the very case ``--size`` exists for.
+    """
     from rebrew.annotation import parse_c_file_multi
     from rebrew.sources import target_marker
 
@@ -255,7 +291,7 @@ def _resolve_annotation(cfg: Any, source: Path, va: int | None) -> tuple[Any, in
                 break
         else:
             raise ValueError(f"no annotation for VA 0x{va:08x} in {source.name}")
-    size = int(ann.size or 0)
+    size = size_override or int(ann.size or 0)
     if size <= 0:
         raise ValueError(
             f"function 0x{ann.va:08x} has no size — add a SIZE annotation or pass --size"
@@ -319,29 +355,35 @@ def main(
 
     va_int = parse_va(va, json_mode=json_output) if va else None
     try:
-        ann, ann_va, ann_size, symbol = _resolve_annotation(cfg, source_path, va_int)
+        ann, ann_va, ann_size, symbol = _resolve_annotation(cfg, source_path, va_int, size)
     except ValueError as exc:
         error_exit(str(exc), json_mode=json_output)
     size_val = size or ann_size
 
-    if compiler is None:
-        from rebrew.cli import resolve_compile_overrides
+    from rebrew.cli import resolve_compile_overrides
 
-        toolchain, cflags = resolve_compile_overrides(
-            cfg,
-            source_path.parent,
-            getattr(ann, "toolchain", ""),
-            getattr(ann, "cflags", ""),
-            getattr(ann, "module", ""),
-        )
-        compiler = map_compiler(toolchain)
+    # Resolve the flags regardless of --compiler: --flags defaults to the
+    # function's resolved cflags, and skipping the resolution when the user
+    # pins a compiler silently uploaded the scratch with no flags.
+    toolchain, resolved_cflags = resolve_compile_overrides(
+        cfg,
+        source_path.parent,
+        getattr(ann, "toolchain", ""),
+        getattr(ann, "cflags", ""),
+        getattr(ann, "module", ""),
+    )
+    if compiler is None:
+        # ``resolve_compile_overrides`` returns None when no override names a
+        # compiler — the project profile is the documented fallback.
+        compiler = map_compiler(toolchain or cfg.compiler_profile)
         if compiler is None:
             error_exit(
                 f"no decomp.me compiler mapped for toolchain {toolchain or cfg.compiler_profile!r} — "
                 "pass --compiler (decomp.me ids include msvc4.0..msvc8.0; see decomp.me/api/compilers)",
                 json_mode=json_output,
             )
-        flags = flags if flags is not None else cflags
+    if flags is None:
+        flags = resolved_cflags
     if platform is None:
         platform = map_platform(getattr(cfg, "binary_format", None) or getattr(cfg, "format", ""))
         if platform is None:

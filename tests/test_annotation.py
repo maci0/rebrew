@@ -1352,6 +1352,63 @@ class TestAnnotationKeyRoundTrips:
         assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == "EXACT"
 
 
+class TestMultiTargetSameVaRouting:
+    """File-edit paths route by (module, VA), not VA alone.
+
+    A multi-target file can hold two blocks at the same VA (SERVER + CLIENT);
+    an edit for one target's VA must land in that target's block only.
+    """
+
+    def _two_target_file(self, tmp_path: Path) -> Path:
+        from pathlib import Path as _P
+
+        f: _P = tmp_path / "f.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n// TESTKEY: server-old\nint f(void) { return 0; }\n"
+            "// FUNCTION: CLIENT 0x1000\n// TESTKEY: client-old\nint g(void) { return 1; }\n",
+            encoding="utf-8",
+        )
+        return f
+
+    def test_update_routes_to_own_module_block(self, tmp_path: Path) -> None:
+        from rebrew.annotation import update_annotation_key
+
+        f = self._two_target_file(tmp_path)
+        assert update_annotation_key(f, 0x1000, "TESTKEY", "server-new") is True
+        text = f.read_text(encoding="utf-8")
+        assert "// TESTKEY: server-new" in text
+        assert "// TESTKEY: client-old" in text
+        assert text.index("server-new") < text.index("CLIENT")
+
+    def test_strip_routes_to_own_module_block(self, tmp_path: Path) -> None:
+        from rebrew.annotation import remove_annotation_key
+
+        f = self._two_target_file(tmp_path)
+        assert remove_annotation_key(f, 0x1000, "TESTKEY") is True
+        text = f.read_text(encoding="utf-8")
+        assert "// TESTKEY: server-old" not in text
+        assert "// TESTKEY: client-old" in text
+
+
+class TestHexSizeParsing:
+    def test_hex_size_spelling_parses(self) -> None:
+        from rebrew.annotation import parse_new_format
+
+        ann = parse_new_format(["// FUNCTION: SERVER 0x1000", "// SIZE: 0x2A"])
+        assert ann is not None
+        assert ann.size == 42
+
+    def test_corrupt_size_in_metadata_treated_as_unknown(self, tmp_path: Path) -> None:
+        from rebrew.annotation import update_size_annotation
+        from rebrew.metadata import get_entry, save_metadata
+
+        save_metadata(tmp_path, {("SERVER", 0x1000): {"size": "abc"}})
+        f = tmp_path / "f.c"
+        f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        assert update_size_annotation(f, 128, metadata_dir=tmp_path) is True
+        assert get_entry(tmp_path, 0x1000, "SERVER").get("size") == 128
+
+
 class TestModuleForVa:
     def test_unreadable_returns_empty(self, tmp_path: Path) -> None:
         from rebrew.annotation import module_for_va
@@ -1776,3 +1833,20 @@ class TestStripPrecedingKeys:
         assert remove_inline_annotation_key(f, 0x1000, "CFLAGS") is False
         assert remove_inline_annotation_key(f, 0x2000, "CFLAGS") is True
         assert "// CFLAGS" not in f.read_text(encoding="utf-8")
+
+
+class TestRemoveKeyDoesNotCrossBlocks:
+    def test_previous_blocks_key_is_not_deleted(self, tmp_path: Path) -> None:
+        """A `// KEY:` above a marker belongs to the PREVIOUS block once that
+        block's marker precedes it; removing it for the later VA silently
+        dropped the earlier function's live annotation."""
+        from rebrew.annotation import remove_inline_annotation_key
+
+        f = tmp_path / "f.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n// CFLAGS: /O1\n"
+            "// FUNCTION: SERVER 0x2000\nint g(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        assert remove_inline_annotation_key(f, 0x2000, "CFLAGS") is False
+        assert "// CFLAGS: /O1" in f.read_text(encoding="utf-8")

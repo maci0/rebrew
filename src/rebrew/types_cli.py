@@ -75,7 +75,7 @@ def main(
         ev = evidence.get(name)
         if not ev:
             continue
-        for finding in check_struct(struct, ev):
+        for finding in check_struct(struct, ev, known_structs=declared):
             findings.append({"struct": name, **finding})
     if json_output:
         json_print({"structs": len(declared), "findings": findings})
@@ -135,6 +135,24 @@ def apply_type(
         )
     if rewritten == text:
         error_exit("New type identical to current spelling — nothing to do", json_mode=json_output)
+    if dry_run:
+        if json_output:
+            json_print(
+                {
+                    "file": str(source_path),
+                    "function": func_name,
+                    "param": param,
+                    "type": type_name,
+                    "dry_run": True,
+                }
+            )
+        else:
+            console.print(
+                f"  [dim]Would rewrite[/dim] {source_path.name} "
+                f"{func_name} param {param} → {type_name}"
+            )
+        return
+    atomic_write_text(source_path, rewritten, encoding=encoding)
     if json_output:
         json_print(
             {
@@ -142,16 +160,10 @@ def apply_type(
                 "function": func_name,
                 "param": param,
                 "type": type_name,
-                "dry_run": dry_run,
+                "dry_run": False,
             }
         )
         return
-    if dry_run:
-        console.print(
-            f"  [dim]Would rewrite[/dim] {source_path.name} {func_name} param {param} → {type_name}"
-        )
-        return
-    atomic_write_text(source_path, rewritten, encoding=encoding)
     console.print(
         f"[green]Rewrote:[/green] {source_path.name} {func_name} param {param} → {type_name}"
     )

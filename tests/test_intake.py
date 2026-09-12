@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from rebrew.intake import _suggest_profile, blocker_reason
 
 FAKE_FUNCS = [(0x401000, 32, "fcn.00401000"), (0x401020, 8, "fcn.00401020")]
@@ -324,45 +326,88 @@ class TestSuggestProfile16Bit:
 
 
 class TestToolchainLinks:
-    """intake's profile -> vendored-toolchain link map must cover every
-    matchable profile, including msvc1.52 (16-bit NE onboarding)."""
+    """intake derives the vendored-toolchain link from the registry
+    (image rebrew/<family>:<tag> -> <family>/<tag>), so every profile
+    works without a hand-maintained list."""
 
-    def test_msvc152_has_link_entry(self) -> None:
-        from rebrew.intake import _TOOLCHAIN_LINKS
+    def test_msvc152_derived(self) -> None:
+        from rebrew.intake import _link_names_for
 
-        assert "msvc1.52" in _TOOLCHAIN_LINKS
-        link_name, src_name = _TOOLCHAIN_LINKS["msvc1.52"]
-        assert link_name == "msvc/1.52-win16"
-        assert src_name == "msvc/1.52-win16"
+        assert _link_names_for("msvc1.52") == ("msvc/1.52-win16", "msvc/1.52-win16")
 
-    def test_every_matchable_profile_has_entry(self) -> None:
-        from rebrew.intake import _TOOLCHAIN_LINKS
+    def test_every_matchable_profile_derived(self) -> None:
+        from rebrew.intake import _link_names_for
 
-        # profiles that have a vendored tools/ dir in the repo should be
-        # linkable (msvc400 lacks a vendored dir and is fine to skip)
-        for profile in (
-            "msvc6",
-            "msvc1.52",
-            "msvc5",
-            "msvc420",
-            "msvc600sp3",
-            "msvc600sp6",
-            "msvc7",
-        ):
-            assert profile in _TOOLCHAIN_LINKS, profile
+        assert _link_names_for("msvc6") == ("msvc/6.0-win32", "msvc/6.0-win32")
+        assert _link_names_for("msvc5") == ("msvc/5.0-win32", "msvc/5.0-win32")
+        assert _link_names_for("msvc420") == ("msvc/4.2-win32", "msvc/4.2-win32")
+        assert _link_names_for("msvc600sp3") == ("msvc/6.0-sp3-win32", "msvc/6.0-sp3-win32")
+        assert _link_names_for("msvc600sp6") == ("msvc/6.0-sp6-win32", "msvc/6.0-sp6-win32")
+        assert _link_names_for("msvc7") == ("msvc/7.0-win32", "msvc/7.0-win32")
+        assert _link_names_for("tc16") == ("borland/3.1-win16", "borland/3.1-win16")
+        assert _link_names_for("tc20") == ("borland/2.0-win16", "borland/2.0-win16")
+
+    def test_native_profile_has_no_link(self) -> None:
+        from rebrew.intake import _link_names_for
+
+        assert _link_names_for("gcc-pe") is None
+        assert _link_names_for("no-such-profile") is None
+
+
+class TestExplicitToolchainWarns:
+    """intake --toolchain runs init's alignment checks (warn, don't silently
+    onboard the wrong profile)."""
+
+    def test_mismatched_explicit_toolchain_warns(
+        self, tmp_path: Path, monkeypatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from rebrew.intake import _warn_explicit_toolchain
+        from rebrew.toolchain_detect import ToolchainInfo
+
+        binary = tmp_path / "game.exe"
+        binary.write_bytes(b"MZ" + b"\x00" * 200)
+
+        def _fake_detect(path):
+            return ToolchainInfo(family="msvc", confidence="high", version_hint="MSVC 6.0")
+
+        monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", _fake_detect)
+        notes: list[str] = []
+        # 16-bit MZ binary with a 32-bit msvc6 profile: arch warning expected
+        _warn_explicit_toolchain(binary, "msvc6", notes)
+        assert "16-bit binary" in capsys.readouterr().err
+        assert any("explicit --toolchain msvc6" in n for n in notes)
+
+    def test_aligned_explicit_toolchain_silent(
+        self, tmp_path: Path, monkeypatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from rebrew.intake import _warn_explicit_toolchain
+        from rebrew.toolchain_detect import ToolchainInfo
+
+        binary = tmp_path / "game.exe"
+        binary.write_bytes(b"MZ" + b"\x00" * 200)
+
+        def _fake_detect(path):
+            return ToolchainInfo(
+                family="borlandc",
+                confidence="high",
+                arch="x86_16",
+                version_hint="Borland C/C++",
+            )
+
+        monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", _fake_detect)
+        notes: list[str] = []
+        _warn_explicit_toolchain(binary, "tc16", notes)
+        assert "warning" not in capsys.readouterr().err
 
 
 class TestWatcomLink:
-    """watcom must be in the intake toolchain-link map so intake on a
-    Watcom binary auto-links toolchain/watcom/2.0-win32 (like msvc1.52's msvc-1.52-win16)."""
+    """watcom derives a registry link so intake on a Watcom binary auto-links
+    toolchain/watcom/2.0-win32 (like msvc1.52's msvc/1.52-win16)."""
 
     def test_watcom_has_link_entry(self) -> None:
-        from rebrew.intake import _TOOLCHAIN_LINKS
+        from rebrew.intake import _link_names_for
 
-        assert "watcom" in _TOOLCHAIN_LINKS
-        link_name, src_name = _TOOLCHAIN_LINKS["watcom"]
-        assert link_name == "watcom/2.0-win32"
-        assert src_name == "watcom/2.0-win32"
+        assert _link_names_for("watcom") == ("watcom/2.0-win32", "watcom/2.0-win32")
 
 
 class TestSuggestProfileBorland:

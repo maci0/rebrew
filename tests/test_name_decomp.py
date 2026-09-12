@@ -35,6 +35,14 @@ class TestFieldLayout:
         lay = struct_field_layout("typedef struct emb {\n\tstruct inner x;\n\tint b;\n} emb;\n")
         assert not lay.complete
 
+    def test_unsized_array_marks_incomplete(self) -> None:
+        lay = struct_field_layout("typedef struct u {\n\tint a;\n\tchar x[];\n} u;\n")
+        assert not lay.complete
+
+    def test_symbolic_dim_marks_incomplete(self) -> None:
+        lay = struct_field_layout("typedef struct s {\n\tchar buf[N];\n} s;\n")
+        assert not lay.complete
+
 
 class TestApplyKnownNames:
     _DEFS = {
@@ -104,6 +112,26 @@ class TestApplyKnownNames:
         out = apply_known_names(text, self._DEFS)
         assert out.code == text
         assert out.applied == []
+
+    def test_bare_int_arithmetic_not_rewritten(self) -> None:
+        """A bare ``var + N`` on a plain int (no deref/cast/index evidence)
+        is integer arithmetic, not a member access."""
+        text = "int a0;\nint i;\nfor (i = 0; i < 4; i++) { x = a0 + 0x10; }\n"
+        out = apply_known_names(text, self._DEFS)
+        assert out.code == text
+        assert out.applied == []
+
+    def test_pointer_width_from_arch(self) -> None:
+        defs = {"p": "typedef struct p {\n\tint *next;\n} p;\n"}
+        lay32 = struct_field_layout(defs["p"], pointer_width=4)
+        assert lay32.fields[0] == ("next", 4)
+        assert lay32.size == 4
+        lay16 = struct_field_layout(defs["p"], pointer_width=2)
+        assert lay16.fields[0] == ("next", 2)
+        assert lay16.size == 2
+        lay64 = struct_field_layout(defs["p"], pointer_width=8)
+        assert lay64.fields[0] == ("next", 8)
+        assert lay64.size == 8
 
     def test_global_address_offsets_untouched(self) -> None:
         # 0x100358A0 is an image-base address, not a field — no rewrite.

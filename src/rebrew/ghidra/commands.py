@@ -67,7 +67,9 @@ def build_bookmark_commands(
             continue
         va = e.get("va")
         status = str(e.get("status", ""))
-        if not va or status not in _STATUS_BOOKMARK_CATEGORY:
+        # ``va is None``, not ``not va``: 16-bit targets legitimately place a
+        # function at VA 0 and its bookmark was silently dropped.
+        if va is None or status not in _STATUS_BOOKMARK_CATEGORY:
             continue
         out.append(
             _bookmark_cmd(program_path, f"0x{va:08X}", _STATUS_BOOKMARK_CATEGORY[status], status)
@@ -268,8 +270,15 @@ def pull_data(
 
         arr_match = re.fullmatch(r"(.+?)\[(.+)\]", dtype)
         if arr_match:
-            base = _normalize_ghidra_type(arr_match.group(1).strip())
+            base = arr_match.group(1).strip()
             dim = arr_match.group(2).strip()
+            # Ghidra's ``undefined``/``undefinedN`` are raw bytes in the scalar
+            # branch below; the array branch must map them the same way, or the
+            # header declares ``extern undefined g_blob[16];``.
+            if re.fullmatch(r"undefined(\d+)?", base.lower()):
+                base = "unsigned char"
+            else:
+                base = _normalize_ghidra_type(base)
             return f"extern {base} {symbol_name}[{dim}];", ""
 
         if dtype:

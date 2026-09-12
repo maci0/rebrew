@@ -69,6 +69,24 @@ class TestParsePrototype:
         assert cc == "cdecl"
         assert n == 0
         assert w == 32
+        assert is_void
+
+    def test_static_void_is_void(self) -> None:
+        """A leading storage class must not hide the void return type: a void
+        function leaves EAX undefined at exit, so comparing it yields a
+        spurious "EAX differs" counterexample and the function can never be
+        PROVEN (the raw declaration line carries `static`)."""
+        for proto in (
+            "static void f(void)",
+            "static void __cdecl f(int a)",
+            "extern void f(void)",
+            "inline void f(void)",
+        ):
+            _cc, _n, _w, is_void = _parse_prototype(proto)
+            assert is_void, proto
+        # A non-void static function still reports a return value.
+        _cc, _n, _w, is_void = _parse_prototype("static int f(void)")
+        assert not is_void
 
     def test_pointer_args_counted_correctly(self) -> None:
         cc, n, w, is_void = _parse_prototype("int __cdecl baz(int *p, char *q)")
@@ -410,94 +428,74 @@ class TestWin32SimProcedures:
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(scope="module")
+def angr_project() -> Any:
+    """One shared blob Project for the constraint tests.
+
+    Project construction dominates per-test cost (~15 tests, timeout=30
+    each); every test below takes a fresh blank state from this project,
+    so constraints never leak between tests.
+    """
+    import io
+
+    import angr
+
+    return angr.Project(
+        io.BytesIO(b"\xc3"),
+        main_opts={"backend": "blob", "arch": "x86", "base_addr": 0, "entry_point": 0},
+        auto_load_libs=False,
+    )
+
+
+def _fresh_state_args(project: Any, n_args: int = 4) -> tuple[Any, list[Any]]:
+    """Fresh blank state + symbolic args from the shared project."""
+    import claripy
+
+    return project.factory.blank_state(addr=0), [claripy.BVS(f"arg_{i}", 32) for i in range(n_args)]
+
+
 @pytest.mark.skipif(
     not has_angr,
     reason="angr not installed (run 'uv sync --all-extras' to enable prove tests)",
 )
 class TestApplyArgConstraints:
-    """Test _apply_arg_constraints with real angr state objects."""
+    """Test _apply_arg_constraints with real angr state objects.
 
-    def _make_state_and_args(self, n_args: int = 4) -> tuple[Any, list[Any]]:
-        import io
+    Each test takes a fresh blank state from the module-scoped project;
+    states are never shared, so constraints cannot leak between tests.
+    """
 
-        import angr
-        import claripy
+    def _make_state_and_args(self, project: Any, n_args: int = 4) -> tuple[Any, list[Any]]:
+        return _fresh_state_args(project, n_args)
 
-        # Minimal x86 blob: ret
-        blob = b"\xc3"
-        proj = angr.Project(
-            io.BytesIO(blob),
-            main_opts={"backend": "blob", "arch": "x86", "base_addr": 0, "entry_point": 0},
-            auto_load_libs=False,
-        )
-        state = proj.factory.blank_state(addr=0)
-        args = [claripy.BVS(f"arg_{i}", 32) for i in range(n_args)]
-        return state, args
+    @pytest.mark.parametrize(
+        ("constraint", "check"),
+        [
+            (
+                {"arg0": {"type": "pointer", "struct_size": 16}},
+                lambda s, a: s.solver.eval(a[0]) == 0xA000_0000,
+            ),
+            (
+                {"arg1": {"type": "range", "min": 10, "max": 100}},
+                lambda s, a: 10 <= s.solver.eval(a[1]) <= 100,
+            ),
+            ({"arg2": {"type": "null"}}, lambda s, a: s.solver.eval(a[2]) == 0),
+            ({"arg3": {"type": "nonzero"}}, lambda s, a: s.solver.eval(a[3]) != 0),
+            (
+                {"arg0": {"type": "bitmask", "mask": "0x0000FFFF"}},
+                lambda s, a: s.solver.eval(a[0]) <= 0xFFFF,
+            ),
+        ],
+        ids=["pointer", "range", "null", "nonzero", "bitmask"],
+    )
+    def test_scalar_constraints(self, angr_project: Any, constraint: dict, check: Any) -> None:
+        state, args = self._make_state_and_args(angr_project)
+        _apply_arg_constraints(state, args, constraint)
+        assert check(state, args)
 
-    def test_pointer_constraint(self) -> None:
-        state, args = self._make_state_and_args()
-        _apply_arg_constraints(
-            state,
-            args,
-            {
-                "arg0": {"type": "pointer", "struct_size": 16},
-            },
-        )
-        # arg0 should be concretised to the alloc base
-        val = state.solver.eval(args[0])
-        assert val == 0xA000_0000
-
-    def test_range_constraint(self) -> None:
-        state, args = self._make_state_and_args()
-        _apply_arg_constraints(
-            state,
-            args,
-            {
-                "arg1": {"type": "range", "min": 10, "max": 100},
-            },
-        )
-        val = state.solver.eval(args[1])
-        assert 10 <= val <= 100
-
-    def test_null_constraint(self) -> None:
-        state, args = self._make_state_and_args()
-        _apply_arg_constraints(
-            state,
-            args,
-            {
-                "arg2": {"type": "null"},
-            },
-        )
-        val = state.solver.eval(args[2])
-        assert val == 0
-
-    def test_nonzero_constraint(self) -> None:
-        state, args = self._make_state_and_args()
-        _apply_arg_constraints(
-            state,
-            args,
-            {
-                "arg3": {"type": "nonzero"},
-            },
-        )
-        val = state.solver.eval(args[3])
-        assert val != 0
-
-    def test_bitmask_constraint(self) -> None:
-        state, args = self._make_state_and_args()
-        _apply_arg_constraints(
-            state,
-            args,
-            {
-                "arg0": {"type": "bitmask", "mask": "0x0000FFFF"},
-            },
-        )
-        val = state.solver.eval(args[0])
-        assert val <= 0xFFFF
-
-    def test_out_of_range_arg_ignored(self) -> None:
+    def test_out_of_range_arg_ignored(self, angr_project: Any) -> None:
         """Constraint for arg10 when only 4 args exist should be silently ignored."""
-        state, args = self._make_state_and_args(4)
+        state, args = self._make_state_and_args(angr_project, 4)
         _apply_arg_constraints(
             state,
             args,
@@ -508,14 +506,14 @@ class TestApplyArgConstraints:
         # Smoke test: verifies no crash on edge case input
         assert state.solver.satisfiable()
 
-    def test_empty_constraints_noop(self) -> None:
-        state, args = self._make_state_and_args()
+    def test_empty_constraints_noop(self, angr_project: Any) -> None:
+        state, args = self._make_state_and_args(angr_project)
         _apply_arg_constraints(state, args, {})
         # Smoke test: verifies no crash on edge case input
         assert state.solver.satisfiable()
 
-    def test_unknown_type_ignored(self) -> None:
-        state, args = self._make_state_and_args()
+    def test_unknown_type_ignored(self, angr_project: Any) -> None:
+        state, args = self._make_state_and_args(angr_project)
         _apply_arg_constraints(
             state,
             args,
@@ -526,9 +524,9 @@ class TestApplyArgConstraints:
         # Smoke test: verifies no crash on edge case input
         assert state.solver.satisfiable()
 
-    def test_pointer_with_handle_field(self) -> None:
+    def test_pointer_with_handle_field(self, angr_project: Any) -> None:
         """Deep struct: handle field should be non-zero, non-INVALID."""
-        state, args = self._make_state_and_args()
+        state, args = self._make_state_and_args(angr_project)
         _apply_arg_constraints(
             state,
             args,
@@ -549,9 +547,9 @@ class TestApplyArgConstraints:
         assert handle_val != 0
         assert handle_val != 0xFFFFFFFF
 
-    def test_pointer_with_concrete_field(self) -> None:
+    def test_pointer_with_concrete_field(self, angr_project: Any) -> None:
         """Deep struct: concrete field should have exact value."""
-        state, args = self._make_state_and_args()
+        state, args = self._make_state_and_args(angr_project)
         _apply_arg_constraints(
             state,
             args,
@@ -568,9 +566,9 @@ class TestApplyArgConstraints:
         val = state.solver.eval(state.memory.load(0xA000_0008, 4, endness="Iend_LE"))
         assert val == 42
 
-    def test_pointer_with_zero_field(self) -> None:
+    def test_pointer_with_zero_field(self, angr_project: Any) -> None:
         """Deep struct: zero field should be 0."""
-        state, args = self._make_state_and_args()
+        state, args = self._make_state_and_args(angr_project)
         _apply_arg_constraints(
             state,
             args,
@@ -587,9 +585,9 @@ class TestApplyArgConstraints:
         val = state.solver.eval(state.memory.load(0xA000_0000, 4, endness="Iend_LE"))
         assert val == 0
 
-    def test_pointer_with_range_field(self) -> None:
+    def test_pointer_with_range_field(self, angr_project: Any) -> None:
         """Deep struct: range field should be within bounds."""
-        state, args = self._make_state_and_args()
+        state, args = self._make_state_and_args(angr_project)
         _apply_arg_constraints(
             state,
             args,
@@ -606,9 +604,9 @@ class TestApplyArgConstraints:
         val = state.solver.eval(state.memory.load(0xA000_0004, 4, endness="Iend_LE"))
         assert 10 <= val <= 50
 
-    def test_pointer_with_nested_pointer_field(self) -> None:
+    def test_pointer_with_nested_pointer_field(self, angr_project: Any) -> None:
         """Deep struct: nested pointer should point to a valid allocated region."""
-        state, args = self._make_state_and_args()
+        state, args = self._make_state_and_args(angr_project)
         _apply_arg_constraints(
             state,
             args,
@@ -628,9 +626,9 @@ class TestApplyArgConstraints:
         # The nested region should be readable (symbolic, not erroring)
         state.memory.load(nested_ptr, 4, endness="Iend_LE")
 
-    def test_pointer_without_fields_unchanged(self) -> None:
+    def test_pointer_without_fields_unchanged(self, angr_project: Any) -> None:
         """Pointer constraint without fields should behave as before."""
-        state, args = self._make_state_and_args()
+        state, args = self._make_state_and_args(angr_project)
         _apply_arg_constraints(
             state,
             args,
@@ -849,9 +847,12 @@ class TestProveEquivalenceCheckEdxMocked:
         # let the REAL _compare_state_pairs produce the verdict.
         calls = {"n": 0}
 
-        def fake_run_simulation(proj: object, state: object, **kw: object) -> list[object]:
+        def fake_run_simulation(
+            proj: object, state: object, **kw: object
+        ) -> tuple[list[object], bool]:
             calls["n"] += 1
-            return [state_orig] if calls["n"] == 1 else [state_comp]
+            states = [state_orig] if calls["n"] == 1 else [state_comp]
+            return states, False
 
         monkeypatch.setattr("rebrew.prove._run_simulation", fake_run_simulation)
 
@@ -1406,3 +1407,73 @@ class TestProveCeilingFilter:
         assert result.exit_code == 0
         assert "ceiling_fn" in result.output
         assert "plain_fn" in result.output
+
+
+class TestProveBatchEmptySchema:
+    def test_empty_batch_json_has_full_schema(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The empty-candidate branch emitted {total, proven, failed, results}
+        while the normal branch adds schema_version/already_matched, so a script
+        reading those KeyError'd exactly on an empty result."""
+        import json
+        import shutil
+
+        from typer.testing import CliRunner
+
+        from rebrew.prove import app
+
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[targets.GAME]\nbinary = "game.exe"\nreversed_dir = "src"\nsource_ext = ".c"\n'
+        )
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "f.c").write_text(
+            "// FUNCTION: GAME 0x00001000\nint __cdecl f(void) { return 0; }\n"
+        )
+        shutil.copy(FIXTURES / "mini_pe.exe", tmp_path / "game.exe")
+        (tmp_path / "rebrew-functions.toml").write_text("")
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(
+            app, ["--all", "--json", "--target", "GAME"], catch_exceptions=False
+        )
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.stdout)
+        assert data["schema_version"] == 1
+        assert data["already_matched"] == 0
+        assert data["total"] == 0
+
+
+@pytest.mark.skipif(
+    not has_angr,
+    reason="angr not installed (run 'uv sync --all-extras' to enable prove tests)",
+)
+class TestSharedArgConstraintSymbols:
+    """The batch prover constrains the original AND compiled states; they must
+    read the same input or Z3 invents a field-value counterexample."""
+
+    def _states(self, project: Any) -> tuple[Any, Any]:
+        state_a, args_a = _fresh_state_args(project, 4)
+        state_b, args_b = _fresh_state_args(project, 4)
+        return (state_a, args_a), (state_b, args_b)
+
+    def test_shared_table_gives_one_variable(self, angr_project: Any) -> None:
+        spec = {"arg0": {"type": "pointer", "struct_size": 16}}
+        (state_a, args_a), (state_b, args_b) = self._states(angr_project)
+        table: dict = {}
+        _apply_arg_constraints(state_a, args_a, spec, syms=table)
+        _apply_arg_constraints(state_b, args_b, spec, syms=table)
+        for off in (0, 4, 8, 12):
+            load_a = state_a.memory.load(0xA000_0000 + off, 4, endness="Iend_LE")
+            load_b = state_b.memory.load(0xA000_0000 + off, 4, endness="Iend_LE")
+            assert str(load_a) == str(load_b), f"offset {off:#x} differs"
+
+    def test_separate_tables_give_distinct_variables(self, angr_project: Any) -> None:
+        """Premise: claripy mints a fresh variable per BVS call even for an
+        identical name, which is why the two states must share one table."""
+        spec = {"arg0": {"type": "pointer", "struct_size": 4}}
+        (state_a, args_a), (state_b, args_b) = self._states(angr_project)
+        _apply_arg_constraints(state_a, args_a, spec, syms={})
+        _apply_arg_constraints(state_b, args_b, spec, syms={})
+        load_a = str(state_a.memory.load(0xA000_0000, 4, endness="Iend_LE"))
+        load_b = str(state_b.memory.load(0xA000_0000, 4, endness="Iend_LE"))
+        assert load_a != load_b

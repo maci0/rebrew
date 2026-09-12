@@ -20,6 +20,7 @@ written (same rule as ``rebrew crt-match --fix-source``).
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -121,6 +122,7 @@ class LibCandidate:
     kind: str  # "crt" | "flirt" | "import"
     confidence: float
     source_ref: str = ""
+    source_line: int = 0
 
 
 #: zlib/zlib-adjacent API name prefixes → ZLIB module (FLIRT hits without
@@ -198,6 +200,10 @@ def _crt_candidates(cfg: Any) -> list[LibCandidate]:
         console.print(f"[yellow]warning:[/yellow] CRT matching skipped: {exc}")
         return []
     out: list[LibCandidate] = []
+    # Same SOURCE spelling as `rebrew crt-match --fix-source` (file:line for a
+    # parsed definition) — the two tools write the same key for the same match.
+    from rebrew.crt_match import _source_ref
+
     for m in matches:
         out.append(
             LibCandidate(
@@ -206,7 +212,8 @@ def _crt_candidates(cfg: Any) -> list[LibCandidate]:
                 module=m.source.module.upper(),
                 kind="crt",
                 confidence=m.confidence,
-                source_ref=m.source.file,
+                source_ref=_source_ref(m.source),
+                source_line=m.source.line,
             )
         )
     return out
@@ -315,11 +322,18 @@ def _import_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
 
 
 def _existing_vas(cfg: Any) -> set[int]:
-    """VAs that already have a FUNCTION/LIBRARY annotation anywhere."""
-    from rebrew.crt_match import collect_library_annotations
+    """VAs that already have a FUNCTION/LIBRARY annotation anywhere.
+
+    ``crt_match.collect_library_annotations`` deliberately drops FUNCTION
+    markers outside ``library_modules``, so using it here let a LIBRARY marker
+    be appended over an already-decompiled function.  ``naming.load_existing_vas``
+    keeps every FUNCTION/LIBRARY marker (only GLOBAL/DATA are skipped) and
+    scans the same trees.
+    """
+    from rebrew.naming import load_existing_vas
 
     try:
-        return {ann.va for _path, ann in collect_library_annotations(cfg)}
+        return set(load_existing_vas(cfg.reversed_dir, cfg))
     except Exception:
         return set()
 
@@ -327,7 +341,9 @@ def _existing_vas(cfg: Any) -> set[int]:
 def collect_candidates(cfg: Any, default_module: str | None = None) -> list[LibCandidate]:
     """Run all three backends and merge by VA (best provenance wins)."""
     if not default_module:
-        lib_modules = [m for m in (getattr(cfg, "library_modules", []) or []) if m]
+        # ``library_modules`` is a set: sort so the default module is stable
+        # across processes (set iteration order varies with hash randomization).
+        lib_modules = sorted(m for m in (getattr(cfg, "library_modules", []) or []) if m)
         default_module = (lib_modules[0] if lib_modules else "MSVCRT").upper()
 
     merged: dict[int, LibCandidate] = {}
@@ -345,17 +361,31 @@ def collect_candidates(cfg: Any, default_module: str | None = None) -> list[LibC
 def _append_entry(header: Path, cand: LibCandidate) -> None:
     """Append one minimal reccmp-compatible LIBRARY entry to *header*."""
     block = f"// LIBRARY: {cand.module} 0x{cand.va:08x}\n// {cand.name}\n\n"
+    # A pre-existing header may not end in a newline; a bare append would
+    # splice the marker onto its last line (e.g. code), corrupting the entry.
+    prefix = ""
+    try:
+        if header.exists() and header.stat().st_size:
+            with header.open("rb") as fh:
+                fh.seek(-1, os.SEEK_END)
+                if fh.read(1) != b"\n":
+                    prefix = "\n"
+    except OSError:
+        prefix = ""
     with header.open("a", encoding="utf-8") as f:
-        f.write(block)
+        f.write(prefix + block)
 
 
 def write_candidates(cfg: Any, candidates: list[LibCandidate], existing: set[int]) -> int:
     """Write new ``library_<module>.h`` entries for *candidates*.
 
     Only VAs not in *existing* are written (idempotent).  High-confidence CRT
-    matches also get their SOURCE metadata written.  Returns the count.
+    matches with a parsed definition also get their SOURCE metadata written
+    (same rule as ``rebrew crt-match --fix-source``: filename-only evidence
+    never auto-writes).  Returns the count.
     """
     from rebrew.annotation import update_annotation_key
+    from rebrew.crt_match import SOURCE_AUTO_WRITE_MIN_CONFIDENCE
 
     written = 0
     by_module: dict[str, list[LibCandidate]] = {}
@@ -368,7 +398,12 @@ def write_candidates(cfg: Any, candidates: list[LibCandidate], existing: set[int
         header = cfg.reversed_dir / f"library_{module.lower()}.h"
         for cand in cands:
             _append_entry(header, cand)
-            if cand.kind == "crt" and cand.confidence >= 0.85 and cand.source_ref:
+            if (
+                cand.kind == "crt"
+                and cand.confidence >= SOURCE_AUTO_WRITE_MIN_CONFIDENCE
+                and cand.source_line > 0
+                and cand.source_ref
+            ):
                 try:
                     update_annotation_key(
                         header,
@@ -395,9 +430,11 @@ def _iter_libs(libs_dir: Path) -> Iterator[Path]:
 def _resolve_lib_dir(cfg: Any, lib_dir: Path | None) -> Path | None:
     """Locate the toolchain's .lib directory (for --build-sigs).
 
-    Order: explicit --lib-dir → ``toolchain/msvc/6.0-win32/source/VC98/Lib``
-    (the vendored tree in the rebrew-toolchains checkout) → ``tools/``
-    directories containing ``*.lib`` files.
+    Order: explicit ``--lib-dir`` → the project's own ``tools/`` trees that
+    contain ``*.lib`` files → the vendored
+    ``toolchain/msvc/6.0-win32/source/VC98/Lib`` in the rebrew-toolchains
+    checkout.  The project's tree wins over the shared checkout, so a project
+    that pins its own MSVC libraries builds signatures from those.
     """
     if lib_dir is not None:
         return lib_dir if lib_dir.is_dir() else None
@@ -501,43 +538,51 @@ def main(
     existing = _existing_vas(cfg)
 
     fresh = [c for c in candidates if c.va not in existing]
-    if dry_run or json_output:
-        payload = {
-            "sigs_written": sigs_written,
-            "identified": len(candidates),
-            "already_annotated": len(candidates) - len(fresh),
-            "to_write": len(fresh),
-            "candidates": [
-                {
-                    "va": f"0x{c.va:08x}",
-                    "name": c.name,
-                    "module": c.module,
-                    "kind": c.kind,
-                    "confidence": round(c.confidence, 2),
-                }
-                for c in candidates
-            ],
-        }
-        if json_output:
-            json_print(payload)
-        else:
-            console.print(f"[bold]Identified:[/bold] {len(candidates)} library functions")
-            console.print(
-                f"[dim]{len(candidates) - len(fresh)} already annotated, "
-                f"{len(fresh)} to write[/dim]"
-            )
-            if build_sigs:
-                console.print(f"[dim]sigs_written: {payload['sigs_written']}[/dim]")
-            for c in fresh:
-                console.print(
-                    f"  [dim]0x{c.va:08x}[/dim] {c.name} ({c.module}, {c.kind}, "
-                    f"conf {c.confidence:.2f})"
-                )
-            if not dry_run:
-                console.print("[yellow]dry-run not set — this would write.[/yellow]")
+
+    # `--json` changes only the output ENCODING — it must still write.  The old
+    # `if dry_run or json_output: ... return` skipped write_candidates, so
+    # `identify-library --json` advertised N writes and performed none while
+    # the sibling `crt-match --fix-source --all --json` does write.
+    written = 0
+    if not dry_run:
+        written = write_candidates(cfg, candidates, existing)
+
+    if json_output:
+        json_print(
+            {
+                "sigs_written": sigs_written,
+                "identified": len(candidates),
+                "already_annotated": len(candidates) - len(fresh),
+                "to_write": len(fresh),
+                "written": written,
+                "candidates": [
+                    {
+                        "va": f"0x{c.va:08x}",
+                        "name": c.name,
+                        "module": c.module,
+                        "kind": c.kind,
+                        "confidence": round(c.confidence, 2),
+                    }
+                    for c in candidates
+                ],
+            }
+        )
         return
 
-    written = write_candidates(cfg, candidates, existing)
+    if dry_run:
+        console.print(f"[bold]Identified:[/bold] {len(candidates)} library functions")
+        console.print(
+            f"[dim]{len(candidates) - len(fresh)} already annotated, {len(fresh)} to write[/dim]"
+        )
+        if build_sigs:
+            console.print(f"[dim]sigs_written: {sigs_written}[/dim]")
+        for c in fresh:
+            console.print(
+                f"  [dim]0x{c.va:08x}[/dim] {c.name} ({c.module}, {c.kind}, "
+                f"conf {c.confidence:.2f})"
+            )
+        return
+
     console.print(
         f"[green]Wrote {written} library entr{'y' if written == 1 else 'ies'}[/green] "
         f"({len(candidates)} identified, {len(candidates) - written} already annotated)."

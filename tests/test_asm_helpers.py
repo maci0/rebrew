@@ -235,6 +235,35 @@ class TestCallingConvention:
 
         assert calling_convention([]) == "unknown"
 
+    def test_next_va_trims_neighbor_ret(self) -> None:
+        """A bleed window ending in the neighbor's `ret 8` must not report
+        the neighbor's stdcall — the function's own plain ret is cdecl."""
+        from rebrew.asm import calling_convention
+
+        insns = [
+            self._i("mov", "eax, [esp+4]"),
+            self._i("ret"),
+            self._i("mov", "eax, [esp+4]"),
+            self._i("ret", "8"),
+        ]
+        for insn, va in zip(insns, (0x1000, 0x1003, 0x1004, 0x1008), strict=True):
+            insn.address = va
+        assert calling_convention(insns) == "stdcall"  # untrimmed: last ret wins
+        assert calling_convention(insns, next_va=0x1004) == "cdecl"
+
+    def test_end_va_trims_neighbor_ret(self) -> None:
+        from rebrew.asm import calling_convention
+
+        insns = [
+            self._i("mov", "eax, [esp+4]"),
+            self._i("ret"),
+            self._i("mov", "eax, [esp+4]"),
+            self._i("ret", "8"),
+        ]
+        for insn, va in zip(insns, (0x1000, 0x1003, 0x1004, 0x1008), strict=True):
+            insn.address = va
+        assert calling_convention(insns, end_va=0x1004) == "cdecl"
+
 
 class TestDetectFunctionPattern:
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:

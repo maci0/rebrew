@@ -127,7 +127,12 @@ def detect_unmatchable(
     arch = cs_arch if cs_arch is not None else capstone.CS_ARCH_X86
     mode = cs_mode if cs_mode is not None else capstone.CS_MODE_32
     md = _get_capstone(arch, mode)
-    for insn in md.disasm(raw, va):
+    # Disassemble only the function's OWN bytes: `raw` is `max(size, 8)` long to
+    # give a short prologue enough bytes to decode, and running the scan over
+    # the padding let the FOLLOWING function's first instruction (e.g. `bt`)
+    # mark this ordinary C function as unmatchable.
+    scan = raw[:size] if size else raw
+    for insn in md.disasm(scan, va):
         mnem = insn.mnemonic
         if mnem in ("bt", "bts"):
             return "ASM-origin CRT (BT/BTS)"
@@ -296,7 +301,7 @@ def load_data(
             covered_vas[entry.va] = rel_name
 
     # Scan library_*.h files for identified CRT/zlib functions
-    for hfile in iter_library_headers(src_dir):
+    for hfile in iter_library_headers(src_dir, cfg):
         lib_entries = parse_library_header(hfile, target_name=target_marker(cfg))
         for entry in lib_entries:
             if entry.va < min_valid_va_for(cfg):
@@ -350,8 +355,9 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
                 continue
             existing[entry.va] = rel_name
 
-    # Scan library_*.h files for identified CRT/zlib functions
-    for hfile in iter_library_headers(src_path):
+    # Scan library_*.h files for identified CRT/zlib functions (plus the
+    # project's shared root when cfg says this directory is the target tree).
+    for hfile in iter_library_headers(src_path, cfg):
         lib_entries = parse_library_header(hfile, target_name=target_marker(cfg))
         for entry in lib_entries:
             if entry.va < min_valid_va_for(cfg):
@@ -373,6 +379,10 @@ def find_neighbor_file(
     returns the filename — suggesting the uncovered function should be
     appended to that file rather than getting its own skeleton.
 
+    Header entries are skipped: ``covered_vas``/``load_existing_vas`` include
+    ``library_*.h`` LIBRARY markers, and this result is used as a
+    ``rebrew skeleton --append`` target, which would inject C into the header.
+
     Args:
         va: The uncovered function's virtual address.
         existing_vas: Mapping of covered VA -> filename (from load_existing_vas).
@@ -384,6 +394,10 @@ def find_neighbor_file(
     if not existing_vas:
         return None
 
+    def _is_appendable(name: str) -> bool:
+        """A `.c` source, not a `library_*.h` marker file."""
+        return Path(name).suffix.lower() not in (".h", ".hpp")
+
     covered = _sorted_keys if _sorted_keys is not None else sorted(existing_vas)
     idx = bisect.bisect_left(covered, va)
     best_file = None
@@ -393,7 +407,7 @@ def find_neighbor_file(
     if idx > 0:
         left_va = covered[idx - 1]
         gap = va - left_va
-        if gap <= max_gap and gap < best_gap:
+        if gap <= max_gap and gap < best_gap and _is_appendable(existing_vas[left_va]):
             best_gap = gap
             best_file = existing_vas[left_va]
 
@@ -401,7 +415,7 @@ def find_neighbor_file(
     if idx < len(covered):
         right_va = covered[idx]
         gap = right_va - va
-        if gap <= max_gap and gap < best_gap:
+        if gap <= max_gap and gap < best_gap and _is_appendable(existing_vas[right_va]):
             best_gap = gap
             best_file = existing_vas[right_va]
 

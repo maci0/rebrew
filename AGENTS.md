@@ -46,7 +46,7 @@ MSVC static CRT, `/MT /O2 /Gd`) fill missing fields via presets.  See
 uv pip install -e .
 uv sync --all-extras            # with dev deps
 
-# Run all tests (~4850)
+# Run all tests (~6000)
 uv run pytest tests/ -v
 
 # Single file
@@ -196,6 +196,7 @@ src/rebrew/
 ├── similar.py           # Find structurally similar functions
 ├── binary_similarity.py # Whole-binary structural similarity vs another binary (versions/DLL+EXE)
 ├── match.py             # GA engine — single or batch (--all); absorbs old ga.py
+├── climb.py             # `rebrew climb` — deterministic adjacent-statement hill-climb (GA complement)
 │
 ├── # --- CLI tools (each exports app, main, main_entry) ---
 ├── test.py              # Compile, byte-compare, auto-update STATUS
@@ -225,8 +226,12 @@ src/rebrew/
 ├── cross_import.py      # `rebrew cross-import` — import functions matched in another target
 ├── lzexe_cli.py         # `rebrew unpack-lzexe` — unpack LZEXE 0.90/0.91 DOS executables
 ├── binsync_import.py    # Import a BinSync state dir into rebrew metadata
+├── binsync_init.py      # `rebrew binsync-init`: create the BinSync git envelope (root + user branches)
 ├── binsync_diff.py      # Read-only BinSync divergence report
-├── binsync_state.py     # Shared BinSync-state readers for the binsync CLIs
+├── binsync_state.py     # Shared declib-backed state readers for the binsync CLIs
+├── binsync_serial.py    # Thin declib wrapper: artifact dump/load + state layout
+├── binsync_overlay.py   # `rebrew binsync-overlay` — map a related target's BinSync data across VAs
+├── binsync_cli.py       # `rebrew binsync` umbrella: push/pull/summary + flat commands
 ├── lint.py              # Lint C annotations + corpus consistency (W028: markers vs function list)
 ├── llm_seed.py          # LLM alternative-implementation seeding for GA (--llm-seed)
 ├── near_diag.py         # Classify why NEAR_MATCHING doesn't byte-match (register/equiv/reloc/structural + EFFECTIVE)
@@ -255,6 +260,8 @@ src/rebrew/
 ├── status.py            # Reversing progress overview
 ├── toolchain_detect.py  # Compiler/version detection (diec → PDB → heuristics)
 ├── dashboard.py         # Read-only web dashboard over db/coverage.db
+├── crypto_scan.py       # `rebrew crypto-scan` — constant-table + API/name crypto detection
+├── fingerprints.py      # `rebrew fingerprints` — digests, imphash, Rich header, entropy, TLSH/ssdeep
 ├── data.py              # Global data scanner (.data/.rdata/.bss); --annotate inserts
 │                        # // GLOBAL: markers; --layout-audit/--fill-data placement
 ├── data_layout.py       # Shared .data placement model (audit, pad emission, ownership)
@@ -262,7 +269,7 @@ src/rebrew/
 ├── flirt.py             # FLIRT signature scanning (project flirt_sigs/ merged
 │                        # with the sibling rebrew-flirt-sigs checkout)
 ├── build_db.py          # Build SQLite coverage DB from data JSON
-├── binsync_export.py    # Export annotations to BinSync state dir
+├── binsync_export.py    # Export annotations to a declib BinSync state dir
 ├── round_trip.py        # Splice matched functions back into PE, verify byte equality
 ├── resource.py          # PE resource comparison
 ├── cfg.py               # Multi-command: list-targets, show, add-target, set, set-cflags, etc.
@@ -357,7 +364,7 @@ if __name__ == "__main__":
 - `TargetOption` + `require_config()` from `rebrew.cli` — never build config manually. Use `load_config()` from `rebrew.config` only for optional loads (e.g. `lint.py`, `doctor.py`).
 - `main_entry()` registered in `pyproject.toml` `[project.scripts]`.
 - Most tools support `--json`; always use it for structured output when invoking them yourself.
-- Multi-command modules (registered via `add_typer()` in `main.py`'s `_MULTI_COMMANDS`): `extract.py` (`list`, `show`, `batch`), `cfg.py` (`list-targets`, `show`, `add-target`, `remove-target`, `add-module`, `remove-module`, `set`, `set-cflags`, `raw`, `path`, `detect-crt`), `cache_cli.py` (`stats`, `clear`), `skills.py` (`list`, `show`), `resource.py`, `library.py`, `toolchain_cli.py` (`list`, `status`, `detect`, `pull`, `build`, `vendor`, `smoke`, `update`, `check-updates`).
+- Multi-command modules (registered via `add_typer()` in `main.py`'s `_MULTI_COMMANDS`): `extract.py` (`list`, `show`, `batch`), `cfg.py` (`list-targets`, `show`, `add-target`, `remove-target`, `add-module`, `remove-module`, `set`, `set-cflags`, `raw`, `path`, `detect-crt`), `cache_cli.py` (`stats`, `clear`), `skills.py` (`list`, `show`), `resource.py`, `library.py`, `toolchain_cli.py` (`list`, `status`, `detect`, `pull`, `build`, `vendor`, `smoke`, `update`, `check-updates`), `binsync_cli.py` (`push`, `pull`, `summary`, `init`, `diff`, `overlay`).
 
 ### CLI Conventions
 
@@ -417,7 +424,7 @@ alongside the packaged ones; a duplicate name is a `RegistryError`.
 - **Don't reimplement**: if an imported library provides it, use it
 - **Declarative component registration**: toolchains, decompiler backends, CLI commands, GA mutations, sweep flag sets, library presets, detection-family alignment, binary-family detectors, binary loaders, MSVC version-exact tables, and compile-cache backends register through `rebrew.registry` — setuptools entry-point groups (`rebrew.toolchains`, `rebrew.decompiler_backends`, `rebrew.commands`, `rebrew.multicommands`, `rebrew.mutations`, `rebrew.flag_sets`, `rebrew.library_presets`, `rebrew.toolchain_detectors`, `rebrew.binary_detectors`, `rebrew.binary_loaders`, `rebrew.msvc_versions`, `rebrew.cache_backends`) plus the `REBREW_TOOLCHAIN_OVERLAY_DIR` TOML overlay for project-local toolchains (a spec may declare `bits = 16` to join the arch-alignment set) and the `REBREW_SKILLS_DIR` overlay for community skills.  Built-ins are the packaged base registry; a duplicate name between any two sources is a `RegistryError` (single-source discipline) — except tuning-data registries (`rebrew.flag_sets`, `rebrew.library_presets`, `rebrew.msvc_versions`), where a provider extends/overrides packaged knowledge.  CLI import failures degrade to stub commands; a broken non-CLI registration is reported where it loads.  Adding a component must not require editing host source.  Long-lived processes pick up plugins installed after startup via `rebrew.registry.refresh_all()` (each module also exposes a single-registry `refresh_*`).
 - **No backward compat**: one name per function — no aliases/shims/wrappers
-- **Volatile metadata**: fields `STATUS`, `CFLAGS`, `BLOCKER`, `NOTE`, `GHIDRA` live in per-directory `rebrew-functions.toml` via `rebrew.metadata` — never edit manually (STATUS via `update_source_status`/`update_statuses_batch`; BLOCKER via `update_field`/`remove_field` through `rebrew blocker set/clear` or the auto-writers `rebrew diff --fix-blocker`/`near-diag --fix-blocker`/`document-unmatched`)
-- **Metadata write-lock**: `rebrew-functions.toml`, `rebrew-data.toml`, and the binsync exports (`functions/*.toml`, `global_vars.toml`, `structs/*.toml`) are written **read-only (mode 0444)** by the tool (`atomic_write_locked` chmods writable before touching and re-locks after). Direct edits fail with Permission denied; to change anything, use the CLI — it chmods writable, updates, and re-locks.
+- **Volatile metadata**: fields `STATUS`, `CFLAGS`, `BLOCKER`, `NOTE`, `GHIDRA`, `LOCALS`, `COMMENTS` live in per-directory `rebrew-functions.toml` via `rebrew.metadata` — never edit manually (STATUS via `update_source_status`/`update_statuses_batch`; BLOCKER via `update_field`/`remove_field` through `rebrew blocker set/clear` or the auto-writers `rebrew diff --fix-blocker`/`near-diag --fix-blocker`/`document-unmatched`)
+- **Metadata write-lock**: `rebrew-functions.toml`, `rebrew-data.toml`, and the declib binsync artifacts (`functions/*.toml`, `global_vars.toml`, `structs/*.toml`, `comments.toml`, `enums.toml`, `typedefs.toml`, `metadata.toml`) are written **read-only (mode 0444)** by the tool (`atomic_write_locked` chmods writable before touching and re-locks after). Direct edits fail with Permission denied; to change anything, use the CLI — it chmods writable, updates, and re-locks.
 - **STATUS promotion**: only via `rebrew.metadata` writers — `update_source_status(metadata_dir, new_status, module, va)` (single; `rebrew test`) or `update_statuses_batch(metadata_dir, updates)` (batch; `rebrew verify`) — never write `STATUS` in `.c` files. BLOCKER likewise only via `update_field`/`remove_field` (see above). Status is *earned*: `rebrew verify` promotes/demotes from the actual byte comparison; a hand-claimed `PROVEN` is honored only over the byte states a proven function legitimately produces, and a stale claim is demoted to the real byte result with a `metadata: warning`.
 - **Compile result**: `compile_and_compare` (`rebrew.compile`) / `verify_entry` (`rebrew.verify`) → `CompareResult`; use `.matched`, `.status`, `.delta`, `.match_percent` — never tuple-unpack.

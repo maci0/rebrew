@@ -96,6 +96,57 @@ def _require_angr() -> None:
 _WIN32_SIMPROCS: dict[str, type] | None = None  # lazily populated
 
 
+_MEMCPY_MAX_LEN = 1024
+
+
+def _copy_length_or_none(solver: Any, n: Any) -> int | None:
+    """Bounded copy length for a symbolic ``memcpy``/``memset`` length.
+
+    Returns ``None`` when the copy cannot be modelled in full — either *n* is
+    symbolic and unconstrained above the copy cap, or *n* is a concrete value
+    above the cap — because copying only the admissible prefix then silently
+    dropping the rest would prove the compared prefix (P0: claiming PROVEN for
+    bytes that differ past the cap is unsound).  Otherwise returns the length
+    the SimProc may copy, at most ``_MEMCPY_MAX_LEN``: a concrete length at or
+    below the cap is honoured exactly, and a solver-bounded symbolic length is
+    honoured at its maximum (the bound is in the path constraints on both
+    sides, so proving the max-length copy proves every admissible length).
+    """
+    import claripy
+
+    if not n.symbolic:
+        length = int(solver.eval(n, 1)[0])
+        if length > _MEMCPY_MAX_LEN:
+            # Only the prefix fits the model; the tail would be left
+            # unconstrained on both sides (the unsound-prefix case).
+            return None
+        return length
+    try:
+        hi = int(solver.max(n))
+    except Exception:
+        return None
+    if hi > _MEMCPY_MAX_LEN and solver.satisfiable(
+        extra_constraints=(claripy.UGT(n, _MEMCPY_MAX_LEN),)
+    ):
+        return None
+    return min(hi, _MEMCPY_MAX_LEN)
+
+
+def _raise_unbounded_copy(solver: Any, n: Any) -> None:
+    """Abort the state on a copy length the model cannot cover (fail closed).
+
+    Raises so angr marks the state errored and excludes it from the terminal
+    states: the proof then reports no/incomplete states (INCONCLUSIVE)
+    instead of equating two prefixes.  The bound travels in the message.
+    """
+    raise RuntimeError(
+        f"memcpy/memset length exceeds the {_MEMCPY_MAX_LEN}B copy cap "
+        "(symbolic and unbounded, or a concrete value above it) — cannot prove "
+        "equivalence over the whole copy (bound the length via "
+        "prove_constraints or refactor to a bounded copy)"
+    )
+
+
 def _cached_verify_status(cfg: Any, va: int) -> str | None:
     """Return the verify-cache status for *va* (target-guarded), or None.
 
@@ -174,12 +225,14 @@ def _get_win32_simprocs() -> dict[str, type]:
         """Model memcpy: copy src→dst symbolically, return dst."""
 
         def run(self, dst: Any, src: Any, n: Any) -> Any:
-            # Concretise length to avoid explosion; cap at 1024.  If the
-            # solver cannot concretise n, let the exception propagate — angr
-            # marks the state errored and it is excluded from the terminal
-            # states, so the proof fails closed instead of silently treating
-            # the memcpy as a no-op (which could fake an equivalence).
-            length = min(self.state.solver.eval(n), 1024)
+            # Copy the full admissible length, capped at _MEMCPY_MAX_LEN.
+            # A symbolic length unbounded above the cap refuses the proof
+            # (fail closed): copying one concretised length would only prove
+            # the compared prefix while claiming the whole copy.
+            length = _copy_length_or_none(self.state.solver, n)
+            if length is None:
+                _raise_unbounded_copy(self.state.solver, n)
+                return dst  # unreachable; keeps mypy's flow analysis honest
             if length > 0:
                 data = self.state.memory.load(src, length)  # type: ignore[no-untyped-call]
                 self.state.memory.store(dst, data)  # type: ignore[no-untyped-call]
@@ -189,10 +242,13 @@ def _get_win32_simprocs() -> dict[str, type]:
         """Model memset: fill dst with byte value, return dst."""
 
         def run(self, dst: Any, val: Any, n: Any) -> Any:
-            # Same fail-closed policy as SimMemcpy: a solver failure on the
-            # length propagates and errors the state rather than no-op'ing
-            # the memset on both sides (which could fake equivalence).
-            length = min(self.state.solver.eval(n), 1024)
+            # Same fail-closed policy as SimMemcpy: an unbounded symbolic
+            # length errors the state rather than no-op'ing the memset on
+            # both sides (which could fake equivalence).
+            length = _copy_length_or_none(self.state.solver, n)
+            if length is None:
+                _raise_unbounded_copy(self.state.solver, n)
+                return dst  # unreachable; keeps mypy's flow analysis honest
             if length > 0:
                 byte_val = claripy.Extract(7, 0, val)
                 for i in range(length):
@@ -392,8 +448,17 @@ def _apply_arg_constraints(
     state: Any,
     sym_args: list[Any],
     constraints: dict[str, Any],
+    *,
+    syms: dict[tuple[str, int], Any] | None = None,
 ) -> None:
     """Apply user-specified constraints to symbolic function arguments.
+
+    *syms* is the per-run symbol table.  Callers that constrain the SAME
+    arguments on two states (the equivalence prover's original and compiled
+    sides) MUST pass one shared dict: ``claripy.BVS`` mints a fresh variable per
+    call even for an identical name, so two independent calls install unrelated
+    inputs and Z3 then "proves" a difference that the constraint was supposed to
+    remove.  A caller constraining a single state can omit it.
 
     Constraint spec is a dict like::
 
@@ -426,6 +491,22 @@ def _apply_arg_constraints(
     """
     import claripy
 
+    table: dict[tuple[str, int], Any] = {} if syms is None else syms
+
+    def _sym(name: str, width: int) -> Any:
+        """One symbolic variable per (name, width) for the whole run.
+
+        Reusing the SAME object across states is what makes the two sides read
+        the same input; a fresh ``claripy.BVS`` per call (the old behaviour)
+        gave them unrelated variables.
+        """
+        key = (name, width)
+        sym = table.get(key)
+        if sym is None:
+            sym = claripy.BVS(name, width)
+            table[key] = sym
+        return sym
+
     for key, spec in constraints.items():
         m = re.match(r"arg(\d+)$", key)
         if not m or int(m.group(1)) >= len(sym_args):
@@ -443,7 +524,7 @@ def _apply_arg_constraints(
             state.solver.add(arg == alloc_base)
             # Fill the pointed-to region with symbolic bytes
             for off in range(0, struct_size, 4):
-                sym_field = claripy.BVS(f"arg{idx}_field_{off:#x}", 32)
+                sym_field = _sym(f"arg{idx}_field_{off:#x}", 32)
                 state.memory.store(alloc_base + off, sym_field, endness="Iend_LE")
 
             # Deep field initialization — override specific offsets with
@@ -458,7 +539,7 @@ def _apply_arg_constraints(
                     addr = alloc_base + off
 
                     if ftype == "handle":
-                        h = claripy.BVS(f"arg{idx}_handle_{off:#x}", 32)
+                        h = _sym(f"arg{idx}_handle_{off:#x}", 32)
                         state.solver.add(h != 0)
                         state.solver.add(h != 0xFFFFFFFF)
                         state.memory.store(addr, h, endness="Iend_LE")
@@ -470,22 +551,22 @@ def _apply_arg_constraints(
                         # Fill nested region with symbolic bytes
                         nested_size = int(field_spec.get("size", 32))
                         for noff in range(0, nested_size, 4):
-                            sym_nested = claripy.BVS(f"arg{idx}_nested_{off:#x}_{noff:#x}", 32)
+                            sym_nested = _sym(f"arg{idx}_nested_{off:#x}_{noff:#x}", 32)
                             state.memory.store(nested_base + noff, sym_nested, endness="Iend_LE")
                     elif ftype == "word":
-                        w = claripy.BVS(f"arg{idx}_word_{off:#x}", 16)
+                        w = _sym(f"arg{idx}_word_{off:#x}", 16)
                         state.memory.store(addr, w.zero_extend(16), endness="Iend_LE")
                     elif ftype == "byte":
-                        b = claripy.BVS(f"arg{idx}_byte_{off:#x}", 8)
+                        b = _sym(f"arg{idx}_byte_{off:#x}", 8)
                         state.memory.store(addr, b.zero_extend(24), endness="Iend_LE")
                     elif ftype == "zero":
                         state.memory.store(addr, claripy.BVV(0, 32), endness="Iend_LE")
                     elif ftype == "nonzero":
-                        nz = claripy.BVS(f"arg{idx}_nz_{off:#x}", 32)
+                        nz = _sym(f"arg{idx}_nz_{off:#x}", 32)
                         state.solver.add(nz != 0)
                         state.memory.store(addr, nz, endness="Iend_LE")
                     elif ftype == "range":
-                        r = claripy.BVS(f"arg{idx}_range_{off:#x}", 32)
+                        r = _sym(f"arg{idx}_range_{off:#x}", 32)
                         lo = int(field_spec.get("min", 0))
                         hi = int(field_spec.get("max", 0xFFFF_FFFF))
                         state.solver.add(claripy.UGE(r, lo))
@@ -529,6 +610,28 @@ _PROTO_RE = re.compile(
 )
 
 
+_SPECIFIER_RE = re.compile(
+    r"^(?:static|extern|inline|register|auto|const|volatile)\s+", re.IGNORECASE
+)
+
+
+def _strip_type_specifiers(type_text: str) -> str:
+    """Drop leading storage-class/function specifiers from a return type.
+
+    ``ann.prototype`` is the raw declaration line, so a leading ``static``
+    survives into the regex's return-type group (``static void f(void)`` →
+    ``"static void"``); comparing that against ``"void"`` made a static void
+    function look like it returns a value, and the prover then compared the
+    undefined EAX at exit (a spurious counterexample).
+    """
+    out = type_text.strip()
+    while True:
+        m = _SPECIFIER_RE.match(out)
+        if m is None:
+            return out
+        out = out[m.end() :].strip()
+
+
 def _parse_prototype(proto: str) -> tuple[str, int, int, bool]:
     """Parse a C prototype string into (calling_convention, arg_count, return_width_bits, is_void).
 
@@ -538,7 +641,9 @@ def _parse_prototype(proto: str) -> tuple[str, int, int, bool]:
     (``long long``, ``__int64``, ``int64_t``, ``uint64_t``, or
     ``long double`` — conservative), 32 otherwise.  ``is_void`` is True when
     the return type is ``void`` — a void function leaves EAX (and EDX)
-    undefined at exit, so those registers must not be compared.
+    undefined at exit, so those registers must not be compared.  Leading
+    storage-class specifiers (``static``, ``extern``, ``inline``) are dropped
+    before that comparison.
     """
     m = _PROTO_RE.match(proto.strip())
     if not m:
@@ -546,7 +651,7 @@ def _parse_prototype(proto: str) -> tuple[str, int, int, bool]:
 
     cc = (m.group("cc") or "__cdecl").lstrip("_").lower()
     args_str = m.group("args").strip()
-    ret_type = (m.group("ret") or "").strip()
+    ret_type = _strip_type_specifiers(m.group("ret") or "")
 
     is_void = ret_type.lower() == "void"
 
@@ -713,11 +818,14 @@ def _run_simulation(
     *,
     loop_bound: int,
     timeout: int,
-) -> list[Any]:
-    """Run symbolic execution and return satisfiable terminal states.
+) -> tuple[list[Any], bool]:
+    """Run symbolic execution and return (satisfiable terminal states, timed_out).
 
     Module-level so tests can patch it with crafted states and exercise the
-    real comparison logic (:func:`_compare_state_pairs`).
+    real comparison logic (:func:`_compare_state_pairs`).  The ``timed_out``
+    flag is True when the wall-clock budget expired while states were still
+    active — callers must treat that as an inconclusive proof (fail closed),
+    never as equivalence, because unexplored paths may still differ.
     """
     import angr  # # lazy import (angr is an optional extra)
 
@@ -738,7 +846,7 @@ def _run_simulation(
 
     if timed_out:
         warnings.warn(
-            "Symbolic execution timed out — using partial states",
+            "Symbolic execution timed out — path cover is incomplete",
             stacklevel=2,
         )
     # Prefer fully-terminated states (PathTerminator at RETURN_SENTINEL);
@@ -746,7 +854,7 @@ def _run_simulation(
     terminal = list(sm.deadended)
     if not terminal:
         terminal = list(sm.unconstrained) or list(sm.active)
-    return terminal
+    return terminal, timed_out
 
 
 def _find_call_sites(blob: bytes) -> list[int]:
@@ -782,6 +890,61 @@ def _find_call_sites(blob: bytes) -> list[int]:
         if not (0 <= target < len(blob)):
             sites.append(insn.address)
     return sites
+
+
+def _fingerprint_args(solver: Any, args: tuple[Any, ...]) -> str:
+    """Hashable fingerprint of stub arguments for per-call-site return sharing.
+
+    Concrete args hash by value; symbolic args by their AST structure, which
+    distinguishes distinct formulas (``strcmp(a, b)`` vs ``strcmp(c, d)``)
+    while equating the same formula across both projects.  Python ``hash``
+    on claripy ASTs is identity-based (two same-named ``BVS`` differ), so
+    the key is structural: ``(op, name-or-value, children)``.
+    """
+    import claripy
+
+    def _key(a: Any) -> Any:
+        if isinstance(a, claripy.ast.BV):
+            if not a.symbolic:
+                return ("BVV", solver.eval(a, 1)[0])
+            # Per-site counter: index the formula's variables canonically so
+            # the same constraint shape on two projects fingerprints equal.
+            # The BVS name minifies as "<label>_<counter>_<bits>"; the label
+            # is the stable part (the counter differs per process), and
+            # distinct names within one formula stay distinct (strcmp(a, b)
+            # vs strcmp(a, a)), as do different ops and concrete leaves.
+            names = sorted(a.variables)
+            canon = {name: f"v{i}" for i, name in enumerate(names)}
+
+            def _label(var: str) -> str:
+                stem, _, _ = var.rpartition("_")
+                mid, _, _ = stem.rpartition("_")
+                return mid or stem
+
+            canon = {_label(name): f"v{i}_{_label(name)}" for i, name in enumerate(names)}
+
+            def _node(n: Any) -> Any:
+                if isinstance(n, claripy.ast.BV):
+                    if not n.symbolic:
+                        return ("BVV", solver.eval(n, 1)[0])
+                    if n.op == "BVS":
+                        leaf = next(iter(n.variables), str(n.args[0]))
+                        return ("BVS", canon.get(_label(leaf), leaf))
+                    return (n.op,) + tuple(
+                        _node(c) if isinstance(c, claripy.ast.Base) else c for c in n.args
+                    )
+                return ("py", repr(n))
+
+            return _node(a)
+        return ("py", repr(a))
+
+    parts: list[str] = []
+    for a in args:
+        try:
+            parts.append(repr(_key(a)))
+        except Exception:
+            parts.append(f"r:{a!r}")
+    return "|".join(parts)
 
 
 def prove_equivalence(
@@ -955,20 +1118,16 @@ def prove_equivalence(
     #    are exactly as numerous as the compiled blob's reloc'd calls, every
     #    external call is present on both sides in the same execution order,
     #    so pairing call #k of each side to the same stub makes both observe
-    #    the same unconstrained return value for the same logical call.
-    #    Writing the compiled offsets into the original blob instead would
-    #    corrupt its instruction stream (a REL32 displacement landing in the
-    #    middle of a push immediate) and produce bogus "EAX differs"
-    #    counterexamples — e.g. m_AllocTracked, where the g_array_ptr==0
-    #    fatal path was reported as returning the malloc stub value vs 0.
+    #    the same return value for the same logical call.  Writing the
+    #    compiled offsets into the original blob instead would corrupt its
+    #    instruction stream (a REL32 displacement landing in the middle of a
+    #    push immediate) and produce bogus "EAX differs" counterexamples —
+    #    e.g. m_AllocTracked, where the g_array_ptr==0 fatal path was
+    #    reported as returning the malloc stub value vs 0.
     #
-    #  * Offset-based (historical): when the counts differ (the original
-    #    reaches helpers via IAT or intra-blob calls that the compiled
-    #    version relocates, or vice versa), fall back to patching the
-    #    original blob at the compiled offsets.  The stray writes can corrupt
-    #    instructions, but for value-independent call sites the corruption
-    #    never reaches the compared output, and this preserves the proven
-    #    behaviour of functions like CrashDumpUnhandledExceptionFilter.
+    #  * Count mismatch: no sound pairing exists, so the proof is refused as
+    #    INCONCLUSIVE rather than patching the original blob at compiled
+    #    offsets (the historical fallback, which proved corrupted bytes).
     patched_comp = bytearray(compiled_bytes)
     patched_orig = bytearray(original_bytes)
 
@@ -984,6 +1143,15 @@ def prove_equivalence(
             if 1 <= off <= len(compiled_bytes) - 4 and compiled_bytes[off - 1] == 0xE8
         ]
         order_pair = len(orig_call_sites) == len(reloc_call_offsets)
+        if not order_pair:
+            return False, (
+                "INCONCLUSIVE: external call-site counts differ between the "
+                f"original ({len(orig_call_sites)}) and compiled ({len(reloc_call_offsets)}) "
+                "blobs — no sound call-site pairing exists (patching the original "
+                "at compiled offsets would corrupt its instruction stream). "
+                "Narrow the range with --start-offset/--end-offset or prove with "
+                "--watch-va for the differing side effect."
+            )
         orig_call_k = 0  # next orig call site to pair by order
         for i, (offset, _sym_name) in enumerate(sorted(reloc_offsets.items())):
             if 0 <= offset <= len(compiled_bytes) - 4:
@@ -992,30 +1160,23 @@ def prove_equivalence(
                 # => displacement = stub_addr - (offset + 4)  (mod 2^32)
                 disp = (stub_addr - (offset + 4)) & 0xFFFFFFFF
                 patched_comp[offset : offset + 4] = struct.pack("<I", disp)
-                if offset >= 1 and compiled_bytes[offset - 1] == 0xE8:
-                    if order_pair:
-                        # Order-paired mode: patch the original blob's k-th
-                        # external call with the same stub.  Capstone reports
-                        # the call opcode address; the REL32 displacement
-                        # follows one byte later.
-                        if orig_call_k < len(orig_call_sites):
-                            o_off = orig_call_sites[orig_call_k] + 1
-                            if o_off + 4 <= len(original_bytes):
-                                o_disp = (stub_addr - (o_off + 4)) & 0xFFFFFFFF
-                                patched_orig[o_off : o_off + 4] = struct.pack("<I", o_disp)
-                            orig_call_k += 1
-                    else:
-                        # Offset-based mode: historical behaviour — patch the
-                        # original blob at the same displacement offset.
-                        if offset + 4 <= len(original_bytes):
-                            o_disp = (stub_addr - (offset + 4)) & 0xFFFFFFFF
-                            patched_orig[offset : offset + 4] = struct.pack("<I", o_disp)
-                elif not order_pair and offset + 4 <= len(original_bytes):
-                    # DIR32 data reference — historical behaviour also patches
-                    # the original blob at the same offset.  Order-paired mode
-                    # leaves data refs untouched: real-VA reads zero-fill and
-                    # pushed string operands are ignored by the stubs.
-                    patched_orig[offset : offset + 4] = struct.pack("<I", disp)
+                if (
+                    offset >= 1
+                    and compiled_bytes[offset - 1] == 0xE8
+                    and orig_call_k < len(orig_call_sites)
+                ):
+                    # Order-paired mode: patch the original blob's k-th
+                    # external call with the same stub.  Capstone reports
+                    # the call opcode address; the REL32 displacement
+                    # follows one byte later.
+                    o_off = orig_call_sites[orig_call_k] + 1
+                    if o_off + 4 <= len(original_bytes):
+                        o_disp = (stub_addr - (o_off + 4)) & 0xFFFFFFFF
+                        patched_orig[o_off : o_off + 4] = struct.pack("<I", o_disp)
+                        orig_call_k += 1
+                # DIR32 data references need no patch on the original side:
+                # real-VA reads zero-fill and pushed string operands are
+                # ignored by the stubs.
                 stub_hooks.append(stub_addr)
 
     # DIR32 data references whose symbol resolved into watched_vas must point
@@ -1069,23 +1230,25 @@ def prove_equivalence(
     except Exception as e:
         return False, f"Failed to create angr projects: {e}"
 
-    # Shared registry of return-value symbols per stub address. Both
-    # projects' SimProcedures look up the same BV when hitting the
-    # same stub, so external call returns are constrained-equal
-    # across the equivalence check. Without this, ReturnUnconstrained
-    # creates fresh symbols per project, and Z3 finds counterexamples
-    # where two wrappers return "different" nondet values for the same
-    # external call — making RELOC wrapper functions unprovable.
-    shared_stub_returns: dict[int, Any] = {}
+    # Shared registry of return-value symbols keyed by (stub address,
+    # call-site address, argument fingerprint).  Both projects' SimProcedures
+    # look up the same BV when the same call site fires with equal arguments,
+    # so external call returns are constrained-equal across the equivalence
+    # check.  Without sharing, ReturnUnconstrained creates fresh symbols per
+    # project, and Z3 finds counterexamples where two wrappers return
+    # "different" nondet values for the same external call — making RELOC
+    # wrapper functions unprovable.  Without the call-site + args key, one
+    # shared BV per stub would instead equate *distinct* calls (two strcmp
+    # results, two malloc pointers), which can fake an equivalence.
+    shared_stub_returns: dict[tuple[int, int, str], Any] = {}
 
     class SharedReturnStub(angr.SimProcedure):
-        """SimProcedure that returns a shared 32-bit BV per stub address.
+        """SimProcedure returning a shared 32-bit BV per (stub, call site, args).
 
-        Looks up the stub_addr in *shared_stub_returns*. If unseen,
-        creates a new claripy BVS and stores it. Returns the stored BV.
-        Both projects' invocations at the same stub_addr therefore
-        return the same symbol — Z3 then deduces external-call return
-        equivalence.
+        ``claripy.BVS`` names embed a per-site counter when an arg is
+        symbolic, so each distinct call site (and each distinct symbolic
+        argument formula at that site) gets its own symbol.  Concrete args
+        hash by value; anything unhashable falls back to ``repr``.
         """
 
         ARGS_MISMATCH = True
@@ -1093,10 +1256,12 @@ def prove_equivalence(
         def run(self, *args: Any, **kwargs: Any) -> Any:
             stub_addr = self.addr
             assert stub_addr is not None  # angr sets addr before invoking run()
-            bv = shared_stub_returns.get(stub_addr)
+            callsite = self.state.solver.eval(self.state.regs.eip - 5)
+            key = (stub_addr, callsite, _fingerprint_args(self.state.solver, args))
+            bv = shared_stub_returns.get(key)
             if bv is None:
-                bv = claripy.BVS(f"shared_ret_0x{stub_addr:x}", 32)
-                shared_stub_returns[stub_addr] = bv
+                bv = claripy.BVS(f"shared_ret_0x{stub_addr:x}_0x{callsite:x}", 32)
+                shared_stub_returns[key] = bv
             return bv
 
     # Hook all stub addresses on both blobs.  Prefer specific Win32
@@ -1141,14 +1306,22 @@ def prove_equivalence(
 
     state_comp = _setup_state(proj_comp)
 
-    # Apply user-specified argument constraints to reduce path explosion
+    # Apply user-specified argument constraints to reduce path explosion.  ONE
+    # symbol table for both states: fresh per-state field symbols made the two
+    # sides read unrelated inputs, so an identical pair was reported NOT PROVEN
+    # with a bogus field-value counterexample.
     if arg_constraints:
-        _apply_arg_constraints(state_orig, sym_args, arg_constraints)
-        _apply_arg_constraints(state_comp, sym_args, arg_constraints)
+        arg_syms: dict[tuple[str, int], Any] = {}
+        _apply_arg_constraints(state_orig, sym_args, arg_constraints, syms=arg_syms)
+        _apply_arg_constraints(state_comp, sym_args, arg_constraints, syms=arg_syms)
 
     try:
-        states_orig = _run_simulation(proj_orig, state_orig, loop_bound=loop_bound, timeout=timeout)
-        states_comp = _run_simulation(proj_comp, state_comp, loop_bound=loop_bound, timeout=timeout)
+        states_orig, timed_out_orig = _run_simulation(
+            proj_orig, state_orig, loop_bound=loop_bound, timeout=timeout
+        )
+        states_comp, timed_out_comp = _run_simulation(
+            proj_comp, state_comp, loop_bound=loop_bound, timeout=timeout
+        )
     except Exception as e:
         return False, f"Symbolic execution failed: {e}"
 
@@ -1163,6 +1336,19 @@ def prove_equivalence(
             "No terminal states reached for compiled code (timeout or path explosion) — "
             "try --timeout higher or --loop-bound higher; batch mode cannot slice, "
             "so for slice proving run rebrew prove <va> --start-offset/--end-offset"
+        )
+
+    if timed_out_orig or timed_out_comp:
+        # Fail closed: partial states only cover the paths explored before
+        # the budget expired, so a comparison over them could PROVEN a pair
+        # whose unexplored paths differ.  Report inconclusive instead.
+        side = "original" if timed_out_orig else "compiled"
+        if timed_out_orig and timed_out_comp:
+            side = "original and compiled"
+        return False, (
+            f"INCONCLUSIVE: symbolic execution timed out on the {side} side — path "
+            "cover is incomplete, so equivalence is unproven. Retry with a higher "
+            "--timeout (or narrow the range with --start-offset/--end-offset)."
         )
 
     # Compare return register(s) and (optionally) watched-VA memory across all
@@ -1914,7 +2100,19 @@ def _run_all_batch(
 
     if not candidates:
         if json_output:
-            json_print({"total": 0, "proven": 0, "failed": 0, "results": []})
+            # Same schema as the non-empty branch: a script reading
+            # `schema_version`/`already_matched` must not KeyError on an empty
+            # result (the two branches used to emit different key sets).
+            json_print(
+                {
+                    "schema_version": 1,
+                    "total": 0,
+                    "proven": 0,
+                    "already_matched": 0,
+                    "failed": 0,
+                    "results": [],
+                }
+            )
         else:
             scope = "GA_CEILING " if ceiling_only else ""
             console.print(

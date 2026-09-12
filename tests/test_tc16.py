@@ -335,3 +335,23 @@ def test_tc16_pascal_symbol_matches_via_cdecl_name() -> None:
     assert code is not None
     # pascal pushes args left-to-right, so [bp+4] is the LAST arg.
     assert code == bytes.fromhex("55 8b ec 8b 46 06 03 46 04 eb 00 5d c2 04 00")
+
+
+class TestStaleOutputIsNotSuccess:
+    def test_failed_compile_does_not_report_stale_obj(self, tmp_path: Path, monkeypatch) -> None:
+        """A reused caller-supplied workdir keeps the previous run's SRC.OBJ, so
+        a failed compile still found "output" and was reported as success."""
+        from rebrew.tc16 import Tc16Error, compile_c
+
+        tree = tmp_path / "tc16"
+        for sub in ("BIN", "INCLUDE", "LIB"):
+            (tree / sub).mkdir(parents=True)
+        monkeypatch.setattr("rebrew.tc16._find_tc16", lambda version="3.1": tree)
+        monkeypatch.setattr("rebrew.tc16.run_dosbox", lambda *a, **k: None)
+        src = tmp_path / "f.c"
+        src.write_text("int f(void) { return 1; }\n", encoding="utf-8")
+        workdir = tmp_path / "sandbox"
+        workdir.mkdir()
+        (workdir / "SRC.OBJ").write_bytes(b"stale")
+        with pytest.raises(Tc16Error, match="no object"):
+            compile_c(src, workdir)

@@ -211,6 +211,7 @@ def generate_data_json(
     src_dir: Path | None = None,
     root_dir: Path | None = None,
     metadata_dir: Path | None = None,
+    cfg: Any = None,
 ) -> dict[str, Any]:
     """Generate the coverage database structure (db/data.json).
 
@@ -227,15 +228,6 @@ def generate_data_json(
 
     unique_vas = set(by_va)
     funcs_by_va: dict[int, dict[str, Any]] = {f["va"]: f for f in funcs}
-
-    # Count functions by highest-priority status present
-    _counters = count_statuses(by_va)
-    exact_count, reloc_count, near_match_count, stub_count = (
-        _counters["EXACT"],
-        _counters["RELOC"],
-        _counters["NEAR_MATCHING"],
-        _counters["STUB"],
-    )
 
     sections: dict[str, Any] = {}
     _bin_info: BinaryInfo | None = None
@@ -257,7 +249,10 @@ def generate_data_json(
             sections.update(sections_from_info(_bin_info))
     elif bin_path:
         log.warning("Configured binary not found; sections/hashes/thunks omitted: %s", bin_path)
-    globals_dict = get_globals(src_dir) if src_dir else {}
+    # Pass cfg so global discovery matches the annotation scan: without it
+    # iter_sources falls back to ".c" only and never appends cfg.shared_dir, so
+    # every global in a .cpp or shared source vanishes from the coverage DB.
+    globals_dict = get_globals(src_dir, cfg) if src_dir else {}
     if metadata_dir is not None:
         from rebrew.data_metadata import load_data_metadata
 
@@ -315,6 +310,7 @@ def generate_data_json(
     layout_omitted = 0
 
     functions = {}
+    emitted_by_va: dict[int, list[Annotation]] = {}
     for va in sorted(unique_vas):
         elist = by_va[va]
         e = elist[0]
@@ -387,10 +383,10 @@ def generate_data_json(
             "updated_by": getattr(e, "updated_by", ""),
             "updated_at": getattr(e, "updated_at", ""),
         }
-        if e["marker_type"] not in ("GLOBAL", "DATA"):
-            emitted_fn_count += 1
-            if e["status"] in MATCHED_STATUSES:
-                emitted_matched += 1
+        emitted_fn_count += 1
+        emitted_by_va[va] = elist
+        if e["status"] in MATCHED_STATUSES:
+            emitted_matched += 1
 
     if layout_omitted:
         log.warning(
@@ -425,10 +421,25 @@ def generate_data_json(
         else:
             for va, gdata in globals_dict.items():
                 off = va - sec_va
+                size = gdata.get("size", 4)
+                # A zero-length declaration (`extern char g_pad[0];` ->
+                # estimate_type_size 0) would emit a zero-length cell: `e == off`
+                # never advances the segment loop below, so the grid build spun
+                # forever appending empty segments.  No byte evidence, no item.
+                if size is None or int(size) <= 0:
+                    continue
                 if 0 <= off < sec_size:
                     items_by_off[off] = {
-                        "size": gdata.get("size", 4),
-                        "status": "EXACT",
+                        "size": size,
+                        # The rebrew-data.toml verdict (DRIFT/VERIFIED/…), which
+                        # build_db tallies per section.  Hardcoding EXACT here
+                        # meant a DRIFTing global's covering cell still counted
+                        # as an exact match in the dashboard's section stats.
+                        # The rebrew-data.toml verdict (DRIFT/VERIFIED/…), which
+                        # build_db tallies per section.  Hardcoding EXACT here
+                        # meant a DRIFTing global's covering cell still counted
+                        # as an exact match in the dashboard's section stats.
+                        "status": str(gdata.get("status") or "EXACT"),
                         "name": gdata["name"],
                     }  # Estimated from the declaration type (pointer-sized default)
 
@@ -517,8 +528,6 @@ def generate_data_json(
                     if dl_result is not None:
                         label_va, dl_info = dl_result
                         if dl_info.state == "data":
-                            label_end_off = (label_va + dl_info.size) - sec_va
-                            absorb_size = min(label_end_off, next_func_off) - func_end_off
                             is_switch_data = True
                     elif is_jump_table(gap_bytes, sec_va, sec_size):
                         is_switch_data = True
@@ -698,6 +707,17 @@ def generate_data_json(
             source_root = f"/{src_dir.relative_to(root_dir)}"
         except ValueError:
             source_root = "/" + src_dir.name
+
+    # Status buckets tally the EMITTED functions only: entries dropped
+    # above (no section, no resolvable size) must not be counted, or the
+    # buckets exceed totalFunctions.
+    _counters = count_statuses(emitted_by_va)
+    exact_count, reloc_count, near_match_count, stub_count = (
+        _counters["EXACT"],
+        _counters["RELOC"],
+        _counters["NEAR_MATCHING"],
+        _counters["STUB"],
+    )
 
     return {
         "sections": sections,

@@ -230,6 +230,25 @@ binary = "test.exe"
         assert cfg.function_list == root / "src" / "main" / "functions.txt"
         assert cfg.bin_dir == root / "bin" / "main"
 
+    def test_link_file_align_warns_informational(self, tmp_path: Path) -> None:
+        """link.file_align is parsed but no patch path applies it (FileAlignment
+        needs a relink); the loader must warn instead of accepting a silent
+        no-op."""
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[link]
+file_align = 512
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match="file_align is informational"):
+            cfg = load_config(root)
+        assert cfg.link.file_align == 512
+
     def test_unknown_arch_falls_back(self, tmp_path: Path) -> None:
         toml = """\
 [project]
@@ -849,6 +868,37 @@ command = ""
         )
         with pytest.raises(ValueError, match=r"compiler.command must not be empty"):
             load_config(root)
+
+    def test_registry_error_propagates(self, tmp_path: Path, monkeypatch) -> None:
+        """A toolchain RegistryError (plugin conflict) must propagate from
+        config load, not be swallowed by the best-effort import guard."""
+        import rebrew.config as config_mod
+        from rebrew.registry import RegistryError
+
+        root = _make_project(
+            tmp_path,
+            """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+profile = "msvc6"
+command = ""
+""",
+        )
+        real_import = __import__
+
+        def _boom(name, *args, **kwargs):
+            if name == "rebrew.toolchain":
+                raise RegistryError("duplicate toolchain registration 'msvc6'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr("builtins.__import__", _boom)
+        with pytest.raises(RegistryError, match="duplicate toolchain"):
+            config_mod.load_config(root)
 
     def test_target_compiler_typo_warns(self, tmp_path: Path) -> None:
         root = _make_project(

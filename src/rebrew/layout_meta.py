@@ -172,6 +172,8 @@ def parse_pe(data: bytes) -> tuple[int, int, int, int, int]:
     opt = e + 24
     if opt + optsz > len(data):
         raise ValueError("truncated optional header")
+    if opt + optsz + 40 * nsec > len(data):
+        raise ValueError("truncated section table")
     if struct.unpack_from("<H", data, opt)[0] != 0x10B:
         raise ValueError("PE32+ not supported")
     image_base = struct.unpack_from("<I", data, opt + 28)[0]
@@ -192,6 +194,16 @@ def _rva_to_offset(data: bytes, e: int, nsec: int, optsz: int, rva: int) -> int 
 
 def _data_dir(data: bytes, opt: int, index: int) -> tuple[int, int]:
     return struct.unpack_from("<II", data, opt + 96 + 8 * index)
+
+
+def _iat_lookup_rva(first_thunk: int) -> int:
+    """The lookup-table RVA for a descriptor whose OFT is 0.
+
+    Per the PE rule the import is bound by the IAT itself, so the lookup
+    table *is* the IAT array named by the descriptor's own FirstThunk
+    field.  0 when the descriptor names no table either.
+    """
+    return first_thunk
 
 
 def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
@@ -229,7 +241,12 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
         if iat_rva and imp_rva > iat_rva + iat_size
         else b""
     )
-    bookkeeping = region(imp_rva, exp_rva - imp_rva) if imp_rva else b""
+    # [imp_rva : exp_rva) needs the export directory as its end.  A binary
+    # without exports (EXE, stripped-export DLL) has exp_rva == 0, which made
+    # the size negative; `region` only rejects `o + size > len(data)`, so a
+    # negative size sliced a huge wrong region that postlink then copied over
+    # the built binary.
+    bookkeeping = region(imp_rva, exp_rva - imp_rva) if imp_rva and exp_rva > imp_rva else b""
 
     def find_sec(name: str) -> SectionMeta:
         for s in sections:
@@ -264,14 +281,16 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
     hi_d = data_sec.va + data_sec.vs
 
     operands: dict[int, int] = {}
-    for i in range(len(tb) - 4):
+    # i reads tb[i:i+4]; the last dword starts at len(tb)-4.
+    for i in range(len(tb) - 3):
         v = struct.unpack_from("<I", tb, i)[0]
         rva = v - image_base
         if (lo_r <= rva < hi_r) or (lo_d <= rva < hi_d):
             operands[i] = v
 
     calls: dict[int, tuple[int, int, int]] = {}
-    for i in range(3, len(tb) - 6):
+    # i reads tb[i+4:i+6]; the last suffix ends at len(tb)-6.
+    for i in range(3, len(tb) - 5):
         if tb[i - 1] in (0xE8, 0xE9):
             rel32 = struct.unpack_from("<I", tb, i)[0]
             pre = int.from_bytes(tb[i - 3 : i - 1], "big")
@@ -290,6 +309,11 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
     if imp_rva:
         io = off(imp_rva)
         if io is not None:
+            # The lookup table is the OriginalFirstThunk (OFT) — except when
+            # the linker left OFT unbound (0), in which case the import
+            # *is* bound by the IAT itself (standard PE rule) and the IAT
+            # must be used as the lookup table instead of skipping the
+            # import or parsing the header region at oft(0) as hint/names.
             i = 0
             while io + i * 20 + 20 <= len(data):
                 oft, _ts, _fwd, name_rva, iat_va = struct.unpack_from("<IIIII", data, io + i * 20)
@@ -302,7 +326,8 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
                     if end < 0:
                         end = len(data)  # unterminated — read to EOF
                     dll = data[dll_off:end].decode("latin1", "replace")
-                oo = off(oft)
+                lookup_rva = oft if oft else _iat_lookup_rva(iat_va)
+                oo = off(lookup_rva) if lookup_rva else None
                 j = 0
                 while oo is not None:
                     nm = struct.unpack_from("<I", data, oo + 4 * j)[0]
@@ -344,10 +369,17 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
             nm_off = off(nrva)
             if nm_off is not None:
                 end = data.find(b"\0", nm_off)
+                if end < 0:
+                    end = len(data)  # unterminated — read to EOF, not to -1
                 name_by_ord[ordinal_base + ord_idx] = data[nm_off:end].decode("latin1", "replace")
         for k in range(nfuncs):
             addr = struct.unpack_from("<I", data, funcs_off + 4 * k)[0] if funcs_off else 0
             if addr == 0:
+                continue
+            if exp_rva_dir <= addr < exp_rva_dir + exp_sz:
+                # Forwarder: the RVA points at a forwarder string inside the
+                # export directory, not at code (gen_layout.parse_pe drops
+                # these too).  Recording it would claim a function at a .rdata VA.
                 continue
             exports.append(
                 {

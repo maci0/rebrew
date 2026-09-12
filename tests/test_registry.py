@@ -70,8 +70,28 @@ class TestEntryPointRegistrations:
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.commands": [("bad", ":nope")]}),
         )
-        with pytest.raises(RegistryError, match="expected 'module' or 'module:attr'"):
-            entry_point_registrations("rebrew.commands")
+        regs = entry_point_registrations("rebrew.commands")
+        assert regs == []  # skipped with a warning, not an aborted group
+
+    def test_bad_value_warns_and_keeps_good(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """One malformed entry must not abort discovery of the whole group."""
+        monkeypatch.setattr(
+            "rebrew.registry.entry_points",
+            _fake_entry_points(
+                **{
+                    "rebrew.commands": [
+                        ("bad", ":nope"),
+                        ("good", "rebrew.diagnose:main"),
+                    ]
+                }
+            ),
+        )
+        with caplog.at_level("WARNING", logger="rebrew.registry"):
+            regs = entry_point_registrations("rebrew.commands")
+        assert [r.name for r in regs] == ["good"]
+        assert any("bad" in r.message for r in caplog.records)
 
 
 class TestImportRegistration:
@@ -363,17 +383,95 @@ class TestCliRegistry:
         result = CliRunner().invoke(fresh, ["broken"])
         assert result.exit_code == 2  # EXIT_ERROR — stub reports the missing dep
 
-    def test_duplicate_vs_builtin_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_registry_error_at_import_degrades_to_stub(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A module whose import raises RegistryError (e.g. a conflicting
+        plugin registry) degrades to a stub instead of bricking the CLI."""
+        import rebrew.main
+        from rebrew.registry import RegistryError
+
+        fresh = typer.Typer()
+        monkeypatch.setattr(rebrew.main, "app", fresh)
+
+        def _boom(name: str, *args: object, **kwargs: object) -> object:
+            raise RegistryError("duplicate toolchain registration 'x'")
+
+        monkeypatch.setattr("rebrew.main.importlib.import_module", _boom)
+        rebrew.main._register_single_module("somecmd", "rebrew.diagnose", "help", None)
+        rebrew.main._register_multi_module("somegroup", "rebrew.library", "help", None)
+        result = CliRunner().invoke(fresh, ["somecmd"])
+        assert result.exit_code == 2
+        multi = CliRunner().invoke(fresh, ["somegroup"])
+        assert multi.exit_code == 2
+
+    def test_duplicate_does_not_shadow_builtin(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A colliding plugin must NOT replace the packaged command.
+
+        Typer keys commands by name and the plugin group registers last, so the
+        old "degrade to a stub under the same name" made every built-in named by
+        a plugin unusable (the stub shadowed it).
+        """
         import rebrew.main
 
         fresh = typer.Typer()
+
+        @fresh.command(name="test")
+        def _packaged_test() -> None:
+            """packaged command"""
+
+        @fresh.command(name="other")
+        def _other() -> None:
+            """keeps the app a multi-command group"""
+
         monkeypatch.setattr(rebrew.main, "app", fresh)
         monkeypatch.setattr(
             "rebrew.registry.entry_points",
             _fake_entry_points(**{"rebrew.commands": [("test", "rebrew.diagnose")]}),
         )
-        with pytest.raises(RegistryError, match="duplicate CLI command 'test'"):
-            rebrew.main._register_discovered_commands()
+        rebrew.main._register_discovered_commands()
+        # The packaged command still runs; a shadowing stub would exit 2.
+        result = CliRunner().invoke(fresh, ["test"])
+        assert result.exit_code == 0
+
+    def test_wrong_kind_plugin_degrades_to_stub(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A module:attr plugin of the wrong kind (non-callable single
+        command) degrades to a stub instead of bricking registration."""
+        import rebrew.main
+
+        fresh = typer.Typer()
+        monkeypatch.setattr(rebrew.main, "app", fresh)
+        _install_fake_module("wrong_kind_plugin", not_a_command=42)
+        monkeypatch.setattr(
+            "rebrew.registry.entry_points",
+            _fake_entry_points(
+                **{"rebrew.commands": [("wrongkind", "wrong_kind_plugin:not_a_command")]}
+            ),
+        )
+        rebrew.main._register_discovered_commands()
+        names = [c.name for c in fresh.registered_commands]
+        assert "wrongkind" in names
+        result = CliRunner().invoke(fresh, ["wrongkind"])
+        assert result.exit_code == 2
+
+    def test_multi_wrong_kind_plugin_degrades_to_stub(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A non-Typer-app object in rebrew.multicommands degrades to a stub."""
+        import rebrew.main
+
+        fresh = typer.Typer()
+        monkeypatch.setattr(rebrew.main, "app", fresh)
+        _install_fake_module("wrong_kind_multi", not_an_app=42)
+        monkeypatch.setattr(
+            "rebrew.registry.entry_points",
+            _fake_entry_points(
+                **{"rebrew.multicommands": [("wrongmulti", "wrong_kind_multi:not_an_app")]}
+            ),
+        )
+        rebrew.main._register_discovered_commands()
+        result = CliRunner().invoke(fresh, ["wrongmulti"])
+        assert result.exit_code == 2
 
 
 class TestFlagSetRegistry:
@@ -1282,3 +1380,23 @@ class TestFlagDataSyncPreservation:
         generated = '"""gen"""\n'
         out = splice_preserved_tail(generated, tmp_path / "missing.py")
         assert out == generated
+
+
+class TestImportRegistrationWrapping:
+    def test_non_import_error_is_wrapped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A plugin module raising anything at import (SyntaxError, ValueError)
+        escaped the RegistryError the skip/degrade policy keys on, so one broken
+        optional plugin bricked the module importing it."""
+        import importlib
+
+        from rebrew.registry import Registration, RegistryError, import_registration
+
+        def _boom(name: str) -> object:
+            raise ValueError("broken plugin")
+
+        monkeypatch.setattr(importlib, "import_module", _boom)
+        reg = Registration(
+            name="x", module="broken", attr="", group="rebrew.cache_backends", origin="test"
+        )
+        with pytest.raises(RegistryError):
+            import_registration(reg)

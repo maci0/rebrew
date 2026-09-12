@@ -209,9 +209,10 @@ def generate_skeleton(
     lib_modules = cfg.library_modules or set()
     marker = marker_for_module(module, "RELOC", lib_modules)
 
-    # Determine symbol name
-    symbol = "_" + custom_name if custom_name else "_" + sanitize_name(ghidra_name)
-    func_name = symbol.lstrip("_")
+    # Determine symbol name.  A custom name gets the same sanitization as a
+    # Ghidra name (non-identifier characters, leading digit, length), so
+    # `--name "my-func"` cannot emit an invalid C identifier.
+    func_name = sanitize_name(custom_name if custom_name else ghidra_name)
 
     todo = "Implement based on Ghidra decompilation"
 
@@ -259,7 +260,7 @@ def _convention_stub(
     if arch not in ("x86_32", "x86_16"):
         return None, None
     try:
-        from rebrew.asm import calling_convention, disassembled_extent_window
+        from rebrew.asm import _next_function_va, calling_convention, disassembled_extent_window
 
         # The shared extent-based window (asm.disassembled_extent_window)
         # keeps the epilogue's `ret` visible so inference works; we
@@ -268,7 +269,10 @@ def _convention_stub(
         insns, _kind = disassembled_extent_window(cfg, va)
         if not insns:
             return None, None
-        conv = calling_convention(insns)
+        # ``next_va`` trims a window that bled into the following function —
+        # without it the neighbour's ``ret N`` was read as this function's
+        # epilogue and the stub got the wrong convention/arg count.
+        conv = calling_convention(insns, next_va=_next_function_va(cfg, va))
     except Exception:  # best-effort stub shape
         logger.debug("stub-shape probe failed at 0x%08x", va, exc_info=True)
         return None, None
@@ -313,11 +317,13 @@ def _convention_stub(
         # frame, so the callee's decorated name (@N = bytes of args) gives
         # THIS function's stack-arg count (the stdcall/fastcall forwarding
         # pattern).  Best-effort — falls back to a plain signature + note.
+        # A resolved ``name@0`` (zero-arg stdcall callee) is a real answer, so
+        # the sentinel is the empty callee name, not ``n == 0``.
         n, callee = _tail_call_arg_count(insns, cfg, func_lookup)
-        if n:
+        if callee:
             args = ", ".join(f"int a{i}" for i in range(1, n + 1))
             return (
-                f"int __stdcall {func_name}({args})",
+                f"int __stdcall {func_name}({args or 'void'})",
                 f"ends in a tail call to {callee} ({n} stack arg(s) forwarded)",
             )
         return (
@@ -342,6 +348,10 @@ def _tail_call_arg_count(
     for a frame-forwarding tail jmp it equals the caller's own stack args.
     Scans jmps backward (the window may include the next function's code);
     accepts the first one whose target resolves to a decorated name.
+
+    The empty ``callee`` string is the unresolved sentinel: a resolved
+    zero-arg callee returns ``(0, "_name@0")``, which is a real answer (the
+    caller must test ``callee``, not the count).
 
     *func_lookup* may carry a prebuilt VA→(name, status) map (see
     ``rebrew.asm.build_function_lookup``); building it scans the whole
@@ -405,8 +415,8 @@ def generate_annotation_block(
     lib_modules = cfg.library_modules or set()
     marker = marker_for_module(module, "RELOC", lib_modules)
 
-    symbol = "_" + custom_name if custom_name else "_" + sanitize_name(ghidra_name)
-    func_name = symbol.lstrip("_")
+    # Same name sanitization as generate_skeleton (custom names included).
+    func_name = sanitize_name(custom_name if custom_name else ghidra_name)
 
     # Same calling-convention-aware stub as generate_skeleton: append mode is
     # the common multi-function path, so thiscall/stdcall shapes must not

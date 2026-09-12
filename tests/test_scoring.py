@@ -94,6 +94,8 @@ class TestNormalizeReloc:
             b"\x8b\x84\x9d\x34\x12\x00\x10\xc3",  # mov eax,[ebp*4+disp32] (SIB)
             b"\x83\x3d\x34\x12\x00\x10\x01\xc3",  # cmp [abs],1
             b"\xff\x15\x34\x12\x00\x10\xc3",  # call [abs]
+            b"\x66\xa1\x34\x12\x00\x10\xc3",  # mov ax,[abs32] (prefixed moffs)
+            b"\xf0\x08\x14\xf5\xab\xc2\x65\x8f",  # lock or [esi*8+disp32], dl
             b"\x55\x8b\xec\x83\xec\x10",  # non-reloc unchanged
         ]
         for code in cases:
@@ -101,6 +103,20 @@ class TestNormalizeReloc:
             fast, mnems = _normalize_and_mnems_x86_32(code)
             assert fast == detail, f"parity mismatch for {code.hex()}"
             assert mnems, f"no mnemonics extracted for {code.hex()}"
+
+    def test_negative_reloc_offsets_skipped(self) -> None:
+        """Negative offsets are nonsensical for zeroing — they must leave the
+        bytes untouched (the old max(0, ro) clamp zeroed [0, pointer_size),
+        disagreeing with _build_invalid_reloc_mask which skips them)."""
+        from rebrew.matcher.scoring import _normalize_with_reloc_offsets
+
+        code = b"\x55\x8b\xec\x5d\xc3"
+        assert _normalize_with_reloc_offsets(code, [-5]) == code
+        assert _normalize_with_reloc_offsets(code, [-1]) == code
+        assert _normalize_with_reloc_offsets(code, {-3: "neg"}) == code
+        # Non-negative offsets still zero their span.
+        assert _normalize_with_reloc_offsets(code, [0]) == b"\x00\x00\x00\x00\xc3"
+        assert _normalize_with_reloc_offsets(code, [100]) == code
 
 
 # -------------------------------------------------------------------------
@@ -206,6 +222,17 @@ class TestScoreCandidate:
         code = b"\x55\x8b\xec\xe8\x01\x02\x03\x04\xc3"
         score = score_candidate(code, code, reloc_offsets=[-1, 4])
         assert score.reloc_score == 0.0
+
+    def test_negative_reloc_offset_does_not_mask_low_bytes(self) -> None:
+        """A negative offset must not excuse real byte diffs: ro=-2 with
+        pointer_size 4 yields indices [-2,-1,0,1], and the vectorized mask kept
+        0 and 1 (the in-range tail of a span that ends before the function)."""
+        target = b"\x55\x8b\xec\x83\xec\x10\xc3"
+        cand = b"\x90\x90\xec\x83\xec\x10\xc3"
+        with_neg = score_candidate(target, cand, reloc_offsets=[-2])
+        without = score_candidate(target, cand, reloc_offsets=None)
+        assert with_neg.byte_score == without.byte_score
+        assert with_neg.byte_score > 0.0
 
     def test_deletion_not_rewarded(self) -> None:
         """A correct-length candidate with some wrong bytes MUST score better

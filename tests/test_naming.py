@@ -201,3 +201,32 @@ class TestDetectUnmatchableConfig:
 
         monkeypatch.setattr("rebrew.naming.extract_bytes_at_va", lambda *a, **k: None)
         assert detect_unmatchable(0x1000, 10, SimpleNamespace()) is None
+
+
+class TestNeighborFileSkipsHeaders:
+    def test_library_header_is_not_an_append_target(self) -> None:
+        """`covered_vas`/`load_existing_vas` include `library_*.h` markers, and
+        this result becomes a `skeleton --append` target — appending C into a
+        header."""
+        from rebrew.naming import find_neighbor_file
+
+        assert find_neighbor_file(0x1050, {0x1000: "library_crt.h"}) is None
+        # A .c neighbour is still returned.
+        assert find_neighbor_file(0x1050, {0x1000: "func_a.c"}) == "func_a.c"
+        # The nearest APPENDABLE neighbour wins over a closer header.
+        assert (
+            find_neighbor_file(0x1050, {0x1040: "library_crt.h", 0x1080: "func_a.c"}) == "func_a.c"
+        )
+
+
+class TestUnmatchableStopsAtFunctionEnd:
+    def test_next_functions_bytes_do_not_mark_this_one(self, monkeypatch) -> None:
+        """`raw` is max(size, 8) bytes; scanning past `size` let the NEXT
+        function's first instruction mark an ordinary 6-byte C function as
+        unmatchable (dropping it from `todo`)."""
+        raw = bytes.fromhex("55 8b ec 33 c0 5d") + bytes.fromhex("0f a3 c8")  # ...; bt eax, ecx
+        binary = SimpleNamespace()
+        monkeypatch.setattr("rebrew.naming.extract_bytes_at_va", lambda *a, **k: raw)
+        from rebrew.naming import detect_unmatchable
+
+        assert detect_unmatchable(0x1000, 6, binary) is None

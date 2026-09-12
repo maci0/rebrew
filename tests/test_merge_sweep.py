@@ -35,9 +35,9 @@ C = 0x10003000
 D = 0x10004000
 
 
-def _score_of(values: dict[tuple[tuple[int, ...], ...], int]):
-    def score(partition: list[list[int]]) -> int:
-        return values[_partition_key(partition)]
+def _score_of(values: dict[tuple[tuple[int, ...], ...], int], cost: int = 1) -> Any:
+    def score(partition: list[list[int]]) -> tuple[int, int]:
+        return values[_partition_key(partition)], cost
 
     return score
 
@@ -166,14 +166,25 @@ class TestSearchPartitions:
         initial = [[A], [B]]
         calls = 0
 
-        def score(partition: list[list[int]]) -> int:
+        def score(partition: list[list[int]]) -> tuple[int, int]:
             nonlocal calls
             calls += 1
-            return 10 if len(partition) == 2 else 9
+            return (10 if len(partition) == 2 else 9), 1
 
         _, _, _, _ = search_partitions(initial, score, {A: {B}}, {}, {})
         # initial + merged candidate; a revisit would add more calls
         assert calls == 2
+
+    def test_budget_counts_real_invocations(self) -> None:
+        """The cap charges compiler invocations, not partitions scored."""
+        initial = [[A], [B]]
+
+        def pricey(partition: list[list[int]]) -> tuple[int, int]:
+            return 10, 3  # one partition costs 3 compiler runs
+
+        _, _, _, compiles = search_partitions(initial, pricey, {A: {B}}, {}, {}, max_compiles=4)
+        # initial (3) fits; the merged candidate (+3 = 6) exceeds 4
+        assert compiles == 6
 
     def test_max_compiles_caps_search(self) -> None:
         initial = [[A], [B], [C]]
@@ -182,10 +193,13 @@ class TestSearchPartitions:
             ((A, B), (C,)): 11,
             ((A,), (B, C)): 12,
         }
-        _, _, _, compiles = search_partitions(
+        _, _, moves, compiles = search_partitions(
             initial, _score_of(values), {A: {B}, B: {C}}, {}, {}, max_compiles=2
         )
-        assert compiles <= 2
+        # initial + first candidate fit the cap; scoring the second
+        # candidate aborts the search before any move is accepted.
+        assert compiles == 3  # attempted invocations, including the aborting one
+        assert moves == []
 
     def test_on_accept_receives_every_move(self) -> None:
         initial = [[A], [B]]
@@ -312,7 +326,7 @@ class TestAuditCli:
         def fake_scorer(
             cfg_arg: Any, annotations: dict[int, Any], name_to_va: dict[str, int]
         ) -> Any:
-            return lambda partition: values[_partition_key(partition)]
+            return lambda partition: (values[_partition_key(partition)], 1)
 
         monkeypatch.setattr(ms, "_PartitionScorer", fake_scorer)
         audit_path = tmp_path / "audit.json"
@@ -340,7 +354,7 @@ class TestAuditCli:
             ms,
             "_PartitionScorer",
             lambda cfg_arg, annotations, name_to_va: (
-                lambda partition: values[_partition_key(partition)]
+                lambda partition: (values[_partition_key(partition)], 1)
             ),
         )
 
@@ -349,3 +363,107 @@ class TestAuditCli:
         payload = json.loads(result.output)
         assert payload["moves"] == 0
         assert payload["clusters"] == 2
+
+
+def _make_ann(va: int, filename: str, symbol: str, size: int = 10) -> SimpleNamespace:
+    return SimpleNamespace(
+        va=va,
+        filepath=filename,
+        symbol=symbol,
+        name=symbol.lstrip("_"),
+        size=size,
+        toolchain="",
+        cflags="",
+        module="SERVER",
+    )
+
+
+def _scorer_cfg(tmp_path: Path) -> SimpleNamespace:
+    src = tmp_path / "src"
+    src.mkdir(exist_ok=True)
+    return SimpleNamespace(
+        marker="SERVER",
+        source_ext=".c",
+        reversed_dir=src,
+        metadata_dir=tmp_path,
+        root=tmp_path,
+        target_binary=tmp_path / "target.exe",
+        function_list=tmp_path / "functions.txt",
+        padding_bytes=[0xCC, 0x90],
+        text_va=0x10000000,
+        text_size=0x10000,
+        cflags="",
+        cflags_explicit=False,
+        cflags_presets={},
+        compiler_profile="",
+        posix_style=False,
+    )
+
+
+class TestPartitionScorer:
+    def _patch_compile(self, monkeypatch: Any, calls: list[dict[str, Any]], size: int = 10) -> None:
+        import rebrew.compile
+        import rebrew.core
+        import rebrew.matcher
+        import rebrew.merge_sweep as ms
+
+        def fake_compile(
+            cfg: Any, src: Any, cflags: list[str], workdir: Any, **kw: Any
+        ) -> tuple[str, str]:
+            calls.append({"cflags": list(cflags), "toolchain": kw.get("toolchain")})
+            obj = Path(workdir) / "tu.obj"
+            obj.write_bytes(b"OBJ")
+            return str(obj), ""
+
+        monkeypatch.setattr(rebrew.compile, "compile_to_obj", fake_compile)
+        monkeypatch.setattr(
+            rebrew.matcher,
+            "parse_obj_symbol_and_relocs",
+            lambda obj_path, symbol: (b"\x90" * size, {}, []),
+        )
+        monkeypatch.setattr(
+            rebrew.core,
+            "smart_reloc_compare",
+            lambda o, t, r, **kw: (True, len(t), len(t), [], []),
+        )
+        monkeypatch.setattr(rebrew.core, "build_iat_region", lambda cfg_arg: set())
+        monkeypatch.setattr(ms, "extract_raw_bytes", lambda binary, va, n: bytes([0x90]) * n)
+
+    def test_cluster_compiles_once_for_all_members(self, tmp_path: Path, monkeypatch: Any) -> None:
+        import rebrew.merge_sweep as ms
+
+        cfg = _scorer_cfg(tmp_path)
+        _write_source(cfg.reversed_dir / "a.c", A, "_func_a")
+        _write_source(cfg.reversed_dir / "b.c", B, "_func_b")
+        annotations = {A: _make_ann(A, "a.c", "_func_a"), B: _make_ann(B, "b.c", "_func_b")}
+        calls: list[dict[str, Any]] = []
+        self._patch_compile(monkeypatch, calls)
+
+        scorer = ms._PartitionScorer(cfg, annotations, {})
+        matched, invokes = scorer([[A, B]])
+        assert invokes == 1  # one TU compile, not one per function
+        assert len(calls) == 1
+        assert matched == 20  # both members scored from the one build
+
+    def test_overrides_resolve_against_real_source_dir(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A rebrew-libraries.toml beside the real sources shapes the TU
+        compile; the temp staging dir carries no override file."""
+        import rebrew.merge_sweep as ms
+
+        cfg = _scorer_cfg(tmp_path)
+        _write_source(cfg.reversed_dir / "a.c", A, "_func_a")
+        (cfg.reversed_dir / "rebrew-libraries.toml").write_text(
+            'toolchain = "msvc6"\ncflags = "/O2 /Gd /MT"\n', encoding="utf-8"
+        )
+        annotations = {A: _make_ann(A, "a.c", "_func_a")}
+        calls: list[dict[str, Any]] = []
+        self._patch_compile(monkeypatch, calls)
+
+        scorer = ms._PartitionScorer(cfg, annotations, {})
+        matched, invokes = scorer([[A]])
+        assert invokes == 1
+        assert matched == 10
+        assert calls[0]["toolchain"] == "msvc6"
+        assert calls[0]["cflags"] == ["/O2", "/Gd", "/MT"]

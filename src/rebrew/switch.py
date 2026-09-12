@@ -41,11 +41,21 @@ _MAX_TABLE_ENTRIES = 256
 _MAX_TABLE_ROWS = 24
 
 #: ``jmp dword ptr [edx*4 + 0x12345678]`` — capstone renders the scaled
-#: index before the base for ``[base + index*4]`` operands.
-_INDIRECT_JMP_RE = re.compile(r"dword ptr \[([a-z0-9]+)\s*\*\s*4\s*\+\s*0x([0-9a-fA-F]+)\]")
+#: index before the base for ``[base + index*4]`` operands.  64-bit targets
+#: use ``qword ptr [reg*8 + addr]``; 16-bit targets have no SIB byte so the
+#: dispatch is ``word ptr [base + addr]`` (index doubled into the base with
+#: ``add reg,reg``/``shl reg,1`` beforehand).
+_INDIRECT_JMP_RE = re.compile(
+    r"(dword|qword) ptr \[([a-z0-9]+)\s*\*\s*([48])\s*\+\s*0x([0-9a-fA-F]+)\]"
+)
+_INDIRECT_JMP_BASE_RE = re.compile(r"word ptr \[([a-z]+)\s*\+\s*0x([0-9a-fA-F]+)\]")
 
-#: ``cmp ecx, 0xb`` — the bounds check preceding the dispatch.
-_CMP_IMM_RE = re.compile(r"([a-z0-9]+),\s*(?:0x)?([0-9a-fA-F]+)")
+#: ``cmp ecx, 0xb`` — the bounds check preceding the dispatch.  The right-hand
+#: operand must be a numeric literal (`0x...` or decimal); a register operand
+#: (`cmp ecx, edx`) is not a bound, and the old `([0-9a-fA-F]+)` read its hex
+#: digit prefix as an immediate (`ed` -> 0xed), inflating the table bound and
+#: pulling unrelated handler addresses into the case list.
+_CMP_IMM_RE = re.compile(r"([a-z0-9]+),\s*(0x[0-9a-fA-F]+|\d+)\s*$")
 
 #: ``and eax, 3`` — a register-index mask used as a bounds check by MSVC's
 #: memcpy/memmove byte-tail dispatches (``and reg, N; jmp [reg*4 + table]``).
@@ -73,9 +83,16 @@ def find_switches(cfg: Any, va: int, window: int = 512) -> list[dict[str, Any]]:
             "bounds": 0xb,              # max index (cmp reg, N), or None
             "cases": [(0, 0x103121d), ...],  # (index, handler_va)
             "entries": 12,              # table entries read
+            "entry_width": 4,           # table entry size in bytes
         }
 
     Best-effort: empty list when the window has no indirect dispatch.
+
+    The disassembler mode and entry width follow the target arch: 16-bit
+    targets decode in 16-bit mode with 2-byte entries, 64-bit targets in
+    64-bit mode with 8-byte entries, anything else (or an unknown arch) in
+    32-bit mode with 4-byte entries.  16-bit dispatches have no scaled
+    index (no SIB byte) — the entry count comes from the bounds check only.
     """
     from rebrew.binary_loader import extract_raw_bytes
 
@@ -88,7 +105,14 @@ def find_switches(cfg: Any, va: int, window: int = 512) -> list[dict[str, Any]]:
 
     import capstone
 
-    md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+    arch = str(getattr(cfg, "arch", "") or "")
+    if arch == "x86_16":
+        cs_mode, entry_width = capstone.CS_MODE_16, 2
+    elif arch == "x86_64":
+        cs_mode, entry_width = capstone.CS_MODE_64, 8
+    else:
+        cs_mode, entry_width = capstone.CS_MODE_32, 4
+    md = capstone.Cs(capstone.CS_ARCH_X86, cs_mode)
     md.skipdata = False
     insns = list(md.disasm(raw, va))
     if not insns:
@@ -99,26 +123,45 @@ def find_switches(cfg: Any, va: int, window: int = 512) -> list[dict[str, Any]]:
         if insn.mnemonic != "jmp":
             continue
         m = _INDIRECT_JMP_RE.search(insn.op_str)
-        if m is None:
+        index_reg: str | None
+        if m is not None:
+            if int(m.group(3)) != entry_width:
+                continue  # scale does not match the target arch
+            index_reg = m.group(2)
+            table_va = int(m.group(4), 16)
+        elif entry_width == 2:
+            b = _INDIRECT_JMP_BASE_RE.search(insn.op_str)
+            if b is None:
+                continue
+            index_reg = b.group(1)
+            table_va = int(b.group(2), 16)
+        else:
             continue
-        index_reg = m.group(1)
-        table_va = int(m.group(2), 16)
 
         # Bounds check: the nearest preceding `cmp reg, N` with a small
-        # immediate.  The index register often differs (MSVC copies the
-        # index into the scaled register between the cmp and the jmp), so
-        # any register is accepted; a large immediate (an address compare,
-        # not a switch bound) is rejected.  MSVC's memcpy/memmove byte-tail
-        # dispatches bound the index with `and reg, mask` instead — recognize
-        # a power-of-two-minus-1 mask on the index register as a bound too.
+        # immediate, where the compared register feeds the table index
+        # register (MSVC copies the index into the scaled register between
+        # the cmp and the jmp, so the check walks back through mov reg-reg
+        # copies).  A compare on an unrelated register (an address compare,
+        # not a switch bound) is rejected, as is a large immediate.
+        # MSVC's memcpy/memmove byte-tail dispatches bound the index with
+        # `and reg, mask` instead — recognize a power-of-two-minus-1 mask
+        # on the index register as a bound too.
         bounds: int | None = None
-        for prev in insns[max(0, idx - 8) : idx]:
+        # Nearest-first: an earlier compare on the index register (a range
+        # check before the switch) must not override the switch's own bound.
+        recent = insns[max(0, idx - 8) : idx]
+        copies = _index_source_regs(recent, index_reg)
+        for prev in reversed(recent):
             if prev.mnemonic == "cmp":
                 cm = _CMP_IMM_RE.search(prev.op_str)
-                if cm is None:
+                if cm is None or cm.group(1) not in copies:
                     continue
                 try:
-                    value = int(cm.group(2), 16)
+                    imm_text = cm.group(2)
+                    value = (
+                        int(imm_text, 16) if imm_text.lower().startswith("0x") else int(imm_text)
+                    )
                 except ValueError:
                     continue
                 if 0 <= value <= 0xFFFF:
@@ -136,7 +179,7 @@ def find_switches(cfg: Any, va: int, window: int = 512) -> list[dict[str, Any]]:
                     bounds = value
                     break
 
-        cases = _read_table(cfg, table_va, bounds)
+        cases = _read_table(cfg, table_va, bounds, entry_width)
         results.append(
             {
                 "jmp_va": insn.address,
@@ -145,12 +188,56 @@ def find_switches(cfg: Any, va: int, window: int = 512) -> list[dict[str, Any]]:
                 "bounds": bounds,
                 "cases": cases,
                 "entries": len(cases),
+                "entry_width": entry_width,
             }
         )
     return results
 
 
-def _read_table(cfg: Any, table_va: int, bounds: int | None) -> list[tuple[int, int]]:
+def _dispatch_operand(index_reg: str | None, table_va: int, entry_width: int) -> str:
+    """Render the dispatch operand as decoded, for the human header.
+
+    The width/scale follow the target arch: a 64-bit target reads a qword
+    table with a *8 scale, a 16-bit dispatch has no SIB byte (base-only, no
+    scale; the index is doubled into the base beforehand), everything else is
+    dword with *4.  Printing a fixed ``dword ... *4`` claimed a scale the tool
+    had not read on 64-bit and 16-bit targets.
+    """
+    if entry_width == 8:
+        return f"qword ptr [{index_reg}*8 + 0x{table_va:08x}]"
+    if entry_width == 2:
+        return f"word ptr [{index_reg} + 0x{table_va:08x}]"
+    return f"dword ptr [{index_reg}*4 + 0x{table_va:08x}]"
+
+
+_MOV_REG_RE = re.compile(r"^([a-z0-9]+),\s*([a-z0-9]+)$")
+
+
+def _index_source_regs(window: list[Any], index_reg: str | None) -> set[str]:
+    """Registers that may hold the switch index at the dispatch.
+
+    Starts from the scaled *index_reg* and walks the window backward
+    through plain ``mov dst, src`` copies, so a bounds ``cmp`` on the
+    pre-copy register (``cmp ecx, N`` … ``mov edx, ecx`` … ``jmp
+    [edx*4+table]``) is accepted while a compare on an unrelated
+    register is not.  ``None`` index (16-bit base form) accepts nothing.
+    """
+    if not index_reg:
+        return set()
+    sources = {index_reg}
+    for prev in reversed(window):
+        if prev.mnemonic != "mov":
+            continue
+        m = _MOV_REG_RE.match(prev.op_str)
+        if m is None or m.group(1) not in sources:
+            continue
+        sources.add(m.group(2))
+    return sources
+
+
+def _read_table(
+    cfg: Any, table_va: int, bounds: int | None, entry_width: int = 4
+) -> list[tuple[int, int]]:
     """Read the dispatch table entries as ``(index, target_va)`` pairs.
 
     The entry count is the bounds-check max index + 1 when known, else the
@@ -161,10 +248,12 @@ def _read_table(cfg: Any, table_va: int, bounds: int | None) -> list[tuple[int, 
 
     count = (bounds + 1) if bounds is not None else _MAX_TABLE_ENTRIES
     count = max(1, min(count, _MAX_TABLE_ENTRIES))
-    raw = extract_raw_bytes(cfg.target_binary, table_va, count * 4)
-    if raw is None or len(raw) < 4:
+    raw = extract_raw_bytes(cfg.target_binary, table_va, count * entry_width)
+    if raw is None or len(raw) < entry_width:
         return []
     import struct
+
+    fmt = {2: "<H", 4: "<I", 8: "<Q"}.get(entry_width, "<I")
 
     try:
         info = load_binary(cfg.target_binary)
@@ -173,11 +262,11 @@ def _read_table(cfg: Any, table_va: int, bounds: int | None) -> list[tuple[int, 
 
     entries: list[tuple[int, int]] = []
     for i in range(count):
-        off = i * 4
-        if off + 4 > len(raw):
+        off = i * entry_width
+        if off + entry_width > len(raw):
             break
-        target = struct.unpack_from("<I", raw, off)[0]
-        if target == 0:
+        target = struct.unpack_from(fmt, raw, off)[0]
+        if target == 0 and entry_width == 4:
             break
         # Every dispatch entry points into the image (a case handler) —
         # stop at the first that doesn't.  The bounds check is an upper
@@ -196,9 +285,14 @@ def _read_table(cfg: Any, table_va: int, bounds: int | None) -> list[tuple[int, 
 
 
 def _va_in_image(info: Any, va: int) -> bool:
-    """True when *va* falls inside any section of the binary."""
+    """True when *va* falls inside any section of the binary.
+
+    Containment uses the virtual size (the mapped extent); the raw size is
+    the fallback when a section reports no virtual size.
+    """
     for section in info.sections.values():
-        if section.va <= va < section.va + section.raw_size:
+        extent = section.size or section.raw_size
+        if section.va <= va < section.va + extent:
             return True
     return False
 
@@ -281,10 +375,12 @@ def main(
         func_lookup = None
 
     for sw in switches:
-        console.print(
-            f"[bold]Dispatch @ 0x{sw['jmp_va']:08x}:[/] "
-            f"jmp dword ptr [{sw['index_reg']}*4 + 0x{sw['table_va']:08x}]"
-        )
+        # The operand's `[...]` would otherwise be parsed as Rich markup and
+        # swallowed, so the header showed only "jmp dword ptr".
+        from rich.markup import escape
+
+        operand = _dispatch_operand(sw["index_reg"], sw["table_va"], sw["entry_width"])
+        console.print(f"[bold]Dispatch @ 0x{sw['jmp_va']:08x}:[/] jmp {escape(operand)}")
         if sw["bounds"] is not None:
             console.print(f"  bounds: index <= 0x{sw['bounds']:x} ({sw['entries']} entries)")
         table = Table(show_header=True, header_style="bold")

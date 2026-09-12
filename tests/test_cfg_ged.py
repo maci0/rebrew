@@ -43,6 +43,17 @@ class TestBuildCfg:
         assert isinstance(cfg["blocks"], list)
         assert isinstance(cfg["edges"], list)
 
+    def test_jecxz_has_target_and_fallthrough_edges(self) -> None:
+        """jecxz/jcxz are conditional: both a branch target and a fallthrough.
+
+        They are block terminators, so if they are not also treated as
+        conditional jumps the block yields no edges at all.
+        """
+        # xor ecx,ecx; jecxz +2 (target offset 7); ret; nop; ret
+        code = bytes.fromhex("31 c9 67 e3 02 c3 90 c3")
+        cfg = build_cfg(code, 0x1000)
+        assert set(cfg["edges"]) == {(0, 1), (0, 2)}
+
 
 class TestCfgSimilarity:
     def test_identical_is_100(self) -> None:

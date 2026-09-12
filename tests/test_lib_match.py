@@ -151,3 +151,50 @@ class TestLibMatch:
         _mock_cfg(tmp_path, pe_path, monkeypatch)
         res = CliRunner().invoke(app, [])
         assert res.exit_code == 2, res.output
+
+
+class TestLoadAllowlist:
+    def test_none_is_empty(self) -> None:
+        from rebrew.lib_match import load_allowlist
+
+        assert load_allowlist(None) == set()
+
+    def test_hex_entries_comments_and_blanks(self, tmp_path: Path) -> None:
+        from rebrew.lib_match import load_allowlist
+
+        p = tmp_path / "allow.txt"
+        p.write_text("# known CRT\n0x401000\n\n  0x401010  # inline\n", encoding="utf-8")
+        assert load_allowlist(p) == {0x401000, 0x401010}
+
+    def test_utf8_bom_is_tolerated(self, tmp_path: Path) -> None:
+        from rebrew.lib_match import load_allowlist
+
+        p = tmp_path / "allow.txt"
+        p.write_bytes("\ufeff0x401000\n".encode())
+        assert load_allowlist(p) == {0x401000}
+
+    def test_malformed_entry_exits_cleanly(self, tmp_path: Path) -> None:
+        import typer
+
+        from rebrew.lib_match import load_allowlist
+
+        p = tmp_path / "allow.txt"
+        p.write_text("0x401000\nnot-a-va\n", encoding="utf-8")
+        with pytest.raises(typer.Exit):
+            load_allowlist(p, json_mode=True)
+
+
+class TestMatchBytesRelocGuard:
+    def test_relocs_beyond_window_do_not_reject_a_match(self) -> None:
+        """Reloc offsets past the compared window must not tighten the
+        mostly-relocation guard: only masks inside [0, len(data)) matter."""
+        from rebrew.lib_match import match_bytes
+
+        body = bytes(range(20))
+        data = body[:16]
+        # 8 in-range relocs (bytes 0..7) and one far past the window.
+        relocs = {0, 1, 2, 3, 4, 5, 6, 7, 100}
+        index = {"sym": [("obj", body, relocs)]}
+        # In-range fixed bytes = 16 - 8 = 8 == 0.5 * 16, so the match stands;
+        # the old `len(data) - len(relocs)` guard computed 7 and skipped it.
+        assert match_bytes(index, data) == ("sym", "obj")

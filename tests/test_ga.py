@@ -76,6 +76,27 @@ class TestParseStubInfo:
         result = parse_stub_info(f)
         assert result == []
 
+    def test_min_size_reaches_small_functions(self, tmp_path: Path) -> None:
+        """An explicit --min-size below the default floor must reach a genuine
+        5-9 byte function (the floor used to be hardcoded at 10)."""
+        f = self._make_stub_file(tmp_path, size=6)
+        assert parse_stub_info(f) == []  # default floor still applies
+        result = parse_stub_info(f, min_size=6)
+        assert len(result) == 1
+        assert result[0].size == 6
+
+    def test_toolchain_metadata_populates_stub(self, tmp_path: Path) -> None:
+        """The per-function TOOLCHAIN must reach StubInfo, or batch GA/sweep
+        recompile a library function with the project default compiler."""
+        f = self._make_stub_file(tmp_path, size=64)
+        meta = tmp_path / "rebrew-functions.toml"
+        meta.write_text(
+            meta.read_text(encoding="utf-8") + 'toolchain = "msvc5"\n', encoding="utf-8"
+        )
+        result = parse_stub_info(f)
+        assert len(result) == 1
+        assert result[0].toolchain == "msvc5"
+
     def test_no_annotations(self, tmp_path: Path) -> None:
         f = tmp_path / "bad.c"
         f.write_text("int main() { return 0; }\n", encoding="utf-8")
@@ -123,6 +144,14 @@ class TestFindAllStubs:
     def test_empty_dir(self, tmp_path: Path) -> None:
         stubs = find_all_stubs(tmp_path)
         assert stubs == []
+
+    def test_min_size_reaches_small_functions(self, tmp_path: Path) -> None:
+        """The collector forwards --min-size to the parser: a 6-byte STUB is
+        skipped by the default floor but kept when the caller asks for it."""
+        self._make_stub(tmp_path, 0x10001000, "_tiny", size=6)
+        assert find_all_stubs(tmp_path) == []
+        stubs = find_all_stubs(tmp_path, min_size=6)
+        assert [s.size for s in stubs] == [6]
 
     def test_ignores_exact(self, tmp_path: Path) -> None:
         f = tmp_path / "exact.c"
@@ -555,9 +584,10 @@ class TestRunAllParallel:
             resume_from=None,
             mutation_weights=None,
             solutions_out=None,
+            collect_pairs_path=None,
         ):
             seen.append((stub.symbol, jobs))
-            return False, "best_score=5.00"
+            return False, "best_score=5.00", 5.0, 3
 
         monkeypatch.setattr("rebrew.match._run_one_stub_ga", _fake_run)
         cfg = self._cfg(tmp_path)
@@ -585,6 +615,54 @@ class TestRunAllParallel:
         # concurrency at ~jobs in the parallel path.
         assert sorted(s for s, _j in seen) == ["_s0", "_s1", "_s2"]
         assert all(j == 1 for _, j in seen)
+
+    def test_collect_pairs_is_forwarded_to_each_stub_ga(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--collect-pairs is documented for batch mode: every stub's GA must
+        receive the JSONL path (it was ignored under --all)."""
+        from rebrew.match import StubInfo, _run_all
+
+        stub = StubInfo(
+            filepath=tmp_path / "s.c",
+            va="0x10001000",
+            size=64,
+            symbol="_s",
+            cflags="/O2",
+            status="STUB",
+            module="SERVER",
+        )
+        monkeypatch.setattr("rebrew.match.find_all_stubs", lambda *a, **k: [stub])
+        seen: list[Path | None] = []
+
+        def _fake_run(*args: Any, **kwargs: Any) -> tuple[bool, str]:
+            seen.append(kwargs.get("collect_pairs_path"))
+            return False, "best_score=5.00", 5.0, 3
+
+        monkeypatch.setattr("rebrew.match._run_one_stub_ga", _fake_run)
+        pairs_path = tmp_path / "pairs.jsonl"
+        _run_all(
+            self._cfg(tmp_path),
+            jobs=1,
+            generations=1,
+            pop_size=1,
+            timeout_min=1,
+            dry_run=False,
+            min_size=0,
+            max_size=9999,
+            filter_str="",
+            near_miss=False,
+            improve=False,
+            threshold=10,
+            flag_sweep=False,
+            fix_cflags=False,
+            max_stubs=0,
+            seed_from_solved=False,
+            json_output=True,
+            tier="targeted",
+            collect_pairs=str(pairs_path),
+        )
+        assert seen == [pairs_path]
 
     def test_serial_batch_keeps_intra_jobs(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -618,9 +696,10 @@ class TestRunAllParallel:
             resume_from=None,
             mutation_weights=None,
             solutions_out=None,
+            collect_pairs_path=None,
         ):
             seen.append(jobs)
-            return False, "best_score=5.00"
+            return False, "best_score=5.00", 5.0, 3
 
         monkeypatch.setattr("rebrew.match._run_one_stub_ga", _fake_run)
         _run_all(
@@ -674,6 +753,65 @@ class TestFlagSweepIncludeDirs:
             extra_include_dirs=["/src/fn_dir"],
         )
         assert seen.get("extra_include_dirs") == ["/src/fn_dir"]
+
+    def test_sweep_scoring_params_from_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """flag_sweep must score in the config's arch mode: a 16-bit target
+        precomputes and scores in CS_MODE_16 with 2-byte reloc slots (the old
+        code left both at the 32-bit defaults, mis-scoring 16-bit sweeps)."""
+        import capstone
+
+        from rebrew.matcher.compiler import _sweep_scoring_params, flag_sweep
+
+        assert _sweep_scoring_params(None) == (int(capstone.CS_MODE_32), 4)
+        assert _sweep_scoring_params(SimpleNamespace(arch="x86_16")) == (
+            int(capstone.CS_MODE_16),
+            4,
+        )
+        assert _sweep_scoring_params(SimpleNamespace(arch="x86_16", pointer_size=2)) == (
+            int(capstone.CS_MODE_16),
+            2,
+        )
+
+        seen: dict = {}
+
+        def _fake_build(*a: Any, **k: Any) -> Any:
+            return SimpleNamespace(ok=True, obj_bytes=b"\x55\x8b\xec\x5d\xc3", reloc_offsets=None)
+
+        def _fake_score(
+            target: bytes,
+            cand: bytes,
+            relocs: Any,
+            cs_mode: int = 0,
+            pointer_size: int = 4,
+            **k: Any,
+        ) -> Any:
+            seen["cs_mode"] = cs_mode
+            seen["pointer_size"] = pointer_size
+            return SimpleNamespace(total=1.0)
+
+        def _fake_precompute(target: bytes, cs_mode: int = 0, **k: Any) -> Any:
+            seen["precompute_mode"] = cs_mode
+            return b"norm", ["ret"]
+
+        monkeypatch.setattr("rebrew.matcher.compiler.build_candidate_obj_only", _fake_build)
+        monkeypatch.setattr("rebrew.matcher.scoring.score_candidate", _fake_score)
+        monkeypatch.setattr("rebrew.matcher.scoring.precompute_target", _fake_precompute)
+        flag_sweep(
+            "int f(void){return 0;}",
+            b"\x55\x8b\xec\x5d\xc3",
+            "cl",
+            "",
+            "/O2",
+            "_f",
+            n_jobs=1,
+            tier="quick",
+            cfg=SimpleNamespace(arch="x86_16", pointer_size=2),
+        )
+        assert seen.get("precompute_mode") == int(capstone.CS_MODE_16)
+        assert seen.get("cs_mode") == int(capstone.CS_MODE_16)
+        assert seen.get("pointer_size") == 2
 
     def test_single_sweep_passes_seed_dir(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -762,9 +900,10 @@ class TestSweepThenGa:
             resume_from=None,
             mutation_weights=None,
             solutions_out=None,
+            collect_pairs_path=None,
         ):
             seen["override"] = cflags_override
-            return False, "best_score=5.00"
+            return False, "best_score=5.00", 5.0, 3
 
         monkeypatch.setattr("rebrew.match._run_one_stub_ga", _fake_run)
         cfg = SimpleNamespace(
@@ -1049,6 +1188,13 @@ class TestFlagSweepJsonShape:
         assert "exact" in data["results"][0]
 
 
+def _fail_result() -> Any:
+    """A failed BuildResult for GA cache tests (failures carry no fitness)."""
+    from rebrew.matcher.core import BuildResult
+
+    return BuildResult(ok=False, error_msg="fake")
+
+
 class TestGABuildCacheKey:
     """The GA build cache must not reuse a .obj compiled under different flags
     (the cache DB persists across runs in output/ga_runs/<rel>/)."""
@@ -1075,6 +1221,20 @@ class TestGABuildCacheKey:
         # Order of extra dirs must not matter (sorted before hashing).
         assert _ga_cache_key(src, "/O2", "cl", "inc", ["b", "a"]) == _ga_cache_key(
             src, "/O2", "cl", "inc", ["a", "b"]
+        )
+        # Different symbols share one cache DB — the same source compiled for
+        # another stub's symbol must not hit this stub's entry.
+        assert _ga_cache_key(src, "/O2", "cl", "inc", symbol="_f") != _ga_cache_key(
+            src, "/O2", "cl", "inc", symbol="_g"
+        )
+        assert _ga_cache_key(src, "/O2", "cl", "inc", symbol="_f") == _ga_cache_key(
+            src, "/O2", "cl", "inc", symbol="_f"
+        )
+        # A different toolchain profile must not reuse the object: image-backed
+        # profiles compile through docker with an empty cl_cmd and the same
+        # default inc_dir, so the profile is the only discriminator left.
+        assert _ga_cache_key(src, "/O2", "", "inc", profile="msvc6") != _ga_cache_key(
+            src, "/O2", "", "inc", profile="borlandc55"
         )
 
     def test_same_instance_recompile_only_on_flag_change(
@@ -1125,6 +1285,272 @@ class TestGABuildCacheKey:
         assert seen == ["/O2"]
         g.cache.close()
 
+    def test_same_source_different_symbol_recompiles(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Stubs share one cache DB: the same source under another symbol
+        must miss (different extracted bytes), not reuse the first stub's
+        .obj."""
+        from rebrew.match import BinaryMatchingGA, _ga_cache_key
+
+        calls: list[str] = []
+
+        def _fake_build(
+            src: str, cl_cmd: str, inc_dir: str, cflags: str, symbol: str, *a: Any, **k: Any
+        ) -> Any:
+            calls.append(symbol)
+            return _fail_result()
+
+        monkeypatch.setattr("rebrew.match.build_candidate_obj_only", _fake_build)
+
+        def _ga(symbol: str) -> BinaryMatchingGA:
+            return BinaryMatchingGA(
+                seed_source="int f(void) { return 0; }",
+                target_bytes=b"\xc3",
+                cl_cmd="cl",
+                inc_dir="",
+                cflags="/O2",
+                symbol=symbol,
+                out_dir=tmp_path,
+                num_generations=1,
+                pop_size=2,
+                num_jobs=1,
+            )
+
+        _ga("_f")._compile_source("int f(void) { return 0; }")
+        _ga("_g")._compile_source("int f(void) { return 0; }")
+        assert calls == ["_f", "_g"]
+        assert _ga_cache_key("int f(void) { return 0; }", "/O2", "cl", "", symbol="_f") != (
+            _ga_cache_key("int f(void) { return 0; }", "/O2", "cl", "", symbol="_g")
+        )
+
+    def test_success_writes_disk_cache_once(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """One disk-cache write per scored candidate: _compile_source defers
+        the store to _compute_fitness (failures still store on compile, they
+        never reach the scoring put)."""
+        from rebrew.match import BinaryMatchingGA, _ga_cache_key
+        from rebrew.matcher.core import BuildResult
+
+        ga = BinaryMatchingGA(
+            seed_source="int f(void) { return 0; }",
+            target_bytes=b"\xc3",
+            cl_cmd="cl",
+            inc_dir="",
+            cflags="/O2",
+            symbol="_f",
+            out_dir=tmp_path,
+            num_generations=1,
+            pop_size=2,
+            num_jobs=1,
+        )
+        puts: list[str] = []
+        orig_put = ga.cache.put
+
+        def _counting_put(key: str, res: Any) -> None:
+            puts.append(key)
+            orig_put(key, res)
+
+        monkeypatch.setattr(ga.cache, "put", _counting_put)
+        monkeypatch.setattr(
+            "rebrew.match.build_candidate_obj_only",
+            lambda *a, **k: BuildResult(ok=True, obj_bytes=b"\xc3"),
+        )
+        src = "int f(void) { return 0; }"
+        key = _ga_cache_key(src, "/O2", "cl", "", [], [], "_f")
+        ga._compile_source(src)  # miss: no write yet (no fitness attached)
+        assert puts == []
+        assert ga.cache.get(key) is None  # not stored before scoring
+        ga._compute_fitness(BuildResult(ok=True, obj_bytes=b"\xc3"), key, src)
+        assert puts == [key]
+        ga.cache.close()
+
+    def test_success_is_stored_under_the_key_compile_reads(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """``_run_inner`` passes the bare source digest to ``_compute_fitness``
+        (for memoization); the scoring store must still land under the compile
+        key so a later process hits it instead of recompiling every winner."""
+        from rebrew.compile_cache import source_digest
+        from rebrew.match import BinaryMatchingGA
+        from rebrew.matcher.core import BuildResult
+
+        calls: list[str] = []
+
+        def _fake_build(src: str, *a: Any, **k: Any) -> Any:
+            calls.append(src)
+            return BuildResult(ok=True, obj_bytes=b"\xc3")
+
+        monkeypatch.setattr("rebrew.match.build_candidate_obj_only", _fake_build)
+        src = "int f(void) { return 0; }"
+
+        def _ga() -> BinaryMatchingGA:
+            return BinaryMatchingGA(
+                seed_source=src,
+                target_bytes=b"\xc3",
+                cl_cmd="cl",
+                inc_dir="",
+                cflags="/O2",
+                symbol="_f",
+                out_dir=tmp_path,
+                num_generations=1,
+                pop_size=2,
+                num_jobs=1,
+            )
+
+        ga = _ga()
+        res = ga._compile_source(src)
+        # Exactly how _run_inner calls it: the digest, not the compile key.
+        ga._compute_fitness(res, source_digest(src), src)
+        ga.cache.close()
+
+        ga2 = _ga()
+        ga2._compile_source(src)  # must hit the disk cache
+        ga2.cache.close()
+        assert calls == [src]
+
+    def test_failure_still_cached_on_compile(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """Failed compiles never reach _compute_fitness's put — they must be
+        stored by _compile_source so the failure is not recompiled."""
+        from rebrew.match import BinaryMatchingGA
+
+        calls: list[str] = []
+
+        def _fake_build(src: str, *a: Any, **k: Any) -> Any:
+            calls.append(src)
+            return _fail_result()
+
+        monkeypatch.setattr("rebrew.match.build_candidate_obj_only", _fake_build)
+
+        ga = BinaryMatchingGA(
+            seed_source="int f(void) { return 0; }",
+            target_bytes=b"\xc3",
+            cl_cmd="cl",
+            inc_dir="",
+            cflags="/O2",
+            symbol="_f",
+            out_dir=tmp_path,
+            num_generations=1,
+            pop_size=2,
+            num_jobs=1,
+        )
+        src = "int f(void) { return 0; }"
+        ga._compile_source(src)  # miss → compile → failure stored
+        ga._compile_source(src)  # hit: no recompile
+        assert calls == [src]
+        ga.cache.close()
+
+    def test_run_uses_single_executor(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """The whole run shares one ThreadPoolExecutor (no per-generation
+        churn): more than one generation must create exactly one pool."""
+        import rebrew.match as _match_mod
+        from rebrew.match import BinaryMatchingGA
+
+        created: list[Any] = []
+        _real_pool = _match_mod.ThreadPoolExecutor
+
+        class _CountingPool(_real_pool):  # type: ignore[misc]
+            def __init__(self, *a: Any, **k: Any) -> None:
+                created.append(self)
+                super().__init__(*a, **k)
+
+        monkeypatch.setattr(_match_mod, "ThreadPoolExecutor", _CountingPool)
+
+        def _fake_build(src: str, *a: Any, **k: Any) -> Any:
+            return _fail_result()
+
+        monkeypatch.setattr("rebrew.match.build_candidate_obj_only", _fake_build)
+        ga = BinaryMatchingGA(
+            seed_source="int f(void) { return 0; }",
+            target_bytes=b"\xc3",
+            cl_cmd="cl",
+            inc_dir="",
+            cflags="/O2",
+            symbol="_f",
+            out_dir=tmp_path,
+            num_generations=3,
+            pop_size=2,
+            num_jobs=1,
+        )
+        ga._run_inner()
+        ga.cache.close()
+        assert len(created) == 1
+
+
+class TestPerFunctionToolchain:
+    """A per-function/per-library TOOLCHAIN must drive the batch compiles, not
+    the project default (docs/TOOLCHAIN.md: every tool that compiles a function
+    uses the overridden compiler)."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=tmp_path,
+            metadata_dir=tmp_path,
+            marker="SERVER",
+            target_name="T",
+            target_binary=str(tmp_path / "target.bin"),
+            base_cflags="",
+            compile_timeout=60,
+        )
+
+    @staticmethod
+    def _stub(tmp_path: Path) -> Any:
+        from rebrew.match import StubInfo
+
+        (tmp_path / "s.c").write_text(
+            "// FUNCTION: SERVER 0x10001000\nint s(void) { return 0; }\n", encoding="utf-8"
+        )
+        return StubInfo(
+            filepath=tmp_path / "s.c",
+            va="0x10001000",
+            size=16,
+            symbol="_s",
+            cflags="/O2",
+            status="STUB",
+            module="SERVER",
+            toolchain="msvc5",
+        )
+
+    def test_batch_ga_uses_the_stub_toolchain(self, tmp_path: Path, monkeypatch: Any) -> None:
+        import rebrew.match as M
+
+        captured: dict[str, Any] = {}
+
+        class FakeGA:
+            generation = 1
+
+            def __init__(self, *a: Any, **k: Any) -> None:
+                captured.update(k)
+
+            def run(self, deadline: Any = None) -> tuple[None, float]:
+                return None, 5.0
+
+            def close(self) -> None:
+                pass
+
+        monkeypatch.setattr(M, "BinaryMatchingGA", FakeGA)
+        monkeypatch.setattr(M, "extract_raw_bytes", lambda *a, **k: b"\xc3" * 16)
+        monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
+
+        M._run_one_stub_ga(self._stub(tmp_path), self._cfg(tmp_path), 1, 4, 1, 5)
+        assert captured["profile"] == "msvc5"
+
+    def test_flag_sweep_uses_the_stub_toolchain(self, tmp_path: Path, monkeypatch: Any) -> None:
+        import rebrew.match as M
+
+        captured: dict[str, Any] = {}
+
+        def _fake_sweep(*a: Any, **k: Any) -> list[tuple[float, str]]:
+            captured.update(k)
+            return [(0.0, "/O2")]
+
+        monkeypatch.setattr(M, "flag_sweep", _fake_sweep)
+        monkeypatch.setattr(M, "extract_raw_bytes", lambda *a, **k: b"\xc3" * 16)
+        monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
+
+        M.run_flag_sweep(self._stub(tmp_path), self._cfg(tmp_path))
+        assert captured["profile"] == "msvc5"
+
 
 class TestRunOneStubGaPersistsFlags:
     """_run_one_stub_ga must persist the RAW swept flags (not the
@@ -1168,6 +1594,7 @@ class TestRunOneStubGaPersistsFlags:
             elapsed_sec = 1.0
             stagnant_gens = 0
             _pairs_count = 0
+            generation = 3
 
             def __init__(self, *a: Any, **k: Any) -> None:
                 pass
@@ -1181,6 +1608,16 @@ class TestRunOneStubGaPersistsFlags:
         monkeypatch.setattr(M, "BinaryMatchingGA", FakeGA)
         monkeypatch.setattr(M, "extract_raw_bytes", lambda *a, **k: b"\xc3" * 16)
         monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
+        # Confirmation must succeed for the splice to run (an unconfirmed
+        # champion is never promoted — see test_unconfirmed_champion_is_not_spliced).
+        import rebrew.core as core
+
+        monkeypatch.setattr(core, "build_name_to_va", lambda cfg: {"_s": 0x10001000})
+        monkeypatch.setattr("rebrew.cli.resolve_cflags", lambda *a, **k: "/O2 /G3")
+        monkeypatch.setattr(
+            "rebrew.compile.compile_and_compare",
+            lambda *a, **k: SimpleNamespace(matched=True, status="EXACT", message=""),
+        )
         monkeypatch.setattr(M, "update_stub_to_matched", lambda *a, **k: True)
         monkeypatch.setattr(M, "_save_solution", lambda *a, **k: None)
         persisted: dict[str, str] = {}
@@ -1190,7 +1627,7 @@ class TestRunOneStubGaPersistsFlags:
             lambda fp, cf, metadata_dir=None: persisted.update(cf=cf),
         )
 
-        matched, _summary = M._run_one_stub_ga(
+        matched, _summary, _score, _gens = M._run_one_stub_ga(
             stub, self._cfg(tmp_path), 1, 4, 1, 5, cflags_override="/O2 /G3"
         )
         assert matched
@@ -1222,6 +1659,7 @@ class TestRunOneStubGaPersistsFlags:
             elapsed_sec = 1.0
             stagnant_gens = 0
             _pairs_count = 0
+            generation = 3
 
             def __init__(self, *a: Any, **k: Any) -> None:
                 pass
@@ -1236,14 +1674,83 @@ class TestRunOneStubGaPersistsFlags:
         monkeypatch.setattr(M, "extract_raw_bytes", lambda *a, **k: b"\xc3" * 16)
         monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
         # The splice fails (typedef return, no match) — the batch must NOT
-        # report a match or save a solution.
+        # report a match or save a solution.  Confirmation succeeds so the
+        # splice is actually attempted.
+        import rebrew.core as core
+
+        monkeypatch.setattr(core, "build_name_to_va", lambda cfg: {"_s": 0x10001000})
+        monkeypatch.setattr("rebrew.cli.resolve_cflags", lambda *a, **k: "/O2")
+        monkeypatch.setattr(
+            "rebrew.compile.compile_and_compare",
+            lambda *a, **k: SimpleNamespace(matched=True, status="EXACT", message=""),
+        )
         monkeypatch.setattr(M, "update_stub_to_matched", lambda *a, **k: False)
         saved: list[tuple] = []
         monkeypatch.setattr(M, "_save_solution", lambda *a, **k: saved.append(a))
 
-        matched, _summary = M._run_one_stub_ga(stub, self._cfg(tmp_path), 1, 4, 1, 5)
+        matched, _summary, _score, _gens = M._run_one_stub_ga(stub, self._cfg(tmp_path), 1, 4, 1, 5)
         assert not matched
         assert saved == []
+
+    def test_unconfirmed_champion_is_not_spliced(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A reloc-masked-only champion (``compile_and_compare`` rejects it) must
+        not be spliced or promoted.  The GA score masks reloc slots, so a
+        wrong-callee candidate scores 0.0; splicing it would claim RELOC that
+        the next test/verify demotes."""
+        import rebrew.core as core
+        import rebrew.match as M
+        from rebrew.match import StubInfo
+
+        stub = StubInfo(
+            filepath=tmp_path / "s.c",
+            va="0x10001000",
+            size=16,
+            symbol="_s",
+            cflags="/O2",
+            status="STUB",
+            module="SERVER",
+        )
+        (tmp_path / "s.c").write_text("// FUNCTION: SERVER 0x10001000\nint s(void) { return 0; }\n")
+        out = tmp_path / "output" / "ga_runs" / "s"
+        out.mkdir(parents=True)
+        (out / "best.c").write_text("int s(void) { return 42; }\n")
+
+        class FakeGA:
+            elapsed_sec = 1.0
+            stagnant_gens = 0
+            _pairs_count = 0
+            generation = 3
+
+            def __init__(self, *a: Any, **k: Any) -> None:
+                pass
+
+            def run(self, deadline: Any = None) -> tuple[str, float]:
+                return "int s(void) { return 42; }\n", 0.0
+
+            def close(self) -> None:
+                pass
+
+        monkeypatch.setattr(M, "BinaryMatchingGA", FakeGA)
+        monkeypatch.setattr(M, "extract_raw_bytes", lambda *a, **k: b"\xc3" * 16)
+        monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
+        monkeypatch.setattr(core, "build_name_to_va", lambda cfg: {"_s": 0x10001000})
+        monkeypatch.setattr("rebrew.cli.resolve_cflags", lambda *a, **k: "/O2")
+        monkeypatch.setattr(
+            "rebrew.compile.compile_and_compare",
+            lambda *a, **k: SimpleNamespace(
+                matched=False, status="NEAR_MATCHING", message="wrong callee"
+            ),
+        )
+        spliced: list[tuple] = []
+        monkeypatch.setattr(M, "update_stub_to_matched", lambda *a, **k: spliced.append(a) or True)
+        saved: list[tuple] = []
+        monkeypatch.setattr(M, "_save_solution", lambda *a, **k: saved.append(a))
+
+        matched, summary, _score, _gens = M._run_one_stub_ga(stub, self._cfg(tmp_path), 1, 4, 1, 5)
+        assert not matched
+        assert spliced == []
+        assert saved == []
+        assert "not confirmed" in summary
 
 
 class TestCrossProjectSeeding:
@@ -1323,10 +1830,11 @@ class TestCrossProjectSeeding:
             resume_from=None,
             mutation_weights=None,
             solutions_out=None,
+            collect_pairs_path=None,
         ):
             seen["cflags_override"] = cflags_override
             seen["seeds"] = seeds
-            return False, "best_score=5.00"
+            return False, "best_score=5.00", 5.0, 3
 
         monkeypatch.setattr("rebrew.match._run_one_stub_ga", _fake_run)
         _run_all(

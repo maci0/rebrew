@@ -218,6 +218,30 @@ _TEMP_VAR_RE = re.compile(r"^(?:v\d+|(?:local|var)_[0-9a-fA-F_]+h?|[A-Za-z]{1,3}
 _MAX_MEMBER_OFFSET = 0x1000000  # 16 MiB — far above any real x86-32 struct
 
 
+def _member_offset_cap(cfg: Any) -> int:
+    """Member-offset cap for evidence parsing: image base, else the 16 MiB fallback.
+
+    Offsets at or above the image base are absolute addresses (Kuna folds
+    ``global_base + index`` into ``var + 0xADDR``).  When the binary cannot be
+    read the base is unknown; the fallback still drops large globals, but a low
+    absolute address (e.g. ``0x401000`` under a 4 MiB base) can slip through as
+    a member, so the degradation warns instead of failing silently.
+    """
+    try:
+        from rebrew.binary_loader import load_binary
+
+        base = load_binary(cfg.target_binary).image_base
+        if base > 0:
+            return base
+    except (OSError, ValueError) as exc:
+        console.print(
+            f"[yellow]warning:[/yellow] cannot read {cfg.target_binary} ({exc}); "
+            f"using the {_MAX_MEMBER_OFFSET:#x} member-offset cap — absolute "
+            "addresses below it may appear as struct members"
+        )
+    return _MAX_MEMBER_OFFSET
+
+
 def pointer_element_widths(text: str) -> dict[str, int]:
     """Map pointer variables to their element width when the declared base
     type is a primitive (``short *a0`` → 2, ``char *s`` → 1).
@@ -265,8 +289,9 @@ class ParseResult:
     """Evidence parsed from one decompilation.
 
     ``named`` maps a named base type to its offset evidence; ``anonymous``
-    does the same for pointer variables whose type is unknown (grouped by
-    variable name so offsets can be merged across functions).
+    does the same for pointer variables whose type is unknown (keyed by
+    variable name — callers merging across functions must re-key by
+    ``(function, var)`` first, since bare names repeat across functions).
     """
 
     named: dict[str, StructEvidence] = field(default_factory=dict)
@@ -439,12 +464,14 @@ def recover_structs(
       declares a struct with that name (the definition is still offered, with
       only the new offsets called out when the existing layout is a prefix).
     - anonymous: ``{"name" (synthesized or the var), "anonymous": True,
-      "semantic", "var", "new", "definition", "offsets", "evidence",
+      "semantic", "var", "va", "new", "definition", "offsets", "evidence",
       "functions"}``; *semantic* = True when the variable name was meaningful
-      enough to derive a type name from.
+      enough to derive a type name from.  Anonymous evidence is keyed by
+      ``(va, var)`` — bare variable names (``a0``) repeat across functions and
+      must never merge into one layout.
     """
     merged_named: dict[str, StructEvidence] = {}
-    merged_anon: dict[str, tuple[StructEvidence, set[int]]] = {}
+    merged_anon: dict[tuple[int, str], tuple[StructEvidence, set[int]]] = {}
     total_evidence = 0
     for idx, (_va, _symbol, text) in enumerate(decompilations):
         parsed = parse_decomp_for_structs(text, max_offset=max_offset)
@@ -459,7 +486,7 @@ def recover_structs(
                     )
             total_evidence += sum(sum(s.values()) for s in ev.offsets.values())
         for var, ev in parsed.anonymous.items():
-            ent, funcs = merged_anon.setdefault(var, (StructEvidence(), set()))
+            ent, funcs = merged_anon.setdefault((_va, var), (StructEvidence(), set()))
             for off, slots in ev.offsets.items():
                 ent.offsets.setdefault(off, {})
                 for w, c in slots.items():
@@ -483,7 +510,7 @@ def recover_structs(
                 "evidence": sum(sum(s.values()) for s in ev.offsets.values()),
             }
         )
-    for var, (ev, funcs) in sorted(merged_anon.items()):
+    for (fn_va, var), (ev, funcs) in sorted(merged_anon.items()):
         if not ev.offsets:
             continue
         semantic = bool(_SEMANTIC_VAR_RE.match(var))
@@ -495,6 +522,7 @@ def recover_structs(
                 "anonymous": True,
                 "semantic": semantic,
                 "var": var,
+                "va": fn_va,
                 "new": existing.get(type_name) is None,
                 "definition": definition,
                 "offsets": [f"0x{o:x}" for o in sorted(ev.offsets)],
@@ -617,7 +645,7 @@ def main(
             "ghidra plugin in rizin)"
         )
         if json_output:
-            json_print({"error": msg, "decompiled": 0})
+            json_print({"error": msg, "code": EXIT_ERROR, "decompiled": 0})
         else:
             console.print(f"[red]error:[/red] {msg}")
         raise typer.Exit(code=EXIT_ERROR)
@@ -629,20 +657,11 @@ def main(
     from rebrew.sources import iter_library_headers, iter_sources
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
-    sources += list(iter_library_headers(cfg.reversed_dir))
+    sources += list(iter_library_headers(cfg.reversed_dir, cfg))
     existing = existing_structs(sources)
     # Offsets ≥ the image base are absolute addresses (Kuna folds
     # global_base + index into ``var + 0xADDR``) — never member offsets.
-    max_offset = _MAX_MEMBER_OFFSET
-    try:
-        from rebrew.binary_loader import load_binary
-
-        base = load_binary(cfg.target_binary).image_base
-        if base > 0:
-            max_offset = base
-    except (OSError, ValueError):
-        pass
-    results = recover_structs(decompilations, existing=existing, max_offset=max_offset)
+    results = recover_structs(decompilations, existing=existing, max_offset=_member_offset_cap(cfg))
 
     # Anonymous candidates need a user-chosen name first — never auto-apply.
     new_structs = [r for r in results if r["new"] and not r["anonymous"]]

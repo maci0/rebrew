@@ -107,6 +107,18 @@ class TestFixupCli:
         assert any("undefined4" in c for c in data["changes"])
         assert "wrote" in data
 
+    def test_legacy_encoding_is_decoded_not_replaced(self, tmp_path: Path) -> None:
+        """A non-UTF-8 source must not degrade to U+FFFD in the fixed output."""
+        p = tmp_path / "out.c"
+        # 0xA9 is not valid UTF-8; a blind errors="replace" read turns it into
+        # U+FFFD and the fixed file inherits the replacement character.
+        p.write_bytes("// \xa9 comment\nundefined4 x;\n".encode("latin-1"))
+        result = CliRunner().invoke(app, [str(p)])
+        assert result.exit_code == 0
+        fixed = (tmp_path / "out.c.fixed.c").read_text(encoding="utf-8")
+        assert "\ufffd" not in fixed
+        assert "int x;" in fixed
+
     def test_compile_check_passed(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """--compile-check compiles the fixed source; success writes and
         reports the green pass."""
@@ -165,3 +177,31 @@ class TestFixupCli:
         result = CliRunner().invoke(app, [str(tmp_path / "nope.c")])
         assert result.exit_code == 2
         assert "not found" in result.output
+
+
+class TestMultiwordBases:
+    def test_unsigned_int_declared(self) -> None:
+        from rebrew.fixup import _existing_identifiers
+
+        assert "size" in _existing_identifiers("unsigned int size;\n")
+
+    def test_long_long_function_declared(self) -> None:
+        from rebrew.fixup import _existing_identifiers
+
+        assert "big" in _existing_identifiers("long long big(void);\n")
+
+    def test_const_pointer_declared(self) -> None:
+        from rebrew.fixup import _existing_identifiers
+
+        assert "p" in _existing_identifiers("const unsigned char *p;\n")
+
+    def test_multiword_decl_not_redefined(self) -> None:
+        src = "unsigned int size;\nvoid f(void) { size = 1; }\n"
+        result = fixup_source(src, compile_errors="'size' undeclared")
+        assert result.injected == []
+        assert "typedef int size;" not in result.source
+
+    def test_multiword_function_not_redefined(self) -> None:
+        src = "unsigned long big(void);\nvoid f(void) { big(); }\n"
+        result = fixup_source(src, compile_errors="implicit declaration of function 'big'")
+        assert result.injected == []

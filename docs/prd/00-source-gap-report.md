@@ -1,5 +1,11 @@
 # Source-Side Gap Report
 
+> **Correction (2026-09):** `rebrew sync` is BinSync-primary — field sync via
+> `--push`/`--pull --state-dir` (`--accept-binsync` / `--accept-local`); the
+> removed `--pull-signatures` / `--pull-structs` / `--pull-comments` /
+> `--pull-data` / `--accept-ghidra` flags referenced below are superseded (see
+> `rebrew sync --help`). This report is a historical record, kept as written.
+
 Generated: 2026-05-20
 
 This report captures gaps where the source/CLI surface diverges from the PRDs

@@ -134,6 +134,8 @@ class TestMergeBasic:
         assert "typedef int HANDLE;" in text
         # and the bodies keep their markers
         assert text.count("// FUNCTION: SERVER") == 2
+        # conflicting externs are warned on stderr with the kept spelling
+        assert "conflicting externs for helper" in result.output
 
     def test_consolidate_merges_intrinsics(self, tmp_path: Path, monkeypatch: Any) -> None:
         a = _write(
@@ -149,6 +151,35 @@ class TestMergeBasic:
         text = out.read_text(encoding="utf-8")
         assert "#pragma intrinsic(memcpy, memset)" in text
         assert text.count("#pragma intrinsic") == 1
+
+    def test_consolidate_json_carries_extern_evidence(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Conflicting/dropped externs surface in the --json payload."""
+        from rebrew.merge import ExternReport, consolidate_declarations
+
+        merged, report = consolidate_declarations(
+            "extern int helper(void);\nextern int helper(char*);\nint f(void) { return 0; }\n"
+        )
+        assert isinstance(report, ExternReport)
+        assert "helper" in report.conflicts
+        assert len(report.conflicts["helper"]) == 2
+        assert report.resolved and "helper" in report.resolved[0]
+        assert report.dropped == []
+        assert merged.count("extern int helper") == 1
+        a = _write(
+            tmp_path / "a.c",
+            _single(0x10001000, "_a", extra="extern int helper(void);\n"),
+        )
+        b = _write(
+            tmp_path / "b.c",
+            _single(0x10002000, "_b", extra="extern int helper(char*);\n"),
+        )
+        payloads: list[dict[str, Any]] = []
+        monkeypatch.setattr("rebrew.merge.json_print", lambda data: payloads.append(data))
+        result, _out = _invoke(tmp_path, monkeypatch, "--consolidate", "--json", str(a), str(b))
+        assert result.exit_code == 0
+        assert "helper" in payloads[0]["extern_conflicts"]
 
     def test_dry_run_does_not_create_output(self, tmp_path: Path, monkeypatch: Any) -> None:
         a = _write(tmp_path / "a.c", _single(0x10001000, "_a"))
@@ -281,6 +312,17 @@ class TestMergeHelpers:
         files = _collect_input_files([str(a), str(tmp_path / "b.h")], _make_cfg(tmp_path))
         assert files == [a]  # .h filtered out, .c kept, deduped
 
+    def test_resolve_externs_reports_dropped_and_conflicts(self) -> None:
+        from rebrew.merge import _resolve_externs
+
+        report = _resolve_externs(
+            ["", "extern int x;", "extern int y(void);", "extern int y(char*);"]
+        )
+        assert report.dropped == [""]
+        assert report.resolved.count("extern int x;") == 1
+        assert report.conflicts["y"] == ["extern int y(void);", "extern int y(char*);"]
+        assert len([d for d in report.resolved if " y(" in d]) == 1
+
 
 class TestMergeErrors:
     def test_no_sources_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -404,6 +446,45 @@ class TestMergeInputScanning:
         assert not (tmp_path / "b.c").exists()
         assert out.exists()
 
+    def test_force_rerun_with_output_inside_input_dir(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """The previous merge output must not be collected as an input: a
+        --force re-run used to abort with a duplicate-VA error."""
+        sub = tmp_path / "src" / "SERVER"
+        sub.mkdir(parents=True)
+        _write(sub / "a.c", _single(0x1000, "_fn_a"))
+        _write(sub / "b.c", _single(0x2000, "_fn_b"))
+        out = sub / "all.c"
+        monkeypatch.setattr(
+            "rebrew.merge.require_config", lambda target=None, json_mode=False: _make_cfg(tmp_path)
+        )
+        first = runner.invoke(app, ["--output", str(out), str(sub)])
+        assert first.exit_code == 0, first.output
+        second = runner.invoke(app, ["--output", str(out), "--force", str(sub)])
+        assert second.exit_code == 0, second.output
+        assert out.exists()
+
+    def test_skipped_legacy_file_does_not_force_its_encoding(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A skipped legacy-encoded input must not set the output encoding: it
+        made an otherwise all-UTF-8 merge fail to encode (or report a false
+        'conflicting source encodings' abort)."""
+        # Contributes no blocks (CLIENT module, marker is SERVER) and is cp1252.
+        skipped = tmp_path / "a.c"
+        skipped.write_bytes(
+            _single(0x1000, "_fn_a", module="CLIENT").replace("GAME", "caf\xe9").encode("cp1252")
+        )
+        # Included, UTF-8, and carries a character cp1252 cannot encode.
+        _write(tmp_path / "b.c", _single(0x2000, "_fn_b", extra="// arrow: \u2192\n"))
+        _write(tmp_path / "c.c", _single(0x3000, "_fn_c"))
+        result, out = _invoke(
+            tmp_path, monkeypatch, str(skipped), str(tmp_path / "b.c"), str(tmp_path / "c.c")
+        )
+        assert result.exit_code == 0, result.output
+        assert "fn_b" in out.read_text(encoding="utf-8")
+
 
 class TestMergeCommentPreamble:
     def test_strips_decomp_comment_blocks_from_preamble(
@@ -422,3 +503,19 @@ class TestMergeCommentPreamble:
         assert "Symbol: _a" not in text
         # Both markers survive.
         assert "0x10001000" in text and "0x10002000" in text
+
+
+class TestMergeEncodings:
+    def test_conflicting_legacy_encodings_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two legacy inputs in different encodings cannot both round-trip into
+        the single output encoding; merge must say so instead of dropping one."""
+        a = tmp_path / "a.c"
+        b = tmp_path / "b.c"
+        # 0xA9 alone decodes as shift_jis; 0x81 + a space forces the cp1252 path.
+        a.write_bytes(b"// \xa9 note\n// FUNCTION: SERVER 0x1000\nint a(void){return 0;}\n")
+        b.write_bytes(b"// \x81 note\n// FUNCTION: SERVER 0x2000\nint b(void){return 0;}\n")
+        result, _out = _invoke(tmp_path, monkeypatch, str(a), str(b))
+        assert result.exit_code != 0
+        assert "conflicting source encodings" in result.output

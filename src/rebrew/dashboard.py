@@ -42,7 +42,7 @@ import typer
 from rich.console import Console
 
 from rebrew.build_db import resolve_db_dir
-from rebrew.cli import TargetOption, error_exit, json_print
+from rebrew.cli import error_exit, json_print
 
 console = Console(stderr=True)
 log = logging.getLogger(__name__)
@@ -323,7 +323,8 @@ class Dashboard:
             rows = conn.execute(
                 "SELECT section_name, total_cells, exact_count, reloc_count, "
                 "near_match_count, stub_count, padding_count, data_count, "
-                "thunk_count, none_count "
+                "thunk_count, none_count, proven_count, size_mismatch_count, "
+                "other_count "
                 "FROM section_cell_stats WHERE target = ? ORDER BY section_name",
                 (target,),
             ).fetchall()
@@ -347,6 +348,9 @@ class Dashboard:
                     "data": r[7] or 0,
                     "thunk": r[8] or 0,
                     "none": r[9] or 0,
+                    "proven": r[10] or 0,
+                    "size_mismatch": r[11] or 0,
+                    "other": r[12] or 0,
                 }
                 for r in rows
             ],
@@ -499,6 +503,24 @@ def _load_list(raw: str | None) -> list[str]:
     return [str(v) for v in value] if isinstance(value, list) else []
 
 
+def _local_interface_ips() -> set[str]:
+    """The host's own addresses, for a wildcard bind's Host allow-list.
+
+    A wildcard bind (``--host 0.0.0.0``) has no single expected Host: users
+    reach it as ``localhost``, ``127.0.0.1``, or one of the machine's own
+    addresses, and the previous allow-list held only the literal wildcard, so
+    every real request was 403'd.  Resolver-based (no netlink walk): an
+    unresolvable hostname just yields an empty set.
+    """
+    import socket
+
+    try:
+        infos = socket.getaddrinfo(socket.gethostname(), None)
+    except OSError:
+        return set()
+    return {str(info[4][0]) for info in infos if info[4]}
+
+
 def allowed_hosts_for(host: str, port: int) -> frozenset[str]:
     """Host-header values that must be accepted for a server bound to *host*:*port*.
 
@@ -508,11 +530,19 @@ def allowed_hosts_for(host: str, port: int) -> frozenset[str]:
     :func:`_host_allowed`, which keeps browser-based attackers (DNS
     rebinding against ``127.0.0.1``, cross-site reads of the JSON APIs)
     from reaching the dashboard.
+
+    A wildcard bind (``0.0.0.0`` / ``::`` / empty) listens on every interface,
+    so its aliases also cover loopback and the machine's own addresses —
+    without them the documented ``--host 0.0.0.0`` produced a server that
+    answered only a literal ``Host: 0.0.0.0``.
     """
-    loopback = host in ("127.0.0.1", "localhost", "::1", "")
+    wildcard = host in ("0.0.0.0", "::", "")
+    loopback = wildcard or host in ("127.0.0.1", "localhost", "::1")
     names = {host} if host else set()
     if loopback:
         names |= {"127.0.0.1", "localhost", "::1"}
+    if wildcard:
+        names |= _local_interface_ips()
     hosts: set[str] = set()
     for name in names:
         display = f"[{name}]" if ":" in name else name
@@ -636,7 +666,6 @@ def main(
     port: int = typer.Option(8000, "--port", "-p", help="Bind port"),
     root: Path | None = typer.Option(None, "--root", help="Project root directory"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-    target: str | None = TargetOption,
 ) -> None:
     """Serve the coverage database as a read-only web dashboard."""
     root_dir = root.resolve() if root else Path.cwd().resolve()

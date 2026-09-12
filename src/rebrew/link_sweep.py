@@ -65,8 +65,11 @@ _FIELDS = [
     ("ImageBase", "u32@opt+28"),
     ("SectionAlignment", "u32@opt+32"),
     ("FileAlignment", "u32@opt+36"),
-    ("OSVersion", "u8@opt+40:u8@opt+41"),
-    ("SubsystemVersion", "u8@opt+48:u8@opt+49"),
+    # Packed `major<<8 | minor`.  The minor field is a u16 at opt+42 / opt+50 —
+    # opt+41 / opt+49 are the high byte of the *major* u16 (always 0), so a
+    # minor-version delta was invisible to the sweep.
+    ("OSVersion", "u8@opt+40:u8@opt+42"),
+    ("SubsystemVersion", "u8@opt+48:u8@opt+50"),
     ("SizeOfImage", "u32@opt+56"),
     ("SizeOfHeaders", "u32@opt+60"),
     ("CheckSum", "u32@opt+64"),

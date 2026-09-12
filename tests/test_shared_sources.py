@@ -127,6 +127,23 @@ class TestIterSources:
         assert (cfg.reversed_dir / "local.c") in files
         assert (cfg.shared_dir / "common.c") in files
 
+    def test_shared_sources_use_the_configured_extensions(self, tmp_path: Path) -> None:
+        """The shared half of the scan used to be globbed through a `cfg=None`
+        recursive call, which fell back to `[".c"]` — with `source_ext = ".cpp"`
+        every shared `.cpp` was invisible to coverage/matching."""
+        from rebrew.sources import iter_sources
+
+        cfg = _cfg(tmp_path)
+        cfg.source_ext = ".cpp"
+        (cfg.reversed_dir / "local.cpp").write_text("int l(){return 1;}\n", encoding="utf-8")
+        (cfg.shared_dir / "common.cpp").write_text("int c(){return 1;}\n", encoding="utf-8")
+        (cfg.shared_dir / "legacy.c").write_text("int x(){return 1;}\n", encoding="utf-8")
+
+        files = iter_sources(cfg.reversed_dir, cfg)
+        assert (cfg.reversed_dir / "local.cpp") in files
+        assert (cfg.shared_dir / "common.cpp") in files
+        assert (cfg.shared_dir / "legacy.c") not in files  # not a configured ext
+
     def test_disabled_shared_dir_excluded(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path, shared="")
         (cfg.reversed_dir / "local.c").write_text("x", encoding="utf-8")
@@ -509,3 +526,53 @@ class TestVerifySharedFile:
             "INTERNAL_ERROR",
             "MISSING_FILE",
         ), result.message
+
+
+class TestSharedLibraryHeaderCoverage:
+    def test_iter_library_headers_includes_shared_root(self, tmp_path: Path) -> None:
+        """`iter_sources` adds `cfg.shared_dir`; the header scan must too, or a
+        shared `library_*.h` is invisible to coverage, crt-match, the call
+        graph and `rebrew context`."""
+        from rebrew.sources import iter_library_headers
+
+        cfg = _cfg(tmp_path)
+        shared_hdr = cfg.shared_dir / "library_foo.h"
+        shared_hdr.write_text("// LIBRARY: V2 0x503000\n_foo_init\n", encoding="utf-8")
+        own_hdr = cfg.reversed_dir / "library_bar.h"
+        own_hdr.write_text("// LIBRARY: V2 0x504000\n_bar_init\n", encoding="utf-8")
+        # Both, when the directory IS the target's reversed_dir...
+        assert set(iter_library_headers(cfg.reversed_dir, cfg)) == {shared_hdr, own_hdr}
+        # ...and only the directory's own headers otherwise.
+        assert iter_library_headers(cfg.reversed_dir) == [own_hdr]
+        assert iter_library_headers(tmp_path / "elsewhere", cfg) == []
+
+    def test_iter_library_headers_skips_excluded_dirs(self, tmp_path: Path) -> None:
+        """The header scan must skip build/.venv/... like the source scan does:
+        a `library_*.h` copied into `build/` is not a project marker."""
+        from rebrew.sources import iter_library_headers
+
+        cfg = _cfg(tmp_path)
+        own_hdr = cfg.reversed_dir / "library_bar.h"
+        own_hdr.write_text("// LIBRARY: V2 0x504000\n_bar_init\n", encoding="utf-8")
+        junk_dir = cfg.reversed_dir / "build"
+        junk_dir.mkdir()
+        (junk_dir / "library_copied.h").write_text(
+            "// LIBRARY: V2 0x505000\n_x\n", encoding="utf-8"
+        )
+
+        assert iter_library_headers(cfg.reversed_dir) == [own_hdr]
+
+    def test_load_data_sees_shared_library_markers(self, tmp_path: Path) -> None:
+        """`status`/`todo` count coverage via `naming.load_data`: a shared
+        LIBRARY marker must appear there, not only in `rebrew catalog`."""
+        from rebrew.naming import load_data
+
+        cfg = _cfg(tmp_path)
+        (cfg.shared_dir / "library_foo.h").write_text(
+            "// LIBRARY: V2 0x503000\n// STATUS: EXACT\n_foo_init\n", encoding="utf-8"
+        )
+        _ghidra, existing, covered = load_data(cfg)
+        assert 0x503000 in existing
+        assert existing[0x503000]["status"] == "EXACT"
+        # The marker file is not an append target (find_neighbor_file's rule).
+        assert covered[0x503000] == "library_foo.h"

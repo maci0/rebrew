@@ -42,9 +42,16 @@ from rebrew.cli import (
 )
 from rebrew.config import ProjectConfig, load_config
 from rebrew.data_metadata import load_data_metadata
-from rebrew.metadata import MATCHED_STATUSES, load_metadata
+from rebrew.metadata import (
+    KNOWN_STATUSES,
+    MATCHED_STATUSES,
+    canonical_status,
+    is_table_field,
+    load_metadata,
+)
 from rebrew.sources import (
     iter_sources,
+    source_exts,
 )
 from rebrew.utils import (
     read_source_text,
@@ -53,7 +60,10 @@ from rebrew.utils import (
 
 console = Console(stderr=True)
 
-_HEADER_MARKER_RE = re.compile(r"//\s*(\w+):\s*(\S+)\s+(0x[0-9a-fA-F]+)")
+# Marker header line in either comment style.  annotation.NEW_FUNC_CAPTURE_RE
+# accepts `//` and `/*` (the C89-strict form intake emits for tc20/msvc1.52), so
+# lint must not report E001/E002 on a file the parser reads fine.
+_HEADER_MARKER_RE = re.compile(r"(?://|/\*)\s*(\w+):\s*(\S+)\s+(0x[0-9a-fA-F]+)")
 _SIZE_ANNOTATION_RE = re.compile(r"//\s*SIZE\s+0x[0-9a-fA-F]+")
 # Patterns for default function names (to be used with --pedantic flag)
 _DEFAULT_FUNC_NAME_PATTERNS = [
@@ -280,8 +290,14 @@ def _build_function_index(
     starts: set[int] = set()
     spans: list[tuple[int, int, str]] = []
     for f in funcs:
-        va = int(f.get("va", 0))
-        if va <= 0:
+        raw_va = f.get("va")
+        if raw_va is None:
+            continue
+        va = int(raw_va)
+        # 16-bit DOS targets address code from segment 0, so VA 0 is legitimate
+        # there (min_valid_va_for returns 0) — dropping it fired a false W028 on
+        # every `// FUNCTION: GAME 0x0` annotation.
+        if va < min_valid_va_for(cfg):
             continue
         starts.add(va)
         spans.append((va, va + max(int(f.get("size", 0) or 0), 1), str(f.get("name", ""))))
@@ -454,6 +470,39 @@ def _check_E015_marker_consistency(
         )
 
 
+def _check_E004_status_value(result: LintResult, status: str) -> None:
+    """A persisted STATUS outside KNOWN_STATUSES is a typo/legacy value.
+
+    ``canonical_status`` only upper-cases, so an unknown word flows through the
+    overlay as if valid; flag it instead of silently treating it as a real
+    classification.
+    """
+    if status and canonical_status(status) not in KNOWN_STATUSES:
+        result.error(
+            result.marker_line,
+            "E004",
+            f"Unknown STATUS {status!r}; known values: {', '.join(sorted(KNOWN_STATUSES))}",
+        )
+
+
+def _check_E008_size_value(result: LintResult, metadata_size: str | None) -> None:
+    """A metadata SIZE that is not an integer misleads byte extraction.
+
+    Validates the ``rebrew-functions.toml`` value only: ``// SIZE:`` inline is
+    the reccmp-native contract (see W019) and is not part of this rule, matching
+    the reserved E008 scope.  SIZE is metadata-only, so a non-numeric spelling
+    would make a consumer slice the wrong byte count or silently fall back.
+    """
+    if not metadata_size:
+        return
+    try:
+        int(metadata_size, 0)
+    except ValueError:
+        result.error(
+            result.marker_line, "E008", f"metadata SIZE {metadata_size!r} is not an integer"
+        )
+
+
 def _check_E017_contradictory(result: LintResult, status: str, marker: str) -> None:
     if status == "NEAR_MATCHING" and marker == "STUB":
         result.error(
@@ -587,7 +636,17 @@ def _check_W019_inline_metadata(
             # not a metadata-migration candidate.
             continue
         if key == "SIZE":
-            if metadata_size and metadata_size != found_keys[key].strip():
+            inline_size = found_keys[key].strip()
+            agrees = True
+            if metadata_size:
+                # Compare numerically when both parse: E008 blesses hex
+                # spellings (`size = "0x20"`), so a textual compare warned
+                # about `// SIZE: 32` vs metadata `0x20` being equal.
+                try:
+                    agrees = int(inline_size, 0) == int(metadata_size, 0)
+                except ValueError:
+                    agrees = inline_size == metadata_size
+            if metadata_size and not agrees:
                 result.warning(
                     result.marker_line,
                     "W019",
@@ -603,8 +662,11 @@ def _check_W019_inline_metadata(
                 f"Inline '// {key}:' is deprecated — use rebrew-functions.toml instead",
             )
             # Record for --fix migration (marker type routes the write to the
-            # function vs data metadata store).
-            if module and va_int is not None:
+            # function vs data metadata store).  A table-typed field (LOCALS,
+            # COMMENTS, PROVE_CONSTRAINTS) cannot be built from an inline
+            # scalar, so --fix must not try — `update_field` rejects the string
+            # and the traceback escaped the CLI.
+            if module and va_int is not None and not is_table_field(key):
                 result._inline_fixes.append((module, va_int, key, found_keys[key], marker))
 
 
@@ -641,14 +703,16 @@ def _check_E023_naked_asm(
         if "REBREW_ALLOW_NAKED" in line:
             return
 
-    # Find naked declaration outside comments.
+    # Find the naked declaration in CODE.  The naive
+    # `startswith("//")/"/*"/"*"` filter let the interior of a block comment
+    # through (a commented-out body whose lines lack a leading `*`), reporting
+    # a naked declaration that is not in the source at all.
     has_naked = False
     naked_line = 0
+    in_block_comment = False
     for idx, line in enumerate(lines, start=1):
-        s = line.strip()
-        if s.startswith("//") or s.startswith("/*") or s.startswith("*"):
-            continue
-        if "__declspec(naked)" in line or "__declspec( naked" in line:
+        code, in_block_comment = _strip_c_comments_strings(line, in_block_comment)
+        if "__declspec(naked)" in code or "__declspec( naked" in code:
             has_naked = True
             naked_line = idx
             break
@@ -658,16 +722,17 @@ def _check_E023_naked_asm(
     asm_lines: list[int] = []
     emit_lines: list[int] = []
     meaningful_asm: list[int] = []
+    in_block_comment = False
     for idx, line in enumerate(lines, start=1):
-        s = line.strip()
-        if s.startswith("//") or s.startswith("/*") or s.startswith("*"):
-            continue
+        # Scan CODE, not raw lines: a block comment's interior lines need not
+        # start with `*`, so a commented-out body was counted as an asm dump.
+        code, in_block_comment = _strip_c_comments_strings(line, in_block_comment)
         # Use "_emit" so both "_emit" and "__emit" variants are caught.
-        has_asm = "__asm" in s
-        has_emit = "_emit" in s
+        has_asm = "__asm" in code
+        has_emit = "_emit" in code
         if has_asm:
             asm_lines.append(idx)
-            payload = s.lower().split("__asm", 1)[1]
+            payload = code.lower().split("__asm", 1)[1]
             payload = payload.replace("{", "").replace("}", "").replace(";", "").strip()
             # Only count as meaningful if it carries a mnemonic, not just braces.
             if payload:
@@ -750,19 +815,18 @@ def _check_W020_asm_dump(
     if has_blocker:
         return
     # Whole-function naked asm is handled by E023 — don't double-report W020.
+    # Scan CODE, not raw lines: a block comment's interior lines need not start
+    # with `*`, and counting them reported an asm dump that is only commented out.
+    in_block_comment = False
     for line in lines:
-        s = line.strip()
-        if s.startswith("//") or s.startswith("/*") or s.startswith("*"):
-            continue
-        if "__declspec(naked)" in line:
+        code, in_block_comment = _strip_c_comments_strings(line, in_block_comment)
+        if "__declspec(naked)" in code:
             return
     claimed = sorted((claimed_statuses or set()) - {"STUB", "SKIP"})
+    in_block_comment = False
     for i, line in enumerate(lines, start=1):
-        s = line.strip()
-        # Ignore comment lines — "__asm" in a note is not an implementation.
-        if s.startswith("//") or s.startswith("/*") or s.startswith("*"):
-            continue
-        if "__emit" in s:
+        code, in_block_comment = _strip_c_comments_strings(line, in_block_comment)
+        if "__emit" in code:
             if claimed:
                 result.warning(
                     i,
@@ -778,7 +842,7 @@ def _check_W020_asm_dump(
                     "source; rewrite it as C (or mark it STUB/BLOCKER with a note)",
                 )
             return
-        if "__asm" in s:
+        if "__asm" in code:
             if claimed:
                 result.warning(
                     i,
@@ -941,7 +1005,6 @@ def _check_W022_zero_init_bss(
                 "file-scope zero initializer (= {0} / = 0) puts the global in "
                 ".data, not .bss — leave it uninitialized to keep the PE small",
             )
-            return
 
 
 def _check_W023_default_func_names(result: LintResult, lines: list[str], pedantic: bool) -> None:
@@ -1409,6 +1472,8 @@ def lint_file(
         "note": "NOTE",
         "skip": "SKIP",
         "globals": "GLOBALS",
+        "locals": "LOCALS",
+        "comments": "COMMENTS",
         "section": "SECTION",
         "source": "SOURCE",
     }
@@ -1445,7 +1510,7 @@ def lint_file(
             try:
                 _va_int = int(va_str, 16)
                 _metadata_override = _metadata_entries.get((mod, _va_int), {})
-                _metadata_size = str(_metadata_override.get("SIZE", "")).strip() or None
+                _metadata_size = str(_metadata_override.get("size", "")).strip() or None
                 for _toml_key, _found_key in _METADATA_TO_FOUND.items():
                     if _toml_key in _metadata_override:
                         if _found_key not in found_keys:
@@ -1531,6 +1596,8 @@ def lint_file(
             _check_W006_source(result, module, found_keys, cfg)
             _check_W010_unknown_keys(result, found_keys, module=mod, va_int=_va_int)
             _check_E017_contradictory(result, status, marker)
+            _check_E004_status_value(result, status)
+            _check_E008_size_value(result, _metadata_size)
             _check_config_rules(result, found_keys, cfg)
 
             _check_W015_va_case(result, va_str)
@@ -1675,13 +1742,17 @@ def main(
 
     reversed_dir = cfg.reversed_dir if cfg else None
 
-    ext = cfg.source_ext if cfg else ".c"
+    exts = source_exts(cfg)
+    exts = source_exts(cfg)
     if files:
-        c_files = [f for f in files if f.suffix == ext]
+        # `source_ext` may hold several comma-separated extensions; comparing
+        # the raw string against `f.suffix` matched nothing, so `rebrew lint
+        # foo.cpp` with `source_ext = ".c,.cpp"` silently checked 0 files.
+        c_files = [f for f in files if f.suffix.lower() in exts]
     elif reversed_dir:
         c_files = iter_sources(reversed_dir, cfg)
     else:
-        c_files = sorted(Path.cwd().rglob(f"*{ext}"))
+        c_files = sorted({p for ext in exts for p in Path.cwd().rglob(f"*{ext}")})
 
     # Cross-file duplicate tracking: VAs (E013) and global names (W021).
     # seen_vas keys are (module, va) tuples — bare int would falsely flag
@@ -1755,6 +1826,9 @@ def main(
     # VA when possible; presets and unattributed VAs land on a synthetic entry.
     preset_redundant: list[RedundantPreset] = []
     fn_redundant: list[RedundantFunctionCflags] = []
+    # File results only (the W029 synthetic entries appended below have no file
+    # and must not be counted as passed files).
+    file_results = list(all_results)
     if cfg is not None:
         preset_redundant, fn_redundant = check_redundant_cflags(cfg, _preloaded_metadata)
         if preset_redundant or fn_redundant:
@@ -1804,7 +1878,7 @@ def main(
                     syn2.display(quiet=False)
                 warning_count += len(syn2.warnings)
             # Recompute passed in case we flipped some files from passed->warned.
-            passed = sum(1 for r in all_results if r.passed)
+            passed = sum(1 for r in file_results if r.passed)
 
     if json_output:
         output = {

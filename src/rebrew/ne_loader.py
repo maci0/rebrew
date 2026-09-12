@@ -26,8 +26,9 @@ from rebrew.binary_loader import BinaryInfo, SectionInfo
 
 NE_MAGIC = b"NE"
 
-# Segment flag: iterated data has no on-disk raw form.
-SEG_ITERATED = 0x02
+# Segment flags (OS/2 NE spec, as in wine's winbase16.h): ALLOCATED 0x0002,
+# LOADED 0x0004, ITERATED 0x0008.  Iterated data has no on-disk raw form.
+SEG_ITERATED = 0x0008
 
 
 @dataclass
@@ -71,6 +72,7 @@ class NeSegment:
     flags: int
     min_allocation: int
     is_code: bool = False  # set by load_ne_binary via a content probe
+    on_disk: bool = True  # sector offset 0 == "not present in the file" (zero-filled)
 
     @property
     def is_iterated(self) -> bool:
@@ -403,6 +405,10 @@ def parse_segments(data: bytes, ne_offset: int, header: NeHeader) -> list[NeSegm
                 length=length,
                 flags=flags,
                 min_allocation=min_alloc,
+                # Sector offset 0 means the segment is not present in the file
+                # (allocated zero-filled at load); reading offset 0 would
+                # report the MZ/NE header as the segment's content.
+                on_disk=sector_off != 0,
             )
         )
     return segments
@@ -552,8 +558,8 @@ def load_ne_binary(path: Path) -> BinaryInfo:
         # would otherwise yield a negative raw_size that poisons downstream
         # byte-extraction and coverage math.
         raw_on_disk = max(0, len(data) - seg.file_offset)
-        raw_size = 0 if seg.is_iterated else min(seg.length, raw_on_disk)
-        seg.is_code = probe_is_code(data, seg.file_offset, seg.length, seg.index)
+        raw_size = 0 if (seg.is_iterated or not seg.on_disk) else min(seg.length, raw_on_disk)
+        seg.is_code = seg.on_disk and probe_is_code(data, seg.file_offset, seg.length, seg.index)
         sections[f"SEG{seg.index}"] = SectionInfo(
             name=f"SEG{seg.index}",
             va=seg.base_va,

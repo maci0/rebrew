@@ -49,7 +49,9 @@ class TestBuildGraphBranches:
         )
         nodes, edges, _ = build_graph(cfg.reversed_dir, cfg)
         assert "g_x" not in nodes  # GLOBAL markers are not graph nodes
-        assert "my_func" in nodes
+        assert "va:0x00002000" in nodes
+        assert nodes["va:0x00002000"]["symbol"] == "_my_func"
+        assert edges == []  # `extern int g_x` is a variable, not a call edge
 
     def test_dispatch_entry_name_fallback(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
@@ -64,8 +66,8 @@ class TestBuildGraphBranches:
         nodes, _edges, d_edges = build_graph(cfg.reversed_dir, cfg, dispatch_tables=[tbl])
         assert "dispatch_0x00004000" in nodes
         # Unknown target VA with a resolved name → fallback to the name.
-        assert ("dispatch_0x00004000", "resolved_name") in d_edges
-        assert "resolved_name" in nodes
+        assert ("dispatch_0x00004000", "_resolved_name") in d_edges
+        assert "_resolved_name" in nodes
 
     def test_dispatch_target_placeholder(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
@@ -136,7 +138,8 @@ class TestDepgraphCli:
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert data["total_nodes"] == 1
-        assert "my_func" in data["nodes"]
+        assert "va:0x00002000" in data["nodes"]
+        assert data["nodes"]["va:0x00002000"]["symbol"] == "_my_func"
 
     def test_output_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.depgraph import app
@@ -235,7 +238,7 @@ class TestDepgraphCliMore:
         )
         result = CliRunner().invoke(app, ["--focus", "message"])
         assert result.exit_code == 0
-        assert "parse_message" in result.stdout
+        assert "_parse_message" in result.stdout
 
 
 class TestFocusByVa:

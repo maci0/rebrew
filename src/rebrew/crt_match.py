@@ -151,7 +151,13 @@ _MSVC6_ASM_FUNCTIONS: set[str] = {
     "_outpd",
 }
 
-_ASM_PROC_RE = re.compile(r"^\s*_?(\w+)\s+PROC\b", re.MULTILINE)
+# MSVC's VC98 PLATFORM/*.ASM spells the CRT helpers with their real decoration
+# (`__allmul PROC`, `_memcpy PROC`).  The old `_?(\w+)` swallowed one leading
+# underscore into the group, so `__allmul` indexed as `_allmul`: `normalize_name`
+# preserves a double underscore, so the entry could never equal the binary's
+# `__allmul` and the whole `_MSVC6_ASM_FUNCTIONS` set was unmatchable.  Capture
+# the name verbatim and let `normalize_name` do the decoration stripping.
+_ASM_PROC_RE = re.compile(r"^\s*(\w+)\s+PROC\b", re.MULTILINE)
 
 
 def build_crt_index(source_dir: Path, module: str) -> list[CrtSourceEntry]:
@@ -312,7 +318,9 @@ def collect_library_annotations(
 
     # Library functions live in `library_*.h` headers as well as .c files;
     # iter_sources only globs cfg.source_ext, so iterate both.
-    for source_path in iter_sources(cfg.reversed_dir, cfg) + iter_library_headers(cfg.reversed_dir):
+    for source_path in iter_sources(cfg.reversed_dir, cfg) + iter_library_headers(
+        cfg.reversed_dir, cfg
+    ):
         for ann in parse_c_file_multi(source_path, target_name=None, metadata_dir=cfg.metadata_dir):
             module_upper = (ann.module or "").upper()
             if ann.marker_type not in ("FUNCTION", "LIBRARY"):
@@ -412,6 +420,20 @@ def _source_ref(entry: CrtSourceEntry) -> str:
     if entry.is_asm or entry.line <= 0:
         return entry.file
     return f"{entry.file}:{entry.line}"
+
+
+#: Minimum confidence for ``--fix-source`` SOURCE auto-writes.
+SOURCE_AUTO_WRITE_MIN_CONFIDENCE = 0.85
+
+
+def source_auto_writable(match: CrtMatch) -> bool:
+    """True when *match* may auto-write a SOURCE annotation.
+
+    Filename-derived index entries (``line == 0`` — the name came from the
+    file stem, not a parsed definition) never qualify, however high their
+    confidence: filename-only evidence is a hint, not an attribution.
+    """
+    return match.confidence >= SOURCE_AUTO_WRITE_MIN_CONFIDENCE and match.source.line != 0
 
 
 def _render_index_table(entries: list[CrtSourceEntry]) -> None:
@@ -580,7 +602,7 @@ def main(
                 best_by_va[match.va] = match
 
         for match in sorted(best_by_va.values(), key=lambda m: m.va):
-            if match.confidence < 0.85:
+            if not source_auto_writable(match):
                 continue
             pair = annotation_map.get(match.va)
             if pair is None:

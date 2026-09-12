@@ -56,10 +56,10 @@ class TestVerifyDiff:
         assert diff["improvements"][0]["current_status"] == "EXACT"
         assert diff["regressions"] == []
 
-    def test_diff_internal_error_never_regression(self) -> None:
-        """A worker crash on a previously-EXACT function must not appear as a
-        code regression — INTERNAL_ERROR rows are skipped entirely by the
-        --compare gate (the count is surfaced separately)."""
+    def test_diff_internal_error_is_regression(self) -> None:
+        """A worker crash on a previously-EXACT function fails the gate closed:
+        INTERNAL_ERROR on a formerly-passing VA is a regression (fail closed
+        in both plain and --compare modes)."""
         previous = {
             "results": [{"va": "0x10001000", "name": "func_a", "status": "EXACT", "delta": 0}]
         }
@@ -76,11 +76,28 @@ class TestVerifyDiff:
         }
 
         diff = diff_reports(previous, current)
-        assert diff["regressions"] == []
+        assert len(diff["regressions"]) == 1
+        assert diff["regressions"][0]["previous_status"] == "EXACT"
+        assert diff["regressions"][0]["current_status"] == "INTERNAL_ERROR"
         assert diff["improvements"] == []
         assert diff["new"] == []
         assert diff["removed"] == []
-        assert diff["unchanged_count"] == 0
+
+    def test_diff_repeat_internal_error_not_regression(self) -> None:
+        """INTERNAL_ERROR on both sides is unchanged, not a new regression."""
+        row = {
+            "va": "0x10001000",
+            "name": "func_a",
+            "status": "INTERNAL_ERROR",
+            "message": "INTERNAL_ERROR: crash",
+            "delta": 0,
+        }
+        previous = {"results": [dict(row)]}
+        current = {"results": [dict(row)]}
+
+        diff = diff_reports(previous, current)
+        assert diff["regressions"] == []
+        assert diff["unchanged_count"] == 1
 
     def test_diff_new_function(self) -> None:
         previous = {"results": []}
@@ -271,3 +288,40 @@ class TestApplyOrPreviewStatus:
         _apply_or_preview_status([(promotable, "EXACT", 0)], object(), dry_run=True)
         out = capsys.readouterr()
         assert "would update STATUS → EXACT for 0x10003000 (game)" in out.err
+
+    def test_unknown_status_ranks_worst(self) -> None:
+        """Unknown statuses default to worse than any known failure (fail
+        closed): a new INTERNAL-something status in `new` trips the gate."""
+        from rebrew.verify import _STATUS_RANK, _gate_fails
+
+        previous = {"results": []}
+        current = {"results": [{"va": "0x10001000", "name": "new_fn", "status": "FUTURE_WEIRD"}]}
+        diff = diff_reports(previous, current)
+        assert diff["new"][0]["status"] == "FUTURE_WEIRD"
+        unknown_rank = max(_STATUS_RANK.values()) + 1
+        assert _STATUS_RANK.get("FUTURE_WEIRD", unknown_rank) > _STATUS_RANK["FAIL"]
+        assert _gate_fails(diff, 0) is True
+
+    def test_compare_drop_threshold_named(self) -> None:
+        """The same-rank match-percentage regression threshold is a named
+        constant, not a magic literal."""
+        from rebrew.verify import _COMPARE_DROP_PCT, diff_reports
+
+        assert _COMPARE_DROP_PCT == 5.0
+        previous = {
+            "results": [
+                {"va": "0x1000", "name": "a", "status": "NEAR_MATCHING", "match_percent": 95.0}
+            ]
+        }
+        current = {
+            "results": [
+                {
+                    "va": "0x1000",
+                    "name": "a",
+                    "status": "NEAR_MATCHING",
+                    "match_percent": 95.0 - _COMPARE_DROP_PCT - 0.1,
+                }
+            ]
+        }
+        diff = diff_reports(previous, current)
+        assert len(diff["regressions"]) == 1

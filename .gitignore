@@ -17,6 +17,9 @@ __pycache__/
 .review-loop.lock
 .gauntlet.lock
 
+# Agent scratch (throwaway probes, revert-check scripts, handoff notes)
+.scratch/
+
 # Build artifacts
 *.egg-info/
 dist/

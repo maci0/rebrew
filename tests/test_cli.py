@@ -190,6 +190,37 @@ class TestIterAnnotations:
         src.write_text("x", encoding="utf-8")
         assert cli_mod.iter_annotations([src], target="SERVER") == []
 
+    def test_non_value_error_skipped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A non-ValueError per-source failure (OSError, UnicodeDecodeError,
+        …) must also skip the file, never abort the batch run."""
+        import rebrew.cli as cli_mod
+
+        def boom(src, target_name=None, metadata_dir=None) -> object:
+            raise OSError("unreadable file")
+
+        monkeypatch.setattr("rebrew.annotation.parse_c_file_multi", boom)
+        src = tmp_path / "a.c"
+        src.write_text("x", encoding="utf-8")
+        assert cli_mod.iter_annotations([src], target="SERVER") == []
+
+    def test_verify_cache_copy(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """load_verify_cache_raw returns a copy: mutating the result must not
+        corrupt the memo for later readers in the same process."""
+        from types import SimpleNamespace
+
+        import rebrew.cli as cli_mod
+
+        cache_dir = tmp_path / ".rebrew"
+        cache_dir.mkdir()
+        (cache_dir / "verify_cache.json").write_text('{"version": 1}', encoding="utf-8")
+        cfg = SimpleNamespace(root=tmp_path)
+        first = cli_mod.load_verify_cache_raw(cfg)
+        assert first == {"version": 1}
+        first["version"] = 999  # type: ignore[index]
+        second = cli_mod.load_verify_cache_raw(cfg)
+        assert second == {"version": 1}
+        assert first is not second
+
 
 # ---------------------------------------------------------------------------
 # resolve_source_arg()
@@ -370,3 +401,49 @@ class TestSourceExtensions:
         cfg = SimpleNamespace(source_ext=".c")
         found = [p.name for p in iter_sources(tmp_path, cfg)]
         assert found == ["a.c"]
+
+
+class TestResolveSourceArgUnderscore:
+    def _cfg(self, tmp_path: Path, src: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            reversed_dir=src,
+            metadata_dir=tmp_path,
+            source_ext=".c",
+            shared_dir=None,
+            marker="SERVER",
+            target_name="SERVER",
+        )
+
+    def test_underscore_tolerated_both_directions(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.cli import resolve_source_arg
+
+        monkeypatch.chdir(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "_foo.c").write_text("// FUNCTION: SERVER 0x1000\nint _foo(void){return 0;}\n")
+        cfg = self._cfg(tmp_path, src)
+        # Symbol form without the MSVC leading underscore must still resolve.
+        assert resolve_source_arg(cfg, "foo") == src / "_foo.c"
+        assert resolve_source_arg(cfg, "_foo") == src / "_foo.c"
+
+
+class TestResolveSourceArgExactStem:
+    def test_exact_stem_beats_underscore_variant(self, tmp_path: Path, monkeypatch) -> None:
+        """Comparing both sides stripped let `_foo.c` (path order `_` < `f`) win
+        over the exact `foo.c`, so the wrong file was compiled and its VA
+        received the STATUS write."""
+        from types import SimpleNamespace
+
+        from rebrew.cli import resolve_source_arg
+
+        src = tmp_path / "src"
+        src.mkdir()
+        underscored = src / "_foo.c"
+        underscored.write_text("int foo(void) { return 1; }\n", encoding="utf-8")
+        exact = src / "foo.c"
+        exact.write_text("int foo(void) { return 2; }\n", encoding="utf-8")
+        cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, target_name="T", marker="T")
+        monkeypatch.setattr("rebrew.cli.iter_sources", lambda d, c: sorted([underscored, exact]))
+        assert resolve_source_arg(cfg, "foo") == exact

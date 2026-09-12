@@ -105,6 +105,26 @@ class TestScoring:
 # ---------------------------------------------------------------------------
 
 
+class TestCallerCounts:
+    """`_caller_counts` backs the +ROI caller boost and the "unblocks N
+    caller(s)" note, so it must count only UNRESOLVED callers."""
+
+    def test_matched_caller_does_not_count(self, tmp_path: Path) -> None:
+        from rebrew.todo import _caller_counts
+
+        cfg = _make_cfg(tmp_path)
+        cfg.reversed_dir.mkdir(parents=True, exist_ok=True)
+        (cfg.reversed_dir / "a.c").write_text(
+            "extern int helper(void);\nint matched(void) { return helper(); }\n", encoding="utf-8"
+        )
+        (cfg.reversed_dir / "b.c").write_text(
+            "extern int helper(void);\nint other(void) { return helper(); }\n", encoding="utf-8"
+        )
+        assert _caller_counts(cfg) == {"helper": 2}
+        # a.c's own function is byte-matched, so it no longer needs helper.
+        assert _caller_counts(cfg, {"a.c"}) == {"helper": 1}
+
+
 class TestCollectors:
     def test_active_functions_compile_error(self, tmp_path: Path) -> None:
         _cfg = _make_cfg(tmp_path)
@@ -168,6 +188,74 @@ class TestCollectors:
         assert len(items) == 1
         assert items[0].category == CAT_MISSING_ANNOTATION
         assert items[0].name == "FUN_00001000"
+
+    def test_fun_named_near_matching_not_missing_annotation(self) -> None:
+        """A measured NEAR_MATCHING result still carrying the default FUN_
+        label is matched work — it must use the verify-driven lanes, not
+        the skeleton lane."""
+        from rebrew.verify import VerifyCacheEntry, VerifyResult
+
+        entries = {
+            "0x00001000": VerifyCacheEntry(
+                source_hash="",
+                filepath="a.c",
+                mtime_ns=0,
+                result=VerifyResult(
+                    status="NEAR_MATCHING",
+                    va=0x1000,
+                    size=100,
+                    filepath="a.c",
+                    name="FUN_00001000",
+                    message="",
+                    passed=False,
+                    match_percent=99.0,
+                    delta=3,
+                ),
+            )
+        }
+        existing = {0x1000: {"status": "STUB", "symbol": "FUN_00001000", "filename": "a.c"}}
+        items = _collect_active_functions(existing, {0x1000: 100}, {}, entries)
+        assert len(items) == 1
+        assert items[0].category == CAT_FIX_DELTA
+        assert "skeleton" not in items[0].description
+
+    def test_ga_ceiling_without_angr_is_improve_match(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A GA-ceiling blocker without angr installed cannot route to the
+        prover lane — classify as improve-match with a near-diag command."""
+        from rebrew.metadata import GA_CEILING_PREFIX
+
+        monkeypatch.setattr("rebrew.cli.angr_available", lambda: False)
+        existing = {
+            0x1000: {
+                "status": "NEAR_MATCHING",
+                "symbol": "func_a",
+                "filename": "a.c",
+                "blocker": GA_CEILING_PREFIX + " register-only delta",
+            }
+        }
+        items = _collect_active_functions(existing, {0x1000: 100}, {}, {})
+        assert len(items) == 1
+        assert items[0].category == CAT_IMPROVE_MATCH
+        assert "near-diag" in items[0].command
+
+    def test_ga_ceiling_with_angr_routes_to_prover(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.metadata import GA_CEILING_PREFIX
+
+        monkeypatch.setattr("rebrew.cli.angr_available", lambda: True)
+        existing = {
+            0x1000: {
+                "status": "NEAR_MATCHING",
+                "symbol": "func_a",
+                "filename": "a.c",
+                "blocker": GA_CEILING_PREFIX + " register-only delta",
+            }
+        }
+        items = _collect_active_functions(existing, {0x1000: 100}, {}, {})
+        assert len(items) == 1
+        assert items[0].category == CAT_RUN_PROVER
+        assert "prove" in items[0].command
 
     def test_active_functions_naked_matched_stays_actionable(self) -> None:
         """A matched function whose source is `// SOURCE: naked` is byte-exact
@@ -447,14 +535,46 @@ class TestCollectors:
         assert len(items) == 0
 
     def test_library_candidates(self) -> None:
-        msvcrt_func = SimpleNamespace(va=0x1000, size=100, name="__alloca", module="MSVCRT")
-        other_func = SimpleNamespace(va=0x2000, size=200, name="game_func", module="")
+        """`FunctionEntry` has no `module` attribute, so the lane must infer the
+        module from the name — the old `hasattr(func, "module")` was always
+        False and the category never emitted (the previous test pinned a fake
+        attribute no production object has)."""
+        crt_func = FunctionEntry(va=0x1000, size=100, name="_malloc")
+        other_func = FunctionEntry(va=0x2000, size=200, name="game_func")
         existing: dict[int, dict[str, str]] = {}
         cfg = SimpleNamespace(library_modules={"MSVCRT"})
-        items = _collect_library_candidates([msvcrt_func, other_func], existing, cfg)  # type: ignore[arg-type]
+        items = _collect_library_candidates([crt_func, other_func], existing, cfg)  # type: ignore[arg-type]
         lib_items = [i for i in items if i.category == CAT_IDENTIFY_LIBRARY]
         assert any(i.va == 0x1000 for i in lib_items)
         assert not any(i.va == 0x2000 for i in lib_items)
+
+    def test_library_candidates_skip_non_targets(self) -> None:
+        """The lane must skip the same non-targets its start-function sibling
+        does: an IAT thunk, an ignored symbol, and a sub-10B row are not
+        library functions to identify, even when the name infers a CRT module
+        (the lane used to check only `va in existing`)."""
+        existing: dict[int, dict[str, str]] = {}
+        thunk = FunctionEntry(va=0x1000, size=100, name="_malloc")
+        ig = FunctionEntry(va=0x2000, size=100, name="_memcpy")
+        tiny = FunctionEntry(va=0x3000, size=4, name="_free")
+        lib_modules = {"MSVCRT"}
+
+        cfg_thunk = SimpleNamespace(library_modules=lib_modules, iat_thunks=[0x1000])
+        assert _collect_library_candidates([thunk], existing, cfg_thunk) == []  # type: ignore[arg-type]
+
+        cfg_ignored = SimpleNamespace(library_modules=lib_modules, ignored_symbols=["_memcpy"])
+        assert (
+            _collect_library_candidates([ig], existing, cfg_ignored) == []  # type: ignore[arg-type]
+        )
+
+        cfg = SimpleNamespace(library_modules=lib_modules)
+        assert _collect_library_candidates([tiny], existing, cfg) == []  # type: ignore[arg-type]
+        # Control: the same name at a normal size still emits.
+        normal = FunctionEntry(va=0x4000, size=100, name="_free")
+        assert any(  # type: ignore[arg-type]
+            i.category == CAT_IDENTIFY_LIBRARY
+            for i in _collect_library_candidates([normal], existing, cfg)
+        )
 
     def test_new_functions_basic(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
@@ -732,6 +852,44 @@ class TestLoadVerifyEntries:
         assert _load_verify_entries(cfg_client) == {}
         assert len(_load_verify_entries(cfg_server)) == 1
 
+    def test_targetless_cache_rejected_for_a_named_target(self, tmp_path: Path) -> None:
+        """A legacy cache with no `target` must not drive todo when the config
+        names one: `status` rejects it, so the two tools disagreed about the
+        same file (the old guard accepted any empty `target`)."""
+        import json
+
+        from rebrew.todo import _load_verify_entries
+        from rebrew.verify import VerifyCacheEntry, VerifyResult
+
+        d = tmp_path / ".rebrew"
+        d.mkdir()
+        cache = {
+            "version": 1,
+            "compiler_hash": "",
+            "headers_hash": "",
+            "entries": {
+                "0x00001000": VerifyCacheEntry(
+                    source_hash="",
+                    filepath="a.c",
+                    mtime_ns=0,
+                    result=VerifyResult(
+                        status="EXACT",
+                        va=0x1000,
+                        size=10,
+                        filepath="a.c",
+                        name="a",
+                        message="",
+                        passed=True,
+                    ),
+                ).to_dict(),
+            },
+        }
+        (d / "verify_cache.json").write_text(json.dumps(cache), encoding="utf-8")
+
+        assert _load_verify_entries(SimpleNamespace(root=tmp_path, target_name="SERVER")) == {}
+        # A minimal config with no target still accepts a target-less cache.
+        assert len(_load_verify_entries(SimpleNamespace(root=tmp_path))) == 1
+
 
 class TestCalculateRoiEdges:
     """Uncovered calculate_roi bands: size 500-1000 and >1000 penalties."""
@@ -871,7 +1029,11 @@ class TestLoadVerifyEntriesValid:
         )
         cfg = SimpleNamespace(root=tmp_path)
         entries = _load_verify_entries(cfg)  # type: ignore[arg-type]
-        assert set(entries) == {"0x1000"}
+        # Keys are canonicalized: consumers look entries up with
+        # `f"0x{va:08x}"`, so a short-spelled cache key was seen by the coverage
+        # union (which normalizes) but missed by the category/delta selection
+        # and the prove queue.
+        assert set(entries) == {"0x00001000"}
 
 
 class TestCollectNewFunctionsExtended:
@@ -1004,6 +1166,32 @@ class TestTodoCli:
         assert data["coverage"]["matching"] == 1
         assert data["total_items"] >= 1
         assert any(i["va"] == "0x00001000" for i in data["items"])
+
+    def test_pct_matched_uses_the_status_denominator(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`pct_matched` must use the same denominator as `rebrew status`
+        (`ghidra ∪ covered`): dividing by `covered` alone reported 100% where
+        status reported 50% for the same project, because the uncovered ghidra
+        function is unmatched by definition."""
+        import json
+
+        result = self._invoke(
+            tmp_path,
+            monkeypatch,
+            ghidra_funcs=[
+                FunctionEntry(va=0x1000, size=100, name="my_func"),
+                FunctionEntry(va=0x2000, size=100, name="not_yet"),
+            ],
+            existing={0x1000: {"status": "EXACT", "symbol": "my_func", "size": "100"}},
+            covered_vas={0x1000: "my_func.c"},
+            args=["--json"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["coverage"]["ghidra_funcs"] == 2
+        assert data["coverage"]["covered"] == 1
+        assert data["coverage"]["pct_matched"] == 50.0
 
     def test_stats_text(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         result = self._invoke(
@@ -1266,3 +1454,57 @@ class TestCallerBoost:
         from rebrew.todo import _caller_boost
 
         assert _caller_boost("helper", {"_helper": 1}) == 5.0
+
+
+class TestPlaceholderLaneVerifyState:
+    """A placeholder (FUN_/empty) name must not change how a measured verify
+    state is routed: the dedicated lanes below already handle it."""
+
+    def test_structural_placeholder_is_not_a_fix_delta_quick_win(self) -> None:
+        """The placeholder lane used to set CAT_FIX_DELTA + --flag-sweep-only
+        even for a STRUCTURAL blocker, which that branch exists to prevent."""
+        from types import SimpleNamespace
+
+        existing = {
+            0x1000: {
+                "status": "NEAR_MATCHING",
+                "symbol": "",
+                "blocker": "STRUCTURAL (95% of delta) — control flow differs",
+            }
+        }
+        verify = {
+            "0x00001000": SimpleNamespace(
+                result=SimpleNamespace(status="NEAR_MATCHING", match_percent=95.0, delta=20)
+            )
+        }
+        items = _collect_active_functions(existing, {}, {}, verify)
+        assert len(items) == 1
+        assert items[0].category == CAT_IMPROVE_MATCH
+        assert "STRUCTURAL" in items[0].description
+        assert "flag-sweep" not in items[0].command
+
+    def test_placeholder_missing_size_uses_fix_sizes(self) -> None:
+        """The placeholder lane shadowed the MISSING_SIZE self-heal lane, so a
+        placeholder entry was sent to `skeleton` instead of `--fix-sizes`."""
+        from types import SimpleNamespace
+
+        existing = {0x1000: {"status": "STUB", "symbol": ""}}
+        verify = {
+            "0x00001000": SimpleNamespace(
+                result=SimpleNamespace(status="MISSING_SIZE", match_percent=None, delta=None)
+            )
+        }
+        items = _collect_active_functions(existing, {}, {}, verify)
+        assert len(items) == 1
+        assert items[0].command == "rebrew verify --fix-sizes"
+
+    def test_crt_name_gets_reference_source_difficulty(self, tmp_path: Path) -> None:
+        """`estimate_difficulty`'s library levels need a module; the caller
+        omitted it, so a CRT function was described as a plain tiny function
+        instead of pointing at the reference sources."""
+        cfg = _make_cfg(tmp_path)
+        cfg.library_modules = {"MSVCRT"}
+        ghidra_funcs = [FunctionEntry(va=0x1000, size=50, name="_malloc")]
+        items = _collect_new_functions(ghidra_funcs, {}, {}, cfg)
+        assert len(items) == 1
+        assert "reference source" in items[0].description

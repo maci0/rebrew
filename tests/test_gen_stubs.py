@@ -270,6 +270,28 @@ class TestCli:
         assert "int g_counter = 0;" in out.read_text(encoding="utf-8")
         assert "int __cdecl write_log(char* a)" in out.read_text(encoding="utf-8")
 
+    def test_footer_preserves_legacy_encoding(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A non-UTF-8 --footer must not degrade to U+FFFD in the output."""
+        from rebrew.gen_stubs import app
+
+        monkeypatch.chdir(tmp_path)
+        _write_src(tmp_path, "extern int g_counter;\n")
+        footer = tmp_path / "footer.c"
+        # 0xA9 is not valid UTF-8 (a legacy-encoded comment note).
+        footer.write_bytes("// \xa9 note\nint _fltused = 0;\n".encode("latin-1"))
+        out = tmp_path / "stubs.c"
+        result = CliRunner().invoke(
+            app,
+            ["--output", str(out), "--footer", str(footer)],
+            input=LNK_OUTPUT,
+        )
+        assert result.exit_code == 0, result.output
+        text = out.read_text(encoding="utf-8")
+        assert "\ufffd" not in text
+        assert "note" in text and "_fltused" in text
+
     def test_warns_before_dropping_existing_stub(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -390,3 +412,12 @@ class TestUnsafeSymbolFilter:
         content = generate_stubs(["_write_log", "_thread_proc@4"], {})
         assert "int __cdecl write_log(void)" in content
         assert "int thread_proc = 0;" in content
+
+
+class TestHexArrayBound:
+    def test_hex_array_size_preserved(self) -> None:
+        """`[0x400]` used to collapse to array_size "1": the stub then claimed a
+        single byte and every following .data symbol was placed too early."""
+        info = parse_extern_decl("extern unsigned char g_table[0x400];")
+        assert info["is_array"] is True
+        assert int(info["array_size"], 0) == 1024

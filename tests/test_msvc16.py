@@ -122,3 +122,21 @@ class TestDosboxRunner:
         monkeypatch.setattr("rebrew.dosbox.subprocess.run", _run)
         with pytest.raises(DosboxError, match="SDL init failed"):
             run_dosbox(tmp_path, ["dir"])
+
+
+class TestStaleOutputIsNotSuccess:
+    def test_failed_compile_does_not_report_stale_obj(self, tmp_path: Path, monkeypatch) -> None:
+        """A reused caller-supplied workdir keeps the previous run's SRC.OBJ, so
+        a failed compile still found "output" and was reported as success."""
+        tree = tmp_path / "vc152"
+        for sub in ("BIN", "INCLUDE", "LIB"):
+            (tree / sub).mkdir(parents=True)
+        monkeypatch.setattr("rebrew.msvc16._find_vc152", lambda version: tree)
+        monkeypatch.setattr("rebrew.msvc16.run_dosbox", lambda *a, **k: None)
+        src = tmp_path / "f.c"
+        src.write_text("int f(void) { return 1; }\n", encoding="utf-8")
+        workdir = tmp_path / "sandbox"
+        workdir.mkdir()
+        (workdir / "SRC.OBJ").write_bytes(b"stale")
+        with pytest.raises(Msvc16Error, match="no object"):
+            compile_c(src, workdir)

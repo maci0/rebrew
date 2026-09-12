@@ -14,6 +14,8 @@ from rebrew.main import app
 
 runner = CliRunner()
 
+pytest.importorskip("declib")
+
 _TOML_CFG = """
 [project]
 default_target = "server"
@@ -33,28 +35,35 @@ def _make_project(tmp_path: Path, files: dict[str, str]) -> Path:
     return tmp_path
 
 
+def _write_state_function(state: Path, va: int, name: str, prototype: str | None = None) -> None:
+    from declib.artifacts import Function, FunctionHeader
+
+    funcs_dir = state / "functions"
+    funcs_dir.mkdir(parents=True, exist_ok=True)
+    header = FunctionHeader(name=name, addr=va, type_=prototype)
+    func = Function(addr=va, size=0, header=header)
+    (funcs_dir / f"{va:08x}.toml").write_text(func.dumps(), encoding="utf-8")
+
+
 def _make_state(
     tmp_path: Path, funcs: dict[int, str] | None = None, globals_map: dict[int, str] | None = None
 ) -> Path:
+    """A minimal declib BinSync state dir (the shape upstream writes)."""
     state = tmp_path / "state"
-    funcs_dir = state / "functions"
-    funcs_dir.mkdir(parents=True, exist_ok=True)
-    if funcs:
-        for va, name in funcs.items():
-            doc = tomlkit.document()
-            info = tomlkit.table()
-            info["name"] = name
-            info["addr"] = va
-            doc["info"] = info
-            (funcs_dir / f"{va:08x}.toml").write_text(tomlkit.dumps(doc), encoding="utf-8")
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "metadata.toml").write_text('user = "test"\nversion = "test"\n', encoding="utf-8")
+    for va, name in (funcs or {}).items():
+        _write_state_function(state, va, name)
     if globals_map:
-        doc = tomlkit.document()
-        for va, name in globals_map.items():
-            entry = tomlkit.table()
-            entry["name"] = name
-            entry["addr"] = va
-            doc[str(va)] = entry
-        (state / "global_vars.toml").write_text(tomlkit.dumps(doc), encoding="utf-8")
+        from declib.artifacts import GlobalVariable
+
+        artifacts = [
+            GlobalVariable(addr=va, name=name, type_="int", size=4)
+            for va, name in globals_map.items()
+        ]
+        (state / "global_vars.toml").write_text(
+            GlobalVariable.dumps_many(artifacts), encoding="utf-8"
+        )
     return state
 
 
@@ -248,7 +257,7 @@ class TestBinsyncRoundTrip:
         p = tmp_path / "state" / "functions" / "10001000.toml"
         p.chmod(0o644)
         doc = tomlkit.parse(p.read_text(encoding="utf-8"))
-        doc["info"]["name"] = "_RenamedFromIDA"  # type: ignore[index]
+        doc["name"] = "_RenamedFromIDA"
         p.write_text(tomlkit.dumps(doc), encoding="utf-8")
 
         # Import with accept — should apply the rename via cross-reference rewrite
@@ -280,7 +289,8 @@ class TestBinsyncRoundTrip:
         if "header" not in doc:
             doc["header"] = tomlkit.table()
         doc["header"]["type"] = "int __cdecl RenamedFromIDA(int x, int y)"  # type: ignore[index]
-        doc["info"]["name"] = "_foo"  # keep same name so only prototype changes
+        doc["type"] = "int __cdecl RenamedFromIDA(int x, int y)"
+        doc["name"] = "_foo"  # keep same name so only prototype changes
         p.write_text(tomlkit.dumps(doc), encoding="utf-8")
 
         result = _invoke_import(tmp_path, tmp_path / "state", monkeypatch, "--json")
@@ -379,18 +389,9 @@ reversed_dir = "src/server"
         # Build a BinSync entry with a real prototype
         state = tmp_path / "state_proto"
         state.mkdir()
-        funcs_dir = state / "functions"
-        funcs_dir.mkdir()
-        doc = tomlkit.document()
-        info = tomlkit.table()
-        info["name"] = "MyApiFunc"
-        info["addr"] = 0x10002000
-        info["size"] = 16
-        doc["info"] = info
-        hdr = tomlkit.table()
-        hdr["type"] = "int __stdcall MyApiFunc(int a, int b)"
-        doc["header"] = hdr
-        (funcs_dir / "10002000.toml").write_text(tomlkit.dumps(doc), encoding="utf-8")
+        _write_state_function(
+            state, 0x10002000, "MyApiFunc", "int __stdcall MyApiFunc(int a, int b)"
+        )
 
         result = _invoke_import(tmp_path, state, monkeypatch, "--create-missing", "--json")
         assert result.exit_code == 0, result.output
@@ -526,19 +527,11 @@ class TestNormalizePrototype:
 
 class TestNoteImport:
     def _write_state_with_note(self, state: Path, note: str) -> None:
-        import tomlkit
+        from declib.artifacts import Comment
 
-        funcs = state / "functions"
-        funcs.mkdir(parents=True, exist_ok=True)
-        doc = tomlkit.document()
-        info = tomlkit.table()
-        info["name"] = "foo"
-        info["addr"] = 0x1000
-        doc["info"] = info
-        comments = tomlkit.table()
-        comments[str(0x1001)] = f"[rebrew:note] {note}"
-        doc["comments"] = comments
-        (funcs / "00001000.toml").write_text(tomlkit.dumps(doc), encoding="utf-8")
+        _write_state_function(state, 0x1000, "foo")
+        comment = Comment(addr=0x1001, func_addr=0x1000, comment=f"[rebrew:note] {note}")
+        (state / "comments.toml").write_text(Comment.dumps_many([comment]), encoding="utf-8")
 
     def test_note_applied(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.metadata import get_entry
@@ -564,50 +557,267 @@ class TestNoteImport:
         assert json.loads(result.stdout)["applied_notes"] == 0
 
 
-class TestGlobalSectionRoundTrip:
-    def test_section_imported(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.data_metadata import get_data_entry
+class TestUnparsedTypeComment:
+    def test_unparsed_definition_becomes_comment(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace
 
+        from rebrew.binsync_import import _import_type_definitions
+
+        src = tmp_path / "src"
+        src.mkdir()
+        cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, source_ext=".c")
+        applied = _import_type_definitions(
+            cfg,
+            {"Weird": {"definition": "not a struct at all {{{"}},
+            dry_run=False,
+            proposed=[],
+        )
+        assert applied == 1
+        text = (src / "binsync_types.h").read_text(encoding="utf-8")
+        assert "UNPARSED" in text
+        assert "not a struct at all {{{" in text
+
+
+class TestEnumTypedefImport:
+    def _state_with(
+        self,
+        tmp_path: Path,
+        *,
+        enum: tuple[str, dict[str, int]] | None = None,
+        typedef: tuple[str, str] | None = None,
+    ) -> Path:
+        from declib.artifacts import Enum, Typedef
+
+        state = tmp_path / "state"
+        state.mkdir()
+        (state / "metadata.toml").write_text('user = "test"\nversion = "test"\n', encoding="utf-8")
+        if enum is not None:
+            name, members = enum
+            arts = [Enum(name=name, members=members)]
+            (state / "enums.toml").write_text(
+                Enum.dumps_many(arts, key_attr="name"), encoding="utf-8"
+            )
+        if typedef is not None:
+            name, underlying = typedef
+            arts = [Typedef(name=name, type_=underlying)]
+            (state / "typedefs.toml").write_text(
+                Typedef.dumps_many(arts, key_attr="name"), encoding="utf-8"
+            )
+        return state
+
+    def test_unknown_enum_and_typedef_written(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _make_project(
+            tmp_path,
+            {"foo.c": "// FUNCTION: SERVER 0x1000\n// STATUS: STUB\nint foo(void){return 0;}\n"},
+        )
+        state = self._state_with(
+            tmp_path,
+            enum=("E", {"A": 0, "B": 5}),
+            typedef=("uint32_t", "unsigned int"),
+        )
+        result = _invoke_import(tmp_path, state, monkeypatch, "--json")
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.stdout)
+        assert data["applied_enums"] == 1
+        assert data["applied_typedefs"] == 1
+        header = (tmp_path / "src" / "binsync_types.h").read_text(encoding="utf-8")
+        assert "typedef enum { A = 0, B = 5 } E;" in header
+        assert "typedef unsigned int uint32_t;" in header
+
+    def test_known_enum_not_overwritten(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         _make_project(
             tmp_path,
             {
-                "data.c": "// GLOBAL: SERVER 0x01008000\n// SIZE: 4\nint g_x;\n",
+                "foo.c": "// FUNCTION: SERVER 0x1000\n// STATUS: STUB\nint foo(void){return 0;}\n",
+                "types.h": "typedef enum { X } E;\n",
             },
         )
-        state = tmp_path / "state"
-        (state / "functions").mkdir(parents=True, exist_ok=True)
-        doc = tomlkit.document()
-        entry = tomlkit.table()
-        entry["name"] = "g_x"
-        entry["addr"] = 0x01008000
-        entry["type"] = "int"
-        entry["size"] = 4
-        entry["section"] = ".bss"
-        doc[str(0x01008000)] = entry
-        (state / "global_vars.toml").write_text(tomlkit.dumps(doc), encoding="utf-8")
+        state = self._state_with(tmp_path, enum=("E", {"A": 0}))
         result = _invoke_import(tmp_path, state, monkeypatch, "--json")
         assert result.exit_code == 0, result.output
-        assert get_data_entry(tmp_path, 0x01008000, "SERVER").get("section") == ".bss"
+        data = json.loads(result.stdout)
+        assert data["applied_enums"] == 0
+        assert not (tmp_path / "src" / "binsync_types.h").exists()
 
-
-class TestUnparsedStructComment:
-    def test_unparsed_definition_becomes_comment(
+    def test_foreign_format_synthesizes_definitions(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _make_project(tmp_path, {"foo.c": "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n"})
-        state = tmp_path / "state"
-        (state / "functions").mkdir(parents=True, exist_ok=True)
-        structs = state / "structs"
-        structs.mkdir(parents=True, exist_ok=True)
-        doc = tomlkit.document()
-        info = tomlkit.table()
-        info["name"] = "Weird"
-        doc["info"] = info
-        doc["definition"] = "not a struct at all {{{"
-        (structs / "Weird.toml").write_text(tomlkit.dumps(doc), encoding="utf-8")
+        """A foreign declib state carries name+members (enums) and name+type
+        (typedefs); import must synthesize real declarations."""
+        _make_project(
+            tmp_path,
+            {"foo.c": "// FUNCTION: SERVER 0x1000\n// STATUS: STUB\nint foo(void){return 0;}\n"},
+        )
+        state = self._state_with(
+            tmp_path,
+            enum=("Color", {"RED": 0, "GREEN": 1}),
+            typedef=("uint32_t", "unsigned int"),
+        )
         result = _invoke_import(tmp_path, state, monkeypatch, "--json")
         assert result.exit_code == 0, result.output
-        header = tmp_path / "src" / "binsync_types.h"
-        text = header.read_text(encoding="utf-8")
-        assert "UNPARSED" in text
-        assert "typedef struct Weird" not in text
+        data = json.loads(result.stdout)
+        assert data["applied_enums"] == 1
+        assert data["applied_typedefs"] == 1
+        header = (tmp_path / "src" / "binsync_types.h").read_text(encoding="utf-8")
+        assert "typedef enum {" in header
+        assert "RED = 0," in header
+        assert "} Color;" in header
+        assert "typedef unsigned int uint32_t;" in header
+
+
+class TestLocalsCommentsImport:
+    def test_declib_stack_vars_and_comments_import(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from declib.artifacts import Comment, Function, StackVariable
+
+        from rebrew.metadata import get_entry
+
+        _make_project(
+            tmp_path,
+            {"foo.c": "// FUNCTION: SERVER 0x1000\n// STATUS: STUB\nint foo(void){return 0;}\n"},
+        )
+        state = _make_state(tmp_path, funcs={0x1000: "_foo"})
+        func_path = state / "functions" / "00001000.toml"
+        func = Function.loads(func_path.read_text(encoding="utf-8"))
+        func.stack_vars[-4] = StackVariable(
+            stack_offset=-4, name="ret", type_="int", size=4, addr=0x1000
+        )
+        func_path.write_text(func.dumps(), encoding="utf-8")
+        (state / "comments.toml").write_text(
+            Comment.dumps_many(
+                [Comment(addr=0x1004, func_addr=0x1000, comment="loop")], key_attr="addr"
+            ),
+            encoding="utf-8",
+        )
+
+        result = _invoke_import(tmp_path, state, monkeypatch, "--json")
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.stdout)
+        assert data["applied_locals"] == 1
+        assert data["applied_comments"] == 1
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry.get("locals") == {"-4": {"name": "ret", "type": "int", "size": 4}}
+        assert entry.get("comments") == {"0x00001004": {"comment": "loop", "func_addr": 0x1000}}
+
+
+class TestAnalysisMarkers:
+    _SRC = "// FUNCTION: SERVER 0x1000\n// STATUS: STUB\nint foo(void){return 0;}\n"
+
+    def _project_with_size(self, tmp_path: Path) -> None:
+        from rebrew.metadata import update_field
+
+        _make_project(tmp_path, {"foo.c": self._SRC})
+        update_field(tmp_path, 0x1000, "size", 0x10, "SERVER")
+
+    def _state_with_comment(self, tmp_path: Path, *, addr: int, text: str = "loop") -> Path:
+        from declib.artifacts import Comment
+
+        state = _make_state(tmp_path, funcs={0x1000: "_foo"})
+        (state / "comments.toml").write_text(
+            Comment.dumps_many(
+                [Comment(addr=addr, func_addr=0x1000, comment=text)], key_attr="addr"
+            ),
+            encoding="utf-8",
+        )
+        return state
+
+    def _export(self, tmp_path: Path, monkeypatch: Any, outdir: Path) -> Any:
+        monkeypatch.chdir(tmp_path)
+        return runner.invoke(app, ["binsync-export", str(outdir), "--json"])
+
+    def test_import_writes_marker_in_owning_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._project_with_size(tmp_path)
+        state = self._state_with_comment(tmp_path, addr=0x1006)
+        result = _invoke_import(tmp_path, state, monkeypatch, "--json")
+        assert result.exit_code == 0, result.output
+        text = (tmp_path / "src" / "foo.c").read_text(encoding="utf-8")
+        assert "// ANALYSIS @ 0x00001006: loop" in text
+        # The block sits at the end, separated from the code by one blank line.
+        assert "}\n\n// ANALYSIS @ 0x00001006: loop\n" in text
+
+    def test_comment_outside_function_is_metadata_only(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata import get_entry
+
+        self._project_with_size(tmp_path)
+        state = self._state_with_comment(tmp_path, addr=0x2000, text="stray")
+        result = _invoke_import(tmp_path, state, monkeypatch, "--json")
+        assert result.exit_code == 0, result.output
+        assert "// ANALYSIS" not in (tmp_path / "src" / "foo.c").read_text(encoding="utf-8")
+        assert get_entry(tmp_path, 0x1000, "SERVER").get("comments") == {
+            "0x00002000": {"comment": "stray", "func_addr": 0x1000}
+        }
+
+    def test_round_trip_and_source_wins(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.binsync_serial import load_many
+
+        self._project_with_size(tmp_path)
+        state = self._state_with_comment(tmp_path, addr=0x1006, text="loop")
+        assert _invoke_import(tmp_path, state, monkeypatch, "--json").exit_code == 0
+
+        outdir = tmp_path / "state_out"
+        result = self._export(tmp_path, monkeypatch, outdir)
+        assert result.exit_code == 0, result.output
+        comments = load_many(outdir / "comments.toml", "comment")
+        assert any(c.addr == 0x1006 and c.comment == "loop" for c in comments)
+
+        # An analyst edits the source marker; export carries the edited text.
+        src = tmp_path / "src" / "foo.c"
+        src.write_text(
+            src.read_text(encoding="utf-8").replace(
+                "// ANALYSIS @ 0x00001006: loop", "// ANALYSIS @ 0x00001006: loop edited"
+            ),
+            encoding="utf-8",
+        )
+        outdir2 = tmp_path / "state_out2"
+        result = self._export(tmp_path, monkeypatch, outdir2)
+        assert result.exit_code == 0, result.output
+        comments = load_many(outdir2 / "comments.toml", "comment")
+        assert any(c.addr == 0x1006 and c.comment == "loop edited" for c in comments)
+
+    def test_reimport_is_idempotent(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._project_with_size(tmp_path)
+        state = self._state_with_comment(tmp_path, addr=0x1006)
+        assert _invoke_import(tmp_path, state, monkeypatch, "--json").exit_code == 0
+        assert _invoke_import(tmp_path, state, monkeypatch, "--json").exit_code == 0
+        text = (tmp_path / "src" / "foo.c").read_text(encoding="utf-8")
+        assert text.count("// ANALYSIS @ 0x00001006:") == 1
+
+    def test_dry_run_writes_no_marker(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._project_with_size(tmp_path)
+        state = self._state_with_comment(tmp_path, addr=0x1006)
+        result = _invoke_import(tmp_path, state, monkeypatch, "--dry-run", "--json")
+        assert result.exit_code == 0, result.output
+        assert "// ANALYSIS" not in (tmp_path / "src" / "foo.c").read_text(encoding="utf-8")
+
+    def test_comments_only_state_imports(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A state dir carrying only comments.toml must import, not be rejected
+        as empty (a collaborator can push comments alone)."""
+        from declib.artifacts import Comment
+
+        self._project_with_size(tmp_path)
+        state = tmp_path / "state"
+        state.mkdir()
+        (state / "comments.toml").write_text(
+            Comment.dumps_many(
+                [Comment(addr=0x1000, func_addr=0x1000, comment="only")], key_attr="addr"
+            ),
+            encoding="utf-8",
+        )
+        result = _invoke_import(tmp_path, state, monkeypatch, "--json")
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["applied_comments"] == 1

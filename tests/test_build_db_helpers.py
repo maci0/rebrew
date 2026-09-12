@@ -252,8 +252,43 @@ class TestCheckDbVersion:
 
 
 class TestBuildDbEdgeData:
-    def test_bad_va_strings_fall_back(self, tmp_path: Path) -> None:
-        """Functions/globals with unparseable VAs degrade to 0 without crashing."""
+    def test_global_int_va_field_is_used(self, tmp_path: Path) -> None:
+        """A global keyed by a name but carrying an int ``va`` (what the catalog
+        emits) must be inserted at that VA — the old fallback called
+        ``int(<int>, 16)`` and raised TypeError."""
+        import sqlite3
+
+        from rebrew.build_db import build_db
+
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        data = {
+            "sections": {},
+            "globals": {
+                "g_weird": {
+                    "name": "g_weird",
+                    "va": 0x2000,
+                    "decl": "int g_weird;",
+                    "files": [],
+                },
+                "no_va": {"name": "g_gone", "decl": "int g_gone;", "files": []},
+            },
+            "summary": {"totalFunctions": 0, "textSize": 0},
+            "functions": {},
+            "paths": {"originalDll": "/x.dll"},
+        }
+        (db_dir / "data_edge.json").write_text(json.dumps(data), encoding="utf-8")
+        build_db(tmp_path)
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        rows = conn.execute("SELECT va, name FROM globals ORDER BY va").fetchall()
+        conn.close()
+        # The int-va entry lands at its real VA; the unusable one is skipped
+        # (never a (target, 0) poison row).
+        assert [(r[0], r[1]) for r in rows] == [(0x2000, "g_weird")]
+
+    def test_bad_va_strings_skipped(self, tmp_path: Path) -> None:
+        """Functions with unparseable VAs are skipped with a warning — never
+        inserted as a (target, 0) poison row, and never aborting the rebuild."""
         import sqlite3
 
         from rebrew.build_db import build_db
@@ -273,12 +308,17 @@ class TestBuildDbEdgeData:
                     "size": 8,
                     "status": "STUB",
                 },
+                "0x1000": {
+                    "name": "good",
+                    "size": 8,
+                    "status": "STUB",
+                },
             },
             "paths": {"originalDll": "/x.dll"},
         }
         (db_dir / "data_edge.json").write_text(json.dumps(data), encoding="utf-8")
         build_db(tmp_path)
         conn = sqlite3.connect(db_dir / "coverage.db")
-        rows = conn.execute("SELECT va FROM functions").fetchall()
+        rows = conn.execute("SELECT va, name FROM functions").fetchall()
         conn.close()
-        assert rows  # at least one row inserted with a fallback VA
+        assert [(r[0], r[1]) for r in rows] == [(0x1000, "good")]

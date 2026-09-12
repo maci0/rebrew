@@ -36,6 +36,7 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print, require_config
+from rebrew.utils import read_source_text
 
 console = Console(stderr=True)
 
@@ -157,15 +158,29 @@ class FixupResult:
         }
 
 
+#: Primitive type spellings (incl. multiword bases) whose declarators name a
+#: variable/function, not a new type: ``unsigned int foo(...)`` declares the
+#: function ``foo``, not a type.
+_PRIMITIVE_BASES = (
+    r"void|char|short|int|long|float|double|signed|unsigned|const|volatile|"
+    r"static|extern|register|inline"
+)
+
+#: ``unsigned int size;`` / ``long long foo(void);`` — multiword-base
+#: declarations: the identifier after the base is already declared and must
+#: never be redefined by injection.
+_MULTWORD_DECL_RE = re.compile(
+    rf"\b(?:{_PRIMITIVE_BASES})(?:\s+(?:{_PRIMITIVE_BASES}|\*))*\s*\**\s*"
+    r"([A-Za-z_]\w*)\s*(?:[;(=\[]|\([^;]*\)\s*;)"
+)
+
+
 def _existing_identifiers(source: str) -> set[str]:
     """Type/function names already declared in *source* (never re-define)."""
-    return (
-        set(re.findall(r"\b(?:typedef|struct|union|enum)\s+([A-Za-z_]\w*)", source))
-        | set(re.findall(r"\b[A-Za-z_]\w*\s*\([^;]*\)\s*;", source))
-        | set(
-            re.findall(r"\b(?:int|char|short|long|float|double|void)\s+([A-Za-z_]\w*)\s*\(", source)
-        )
-    )
+    out = set(re.findall(r"\b(?:typedef|struct|union|enum)\s+([A-Za-z_]\w*)", source))
+    out |= set(re.findall(r"\b[A-Za-z_]\w*\s*\([^;]*\)\s*;", source))
+    out |= set(_MULTWORD_DECL_RE.findall(source))
+    return out
 
 
 def _inject_from_errors(source: str, errors: str) -> tuple[str, list[str]]:
@@ -283,7 +298,7 @@ def main(
     """Sanitize SOURCE_FILE (and inject missing decls) so it compiles."""
     if not source_file.exists():
         error_exit(f"source file not found: {source_file}", json_mode=json_output)
-    text = source_file.read_text(encoding="utf-8", errors="replace")
+    text, _encoding = read_source_text(source_file)
     result = fixup_source(text)
 
     cfg: Any = None

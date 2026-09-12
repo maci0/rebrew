@@ -57,6 +57,32 @@ class TestInlineUses:
         assert n == 0  # asm + extern only — nothing inlinable
         assert "s_foo_10027000" in f.read_text()
 
+    def test_token_inside_string_literal_not_rewritten(self, tmp_path: Path) -> None:
+        """A token inside a C string literal is not a replaceable use: inlining
+        it nested quotes and produced invalid C."""
+        f = tmp_path / "a.c"
+        f.write_text(
+            '// FUNCTION: TEST 0x1000\nchar *m = "use s_foo_10027000 here";\n',
+            encoding="utf-8",
+        )
+        n = inline_string_uses(f, b"hello\x00", 0x10027000, _token_re(), {}, dry_run=False)
+        assert n == 0
+        assert "s_foo_10027000" in f.read_text()
+
+    def test_real_use_after_string_with_slashes_is_inlined(self, tmp_path: Path) -> None:
+        """A `//` inside a string literal used to start a comment mask, hiding a
+        real token use later on the same line."""
+        f = tmp_path / "a.c"
+        f.write_text(
+            '// FUNCTION: TEST 0x1000\nchar *u = "http://x"; int g = s_foo_10027000[0];\n',
+            encoding="utf-8",
+        )
+        n = inline_string_uses(f, b"hello\x00", 0x10027000, _token_re(), {}, dry_run=False)
+        assert n == 1
+        text = f.read_text()
+        assert '"http://x"' in text  # the literal is untouched
+        assert 'int g = "hello"[0];' in text
+
     def test_unknown_addr_skipped(self, tmp_path: Path) -> None:
         f = tmp_path / "a.c"
         f.write_text(SRC.replace("10027000", "10028000"), encoding="utf-8")
@@ -65,6 +91,31 @@ class TestInlineUses:
 
 
 class TestDefineRemaining:
+    def test_owner_chosen_by_real_uses_not_extern_or_comments(self, tmp_path: Path) -> None:
+        """The owner is the file with the most non-extern uses: extern lines and
+        comment mentions must not outvote the single real use."""
+        from rebrew.inline_strings import define_remaining_strings
+
+        a = tmp_path / "a.c"
+        a.write_text(
+            "// FUNCTION: TEST 0x1000\n"
+            "extern char s_msg_10027000[];\n"
+            "// mentions s_msg_10027000 twice: s_msg_10027000\n"
+            "int a(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        b = tmp_path / "b.c"
+        b.write_text(
+            "// FUNCTION: TEST 0x2000\n"
+            "extern char s_msg_10027000[];\n"
+            "int b(void) { return s_msg_10027000[0]; }\n",
+            encoding="utf-8",
+        )
+        n = define_remaining_strings([a, b], b"hi\x00", 0x10027000, _token_re(), dry_run=False)
+        assert n == 1
+        assert 'char s_msg_10027000[3] = "hi";' in b.read_text()
+        assert "char s_msg_10027000[3]" not in a.read_text()
+
     def _cfg(self, tmp_path: Path) -> object:
         from types import SimpleNamespace
 
@@ -109,3 +160,19 @@ class TestDefineRemaining:
 
 if __name__ == "__main__":
     pass
+
+
+class TestEncodingSafety:
+    def test_inline_uses_preserves_source_encoding(self, tmp_path: Path) -> None:
+        """A legacy-encoded source must not be rewritten as UTF-8."""
+        f = tmp_path / "a.c"
+        # 0xA9 is a valid Shift-JIS/cp1252 byte but not valid UTF-8.
+        f.write_bytes(
+            "// FUNCTION: TEST 0x1000\n// \xa9 note\n"
+            "int f(void) { return s_foo_10027000[0]; }\n".encode("latin-1")
+        )
+        n = inline_string_uses(f, b"hello\x00", 0x10027000, _token_re(), {}, dry_run=False)
+        assert n == 1
+        raw = f.read_bytes()
+        assert b"\xa9" in raw
+        assert b'"hello"' in raw

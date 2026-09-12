@@ -66,3 +66,36 @@ def test_annotate_reports_skipped_unnamed(tmp_path: Path) -> None:
     per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
     assert per_file == {"mod.c": 1}  # only the named g_a
     assert skipped == 2  # the two unnamed entries
+
+
+def test_annotate_uses_configured_source_ext(tmp_path: Path) -> None:
+    """Discovery follows ``cfg.source_ext``; a raw ``rglob("*.c")`` missed
+    ``.cpp`` sources (and the shared-sources root)."""
+    from types import SimpleNamespace
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "mod.cpp").write_text("int g_a;\n", encoding="utf-8")
+    meta = tmp_path / "rebrew-data.toml"
+    meta.write_text('["SERVER.0x1000"]\nname = "g_a"\nsection = ".data"\n', encoding="utf-8")
+    cfg = SimpleNamespace(source_ext=".c,.cpp", reversed_dir=src, shared_dir=None)
+    per_file, _ = annotate_globals(src, meta, "SERVER", dry_run=True, cfg=cfg)
+    assert per_file == {"mod.cpp": 1}
+
+
+def test_annotate_duplicate_names_are_not_reported_unnamed(tmp_path: Path) -> None:
+    """Two metadata entries sharing a name collapse in the symbol map; the
+    skipped count must be the number of name-less entries, not the arithmetic
+    difference."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "mod.c").write_text("int g_a;\n", encoding="utf-8")
+    meta = tmp_path / "rebrew-data.toml"
+    meta.write_text(
+        '["SERVER.0x1000"]\nname = "g_a"\nsection = ".data"\n'
+        '["SERVER.0x1004"]\nname = "g_a"\nsection = ".data"\n',
+        encoding="utf-8",
+    )
+    per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
+    assert skipped == 0
+    assert per_file == {"mod.c": 1}

@@ -128,8 +128,17 @@ def section_symbol_bytes(
         if sec is None:
             continue
         offset = va - sec.va
-        if offset < 0 or offset + size > len(info.data) - sec.file_offset:
+        extent = sec.size or sec.raw_size
+        if offset < 0 or offset >= extent:
             continue
+        if offset + size > extent:
+            raise ValueError(
+                f"symbol {val.get('name')} at 0x{va:x} (size {size}) overruns "
+                f"section {sec.name} extent 0x{sec.va:x}+0x{extent:x} — fix the "
+                "SIZE in rebrew-data.toml"
+            )
+        if offset + size > sec.raw_size:
+            continue  # zero-fill tail (BSS): no file bytes to read
         start = sec.file_offset + offset
         by_va[va] = bytes(info.data[start : start + size])
         sizes[va] = size

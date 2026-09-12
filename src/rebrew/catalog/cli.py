@@ -295,6 +295,7 @@ def main(
             reversed_dir,
             root,
             metadata_dir=cfg.metadata_dir,
+            cfg=cfg,
         )
         if gen_data_json:
             coverage_dir = cfg.db_dir

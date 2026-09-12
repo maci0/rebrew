@@ -53,6 +53,19 @@ class TestGACheckpointData:
         assert h1 == h2
         assert h1 != h3  # cflags change invalidates
 
+    def test_args_hash_canonical_over_weight_order(self) -> None:
+        """Equal mutation_weights built in different insertion orders must
+        hash identically — the old str(dict) encoding inherited insertion
+        order, so a resume rejected a checkpoint from the same logical run."""
+        w1 = {"mut_a": 6.0, "mut_b": 1.0}
+        w2 = {"mut_b": 1.0, "mut_a": 6.0}
+        assert w1 == w2  # same mapping, different order
+        h1 = _ga_args_hash(_SOURCE, _TARGET, "_f", "/O2", 4, 5, 1, mutation_weights=w1)
+        h2 = _ga_args_hash(_SOURCE, _TARGET, "_f", "/O2", 4, 5, 1, mutation_weights=w2)
+        assert h1 == h2
+        h3 = _ga_args_hash(_SOURCE, _TARGET, "_f", "/O2", 4, 5, 1, mutation_weights={"mut_a": 1.0})
+        assert h1 != h3  # different weights still invalidate
+
 
 class TestCheckpointIO:
     def test_save_and_read(self, tmp_path: Path) -> None:

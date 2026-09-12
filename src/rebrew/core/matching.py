@@ -23,15 +23,18 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 # IMAGE_REL_I386_* (the historical default reloc table)
+_REL_ABSOLUTE = 0x0000
 _REL_DIR32 = 0x0006
 _REL_REL32 = 0x0014
 
 # Per-format/arch relocation semantics (multi-arch P0): a reloc type maps to
 # how its patched value is computed.  ``abs32`` = target VA + addend;
-# ``rel32`` = target VA + addend - pc.  Types absent from a table are
-# unsupported by the masking path (raise NotImplementedError).
+# ``rel32`` = target VA + addend - pc; ``none`` = a no-op entry (ABSOLUTE) that
+# carries no patch and no symbol.  Types absent from a table are unsupported by
+# the masking path (raise NotImplementedError).
 _RELOC_TABLES: dict[str, dict[int, str]] = {
     "coff-i386": {
+        _REL_ABSOLUTE: "none",
         _REL_DIR32: "abs32",
         _REL_REL32: "rel32",
     },
@@ -62,8 +65,19 @@ class CoffRelocRecord:
     symbol: str  # target symbol name (with leading underscore on MSVC)
 
 
+_RELOC_ALIGNMENT = 4
+
 # Accepted coff_relocs shapes for smart_reloc_compare
 RelocInput = list[int] | dict[int, str] | Sequence[CoffRelocRecord] | None
+
+
+# Sentinel returned by build_name_to_va when the global/function scan fails.
+# Fail-closed marker: callers (test/verify) must not mask typed/dict relocs
+# when the VA map is unavailable — an unvalidated mask would report RELOC on
+# wrong-callee calls.  A degraded map with SOME entries still validates what
+# it knows; only a total scan failure raises.
+class CatalogScanError(Exception):
+    """Raised when the global/function scan fails to build the VA map."""
 
 
 class UnresolvedSymbolError(Exception):
@@ -161,8 +175,10 @@ def build_name_to_va(cfg: ProjectConfig) -> dict[str, int]:
     same DIR32 absolute-address and REL32 callee checks.  Includes exported
     symbols, annotated functions, scanned globals, and data metadata —
     without the function half, REL32 callee validation would miss every call
-    target and mask wrong-function calls as valid RELOC.  Returns ``{}`` if
-    the scan fails.
+    target and mask wrong-function calls as valid RELOC.
+
+    :raises CatalogScanError: the scan failed — callers must fail closed
+        (no reloc masking without validation), never mask on an empty map.
     """
     name_to_va: dict[str, int] = {}
     try:
@@ -201,14 +217,13 @@ def build_name_to_va(cfg: ProjectConfig) -> dict[str, int]:
                 if ann.name and ann.va:
                     name_to_va[ann.name] = ann.va
     except (ImportError, OSError, ValueError, KeyError, AttributeError) as exc:
-        # A scan failure returning {} is indistinguishable from "nothing to
-        # validate" — every caller (verify, test) then silently skips reloc
-        # validation, masking wrong-callee calls as valid RELOC.  Surface the
-        # failure at WARNING so the degraded run is visible.
-        log.warning(
-            "build_name_to_va: global/function scan failed — reloc validation degraded: %s", exc
-        )
-        return {}
+        # Fail closed: a scan failure is indistinguishable from "nothing to
+        # validate" to every caller — verify/test would then silently skip
+        # reloc validation, masking wrong-callee calls as valid RELOC.  Raise
+        # so the run errors instead of shipping a false RELOC.
+        raise CatalogScanError(
+            f"global/function scan failed, reloc validation unavailable: {exc}"
+        ) from exc
     return name_to_va
 
 
@@ -237,12 +252,14 @@ def apply_coff_relocations(
     buf = bytearray(text)
     table = _RELOC_TABLES.get(reloc_table, _RELOC_TABLES["coff-i386"])
     for r in relocs:
+        kind = table.get(r.type)
+        if kind == "none":
+            continue  # IMAGE_REL_I386_ABSOLUTE: no patch, no symbol to resolve
         sym = r.symbol.lstrip("_")
         target_va = resolve_va(r.symbol) or resolve_va(sym)
         if target_va is None:
             raise UnresolvedSymbolError(r.symbol)
 
-        kind = table.get(r.type)
         if kind is None:
             raise NotImplementedError(f"reloc type 0x{r.type:04x} not supported ({reloc_table})")
         addend = struct.unpack_from("<I", buf, r.offset)[0]
@@ -373,6 +390,11 @@ def smart_reloc_compare(
     catalog name↔VA mismatch there (e.g. swapped ordinal import names) must not
     convert a RELOC match into a byte mismatch.
 
+    Fail-closed: a caller that could not build its VA map must surface a
+    hard error (``CatalogScanError`` from ``build_name_to_va``) instead of
+    comparing — an empty/unusable map marks every typed/dict reloc invalid
+    (unresolved → mismatch), never silently masks.
+
     Args:
         obj_bytes: The compiled output bytes to verify.
         target_bytes: The original target bytes to compare against.
@@ -400,7 +422,15 @@ def smart_reloc_compare(
     catalog_va_set: set[int] = set(name_to_va.values()) if name_to_va else set()
 
     if coff_relocs is not None:
-        # Prefer typed CoffRelocRecord sequence when present.
+        # Prefer typed CoffRelocRecord sequence when present.  Fail closed on
+        # a missing VA map: without validation a typed/dict mask is an
+        # unverified claim, so every typed/dict reloc is unresolved and the
+        # compare mismatches at those slots instead of masking blindly.
+        # ``{}`` means "scan failed or catalog genuinely empty" — callers
+        # must surface a hard error (CatalogScanError) instead of passing it.
+        # Plain-offset and zero-span modes carry no symbol claims and mask as
+        # before (their byte windows still have to agree outside the mask).
+        map_unusable = not name_to_va
         if (
             isinstance(coff_relocs, (list, tuple))
             and coff_relocs
@@ -413,8 +443,14 @@ def smart_reloc_compare(
                 if r + 4 > min_len:
                     continue
                 valid = True
-                if name_to_va:
+                if map_unusable:
+                    valid = False
+                elif name_to_va:
                     kind = table.get(rec.type)
+                    if kind == "none":
+                        # ABSOLUTE: a no-op reloc (alignment/terminator).  Do not
+                        # mask — a real difference at this offset must show.
+                        continue
                     if kind == "abs32":
                         valid = _validate_dir32(
                             obj_bytes,
@@ -440,7 +476,9 @@ def smart_reloc_compare(
                 if r + 4 > min_len:
                     continue
                 valid = True
-                if name_to_va:
+                if map_unusable:
+                    valid = False
+                elif name_to_va:
                     valid = _validate_dir32(
                         obj_bytes,
                         target_bytes,
@@ -458,20 +496,22 @@ def smart_reloc_compare(
             # List[int] branch: plain offset list (no symbol resolution)
             valid_relocs.extend(r for r in coff_relocs if isinstance(r, int) and r + 4 <= min_len)
     else:
-        # Zero-reloc objects: candidate slots are 4-aligned zero dwords in
-        # the object that differ from the target.  Skip the byte-by-byte
+        # Zero-reloc objects: candidate slots are 4-byte-ALIGNED zero dwords
+        # in the object that differ from the target.  Skip the byte-by-byte
         # scan entirely when no zero dword exists — common for leaf functions.
-        # Only consider slots that are 4-byte aligned in the section image;
-        # unaligned zero dwords are coincidental data, not linker-filled reloc slots.
-        if min_len >= 4 and b"\x00\x00\x00\x00" in obj_bytes[:min_len]:
+        # Unaligned zero dwords are coincidental data, not linker-filled reloc
+        # slots — only offsets divisible by _RELOC_ALIGNMENT are masked.
+        if min_len >= _RELOC_ALIGNMENT and b"\x00" * _RELOC_ALIGNMENT in obj_bytes[:min_len]:
             i = 0
-            while i <= min_len - 4:
+            while i <= min_len - _RELOC_ALIGNMENT:
                 if (
-                    obj_bytes[i : i + 4] == b"\x00\x00\x00\x00"
-                    and obj_bytes[i : i + 4] != target_bytes[i : i + 4]
+                    i % _RELOC_ALIGNMENT == 0
+                    and obj_bytes[i : i + _RELOC_ALIGNMENT] == b"\x00" * _RELOC_ALIGNMENT
+                    and obj_bytes[i : i + _RELOC_ALIGNMENT]
+                    != target_bytes[i : i + _RELOC_ALIGNMENT]
                 ):
                     valid_relocs.append(i)
-                    i += 4
+                    i += _RELOC_ALIGNMENT
                 else:
                     i += 1
 

@@ -114,7 +114,8 @@ def generate_reccmp_csv(
 
     Includes ALL known functions (matched + unmatched), so the CSV serves as
     a complete function catalog for the binary.  Comments and blank lines are
-    allowed by the reccmp spec.
+    allowed by the reccmp spec.  Every row carries a decimal size field —
+    unknown sizes emit ``0``, never an empty field.
     """
     by_va: dict[int, Annotation] = {}
     for e in entries:
@@ -186,8 +187,7 @@ def generate_reccmp_csv(
                 size = funcs_by_va[va]["size"]
 
             symbol = f"_{name}" if name else ""
-            size_str = str(size) if size > 0 else ""
-            lines.append(f"{va_hex}|{name}|{symbol}|{etype}|{size_str}")
+            lines.append(f"{va_hex}|{name}|{symbol}|{etype}|{size}")
 
     lines.append("")
     return "\n".join(lines)

@@ -118,6 +118,21 @@ class TestSetDataField:
         assert entry["section"] == ".rdata"
         assert entry["note"] == "sprite table"
 
+    def test_updates_non_canonical_key_in_place(self, tmp_path: Path) -> None:
+        """The store may spell a key SERVER.0x24000 while the writer's
+        canonical form is SERVER.0x00024000; the loader parses both to one
+        (module, va), so a second table would split the entry's fields."""
+        path = tmp_path / DATA_METADATA_FILENAME
+        path.write_text('["SERVER.0x24000"]\nname = "g_iat_region"\n', encoding="utf-8")
+
+        set_data_field(tmp_path, 0x24000, "section", ".rdata", "SERVER")
+
+        assert "SERVER.0x00024000" not in path.read_text(encoding="utf-8")
+        assert get_data_entry(tmp_path, 0x24000, "SERVER") == {
+            "name": "g_iat_region",
+            "section": ".rdata",
+        }
+
 
 # ---------------------------------------------------------------------------
 # delete_data_field
@@ -197,3 +212,25 @@ class TestDataMetadataCache:
         os.utime(f, (f.stat().st_atime + 2, f.stat().st_mtime + 2))
         dm.load_data_metadata(tmp_path)
         assert len(parse_calls) == 2
+
+
+class TestMetadataFieldsAndScalarEntries:
+    def test_type_is_a_known_field(self) -> None:
+        """`type` is written by `data --set-type` and binsync import/overlay,
+        and listed in _CANONICAL_ORDER; the field set must include it."""
+        from rebrew.data_metadata import DATA_METADATA_FIELDS
+
+        assert "TYPE" in DATA_METADATA_FIELDS
+
+    def test_set_field_on_scalar_entry_fails_loud(self, tmp_path: Path) -> None:
+        """A scalar at the entry key (which the loader tolerates by skipping)
+        must produce a clear ValueError, not a TypeError from indexing it."""
+        import pytest
+
+        from rebrew.data_metadata import set_data_field
+
+        (tmp_path / "rebrew-data.toml").write_text(
+            '"SERVER.0x10001000" = "scalar"\n', encoding="utf-8"
+        )
+        with pytest.raises(ValueError, match="is not a table"):
+            set_data_field(tmp_path, 0x10001000, "size", 4, "SERVER")

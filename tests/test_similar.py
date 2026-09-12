@@ -53,6 +53,20 @@ class TestSimilarityScore:
         sig = similar_mod.disasm_signature(_CALL_RET, 0, "CS_ARCH_X86", "CS_MODE_32")
         assert similar_mod.similarity_score(sig, sig) == 100.0
 
+    def test_identical_sigs_with_sizes_score_100(self) -> None:
+        sig = similar_mod.disasm_signature(_CALL_RET, 0, "CS_ARCH_X86", "CS_MODE_32")
+        assert similar_mod.similarity_score(sig, sig, 6, 6) == 100.0
+
+    def test_size_mismatch_penalized(self) -> None:
+        """Same opcode mix at wildly different sizes must not score ~100."""
+        sig = similar_mod.disasm_signature(_CALL_RET, 0, "CS_ARCH_X86", "CS_MODE_32")
+        assert similar_mod.similarity_score(sig, sig, 10, 1000) < 90.0
+
+    def test_unknown_size_skips_penalty(self) -> None:
+        sig = similar_mod.disasm_signature(_CALL_RET, 0, "CS_ARCH_X86", "CS_MODE_32")
+        assert similar_mod.similarity_score(sig, sig, 0, 6) == 100.0
+        assert similar_mod.similarity_score(sig, sig, None, None) == 100.0
+
     def test_none_returns_zero(self) -> None:
         sig = similar_mod.disasm_signature(_CALL_RET, 0, "CS_ARCH_X86", "CS_MODE_32")
         assert similar_mod.similarity_score(sig, None) == 0.0

@@ -516,6 +516,21 @@ class TestApplyCommandsViaMcp:
         success, errors = apply_commands_via_mcp([self._cmd("create-label", address="0x1000")])
         assert (success, errors) == (1, 0)
 
+    def test_result_without_content_is_not_applied(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A JSON-RPC success with no tool-result content cannot confirm the op
+        landed; it counts as an error rather than as applied."""
+        from rebrew.ghidra.client import apply_commands_via_mcp
+
+        no_content = _FakeResp(text=json.dumps({"jsonrpc": "2.0", "id": 1, "result": {}}))
+        script: list[object] = [
+            _FakeResp(headers={"Mcp-Session-Id": "s1"}),
+            _ok_rpc(),
+            no_content,
+        ]
+        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
+        success, errors = apply_commands_via_mcp([self._cmd("create-function", address="0x1000")])
+        assert (success, errors) == (0, 1)
+
     def test_struct_failure_retried_and_resolved(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.ghidra.client import apply_commands_via_mcp
 
@@ -659,7 +674,7 @@ class TestApplyCommandsViaMcp:
     def test_sse_response_and_http_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import httpx
 
-        from rebrew.ghidra.client import apply_commands_via_mcp
+        from rebrew.ghidra.client import McpApplyAborted, apply_commands_via_mcp
 
         sse_ok = _FakeResp(
             text='data: {"jsonrpc":"2.0","id":1,"result":{"content":[]}}\n\n',
@@ -676,5 +691,119 @@ class TestApplyCommandsViaMcp:
             self._cmd("set-comment", address="0x1"),
             self._cmd("set-comment", address="0x2"),
         ]
-        success, errors = apply_commands_via_mcp(cmds)
-        assert (success, errors) == (1, 1)
+        # The first op landed before the transport died: abort with progress
+        # instead of returning counts a fallback would re-apply.
+        with pytest.raises(McpApplyAborted) as excinfo:
+            apply_commands_via_mcp(cmds)
+        assert excinfo.value.applied == 2
+        assert excinfo.value.errors == 1
+
+
+class TestIdempotentSuccess:
+    """_is_idempotent_success pins the error to the op: same noun/address,
+    never a substring match on unrelated errors."""
+
+    def test_label_noun_match_counts(self) -> None:
+        from rebrew.ghidra.client import _is_idempotent_success
+
+        op = {"tool": "create-label", "args": {"addressOrSymbol": "0x1000"}}
+        assert _is_idempotent_success(op, "Label already exists") is True
+
+    def test_op_plus_address_match_counts(self) -> None:
+        from rebrew.ghidra.client import _is_idempotent_success
+
+        op = {"tool": "create-function", "args": {"address": "0x1000"}}
+        assert _is_idempotent_success(op, "create-function 0x1000: already exists") is True
+
+    def test_different_address_rejected(self) -> None:
+        from rebrew.ghidra.client import _is_idempotent_success
+
+        op = {"tool": "create-label", "args": {"addressOrSymbol": "0x1000"}}
+        assert _is_idempotent_success(op, "create-label 0x2000 already exists") is False
+
+    def test_different_operation_rejected(self) -> None:
+        from rebrew.ghidra.client import _is_idempotent_success
+
+        op = {"tool": "create-label", "args": {"addressOrSymbol": "0x1000"}}
+        assert _is_idempotent_success(op, "create-function 0x1000 already exists") is False
+
+    def test_different_operation_space_form_rejected(self) -> None:
+        """The server may spell the other op with a space — it must still be
+        rejected (only the hyphenated slug was matched before)."""
+        from rebrew.ghidra.client import _is_idempotent_success
+
+        op = {"tool": "create-label", "args": {"addressOrSymbol": "0x1000"}}
+        assert _is_idempotent_success(op, "create function 0x1000 already exists") is False
+        assert _is_idempotent_success(op, "create_function 0x1000: duplicate") is False
+
+    def test_different_operation_bare_noun_rejected(self) -> None:
+        """The server may name the other op without its slug."""
+        from rebrew.ghidra.client import _is_idempotent_success
+
+        op = {"tool": "create-label", "args": {"addressOrSymbol": "0x1000"}}
+        assert _is_idempotent_success(op, "function 0x1000 already exists") is False
+
+    def test_padded_address_is_the_same_address(self) -> None:
+        """Addresses compare numerically: an op carrying 0x00001000 matches a
+        server payload echoing 0x1000."""
+        from rebrew.ghidra.client import _is_idempotent_success
+
+        op = {"tool": "create-function", "args": {"address": "0x00001000"}}
+        assert _is_idempotent_success(op, "create-function 0x1000 already exists") is True
+
+    def test_unrelated_error_with_substring_rejected(self) -> None:
+        from rebrew.ghidra.client import _is_idempotent_success
+
+        op = {"tool": "set-comment", "args": {"addressOrSymbol": "0x1000"}}
+        assert _is_idempotent_success(op, "failed: output file already exists on disk") is False
+
+    def test_no_marker_rejected(self) -> None:
+        from rebrew.ghidra.client import _is_idempotent_success
+
+        op = {"tool": "create-label", "args": {"addressOrSymbol": "0x1000"}}
+        assert _is_idempotent_success(op, "connection reset") is False
+
+
+class TestApplyAbort:
+    """A transport failure after ops landed raises McpApplyAborted (partial
+    progress) instead of silently returning counts the caller would re-apply."""
+
+    def _cmd(self, tool: str, **args: object) -> dict:
+        return {"tool": tool, "args": args}
+
+    def test_abort_after_partial_application(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import httpx
+
+        from rebrew.ghidra.client import McpApplyAborted, apply_commands_via_mcp
+
+        script: list[object] = [
+            _FakeResp(headers={"Mcp-Session-Id": "s1"}),
+            _ok_rpc(),
+            _ok_rpc(),  # first op lands
+            httpx.ConnectError("conn reset"),  # transport dies on the second
+        ]
+        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
+        cmds = [
+            self._cmd("create-function", address="0x1000"),
+            self._cmd("create-function", address="0x2000"),
+        ]
+        with pytest.raises(McpApplyAborted) as excinfo:
+            apply_commands_via_mcp(cmds)
+        assert excinfo.value.applied == 2  # 1 success + 1 transport error
+        assert excinfo.value.errors == 1
+
+    def test_first_op_failure_still_returns_counts(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Nothing applied before the failure: plain (0, 1) counts so the
+        caller may fall back safely."""
+        import httpx
+
+        from rebrew.ghidra.client import apply_commands_via_mcp
+
+        script: list[object] = [
+            _FakeResp(headers={"Mcp-Session-Id": "s1"}),
+            _ok_rpc(),
+            httpx.ConnectError("conn refused"),  # first op, nothing applied
+        ]
+        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
+        success, errors = apply_commands_via_mcp([self._cmd("create-function", address="0x1000")])
+        assert (success, errors) == (0, 1)

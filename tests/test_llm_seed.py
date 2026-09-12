@@ -357,3 +357,23 @@ class TestLlmSeedDryRun:
         result = CliRunner().invoke(app, ["--dry-run", "f.c"])
         assert result.exit_code == 2  # EXIT_ERROR
         assert "batch mode only" in result.output
+
+
+class TestExtractSeedsSameLine:
+    def test_code_on_fence_line(self) -> None:
+        assert extract_seeds("```c int f(void) { return 1; }\n```") == ["int f(void) { return 1; }"]
+
+    def test_single_line_block(self) -> None:
+        assert extract_seeds("```c int f(void) { return 1; }```") == ["int f(void) { return 1; }"]
+
+    def test_next_line_form_still_works(self) -> None:
+        assert extract_seeds("```c\nint f(void) { return 1; }\n```") == [
+            "int f(void) { return 1; }"
+        ]
+
+    def test_mixed_forms(self) -> None:
+        text = "first\n```c int f(void) { return 1; }```\nsecond\n```c\nint g(void) { return 2; }\n```\n"
+        assert extract_seeds(text) == [
+            "int f(void) { return 1; }",
+            "int g(void) { return 2; }",
+        ]

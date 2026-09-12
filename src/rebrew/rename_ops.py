@@ -19,6 +19,44 @@ from rebrew.utils import atomic_write_text, read_source_text
 logger = logging.getLogger(__name__)
 
 
+def substitute_name(pattern: re.Pattern[str], replacement: str, text: str) -> str:
+    """Substitute *pattern* in *text*, leaving literals and macro names alone.
+
+    The CLI contract is that macros and string literals are not rewritten; a
+    plain ``pattern.sub`` over the raw text rewrote ``puts("foo")``, changing
+    the data a byte-matched function emits.  Spans come from
+    :func:`rebrew.c_parser.protected_spans` (string/char literals and ``#define``
+    names) and the substitution runs over the gaps between them, on BYTES so a
+    multibyte character before a span cannot shift it.
+
+    Falls back to the plain substitution (with a warning) when tree-sitter is
+    unavailable, so a rename still works without the optional parser.
+    """
+    try:
+        from rebrew.c_parser import protected_spans
+
+        spans = protected_spans(text)
+    except ImportError:
+        logger.warning(
+            "tree-sitter unavailable — string literals and macro names WILL be rewritten"
+        )
+        return pattern.sub(replacement, text)
+    if not spans:
+        return pattern.sub(replacement, text)
+
+    data = text.encode("utf-8")
+    byte_pattern = re.compile(pattern.pattern.encode("utf-8"))
+    byte_replacement = replacement.encode("utf-8")
+    out: list[bytes] = []
+    pos = 0
+    for start, end in spans:
+        out.append(byte_pattern.sub(byte_replacement, data[pos:start]))
+        out.append(data[start:end])
+        pos = end
+    out.append(byte_pattern.sub(byte_replacement, data[pos:]))
+    return b"".join(out).decode("utf-8")
+
+
 def collect_matching_files(
     cfg: ProjectConfig, filepath: Path, pattern: re.Pattern[str]
 ) -> list[Path]:
@@ -46,7 +84,11 @@ def rename_function_everywhere(
     dry_run: bool = False,
 ) -> int:
     """Perform a full cross-reference rename. Returns number of files modified."""
-    actual_old_name = old_sym.lstrip("_") if old_sym.startswith("_") else old_name
+    # Strip exactly ONE leading underscore: MSVC decorates a cdecl name with
+    # one (`_foo` for foo), so a function genuinely named `_foo` carries the
+    # symbol `__foo` — `lstrip("_")` turned that into `foo` and renamed an
+    # unrelated function instead.
+    actual_old_name = old_sym.removeprefix("_") if old_sym.startswith("_") else old_name
     # __stdcall symbols carry a decorated suffix (foo@8) that never appears
     # in the C source — strip it or nothing matches.
     actual_old_name = re.sub(r"@\d+$", "", actual_old_name)
@@ -121,18 +163,21 @@ def rename_function_everywhere(
     # 2. Update function definition & calls in file
     try:
         content, encoding = read_source_text(filepath)
-        # Replacement via callable: target_func is literal, never interpreted
-        # as re backreference syntax (e.g. a name containing ``\1``).
-        new_content = re.sub(
-            r"\b" + re.escape(actual_old_name) + r"\b", lambda _m: target_func, content
+        # Literals and macro names are left alone (see substitute_name), and
+        # target_func is literal, never interpreted as re backreference syntax
+        # (e.g. a name containing ``\1``) — the replacement is a plain string.
+        new_content = substitute_name(
+            re.compile(r"\b" + re.escape(actual_old_name) + r"\b"), target_func, content
         )
         if new_content != content:
             atomic_write_text(filepath, new_content, encoding=encoding)
             updated_files += 1
-    except OSError as exc:
+    except (OSError, UnicodeEncodeError) as exc:
         # The primary file is the definition — renaming references elsewhere
         # while the definition keeps the old name breaks every call site.
-        # Abort the whole rename rather than half-applying it.
+        # Abort the whole rename rather than half-applying it.  A source with
+        # an undefined byte in its encoding (e.g. CP1252 0x81 read back as
+        # U+FFFD) raises UnicodeEncodeError, not OSError, on write.
         logger.error("Failed to update primary file %s: %s", filepath, exc)
         raise
 
@@ -143,13 +188,13 @@ def rename_function_everywhere(
 
         try:
             content, encoding = read_source_text(src_file)
-            new_content = re.sub(
-                r"\b" + re.escape(actual_old_name) + r"\b", lambda _m: target_func, content
+            new_content = substitute_name(
+                re.compile(r"\b" + re.escape(actual_old_name) + r"\b"), target_func, content
             )
             if new_content != content:
                 atomic_write_text(src_file, new_content, encoding=encoding)
                 updated_files += 1
-        except OSError as exc:
+        except (OSError, UnicodeEncodeError) as exc:
             logger.warning(
                 "Failed to update cross-reference in %s: %s — manual update required",
                 src_file,

@@ -1,5 +1,14 @@
 # PRD 07 — Ghidra Sync
 
+> **Correction (2026-09):** `rebrew sync` is now BinSync-primary — field sync
+> (names, comments, prototypes, structs, globals) flows through a shared state
+> dir (`--push`/`--pull --state-dir`, conflicts via `--accept-binsync` /
+> `--accept-local`); ReVa MCP remains only for structural ops
+> (`--create-functions`, `--bookmarks`, `--pull-data`). The removed
+> `--pull-signatures`, `--pull-structs`, `--pull-datatypes`, `--pull-params`,
+> `--pull-comments`, `--accept-ghidra` flags below are superseded — see
+> `rebrew sync --help`. PRDs are historical records, kept as written.
+
 **Feature name:** Bidirectional Ghidra ↔ Rebrew Sync (via ReVa MCP)
 **One-line value:** Keep Rebrew's local C source the source of truth for
 "what we know about this binary" while letting users edit names, types,

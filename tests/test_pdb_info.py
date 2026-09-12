@@ -119,3 +119,32 @@ class TestExtract:
         info = extract_pdb_info(tmp_path / "prog.exe")
         assert info is not None
         assert info.error  # reported unsupported, not raised
+
+
+class TestSymbolicCompileFlags:
+    def test_pipe_separated_switches_split(self) -> None:
+        """llvm-pdbutil prints the CodeView CompileSym3Flags bitmask as
+        `none` or a ` | `-joined symbolic list — never a command line."""
+        text = (
+            "S_COMPILE3 [size = 132]\n"
+            " frontend = 19.29.30152, backend = 19.29.30152\n"
+            " flags = sdl | pgo | ltcg\n"
+        )
+        _frontend, _backend, flags = _parse_compile3(text)
+        assert flags == ["sdl", "pgo", "ltcg"]
+
+
+class TestProcIdRecords:
+    def test_id_variants_are_parsed(self) -> None:
+        """LLVM/clang and modern MSVC emit S_GPROC32_ID/S_LPROC32_ID; the pattern
+        required `S_GPROC32 ` and yielded zero functions for them."""
+        text = (
+            " 100 | S_GPROC32_ID [size = 64]\n"
+            "        type = 0x1001 (int ()), debug start = 0x401000, debug end = 0x401020\n"
+            "        flags = none, name = 'do_thing'\n"
+            " 200 | S_LPROC32_ID [size = 32]\n"
+            "        type = 0x1002, debug start = 0x401020, debug end = 0x401040\n"
+            "        flags = none, name = 'helper'\n"
+        )
+        funcs = _parse_procs(text)
+        assert [f["name"] for f in funcs] == ["do_thing", "helper"]

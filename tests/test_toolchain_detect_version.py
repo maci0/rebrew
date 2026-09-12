@@ -191,6 +191,28 @@ class TestSuggestProfileVersionExact:
         info = ToolchainInfo(family="msvc", confidence="high")
         assert suggest_profile(info, tmp_path) == "msvc6"
 
+    def test_16bit_honors_version_exact(self, tmp_path: Path) -> None:
+        """A 16-bit target with version-exact evidence (e.g. msvc15 from a
+        plugin detector) suggests that profile, not the msvc1.52 default."""
+        info = ToolchainInfo(family="msvc", confidence="high", arch="x86_16")
+        info.suggested_profiles = ["msvc15", "msvc10"]
+        assert suggest_profile(info, None) == "msvc15"
+        borland = ToolchainInfo(family="borlandc", confidence="high", arch="x86_16")
+        borland.suggested_profiles = ["tc20", "tc16"]
+        assert suggest_profile(borland, None) == "tc20"
+
+    def test_16bit_ignores_32bit_suggestion(self, tmp_path: Path) -> None:
+        """A 32-bit suggestion on a 16-bit binary can never byte-match — the
+        16-bit default wins instead."""
+        info = ToolchainInfo(family="msvc", confidence="high", arch="x86_16")
+        info.suggested_profiles = ["msvc6"]
+        assert suggest_profile(info, None) == "msvc1.52"
+
+    def test_32bit_ignores_16bit_suggestion(self, tmp_path: Path) -> None:
+        info = ToolchainInfo(family="msvc", confidence="high", arch="x86_32")
+        info.suggested_profiles = ["msvc1.52"]
+        assert suggest_profile(info, None) == "msvc6"
+
 
 class TestIs16bitTarget:
     def _write(self, tmp_path: Path, body: bytes) -> Path:

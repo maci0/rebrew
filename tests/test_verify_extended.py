@@ -500,6 +500,7 @@ class TestVerifyCli:
                 0,
                 [],
                 [],
+                [],
             ),
         )
         monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
@@ -538,7 +539,9 @@ class TestVerifyCli:
     def test_ne_target_skips_compile_loop(self, tmp_path: Path, monkeypatch) -> None:
         """A 16-bit NE target with no 16-bit compiler profile (default
         msvc6) short-circuits with a clear notice instead of compiling every
-        stub into COMPILE_ERROR rows."""
+        stub into COMPILE_ERROR rows.  The skip verifies zero functions, so
+        it exits non-zero (EXIT_ERROR) — CI must never green on skipped
+        work."""
         from rebrew.verify import app
 
         ne = tmp_path / "game.ne"
@@ -550,7 +553,7 @@ class TestVerifyCli:
         cfg = _cfg(tmp_path, target_binary=ne)
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json"])
-        assert result.exit_code == 0
+        assert result.exit_code == 2
         data = json.loads(result.output)
         assert data.get("skipped") is True
         assert "NE" in data["reason"]
@@ -615,6 +618,7 @@ class TestVerifyCli:
                 1,
                 [],
                 [],
+                [],
             ),
         )
         monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
@@ -633,6 +637,47 @@ class TestVerifyCli:
         assert data["summary"]["passed"] == 0  # cached LIBRARY hit dropped
         # The LIBRARY row must not appear in the report results at all.
         assert all(r["va"] != "0x00001000" for r in data["results"])
+
+    def test_nolib_preserves_library_cache_entries(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--nolib drops library rows from the run, but `verify_cache.json` is
+        rewritten from `results` alone — without carrying the excluded keys over
+        one --nolib run erased the measured truth for every library function."""
+        from rebrew.verify import app
+
+        cfg = _cfg(tmp_path)
+        lib_ann = _ann(0x1000)
+        lib_ann.marker_type = "LIBRARY"  # type: ignore[attr-defined]
+        fn_ann = _ann(0x2000)
+        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        monkeypatch.setattr(
+            "rebrew.verify.prepare_entries",
+            lambda cfg, full, json_output: ([lib_ann, fn_ann], 0, 0, [], [], 0, [], [], []),
+        )
+        monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
+        monkeypatch.setattr(
+            "rebrew.verify._load_previous_report",
+            lambda out_file, diff_mode, json_output: (None, None),
+        )
+        captured: dict[str, object] = {}
+
+        def _fake_save(
+            cache_path: object,
+            cfg_: object,
+            results: object,
+            entries: object,
+            raw_statuses: object = None,
+            preserve_keys: object = None,
+        ) -> None:
+            captured["preserve_keys"] = preserve_keys
+
+        monkeypatch.setattr("rebrew.verify._save_verify_cache", _fake_save)
+        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
+
+        result = CliRunner().invoke(app, ["--json", "--nolib"])
+        assert result.exit_code == 0, result.output
+        assert captured["preserve_keys"] == {"0x00001000"}
 
     def test_nolib_failed_library_does_not_trip_gate(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -654,6 +699,7 @@ class TestVerifyCli:
                 [(lib_ann, "byte mismatch")],
                 [{"va": "0x00001000", "status": "NEAR_MATCHING", "passed": False}],
                 1,
+                [],
                 [],
                 [],
             ),
@@ -1129,7 +1175,7 @@ class TestVerifyWatch:
         monkeypatch.setattr("rebrew.utils.watch_files", _watch)
         monkeypatch.setattr("rebrew.sources.iter_sources", lambda d, cfg=None: [])
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries", lambda *a, **k: ([], 0, 0, [], [], 0, [], [])
+            "rebrew.verify.prepare_entries", lambda *a, **k: ([], 0, 0, [], [], 0, [], [], [])
         )
         monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
         monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (None, None))
@@ -1150,7 +1196,7 @@ class TestProvenOverlay:
         proven_entry = _ann(0x1000, status="PROVEN")
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
-            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], []),
+            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], [], []),
         )
         # A proven function's compiled bytes differ from the target — the byte
         # compare yields NEAR_MATCHING, which must be restored to PROVEN.
@@ -1193,7 +1239,7 @@ class TestProvenOverlay:
         proven_entry = _ann(0x1000, status="PROVEN", blocker="scheduler phase shift")
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
-            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], []),
+            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], [], []),
         )
         results = [{"va": "0x00001000", "status": "STUB", "passed": False}]
         monkeypatch.setattr(
@@ -1227,7 +1273,7 @@ class TestProvenOverlay:
         proven_entry = _ann(0x1000, status="PROVEN")
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
-            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], []),
+            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], [], []),
         )
         results = [{"va": "0x00001000", "status": "COMPILE_ERROR", "passed": False}]
         monkeypatch.setattr(
@@ -1250,6 +1296,65 @@ class TestProvenOverlay:
         assert "metadata: warning:" in result.output
         assert "PROVEN claim" in result.output
 
+    def test_proven_internal_error_is_not_persisted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A worker crash is not a byte verdict: the PROVEN demotion loop used
+        to write INTERNAL_ERROR (absent from metadata's KNOWN_STATUSES) over a
+        PROVEN status, and warn about a "demotion" to a status that is not a
+        byte result."""
+        from rebrew.verify import app
+
+        cfg = _cfg(tmp_path)
+        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        proven_entry = _ann(0x1000, status="PROVEN")
+        monkeypatch.setattr(
+            "rebrew.verify.prepare_entries",
+            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], [], []),
+        )
+        results = [{"va": "0x00001000", "status": "INTERNAL_ERROR", "passed": False}]
+        monkeypatch.setattr(
+            "rebrew.verify.run_verification", lambda *a, **k: (0, 1, [], results, [])
+        )
+        monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (None, None))
+        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
+        writes: list[dict[str, object]] = []
+        monkeypatch.setattr(
+            "rebrew.metadata.update_statuses_batch",
+            lambda metadata_dir, updates: writes.extend(updates),
+        )
+        result = CliRunner().invoke(app, ["--json"])
+        assert writes == []
+        assert "PROVEN claim" not in result.output
+
+    def test_proven_byte_match_is_not_reported_as_stale(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """EXACT/RELOC is the documented PROVEN upgrade, so the run that finally
+        byte-matches must not warn that the claim was unbacked and demoted."""
+        from rebrew.verify import app
+
+        cfg = _cfg(tmp_path)
+        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        proven_entry = _ann(0x1000, status="PROVEN")
+        monkeypatch.setattr(
+            "rebrew.verify.prepare_entries",
+            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], [], []),
+        )
+        results = [{"va": "0x00001000", "status": "EXACT", "passed": True}]
+        monkeypatch.setattr(
+            "rebrew.verify.run_verification", lambda *a, **k: (1, 0, [], results, [])
+        )
+        monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (None, None))
+        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
+        result = CliRunner().invoke(app, ["--json"])
+        assert "PROVEN claim" not in result.output
+        assert json.loads(result.stdout)["results"][0]["status"] == "EXACT"
+
     def test_proven_cache_stores_raw_byte_result(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1267,7 +1372,7 @@ class TestProvenOverlay:
         proven_entry = _ann(0x1000, status="PROVEN")
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
-            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], []),
+            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], [], []),
         )
         results = [
             {"va": "0x00001000", "filepath": "f.c", "status": "NEAR_MATCHING", "passed": False}
@@ -1379,9 +1484,10 @@ class TestRunVerification:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A worker crash is a tooling failure, not a code verdict: it gets
-        INTERNAL_ERROR status (so the --compare gate never treats it as a
-        code regression), is excluded from fail_details, and is not deferred
-        for a STATUS write (the function's real status must survive)."""
+        INTERNAL_ERROR status and fails the gate closed in both modes — it IS
+        counted in fail_details (plain verify exits 1; --compare reports it as
+        a regression).  It is still not deferred for a STATUS write (the
+        function's real status must survive)."""
         from rebrew.verify import run_verification
 
         def _boom(e, cfg, cache=None, name_to_va=None):
@@ -1399,9 +1505,9 @@ class TestRunVerification:
         assert failed == 1
         assert results[0]["status"] == "INTERNAL_ERROR"
         assert "INTERNAL_ERROR" in results[0]["message"]
-        # Not a code failure — absent from the failure list and no STATUS
-        # promotion/demotion is deferred on its account.
-        assert fail_details == []
+        # Fail closed: the crash lands in the failure list so both gates trip.
+        assert len(fail_details) == 1
+        assert "INTERNAL_ERROR" in fail_details[0][1]
         assert deferred == []
 
     def test_stub_not_promoted_to_size_mismatch(self, tmp_path: Path) -> None:
@@ -1572,7 +1678,7 @@ class TestCompareBaseline:
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         entry = _ann(0x1000)
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries", lambda *a, **k: ([entry], 0, 1, [], [], 0, [], [])
+            "rebrew.verify.prepare_entries", lambda *a, **k: ([entry], 0, 1, [], [], 0, [], [], [])
         )
         results = [{"va": "0x00001000", "status": "COMPILE_ERROR", "passed": False}]
         monkeypatch.setattr(
@@ -1616,7 +1722,7 @@ class TestCompareBaseline:
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         entry = _ann(0x1000)
         monkeypatch.setattr(
-            "rebrew.verify.prepare_entries", lambda *a, **k: ([entry], 1, 0, [], [], 0, [], [])
+            "rebrew.verify.prepare_entries", lambda *a, **k: ([entry], 1, 0, [], [], 0, [], [], [])
         )
         results = [{"va": "0x00001000", "status": "EXACT", "passed": True}]
         monkeypatch.setattr(
@@ -1801,7 +1907,7 @@ class TestVerifySymbolField:
         proven_entry = _ann(0x1000, status="PROVEN")
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
-            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], []),
+            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], [], []),
         )
         results = [{"va": "0x00001000", "status": "STUB", "passed": False}]
         monkeypatch.setattr(
@@ -1829,7 +1935,7 @@ class TestVerifySymbolField:
         proven_entry = _ann(0x1000, status="PROVEN")
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
-            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], []),
+            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], [], []),
         )
         results = [{"va": "0x00001000", "status": "STUB", "passed": False}]
         monkeypatch.setattr(

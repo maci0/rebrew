@@ -181,6 +181,64 @@ class TestGenerateDataJsonGrid:
             root_dir=tmp_path,
         )
 
+    def test_cfg_is_forwarded_to_globals_scan(self, monkeypatch, tmp_path: Path) -> None:
+        """Global discovery must receive the project config: without it
+        iter_sources falls back to .c only and never appends cfg.shared_dir, so
+        globals in .cpp/shared sources disappear from the coverage DB."""
+        blob = _blob()
+        bin_path = tmp_path / "fake.dll"
+        bin_path.write_bytes(bytes(blob))
+        _patch_binary(monkeypatch, bytes(blob), labels={}, globals_dict={})
+        seen: list[Any] = []
+        monkeypatch.setattr(
+            "rebrew.catalog.grid.get_globals",
+            lambda src, cfg=None: (seen.append(cfg), {})[1],
+        )
+        sentinel = object()
+        generate_data_json(
+            self._entries(),
+            [],
+            text_size=TEXT_SIZE,
+            bin_path=bin_path,
+            registry=self._registry(),
+            src_dir=tmp_path / "src",
+            root_dir=tmp_path,
+            cfg=sentinel,
+        )
+        assert seen == [sentinel]
+
+    def test_global_status_reaches_the_cell(self, monkeypatch, tmp_path: Path) -> None:
+        """The rebrew-data.toml verdict must set the covering cell's state:
+        hardcoding EXACT made a DRIFTing global count as an exact match in the
+        per-section stats (build_db tallies cells by state)."""
+        data = self._run(
+            monkeypatch,
+            tmp_path,
+            globals_dict={0x5000: {"name": "g_x", "size": 4, "status": "DRIFT"}},
+        )
+        states = [c["state"] for c in data["sections"][".data"]["cells"]]
+        assert "drift" in states
+
+    def test_zero_size_global_does_not_hang(self, monkeypatch, tmp_path: Path) -> None:
+        """A zero-length global must not wedge the segment walk: `off + 0`
+        never advanced the loop (it appended empty segments forever)."""
+        import threading
+
+        done = threading.Event()
+        out: list[dict] = []
+
+        def _build() -> None:
+            out.append(
+                self._run(monkeypatch, tmp_path, globals_dict={0x5000: {"name": "g0", "size": 0}})
+            )
+            done.set()
+
+        worker = threading.Thread(target=_build, daemon=True)
+        worker.start()
+        assert done.wait(timeout=30), "generate_data_json did not terminate on a 0-size global"
+        cells = [c for sec in out[0]["sections"].values() for c in sec["cells"]]
+        assert all(c["end"] > c["start"] for c in cells)  # no zero-length cells
+
     def test_absorption_and_summary(self, monkeypatch, tmp_path: Path) -> None:
         data = self._run(monkeypatch, tmp_path)
         fn = data["functions"]
@@ -233,8 +291,9 @@ class TestGenerateDataJsonGrid:
         data = self._run(monkeypatch, tmp_path)
         fn = data["functions"]
 
-        # Status counters: EXACT/RELOC/NEAR_MATCHING each 1, STUB = 5
-        # (fn_c, fn_o, fn_e, fn_z, fn_out).
+        # Status counters: EXACT/RELOC/NEAR_MATCHING each 1, STUB = 4
+        # (fn_c, fn_o, fn_e, fn_out — the dropped zero-size fn_z is tallied
+        # nowhere).
         s = data["summary"]
         # totalFunctions reconciles with the emitted functions dict: fn_z
         # (zero size) is dropped; fn_out gets a fallback offset, so 7 of the
@@ -244,8 +303,14 @@ class TestGenerateDataJsonGrid:
         assert s["exactMatches"] == 1
         assert s["relocMatches"] == 1
         assert s["nearMatchCount"] == 1
-        assert s["stubCount"] == 5
+        assert s["stubCount"] == 4
         assert s["matchedFunctions"] == 2  # exact + reloc; NEAR_MATCHING is not matched
+        # The dropped zero-size STUB (fn_z) is tallied nowhere: buckets sum
+        # to the emitted total, never more.
+        assert (
+            s["exactMatches"] + s["relocMatches"] + s["nearMatchCount"] + s["stubCount"]
+            == s["totalFunctions"]
+        )
 
         # Summary coverage is cell-based (functions + padding + data + thunks).
         # Function cells: fn_a 0x60 + fn_b 0x30 + fn_c 0x20 + fn_d 0x20 +

@@ -269,3 +269,84 @@ class TestInsnAndBytes:
         info = load_binary(path)
         assert is_inside(info, TEXT_VA + 0x10)
         assert not is_inside(info, IMAGE_BASE + 0x9000)
+
+
+class TestRipRelativeOperands:
+    def test_mov_rip_relative_resolves_to_absolute(self) -> None:
+        """x86-64 RIP-relative refs must resolve: target = insn_end + disp."""
+        from types import SimpleNamespace
+
+        import capstone
+
+        from rebrew.analysis import _classify_insn
+
+        code = bytes.fromhex("488b0510000000")  # mov rax, [rip+0x10]
+        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
+        md.detail = True
+        insn = next(md.disasm(code, 0x1000))
+        info = SimpleNamespace(format="elf", arch="x86_64")
+        kind, _from_va, to_va = _classify_insn(info, insn)
+        assert kind == "mov_mem"
+        assert to_va == 0x1000 + len(code) + 0x10
+
+
+class TestExtractBytesRawSizeClamp:
+    def _info(self, tmp_path: Path):
+        from rebrew.binary_loader import BinaryInfo, SectionInfo
+
+        # `.data` claims 0x2000 mapped bytes but only 0x10 file bytes.
+        payload = b"A" * 0x10 + b"B" * 0x40
+        f = tmp_path / "t.bin"
+        f.write_bytes(payload)
+        return BinaryInfo(
+            path=f,
+            format="pe",
+            sections={
+                ".data": SectionInfo(
+                    name=".data", va=0x1000, size=0x2000, file_offset=0, raw_size=0x10
+                )
+            },
+        )
+
+    def test_past_raw_size_returns_empty(self, tmp_path: Path) -> None:
+        """The uninitialized tail of a section has no file bytes; the
+        neighbouring data must not be returned as content."""
+        from rebrew.analysis import extract_bytes
+
+        assert extract_bytes(self._info(tmp_path), 0x1000 + 0x20, 8) == b""
+
+    def test_clamped_to_raw_size(self, tmp_path: Path) -> None:
+        from rebrew.analysis import extract_bytes
+
+        assert extract_bytes(self._info(tmp_path), 0x1000 + 0x8, 16) == b"A" * 8
+
+
+class TestScanPascalLongString:
+    def test_255_byte_string_found(self) -> None:
+        """The scanner capped the length prefix at 63, silently dropping every
+        64..255-byte ShortString (Borland's length byte is 1..255)."""
+        from rebrew.analysis import _scan_pascal
+
+        body = b"A" * 200
+        out = _scan_pascal(bytes([200]) + body, 0x1000, "SEG1", 4)
+        assert [(s.va, s.size, s.kind) for s in out] == [(0x1000, 201, "pascal")]
+
+
+class TestScanUtf16TrailingByte:
+    def test_unpaired_trailing_byte_is_not_a_character(self) -> None:
+        """The final flush used `raw[start::2]` and `len(raw) - start`, so an odd
+        trailing byte became a phantom character (and inflated `size`): raw
+        `A\\0B\\0C\\0D\\0E` reported "ABCDE" with size 9."""
+        from rebrew.analysis import _scan_utf16
+
+        raw = b"A\x00B\x00C\x00D\x00E"
+        out = _scan_utf16(raw, 0x1000, ".rdata", 4)
+        assert [(s.text, s.size) for s in out] == [("ABCD", 8)]
+        # 4 complete units, so a min_len of 5 yields nothing.
+        assert _scan_utf16(raw, 0x1000, ".rdata", 5) == []
+
+    def test_even_length_region_unchanged(self) -> None:
+        from rebrew.analysis import _scan_utf16
+
+        out = _scan_utf16(b"A\x00B\x00C\x00D\x00", 0x1000, ".rdata", 4)
+        assert [(s.text, s.size) for s in out] == [("ABCD", 8)]

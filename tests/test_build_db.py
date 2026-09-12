@@ -712,6 +712,72 @@ binary = "test.exe"
         conn.close()
         assert row == (1,)
 
+    def test_data_verdict_cells_are_known_and_counted(self, tmp_path: Path, caplog: Any) -> None:
+        """A grid cell carrying the lowercased rebrew-data.toml verdict
+        (`verified`) must be a known state (no warning) and count as an exact
+        data match, not fall into other_count."""
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        data = {
+            "sections": {
+                ".data": {
+                    "va": 0x10030000,
+                    "size": 128,
+                    "fileOffset": 0x3000,
+                    "unitBytes": 64,
+                    "columns": 64,
+                    "cells": [
+                        {
+                            "start": 0,
+                            "end": 4,
+                            "span": 1,
+                            "state": "verified",
+                            "functions": ["g_x"],
+                        }
+                    ],
+                }
+            },
+            "globals": {
+                "0x10030000": {"va": 0x10030000, "name": "g_x", "size": 4, "origin": "GAME"}
+            },
+            "summary": {},
+            "functions": {},
+            "paths": {},
+        }
+        (db_dir / "data_alpha.json").write_text(json.dumps(data), encoding="utf-8")
+
+        with caplog.at_level("WARNING"):
+            build_db(tmp_path)
+
+        assert "not in known set" not in caplog.text
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute(
+            "SELECT * FROM section_cell_stats WHERE target = 'alpha' AND section_name = '.data'"
+        )
+        row = c.fetchone()
+        c.execute("SELECT value FROM metadata WHERE target = 'alpha' AND key = 'summary'")
+        summary = json.loads(c.fetchone()[0])
+        conn.close()
+        assert row["exact_count"] == 1
+        assert row["other_count"] == 0
+        counted = (
+            row["exact_count"]
+            + row["reloc_count"]
+            + row["near_match_count"]
+            + row["stub_count"]
+            + row["padding_count"]
+            + row["data_count"]
+            + row["thunk_count"]
+            + row["none_count"]
+            + row["proven_count"]
+            + row["size_mismatch_count"]
+            + row["other_count"]
+        )
+        assert counted == row["total_cells"]
+        assert summary[".data"]["exactMatches"] == 1
+
     def test_cells_reference_existing_sections(self, project_root: Path) -> None:
         build_db(project_root)
         conn = sqlite3.connect(project_root / "db" / "coverage.db")
@@ -758,6 +824,51 @@ class TestBuildDbTargetFiltering:
         conn.close()
 
         assert targets == ["alpha"], f"Expected only 'alpha', got {targets}"
+
+    def test_scoped_rebuild_keeps_verify_history(self, tmp_path: Path) -> None:
+        """A scoped --target rebuild must not wipe that target's verify_results:
+        the shared db/verify_results.json may name another target, in which case
+        nothing is re-imported — and the full-rebuild path never drops the table
+        (DB_FORMAT.md: 'never dropped on rebuild')."""
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        for name in ("alpha", "beta"):
+            data = {
+                "sections": {},
+                "globals": {},
+                "summary": {"totalFunctions": 1},
+                "functions": {
+                    f"func_{name}": {
+                        "name": f"func_{name}",
+                        "vaStart": "0x10001000",
+                        "size": 64,
+                        "status": "EXACT",
+                    }
+                },
+                "paths": {},
+            }
+            (db_dir / f"data_{name}.json").write_text(json.dumps(data), encoding="utf-8")
+        build_db(tmp_path)
+
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        conn.execute(
+            "INSERT OR REPLACE INTO verify_results "
+            "(target, va, verified_at, byte_delta, diff_lines, similarity, "
+            "reg_delta, effective_match) VALUES ('alpha', 4096, 't1', 0, 0, 1.0, 0, 1)"
+        )
+        conn.commit()
+        conn.close()
+
+        # The shared report belongs to ANOTHER target → no re-import for alpha.
+        (db_dir / "verify_results.json").write_text(
+            json.dumps({"target": "beta", "timestamp": "t2", "results": []}), encoding="utf-8"
+        )
+        build_db(tmp_path, target="alpha")
+
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        rows = conn.execute("SELECT target, va FROM verify_results").fetchall()
+        conn.close()
+        assert ("alpha", 0x1000) in rows
 
     def test_no_filter_processes_all(self, tmp_path: Path) -> None:
         """When target is None, all data_*.json files are processed."""
@@ -947,3 +1058,35 @@ class TestBuildDbCorruptInput:
 
         with pytest.raises(ClickExit):
             build_db(tmp_path)
+
+    def test_unparseable_va_rows_skipped_with_warning(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Rows with no parseable VA are skipped (no (target, 0) poison row),
+        and the rebuild completes."""
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        (db_dir / "data_bad.json").write_text(
+            json.dumps(
+                {
+                    "functions": {
+                        "not-a-va": {"name": "bad", "size": 8, "status": "STUB"},
+                        "also-bad": {"name": "bad2", "size": 8, "status": "STUB"},
+                        "0x1000": {"name": "good", "size": 8, "status": "STUB"},
+                    },
+                    "globals": {},
+                    "sections": {},
+                    "summary": {},
+                    "paths": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+        build_db(tmp_path)
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT va, name FROM functions WHERE target = 'bad'")
+        rows = c.fetchall()
+        conn.close()
+        assert [(r[0], r[1]) for r in rows] == [(0x1000, "good")]
+        assert "skipped 2" in capsys.readouterr().err

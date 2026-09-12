@@ -489,3 +489,45 @@ class TestEarlyReturnNestedCalls:
         if result is not None:
             assert "&=" in result
             assert "validate" in result
+
+
+#: Valid-C corpus for the whole-operator validity property.  Kept small so the
+#: sweep stays well under a second.
+_VALID_C_CORPUS = [
+    "int f(int x) { return x + 1; }\n",
+    "int f(int a, int b) {\n    if (a > b) {\n        return a;\n    } else {\n        return b;\n    }\n}\n",
+    "void f(int n) {\n    int i;\n    for (i = 0; i < n; i++) {\n        g(i);\n    }\n}\n",
+    "int f(int c) {\n    int r = 0;\n    switch (c) {\n    case 1:\n        r = 1;\n        break;\n    default:\n        r = 2;\n    }\n    return r;\n}\n",
+    "int f(char *p) {\n    int n = 0;\n    while (*p) {\n        n++;\n        p++;\n    }\n    return n;\n}\n",
+    "struct S { int a; int b; };\nint f(struct S *s) { return s->a + s->b; }\n",
+    "int g[16];\nint f(int i) { return g[i] + g[i + 1]; }\n",
+    "int f(int a) {\n    int t;\n    t = a * 2;\n    return t;\n}\n",
+    "void f(void) {\n    if (cond) {\n        a = 1;\n    } else {\n        b = 2;\n    }\n}\n",
+    "int f(int x) {\n    return x ? 1 : 0;\n}\n",
+]
+
+
+class TestAllMutationsProduceValidC:
+    """Every operator on a valid-C corpus must return None or code that passes
+    ``quick_validate``.
+
+    A mutator emitting broken C wastes GA generations on compile failures.
+    This caught ``mut_toggle_calling_convention`` splicing over the whole
+    function definition (body deleted) and ``mut_add_redundant_parens``
+    parenthesizing the declared function name, which the validator's
+    function-start gate rejects.
+    """
+
+    def test_every_mutation_validates(self) -> None:
+        from rebrew.matcher.mutator import quick_validate
+
+        bad: list[str] = []
+        for src in _VALID_C_CORPUS:
+            for m in ALL_MUTATIONS:
+                for seed in (1, 42):
+                    out = m(src, random.Random(seed))
+                    if out is None or out == src:
+                        continue
+                    if not quick_validate(out):
+                        bad.append(f"{m.__name__} seed={seed} on {src[:20]!r} -> {out[:70]!r}")
+        assert not bad, "mutations produced invalid C:\n" + "\n".join(bad)

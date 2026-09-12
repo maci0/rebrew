@@ -3,7 +3,9 @@ metadata syntax, functions.txt, and annotation parseability."""
 
 from __future__ import annotations
 
+import argparse
 import logging
+import os
 import re
 import sys
 import tomllib
@@ -20,7 +22,16 @@ from rebrew.config import _KNOWN_PROFILES, load_config
 from rebrew.data_metadata import load_data_metadata
 from rebrew.metadata import KNOWN_STATUSES, load_metadata
 
-ROOT = Path(sys.argv[1] if len(sys.argv) > 1 else "/home/maci/Desktop/Projects/relumea")
+
+def _default_root() -> Path:
+    """Projects root: --root / REBREW_PROJECTS_ROOT, else the repo's parent dir."""
+    env = os.environ.get("REBREW_PROJECTS_ROOT")
+    if env:
+        return Path(env).expanduser()
+    return Path(__file__).resolve().parents[2]
+
+
+ROOT = _default_root()
 
 _VA_RE = re.compile(r"^0x[0-9a-fA-F]+$")
 
@@ -75,7 +86,16 @@ def check_data_metadata(meta: Path) -> list[str]:
     return issues
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
+    parser.add_argument(
+        "root",
+        nargs="?",
+        type=Path,
+        default=None,
+        help="Projects root to audit (default: REBREW_PROJECTS_ROOT or the repo parent)",
+    )
+    root = parser.parse_args(argv).root or _default_root()
     total_issues: Counter[str] = Counter()
     logger = logging.getLogger("rebrew")
     logger.setLevel(logging.WARNING)
@@ -88,7 +108,7 @@ def main() -> int:
     handler = _Buf()
     logger.addHandler(handler)
     try:
-        tomls = sorted(ROOT.glob("*/rebrew-project.toml"))
+        tomls = sorted(root.glob("*/rebrew-project.toml"))
         print(f"Auditing {len(tomls)} projects\n")
         for toml in tomls:
             proj = toml.parent
@@ -181,3 +201,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+__all__ = ["ROOT", "main"]

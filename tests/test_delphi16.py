@@ -145,3 +145,23 @@ class TestLongSourceName:
         assert staged.read_text(encoding="utf-8").startswith("program")
         assert not (workdir / "very_long_program_name.dpr").exists()
         assert calls and "C:\\DCC.EXE SRC.dpr" in calls[0][0]
+
+
+class TestStaleOutputIsNotSuccess:
+    def test_failed_compile_does_not_report_stale_exe(self, tmp_path: Path, monkeypatch) -> None:
+        """A reused caller-supplied workdir keeps the previous run's EXE, so a
+        failed compile still found "output" and the stale NE was parsed as this
+        run's result."""
+        from rebrew.delphi16 import Delphi16Error, compile_ne
+
+        tree = tmp_path / "dcc"
+        tree.mkdir()
+        for fname in ("DCC.EXE", "DELPHI.DSL", "DPMI16BI.OVL", "RTM.EXE"):
+            (tree / fname).write_bytes(b"\x00")
+        monkeypatch.setattr("rebrew.delphi16.find_dcc", lambda: tree / "DCC.EXE")
+        monkeypatch.setattr("rebrew.dosbox.run_dosbox", lambda *a, **k: None)
+        workdir = tmp_path / "sandbox"
+        workdir.mkdir()
+        (workdir / "PROBE.EXE").write_bytes(b"stale")
+        with pytest.raises(Delphi16Error, match="no executable"):
+            compile_ne("program probe; begin end.", workdir=workdir)

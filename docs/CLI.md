@@ -1,6 +1,6 @@
 # CLI Reference
 
-All 78 CLI commands are registered under the unified `rebrew` entry point in `main.py`.
+All 88 CLI commands are registered under the unified `rebrew` entry point in `main.py`.
 Every tool supports `--target / -t` to select a target from `rebrew-project.toml` and
 reads defaults (binary path, reversed_dir, compiler settings) from the project config.
 
@@ -64,6 +64,8 @@ for `--compare` (not “better than EXACT”).
 | `rebrew flirt` | `flirt.py` | FLIRT signature scanning (see [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md)) |
 | `rebrew gen-flirt-pat` | `gen_flirt_pat.py` | Generate FLIRT `.pat` files from COFF `.lib` archives |
 | `rebrew imports` | `imports.py` | List import-table symbols — PE IAT (with `jmp [iat]` stub detection) or 16-bit NE module references (library identification) |
+| `rebrew fingerprints` | `fingerprints.py` | Binary fingerprint bundle: file hashes, imphash, Rich-header hash, per-section entropy (TLSH/ssdeep when installed) |
+| `rebrew crypto-scan` | `crypto_scan.py` | Detect crypto constant tables, crypto imports, and crypto-named functions |
 | `rebrew strings` | `strings.py` | Extract printable ASCII/UTF-16 strings from data sections, with cross-references (`--xref`, `--filter`, `--min-len`, `--section`) |
 | `rebrew xrefs` | `xrefs.py` | Cross-reference explorer: find code that references an address (calls, jumps, `push`/`mov`/`lea`, IAT slots) |
 | `rebrew describe` | `describe.py` | Per-function recon dossier: callers, callees, strings, globals, imports (project-based) |
@@ -78,6 +80,9 @@ for `--compare` (not “better than EXACT”).
 | `rebrew binsync-export` | `binsync_export.py` | Export source markers and metadata to BinSync state directory (prototype, notes, globals with real types, structs with fields, freshness manifest; `--module`, `--git`, `--clean`) |
 | `rebrew binsync-import` | `binsync_import.py` | Import a BinSync state directory into rebrew metadata (names, prototypes, globals; `--accept-binsync`/`--accept-local`, `--module`) |
 | `rebrew binsync-diff` | `binsync_diff.py` | Read-only divergence report between rebrew and a BinSync state directory (`--module`; exits 1 on any divergence) |
+| `rebrew binsync-init` | `binsync_init.py` | Create the git envelope upstream BinSync requires (root `binsync/__root__` commit with `.gitignore` + `binary_hash`, then a `binsync/<user>` branch; `--user`, `--dry-run`) |
+| `rebrew binsync-overlay` | `binsync_overlay.py` | Overlay a related target's BinSync names/prototypes/notes onto structurally-matched functions of this target (same code at different VAs; `--from`, `--fields name,prototype,note,global`, `--accept-binsync`/`--accept-local`) |
+| `rebrew binsync` | `binsync_cli.py` | Umbrella group: `push` (export + git commit, `--git-push`), `pull` (git `--ff-only` + import), `summary` (read-only preview), plus `init`/`diff`/`overlay` |
 | `rebrew build-db` | `build_db.py` | Build SQLite `db/coverage.db` from `data_*.json` ([schema docs](DB_FORMAT.md)) |
 | `rebrew status` | `status.py` | At-a-glance reversing progress overview (per-module coverage, status ladder counts) |
 | `rebrew similar` | `similar.py` | Find structurally similar functions in the target binary (clone detection) |
@@ -543,7 +548,7 @@ the `wine ` prefix) for faster headless compiles.
 | `--fill-data` | Emit `_dpad_<addr>[N]` pads for uncovered `.data` byte runs (byte-exact from the reference in the raw region, zero-init for BSS); `--bss-only` skips the initialized region |
 | `--own` | Materialize stub-file globals as real definitions in their owner TUs (original bytes from the reference); `--stub-file PATH` overrides the stub TU (default `src/link_stubs.c`) |
 | `--fix-ownership` | Re-partition global definitions across TUs so each owns one contiguous address run (fixes `--layout-audit` SPAN/ORDER violations) |
-| `--converge` | Fixed-point `.data` placement: insert/adjust `_dlead_<tu>[N]` leading pads and re-measure; `--rounds N` iterates (rebuild per round) |
+| `--converge` | Fixed-point `.data` placement: insert/adjust `_dlead_<tu>[N]` leading pads and re-measure the current `build/<target>`. rebrew does not invoke the build: rebuild and re-run for the next round. `--rounds N` runs N measure/adjust passes in one invocation (the binary is not re-linked between them, so extra rounds re-measure the same build) |
 | `--gen-header` | Output `rebrew_globals.h` locally without fetching from Ghidra |
 | `--gen-header-out PATH` | Override output path for `--gen-header` (default: `{reversed_dir}/rebrew_globals.h`) |
 | `--force` | Overwrite an existing file when using `--gen-header` |
@@ -1056,6 +1061,51 @@ and detect `jmp [IAT]` import stubs.  Used to spot which functions are
 one-instruction thunks into imported APIs (unmatchable by decompilation —
 they are linker glue, not compiled C).
 
+### `rebrew fingerprints`
+
+`rebrew fingerprints [BINARY] [--json] [--target NAME]`
+
+Print the fingerprint bundle for `BINARY` (default: the project's target
+binary).  The bundle covers the raw file digests (`md5`, `sha1`, `sha256`,
+`crc32`, streamed in chunks), `format` / `arch`, `size`, the Mandiant
+`imphash` (import order preserved, ordinals as `dll.ord<N>`), the
+`rich_header_hash` (MD5 over the canonical MSVC Rich-header bytes),
+`section_entropies` (per-section Shannon entropy over the raw bytes), and
+`tlsh` / `ssdeep` when their optional backend is installed.  A field that
+cannot be derived is `null`; a missing binary exits `EXIT_ERROR` (2).
+
+Use it to tell two builds of the same target apart, to confirm a binary was
+rebuilt identically, and to spot a changed import set (imphash) or a
+different linker stamp (Rich header) after a rebuild.
+
+### `rebrew crypto-scan`
+
+`rebrew crypto-scan [BINARY] [--json] [--target NAME]`
+
+Detect cryptography in `BINARY` (default: the project's target binary) from
+two independent signals, with no external tools:
+
+- **Constant tables** searched in the binary's data sections: the AES forward
+  and inverse S-boxes (256 bytes each), the SHA-256 round constants K (64
+  uint32) and initial hash H (8 uint32), the SHA-1 initial hash H (5 uint32),
+  and the MD5 T table (64 uint32).  The uint32 tables are searched in both
+  little- and big-endian encodings.  Each hit reports the table name, the
+  absolute VA, and the section.
+- **Names**: imported APIs and, when a project is present, the project's
+  function names, matched against curated pattern sets for Windows
+  CryptoAPI/CNG (`Crypt*`, `BCrypt*`, `NCrypt*`), OpenSSL (`EVP_*`, `RSA_*`,
+  `AES_*`, `DES_*`, `SHA*`, `MD5*`, `HMAC*`), and common libraries
+  (`ChaCha*`, `Poly1305*`, `Salsa20*`, `Blowfish*`, `libsodium`, `mbedtls_*`,
+  `wolfSSL*`, `CRC32`).  An import is `high` confidence; a function name is
+  `medium`.
+
+`--json` prints `{"binary", "findings", "count", "by_confidence"}`, findings
+sorted by confidence then name.  Each finding is a constant
+(`kind`, `name`, `va`, `section`, `confidence`) or a name (`kind`, `name`,
+`detail`, `confidence`).  No findings is a valid result (exit 0), not an
+error.  A finding is an indicator, not proof the code is called: a
+statically linked library leaves tables whether or not they are used.
+
 ### `rebrew verify-exports`
 
 `rebrew verify-exports RECOMP_BINARY [--json] [--target NAME]` (options before
@@ -1311,6 +1361,72 @@ preview before an import.
 | `--json` | JSON structured output |
 | `--module NAME` | Only this module (e.g. SERVER) |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
+
+### `rebrew binsync-init`
+
+`rebrew binsync-init STATE_DIR [--user NAME] [--dry-run] [--json] [--target NAME]`
+
+Create the git envelope upstream BinSync's `Client` requires: a git repo whose
+`binsync/__root__` branch root commit carries `.gitignore` (`.git/*`) and
+`binary_hash` (the target binary's MD5), plus a `binsync/<user>` branch created
+from that root. The root commit adds only those two files (never `-A`), so
+files already in the state directory stay untracked.
+
+| Flag | Description |
+|------|-------------|
+| `--user NAME` | BinSync user name, used for the `binsync/<user>` branch (defaults to `git config user.name`, else `rebrew`) |
+| `--dry-run` | Preview changes without writing |
+| `--json` | Output results as JSON |
+| `--target NAME` | Select a target from `rebrew-project.toml` |
+
+An already-initialized state directory (a `binsync/__root__` branch exists)
+errors.
+
+### `rebrew binsync-overlay`
+
+`rebrew binsync-overlay STATE_DIR [--from TARGET] [--min-score N] [--min-gap N] [--fields LIST] [--module NAME] [--accept-binsync] [--accept-local] [--dry-run] [--json] [--target NAME]`
+
+Overlay a related target's BinSync names/prototypes/notes onto structurally
+matched functions of this target (same code at different VAs). The source
+target is `--from`, or the state `manifest.toml` `target` key when omitted;
+the destination is `--target` (the project default when omitted). Matching
+reuses the `cross-import` structural matcher, so no compilation is needed.
+
+| Flag | Description |
+|------|-------------|
+| `--from TARGET` | Source target (defaults to the state manifest's `target`) |
+| `--min-score N` | Minimum structural similarity (0-100) to overlay (default 95) |
+| `--min-gap N` | Best match must beat the runner-up by at least this (default 5) |
+| `--fields LIST` | Comma-separated fields to overlay: `name`, `prototype`, `note`, `global` (default `name,prototype,note`; `global` is opt-in) |
+| `--module NAME` | Only overlay annotations in this module (e.g. SERVER) |
+| `--accept-binsync` | Accept BinSync values on conflicts |
+| `--accept-local` | Keep local values on conflicts (records remote as GHIDRA provenance) |
+| `--dry-run` | Preview changes without writing |
+| `--json` | Output results as JSON |
+| `--target NAME` | Select a target from `rebrew-project.toml` |
+
+`--fields global` maps globals by exact content: the source global's bytes are
+searched in the destination's same-named section and applied only to a unique
+occurrence (a duplicate or missing section is skipped).
+
+A conflict (both sides meaningful and differing) is reported and nothing is
+written unless `--accept-binsync` or `--accept-local` is given; the command
+exits `1` while any conflict is unresolved.
+
+### `rebrew binsync`
+
+`rebrew binsync {push,pull,summary,init,diff,overlay}`
+
+Multi-command umbrella over the flat BinSync commands with git automation.
+`init`, `diff`, and `overlay` are the exact flat commands; `push`, `pull`, and
+`summary` orchestrate export/import:
+
+| Command | Description |
+|---------|-------------|
+| `push STATE_DIR` | Export into the state dir and commit it. `--no-git` skips the commit; `--git-push` also pushes `binsync/__root__` and the current branch to `--remote` (default `origin`); `--module`, `--dry-run`, `--json`, `--target` |
+| `pull STATE_DIR` | `git pull --ff-only` in the state dir (unless `--no-git` or `--dry-run`), then import. Import flags: `--accept-binsync`, `--accept-local`, `--module`, `--create-missing`, `--dry-run`, `--json`, `--target`; unresolved conflicts exit `1` |
+| `summary STATE_DIR` | Read-only preview: export and import in dry-run mode, reporting what push/pull would change (`--module`, `--json`, `--target`). Writes nothing, touches no git |
+| `init` / `diff` / `overlay` | Same options and behavior as the flat commands above |
 
 ### `rebrew near-diag`
 
@@ -1932,7 +2048,7 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 
 | Module | Purpose |
 |--------|---------|
-| `annotation.py` | Canonical annotation parser (`parse_c_file`, `parse_c_file_multi`) |
+| `annotation.py` | Canonical annotation parser (`parse_c_file_multi`, `parse_c_file_text`) |
 | `lint.py` | Source marker linter (E000–E023 / W001–W029); `--fix` migrates leftover inline metadata and drops W029-redundant cflags; W005 points to `rebrew blocker set` for STUB BLOCKERs |
 | `blocker.py` | Programmatic BLOCKER writer — `rebrew blocker set/clear/show` (`--json`, `--dry-run`, `--delta`, `--va`); every write via `rebrew.metadata` (never hand-edit `rebrew-functions.toml`) |
 | `ghidra/cli.py` | Sync annotations to Ghidra via ReVa MCP; skips generic `func_` labels by default |

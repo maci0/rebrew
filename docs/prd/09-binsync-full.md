@@ -1,5 +1,10 @@
 # PRD 09 — Full BinSync Integration
 
+> **Correction (2026-09):** `rebrew sync --push/--pull --state-dir` now uses
+> the same BinSync state (conflicts via `--accept-binsync` / `--accept-local`)
+> — the umbrella shape below ships through `rebrew sync`, not a separate
+> `rebrew binsync` command. PRDs are historical records, kept as written.
+
 **Feature name:** Bidirectional BinSync ↔ Rebrew Sync (git-backed state, libbs format)
 **One-line value:** Turn rebrew into a first-class BinSync peer so reverse-engineering knowledge round-trips losslessly between IDA Pro, Binary Ninja, Ghidra, and rebrew's C source — collaborators on different decompilers share names, types, comments, and stack vars without conversion friction.
 

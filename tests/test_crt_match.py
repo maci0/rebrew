@@ -44,7 +44,25 @@ class TestCrtIndexBuilding:
         entries = build_crt_index(tmp_path, "MSVCRT")
         asm_names = {entry.name.lower() for entry in entries if entry.is_asm}
 
-        assert "memcpy" in asm_names
+        # The index keeps the source's real decoration; `normalize_name` does the
+        # underscore stripping at comparison time (so `_memcpy` and the binary's
+        # `_memcpy` both normalize to `memcpy`).
+        assert "memcpy" in {normalize_name(n) for n in asm_names}
+
+    def test_build_index_keeps_double_underscore_asm_names(self, tmp_path: Path) -> None:
+        """`__allmul PROC` must index verbatim.  The old regex swallowed one
+        underscore (`_allmul`), and `normalize_name` preserves a double
+        underscore, so the whole `_MSVC6_ASM_FUNCTIONS` set could never match a
+        binary name."""
+        _write(
+            tmp_path / "MUL.ASM",
+            "__allmul PROC\nmov eax, eax\nret\n__allmul ENDP\n",
+        )
+
+        entries = build_crt_index(tmp_path, "MSVCRT")
+        asm_names = {entry.name for entry in entries if entry.is_asm}
+        assert "__allmul" in asm_names
+        assert normalize_name("__allmul") in {normalize_name(n) for n in asm_names}
 
     def test_build_index_empty_dir(self, tmp_path: Path) -> None:
         entries = build_crt_index(tmp_path, "MSVCRT")
@@ -909,6 +927,80 @@ class TestFixSourceDryRun:
         from rebrew.metadata import get_entry
 
         assert get_entry(cfg.metadata_dir, 0x1000, "MSVCRT") == {}  # nothing written
+
+
+class TestSourceAutoWritable:
+    """Filename-only evidence must never auto-write SOURCE, however high
+    its confidence (P0: filename-stem indexing + 0.85 score met the
+    auto-write threshold)."""
+
+    def _match(self, line: int, confidence: float = 0.85) -> object:
+        from rebrew.crt_match import CrtMatch, source_auto_writable  # noqa: F401
+
+        entry = CrtSourceEntry(
+            name="qsort", file="QSORT.C", line=line, is_asm=False, module="MSVCRT"
+        )
+        return CrtMatch(
+            va=0x1000,
+            binary_name="qsort",
+            binary_size=80,
+            source=entry,
+            confidence=confidence,
+            reason="filename-based source match",
+            is_asm_only=False,
+        )
+
+    def test_filename_only_never_auto_writes(self) -> None:
+        from rebrew.crt_match import source_auto_writable
+
+        match = self._match(0, 0.85)
+        assert source_auto_writable(match) is False
+
+    def test_parsed_definition_auto_writes(self) -> None:
+        from rebrew.crt_match import source_auto_writable
+
+        match = self._match(42, 0.95)
+        assert source_auto_writable(match) is True
+
+    def test_low_confidence_parsed_definition_no_write(self) -> None:
+        from rebrew.crt_match import source_auto_writable
+
+        match = self._match(42, 0.5)
+        assert source_auto_writable(match) is False
+
+    def test_fix_source_skips_filename_only(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--fix-source with only a filename-based match writes nothing."""
+        from typer.testing import CliRunner
+
+        from rebrew.crt_match import app
+        from rebrew.metadata import get_entry
+
+        src = tmp_path / "src" / "SERVER"
+        src.mkdir(parents=True, exist_ok=True)
+        (src / "lib.c").write_text(
+            "// LIBRARY: MSVCRT 0x10001000\n// SYMBOL: _qsort\nint qsort(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        crt = tmp_path / "crt"
+        crt.mkdir()
+        # No parsed qsort definition — only the QSORT.C filename entry matches.
+        (crt / "QSORT.C").write_text("int not_qsort(void) { return 0; }\n", encoding="utf-8")
+        cfg = SimpleNamespace(
+            reversed_dir=src,
+            metadata_dir=tmp_path,
+            marker="SERVER",
+            source_ext=".c",
+            root=tmp_path,
+            library_modules=["MSVCRT"],
+            crt_sources={"MSVCRT": "crt"},
+        )
+        monkeypatch.setattr("rebrew.crt_match.require_config", lambda **kw: cfg)
+        result = CliRunner().invoke(app, ["--fix-source", "--all"])
+        assert result.exit_code == 0
+        assert "Updated SOURCE annotations: 0" in result.output
+        assert get_entry(tmp_path, 0x10001000, "MSVCRT").get("source", "") == ""
 
 
 class TestSingleVaModuleFallback:

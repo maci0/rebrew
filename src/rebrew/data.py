@@ -279,6 +279,13 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
             key = (ev_name, 0)
             entry = by_key.get(key)
             if entry is None:
+                # An earlier file may already hold this name as an annotated
+                # entry whose VA is known.  Reuse it: creating a duplicate
+                # ``(name, 0)`` key would make the final pass overwrite the
+                # annotated entry with the valueless one (order-dependent —
+                # an extern-only file sorted after the annotated one lost it).
+                entry = next((e for e in by_key.values() if e.name == ev_name), None)
+            if entry is None:
                 entry = GlobalEntry(name=ev_name, type_str=ev.type_str)
                 by_key[key] = entry
 
@@ -361,13 +368,16 @@ def enrich_with_sections(scan: ScanResult, sections: dict[str, dict[str, Any]]) 
 # ---------------------------------------------------------------------------
 
 
-def _build_dispatch_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[int, dict[str, str]]:
+def build_dispatch_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[int, dict[str, str]]:
     """Map VA -> {"name", "status"} for dispatch-table naming.
 
     Source-file annotations take precedence; the function list / Ghidra
     structure registry then fills in targets no source file covers (e.g.
     FLIRT-identified CRT functions).  A "0% resolved" table is misleading
     when the catalog already knows the names.
+
+    Shared by ``rebrew data --dispatch`` and ``rebrew analyze``'s dossier, so
+    both report the same resolution count.
     """
     from rebrew.annotation import parse_c_file_multi
     from rebrew.sources import iter_sources, target_marker
@@ -1075,7 +1085,11 @@ def _render_summary(
 
 
 def annotate_globals(
-    src_dir: Path, metadata: Path, marker: str, dry_run: bool = False
+    src_dir: Path,
+    metadata: Path,
+    marker: str,
+    dry_run: bool = False,
+    cfg: ProjectConfig | None = None,
 ) -> tuple[dict[str, int], int]:
     """Insert ``// GLOBAL: <marker> 0x<VA>`` markers from the data metadata.
 
@@ -1084,19 +1098,30 @@ def annotate_globals(
     that mentions it (extern or definition).  Declarations already carrying a
     ``GLOBAL:`` or ``DATA:`` marker are skipped.
 
+    Sources are discovered with :func:`iter_sources` (``cfg.source_ext``,
+    exclude dirs, and the project shared-sources root), matching
+    ``scan_globals`` — a raw ``rglob("*.c")`` missed ``.cpp`` sources and the
+    shared tree, and descended into build directories.
+
     Returns ``(per_file, skipped_unnamed)`` — *skipped_unnamed* is the count
     of metadata entries dropped because they carry no ``name`` field (the
     marker anchors on the source declaration, so an unnamed entry cannot be
     placed); a project whose data metadata is entirely unnamed (e.g. notepad)
     previously produced a silent 0-marker no-op.
     """
+    from rebrew.sources import iter_sources
+    from rebrew.utils import rel_display_path
+
     with open(metadata, "rb") as fh:
         db = tomllib.load(fh)
-    total_entries = 0
+    skipped_unnamed = 0
     symbols: dict[str, tuple[str, int]] = {}
     for module, addr, val in iter_data_symbols(db, section=None):
-        total_entries += 1
+        # Count by the entry itself, not by ``total - len(symbols)``: two
+        # metadata entries sharing a name collapse in ``symbols`` and would be
+        # misreported as missing a ``name`` field.
         if not val.get("name"):
+            skipped_unnamed += 1
             continue
         symbols[str(val["name"])] = (module, addr)
 
@@ -1104,8 +1129,8 @@ def annotate_globals(
     decl_cache: dict[str, re.Pattern[str]] = {}
     total = 0
     per_file: dict[str, int] = {}
-    for f in sorted(p for p in src_dir.rglob("*.c") if not p.is_symlink()):
-        text = f.read_text(encoding="utf-8", errors="replace")
+    for f in iter_sources(src_dir, cfg):
+        text, encoding = read_source_text(f)
         lines = text.splitlines()
         existing = {int(m.group(1), 16) for m in (marker_re.match(ln) for ln in lines) if m}
         insertions: list[tuple[int, str]] = []
@@ -1137,10 +1162,10 @@ def annotate_globals(
         for shift, (hit, marker_line) in enumerate(insertions):
             lines.insert(hit + shift, marker_line)
         total += len(insertions)
-        per_file[str(f.relative_to(src_dir))] = len(insertions)
+        per_file[rel_display_path(f, src_dir)] = len(insertions)
         if not dry_run:
-            f.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return per_file, total_entries - len(symbols)
+            atomic_write_text(f, "\n".join(lines) + "\n", encoding=encoding)
+    return per_file, skipped_unnamed
 
 
 app = typer.Typer(
@@ -1465,8 +1490,23 @@ def _gen_globals_header(
             json_mode=json_output,
         )
 
+    def _header_payload(written: bool) -> dict[str, Any]:
+        """--json output for every success path (docs/CLI.md: JSON for all modes)."""
+        return {
+            "path": str(out),
+            "written": written,
+            "dry_run": dry_run,
+            "globals": len(rows),
+            "sections": {
+                (sec or "(unknown)"): len(items) for sec, items in by_section.items() if items
+            },
+        }
+
     if dry_run:
-        console.print(f"[cyan]dry-run:[/cyan] would write {out} with {len(rows)} globals")
+        if json_output:
+            json_print(_header_payload(written=False))
+        else:
+            console.print(f"[cyan]dry-run:[/cyan] would write {out} with {len(rows)} globals")
         return
 
     content = "\n".join(header_lines)
@@ -1480,11 +1520,17 @@ def _gen_globals_header(
             return "\n".join(line for line in text.splitlines() if "Generated:" not in line)
 
         if _strip_timestamp(existing) == _strip_timestamp(content):
-            console.print(f"[dim]{out.name} unchanged[/dim] ({len(rows)} globals)")
+            if json_output:
+                json_print(_header_payload(written=False))
+            else:
+                console.print(f"[dim]{out.name} unchanged[/dim] ({len(rows)} globals)")
             return
 
     atomic_write_text(out, content, encoding="utf-8")
 
+    if json_output:
+        json_print(_header_payload(written=True))
+        return
     console.print(f"[green]Wrote {out.name}[/green] with {len(rows)} globals")
     for sec in section_order:
         items = by_section.get(sec or "")
@@ -1582,10 +1628,15 @@ def main(
         False,
         "--converge",
         help="Fixed-point .data placement: insert/adjust _dlead_<tu>[N] pads and re-measure "
-        "(rebuild between rounds)",
+        "the current build (rebrew does not invoke the build — rebuild and re-run for the "
+        "next round)",
     ),
     rounds: int = typer.Option(
-        1, "--rounds", help="With --converge: iteration count (rebuild per round)"
+        1,
+        "--rounds",
+        help="With --converge: measure/adjust rounds in this invocation.  The built binary is "
+        "not re-linked between them, so an extra round re-measures the same build; rebuild and "
+        "re-run for a new fixed point",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -1674,7 +1725,13 @@ def main(
         if fill_data:
             try:
                 result = fill_data_layout(
-                    cfg.root, metadata, bin_path, src_dir, dry_run=dry_run, bss_only=bss_only
+                    cfg.root,
+                    metadata,
+                    bin_path,
+                    src_dir,
+                    dry_run=dry_run,
+                    bss_only=bss_only,
+                    target=getattr(cfg, "target_name", None),
                 )
             except OSError as exc:
                 error_exit(str(exc), json_mode=json_output)
@@ -1692,7 +1749,13 @@ def main(
                 error_exit(f"stub file not found: {stub} (--stub-file)", json_mode=json_output)
             try:
                 own_result = own_data_globals(
-                    cfg.root, metadata, bin_path, src_dir, stub, dry_run=dry_run
+                    cfg.root,
+                    metadata,
+                    bin_path,
+                    src_dir,
+                    stub,
+                    dry_run=dry_run,
+                    target=getattr(cfg, "target_name", None),
                 )
             except OSError as exc:
                 error_exit(str(exc), json_mode=json_output)
@@ -1712,7 +1775,12 @@ def main(
         if fix_ownership:
             try:
                 fix_result = fix_data_ownership(
-                    cfg.root, metadata, bin_path, src_dir, dry_run=dry_run
+                    cfg.root,
+                    metadata,
+                    bin_path,
+                    src_dir,
+                    dry_run=dry_run,
+                    target=getattr(cfg, "target_name", None),
                 )
             except OSError as exc:
                 error_exit(str(exc), json_mode=json_output)
@@ -1726,7 +1794,16 @@ def main(
             return
         try:
             conv_result = converge_data_layout(
-                cfg.root, metadata, bin_path, src_dir, rounds=rounds, dry_run=dry_run
+                cfg.root,
+                metadata,
+                bin_path,
+                src_dir,
+                rounds=rounds,
+                dry_run=dry_run,
+                # The target names both the build output (build/<target>) and
+                # the .data geometry the pads are sized against; without it a
+                # multi-target project converges the default target's numbers.
+                target=cfg.target_name,
             )
         except OSError as exc:
             error_exit(str(exc), json_mode=json_output)
@@ -1745,7 +1822,9 @@ def main(
         if not metadata.exists():
             error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
         marker = cfg.marker or cfg.target_name.upper()
-        per_file, skipped_unnamed = annotate_globals(src_dir, metadata, marker, dry_run=dry_run)
+        per_file, skipped_unnamed = annotate_globals(
+            src_dir, metadata, marker, dry_run=dry_run, cfg=cfg
+        )
         total = sum(per_file.values())
         if json_output:
             json_print({"markers": total, "files": per_file, "skipped_unnamed": skipped_unnamed})
@@ -1842,7 +1921,7 @@ def main(
 
         # Build known functions map from reversed source files, then merge in
         # function-list / Ghidra-structure names for targets without sources.
-        known_functions = _build_dispatch_known_functions(cfg, src_dir)
+        known_functions = build_dispatch_known_functions(cfg, src_dir)
 
         tables = find_dispatch_tables(
             binary_data,
@@ -1863,6 +1942,20 @@ def main(
     # JSON output
     if json_output:
         data = scan.to_dict()
+        if conflicts:
+            # --conflicts is documented as "Show only globals with type
+            # conflicts" — the Rich path honors it, JSON mode used to return
+            # every global.  The summary counts describe the filtered set so
+            # the payload stays self-consistent.
+            conflict_names = {c["name"] for c in scan.type_conflicts}
+            data["globals"] = {
+                k: v for k, v in data["globals"].items() if v["name"] in conflict_names
+            }
+            data["summary"]["total"] = len(data["globals"])
+            data["summary"]["annotated"] = sum(
+                1 for g in data["globals"].values() if g["annotated"]
+            )
+            data["summary"]["unannotated"] = data["summary"]["total"] - data["summary"]["annotated"]
         data["sections"] = {
             name: {"va": f"0x{s['va']:08x}", "size": s["size"]} for name, s in sections.items()
         }

@@ -212,3 +212,27 @@ class TestUserSkillsDir:
         paths = [s["path"] for s in _list_skills()]
         assert "rebrew-workflow" in {s["name"] for s in _list_skills()}
         assert all("agent-skills" in p for p in paths)  # packaged dir only
+
+
+class TestSafeSkillName:
+    def test_dot_only_names_refused(self) -> None:
+        """`..` survives the character fold and resolved to the PARENT of the
+        skills dir, so an untrusted frontmatter name could copy a repo's files
+        outside it."""
+        from rebrew.skills import _safe_skill_name
+
+        assert _safe_skill_name("..") == ""
+        assert _safe_skill_name(".") == ""
+        assert _safe_skill_name("...") == ""
+        # Separators fold to '-', so a traversal spelling becomes one harmless
+        # component (no path separator survives).
+        assert _safe_skill_name("../../evil") == "..-..-evil"
+
+    def test_non_dot_names_pass(self) -> None:
+        from rebrew.skills import _safe_skill_name
+
+        assert _safe_skill_name("my-skill") == "my-skill"
+        assert _safe_skill_name("a..b") == "a..b"
+        assert _safe_skill_name("rebrew_workflow") == "rebrew_workflow"
+        # Only a dot-ONLY component escapes; a leading dot stays inside the dir.
+        assert _safe_skill_name(".evil") == ".evil"

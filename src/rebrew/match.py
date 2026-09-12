@@ -27,7 +27,6 @@ import shlex
 import shutil
 import subprocess
 import tempfile
-import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
@@ -81,13 +80,10 @@ from rebrew.matcher import (
 from rebrew.sources import (
     target_marker,
 )
-from rebrew.utils import atomic_write_text, read_source_text
+from rebrew.utils import atomic_write_text, metadata_write_lock, read_source_text
 
 log = logging.getLogger(__name__)
 
-# Serializes metadata/solutions writes across parallel batch GA workers
-# (read-modify-write of rebrew-functions.toml is not otherwise thread-safe).
-_metadata_lock = threading.Lock()
 console = Console(stderr=True)
 
 
@@ -143,7 +139,10 @@ def _compile_cflags(cflags: str, base_cf: str, posix_style: bool = False) -> str
         if base_cf:
             return f"/nologo /c {base_cf} {cflags}".strip()
         return f"/nologo /c {cflags}".strip()
-    return cflags
+    # cflags already carries /c: keep base_cf (it may hold /MT etc.) and add no
+    # second glue.  Dropping it here made every path compile a different
+    # runtime configuration than the one the metadata declares.
+    return f"{base_cf} {cflags}".strip() if base_cf else cflags
 
 
 #: --mutation-focus category → selection weight for its suggested operators
@@ -154,6 +153,12 @@ _MUTATION_FOCUS_WEIGHT = 6.0
 #: Generations between full-population checkpoint writes (an interrupted run
 #: redoes at most this many generations of deterministic work).
 _CHECKPOINT_INTERVAL = 5
+
+#: Default floor (bytes) for a function considered by a batch GA/sweep run.
+#: A smaller annotation is usually a size-0/unknown marker whose "function"
+#: would be a handful of placeholder bytes.  ``--min-size`` overrides it in
+#: either direction, so a genuine 5-9 byte function is reachable.
+_MIN_STUB_SIZE_FLOOR = 10
 
 
 def _mutation_focus_weights(
@@ -289,17 +294,24 @@ def _ga_cache_key(
     inc_dir: str,
     extra_include_dirs: list[str] | None = None,
     defines: list[str] | None = None,
+    symbol: str = "",
+    profile: str = "",
 ) -> str:
     """Cache key for a GA compile result.
 
     Must cover everything that changes the produced .obj: the source text,
     the compiler flags, the compiler command, the include directory, the
-    extra include dirs (different headers → different codegen), and the
-    per-target defines (a version switch changes ``#ifdef``-driven codegen).
-    The build cache persists across runs
+    extra include dirs (different headers → different codegen), the
+    per-target defines (a version switch changes ``#ifdef``-driven codegen),
+    the extracted symbol (stubs share one cache DB, and the same source
+    compiled for different symbols yields different bytes), and the toolchain
+    profile.  The build cache persists across runs
     (``output/ga_runs/<rel>/build_cache.db``), so a sweep-then-GA or
     CFLAGS-metadata change must not reuse an .obj compiled under different
-    flags.
+    flags.  The profile matters because every image-backed toolchain compiles
+    through docker: ``cl_cmd`` is empty and ``inc_dir`` is the same default
+    for all of them, so without the profile an msvc6 object is reused for a
+    borlandc55 or tc16 run on the same source.
     """
     # Incremental hashing — the old code built a full material buffer per
     # candidate (src.encode() + joins), and the source hash was recomputed
@@ -309,6 +321,8 @@ def _ga_cache_key(
     h.update(b"\x00cflags=" + cflags.encode())
     h.update(b"\x00cmd=" + cl_cmd.encode())
     h.update(b"\x00inc=" + inc_dir.encode())
+    h.update(b"\x00sym=" + symbol.encode())
+    h.update(b"\x00profile=" + profile.encode())
     for d in sorted(extra_include_dirs or []):
         h.update(b"\x00" + d.encode())
     for d in sorted(defines or []):
@@ -462,6 +476,9 @@ class BinaryMatchingGA:
             stagnation_limit=stagnation_limit,
         )
         self._start_generation = 0
+        # Generations actually executed by the last run() (resume-aware), read
+        # by the batch driver to record the run in .rebrew/ga_runs.jsonl.
+        self.generation = 0
 
         # Resume restores population/best/RNG instead of a fresh start.
         if resume_from is not None and resume_from.args_hash == self.args_hash:
@@ -501,19 +518,31 @@ class BinaryMatchingGA:
                 src = self._mutate(src)
             self.population.append(src)
 
-    def _compile_source(self, src: str) -> BuildResult:
-        # The cache persists across runs (output/ga_runs/<rel>/build_cache.db),
-        # so the key must cover everything that changes the .obj — not just
-        # the source.  A sweep-then-GA or CFLAGS-metadata change used to
-        # reuse the previous flag combination's .obj.
-        src_hash = _ga_cache_key(
+    def _cache_key(self, src: str) -> str:
+        """Disk-cache key for *src* under this run's compile configuration.
+
+        Single source of truth: ``_compile_source`` reads with it and
+        ``_compute_fitness`` stores with it.  They used to disagree (the
+        scoring store keyed on the bare source digest, which nothing reads),
+        so a successful build was never reused across processes.
+        """
+        return _ga_cache_key(
             src,
             self.cflags,
             str(self.cl_cmd),
             self.inc_dir,
             self.extra_include_dirs,
             getattr(self.cfg, "defines", None) or [],
+            self.symbol,
+            self.profile,
         )
+
+    def _compile_source(self, src: str) -> BuildResult:
+        # The cache persists across runs (output/ga_runs/<rel>/build_cache.db),
+        # so the key must cover everything that changes the .obj — not just
+        # the source.  A sweep-then-GA or CFLAGS-metadata change used to
+        # reuse the previous flag combination's .obj.
+        src_hash = self._cache_key(src)
         res = self.cache.get(src_hash)
         if res:
             return res
@@ -561,7 +590,13 @@ class BinaryMatchingGA:
                 timeout=self.compile_timeout * 2,
             )
 
-        self.cache.put(src_hash, res)
+        # No disk write for successes here: the result carries no fitness yet,
+        # and _compute_fitness stores the scored result with one put —
+        # writing now would double every candidate's disk-cache writes.
+        # Failures never reach that put (they return early there), so they
+        # are stored here instead: one write per candidate either way.
+        if not res.ok:
+            self.cache.put(src_hash, res)
         return res
 
     def _compute_fitness(self, res: BuildResult, src_hash: str, src: str) -> float:
@@ -628,11 +663,14 @@ class BinaryMatchingGA:
         # the field existed.
         res.fitness = total
         self._fitness_memo[src_hash] = total
-        # Persist the scored result back into the disk cache: _compile_source
-        # already wrote the pre-fitness result, so a later process would load
-        # fitness=None and never take the warm-cache skip.  Overwriting the
-        # same key with the fitness attached enables cross-process warm runs.
-        self.cache.put(src_hash, res)
+        # One disk write per candidate: _compile_source skipped the store on
+        # a miss (it defers to the scored result here), so this put persists
+        # both the .obj and the fitness — a later process loads fitness set
+        # and takes the warm-cache skip.  Keyed on the compile configuration
+        # (``_cache_key``), NOT the ``src_hash`` argument: the caller passes
+        # the bare source digest for memoization, and a digest-keyed entry is
+        # never read by ``_compile_source``.
+        self.cache.put(self._cache_key(src), res)
         _log(
             f"[{src_hash[:8]}] SUCCESS. Score={total:.2f} (len_bytes={len(obj_bytes)}, excess={excess})"
         )
@@ -685,12 +723,14 @@ class BinaryMatchingGA:
     def _run_inner(self, deadline: float | None = None) -> tuple[str | None, float]:
         """Run the GA and return ``(best_source, best_score)``."""
         last_generation = self._start_generation
-        for gen in range(self._start_generation, self.num_generations):
-            if deadline is not None and time.monotonic() > deadline:
-                break
-            gen_start = time.monotonic()
-            scored_pop = []
-            with ThreadPoolExecutor(max_workers=self.num_jobs) as executor:
+        # One executor for the whole run: the old code built and tore down a
+        # pool per generation (thread create/join churn × num_generations).
+        with ThreadPoolExecutor(max_workers=self.num_jobs) as executor:
+            for gen in range(self._start_generation, self.num_generations):
+                if deadline is not None and time.monotonic() > deadline:
+                    break
+                gen_start = time.monotonic()
+                scored_pop = []
                 # Perf-review F5: consult the in-process fitness memo BEFORE
                 # submitting — elite/unchanged sources keep their score across
                 # generations, so skipping _compile_source entirely avoids the
@@ -723,76 +763,77 @@ class BinaryMatchingGA:
                         )
                     scored_pop.append((self._compute_fitness(res, src_hash, src), src))
 
-            scored_pop.sort(key=lambda x: x[0])
-            if not scored_pop:
-                continue
-            best_score, best_src = scored_pop[0]
-            diversity = compute_population_diversity(self.population)
+                scored_pop.sort(key=lambda x: x[0])
+                if not scored_pop:
+                    continue
+                best_score, best_src = scored_pop[0]
+                diversity = compute_population_diversity(self.population)
 
-            if best_score < self.best_score:
-                self.best_score = best_score
-                self.best_source = best_src
-                self.stagnant_gens = 0
-                atomic_write_text(self.out_dir / "best.c", best_src, encoding="utf-8")
-            else:
-                self.stagnant_gens += 1
-
-            if self.verbose:
-                console.print(
-                    f"gen={gen:03d} best={best_score:.2f} div={diversity:.2f} stag={self.stagnant_gens}"
-                )
-
-            if best_score < 0.1 or self.stagnant_gens >= self.stagnation_limit:
-                break
-
-            elite = [s[1] for s in scored_pop[: self.elitism]]
-            next_pop = elite.copy()
-            max_attempts = self.pop_size * 10
-            attempts = 0
-            while len(next_pop) < self.pop_size and attempts < max_attempts:
-                attempts += 1
-                p1 = self.rng.choice(elite)
-                if self.rng.random() < self.crossover_prob:
-                    p2 = self.rng.choice(elite)
-                    child = crossover(p1, p2, self.rng)
+                if best_score < self.best_score:
+                    self.best_score = best_score
+                    self.best_source = best_src
+                    self.stagnant_gens = 0
+                    atomic_write_text(self.out_dir / "best.c", best_src, encoding="utf-8")
                 else:
-                    child = p1
+                    self.stagnant_gens += 1
 
-                if self.rng.random() < self.mutation_prob:
-                    # Multi-mutation: 35% chance of chaining 2-3 mutations for
-                    # bigger jumps in the search space.
-                    n_muts = 1
-                    if self.rng.random() < 0.35:
-                        n_muts = self.rng.randint(2, 3)
-                    for _ in range(n_muts):
-                        child = self._mutate(child)
+                if self.verbose:
+                    console.print(
+                        f"gen={gen:03d} best={best_score:.2f} div={diversity:.2f} stag={self.stagnant_gens}"
+                    )
 
-                if quick_validate(child):
-                    next_pop.append(child)
+                if best_score < 0.1 or self.stagnant_gens >= self.stagnation_limit:
+                    break
 
-            while len(next_pop) < self.pop_size:
-                next_pop.append(self.rng.choice(elite))
+                elite = [s[1] for s in scored_pop[: self.elitism]]
+                next_pop = elite.copy()
+                max_attempts = self.pop_size * 10
+                attempts = 0
+                while len(next_pop) < self.pop_size and attempts < max_attempts:
+                    attempts += 1
+                    p1 = self.rng.choice(elite)
+                    if self.rng.random() < self.crossover_prob:
+                        p2 = self.rng.choice(elite)
+                        child = crossover(p1, p2, self.rng)
+                    else:
+                        child = p1
 
-            self.population = next_pop
+                    if self.rng.random() < self.mutation_prob:
+                        # Multi-mutation: 35% chance of chaining 2-3 mutations for
+                        # bigger jumps in the search space.
+                        n_muts = 1
+                        if self.rng.random() < 0.35:
+                            n_muts = self.rng.randint(2, 3)
+                        for _ in range(n_muts):
+                            child = self._mutate(child)
 
-            # Accumulate the FULL generation time (scoring + mutation +
-            # crossover) — stopping at the break above under-reported GA
-            # time by ~99% on cache-warm runs (mutation dominates).
-            self.elapsed_sec += time.monotonic() - gen_start
+                    if quick_validate(child):
+                        next_pop.append(child)
 
-            # Persist a checkpoint every _CHECKPOINT_INTERVAL generations so
-            # an interrupted batch resumes from here instead of restarting
-            # the stub.  The full-population JSON write is not free; an
-            # interrupted run only redoes the skipped generations' work.
-            if (gen + 1) % _CHECKPOINT_INTERVAL == 0:
-                self._save_checkpoint(gen + 1)
-            last_generation = gen + 1
+                while len(next_pop) < self.pop_size:
+                    next_pop.append(self.rng.choice(elite))
+
+                self.population = next_pop
+
+                # Accumulate the FULL generation time (scoring + mutation +
+                # crossover) — stopping at the break above under-reported GA
+                # time by ~99% on cache-warm runs (mutation dominates).
+                self.elapsed_sec += time.monotonic() - gen_start
+
+                # Persist a checkpoint every _CHECKPOINT_INTERVAL generations so
+                # an interrupted batch resumes from here instead of restarting
+                # the stub.  The full-population JSON write is not free; an
+                # interrupted run only redoes the skipped generations' work.
+                if (gen + 1) % _CHECKPOINT_INTERVAL == 0:
+                    self._save_checkpoint(gen + 1)
+                last_generation = gen + 1
 
         # Always leave a fresh checkpoint on orderly exit (converged,
         # stagnant, deadline, or completed) so resume sees final state.
         if last_generation > self._start_generation:
             self._save_checkpoint(last_generation)
 
+        self.generation = last_generation
         return self.best_source, self.best_score
 
     def _save_checkpoint(self, next_generation: int) -> None:
@@ -855,25 +896,33 @@ def _ga_args_hash(
     Every tuning parameter that shapes the search is folded in: resuming
     after changing --mutation-focus / --generations / --elitism etc. must
     reject the old checkpoint instead of silently continuing the previous
-    population with stale RNG state."""
+    population with stale RNG state.
+
+    The params tuple is JSON-encoded with sorted keys and compact separators:
+    the old ``str(tuple_with_dict)`` inherited dict insertion order and
+    CPython's ``', '`` separators, so equal ``mutation_weights`` mappings
+    built in different orders hashed differently (and any repr change across
+    versions silently invalidated every checkpoint)."""
     h = hashlib.sha256()
     h.update(seed_source.encode("utf-8", errors="replace"))
     h.update(target_bytes)
     h.update(symbol.encode())
     h.update(cflags.encode())
     h.update(
-        str(
-            (
-                pop_size,
-                num_generations,
-                rng_seed,
-                mutation_weights,
-                mutation_prob,
-                crossover_prob,
-                elitism,
-                num_jobs,
-                stagnation_limit,
-            )
+        json.dumps(
+            {
+                "pop_size": pop_size,
+                "num_generations": num_generations,
+                "rng_seed": rng_seed,
+                "mutation_weights": mutation_weights,
+                "mutation_prob": mutation_prob,
+                "crossover_prob": crossover_prob,
+                "elitism": elitism,
+                "num_jobs": num_jobs,
+                "stagnation_limit": stagnation_limit,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
         ).encode()
     )
     return h.hexdigest()
@@ -921,6 +970,10 @@ class StubInfo:
     status: str
     module: str
     delta: int = 9999
+    #: Per-function TOOLCHAIN metadata (rebrew-functions.toml).  Batch paths
+    #: must resolve it like the single-function path, or a library compiled
+    #: with a different compiler is recompiled with the project default.
+    toolchain: str = ""
 
 
 _FUNC_START_RE = re.compile(
@@ -940,6 +993,7 @@ def _parse_annotations(
     ignored: set[str] | None = None,
     metadata_dir: Path | None = None,
     min_va: int = 0x1000,
+    min_size: int = 0,
 ) -> list[StubInfo]:
     """Parse annotations with configurable status and delta filters.
 
@@ -947,6 +1001,11 @@ def _parse_annotations(
     assumption); batch callers pass ``cfg.metadata_dir`` so functions whose
     SIZE/STATUS live in ``rebrew-functions.toml`` at the reversed_dir parent
     are found.
+
+    *min_size* is the caller's explicit size floor (``--min-size``); when it
+    is 0 the default :data:`_MIN_STUB_SIZE_FLOOR` applies.  The floor used to
+    be a hardcoded 10, so ``--min-size 5`` could never reach a genuine 5-9
+    byte function.
     """
     from rebrew.metadata import GA_CEILING_PREFIX
 
@@ -982,7 +1041,7 @@ def _parse_annotations(
         if symbol in ignored or symbol.lstrip("_") in ignored:
             continue
 
-        if ann.size < 10:
+        if ann.size < (min_size if min_size > 0 else _MIN_STUB_SIZE_FLOOR):
             continue
 
         # Pass STUB and PROVEN directly.
@@ -1005,6 +1064,7 @@ def _parse_annotations(
                 status=parsed_status,
                 module=ann.module,
                 delta=delta,
+                toolchain=getattr(ann, "toolchain", "") or "",
             )
         )
     return stubs
@@ -1015,6 +1075,7 @@ def parse_stub_info(
     ignored: set[str] | None = None,
     metadata_dir: Path | None = None,
     min_va: int = 0x1000,
+    min_size: int = 0,
 ) -> list[StubInfo]:
     """Extract STUB annotation fields from a reversed .c file."""
     return _parse_annotations(
@@ -1023,6 +1084,7 @@ def parse_stub_info(
         ignored=ignored,
         metadata_dir=metadata_dir,
         min_va=min_va,
+        min_size=min_size,
     )
 
 
@@ -1032,6 +1094,7 @@ def parse_matching_info(
     max_delta: int = 10,
     metadata_dir: Path | None = None,
     min_va: int = 0x1000,
+    min_size: int = 0,
 ) -> list[StubInfo]:
     """Extract NEAR_MATCHING annotation fields with byte delta <= max_delta."""
     return _parse_annotations(
@@ -1041,6 +1104,7 @@ def parse_matching_info(
         ignored=ignored,
         metadata_dir=metadata_dir,
         min_va=min_va,
+        min_size=min_size,
     )
 
 
@@ -1049,6 +1113,7 @@ def parse_matching_all(
     ignored: set[str] | None = None,
     metadata_dir: Path | None = None,
     min_va: int = 0x1000,
+    min_size: int = 0,
 ) -> list[StubInfo]:
     """Extract all NEAR_MATCHING annotations (no delta filter)."""
     return _parse_annotations(
@@ -1057,6 +1122,7 @@ def parse_matching_all(
         ignored=ignored,
         metadata_dir=metadata_dir,
         min_va=min_va,
+        min_size=min_size,
     )
 
 
@@ -1065,6 +1131,7 @@ def parse_size_mismatch_all(
     ignored: set[str] | None = None,
     metadata_dir: Path | None = None,
     min_va: int = 0x1000,
+    min_size: int = 0,
 ) -> list[StubInfo]:
     """Extract all SIZE_MISMATCH annotations (no delta filter)."""
     return _parse_annotations(
@@ -1073,6 +1140,7 @@ def parse_size_mismatch_all(
         ignored=ignored,
         metadata_dir=metadata_dir,
         min_va=min_va,
+        min_size=min_size,
     )
 
 
@@ -1121,6 +1189,7 @@ def find_all_stubs(
     ignored: set[str] | None = None,
     cfg: ProjectConfig | None = None,
     warn_duplicates: bool = True,
+    min_size: int = 0,
 ) -> list[StubInfo]:
     """Find all STUB files in reversed/ and return sorted by size."""
     md = cfg.metadata_dir if cfg is not None else None
@@ -1128,7 +1197,9 @@ def find_all_stubs(
     return _collect_with_dedup(
         reversed_dir,
         cfg,
-        lambda cfile: parse_stub_info(cfile, ignored=ignored, metadata_dir=md, min_va=min_va),
+        lambda cfile: parse_stub_info(
+            cfile, ignored=ignored, metadata_dir=md, min_va=min_va, min_size=min_size
+        ),
         sort_key=lambda x: x.size,
         warn_duplicates=warn_duplicates,
     )
@@ -1140,6 +1211,7 @@ def find_near_miss(
     max_delta: int = 10,
     cfg: ProjectConfig | None = None,
     warn_duplicates: bool = True,
+    min_size: int = 0,
 ) -> list[StubInfo]:
     """Find NEAR_MATCHING functions with small byte deltas, sorted by delta ascending."""
     md = cfg.metadata_dir if cfg is not None else None
@@ -1153,6 +1225,7 @@ def find_near_miss(
             max_delta=max_delta,
             metadata_dir=md,
             min_va=min_va,
+            min_size=min_size,
         ),
         sort_key=lambda x: (x.delta, x.size),
         warn_duplicates=warn_duplicates,
@@ -1164,6 +1237,7 @@ def find_all_matching(
     ignored: set[str] | None = None,
     cfg: ProjectConfig | None = None,
     warn_duplicates: bool = True,
+    min_size: int = 0,
 ) -> list[StubInfo]:
     """Find all NEAR_MATCHING functions, sorted by byte delta then size."""
     md = cfg.metadata_dir if cfg is not None else None
@@ -1171,7 +1245,9 @@ def find_all_matching(
     return _collect_with_dedup(
         reversed_dir,
         cfg,
-        lambda cfile: parse_matching_all(cfile, ignored=ignored, metadata_dir=md, min_va=min_va),
+        lambda cfile: parse_matching_all(
+            cfile, ignored=ignored, metadata_dir=md, min_va=min_va, min_size=min_size
+        ),
         sort_key=lambda x: (x.delta, x.size),
         warn_duplicates=warn_duplicates,
     )
@@ -1182,6 +1258,7 @@ def find_size_mismatch(
     ignored: set[str] | None = None,
     cfg: ProjectConfig | None = None,
     warn_duplicates: bool = True,
+    min_size: int = 0,
 ) -> list[StubInfo]:
     """Find all SIZE_MISMATCH functions (bytes differ in length, not just
     content), sorted by size.  Batch GA previously could not target these —
@@ -1193,7 +1270,7 @@ def find_size_mismatch(
         reversed_dir,
         cfg,
         lambda cfile: parse_size_mismatch_all(
-            cfile, ignored=ignored, metadata_dir=md, min_va=min_va
+            cfile, ignored=ignored, metadata_dir=md, min_va=min_va, min_size=min_size
         ),
         sort_key=lambda x: x.size,
         warn_duplicates=warn_duplicates,
@@ -1729,6 +1806,7 @@ def main(
             seed_solutions_path=seed_solutions,
             resume=resume,
             mutation_weights=batch_mutation_weights,
+            collect_pairs=collect_pairs,
         )
         # Documented exit contract (epilog): 1 = no match found.  A batch
         # with any failed stub is not a success for CI gates — mirror
@@ -1785,6 +1863,7 @@ def main(
                     seed_solutions_path=seed_solutions,
                     resume=resume,
                     mutation_weights=batch_mutation_weights,
+                    collect_pairs=collect_pairs,
                 )
             except Exception as exc:
                 log.warning("Target %s failed — counted as failed", name, exc_info=True)
@@ -2101,15 +2180,19 @@ def resolve_build_params(
     cl_resolved, inc_resolved, msvc_env, cc = resolve_compiler_env(cfg)
     # Per-library / per-function toolchain override: the nearest
     # rebrew-libraries.toml (walk-up from the source dir) or the function's
-    # own TOOLCHAIN metadata selects the docker image.  Every compile runs
-    # through docker images — there is no host wine/wibo path.
+    # own TOOLCHAIN/CFLAGS select the docker image and flags.  These must come
+    # from the SELECTED annotation: ``meta`` is the file's FIRST annotation's
+    # fields only, so on a multi-function file `--symbol foo` would otherwise
+    # compile foo with the first block's flags.
     from rebrew.cli import resolve_compile_overrides
 
+    toolchain_meta = (anno.toolchain if anno else "") or meta.get("TOOLCHAIN")
+    cflags_meta = (anno.cflags if anno else "") or meta.get("CFLAGS")
     toolchain_name, _lib_cflags = resolve_compile_overrides(
         cfg,
         Path(seed_c).resolve().parent,
-        meta.get("TOOLCHAIN"),
-        meta.get("CFLAGS"),
+        toolchain_meta,
+        cflags_meta,
         getattr(anno, "module", "") if anno else "",
     )
     if toolchain_name:
@@ -2330,9 +2413,18 @@ def run_flag_sweep(
     va_int = int(stub.va, 16)
     size = stub.size
     symbol = stub.symbol
-    from rebrew.cli import resolve_cflags
+    # Same shared override chain as the GA path (docs/TOOLCHAIN.md): a
+    # library's own TOOLCHAIN/CFLAGS must drive its sweep, not the project
+    # default.
+    from rebrew.cli import resolve_compile_overrides
 
-    cflags = resolve_cflags(cfg, stub.cflags, getattr(stub, "module", ""))
+    toolchain_name, cflags = resolve_compile_overrides(
+        cfg,
+        filepath.parent,
+        getattr(stub, "toolchain", "") or None,
+        stub.cflags or None,
+        getattr(stub, "module", ""),
+    )
 
     source, _ = read_source_text(filepath)
     target_bytes = extract_raw_bytes(cfg.target_binary, va_int, size)
@@ -2341,12 +2433,13 @@ def run_flag_sweep(
 
     cl_cmd, inc_dir, msvc_env, cc = resolve_compiler_env(cfg)
 
-    if "/c" not in cflags:
-        cflags = _compile_cflags(
-            cflags,
-            getattr(cfg, "base_cflags", "") or "",
-            posix_style=bool(getattr(cfg, "posix_style", False)),
-        )
+    # Unconditional, like the single-function and batch-GA paths: a resolved
+    # CFLAGS that already contains /c must not skip base_cflags (/MT etc.).
+    cflags = _compile_cflags(
+        cflags,
+        getattr(cfg, "base_cflags", "") or "",
+        posix_style=bool(getattr(cfg, "posix_style", False)),
+    )
 
     # NOTE: no redirect_stdout here — mutating process-global stdout is not
     # thread-safe under --sweep-then-ga batch (-j N) and silently loses later
@@ -2366,7 +2459,7 @@ def run_flag_sweep(
             extra_include_dirs=[str(filepath.parent.resolve())],
             timeout=cfg.compile_timeout,
             posix_style=bool(getattr(cfg, "posix_style", False)),
-            profile=getattr(cfg, "compiler_profile", ""),
+            profile=str(toolchain_name or getattr(cfg, "compiler_profile", "") or ""),
             cfg=cfg,
         )
     except ValueError as exc:
@@ -2417,7 +2510,8 @@ def _vendored_msvc_toolchains(
     empty and only the profile names matter — the sweep routes each compile
     through that profile's image.  *only* / *exclude* are comma-separated
     profile-name or version-prefix filters (see :func:`_sweep_filter_matches`);
-    the configured profile's own compiler is always included as a baseline.
+    the configured profile's own compiler is prepended as the baseline and is
+    subject to the same filters ("--sweep-toolchains 4.0" means ONLY 4.0).
     """
     from rebrew.toolchain import TOOLCHAINS
 
@@ -2433,8 +2527,19 @@ def _vendored_msvc_toolchains(
             if _sweep_filter_matches(name, verarch, excl_f):
                 continue
             out.append((name, "", ""))
-    # Always include the configured profile's own compiler as a baseline.
-    out.insert(0, (getattr(cfg, "compiler_profile", "") or "msvc6", "", ""))
+    # The configured profile's own compiler joins the sweep as the baseline
+    # under the same filters: "--sweep-toolchains msvc4.0" means ONLY that
+    # toolchain, so the configured msvc6 must not be silently swept anyway.
+    # Drop any loop entry for it first, then prepend: the baseline stays
+    # first without being listed twice.
+    configured = getattr(cfg, "compiler_profile", "") or "msvc6"
+    out = [entry for entry in out if entry[0] != configured]
+    cfg_spec = TOOLCHAINS.get(configured)
+    verarch = cfg_spec.image.rsplit(":", 1)[-1] if cfg_spec is not None and cfg_spec.image else ""
+    only_ok = not only_f or _sweep_filter_matches(configured, verarch, only_f)
+    excl_ok = not _sweep_filter_matches(configured, verarch, excl_f)
+    if only_ok and excl_ok:
+        out.insert(0, (configured, "", ""))
     return out
 
 
@@ -2745,14 +2850,12 @@ def _run_single_ga(
                 ceiling_blocker = _maybe_document_ga_ceiling(
                     p.cfg,
                     module,
-                    p.symbol,
                     p.va_int,
                     p.target_bytes,
                     ga,
                     best_src,
                     best_score,
                     generations,
-                    out_dir_path,
                 )
     finally:
         ga.close()
@@ -2875,8 +2978,13 @@ def _run_one_stub_ga(
     resume_from: GACheckpoint | None = None,
     mutation_weights: dict[str, float] | None = None,
     solutions_out: list[SolutionEntry] | None = None,
-) -> tuple[bool, str]:
-    """Run one GA pass for a single stub in-process. Returns (matched, summary).
+    collect_pairs_path: Path | None = None,
+) -> tuple[bool, str, float, int]:
+    """Run one GA pass for a single stub in-process.
+
+    Returns ``(matched, summary, best_score, generations)`` — ``generations``
+    is what the run actually executed (resume-aware), not the requested
+    budget, so the batch driver records the truth in ``ga_runs.jsonl``.
 
     *cflags_override* replaces ``stub.cflags`` (used by ``--sweep-then-ga``
     to seed the GA with the flag-sweep's best variant).  *resume_from* is a
@@ -2895,18 +3003,26 @@ def _run_one_stub_ga(
     va_int = int(stub.va, 16)
     target_bytes = extract_raw_bytes(cfg.target_binary, va_int, stub.size)
     if not target_bytes:
-        return False, "Could not extract target bytes"
+        return False, "Could not extract target bytes", float("inf"), 0
 
     cl_cmd, inc_dir, msvc_env, cc = resolve_compiler_env(cfg)
 
-    if cflags_override is not None:
-        cflags = cflags_override
-    else:
-        from rebrew.cli import resolve_cflags
+    # Per-function / per-library overrides resolve exactly like the
+    # single-function path (resolve_compile_overrides is the shared chain:
+    # metadata TOOLCHAIN/CFLAGS → nearest rebrew-libraries.toml → project).
+    # Without this a library built with another compiler was recompiled with
+    # the project default and could never match (docs/TOOLCHAIN.md).
+    from rebrew.cli import resolve_compile_overrides
 
-        cflags = resolve_cflags(cfg, stub.cflags, getattr(stub, "module", ""))
+    toolchain_name, resolved_cflags = resolve_compile_overrides(
+        cfg,
+        filepath.parent,
+        getattr(stub, "toolchain", "") or None,
+        cflags_override if cflags_override is not None else (stub.cflags or None),
+        getattr(stub, "module", ""),
+    )
     cflags = _compile_cflags(
-        cflags,
+        resolved_cflags,
         getattr(cfg, "base_cflags", "") or "",
         posix_style=bool(getattr(cfg, "posix_style", False)),
     )
@@ -2942,8 +3058,9 @@ def _run_one_stub_ga(
         resume_from=resume_from,
         mutation_weights=mutation_weights,
         cs_mode=capstone_mode_for_arch(getattr(cfg, "arch", "")),
-        profile=getattr(cfg, "compiler_profile", ""),
+        profile=str(toolchain_name or getattr(cfg, "compiler_profile", "") or ""),
         cfg=cfg,
+        collect_pairs_path=collect_pairs_path,
     )
 
     matched = False
@@ -2975,30 +3092,25 @@ def _run_one_stub_ga(
             # F3).  Confirm with the same predicate test/verify use.
             confirmed = False
             try:
-                from rebrew.cli import resolve_cflags
                 from rebrew.compile import compile_and_compare
                 from rebrew.core import build_name_to_va
 
                 n2v = build_name_to_va(cfg)
                 if n2v and best_c.exists():
-                    # The GA ran with _compile_cflags(this, base); pass the
-                    # resolved user-facing flags (compile_and_compare prepends
-                    # base itself) to reproduce the same compile — NOT the
-                    # already-prefixed `cflags` variable, which would
-                    # double-apply base_cflags.
-                    resolved = (
-                        cflags_override
-                        if cflags_override is not None
-                        else resolve_cflags(cfg, stub.cflags, getattr(stub, "module", ""))
-                    )
+                    # The GA ran with _compile_cflags(resolved_cflags, base);
+                    # pass the raw resolved user-facing flags
+                    # (compile_and_compare prepends base itself) and the same
+                    # toolchain, or the confirmation validates a different
+                    # compile than the GA scored.
                     cmp_res = compile_and_compare(
                         cfg,
                         best_c,
                         stub.symbol,
                         target_bytes,
-                        resolved,
+                        resolved_cflags,
                         name_to_va=n2v,
                         section_va=va_int,
+                        toolchain=toolchain_name,
                     )
                     confirmed = cmp_res.matched
                     if not confirmed:
@@ -3015,9 +3127,13 @@ def _run_one_stub_ga(
                 matched = False
                 output_summary = f"best_score={best_score:.2f} (reloc-masked only, not confirmed)"
             spliced_ok = False
-            if best_c.exists():
+            # Only splice a CONFIRMED champion: ``update_stub_to_matched``
+            # promotes STATUS to RELOC, and an unconfirmed (reloc-masked-only)
+            # candidate would claim a match the next test/verify demotes.  The
+            # flag-sweep path gates identically; the two must agree.
+            if confirmed and best_c.exists():
                 try:
-                    with _metadata_lock:
+                    with metadata_write_lock(cfg.metadata_dir, "rebrew-functions.toml"):
                         spliced_ok = update_stub_to_matched(
                             filepath, best_src, stub, metadata_dir=cfg.metadata_dir
                         )
@@ -3073,7 +3189,7 @@ def _run_one_stub_ga(
                         f"  [yellow]warning:[/yellow] GA matched but failed to update source: {e}"
                     )
             if spliced_ok:
-                with _metadata_lock:
+                with metadata_write_lock(cfg.metadata_dir, "rebrew-functions.toml"):
                     _save_solution(
                         cfg,
                         stub.symbol,
@@ -3102,21 +3218,22 @@ def _run_one_stub_ga(
             ceiling = _maybe_document_ga_ceiling(
                 cfg,
                 stub.module,
-                stub.symbol,
                 va_int,
                 target_bytes,
                 ga,
                 best_src,
                 best_score,
                 generations,
-                out_dir,
             )
             if ceiling:
                 output_summary += " [GA ceiling documented]"
     finally:
         ga.close()
 
-    return matched, output_summary
+    # Score and executed generations ride back to the batch driver so its
+    # .rebrew/ga_runs.jsonl record carries them (`--ga-history` averages the
+    # scores; without them every past run reports null).
+    return matched, output_summary, best_score, ga.generation
 
 
 # ---------------------------------------------------------------------------
@@ -3135,38 +3252,31 @@ def _classify_register_only(
     ga: BinaryMatchingGA,
     best_src: str,
     target_bytes: bytes,
-    symbol: str,
     va_int: int,
-    out_dir: Path,
 ) -> bool:
     """True when the GA champion's residual delta is register-only.
 
     Compiles the champion once (warm-cached — it was just scored) and runs
-    the near-diag classifier.  A register-only delta with zero structural
-    bytes is the effective-match case: byte-exact is not reachable from
-    portable C, so further GA search cannot succeed.
+    the near-diag classifier on the extracted code.  A register-only delta
+    with zero structural bytes is the effective-match case: byte-exact is not
+    reachable from portable C, so further GA search cannot succeed.
+
+    ``BuildResult.obj_bytes`` is the extracted FUNCTION CODE (not a COFF
+    object), so it is classified in memory.  The previous version wrote it to
+    a ``.obj`` and re-parsed it with LIEF, which failed every time — the
+    ceiling was never documented.
     """
     try:
         res = ga._compile_source(best_src)
         if not res.ok or not res.obj_bytes:
-            return False
-        obj_path = out_dir / f"{symbol}.ceiling.obj"
-        obj_path.write_bytes(res.obj_bytes)
-        try:
-            from rebrew.matcher import parse_obj_symbol_and_relocs
-
-            code, reloc_dict, _typed = parse_obj_symbol_and_relocs(obj_path, symbol)
-        finally:
-            obj_path.unlink(missing_ok=True)
-        if not code:
             return False
 
         from rebrew.near_diag import analyze
 
         diag = analyze(
             target_bytes,
-            code,
-            set(reloc_dict or {}),
+            res.obj_bytes,
+            set(res.reloc_offsets or {}),
             va_int,
             cs_mode=getattr(ga, "cs_mode", "CS_MODE_32"),
         )
@@ -3185,14 +3295,12 @@ def _classify_register_only(
 def _maybe_document_ga_ceiling(
     cfg: Any,
     module: str,
-    symbol: str,
     va_int: int,
     target_bytes: bytes,
     ga: BinaryMatchingGA,
     best_src: str,
     best_score: float,
     generations: int,
-    out_dir: Path,
 ) -> str | None:
     """Write a ``GA_CEILING`` blocker when the champion is register-only.
 
@@ -3208,7 +3316,7 @@ def _maybe_document_ga_ceiling(
     existing = (get_entry(meta_root, va_int, module) or {}).get("blocker")
     if existing:
         return None
-    if not _classify_register_only(ga, best_src, target_bytes, symbol, va_int, out_dir):
+    if not _classify_register_only(ga, best_src, target_bytes, va_int):
         return None
     text = (
         f"{GA_CEILING_PREFIX} register-only byte delta (effective match) — not "
@@ -3321,6 +3429,7 @@ def _run_all(
     seed_solutions_path: Path | None = None,
     resume: bool = False,
     mutation_weights: dict[str, float] | None = None,
+    collect_pairs: str | None = None,
 ) -> tuple[int, int]:
     """Batch driver: run GA or flag sweep across all discovered functions.
 
@@ -3332,17 +3441,29 @@ def _run_all(
 
     if flag_sweep:
         stubs = find_all_matching(
-            reversed_dir, ignored=ignored, cfg=cfg, warn_duplicates=not json_output
+            reversed_dir,
+            ignored=ignored,
+            cfg=cfg,
+            warn_duplicates=not json_output,
+            min_size=min_size,
         )
         mode_label = "NEAR_MATCHING (flag-sweep)"
     elif improve:
         stubs = find_all_matching(
-            reversed_dir, ignored=ignored, cfg=cfg, warn_duplicates=not json_output
+            reversed_dir,
+            ignored=ignored,
+            cfg=cfg,
+            warn_duplicates=not json_output,
+            min_size=min_size,
         )
         mode_label = "NEAR_MATCHING (improve)"
     elif size_mismatch:
         stubs = find_size_mismatch(
-            reversed_dir, ignored=ignored, cfg=cfg, warn_duplicates=not json_output
+            reversed_dir,
+            ignored=ignored,
+            cfg=cfg,
+            warn_duplicates=not json_output,
+            min_size=min_size,
         )
         mode_label = "SIZE_MISMATCH (GA)"
     elif near_miss:
@@ -3352,16 +3473,19 @@ def _run_all(
             max_delta=threshold,
             cfg=cfg,
             warn_duplicates=not json_output,
+            min_size=min_size,
         )
         mode_label = "NEAR_MATCHING (near-miss)"
     else:
         stubs = find_all_stubs(
-            reversed_dir, ignored=ignored, cfg=cfg, warn_duplicates=not json_output
+            reversed_dir,
+            ignored=ignored,
+            cfg=cfg,
+            warn_duplicates=not json_output,
+            min_size=min_size,
         )
         mode_label = "STUB"
 
-    if min_size > 0:
-        stubs = [s for s in stubs if s.size >= min_size]
     if max_size < 9999:
         stubs = [s for s in stubs if s.size <= max_size]
     if filter_str:
@@ -3584,7 +3708,7 @@ def _run_all(
                     f"  [dim]Resuming {stub.symbol} from generation {resume_from.generation}[/dim]"
                 )
         try:
-            matched, output_summary = _run_one_stub_ga(
+            matched, output_summary, best_score, generations_run = _run_one_stub_ga(
                 stub,
                 cfg,
                 generations,
@@ -3597,6 +3721,7 @@ def _run_all(
                 resume_from=resume_from,
                 mutation_weights=stub_weights,
                 solutions_out=solutions_out,
+                collect_pairs_path=Path(collect_pairs) if collect_pairs else None,
             )
         except Exception as exc:  # one bad stub must not abort the batch
             log.debug("GA run failed for %s", stub.symbol, exc_info=True)
@@ -3616,6 +3741,8 @@ def _run_all(
                 va=stub.va,
                 symbol=stub.symbol,
                 matched=matched,
+                score=best_score,
+                generations=generations_run,
             )
         except Exception:
             # A failed record makes --skip-recent re-run this stub next batch
@@ -3736,6 +3863,18 @@ def _run_batch_flag_sweep(
         best_score, best_flags, all_results = run_flag_sweep(stub, cfg, tier=tier, jobs=jobs)
 
         is_exact = best_score < 0.1
+        # Whether the authoritative re-verify below can run at all.  It needs
+        # --fix-cflags, a winning flag combo, and the catalog used to validate
+        # reloc targets.
+        validation_ran = bool(is_exact and fix_cflags and best_flags and name_to_va)
+        if is_exact and not validation_ran:
+            # No authoritative predicate is available (typically a
+            # --flag-sweep-only run without --fix-cflags): the JSON row
+            # reports `exact: true`, so the batch count and exit code must
+            # agree instead of reporting `exact: 0` and exiting 1 (a false red
+            # for CI).  When validation DID run, only a confirmed match counts
+            # (the sweep score alone masks reloc targets).
+            exact_count += 1
         result_entry: dict[str, Any] = {
             "file": str(stub.filepath),
             "va": stub.va,
@@ -3762,18 +3901,25 @@ def _run_batch_flag_sweep(
             # predicate before touching STATUS.
             try:
                 from rebrew.binary_loader import extract_raw_bytes
-                from rebrew.cli import resolve_cflags
+                from rebrew.cli import resolve_compile_overrides
                 from rebrew.compile import compile_and_compare
 
                 target_bytes = extract_raw_bytes(cfg.target_binary, int(stub.va, 16), stub.size)
                 if target_bytes:
-                    # Same effective flags the sweep used: resolved stub
-                    # cflags (per-function → preset → compiler.cflags)
-                    # PLUS the winning combo.  compile_and_compare prepends
-                    # cfg.base_cflags itself, so pass the raw resolved set —
-                    # bare best_flags would drop the stub's own cflags and
-                    # validate a DIFFERENT compile than the sweep scored.
-                    resolved = resolve_cflags(cfg, stub.cflags, getattr(stub, "module", ""))
+                    # Same effective flags AND toolchain the sweep used:
+                    # resolved stub overrides (per-function → library →
+                    # preset → compiler.cflags) PLUS the winning combo.
+                    # compile_and_compare prepends cfg.base_cflags itself, so
+                    # pass the raw resolved set — bare best_flags would drop
+                    # the stub's own cflags and validate a DIFFERENT compile
+                    # than the sweep scored.
+                    resolved_tc, resolved = resolve_compile_overrides(
+                        cfg,
+                        stub.filepath.parent,
+                        getattr(stub, "toolchain", "") or None,
+                        stub.cflags or None,
+                        getattr(stub, "module", ""),
+                    )
                     cmp_res = compile_and_compare(
                         cfg,
                         stub.filepath,
@@ -3782,6 +3928,7 @@ def _run_batch_flag_sweep(
                         f"{resolved} {best_flags}".strip(),
                         name_to_va=name_to_va,
                         section_va=int(stub.va, 16),
+                        toolchain=resolved_tc,
                     )
                     confirmed = cmp_res.matched
                     if not confirmed and not json_output:
@@ -3800,6 +3947,8 @@ def _run_batch_flag_sweep(
         # the JSON must agree.  Promotion is the separate, gated action below.
         result_entry["promoted"] = bool(confirmed)
         if confirmed:
+            # Validated exact: the authoritative compare agreed with the
+            # sweep's reloc-masked score.
             exact_count += 1
             # Persist the FULL effective flag set the sweep validated — bare
             # best_flags would drop the stub's own non-axis cflags (/GX, /Zp)

@@ -5,6 +5,7 @@ deduplicating preamble lines and sorting function blocks by virtual address.
 """
 
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -96,22 +97,42 @@ def _extern_specificity(decl: str) -> int:
     return score
 
 
-def _resolve_externs(externs: list[str]) -> list[str]:
-    """Deduplicate externs, keeping the most specific declaration per symbol."""
+@dataclass
+class ExternReport:
+    """Outcome of :func:`_resolve_externs`: kept decls plus dropped/conflicting evidence."""
+
+    resolved: list[str] = field(default_factory=list)
+    dropped: list[str] = field(default_factory=list)
+    conflicts: dict[str, list[str]] = field(default_factory=dict)
+
+
+def _resolve_externs(externs: list[str]) -> ExternReport:
+    """Deduplicate externs, keeping the most specific declaration per symbol.
+
+    Unparseable lines are dropped (reported in ``dropped``); distinct
+    spellings for one symbol resolve by specificity (reported in
+    ``conflicts``).  Callers warn on both so a lost ``extern`` never merges
+    silently.
+    """
     by_name: dict[str, list[str]] = {}
     order: list[str] = []
+    dropped: list[str] = []
     for ext in externs:
         name = _extract_extern_name(ext)
         if name is None:
+            dropped.append(ext)
             continue
         if name not in by_name:
             order.append(name)
         by_name.setdefault(name, []).append(ext)
-    out = []
+    out: list[str] = []
+    conflicts: dict[str, list[str]] = {}
     for name in order:
         unique = list(dict.fromkeys(by_name[name]))
+        if len(unique) > 1:
+            conflicts[name] = unique
         out.append(max(unique, key=_extern_specificity) if len(unique) > 1 else unique[0])
-    return out
+    return ExternReport(resolved=out, dropped=dropped, conflicts=conflicts)
 
 
 def _pragma_funcs(pragmas: list[str]) -> set[str]:
@@ -130,7 +151,7 @@ def _ends_declaration(line: str) -> bool:
     return code.rstrip().endswith(";")
 
 
-def consolidate_declarations(text: str) -> str:
+def consolidate_declarations(text: str) -> tuple[str, ExternReport]:
     """Hoist unique includes/externs/typedefs/intrinsics to the top of *text*.
 
     Each merged function block carries its own declarations, which conflict
@@ -138,7 +159,8 @@ def consolidate_declarations(text: str) -> str:
     header, resolves conflicting extern signatures by specificity, merges
     ``#pragma intrinsic`` lists, and strips the moved lines from the bodies.
     Also drops the legacy ``#include "rebrew_types.h"`` (the file no longer
-    exists).
+    exists).  Returns ``(merged_text, extern_report)`` so callers can warn on
+    dropped or conflicting externs instead of losing them silently.
     """
     lines = text.splitlines(keepends=True)
     includes: list[str] = []
@@ -197,9 +219,9 @@ def consolidate_declarations(text: str) -> str:
     funcs = _pragma_funcs(pragmas)
     if funcs:
         header.append("#pragma intrinsic(" + ", ".join(sorted(funcs)) + ")\n\n")
-    resolved = _resolve_externs(externs)
-    if resolved:
-        header += [ext if ext.endswith(";") else ext + ";" for ext in resolved]
+    report = _resolve_externs(externs)
+    if report.resolved:
+        header += [ext if ext.endswith(";") else ext + ";" for ext in report.resolved]
         header.append("\n")
 
     body_lines: list[str] = []
@@ -219,7 +241,9 @@ def consolidate_declarations(text: str) -> str:
         body_lines.pop(0)
 
     out = "".join(header) + "".join(body_lines)
-    return out if out.endswith("\n") else out + "\n"
+    if not out.endswith("\n"):
+        out += "\n"
+    return out, report
 
 
 def _block_metadata(block: str) -> dict[str, Any] | None:
@@ -264,9 +288,18 @@ def _merge_preambles(preambles: list[str]) -> str:
     return "\n".join(merged_lines) + "\n\n"
 
 
-def _collect_input_files(paths: list[str], cfg: ProjectConfig) -> list[Path]:
-    """Resolve input arguments into unique source-file paths."""
+def _collect_input_files(
+    paths: list[str], cfg: ProjectConfig, exclude: Path | None = None
+) -> list[Path]:
+    """Resolve input arguments into unique source-file paths.
+
+    *exclude* (the merge output) is skipped: a directory argument that already
+    contains a previous merge output would otherwise feed it back in as an
+    input, so ``--force`` re-runs failed with a duplicate-VA error.
+    """
     expected_exts = set(source_exts(cfg)) or {".c"}
+    lowered_exts = {e.lower() for e in expected_exts}
+    resolved_exclude = exclude.resolve() if exclude is not None else None
     files: list[Path] = []
     seen: set[Path] = set()
 
@@ -274,6 +307,8 @@ def _collect_input_files(paths: list[str], cfg: ProjectConfig) -> list[Path]:
         p = Path(raw)
         if p.is_dir():
             for src in iter_sources(p, cfg):
+                if resolved_exclude is not None and src.resolve() == resolved_exclude:
+                    continue
                 if src not in seen:
                     seen.add(src)
                     files.append(src)
@@ -281,7 +316,10 @@ def _collect_input_files(paths: list[str], cfg: ProjectConfig) -> list[Path]:
 
         if not p.exists() or not p.is_file():
             continue
-        if p.suffix not in expected_exts:
+        # iter_sources matches case-insensitively (FOO.C counts as .c).
+        if p.suffix.lower() not in lowered_exts:
+            continue
+        if resolved_exclude is not None and p.resolve() == resolved_exclude:
             continue
         if p not in seen:
             seen.add(p)
@@ -312,11 +350,11 @@ def main(
         error_exit("Merge requires at least two source files", json_mode=json_output)
 
     cfg = require_config(target=target, json_mode=json_output)
-    input_files = _collect_input_files(sources, cfg)
+    output_path = Path(output)
+    input_files = _collect_input_files(sources, cfg, exclude=output_path)
     if len(input_files) < 2:
         error_exit("Merge requires at least two source files", json_mode=json_output)
 
-    output_path = Path(output)
     if output_path.exists() and not force:
         error_exit(f"Output file already exists: {output_path}", json_mode=json_output)
 
@@ -329,6 +367,7 @@ def main(
     # shift_jis), write the merged result in that encoding so non-ASCII
     # comment bytes round-trip instead of being U+FFFD-corrupted.
     out_encoding = "utf-8"
+    legacy_encodings: set[str] = set()
 
     for file_path in input_files:
         # One read serves both the annotation parse and the section split —
@@ -337,12 +376,17 @@ def main(
             text, enc = read_source_text(file_path)
         except OSError as exc:
             error_exit(f"Failed to read {file_path}: {exc}", json_mode=json_output)
-        if enc != "utf-8":
-            out_encoding = enc
 
         annotations = parse_c_file_text(text, file_path, target_marker(cfg), None, cfg.metadata_dir)
         if not annotations:
             continue
+
+        # Recorded AFTER the target/annotation filter: a file that contributes
+        # nothing must not dictate the output encoding (it caused a false
+        # "conflicting source encodings" abort and spurious encode failures).
+        if enc != "utf-8":
+            out_encoding = enc
+            legacy_encodings.add(enc)
 
         preamble, blocks = split_annotation_sections(text)
         preambles.append(preamble)
@@ -372,11 +416,29 @@ def main(
             json_mode=json_output,
         )
 
+    if len(legacy_encodings) > 1:
+        # One output has one encoding; two legacy inputs cannot both round-trip.
+        error_exit(
+            "input files use conflicting source encodings "
+            f"({', '.join(sorted(legacy_encodings))}); merge writes a single encoding — "
+            "convert the inputs to UTF-8 first",
+            json_mode=json_output,
+        )
+
+    extern_report: ExternReport | None = None
     merged_preamble = _merge_preambles(preambles)
     sorted_blocks = [block for _, block in sorted(blocks_with_va, key=lambda x: x[0])]
     merged_text = merged_preamble + "\n\n".join(sorted_blocks) + "\n"
     if consolidate:
-        merged_text = consolidate_declarations(merged_text)
+        merged_text, extern_report = consolidate_declarations(merged_text)
+        for dropped in extern_report.dropped:
+            console.print(f"[yellow]merge: dropped unparseable extern {dropped!r}[/yellow]")
+        for name, variants in extern_report.conflicts.items():
+            kept = next((d for d in extern_report.resolved if _extract_extern_name(d) == name), "")
+            console.print(
+                f"[yellow]merge: conflicting externs for {name}: "
+                f"kept {kept!r} over {[v for v in variants if v != kept]!r}[/yellow]"
+            )
 
     if delete and not dry_run and not force:
         if json_output:
@@ -389,7 +451,16 @@ def main(
 
     if not dry_run:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(output_path, merged_text, encoding=out_encoding)
+        try:
+            atomic_write_text(output_path, merged_text, encoding=out_encoding)
+        except UnicodeEncodeError as exc:
+            offending = exc.object[exc.start : exc.end]
+            error_exit(
+                f"merged source cannot be encoded as {out_encoding} "
+                f"(offending text {offending!r}); convert the inputs to a common "
+                "encoding first",
+                json_mode=json_output,
+            )
         if delete:
             for file_path in included_inputs:
                 if file_path.resolve() == output_path.resolve():
@@ -405,6 +476,8 @@ def main(
         "consolidated": consolidate,
         "inputs": [rel_display_path(p, cfg.reversed_dir) for p in included_inputs],
         "vas": [f"0x{va:08x}" for va, _ in sorted(blocks_with_va, key=lambda x: x[0])],
+        "extern_dropped": extern_report.dropped if extern_report else [],
+        "extern_conflicts": dict(extern_report.conflicts) if extern_report else {},
     }
     if json_output:
         json_print(payload)

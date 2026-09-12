@@ -101,7 +101,12 @@ _target_range = threading.local()
 
 
 def set_target_range(start: int | None, end: int | None) -> None:
-    """Restrict mutation queries to bytes [start, end) of the source (None clears)."""
+    """Restrict mutation queries to bytes [start, end) of the queried text (None clears).
+
+    ``mutate_code`` converts the GA's full-source range to body coordinates
+    before querying; direct ``_cursor`` users pass coordinates of whatever
+    text they parse.
+    """
     _target_range.range = (start, end) if start is not None and end is not None else None
 
 
@@ -257,17 +262,23 @@ _QUERY_DECLARATION = _LazyQuery(
 """,
 )
 
+# Anchored "zero in any C spelling" (0, 00, 0x0, 0L, 0UL).  A bare ``^0`` is a
+# Rust-regex alternation ``(^0)|(FALSE$)``: unanchored ``^0`` matches EVERY
+# ``0x…`` literal (0x100 is not false), so the mutations below rewrote non-zero
+# values.
+_RE_C_ZERO_LITERAL = r"^0[xX]?0*[uUlL]*$"
+
 _QUERY_IF_FALSE_BITAND = _LazyQuery(
     _C_LANGUAGE,
-    """
+    f"""
     [
       (if_statement
           condition: (parenthesized_expression (unary_expression operator: "!" argument: (_) @cond))
-          consequence: (expression_statement (assignment_expression left: (identifier) @var right: (number_literal) @false_val (#match? @false_val "^0|FALSE$")))) @expr
+          consequence: (expression_statement (assignment_expression left: (identifier) @var right: (number_literal) @false_val (#match? @false_val "{_RE_C_ZERO_LITERAL}")))) @expr
 
       (if_statement
           condition: (parenthesized_expression (unary_expression operator: "!" argument: (_) @cond))
-          consequence: (compound_statement (expression_statement (assignment_expression left: (identifier) @var right: (number_literal) @false_val (#match? @false_val "^0|FALSE$"))))) @expr
+          consequence: (compound_statement (expression_statement (assignment_expression left: (identifier) @var right: (number_literal) @false_val (#match? @false_val "{_RE_C_ZERO_LITERAL}"))))) @expr
     ]
 """,
 )
@@ -503,9 +514,13 @@ _QUERY_CALL_CONV = _LazyQuery(
 _QUERY_NO_CALL_CONV = _LazyQuery(
     _C_LANGUAGE,
     """
-    (function_definition type: (_) @type declarator: (function_declarator declarator: (identifier) @name)) @stmt
+    (function_definition type: (_) @expr declarator: (function_declarator declarator: (identifier)))
 """,
 )
+# NOTE: the type node is captured as ``@expr``, not ``@stmt``.
+# ``_apply_query_once`` splices over ``stmt``/``expr``, so naming the whole
+# ``function_definition`` here replaced the entire body with `int __cdecl`
+# (the insertion branch of ``mut_toggle_calling_convention`` produced garbage).
 
 _QUERY_SIZED_CHAR_TYPE = _LazyQuery(
     _C_LANGUAGE,
@@ -532,12 +547,15 @@ _QUERY_CMP_BOUNDARY = _LazyQuery(
 )
 
 # Note: Tree-sitter might see some macros or types differently.
+# ``mut_return_to_goto`` rewrites the matched statement to ``goto ret_false;``
+# and the label's tail to ``return 0;``, so a non-zero ``0x…`` literal matched
+# by the old unanchored ``^0`` silently changed the returned value.
 _QUERY_RETURN_FALSE = _LazyQuery(
     _C_LANGUAGE,
-    """
+    f"""
     (return_statement
         (number_literal) @val
-        (#match? @val "^0|FALSE$")) @expr
+        (#match? @val "{_RE_C_ZERO_LITERAL}")) @expr
 """,
 )  # But for typical C code generated/decompiled, these work well.
 
@@ -838,16 +856,29 @@ def mut_flip_lt_ge(s: str, rng: random.Random) -> str | None:
 def mut_add_redundant_parens(s: str, rng: random.Random) -> str | None:
     """Wrap a random identifier in redundant parentheses.
 
-    AST makes this safe vs wrapping keywords like 'return'.
+    AST makes this safe vs wrapping keywords like 'return'.  The declared name
+    of a function definition is skipped: wrapping it (`int (f)(int x) { ... }`)
+    is legal C, but `quick_validate`'s cheap function-start gate rejects it, so
+    the mutant could never reach the compiler.
     """
     b_source = s.encode("utf-8")
-
-    def _repl(captures: dict[str, ts.Node]) -> bytes:
-        ident = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
-        return b"(" + ident + b")"
-
-    res = _apply_query_once(b_source, _QUERY_IDENTIFIER, _repl, rng)
-    return res.decode("utf-8") if res else None
+    tree = parse_c_ast(b_source)
+    q = _QUERY_IDENTIFIER
+    cursor = _cursor(q._get() if isinstance(q, _LazyQuery) else q)
+    candidates: list[ts.Node] = []
+    for _pattern_index, captures in cursor.matches(tree.root_node):
+        node = _capture(_first_caps(captures), "expr")
+        if node is None or node.parent is None:
+            continue
+        if node.parent.type == "function_declarator":
+            continue
+        candidates.append(node)
+    if not candidates:
+        return None
+    node = rng.choice(candidates)
+    return replace_node(
+        b_source, node, b"(" + b_source[node.start_byte : node.end_byte] + b")"
+    ).decode("utf-8")
 
 
 def mut_swap_eq_operands(s: str, rng: random.Random) -> str | None:
@@ -1743,9 +1774,11 @@ def mut_toggle_calling_convention(s: str, rng: random.Random) -> str | None:
     if res is not None:
         return res.decode("utf-8")
 
-    # No existing convention — insert one before the type
+    # No existing convention — insert one after the return type.  The query
+    # captures the TYPE node as `expr` (see _QUERY_NO_CALL_CONV): splicing the
+    # whole function_definition destroyed the body.
     def _repl_insert(captures: dict[str, ts.Node]) -> bytes:
-        t = b_source[captures["type"].start_byte : captures["type"].end_byte]
+        t = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
         conv = rng.choice([b"__cdecl", b"__stdcall"])
         return t + b" " + conv
 
@@ -1907,7 +1940,14 @@ def _split_preamble_body(source: str) -> tuple[str, str]:
                 # removed pragma must not linger in the preamble.
                 in_body = True
                 body.append(line)
-            elif _RE_FUNC_START.match(line):
+            elif _RE_FUNC_START.match(line) and ("{" in line or ";" not in line):
+                # A ;-terminated match with no brace is a prototype
+                # (declaration), not a definition — treating it as the body
+                # start stranded every include/typedef below it in the body,
+                # so mutating the real function dropped the preamble's
+                # declarations on the floor.  A brace marks a definition;
+                # neither mark means a multi-line signature (old behavior:
+                # body starts here).
                 in_body = True
                 body.append(line)
                 brace_count += line.count("{") - line.count("}")
@@ -1928,14 +1968,49 @@ def quick_validate(source: str) -> bool:
         return False
     if not _RE_FUNC_START.search(source):
         return False
-    labels: set[str] = set()
-    for m in _RE_VALIDATE_LABEL.finditer(source):
-        label = m.group(1)
-        if label in _LABEL_IGNORE:
+    try:
+        return _quick_validate_labels_scoped(source)
+    except Exception:
+        # Parse failure: fall back to the whole-source scan.  A duplicate
+        # check scoped per function needs the AST; without it, identical
+        # labels in sibling functions would reject everything.
+        seen: set[str] = set()
+        for m in _RE_VALIDATE_LABEL.finditer(source):
+            seen_label = m.group(1)
+            if seen_label in _LABEL_IGNORE:
+                continue
+            if seen_label in seen:
+                return False
+            seen.add(seen_label)
+    return not _RE_VALIDATE_DOUBLE_TYPE.search(source)
+
+
+def _quick_validate_labels_scoped(source: str) -> bool:
+    """True when no function contains a duplicate goto label.
+
+    Scoped per ``function_definition``: sibling functions legitimately reuse
+    label names (the GA mutates multi-function files), so a global scan
+    discarded every mutant of such a file.  Raises on parse failure — the
+    caller falls back to the whole-source scan.
+    """
+    from rebrew.matcher.ast_engine import parse_c_ast
+
+    tree = parse_c_ast(source.encode("utf-8"))
+    for child in tree.root_node.children:
+        if child.type != "function_definition":
             continue
-        if label in labels:
-            return False
-        labels.add(label)
+        labels: set[bytes] = set()
+        stack = [child]
+        while stack:
+            node = stack.pop()
+            if node.type == "labeled_statement":
+                label_node = node.child_by_field_name("label")
+                if label_node is not None and label_node.text is not None:
+                    label: bytes = label_node.text
+                    if label in labels:
+                        return False
+                    labels.add(label)
+            stack.extend(node.children)
     return not _RE_VALIDATE_DOUBLE_TYPE.search(source)
 
 
@@ -1944,6 +2019,35 @@ def compute_population_diversity(pop: list[str]) -> float:
     if not pop or len(pop) < 2:
         return 0.0
     return len(set(pop)) / len(pop)
+
+
+def _early_exit_return(b_source: bytes, ref_byte: int) -> bytes:
+    """Early-exit return statement matching the enclosing function's return type.
+
+    *ref_byte* locates the mutated statement; the enclosing
+    ``function_definition`` is resolved by walking up from it, so a file with
+    several functions uses the right one (the old first-function scan took the
+    wrong return type whenever the match was not in the first function).
+
+    ``void`` takes a bare ``return;`` (``return 0;`` would not compile);
+    a pointer return takes ``return NULL;`` (``NULL`` is available — seeds
+    include windows.h); anything else keeps ``return 0;``.
+    """
+    tree = parse_c_ast(b_source)
+    node = tree.root_node.descendant_for_byte_range(ref_byte, ref_byte)
+    while node is not None and node.type != "function_definition":
+        node = node.parent
+    if node is None:
+        return b"return 0;"
+    type_node = node.child_by_field_name("type")
+    declarator = node.child_by_field_name("declarator")
+    decl_text = b_source[declarator.start_byte : declarator.end_byte] if declarator else b""
+    type_text = b_source[type_node.start_byte : type_node.end_byte] if type_node else b""
+    if type_text.strip() == b"void":
+        return b"return;"
+    if b"*" in decl_text:
+        return b"return NULL;"
+    return b"return 0;"
 
 
 def crossover(parent1: str, parent2: str, rng: random.Random) -> str:
@@ -1973,7 +2077,9 @@ def crossover(parent1: str, parent2: str, rng: random.Random) -> str:
 def mut_extract_else_body(s: str, rng: random.Random) -> str | None:
     """Convert if/else to negated-condition early exit.
 
-    Changes:  if (c) { A } else { B }  ->  if (!(c)) { B; return 0; } A
+    Changes:  if (c) { A } else { B }  ->  if (!(c)) { B; <early return>; } A
+    where <early return> matches the function type (``return;`` for void,
+    ``return NULL;`` for pointers, ``return 0;`` otherwise).
     """
     b_source = s.encode("utf-8")
     cursor = _cursor(_QUERY_IF_BODY_RETURN)
@@ -1999,7 +2105,16 @@ def mut_extract_else_body(s: str, rng: random.Random) -> str | None:
     else:
         neg_cond = b"!(" + cond_stripped + b")"
 
-    replacement = b"if (" + neg_cond + b") {" + else_body + b"\n        return 0;\n    }" + if_body
+    replacement = (
+        b"if ("
+        + neg_cond
+        + b") {"
+        + else_body
+        + b"\n        "
+        + _early_exit_return(b_source, caps["expr"].start_byte)
+        + b"\n    }"
+        + if_body
+    )
     result = b_source[: caps["expr"].start_byte] + replacement + b_source[caps["expr"].end_byte :]
     return result.decode("utf-8")
 
@@ -2198,12 +2313,13 @@ def mut_hoist_return(s: str, rng: random.Random) -> str | None:
     replacement = ret_var + b" = " + val + b";\n    goto end;"
     result = out[:s_start] + replacement + out[s_end:]
 
-    # Add end label before the last closing brace (function end)
-    last_brace = result.rfind(b"}")
-    if last_brace >= 0:
-        result = (
-            result[:last_brace] + b"\nend:\n    return " + ret_var + b";\n" + result[last_brace:]
-        )
+    # The label must close the SAME function.  ``result.rfind(b"}")`` landed on
+    # the file's last brace (a sibling function or struct further down),
+    # leaving this function's ``goto end;`` dangling (compile error).  ``parent``
+    # is the validated enclosing body, so its closing brace is the right anchor;
+    # shift it by the hoisted declaration and the replacement's length delta.
+    brace_pos = parent.end_byte + offset - 1 + (len(replacement) - (s_end - s_start))
+    result = result[:brace_pos] + b"\nend:\n    return " + ret_var + b";\n" + result[brace_pos:]
 
     return result.decode("utf-8")
 
@@ -5420,16 +5536,19 @@ def mut_hoist_repeated_deref(s: str, rng: random.Random) -> str | None:
     caps = _first_caps(match[1])
     body_node = caps["body"]
     body_start, body_end = body_node.start_byte, body_node.end_byte
-    body_text = s[body_start:body_end]
+    # AST offsets are UTF-8 byte positions: slice the BYTES, not the str.  The
+    # old str slice mis-aligned by one index per multibyte char before the body
+    # (a single `é` in a comment), garbling or skipping the splice.
+    body_bytes = b_source[body_start:body_end]
 
-    deref_re = re.compile(r"\*\s*\(\s*[^)]*\*\s*\)\s*0x[0-9a-fA-F]+")
-    occurrences = list(deref_re.finditer(body_text))
+    deref_re = re.compile(rb"\*\s*\(\s*[^)]*\*\s*\)\s*0x[0-9a-fA-F]+")
+    occurrences = list(deref_re.finditer(body_bytes))
     if len(occurrences) < 2:
         return None
     # Group by the absolute address; the address with the most repeats wins.
-    by_addr: dict[str, list[re.Match[str]]] = {}
+    by_addr: dict[bytes, list[re.Match[bytes]]] = {}
     for m in occurrences:
-        addr_m = re.search(r"0x[0-9a-fA-F]+$", m.group(0))
+        addr_m = re.search(rb"0x[0-9a-fA-F]+$", m.group(0))
         if addr_m is None:
             continue
         by_addr.setdefault(addr_m.group(0), []).append(m)
@@ -5438,18 +5557,18 @@ def mut_hoist_repeated_deref(s: str, rng: random.Random) -> str | None:
         return None
     first_expr = ms[0].group(0)
     local_name = f"_ptr{rng.randint(0, 99)}"
-    decl = f"void *{local_name} = {first_expr};"
+    decl = b"void *" + local_name.encode() + b" = " + first_expr + b";"
     # Replace EVERY occurrence (including the first) with the local name —
     # the declaration above carries the original expression.
-    new_body = body_text
+    new_body = body_bytes
     for m in reversed(ms):
-        new_body = new_body[: m.start()] + local_name + new_body[m.end() :]
+        new_body = new_body[: m.start()] + local_name.encode() + new_body[m.end() :]
     # Insert the declaration right after the opening '{'.
-    insert_at = body_text.find("{") + 1
+    insert_at = new_body.find(b"{") + 1
     if insert_at <= 0:
         return None
-    new_body = new_body[:insert_at] + "\n    " + decl + new_body[insert_at:]
-    return s[:body_start] + new_body + s[body_end:]
+    new_body = new_body[:insert_at] + b"\n    " + decl + new_body[insert_at:]
+    return (b_source[:body_start] + new_body + b_source[body_end:]).decode("utf-8")
 
 
 #: Function-level pragmas that affect a single function's codegen — they
@@ -5850,22 +5969,39 @@ def mutate_code(
     """
     preamble, body = _split_preamble_body(source)
 
-    weights: tuple[float, ...] | None = None
-    if mutation_weights:
-        weights = _mutation_weight_list(tuple(sorted(mutation_weights.items())))
+    # The GA's target range is full-source byte offsets, but mutations query
+    # the preamble-stripped body: convert once here so every mutation's
+    # _cursor sees body coordinates (converting inside _cursor is impossible —
+    # it never sees the source text).  Saved and restored around the loop;
+    # leaving a narrowed range set would silently scope later mutations of
+    # other sources (e.g. crossover, which never passes through here).
+    body_offset = len(preamble) + 1 if preamble else 0
+    saved_range = getattr(_target_range, "range", None)
+    if saved_range is not None:
+        set_target_range(
+            max(0, saved_range[0] - body_offset),
+            max(0, saved_range[1] - body_offset),
+        )
 
-    for _ in range(_MUTATION_ATTEMPTS):
-        if weights:
-            mut_func = rng.choices(ALL_MUTATIONS, weights=weights, k=1)[0]
-        else:
-            mut_func = rng.choice(ALL_MUTATIONS)
-        new_body = mut_func(body, rng)
-        if new_body and new_body != body:
-            new_source = preamble + "\n" + new_body
-            if quick_validate(new_source):
-                if track_mutation:
-                    return new_source, mut_func.__name__
-                return new_source
+    try:
+        weights: tuple[float, ...] | None = None
+        if mutation_weights:
+            weights = _mutation_weight_list(tuple(sorted(mutation_weights.items())))
+
+        for _ in range(_MUTATION_ATTEMPTS):
+            if weights:
+                mut_func = rng.choices(ALL_MUTATIONS, weights=weights, k=1)[0]
+            else:
+                mut_func = rng.choice(ALL_MUTATIONS)
+            new_body = mut_func(body, rng)
+            if new_body and new_body != body:
+                new_source = preamble + "\n" + new_body
+                if quick_validate(new_source):
+                    if track_mutation:
+                        return new_source, mut_func.__name__
+                    return new_source
+    finally:
+        _target_range.range = saved_range
 
     if track_mutation:
         return source, "none"

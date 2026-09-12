@@ -38,13 +38,29 @@ check:
 build:
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C uv build
 
-# Run all non-mutating verification gates
-all: format-check lint test
+# Run all non-mutating verification gates (mirrors CI: lint + test jobs
+# plus fixture freshness and idempotency, which CI runs in the test job).
+all: format-check lint test gen-fixtures-check idempotency-check
+
+# Fixture freshness: checked-in fixtures match the generator (CI test job).
+gen-fixtures-check:
+	uv run python tools/gen_fixtures.py --check
+
+# Idempotency sweep: every --json command, run twice (CI test job).
+idempotency-check:
+	uv run python tools/check_idempotency.py --fixture-dir .scratch/rebrew-idem
+
+# Type check (CI lint job runs plain `uv run mypy`).
+mypy:
+	uv run mypy
 
 # Release preflight (release-review): verify the version/changelog/tag contract
 # from CONTRIBUTING.md without mutating anything.  Passes only when a release
 # is actually being prepared: __version__ bumped past the last tag, a matching
 # [Unreleased]-style section present, and a clean tree to tag.
+# Manual gate by design (CONTRIBUTING.md): wiring it into CI would fail every
+# push except the release commit, since __version__ stays equal to the last
+# tag during normal development. Run `make release-check` before tagging.
 release-check:
 	@set -eu; \
 	V=$$(uv run python -c "from rebrew import __version__; print(__version__)"); \

@@ -67,6 +67,8 @@ _COND_JUMPS = frozenset(
         "jpo",
         "js",
         "jz",
+        "jecxz",
+        "jcxz",
         "loop",
         "loope",
         "loopne",

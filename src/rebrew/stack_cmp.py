@@ -51,8 +51,8 @@ from rebrew.cli import (
 
 console = Console(stderr=True)
 
-_EBP_SLOT_RE = re.compile(r"\[(?:e?bp)\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\]")
-_ESP_DELTA_RE = re.compile(r"\[e?sp\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\]")
+_EBP_SLOT_RE = re.compile(r"\[(?:[er]?bp)\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\]")
+_ESP_DELTA_RE = re.compile(r"\[(?:[er]?sp)\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\]")
 _ENTER_SIZE_RE = re.compile(r"(0x[0-9a-fA-F]+|\d+)")
 
 
@@ -83,7 +83,7 @@ def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
 
     Robust to garbage/undecodable input (empty result, never raises).
     """
-    word = 4 if cs_mode == capstone.CS_MODE_32 else 2
+    word = {capstone.CS_MODE_64: 8, capstone.CS_MODE_32: 4}.get(cs_mode, 2)
     md = _cs_detail_handle(capstone.CS_ARCH_X86, cs_mode)
 
     esp = 0
@@ -128,11 +128,18 @@ def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
                             break
         elif mnem == "lea" and "sp" in op_str:
             # lea esp, [esp - N] — stack alignment / probing reset.  The
-            # destination esp takes the pointer value, so [esp-N] lowers esp.
-            m = _ESP_DELTA_RE.search(op_str)
-            if m:
-                delta = int(m.group(2), 16) if m.group(2).startswith("0x") else int(m.group(2))
-                esp += -delta if m.group(1) == "-" else delta
+            # destination must be ESP: `lea eax, [esp - 0x10]` only computes an
+            # address and does NOT move the stack pointer, yet the old guard
+            # ("sp" anywhere in op_str) counted it as a frame adjustment.
+            if (
+                insn.operands
+                and insn.operands[0].type == capstone.x86.X86_OP_REG
+                and "sp" in (insn.reg_name(insn.operands[0].reg) or "")
+            ):
+                m = _ESP_DELTA_RE.search(op_str)
+                if m:
+                    delta = int(m.group(2), 16) if m.group(2).startswith("0x") else int(m.group(2))
+                    esp += -delta if m.group(1) == "-" else delta
         elif mnem == "enter":
             m = _ENTER_SIZE_RE.search(op_str)
             if m:
@@ -150,7 +157,7 @@ def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
             and "bp" in op_str
             and idx + 1 < len(insns)
             and insns[idx + 1].mnemonic == "mov"
-            and insns[idx + 1].op_str.replace(" ", "").startswith(("ebp,esp", "bp,sp"))
+            and insns[idx + 1].op_str.replace(" ", "").startswith(("ebp,esp", "bp,sp", "rbp,rsp"))
         ):
             frame_pointer = True
 

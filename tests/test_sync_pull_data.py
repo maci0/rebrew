@@ -164,6 +164,23 @@ class TestPullDataGlobalsHeader:
         header = (tmp_path / "rebrew_globals.h").read_text(encoding="utf-8")
         assert "extern unsigned char g_blob[4];" in header
 
+    def test_type_mapping_undefined_array(self, tmp_path: Any, monkeypatch: Any) -> None:
+        # Ghidra arrays of undefined bytes must map to unsigned char like the
+        # scalar case, not leak `extern undefined g_blob[16];`.
+        symbols = [{"name": "g_blob", "address": "0x00405000", "isFunction": False}]
+        data_by_addr = {
+            "0x00405000": {
+                "address": "0x00405000",
+                "dataType": "undefined[16]",
+                "length": 16,
+                "symbolName": "g_blob",
+            }
+        }
+        _runpull_data(monkeypatch, tmp_path, symbols, data_by_addr)
+        header = (tmp_path / "rebrew_globals.h").read_text(encoding="utf-8")
+        assert "extern unsigned char g_blob[16];" in header
+        assert "extern undefined" not in header
+
     def test_type_mapping_array(self, tmp_path: Any, monkeypatch: Any) -> None:
         symbols = [{"name": "g_name", "address": "0x00405000", "isFunction": False}]
         data_by_addr = {

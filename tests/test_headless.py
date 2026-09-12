@@ -2,7 +2,6 @@
 
 import os
 import threading
-import time
 from pathlib import Path
 from typing import Any
 
@@ -247,10 +246,12 @@ class TestEnsureXvfb:
                 return 0
 
         def _fake_popen(argv: list[str], *a: Any, **k: Any) -> _FakeProc:
-            # Yield inside the spawn window: without the init lock every
-            # worker reaches this point before any of them records its
-            # display, and the spawn count explodes.
-            time.sleep(0.002)
+            # Deterministic, no sleep: the barrier above releases all four
+            # workers at once so they contend for the init lock; the first
+            # spawns and records its display (env + /proc-scan state), the
+            # rest reuse it.  Either order of lock acquisition gives one
+            # spawn and one agreed display.
+            assert headless._XVFB_INIT_LOCK.locked(), "spawn must hold the init lock"
             spawned.append(argv[1])
             spawned_displays.append(argv[1])
             return _FakeProc()

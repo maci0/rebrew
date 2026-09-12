@@ -83,3 +83,27 @@ class TestSymbolAddrs:
         r = runner.invoke(symbol_addrs.app, ["--output", str(out)])
         assert r.exit_code == 0
         assert out.read_text(encoding="utf-8").strip() == "0x00001000,_func_a@8"
+
+    def test_zero_va_rows_skipped_with_warning_count(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Annotations below the VA floor (0x0 placeholder rows) are skipped
+        with a warning count instead of exported as 0x00000000 lines."""
+        _patch(
+            monkeypatch,
+            tmp_path,
+            [
+                _fake_ann(0x1000, "good"),
+                _fake_ann(0x0, "zero_va"),
+            ],
+        )
+        out = tmp_path / "symbol_addrs.csv"
+        r = runner.invoke(symbol_addrs.app, ["--output", str(out), "--json"])
+        assert r.exit_code == 0
+        import json
+
+        payload = json.loads(r.stdout)
+        assert payload["symbols"] == 1
+        assert payload["skipped_invalid_va"] == 1
+        lines = out.read_text(encoding="utf-8").splitlines()
+        assert lines == ["0x00001000,good"]

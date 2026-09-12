@@ -459,6 +459,124 @@ class TestFixSize:
         meta_path = tmp_path / "src" / "rebrew-functions.toml"
         assert not meta_path.exists() or "size = 12" not in meta_path.read_text()
 
+    def test_fix_sizes_writes_the_va_selected_module(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A multi-marker file: `--va` picks the addressed module, so the
+        corrected SIZE lands under B, never under the file's first module A."""
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        self._project(tmp_path, monkeypatch)
+        # No marker filter: a genuinely multi-module file (module A and B are
+        # not the project's target marker, so `marker = ""` keeps both).
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "x"\n'
+            '[targets.x]\nbinary = "original/x.exe"\nmarker = ""\n'
+            '[compiler]\nprofile = "msvc6"\n'
+        )
+        src = tmp_path / "src" / "x" / "f.c"
+        src.write_text(
+            "// FUNCTION: A 0x1000\n"
+            "void __stdcall f(int a) { g = a; }\n"
+            "// FUNCTION: B 0x2000\n"
+            "void __stdcall f2(int a) { g = a; }\n"
+        )
+        monkeypatch.setattr(
+            "rebrew.test.compile_and_compare",
+            lambda *a, **k: self._size_mismatch_result(100.0),
+        )
+        monkeypatch.setattr(
+            "rebrew.test.extract_raw_bytes",
+            lambda binpath, va, size: self._real_binary_bytes()[:size],
+        )
+        result = CliRunner().invoke(
+            umbrella,
+            [
+                "test",
+                "src/x/f.c",
+                "--va",
+                "0x2000",
+                "--size",
+                "9",
+                "--symbol",
+                "f2",
+                "--fix-sizes",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        meta = (tmp_path / "src" / "rebrew-functions.toml").read_text()
+        assert '"B.0x00002000"' in meta
+        assert "size = 12" in meta
+        assert "A.0x00002000" not in meta
+
+
+class TestUnchangedStatusCachePatch:
+    """A refused promotion with the SAME status still carries fresh metrics:
+    the single-file path must patch the verify cache so status/todo see the
+    improved match_percent (the batch path patches every result)."""
+
+    def test_single_path_patches_unchanged_status(self, tmp_path: Path, monkeypatch: Any) -> None:
+        import shutil
+
+        from typer.testing import CliRunner
+
+        from rebrew.compile import CompareResult
+        from rebrew.main import app as umbrella
+
+        fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
+        (tmp_path / "original").mkdir()
+        shutil.copy(fixture, tmp_path / "original" / "x.exe")
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "x"\n'
+            '[targets.x]\nbinary = "original/x.exe"\n'
+            '[compiler]\nprofile = "msvc6"\n'
+        )
+        src_dir = tmp_path / "src" / "x"
+        src_dir.mkdir(parents=True)
+        (src_dir / "f.c").write_text("// FUNCTION: X 0x1000\nint f(void) { return 1; }\n")
+        # The annotation already carries the same status the compile yields, so
+        # should_promote_status refuses the write and only the cache patch runs.
+        (tmp_path / "src" / "rebrew-functions.toml").write_text(
+            '["X.0x00001000"]\nstatus = "NEAR_MATCHING"\n'
+        )
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(
+            "rebrew.test.compile_and_compare",
+            lambda *a, **k: CompareResult(
+                matched=False,
+                status="NEAR_MATCHING",
+                match_percent=50.0,
+                delta=3,
+                obj_bytes=b"\x90\x90\x90\x90",
+                reloc_offsets=[],
+            ),
+        )
+        monkeypatch.setattr(
+            "rebrew.test.extract_raw_bytes", lambda binpath, va, size: b"\x90\x90\x90\x90"[:size]
+        )
+        monkeypatch.setattr("rebrew.test.update_source_status", lambda *a, **k: None)
+        patched: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+        monkeypatch.setattr(
+            "rebrew.test._patch_verify_cache",
+            lambda *a, **k: patched.append((a, k)),
+        )
+
+        result = CliRunner().invoke(
+            umbrella,
+            ["test", "src/x/f.c", "--va", "0x1000", "--size", "4", "--symbol", "_f", "--json"],
+        )
+        assert result.exit_code == 1, result.output
+        assert len(patched) == 1
+        args, kwargs = patched[0]
+        assert args[1] == 0x1000
+        assert args[2] == "NEAR_MATCHING"
+        assert args[3] == 2  # 50% of 4 bytes
+        assert args[4] == 4
+        assert kwargs["delta"] == 3
+
 
 class TestCflagsPersistence:
     """`rebrew test --cflags` must persist the explicit override so verify
@@ -706,6 +824,65 @@ class TestMultiFixSize:
         assert exc_info.value.exit_code == 1
         assert writes == []
 
+    def test_overlong_candidate_is_size_mismatch_not_stub(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A 20B compiled symbol against an 8B annotation is a real
+        SIZE_MISMATCH (over-long), not an 8B stub body — the classifier needs
+        the pre-truncation lengths."""
+        from types import SimpleNamespace as NS
+
+        import rebrew.test as testmod
+
+        (tmp_path / "f.c").write_text("// FUNCTION: X 0x1000\nvoid f(void) { g(); }\n")
+        cfg = NS(
+            target_binary=str(tmp_path / "x.bin"),
+            metadata_dir=tmp_path,
+            reversed_dir=tmp_path,
+            marker="X",
+            default_jobs=1,
+            compile_timeout=60,
+        )
+        (tmp_path / "x.bin").write_bytes(b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01")
+
+        def _fake_parse(obj_path, sym):
+            # 20 compiled bytes; the 8B annotation truncates the common prefix.
+            return (bytes(range(20)), {}, [])
+
+        def _fake_compare(obj, tgt, relocs, **kw):
+            return True, len(obj), len(obj), [], []
+
+        captured: list[Any] = []
+
+        monkeypatch.setattr(
+            testmod, "compile_to_obj", lambda *a, **k: (str(tmp_path / "f.obj"), "")
+        )
+        monkeypatch.setattr(testmod, "parse_obj_symbol_and_relocs", _fake_parse)
+        monkeypatch.setattr(testmod, "smart_reloc_compare", _fake_compare)
+        monkeypatch.setattr(
+            testmod,
+            "extract_raw_bytes",
+            lambda b, va, size: (tmp_path / "x.bin").read_bytes()[:size],
+        )
+        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: None)
+        monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr(testmod, "json_print", lambda payload: captured.append(payload))
+
+        ann = self._ann(size=8)
+        with pytest.raises(typer.Exit):
+            testmod._test_multi(
+                cfg,
+                str(tmp_path / "f.c"),
+                [ann],
+                None,
+                json_output=True,
+                fix_sizes=False,
+            )
+        row = captured[0]["results"][0]
+        assert row["status"] == "SIZE_MISMATCH", row
+        assert row["obj_size"] == 20, row
+        assert row["total"] == 20, row
+
 
 class TestFixSizeEvidence:
     """--fix-sizes's evidence gate must refuse a fix when the region beyond
@@ -851,3 +1028,74 @@ class TestFixSizeDisasmFallback:
         target = b"\x8b\x44\x24\x04\xc2\x04\x00" + b"\xe8\x00\x00\x00\x00" * 3
         ok = _fix_size_evidence_ok(cfg, 0x1000, b"\x8b\x44\x24\x04\xc2\x04\x00", target, [])
         assert ok is False
+
+
+class TestMultiCachePatchDelta:
+    """`_test_multi` must patch the verify cache with the real byte delta.
+
+    Recomputing `total - match_count` yields 0 for a SIZE_MISMATCH (the object
+    is truncated to the target length), which `todo` reads as a "0B diff — try
+    flag sweep" quick-win.
+    """
+
+    def test_multi_patch_receives_the_byte_delta(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from types import SimpleNamespace as NS
+
+        import rebrew.test as testmod
+        from rebrew.annotation import Annotation
+
+        (tmp_path / "f.c").write_text("// FUNCTION: X 0x1000\nvoid f(int a) { g = a; }\n")
+        cfg = NS(
+            target_binary=str(tmp_path / "x.bin"),
+            metadata_dir=tmp_path,
+            reversed_dir=tmp_path,
+            marker="X",
+            default_jobs=1,
+            compile_timeout=60,
+        )
+        (tmp_path / "x.bin").write_bytes(b"\x8b\x44\x24\x04\xa3\x20\xda\x03\x01\xc2\x04\x00")
+        ann = Annotation(
+            marker_type="FUNCTION",
+            module="X",
+            va=0x1000,
+            size=12,
+            symbol="_f",
+            source="void f(int a) { g = a; }",
+        )
+
+        def _fake_compile(cfg_, src, cflags, workdir, obj_name=None, toolchain=None):
+            return str(tmp_path / "f.obj"), ""
+
+        def _fake_parse(obj_path, sym):
+            return (b"\x8b\x44\x24\x04\xa3\x00\x00\x00\x00\xc2\x04\x00", {}, [])
+
+        # 9 of 12 bytes match: NEAR_MATCHING with a real byte delta.
+        _obj = b"\x8b\x44\x24\x04\xa3\x00\x00\x00\x00\xc2\x04\x00"
+        # Target differs in 2 bytes → the compare's real byte delta is 2.
+        _tgt = b"\x8b\x44\x24\x04\xa3\x00\x00\x00\x00\xc2\x99\x99"
+
+        def _fake_compare(obj, tgt, relocs, **kw):
+            return False, 9, 12, [], []
+
+        captured: list[dict[str, Any]] = []
+
+        def _fake_patch(cfg_, va, status, match_count, total, **kwargs):
+            captured.append({"va": va, "status": status, **kwargs})
+
+        import typer
+
+        monkeypatch.setattr(testmod, "compile_to_obj", _fake_compile)
+        monkeypatch.setattr(testmod, "parse_obj_symbol_and_relocs", _fake_parse)
+        monkeypatch.setattr(testmod, "smart_reloc_compare", _fake_compare)
+        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: None)
+        monkeypatch.setattr(testmod, "_patch_verify_cache", _fake_patch)
+        monkeypatch.setattr(testmod, "extract_raw_bytes", lambda *a, **k: _tgt)
+
+        # A NEAR_MATCHING result exits 1 by the documented contract.
+        with pytest.raises(typer.Exit):
+            testmod._test_multi(cfg, str(tmp_path / "f.c"), [ann], None)
+
+        assert captured, "the multi path did not patch the verify cache"
+        # The real byte delta, not the recomputed `total - match_count` (which
+        # is 0 here because the object is truncated to the target length).
+        assert captured[0]["delta"] == 2, captured

@@ -134,6 +134,31 @@ class TestDecompDevReport:
         fn = doc["units"][0]["functions"][0]
         assert fn["fuzzy_match_percent"] == 72.5
 
+    def test_near_matching_uses_string_keyed_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verify-cache keys are strings (JSON object keys) — the fuzzy lookup
+        must normalize them instead of testing for int."""
+        annos = [_fake_ann(0x2000, 32, "near_fn", "NEAR_MATCHING")]
+        self._setup(tmp_path, monkeypatch, annos)
+        self._mock_progress(monkeypatch, total_functions=1, status_counts={})
+
+        class _Result:
+            match_percent = 61.0
+
+        class _Entry:
+            result = _Result()
+
+        class _Cache:
+            entries = {"0x2000": _Entry()}
+
+        monkeypatch.setattr("rebrew.verify._load_verify_cache", lambda _p, _c: _Cache())
+        out = tmp_path / "report.json"
+        report.generate_decomp_dev_report(_cfg(tmp_path), out)
+        doc = json.loads(out.read_text(encoding="utf-8"))
+        fn = doc["units"][0]["functions"][0]
+        assert fn["fuzzy_match_percent"] == 61.0
+
     def test_shared_progress_denominator(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -147,3 +172,51 @@ class TestDecompDevReport:
         result = report.generate_decomp_dev_report(_cfg(tmp_path), out)
         assert result["total_functions"] == 2
         assert result["matched_functions"] == 1
+
+
+class TestDecompDevDataMeasure:
+    def test_total_data_reads_section_size(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """total_data must use SectionInfo.size (virtual size), not a
+        nonexistent `virtual_size` attribute (which made it always 0)."""
+        cfg = _cfg(tmp_path)
+        src = cfg.reversed_dir
+        src.mkdir(exist_ok=True)
+        src_file = src / "funcs.c"
+        monkeypatch.setattr("rebrew.sources.iter_sources", lambda d, cfg=None: [src_file])
+        monkeypatch.setattr(
+            "rebrew.cli.iter_annotations",
+            lambda sources, target=None, metadata_dir=None: [
+                (src_file, [_fake_ann(0x1000, 64, "f", "EXACT")])
+            ],
+        )
+        monkeypatch.setattr("rebrew.catalog.sections.get_text_section_size", lambda _p: 0x1000)
+        monkeypatch.setattr("rebrew.verify._load_verify_cache", lambda _p, _c: None)
+        # report.py imports load_binary inside the function, so patch the source.
+        monkeypatch.setattr(
+            "rebrew.binary_loader.load_binary",
+            lambda _p: SimpleNamespace(
+                sections={
+                    ".data": SimpleNamespace(size=0x200, raw_size=0x100),
+                    ".rdata": SimpleNamespace(size=0x80, raw_size=0x80),
+                }
+            ),
+        )
+        from rebrew.status import StatusReport
+
+        monkeypatch.setattr(
+            report,
+            "collect_status",
+            lambda cfg: StatusReport(
+                target=cfg.target_name,
+                total_functions=1,
+                status_counts={"EXACT": 1},
+                matched_bytes=64,
+                total_text_bytes=0x1000,
+            ),
+        )
+        out = tmp_path / "report.json"
+        report.generate_decomp_dev_report(cfg, out)
+        doc = json.loads(out.read_text(encoding="utf-8"))
+        assert doc["measures"]["total_data"] == 0x280

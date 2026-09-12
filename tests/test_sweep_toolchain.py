@@ -83,11 +83,22 @@ def test_vendored_enumeration_respects_only_exclude() -> None:
     assert "msvc200" not in excl_p and "msvc400" not in excl_p
     assert "msvc6" in excl_p
 
-    # the configured profile is always the baseline even when filtered out
+    # the configured profile is the baseline when it survives the filters,
+    # and is never listed twice
     only_sp6 = _vendored_msvc_toolchains(
         SimpleNamespace(compiler_profile="msvc600sp6"), only="6.0-sp6"
     )
     assert only_sp6[0][0] == "msvc600sp6"
+
+    # "--sweep-toolchains 4.0" means ONLY 4.0: the configured msvc6 baseline
+    # must not be swept anyway (help: "Sweep only these toolchains").
+    only_400 = _vendored_msvc_toolchains(SimpleNamespace(compiler_profile="msvc6"), only="4.0")
+    only_400_p = [p for p, _cl, _inc in only_400]
+    assert only_400_p and all(p.startswith("msvc4") for p in only_400_p), only_400_p
+
+    # No duplicates: the unfiltered enumeration includes the configured
+    # profile once, not once from the loop plus once as the baseline.
+    assert len(profiles) == len(set(profiles))
 
 
 def test_toolchain_sweep_orders_best_first(monkeypatch, capsys) -> None:
@@ -98,6 +109,7 @@ def test_toolchain_sweep_orders_best_first(monkeypatch, capsys) -> None:
         "rebrew.match._vendored_msvc_toolchains",
         lambda cfg, cl, inc, *a, **k: [("good", "wine good", "/good"), ("bad", "wine bad", "/bad")],
     )
+    monkeypatch.setattr("rebrew.core.build_name_to_va", lambda cfg: {"_f": 0x1000})
     calls: dict[str, bytes] = {}
 
     def _fake_build(src, cl_cmd, inc_dir, cflags, symbol, **kw):

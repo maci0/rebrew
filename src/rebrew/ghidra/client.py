@@ -7,6 +7,7 @@ and data fetching via ReVa HTTP endpoints.
 import contextlib
 import json
 import logging
+import re
 import time
 from typing import Any
 
@@ -17,6 +18,21 @@ from rebrew.ghidra.models import JsonRpcResponse, McpToolResult
 
 console = Console(stderr=True)
 logger = logging.getLogger(__name__)
+
+
+class McpApplyAborted(RuntimeError):
+    """MCP apply died mid-loop after partially applying *ops*.
+
+    Carries the (applied, errors) counts so the caller can decide whether a
+    fallback re-apply is safe: re-running the full op list after partial
+    application would duplicate the ops that already landed.
+    """
+
+    def __init__(self, msg: str, *, applied: int, errors: int) -> None:
+        super().__init__(msg)
+        self.applied = applied
+        self.errors = errors
+
 
 MCP_HEADERS = {
     "Content-Type": "application/json",
@@ -395,6 +411,92 @@ def fetch_all_functions(
     return all_funcs
 
 
+_ALREADY_EXISTS_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # ReVa/Ghidra "already exists" failures name the operation and the
+    # address: never substring-match unrelated errors (e.g. a log line that
+    # mentions an existing file).  JSON-RPC numeric codes only describe the
+    # transport (-32700..-32603); the create/modify tools report success this
+    # way only via their text payload, so the payload must pin both.
+    re.compile(r"\bcreate-(?:function|label)\b.*\b0x[0-9a-fA-F]+\b.*\balready exists\b"),
+    re.compile(r"\balready exists\b.*\bcreate-(?:function|label)\b.*\b0x[0-9a-fA-F]+\b"),
+)
+
+#: Ops whose re-application is idempotent (the CLI backend counts their
+#: "already exists" failures as success, same as the MCP path).
+_IDEMPOTENT_OPS = frozenset({"create-function", "create-label"})
+
+
+def _is_idempotent_success(op: dict[str, Any] | None, error_msg: str) -> bool:
+    """True when *error_msg* is an idempotent re-apply of *op*, not a failure.
+
+    The error arrived as the result of this op's own ``tools/call`` request,
+    so the request context is known — but the text must still pin THIS op:
+    an "already exists"-style marker plus the op's noun or address, and no
+    mention of a different operation or a different address.  Unrelated
+    errors that merely contain the substring are failures.  The caller
+    dispatches on the structured result first (JSON-RPC ``error`` vs tool
+    ``isError``); this only classifies the text payload.
+    """
+    text = str(error_msg).lower()
+    if "already exists" not in text and "duplicate" not in text and "already has" not in text:
+        return False
+    if op is None:
+        return False
+    tool = str(op.get("tool", "")).lower()
+    if not tool:
+        return False
+    args = op.get("args")
+    op_addrs: set[int] = set()
+    if isinstance(args, dict):
+        for v in args.values():
+            if isinstance(v, str) and re.fullmatch(r"0x[0-9a-fA-F]+", v.strip()):
+                op_addrs.add(int(v.strip(), 16))
+    # Compare addresses numerically: the server may echo ``0x1000`` for an op
+    # that carries ``0x00001000`` (and vice versa).
+    text_addrs = {int(a, 16) for a in re.findall(r"0x[0-9a-fA-F]+", text)}
+    # A different address named → the error is about something else.
+    for addr in text_addrs:
+        if addr not in op_addrs:
+            return False
+
+    def _op_spellings(name: str) -> set[str]:
+        return {name, name.replace("-", " "), name.replace("-", "_")}
+
+    def _op_nouns(name: str) -> set[str]:
+        """Every way a server may name this op: the slug, its spaced/underscored
+        spellings, and the bare noun (``create-label`` -> ``label``)."""
+        bare = name.removeprefix("create-")
+        return {
+            name,
+            bare,
+            name.replace("-", " "),
+            name.replace("-", "_"),
+            bare.replace("-", " "),
+            bare.replace("-", "_"),
+        }
+
+    # A different create-op named → the error is about something else.  Check
+    # every spelling: a "create function ..." payload must not be accepted for
+    # a create-label op just because only the hyphenated slug was matched.
+    other_spellings = set().union(*(_op_spellings(o) for o in _IDEMPOTENT_OPS - {tool}))
+    if any(s in text for s in other_spellings):
+        return False
+    # ...and the bare noun: the server may echo "function 0x1000 already
+    # exists" for a create-label op, naming the other op without its slug.
+    other_nouns = set().union(*(_op_nouns(o) for o in _IDEMPOTENT_OPS - {tool}))
+    if any(n in text for n in other_nouns if n):
+        return False
+
+    nouns = _op_nouns(tool)
+    named_op = any(noun in text for noun in nouns if noun)
+    named_addr = bool(text_addrs)
+    if tool in _IDEMPOTENT_OPS and (named_op or named_addr):
+        return True
+    # Generic patterns (op + address in either order) cover server wordings
+    # that echo both without the exact tool slug.
+    return any(p.search(text) for p in _ALREADY_EXISTS_PATTERNS)
+
+
 def apply_commands_via_mcp(
     commands: list[dict[str, Any]],
     endpoint: str = "http://localhost:8080/mcp/message",
@@ -465,14 +567,20 @@ def apply_commands_via_mcp(
                 return False, "missing MCP JSON-RPC response"
             is_error = data.error is not None
             error_msg = data.error.message if data.error else ""
-            if not is_error and data.result:
+            if not is_error:
+                # A JSON-RPC success must carry a tool result with ``content``
+                # to confirm the mutation landed (the ``_call_mcp_tool``
+                # contract).  Counting a content-less result as applied silently
+                # drops the op.
+                if not (isinstance(data.result, dict) and "content" in data.result):
+                    return False, "MCP response carried no tool-result content"
                 res = McpToolResult.from_dict(data.result)
                 if res.isError:
                     is_error = True
                     content = res.content
                     error_msg = content[0].text if content else str(data.result)
             if is_error:
-                if "already exists" in str(error_msg).lower():
+                if _is_idempotent_success(cmd, error_msg):
                     return True, ""
                 return False, str(error_msg)
             return True, ""
@@ -514,6 +622,17 @@ def apply_commands_via_mcp(
                 if tool == "parse-c-structure":
                     struct_failures.append(cmd)
                 errors += 1
+                if success > 0:
+                    # Earlier ops verifiably landed (and this one may have
+                    # landed server-side before the transport died):
+                    # re-running the full list via a fallback would duplicate
+                    # them.  Report progress and let the caller decide.
+                    raise McpApplyAborted(
+                        f"MCP transport failed at op {i + 1}/{total} "
+                        f"({success} applied, {errors} error(s)): {exc}",
+                        applied=success + errors,
+                        errors=errors,
+                    ) from exc
                 va = cmd["args"].get("addressOrSymbol", cmd["args"].get("address", "?"))
                 if errors <= 30:
                     console.print(f"  ERROR at {va} ({cmd['tool']}): {exc}")

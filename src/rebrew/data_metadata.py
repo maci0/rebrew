@@ -28,7 +28,10 @@ All rebrew-specific metadata lives in ``rebrew-data.toml``::
 Key format
 ----------
 Identical to ``rebrew-functions.toml``: ``"MODULE.0xVA"`` (qualified key).
-This makes the metadata unambiguous across multi-target projects.
+This makes the metadata unambiguous across multi-target projects.  Reads key
+on the parsed ``(module, va)``, so an entry spelled with different hex
+padding than :func:`rebrew.utils.qualified_key` produces is still found and
+updated in place, never shadowed by an appended twin.
 
 Owned fields per entry::
 
@@ -55,8 +58,7 @@ from rebrew.utils import (
     load_metadata_doc,
     load_toml_for_write,
     metadata_write_lock,
-    parse_metadata_key,
-    qualified_key,
+    resolve_metadata_key,
 )
 
 if TYPE_CHECKING:
@@ -86,8 +88,11 @@ def _invalidate_data_cache(path: Path) -> None:
 
 DATA_METADATA_FILENAME = "rebrew-data.toml"
 
-#: Fields owned by the data metadata.
-DATA_METADATA_FIELDS: frozenset[str] = frozenset({"NAME", "SIZE", "SECTION", "NOTE", "STATUS"})
+#: Fields owned by the data metadata.  Must match ``_CANONICAL_ORDER``: `type`
+#: is written by `rebrew data --set-type` and the binsync import/overlay paths.
+DATA_METADATA_FIELDS: frozenset[str] = frozenset(
+    {"NAME", "TYPE", "SIZE", "SECTION", "NOTE", "STATUS"}
+)
 
 #: Data verification verdicts written by ``verify --data``.
 DATA_STATUS_VERIFIED = "VERIFIED"
@@ -223,13 +228,22 @@ def set_data_field(directory: Path, va: int, key: str, value: Any, module: str) 
     if va < 0:
         raise ValueError(f"VA must be non-negative, got {va:#x}")
     path = directory / DATA_METADATA_FILENAME
-    toml_key = qualified_key(module, va)
 
     with metadata_write_lock(directory, DATA_METADATA_FILENAME):
         doc = load_toml_for_write(path, "data metadata")
+        toml_key = resolve_metadata_key(doc, module, va)
 
         if toml_key not in doc:
             doc[toml_key] = tomlkit.table()
+        elif not isinstance(doc[toml_key], dict):
+            # Same predicate the loader uses to skip unusable entries: a scalar
+            # (or AoT) at the key cannot hold fields, and indexing it raised
+            # TypeError out of `rebrew data --set-*`.  Failing loud beats
+            # silently discarding whatever is there.
+            raise ValueError(
+                f"data metadata entry {toml_key!r} is not a table "
+                f"({type(doc[toml_key]).__name__}); repair or remove it first"
+            )
 
         doc[toml_key][key] = value  # type: ignore[index]
         atomic_write_locked(path, tomlkit.dumps(doc))
@@ -255,17 +269,9 @@ def delete_data_entries_batch(directory: Path, targets: list[tuple[str, int]]) -
         for module, va in targets:
             if not module:
                 continue
-            want = (str(module), int(va))
-            toml_key = qualified_key(module, int(va))
+            toml_key = resolve_metadata_key(doc, str(module), int(va))
             if toml_key not in doc:
-                toml_key = ""
-                for existing in doc:
-                    parsed = parse_metadata_key(str(existing))
-                    if parsed == want:
-                        toml_key = str(existing)
-                        break
-                if not toml_key:
-                    continue
+                continue
             del doc[toml_key]
             removed += 1
         if removed:

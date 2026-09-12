@@ -146,7 +146,7 @@ def _resolve_canonical_size(
     ghidra_end = func_offset + ghidra_size
     list_end = func_offset + list_size
 
-    if func_offset < 0 or ghidra_end < 0 or list_end > len(text_data) or list_end <= ghidra_end:
+    if func_offset < 0 or ghidra_end < 0 or list_end > len(text_data):
         return ghidra_size, "ghidra (extra bytes out of range)"
 
     extra = text_data[ghidra_end:list_end]

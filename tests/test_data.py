@@ -201,6 +201,23 @@ class TestScanGlobals:
         assert "g_double_ptr" in result.globals
         assert result.globals["g_double_ptr"].type_str == "char **"
 
+    def test_same_name_different_va_both_kept(self, tmp_path: Path) -> None:
+        """The same name annotated at two VAs is two globals: the second
+        file's annotation must not be skipped as 'already handled'."""
+        _write_c(
+            tmp_path,
+            "a.c",
+            "// GLOBAL: SERVER 0x10001000\nextern int g_dup;\n",
+        )
+        _write_c(
+            tmp_path,
+            "b.c",
+            "// GLOBAL: SERVER 0x10002000\nextern int g_dup;\n",
+        )
+        result = scan_globals(tmp_path)
+        vas = sorted(g.va for g in result.globals.values() if g.name == "g_dup")
+        assert vas == [0x10001000, 0x10002000]
+
 
 def test_function_pointer_declaration_not_treated_as_function() -> None:
     from rebrew.c_parser import find_extern_variables
@@ -607,7 +624,7 @@ class TestBuildDispatchKnownFunctions:
         )
 
     def test_source_annotations_take_precedence(self, tmp_path: Path) -> None:
-        from rebrew.data import _build_dispatch_known_functions
+        from rebrew.data import build_dispatch_known_functions
 
         cfg = self._cfg(tmp_path)
         src = cfg.reversed_dir / "f.c"
@@ -615,26 +632,26 @@ class TestBuildDispatchKnownFunctions:
             "// FUNCTION: SERVER 0x1000\n// SIZE: 32\nint fcn_a(void) { return 0; }\n",
             encoding="utf-8",
         )
-        known = _build_dispatch_known_functions(cfg, cfg.reversed_dir)  # type: ignore[arg-type]
+        known = build_dispatch_known_functions(cfg, cfg.reversed_dir)  # type: ignore[arg-type]
         # Source annotation wins over the function list for 0x1000.
         assert known[0x1000]["name"] == "fcn_a"
         assert known[0x1000]["status"] == "STUB"  # no STATUS line in the block
 
     def test_registry_names_merged(self, tmp_path: Path) -> None:
-        from rebrew.data import _build_dispatch_known_functions
+        from rebrew.data import build_dispatch_known_functions
 
         cfg = self._cfg(tmp_path)
-        known = _build_dispatch_known_functions(cfg, cfg.reversed_dir)  # type: ignore[arg-type]
+        known = build_dispatch_known_functions(cfg, cfg.reversed_dir)  # type: ignore[arg-type]
         # No source files — the function-list registry provides the name.
         assert known[0x2000]["name"] == "crt_handler"
         assert known[0x2000]["status"] == ""
 
     def test_missing_function_list_tolerated(self, tmp_path: Path) -> None:
-        from rebrew.data import _build_dispatch_known_functions
+        from rebrew.data import build_dispatch_known_functions
 
         cfg = self._cfg(tmp_path)
         cfg.function_list = tmp_path / "nope.txt"  # type: ignore[attr-defined]
-        known = _build_dispatch_known_functions(cfg, cfg.reversed_dir)  # type: ignore[arg-type]
+        known = build_dispatch_known_functions(cfg, cfg.reversed_dir)  # type: ignore[arg-type]
         assert known == {}
 
 

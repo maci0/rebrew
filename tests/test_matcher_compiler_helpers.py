@@ -86,3 +86,38 @@ class TestFlagSweepsNewProfiles:
         assert len(combos) == 25  # same wcc axes as watcom
         for c in combos:
             assert c.startswith("-") or c == ""
+
+
+class TestSweepScoringMode:
+    def test_mode_matches_the_ga_path(self) -> None:
+        """The sweep hardcoded 32-bit mode for everything but x86_16, so an
+        x86_64 sweep scored with 32-bit decoding while the GA used 64-bit."""
+        from types import SimpleNamespace
+
+        import capstone
+
+        from rebrew.matcher.compiler import _sweep_scoring_params
+
+        assert _sweep_scoring_params(SimpleNamespace(arch="x86_64"))[0] == capstone.CS_MODE_64
+        assert _sweep_scoring_params(SimpleNamespace(arch="x86_16"))[0] == capstone.CS_MODE_16
+        assert _sweep_scoring_params(SimpleNamespace(arch="x86_32"))[0] == capstone.CS_MODE_32
+
+
+class TestMalformedFlagSetProvider:
+    def test_bad_entry_is_skipped(self, monkeypatch) -> None:
+        """A provider value that is not (Flags, tiers) raised TypeError out of
+        module import, defeating the documented skip."""
+        from types import SimpleNamespace
+
+        import rebrew.matcher.compiler as compiler_mod
+
+        reg = SimpleNamespace(
+            group="rebrew.flag_sets", name="bad", origin="test", module="m", attr="p"
+        )
+        monkeypatch.setattr("rebrew.registry.entry_point_registrations", lambda group: [reg])
+        monkeypatch.setattr(
+            "rebrew.registry.load_registration_optional",
+            lambda r, log: lambda: {"msvc6": None},
+        )
+        flags, _tiers = compiler_mod._merged_flag_sets()
+        assert flags["msvc6"] is compiler_mod._FLAGS_MAP["msvc6"]

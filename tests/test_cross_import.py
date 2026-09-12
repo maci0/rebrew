@@ -166,6 +166,41 @@ class TestMarkerRewrite:
         markers = [line.strip() for line in out.splitlines() if "FUNCTION:" in line]
         assert markers == ["// FUNCTION: DST 0x601000", "// FUNCTION: SRC 0x401010"]
 
+    def test_size_rewrite_stops_at_block_boundary(self) -> None:
+        """The SIZE rewrite must stay inside the imported marker's own block —
+        a scan to EOF clobbered the NEXT function's SIZE line."""
+        src = (
+            "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
+            "// FUNCTION: SRC 0x401010\n// SIZE: 8\nint f2(void){ return 2; }\n"
+        )
+        out = ci._rewrite_marker(src, "DST", 0x601000, 11)
+        lines = out.splitlines()
+        assert lines[0] == "// FUNCTION: DST 0x601000"
+        assert lines[1] == "// SIZE: 11"  # inserted into f1's own block
+        assert "// SIZE: 8" in out  # f2's SIZE untouched
+
+
+class TestOnlyVaGuard:
+    def test_only_va_does_not_bypass_matched_status(self, monkeypatch) -> None:
+        """``--va`` on an already matched destination function must not re-add
+        it through the disassembler (that path skipped the status filter)."""
+        cfg = SimpleNamespace()
+        monkeypatch.setattr(ci, "_annotations_by_va", lambda cfg: {0x401040: ("EXACT", "f1.c")})
+        monkeypatch.setattr(ci, "_registry", lambda cfg: {0x401040: {"canonical_size": 16}})
+        monkeypatch.setattr(ci, "_disasm_sizes", lambda cfg, vas: ({0x401040: 16}, []))
+        monkeypatch.setattr(ci, "_target_bytes_by_va", lambda cfg, vas: dict.fromkeys(vas, b"\xc3"))
+        assert ci.unmatched_dest_bytes(cfg, only_va=0x401040) == {}
+
+    def test_only_va_sizeless_unmatched_still_matched(self, monkeypatch) -> None:
+        """A NOT-matched VA without a registry size still gets the disasm size
+        (the guard must only block the matched case)."""
+        cfg = SimpleNamespace()
+        monkeypatch.setattr(ci, "_annotations_by_va", lambda cfg: {0x401040: ("STUB", "f1.c")})
+        monkeypatch.setattr(ci, "_registry", lambda cfg: {})
+        monkeypatch.setattr(ci, "_disasm_sizes", lambda cfg, vas: ({0x401040: 16}, []))
+        monkeypatch.setattr(ci, "_target_bytes_by_va", lambda cfg, vas: dict.fromkeys(vas, b"\xc3"))
+        assert set(ci.unmatched_dest_bytes(cfg, only_va=0x401040)) == {0x401040}
+
 
 class TestImportMechanics:
     def _cfg(self, tmp_path: Path, target: str, binary: Path) -> SimpleNamespace:
@@ -224,6 +259,35 @@ class TestImportMechanics:
         assert seen["entry"].va == B_F1
         assert seen["entry"].size == 11
         assert applied and applied[0][0][0][1] == "EXACT"
+
+    def test_legacy_encoded_source_is_read_and_preserved(self, tmp_path: Path, monkeypatch) -> None:
+        """A cp1252 source (0xE9 in a comment) must not crash the import, and
+        the destination keeps the detected encoding instead of being re-encoded
+        as UTF-8."""
+        cfg_src = self._cfg(tmp_path, "SRC", tmp_path / "a.exe")
+        cfg_dst = self._cfg(tmp_path, "DST", tmp_path / "b.exe")
+        body = b"// FUNCTION: SRC 0x401000\n// SIZE: 11\n// caf\xe9\nint f1(void){ return 1; }\n"
+        (cfg_src.reversed_dir / "f1.c").write_bytes(body)
+
+        from rebrew.compile import CompareResult
+
+        monkeypatch.setattr(
+            "rebrew.verify.verify_entry",
+            lambda entry, cfg, cache=None, **kw: CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"x",
+                reloc_offsets=[],
+                message="EXACT MATCH",
+            ),
+        )
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda fixes, cfg: None)
+
+        res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="f1.c")
+        assert res["status"] == "EXACT"
+        assert b"caf\xe9" in (cfg_dst.reversed_dir / "f1.c").read_bytes()
 
     def test_dry_run_writes_nothing(self, tmp_path: Path, monkeypatch) -> None:
         cfg_src = self._cfg(tmp_path, "SRC", tmp_path / "a.exe")
@@ -310,6 +374,100 @@ class TestImportMechanics:
         assert "// FUNCTION: DST 0x401040" in text
 
 
+class TestSizelessMatching:
+    """Sizeless registry entries match via the disassembly-derived extent.
+
+    A registry without sizes (discovery-only catalogs) must still import:
+    ret-terminated functions size from the disassembler, with an explicit
+    warning; ones the disassembler cannot size surface the
+    "sizeless, use --va" guidance instead of vanishing silently.
+    """
+
+    def _cfg(self, tmp_path: Path, target: str, binary: Path) -> SimpleNamespace:
+        rev = tmp_path / f"src_{target}"
+        rev.mkdir(parents=True, exist_ok=True)
+        return SimpleNamespace(
+            root=tmp_path,
+            target_name=target,
+            reversed_dir=rev,
+            metadata_dir=tmp_path,
+            target_binary=binary,
+            function_list=tmp_path / f"{target}.txt",
+        )
+
+    def test_disasm_sizes_ret_only(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        (tmp_path / "x.exe").write_bytes(_pe_a())
+        cfg = self._cfg(tmp_path, "DST", tmp_path / "x.exe")
+        monkeypatch.setattr(
+            "rebrew.binary_loader.function_extent_from_disasm",
+            lambda _p, _va, with_kind=False: (11, "ret") if with_kind else 11,
+        )
+        sizes, refused = ci._disasm_sizes(cfg, [A_F1, A_F2])
+        assert sizes == {A_F1: 11, A_F2: 11}
+        assert refused == []
+
+    def test_disasm_sizes_refuses_jmp_and_none(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "x.exe").write_bytes(_pe_a())
+        cfg = self._cfg(tmp_path, "DST", tmp_path / "x.exe")
+
+        def fake_extent(_p: Path, va: int, with_kind: bool = False):  # type: ignore[no-untyped-def]
+            if va == A_F1:
+                return (8, "jmp") if with_kind else 8
+            return None
+
+        monkeypatch.setattr("rebrew.binary_loader.function_extent_from_disasm", fake_extent)
+        sizes, refused = ci._disasm_sizes(cfg, [A_F1, A_F2])
+        assert sizes == {}
+        assert refused == [A_F1, A_F2]
+
+    def test_unmatched_dest_bytes_sizeless_matches(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        pa = tmp_path / "a.exe"
+        pa.write_bytes(_pe_a())
+        cfg = self._cfg(tmp_path, "DST", pa)
+        monkeypatch.setattr(ci, "_annotations_by_va", lambda _c: {A_F1: ("STUB", "f1.c")})
+        monkeypatch.setattr(ci, "_registry", lambda _c: {A_F1: {"canonical_size": 0}})
+        monkeypatch.setattr(
+            "rebrew.binary_loader.function_extent_from_disasm",
+            lambda _p, _va, with_kind=False: (len(F1), "ret") if with_kind else len(F1),
+        )
+        out = ci.unmatched_dest_bytes(cfg)
+        assert out[A_F1] == F1
+
+    def test_unmatched_dest_bytes_only_va_sizeless(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        pa = tmp_path / "a.exe"
+        pa.write_bytes(_pe_a())
+        cfg = self._cfg(tmp_path, "DST", pa)
+        monkeypatch.setattr(ci, "_annotations_by_va", lambda _c: {A_F1: ("STUB", "f1.c")})
+        monkeypatch.setattr(ci, "_registry", lambda _c: {A_F1: {"canonical_size": 0}})
+        monkeypatch.setattr(
+            "rebrew.binary_loader.function_extent_from_disasm",
+            lambda _p, _va, with_kind=False: (len(F1), "ret") if with_kind else len(F1),
+        )
+        out = ci.unmatched_dest_bytes(cfg, only_va=A_F1)
+        assert out[A_F1] == F1
+
+    def test_matched_source_bytes_sizeless_matches(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        pa = tmp_path / "a.exe"
+        pa.write_bytes(_pe_a())
+        cfg = self._cfg(tmp_path, "SRC", pa)
+        monkeypatch.setattr(ci, "_annotations_by_va", lambda _c: {A_F1: ("EXACT", "f1.c")})
+        monkeypatch.setattr(ci, "_registry", lambda _c: {A_F1: {"canonical_size": 0}})
+        monkeypatch.setattr(
+            "rebrew.binary_loader.function_extent_from_disasm",
+            lambda _p, _va, with_kind=False: (len(F1), "ret") if with_kind else len(F1),
+        )
+        out = ci.matched_source_bytes(cfg)
+        assert out[A_F1] == F1
+
+
 class TestCLI:
     def _project(self, tmp_path: Path) -> Path:
         (tmp_path / "rebrew-project.toml").write_text(
@@ -381,6 +539,119 @@ class TestCLI:
         payload = json_mod.loads(result.output)
         assert payload["from"] == "SRC"
         assert payload["results"][0]["action"] == "imported"
+
+    def test_limit_zero_imports_nothing(self, tmp_path: Path, monkeypatch) -> None:
+        """--limit 0 must import zero functions; the old guard ran after the
+        first import was already appended."""
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        self._project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(
+            "rebrew.cross_import.matched_source_bytes", lambda cfg: {A_F1: F1, A_F2: F2}
+        )
+        monkeypatch.setattr(
+            "rebrew.cross_import.unmatched_dest_bytes",
+            lambda cfg, only_va=None: {B_F1: F1, B_F2: F2},
+        )
+        monkeypatch.setattr(
+            "rebrew.cross_import.cross_match",
+            lambda d, s, **k: {B_F1: (A_F1, 100.0), B_F2: (A_F2, 100.0)},
+        )
+        monkeypatch.setattr("rebrew.cross_import._registry", lambda cfg: {})
+        monkeypatch.setattr(
+            "rebrew.cross_import._annotations_by_va",
+            lambda cfg: {B_F1: ("STUB", "f1.c"), A_F1: ("EXACT", "f1.c")},
+        )
+        calls: list[Any] = []
+
+        def _fake_import(*a: Any, **k: Any) -> dict[str, Any]:
+            calls.append(a)
+            return {
+                "dst_va": "0x401040",
+                "src_va": "0x401000",
+                "score": 100.0,
+                "action": "imported",
+                "status": "EXACT",
+                "filepath": "f1.c",
+                "message": "",
+            }
+
+        monkeypatch.setattr("rebrew.cross_import.import_function", _fake_import)
+        runner = CliRunner()
+        result = runner.invoke(
+            umbrella, ["cross-import", "--from", "SRC", "--json", "--limit", "0"]
+        )
+        assert result.exit_code == 0, result.output
+        assert calls == []
+
+    def test_sizeless_refusal_row(self, tmp_path: Path, monkeypatch) -> None:
+        """A sizeless dest VA the disassembler cannot size gets the
+        'sizeless, use --va' row instead of vanishing silently."""
+        import json as json_mod
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        self._project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("rebrew.cross_import.matched_source_bytes", lambda cfg: {A_F1: F1})
+        monkeypatch.setattr(
+            "rebrew.cross_import.unmatched_dest_bytes",
+            lambda cfg, only_va=None: {B_F1: F1},
+        )
+        monkeypatch.setattr(
+            "rebrew.cross_import.cross_match", lambda d, s, **k: {B_F1: (A_F1, 100.0)}
+        )
+        monkeypatch.setattr("rebrew.cross_import._registry", lambda cfg: {})
+        monkeypatch.setattr(
+            "rebrew.cross_import._annotations_by_va",
+            lambda cfg: {B_F1: ("STUB", "f1.c"), A_F1: ("EXACT", "f1.c")},
+        )
+        # B_F1 sized by disassembly, 0x499999 refused by it.
+        monkeypatch.setattr(
+            "rebrew.cross_import.sizeless_dest_vas",
+            lambda cfg: ({B_F1: len(F1)}, [0x499999]),
+        )
+        monkeypatch.setattr(
+            "rebrew.cross_import.import_function",
+            lambda *a, **k: {
+                "dst_va": "0x00401040",
+                "src_va": "0x00401000",
+                "score": 100.0,
+                "action": "would-import",
+                "status": "",
+                "filepath": "f1.c",
+                "message": "",
+            },
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            umbrella,
+            ["cross-import", "--from", "SRC", "--json", "--dry-run"],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json_mod.loads(result.output)
+        rows = {r["dst_va"]: r for r in payload["results"]}
+        refused = rows["0x00499999"]
+        assert refused["action"] == "skipped"
+        assert "sizeless function" in refused["message"]
+        assert "--va" in refused["message"]
+
+    def test_disasm_sized_import_carries_warning(self) -> None:
+        """The sizing warning fills an empty message but never overwrites
+        a real verification message."""
+        res = ci.merge_sizeless_warning({"message": ""}, 11)
+        assert "disassembly-derived extent" in res["message"]
+        assert "--va" in res["message"]
+        res = ci.merge_sizeless_warning({"message": "real mismatch"}, 11)
+        assert res["message"] == "real mismatch"
+        res = ci.merge_sizeless_warning({"message": ""}, None)
+        assert res["message"] == ""
 
 
 class TestGccPeEndToEnd:
@@ -454,3 +725,26 @@ class TestGccPeEndToEnd:
         ), res
         text = (cfg_dst.reversed_dir / "f1.c").read_text(encoding="utf-8")
         assert "// FUNCTION: DST 0x401040" in text
+
+
+class TestRewriteMarkerSizeAndLineEndings:
+    def test_block_comment_size_is_replaced(self) -> None:
+        """The parser accepts `/* SIZE: N */` and is last-wins, so inserting a
+        second `// SIZE` before it left the SOURCE size in force and verify
+        sliced the wrong length."""
+        import rebrew.cross_import as ci
+
+        src = "/* FUNCTION: SRC 0x401000 */\n/* SIZE: 11 */\nint f(void) { return 0; }\n"
+        out = ci._rewrite_marker(src, "DST", 0x601000, 13)
+        assert "// SIZE: 13" in out
+        assert "SIZE: 11" not in out
+
+    def test_crlf_line_endings_preserved(self) -> None:
+        import rebrew.cross_import as ci
+
+        src = "// FUNCTION: SRC 0x401000\r\n// SIZE: 11\r\nint f(void) { return 0; }\r\n"
+        out = ci._rewrite_marker(src, "DST", 0x601000, 13)
+        lines = out.splitlines(keepends=True)
+        assert lines[0] == "// FUNCTION: DST 0x601000\r\n"
+        assert lines[1] == "// SIZE: 13\r\n"
+        assert all(line.endswith("\r\n") for line in lines if line.strip())

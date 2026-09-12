@@ -319,3 +319,14 @@ class TestDescribeCli:
         via_all_refs = _compute_strings(info, start, end, all_refs)
         standalone = _compute_strings(info, start, end)
         assert via_all_refs == standalone
+
+
+class TestContainingNameSmallestRange:
+    def test_overlapping_ranges_pick_the_smallest(self) -> None:
+        """An oversized outer SIZE overlaps the next function; the resolver
+        promises the SMALLEST containing range, not the earliest-starting one."""
+        from rebrew.describe import _containing_name
+
+        ranges = [(0x1000, 0x1200, "outer"), (0x1040, 0x1080, "inner")]
+        assert _containing_name(0x1050, {}, ranges) == "inner"
+        assert _containing_name(0x1150, {}, ranges) == "outer"

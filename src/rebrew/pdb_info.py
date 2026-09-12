@@ -3,9 +3,12 @@
 When a target binary ships a sibling ``.pdb``, the PDB's debug info is the
 most authoritative offline source of the *exact* build configuration:
 
-- ``S_COMPILE3`` record — compiler frontend/backend versions and (for MSVC
-  PDBs with real debug info) the actual command-line flags, i.e. the exact
-  ``CFLAGS`` that will byte-match.
+- ``S_COMPILE3`` record — compiler frontend/backend versions and the record's
+  ``flags`` field.  llvm-pdbutil prints that field as *symbolic* switches
+  (``none``, or ``sdl | pgo | ltcg``) — it is a CodeView bitmask
+  (``CompileSym3Flags``), not a command line; only tokens that look like
+  compiler options (``/O1``, ``-MT``) count as CFLAGS candidates, and
+  ``--write-cflags`` refuses to write a symbolic switch list into the config.
 - ``S_GPROC32``/``S_LPROC32`` records — function names (and best-effort
   addresses/sizes) for ``functions.txt``.
 - module list — a ``.zig-cache`` path identifies a Zig build.
@@ -109,7 +112,9 @@ def _parse_compile3(text: str) -> tuple[str, str, list[str]]:
         backend = bm.group(1).strip()
     fl = re.search(r"flags\s*=\s*([^\n,]+)", block)
     if fl and fl.group(1).strip().lower() not in ("none", ""):
-        flags = [f.strip() for f in fl.group(1).split() if f.strip()]
+        # llvm-pdbutil joins the symbolic CompileSym3Flags with " | "; split on
+        # that as well as whitespace so `sdl | pgo` is two entries, not one.
+        flags = [tok for tok in re.split(r"[|\s]+", fl.group(1)) if tok]
     return frontend, backend, flags
 
 
@@ -123,7 +128,7 @@ def _parse_procs(text: str) -> list[dict[str, object]]:
     out: list[dict[str, object]] = []
     # Detail-block form (name = '...' inside the record block).
     for m in re.finditer(
-        r"S_(?:G|L)PROC32 \[size = \d+\](?:\s+`([^`]+)`)?(.*?)(?=\n[^\n]*S_(?:G|L)PROC32|\Z)",
+        r"S_(?:G|L)PROC32(?:_ID)? \[size = \d+\](?:\s+`([^`]+)`)?(.*?)(?=\n[^\n]*S_(?:G|L)PROC32(?:_ID)?|\Z)",
         text,
         re.S,
     ):
@@ -210,20 +215,30 @@ def main(
     }
 
     if write_cflags and info.flags and not info.error:
+        # The S_COMPILE3 `flags` field is a symbolic CodeView bitmask list
+        # ("sdl | pgo | ltcg"), not a command line: writing it as CFLAGS put
+        # junk options into [compiler] and broke every later compile.  Only
+        # option-looking tokens are CFLAGS candidates.
+        candidates = [f for f in info.flags if f.startswith(("/", "-"))]
         cfg_path = Path("rebrew-project.toml")
-        if not cfg_path.exists():
+        if not candidates:
+            payload["cflags_write"] = (
+                "skipped: S_COMPILE3 flags are compiler switches "
+                f"({' | '.join(info.flags)}), not command-line CFLAGS"
+            )
+        elif not cfg_path.exists():
             payload["cflags_write"] = "skipped: no rebrew-project.toml in cwd"
         elif dry_run:
-            payload["cflags_write"] = "dry-run: " + " ".join(info.flags)
+            payload["cflags_write"] = "dry-run: " + " ".join(candidates)
         else:
             from rebrew.cfg import load_toml, save_toml
 
             doc, toml_path = load_toml(cfg_path.parent)
             comp = doc.get("compiler")
             if isinstance(comp, dict):
-                comp["cflags"] = " ".join(info.flags)
+                comp["cflags"] = " ".join(candidates)
                 save_toml(doc, toml_path)
-                payload["cflags_write"] = " ".join(info.flags)
+                payload["cflags_write"] = " ".join(candidates)
 
     if json_output:
         json_print(payload)

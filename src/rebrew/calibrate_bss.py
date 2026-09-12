@@ -32,6 +32,7 @@ from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
 from rebrew.config import walk_up_to_root
+from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
 
@@ -52,8 +53,10 @@ def _layout_data_vs(root: Path) -> int | None:
         return None
     # Pick the DEFAULT target only — scanning every target and returning the
     # first .data VS silently calibrated against the wrong binary when the
-    # project has several targets (link-review F7).
-    default = cfg.get("default_target")
+    # project has several targets (link-review F7).  The key lives under
+    # [project]; reading it at the top level always missed it.
+    project = cfg.get("project", {})
+    default = project.get("default_target") if isinstance(project, dict) else None
     if default is None or default not in targets:
         default = next(iter(targets))
     tcfg = targets[default]
@@ -124,7 +127,13 @@ def main(
             error_exit("no target VS given and no .data vs in the layout metadata")
         target_vs_int = int(target_vs_int)
     else:
-        target_vs_int = int(target_vs, 0)
+        try:
+            target_vs_int = int(target_vs, 0)
+        except ValueError:
+            error_exit(f"--target-vs must be an integer-like value (got {target_vs!r})")
+
+    if max_iters < 1:
+        error_exit("--max-iters must be at least 1")
 
     tail_re = re.compile(rf"{symbol}\[\s*0x([0-9A-Fa-f]+)\s*\]")
     if not tail_re.search(stub.read_text(encoding="utf-8")):
@@ -157,6 +166,9 @@ def main(
     scratch = Path(scratch_name)
 
     iters: list[dict[str, int]] = []
+    # The loop rewrites the stub tail in place before each relink; a failed
+    # calibration must not leave a wrong pad behind, so snapshot and restore.
+    original_stub = stub.read_text(encoding="utf-8")
     try:
         for it in range(max_iters):
             cmd = cmd_tpl.format(out=scratch, options="")
@@ -183,8 +195,8 @@ def main(
             new_tail = int(m.group(1), 16) + delta
             if new_tail <= 0:
                 error_exit(f"tail would go non-positive ({new_tail:#x}) — manual fix needed")
-            stub.write_text(
-                text[: m.start(1)] + f"{new_tail:x}" + text[m.end(1) :], encoding="utf-8"
+            atomic_write_text(
+                stub, text[: m.start(1)] + f"{new_tail:x}" + text[m.end(1) :], encoding="utf-8"
             )
             obj = _stub_obj(target_dir, stub, root)
             try:
@@ -202,6 +214,9 @@ def main(
                 error_exit(f"stub compile failed (rc={exc.returncode}): {stderr}")
         else:
             error_exit(f"did not converge in {max_iters} iterations (last delta {delta:+d})")
+    except BaseException:
+        atomic_write_text(stub, original_stub, encoding="utf-8")
+        raise
     finally:
         scratch.unlink(missing_ok=True)
 

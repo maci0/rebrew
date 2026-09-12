@@ -94,8 +94,13 @@ def _pe_checksum(data: bytes) -> int:
         checksum += struct.unpack_from("<H", tmp, i)[0]
         checksum = (checksum & 0xFFFF) + (checksum >> 16)
     checksum = (checksum & 0xFFFF) + (checksum >> 16)
-    checksum += len(data)
-    return (checksum & 0xFFFF) + (checksum >> 16)
+    checksum = (checksum & 0xFFFF) + (checksum >> 16)
+    # The spec (and pefile's reference implementation) ends with the ORIGINAL
+    # file length added to the folded 16-bit sum — the result may exceed 0xFFFF
+    # and is stored as a u32.  Folding again here destroyed the length term
+    # (e.g. 0x2A492 -> 0xA494), so every non-trivial PE got a checksum that
+    # Windows/pefile reject.
+    return (checksum & 0xFFFF) + len(data)
 
 
 def patch_pe_headers(data: bytes, fields: dict[str, int]) -> bytes:
@@ -119,8 +124,12 @@ def patch_pe_headers(data: bytes, fields: dict[str, int]) -> bytes:
         # linker_version_minor and spill into SizeOfCode).
         value = fields[label] & ((1 << (8 * size)) - 1)
         out[pos : pos + size] = value.to_bytes(size, "little")
-    # Recompute checksum over the patched image.
-    struct.pack_into("<I", out, lfanew + 0x58, _pe_checksum(bytes(out)))
+    # Recompute checksum over the patched image.  A file whose optional header
+    # stops before the checksum field is left as-is rather than raising
+    # struct.error out of pack_into.
+    cksum_pos = lfanew + 0x58
+    if cksum_pos + 4 <= len(out):
+        struct.pack_into("<I", out, cksum_pos, _pe_checksum(bytes(out)))
     return bytes(out)
 
 

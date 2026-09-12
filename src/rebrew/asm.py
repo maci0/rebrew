@@ -65,6 +65,34 @@ _ESP_REF_RE = re.compile(r"\[esp")
 _IAT_ABS_RE = re.compile(r"dword ptr \[0x[0-9a-fA-F]+\]")
 # `mov reg, [esp+X]` — the load half of the IAT-forwarder push pair.
 _ESP_LOAD_RE = re.compile(r"^[a-z0-9]+, dword ptr \[esp")
+# `push dword ptr [esp+X]` — the compact forwarding form: the argument is
+# pushed straight from the incoming stack slot, no register load needed.
+_ESP_PUSH_RE = re.compile(r"^dword ptr \[esp")
+# `push [esp+X]` without an explicit size — capstone renders the bare form
+# for some encodings of the same stack-slot push.
+_BARE_ESP_PUSH_RE = re.compile(r"^\[esp")
+
+
+def _count_forwarded_pushes(run: list[tuple[str, str]]) -> int:
+    """Count stack-slot argument pushes in an IAT-call prologue *run*.
+
+    Both forwarding forms count: ``mov reg,[esp+X]; push reg`` (loaded then
+    pushed) and ``push [esp+X]`` (pushed straight from the incoming stack
+    slot).  A plain ``push imm`` / ``push reg`` argument call pushes no
+    stack slots and scores 0.
+    """
+    loaded: set[str] = set()
+    pushes = 0
+    for mn, op in run:
+        if mn == "push":
+            arg = op.strip()
+            if arg in loaded or _ESP_PUSH_RE.search(arg) or _BARE_ESP_PUSH_RE.search(arg):
+                pushes += 1
+        elif _ESP_LOAD_RE.search(op):
+            loaded.add(op.split(",")[0].strip())
+    return pushes
+
+
 _JMP_TABLE_RE = re.compile(r"dword ptr \[[a-z0-9]+\s*\*\s*4")
 _BYTE_TABLE_FETCH_RE = re.compile(r"byte ptr \[[a-z0-9]+\s*\+\s*0x")
 
@@ -231,25 +259,18 @@ def _hint_for(insns: list[Any], i: int) -> str | None:
     # is cdecl (plain ret) while the callee cleans — declare a __stdcall
     # function pointer for the call or MSVC emits a spurious `add esp,N`.
     if m == "call" and _IAT_ABS_RE.search(ops):
-        push_count = 0
         # An IAT forwarder pushes ARGUMENTS RELOADED FROM THE STACK
-        # (`mov reg,[esp+X]; push reg` — including final bare pushes of
-        # registers loaded earlier).  A plain `push imm` / `push reg`
-        # argument call is not a forwarder and must not be labeled.
+        # (`mov reg,[esp+X]; push reg` or `push [esp+X]` — including final
+        # bare pushes of registers loaded earlier).  A plain `push imm` /
+        # `push reg` argument call is not a forwarder and must not be labeled.
         run: list[tuple[str, str]] = []
         j = i - 1
         while j >= 0 and j >= i - 16 and insns[j].mnemonic in ("mov", "push"):
             run.append((insns[j].mnemonic, insns[j].op_str))
             j -= 1
         run.reverse()  # forward order
-        loaded: set[str] = set()
-        for mn, op in run:
-            if mn == "push":
-                if op.strip() in loaded:
-                    push_count += 1
-            elif _ESP_LOAD_RE.search(op):
-                loaded.add(op.split(",")[0].strip())
-        if push_count >= 3:
+        push_count = _count_forwarded_pushes(run)
+        if push_count >= 1:
             return (
                 f"{push_count}-arg IAT forwarder — declare a __stdcall function "
                 "pointer for the call (the callee cleans; the forwarder is cdecl)"
@@ -308,8 +329,11 @@ def detect_function_pattern(cfg: ProjectConfig, va: int) -> str | None:
             return None
 
         i0 = insns[0]
-        # Import thunk: jmp [IAT] (1-2 insns total).
-        if i0.mnemonic == "jmp" and "[" in i0.op_str and "0x" in i0.op_str:
+        # Import thunk: jmp [IAT] (1-2 insns total).  A scaled index means the
+        # jmp is a jump-table dispatch (`jmp dword ptr [eax*4 + 0x...]`), which
+        # the switch check below classifies — the old guard labeled it as
+        # linker glue and steered the skip-vs-decompile decision wrong.
+        if i0.mnemonic == "jmp" and "[" in i0.op_str and "0x" in i0.op_str and "*" not in i0.op_str:
             return "import thunk (jmp [IAT]) — linker glue, not a decomp target"
         # EH-ctor: mov eax, imm32; call helper.
         if (
@@ -326,9 +350,9 @@ def detect_function_pattern(cfg: ProjectConfig, va: int) -> str | None:
             for x in insns
         ):
             return "switch dispatch (jump table)"
-        # IAT forwarder: ≥3 pushes of stack-loaded args + call [IAT]
-        # (+ ret after).  A plain `push imm`/`push reg` argument call is
-        # not a forwarder and must not be labeled.
+        # IAT forwarder: stack-slot pushes + call [IAT] (+ ret after).  A
+        # plain `push imm`/`push reg` argument call is not a forwarder and
+        # must not be labeled.
         call = next((x for x in reversed(insns) if x.mnemonic == "call"), None)
         if call and re.search(r"dword ptr \[0x[0-9a-fA-F]+\]", call.op_str):
             ci = insns.index(call)
@@ -338,15 +362,8 @@ def detect_function_pattern(cfg: ProjectConfig, va: int) -> str | None:
                 run.append((insns[j].mnemonic, insns[j].op_str))
                 j -= 1
             run.reverse()  # forward order
-            loaded: set[str] = set()
-            pushes = 0
-            for mn, op in run:
-                if mn == "push":
-                    if op.strip() in loaded:
-                        pushes += 1
-                elif _ESP_LOAD_RE.search(op):
-                    loaded.add(op.split(",")[0].strip())
-            if pushes >= 3:
+            pushes = _count_forwarded_pushes(run)
+            if pushes >= 1:
                 return f"IAT forwarder ({pushes}-arg) — stdcall callee; the forwarder is cdecl"
     except Exception:  # best-effort pattern tag
         logger.debug("pattern scan failed at 0x%08x", va, exc_info=True)
@@ -367,7 +384,9 @@ def ret_pop_count(op_str: str) -> int:
     return max(0, n)
 
 
-def calling_convention(insns: list[Any]) -> str:
+def calling_convention(
+    insns: list[Any], *, end_va: int | None = None, next_va: int | None = None
+) -> str:
     """Infer the calling convention from a disassembled function.
 
     Rules (x86/32, MSVC-flavoured):
@@ -380,11 +399,24 @@ def calling_convention(insns: list[Any]) -> str:
       thunk; otherwise a generic tail-call thunk.
     - no terminator found → unknown.
 
+    The window may bleed past the function into the next one.  Pass
+    *next_va* (the next function's start, when known) to trim the bleed:
+    the LAST ret at or before *next_va* ends the function; rets past it
+    belong to the neighbor.  Pass *end_va* (the function's known end
+    address, exclusive) to drop anything at/after it first.  Without
+    either, the last ret in the whole window is used.
+
     This is the per-function calling-convention answer that every manual
     decompilation pass re-derives from the epilogue — surfaced here so the
     C signature (``__stdcall`` vs ``__fastcall``/``__thiscall`` emulation vs
     naked asm) is known before writing a single line.
     """
+    if not insns:
+        return "unknown"
+    if end_va is not None:
+        insns = [i for i in insns if i.address < end_va]
+    if next_va is not None:
+        insns = [i for i in insns if i.address < next_va]
     if not insns:
         return "unknown"
     first = insns[0]
@@ -405,12 +437,13 @@ def calling_convention(insns: list[Any]) -> str:
         for i in insns[:10]
     )
     # The extraction can run past the function's end into the next one.  A
-    # function ends with its LAST ret (early returns precede it); if there is
-    # no ret at all it is a tail-jmp thunk (which has no internal branches).
-    # Use the LAST jmp too: the extent-padded window can bleed into the next
-    # function, and a jmp-table dispatcher followed by the next function's
-    # code yields several jmps with no ret — the terminal one is the
-    # function's true end (matching the rets[-1] logic above).
+    # function ends with its LAST ret inside its own bytes (early returns
+    # precede it); if there is no ret at all it is a tail-jmp thunk (which
+    # has no internal branches).  Use the LAST jmp too: the extent-padded
+    # window can bleed into the next function, and a jmp-table dispatcher
+    # followed by the next function's code yields several jmps with no ret —
+    # the terminal one is the function's true end (matching the rets[-1]
+    # logic above).
     rets = [insn for insn in insns if insn.mnemonic.startswith("ret")]
     if rets:
         last = rets[-1]
@@ -490,6 +523,27 @@ def disassembled_extent_window(cfg: ProjectConfig, va: int) -> tuple[list[Any], 
         return [], None
 
 
+def _next_function_va(cfg: ProjectConfig, va: int) -> int | None:
+    """Start VA of the function after *va* in the function list, if known.
+
+    Lets ``calling_convention`` trim a disassembly window that bleeds past
+    the function's end into its neighbor.
+    """
+    func_list_path = getattr(cfg, "function_list", "")
+    if not func_list_path or not Path(func_list_path).is_file():
+        return None
+    from rebrew.catalog import parse_function_list
+
+    try:
+        vas = sorted(int(f["va"]) for f in parse_function_list(Path(func_list_path)))
+    except (OSError, ValueError, KeyError):
+        return None
+    for cand in vas:
+        if cand > va:
+            return cand
+    return None
+
+
 def calling_convention_at(cfg: ProjectConfig, va: int) -> str:
     """Infer the calling convention of the function at *va* (extent-based).
 
@@ -499,7 +553,7 @@ def calling_convention_at(cfg: ProjectConfig, va: int) -> str:
     insns, _kind = disassembled_extent_window(cfg, va)
     if not insns:
         return "unknown"
-    return calling_convention(insns)
+    return calling_convention(insns, next_va=_next_function_va(cfg, va))
 
 
 def _extract_hex_operand(op_str: str) -> int | None:
@@ -618,9 +672,15 @@ def _run_hex_mode(
                 (i for i, insn in enumerate(insn_list) if insn.address >= va_int), 0
             )
             shown_list = insn_list[shown_offset:]
+            # Trim the bleed window at the next function's start so a `ret`
+            # from the neighbor never decides this function's convention.
+            bleed_next = _next_function_va(cfg, va_int)
+            conv_insns = (
+                [i for i in shown_list if i.address < bleed_next] if bleed_next else shown_list
+            )
 
             if json_output:
-                conv = calling_convention(shown_list)
+                conv = calling_convention(conv_insns)
                 instr_json = []
                 for idx, insn in enumerate(shown_list):
                     entry: dict[str, Any] = {
@@ -655,7 +715,7 @@ def _run_hex_mode(
             )
             if ne_seg is not None:
                 console.print(f"  [dim]SEG{ne_seg}:0x{va_int & 0xFFFF:04x} ({ne_seg_name})[/dim]")
-            conv = calling_convention(shown_list)
+            conv = calling_convention(conv_insns)
             if conv != "unknown":
                 console.print(f"  [dim]calling convention: {conv}[/dim]")
             console.print()

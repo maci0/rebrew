@@ -58,6 +58,13 @@ prove = [
 # non-uv `pip install ".[similarity]"` would resolve the bare name from PyPI,
 # which this project does not own — pip users must install ../resembl by hand.
 similarity = [
+    # Pinned to the sibling checkout via [tool.uv.sources] (path dep).  The
+    # bare name is uv-only by construction: uv resolves it from ../resembl
+    # and never touches PyPI, but a non-uv `pip install ".[similarity]"`
+    # would resolve the bare name from PyPI (a different project) — pip
+    # users must install ../resembl by hand. There is no version to pin:
+    # the path dep has no PyPI release to confuse with, and the sibling
+    # checkout is the single source of truth.
     "resembl",
     "rapidfuzz>=3.13",  # direct import in matcher/scoring.py code_similarity (resembl only declares it transitively)
 ]
@@ -67,6 +74,12 @@ similarity = [
 # OpenAPI package) — it installs from git per the upstream README.
 m2c = [
     "m2c @ git+https://github.com/matt-kempster/m2c.git",
+]
+# BinSync state I/O: declib is BinSync's artifact layer.  rebrew.binsync_serial
+# is the single module that touches it; the CLIs raise a clear install error
+# when the extra is absent.
+binsync = [
+    "declib>=4.5",
 ]
 
 [project.scripts]
@@ -88,11 +101,15 @@ rebrew-asm = "rebrew.asm:main_entry"
 rebrew-binsync-diff = "rebrew.binsync_diff:main_entry"
 rebrew-binsync-export = "rebrew.binsync_export:main_entry"
 rebrew-binsync-import = "rebrew.binsync_import:main_entry"
+rebrew-binsync-init = "rebrew.binsync_init:main_entry"
+rebrew-binsync-overlay = "rebrew.binsync_overlay:main_entry"
+rebrew-binsync = "rebrew.binsync_cli:main_entry"
 rebrew-build-db = "rebrew.build_db:main_entry"
 rebrew-cache-cli = "rebrew.cache_cli:main_entry"
 rebrew-cfg = "rebrew.cfg:main_entry"
 rebrew-crt-match = "rebrew.crt_match:main_entry"
 rebrew-lib-match = "rebrew.lib_match:main_entry"
+rebrew-climb = "rebrew.climb:main_entry"
 rebrew-dashboard = "rebrew.dashboard:main_entry"
 rebrew-data = "rebrew.data:main_entry"
 rebrew-depgraph = "rebrew.depgraph:main_entry"
@@ -161,7 +178,14 @@ filterwarnings = [
 
 [tool.slipcover]
 source = ["src/rebrew"]
-# Run: uv run python -m slipcover -m pytest
+# Run: uv run python -m slipcover --fail-under 80 -m pytest
+# (fail-under enforced: AGENTS.md coverage ratchets — coverage may rise, never
+# fall. Current suite coverage is ~92%; the floor sits below it so legitimate
+# drops fail the gate instead of passing silently. NOTE: slipcover reads only
+# CLI flags, not this section — always pass --fail-under explicitly; this key
+# documents the floor. Check with
+# `uv run python -m slipcover --json cov.json -m pytest`.)
+fail_under = 80
 # Or for JSON output: uv run python -m slipcover --json cov.json -m pytest
 
 [tool.ruff]
@@ -217,6 +241,8 @@ module = [
     "capstone.*",  # no stubs / py.typed shipped upstream
     "diskcache",
     "diskcache.*",  # unsafe-pickle advisory noted in [project] dependencies; stubs still absent
+    "declib",
+    "declib.*",  # BinSync's artifact layer (binsync extra); no stubs/py.typed
     "flirt",
     "flirt.*",  # python-flirt ships no type information
     "resembl",

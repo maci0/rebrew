@@ -134,3 +134,37 @@ All IMPLEMENT items are now **DONE** (verified in this run):
 Plus (from the 8-hour run): mypy debt 186→0 (all 73 modules clean, gate wired
 into CI + pre-commit), coverage 79%→82% overall with 25 modules taken to
 85-100%, 6 real bugs found & fixed, 8 review passes, ~130 tests added.
+
+---
+
+## RECORD-only: deferred from the 2026-09-12 review
+
+Two findings from the review/fix run were verified but deliberately not fixed; both need a
+decision rather than a mechanical edit.
+
+### `verify --data` is VA-keyed and module-blind
+
+- **Where:** `src/rebrew/verify.py:1439-1457` (the status write loop) and
+  `src/rebrew/data_verify.py:39-52` (its `names` map and the name-based
+  `matched`/`mismatched`/`missing` lists).
+- **Symptom:** on a project whose targets share one `rebrew-data.toml`, `verify --data -t CLIENT`
+  also compares SERVER's globals against CLIENT's bytes, writes `UNCHECKED`/`DRIFT` under
+  SERVER's `MODULE.0xVA` key, and a same-VA collision silently drops one module.
+- **Why deferred:** the whole data-metadata path is module-agnostic by design (`rebrew data` and
+  `iter_data_symbols` also scan every module), so there is no established target→module rule to
+  filter on. Fixing it means defining that rule and threading a selected module through
+  `verify_data_bytes`, which changes which statuses a `--data` run writes. Recording the boundary
+  is the honest alternative until the rule is decided.
+
+### The verify cache has no `name_to_va` catalog fingerprint
+
+- **Where:** `src/rebrew/verify.py:918-939` (cache load guards) and `:2157-2187` (entry guards).
+- **Symptom:** the cached verdict depends on reloc validation, which resolves against the
+  project-global `name_to_va` catalog (data metadata, DLL exports, every `// FUNCTION:` marker).
+  Adding an annotation that makes a reloc valid flips a function from `NEAR_MATCHING` to `RELOC`,
+  but the entry's own source, headers, flags, size, toolchain and binary id are unchanged, so the
+  stale verdict keeps being served until a `--full` re-verify.
+- **Why deferred:** computing the catalog costs a whole-tree source scan, and the cache load path
+  runs on every verify. A correct fix fingerprints something cheap that covers the catalog (the
+  data-metadata file's hash plus the function-list hash) and must be measured before it lands;
+  until then `--full` is the documented remedy.

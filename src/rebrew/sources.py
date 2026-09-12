@@ -56,9 +56,75 @@ def target_marker(cfg: ProjectConfig | None) -> str | None:
     return cfg.marker if cfg is not None else None
 
 
-def iter_library_headers(directory: Path) -> list[Path]:
-    """Return all library_*.h files under *directory*, recursively."""
-    return sorted(p for p in directory.rglob("library_*.h") if not p.is_symlink())
+def _library_headers_under(directory: Path) -> list[Path]:
+    """``library_*.h`` files under *directory*, skipping :data:`_EXCLUDE_DIRS`.
+
+    The exclusion set matches :func:`_files_with_ext` — without it the header
+    scan descended into ``build/``, ``.venv/``, and a copied dependency tree,
+    counting their headers as the project's own library markers.
+    """
+    return sorted(
+        p
+        for p in directory.rglob("library_*.h")
+        if not p.is_symlink()
+        and not any(part in _EXCLUDE_DIRS for part in p.relative_to(directory).parts[:-1])
+    )
+
+
+def iter_library_headers(directory: Path, cfg: ProjectConfig | None = None) -> list[Path]:
+    """Return all library_*.h files under *directory*, recursively.
+
+    With *cfg*, the project's shared root (``cfg.shared_dir``) joins the scan
+    when *directory* IS the target's ``reversed_dir`` — the same rule
+    :func:`iter_sources` applies to sources, and what
+    :func:`rebrew.catalog.scan_reversed_dir` already did for headers.  Without
+    it, shared ``library_*.h`` markers are invisible to coverage (`status`,
+    `todo`), `crt-match`, the call graph, and ``rebrew context``.
+    """
+    files = _library_headers_under(directory)
+    if cfg is None:
+        return files
+    shared = getattr(cfg, "shared_dir", None)
+    reversed_dir = getattr(cfg, "reversed_dir", None)
+    if (
+        shared is not None
+        and reversed_dir is not None
+        and Path(directory).resolve() == Path(reversed_dir).resolve()
+        and shared.is_dir()
+        and Path(shared).resolve() != Path(directory).resolve()
+    ):
+        files = sorted(set(files) | set(_library_headers_under(shared)))
+    return files
+
+
+#: Directories rglob must not descend into when scanning for sources.
+_EXCLUDE_DIRS = {
+    ".git",
+    ".hg",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "build",
+    "dist",
+    ".tox",
+    "node_modules",
+}
+
+
+def _files_with_ext(directory: Path, wanted: set[str]) -> list[Path]:
+    """Sorted files under *directory* whose lower-cased suffix is in *wanted*.
+
+    Shared by the target's own scan and the shared-sources scan so both halves
+    apply the same extension set and the same exclusion rules.
+    """
+    return sorted(
+        p
+        for p in directory.rglob("*")
+        if p.is_file()
+        and p.suffix.lower() in wanted
+        and not any(part in _EXCLUDE_DIRS for part in p.relative_to(directory).parts[:-1])
+        and not p.is_symlink()
+    )
 
 
 def iter_sources(directory: Path, cfg: ProjectConfig | None = None) -> list[Path]:
@@ -80,26 +146,7 @@ def iter_sources(directory: Path, cfg: ProjectConfig | None = None) -> list[Path
     """
     exts = source_exts(cfg) or [".c"]
     wanted = {ext.lower() for ext in exts}
-    # Exclude common non-source dirs that rglob would otherwise descend into
-    _EXCLUDE_DIRS = {
-        ".git",
-        ".hg",
-        "__pycache__",
-        ".venv",
-        "venv",
-        "build",
-        "dist",
-        ".tox",
-        "node_modules",
-    }
-    base = sorted(
-        p
-        for p in directory.rglob("*")
-        if p.is_file()
-        and p.suffix.lower() in wanted
-        and not any(part in _EXCLUDE_DIRS for part in p.relative_to(directory).parts[:-1])
-        and not p.is_symlink()
-    )
+    base = _files_with_ext(directory, wanted)
 
     if cfg is None:
         return base
@@ -114,6 +161,9 @@ def iter_sources(directory: Path, cfg: ProjectConfig | None = None) -> list[Path
         and shared.is_dir()
         and Path(shared).resolve() != Path(directory).resolve()
     ):
-        shared_files = iter_sources(shared, None)  # cfg=None: no recursion
+        # Same extension set as the target's own scan: the shared half used to
+        # be globbed through a `cfg=None` recursive call, which silently fell
+        # back to `[".c"]` and dropped every shared `.cpp`/`.cc` source.
+        shared_files = _files_with_ext(shared, wanted)
         return sorted(set(base) | set(shared_files))
     return base

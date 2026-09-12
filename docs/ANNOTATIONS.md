@@ -155,7 +155,7 @@ support TU only when nothing in the reversed tree can carry it.
 | `CALLERS` | Optional | — | Incoming cross-references |
 | `GLOBALS` | Optional | — | Comma-separated list of globals referenced (e.g. `g_counter, g_state`) |
 | `SKIP` | Optional | — | Known acceptable byte differences (e.g. `SKIP: xor edi,edi after call`) |
-| `ANALYSIS` | Optional | — | Freeform analysis notes from decompiler or reverse engineer |
+| `ANALYSIS` | Optional | — | Freeform analysis notes from decompiler or reverse engineer; the per-address form `// ANALYSIS @ 0xADDR: text` is documented below |
 
 > [!CAUTION]
 > **Never manually edit `rebrew-functions.toml`.** This metadata file stores volatile metadata
@@ -170,6 +170,22 @@ support TU only when nothing in the reversed tree can carry it.
 > inline. CFLAGS is optional and falls back to the target default from config.
 > `SOURCE` and `BLOCKER` are enforced as warnings only for specific origins/statuses. Function
 > name and symbol are derived automatically from the C function definition.
+
+### Per-Address ANALYSIS Comments
+
+Per-instruction comments can be written as address-anchored line comments,
+placed in a single trailing block at the END of the owning `.c` file (one line
+per comment, sorted by address, separated from the code by one blank line):
+
+```c
+// ANALYSIS @ 0x401010: some note
+```
+
+The address is the anchor; rebrew has no source line table, so the block is
+file-level and never touches a function body. `rebrew binsync import`/`pull`
+write these markers for comments that fall inside a function's range, and
+`rebrew binsync export`/`push` scan them back out; a source marker wins over
+the metadata `comments` store for the same address.
 
 ### STATUS Values
 
@@ -394,10 +410,10 @@ Errors indicate broken annotations that will cause `rebrew test`, `rebrew verify
 | Code | Description | Triggered by |
 |------|-------------|--------------|
 | E003 | *(deprecated)* | STATUS is metadata-only — no longer validated inline |
-| E004 | *(not implemented)* | Reserved for STATUS value validation |
+| E004 | Unknown STATUS value | A persisted metadata `status` outside `metadata.KNOWN_STATUSES` (typo or legacy value). `canonical_status` only upper-cases, so the unknown word would otherwise be treated as a real classification |
 | E006 | *(reserved)* | Unused — was ORIGIN validation |
 | E007 | *(deprecated)* | SIZE is metadata-only — no longer validated inline |
-| E008 | *(not implemented)* | Reserved for SIZE value validation |
+| E008 | Invalid SIZE value | A metadata `size` that is not an integer (`size = "abc"`). SIZE is metadata-only, so a non-numeric spelling would make consumers slice the wrong byte count |
 | E014 | *(not implemented)* | Reserved for corrupted annotation value detection |
 | E015 | Marker/module mismatch | `// FUNCTION:` with a library-configured module (expected `LIBRARY`). Library modules defined by `library_modules` config |
 | E017 | Contradictory status/marker | `STATUS: NEAR_MATCHING` on a `// STUB:` marker |
@@ -689,8 +705,9 @@ int _wsetenvp(void)
 
 - Each `// FUNCTION:` marker line starts a new annotation block
 - Code lines between blocks are ignored by the parser — they don't terminate scanning
-- `parse_c_file()` returns only the **first** annotation (backward compatible)
-- `parse_c_file_multi()` returns **all** annotations as a list
+- `parse_c_file_multi()` returns **all** annotations as a list (there is no
+  single-annotation `parse_c_file` — it was removed; multi-function files
+  yield one `Annotation` per `// FUNCTION:` block)
 
 ### Creating Multi-Function Files
 

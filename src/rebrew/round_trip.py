@@ -37,6 +37,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from rebrew.annotation import resolve_symbol
 from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary, va_to_file_offset
 from rebrew.catalog import trim_trailing_padding
 from rebrew.cli import (
@@ -136,6 +137,7 @@ class _SpliceFn:
     path: Path
     module: str
     cflags: list[str]
+    toolchain: str = ""
 
 
 def _collect_splice_set(
@@ -155,30 +157,35 @@ def _collect_splice_set(
         metadata_dir=cfg.metadata_dir,
     ):
         for ann in anns:
-            if symbol_filter and symbol_filter not in ann.symbol:
+            if symbol_filter and symbol_filter not in _catalog_key(ann, path):
                 continue
             md = get_entry(cfg.metadata_dir, ann.va, ann.module)  # canonical: (dir, va, module)
-            status = md.get("status", "STUB")
-            # iter_annotations(..., metadata_dir=...) already merges cflags into the
-            # annotation, so prefer ann.cflags as the single source of truth.
-            # Fall back to the project-default cflags (e.g. ``/O2 /Gd``) — without
-            # this fallback, functions whose metadata has no explicit ``cflags`` key
-            # would compile with only ``base_cflags`` (missing ``/O2``), producing
-            # frame-pointer prologues that don't match the original optimized code.
-            cflags_str = (
-                getattr(ann, "cflags", "")
-                or md.get("cflags", "")
-                or getattr(cfg, "cflags", "")
-                or ""
+            # ann.status is the CANONICALIZED, metadata-merged value (the raw
+            # store may hold a hand-edited "exact"/"proven " spelling, which the
+            # partition below would silently drop into other_count).
+            status = ann.status or md.get("status", "STUB")
+            # The SAME resolution verify/test use: per-function metadata →
+            # nearest rebrew-libraries.toml → module cflags preset → project
+            # cflags → "/O2 /Gd" (the manual chain here skipped the preset and
+            # the default, so round-trip compiled different bytes than verify).
+            from rebrew.cli import resolve_compile_overrides
+
+            toolchain, resolved_cflags = resolve_compile_overrides(
+                cfg,
+                path.parent,
+                getattr(ann, "toolchain", "") or str(md.get("toolchain") or ""),
+                getattr(ann, "cflags", "") or str(md.get("cflags") or ""),
+                getattr(ann, "module", ""),
             )
             fn = _SpliceFn(
-                symbol=ann.symbol,
+                symbol=_catalog_key(ann, path),
                 va=ann.va,
                 size=int(md.get("size", 0) or 0),
                 status=status,
                 path=path,
                 module=ann.module,
-                cflags=safe_shlex_split(cflags_str),
+                cflags=safe_shlex_split(resolved_cflags),
+                toolchain=toolchain or "",
             )
             if status in ("EXACT", "RELOC"):
                 splice.append(fn)
@@ -201,7 +208,9 @@ def _compile_and_extract(
     :func:`_extract_local_labels`.  On compile failure ``ok`` is False and
     ``detail`` carries the compiler error; the other fields are empty.
     """
-    obj_path, err = compile_to_obj(cfg, fn.path, fn.cflags, work_dir)
+    obj_path, err = compile_to_obj(
+        cfg, fn.path, fn.cflags, work_dir, toolchain=getattr(fn, "toolchain", "") or None
+    )
     if obj_path is None:
         return b"", [], {}, {}, False, err or "compile failed"
 
@@ -389,7 +398,15 @@ def _name_encoded_va(symbol: str) -> int | None:
     The ``0x100000`` floor keeps false hits rare (a genuine
     ``_g_myvar_12345678``-looking name would be misread, which we accept as a
     documented edge case).
+
+    Compiler-generated ``$``-symbols are refused outright: ``$SG123456``
+    (MSVC string literal) and ``$L123456`` (jump-table label) encode an index,
+    not a VA, and ``$L`` names resolve through ``local_labels`` instead — a
+    leftover one must fall through as unresolved rather than relocate to
+    address 0x123456.
     """
+    if symbol.startswith("$"):
+        return None
     m = re.search(r"([0-9a-fA-F]+)$", symbol)
     if not m:
         return None
@@ -792,6 +809,22 @@ def _list_name(cfg: ProjectConfig, va: int | None) -> str:
     return names.get(va, "")
 
 
+def _catalog_key(ann: Any, path: Path) -> str:
+    """Name key for the function catalog: the same form the splice path uses.
+
+    Resolvers look up COFF/MSVC-decorated spellings (``_foo@8``), so the
+    catalog must be keyed on the same form the splice path extracts with —
+    :func:`rebrew.annotation.resolve_symbol` (``ann.symbol``, falling back to
+    the filename stem).  Both sides share this helper so the keys agree.
+
+    There is no separate hint-name fallback: for a hint-only annotation the
+    parser already derives ``ann.symbol`` from the hint (the previous
+    ``symbol != "?"`` guard was unreachable, and the name branch never ran for
+    a caller that passed a path).
+    """
+    return resolve_symbol(ann, path)
+
+
 def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
     """Build the function ``{va: name}`` map + the data ``{name: va}`` map.
 
@@ -821,7 +854,8 @@ def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
         metadata_dir=cfg.metadata_dir,
     ):
         for ann in anns:
-            if ann.module != marker or not ann.name:
+            key = _catalog_key(ann, _path)
+            if ann.module != marker or not key:
                 continue
             # DATA/GLOBAL annotations (e.g. an IAT import slot annotated as a
             # global named like its function) belong in the data map, never in
@@ -829,9 +863,9 @@ def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
             # and REL32 calls resolve to the data slot (CreateListenSocket:
             # function@0x10009e60 vs data@0x101deb14).
             if ann.marker_type in ("DATA", "GLOBAL"):
-                data[ann.name] = ann.va
+                data[key] = ann.va
             else:
-                funcs[ann.va] = ann.name
+                funcs[ann.va] = key
 
     for (mod, va), meta in load_data_metadata(cfg.metadata_dir).items():
         if mod == marker and meta.get("name"):

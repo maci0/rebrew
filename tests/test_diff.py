@@ -233,4 +233,6 @@ def test_cs_mode_for_16bit_target() -> None:
 
     assert capstone_mode_for_arch("x86_16") == capstone.CS_MODE_16
     assert capstone_mode_for_arch("x86_32") == capstone.CS_MODE_32
-    assert capstone_mode_for_arch("x86_64") == capstone.CS_MODE_32
+    # x86_64 must decode in 64-bit mode (REX prefixes, 8-byte operands) — the
+    # same table binary_loader.capstone_config_for uses.
+    assert capstone_mode_for_arch("x86_64") == capstone.CS_MODE_64

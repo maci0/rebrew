@@ -99,6 +99,31 @@ class TestBuildPayload:
         # The uploaded object is a valid i386 COFF.
         assert struct.unpack_from("<H", fbytes, 0)[0] == 0x014C
 
+    def test_legacy_encoding_decoded_not_replaced(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A non-UTF-8 source must not upload U+FFFD for its legacy bytes."""
+        cfg = _cfg(tmp_path)
+        cfg.reversed_dir.mkdir(exist_ok=True)
+        src = cfg.reversed_dir / "func_a.c"
+        src.write_bytes(b"// FUNCTION: T 0x401000\n// \xa9 note\nint func_a(void){return 0;}\n")
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, size: b"\x55\x8b\xec\x5d\xc3"
+        )
+        payload = decompme.build_scratch_payload(
+            cfg,
+            src,
+            va=0x401000,
+            size=5,
+            symbol="_func_a",
+            name="func_a",
+            compiler="msvc6.0",
+            platform="win32",
+            compiler_flags="/O1",
+            context="",
+        )
+        assert "\ufffd" not in payload["data"]["source_code"]
+
     def test_missing_target_bytes_raises(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -119,6 +144,73 @@ class TestBuildPayload:
                 compiler_flags="",
                 context="",
             )
+
+
+class TestFunctionIsolation:
+    """The scratch uploads the selected function (+ preamble), not the file."""
+
+    def test_extracts_selected_function_with_preamble(self) -> None:
+        from rebrew.decompme import extract_function_text
+
+        text = (
+            '#include "types.h"\n'
+            "typedef int myint;\n"
+            "\n"
+            "int func_a(void){return 0;}\n"
+            "\n"
+            "int func_b(void){return 1;}\n"
+        )
+        chunk = extract_function_text(text, "func_b")
+        assert chunk is not None
+        assert "func_b" in chunk
+        assert "func_a" not in chunk.replace("func_b", "")
+        assert '#include "types.h"' in chunk
+        assert "typedef int myint;" in chunk
+
+    def test_first_function_gets_no_preamble_duplication(self) -> None:
+        from rebrew.decompme import extract_function_text
+
+        text = '#include "types.h"\n\nint func_a(void){return 0;}\n\nint func_b(void){return 1;}\n'
+        chunk = extract_function_text(text, "func_a")
+        assert chunk is not None
+        assert "func_b" not in chunk
+        assert '#include "types.h"' in chunk
+
+    def test_unknown_name_returns_none(self) -> None:
+        from rebrew.decompme import extract_function_text
+
+        text = "int func_a(void){return 0;}\n\nint func_b(void){return 1;}\n"
+        assert extract_function_text(text, "missing") is None
+
+    def test_payload_uploads_only_selected_function(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _cfg(tmp_path)
+        cfg.reversed_dir.mkdir(exist_ok=True)
+        src = cfg.reversed_dir / "two.c"
+        src.write_text(
+            '#include "types.h"\n\nint func_a(void){return 0;}\n\nint func_b(void){return 1;}\n',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes", lambda p, va, size: b"\x90" * 16
+        )
+        payload = decompme.build_scratch_payload(
+            cfg,
+            src,
+            va=0x401000,
+            size=16,
+            symbol="_func_b",
+            name="func_b",
+            compiler="msvc6.0",
+            platform="win32",
+            compiler_flags="/O1",
+            context="",
+        )
+        code = payload["data"]["source_code"]
+        assert "func_b" in code
+        assert "func_a" not in code.replace("func_b", "")
+        assert '#include "types.h"' in code
 
 
 class TestUpload:
@@ -218,6 +310,42 @@ class TestCli:
         r = runner.invoke(decompme.app, ["--dry-run", str(src)])
         assert r.exit_code == 2
         assert "--compiler" in r.output
+
+    def test_size_flag_supplies_missing_annotation_size(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`--size` must rescue an annotation without SIZE (its own error
+        message tells the user to pass the flag)."""
+        cfg, src = self._patch(tmp_path, monkeypatch)
+        monkeypatch.setattr(
+            "rebrew.annotation.parse_c_file_multi",
+            lambda p, target_name=None, metadata_dir=None: [_ann(size=0)],
+        )
+        r = runner.invoke(decompme.app, ["--dry-run", "--size", "32", str(src)])
+        assert r.exit_code == 0
+        assert "(32B)" in r.output
+
+    def test_none_toolchain_falls_back_to_project_profile(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`resolve_compile_overrides` returns None when no override names a
+        compiler; the project profile is the documented fallback."""
+        cfg, src = self._patch(tmp_path, monkeypatch)
+        monkeypatch.setattr(
+            "rebrew.cli.resolve_compile_overrides", lambda cfg, d, a, b, c: (None, "/O2 /Gd")
+        )
+        r = runner.invoke(decompme.app, ["--dry-run", "--json", str(src)])
+        assert r.exit_code == 0
+        assert json.loads(r.stdout)["compiler"] == "msvc6.0"
+
+    def test_compiler_flag_still_resolves_default_flags(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Passing `--compiler` must not drop the resolved-cflags default."""
+        cfg, src = self._patch(tmp_path, monkeypatch)
+        r = runner.invoke(decompme.app, ["--dry-run", "--json", "--compiler", "msvc6.0", str(src)])
+        assert r.exit_code == 0
+        assert json.loads(r.stdout)["flags"] == "/O1"
 
     def test_upload_success(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg, src = self._patch(tmp_path, monkeypatch)

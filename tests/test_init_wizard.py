@@ -2,7 +2,6 @@
 
 import json
 import shutil
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -264,25 +263,19 @@ class TestToolchainImageStep:
         _force_wizard(monkeypatch)
         image_present(monkeypatch, False)
         monkeypatch.chdir(tmp_path)
-        real_which = shutil.which
         monkeypatch.setattr(
             shutil,
             "which",
-            lambda name, *a, **k: "/fake/rebrew" if name == "rebrew" else real_which(name, *a, **k),
+            lambda name, *a, **k: "/fake/rebrew" if name == "rebrew" else None,
         )
-        real_run = subprocess.run
         calls: list[list[str]] = []
 
-        def _spy_run(cmd: list[str], **kwargs: Any) -> Any:
-            # The module attribute IS the global subprocess module — click's
-            # completion-script generation also calls .run, so only intercept
-            # the toolchain-build call and delegate the rest.
+        def _fake_run(cmd: list[str], **kwargs: Any) -> Any:
             if cmd[:3] == ["/fake/rebrew", "toolchain", "build"]:
                 calls.append(cmd)
-                return SimpleNamespace(returncode=0, stdout="", stderr="")
-            return real_run(cmd, **kwargs)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.init.subprocess.run", _spy_run)
+        monkeypatch.setattr("rebrew.init.subprocess.run", _fake_run)
         result = CliRunner().invoke(app, _FLAGGED, input="y\n")
         assert result.exit_code == 0, result.output + result.stderr
         assert calls == [["/fake/rebrew", "toolchain", "build", "msvc6"]]
@@ -292,20 +285,16 @@ class TestToolchainImageStep:
         _force_wizard(monkeypatch)
         image_present(monkeypatch, False)
         monkeypatch.chdir(tmp_path)
-        real_which = shutil.which
         monkeypatch.setattr(
             shutil,
             "which",
-            lambda name, *a, **k: "/fake/rebrew" if name == "rebrew" else real_which(name, *a, **k),
+            lambda name, *a, **k: "/fake/rebrew" if name == "rebrew" else None,
         )
-        real_run = subprocess.run
 
-        def _spy_run(cmd: list[str], **kwargs: Any) -> Any:
-            if cmd[:3] == ["/fake/rebrew", "toolchain", "build"]:
-                return SimpleNamespace(returncode=1, stdout="", stderr="")
-            return real_run(cmd, **kwargs)
+        def _fake_run(cmd: list[str], **kwargs: Any) -> Any:
+            return SimpleNamespace(returncode=1, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.init.subprocess.run", _spy_run)
+        monkeypatch.setattr("rebrew.init.subprocess.run", _fake_run)
         result = CliRunner().invoke(app, _FLAGGED, input="y\n")
         assert result.exit_code == 0, result.output + result.stderr
         assert "build failed" in result.stderr

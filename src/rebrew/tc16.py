@@ -123,6 +123,12 @@ def compile_c(
         + " ".join(flags)
         + f" -I\\INCLUDE -oSRC.OBJ {staged_name} > C:\\tcout.txt"
     )
+    # A reused caller-supplied workdir keeps the PREVIOUS run's SRC.OBJ, so a
+    # failed compile still "found" output and was reported as success; drop any
+    # file the search below would match before running.
+    for stale in sandbox.iterdir():
+        if stale.suffix.upper() == ".OBJ" and stale.stem.upper() == "SRC":
+            stale.unlink()
     try:
         run_dosbox(sandbox, [cmd], timeout=timeout)
     except DosboxError as exc:

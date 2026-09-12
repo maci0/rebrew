@@ -190,9 +190,12 @@ def _write_blocker(
 
     seed_path = Path(p.seed_c)
     annos = parse_c_file_multi(seed_path)
-    ann = annos[0] if annos else None
+    # `p.va_int` is the diffed VA and is authoritative: taking `annos[0]` wrote
+    # the blocker onto the seed file's FIRST function when the diffed VA was a
+    # later one.  The matching annotation is used only for the module scope.
+    ann = next((a for a in annos if a.va == p.va_int), None) or (annos[0] if annos else None)
     metadata_dir = p.cfg.metadata_dir
-    va = ann.va if ann else p.va_int
+    va = p.va_int
     module = ann.module if ann else ""
 
     outcome: dict[str, Any] = {"written": False, "cleared": False, "dry_run": dry_run}

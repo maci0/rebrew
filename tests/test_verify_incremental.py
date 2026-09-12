@@ -284,6 +284,41 @@ class TestPatchVerifyCacheEntries:
         assert entry["match_percent"] == 100.0
         assert entry["delta"] == 0
 
+    def test_patch_refreshes_metrics_without_status_change(self, tmp_path: Path) -> None:
+        """A same-status patch still refreshes percent/delta.
+
+        A GA run can improve NEAR_MATCHING 60% -> 92% without changing the
+        status; the old status-equality guard skipped the write, so todo's
+        prover queue kept reading the stale 60% and filtered the candidate out.
+        """
+        from rebrew.verify import patch_verify_cache_entries
+
+        cfg = _make_cfg(tmp_path)
+        cache_path = self._make_cache(tmp_path, cfg, status="NEAR_MATCHING")
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
+        data["entries"]["0x00001000"]["result"]["match_percent"] = 60.0
+        data["entries"]["0x00001000"]["result"]["delta"] = 40
+        cache_path.write_text(json.dumps(data), encoding="utf-8")
+
+        patch_verify_cache_entries(
+            cfg,
+            [
+                {
+                    "va": 0x1000,
+                    "status": "NEAR_MATCHING",
+                    "match_count": 92,
+                    "total": 100,
+                    "delta": 8,
+                }
+            ],
+        )
+        entry = json.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"][
+            "result"
+        ]
+        assert entry["status"] == "NEAR_MATCHING"
+        assert entry["match_percent"] == 92.0
+        assert entry["delta"] == 8
+
     def test_wrong_target_not_patched(self, tmp_path: Path) -> None:
         """A cache written for a different target must not be touched."""
         from rebrew.verify import patch_verify_cache_entries
@@ -471,6 +506,56 @@ class TestPatchVerifyCacheEntries:
         entry = loaded.entries["0x10001000"]
         assert entry.result.status == "NEAR_MATCHING"
         assert entry.result.passed is False
+
+    def test_save_persists_reg_delta_and_effective_match(self, tmp_path: Path) -> None:
+        """The prove queue reads effective_match back from the cache.
+
+        ``_save_verify_cache`` enumerated the result fields by hand and dropped
+        reg_delta/effective_match, so ``rebrew status`` always reported 0
+        effective matches and never queued a provable candidate.
+        """
+        from rebrew.status import load_verify_details
+
+        cfg = _make_cfg(tmp_path)
+        source_path = cfg.reversed_dir / "func_a.c"
+        source_path.write_text("int func_a(void) { return 1; }\n", encoding="utf-8")
+
+        results = [
+            {
+                "va": "0x10001000",
+                "name": "func_a",
+                "filepath": "func_a.c",
+                "size": 16,
+                "status": "NEAR_MATCHING",
+                "message": "",
+                "passed": False,
+                "match_percent": 96.0,
+                "delta": 4,
+                "reg_delta": 4,
+                "effective_match": True,
+            }
+        ]
+        entries = [
+            SimpleNamespace(
+                va=0x10001000,
+                name="func_a",
+                filepath="func_a.c",
+                size=16,
+                origin="GAME",
+                cflags="",
+                symbol="",
+            )
+        ]
+        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+
+        _save_verify_cache(cache_path, cfg, results, entries)
+        loaded = _load_verify_cache(cache_path, cfg)
+
+        assert loaded is not None
+        entry = loaded.entries["0x10001000"]
+        assert entry.result.reg_delta == 4
+        assert entry.result.effective_match is True
+        assert load_verify_details(cfg)[0x10001000] == ("NEAR_MATCHING", True)
 
 
 class TestIncrementalVerify:

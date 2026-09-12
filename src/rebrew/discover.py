@@ -111,24 +111,25 @@ def _capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
     starts: set[int] = set()
     # 1. the .text base is always a candidate
     starts.add(va_base)
-    # 2. bytes after padding runs (int3 / nop alignment)
+    # 2. bytes after padding runs (int3 / nop alignment, documented
+    # multi-byte NOP forms only — never a bare 0x0F, which is a real opcode)
     i = 0
     n = len(raw)
     while i < n - 1:
         b = raw[i]
         if b in (0xCC, 0x90):
             j = i
-            while j < n and raw[j] in (0xCC, 0x90, 0x0F, 0x1F):
-                j += 1
+            while j < n:
+                if raw[j] in (0xCC, 0x90):
+                    j += 1
+                    continue
+                nop_len = _multibyte_nop_len(raw, j) if raw[j] in (0x0F, 0x66) else 0
+                if nop_len:
+                    j += nop_len
+                    continue
+                break
             # a padding run of >= 3 bytes: the byte after it starts a function.
-            # The inner loop stops at a multi-byte nop's MODRM byte
-            # (0f 1f 40 xx / 0f 1f 00 / 0f 1f 44 xx xx) — skip the whole nop
-            # so the start lands after it, not on the 0x40.
             if j - i >= 3 and j < n:
-                if j + 1 < n and raw[j] == 0x0F and raw[j + 1] == 0x1F:
-                    modrm = raw[j + 2] if j + 2 < n else 0
-                    nop_len = {0x00: 3, 0x40: 4, 0x44: 5, 0x84: 7, 0xC0: 3, 0xC4: 4}.get(modrm, 3)
-                    j = min(n, j + nop_len)
                 starts.add(va_base + j)
             i = j
         else:
@@ -154,6 +155,68 @@ def _capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
 
 _PAD = {0xCC, 0x90}
 
+#: Documented multi-byte NOP body lengths by (first, second) opcode bytes.
+#: Only these exact two-byte prefixes count as multi-byte NOP padding —
+#: a bare 0x0F is a real opcode (e.g. part of ``0F 85 jnz``) and must
+#: never be treated as padding.
+_MULTIBYTE_NOP_LEN: dict[tuple[int, int], int] = {
+    (0x0F, 0x1F): 3,  # 0F 1F /0 — 3-byte NOP (ModRM always follows)
+    (0x0F, 0x0D): 3,  # 3DNow! prefetch — same ModRM shape
+    (0x66, 0x90): 2,  # operand-size NOP (66 90)
+    (0x66, 0x0F): 4,  # 66 0F 1F /0 — 4-byte NOP (ModRM always follows)
+}
+
+
+def _multibyte_nop_len(raw: bytes | bytearray, i: int) -> int:
+    """Length of the multi-byte NOP at ``raw[i:]``, or 0 when it is not one.
+
+    ``0F 1F`` / ``66 0F 1F`` require a valid ModRM byte: register-direct
+    (``mod == 0b11``) forms are real instructions (e.g. ``0F 1F C0`` decodes
+    as ``nop eax,eax`` only under 64-bit; under 32-bit it can be something
+    else), and memory forms with SIB/disp bytes consume them.  A missing or
+    out-of-range ModRM means "not a NOP".
+    """
+    n = len(raw)
+    pair = (raw[i], raw[i + 1] if i + 1 < n else -1)
+    base = _MULTIBYTE_NOP_LEN.get((pair[0], pair[1] if isinstance(pair[1], int) else -1))
+    if base is None:
+        return 0
+    if pair in (
+        (
+            0x66,
+            0x90,
+        ),
+    ):
+        return base
+    # A ModRM byte must exist after the two-byte prefix.
+    if i + 2 >= n:
+        return 0
+    modrm = raw[i + 2]
+    mod = modrm >> 6
+    rm = modrm & 7
+    if mod == 0b11:
+        return 0  # register-direct — not documented padding
+    length = base
+    if rm == 0b100:  # SIB byte follows
+        length += 1
+        if i + 3 >= n:
+            return 0
+        sib = raw[i + 3]
+        base_reg = sib & 7
+        if mod == 0b00 and base_reg == 0b101:  # disp32, no base
+            length += 4
+        elif mod == 0b01:  # disp8
+            length += 1
+        elif mod == 0b10:  # disp32
+            length += 4
+    elif mod == 0b00 and rm == 0b101:  # disp32, no base
+        length += 4
+    elif mod == 0b01:  # disp8
+        length += 1
+    elif mod == 0b10:  # disp32
+        length += 4
+    return length if i + length <= n else 0
+
 
 def _is_padding(info: Any, va: int, end: int) -> bool:
     """True when [va, end) disassembles to nothing but padding bytes."""
@@ -170,10 +233,11 @@ def _is_padding(info: Any, va: int, end: int) -> bool:
         if b in _PAD:
             i += 1
             continue
-        if b == 0x0F and i + 1 < len(raw) and raw[i + 1] == 0x1F:
-            i += 1  # 0f 1f multi-byte nop — skip its leading byte; rest is operands (skip generously)
-            i = min(len(raw), i + 5)
-            continue
+        if b in (0x0F, 0x66) and i + 1 < len(raw):
+            nop_len = _multibyte_nop_len(raw, i)
+            if nop_len:
+                i += nop_len
+                continue
         return False
     return True
 
@@ -198,16 +262,14 @@ def _validate_and_refine(
         nxt = funcs[i + 1][0] if i + 1 < len(funcs) else None
         gap = (nxt - va) if nxt else None
 
-        # find the first ret within the gap
+        # Find the first ret within the gap.
         ret_end = None
-        hit_nxt = False
+        last_mnemonic = ""
         try:
             for insn in iter_instructions(info, va, gap or 0x400):
+                last_mnemonic = insn.mnemonic
                 if insn.mnemonic.startswith("ret"):
                     ret_end = insn.va + insn.size - va
-                    break
-                if gap is not None and nxt is not None and insn.va >= nxt:
-                    hit_nxt = True
                     break
         except Exception:
             # Disassembly failure at this candidate: ret_end stays None, so the
@@ -216,6 +278,20 @@ def _validate_and_refine(
             logging.debug(
                 "instruction sweep failed at candidate 0x%x (size = raw gap)", va, exc_info=True
             )
+
+        # The window IS the gap (`iter_instructions(info, va, gap)`), so the old
+        # `insn.va >= nxt` test could never fire and the phantom candidate was
+        # never dropped.  The real signal is "the predecessor decoded to the
+        # candidate with no boundary": no ret, and nothing that legitimately ends
+        # a function without one (a tail-call `jmp`, int3/hlt/ud2 padding).  An
+        # empty decode stays conservative — nothing is dropped.
+        hit_nxt = (
+            ret_end is None
+            and gap is not None
+            and last_mnemonic != ""
+            and not last_mnemonic.startswith("jmp")
+            and last_mnemonic not in ("int3", "hlt", "ud2")
+        )
 
         if hit_nxt:
             # code runs straight into the next candidate with no ret — that

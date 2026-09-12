@@ -73,6 +73,7 @@ _TARGET_SCOPED_KEYS: frozenset[str] = frozenset(
         "dll_exports",
         "library_modules",
         "cflags_presets",
+        "binsync_state_dir",
     }
 )
 
@@ -230,10 +231,22 @@ def _resolve_target(doc: tomlkit.TOMLDocument, target: str | None) -> str:
 def _detect_format_and_arch(path: Path) -> tuple[str, str | None]:
     """Detect binary format and architecture from file header.
 
-    CLI-friendly wrapper around :func:`rebrew.binary_loader.detect_format_and_arch`.
-    Returns ``(format, arch)``; on ``OSError`` or ``ValueError`` prints a warning
-    to stderr and defaults to ``("pe", None)`` instead of raising.
+    Covers PE/ELF/Mach-O (LIEF) plus NE/MZ (native probes).  Returns
+    ``(format, arch)``; on ``OSError`` prints a warning to stderr and
+    defaults to ``("pe", None)`` instead of raising.
     """
+    from rebrew.binary_loader import is_mz, is_ne
+
+    try:
+        if is_ne(path):
+            return "ne", "x86_16"
+        if is_mz(path):
+            return "mz", "x86_16"
+    except OSError:
+        console.print(
+            f"[yellow]warning:[/yellow] cannot read '{path}' for format detection, defaulting to PE"
+        )
+        return "pe", None
     try:
         from rebrew.binary_loader import detect_format_and_arch as _bl_detect_format_and_arch
 
@@ -384,10 +397,13 @@ def add_target(
         None,
         "--arch",
         "-a",
-        help="Architecture: x86_32, x86_64, arm32, arm64 (auto-detected if omitted).",
+        help="Architecture: x86_16, x86_32, x86_64, arm32, arm64 (auto-detected if omitted).",
     ),
     fmt: str | None = typer.Option(
-        None, "--format", "-f", help="Binary format: pe, elf, macho (auto-detected if omitted)."
+        None,
+        "--format",
+        "-f",
+        help="Binary format: pe, elf, macho, ne, mz (auto-detected if omitted).",
     ),
     origins: str | None = typer.Option(
         None,
@@ -452,7 +468,10 @@ def add_target(
             "writing stanza with default format=pe arch=x86_32 (--force)."
         )
 
-    # Auto-detect format and arch from binary headers
+    # Auto-detect format and arch from binary headers.  The LIEF-based
+    # detector covers PE/ELF/Mach-O only — probe NE/MZ natively so a
+    # 16-bit target is recorded as ne/mz + x86_16 instead of the pe/x86_32
+    # default that would mis-disassemble it.
     if resolved.exists():
         detected_fmt, detected_arch = _detect_format_and_arch(resolved)
     else:
@@ -461,7 +480,7 @@ def add_target(
     if fmt is None:
         fmt = detected_fmt
     if arch is None:
-        arch = detected_arch or "x86_32"
+        arch = detected_arch or ("x86_16" if fmt in ("ne", "mz") else "x86_32")
 
     # Auto-detect source language from binary symbols
     detected_lang = "C"
@@ -765,17 +784,18 @@ def set_compiler(
     ``command``/``includes``/``libs`` from the named profile preset.
     Existing values for that target are overwritten.
     """
-    # Import profile presets from init (single source of truth)
-    from rebrew.init import COMPILER_DEFAULTS
+    # Import profile presets from init (single source of truth, registry-merged)
+    from rebrew.init import _profile_defaults
 
-    known = sorted(COMPILER_DEFAULTS)
-    if profile not in COMPILER_DEFAULTS:
+    defaults = _profile_defaults()
+    known = sorted(defaults)
+    if profile not in defaults:
         error_exit(f"Unknown compiler profile '{profile}'. Valid profiles: {', '.join(known)}")
 
     doc, toml_path = load_toml()
     target_name = _resolve_target(doc, target)
 
-    preset = COMPILER_DEFAULTS[profile]
+    preset = defaults[profile]
 
     targets_table: Any = doc["targets"]
     tgt: Any = targets_table[target_name]
@@ -792,7 +812,18 @@ def set_compiler(
     # command but MSVC-style /I /Fo flag routing and never engaged the
     # posix/toolchain branches (config-review F1).
     compiler_tbl["profile"] = profile
-    compiler_tbl["command"] = preset["command"]
+    # Docker-only execution: image-backed profiles carry no host wine
+    # command (the image IS the compiler) — blank command/runner like
+    # init does for fresh projects, so set-compiler never writes a stale
+    # "wine toolchain/..." line that doctor/verify might misread.
+    from rebrew.toolchain import TOOLCHAINS
+
+    _spec = TOOLCHAINS.get(profile)
+    if _spec is not None and _spec.image is not None:
+        compiler_tbl["command"] = ""
+        compiler_tbl["runner"] = ""
+    else:
+        compiler_tbl["command"] = preset["command"]
     compiler_tbl["includes"] = preset["includes"]
     compiler_tbl["libs"] = preset["libs"]
 
@@ -804,7 +835,7 @@ def set_compiler(
     save_toml(doc, toml_path)
     console.print(f'[green]Set compiler profile "{profile}" on target "{target_name}".[/green]')
     console.print(f"  profile   = {profile}")
-    console.print(f"  command  = {preset['command']}")
+    console.print(f"  command  = {compiler_tbl['command']}")
     console.print(f"  includes = {preset['includes']}")
     console.print(f"  libs     = {preset['libs']}")
 
