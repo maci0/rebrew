@@ -27,6 +27,7 @@ own order at 0x10018c49 / 0x10018c59.
 
 from __future__ import annotations
 
+import difflib
 import os
 import re
 import signal
@@ -237,15 +238,18 @@ def _score_aligned(
     section_va: int,
     toolchain: str | None,
 ) -> tuple[float, int]:
-    """Aligned match-byte count for *path*, or ``(-1.0, 0)``.
+    """Aligned instruction-pair count for *path*, or ``(-1.0, 0)``.
 
-    The compile path is :func:`_score`'s; the comparison is ``near_diag``'s
-    instruction alignment instead of the positional byte count.  On a function
-    whose byte stream is out of step with the target's the positional count
-    rewards a candidate that merely shifts code into a better offset: measured
-    on gm_AllocSpieler, ten accepted statement swaps raised it 859 -> 909 while
-    the alignment fell 740 -> 728.  Reordered and unpaired instructions are
-    what the alignment charges for, so it is the honest objective there.
+    The compile path is :func:`_score`'s; the comparison is the mnemonic
+    alignment ``.scratch/ndiff.py`` reports as ``aligned`` instead of the
+    positional byte count.  On a function whose byte stream is out of step with
+    the target's the positional count rewards a candidate that merely shifts
+    code into a better offset: measured on gm_AllocSpieler, ten accepted
+    swaps raised it 859 -> 909 while the alignment fell 740 -> 728.
+
+    It counts PAIRS, not bytes: scoring aligned bytes let one long instruction
+    outweigh two short ones (1886 -> 2004 aligned bytes bought only 740 -> 743
+    aligned instructions while the hunk count rose 177 -> 179).
     """
     result = compile_and_compare(
         cfg,
@@ -260,16 +264,16 @@ def _score_aligned(
     if result.obj_bytes is None:
         return -1.0, 0
     obj_len = result.full_obj_size if result.full_obj_size is not None else len(result.obj_bytes)
-    from rebrew.near_diag import align_and_classify, disasm_insns
+    from rebrew.near_diag import disasm_insns
 
     arch = getattr(cfg, "capstone_arch", "CS_ARCH_X86")
     mode = getattr(cfg, "capstone_mode", "CS_MODE_32")
-    counts, _first = align_and_classify(
-        disasm_insns(target_bytes, section_va, arch, mode),
-        disasm_insns(result.obj_bytes, section_va, arch, mode),
-        set(result.reloc_offsets or ()),
+    compiled = disasm_insns(result.obj_bytes, section_va, arch, mode)
+    target = disasm_insns(target_bytes, section_va, arch, mode)
+    aligner = difflib.SequenceMatcher(
+        a=[i.mnemonic for i in compiled], b=[i.mnemonic for i in target]
     )
-    return float(counts.get("match", 0) + counts.get("reloc", 0)), obj_len
+    return float(sum(block.size for block in aligner.get_matching_blocks())), obj_len
 
 
 def _within_size_budget(matched: float, obj_len: int, target_len: int, budget: int) -> bool:
