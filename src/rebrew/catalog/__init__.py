@@ -7,6 +7,7 @@ Re-exports all public names so that
 from rebrew.catalog.cli import app as app
 from rebrew.catalog.cli import main as main
 from rebrew.catalog.cli import main_entry as main_entry
+from rebrew.catalog.cli import run_catalog as run_catalog
 from rebrew.catalog.export import (
     generate_catalog as generate_catalog,
 )
@@ -75,5 +76,6 @@ __all__ = [
     "make_func_entry",
     "parse_function_list",
     "parse_rizin_afl",
+    "run_catalog",
     "scan_reversed_dir",
 ]

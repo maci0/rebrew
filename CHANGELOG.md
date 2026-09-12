@@ -149,6 +149,11 @@
   sources now exist.
 
 ### Changed
+- **`rebrew catalog` is callable in-process**: its orchestration moved into
+  `catalog.run_catalog(cfg, ...)`, which returns the same object the CLI prints
+  under `--json`, and the Typer callback is now a thin wrapper.  Sibling
+  packages rebuild the catalog by importing the function instead of spawning
+  the CLI.
 - **rebrew reads the workspace config and coverage.db path from
   `rebrew-workspace`**: `walk_up_to_root`, the `SCHEMA_TARGET` stamp and
   `resolve_db_dir` come from the shared stdlib-only package that recoverage and

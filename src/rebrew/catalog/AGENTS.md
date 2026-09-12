@@ -10,12 +10,12 @@ Merges function sources (lists, Ghidra JSON, PE exports) into a unified registry
 | `registry.py` | Merge sources, resolve canonical sizes | `build_function_registry()` |
 | `grid.py` | Coverage grid generation | `generate_data_json()` |
 | `export.py` | Output (CATALOG.md, reccmp CSV) | `generate_catalog()`, `generate_reccmp_csv()` |
-| `cli.py` | Typer CLI orchestrator | `app`, `main`, `main_entry` |
+| `cli.py` | Orchestrator + Typer CLI wrapper | `run_catalog()`, `app`, `main`, `main_entry` |
 
 ## Dependency Graph
 
 ```
-cli.py (orchestrator — calls all others)
+cli.py (run_catalog() orchestrator — calls all others; main() is the CLI wrapper)
 ├── loaders.py (scan_reversed_dir, parse_function_list)
 ├── registry.py (build_function_registry)
 ├── grid.py (generate_data_json)

@@ -3,6 +3,10 @@
 Orchestrates annotation scanning, registry building, and output generation
 (CATALOG.md, data.json, reccmp CSV, Ghidra label export, size fixing).
 
+``run_catalog()`` holds the orchestration so it is callable in-process; the
+Typer callback is a thin wrapper that resolves config, validates CLI-only
+option combinations, and prints the result.
+
 ``--data-json`` writes ``db/data_<target>.json`` (feeds into ``rebrew build-db``).
 ``--json`` emits a machine-readable summary to stdout, like all other tools.
 """
@@ -26,7 +30,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.config import FUNCTION_STRUCTURE_JSON
+from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.sections import get_text_section_size
 
 console = Console(stderr=True)
@@ -73,44 +77,37 @@ def _is_catalog_generated_structure(path: Path) -> bool:
     return any(isinstance(d, dict) and d.get("_generated_by") == "rebrew catalog" for d in data)
 
 
-@app.callback(invoke_without_command=True)
-def main(
-    gen_data_json: bool = typer.Option(False, "--data-json", help="Write db/data_<target>.json"),
-    catalog: bool = typer.Option(
-        False, "--catalog", help="Generate CATALOG.md in reversed directory"
-    ),
-    summary: bool = typer.Option(False, "--summary", help="Print summary table (stderr)"),
-    csv: bool = typer.Option(
-        False, "--csv", help="Generate reccmp-compatible CSV (written to db/<target>_functions.csv)"
-    ),
-    export_ghidra: bool = typer.Option(False, "--export-ghidra", help="Cache Ghidra function list"),
-    export_ghidra_labels: bool = typer.Option(
-        False,
-        "--export-ghidra-labels",
-        help="Generate ghidra_data_labels.json from detected tables",
-    ),
-    fix_sizes: bool = typer.Option(
-        False,
-        "--fix-sizes",
-        help="Update SIZE in rebrew-functions.toml metadata to match canonical sizes",
-    ),
-    force: bool = typer.Option(False, "--force", help="Skip the --fix-sizes confirmation prompt"),
-    root: Path | None = typer.Option(
-        None,
-        "--root",
-        help="Project root directory (auto-detected from rebrew-project.toml if omitted)",
-    ),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-    target: str | None = TargetOption,
-) -> None:
-    """Rebrew validation pipeline: parse annotations, generate catalog and coverage data."""
-    cfg = require_config(target=target, json_mode=json_output, root=root)
+def run_catalog(
+    cfg: ProjectConfig,
+    *,
+    catalog: bool = False,
+    gen_data_json: bool = False,
+    csv: bool = False,
+    summary: bool = False,
+    export_ghidra_labels: bool = False,
+    fix_sizes: bool = False,
+    json_output: bool = False,
+) -> dict[str, Any]:
+    """Parse annotations, build the catalog and coverage data, and write the artifacts.
+
+    The same pipeline the ``rebrew catalog`` callback runs: scan
+    ``reversed_dir``, build the function registry, print the human summary,
+    and write the requested artifacts (CATALOG.md, ``db/data_<target>.json``,
+    reccmp CSV, ``ghidra_data_labels.json``, ``--fix-sizes`` metadata updates).
+    With every flag left false the default action set applies (catalog + data
+    JSON + CSV + summary), matching a bare ``rebrew catalog`` invocation.
+
+    Returns the object the CLI prints under ``--json``.
+
+    Raises:
+        ValueError: ``function_structure.json`` is corrupt.  The CLI turns
+            this into ``error_exit``; an in-process caller gets the exception.
+    """
     bin_path = cfg.target_binary
     reversed_dir = cfg.reversed_dir
     root = cfg.root
     target = cfg.target_name
 
-    func_list_path = cfg.function_list
     ghidra_json_path = reversed_dir / FUNCTION_STRUCTURE_JSON
 
     if not any(
@@ -119,7 +116,6 @@ def main(
             gen_data_json,
             csv,
             summary,
-            export_ghidra,
             export_ghidra_labels,
             fix_sizes,
             json_output,
@@ -130,48 +126,12 @@ def main(
         csv = True
         summary = True
 
-    if fix_sizes:
-        if json_output and not force:
-            error_exit(
-                "--fix-sizes modifies metadata; pass --force to use it in --json mode",
-                json_mode=True,
-            )
-        if not force:
-            typer.confirm(
-                "--fix-sizes will modify rebrew-functions.toml metadata files in-place. Continue?",
-                abort=True,
-            )
-
-    if export_ghidra:
-        # --export-ghidra prints interactive instructions and emits NO JSON
-        # document — combining it with --json would produce zero stdout,
-        # breaking the JSON contract (cli-review F9).  Refuse up front like
-        # the --fix-sizes --json guard above.
-        if json_output:
-            error_exit(
-                "--export-ghidra prints instructions and produces no data — "
-                "it cannot be combined with --json",
-                json_mode=True,
-            )
-        console.print(
-            "To export Ghidra functions, run this in the MCP console:\n"
-            f"  get-functions programPath=/{bin_path.name} filterDefaultNames=false\n"
-            f"Then save the output as {reversed_dir.name}/function_structure.json with format:\n"
-            '  [{"va": 0x10001000, "size": 302, "tool_name": "FUN_10001000"}, ...]\n'
-            "\n"
-            "To also export data labels (switch tables, etc.), search for non-function\n"
-            f"labels in Ghidra and save as {reversed_dir.name}/ghidra_data_labels.json:\n"
-            '  [{"va": 0x10002E9C, "size": 20, "label": "switchdataD_10002e9c"}, ...]',
-        )
-        return
-
     console.print(f"Scanning {reversed_dir}...", style="dim")
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
 
     # Load function list and function structure in parallel
     jobs = getattr(cfg, "default_jobs", 4) or 4
     func_list_path = cfg.function_list
-    ghidra_json_path = reversed_dir / FUNCTION_STRUCTURE_JSON
 
     def load_func_list() -> list[dict[str, Any]]:
         if func_list_path and Path(func_list_path).exists():
@@ -203,7 +163,7 @@ def main(
     except ValueError as exc:
         # A corrupt function_structure.json must fail with a clean message,
         # not a raw traceback (skeleton.py guards the identical load).
-        error_exit(f"Corrupt {ghidra_json_path}: {exc}", json_mode=json_output)
+        raise ValueError(f"Corrupt {ghidra_json_path}: {exc}") from exc
 
     unique_vas = {e["va"] for e in entries}
     ghidra_count, list_count, both_count, thunk_count = count_detection_sources(registry)
@@ -394,22 +354,107 @@ def main(
                     skipped += 1
         console.print(f"[green]Updated {updated} SIZE annotations[/] ({skipped} skipped)")
 
+    payload: dict[str, Any] = {
+        "target": target,
+        "annotations": len(entries),
+        "unique_vas": len({e["va"] for e in entries}),
+        "registry": len(registry),
+        "total_functions": len(registry),
+        "covered_bytes": covered,
+        "text_size": text_size,
+        "coverage_pct": round(coverage_pct, 1),
+        "wrote_data_json": gen_data_json,
+        "wrote_catalog": catalog,
+        "wrote_csv": csv,
+    }
+    if binary_missing:
+        payload["warning"] = f"target binary missing ({bin_path}) — text_size=0, coverage is 0%"
+    return payload
+
+
+@app.callback(invoke_without_command=True)
+def main(
+    gen_data_json: bool = typer.Option(False, "--data-json", help="Write db/data_<target>.json"),
+    catalog: bool = typer.Option(
+        False, "--catalog", help="Generate CATALOG.md in reversed directory"
+    ),
+    summary: bool = typer.Option(False, "--summary", help="Print summary table (stderr)"),
+    csv: bool = typer.Option(
+        False, "--csv", help="Generate reccmp-compatible CSV (written to db/<target>_functions.csv)"
+    ),
+    export_ghidra: bool = typer.Option(False, "--export-ghidra", help="Cache Ghidra function list"),
+    export_ghidra_labels: bool = typer.Option(
+        False,
+        "--export-ghidra-labels",
+        help="Generate ghidra_data_labels.json from detected tables",
+    ),
+    fix_sizes: bool = typer.Option(
+        False,
+        "--fix-sizes",
+        help="Update SIZE in rebrew-functions.toml metadata to match canonical sizes",
+    ),
+    force: bool = typer.Option(False, "--force", help="Skip the --fix-sizes confirmation prompt"),
+    root: Path | None = typer.Option(
+        None,
+        "--root",
+        help="Project root directory (auto-detected from rebrew-project.toml if omitted)",
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Rebrew validation pipeline: parse annotations, generate catalog and coverage data."""
+    cfg = require_config(target=target, json_mode=json_output, root=root)
+
+    if fix_sizes:
+        if json_output and not force:
+            error_exit(
+                "--fix-sizes modifies metadata; pass --force to use it in --json mode",
+                json_mode=True,
+            )
+        if not force:
+            typer.confirm(
+                "--fix-sizes will modify rebrew-functions.toml metadata files in-place. Continue?",
+                abort=True,
+            )
+
+    if export_ghidra:
+        # --export-ghidra prints interactive instructions and emits NO JSON
+        # document — combining it with --json would produce zero stdout,
+        # breaking the JSON contract (cli-review F9).  Refuse up front like
+        # the --fix-sizes --json guard above.
+        if json_output:
+            error_exit(
+                "--export-ghidra prints instructions and produces no data — "
+                "it cannot be combined with --json",
+                json_mode=True,
+            )
+        console.print(
+            "To export Ghidra functions, run this in the MCP console:\n"
+            f"  get-functions programPath=/{cfg.target_binary.name} filterDefaultNames=false\n"
+            f"Then save the output as {cfg.reversed_dir.name}/function_structure.json with format:\n"
+            '  [{"va": 0x10001000, "size": 302, "tool_name": "FUN_10001000"}, ...]\n'
+            "\n"
+            "To also export data labels (switch tables, etc.), search for non-function\n"
+            f"labels in Ghidra and save as {cfg.reversed_dir.name}/ghidra_data_labels.json:\n"
+            '  [{"va": 0x10002E9C, "size": 20, "label": "switchdataD_10002e9c"}, ...]',
+        )
+        return
+
+    try:
+        payload = run_catalog(
+            cfg,
+            catalog=catalog,
+            gen_data_json=gen_data_json,
+            csv=csv,
+            summary=summary,
+            export_ghidra_labels=export_ghidra_labels,
+            fix_sizes=fix_sizes,
+            json_output=json_output,
+        )
+    except ValueError as exc:
+        error_exit(str(exc), json_mode=json_output)
+
     if json_output:
-        payload: dict[str, Any] = {
-            "target": target,
-            "annotations": len(entries),
-            "unique_vas": len({e["va"] for e in entries}),
-            "registry": len(registry),
-            "total_functions": len(registry),
-            "covered_bytes": covered,
-            "text_size": text_size,
-            "coverage_pct": round(coverage_pct, 1),
-            "wrote_data_json": gen_data_json,
-            "wrote_catalog": catalog,
-            "wrote_csv": csv,
-        }
-        if binary_missing:
-            payload["warning"] = f"target binary missing ({bin_path}) — text_size=0, coverage is 0%"
         json_print(payload)
 
 

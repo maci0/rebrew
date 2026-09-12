@@ -1717,7 +1717,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "resembl"
-version = "1.0.0"
+version = "1.1.0"
 source = { directory = "../resembl" }
 dependencies = [
     { name = "numpy" },
