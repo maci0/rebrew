@@ -83,9 +83,10 @@ class TestMakeFilename:
 
 class TestGenerateTestCommand:
     def test_basic(self) -> None:
-        cmd = generate_test_command("src/game_func.c", "_my_func", 0x10001000, 64, "/O2 /Gd")
+        cmd = generate_test_command("src/game_func.c", "_my_func", 0x10001000, 64)
         assert "rebrew test" in cmd
         assert "src/game_func.c" in cmd
+        assert "--cflags" not in cmd
 
 
 # -------------------------------------------------------------------------

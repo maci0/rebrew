@@ -39,12 +39,18 @@ def find_orphans(cfg: Any) -> tuple[list[tuple[str, int, str]], list[tuple[str, 
     its block would destroy earned STATUS.  Only blocks whose VA is
     absent from the function list (stale annotations, scratch VAs like
     ``0xdeadbeef``) are reported.
+
+    Blocks are also scoped to the target's own marker.  One metadata file
+    holds every target's blocks, so a scan of the second target would
+    otherwise report every first-target block as an orphan — and ``--prune``
+    would delete the other target's earned STATUS wholesale.
     """
     from rebrew.catalog import cached_function_list, scan_reversed_dir
     from rebrew.catalog.loaders import load_function_structure
     from rebrew.config import FUNCTION_STRUCTURE_JSON
     from rebrew.data_metadata import load_data_metadata
     from rebrew.metadata import load_metadata
+    from rebrew.sources import target_marker
 
     live: set[tuple[str, int]] = set()
     for entry in scan_reversed_dir(cfg.reversed_dir, cfg=cfg):
@@ -73,16 +79,18 @@ def find_orphans(cfg: Any) -> tuple[list[tuple[str, int, str]], list[tuple[str, 
                 known_vas.add(int(va))
         except (TypeError, ValueError):
             continue
+    marker = target_marker(cfg)
     fn_orphans = [
         (module, va, "rebrew-functions.toml")
         for (module, va) in sorted(load_metadata(cfg.metadata_dir))
-        if (module, va) not in live and va not in known_vas
+        if (not marker or module == marker) and (module, va) not in live and va not in known_vas
     ]
     data_entries = load_data_metadata(cfg.metadata_dir)
     data_orphans = [
         (module, va, "rebrew-data.toml")
         for (module, va) in sorted(data_entries)
-        if (module, va) not in live
+        if (not marker or module == marker)
+        and (module, va) not in live
         and va not in known_vas
         # Import slots (.idata/.edata) never have source markers by design —
         # they are inventory, not annotations.  Pruning them would delete the
