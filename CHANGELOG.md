@@ -149,6 +149,12 @@
   sources now exist.
 
 ### Changed
+- **`round-trip --fix-headers` also patches the COFF `characteristics` word**,
+  so the DEBUG_STRIPPED bit the now-deleted workspace `fix_pe_header.py` added
+  comes from `--fix-headers` like every other header field.  The three
+  workspace classify scripts are likewise gone: `rebrew document-unmatched`
+  already covers their functions.txt parsing, marker scan and BLOCKER/STATUS
+  writes.
 - **`ToolchainSpec.image_entrypoint` publishes each image's ENTRYPOINT
   wrapper**: the dead `image_binary` field is gone.  Every image-backed spec
   now names the wrapper its Dockerfile declares (e.g. `/usr/local/bin/cl`),
