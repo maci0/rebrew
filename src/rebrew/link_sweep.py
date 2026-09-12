@@ -43,6 +43,7 @@ from rich.table import Table
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.gen_layout import derive_link_options, parse_pe
+from rebrew.pe_headers import pe_layout
 
 console = Console(stderr=True)
 
@@ -84,9 +85,12 @@ _FIELDS = [
 
 def _read_fields(path: Path) -> dict[str, int]:
     d = path.read_bytes()
-    e = struct.unpack_from("<I", d, 0x3C)[0]
+    layout = pe_layout(d)
+    if layout is None:
+        raise ValueError(f"not a PE binary: {path}")
+    e = layout.e_lfanew
     coff = e + 4
-    opt = coff + 20
+    opt = layout.optional_header_offset
     out: dict[str, int] = {}
 
     def u32(off: int) -> int:

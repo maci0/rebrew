@@ -97,3 +97,63 @@ class TestHeaderParity:
 
     def test_non_pe_returns_empty(self) -> None:
         assert header_parity(b"\x00" * 64, _fixture()) == []
+
+
+class TestPeLayout:
+    def test_pe_lfanew_on_fixture(self) -> None:
+        from rebrew.pe_headers import pe_lfanew
+
+        e = pe_lfanew(_fixture())
+        assert e is not None and e > 0
+
+    def test_pe_lfanew_non_pe(self) -> None:
+        from rebrew.pe_headers import pe_lfanew
+
+        assert pe_lfanew(b"\x00" * 256) is None
+        assert pe_lfanew(b"MZ" + b"\x00" * 62) is None
+        # NE images carry "NE" at e_lfanew, not "PE\0\0".
+        ne = bytearray(b"MZ" + b"\x00" * 62)
+        ne[0x3C:0x40] = (0x40).to_bytes(4, "little")
+        ne[0x40:0x42] = b"NE"
+        assert pe_lfanew(bytes(ne)) is None
+
+    def test_pe_layout_geometry(self) -> None:
+        from rebrew.pe_headers import SECTION_ENTRY_SIZE, pe_layout
+
+        layout = pe_layout(_fixture())
+        assert layout is not None
+        assert layout.magic == 0x10B
+        assert layout.optional_header_offset == layout.e_lfanew + 0x18
+        assert (
+            layout.section_table_offset
+            == layout.optional_header_offset + layout.size_of_optional_header
+        )
+        assert len(layout.sections) == layout.number_of_sections
+        assert layout.sections
+        for index, section in enumerate(layout.sections):
+            assert section.header_offset == layout.section_table_offset + SECTION_ENTRY_SIZE * index
+
+    def test_pe_layout_non_pe(self) -> None:
+        from rebrew.pe_headers import pe_layout
+
+        assert pe_layout(b"\x00" * 256) is None
+
+    def test_find_section(self) -> None:
+        from rebrew.pe_headers import find_section
+
+        data = _fixture()
+        first = find_section(data, ".text")
+        assert first is not None
+        assert first.name == ".text"
+        assert find_section(data, ".nope") is None
+
+    def test_sections_at_clips_short_buffer(self) -> None:
+        from rebrew.pe_headers import SECTION_ENTRY_SIZE, pe_layout, sections_at
+
+        layout = pe_layout(_fixture())
+        assert layout is not None
+        assert sections_at(_fixture(), layout.section_table_offset, 0) == ()
+        # Only one entry fits before the buffer ends, so a request for more
+        # stops there instead of reading past the image.
+        truncated = _fixture()[: layout.section_table_offset + SECTION_ENTRY_SIZE]
+        assert len(sections_at(truncated, layout.section_table_offset, 5)) == 1
