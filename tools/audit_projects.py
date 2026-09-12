@@ -18,9 +18,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from rebrew.annotation import parse_c_file_multi
 from rebrew.catalog.loaders import parse_function_list
 from rebrew.compile import resolve_cl_command
-from rebrew.config import _KNOWN_PROFILES, load_config
+from rebrew.config import load_config
 from rebrew.data_metadata import load_data_metadata
 from rebrew.metadata import KNOWN_STATUSES, load_metadata
+from rebrew.toolchain import TOOLCHAINS
 
 
 def _default_root() -> Path:
@@ -184,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
                         issues.append(f"[{t}] {bad_files}/{total_files} sources fail to parse")
                 # Compiler profile sanity
                 prof = getattr(cfg, "compiler_profile", "")
-                if prof not in _KNOWN_PROFILES:
+                if prof not in TOOLCHAINS:
                     issues.append(f"[{t}] unknown profile {prof!r}")
 
             status = "OK " if not issues else "ISSUES"

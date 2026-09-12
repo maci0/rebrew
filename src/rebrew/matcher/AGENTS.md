@@ -19,7 +19,7 @@ GA engine for binary-matching decompilation. Compiles C through the docker-backe
 | `mutations/basic.py` | Core Phase 1/2 operator set + `quick_validate`/`crossover`/diversity | 63 `mut_*` operators |
 | `parsers.py` | Object parsing (read-only) | `parse_obj_symbol_bytes()`, `list_obj_symbols()`, `extract_function_from_binary()` |
 | `flags.py` | Flag primitives | `FlagSet`, `Checkbox` (frozen), `Flags` alias |
-| `flag_data.py` | MSVC flag defs | `MSVC6_FLAGS`, `COMMON_MSVC_FLAGS`, `MSVC_SWEEP_TIERS` |
+| `flag_data.py` | Compiler flag axes per dialect | `MSVC6_FLAGS`, `COMMON_MSVC_FLAGS`, `GCC_FLAGS`, `BORLAND_FLAGS`, `WATCOM_FLAGS`, `MSVC152_FLAGS`, `*_SWEEP_TIERS` |
 | `solutions.py` | Solution transfer DB | `SolutionEntry`, `load_solutions()`, `save_solution()`, `find_similar()` (seeds GA runs from solved lookalikes) |
 
 ## Dependency Graph
@@ -27,9 +27,12 @@ GA engine for binary-matching decompilation. Compiles C through the docker-backe
 ```
 compiler.py
 ├── core.BuildResult
-├── flag_data.MSVC6_FLAGS, COMMON_MSVC_FLAGS, MSVC_SWEEP_TIERS
+├── flag_data.MSVC6_FLAGS, COMMON_MSVC_FLAGS, GCC_FLAGS, BORLAND_FLAGS,
+│   WATCOM_FLAGS, MSVC152_FLAGS, *_SWEEP_TIERS
 ├── flags.Checkbox, FlagSet
 ├── parsers.extract_function_from_binary, parse_obj_symbol_bytes
+├── config.profile_flags_style (external, for the per-style sweep fallback)
+├── toolchain_spec.FlagsStyle (external, value type)
 ├── compile.filter_wine_stderr (external, from rebrew.compile)
 └── compile_cache.CompileCache (external, optional — via cache=)
 
@@ -128,7 +131,7 @@ callable joins `ALL_MUTATIONS` at import; a duplicate name raises
 
 ## Gotchas
 
-- **Profile-parametrized sweep**: `generate_flag_combinations(tier=, profile=)` picks the flag set per profile (`msvc-6.0` default; `watcom-2.0-win32`/`watcom-2.0-win16`, `msvc-1.52`, `borland-3.1`/`borland-5.5` tiers) and `build_candidate()` resolves the docker image via the toolchain abstraction — no host wine.
+- **Profile-parametrized sweep**: `generate_flag_combinations(tier=, profile=)` picks the flag set per profile (packaged: `msvc-6.0`, `watcom-2.0-win32`/`watcom-2.0-win16`, `msvc-1.52`, `borland-3.1`/`borland-5.5`/`borland-2.0`, gcc/clang/mingw; a profile with none falls back to axes matching its registry `flags_style` — posix gets the GCC axes, not MSVC's) and `build_candidate()` resolves the docker image via the toolchain abstraction — no host wine.
 - **Heuristic reloc/register detection**: `scoring.py` zeros reloc slots / masks register diffs via pattern matching, not COFF metadata.
 - **60s timeout**: `build_candidate()` kills hung compilers → `BuildResult(ok=False)`, never raises.
 - **Wine stderr**: `compiler.py` calls `rebrew.compile.filter_wine_stderr()` via lazy import (avoids cycle).

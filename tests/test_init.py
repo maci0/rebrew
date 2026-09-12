@@ -875,8 +875,8 @@ class TestProfileMismatchWarning:
 
 class TestInitTc16:
     """rebrew init --toolchain borland-3.1 must generate a config that loads
-    without an unknown-profile fallback (COMPILER_DEFAULTS + _KNOWN_PROFILES
-    cover the new profile)."""
+    without an unknown-profile fallback (COMPILER_DEFAULTS covers the new
+    profile)."""
 
     def test_init_borland_3_1_project(self, tmp_path: Path, monkeypatch) -> None:
         import warnings
@@ -908,7 +908,7 @@ class TestInitTc16:
 class TestInitDelphi16:
     """rebrew init --toolchain delphi-1.0 must generate a config that loads
     without an unknown-profile fallback — the profile is advertised in the
-    CLI epilog, registered in TOOLCHAINS, and validated by _KNOWN_PROFILES."""
+    CLI epilog and validated against the registry."""
 
     def test_init_delphi_1_0_project(self, tmp_path: Path, monkeypatch) -> None:
         import warnings

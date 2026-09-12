@@ -542,8 +542,9 @@ flags_style = "posix"
 obj_ext = ".o"
 ```
 
-Unknown spec fields are a declaration error; a name colliding with a
-packaged toolchain raises `RegistryError`.  Once registered (by either
+Unknown spec fields are a declaration error, as is a `flags_style` outside
+`msvc`/`posix`; a name colliding with a packaged toolchain raises
+`RegistryError`.  Once registered (by either
 mechanism) the toolchain is a first-class profile: usable in
 `rebrew-libraries.toml`, per-function metadata, and `rebrew test --toolchain`.
 `rebrew toolchain list` reports each toolchain's provenance (`origin`:
@@ -556,8 +557,10 @@ Three companion extension points make a plugin toolchain fully first-class:
 
 - **`rebrew.flag_sets`** — sweep axes for the GA.  A zero-arg callable
   returning `dict[profile, (Flags, tiers)]` (tiers = `{tier: [axis ids]}`
-  with `"full": None` meaning all axes).  Without one, a plugin toolchain
-  compiles but `rebrew match --sweep` falls back to the MSVC flag space.
+  with `"full": None` meaning all axes).  Without one, a profile sweeps the
+  axes its spec's `flags_style` implies (a posix compiler gets the GCC axes,
+  not MSVC's); a posix profile with no registered set refuses a
+  `--flag-sweep-only` run rather than compiling invalid combinations.
 - **`rebrew.toolchain_detectors`** — detection-family alignment.  A zero-arg
   callable returning `dict[family, list[profile]]`; the profile is then
   accepted by `rebrew doctor`'s family check and `rebrew init
@@ -700,12 +703,11 @@ Notes:
   "the only real gap" (`archaic-msvc` publishes only base `msvc-9.0`).
 - **VC 11.0**: `msvc-11.0` (VS 2012, cl.exe 17.00.50522) is the newest
   compiler the `archaic-msvc` org carries.
-- **Legacy aliases**: the old `msvc6.3` / `msvc6.6` names are retired — the
-  registry names are `msvc-6.0-sp3` / `msvc-6.0-sp6`.  A config that still says
-  `profile = "msvc6.3"` / `"msvc6.6"` is migrated to the modern name at load
-  (with a warning), so an old project keeps the right compiler instead of
-  falling back to msvc-6.0 RTM or failing with "unknown toolchain"; the legacy
-  names also linger in doctor's legacy-path download hints.  `msvc-7.0` keeps its
+- **Retired names**: the old `msvc6.3` / `msvc6.6` aliases are gone — the
+  registry names are `msvc-6.0-sp3` / `msvc-6.0-sp6`, and a config naming the
+  old aliases is an unknown profile (falls back to msvc-6.0 RTM with a warning).
+  The `msvc6.3` string still appears in doctor's legacy-path download hints,
+  where it names the decomp.me tarball, not a profile.  `msvc-7.0` keeps its
   historical 13.10.3077 compiler (the canonical `7.0-win32` dir), while
   `msvc-7.0-rtm` is the true VC 7.0 build in `7.0-rtm-win32`.
 

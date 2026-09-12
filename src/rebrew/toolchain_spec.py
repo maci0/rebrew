@@ -8,6 +8,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal, cast
+
+#: Flag syntax a toolchain takes: MSVC's ``/I``/``/Fo``/``/c`` or POSIX's
+#: ``-I``/``-o``/``-c``.  Drives config's ``posix_style`` and the default
+#: flag axes an unlisted profile sweeps.
+FlagsStyle = Literal["msvc", "posix"]
+
+
+def flags_style_from_str(value: object) -> FlagsStyle:
+    """Validate a declared ``flags_style``.
+
+    Raises ``ValueError`` on anything but the two supported syntaxes so a
+    misdeclared toolchain fails loud at load instead of silently taking MSVC
+    flag axes."""
+    style = str(value or "msvc")
+    if style not in ("msvc", "posix"):
+        raise ValueError(f"flags_style must be 'msvc' or 'posix', got {style!r}")
+    return cast(FlagsStyle, style)
 
 
 @dataclass(frozen=True)
@@ -21,7 +39,7 @@ class ToolchainSpec:
     # e.g. "dcc" wrapping DCC.EXE); defaults to *binary*
     runtime: str = "native"  # "native" | "wine" | "dosbox" — informational; the
     # image wrapper encapsulates it, host fallback uses it for env setup
-    flags_style: str = "msvc"  # "msvc" | "posix"
+    flags_style: FlagsStyle = "msvc"  # flag syntax: /I,/Fo,/c vs -I,-o,-c
     obj_ext: str = ".obj"
     host_path: str | Path | None = None  # vendored dir (host fallback)
     host_bin: str = "Bin"  # subdir of host_path holding the compiler (Bin for
