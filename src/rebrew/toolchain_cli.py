@@ -558,6 +558,13 @@ _SMOKE_GOLDEN: dict[
         "t.c",
         (4, 8),
     ),
+    "msvc-6.0-sp5-pp": (
+        ["/c", "t.c"],
+        "t.obj",
+        "202f30ec9d86ab587d0c319cbcc488cf0b5cefd8a9d190ad5effecd6e31d455a",
+        "t.c",
+        (4, 8),
+    ),
     "msvc-6.0-sp6": (
         ["/c", "t.c"],
         "t.obj",
@@ -712,7 +719,7 @@ _SMOKE_GOLDEN: dict[
     "borland-2.0": (
         ["t.c"],
         "t.OBJ",
-        "20f53956d747afe5d0d66f2e3f2b9a8dbc8b7c150fd85dfdf774d12b5925cecc",
+        "12ad136f05e1356179482738d6a037ac6d91a234d2cb62cfd47746048604ee77",
         "t.c",
         [
             (44, 49),

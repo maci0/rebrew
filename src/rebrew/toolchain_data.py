@@ -392,8 +392,12 @@ SOURCES: dict[str, ToolchainSource] = {
         host_dir="borland/3.1-win16",
     ),
     "watcom-2.0-win32": ToolchainSource(
-        url="https://github.com/open-watcom/open-watcom-v2/releases/download/Last-CI-build/ow-snapshot.tar.xz",
-        sha256="99e494d9a3871f58a6398268e8f04003affa73421ca5fb49e3815a8ef1bb7b1f",
+        # The rolling `Last-CI-build` tag is republished on every CI run, so a
+        # recorded sha256 stops resolving upstream; the dated release is
+        # immutable and this image rebuilds reproducibly from it (the same
+        # snapshot the 16-bit image uses).
+        url="https://github.com/open-watcom/open-watcom-v2/releases/download/2026-09-01-Build/ow-snapshot.tar.xz",
+        sha256="bac354f3c75ffa49ff8d70a44e475de7e7c1823fff04b80c14787bd0792c9bdf",
         commit="",
         layout="tar-strip1",
         host_dir="watcom/2.0-win32",

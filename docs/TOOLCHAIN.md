@@ -242,10 +242,10 @@ docker image and regenerates the smoke golden (verified stable across
 two compiles).  The image swap is transactional: a failed build/pull
 restores the previously registered image under the tag, and a failed
 `update --apply` restores the previous source pin — the pin never stays
-ahead of the image.  The Open Watcom `Last-CI-build` release tag is a
-moving target, so it is re-downloaded and re-hashed; decomp.me /
-archive.org assets and pinned tarballs (16-bit media in the
-rebrew-toolchains checkout) are immutable and reported as
+ahead of the image.  A pin that can move (a `refs/heads/...` branch
+tarball) is re-downloaded and re-hashed; release assets (the dated Open
+Watcom snapshots, decomp.me / archive.org payloads) and the pinned 16-bit
+media in the rebrew-toolchains checkout are immutable and reported as
 static.  Runs on a schedule (or ad-hoc) with `GH_TOKEN` set for
 generous API limits.
 
@@ -348,9 +348,10 @@ docker** — no host files:
 
 - **Base** (`base/` in the rebrew-toolchains checkout, `rebrew/base:1.0`)
   pins the debian digest, so apt resolves the same snapshot on every build.
-- **Downloads are sha256-verified** (msvc-6.0 tarball, watcom snapshot — the
-  moving `Last-CI-build` tag is pinned by the checksum — and the Borland
-  InstallShield payload).  A changed source fails the build loudly.
+- **Downloads are sha256-verified** (msvc-6.0 tarball, the dated Open Watcom
+  snapshot — both Watcom images pin the immutable `2026-09-01-Build` release
+  — and the Borland InstallShield payload).  A changed source fails the build
+  loudly.
 - **Pinned 16-bit tarballs** (`msvc152.tar.xz`, `delphi10.tar.xz`, …) are
   used for msvc-1.52/15/10, borland-3.1/borland-2.0 and delphi — the archive.org en_vc152
   RAR SFX extracts corrupt files under both 7z and unar, and the Delphi

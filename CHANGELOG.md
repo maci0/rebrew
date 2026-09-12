@@ -77,9 +77,22 @@
   `gcc`→`gcc-14.2.0`, `gcc12`→`gcc-12.3.0`, `clang`→`clang-18.1.8`,
   `clang16`→`clang-16.0.4`, `gcc-pe`→`mingw-16.2.0`,
   `gcc-pe14`→`mingw-14.2.0`.  The confusing `gcc-pe` image family is renamed
-  `mingw` (`rebrew/gcc-pe:*` → `rebrew/mingw:*`); the existing images are
-  retagged, not rebuilt.  A profile name used as a TOML table header must be
-  quoted (`["msvc-6.0"]`).  See ADR 017.
+  `mingw`: the image repository, the install root (`/opt/mingw-<version>`) and
+  the entrypoint wrapper (`/usr/local/bin/mingw`) all say MinGW now, and both
+  images are rebuilt to match.  A profile name used as a TOML table header
+  must be quoted (`["msvc-6.0"]`).  See ADR 017.
+
+### Fixed
+- **`watcom-2.0-win32` builds again**: its source was Open Watcom's rolling
+  `Last-CI-build` release asset, which upstream republished, so the recorded
+  sha256 stopped resolving and a fresh build failed.  Both Watcom images now
+  pin the immutable `2026-09-01-Build` snapshot, and rebrew's copy of the pin
+  no longer disagrees with the manifest.
+- **The byte-reproducibility gate covers every image**: `msvc-6.0-sp5-pp` had
+  no smoke golden, so the Processor Pack image sat outside the gate, and
+  `borland-2.0`'s golden was stale (never regenerated after that image
+  changed).  Both goldens are recomputed and stable across two runs, and
+  `rebrew toolchain smoke` now reports 45 toolchains byte-reproducible.
 
 ## [1.0.0] - 2026-09-12
 ### Added

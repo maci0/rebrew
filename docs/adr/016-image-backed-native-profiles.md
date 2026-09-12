@@ -52,10 +52,10 @@ Every shipped compiler profile is image-backed:
 - The ELF profiles carry empty `includes`/`libs`: the C library and mingw
   headers ship inside the image, so no host `/usr/include` is bind-mounted
   over the container's tree.
-- `watcom-2.0-win16` pins the dated `2026-09-01-Build` Open Watcom snapshot.  The
-  moving `Last-CI-build` tag the 32-bit `watcom-2.0-win32` image uses has been
-  republished, so its recorded sha256 no longer resolves upstream; a dated
-  release asset stays valid.
+- Both Watcom images pin the dated `2026-09-01-Build` Open Watcom snapshot.  The
+  moving `Last-CI-build` tag the 32-bit image used to reference was republished,
+  so its recorded sha256 stopped resolving upstream; a dated release asset
+  stays valid.
 
 ## Consequences
 
