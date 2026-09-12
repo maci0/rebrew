@@ -1,13 +1,16 @@
 """pe_info.py — read-only PE metadata dump via LIEF.
 
 Reports the identity of a binary (format, arch, bits, image base, entry
-point, subsystem, timestamp, checksum, size), the PE section table with
-resolved read/write/execute protection flags, the DllCharacteristics
+point, subsystem, timestamp, checksum, size, PE type), the PE section table
+with resolved read/write/execute protection flags, the full ``IMAGE_SCN_*``
+characteristic names and Shannon entropy per section, the DllCharacteristics
 security flags plus the load-config-derived GS and SafeSEH state, the
-Authenticode signature summary, the debug directory (CodeView PDB path,
-GUID and age when LIEF exposes them), the Rich header (key and entries),
-and the presence plus counts of the TLS directory, load config, resources,
-relocations, exports, and imports.
+11-item mitigation checklist the portal renders (with its enabled score),
+the export table, the resource-entry count, the Authenticode signature
+summary, the debug directory (CodeView PDB path, GUID and age when LIEF
+exposes them), the Rich header (key and entries), and the presence plus
+counts of the TLS directory, load config, resources, relocations, exports,
+and imports.
 
 ELF and Mach-O inputs return the identity block they share with PE plus a
 note that the PE-only fields are unavailable, rather than an error.  Every
@@ -23,6 +26,7 @@ Usage:
 from __future__ import annotations
 
 import datetime
+import math
 from pathlib import Path
 from typing import Any
 
@@ -48,12 +52,90 @@ _DLL_FORCE_INTEGRITY = 0x0080
 _DLL_NX_COMPAT = 0x0100
 _DLL_NO_ISOLATION = 0x0200
 _DLL_NO_SEH = 0x0400
+_DLL_APPCONTAINER = 0x1000
+_DLL_WDM_DRIVER = 0x2000
 _DLL_GUARD_CF = 0x4000
+_DLL_TERMINAL_SERVER_AWARE = 0x8000
 
-# IMAGE_SCN_* section characteristic bits (winnt.h).
+# IMAGE_FILE_HEADER.Characteristics bits used to name the PE type.
+_FILE_EXECUTABLE_IMAGE = 0x0002
+_FILE_DLL = 0x2000
+
+# IMAGE_SCN_* section characteristics (winnt.h), low bit first.  The ALIGN
+# nibble is a value, not a flag, and is resolved positionally.
+_SECTION_ALIGN_MASK = 0x00F00000
+_SECTION_ALIGN_FIRST = 0x00100000
+_SECTION_ALIGN_NAMES: tuple[str, ...] = (
+    "IMAGE_SCN_ALIGN_1BYTES",
+    "IMAGE_SCN_ALIGN_2BYTES",
+    "IMAGE_SCN_ALIGN_4BYTES",
+    "IMAGE_SCN_ALIGN_8BYTES",
+    "IMAGE_SCN_ALIGN_16BYTES",
+    "IMAGE_SCN_ALIGN_32BYTES",
+    "IMAGE_SCN_ALIGN_64BYTES",
+    "IMAGE_SCN_ALIGN_128BYTES",
+    "IMAGE_SCN_ALIGN_256BYTES",
+    "IMAGE_SCN_ALIGN_512BYTES",
+    "IMAGE_SCN_ALIGN_1024BYTES",
+    "IMAGE_SCN_ALIGN_2048BYTES",
+    "IMAGE_SCN_ALIGN_4096BYTES",
+    "IMAGE_SCN_ALIGN_8192BYTES",
+)
+#: ``(bit, name)`` in ascending bit order; ``name`` is None for the ALIGN
+#: nibble, whose name depends on the field's value.  0x00020000 is
+#: IMAGE_SCN_MEM_PURGEABLE and IMAGE_SCN_MEM_16BIT (reserved alias) here.
+_SECTION_CHARACTERISTIC_NAMES: tuple[tuple[int, str | None], ...] = (
+    (0x00000008, "IMAGE_SCN_TYPE_NO_PAD"),
+    (0x00000020, "IMAGE_SCN_CNT_CODE"),
+    (0x00000040, "IMAGE_SCN_CNT_INITIALIZED_DATA"),
+    (0x00000080, "IMAGE_SCN_CNT_UNINITIALIZED_DATA"),
+    (0x00000100, "IMAGE_SCN_LNK_OTHER"),
+    (0x00000200, "IMAGE_SCN_LNK_INFO"),
+    (0x00000800, "IMAGE_SCN_LNK_REMOVE"),
+    (0x00001000, "IMAGE_SCN_LNK_COMDAT"),
+    (0x00008000, "IMAGE_SCN_GPREL"),
+    (0x00020000, "IMAGE_SCN_MEM_16BIT"),
+    (0x00040000, "IMAGE_SCN_MEM_LOCKED"),
+    (0x00080000, "IMAGE_SCN_MEM_PRELOAD"),
+    (_SECTION_ALIGN_MASK, None),
+    (0x01000000, "IMAGE_SCN_LNK_NRELOC_OVFL"),
+    (0x02000000, "IMAGE_SCN_MEM_DISCARDABLE"),
+    (0x04000000, "IMAGE_SCN_MEM_NOT_CACHED"),
+    (0x08000000, "IMAGE_SCN_MEM_NOT_PAGED"),
+    (0x10000000, "IMAGE_SCN_MEM_SHARED"),
+    (0x20000000, "IMAGE_SCN_MEM_EXECUTE"),
+    (0x40000000, "IMAGE_SCN_MEM_READ"),
+    (0x80000000, "IMAGE_SCN_MEM_WRITE"),
+)
+
+# The read/write/execute protection booleans; same bits as the three
+# IMAGE_SCN_MEM_* names above, read directly for the compact protection column.
 _SECTION_MEM_EXECUTE = 0x20000000
 _SECTION_MEM_READ = 0x40000000
 _SECTION_MEM_WRITE = 0x80000000
+
+#: Portal mitigation checklist in display order: key, DllCharacteristics bit,
+#: winnt.h flag name, and whether the bit DISABLES the mitigation (so the
+#: item is enabled when the bit is clear).  ``bound_image`` is not a
+#: DllCharacteristics bit and is resolved from the bound-import directory.
+_SECURITY_ITEMS: tuple[tuple[str, int, str, bool], ...] = (
+    ("aslr", _DLL_DYNAMIC_BASE, "DYNAMIC_BASE", False),
+    ("dep", _DLL_NX_COMPAT, "NX_COMPAT", False),
+    ("cfg", _DLL_GUARD_CF, "GUARD_CF", False),
+    ("driver_model", _DLL_WDM_DRIVER, "WDM_DRIVER", False),
+    ("app_container", _DLL_APPCONTAINER, "APPCONTAINER", False),
+    ("terminal_server_aware", _DLL_TERMINAL_SERVER_AWARE, "TERMINAL_SERVER_AWARE", False),
+    ("image_isolation", _DLL_NO_ISOLATION, "NO_ISOLATION", True),
+    ("code_integrity", _DLL_FORCE_INTEGRITY, "FORCE_INTEGRITY", False),
+    ("high_entropy", _DLL_HIGH_ENTROPY_VA, "HIGH_ENTROPY_VA", False),
+    ("seh", _DLL_NO_SEH, "NO_SEH", True),
+)
+
+#: Checklist size: the ten DllCharacteristics items plus ``bound_image``.
+_SECURITY_ITEM_COUNT = len(_SECURITY_ITEMS) + 1
+
+#: The bound-import directory type name the checklist reads.
+_BOUND_IMPORT_DIRECTORY = "BOUND_IMPORT"
 
 #: PE32+ optional-header magic (`IMAGE_NT_OPTIONAL_HDR64_MAGIC`).
 _PE32_PLUS_MAGIC = 0x20B
@@ -89,6 +171,9 @@ _STRUCTURED_KEYS = frozenset(
         "note",
         "sections",
         "security_flags",
+        "security",
+        "security_score",
+        "exports",
         "flags_summary",
         "authenticode",
         "debug",
@@ -197,15 +282,22 @@ def pe_info(path: str | Path) -> dict[str, object]:
 
 
 def _pe_payload(pe: Any, size: int, arch: str) -> dict[str, object]:
-    """Full PE payload: identity, sections, security, debug, Rich, presence."""
+    """Full PE payload: identity, sections, security, exports, debug, Rich."""
     security = _security_flags(pe)
+    checklist = _security(pe)
+    exports = _exports(pe)
     payload: dict[str, object] = {
         **_pe_identity(pe, size, arch),
         "sections": _pe_sections(pe),
         "security_flags": security,
+        "security": checklist,
+        "security_score": _security_score(checklist),
         "flags_summary": [
             label for key, label in _SECURITY_FLAG_LABELS if _flag(security.get(key))
         ],
+        "exports": exports,
+        "export_count": len(exports),
+        "resource_count": _resource_count(pe),
         "authenticode": _authenticode(pe),
         "debug": _debug_entries(pe),
         "rich_header": _rich_header(pe),
@@ -233,6 +325,9 @@ def _pe_identity(pe: Any, size: int, arch: str) -> dict[str, object]:
         "image_base": image_base,
         "entry_point": image_base + entry_rva,
     }
+    pe_type = _pe_type(header)
+    if pe_type is not None:
+        identity["type"] = pe_type
     subsystem = getattr(optional, "subsystem", None)
     if subsystem is not None:
         identity["subsystem"] = _text(subsystem)
@@ -245,6 +340,23 @@ def _pe_identity(pe: Any, size: int, arch: str) -> dict[str, object]:
         identity["checksum"] = checksum
     identity["size"] = size
     return identity
+
+
+def _pe_type(header: Any) -> str | None:
+    """``"dll"`` or ``"exe"`` from the file-header characteristics, else None.
+
+    The DLL bit wins over EXECUTABLE_IMAGE: a DLL carries both.  Neither bit
+    set (or an unreadable characteristics word) is reported as unknown rather
+    than guessed.
+    """
+    characteristics = _to_int(getattr(header, "characteristics", None))
+    if characteristics is None:
+        return None
+    if characteristics & _FILE_DLL:
+        return "dll"
+    if characteristics & _FILE_EXECUTABLE_IMAGE:
+        return "exe"
+    return None
 
 
 def _elf_payload(elf: Any, size: int, arch: str) -> dict[str, object]:
@@ -341,12 +453,180 @@ def _pe_sections(pe: Any) -> list[dict[str, object]]:
                 "virtual_size": _to_int(getattr(section, "virtual_size", 0)) or 0,
                 "raw_size": _to_int(getattr(section, "sizeof_raw_data", 0)) or 0,
                 "raw_offset": _to_int(getattr(section, "pointerto_raw_data", 0)) or 0,
+                "entropy": _section_entropy(section),
+                "characteristics_value": characteristics,
+                "characteristics": _section_characteristic_names(characteristics),
                 "read": bool(characteristics & _SECTION_MEM_READ),
                 "write": bool(characteristics & _SECTION_MEM_WRITE),
                 "execute": bool(characteristics & _SECTION_MEM_EXECUTE),
             }
         )
     return sections
+
+
+def _section_characteristic_names(characteristics: int) -> list[str]:
+    """Full ``IMAGE_SCN_*`` name list for *characteristics*, ascending by bit."""
+    names: list[str] = []
+    for bit, name in _SECTION_CHARACTERISTIC_NAMES:
+        if bit == _SECTION_ALIGN_MASK:
+            align = characteristics & _SECTION_ALIGN_MASK
+            if align:
+                index = (align - _SECTION_ALIGN_FIRST) // _SECTION_ALIGN_FIRST
+                if 0 <= index < len(_SECTION_ALIGN_NAMES):
+                    names.append(_SECTION_ALIGN_NAMES[index])
+            continue
+        if name is not None and characteristics & bit:
+            names.append(name)
+    return names
+
+
+def _section_entropy(section: Any) -> float | None:
+    """LIEF's Shannon entropy for *section*, rounded, or ``None`` when unusable.
+
+    LIEF reports entropy in bits per byte; a non-finite value (an empty or
+    unreadable section) is omitted rather than rendered as a zero the source
+    never produced.
+    """
+    value = getattr(section, "entropy", None)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    entropy = float(value)
+    if not math.isfinite(entropy):
+        return None
+    return round(entropy, 4)
+
+
+def _exports(pe: Any) -> list[dict[str, object]]:
+    """Export table as ``name`` / ``va`` / ``ordinal`` / ``forwarder`` records.
+
+    A forwarded export has no code address of its own (LIEF reports RVA 0), so
+    its ``va`` is null and ``forwarder`` names the target (``DLL.Function``),
+    keeping the record instead of dropping it.  An ordinal-only export keeps an
+    empty ``name``; the ordinal identifies it.
+    """
+    export = _export_table(pe)
+    image_base = _to_int(getattr(getattr(pe, "optional_header", None), "imagebase", 0)) or 0
+    entries: list[dict[str, object]] = []
+    for entry in _safe_list(export, "entries"):
+        forwarded = _flag(getattr(entry, "is_forwarded", None))
+        forwarder = _forwarder_target(entry) if forwarded else None
+        address = _to_int(getattr(entry, "address", None))
+        entries.append(
+            {
+                "name": _text(getattr(entry, "name", "")),
+                "va": None if forwarded or address is None else image_base + address,
+                "ordinal": _to_int(getattr(entry, "ordinal", None)),
+                "forwarder": forwarder,
+            }
+        )
+    return entries
+
+
+def _export_table(pe: Any) -> Any | None:
+    """The PE export table, or ``None`` when LIEF cannot expose one.
+
+    A binary without exports still yields an empty table object, which is a
+    real "no exports" answer; only a missing or failing ``get_export`` is
+    unknown.
+    """
+    get_export = getattr(pe, "get_export", None)
+    if get_export is None:
+        return None
+    try:
+        return get_export()
+    except (AttributeError, TypeError, ValueError, RuntimeError):
+        return None
+
+
+def _forwarder_target(entry: Any) -> str | None:
+    """The ``DLL.Function`` an export forwards to, or ``None`` for code."""
+    if not _flag(getattr(entry, "is_forwarded", None)):
+        return None
+    info = getattr(entry, "forward_information", None)
+    if info is None:
+        return None
+    library = getattr(info, "library", None) or getattr(info, "lib", None)
+    function = getattr(info, "function", None) or getattr(info, "name", None)
+    if isinstance(library, str) and isinstance(function, str) and library and function:
+        return f"{library}.{function}"
+    return None
+
+
+def _resource_count(pe: Any) -> int:
+    """Number of resource data entries in the resource tree (0 when none).
+
+    Counts the leaf records (one per icon, dialog, string table, ...); the
+    directory nodes that group them have children and are not resources.  A
+    node without children is a leaf in every resource tree LIEF builds.
+    """
+    root = getattr(pe, "resources", None)
+    if root is None:
+        return 0
+    count = 0
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        for child in _safe_list(node, "childs"):
+            if _safe_list(child, "childs"):
+                stack.append(child)
+            else:
+                count += 1
+    return count
+
+
+def _security(pe: Any) -> dict[str, object]:
+    """The portal's 11-item mitigation checklist.
+
+    Each item is ``{"enabled", "flag", "flag_name"}``.  ``enabled`` is null
+    when the source value is unavailable (LIEF exposed no DllCharacteristics
+    word, or no data directories), never a false the file did not state.
+    ``flag`` is the raw DllCharacteristics bit for the ten word-derived items
+    and the bound-import directory size for ``bound_image``; ``flag_name`` is
+    the winnt.h name the bit comes from.
+    """
+    optional = getattr(pe, "optional_header", None)
+    dllc = _to_int(getattr(optional, "dll_characteristics", None))
+    items: dict[str, object] = {}
+    for key, bit, flag_name, inverted in _SECURITY_ITEMS:
+        if dllc is None:
+            items[key] = {"enabled": None, "flag": None, "flag_name": flag_name}
+            continue
+        set_bit = bool(dllc & bit)
+        items[key] = {
+            "enabled": (not set_bit) if inverted else set_bit,
+            "flag": bit,
+            "flag_name": flag_name,
+        }
+    bound_size = _bound_import_size(pe)
+    items["bound_image"] = {
+        "enabled": None if bound_size is None else bound_size > 0,
+        "flag": bound_size,
+        "flag_name": _BOUND_IMPORT_DIRECTORY,
+    }
+    return items
+
+
+def _bound_import_size(pe: Any) -> int | None:
+    """Size of the bound-import data directory, or ``None`` when unreadable.
+
+    ``None`` only when LIEF exposes no data directories at all; a directory
+    list without the entry means the image has none (size 0).
+    """
+    directories = _safe_list(pe, "data_directories")
+    if not directories:
+        return None
+    for directory in directories:
+        if _text(getattr(directory, "type", "")) == _BOUND_IMPORT_DIRECTORY:
+            return _to_int(getattr(directory, "size", 0)) or 0
+    return 0
+
+
+def _security_score(security: dict[str, object]) -> dict[str, int]:
+    """Enabled count over the checklist's fixed size, unknowns excluded."""
+    enabled = sum(
+        1 for item in security.values() if isinstance(item, dict) and item.get("enabled") is True
+    )
+    return {"enabled": enabled, "total": _SECURITY_ITEM_COUNT}
 
 
 def _load_config(pe: Any) -> Any | None:
@@ -535,17 +815,22 @@ def _print_human(info: dict[str, object], binary: Path) -> None:
         table.add_column("VSize", justify="right")
         table.add_column("RawSize", justify="right")
         table.add_column("RawOff", justify="right")
+        table.add_column("Entropy", justify="right")
         table.add_column("Prot")
+        table.add_column("Characteristics", overflow="fold")
         for section in sections:
             if not isinstance(section, dict):
                 continue
+            entropy = section.get("entropy")
             table.add_row(
                 str(section.get("name", "")),
                 _hex(section.get("virtual_address")),
                 str(section.get("virtual_size")),
                 str(section.get("raw_size")),
                 _hex(section.get("raw_offset")),
+                f"{entropy:.4f}" if isinstance(entropy, float) else "-",
                 _protection_text(section),
+                ", ".join(_names_text(section.get("characteristics"))) or "-",
             )
         console.print(table)
 
@@ -563,6 +848,47 @@ def _print_human(info: dict[str, object], binary: Path) -> None:
         summary = info.get("flags_summary")
         if isinstance(summary, list):
             console.print(f"flags_summary: {', '.join(str(item) for item in summary) or '(none)'}")
+
+    checklist = info.get("security")
+    if isinstance(checklist, dict):
+        score = info.get("security_score")
+        if isinstance(score, dict):
+            console.print(f"security score: {score.get('enabled')}/{score.get('total')}")
+        table = Table(title="Security checklist")
+        table.add_column("Item", style="bold")
+        table.add_column("State")
+        table.add_column("Flag", overflow="fold")
+        for key, item in checklist.items():
+            if not isinstance(item, dict):
+                continue
+            enabled = item.get("enabled")
+            state = "[green]yes[/green]" if enabled else "[dim]no[/dim]"
+            if enabled is None:
+                state = "[yellow]unknown[/yellow]"
+            name = item.get("flag_name")
+            raw = item.get("flag")
+            raw_text = f"0x{raw:04x}" if isinstance(raw, int) and not isinstance(raw, bool) else "-"
+            table.add_row(key, state, f"{name or '-'} {raw_text}")
+        console.print(table)
+
+    exports = info.get("exports")
+    if isinstance(exports, list) and exports:
+        table = Table(title="Exports")
+        table.add_column("Name", overflow="fold")
+        table.add_column("VA", justify="right")
+        table.add_column("Ordinal", justify="right")
+        table.add_column("Forwarder", overflow="fold")
+        for entry in exports:
+            if not isinstance(entry, dict):
+                continue
+            ordinal = entry.get("ordinal")
+            table.add_row(
+                str(entry.get("name", "")) or "(ordinal only)",
+                _hex(entry.get("va")) if entry.get("va") is not None else "-",
+                str(ordinal) if ordinal is not None else "-",
+                str(entry.get("forwarder", "")),
+            )
+        console.print(table)
 
     debug = info.get("debug")
     if isinstance(debug, list) and debug:
@@ -611,6 +937,13 @@ def _protection_text(section: dict[str, object]) -> str:
             "x" if section.get("execute") else "-",
         )
     )
+
+
+def _names_text(value: object) -> list[str]:
+    """The string items of a payload list value, ignoring anything else."""
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
 
 
 # ---------------------------------------------------------------------------

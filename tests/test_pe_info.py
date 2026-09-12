@@ -13,8 +13,15 @@ from typer.testing import CliRunner
 import rebrew.main
 from rebrew.pe_info import (
     _debug_entries,
+    _exports,
+    _pe_type,
+    _resource_count,
     _rich_header,
+    _section_characteristic_names,
+    _section_entropy,
+    _security,
     _security_flags,
+    _security_score,
     pe_info,
 )
 
@@ -72,6 +79,7 @@ class TestPayloadShape:
             "format",
             "arch",
             "bits",
+            "type",
             "image_base",
             "entry_point",
             "subsystem",
@@ -80,7 +88,12 @@ class TestPayloadShape:
             "size",
             "sections",
             "security_flags",
+            "security",
+            "security_score",
             "flags_summary",
+            "exports",
+            "export_count",
+            "resource_count",
             "authenticode",
             "debug",
             "rich_header",
@@ -93,6 +106,7 @@ class TestPayloadShape:
         assert info["format"] == "pe"
         assert info["arch"] == "x86_32"
         assert info["bits"] == 32
+        assert info["type"] == "exe"
         assert info["image_base"] == MINI_PE_IMAGE_BASE
         assert info["entry_point"] == MINI_PE_IMAGE_BASE + MINI_PE_TEXT_VA
         assert info["subsystem"] == "WINDOWS_CUI"
@@ -107,6 +121,21 @@ class TestPayloadShape:
         assert first == second
 
 
+class TestPeType:
+    def test_dll_bit_wins(self) -> None:
+        header = SimpleNamespace(characteristics=0x0002 | 0x2000)
+        assert _pe_type(header) == "dll"
+
+    def test_executable_image_is_exe(self) -> None:
+        assert _pe_type(SimpleNamespace(characteristics=0x0002)) == "exe"
+
+    def test_neither_bit_is_unknown(self) -> None:
+        assert _pe_type(SimpleNamespace(characteristics=0x0100)) is None
+
+    def test_missing_characteristics_is_unknown(self) -> None:
+        assert _pe_type(SimpleNamespace()) is None
+
+
 class TestSections:
     def test_section_list_and_keys(self) -> None:
         sections = pe_info(MINI_PE)["sections"]
@@ -118,6 +147,9 @@ class TestSections:
             "virtual_size",
             "raw_size",
             "raw_offset",
+            "entropy",
+            "characteristics_value",
+            "characteristics",
             "read",
             "write",
             "execute",
@@ -136,6 +168,170 @@ class TestSections:
         assert section["virtual_size"] == MINI_PE_TEXT_VSIZE
         assert section["raw_size"] == MINI_PE_TEXT_RAW_SIZE
         assert section["raw_offset"] == MINI_PE_TEXT_RAW_OFFSET
+
+    def test_characteristics_names_and_raw_value(self) -> None:
+        section = pe_info(MINI_PE)["sections"][0]
+        assert section["characteristics_value"] == 0x60000020
+        assert section["characteristics"] == [
+            "IMAGE_SCN_CNT_CODE",
+            "IMAGE_SCN_MEM_EXECUTE",
+            "IMAGE_SCN_MEM_READ",
+        ]
+
+    def test_entropy_is_bits_per_byte(self) -> None:
+        entropy = pe_info(MINI_PE)["sections"][0]["entropy"]
+        assert isinstance(entropy, float)
+        assert 0.0 <= entropy <= 8.0
+
+    def test_align_nibble_named(self) -> None:
+        assert _section_characteristic_names(0x00300000) == ["IMAGE_SCN_ALIGN_4BYTES"]
+        assert _section_characteristic_names(0x80000000) == ["IMAGE_SCN_MEM_WRITE"]
+
+    def test_unknown_bits_are_ignored(self) -> None:
+        assert _section_characteristic_names(0x00000001) == []
+
+    def test_entropy_none_for_unusable_value(self) -> None:
+        assert _section_entropy(SimpleNamespace(entropy=None)) is None
+        assert _section_entropy(SimpleNamespace(entropy=float("nan"))) is None
+        assert _section_entropy(SimpleNamespace()) is None
+        assert _section_entropy(SimpleNamespace(entropy=6.0)) == 6.0
+
+
+class TestExports:
+    def test_missing_get_export_is_empty(self) -> None:
+        assert _exports(_fake_pe()) == []
+
+    def test_export_entry_va_is_absolute(self) -> None:
+        entry = SimpleNamespace(name="Exported", address=0x1234, ordinal=7, is_forwarded=False)
+        pe = _fake_pe(get_export=lambda: SimpleNamespace(entries=[entry]))
+        assert _exports(pe) == [
+            {"name": "Exported", "va": MINI_PE_IMAGE_BASE + 0x1234, "ordinal": 7, "forwarder": None}
+        ]
+
+    def test_forwarder_kept_with_target_and_null_va(self) -> None:
+        info = SimpleNamespace(library="NTDLL", function="RtlFoo")
+        entry = SimpleNamespace(
+            name="Foo",
+            address=0,
+            ordinal=3,
+            is_forwarded=True,
+            forward_information=info,
+        )
+        pe = _fake_pe(get_export=lambda: SimpleNamespace(entries=[entry]))
+        assert _exports(pe) == [
+            {"name": "Foo", "va": None, "ordinal": 3, "forwarder": "NTDLL.RtlFoo"}
+        ]
+
+    def test_ordinal_only_export_keeps_empty_name(self) -> None:
+        entry = SimpleNamespace(name="", address=0x20, ordinal=1, is_forwarded=False)
+        pe = _fake_pe(get_export=lambda: SimpleNamespace(entries=[entry]))
+        assert _exports(pe)[0]["name"] == ""
+        assert _exports(pe)[0]["ordinal"] == 1
+
+    def test_forwarder_without_target_keeps_record(self) -> None:
+        entry = SimpleNamespace(name="Foo", address=0, ordinal=3, is_forwarded=True)
+        pe = _fake_pe(get_export=lambda: SimpleNamespace(entries=[entry]))
+        assert _exports(pe) == [{"name": "Foo", "va": None, "ordinal": 3, "forwarder": None}]
+
+    def test_export_count_on_mini_pe(self) -> None:
+        info = pe_info(MINI_PE)
+        assert info["exports"] == []
+        assert info["export_count"] == 0
+
+
+class TestResourceCount:
+    def test_absent_resources_is_zero(self) -> None:
+        assert _resource_count(_fake_pe()) == 0
+
+    def test_leaf_nodes_are_counted(self) -> None:
+        leaf = SimpleNamespace(name="icon")
+        directory = SimpleNamespace(childs=[leaf, leaf])
+        root = SimpleNamespace(childs=[directory])
+        assert _resource_count(SimpleNamespace(resources=root)) == 2
+
+    def test_empty_directory_is_not_a_resource(self) -> None:
+        assert _resource_count(SimpleNamespace(resources=SimpleNamespace(childs=[]))) == 0
+
+    def test_mini_pe_has_no_resources(self) -> None:
+        assert pe_info(MINI_PE)["resource_count"] == 0
+
+
+class TestSecurityChecklist:
+    def test_eleven_items_in_portal_order(self) -> None:
+        checklist = _security(_fake_pe())
+        assert list(checklist) == [
+            "aslr",
+            "dep",
+            "cfg",
+            "driver_model",
+            "app_container",
+            "terminal_server_aware",
+            "image_isolation",
+            "code_integrity",
+            "high_entropy",
+            "seh",
+            "bound_image",
+        ]
+
+    def test_each_item_carries_enabled_and_flag(self) -> None:
+        for item in _security(_fake_pe()).values():
+            assert set(item) == {"enabled", "flag", "flag_name"}
+
+    def test_dllc_bits_map_to_items(self) -> None:
+        dllc = 0x0040 | 0x0100 | 0x4000 | 0x1000 | 0x2000 | 0x8000 | 0x0080 | 0x0020
+        checklist = _security(_fake_pe(optional_header=SimpleNamespace(dll_characteristics=dllc)))
+        for key in (
+            "aslr",
+            "dep",
+            "cfg",
+            "driver_model",
+            "app_container",
+            "terminal_server_aware",
+            "code_integrity",
+            "high_entropy",
+        ):
+            assert checklist[key]["enabled"] is True, key
+
+    def test_inverted_bits_disable_the_item(self) -> None:
+        dllc = 0x0400 | 0x0200  # NO_SEH | NO_ISOLATION
+        checklist = _security(_fake_pe(optional_header=SimpleNamespace(dll_characteristics=dllc)))
+        assert checklist["seh"]["enabled"] is False
+        assert checklist["image_isolation"]["enabled"] is False
+        assert checklist["seh"]["flag"] == 0x0400
+
+    def test_unknown_dll_characteristics_is_null_not_false(self) -> None:
+        checklist = _security(_fake_pe(optional_header=SimpleNamespace()))
+        for key in ("aslr", "dep", "cfg", "seh", "image_isolation"):
+            assert checklist[key]["enabled"] is None, key
+
+    def test_bound_image_from_directory_size(self) -> None:
+        directories = [SimpleNamespace(type="BOUND_IMPORT", size=168)]
+        checklist = _security(_fake_pe(data_directories=directories))
+        assert checklist["bound_image"]["enabled"] is True
+        assert checklist["bound_image"]["flag"] == 168
+        empty = [SimpleNamespace(type="BOUND_IMPORT", size=0)]
+        assert _security(_fake_pe(data_directories=empty))["bound_image"]["enabled"] is False
+
+    def test_bound_image_unknown_without_directories(self) -> None:
+        assert _security(_fake_pe(data_directories=[]))["bound_image"]["enabled"] is None
+
+    def test_score_counts_enabled_over_eleven(self) -> None:
+        score = pe_info(MINI_PE)["security_score"]
+        assert score == {"enabled": 2, "total": 11}
+
+    def test_score_excludes_unknown_items(self) -> None:
+        checklist = _security(_fake_pe(optional_header=SimpleNamespace()))
+        assert _security_score(checklist) == {"enabled": 0, "total": 11}
+
+    def test_score_counts_true_items(self) -> None:
+        directories = [SimpleNamespace(type="BOUND_IMPORT", size=8)]
+        checklist = _security(
+            _fake_pe(
+                optional_header=SimpleNamespace(dll_characteristics=0x0040),
+                data_directories=directories,
+            )
+        )
+        assert _security_score(checklist)["enabled"] == 4
 
 
 class TestSecurityFlags:
@@ -226,7 +422,18 @@ class TestNonPe:
 
     def test_elf_omits_pe_only_blocks(self) -> None:
         info = pe_info(MINI_ELF)
-        for key in ("sections", "security_flags", "debug", "rich_header", "presence"):
+        for key in (
+            "sections",
+            "security_flags",
+            "security",
+            "security_score",
+            "exports",
+            "resource_count",
+            "type",
+            "debug",
+            "rich_header",
+            "presence",
+        ):
             assert key not in info
 
 
@@ -346,6 +553,7 @@ class TestPeInfoCli:
         assert "Sections" in result.output
         assert ".text" in result.output
         assert "Security flags" in result.output
+        assert "Security checklist" in result.output
 
     def test_missing_binary_exits_two(self, tmp_path: Path) -> None:
         result = runner.invoke(rebrew.main.app, ["pe-info", str(tmp_path / "absent.exe"), "--json"])

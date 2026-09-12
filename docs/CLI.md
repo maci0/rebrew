@@ -64,8 +64,8 @@ for `--compare` (not “better than EXACT”).
 | `rebrew flirt` | `flirt.py` | FLIRT signature scanning (see [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md)) |
 | `rebrew gen-flirt-pat` | `gen_flirt_pat.py` | Generate FLIRT `.pat` files from COFF `.lib` archives |
 | `rebrew imports` | `imports.py` | List import-table symbols — PE IAT (with `jmp [iat]` stub detection) or 16-bit NE module references (library identification) |
-| `rebrew fingerprints` | `fingerprints.py` | Binary fingerprint bundle: file hashes, imphash, Rich-header hash, per-section entropy (TLSH/ssdeep when installed) |
-| `rebrew pe-info` | `pe_info.py` | Read-only PE metadata dump: identity, section table with protection flags, DllCharacteristics security flags, Authenticode, debug/PDB, Rich header, presence + counts |
+| `rebrew fingerprints` | `fingerprints.py` | Binary fingerprint bundle: MD5/SHA1/SHA256/SHA512/SHA3 digests + CRC32, imphash, export hash, Rich-header hash, per-section entropy (TLSH/ssdeep when installed) |
+| `rebrew pe-info` | `pe_info.py` | Read-only PE metadata dump: identity (with type and resource count), section table with protections, entropy and full `IMAGE_SCN_*` names, DllCharacteristics security flags plus the 11-item security checklist and score, exports, Authenticode, debug/PDB, Rich header, presence + counts |
 | `rebrew crypto-scan` | `crypto_scan.py` | Detect crypto constant tables, crypto imports, and crypto-named functions |
 | `rebrew security-scan` | `security_scan.py` | Scan C sources for unsafe API use (unbounded copies, format strings, command execution) |
 | `rebrew strings` | `strings.py` | Extract printable ASCII/UTF-16 strings from data sections, with cross-references (`--xref`, `--filter`, `--min-len`, `--section`) |
@@ -1068,17 +1068,22 @@ they are linker glue, not compiled C).
 `rebrew fingerprints [BINARY] [--json] [--target NAME]`
 
 Print the fingerprint bundle for `BINARY` (default: the project's target
-binary).  The bundle covers the raw file digests (`md5`, `sha1`, `sha256`,
-`crc32`, streamed in chunks), `format` / `arch`, `size`, the Mandiant
-`imphash` (import order preserved, ordinals as `dll.ord<N>`), the
-`rich_header_hash` (MD5 over the canonical MSVC Rich-header bytes),
-`section_entropies` (per-section Shannon entropy over the raw bytes), and
-`tlsh` / `ssdeep` when their optional backend is installed.  A field that
-cannot be derived is `null`; a missing binary exits `EXIT_ERROR` (2).
+binary).  The bundle covers the streamed file digests (`md5`, `sha1`,
+`sha256`, `sha512`, `sha3_224`, `sha3_256`, `sha3_384`, `sha3_512`,
+`crc32`), `format` / `arch`, `size`, the Mandiant `imphash` (import order
+preserved, ordinals as `dll.ord<N>`), the `export_hash` (SHA-256 over the
+sorted, lowercased `<ordinal>:<name>` lines of the PE export table, or over
+the empty string when the image has no exports), the `rich_header_hash`
+(MD5 over the canonical MSVC Rich-header bytes), `section_entropies`
+(per-section Shannon entropy over the raw bytes), and `tlsh` / `ssdeep`
+when their optional backend is installed.  A field that cannot be derived
+is `null` (`export_hash` is `null` when the export table cannot be read);
+a missing binary exits `EXIT_ERROR` (2).
 
 Use it to tell two builds of the same target apart, to confirm a binary was
-rebuilt identically, and to spot a changed import set (imphash) or a
-different linker stamp (Rich header) after a rebuild.
+rebuilt identically, and to spot a changed import set (imphash), a changed
+export set (`export_hash`) or a different linker stamp (Rich header) after
+a rebuild.
 
 ### `rebrew pe-info`
 
@@ -1092,16 +1097,34 @@ note that the PE-only metadata is unavailable, rather than an error.
 For a PE the payload carries:
 
 - **Identity** — `format`, `arch`, `bits` (32/64 from the optional-header
-  magic), `image_base`, `entry_point` (absolute), `subsystem`, `timestamp`
-  (plus `timestamp_iso`, derived from the file value), `checksum`, `size`.
+  magic), `type` (`exe` / `dll` from the file-header characteristics, omitted
+  when neither bit is set), `image_base`, `entry_point` (absolute),
+  `subsystem`, `timestamp` (plus `timestamp_iso`, derived from the file
+  value), `checksum`, `size`, `resource_count` (the leaf entries of the
+  resource tree; 0 when the image has none).
 - **Sections** — `name`, `virtual_address`, `virtual_size`, `raw_size`,
-  `raw_offset`, and `read` / `write` / `execute` resolved from the section
-  characteristics (`IMAGE_SCN_MEM_*`).
+  `raw_offset`, `entropy` (Shannon bits per byte via LIEF, `null` when
+  unusable), `characteristics` (the full `IMAGE_SCN_*` name list, ALIGN
+  resolved from the nibble) and `characteristics_value` (the raw dword),
+  plus `read` / `write` / `execute` resolved from the same bits.
 - **`security_flags`** — booleans `aslr` (DYNAMIC_BASE), `nx` (NX_COMPAT),
   `cfg` (GUARD_CF), `gs` and `safe_seh` (from the load config),
   `high_entropy_va`, `force_integrity`, `isolation`, `seh`, plus
   `certificate_table`, alongside the raw `dll_characteristics` dword.
   `flags_summary` lists the enabled mitigations in a fixed order.
+- **`security`** — the portal's 11-item checklist in display order
+  (`aslr`, `dep`, `cfg`, `driver_model`, `app_container`,
+  `terminal_server_aware`, `image_isolation`, `code_integrity`,
+  `high_entropy`, `seh`, `bound_image`).  Each item is
+  `{"enabled", "flag", "flag_name"}`: `enabled` is `true` / `false` and
+  `null` when the underlying value is unavailable (reported as unknown, never
+  as a false the file did not state); `flag` is the raw DllCharacteristics bit
+  (the bound-import directory size for `bound_image`); `flag_name` is the
+  winnt.h name.  `security_score` is `{"enabled": N, "total": 11}`.
+- **`exports`** — one record per export (`name`, absolute `va`, `ordinal`,
+  `forwarder`).  A forwarded export keeps its record with a `null` `va` and
+  the `DLL.Function` target in `forwarder`; an ordinal-only export keeps an
+  empty `name`.  `export_count` is the record count.
 - **`authenticode`** — `present`, `signature_count`, and `signers` when LIEF
   exposes them.
 - **`debug`** — one entry per debug directory record (`type`), with
