@@ -61,6 +61,18 @@ def _first_caps(capture_dict: dict[str, list[ts.Node]]) -> dict[str, ts.Node]:
     return {k: v[0] for k, v in capture_dict.items()}
 
 
+def brace_block(body: bytes) -> bytes:
+    """Wrap *body* in ``{ }`` unless it is already braced.
+
+    A bare ``if (c) x;`` spliced into an ``if``/``else`` re-binds the final
+    ``else`` to the inner ``if`` (dangling else), flipping branch outcomes;
+    a braced body cannot.
+    """
+    if body.startswith(b"{") and body.endswith(b"}"):
+        return body
+    return b"{ " + body + b" }"
+
+
 # Optional scope limiting GA mutations to the target function's byte range.
 # The GA sets this once per run; every mutation query then only matches
 # inside the function, which is the only code that gets scored — querying

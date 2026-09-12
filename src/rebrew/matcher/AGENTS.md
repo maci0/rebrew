@@ -11,7 +11,7 @@ GA engine for binary-matching decompilation. Compiles C through the docker-backe
 | `scoring.py` | Binary comparison (pure) | `score_candidate()`, `diff_functions()`, `structural_similarity()` |
 | `mutator.py` | C mutations (pure) | `mutate_code()`, `mutate_chain()`, `MutationLog`, `crossover()`, `compute_population_diversity()`, 119 `mut_*` operators |
 | `mutations/queries.py` | Shared tree-sitter query library for the mutation operators | `_LazyQuery`, the `_QUERY_*` batch, `_RE_C_ZERO_LITERAL` |
-| `mutations/runtime.py` | Operator plumbing | `_capture`, `_first_caps`, `_cursor`, `_apply_query_once`, `set_target_range`, `_RE_FUNC_PRAGMA` |
+| `mutations/runtime.py` | Operator plumbing | `_capture`, `_first_caps`, `_cursor`, `_apply_query_once`, `set_target_range`, `brace_block`, `_RE_FUNC_PRAGMA` |
 | `mutations/pragmas.py` | MSVC6 `#pragma` operators | 7 `mut_*_pragma` operators |
 | `mutations/structural.py` | MSVC6 structural operators (control flow, stack frame, folding, zero-extension, register pressure) | 20 `mut_*` operators |
 | `mutations/advanced.py` | Phase 3/4 logical + manual-decomp operators, loop-break, ternary, hoist/sink | 18 `mut_*` operators |

@@ -30,7 +30,7 @@ import sys
 import tomllib
 import uuid
 from collections.abc import Iterator
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from pathlib import Path
 
 import typer
@@ -38,7 +38,7 @@ from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
 from rebrew.config import walk_up_to_root
-from rebrew.toolchain import TOOLCHAINS, ToolchainSpec
+from rebrew.toolchain import TOOLCHAINS, ToolchainSpec, kill_container
 from rebrew.utils import container_runtime
 
 try:
@@ -269,18 +269,6 @@ def _wineprefix(spec: ToolchainSpec) -> Path:
     if env:
         return Path(env)
     return Path.home() / ".cache" / f"rebrew-{spec.name}-wineprefix"
-
-
-def kill_container(name: str, timeout: int = 30) -> None:
-    """Best-effort ``docker kill`` of a timed-out run container.
-
-    Killing the docker CLI leaves the container running under dockerd; the
-    kill (plus the ``--rm`` flag) reaps it instead of leaking one hung
-    wine compile per timeout.  Errors are suppressed: cleanup must not mask
-    the original timeout.
-    """
-    with suppress(OSError, subprocess.SubprocessError):
-        subprocess.run([container_runtime(), "kill", name], capture_output=True, timeout=timeout)
 
 
 def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:

@@ -24,6 +24,7 @@ from rebrew.matcher.mutations.runtime import (
     _cursor,
     _find_function_body_insert_pos,
     _first_caps,
+    brace_block,
 )
 
 # --- Queries for Phase 5 mutations ---
@@ -447,11 +448,6 @@ def mut_invert_if_else(s: str, rng: random.Random) -> str | None:
     # Brace both arms: a bare `else if` without its own trailing else would
     # otherwise re-bind the final else to the inner if (dangling else),
     # flipping branch outcomes.
-    def _braced(body: bytes) -> bytes:
-        if body.startswith(b"{") and body.endswith(b"}"):
-            return body
-        return b"{ " + body + b" }"
-
     stmt_node = caps["stmt"]
     replacement = (
         b"if ("
@@ -461,9 +457,9 @@ def mut_invert_if_else(s: str, rng: random.Random) -> str | None:
         + b" "
         + right
         + b") "
-        + _braced(alt)
+        + brace_block(alt)
         + b" else "
-        + _braced(cons)
+        + brace_block(cons)
     )
     result = b_source[: stmt_node.start_byte] + replacement + b_source[stmt_node.end_byte :]
     return result.decode("utf-8")
