@@ -1,4 +1,4 @@
-## [Unreleased]
+## [1.2.0] - 2026-09-13
 ### Added
 - **`rebrew asm --format cfg` renders a function's control-flow graph**: the basic
   blocks `cfg_ged` already segments for structural similarity are now reachable
