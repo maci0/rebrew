@@ -69,11 +69,19 @@ app = typer.Typer(
 
 
 def _version_callback(value: bool) -> None:
-    """Print version and exit."""
-    if value:
-        from importlib.metadata import version
+    """Print version and exit.
 
-        _stdout_console.print(f"rebrew {version('rebrew')}")
+    The module's ``__version__`` -- not ``importlib.metadata``.  Packaging reads
+    that attribute too (``[tool.setuptools.dynamic] version = {attr =
+    "rebrew.__version__"}``), but the *installed* metadata is baked when the
+    package is installed, so in an editable checkout it drifts as soon as
+    ``__init__.py`` changes and ``rebrew --version`` starts lying about the code
+    it is running.
+    """
+    if value:
+        from rebrew import __version__
+
+        _stdout_console.print(f"rebrew {__version__}")
         raise typer.Exit
 
 
