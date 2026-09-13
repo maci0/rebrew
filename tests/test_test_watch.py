@@ -104,7 +104,7 @@ class TestWatchCli:
             lambda target=None, json_mode=False: SimpleNamespace(metadata_dir=Path("/tmp")),
         )
         with pytest.raises(typer.Exit):
-            test_mod.main(source=None, watch=True, all_sources=True)
+            test_mod.main(source=None, watch=True, all_sources=True, context=None)
 
     def test_watch_requires_source(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """--watch without a source file is an error."""
@@ -114,7 +114,7 @@ class TestWatchCli:
             lambda target=None, json_mode=False: SimpleNamespace(metadata_dir=Path("/tmp")),
         )
         with pytest.raises(typer.Exit):
-            test_mod.main(source=None, watch=True)
+            test_mod.main(source=None, watch=True, context=None)
 
     def test_watch_dispatches_to_loop(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """--watch with a source file dispatches to _watch_loop with a retest closure."""
@@ -149,6 +149,7 @@ class TestWatchCli:
             fix_sizes=False,
             linked=False,
             watch=True,
+            context=None,
             json_output=False,
             target=None,
         )

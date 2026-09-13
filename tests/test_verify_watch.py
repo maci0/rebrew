@@ -151,6 +151,7 @@ class TestVerifyWatchCli:
             summary=False,
             diff_mode=False,
             full=False,
+            context=None,
             json_output=False,
             dry_run=False,
             watch=True,

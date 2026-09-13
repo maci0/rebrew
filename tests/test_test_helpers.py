@@ -714,7 +714,7 @@ class TestMultiFixSize:
 
         writes: list[tuple[str, int, int]] = []
 
-        def _fake_compile(cfg_, src, cflags, workdir, obj_name=None, toolchain=None):
+        def _fake_compile(cfg_, src, cflags, workdir, obj_name=None, toolchain=None, context=None):
             return str(tmp_path / "f.obj"), ""
 
         def _fake_parse(obj_path, sym):
@@ -778,7 +778,7 @@ class TestMultiFixSize:
 
         writes: list[tuple[str, int, int]] = []
 
-        def _fake_compile(cfg_, src, cflags, workdir, obj_name=None, toolchain=None):
+        def _fake_compile(cfg_, src, cflags, workdir, obj_name=None, toolchain=None, context=None):
             return str(tmp_path / "f.obj"), ""
 
         def _fake_parse(obj_path, sym):
@@ -1063,7 +1063,7 @@ class TestMultiCachePatchDelta:
             source="void f(int a) { g = a; }",
         )
 
-        def _fake_compile(cfg_, src, cflags, workdir, obj_name=None, toolchain=None):
+        def _fake_compile(cfg_, src, cflags, workdir, obj_name=None, toolchain=None, context=None):
             return str(tmp_path / "f.obj"), ""
 
         def _fake_parse(obj_path, sym):

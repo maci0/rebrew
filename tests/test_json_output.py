@@ -263,8 +263,12 @@ class TestBuildResultDict:
             "reloc_count",
             "obj_size",
             "mismatches",
+            "context_hash",
         }
         assert required_keys == set(result.keys())
+        # No --context on this path: the digest is honestly null, not a
+        # fabricated stand-in for "compiled without one".
+        assert result["context_hash"] is None
 
 
 class TestRebrewTestBatchJson:
@@ -1280,6 +1284,7 @@ class TestSinglePathExitCodes:
                 fix_sizes=False,
                 linked=False,
                 watch=False,
+                context=None,
                 json_output=True,
                 target=None,
             )
@@ -1310,6 +1315,7 @@ class TestSinglePathExitCodes:
                 fix_sizes=False,
                 linked=False,
                 watch=False,
+                context=None,
                 json_output=True,
                 target=None,
             )
@@ -1401,6 +1407,7 @@ class TestSinglePathExitCodes:
                 False,
                 False,
                 False,
+                None,
                 True,
                 None,
             )

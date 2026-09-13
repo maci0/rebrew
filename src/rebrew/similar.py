@@ -20,11 +20,21 @@ from rich.table import Table
 
 from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
+from rebrew.instruction_clones import (
+    MIN_RUN_INSTRUCTIONS,
+    cluster_units,
+    find_common_runs,
+    function_unit,
+    load_function_units,
+)
 
 console = Console(stderr=True)
 
 DEFAULT_CS_ARCH = "CS_ARCH_X86"
 DEFAULT_CS_MODE = "CS_MODE_32"
+
+#: Smallest duplicate group ``rebrew similar --cluster`` reports.
+MIN_CLUSTER_SIZE = 2
 
 
 def disasm_signature(
@@ -179,6 +189,87 @@ def find_similar(
     return results[:top]
 
 
+def submatch_report(
+    cfg: ProjectConfig, left_va: int, right_va: int, min_run: int
+) -> dict[str, Any]:
+    """Common instruction runs between the functions at *left_va* and *right_va*.
+
+    Returns ``{left_va, right_va, min_run, left_instructions,
+    right_instructions, runs}``; ``runs`` is empty when the two functions
+    share no run of at least *min_run* instructions.
+    """
+    left = function_unit(cfg, left_va)
+    if left is None:
+        raise ValueError(f"No function found at VA 0x{left_va:08x}")
+    right = function_unit(cfg, right_va)
+    if right is None:
+        raise ValueError(f"No function found at VA 0x{right_va:08x}")
+
+    runs = find_common_runs(left.instructions, right.instructions, min_run=min_run)
+    return {
+        "left_va": f"0x{left_va:08x}",
+        "right_va": f"0x{right_va:08x}",
+        "left_name": left.name,
+        "right_name": right.name,
+        "left_instructions": len(left.instructions),
+        "right_instructions": len(right.instructions),
+        "min_run": min_run,
+        "runs": [
+            {
+                "left_va": f"0x{run.left_va:08x}",
+                "right_va": f"0x{run.right_va:08x}",
+                "length": run.length,
+                "instructions": run.instructions,
+            }
+            for run in runs
+        ],
+    }
+
+
+def cluster_report(
+    cfg: ProjectConfig, min_size: int, query_va: int | None = None
+) -> dict[str, Any]:
+    """Groups of functions with identical normalized instruction sequences.
+
+    The query function's own group (when *query_va* is given) is marked by
+    ``query_group`` so a caller of ``rebrew similar <VA> --cluster`` can see
+    which of the identical functions it asked about.
+    """
+    units, skipped = load_function_units(cfg)
+    clusters = cluster_units(units, min_size=min_size)
+
+    groups: list[dict[str, Any]] = []
+    query_group: int | None = None
+    for index, cluster in enumerate(clusters):
+        if query_va is not None and query_va in cluster.members:
+            query_group = index
+        groups.append(
+            {
+                "size": cluster.size,
+                "signature": cluster.signature,
+                "instructions": cluster.instruction_count,
+                "members": [
+                    {
+                        "va": f"0x{va:08x}",
+                        "name": name,
+                        "size": next(u.size for u in units if u.va == va),
+                    }
+                    for va, name in zip(cluster.members, cluster.names, strict=True)
+                ],
+            }
+        )
+
+    return {
+        "total_functions": len(units),
+        "skipped": skipped,
+        "min_size": min_size,
+        "duplicate_groups": len(groups),
+        "duplicate_functions": sum(g["size"] for g in groups),
+        "query_group": query_group,
+        "clusters": groups,
+    }
+
+
 app = typer.Typer(
     help="Find structurally similar functions in the target binary.",
     rich_markup_mode="rich",
@@ -186,17 +277,29 @@ app = typer.Typer(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew similar 0x10001000 · · · · · · · · · Top 10 structural matches\n\n"
         "  rebrew similar 0x10001000 --top 5 --min-score 50 · · Raise the bar\n\n"
+        "  rebrew similar 0x10001000 --submatch --other 0x10002000 · Common instruction runs\n\n"
+        "  rebrew similar --cluster · · · · · · · · · · Groups of identical functions\n\n"
         "  rebrew similar 0x10001000 --json · · · · · · · Machine-readable output\n\n"
         "[dim]Scores: 0-100 blend of mnemonic histogram (50%), call count (15%),\n"
         "branch count (15%), size agreement (20%). Use it to find which STUBs likely share the same\n"
-        "source and optimisation approach as a solved function.[/dim]"
+        "source and optimisation approach as a solved function.[/dim]\n\n"
+        "[bold]Similar or identical?[/bold]\n"
+        "Ranking similarity is what this command does by default, and what the sibling\n"
+        "`resembl` project does across a persisted corpus (MinHash + LSH, fragment queries,\n"
+        "cross-project duplicates).  --submatch and --cluster report structure instead, and\n"
+        "answer the two questions a resemblance score cannot: --submatch names WHERE inside\n"
+        "two functions the common instructions are (offsets + text), --cluster names WHICH\n"
+        "functions of one target are identical after normalization.  In-process, exact, one\n"
+        "target, no index: for cross-project or near-duplicate work use resembl."
     ),
 )
 
 
 @app.callback(invoke_without_command=True)
 def main(
-    va: str = typer.Argument(..., help="Query function VA in hex (e.g. 0x10001000)"),
+    va: str | None = typer.Argument(
+        None, help="Query function VA in hex (e.g. 0x10001000); omitted with --cluster"
+    ),
     size: int | None = typer.Option(
         None, "--size", help="Query function size in bytes (defaults to catalog size)"
     ),
@@ -204,12 +307,72 @@ def main(
     min_score: float = typer.Option(
         0.0, "--min-score", help="Minimum similarity score (0-100) to include"
     ),
+    submatch: bool = typer.Option(
+        False,
+        "--submatch",
+        help=(
+            "Report WHERE two functions correspond (common instruction runs, with offsets and "
+            "text) instead of ranking their similarity"
+        ),
+    ),
+    other: str | None = typer.Option(
+        None, "--other", help="Second function VA for --submatch (e.g. 0x10002000)"
+    ),
+    min_run: int = typer.Option(
+        MIN_RUN_INSTRUCTIONS,
+        "--min-run",
+        help="Shortest common instruction run --submatch reports",
+    ),
+    cluster: bool = typer.Option(
+        False,
+        "--cluster",
+        help=(
+            "Group the functions of THIS target whose normalized instruction sequence is "
+            "identical (exact duplicates; cross-project or near-duplicate clustering is the "
+            "resembl project's job)"
+        ),
+    ),
+    min_cluster_size: int = typer.Option(
+        MIN_CLUSTER_SIZE, "--min-cluster-size", help="Smallest group --cluster reports"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Find functions structurally similar to the one at VA."""
     cfg = require_config(target=target, json_mode=json_output)
-    query_va = parse_va(va, json_mode=json_output)
+    query_va = parse_va(va, json_mode=json_output) if va is not None else None
+
+    if cluster:
+        try:
+            report = cluster_report(cfg, min_cluster_size, query_va=query_va)
+        except ValueError as e:
+            error_exit(str(e), json_mode=json_output)
+        if json_output:
+            json_print(report)
+            return
+        _print_clusters(report)
+        return
+
+    if query_va is None:
+        error_exit(
+            "Provide a query VA, or use --cluster to group identical functions",
+            json_mode=json_output,
+        )
+
+    if submatch:
+        if other is None:
+            error_exit("--submatch needs --other <VA>", json_mode=json_output)
+        other_va = parse_va(other, json_mode=json_output)
+        try:
+            report = submatch_report(cfg, query_va, other_va, min_run)
+        except ValueError as e:
+            error_exit(str(e), json_mode=json_output)
+        if json_output:
+            json_print(report)
+            return
+        _print_submatch(report)
+        return
+
     try:
         results = find_similar(cfg, query_va, size=size, top=top, min_score=min_score)
     except ValueError as e:
@@ -231,6 +394,61 @@ def main(
     table.add_column("Name")
     for i, r in enumerate(results, 1):
         table.add_row(str(i), r["va"], f"{r['score']:.1f}", str(r["size"]), r["name"])
+    console.print(table)
+
+
+def _print_submatch(report: dict[str, Any]) -> None:
+    """Render a submatch report as a table of common runs."""
+    runs = report["runs"]
+    console.print(
+        f"\n[bold]Common instruction runs[/bold]  "
+        f"{report['left_va']} ({report['left_instructions']} insns) vs "
+        f"{report['right_va']} ({report['right_instructions']} insns), "
+        f"min run {report['min_run']}\n"
+    )
+    if not runs:
+        console.print("[yellow]No common run at or above the minimum length.[/yellow]")
+        return
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Left")
+    table.add_column("Right")
+    table.add_column("Insns", justify="right")
+    table.add_column("Matched")
+    for run in runs:
+        preview = " ; ".join(run["instructions"][:3])
+        if run["length"] > 3:
+            preview += " ; ..."
+        table.add_row(run["left_va"], run["right_va"], str(run["length"]), preview)
+    console.print(table)
+
+
+def _print_clusters(report: dict[str, Any]) -> None:
+    """Render a duplicate-cluster report, largest group first."""
+    console.print(
+        f"\n[bold]Identical instruction sequences[/bold]  "
+        f"({report['duplicate_functions']} of {report['total_functions']} functions "
+        f"in {report['duplicate_groups']} group(s), min size {report['min_size']})\n"
+    )
+    if report["skipped"]:
+        console.print(f"[yellow]{report['skipped']} function(s) beyond the scan limit[/yellow]")
+    if not report["clusters"]:
+        console.print("[yellow]No duplicate groups found.[/yellow]")
+        return
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Group", justify="right")
+    table.add_column("Size", justify="right")
+    table.add_column("Insns", justify="right")
+    table.add_column("Signature", style="dim")
+    table.add_column("Representative")
+    for index, group in enumerate(report["clusters"]):
+        first = group["members"][0]
+        table.add_row(
+            str(index),
+            str(group["size"]),
+            str(group["instructions"]),
+            group["signature"],
+            f"{first['va']} {first['name']}".strip(),
+        )
     console.print(table)
 
 

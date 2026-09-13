@@ -321,6 +321,37 @@ def scan_references(
     return xrefs
 
 
+def data_references(info: BinaryInfo, va: int, size: int) -> list[Xref]:
+    """Absolute references from the instructions at *va*, per function.
+
+    :func:`scan_references` sweeps whole code sections linearly; this is its
+    per-function counterpart.  Only the function's own bytes are decoded, so
+    filler between functions (a jump table, a data blob) cannot desynchronize
+    the stream and swallow the references of everything after it.  ``to_va``
+    may land in any section; the caller filters by target.
+    """
+    if size <= 0:
+        return []
+    raw = extract_bytes(info, va, size)
+    if not raw:
+        return []
+    md = _capstone(skipdata=True, info=info)
+    # NE code segments carry a 2-byte Borland index marker before the
+    # instruction stream, the same offset scan_references skips.
+    start = 2 if info.format == "ne" and len(raw) > 2 else 0
+    out: list[Xref] = []
+    for insn in md.disasm(raw[start:], va + start):
+        if insn.mnemonic == "db":  # skipdata placeholder
+            continue
+        ref = _classify_insn(info, insn)
+        if ref is None:
+            continue
+        kind, from_va, to_va = ref
+        if is_inside(info, to_va):
+            out.append(Xref(kind=kind, from_va=from_va, to_va=to_va))
+    return out
+
+
 def ne_code_segments(info: BinaryInfo) -> list[str]:
     """Section names of an NE binary's code segments (for scans)."""
     return [f"SEG{s.index}" for s in info.ne_segments if s.is_code]  # type: ignore[attr-defined]

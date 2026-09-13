@@ -216,7 +216,7 @@ src/rebrew/
 ├── cu_map.py            # Compilation-unit boundary inference (contiguity + call graph)
 ├── todo.py              # Prioritized action list
 ├── similar.py           # Find structurally similar functions
-├── coddog.py            # Sub-function common runs + duplicate clustering (rebrew similar --submatch/--cluster)
+├── instruction_clones.py # Exact duplicate structure: common instruction runs + identical groups (rebrew similar --submatch/--cluster)
 ├── binary_similarity.py # Whole-binary structural similarity vs another binary (versions/DLL+EXE)
 ├── match.py             # `rebrew match` CLI (typer app + main)
 ├── match_batch.py       # Batch stub/near-miss discovery + STATUS/CFLAGS source updates
@@ -231,7 +231,12 @@ src/rebrew/
 ├── verify_cache.py      # Verify result cache: entries, identity, atomic I/O, VA keys
 ├── verify_hash.py       # Cache-invalidation hashes (compiler/headers/source/logic)
 ├── diff.py              # Compile and diff against target
-├── asm.py               # Disassemble (hex/NASM); --imports/--strings/--hints annotate IAT, strings, codegen patterns (post-decrement, SEH, CRT magic, switch dispatch incl. byte-compressed, IAT forwarder, EH-ctor, esp-disp8); detect_function_pattern + calling_convention
+├── asm.py               # Disassemble (hex/NASM/cfg); --format cfg emits a function's basic
+│                        #   blocks and edges (absolute VAs, back-edge markers, 512-block cap);
+│                        #   --imports/--strings/--hints annotate IAT, strings, codegen patterns
+│                        #   (post-decrement, SEH, CRT magic, switch dispatch incl.
+│                        #   byte-compressed, IAT forwarder, EH-ctor, esp-disp8);
+│                        #   detect_function_pattern + calling_convention
 ├── switch.py            # `rebrew switch` — decode jump-table switches (case → handler; --all recon)
 ├── skeleton.py          # Generate skeleton C files (convention-aware stubs; --batch --skip-fragments; stale-size warnings)
 ├── fixup.py             # `rebrew fix` — DecBench-style compilability fixup for decompiler output
@@ -285,7 +290,12 @@ src/rebrew/
 ├── describe.py          # Per-function dossier (callers, callees, strings, imports)
 ├── report.py            # Static HTML site (index, strings, imports, call graph);
 │                        #   --decomp-dev emits objdiff-format report.json for decomp.dev
-├── symbol_addrs.py      # `rebrew symbol-addrs` — splat-style 0xVA,name CSV export
+├── symbol_addrs.py      # `rebrew symbol-addrs` — splat-style rich `name = 0xVA; // type: size:`
+│                        #   export (bare CSV behind --csv), plus --pe-symbols and --references
+├── pe_symbols.py        # PE data-directory symbols: entry, exports, IAT, delay imports,
+│                        #   TLS callbacks, SafeSEH, CFG targets, security cookie
+├── splat_config.py      # `rebrew import-splat` — seed a project from a splat YAML config
+│                        #   (dry run by default; reuses the symbol/annotation writers)
 ├── context.py           # `rebrew context` — universal decompiler context (types + prototypes)
 ├── objdiff_project.py   # `rebrew objdiff` + rebrew-objdiff-build — objdiff GUI diffing bridge
 │                        #   (synthesized target COFF objects + objdiff.json; minimal COFF writer)

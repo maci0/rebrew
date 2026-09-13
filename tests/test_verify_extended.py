@@ -491,7 +491,7 @@ class TestVerifyCli:
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
-            lambda cfg, full, json_output: (
+            lambda cfg, full, json_output, context=None: (
                 [_ann(0x1000)],
                 passed,
                 failed,
@@ -609,7 +609,7 @@ class TestVerifyCli:
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
-            lambda cfg, full, json_output: (
+            lambda cfg, full, json_output, context=None: (
                 [lib_ann, fn_ann],
                 1,  # passed — the cached LIBRARY hit
                 0,
@@ -653,7 +653,17 @@ class TestVerifyCli:
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
-            lambda cfg, full, json_output: ([lib_ann, fn_ann], 0, 0, [], [], 0, [], [], []),
+            lambda cfg, full, json_output, context=None: (
+                [lib_ann, fn_ann],
+                0,
+                0,
+                [],
+                [],
+                0,
+                [],
+                [],
+                [],
+            ),
         )
         monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
         monkeypatch.setattr(
@@ -692,7 +702,7 @@ class TestVerifyCli:
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
-            lambda cfg, full, json_output: (
+            lambda cfg, full, json_output, context=None: (
                 [lib_ann],
                 0,
                 1,
@@ -1407,7 +1417,7 @@ class TestRunVerification:
     def _patch(self, monkeypatch: pytest.MonkeyPatch, results: dict) -> None:
         from rebrew.compile import CompareResult
 
-        def _verify(e, cfg, cache=None, name_to_va=None):
+        def _verify(e, cfg, cache=None, name_to_va=None, context=None):
             r = results.get(e.va, {})
             return CompareResult(
                 matched=r.get("matched", True),

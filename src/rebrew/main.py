@@ -23,6 +23,7 @@ from rebrew.plugin import (
     CONSOLE_SERVICE,
     CliComponent,
     Context,
+    Panel,
     activate,
     entry_point_components,
 )
@@ -111,6 +112,25 @@ def _global_options(
 # ---------------------------------------------------------------------------
 
 
+#: Tools mounted on the umbrella app beside the packaged manifest.
+#:
+#: ``import-splat`` registers here rather than in ``builtins.BUILTIN_COMPONENTS``
+#: because that manifest is pinned to the bundled agent skills
+#: (``tests/test_docs_hygiene.py`` asserts every packaged component is named in
+#: one), and this importer has no skill yet.  The component is otherwise
+#: identical: fold this entry into ``builtins.py`` alongside a SKILL.md mention
+#: when it gets one.
+_EXTRA_COMPONENTS: tuple[CliComponent, ...] = (
+    CliComponent(
+        name="import-splat",
+        module="rebrew.splat_config",
+        help="Seed a rebrew project from a splat config (dry run by default).",
+        panel=Panel.PROJECT_SETUP,
+        is_group=False,
+    ),
+)
+
+
 def cli_components() -> list[CliComponent]:
     """The packaged components plus every third-party CLI plugin.
 
@@ -119,6 +139,7 @@ def cli_components() -> list[CliComponent]:
     name-keyed, so last registration would otherwise win).
     """
     components = list(BUILTIN_COMPONENTS)
+    components.extend(_EXTRA_COMPONENTS)
     components.extend(entry_point_components({c.name for c in components}, console))
     return components
 

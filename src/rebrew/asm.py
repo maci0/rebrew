@@ -1,6 +1,6 @@
 """asm.py – Disassemble and export function bytes from the target binary.
 
-Two output formats controlled by ``--format``:
+Three output formats controlled by ``--format``:
 
 * ``hex``  (default) — capstone disassembly with hex dump and optional call
   annotation.  Suitable for quick interactive triage.
@@ -8,6 +8,12 @@ Two output formats controlled by ``--format``:
 * ``nasm`` — NASM-reassembleable source with round-trip verification.
   Round-trip guarantee: ``nasm -f bin output.asm`` → byte-identical to original.
   Instructions NASM encodes differently are replaced with ``db`` directives.
+
+* ``cfg`` — the function's basic-block control-flow graph: absolute block
+  VAs, byte spans, instruction counts, and edges flagged as back edges.
+  The segmentation is ``rebrew.cfg_ged.build_cfg_view``; the graph stays in
+  one bounded payload so a reader (or a renderer) gets blocks and edges for
+  the function without a second block segmenter.
 
 ``--inline-c`` wraps the NASM output as an exact-bytes naked C skeleton
 (``__asm _emit`` on MSVC / ``__asm__(".byte ...")`` on GCC — raw bytes, no
@@ -19,6 +25,7 @@ the file is self-contained for ``rebrew test`` (iterate with
 
 Usage:
     rebrew asm 0x10003ca0 --size 77
+    rebrew asm 0x10003ca0 --format cfg
     rebrew asm 0x10003ca0 --size 77 --format nasm -o func.asm
     rebrew asm 0x10003ca0 --size 77 --format nasm --inline-c -o func.c
     rebrew asm --all --out-dir output/asm/ --format nasm
@@ -35,6 +42,7 @@ from typing import Any
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.catalog import load_function_structure
@@ -786,6 +794,162 @@ def _run_hex_mode(
 
 
 # ---------------------------------------------------------------------------
+# CFG mode helpers
+# ---------------------------------------------------------------------------
+
+#: ``--format cfg`` note when neither the function list nor the disassembly
+#: walk resolves the function's extent (an empty-blocks answer, never a guess).
+_CFG_NO_EXTENT_NOTE = (
+    "function extent unresolved — pass --size, or list the function in the function list"
+)
+
+
+def _run_cfg_mode(va_int: int, size: int | None, cfg: ProjectConfig, json_output: bool) -> None:
+    """Print the basic-block CFG of the function at *va_int* (``--format cfg``).
+
+    Lives on ``asm`` rather than as a command of its own: ``asm`` already
+    resolves a function's extent and owns the ``--json``/``--target``
+    surface, so the graph and the instruction listing share one VA-resolution
+    path.  ``cfg_ged`` owns the segmentation and the offset → absolute-VA
+    conversion; this function only reads bytes, resolves the extent, and
+    formats the payload.
+
+    Missing bytes or an unresolvable extent answer empty ``blocks`` with a
+    ``note`` (exit 0) instead of raising or guessing a window.
+    """
+    from rebrew.binary_loader import extract_raw_bytes
+
+    if not cfg.target_binary.exists():
+        error_exit(f"Binary not found at {cfg.target_binary}", json_mode=json_output)
+    arch = str(getattr(cfg, "arch", ""))
+    if not arch.startswith("x86"):
+        error_exit(
+            f"--format cfg supports x86 targets only (target arch is {arch!r})",
+            json_mode=json_output,
+            code=EXIT_ERROR,
+        )
+
+    extent = size or _cfg_extent(cfg, va_int)
+    if extent is None:
+        _emit_cfg(_cfg_payload(va_int, 0, None, _CFG_NO_EXTENT_NOTE), json_output)
+        return
+
+    try:
+        code = extract_raw_bytes(cfg.target_binary, va_int, extent)
+    except (OSError, KeyError, ValueError, TypeError) as e:
+        error_exit(str(e), json_mode=json_output)
+    if not code:
+        _emit_cfg(
+            _cfg_payload(va_int, 0, None, f"no bytes readable at 0x{va_int:08x}"), json_output
+        )
+        return
+
+    from rebrew.cfg_ged import build_cfg_view
+
+    try:
+        view = build_cfg_view(code, va_int, cfg.capstone_mode)
+    except Exception as e:  # capstone.CsError and friends
+        error_exit(f"capstone error: {e}", json_mode=json_output)
+    _emit_cfg(_cfg_payload(va_int, len(code), view, None), json_output)
+
+
+def _cfg_extent(cfg: ProjectConfig, va_int: int) -> int | None:
+    """The function's byte extent: the larger of the function-list size and
+    the disassembly walk's extent, or ``None`` when neither resolves."""
+    declared = _list_size_for(cfg, va_int)
+    walked: int | None = None
+    if cfg.target_binary.exists():
+        from rebrew.binary_loader import function_extent_from_disasm
+
+        walked = function_extent_from_disasm(cfg.target_binary, va_int)
+    candidates = [v for v in (declared, walked) if v]
+    return max(candidates) if candidates else None
+
+
+def _cfg_payload(
+    va_int: int, size: int, view: dict[str, Any] | None, note: str | None
+) -> dict[str, Any]:
+    """The ``--format cfg`` payload: the ``cfg_ged`` view with addresses as
+    ``0x...`` text (the address convention of the other ``asm --json``
+    fields).  A ``None`` *view* yields the empty payload used when the extent
+    or the bytes are missing."""
+    from rebrew.cfg_ged import MAX_CFG_BLOCKS_PER_FUNCTION
+
+    payload: dict[str, Any] = {
+        "va": f"0x{va_int:08x}",
+        "size": size,
+        "block_count": 0,
+        "block_total": 0,
+        "block_cap": MAX_CFG_BLOCKS_PER_FUNCTION,
+        "truncated": False,
+        "note": note,
+        "blocks": [],
+        "edges": [],
+    }
+    if view is None:
+        return payload
+    payload.update(
+        block_count=view["block_count"],
+        block_total=view["block_total"],
+        block_cap=view["block_cap"],
+        truncated=view["truncated"],
+        note=view["note"],
+        blocks=[
+            {
+                "va": f"0x{block['va']:08x}",
+                "size": block["size"],
+                "instruction_count": block["instruction_count"],
+                "first": block["first"],
+                "last": block["last"],
+            }
+            for block in view["blocks"]
+        ],
+        edges=[
+            {
+                "from": f"0x{edge['from']:08x}",
+                "to": f"0x{edge['to']:08x}",
+                "back_edge": edge["back_edge"],
+            }
+            for edge in view["edges"]
+        ],
+    )
+    return payload
+
+
+def _emit_cfg(payload: dict[str, Any], json_output: bool) -> None:
+    """Print a ``--format cfg`` payload as JSON or as a block/edge listing."""
+    if json_output:
+        json_print(payload)
+        return
+    blocks = payload["block_count"]
+    edges = len(payload["edges"])
+    console.print(
+        f"CFG for [cyan]{payload['va']}[/] ({payload['size']} bytes, "
+        f"{blocks} block{'' if blocks == 1 else 's'}, "
+        f"{edges} edge{'' if edges == 1 else 's'})"
+    )
+    for idx, block in enumerate(payload["blocks"]):
+        span = block["first"]
+        if block["last"] != block["first"]:
+            span = f"{block['first']} ... {block['last']}"
+        console.print(
+            f"  [bold]B{idx}[/]  {block['va']}  {block['size']:4d} B  "
+            f"{block['instruction_count']:3d} insns  {escape(span)}"
+        )
+    if payload["edges"]:
+        console.print("  edges:")
+        for edge in payload["edges"]:
+            suffix = "  [yellow]back edge[/]" if edge["back_edge"] else ""
+            console.print(f"    {edge['from']} -> {edge['to']}{suffix}")
+    if payload["truncated"]:
+        console.print(
+            f"  [yellow]capped at {payload['block_cap']} blocks ({payload['block_total']} total)[/]"
+        )
+    if payload["note"]:
+        console.print(f"  [dim]{escape(payload['note'])}[/]")
+
+
+# ---------------------------------------------------------------------------
 # NASM mode helpers
 # ---------------------------------------------------------------------------
 
@@ -1194,16 +1358,18 @@ _EPILOG = (
     "  rebrew asm 0x10003ca0 --size 77 --format nasm · · NASM output\n\n"
     "  rebrew asm 0x10003ca0 --size 77 --format nasm --verify  Verify round-trip\n\n"
     "  rebrew asm 0x10003ca0 --size 77 --format nasm --inline-c -o f.c  Inline C\n\n"
+    "  rebrew asm 0x10003ca0 --format cfg · · · · · · · · Basic-block CFG + edges\n\n"
     "  rebrew asm --all --out-dir output/asm/ --format nasm · · Batch NASM extract\n\n"
     "  rebrew asm 0x10003ca0 --size 77 --json · · · · · · · · JSON output\n\n"
     "[bold]Formats:[/bold]\n\n"
     "  hex · · Capstone disassembly with hex dump and call annotation (default)\n\n"
     "  nasm · · NASM-reassembleable source with optional round-trip verification\n\n"
+    "  cfg · · · Basic-block CFG: absolute block VAs, edges, back-edge flags\n\n"
     "[dim]Uses capstone for x86 disassembly. Reads binary and arch from rebrew-project.toml.[/dim]"
 )
 
 app = typer.Typer(
-    help="Disassemble a function from the target binary (hex dump or NASM source).",
+    help="Disassemble a function from the target binary (hex dump, NASM source, or CFG).",
     rich_markup_mode="rich",
     epilog=_EPILOG,
 )
@@ -1233,7 +1399,7 @@ def _list_size_for(cfg: ProjectConfig, va_int: int) -> int | None:
 def main(
     va: str | None = typer.Argument(None, help="Function VA in hex"),
     size: int | None = typer.Option(None, "--size", help="Function size in bytes"),
-    fmt: str = typer.Option("hex", "--format", "-f", help="Output format: hex, nasm"),
+    fmt: str = typer.Option("hex", "--format", "-f", help="Output format: hex, nasm, cfg"),
     annotate: bool = typer.Option(
         True, "--annotate/--no-annotate", help="(hex) Annotate calls with known function names"
     ),
@@ -1276,9 +1442,11 @@ def main(
 ) -> None:
     """Disassemble a function from the target binary."""
     cfg = require_config(target=target, json_mode=json_output)
-    if fmt not in ("hex", "nasm"):
+    if fmt not in ("hex", "nasm", "cfg"):
         # Bad argument value — usage error (2), not "needs code work" (1).
-        error_exit("--format must be 'hex' or 'nasm'", json_mode=json_output, code=EXIT_ERROR)
+        error_exit(
+            "--format must be 'hex', 'nasm' or 'cfg'", json_mode=json_output, code=EXIT_ERROR
+        )
 
     # --- NASM batch modes ---
     if fmt == "nasm" and (extract_all or batch_stubs):
@@ -1306,6 +1474,14 @@ def main(
     va_int = parse_va(va_str, json_mode=json_output) if va_str else None
     if size is not None and size <= 0:
         error_exit("--size must be a positive integer", json_mode=json_output)
+
+    # --- CFG format ---
+    if fmt == "cfg":
+        if va_int is None:
+            error_exit("--format cfg requires a VA as a positional argument", json_mode=json_output)
+        _run_cfg_mode(va_int, size, cfg, json_output)
+        return
+
     # Default to the known canonical size (function list) when no --size is
     # given — 32 is only a fallback for functions the list does not know.
     effective_size = size or (_list_size_for(cfg, va_int) if va_int else None) or 32

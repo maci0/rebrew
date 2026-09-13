@@ -17,6 +17,7 @@ from bin_util import make_pe
 from rebrew.analysis import (
     Insn,
     Xref,
+    data_references,
     extract_bytes,
     is_inside,
     iter_instructions,
@@ -352,6 +353,42 @@ class TestScanPascalLongString:
         body = b"A" * 200
         out = _scan_pascal(bytes([200]) + body, 0x1000, "SEG1", 4)
         assert [(s.va, s.size, s.kind) for s in out] == [(0x1000, 201, "pascal")]
+
+
+class TestDataReferences:
+    def test_refs_are_limited_to_the_extent(self, tmp_path: Path) -> None:
+        """The per-function scan stops at the extent: only the caller's own
+        instructions contribute references."""
+        path, syms = _make_binary(tmp_path)
+        info = load_binary(path)
+        refs = data_references(info, syms["call"], 5)
+        assert [(r.kind, r.to_va) for r in refs] == [("call", syms["call"] + 5 + 0x10)]
+        assert refs[0].from_va == syms["call"]
+
+    def test_sees_refs_after_arbitrary_filler(self, tmp_path: Path) -> None:
+        """A function following a non-code blob still contributes its own
+        references: only that function's bytes are decoded."""
+        filler = bytes(range(256))
+        func = b"\xa1" + struct.pack("<I", TEXT_VA) + b"\xc3"  # mov eax, [TEXT_VA]; ret
+        path = tmp_path / "filler.exe"
+        path.write_bytes(make_pe(b"\xc3" * 4 + filler + func))
+        info = load_binary(path)
+        func_va = info.text_va + 4 + len(filler)
+        refs = data_references(info, func_va, len(func))
+        assert [(r.kind, r.to_va) for r in refs] == [("mov_mem", TEXT_VA)]
+
+    def test_out_of_image_targets_are_dropped(self, tmp_path: Path) -> None:
+        """A reference to an address outside every section is not a datum."""
+        func = b"\xa1" + struct.pack("<I", 0x100) + b"\xc3"  # mov eax, [0x100]; ret
+        path = tmp_path / "outside.exe"
+        path.write_bytes(make_pe(func))
+        info = load_binary(path)
+        assert data_references(info, info.text_va, len(func)) == []
+
+    def test_zero_size_yields_nothing(self, tmp_path: Path) -> None:
+        path, syms = _make_binary(tmp_path)
+        info = load_binary(path)
+        assert data_references(info, syms["call"], 0) == []
 
 
 class TestScanUtf16TrailingByte:

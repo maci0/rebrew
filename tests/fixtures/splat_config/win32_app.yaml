@@ -1,0 +1,49 @@
+# A hand-written splat config for the fixture PE built by tests/test_splat_config.py.
+#
+# It mirrors what splat's `create_config` emits for a win32 PE (block options,
+# an `- { ... }` bss segment, `[0x600]` as the rom-end sentinel) with keys the
+# importer consumes, keys it ignores on purpose (subalign, ld_script_path), and
+# one key no splat version defines.
+sha1: 0000000000000000000000000000000000000000
+options:
+  basename: fixture.exe
+  target_path: "fixture.exe"
+  base_path: .
+  platform: win32
+  compiler: MSVC6
+
+  ld_script_path: fixture.ld
+  ld_dependencies: True
+  o_as_suffix: True
+  subalign: 16
+  section_order: [".header", ".text", ".rdata", ".data", ".bss"]
+  unknown_knob: 3
+
+  symbol_addrs_path:
+    - symbol_addrs.txt
+  undefined_funcs_auto_path: undefined_funcs_auto.txt
+  undefined_syms_auto_path: undefined_syms_auto.txt
+  extensions_path: tools/splat_ext
+
+segments:
+  - name: header
+    type: header
+    start: 0x0
+
+  - name: text
+    type: code
+    start: 0x200
+    vram: 0x00401000
+    subsegments:
+      - [0x200, text, main_text]
+
+  - name: data
+    type: code
+    start: 0x400
+    vram: 0x00402000
+    subsegments:
+      - [0x400, data, main_data]
+
+  - { name: bss, type: bss, vram: 0x00403000, bss_size: 0x100 }
+
+  - [0x600]

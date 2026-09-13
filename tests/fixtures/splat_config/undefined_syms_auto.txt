@@ -1,0 +1,1 @@
+g_outside_image = 0x90000000;
