@@ -1,7 +1,10 @@
 """Compile-and-compare for reversed functions (single and batch modes).
 
-By default, after comparing, STATUS is auto-updated in the per-directory
-metadata (via update_source_status). Use --no-promote to skip this.
+By default, after comparing, metadata is written back: STATUS, plus SIZE and any
+explicit --cflags/--toolchain you passed, so that a later `rebrew verify`
+recompiles the way this run did.  Pass --no-promote to measure without writing
+anything — use it whenever the run is a question, not a record, because the
+persisted CFLAGS is what every other tool resolves for that function.
 
 Usage:
     rebrew test <source.c> [--symbol NAME] [--va 0xHEX --size N] [--cflags ...]
@@ -127,7 +130,7 @@ _EPILOG = (
     "  rebrew test src/game_dll/my_func.c --symbol _my_func · · Explicit symbol name\n\n"
     "  rebrew test f.c --symbol _sym --va 0x10009310 --size 42 · Override VA and size from CLI\n\n"
     '  rebrew test f.c --symbol _sym --cflags "/O1 /Gd" · · · · Override compiler flags\n\n'
-    "  rebrew test src/game_dll/my_func.c --no-promote  Skip STATUS metadata update\n\n"
+    "  rebrew test src/game_dll/my_func.c --no-promote  Measure only, write no metadata\n\n"
     "  rebrew test src/game_dll/my_func.c --json · · · · Machine-readable JSON output\n\n"
     "  rebrew test --all · · · · · · · · · · · · · · · Batch test all reversed functions\n\n"
     "  rebrew test --all --origin GAME · · · · · · · · Only GAME-origin functions\n\n"
@@ -209,7 +212,14 @@ def main(
     no_promote: bool = typer.Option(
         False,
         "--no-promote",
-        help="Skip auto-update of STATUS metadata after test (auto-skipped if file is outside project)",
+        help=(
+            "Measure only: write NOTHING to rebrew-functions.toml. Without it a "
+            "run also persists STATUS, and any explicit --cflags/--toolchain/"
+            "--size you passed (so `verify` later recompiles the way this run "
+            "did). Use it when you are reading a verdict rather than recording "
+            "one — otherwise measuring a function with a candidate flag set "
+            "silently changes the flags every other tool resolves for it."
+        ),
     ),
     force_status: bool = typer.Option(
         False,
@@ -994,6 +1004,7 @@ def _run_test_impl(
                 update_field(
                     cfg.metadata_dir, va_int_for_promote, "size", int(size_val), anno_module
                 )
+                console.print(f"[dim]SIZE persisted → {int(size_val)}[/dim]")
             except Exception as exc:  # metadata write is best-effort
                 logging.warning(
                     "Could not persist SIZE for 0x%x: %s (downstream diff/near-diag "
@@ -1009,6 +1020,9 @@ def _run_test_impl(
                 update_field(
                     cfg.metadata_dir, va_int_for_promote, "cflags", cflags_str, anno_module
                 )
+                # Say so: this is the value every other tool now resolves for the
+                # function, so a measurement run changes the build's flags.
+                console.print(f"[dim]CFLAGS persisted → {cflags_str}[/dim]")
             except Exception as exc:  # metadata write is best-effort
                 logging.warning(
                     "Could not persist CFLAGS for 0x%x: %s (verify may recompile "
@@ -1025,6 +1039,7 @@ def _run_test_impl(
                 update_field(
                     cfg.metadata_dir, va_int_for_promote, "toolchain", toolchain_name, anno_module
                 )
+                console.print(f"[dim]TOOLCHAIN persisted → {toolchain_name}[/dim]")
             except Exception as exc:  # metadata write is best-effort
                 logging.warning(
                     "Could not persist TOOLCHAIN for 0x%x: %s (verify may recompile "
