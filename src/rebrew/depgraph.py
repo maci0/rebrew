@@ -424,7 +424,10 @@ def _status_style(status: str) -> str:
     return {
         "EXACT": "exact",
         "RELOC": "reloc",
-        "PROVEN": "exact",
+        # PROVEN is a semantic promotion, not a byte match: it must not share
+        # the EXACT colour, or the graph presents proven work as byte-perfect.
+        # verify._STATUS_RANK ranks it below RELOC for the same reason.
+        "PROVEN": "proven",
         "NEAR_MATCHING": "matching",
         "STUB": "stub",
         "UNKNOWN": "unknown",
@@ -448,6 +451,7 @@ def render_mermaid(
     # Style definitions
     lines.append("    classDef exact fill:#2ecc71,stroke:#27ae60,color:#fff")
     lines.append("    classDef reloc fill:#3498db,stroke:#2980b9,color:#fff")
+    lines.append("    classDef proven fill:#1abc9c,stroke:#16a085,color:#fff")
     lines.append("    classDef matching fill:#f39c12,stroke:#e67e22,color:#fff")
     lines.append("    classDef stub fill:#e74c3c,stroke:#c0392b,color:#fff")
     lines.append("    classDef unknown fill:#95a5a6,stroke:#7f8c8d,color:#fff")

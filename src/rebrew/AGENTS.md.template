@@ -104,8 +104,13 @@ note   = "inline asm detected"
 > Every write goes through `rebrew.metadata` / `rebrew.data_metadata` (locked + atomic) —
 > hand-edits bypass the lock and get clobbered.
 
-**STATUS values**: `PROVEN` (semantically verified) > `EXACT` (byte-perfect) > `RELOC` (match after masking
-relocations) > `NEAR_MATCHING` (close) > `STUB` (incomplete)
+**STATUS values**, strongest claim first: `EXACT` (byte-perfect) > `RELOC` (match after
+masking relocations) > `NEAR_MATCHING` (close) > `STUB` (incomplete).  `PROVEN`
+(semantically verified) is **not** a byte match and does **not** outrank `EXACT`: it ranks
+**below** `RELOC`, because a proven function still compiles to bytes that differ from the
+target (every PROVEN entry carries a non-zero delta).  PROVEN is sticky against automatic
+demotion, but `EXACT`/`RELOC` always override it, and it must never be counted, reported or
+labelled as byte-matched.
 
 `CFLAGS` is optional — falls back to the target default from `rebrew-project.toml`.
 
