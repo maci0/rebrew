@@ -67,6 +67,15 @@ def _defines(cflags: str) -> set[str]:
     return {t for t in cflags.split() if t.startswith(("/D", "-D"))}
 
 
+#: Markers that annotate CODE.  ``DATA``/``GLOBAL`` annotate bytes a file
+#: defines (a generated string blob, a table) and carry no compile flags of
+#: their own, so they must not participate in the per-file flag resolution: a
+#: file legitimately holds both, and treating the data marker as a function
+#: made the whole file look self-contradictory and refused to emit anything for
+#: it (guild-rebrew's CrashDumpUnhandledExceptionFilter.c).
+CODE_MARKERS = {"FUNCTION", "STUB", "LIBRARY"}
+
+
 def collect(cfg: ProjectConfig, marker: str) -> tuple[dict[Path, str], list[str], list[str]]:
     """{absolute source path: cflags}, problem descriptions, and notes.
 
@@ -81,7 +90,9 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[dict[Path, str], list[str]
         entries = [
             e
             for e in parse_c_file_multi(src, metadata_dir=cfg.metadata_dir)
-            if e.va and e.module.upper() == marker.upper()
+            if e.va
+            and e.module.upper() == marker.upper()
+            and (not e.marker_type or e.marker_type.upper() in CODE_MARKERS)
         ]
         if not entries:
             continue
