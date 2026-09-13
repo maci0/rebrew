@@ -414,6 +414,16 @@ def atomic_write_bytes(filepath: Path, data: bytes) -> None:
     try:
         tmp_path.write_bytes(data)
         os.replace(tmp_path, filepath)
+    except PermissionError as exc:
+        # A read-only destination dir (e.g. a versioned originals/ tree)
+        # rejects even the sibling temp file; the final replace would fail
+        # too, so say where to put the output instead of leaking errno 13.
+        with contextlib.suppress(OSError):
+            tmp_path.unlink()
+        raise PermissionError(
+            f"{exc}: cannot write next to {filepath} (directory is read-only?) — "
+            "pass an explicit output path"
+        ) from exc
     except BaseException:
         with contextlib.suppress(OSError):
             tmp_path.unlink()
