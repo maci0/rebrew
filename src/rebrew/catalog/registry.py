@@ -232,6 +232,10 @@ def build_function_registry(
         va = int(func["va"])
         if va in iat_vas:
             continue
+        if str(func["name"]).startswith("case."):
+            # Ghidra jump-table case labels are data inside their parent
+            # function, not functions; clustering them breaks overlap checks.
+            continue
         entry = registry.setdefault(va, _new_registry_entry(va, cfg))
         if "list" not in entry["detected_by"]:
             entry["detected_by"].append("list")
