@@ -145,6 +145,13 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
         is_group=False,
     ),
     CliComponent(
+        name="cmake-flags",
+        module="rebrew.cmake_flags",
+        help="Write the per-file CFLAGS from rebrew-functions.toml as a CMake include.",
+        panel=Panel.PROJECT_SETUP,
+        is_group=False,
+    ),
+    CliComponent(
         name="order-sources",
         module="rebrew.order_sources",
         help="Order source files by their first function's original VA (position-aligned .text).",

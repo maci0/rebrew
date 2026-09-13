@@ -101,6 +101,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew analyze` | `analyze.py` | One-shot binary dossier (toolchain, strings, imports, dispatch, FLIRT, blockers) |
 | `rebrew calibrate-bss` | `calibrate_bss.py` | Size the BSS tail pad so raw-link `.data` VirtualSize matches |
 | `rebrew cmake-toolchain` | `cmake_tc.py` | Generate a CMake toolchain file running the image's tools via docker |
+| `rebrew cmake-flags` | `cmake_flags.py` | Write the per-file CFLAGS from `rebrew-functions.toml` as a CMake include |
 | `rebrew context` | `context.py` | Universal decompiler context (types + prototypes) |
 | `rebrew cross-import` | `cross_import.py` | Import functions matched in another target |
 | `rebrew decompile` | `name_decomp.py` | Decompile a function, optionally applying known struct names (`--named`) |
@@ -665,6 +666,32 @@ header flags. `--output DIR` (conventionally
 files (`sections.txt`, `gaps.txt`, `iat.txt`, `exports.txt`), mirroring the
 `gen-layout` package style. `--json` (the default shape) emits the full
 manifest including per-gap rows.
+
+### `rebrew cmake-flags`
+
+`rebrew cmake-flags [--output build/rebrew-cflags.cmake] [--target MARKER] [--dry-run] [--json]`
+
+Write the per-file `COMPILE_FLAGS` a CMake build must use, resolved from
+`rebrew-functions.toml` through the same chain the tools use (per-function
+metadata → nearest `rebrew-libraries.toml` → module preset → `[compiler].cflags`).
+A CMake project includes the result and adds `rebrew-functions.toml` to
+`CMAKE_CONFIGURE_DEPENDS`, so editing the metadata reconfigures the build
+instead of silently reusing stale flags:
+
+```cmake
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+             ${CMAKE_CURRENT_SOURCE_DIR}/src/rebrew-functions.toml)
+execute_process(COMMAND ${REBREW} cmake-flags -o ${CMAKE_BINARY_DIR}/rebrew-cflags.cmake
+                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+include(${CMAKE_BINARY_DIR}/rebrew-cflags.cmake)
+```
+
+A translation unit is compiled with one flag set, so a file whose functions
+resolve to different **codegen** flags is reported as an error (split the file
+or align the metadata) and nothing is emitted for it.  `--target` picks the
+annotation marker to emit; `/D` defines are not emitted (this project's are the
+`DREBREW_ALLOW_NAKED` reconstruction guard, which the shipped build must not
+compile) and each omission is printed as a note.
 
 ### `rebrew cmake-toolchain`
 
