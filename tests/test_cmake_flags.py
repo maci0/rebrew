@@ -94,6 +94,26 @@ def test_codegen_key_ignores_order_and_defines() -> None:
     assert _defines("/O2 /Gd /DX=1 -DY") == {"/DX=1", "-DY"}
 
 
+def test_data_marker_does_not_count_as_a_function(tmp_path: Path) -> None:
+    """A generated `// DATA:` blob in the same file carries no compile flags.
+
+    Treating it as a function made the file look self-contradictory (default
+    flags vs the function's `/Oy-`) and the command refused to emit anything --
+    which broke the configure step of the build that consumes it.
+    """
+    cfg = _project(
+        tmp_path,
+        '["SERVER.0x10001000"]\ncflags = "/O2 /Gd /Oy-"\n',
+        {
+            "a.c": "// DATA: SERVER 0x10002000\nchar blob[4] = {0};\n"
+            "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n"
+        },
+    )
+    files, problems, _notes = collect(cfg, "SERVER")
+    assert problems == []
+    assert list(files.values()) == ["/O2 /Gd /Oy-"]
+
+
 def test_written_include_is_valid_cmake(tmp_path: Path) -> None:
     """The emitted include must be something CMake can swallow."""
     cfg = _project(
