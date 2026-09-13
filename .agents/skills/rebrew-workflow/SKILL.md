@@ -420,6 +420,7 @@ Manual inspection and linkage tools that sit outside the main loop. Run
 | `rebrew inline-strings` | Inline string-literal globals (`s_<hint>_<0xADDR>`) from the reference binary. |
 | `rebrew link-sweep` | Sweep LINK options to reproduce the reference PE header (find stamp-only fields). |
 | `rebrew cmake-toolchain` | Write a CMake toolchain file that drives a docker toolchain via `rebrew-cmake-*`. |
+| `rebrew cmake-flags` | Write the per-file CFLAGS from `rebrew-functions.toml` as a CMake include, so the build compiles what the tools measure. |
 | `rebrew binsync-init` | Initialize a BinSync git repo (root and user branches) for a target. |
 | `rebrew binsync-export` | Export annotations to an experimental BinSync state directory. |
 | `rebrew binsync-import` | Import a BinSync state directory into rebrew metadata. |
