@@ -1099,3 +1099,74 @@ class TestMultiCachePatchDelta:
         # The real byte delta, not the recomputed `total - match_count` (which
         # is 0 here because the object is truncated to the target length).
         assert captured[0]["delta"] == 2, captured
+
+
+class TestRunTest:
+    """``run_test()`` is the importable form of ``rebrew test <src> --json``."""
+
+    def _project(self, tmp_path: Path, monkeypatch: Any) -> Path:
+        import shutil
+
+        fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
+        (tmp_path / "original").mkdir()
+        shutil.copy(fixture, tmp_path / "original" / "x.exe")
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "x"\n'
+            '[targets.x]\nbinary = "original/x.exe"\n'
+            '[compiler]\nprofile = "msvc-6.0"\n'
+        )
+        src_dir = tmp_path / "src" / "x"
+        src_dir.mkdir(parents=True)
+        (src_dir / "f.c").write_text(
+            "// FUNCTION: X 0x1000\n// SIZE: 4\nint f(void) { return 1; }\n"
+        )
+        monkeypatch.chdir(tmp_path)
+        return tmp_path
+
+    def _stub_compare(self, monkeypatch: Any) -> None:
+        from rebrew.compile import CompareResult
+
+        monkeypatch.setattr(
+            "rebrew.test.compile_and_compare",
+            lambda *a, **k: CompareResult(
+                matched=False,
+                status="NEAR_MATCHING",
+                match_percent=50.0,
+                delta=2,
+                obj_bytes=b"\x90\x90",
+                reloc_offsets=[],
+            ),
+        )
+
+    def test_returns_the_mismatch_object_like_the_cli(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.config import load_config
+        from rebrew.main import app as umbrella
+        from rebrew.test import run_test
+
+        root = self._project(tmp_path, monkeypatch)
+        self._stub_compare(monkeypatch)
+
+        result = run_test(load_config(root), "src/x/f.c", no_promote=True, json_output=True)
+        cli = CliRunner().invoke(umbrella, ["test", "src/x/f.c", "--no-promote", "--json"])
+
+        # A mismatch is a result (exit 1), not an error: both return the object.
+        assert cli.exit_code == 1, cli.output
+        assert result == json.loads(cli.stdout)
+        assert result["status"] == "NEAR_MATCHING"
+
+    def test_no_promote_writes_no_metadata(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew.config import load_config
+        from rebrew.test import run_test
+
+        root = self._project(tmp_path, monkeypatch)
+        self._stub_compare(monkeypatch)
+
+        run_test(load_config(root), "src/x/f.c", no_promote=True, json_output=True)
+        meta_path = root / "src" / "rebrew-functions.toml"
+        assert not meta_path.exists() or "status" not in meta_path.read_text()

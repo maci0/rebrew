@@ -50,12 +50,13 @@ def _patch(
     declared: int | None = None,
     walked: int | None = None,
     arch: str = "x86_32",
-) -> None:
+) -> SimpleNamespace:
     """Stub the CLI's config, byte reader and extent walker.
 
     *declared* is the function-list size (written to a real functions.txt),
     *walked* the disassembly walk's extent; both ``None`` means an extent the
-    engine cannot resolve.
+    engine cannot resolve.  Returns the stub config so a direct call can
+    share the same inputs as the CLI.
     """
     binary = tmp_path / "target.bin"
     binary.write_bytes(b"\x90")
@@ -72,6 +73,7 @@ def _patch(
     monkeypatch.setattr(asm, "require_config", lambda target=None, json_mode=False: cfg)
     monkeypatch.setattr(binary_loader, "extract_raw_bytes", lambda path, va, size: code)
     monkeypatch.setattr(binary_loader, "function_extent_from_disasm", lambda path, va: walked)
+    return cfg
 
 
 def _run(
@@ -231,3 +233,32 @@ class TestCfgUsageErrors:
         _patch(monkeypatch, tmp_path, IFELSE)
         result = runner.invoke(_app(), [f"0x{BASE_VA:x}", "--format", "bogus"])
         assert result.exit_code == 2
+
+
+class TestBuildCfgPayload:
+    """``build_cfg_payload()`` is the importable form of ``--format cfg --json``."""
+
+    def test_matches_cli_with_an_explicit_size(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _patch(monkeypatch, tmp_path, IFELSE)
+        payload = asm.build_cfg_payload(cfg, BASE_VA, len(IFELSE))
+        cli = _payload(_run(monkeypatch, tmp_path, IFELSE, "--size", "18", "--json"))
+        assert payload == cli
+        assert payload["block_total"] == 3
+
+    def test_resolves_the_size_from_the_function_list(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _patch(monkeypatch, tmp_path, IFELSE, declared=len(IFELSE))
+        payload = asm.build_cfg_payload(cfg, BASE_VA)
+        assert payload["size"] == len(IFELSE)
+        assert payload["block_total"] == 3
+
+    def test_unresolved_extent_answers_a_note(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _patch(monkeypatch, tmp_path, IFELSE)
+        payload = asm.build_cfg_payload(cfg, BASE_VA)
+        assert payload["blocks"] == []
+        assert "extent unresolved" in payload["note"]
