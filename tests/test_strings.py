@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
 from bin_util import make_pe
 from typer.testing import CliRunner
 
-from rebrew.strings import app
+from rebrew.strings import app, collect_strings
 
 TEXT_VA = 0x401000  # make_pe default: image_base 0x400000 + text_va 0x1000
 
@@ -196,3 +196,38 @@ class TestErrors:
         result = runner.invoke(app, ["--filter", "[", str(path)], env={"COLUMNS": "200"})
         assert result.exit_code == 2
         assert "invalid --filter regex" in result.output
+
+
+class TestCollectStrings:
+    """``collect_strings()`` is the importable form of ``rebrew strings --json``."""
+
+    def test_matches_cli_json(self, tmp_path: Path) -> None:
+        code = b"Hello World\x00" + b"Game Boy\x00" + b"\xc3"
+        path = _write_probe(tmp_path, code)
+        payload = collect_strings(path, section_names=[".text"], json_output=True)
+        result = runner.invoke(app, ["--json", "--section", ".text", str(path)])
+        assert result.exit_code == 0
+        assert payload == json.loads(result.stdout)
+        assert payload["count"] == 2
+        assert payload["strings"][0]["text"] == "Hello World"
+
+    def test_filter_narrows_strings(self, tmp_path: Path) -> None:
+        code = b"Hello World\x00" + b"Goodbye Moon\x00" + b"\xc3"
+        path = _write_probe(tmp_path, code)
+        payload = collect_strings(
+            path, section_names=[".text"], filter_regex="WORLD", json_output=True
+        )
+        assert [s["text"] for s in payload["strings"]] == ["Hello World"]
+
+    def test_xrefs_included(self, tmp_path: Path) -> None:
+        str_va = TEXT_VA + 6  # after `push imm32` (5 bytes) + `ret` (1 byte)
+        code = b"\x68" + struct.pack("<I", str_va) + b"\xc3" + b"Referenced String\x00"
+        path = _write_probe(tmp_path, code)
+        payload = collect_strings(path, section_names=[".text"], xref=True, json_output=True)
+        assert payload["strings"][0]["xrefs"] == [{"kind": "push", "from_va": TEXT_VA}]
+
+    def test_empty_result_payload(self, tmp_path: Path) -> None:
+        path = _write_probe(tmp_path, b"Hello World\x00" + b"\xc3")
+        payload = collect_strings(path, json_output=True)
+        assert payload["count"] == 0
+        assert payload["strings"] == []

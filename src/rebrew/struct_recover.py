@@ -63,7 +63,6 @@ from rebrew.cli import (
     TargetOption,
     error_exit,
     json_print,
-    parse_va,
     require_config,
 )
 from rebrew.utils import parse_int_literal
@@ -545,9 +544,12 @@ def _collect_functions(
     functions: str | None,
     all_funcs: bool,
     filter_substr: str | None,
-    json_output: bool,
 ) -> list[tuple[int, str]]:
-    """Resolve the function set to decompile: explicit VAs, --all, or filtered."""
+    """Resolve the function set to decompile: explicit VAs, --all, or filtered.
+
+    Raises ``ValueError`` for an unparseable VA or an empty selection; the
+    CLI turns either into ``error_exit``.
+    """
     from rebrew.annotation import parse_c_file_multi
     from rebrew.sources import iter_sources, target_marker
 
@@ -557,7 +559,10 @@ def _collect_functions(
             tok = tok.strip()
             if not tok:
                 continue
-            va = parse_va(tok, json_mode=json_output)
+            try:
+                va = parse_int_literal(tok, base=16)
+            except ValueError:
+                raise ValueError(f"Invalid hex VA: {tok!r}") from None
             out.append((va, f"0x{va:x}"))
         return out
 
@@ -576,11 +581,100 @@ def _collect_functions(
             seen.add(a.va)
             out.append((a.va, a.name or f"0x{a.va:x}"))
     if all_funcs is False and not functions and not out:
-        error_exit(
-            "pass --functions VA,VA, --all, or --filter SUBSTR to select functions",
-            json_mode=json_output,
-        )
+        raise ValueError("pass --functions VA,VA, --all, or --filter SUBSTR to select functions")
     return sorted(out)
+
+
+class NoDecompilationError(RuntimeError):
+    """The selected decompiler backend produced no output for any function."""
+
+
+def recover_project_structs(
+    cfg: Any,
+    *,
+    decompiler: str,
+    functions: str | None = None,
+    all_funcs: bool = False,
+    filter_substr: str | None = None,
+    limit: int = 0,
+    apply: Path | None = None,
+    dry_run: bool = False,
+    json_output: bool = False,
+) -> dict[str, Any]:
+    """Decompile the selected functions and recover struct definitions.
+
+    The same pipeline the ``rebrew recover-structs`` callback runs: resolve
+    the function set (*functions* / *all_funcs* / *filter_substr*, capped by
+    *limit*), decompile each via *decompiler*, aggregate the member-offset
+    evidence against the project's existing structs, and — with *apply* and
+    without *dry_run* — append the new definitions to that file.  Returns the
+    object the CLI prints under ``--json`` (``decompiled`` / ``skipped`` /
+    ``structs`` / ``applied``), or ``{"functions": 0, "structs": []}`` when
+    the selection is empty.  When *json_output* is false the human progress
+    and "no functions selected" lines are printed like the CLI.
+
+    Raises:
+        ValueError: A VA in *functions* is unparseable, or no functions were
+            selected (pass ``all_funcs=True`` to accept an empty set).
+        NoDecompilationError: No backend returned code for any selected
+            function (the CLI exits ``EXIT_ERROR`` with the same message).
+    """
+    funcs = _collect_functions(cfg, functions, all_funcs, filter_substr)
+    if limit and limit > 0:
+        funcs = funcs[:limit]
+    if not funcs:
+        if not json_output:
+            console.print("[dim]No functions selected.[/dim]")
+        return {"functions": 0, "structs": []}
+
+    from rebrew.decompiler import fetch_decompilation
+
+    decompilations: list[tuple[int, str, str]] = []
+    skipped = 0
+    if not json_output:
+        console.print(f"[bold]Decompiling {len(funcs)} function(s) via {decompiler}...[/bold]")
+    for va, name in funcs:
+        code, backend = fetch_decompilation(decompiler, cfg.target_binary, va, cfg.root)
+        if not code:
+            skipped += 1
+            continue
+        decompilations.append((va, name, code))
+
+    if not decompilations:
+        raise NoDecompilationError(
+            f"no decompilation obtained via '{decompiler}' ({skipped} function(s) skipped) — "
+            "install the backend (kuna: github.com/Noelo-Lab/kuna; r2ghidra needs the "
+            "ghidra plugin in rizin)"
+        )
+
+    # Existing structs in the project, for the merge report.  Library headers
+    # are included too — name_decomp.py scans them and recover_structs must
+    # agree, or its "new" structs would duplicate ones already defined
+    # (sync-review F15).
+    from rebrew.sources import iter_library_headers, iter_sources
+
+    sources = list(iter_sources(cfg.reversed_dir, cfg))
+    sources += list(iter_library_headers(cfg.reversed_dir, cfg))
+    existing = existing_structs(sources)
+    # Offsets ≥ the image base are absolute addresses (Kuna folds
+    # global_base + index into ``var + 0xADDR``) — never member offsets.
+    results = recover_structs(decompilations, existing=existing, max_offset=_member_offset_cap(cfg))
+
+    # Anonymous candidates need a user-chosen name first — never auto-apply.
+    new_structs = [r for r in results if r["new"] and not r["anonymous"]]
+    applied = str(apply) if apply and new_structs and not dry_run else None
+    if apply and new_structs and not dry_run:
+        block = "\n\n".join(r["definition"] for r in new_structs)
+        with apply.open("a", encoding="utf-8") as fh:
+            fh.write("\n" + block)
+        console.print(f"[green]Appended {len(new_structs)} struct(s) to {apply}[/green]")
+
+    return {
+        "decompiled": len(decompilations),
+        "skipped": skipped,
+        "structs": results,
+        "applied": applied,
+    }
 
 
 @app.callback(invoke_without_command=True)
@@ -611,76 +705,41 @@ def main(
     their member-access offsets per named pointer type."""
     cfg = require_config(target=target, json_mode=json_output)
 
-    funcs = _collect_functions(cfg, functions, all_funcs, filter_substr, json_output)
-    if limit and limit > 0:
-        funcs = funcs[:limit]
-    if not funcs:
-        if json_output:
-            json_print({"functions": 0, "structs": []})
-        else:
-            console.print("[dim]No functions selected.[/dim]")
-        return
-
-    from rebrew.decompiler import fetch_decompilation
-
-    decompilations: list[tuple[int, str, str]] = []
-    skipped = 0
-    if not json_output:
-        console.print(f"[bold]Decompiling {len(funcs)} function(s) via {decompiler}...[/bold]")
-    for va, name in funcs:
-        code, backend = fetch_decompilation(decompiler, cfg.target_binary, va, cfg.root)
-        if not code:
-            skipped += 1
-            continue
-        decompilations.append((va, name, code))
-
-    if not decompilations:
-        msg = (
-            f"no decompilation obtained via '{decompiler}' ({skipped} function(s) skipped) — "
-            "install the backend (kuna: github.com/Noelo-Lab/kuna; r2ghidra needs the "
-            "ghidra plugin in rizin)"
+    try:
+        payload = recover_project_structs(
+            cfg,
+            decompiler=decompiler,
+            functions=functions,
+            all_funcs=all_funcs,
+            filter_substr=filter_substr,
+            limit=limit,
+            apply=apply,
+            dry_run=dry_run,
+            json_output=json_output,
         )
+    except ValueError as exc:
+        error_exit(str(exc), json_mode=json_output)
+    except NoDecompilationError as exc:
+        # The no-decompilation envelope carries "decompiled": 0, which
+        # error_exit() does not emit.
         if json_output:
-            json_print({"error": msg, "code": EXIT_ERROR, "decompiled": 0})
+            json_print({"error": str(exc), "code": EXIT_ERROR, "decompiled": 0})
         else:
-            console.print(f"[red]error:[/red] {msg}")
+            console.print(f"[red]error:[/red] {exc}")
         raise typer.Exit(code=EXIT_ERROR)
 
-    # Existing structs in the project, for the merge report.  Library headers
-    # are included too — name_decomp.py scans them and recover_structs must
-    # agree, or its "new" structs would duplicate ones already defined
-    # (sync-review F15).
-    from rebrew.sources import iter_library_headers, iter_sources
-
-    sources = list(iter_sources(cfg.reversed_dir, cfg))
-    sources += list(iter_library_headers(cfg.reversed_dir, cfg))
-    existing = existing_structs(sources)
-    # Offsets ≥ the image base are absolute addresses (Kuna folds
-    # global_base + index into ``var + 0xADDR``) — never member offsets.
-    results = recover_structs(decompilations, existing=existing, max_offset=_member_offset_cap(cfg))
-
-    # Anonymous candidates need a user-chosen name first — never auto-apply.
-    new_structs = [r for r in results if r["new"] and not r["anonymous"]]
-    if apply and new_structs and not dry_run:
-        block = "\n\n".join(r["definition"] for r in new_structs)
-        with apply.open("a", encoding="utf-8") as fh:
-            fh.write("\n" + block)
-        console.print(f"[green]Appended {len(new_structs)} struct(s) to {apply}[/green]")
-
     if json_output:
-        json_print(
-            {
-                "decompiled": len(decompilations),
-                "skipped": skipped,
-                "structs": results,
-                "applied": str(apply) if apply and new_structs and not dry_run else None,
-            }
-        )
+        json_print(payload)
         return
 
+    if "functions" in payload:
+        return  # recover_project_structs printed the "No functions selected." note
+
+    results = payload["structs"]
+    new_structs = [r for r in results if r["new"] and not r["anonymous"]]
     console.print(
         f"\n[bold]{len(results)} recoverable struct(s)[/bold] "
-        f"(from {len(decompilations)} decompiled function(s), {skipped} skipped):\n"
+        f"(from {payload['decompiled']} decompiled function(s), {payload['skipped']} skipped):\n"
     )
     for r in results:
         if r["anonymous"]:
