@@ -28,6 +28,7 @@ error naming the functions and their flags, not silently averaged.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import typer
@@ -119,12 +120,48 @@ def main(
     target: str = typer.Option(
         "", "--target", "-t", help="Annotation marker to emit (default: the project target's)"
     ),
+    sources_file: Path = typer.Option(
+        None,
+        "--sources-file",
+        help="File listing the sources the build compiles (one path per line, "
+        "relative to the project root).  Every listed file gets an entry: "
+        "its metadata flags when it has any, the project default when it "
+        "does not.  Without this, a file the build compiles but nothing "
+        "annotates would silently lose its flags.",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print, do not write"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Write the per-file CFLAGS table as a CMake include."""
     cfg = load_config(root=Path.cwd(), target=target or None)
     files, problems, notes = collect(cfg, target or cfg.marker)
+
+    # The table is keyed by the path spelling CMake knows: a listed source
+    # keeps the spelling the build gave it (references/zlib-1.1.3 is a symlink
+    # to references/zlib, so a resolved path would not match the target's
+    # source entry).
+    emit: dict[str, str] = {}
+    listed: set[Path] = set()
+    if sources_file is not None:
+        for line in sources_file.read_text().splitlines():
+            rel = line.strip()
+            if not rel or not (cfg.root / rel).is_file():
+                continue
+            path = (cfg.root / rel).resolve()
+            listed.add(path)
+            if path in files:
+                emit[rel] = files[path]
+            else:
+                # Un-annotated source: the project default, resolved the same
+                # way an annotated file's fallback is, so the table is complete
+                # (without this a file the build compiles but nothing annotates
+                # would silently lose its flags).
+                _tc, flags = resolve_compile_overrides(cfg, path.parent, None, None, "")
+                emit[rel] = flags
+    for path, flags in files.items():
+        if path in listed:
+            continue
+        emit[os.path.relpath(path, cfg.root).replace(os.sep, "/")] = flags
 
     for line in notes:
         console.print(f"[yellow]note:[/] {line}")
@@ -137,8 +174,7 @@ def main(
         raise typer.Exit(code=1)
 
     lines = [HEADER]
-    for path, flags in sorted(files.items()):
-        rel = path.relative_to(cfg.root).as_posix()
+    for rel, flags in sorted(emit.items()):
         lines.append(
             f'set_source_files_properties("${{CMAKE_CURRENT_SOURCE_DIR}}/{rel}"\n'
             f'    PROPERTIES COMPILE_FLAGS "{flags}")\n'
