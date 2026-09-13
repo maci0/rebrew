@@ -27,12 +27,12 @@ import tomllib
 from pathlib import Path
 
 import typer
-from rebrew_workspace import walk_up_to_root
 from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
 from rebrew.pe_headers import find_section
 from rebrew.utils import atomic_write_text
+from rebrew.workspace import walk_up_to_root
 
 console = Console(stderr=True)
 

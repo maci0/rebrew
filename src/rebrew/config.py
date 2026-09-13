@@ -33,10 +33,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypedDict
 
-from rebrew_workspace import walk_up_to_root
-
 from rebrew.toolchain_spec import FlagsStyle
 from rebrew.utils import parse_int_literal
+from rebrew.workspace import walk_up_to_root
 
 
 def _config_warn(msg: str) -> None:

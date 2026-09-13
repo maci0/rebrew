@@ -12,7 +12,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from rebrew_workspace import walk_up_to_root
 
 from rebrew.cmake_tc import (
     _TOOL_MODES,
@@ -26,6 +25,7 @@ from rebrew.cmake_tc import (
     generate_toolchain_file,
 )
 from rebrew.toolchain import TOOLCHAINS
+from rebrew.workspace import walk_up_to_root
 
 
 def test_to_w() -> None:
