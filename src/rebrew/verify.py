@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from rebrew.compile import CompareResult
     from rebrew.compile_cache import CacheBackend
+    from rebrew.context import CompileContext
 
 import typer
 from rich.console import Console
@@ -127,6 +128,7 @@ def verify_entry(
     cache: "CacheBackend | None" = None,
     *,
     name_to_va: dict[str, int] | None = None,
+    context: "CompileContext | None" = None,
 ) -> "CompareResult":
     """Compile a .c file and compare output bytes against DLL.
 
@@ -136,7 +138,9 @@ def verify_entry(
     where the same .c is compiled once and multiple symbols extracted.
 
     *name_to_va* is the shared data-catalog map used for DIR32 absolute
-    validation — same source as ``rebrew test``.
+    validation, same source as ``rebrew test``.  *context* is the project's
+    compile context (``rebrew context`` output), merged into the compile unit
+    and recorded on the result as its digest.
     """
     from rebrew.compile import compile_and_compare
 
@@ -218,6 +222,7 @@ def verify_entry(
         name_to_va=name_to_va,
         section_va=entry.va,
         toolchain=toolchain,
+        context=context,
     )
     if not result.matched:
         # A fenced naked source compiled without REBREW_ALLOW_NAKED produces
@@ -594,6 +599,14 @@ def main(
         help="Compare built binary against the reference: sections, "
         "exports, imports, resources, headers (needs --built)",
     ),
+    context: Path | None = typer.Option(
+        None,
+        "--context",
+        help=(
+            "C declarations to compile with every source (e.g. 'rebrew context' output); "
+            "each result records the context hash it was earned under"
+        ),
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -601,6 +614,23 @@ def main(
     cfg = require_config(target=target, json_mode=json_output, root=root)
     if jobs is None:
         jobs = cfg.default_jobs
+
+    # The optional compile context (see `rebrew test --context`).  It is a
+    # compile input: merged into every compile unit, hashed into each result,
+    # and never combined with the result cache (the entry type carries no
+    # context digest, so a cached verdict cannot be attributed to it).
+    from rebrew.context import load_compile_context
+
+    try:
+        compile_context = load_compile_context(context)
+    except (OSError, UnicodeDecodeError) as exc:
+        error_exit(f"--context {context}: {exc}", json_mode=json_output)
+
+    if compile_context is not None and not json_output:
+        console.print(
+            "[dim]--context: result cache bypassed; every verdict is compiled "
+            "under the supplied context[/dim]"
+        )
 
     # 16-bit NE targets need a 16-bit compiler profile (msvc-1.52 — DOSBox
     # image / rebrew.msvc16).  When one is configured, verify runs normally
@@ -657,6 +687,7 @@ def main(
                 built=built,
                 text=text,
                 whole_binary=whole_binary,
+                context=context,
                 watch=False,  # never nest watch loops
                 target=target,
             )
@@ -863,6 +894,7 @@ def main(
         cfg,
         full,
         json_output,
+        context=compile_context,
     )
 
     total = len(unique_entries)
@@ -902,6 +934,7 @@ def main(
         total,
         cached_count,
         json_output,
+        compile_context,
     )
     passed += v_passed
     failed += v_failed
@@ -1026,6 +1059,9 @@ def main(
         "timestamp": timestamp,
         "target": cfg.target_name,
         "binary": str(cfg.target_binary),
+        # SHA-256 of the compile context every verdict in this run was
+        # earned under; null when the run compiled without one.
+        "context_hash": compile_context.sha256 if compile_context is not None else None,
         "dry_run": dry_run,
         "summary": {
             "total": total,
@@ -1101,7 +1137,10 @@ def main(
         text_misplaced=text_report["misplaced"] if text_report else 0,
     )
 
-    if not dry_run and not (diff_mode and gate_failed):
+    # A context-scoped run stores nothing: its verdicts were earned under
+    # declarations the cache entry type cannot record, so writing them would
+    # serve them back to a later context-free run that never compiled them.
+    if not dry_run and not (diff_mode and gate_failed) and compile_context is None:
         cache_path = cfg.root / ".rebrew" / "verify_cache.json"
         try:
             _save_verify_cache(
@@ -1306,6 +1345,7 @@ def prepare_entries(
     cfg: ProjectConfig,
     full: bool,
     json_output: bool,
+    context: "CompileContext | None" = None,
 ) -> tuple[
     list[Annotation],
     int,
@@ -1323,6 +1363,12 @@ def prepare_entries(
     cached_count, size_divergences, missing_sizes, duplicate_vas).
     ``duplicate_vas`` names the dropped sources: ``{"va", "kept", "dropped"}``
     per duplicate-VA annotation (first source wins, the rest never compile).
+
+    With *context* set the result cache is not consulted at all: a cached
+    verdict was earned by compiling the bare source, and the cache entry type
+    records no context digest to compare against, so serving it under a
+    context would report a match the context never produced.  Re-verifying is
+    the only correct answer until the entry type carries the digest.
     """
     reversed_dir = cfg.reversed_dir
     ghidra_json_path = reversed_dir / FUNCTION_STRUCTURE_JSON
@@ -1397,7 +1443,9 @@ def prepare_entries(
     results: list[dict[str, Any]] = []
 
     cache_path = cfg.root / ".rebrew" / "verify_cache.json"
-    verify_cache_obj = None if full else _load_verify_cache(cache_path, cfg)
+    verify_cache_obj = (
+        None if (full or context is not None) else _load_verify_cache(cache_path, cfg)
+    )
     entries_cache: dict[str, VerifyCacheEntry] = (
         verify_cache_obj.entries if verify_cache_obj else {}
     )
@@ -1587,10 +1635,16 @@ def run_verification(
     total: int,
     cached_count: int,
     json_output: bool,
+    context: "CompileContext | None" = None,
 ) -> tuple[
     int, int, list[tuple[Annotation, str]], list[dict[str, Any]], list[tuple[Annotation, str, int]]
 ]:
-    """Run parallel verification and classify results. Returns (passed, failed, fail_details, results, deferred_fixes)."""
+    """Run parallel verification and classify results.
+
+    Returns (passed, failed, fail_details, results, deferred_fixes).
+    *context* is threaded to every ``verify_entry`` so each result carries
+    the digest of the context it was compiled under.
+    """
     passed = 0
     failed = 0
     internal_errors = 0
@@ -1623,7 +1677,10 @@ def run_verification(
     def _verify(
         e: Annotation,
     ) -> tuple[Annotation, "CompareResult"]:
-        return (e, verify_entry(e, cfg, cache=compile_cache, name_to_va=name_to_va))
+        return (
+            e,
+            verify_entry(e, cfg, cache=compile_cache, name_to_va=name_to_va, context=context),
+        )
 
     with Progress(
         TextColumn("[bold blue]Verifying"),
@@ -1724,6 +1781,7 @@ def run_verification(
                             "similarity": result.similarity,
                             "reg_delta": result.reg_delta,
                             "effective_match": result.effective_match,
+                            "context_hash": result.context_hash,
                         }
                     )
 

@@ -1,6 +1,6 @@
 # CLI Reference
 
-All 88 CLI commands are registered under the unified `rebrew` entry point in `main.py`.
+All 92 CLI commands are registered under the unified `rebrew` entry point in `main.py`.
 Every tool supports `--target / -t` to select a target from `rebrew-project.toml` and
 reads defaults (binary path, reversed_dir, compiler settings) from the project config.
 
@@ -44,7 +44,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew rename` | `rename.py` | Rename a function and update all cross-references |
 | `rebrew init` | `init.py` | Scaffold a new project directory and `rebrew-project.toml` |
 | `rebrew test` | `test.py` | Compile-and-compare; auto-promotes STATUS on EXACT/RELOC; `--no-promote` to skip; `--json` output |
-| `rebrew asm` | `asm.py` | Dump disassembly (`--format hex`) or NASM (`--format nasm`) from target binary at a VA |
+| `rebrew asm` | `asm.py` | Dump disassembly (`--format hex`), NASM (`--format nasm`), or basic-block CFG (`--format cfg`) from target binary at a VA |
 | `rebrew switch` | `switch.py` | Decode jump-table switch dispatches in a function (case → handler map; `--window`) |
 | `rebrew diff` | `diff.py` | Side-by-side disassembly diff against target binary; `--fix-blocker` writes BLOCKER metadata |
 | `rebrew skeleton` | `skeleton.py` | Generate annotated `.c` skeleton from VA (with `--decomp`, `--xrefs`, `--append` for multi-function files) |
@@ -113,6 +113,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew gen-link-stubs` | `gen_link_stubs.py` | BSS placeholder TU from the data metadata |
 | `rebrew gen-stubs` | `gen_stubs.py` | Stub TU for unresolved linker symbols |
 | `rebrew identify-library` | `identify_library.py` | Library-function backends (CRT/ZLIB marking) |
+| `rebrew import-splat` | `splat_config.py` | Seed a project from a splat config (dry run by default): target metadata, `[targets.<t>.layout]` sections, `// FUNCTION:`/`// LIBRARY:`/`// DATA:` annotations |
 | `rebrew inline-strings` | `inline_strings.py` | Materialize string-literal globals from the original binary |
 | `rebrew intake` | `intake.py` | One-shot binary onboarding (FLIRT scan, catalog, triage) |
 | `rebrew lib-match` | `lib_match.py` | Byte-compare reversed functions against linked static-library archives |
@@ -297,6 +298,7 @@ consumers can learn whether the blocker landed (mirrors `near-diag`'s
 | `--no-promote` | Skip STATUS metadata update |
 | `--force-status` | Force the STATUS update even from sticky PROVEN (deliberately demote a stale PROVEN to its actual result; single-function only) |
 | `--fix-sizes` | Fix a stale `SIZE` annotation when ALL common bytes match: writes the compiled size into metadata and reclassifies as EXACT/RELOC (no-op when the mismatch is a real byte difference; `--dry-run` previews). File-scoped — batch size repair is `rebrew verify --fix-sizes` |
+| `--context FILE` | Compile with these declarations (typically `rebrew context -o ctx.c` output) merged ahead of the source under `#line` directives, so a diagnostic names `ctx.c` or the source. The verdict is pinned to the context: the file's SHA-256 is recorded as `context_hash` in `--json` and in the compile-cache key, so a cached object is never reused under a changed context. Not combinable with `--linked` |
 | `--linked` | Linked compare (single-function, VA required): compile in a padded `#pragma data_seg(".text$A")` + `code_seg(".text$B")` shell, LINK a real DLL at the target's image base inside the toolchain image, compare the linker-resolved bytes RAW — no relocation masking. rel32 displacements are linker-resolved and in-`.text` jump tables land in the window, so a match is byte-identical output, not RELOC-level. Sources with externals (imports, cross-TU calls) fail the link by design; MSVC docker toolchains only |
 | `--watch` | Re-test the source file on every save (single-file mode) |
 | `--json` | JSON structured output |
@@ -430,6 +432,7 @@ graph TD
 | `--built PATH` | Built binary for `--data` / `--text` / `--whole-binary` comparison (default `build/<target>`) |
 | `--text` | Check built `.text` function placement against the `// FUNCTION:` markers via `text-audit` (needs `--built`); exit 1 on any misplaced function |
 | `--whole-binary` | Compare built binary against the reference: section sizes, exports, imports, `.rsrc` bytes, headers, plus layout-freshness check (needs `--built`) |
+| `--context FILE` | Compile every source with these declarations merged ahead of it under `#line` directives (see `rebrew test --context`); each result and the report carry `context_hash`. A context run bypasses the result cache in both directions: no cached verdict is served, and nothing is written back, because a cache entry records no context digest |
 
 The `--json` report carries `dry_run`, `size_divergences`, and `missing_sizes`
 (plus `sizes_fixed` when `--fix-sizes` ran); VAs fixed by `--fix-sizes` are
@@ -561,7 +564,7 @@ the `wine ` prefix) for faster headless compiles.
 | Flag | Description |
 |------|-------------|
 | `-f FORMAT` / `--format FORMAT` | Output format: `mermaid` (default), `dot`, `summary` |
-| `--cu-map` | Infer compilation unit boundaries (clusters by .text contiguity + call graph) |
+| `--cu-map` | Infer compilation unit boundaries (clusters by .text contiguity + call graph). Two further signals exist on `cu_map.cluster_functions`: `jump_table_alignment` (off; measurement on the MSVC targets here shows only the 4-byte pointer alignment holds, so any larger modulus fires on noise) and `single_ref_data` (off; vetoes a split when two consecutive functions' exclusively-owned `.rdata`/`.data` objects are contiguous). `rebrew graph --cu-map` forwards only this flag set and does not expose them |
 | `--focus NAME` | Neighbourhood of a specific function |
 | `--depth N` | Depth for focus mode |
 | `-o FILE` / `--output FILE` | Output file (default: stdout) |
@@ -1024,12 +1027,29 @@ audit log. Nothing in the source tree is modified — the search only reads.
 
 ### `rebrew asm`
 
-`rebrew asm <VA> [--format hex|nasm] [--size N] [--imports] [--strings] [--hints] [--json] [--target NAME]`
+`rebrew asm <VA> [--format hex|nasm|cfg] [--size N] [--imports] [--strings] [--hints] [--json] [--target NAME]`
 
 Disassemble a single function from the target binary as a hex dump (default) or
 NASM-style listing (`--format nasm`).  `--imports`/`--strings`/`--hints` annotate the
 listing with IAT imports, referenced strings, and codegen hints; `--json`
 emits the structured instruction list (address, bytes, mnemonic, operands).
+
+`--format cfg` prints the function's basic-block control-flow graph instead of
+the instruction listing: per block its absolute start VA, byte size,
+instruction count, and the text of its first and last instruction; per edge
+the absolute VAs it connects and a `back_edge` marker.  The human form lists
+each block as `B<index> <va> <size> B <n> insns <first> ... <last>` and then
+the edges (back edges labeled); `--json` emits the same payload with every
+address as a `0x...` string, plus `block_count`, `block_total`, `block_cap`,
+`truncated` and `note`.  The extent is `--size`, else the function list, else
+the disassembly walk; when none resolves, or the VA's bytes are unreadable,
+the payload answers empty `blocks` with a `note` (exit 0) rather than
+guessing a window.  The block list is capped: `block_total`/`block_cap`/
+`truncated` state the true count and whether the cap was hit, and edges
+touching a dropped block are omitted so the returned graph stays
+self-consistent.  Segmentation is `rebrew.cfg_ged.build_cfg_view`, the same
+segmenter behind the CFG similarity metric, and `--format cfg` covers x86
+targets.
 
 `--format nasm --inline-c` generates an **exact-bytes naked C skeleton**
 for functions without a C implementation: the target bytes are emitted
@@ -1281,8 +1301,45 @@ delta — the prove queue). Data verdicts from `verify --data` show as
 ### `rebrew similar`
 
 `rebrew similar <VA> [--top N] [--min-score N] [--size N] [--json] [--target NAME]`
+`rebrew similar <VA> --submatch --other <VA2> [--min-run N] [--json]`
+`rebrew similar [<VA>] --cluster [--min-cluster-size N] [--json]`
 
 Find functions in the target binary that are structurally similar to the function at `<VA>`. The score (0–100) blends the mnemonic histogram cosine (60%) with call-count and branch-count agreement (20% each). Useful for finding which STUBs likely share the same source and optimisation approach as a solved function.
+
+**Ranking similarity is not the same question as reporting structure.**
+Ranking is what this command does by default, and what the sibling
+[resembl](ECOSYSTEM.md#resembl--assembly-similarity-search) project does over
+a persisted cross-project corpus (MinHash + LSH, a query that is a fragment of
+a larger function, near-duplicates, a snippet key that is already the SHA256
+of its normalized code). `--submatch` and `--cluster` are the other case:
+in-process, exact, one target, no index, and they answer the two questions a
+resemblance score cannot.
+
+`--submatch` answers *where* two functions agree instead of *how much*: it
+disassembles both, normalizes each instruction (registers masked to `R`,
+immediates to `IMM`), and reports every maximal common run of at least
+`--min-run` instructions as `(left_va, right_va, length)` with the matched
+text. A score is one number with no offsets, so it cannot say which part of
+one function corresponds to which part of the other.
+`difflib`'s LCS alignment is quadratic in the two instruction counts, so it is
+a per-pair operation and refuses a pair above 5000 instructions either side;
+no common run yields an empty list, not an error.
+
+`--cluster` groups functions whose normalized instruction sequence is
+identical, largest group first: "these forty functions are the same thunk".
+It fingerprints every catalog function once (linear), stops after 4000 and
+reports `skipped`, and ignores catalog thunks. Pass a `<VA>` to have
+`query_group` name the group that function is in. JSON shape:
+`{total_functions, skipped, min_size, duplicate_groups, duplicate_functions,
+query_group, clusters: [{size, signature, instructions, members:
+[{va, name, size}]}]}`.
+
+Neither mode is a second similarity engine: cross-project duplicate
+detection, near-duplicate clustering, or a fragment query against a snippet
+library belongs on `resembl` (`resembl find`). Both normalize with rebrew's
+own diff-path operand stripping rather than resembl's
+`string_normalize`/`code_tokenize`: resembl is an optional extra, and a
+required import would make these modes fail on a plain install.
 
 ### `rebrew binary-similarity`
 
@@ -1812,6 +1869,76 @@ Intake fails (exit 2) when rizin yields **zero** functions — a missing rizin
 or an analysis timeout must not be reported as a successful empty onboarding
 (the project scaffold is still created; fix rizin and re-run).
 
+### `rebrew import-splat`
+
+`rebrew import-splat CONFIG [--write] [--force] [--json] [--target NAME]`
+
+Seed an existing project from a [splat](https://github.com/ethteck/splat) YAML
+config, so names, addresses and section geometry are not re-derived by hand.
+The command reads the config surface rebrew actually consumes and writes the
+rebrew equivalent; **nothing is written without `--write`**.
+
+| Flag | Description |
+|------|-------------|
+| `CONFIG` | Path to the splat YAML config (positional, required) |
+| `--write` | Apply the plan (default: dry run, and the dry run never refuses) |
+| `--force` | Replace an annotation that conflicts with the splat config |
+| `--json` | The full plan as JSON (target metadata, layout, annotations, ignored keys, skips) |
+| `--target NAME` | Target to seed (default: the project's default target) |
+
+Run it inside a project (`rebrew init` or `rebrew intake` first); a missing
+`rebrew-project.toml` exits 2 with the project-not-found error.
+
+**What it reads and where it lands**
+
+| splat config | rebrew |
+|--------------|--------|
+| `options.target_path` | `[targets.<t>] binary` (copied to `original/<name>` when it lives outside the project) |
+| `options.platform` / `options.compiler` | `format` / `arch` / `[targets.<t>.compiler] profile` (via the splat tag → profile table; an unmapped tag keeps the project's profile and reports a note) |
+| `segments[].start/vram/subsegments` | `[targets.<t>.layout]` = `image_base` + `sections` (`name`/`va`/`vs`/`raw`/`ptr`/`chars`), the same shape `rebrew gen-layout` writes, so `rebrew data` and `rebrew calibrate-bss` read it unchanged |
+| `symbol_addrs_path` rows typed `func` in a code segment | `// FUNCTION:` skeleton (marker + stub via `generate_skeleton`; `SIZE`/`STATUS`/`BLOCKER` in `rebrew-functions.toml`) |
+| a row whose `//` comment says `import from <DLL>` in a code segment | `// LIBRARY:` entry in `library_<dll>.h` |
+| rows typed `u8`/`u16`/`u32`/`s32`/`f32` in a data segment | `// DATA:` marker + `extern` declaration, with `size`/`section` in `rebrew-data.toml` |
+| `undefined_funcs_auto`/`undefined_syms_auto` | read with the same symbol reader: an address inside the image becomes a `// LIBRARY:` entry with the module inferred from the name (the CRT/zlib tables `rebrew identify-library` uses); one outside it is **reported**, not annotated (splat records no bytes for it; link it with `rebrew gen-stubs` instead) |
+
+The dry run prints every planned annotation in the project's own syntax
+(`// FUNCTION: <MODULE> 0x<VA>`, `// LIBRARY: <MODULE> 0x<VA>`,
+`// DATA: ...` plus the declaration), the layout sections, and the target
+metadata it would set.
+
+**Conflicts.** A planned annotation whose address the project already
+annotates is `unchanged` (a re-run writes nothing). When the project
+disagrees, the import refuses and names the address, the existing annotation
+and what splat says. `--force` replaces an overwritable conflict (a planned
+`.c` that exists without annotating that address); a conflict where another
+file already claims the address is **not** forceable, because a second marker
+for one VA fails lint E013, and the message says so.
+
+**What it ignores, and why.** Every key the importer does not consume is
+reported by name with a reason:
+
+- GNU linker-script directives (`subalign`, `emit_subalign`, `ld_*`,
+  `ld_script_path`, `section_order`, the `vram_class`/`follows_vram`
+  machinery): they drive splat's own `ld` script, and a rebrew build links
+  with the target's toolchain instead.
+- splat's reassembly and analysis options (`asm_path`, `src_path`,
+  `asset_path`, `cache_path`, `o_as_suffix`, `string_encoding`,
+  `disassemble_all`, `dump_symbols`, `elf_path`, ...): rebrew's sources are
+  hand-written and its layout comes from the binary.  `elf_path` is parsed into
+  the model and reported here, because it is splat's reassembly output and
+  nothing in rebrew reads it.
+- The PSX/MIPS/N64 segment and asset vocabulary (`Vtx`/`Gfx`/`Yay0`/`Ci4`-style
+  subsegments, `c`/`hasm` split ranges).  A `platform` other than `win32` is
+  refused outright (exit 2), since rebrew has no compiler profile for those
+  targets and no asset pipeline.
+
+The YAML is read by a strict reader for the subset splat's own `create_config`
+emits: block mappings and sequences, inline `{...}`/`[...]`, quoted and plain
+scalars, `#` comments, `0x` integers, `true`/`false`, a leading `---`.  Tabs
+for indentation, block scalars (`|`/`>`), anchors/aliases/tags, multiple
+documents and duplicate keys raise an error naming the line, so a config this
+importer cannot read fails loudly instead of half-importing.
+
 ### `rebrew document-unmatched`
 
 `rebrew document-unmatched [--dry-run] [--json] [--target]`
@@ -2002,6 +2129,8 @@ large binaries.
 # Disassembly
 rebrew asm 0x100011f0 --size 64                   # Hex dump 64 bytes at VA
 rebrew asm 0x100011f0 --format nasm               # NASM disassembly at VA
+rebrew asm 0x100011f0 --format cfg                # Basic-block CFG: block VAs, sizes, edges
+rebrew asm 0x100011f0 --format cfg --json         #   ...same payload as JSON
 rebrew asm 0x100011f0 --format nasm --inline-c -o f.c  # Exact-bytes naked C skeleton
 rebrew asm 0x100011f0 --target server.dll         # Use alternate target
 rebrew asm 0x100011f0 --imports                   # Annotate call/jmp [IAT] with import names

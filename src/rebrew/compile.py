@@ -65,6 +65,7 @@ from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary
 from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
 from rebrew.compile_cache import CacheBackend, compile_cache_key, get_compile_cache
 from rebrew.config import ProjectConfig
+from rebrew.context import CONTEXT_UNIT_NAME, CompileContext
 from rebrew.headless import ensure_xvfb
 from rebrew.matcher import parse_obj_symbol_and_relocs
 from rebrew.metadata import MATCHED_STATUSES
@@ -143,6 +144,12 @@ class CompareResult:
     #: different registers.  Not byte-identical; PROVEN or register-nudging C
     #: tweaks are the paths forward.
     effective_match: bool = False
+    #: SHA-256 of the supplied compile context (``rebrew context`` output),
+    #: or ``None`` when the compile ran without one.  Pins the verdict to the
+    #: declarations it was earned under: a changed context is a different
+    #: compile input, so a result recorded under one digest says nothing
+    #: about a build under another.
+    context_hash: str | None = None
 
 
 #: Match-quality threshold for NEAR_MATCHING vs STUB classification.
@@ -793,6 +800,7 @@ def _compile_via_recompile(
     obj_name: str,
     profile: str,
     emit_assembly: bool,
+    source_text: str | None = None,
 ) -> tuple[str | None, str]:
     """Compile one source through the recompile HTTP service.
 
@@ -802,15 +810,20 @@ def _compile_via_recompile(
     compiles its own image-local tree (plus the single source), so sources
     with project-relative ``#include`` resolve only when they travel with
     the source text.
+
+    *source_text* overrides the file's own content: the caller passes the
+    merged context+source compile unit, so the service compiles exactly what
+    the local backend would.
     """
     from rebrew.recompile_client import RecompileError, compile_source
 
     url = recompile_url(cfg)
     assert url is not None, "recompile backend selected without a URL"
-    try:
-        source_text = source_path.read_text(encoding="utf-8", errors="surrogateescape")
-    except OSError as exc:
-        return None, f"Failed to read source for recompile upload: {exc}"
+    if source_text is None:
+        try:
+            source_text = source_path.read_text(encoding="utf-8", errors="surrogateescape")
+        except OSError as exc:
+            return None, f"Failed to read source for recompile upload: {exc}"
     try:
         res = compile_source(
             url,
@@ -834,6 +847,42 @@ def _compile_via_recompile(
     return str(obj_file), ""
 
 
+def contextualized_source(
+    context: CompileContext | None,
+    source_text: str,
+    source_name: str,
+) -> str:
+    """Merge *context* and *source_text* into one compilable unit.
+
+    The unit is the context's declarations followed by the function body,
+    each introduced by ``#line 1 "<file>"`` so a compiler diagnostic names
+    the file the offending line came from instead of blaming the source for
+    a context error (or vice versa).  decomp.me's compiler wrapper delimits
+    its scratch the same way.
+
+    Probed by compiling a unit with the directives through every C toolchain
+    in the registry: MSVC 1.52, MSVC 6.0, gcc-14.2.0, clang-18.1.8,
+    mingw-16.2.0, watcom-2.0-win16/-win32, and borland-3.1/-5.5 all accept
+    ``#line N "file"`` and report the logical name in diagnostics
+    (``src.c(1) : error C2059``, ``src.c:1:31: error:``, ``Error! E1063``,
+    ``Error E2188 src.c 1:``).  None rejects it, so the behaviour is not gated
+    on the compiler; a future toolchain that does reject it must be gated
+    here.
+
+    An empty context returns *source_text* unchanged: a context that carries
+    no declarations must not alter the compile unit (or, through it, the
+    compile-cache key).
+    """
+    if context is None or not context.text:
+        return source_text
+    return (
+        f'#line 1 "{CONTEXT_UNIT_NAME}"\n'
+        f"{context.text.rstrip()}\n"
+        f'#line 1 "{source_name}"\n'
+        f"{source_text}"
+    )
+
+
 def compile_to_obj(
     cfg: ProjectConfig,
     source_path: str | Path,
@@ -845,6 +894,7 @@ def compile_to_obj(
     obj_name: str | None = None,
     toolchain: str | None = None,
     extra_include_dirs: list[str] | None = None,
+    context: CompileContext | None = None,
 ) -> tuple[str | None, str]:
     """Compile a .c file to .obj through the toolchain's docker image.
 
@@ -880,6 +930,11 @@ def compile_to_obj(
         extra_include_dirs: Additional absolute include dirs (e.g. the GA/
             diff source's parent, for relative #include resolution) -
             same-path mounted into the container like the other /I dirs.
+        context: Project-supplied declarations to compile with the source
+            (:class:`rebrew.context.CompileContext`).  Merged into the
+            compile unit under ``#line`` directives, so the compiler reads the
+            merged text (not the bare source) and the compile-cache key hashes
+            that same text.  ``None`` compiles the source alone.
 
     Returns:
         (obj_path, error_msg) - obj_path is ``None`` on failure;
@@ -943,9 +998,17 @@ def compile_to_obj(
         except OSError:
             cc = None
 
+    # The compile unit is the text the compiler actually reads: the source,
+    # or (with a context) the context's declarations merged into it under
+    # #line directives.  It is also the compile-cache key's source input, so
+    # a cached object is pinned to the exact context it was built under.
+    compile_text = contextualized_source(
+        context, source_path.read_bytes().decode("utf-8", errors="surrogateescape"), src_name
+    )
+
     cache_key: str | None = None
     if cc is not None:
-        source_content = source_path.read_bytes().decode("utf-8", errors="surrogateescape")
+        source_content = compile_text
         if spec is not None and spec.image is not None:
             toolchain_id = _toolchain_cache_id(spec)
         elif spec is not None:
@@ -1003,7 +1066,11 @@ def compile_to_obj(
     # copy2 would fail with "same file".  The docker mount / workdir then
     # serves the source directly.
     try:
-        if local_src.resolve() != source_path.resolve():
+        if context is not None:
+            # The merged unit goes to the workdir verbatim (no copy: the
+            # compiler must read the context as part of the source).
+            local_src.write_text(compile_text, encoding="utf-8", errors="surrogateescape")
+        elif local_src.resolve() != source_path.resolve():
             shutil.copy2(source_path, local_src)
     except OSError as e:
         return None, f"Failed to copy source into workdir: {e}"
@@ -1020,6 +1087,7 @@ def compile_to_obj(
             obj_name,
             active,
             emit_assembly=bool(getattr(cfg, "recompile_emit_assembly", False)),
+            source_text=compile_text if context is not None else None,
         )
 
     if spec is not None and (spec.image is not None or spec.runtime == "native"):
@@ -1208,6 +1276,7 @@ def compile_and_compare(
     name_to_va: dict[str, int] | None = None,
     section_va: int | None = None,
     toolchain: str | None = None,
+    context: CompileContext | None = None,
 ) -> CompareResult:
     """Compile source, extract COFF symbol, compare against target bytes with reloc masking.
 
@@ -1228,12 +1297,21 @@ def compile_and_compare(
         name_to_va: Optional symbol → VA map for DIR32 absolute validation
             (same catalog used by ``rebrew test``).
         section_va: Optional function start VA for precise REL32 validation.
+        context: Project-supplied declarations to compile with the source
+            (:class:`rebrew.context.CompileContext`); the resulting
+            ``CompareResult.context_hash`` records the digest the verdict was
+            earned under.
 
     Returns:
         :class:`CompareResult` with status, metrics, and byte data.
 
     """
     cflags_list = safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
+    context_hash = context.sha256 if context is not None else None
+
+    def _pin(result: CompareResult) -> CompareResult:
+        result.context_hash = context_hash
+        return result
 
     workdir: Path | None = None
     try:
@@ -1252,29 +1330,38 @@ def compile_and_compare(
             cache=cache,
             use_cache=use_cache,
             toolchain=toolchain,
+            context=context,
         )
         if obj_path is None:
-            return classify_compare_result(
-                False, f"COMPILE_ERROR: {err[:200]}", target_bytes, None, None
+            return _pin(
+                classify_compare_result(
+                    False, f"COMPILE_ERROR: {err[:200]}", target_bytes, None, None
+                )
             )
 
         try:
-            return _extract_and_compare(
-                obj_path,
-                symbol,
-                target_bytes,
-                name_to_va=name_to_va,
-                section_va=section_va,
-                iat_region=build_iat_region(cfg),
+            return _pin(
+                _extract_and_compare(
+                    obj_path,
+                    symbol,
+                    target_bytes,
+                    name_to_va=name_to_va,
+                    section_va=section_va,
+                    iat_region=build_iat_region(cfg),
+                )
             )
         except (ValueError, OSError) as exc:
             # Post-compile object extraction/compare failure - the source
             # compiled fine, so this is NOT a COMPILE_ERROR.  Label the
             # stage so downstream (todo, verify, GA) does not blame the
             # .c file for a malformed .obj / toolchain issue.
-            return classify_compare_result(False, f"EXTRACT_ERROR: {exc}", target_bytes, None, None)
+            return _pin(
+                classify_compare_result(False, f"EXTRACT_ERROR: {exc}", target_bytes, None, None)
+            )
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError, ValueError) as exc:
-        return classify_compare_result(False, f"COMPILE_ERROR: {exc}", target_bytes, None, None)
+        return _pin(
+            classify_compare_result(False, f"COMPILE_ERROR: {exc}", target_bytes, None, None)
+        )
     finally:
         if workdir is not None:
             # Retry-removes absorb the docker mount-unmount race (a busy

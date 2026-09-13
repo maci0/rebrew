@@ -1,3 +1,31 @@
+## [Unreleased]
+### Added
+- **`rebrew asm --format cfg` renders a function's control-flow graph**: the basic
+  blocks `cfg_ged` already segments for structural similarity are now reachable
+  for a reader, with each block's absolute start VA, its byte size, its
+  instruction count and the text of its first and last instruction, plus the
+  intra-function edges with a back-edge marker.  `cfg_ged.build_cfg_view` is the
+  one place that converts the segmenter's byte offsets to absolute addresses and
+  `build_cfg` keeps its exact shape, so `cfg_similarity` and its tests are
+  untouched.  The payload is capped at `MAX_CFG_BLOCKS_PER_FUNCTION` (512) and
+  states the true block count when it truncates, dropping edges that touch a
+  dropped block so the graph stays self-consistent; an extent that cannot be
+  resolved or bytes that do not decode answer empty blocks with a note rather
+  than raising, and a non-x86 target is refused by name because the segmenter is
+  x86-only.
+- **`rebrew import-splat <splat.yaml>` seeds a project from a splat config**: reads
+  the YAML a splat project (or splat's `create_win32_config`) already describes
+  and reports what it would create, dry run by default.  Symbols become
+  `// FUNCTION:` / `// LIBRARY:` / `// DATA:` annotations plus STUB sources, the
+  target metadata and `[targets.<t>.layout]` block come from the config, and the
+  command reuses the existing writers (`symbol_addrs.parse_symbol_addrs`,
+  `skeleton.generate_skeleton`, `identify_library.write_candidates`,
+  `layout_meta.SectionMeta`) rather than adding a second path.  `--write` applies
+  it, `--force` replaces a conflicting annotation, and every key the importer
+  ignores is reported with its reason (GNU-linker directives, splat's own asm
+  and asset emitters, the non-win32 platforms) instead of being dropped.  A
+  re-run is an idempotent no-op, and a foreign file at an annotation's path is a
+  hard refusal naming the conflict.
 ## [1.1.0] - 2026-09-13
 ### Added
 - **`rebrew lib-match` indexes source-vendored library objects and verifies

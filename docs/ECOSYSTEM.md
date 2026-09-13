@@ -122,7 +122,7 @@ own database.
 Boundary with rebrew's own matchers: `resembl` owns the *persisted corpus and
 approximate search* case (a snippet library built across projects, near
 neighbours, a query that is a fragment of a larger function). rebrew's
-`coddog` (`rebrew similar --submatch` / `--cluster`) owns the *in-process,
+`instruction_clones` (`rebrew similar --submatch` / `--cluster`) owns the *in-process,
 exact, one target* case (where two functions correspond, which functions are
 identical after normalization) and keeps no index. Cross-project duplicate
 detection belongs on `resembl`; see

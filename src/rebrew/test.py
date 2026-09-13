@@ -55,6 +55,7 @@ from rebrew.compile import (
     is_matched,
 )
 from rebrew.config import ProjectConfig
+from rebrew.context import CompileContext
 from rebrew.matcher import parse_obj_symbol_and_relocs
 from rebrew.metadata import (
     is_status_sticky,
@@ -239,6 +240,14 @@ def main(
     watch: bool = typer.Option(
         False, "--watch", help="Watch the source file and re-test on every change"
     ),
+    context: Path | None = typer.Option(
+        None,
+        "--context",
+        help=(
+            "C declarations to compile with the source (e.g. 'rebrew context' output); "
+            "the result records the context hash it was earned under"
+        ),
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -275,6 +284,17 @@ def main(
     """
     cfg = require_config(target=target, json_mode=json_output)
 
+    # The optional compile context: a file of types/prototypes compiled with
+    # the source (typically `rebrew context -o ctx.c`).  It is a compile
+    # input (merged into the compile unit and hashed into the result), so a
+    # missing file fails loud instead of silently compiling without it.
+    from rebrew.context import load_compile_context
+
+    try:
+        compile_context = load_compile_context(context)
+    except (OSError, UnicodeDecodeError) as exc:
+        error_exit(f"--context {context}: {exc}", json_mode=json_output)
+
     # Accept a hex VA or symbol name in addition to a .c path, like
     # `rebrew diff`/`rebrew prove` (resolve_source_arg returns the argument
     # unchanged when nothing matches, so the original error path is kept).
@@ -287,6 +307,15 @@ def main(
 
     if linked and all_sources:
         error_exit("--linked is single-function only", json_mode=json_output, code=EXIT_ERROR)
+    if linked and context is not None:
+        # The linked path compiles inside a padded shell and never merges a
+        # context: accepting the flag would silently drop it.
+        error_exit(
+            "--linked and --context are mutually exclusive; the linked compare "
+            "compiles a padded shell and takes no context",
+            json_mode=json_output,
+            code=EXIT_ERROR,
+        )
     if linked and fix_sizes:
         error_exit(
             "--linked and --fix-sizes are mutually exclusive — the linked compare "
@@ -320,7 +349,16 @@ def main(
                 json_mode=json_output,
                 code=EXIT_ERROR,
             )
-        _run_all_batch(cfg, batch_dir, origin, dry_run, no_promote, json_output, jobs=jobs)
+        _run_all_batch(
+            cfg,
+            batch_dir,
+            origin,
+            dry_run,
+            no_promote,
+            json_output,
+            jobs=jobs,
+            context=compile_context,
+        )
         return
 
     if source is None:
@@ -352,6 +390,7 @@ def main(
                 force_status=force_status,
                 fix_sizes=fix_sizes,
                 linked=linked,
+                context=context,
                 json_output=json_output,
                 target=target,
             )
@@ -416,6 +455,7 @@ def main(
                 json_output=json_output,
                 fix_sizes=fix_sizes,
                 toolchain=toolchain,
+                context=compile_context,
             )
             return
 
@@ -541,6 +581,7 @@ def main(
             name_to_va=name_to_va,
             section_va=section_va,
             toolchain=toolchain_name,
+            context=compile_context,
         )
     matched = cmp.matched
     relocs = cmp.reloc_offsets or []
@@ -711,7 +752,11 @@ def main(
             # byte delta, so a NEAR_MATCHING improved from 60% to 92% must land
             # even though there is no status transition to hang the patch on
             # (the batch path patches every result for this reason).
-            if not dry_run and new_status == old_status:
+            if not dry_run and new_status == old_status and compile_context is None:
+                # A context-scoped run writes nothing to the shared verify
+                # cache: the entry cannot record the digest it was earned
+                # under, so a later context-free run would read a verdict it
+                # never compiled (same rule as `rebrew verify --context`).
                 _patch_verify_cache(
                     cfg,
                     va_int_for_promote,
@@ -739,18 +784,19 @@ def main(
                 force=force_status,
                 updated_by="test",
             )
-            _patch_verify_cache(
-                cfg,
-                va_int_for_promote,
-                new_status,
-                match_count,
-                total,
-                # Pass the real byte delta when available: for SIZE_MISMATCH
-                # the recomputed total - match_count is 0 (obj_bytes is
-                # truncated to the target length), which todo would read as
-                # a "0B diff — try flag sweep" quick-win.
-                delta=cmp.delta,
-            )
+            if compile_context is None:
+                _patch_verify_cache(
+                    cfg,
+                    va_int_for_promote,
+                    new_status,
+                    match_count,
+                    total,
+                    # Pass the real byte delta when available: for SIZE_MISMATCH
+                    # the recomputed total - match_count is 0 (obj_bytes is
+                    # truncated to the target length), which todo would read as
+                    # a "0B diff — try flag sweep" quick-win.
+                    delta=cmp.delta,
+                )
             if not json_output:
                 console.print(f"[dim]STATUS → {new_status}[/dim]")
 
@@ -796,6 +842,7 @@ def build_result_dict_from_compare(
         target_bytes,
         cmp.inv_reloc_offsets,
         obj_size=obj_len,
+        context_hash=cmp.context_hash,
     )
 
 
@@ -813,6 +860,7 @@ def _result_dict_body(
     target_bytes: bytes,
     invalid_relocs: list[int],
     obj_size: int | None = None,
+    context_hash: str | None = None,
 ) -> dict[str, Any]:
     mismatches: list[dict[str, str | int]] = []
     if not matched and obj_bytes:
@@ -839,6 +887,9 @@ def _result_dict_body(
         "total": total,
         "reloc_count": len(relocs),
         "obj_size": len(obj_bytes) if obj_size is None else obj_size,
+        # SHA-256 of the compile context this verdict was earned under, or
+        # null when the function was compiled without one.
+        "context_hash": context_hash,
         "mismatches": mismatches,
     }
 
@@ -977,6 +1028,7 @@ def _test_multi(
     json_output: bool = False,
     fix_sizes: bool = False,
     toolchain: str | None = None,
+    context: CompileContext | None = None,
 ) -> None:
     """Test all functions in a multi-function .c file.
 
@@ -1028,7 +1080,13 @@ def _test_multi(
                 f"{Path(source).stem}_{hashlib.sha256(group_key.encode()).hexdigest()[:8]}.obj"
             )
             obj_path, err = compile_to_obj(
-                cfg, source, cf.split(), workdir, obj_name=obj_name, toolchain=tc_name
+                cfg,
+                source,
+                cf.split(),
+                workdir,
+                obj_name=obj_name,
+                toolchain=tc_name,
+                context=context,
             )
             if obj_path is None:
                 error_exit(
@@ -1231,6 +1289,7 @@ def _test_multi(
                 full_obj_bytes=obj_bytes if size_mismatch else None,
                 full_target_size=orig_tgt_len if size_mismatch else None,
             )
+            cmp.context_hash = context.sha256 if context is not None else None
             matched = cmp.matched
             new_status = cmp.status
             match_count = (
@@ -1297,19 +1356,22 @@ def _test_multi(
                         clear_blockers=clear,
                         updated_by="test",
                     )
-                    _patch_verify_cache(
-                        cfg,
-                        ann.va,
-                        new_status,
-                        match_count,
-                        total,
-                        # The real byte delta, as the single-file path passes:
-                        # recomputing total - match_count yields 0 for a
-                        # SIZE_MISMATCH (obj truncated to the target), which
-                        # todo then reads as a "0B diff — try flag sweep"
-                        # quick-win.
-                        delta=cmp.delta,
-                    )
+                    if context is None:
+                        # Same rule as the single-file path: a context-scoped
+                        # verdict must not be written to the shared cache.
+                        _patch_verify_cache(
+                            cfg,
+                            ann.va,
+                            new_status,
+                            match_count,
+                            total,
+                            # The real byte delta, as the single-file path
+                            # passes: recomputing total - match_count yields 0
+                            # for a SIZE_MISMATCH (obj truncated to the
+                            # target), which todo then reads as a "0B diff —
+                            # try flag sweep" quick-win.
+                            delta=cmp.delta,
+                        )
                     if not json_output:
                         console.print(f"[dim]  STATUS → {new_status}[/dim]")
 
@@ -1339,6 +1401,7 @@ def _run_all_batch(
     no_promote: bool,
     json_output: bool,
     jobs: int | None = None,
+    context: CompileContext | None = None,
 ) -> None:
     """Batch-test all .c files using verify's parallel/cached engine.
 
@@ -1377,6 +1440,7 @@ def _run_all_batch(
         cfg,
         full=True,  # test --all always recompiles (no incremental)
         json_output=json_output,
+        context=context,
     )
 
     if size_divergences and not json_output:
@@ -1476,6 +1540,7 @@ def _run_all_batch(
         total,
         0,  # cached_count=0 since we pass full=True
         json_output,
+        context,
     )
 
     # Always promote/demote STATUS metadata unless --no-promote

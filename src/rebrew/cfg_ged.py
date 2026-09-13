@@ -18,6 +18,11 @@ This is a NEW metric (control-flow-aware), complementary to the existing
 mnemonic-histogram ``structural_similarity``; it never replaces it.  Pure
 capstone, no angr dependency.  Best-effort: garbage/undecodable input yields
 0.0, never raises.
+
+``build_cfg_view`` exposes the same segmentation for rendering: absolute
+block VAs, byte spans, first/last instruction text and back-edge flags,
+capped at ``MAX_CFG_BLOCKS_PER_FUNCTION`` (consumed by ``rebrew asm
+--format cfg``).
 """
 
 from __future__ import annotations
@@ -77,19 +82,94 @@ _COND_JUMPS = frozenset(
 )
 _JMP_TARGET_RE = re.compile(r"0x([0-9a-fA-F]+)")
 
+#: Cap on the blocks ``build_cfg_view`` returns for one function: a renderable
+#: graph, not an unbounded dump of a malformed extent.  The payload carries
+#: the true count and this cap.
+MAX_CFG_BLOCKS_PER_FUNCTION = 512
+
 
 def build_cfg(code: bytes, va: int, cs_mode: int = capstone.CS_MODE_32) -> dict[str, Any]:
     """Segment *code* into a basic-block CFG.
 
-    Returns ``{"blocks": [(start_off, size, mnemonics)], "edges":
+    Returns ``{"blocks": [(start_off, insn_count, mnemonics)], "edges":
     [(from_idx, to_idx), ...]}`` — intra-function only (calls are treated as
     plain instructions; their callees are not in this CFG).  *start_off* is
-    the byte offset into *code* (address - va).
+    the byte offset into *code* (address - va).  For the absolute-VA render
+    view of the same segmentation, see :func:`build_cfg_view`.
+    """
+    blocks, edges = _segment_blocks(code, va, cs_mode)
+    return {
+        "blocks": [(b["start"], b["insn_count"], b["mnems"]) for b in blocks],
+        "edges": edges,
+    }
+
+
+def build_cfg_view(code: bytes, va: int, cs_mode: int = capstone.CS_MODE_32) -> dict[str, Any]:
+    """Render-facing view of one function's CFG: absolute VAs and labels.
+
+    Returns ``{"blocks": [{"va", "size", "instruction_count", "first",
+    "last"}], "edges": [{"from", "to", "back_edge"}], "block_count",
+    "block_total", "block_cap", "truncated", "note"}``.
+
+    *va* is the function's start (the same VA :func:`build_cfg` takes) and
+    every address here is absolute (``va + byte offset``).  ``size`` is the
+    block's byte span; ``first``/``last`` are ``"mnemonic operands"`` text of
+    its first and last instruction (equal for a one-instruction block).  An
+    edge is ``back_edge`` when it targets a block at or before its source
+    (blocks are in address order, so a self-loop counts).
+
+    ``blocks`` is capped at ``MAX_CFG_BLOCKS_PER_FUNCTION``;
+    ``block_total``/``block_cap``/``truncated`` state the true count, and
+    edges with an endpoint past the cap are dropped so the returned graph
+    stays self-consistent.  Undecodable input yields empty ``blocks`` with
+    ``note`` set, never an exception.
+    """
+    blocks, edges = _segment_blocks(code, va, cs_mode)
+    total = len(blocks)
+    kept = blocks[:MAX_CFG_BLOCKS_PER_FUNCTION]
+    kept_idx = set(range(len(kept)))
+    return {
+        "blocks": [
+            {
+                "va": va + b["start"],
+                "size": b["byte_size"],
+                "instruction_count": b["insn_count"],
+                "first": b["first"],
+                "last": b["last"],
+            }
+            for b in kept
+        ],
+        "edges": [
+            {
+                "from": va + blocks[a]["start"],
+                "to": va + blocks[b]["start"],
+                "back_edge": b <= a,
+            }
+            for a, b in edges
+            if a in kept_idx and b in kept_idx
+        ],
+        "block_count": len(kept),
+        "block_total": total,
+        "block_cap": MAX_CFG_BLOCKS_PER_FUNCTION,
+        "truncated": total > len(kept),
+        "note": None if kept else "no decodable instructions",
+    }
+
+
+def _segment_blocks(
+    code: bytes, va: int, cs_mode: int
+) -> tuple[list[dict[str, Any]], list[tuple[int, int]]]:
+    """Segment *code* into basic blocks and intra-function edges.
+
+    The single segmenter behind :func:`build_cfg` (offset/index view) and
+    :func:`build_cfg_view` (absolute-VA view).  Block records carry the byte
+    offset into *code*, the byte span, the instruction count, the mnemonic
+    list, first/last instruction text, and the start instruction index.
     """
     md = capstone_handle(capstone.CS_ARCH_X86, cs_mode)
     insns = list(md.disasm(code, va))
     if not insns:
-        return {"blocks": [], "edges": []}
+        return [], []
 
     # Split into blocks at terminators (a block ends at its last terminator).
     # Conditional jumps terminate too — the block ends AT the jcc, whose
@@ -103,14 +183,14 @@ def build_cfg(code: bytes, va: int, cs_mode: int = capstone.CS_MODE_32) -> dict[
     block_starts_set = set(block_starts)
 
     blocks: list[dict[str, Any]] = []
-    cur: list[tuple[int, str]] = []  # (addr, mnemonic)
+    cur: list[Any] = []
     cur_start_idx = 0
     for i, insn in enumerate(insns):
         if i in block_starts_set and cur:
             blocks.append(_seal(cur, va, cur_start_idx))
             cur = []
             cur_start_idx = i
-        cur.append((insn.address, insn.mnemonic))
+        cur.append(insn)
     if cur:
         blocks.append(_seal(cur, va, cur_start_idx))
 
@@ -122,47 +202,54 @@ def build_cfg(code: bytes, va: int, cs_mode: int = capstone.CS_MODE_32) -> dict[
     block_idx_of_offset: dict[int, int] = {}
     for idx, b in enumerate(blocks):
         first = insns[b["start_idx"]]
-        last = insns[b["start_idx"] + b["size"] - 1]
+        last = insns[b["start_idx"] + b["insn_count"] - 1]
         start_off = first.address - va
         end_off = last.address + last.size - va
         for off in range(start_off, end_off):
             block_idx_of_offset[off] = idx
 
     for idx, b in enumerate(blocks):
-        size, start_idx = b["size"], b["start_idx"]
-        last = insns[start_idx + size - 1]
+        count, start_idx = b["insn_count"], b["start_idx"]
+        last = insns[start_idx + count - 1]
         mnem = last.mnemonic
         if mnem in _COND_JUMPS:
             target_off = _jump_target_off(last, va)
             if target_off is not None:
                 _add_edge(edges, idx, block_idx_of_offset, target_off)
             # fallthrough to the next block
-            if start_idx + size < len(insns):
-                _add_edge(edges, idx, block_idx_of_offset, insns[start_idx + size].address - va)
+            if start_idx + count < len(insns):
+                _add_edge(edges, idx, block_idx_of_offset, insns[start_idx + count].address - va)
         elif mnem == "jmp":
             target_off = _jump_target_off(last, va)
             if target_off is not None:
                 _add_edge(edges, idx, block_idx_of_offset, target_off)
         elif mnem not in _BLOCK_END_MNEMONICS:
             # fallthrough
-            if start_idx + size < len(insns):
-                _add_edge(edges, idx, block_idx_of_offset, insns[start_idx + size].address - va)
+            if start_idx + count < len(insns):
+                _add_edge(edges, idx, block_idx_of_offset, insns[start_idx + count].address - va)
 
+    return blocks, edges
+
+
+def _seal(cur: list[Any], base_va: int, start_idx: int) -> dict[str, Any]:
+    """Seal a block: start byte offset (into the code buffer), byte span,
+    instruction count, mnemonic list, first/last instruction text, and the
+    start instruction index."""
+    first, last = cur[0], cur[-1]
     return {
-        "blocks": [(b["start"], b["size"], b["mnems"]) for b in blocks],
-        "edges": edges,
-    }
-
-
-def _seal(cur: list[tuple[int, str]], base_va: int, start_idx: int) -> dict[str, Any]:
-    """Seal a block: start byte offset (into the code buffer), size
-    (instructions), mnemonic list, and the start instruction index."""
-    return {
-        "start": cur[0][0] - base_va,
-        "size": len(cur),
-        "mnems": [m for _, m in cur],
+        "start": first.address - base_va,
+        "byte_size": last.address + last.size - first.address,
+        "insn_count": len(cur),
+        "mnems": [insn.mnemonic for insn in cur],
+        "first": _insn_text(first),
+        "last": _insn_text(last),
         "start_idx": start_idx,
     }
+
+
+def _insn_text(insn: Any) -> str:
+    """One capstone instruction as ``"mnemonic operands"`` text."""
+    return f"{insn.mnemonic} {insn.op_str}".strip()
 
 
 def _jump_target_off(insn: Any, base_va: int) -> int | None:

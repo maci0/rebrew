@@ -118,15 +118,15 @@ wastes the answer. Use this table before adding a seventh.
 | Surface | Answers | Input and cost |
 |---|---|---|
 | `similar.py` | which functions in this target rank closest to this one | this target, mnemonic histogram, linear per candidate |
-| `similar.py --submatch` (`coddog.find_common_runs`) | where inside these two functions do they correspond | two functions, exact longest common runs, quadratic in the pair |
-| `similar.py --cluster` (`coddog.cluster_units`) | which functions are identical after normalization | this target, one hash per function, linear in total instructions |
+| `similar.py --submatch` (`instruction_clones.find_common_runs`) | where inside these two functions do they correspond | two functions, exact longest common runs, quadratic in the pair |
+| `similar.py --cluster` (`instruction_clones.cluster_units`) | which functions are identical after normalization | this target, one hash per function, linear in total instructions |
 | `binary_similarity.py` | how alike are two whole binaries (versions, DLL vs EXE) | two images, section and structural summary |
 | `cfg_ged.py` | how alike are two control-flow graphs | per function pair, block-graph edit distance |
 | `matcher/scoring.py` → `resembl.scoring` | which stored snippets resemble this query | a persisted cross-project corpus, approximate (MinHash + LSH) |
 | `crt_match.py` / `flirt.py` / `identify_library.py` | is this function library code, and from which archive | signature and archive matching, not a similarity score |
 
-The boundary that matters is the last two rows against `coddog`: in-process,
-exact, no persistence, one target (coddog) versus a persisted corpus with
+The boundary that matters is the last two rows against `instruction_clones`: in-process,
+exact, no persistence, one target (instruction_clones) versus a persisted corpus with
 approximate near-neighbour search across projects (`resembl`). A request for
 cross-project duplicate detection, a fragment query against a snippet library,
 or near-duplicate clustering belongs on `resembl`, which rebrew already reuses

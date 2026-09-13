@@ -191,6 +191,41 @@ class TestPrepareEntriesCache:
         assert passed == 1
         assert results[0]["status"] == "EXACT"
 
+    def test_context_bypasses_the_result_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A context-scoped run must never serve a cached verdict.
+
+        The cache entry type records no context digest, so an entry that
+        would otherwise hit was earned by compiling the bare source; serving
+        it under a context would report a match the context never produced.
+        """
+        from rebrew.context import CompileContext
+
+        entry = _ann(0x1000)
+        cfg = self._setup(tmp_path, monkeypatch, entry)
+        cache = {
+            "0x00001000": verify_cache_mod.VerifyCacheEntry.from_dict(self._cache_entry("f.c"))
+        }
+        monkeypatch.setattr(
+            verify_mod,
+            "_load_verify_cache",
+            lambda *a, **k: verify_cache_mod.VerifyCache(
+                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+            ),
+        )
+        ctx = CompileContext(path=tmp_path / "ctx.c", text="typedef int myint;\n", sha256="abc123")
+
+        _e, _p, _f, _fd, _r, cached_no_ctx, _sd, _ms, _dup = verify_mod.prepare_entries(
+            cfg, full=False, json_output=False
+        )
+        assert cached_no_ctx == 1, "the cache must hit without a context"
+
+        _e, _p, _f, _fd, _r, cached_ctx, _sd, _ms, _dup = verify_mod.prepare_entries(
+            cfg, full=False, json_output=False, context=ctx
+        )
+        assert cached_ctx == 0, "a context-scoped run must re-verify, not reuse"
+
     def test_cached_entry_invalidated_by_size_change(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -1,8 +1,9 @@
 """Tests for cfg_ged.py — CFG structural similarity (DecBench GED-inspired)."""
 
 import capstone
+import pytest
 
-from rebrew.cfg_ged import build_cfg, cfg_similarity
+from rebrew.cfg_ged import build_cfg, build_cfg_view, cfg_similarity
 
 # cmp eax,1; je +7; mov eax,1; jmp +5; mov eax,2; ret  — 3 blocks, 3 edges
 IFELSE = bytes.fromhex("83 f8 01 74 07 b8 01 00 00 00 eb 05 b8 02 00 00 00 c3")
@@ -53,6 +54,88 @@ class TestBuildCfg:
         code = bytes.fromhex("31 c9 67 e3 02 c3 90 c3")
         cfg = build_cfg(code, 0x1000)
         assert set(cfg["edges"]) == {(0, 1), (0, 2)}
+
+    def test_block_tuple_shape_unchanged(self) -> None:
+        """build_cfg keeps (start_offset, insn_count, mnemonics) per block."""
+        cfg = build_cfg(IFELSE, 0x1000)
+        assert cfg["blocks"][1] == (5, 2, ["mov", "jmp"])
+        assert cfg["edges"] == [(0, 2), (0, 1), (1, 2)]
+
+
+class TestBuildCfgView:
+    def test_ifelse_absolute_vas_sizes_and_labels(self) -> None:
+        view = build_cfg_view(IFELSE, 0x1000)
+        assert view["blocks"] == [
+            {
+                "va": 0x1000,
+                "size": 5,
+                "instruction_count": 2,
+                "first": "cmp eax, 1",
+                "last": "je 0x100c",
+            },
+            {
+                "va": 0x1005,
+                "size": 7,
+                "instruction_count": 2,
+                "first": "mov eax, 1",
+                "last": "jmp 0x1011",
+            },
+            {
+                "va": 0x100C,
+                "size": 6,
+                "instruction_count": 2,
+                "first": "mov eax, 2",
+                "last": "ret",
+            },
+        ]
+        assert view["edges"] == [
+            {"from": 0x1000, "to": 0x100C, "back_edge": False},
+            {"from": 0x1000, "to": 0x1005, "back_edge": False},
+            {"from": 0x1005, "to": 0x100C, "back_edge": False},
+        ]
+        assert view["block_count"] == 3
+        assert view["block_total"] == 3
+        assert view["truncated"] is False
+        assert view["note"] is None
+
+    def test_loop_self_edge_is_a_back_edge(self) -> None:
+        view = build_cfg_view(LOOP, 0x1000)
+        assert [b["va"] for b in view["blocks"]] == [0x1000, 0x1008]
+        assert {"from": 0x1000, "to": 0x1000, "back_edge": True} in view["edges"]
+        assert {"from": 0x1000, "to": 0x1008, "back_edge": False} in view["edges"]
+
+    def test_straight_line_single_block(self) -> None:
+        view = build_cfg_view(STRAIGHT, 0x1000)
+        assert len(view["blocks"]) == 1
+        assert view["blocks"][0]["instruction_count"] == 3
+        assert view["blocks"][0]["size"] == len(STRAIGHT)
+        assert view["edges"] == []
+        assert view["note"] is None
+
+    def test_empty_code_notes_no_instructions(self) -> None:
+        view = build_cfg_view(b"", 0x1000)
+        assert view["blocks"] == []
+        assert view["edges"] == []
+        assert view["note"] == "no decodable instructions"
+
+    def test_garbage_does_not_raise(self) -> None:
+        view = build_cfg_view(b"\xff\xff\xff\xff\xff", 0x1000)
+        assert view["blocks"] == []
+        assert view["note"] == "no decodable instructions"
+
+    def test_block_cap_states_true_count(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("rebrew.cfg_ged.MAX_CFG_BLOCKS_PER_FUNCTION", 2)
+        view = build_cfg_view(IFELSE, 0x1000)
+        assert view["block_cap"] == 2
+        assert view["block_total"] == 3
+        assert view["block_count"] == 2
+        assert view["truncated"] is True
+        assert [b["va"] for b in view["blocks"]] == [0x1000, 0x1005]
+        # An edge with an endpoint past the cap is dropped: the returned graph
+        # never references a block the payload does not contain.
+        kept = {b["va"] for b in view["blocks"]}
+        assert view["edges"] == [{"from": 0x1000, "to": 0x1005, "back_edge": False}]
+        assert all(e["from"] in kept and e["to"] in kept for e in view["edges"])
 
 
 class TestCfgSimilarity:
