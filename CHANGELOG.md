@@ -26,6 +26,13 @@
   and asset emitters, the non-win32 platforms) instead of being dropped.  A
   re-run is an idempotent no-op, and a foreign file at an annotation's path is a
   hard refusal naming the conflict.
+## [Unreleased]
+### Changed
+- **`rebrew asm` and `rebrew test` are callable in-process**: `asm.hex_disassembly`,
+  `asm.build_cfg_payload` and `test.run_test` return exactly what the CLI prints
+  (hex text, the CFG payload, the test result object), so the last two engine
+  operations a consumer needed no longer go through the CLI.
+
 ## [1.1.0] - 2026-09-13
 ### Added
 - **`rebrew lib-match` indexes source-vendored library objects and verifies

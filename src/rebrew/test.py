@@ -327,11 +327,7 @@ def main(
     if source is not None:
         source_path = Path(source).resolve()
         # Safety: disable promotion for files outside the project source tree.
-        if not source_path.is_relative_to(cfg.metadata_dir.resolve()):
-            no_promote = True
-            _status_skip_reason = "file outside project"
-        else:
-            _status_skip_reason = ""
+        no_promote, _status_skip_reason = _status_skip_for_source(cfg, source, no_promote)
     else:
         _status_skip_reason = ""
 
@@ -398,34 +394,7 @@ def main(
         _watch_loop(source_path, _retest)
         return
 
-    # Build name -> VA map for relocation validation (shared with verify).
-    # Fail closed: a VA-map scan failure aborts the run with EXIT_ERROR
-    # instead of masking relocs against an empty map (false RELOC).
-    try:
-        name_to_va = build_name_to_va(cfg)
-    except CatalogScanError as exc:
-        error_exit(str(exc), json_mode=json_output, code=EXIT_ERROR)
-
-    # Optional: lint the file first to catch basic annotation errors
-    lint_annos = parse_c_file_multi(
-        Path(source), target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
-    )
-    # CLI overrides are authoritative — apply them to the parsed annotation
-    # before validating, so a fresh function tested with --va/--size does not
-    # report "Invalid SIZE: 0" (the values are right there on the command
-    # line; the annotation SIZE is only a fallback).  Only SIZE is applied:
-    # --va SELECTS the annotation in multi-function files, so it must not be
-    # overwritten.
-    if size is not None:
-        for anno in lint_annos:
-            anno.size = size
-    for anno in lint_annos:
-        eval_errs, eval_warns = anno.validate(min_va=min_valid_va_for(cfg))
-        if not json_output:
-            for e in eval_errs:
-                console.print(f"[bold red]LINT ERROR:[/bold red] {e}")
-            for w in eval_warns:
-                console.print(f"[bold yellow]LINT WARNING:[/bold yellow] {w}")
+    lint_annos, name_to_va = _lint_preamble(cfg, source, size=size, json_output=json_output)
 
     # Multi-function support: if no explicit symbol/va/size, test all annotations
     if symbol is None and va is None and size is None:
@@ -459,355 +428,36 @@ def main(
             )
             return
 
-    meta = parse_source_metadata(source, metadata_dir=cfg.metadata_dir)
-
-    # Derive symbol from annotation (C function definition).  The
-    # VA-based selection happens UNCONDITIONALLY (not just when symbol is
-    # absent): an explicit --va on a multi-module file must target the
-    # function AT that VA for symbol derivation AND for the metadata
-    # promotion below — with --symbol given, the old code fell to
-    # lint_annos[0], writing SIZE/CFLAGS/STATUS under the FIRST module
-    # even though the function tested was at the requested VA.
-    sel_ann: Annotation | None = None
-    if va is not None:
-        # An explicit --va targets ONE function in (possibly) a
-        # multi-function file: derive the symbol (and fallback size) from
-        # the annotation whose VA matches.  Same rule as diff/prove/
-        # near-diag: a requested VA picks its own function.  When NO
-        # annotation matches, the explicit --va is a user override of a
-        # stale/absent annotation VA — fall back to the first annotation's
-        # symbol/size (the near-diag va_from_flag semantics).
-        sel_ann = _select_annotation_for_va(lint_annos, va, json_output)
-        if sel_ann is None:
-            sel_ann = lint_annos[0] if lint_annos else None
-    else:
-        # No --va: first try the parsed annotation object (derives from
-        # the C function definition).
-        sel_ann = lint_annos[0] if lint_annos else None
-    if not symbol and sel_ann and sel_ann.symbol:
-        symbol = sel_ann.symbol
-    if size is None and sel_ann and sel_ann.size:
-        size = sel_ann.size
-    if not symbol:
-        error_exit(
-            "Could not derive symbol from C function definition or CLI args", json_mode=json_output
-        )
-
-    va_str = va
-    if not va_str:
-        # Check FUNCTION/LIBRARY/STUB marker like // FUNCTION: [TARGET] 0x100011f0
-        for marker_key in ("FUNCTION", "LIBRARY", "STUB"):
-            func_meta = meta.get(marker_key)
-            if func_meta and "0x" in func_meta:
-                after_hex = func_meta.split("0x")[1].split()
-                if after_hex:
-                    va_str = "0x" + after_hex[0]
-                    break
-
-    size_val = size
-    if size_val is None and "SIZE" in meta:
-        try:
-            size_val = int(meta["SIZE"])
-        except ValueError:
-            error_exit(f"Invalid SIZE metadata: {meta['SIZE']!r}", json_mode=json_output)
-
-    from rebrew.cli import resolve_compile_overrides
-
-    _mod = (sel_ann or lint_annos[0]).module if lint_annos else ""
-    # Shared fallback chain (per-function metadata → per-library
-    # rebrew-libraries.toml → preset → compiler.cflags); an explicit
-    # --toolchain / --cflags wins over the metadata value.
-    toolchain_name, cflags_str = resolve_compile_overrides(
+    result = _run_test_impl(
         cfg,
-        Path(source).resolve().parent,
-        toolchain or meta.get("TOOLCHAIN"),
-        cflags or meta.get("CFLAGS"),
-        _mod,
+        source,
+        va=va,
+        symbol=symbol,
+        target_bin=target_bin,
+        size=size,
+        cflags=cflags,
+        toolchain=toolchain,
+        force_status=force_status,
+        fix_sizes=fix_sizes,
+        linked=linked,
+        compile_context=compile_context,
+        dry_run=dry_run,
+        no_promote=no_promote,
+        json_output=json_output,
+        status_skip_reason=_status_skip_reason,
+        lint_annos=lint_annos,
+        name_to_va=name_to_va,
     )
-
-    section_va: int | None = None
-    if va_str is not None and size_val is not None:
-        va_int = parse_va(va_str, json_mode=json_output)
-        section_va = va_int
-        target_bytes = extract_raw_bytes(cfg.target_binary, va_int, size_val)
-    elif target_bin:
-        if linked:
-            error_exit(
-                "--linked needs the target binary's section geometry — use --va/--size, "
-                "not --target-bin",
-                json_mode=json_output,
-                code=EXIT_ERROR,
-            )
-        target_bytes = Path(target_bin).read_bytes()
-        if size_val is not None:
-            target_bytes = target_bytes[:size_val]
-        # --target-bin runs compare a raw byte blob with no VA — but the
-        # FUNCTION marker still carries the function's VA, and REL32 callee
-        # validation needs it (section_va=None masks every call as valid).
-        # Resolve it from the annotation so call targets are validated.
-        if section_va is None:
-            if va_str is not None:
-                section_va = parse_va(va_str, json_mode=json_output)
-            elif sel_ann is not None and getattr(sel_ann, "va", None):
-                section_va = sel_ann.va
-    else:
-        error_exit(
-            "Specify either target_bin or (VA and SIZE) via args or source metadata",
-            json_mode=json_output,
-        )
-
-    # Shared compile→extract→compare path (same as rebrew verify), or the
-    # --linked oracle: compile in a padded shell, LINK a real DLL at the
-    # target base, compare linker-resolved bytes without reloc masking.
-    if linked:
-        assert section_va is not None  # --target-bin rejected above
-        from rebrew.compile import compile_and_compare_linked
-
-        cmp = compile_and_compare_linked(
-            cfg,
-            source,
-            target_bytes,
-            cflags_str,
-            va=section_va,
-            toolchain=toolchain_name,
-        )
-    else:
-        cmp = compile_and_compare(
-            cfg,
-            source,
-            symbol,
-            target_bytes,
-            cflags_str,
-            name_to_va=name_to_va,
-            section_va=section_va,
-            toolchain=toolchain_name,
-            context=compile_context,
-        )
-    matched = cmp.matched
-    relocs = cmp.reloc_offsets or []
-    obj_bytes = cmp.obj_bytes or b""
-    # Reconstruct match_count/total for cache + display from CompareResult.
-    total = max(len(target_bytes), len(obj_bytes)) if (obj_bytes or target_bytes) else 0
-    match_count = int(round(cmp.match_percent / 100.0 * total)) if total else 0
-    if matched:
-        match_count = total
-
-    if cmp.status == "COMPILE_ERROR":
-        error_exit(f"COMPILE ERROR:\n{cmp.message}", json_mode=json_output, code=EXIT_ERROR)
-
-    # --fix-sizes: a SIZE_MISMATCH where every common byte matched is a stale
-    # SIZE annotation, not a decompilation problem.  Write the compiled size
-    # into metadata and reclassify as a real match.  Requires a VA (metadata
-    # is keyed by (module, va)); --target-bin runs have no VA and are skipped.
-    # The evidence check verifies the region beyond the common prefix before
-    # trusting the compiled size.
-    if (
-        fix_sizes
-        and cmp.status == "SIZE_MISMATCH"
-        and cmp.match_percent == 100.0
-        and cmp.full_obj_size is not None
-        and cmp.full_obj_bytes is not None
-        and section_va is not None
-        and _fix_size_evidence_ok(
-            cfg, section_va, cmp.full_obj_bytes, target_bytes, cmp.reloc_offsets or []
-        )
-    ):
-        new_size = cmp.full_obj_size
-        # The VA-SELECTED annotation's module, like every other metadata write
-        # in this command: `lint_annos[0]` wrote the size under the file's FIRST
-        # module, creating a phantom entry next to the real one.
-        anno_module = _mod
-        if not dry_run:
-            try:
-                update_field(cfg.metadata_dir, section_va, "size", new_size, anno_module)
-            except Exception as exc:  # metadata write is best-effort
-                logging.warning(
-                    "Could not persist fixed SIZE 0x%x: %s (the .c still claims the stale size)",
-                    section_va,
-                    exc,
-                )
-        else:
-            if not json_output:
-                console.print(
-                    f"[dim]would fix SIZE {size_val or 0} → {new_size} for "
-                    f"0x{section_va:x} (--dry-run)[/dim]"
-                )
-        matched = True
-        total = new_size
-        match_count = new_size
-        size_val = new_size
-        relocs = cmp.reloc_offsets or []
-        cmp = classify_compare_result(
-            True,
-            f"RELOC-NORM MATCH ({len(relocs)} relocs)" if relocs else "EXACT MATCH",
-            target_bytes,
-            cmp.obj_bytes,
-            relocs,
-            cmp.inv_reloc_offsets,
-            full_obj_size=new_size,
-            full_obj_bytes=cmp.full_obj_bytes,
-        )
-        # The extraction at the STALE annotation size no longer reflects the
-        # function — re-extract at the fixed size so JSON/display totals are
-        # self-consistent (a too-big annotation would otherwise report
-        # total=old-size against the new size metadata).
-        target_bytes = extract_raw_bytes(cfg.target_binary, section_va, new_size)
-
     if json_output:
-        result_dict = build_result_dict_from_compare(
-            source,
-            symbol,
-            va_str or "",
-            size_val or 0,
-            cmp,
-            target_bytes,
-        )
-        if no_promote and _status_skip_reason:
-            # Fold the skip reason into the single JSON document so --json
-            # output stays a single parseable object.
-            result_dict["status_skip_reason"] = _status_skip_reason
-        json_print(result_dict)
-    else:
-        _print_compare_result(cmp, target_bytes)
-
-    # Auto-promote: update STATUS in metadata from test result (skip with --no-promote)
-    if no_promote:
-        if _status_skip_reason and not json_output:
-            console.print(f"[dim]STATUS update skipped ({_status_skip_reason})[/dim]")
-    elif va_str:
-        va_int_for_promote = parse_va(va_str, json_mode=json_output)
-        # The metadata writes must target the FUNCTION ACTUALLY TESTED — with
-        # `--va` on a multi-annotation file, that is the selected annotation,
-        # not the file's first (writing under the first module's key created
-        # a phantom (first_module, requested_va) entry while the real entry
-        # stayed stale).
-        promote_ann = sel_ann if sel_ann is not None else (lint_annos[0] if lint_annos else None)
-        anno_module = promote_ann.module if promote_ann else ""
-        if not anno_module:
-            # The marker filter can exclude every annotation (e.g. a fresh
-            # file whose module differs from the target marker) — fall back
-            # to the file's own marker for the requested VA so the SIZE /
-            # STATUS writes land under the real (module, VA) key instead of
-            # raising on an empty module (or worse, writing an unreadable one).
-            from rebrew.annotation import module_for_va as _module_for_va
-
-            anno_module = _module_for_va(Path(source), va_int_for_promote)
-        # Persist the resolved SIZE alongside STATUS so downstream tools
-        # (diff, near-diag) can resolve it from metadata like STATUS — a
-        # hand-written fresh function would otherwise stay at SIZE=0 forever
-        # and `rebrew diff` fails with "Invalid SIZE: 0".
-        if size_val and not no_promote and not dry_run:
-            try:
-                update_field(
-                    cfg.metadata_dir, va_int_for_promote, "size", int(size_val), anno_module
-                )
-            except Exception as exc:  # metadata write is best-effort
-                logging.warning(
-                    "Could not persist SIZE for 0x%x: %s (downstream diff/near-diag "
-                    "may report an invalid size)",
-                    va_int_for_promote,
-                    exc,
-                )
-        # Persist an EXPLICIT --cflags override so `rebrew verify` recompiles
-        # with the flags that produced the match — without this, verify uses
-        # the project defaults and demotes an EXACT /O1 match to NEAR_MATCHING.
-        if cflags and not no_promote and not dry_run:
-            try:
-                update_field(
-                    cfg.metadata_dir, va_int_for_promote, "cflags", cflags_str, anno_module
-                )
-            except Exception as exc:  # metadata write is best-effort
-                logging.warning(
-                    "Could not persist CFLAGS for 0x%x: %s (verify may recompile "
-                    "with different flags and demote the match)",
-                    va_int_for_promote,
-                    exc,
-                )
-        # Persist an EXPLICIT --toolchain override for the same reason: the
-        # function's best compiler may differ from the project default (the
-        # target is a mix of MSVC 4.2/5.0/6.0 output), and verify must
-        # recompile with the toolchain that produced the match.
-        if toolchain_name and not no_promote and not dry_run:
-            try:
-                update_field(
-                    cfg.metadata_dir, va_int_for_promote, "toolchain", toolchain_name, anno_module
-                )
-            except Exception as exc:  # metadata write is best-effort
-                logging.warning(
-                    "Could not persist TOOLCHAIN for 0x%x: %s (verify may recompile "
-                    "with the project default compiler)",
-                    va_int_for_promote,
-                    exc,
-                )
-        old_status = promote_ann.status if promote_ann else ""
-        # Prefer CompareResult.status so SIZE_MISMATCH / COMPILE_ERROR are preserved.
-        new_status = (
-            cmp.status if cmp.status else classify_match_status(matched, match_count, total, relocs)
-        )
-        if not force_status and not should_promote_status(old_status, new_status):
-            if is_status_sticky(old_status) and not json_output:
-                console.print(f"[dim]STATUS → skipped ({old_status})[/dim]")
-            # A refused promotion with the SAME status still carries fresh
-            # metrics: status/todo rank ROI from the cache's match_percent and
-            # byte delta, so a NEAR_MATCHING improved from 60% to 92% must land
-            # even though there is no status transition to hang the patch on
-            # (the batch path patches every result for this reason).
-            if not dry_run and new_status == old_status and compile_context is None:
-                # A context-scoped run writes nothing to the shared verify
-                # cache: the entry cannot record the digest it was earned
-                # under, so a later context-free run would read a verdict it
-                # never compiled (same rule as `rebrew verify --context`).
-                _patch_verify_cache(
-                    cfg,
-                    va_int_for_promote,
-                    new_status,
-                    match_count,
-                    total,
-                    delta=cmp.delta,
-                )
-        elif dry_run:
-            # --dry-run must not write: preview the STATUS change (the compile
-            # itself already ran — it is read-only). Matches verify --dry-run.
-            if not json_output:
-                console.print(
-                    f"[dim]would update STATUS → {new_status} for "
-                    f"0x{va_int_for_promote:x} ({anno_module})[/dim]"
-                )
-        else:
-            clear = is_matched(new_status)
-            update_source_status(
-                cfg.metadata_dir,
-                new_status,
-                anno_module,
-                va_int_for_promote,
-                clear_blockers=clear,
-                force=force_status,
-                updated_by="test",
-            )
-            if compile_context is None:
-                _patch_verify_cache(
-                    cfg,
-                    va_int_for_promote,
-                    new_status,
-                    match_count,
-                    total,
-                    # Pass the real byte delta when available: for SIZE_MISMATCH
-                    # the recomputed total - match_count is 0 (obj_bytes is
-                    # truncated to the target length), which todo would read as
-                    # a "0B diff — try flag sweep" quick-win.
-                    delta=cmp.delta,
-                )
-            if not json_output:
-                console.print(f"[dim]STATUS → {new_status}[/dim]")
+        json_print(result)
 
     # Documented exit-code contract (epilog): 0 = EXACT/RELOC match,
     # 1 = needs work (NEAR_MATCHING/STUB/SIZE_MISMATCH), 2 = tooling error
-    # (COMPILE_ERROR/EXTRACT_ERROR — set above for COMPILE_ERROR; an
-    # EXTRACT_ERROR here exits 2 as well so single-file, multi-function, and
-    # batch modes agree).
-    if cmp.status == "EXTRACT_ERROR":
+    # (COMPILE_ERROR raises inside the run; an EXTRACT_ERROR exits 2 as well
+    # so single-file, multi-function, and batch modes agree).
+    if result["status"] == "EXTRACT_ERROR":
         raise typer.Exit(code=EXIT_ERROR)
-    if not is_matched(cmp.status):
+    if not is_matched(result["status"]):
         raise typer.Exit(code=EXIT_MISMATCH)
 
 
@@ -1014,6 +664,472 @@ def _print_compare_result(cmp: CompareResult, target_bytes: bytes) -> None:
             console.print("Diffs (non-reloc):")
             for d in diff[:20]:
                 console.print(d)
+
+
+def _status_skip_for_source(cfg: ProjectConfig, source: str, no_promote: bool) -> tuple[bool, str]:
+    """Return ``(no_promote, reason)`` for a source path.
+
+    A source outside the project's metadata tree is never promoted: a
+    metadata write would land outside the project, so ``no_promote`` is
+    forced and the reason is reported in the JSON payload.
+    """
+    source_path = Path(source).resolve()
+    if not source_path.is_relative_to(cfg.metadata_dir.resolve()):
+        return True, "file outside project"
+    return no_promote, ""
+
+
+def _lint_preamble(
+    cfg: ProjectConfig,
+    source: str,
+    *,
+    size: int | None,
+    json_output: bool,
+) -> tuple[list[Annotation], dict[str, int]]:
+    """Build the name→VA map and lint the source's annotations once.
+
+    Shared by the callback's multi-function dispatch and by the
+    single-function path (:func:`run_test` and the callback), so the lint
+    warnings print exactly once per invocation.
+
+    An explicit ``size`` is authoritative and applied to every annotation
+    before validation, so a fresh function tested with ``--va/--size`` does
+    not report "Invalid SIZE: 0".  ``--va`` SELECTS an annotation in
+    multi-function files, so it is not applied here.
+
+    Raises:
+        typer.Exit: The VA-map scan failed (fail closed, never mask the
+            relocations against an empty map).
+    """
+    try:
+        name_to_va = build_name_to_va(cfg)
+    except CatalogScanError as exc:
+        error_exit(str(exc), json_mode=json_output, code=EXIT_ERROR)
+
+    lint_annos = parse_c_file_multi(
+        Path(source), target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
+    )
+    if size is not None:
+        for anno in lint_annos:
+            anno.size = size
+    for anno in lint_annos:
+        eval_errs, eval_warns = anno.validate(min_va=min_valid_va_for(cfg))
+        if not json_output:
+            for e in eval_errs:
+                console.print(f"[bold red]LINT ERROR:[/bold red] {e}")
+            for w in eval_warns:
+                console.print(f"[bold yellow]LINT WARNING:[/bold yellow] {w}")
+    return lint_annos, name_to_va
+
+
+def _run_test_impl(
+    cfg: ProjectConfig,
+    source: str,
+    *,
+    va: str | None = None,
+    symbol: str | None = None,
+    target_bin: str | None = None,
+    size: int | None = None,
+    cflags: str | None = None,
+    toolchain: str | None = None,
+    force_status: bool = False,
+    fix_sizes: bool = False,
+    linked: bool = False,
+    compile_context: CompileContext | None = None,
+    dry_run: bool = False,
+    no_promote: bool = False,
+    json_output: bool = False,
+    status_skip_reason: str = "",
+    lint_annos: list[Annotation],
+    name_to_va: dict[str, int],
+) -> dict[str, Any]:
+    """Compile one function and return the ``rebrew test --json`` result object.
+
+    The single-function core: resolve the symbol / VA / SIZE (CLI overrides
+    first, then the source markers and metadata), compile and compare, render
+    the human result when *json_output* is false, and auto-promote STATUS and
+    SIZE unless *no_promote*.  The object is returned for a match and for a
+    mismatch alike; a compile failure raises through ``error_exit``.
+
+    *lint_annos* and *name_to_va* come from :func:`_lint_preamble`, so the
+    source is parsed and the project's VA map scanned once per invocation.
+    """
+    meta = parse_source_metadata(source, metadata_dir=cfg.metadata_dir)
+
+    # Derive symbol from annotation (C function definition).  The
+    # VA-based selection happens UNCONDITIONALLY (not just when symbol is
+    # absent): an explicit --va on a multi-module file must target the
+    # function AT that VA for symbol derivation AND for the metadata
+    # promotion below — with --symbol given, the old code fell to
+    # lint_annos[0], writing SIZE/CFLAGS/STATUS under the FIRST module
+    # even though the function tested was at the requested VA.
+    sel_ann: Annotation | None = None
+    if va is not None:
+        # An explicit --va targets ONE function in (possibly) a
+        # multi-function file: derive the symbol (and fallback size) from
+        # the annotation whose VA matches.  Same rule as diff/prove/
+        # near-diag: a requested VA picks its own function.  When NO
+        # annotation matches, the explicit --va is a user override of a
+        # stale/absent annotation VA — fall back to the first annotation's
+        # symbol/size (the near-diag va_from_flag semantics).
+        sel_ann = _select_annotation_for_va(lint_annos, va, json_output)
+        if sel_ann is None:
+            sel_ann = lint_annos[0] if lint_annos else None
+    else:
+        # No --va: first try the parsed annotation object (derives from
+        # the C function definition).
+        sel_ann = lint_annos[0] if lint_annos else None
+    if not symbol and sel_ann and sel_ann.symbol:
+        symbol = sel_ann.symbol
+    if size is None and sel_ann and sel_ann.size:
+        size = sel_ann.size
+    if not symbol:
+        error_exit(
+            "Could not derive symbol from C function definition or CLI args", json_mode=json_output
+        )
+
+    va_str = va
+    if not va_str:
+        # Check FUNCTION/LIBRARY/STUB marker like // FUNCTION: [TARGET] 0x100011f0
+        for marker_key in ("FUNCTION", "LIBRARY", "STUB"):
+            func_meta = meta.get(marker_key)
+            if func_meta and "0x" in func_meta:
+                after_hex = func_meta.split("0x")[1].split()
+                if after_hex:
+                    va_str = "0x" + after_hex[0]
+                    break
+
+    size_val = size
+    if size_val is None and "SIZE" in meta:
+        try:
+            size_val = int(meta["SIZE"])
+        except ValueError:
+            error_exit(f"Invalid SIZE metadata: {meta['SIZE']!r}", json_mode=json_output)
+
+    from rebrew.cli import resolve_compile_overrides
+
+    _mod = (sel_ann or lint_annos[0]).module if lint_annos else ""
+    # Shared fallback chain (per-function metadata → per-library
+    # rebrew-libraries.toml → preset → compiler.cflags); an explicit
+    # --toolchain / --cflags wins over the metadata value.
+    toolchain_name, cflags_str = resolve_compile_overrides(
+        cfg,
+        Path(source).resolve().parent,
+        toolchain or meta.get("TOOLCHAIN"),
+        cflags or meta.get("CFLAGS"),
+        _mod,
+    )
+
+    section_va: int | None = None
+    if va_str is not None and size_val is not None:
+        va_int = parse_va(va_str, json_mode=json_output)
+        section_va = va_int
+        target_bytes = extract_raw_bytes(cfg.target_binary, va_int, size_val)
+    elif target_bin:
+        if linked:
+            error_exit(
+                "--linked needs the target binary's section geometry — use --va/--size, "
+                "not --target-bin",
+                json_mode=json_output,
+                code=EXIT_ERROR,
+            )
+        target_bytes = Path(target_bin).read_bytes()
+        if size_val is not None:
+            target_bytes = target_bytes[:size_val]
+        # --target-bin runs compare a raw byte blob with no VA — but the
+        # FUNCTION marker still carries the function's VA, and REL32 callee
+        # validation needs it (section_va=None masks every call as valid).
+        # Resolve it from the annotation so call targets are validated.
+        if section_va is None:
+            if va_str is not None:
+                section_va = parse_va(va_str, json_mode=json_output)
+            elif sel_ann is not None and getattr(sel_ann, "va", None):
+                section_va = sel_ann.va
+    else:
+        error_exit(
+            "Specify either target_bin or (VA and SIZE) via args or source metadata",
+            json_mode=json_output,
+        )
+
+    # Shared compile→extract→compare path (same as rebrew verify), or the
+    # --linked oracle: compile in a padded shell, LINK a real DLL at the
+    # target base, compare linker-resolved bytes without reloc masking.
+    if linked:
+        assert section_va is not None  # --target-bin rejected above
+        from rebrew.compile import compile_and_compare_linked
+
+        cmp = compile_and_compare_linked(
+            cfg,
+            source,
+            target_bytes,
+            cflags_str,
+            va=section_va,
+            toolchain=toolchain_name,
+        )
+    else:
+        cmp = compile_and_compare(
+            cfg,
+            source,
+            symbol,
+            target_bytes,
+            cflags_str,
+            name_to_va=name_to_va,
+            section_va=section_va,
+            toolchain=toolchain_name,
+            context=compile_context,
+        )
+    matched = cmp.matched
+    relocs = cmp.reloc_offsets or []
+    obj_bytes = cmp.obj_bytes or b""
+    # Reconstruct match_count/total for cache + display from CompareResult.
+    total = max(len(target_bytes), len(obj_bytes)) if (obj_bytes or target_bytes) else 0
+    match_count = int(round(cmp.match_percent / 100.0 * total)) if total else 0
+    if matched:
+        match_count = total
+
+    if cmp.status == "COMPILE_ERROR":
+        error_exit(f"COMPILE ERROR:\n{cmp.message}", json_mode=json_output, code=EXIT_ERROR)
+
+    # --fix-sizes: a SIZE_MISMATCH where every common byte matched is a stale
+    # SIZE annotation, not a decompilation problem.  Write the compiled size
+    # into metadata and reclassify as a real match.  Requires a VA (metadata
+    # is keyed by (module, va)); --target-bin runs have no VA and are skipped.
+    # The evidence check verifies the region beyond the common prefix before
+    # trusting the compiled size.
+    if (
+        fix_sizes
+        and cmp.status == "SIZE_MISMATCH"
+        and cmp.match_percent == 100.0
+        and cmp.full_obj_size is not None
+        and cmp.full_obj_bytes is not None
+        and section_va is not None
+        and _fix_size_evidence_ok(
+            cfg, section_va, cmp.full_obj_bytes, target_bytes, cmp.reloc_offsets or []
+        )
+    ):
+        new_size = cmp.full_obj_size
+        # The VA-SELECTED annotation's module, like every other metadata write
+        # in this command: `lint_annos[0]` wrote the size under the file's FIRST
+        # module, creating a phantom entry next to the real one.
+        anno_module = _mod
+        if not dry_run:
+            try:
+                update_field(cfg.metadata_dir, section_va, "size", new_size, anno_module)
+            except Exception as exc:  # metadata write is best-effort
+                logging.warning(
+                    "Could not persist fixed SIZE 0x%x: %s (the .c still claims the stale size)",
+                    section_va,
+                    exc,
+                )
+        else:
+            if not json_output:
+                console.print(
+                    f"[dim]would fix SIZE {size_val or 0} → {new_size} for "
+                    f"0x{section_va:x} (--dry-run)[/dim]"
+                )
+        matched = True
+        total = new_size
+        match_count = new_size
+        size_val = new_size
+        relocs = cmp.reloc_offsets or []
+        cmp = classify_compare_result(
+            True,
+            f"RELOC-NORM MATCH ({len(relocs)} relocs)" if relocs else "EXACT MATCH",
+            target_bytes,
+            cmp.obj_bytes,
+            relocs,
+            cmp.inv_reloc_offsets,
+            full_obj_size=new_size,
+            full_obj_bytes=cmp.full_obj_bytes,
+        )
+        # The extraction at the STALE annotation size no longer reflects the
+        # function — re-extract at the fixed size so JSON/display totals are
+        # self-consistent (a too-big annotation would otherwise report
+        # total=old-size against the new size metadata).
+        target_bytes = extract_raw_bytes(cfg.target_binary, section_va, new_size)
+
+    result_dict = build_result_dict_from_compare(
+        source,
+        symbol,
+        va_str or "",
+        size_val or 0,
+        cmp,
+        target_bytes,
+    )
+    if no_promote and status_skip_reason:
+        # Fold the skip reason into the single JSON document so --json
+        # output stays a single parseable object.
+        result_dict["status_skip_reason"] = status_skip_reason
+    if not json_output:
+        _print_compare_result(cmp, target_bytes)
+
+    # Auto-promote: update STATUS in metadata from test result (skip with --no-promote)
+    if no_promote:
+        if status_skip_reason and not json_output:
+            console.print(f"[dim]STATUS update skipped ({status_skip_reason})[/dim]")
+    elif va_str:
+        va_int_for_promote = parse_va(va_str, json_mode=json_output)
+        # The metadata writes must target the FUNCTION ACTUALLY TESTED — with
+        # `--va` on a multi-annotation file, that is the selected annotation,
+        # not the file's first (writing under the first module's key created
+        # a phantom (first_module, requested_va) entry while the real entry
+        # stayed stale).
+        promote_ann = sel_ann if sel_ann is not None else (lint_annos[0] if lint_annos else None)
+        anno_module = promote_ann.module if promote_ann else ""
+        if not anno_module:
+            # The marker filter can exclude every annotation (e.g. a fresh
+            # file whose module differs from the target marker) — fall back
+            # to the file's own marker for the requested VA so the SIZE /
+            # STATUS writes land under the real (module, VA) key instead of
+            # raising on an empty module (or worse, writing an unreadable one).
+            from rebrew.annotation import module_for_va as _module_for_va
+
+            anno_module = _module_for_va(Path(source), va_int_for_promote)
+        # Persist the resolved SIZE alongside STATUS so downstream tools
+        # (diff, near-diag) can resolve it from metadata like STATUS — a
+        # hand-written fresh function would otherwise stay at SIZE=0 forever
+        # and `rebrew diff` fails with "Invalid SIZE: 0".
+        if size_val and not no_promote and not dry_run:
+            try:
+                update_field(
+                    cfg.metadata_dir, va_int_for_promote, "size", int(size_val), anno_module
+                )
+            except Exception as exc:  # metadata write is best-effort
+                logging.warning(
+                    "Could not persist SIZE for 0x%x: %s (downstream diff/near-diag "
+                    "may report an invalid size)",
+                    va_int_for_promote,
+                    exc,
+                )
+        # Persist an EXPLICIT --cflags override so `rebrew verify` recompiles
+        # with the flags that produced the match — without this, verify uses
+        # the project defaults and demotes an EXACT /O1 match to NEAR_MATCHING.
+        if cflags and not no_promote and not dry_run:
+            try:
+                update_field(
+                    cfg.metadata_dir, va_int_for_promote, "cflags", cflags_str, anno_module
+                )
+            except Exception as exc:  # metadata write is best-effort
+                logging.warning(
+                    "Could not persist CFLAGS for 0x%x: %s (verify may recompile "
+                    "with different flags and demote the match)",
+                    va_int_for_promote,
+                    exc,
+                )
+        # Persist an EXPLICIT --toolchain override for the same reason: the
+        # function's best compiler may differ from the project default (the
+        # target is a mix of MSVC 4.2/5.0/6.0 output), and verify must
+        # recompile with the toolchain that produced the match.
+        if toolchain_name and not no_promote and not dry_run:
+            try:
+                update_field(
+                    cfg.metadata_dir, va_int_for_promote, "toolchain", toolchain_name, anno_module
+                )
+            except Exception as exc:  # metadata write is best-effort
+                logging.warning(
+                    "Could not persist TOOLCHAIN for 0x%x: %s (verify may recompile "
+                    "with the project default compiler)",
+                    va_int_for_promote,
+                    exc,
+                )
+        old_status = promote_ann.status if promote_ann else ""
+        # Prefer CompareResult.status so SIZE_MISMATCH / COMPILE_ERROR are preserved.
+        new_status = (
+            cmp.status if cmp.status else classify_match_status(matched, match_count, total, relocs)
+        )
+        if not force_status and not should_promote_status(old_status, new_status):
+            if is_status_sticky(old_status) and not json_output:
+                console.print(f"[dim]STATUS → skipped ({old_status})[/dim]")
+            # A refused promotion with the SAME status still carries fresh
+            # metrics: status/todo rank ROI from the cache's match_percent and
+            # byte delta, so a NEAR_MATCHING improved from 60% to 92% must land
+            # even though there is no status transition to hang the patch on
+            # (the batch path patches every result for this reason).
+            if not dry_run and new_status == old_status and compile_context is None:
+                # A context-scoped run writes nothing to the shared verify
+                # cache: the entry cannot record the digest it was earned
+                # under, so a later context-free run would read a verdict it
+                # never compiled (same rule as `rebrew verify --context`).
+                _patch_verify_cache(
+                    cfg,
+                    va_int_for_promote,
+                    new_status,
+                    match_count,
+                    total,
+                    delta=cmp.delta,
+                )
+        elif dry_run:
+            # --dry-run must not write: preview the STATUS change (the compile
+            # itself already ran — it is read-only). Matches verify --dry-run.
+            if not json_output:
+                console.print(
+                    f"[dim]would update STATUS → {new_status} for "
+                    f"0x{va_int_for_promote:x} ({anno_module})[/dim]"
+                )
+        else:
+            clear = is_matched(new_status)
+            update_source_status(
+                cfg.metadata_dir,
+                new_status,
+                anno_module,
+                va_int_for_promote,
+                clear_blockers=clear,
+                force=force_status,
+                updated_by="test",
+            )
+            if compile_context is None:
+                _patch_verify_cache(
+                    cfg,
+                    va_int_for_promote,
+                    new_status,
+                    match_count,
+                    total,
+                    # Pass the real byte delta when available: for SIZE_MISMATCH
+                    # the recomputed total - match_count is 0 (obj_bytes is
+                    # truncated to the target length), which todo would read as
+                    # a "0B diff — try flag sweep" quick-win.
+                    delta=cmp.delta,
+                )
+            if not json_output:
+                console.print(f"[dim]STATUS → {new_status}[/dim]")
+    return result_dict
+
+
+def run_test(
+    cfg: ProjectConfig,
+    source: Path | str,
+    *,
+    no_promote: bool = False,
+    json_output: bool = False,
+) -> dict[str, Any]:
+    """Compile one source file and byte-compare its function to the target.
+
+    The single-function pipeline ``rebrew test <source> --json`` runs, with
+    no CLI overrides: the symbol, VA and SIZE come from the source markers
+    and the project metadata, and the compile flags from the project's
+    toolchain resolution.  Returns the exact object the CLI prints
+    (``source``, ``symbol``, ``va``, ``size``, ``status``, ``match_count``,
+    ``total``, ``reloc_count``, ``obj_size``, ``context_hash``,
+    ``mismatches``).  A byte mismatch is a result, not an error: the object
+    is returned for both match and mismatch, and *no_promote* keeps the
+    engine from writing STATUS/SIZE back into the project metadata.
+
+    Raises:
+        typer.Exit: A tooling failure that the CLI reports through
+            ``error_exit`` (compile error, unextractable target bytes).
+    """
+    resolved = str(resolve_source_arg(cfg, str(source)))
+    no_promote, status_skip_reason = _status_skip_for_source(cfg, resolved, no_promote)
+    lint_annos, name_to_va = _lint_preamble(cfg, resolved, size=None, json_output=json_output)
+    return _run_test_impl(
+        cfg,
+        resolved,
+        no_promote=no_promote,
+        json_output=json_output,
+        status_skip_reason=status_skip_reason,
+        lint_annos=lint_annos,
+        name_to_va=name_to_va,
+    )
 
 
 def _test_multi(

@@ -38,7 +38,7 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import typer
 from rich.console import Console
@@ -597,23 +597,52 @@ def _annotation_for_operand(op_str: str, lookup: dict[int, str]) -> str | None:
     return lookup.get(addr) if addr is not None else None
 
 
-def _run_hex_mode(
+class _HexView(NamedTuple):
+    """Shared hex-mode computation: bytes, disassembly and annotation maps.
+
+    Built once by :func:`_hex_view`; :func:`hex_disassembly` renders it as
+    text and ``_run_hex_mode`` renders it as text or as the ``--json``
+    payload, so the two share one extraction and one disassembly pass.
+    """
+
+    bin_path: Path
+    data: bytes
+    truncated: bool
+    capstone_missing: bool
+    shown: list[Any]
+    insn_list: list[Any]
+    shown_offset: int
+    conv: str
+    ne_seg: int | None
+    ne_seg_name: str
+    ne_segment_count: int
+    func_lookup: dict[int, tuple[str, str]]
+    import_map: dict[int, str]
+    string_map: dict[int, str]
+
+
+def _hex_view(
+    cfg: ProjectConfig,
     va_int: int,
     size: int,
-    cfg: ProjectConfig,
-    annotate: bool,
-    json_output: bool,
     *,
-    resolve_imports: bool = False,
-    resolve_strings: bool = False,
-    pattern_hints: bool = False,
-    stale_size: bool = False,
-    declared_size: int | None = None,
-) -> None:
-    """Capstone hex-dump disassembly (default format)."""
+    annotate: bool,
+    resolve_imports: bool,
+    resolve_strings: bool,
+    pattern_hints: bool,
+    json_output: bool,
+) -> _HexView:
+    """Extract and disassemble the hex-mode window at *va_int*.
+
+    A missing binary or no readable bytes raises (``FileNotFoundError`` /
+    ``ValueError``); a missing capstone returns a view with
+    ``capstone_missing`` set, which callers render as the raw hex dump.  The
+    truncation warning is printed to stderr here, before disassembly, where
+    the CLI printed it.
+    """
     bin_path = cfg.target_binary
     if not bin_path.exists():
-        error_exit(f"Binary not found at {bin_path}", json_mode=json_output)
+        raise FileNotFoundError(f"Binary not found at {bin_path}")
 
     func_lookup: dict[int, tuple[str, str]] = {}
     if annotate and not json_output:
@@ -622,11 +651,13 @@ def _run_hex_mode(
     # NE context: the segment containing the requested VA (for the header).
     ne_seg: int | None = None
     ne_seg_name = ""
+    ne_segment_count = 0
     try:
         from rebrew.binary_loader import load_binary
 
         info = load_binary(bin_path)
         if info.format == "ne":
+            ne_segment_count = info.ne_header.segment_count  # type: ignore[attr-defined]
             for s in info.ne_segments:  # type: ignore[attr-defined]
                 if s.base_va <= va_int < s.base_va + s.length:
                     ne_seg = s.index
@@ -644,153 +675,265 @@ def _run_hex_mode(
 
     from rebrew.binary_loader import extract_raw_bytes
 
+    data = extract_raw_bytes(cfg.target_binary, va_int, size)
+    if not data:
+        raise ValueError(f"No code at VA 0x{va_int:08x} — address is outside the binary image")
+    truncated = size > 0 and len(data) < size
+    if truncated:
+        console.print(
+            f"[yellow]warning:[/yellow] requested {size} bytes, got {len(data)} "
+            "(reached end of image)"
+        )
+
     try:
-        data = extract_raw_bytes(cfg.target_binary, va_int, size)
-        if not data:
-            error_exit(
-                f"No code at VA 0x{va_int:08x} — address is outside the binary image",
-                json_mode=json_output,
-            )
-        truncated = size > 0 and len(data) < size
-        if truncated:
-            console.print(
-                f"[yellow]warning:[/yellow] requested {size} bytes, got {len(data)} "
-                "(reached end of image)"
-            )
+        from capstone import Cs
+    except ImportError:
+        return _HexView(
+            bin_path=bin_path,
+            data=data,
+            truncated=truncated,
+            capstone_missing=True,
+            shown=[],
+            insn_list=[],
+            shown_offset=0,
+            conv="unknown",
+            ne_seg=ne_seg,
+            ne_seg_name=ne_seg_name,
+            ne_segment_count=ne_segment_count,
+            func_lookup=func_lookup,
+            import_map=import_map,
+            string_map=string_map,
+        )
+
+    md = Cs(cfg.capstone_arch, cfg.capstone_mode)
+    md.detail = False
+    # With --hints, disassemble a small lookbehind window so prologue
+    # patterns (e.g. `push -1` SEH registration a few bytes before the
+    # function start) are visible to the pattern detector.  Only
+    # instructions at/after *va_int* are printed.
+    pre_va = va_int
+    if pattern_hints and va_int > 12:
         try:
-            from capstone import Cs
+            from rebrew.analysis import section_range
 
-            md = Cs(cfg.capstone_arch, cfg.capstone_mode)
-            md.detail = False
-            # With --hints, disassemble a small lookbehind window so prologue
-            # patterns (e.g. `push -1` SEH registration a few bytes before the
-            # function start) are visible to the pattern detector.  Only
-            # instructions at/after *va_int* are printed.
-            pre_va = va_int
-            if pattern_hints and va_int > 12:
-                try:
-                    from rebrew.analysis import section_range
-                    from rebrew.binary_loader import load_binary
+            rng = section_range(load_binary(bin_path), ".text")
+            text_start = rng[0] if rng else 0
+            pre_va = max(text_start, va_int - 12)
+        except Exception:  # lookbehind is best-effort
+            logger.debug("lookbehind window probe failed", exc_info=True)
+            pre_va = va_int - 12
+    pre_data = extract_raw_bytes(cfg.target_binary, pre_va, size + (va_int - pre_va))
+    insn_list = list(md.disasm(pre_data, pre_va))
+    shown_offset = next((i for i, insn in enumerate(insn_list) if insn.address >= va_int), 0)
+    shown_list = insn_list[shown_offset:]
+    # Trim the bleed window at the next function's start so a `ret`
+    # from the neighbor never decides this function's convention.
+    bleed_next = _next_function_va(cfg, va_int)
+    conv_insns = [i for i in shown_list if i.address < bleed_next] if bleed_next else shown_list
+    return _HexView(
+        bin_path=bin_path,
+        data=data,
+        truncated=truncated,
+        capstone_missing=False,
+        shown=shown_list,
+        insn_list=insn_list,
+        shown_offset=shown_offset,
+        conv=calling_convention(conv_insns),
+        ne_seg=ne_seg,
+        ne_seg_name=ne_seg_name,
+        ne_segment_count=ne_segment_count,
+        func_lookup=func_lookup,
+        import_map=import_map,
+        string_map=string_map,
+    )
 
-                    rng = section_range(load_binary(bin_path), ".text")
-                    text_start = rng[0] if rng else 0
-                    pre_va = max(text_start, va_int - 12)
-                except Exception:  # lookbehind is best-effort
-                    logger.debug("lookbehind window probe failed", exc_info=True)
-                    pre_va = va_int - 12
-            pre_data = extract_raw_bytes(cfg.target_binary, pre_va, size + (va_int - pre_va))
-            insn_list = list(md.disasm(pre_data, pre_va))
-            shown_offset = next(
-                (i for i, insn in enumerate(insn_list) if insn.address >= va_int), 0
-            )
-            shown_list = insn_list[shown_offset:]
-            # Trim the bleed window at the next function's start so a `ret`
-            # from the neighbor never decides this function's convention.
-            bleed_next = _next_function_va(cfg, va_int)
-            conv_insns = (
-                [i for i in shown_list if i.address < bleed_next] if bleed_next else shown_list
-            )
 
-            if json_output:
-                conv = calling_convention(conv_insns)
-                instr_json = []
-                for idx, insn in enumerate(shown_list):
-                    entry: dict[str, Any] = {
-                        "address": f"0x{insn.address:08x}",
-                        "bytes": insn.bytes.hex(),
-                        "mnemonic": insn.mnemonic,
-                        "operands": insn.op_str,
-                    }
-                    if resolve_imports:
-                        entry["import"] = _annotation_for_operand(insn.op_str, import_map)
-                    if resolve_strings:
-                        entry["string"] = _annotation_for_operand(insn.op_str, string_map)
-                    if pattern_hints:
-                        entry["hint"] = _hint_for(insn_list, shown_offset + idx)
-                    instr_json.append(entry)
-                json_print(
-                    {
-                        "va": f"0x{va_int:08x}",
-                        "size": len(data),
-                        "requested_size": declared_size if stale_size else size,
-                        "truncated": truncated,
-                        "stale_size": stale_size,
-                        "calling_convention": conv,
-                        "instruction_count": len(shown_list),
-                        "instructions": instr_json,
-                    }
-                )
-                return
+def _hex_text(
+    view: _HexView,
+    *,
+    annotate: bool,
+    resolve_imports: bool,
+    resolve_strings: bool,
+    pattern_hints: bool,
+) -> str:
+    """Render a :class:`_HexView` as the hex-mode stdout text (one ``\\n`` per line)."""
+    lines: list[str] = []
+    for idx, insn in enumerate(view.shown):
+        hex_bytes = insn.bytes.hex()
+        line = f"  0x{insn.address:08x}:  {hex_bytes:<20s}  {insn.mnemonic:<8s} {insn.op_str}"
+        if annotate and insn.mnemonic in ("call", "jmp") and insn.op_str.startswith("0x"):
+            try:
+                target_va = int(insn.op_str, 16)
+                if target_va in view.func_lookup:
+                    name, status = view.func_lookup[target_va]
+                    tag = f" ({status})" if status else ""
+                    line += f"  ; {name}{tag}"
+            except ValueError:
+                pass
+        if annotate and insn.mnemonic == "lcall":
+            # 16-bit far call: annotate the target segment.  Borland index
+            # convention: selectors at or below the segment count equal the
+            # segment index (the \\xNN\\x00 marker); 0x0:0xffff is the
+            # loader-patched system-call pattern.
+            try:
+                parts = [p.strip() for p in insn.op_str.split(",")]
+                if len(parts) == 2:
+                    seg = int(parts[0], 16)
+                    off = int(parts[1], 16)
+                    if seg == 0:
+                        line += "  ; system far call"
+                    elif view.ne_seg is not None and 1 <= seg <= view.ne_segment_count:
+                        line += f"  ; SEG{seg}:0x{off:04x} (far)"
+            except ValueError:
+                pass
+        if resolve_imports and insn.mnemonic in ("call", "jmp"):
+            imp = _annotation_for_operand(insn.op_str, view.import_map)
+            if imp:
+                line += f"  ; {imp}"
+        if resolve_strings and insn.mnemonic in ("push", "mov", "lea", "cmp"):
+            s = _annotation_for_operand(insn.op_str, view.string_map)
+            if s:
+                line += f'  ; "{s}"'
+        if pattern_hints:
+            hint = _hint_for(view.insn_list, view.shown_offset + idx)
+            if hint:
+                line += f"  ; {hint}"
+        lines.append(line)
+    return "".join(line + "\n" for line in lines)
 
-            console.print(
-                f"Dumping [cyan]0x{va_int:08x}[/] ({len(data)} bytes) from {bin_path.name}:"
-            )
-            if ne_seg is not None:
-                console.print(f"  [dim]SEG{ne_seg}:0x{va_int & 0xFFFF:04x} ({ne_seg_name})[/dim]")
-            conv = calling_convention(conv_insns)
-            if conv != "unknown":
-                console.print(f"  [dim]calling convention: {conv}[/dim]")
-            console.print()
-            for idx, insn in enumerate(shown_list):
-                hex_bytes = insn.bytes.hex()
-                line = (
-                    f"  0x{insn.address:08x}:  {hex_bytes:<20s}  {insn.mnemonic:<8s} {insn.op_str}"
-                )
-                if annotate and insn.mnemonic in ("call", "jmp") and insn.op_str.startswith("0x"):
-                    try:
-                        target_va = int(insn.op_str, 16)
-                        if target_va in func_lookup:
-                            name, status = func_lookup[target_va]
-                            tag = f" ({status})" if status else ""
-                            line += f"  ; {name}{tag}"
-                    except ValueError:
-                        pass
-                if annotate and insn.mnemonic == "lcall":
-                    # 16-bit far call: annotate the target segment.  Borland
-                    # index convention: selectors at or below the segment
-                    # count equal the segment index (the \\xNN\\x00 marker);
-                    # 0x0:0xffff is the loader-patched system-call pattern.
-                    try:
-                        parts = [p.strip() for p in insn.op_str.split(",")]
-                        if len(parts) == 2:
-                            seg = int(parts[0], 16)
-                            off = int(parts[1], 16)
-                            if seg == 0:
-                                line += "  ; system far call"
-                            elif ne_seg is not None and 1 <= seg <= info.ne_header.segment_count:  # type: ignore[attr-defined]
-                                line += f"  ; SEG{seg}:0x{off:04x} (far)"
-                    except ValueError:
-                        pass
-                if resolve_imports and insn.mnemonic in ("call", "jmp"):
-                    imp = _annotation_for_operand(insn.op_str, import_map)
-                    if imp:
-                        line += f"  ; {imp}"
-                if resolve_strings and insn.mnemonic in ("push", "mov", "lea", "cmp"):
-                    s = _annotation_for_operand(insn.op_str, string_map)
-                    if s:
-                        line += f'  ; "{s}"'
-                if pattern_hints:
-                    hint = _hint_for(insn_list, shown_offset + idx)
-                    if hint:
-                        line += f"  ; {hint}"
-                print(line)
 
-        except ImportError:
-            if json_output:
-                error_exit("capstone not installed", json_mode=json_output)
-            console.print("[yellow](capstone not installed, showing hex dump)[/]")
-            for i in range(0, len(data), 16):
-                chunk = data[i : i + 16]
-                hex_str = " ".join(f"{b:02x}" for b in chunk)
-                ascii_str = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
-                print(f"  0x{va_int + i:08x}:  {hex_str:<48s}  {ascii_str}")
+def _hex_dump_text(data: bytes, va_int: int) -> str:
+    """The raw hex-dump text the CLI falls back to when capstone is missing."""
+    lines: list[str] = []
+    for i in range(0, len(data), 16):
+        chunk = data[i : i + 16]
+        hex_str = " ".join(f"{b:02x}" for b in chunk)
+        ascii_str = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+        lines.append(f"  0x{va_int + i:08x}:  {hex_str:<48s}  {ascii_str}")
+    return "".join(line + "\n" for line in lines)
 
+
+def hex_disassembly(cfg: ProjectConfig, va_int: int, size: int) -> str:
+    """Disassemble *size* bytes at *va_int* and return the ``--format hex`` text.
+
+    The stdout text ``rebrew asm <va> --size N --format hex`` prints: one
+    ``  0xADDR:  BYTES  MNEMONIC OPERANDS`` line per instruction with the
+    default call annotations, or the raw hex dump when capstone is missing.
+    The header and stale-size warning the CLI writes to stderr are not part
+    of the returned text.
+
+    Raises:
+        FileNotFoundError: The target binary does not exist.
+        ValueError: No bytes are readable at *va_int*.
+    """
+    view = _hex_view(
+        cfg,
+        va_int,
+        size,
+        annotate=True,
+        resolve_imports=False,
+        resolve_strings=False,
+        pattern_hints=False,
+        json_output=False,
+    )
+    if view.capstone_missing:
+        return _hex_dump_text(view.data, va_int)
+    return _hex_text(
+        view,
+        annotate=True,
+        resolve_imports=False,
+        resolve_strings=False,
+        pattern_hints=False,
+    )
+
+
+def _run_hex_mode(
+    va_int: int,
+    size: int,
+    cfg: ProjectConfig,
+    annotate: bool,
+    json_output: bool,
+    *,
+    resolve_imports: bool = False,
+    resolve_strings: bool = False,
+    pattern_hints: bool = False,
+    stale_size: bool = False,
+    declared_size: int | None = None,
+) -> None:
+    """Capstone hex-dump disassembly (default format)."""
+    try:
+        view = _hex_view(
+            cfg,
+            va_int,
+            size,
+            annotate=annotate,
+            resolve_imports=resolve_imports,
+            resolve_strings=resolve_strings,
+            pattern_hints=pattern_hints,
+            json_output=json_output,
+        )
     except (OSError, KeyError, ValueError, TypeError) as e:
         error_exit(str(e), json_mode=json_output)
     except Exception as e:  # capstone.CsError and friends
         # CsError (bad arch/mode config) and capstone internals are not in
         # the tuple above; report them as clean errors, not tracebacks.
         error_exit(f"capstone error: {e}", json_mode=json_output)
+
+    if view.capstone_missing:
+        if json_output:
+            error_exit("capstone not installed", json_mode=json_output)
+        console.print("[yellow](capstone not installed, showing hex dump)[/]")
+        print(_hex_dump_text(view.data, va_int), end="")
+        return
+
+    if json_output:
+        instr_json = []
+        for idx, insn in enumerate(view.shown):
+            entry: dict[str, Any] = {
+                "address": f"0x{insn.address:08x}",
+                "bytes": insn.bytes.hex(),
+                "mnemonic": insn.mnemonic,
+                "operands": insn.op_str,
+            }
+            if resolve_imports:
+                entry["import"] = _annotation_for_operand(insn.op_str, view.import_map)
+            if resolve_strings:
+                entry["string"] = _annotation_for_operand(insn.op_str, view.string_map)
+            if pattern_hints:
+                entry["hint"] = _hint_for(view.insn_list, view.shown_offset + idx)
+            instr_json.append(entry)
+        json_print(
+            {
+                "va": f"0x{va_int:08x}",
+                "size": len(view.data),
+                "requested_size": declared_size if stale_size else size,
+                "truncated": view.truncated,
+                "stale_size": stale_size,
+                "calling_convention": view.conv,
+                "instruction_count": len(view.shown),
+                "instructions": instr_json,
+            }
+        )
+        return
+
+    console.print(
+        f"Dumping [cyan]0x{va_int:08x}[/] ({len(view.data)} bytes) from {view.bin_path.name}:"
+    )
+    if view.ne_seg is not None:
+        console.print(f"  [dim]SEG{view.ne_seg}:0x{va_int & 0xFFFF:04x} ({view.ne_seg_name})[/dim]")
+    if view.conv != "unknown":
+        console.print(f"  [dim]calling convention: {view.conv}[/dim]")
+    console.print()
+    print(
+        _hex_text(
+            view,
+            annotate=annotate,
+            resolve_imports=resolve_imports,
+            resolve_strings=resolve_strings,
+            pattern_hints=pattern_hints,
+        ),
+        end="",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -804,53 +947,60 @@ _CFG_NO_EXTENT_NOTE = (
 )
 
 
+def build_cfg_payload(cfg: ProjectConfig, va_int: int, size: int = 0) -> dict[str, Any]:
+    """Build the basic-block CFG payload for the function at *va_int*.
+
+    The exact object ``rebrew asm <va> --format cfg --json`` prints.  A
+    positive *size* is the declared extent; otherwise the same function-list
+    / disassembly-walk resolution the CLI does is used.  The ``cfg_ged``
+    view is rendered with addresses as ``0x...`` text, and a missing extent
+    or no readable bytes yields the empty-blocks payload with a ``note``
+    rather than a guess.
+
+    Raises:
+        FileNotFoundError: The target binary does not exist.
+        ValueError: The target architecture is not x86.
+    """
+    from rebrew.binary_loader import extract_raw_bytes
+
+    if not cfg.target_binary.exists():
+        raise FileNotFoundError(f"Binary not found at {cfg.target_binary}")
+    arch = str(getattr(cfg, "arch", ""))
+    if not arch.startswith("x86"):
+        raise ValueError(f"--format cfg supports x86 targets only (target arch is {arch!r})")
+
+    extent = size or _cfg_extent(cfg, va_int)
+    if extent is None:
+        return _cfg_payload(va_int, 0, None, _CFG_NO_EXTENT_NOTE)
+
+    code = extract_raw_bytes(cfg.target_binary, va_int, extent)
+    if not code:
+        return _cfg_payload(va_int, 0, None, f"no bytes readable at 0x{va_int:08x}")
+
+    from rebrew.cfg_ged import build_cfg_view
+
+    view = build_cfg_view(code, va_int, cfg.capstone_mode)
+    return _cfg_payload(va_int, len(code), view, None)
+
+
 def _run_cfg_mode(va_int: int, size: int | None, cfg: ProjectConfig, json_output: bool) -> None:
     """Print the basic-block CFG of the function at *va_int* (``--format cfg``).
 
     Lives on ``asm`` rather than as a command of its own: ``asm`` already
     resolves a function's extent and owns the ``--json``/``--target``
     surface, so the graph and the instruction listing share one VA-resolution
-    path.  ``cfg_ged`` owns the segmentation and the offset → absolute-VA
-    conversion; this function only reads bytes, resolves the extent, and
-    formats the payload.
-
+    path.  :func:`build_cfg_payload` owns the resolution, extraction and
+    formatting; this only maps its failures to ``error_exit`` and renders it.
     Missing bytes or an unresolvable extent answer empty ``blocks`` with a
     ``note`` (exit 0) instead of raising or guessing a window.
     """
-    from rebrew.binary_loader import extract_raw_bytes
-
-    if not cfg.target_binary.exists():
-        error_exit(f"Binary not found at {cfg.target_binary}", json_mode=json_output)
-    arch = str(getattr(cfg, "arch", ""))
-    if not arch.startswith("x86"):
-        error_exit(
-            f"--format cfg supports x86 targets only (target arch is {arch!r})",
-            json_mode=json_output,
-            code=EXIT_ERROR,
-        )
-
-    extent = size or _cfg_extent(cfg, va_int)
-    if extent is None:
-        _emit_cfg(_cfg_payload(va_int, 0, None, _CFG_NO_EXTENT_NOTE), json_output)
-        return
-
     try:
-        code = extract_raw_bytes(cfg.target_binary, va_int, extent)
+        payload = build_cfg_payload(cfg, va_int, size or 0)
     except (OSError, KeyError, ValueError, TypeError) as e:
         error_exit(str(e), json_mode=json_output)
-    if not code:
-        _emit_cfg(
-            _cfg_payload(va_int, 0, None, f"no bytes readable at 0x{va_int:08x}"), json_output
-        )
-        return
-
-    from rebrew.cfg_ged import build_cfg_view
-
-    try:
-        view = build_cfg_view(code, va_int, cfg.capstone_mode)
     except Exception as e:  # capstone.CsError and friends
         error_exit(f"capstone error: {e}", json_mode=json_output)
-    _emit_cfg(_cfg_payload(va_int, len(code), view, None), json_output)
+    _emit_cfg(payload, json_output)
 
 
 def _cfg_extent(cfg: ProjectConfig, va_int: int) -> int | None:

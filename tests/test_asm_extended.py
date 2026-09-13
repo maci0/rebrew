@@ -538,3 +538,44 @@ timeout = 60
         payload = json.loads(result.stdout)
         assert payload["stale_size"] is False
         assert calls == []  # never invoked
+
+
+class TestHexDisassembly:
+    """``hex_disassembly()`` is the importable form of ``rebrew asm --format hex``."""
+
+    def test_returns_the_cli_listing(self, tmp_path: Path) -> None:
+        from bin_util import make_pe
+
+        from rebrew.asm import hex_disassembly
+        from rebrew.config import ProjectConfig
+
+        code = bytes.fromhex("b801000000c3")  # mov eax, 1; ret
+        binary = tmp_path / "original" / "target.exe"
+        binary.parent.mkdir(parents=True)
+        binary.write_bytes(make_pe(code, text_va=0x1000))
+        src = tmp_path / "src" / "SERVER"
+        src.mkdir(parents=True)
+        cfg = ProjectConfig(
+            root=tmp_path,
+            target_binary=binary,
+            reversed_dir=src,
+            marker="SERVER",
+        )
+        text = hex_disassembly(cfg, 0x401000, len(code))
+        lines = text.splitlines()
+        assert lines[0].startswith("  0x00401000:  b801000000")
+        assert "mov" in lines[0]
+        assert lines[-1].strip().endswith("ret")
+        assert text.endswith("\n")
+
+    def test_missing_binary_raises(self, tmp_path: Path) -> None:
+        from rebrew.asm import hex_disassembly
+        from rebrew.config import ProjectConfig
+
+        cfg = ProjectConfig(
+            root=tmp_path,
+            target_binary=tmp_path / "absent.exe",
+            reversed_dir=tmp_path,
+        )
+        with pytest.raises(FileNotFoundError, match="Binary not found"):
+            hex_disassembly(cfg, 0x401000, 4)
