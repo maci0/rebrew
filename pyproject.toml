@@ -33,7 +33,6 @@ dependencies = [
     "lief>=0.17.4,<1",  # 1.0.0 is breaking
     "numpy>=1.26",  # byte/structural similarity scoring (matcher/scoring.py, core/matching.py, binary_similarity.py)
     "python-flirt>=0.9.10",  # FLIRT .sig signature scanning (flirt.py; imports as `flirt`)
-    "rebrew-workspace",  # shared rebrew-project.toml / coverage.db resolution (config.py, build_db.py)
     "rich>=13.0",  # console rendering (Console(stderr=True) convention) and typer's markup backend
     "tomlkit>=0.12",  # round-trip-preserving TOML writes (metadata.py, cfg.py, library.py)
     "tree-sitter>=0.25.2",  # C AST parsing (c_parser.py, struct_parser.py, matcher/ast_engine.py) — never regex-parse C
@@ -210,7 +209,6 @@ package = true
 # `resembl` from ../resembl relative to this pyproject.toml, keeping the
 # manifest free of machine-specific absolute paths.
 resembl = { path = "../resembl" }
-rebrew-workspace = { path = "../rebrew-workspace", editable = true }
 
 [dependency-groups]
 dev = [

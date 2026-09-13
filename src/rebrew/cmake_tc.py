@@ -34,12 +34,12 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import typer
-from rebrew_workspace import walk_up_to_root
 from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
 from rebrew.toolchain import TOOLCHAINS, ToolchainSpec, kill_container
 from rebrew.utils import container_runtime
+from rebrew.workspace import walk_up_to_root
 
 try:
     import fcntl

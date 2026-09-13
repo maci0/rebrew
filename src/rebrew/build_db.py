@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rebrew_workspace import SCHEMA_TARGET, db_dir
 from rich.console import Console
 
 from rebrew.cli import (
@@ -24,6 +23,7 @@ from rebrew.cli import (
 )
 from rebrew.config import load_config
 from rebrew.metadata import MATCHED_STATUSES
+from rebrew.workspace import SCHEMA_TARGET, db_dir
 
 console = Console(stderr=True)
 
@@ -39,7 +39,7 @@ _HISTORY_RETENTION = 10_000
 # Reserved metadata target holding the schema-level db_version stamp, so the
 # version is read deterministically regardless of which targets exist (a
 # scoped --target rebuild must not leave the DB reporting a stale version).
-#: `SCHEMA_TARGET` comes from rebrew_workspace (the shared reader uses it too).
+#: `SCHEMA_TARGET` comes from rebrew.workspace (the shared reader uses it too).
 _SQLITE_TIMEOUT_SECONDS = 30.0
 
 
@@ -167,7 +167,7 @@ def _function_stats(
 def resolve_db_dir(root_dir: Path, *, json_output: bool = False) -> Path:
     """Return the configured database directory, falling back when no config exists.
 
-    The path comes from the shared ``rebrew_workspace.db_dir`` resolver, so a
+    The path comes from the shared ``rebrew.workspace.db_dir`` resolver, so a
     dashboard and this builder never disagree on where coverage.db lives.  A
     config that is present but broken still fails loud here rather than
     silently falling back to ``db/``.

@@ -149,6 +149,11 @@
   sources now exist.
 
 ### Changed
+- **`rebrew.workspace` replaces the standalone `rebrew-workspace` distribution**:
+  the rebrew-project.toml / coverage.db resolver now ships as a stdlib-only
+  subpackage of rebrew (`import rebrew.workspace` pulls no LIEF or capstone),
+  and recoverage, reportal and rebrew import it from there.  rebrew is now a
+  base dependency of the two consumers instead of an optional extra.
 - **`rebrew catalog` is callable in-process**: its orchestration moved into
   `catalog.run_catalog(cfg, ...)`, which returns the same object the CLI prints
   under `--json`, and the Typer callback is now a thin wrapper.  Sibling
