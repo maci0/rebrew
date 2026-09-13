@@ -1889,6 +1889,35 @@ class TestW019SizeDisagreement:
         assert not any(c == "W019" and "disagrees" in m for _, c, m in result.warnings)
 
 
+class TestW019CflagsDisagreement:
+    """An inline `// CFLAGS:` that disagrees with the metadata is not a stale
+    copy: an external build reads the .c and the rebrew tools read the TOML,
+    so the two would compile different code (guild-rebrew's gm_AllocSpieler
+    ran 363 link bytes behind for exactly this)."""
+
+    def _lint(self, tmp_path: Path, metadata: str, inline: str):
+        (tmp_path / "rebrew-functions.toml").write_text(
+            f'["SERVER.0x10001000"]\ncflags = "{metadata}"\n', encoding="utf-8"
+        )
+        f = _write_c(
+            tmp_path,
+            "foo.c",
+            f"// FUNCTION: SERVER 0x10001000\n// CFLAGS: {inline}\nint foo(void) {{ return 0; }}\n",
+        )
+        return lint_file(f)
+
+    def test_disagreement_warns(self, tmp_path: Path) -> None:
+        result = self._lint(tmp_path, "/O2 /Gd /Oa /Ow", "/O2 /Gd /Oa")
+        assert any(c == "W019" and "disagrees" in m for _, c, m in result.warnings)
+
+    def test_order_and_defines_are_not_a_disagreement(self, tmp_path: Path) -> None:
+        # /Ow == /Oa /Ow order-insensitively; a /D define is a compilation
+        # input but not a codegen flag (the naked guard lives only in the
+        # metadata on purpose).
+        result = self._lint(tmp_path, "/DREBREW_ALLOW_NAKED /O2 /Gd /Oa /Ow", "/O2 /Gd /Oa /Ow")
+        assert not any(c == "W019" and "disagrees" in m for _, c, m in result.warnings)
+
+
 class TestBlockCommentMarkers:
     def test_block_comment_marker_is_valid(self, tmp_path: Path) -> None:
         """`/* STUB: MAIN 0x1000 */` is the form intake emits for C89-strict

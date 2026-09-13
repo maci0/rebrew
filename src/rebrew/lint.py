@@ -616,6 +616,11 @@ def _check_W016_section(
                 section_hits.append(MissingSection(module=module, va=va_int, section=section))
 
 
+def _codegen_cflags_key(cflags: str) -> frozenset[str]:
+    """The CFLAGS tokens that change emitted code (see W019's CFLAGS case)."""
+    return frozenset(t for t in _cflags_key(cflags) if not t.startswith(("/D", "-D")))
+
+
 def _check_W019_inline_metadata(
     result: LintResult,
     found_keys: dict[str, str],
@@ -624,6 +629,7 @@ def _check_W019_inline_metadata(
     va_int: int | None = None,
     marker: str = "",
     metadata_size: str | None = None,
+    metadata_cflags: str | None = None,
 ) -> None:
     """Warn when metadata-owned keys appear as inline // KEY: comments.
 
@@ -634,6 +640,10 @@ def _check_W019_inline_metadata(
     ``.c`` (reccmp reads it there) and the TOML value is an override, not a
     migration target.  The only SIZE warning is a disagreement between the
     inline and the metadata value.
+
+    ``CFLAGS`` gets the same treatment for the same reason: an external build
+    reads the ``.c``, so an inline value that disagrees with the metadata is
+    not a stale copy to delete but two different compiles wearing one name.
     """
     for key in found_keys:
         if key == "SOURCE" and found_keys[key].strip().lower() == "naked":
@@ -643,6 +653,26 @@ def _check_W019_inline_metadata(
             # with the file (self-clears when the C body replaces it) —
             # not a metadata-migration candidate.
             continue
+        if key == "CFLAGS":
+            # An inline copy that differs from the metadata is invisible to
+            # every other check: the merge above keeps the inline value in
+            # found_keys, and metadata_sourced_keys then suppresses the
+            # deprecation warning below.  Report the disagreement instead —
+            # `rebrew test`/`verify` compile with the metadata CFLAGS while a
+            # build that reads the .c compiles with this one.
+            inline_cflags = found_keys[key].strip()
+            if metadata_cflags and _codegen_cflags_key(inline_cflags) != _codegen_cflags_key(
+                metadata_cflags
+            ):
+                result.warning(
+                    result.marker_line,
+                    "W019",
+                    f"Inline '// CFLAGS: {inline_cflags}' disagrees with metadata "
+                    f"CFLAGS '{metadata_cflags}' — a build that reads the .c and "
+                    "a tool that reads rebrew-functions.toml compile different "
+                    "code; align them",
+                )
+                continue
         if key == "SIZE":
             inline_size = found_keys[key].strip()
             agrees = True
@@ -1441,6 +1471,7 @@ def lint_file(
                 va_int=_va_int if mod else None,
                 marker=marker,
                 metadata_size=_metadata_size,
+                metadata_cflags=str(_metadata_override.get("cflags", "") or "").strip() or None,
             )
 
     result.context_prefix = ""
