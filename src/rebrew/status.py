@@ -137,7 +137,14 @@ class StatusReport:
 
     @property
     def matched_pct(self) -> float:
-        """Percentage of total functions that are EXACT, RELOC, or PROVEN (byte-matched)."""
+        """Percentage of total functions that are EXACT, RELOC, or PROVEN.
+
+        NOT a byte-match percentage: PROVEN is a semantic promotion and its
+        bytes still differ from the target (``verify._STATUS_RANK`` puts PROVEN
+        below RELOC for exactly this reason).  Use :attr:`exact_pct`-style
+        accounting, or the byte residue itself, when the question is
+        byte-identity rather than reversed work.
+        """
         if self.total_functions == 0:
             return 0.0
         exact = self.status_counts.get("EXACT", 0)
@@ -159,7 +166,11 @@ class StatusReport:
 
     @property
     def byte_coverage_pct(self) -> float:
-        """Percentage of total binary bytes that are EXACT, RELOC, or PROVEN."""
+        """Percentage of total binary bytes attributed to EXACT, RELOC or PROVEN.
+
+        "Attributed", not "matching": a PROVEN function's bytes differ from the
+        target, so this overstates byte-identity by exactly the PROVEN bytes.
+        """
         if self.total_text_bytes == 0:
             return 0.0
         return round(100.0 * self.matched_bytes / self.total_text_bytes, 1)
@@ -692,9 +703,10 @@ def _render_terminal(report: StatusReport) -> None:
 
     # Matched percentage
     summary_lines.append(
-        f"  [green bold]{report.matched_pct}%[/green bold] byte-matched"
+        f"  [green bold]{report.matched_pct}%[/green bold] reversed"
         f"  [dim]({exact + reloc + proven} EXACT+RELOC+PROVEN"
-        f" / {report.total_functions} total)[/dim]"
+        f" / {report.total_functions} total; PROVEN is semantic, its bytes"
+        f" still differ from the target)[/dim]"
     )
 
     # Naked reconstructions: byte-exact via generated asm, NOT decompiled.
