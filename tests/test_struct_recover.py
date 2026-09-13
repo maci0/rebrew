@@ -1,11 +1,45 @@
 """Tests for struct_recover.py — struct recovery from decompiler output."""
 
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from typer.testing import CliRunner
+
 from rebrew.struct_recover import (
+    NoDecompilationError,
     existing_structs,
     parse_decomp_for_structs,
+    recover_project_structs,
     recover_structs,
     synthesize_struct,
 )
+
+
+def _project_cfg(tmp_path: Path) -> SimpleNamespace:
+    """Minimal on-disk project for the recover-structs orchestrator."""
+    src = tmp_path / "src" / "SERVER"
+    src.mkdir(parents=True)
+    (src / "f.c").write_text(
+        "// FUNCTION: SERVER 0x401000\nint f(void) { return 0; }\n", encoding="utf-8"
+    )
+    (src / "functions.txt").write_text("0x00401000 8 f\n", encoding="utf-8")
+    return SimpleNamespace(
+        target_name="SERVER",
+        target_binary=tmp_path / "x.exe",
+        reversed_dir=src,
+        metadata_dir=tmp_path,
+        function_list=src / "functions.txt",
+        marker="SERVER",
+        source_ext=".c",
+        root=tmp_path,
+    )
+
+
+def _player_decompiler(backend: str, binary: Path, va: int, root: Path) -> tuple[str, str]:
+    """Stub decompiler backend returning one named-pointer function."""
+    return "PlayerInfo *p;\np->field_0 = 1;\np->field_8 = 2;\n", backend
 
 
 class TestParseDecomp:
@@ -397,3 +431,74 @@ class TestMemberOffsetCap:
         cfg = SimpleNamespace(target_binary=tmp_path / "a.exe")
         assert sr._member_offset_cap(cfg) == sr._MAX_MEMBER_OFFSET
         assert "member-offset cap" in capsys.readouterr().err
+
+
+class TestRecoverProjectStructs:
+    """``recover_project_structs()`` is the importable form of the CLI command."""
+
+    def test_matches_cli_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        cfg = _project_cfg(tmp_path)
+        monkeypatch.setattr("rebrew.struct_recover.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _player_decompiler)
+
+        payload = recover_project_structs(
+            cfg, decompiler="kuna", functions="0x401000", json_output=True
+        )
+
+        assert payload["decompiled"] == 1
+        assert payload["skipped"] == 0
+        assert payload["applied"] is None
+        assert any(s["name"] == "PlayerInfo" and s["new"] for s in payload["structs"])
+
+        import rebrew.main as main_mod
+
+        result = CliRunner().invoke(
+            main_mod.app, ["recover-structs", "--functions", "0x401000", "--json"]
+        )
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout) == payload
+
+    def test_apply_writes_artifact(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        cfg = _project_cfg(tmp_path)
+        monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _player_decompiler)
+        target = tmp_path / "structs.h"
+        target.write_text("/* existing */\n", encoding="utf-8")
+
+        payload = recover_project_structs(
+            cfg, decompiler="kuna", functions="0x401000", apply=target, json_output=True
+        )
+
+        assert payload["applied"] == str(target)
+        text = target.read_text(encoding="utf-8")
+        assert "typedef struct PlayerInfo_s {" in text
+
+    def test_dry_run_writes_nothing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        cfg = _project_cfg(tmp_path)
+        monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _player_decompiler)
+        target = tmp_path / "structs.h"
+        target.write_text("/* existing */\n", encoding="utf-8")
+
+        payload = recover_project_structs(
+            cfg, decompiler="kuna", functions="0x401000", apply=target, dry_run=True
+        )
+
+        assert payload["applied"] is None
+        assert target.read_text(encoding="utf-8") == "/* existing */\n"
+
+    def test_empty_selection_payload(self, tmp_path: Path) -> None:
+        cfg = _project_cfg(tmp_path)
+        cfg.reversed_dir = tmp_path / "empty"
+        cfg.reversed_dir.mkdir()
+        payload = recover_project_structs(cfg, decompiler="kuna", all_funcs=True, json_output=True)
+        assert payload == {"functions": 0, "structs": []}
+
+    def test_no_decompilation_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        cfg = _project_cfg(tmp_path)
+        monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", lambda *a, **k: (None, "kuna"))
+        with pytest.raises(NoDecompilationError):
+            recover_project_structs(cfg, decompiler="kuna", functions="0x401000", json_output=True)
+
+    def test_bad_va_raises_value_error(self, tmp_path: Path) -> None:
+        cfg = _project_cfg(tmp_path)
+        with pytest.raises(ValueError, match="Invalid hex VA"):
+            recover_project_structs(cfg, decompiler="kuna", functions="nope")

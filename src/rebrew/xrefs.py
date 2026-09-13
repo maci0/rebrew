@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -99,6 +100,34 @@ def _payload(
     }
 
 
+def build_xrefs_payload(
+    binary: Path,
+    target_va: int,
+    kinds: Sequence[str] | None = None,
+) -> dict[str, Any]:
+    """Build the cross-reference payload for *target_va* in *binary*.
+
+    The same object the ``rebrew xrefs`` callback prints under ``--json``:
+    the target VA, the import-table name when the target is an IAT slot, and
+    one ``{kind, from_va, instruction}`` record per reference, optionally
+    narrowed to *kinds*.  An empty reference list is a valid result.
+
+    Raises:
+        OSError: The binary cannot be read.
+        ValueError: The binary cannot be parsed.
+    """
+    info = load_binary(binary)
+    refs = scan_references(info, target_va=target_va)
+    if kinds:
+        refs = [ref for ref in refs if ref.kind in kinds]
+    return _payload(
+        target_va,
+        parse_import_table(binary).get(target_va),
+        refs,
+        _insn_text_by_va(info),
+    )
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -143,39 +172,32 @@ def main(
         error_exit(f"binary not found: {binary}", json_mode=json_output)
 
     try:
-        info = load_binary(binary)
+        payload = build_xrefs_payload(binary, target_va, kind)
     except (OSError, ValueError) as exc:
         error_exit(f"failed to load binary {binary}: {exc}", json_mode=json_output, code=EXIT_ERROR)
 
-    refs = scan_references(info, target_va=target_va)
-    if kind:
-        refs = [ref for ref in refs if ref.kind in kind]
-    import_name = parse_import_table(binary).get(target_va)
-    insns = _insn_text_by_va(info)
-
-    if not refs:
-        if json_output:
-            json_print(_payload(target_va, import_name, refs, insns))
-        else:
-            console.print(f"no references to 0x{target_va:08X}")
+    if json_output:
+        json_print(payload)
         return
 
-    if json_output:
-        json_print(_payload(target_va, import_name, refs, insns))
+    refs = payload["refs"]
+    if not refs:
+        console.print(f"no references to 0x{target_va:08X}")
         return
 
     console.print(f"[bold]{len(refs)}[/] references to [bold]0x{target_va:08X}[/]:")
+    import_name = payload["import_name"]
     if import_name is not None:
         console.print(f"[bold]target is import:[/bold] {import_name}")
-    counts = Counter(ref.kind for ref in refs)
+    counts = Counter(ref["kind"] for ref in refs)
     for ref_kind in sorted(counts):
         console.print(f"  [bold]{ref_kind}[/]: {counts[ref_kind]}")
     table = Table(title=f"xrefs to 0x{target_va:08X}")
     table.add_column("from_va", justify="right")
     table.add_column("kind")
     table.add_column("instruction")
-    for ref in refs:  # scan_references already sorts by (from_va, to_va)
-        table.add_row(f"0x{ref.from_va:08X}", ref.kind, insns.get(ref.from_va, ""))
+    for ref in refs:  # build_xrefs_payload keeps scan_references' (from_va, to_va) order
+        table.add_row(f"0x{ref['from_va']:08X}", ref["kind"], ref["instruction"] or "")
     console.print(table)
 
 

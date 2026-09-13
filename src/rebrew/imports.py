@@ -213,6 +213,37 @@ def find_import_stubs(binary_path: Path) -> dict[int, str]:
     return stubs
 
 
+def imports_payload(
+    binary_path: Path,
+    stubs: dict[int, str] | None = None,
+) -> dict[str, Any]:
+    """Build the ``--json`` payload for ``rebrew imports``.
+
+    Combines :func:`parse_imports` with the ``jmp dword ptr [iat]`` stub map
+    *stubs* (computed via :func:`find_import_stubs` when omitted) into the
+    exact object ``rebrew imports --json`` prints: one record per imported API
+    with a hex ``iat_va`` string, and one stub record per detected import
+    thunk with a hex ``va`` string.  An unrecognized or unparseable binary
+    yields empty ``imports`` / ``stubs`` lists, never an exception.
+    """
+    if stubs is None:
+        stubs = find_import_stubs(binary_path)
+    return {
+        "binary": str(binary_path),
+        "imports": [
+            {
+                "dll": i["dll"],
+                "name": i["name"],
+                "iat_va": f"0x{i['iat_va']:08x}",
+            }
+            for i in parse_imports(binary_path)
+        ],
+        # Stub VAs as hex strings (matching every other rebrew JSON)
+        # instead of decimal stringified dict keys.
+        "stubs": [{"va": f"0x{va:08x}", "name": name} for va, name in sorted(stubs.items())],
+    }
+
+
 def mark_import_stubs(
     cfg: Any,
     stubs: dict[int, str],
@@ -318,24 +349,7 @@ def main(
         return
 
     if json_output:
-        json_print(
-            {
-                "binary": str(binary),
-                "imports": [
-                    {
-                        "dll": i["dll"],
-                        "name": i["name"],
-                        "iat_va": f"0x{i['iat_va']:08x}",
-                    }
-                    for i in imports
-                ],
-                # Stub VAs as hex strings (matching every other rebrew JSON)
-                # instead of decimal stringified dict keys.
-                "stubs": [
-                    {"va": f"0x{va:08x}", "name": name} for va, name in sorted(stubs.items())
-                ],
-            }
-        )
+        json_print(imports_payload(binary, stubs))
         return
 
     if dry_run:

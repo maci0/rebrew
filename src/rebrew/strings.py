@@ -40,6 +40,9 @@ console = Console(stderr=True)
 # analysis.py default so the "nothing to scan" note can be detected here.
 DEFAULT_SECTIONS = (".rdata", ".data", ".rodata")
 
+#: Default minimum string length when ``--min-len`` is not given.
+DEFAULT_MIN_LEN = 4
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -50,13 +53,76 @@ def _data_sections(info: BinaryInfo) -> list[str]:
     return [name for name in DEFAULT_SECTIONS if name in info.sections]
 
 
-def _format_xrefs(refs: list[Xref]) -> str:
+def _format_xrefs(refs: list[dict[str, Any]]) -> str:
     """Format *refs* as ``count: first 3 addresses (+N more)`` for the table."""
     if not refs:
         return "0"
-    shown = ", ".join(f"0x{x.from_va:08x}" for x in refs[:3])
+    shown = ", ".join(f"0x{x['from_va']:08x}" for x in refs[:3])
     extra = f" +{len(refs) - 3} more" if len(refs) > 3 else ""
     return f"{len(refs)}: {shown}{extra}"
+
+
+def collect_strings(
+    binary: Path,
+    *,
+    min_len: int = DEFAULT_MIN_LEN,
+    section_names: list[str] | None = None,
+    filter_regex: str | None = None,
+    xref: bool = False,
+    json_output: bool = False,
+) -> dict[str, Any]:
+    """Extract strings from *binary* and return the CLI's ``--json`` payload.
+
+    Loads the binary once, scans *section_names* (or the data-ish default
+    set), applies the case-insensitive *filter_regex*, and, with *xref*,
+    resolves each string's referencing code addresses.  Returns
+    ``{"binary", "count", "strings"}`` — the exact object ``rebrew strings
+    --json`` prints, with one record per string (``va`` / ``section`` /
+    ``kind`` / ``size`` / ``text`` / ``xrefs``).
+
+    An empty result is valid; when *json_output* is false the matching
+    "nothing to scan" note is printed to stderr, mirroring the CLI.
+
+    Raises:
+        OSError, ValueError, KeyError: The binary cannot be loaded.
+        RuntimeError: String analysis failed (e.g. capstone unavailable).
+        re.error: *filter_regex* is not a valid regular expression.
+    """
+    info = load_binary(binary)
+    no_data_sections = section_names is None and not _data_sections(info)
+
+    strings = iter_strings(info, min_len=min_len, section_names=section_names)
+    refs: dict[int, list[Xref]] = {}
+    if xref:
+        refs = string_refs(info, strings)
+
+    if filter_regex is not None:
+        matcher = re.compile(filter_regex, re.IGNORECASE)
+        strings = [s for s in strings if matcher.search(s.text)]
+
+    if not strings and not json_output:
+        if no_data_sections:
+            console.print(
+                f"[yellow]No data sections (.rdata/.data/.rodata) in {binary}; nothing to scan.[/]"
+            )
+        else:
+            console.print(f"[yellow]No strings found in {binary}.[/]")
+
+    return {
+        "binary": str(binary),
+        "count": len(strings),
+        "strings": [
+            {
+                "va": s.va,
+                "section": s.section,
+                "kind": s.kind,
+                "size": s.size,
+                "text": s.text,
+                "xrefs": [{"kind": x.kind, "from_va": x.from_va} for x in refs.get(s.va, [])],
+            }
+            for s in strings
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +138,7 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     binary: Path | None = typer.Argument(None, help="Binary path (default: project target)"),
-    min_len: int = typer.Option(4, "--min-len", help="Minimum string length"),
+    min_len: int = typer.Option(DEFAULT_MIN_LEN, "--min-len", help="Minimum string length"),
     section: list[str] = typer.Option(
         None, "--section", help="Section to scan (repeatable; default .rdata/.data/.rodata)"
     ),
@@ -94,57 +160,27 @@ def main(
         error_exit(f"binary not found: {binary}", json_mode=json_output)
 
     try:
-        info = load_binary(binary)
+        payload = collect_strings(
+            binary,
+            min_len=min_len,
+            section_names=section or None,
+            filter_regex=filter_regex,
+            xref=xref,
+            json_output=json_output,
+        )
+    except re.error as exc:
+        error_exit(f"invalid --filter regex: {exc}", json_mode=json_output, code=EXIT_ERROR)
     except (OSError, ValueError, KeyError) as exc:
         error_exit(f"cannot load binary: {exc}", json_mode=json_output, code=EXIT_ERROR)
-
-    section_names = section or None
-    no_data_sections = section_names is None and not _data_sections(info)
-    try:
-        strings = iter_strings(info, min_len=min_len, section_names=section_names)
-        refs: dict[int, list[Xref]] = {}
-        if xref:
-            refs = string_refs(info, strings)
     except RuntimeError as exc:
         # analysis.py surfaces a missing capstone as RuntimeError.
         error_exit(f"string analysis failed: {exc}", json_mode=json_output, code=EXIT_ERROR)
 
-    if filter_regex is not None:
-        try:
-            matcher = re.compile(filter_regex, re.IGNORECASE)
-        except re.error as exc:
-            error_exit(f"invalid --filter regex: {exc}", json_mode=json_output, code=EXIT_ERROR)
-        strings = [s for s in strings if matcher.search(s.text)]
-
     if json_output:
-        json_print(
-            {
-                "binary": str(binary),
-                "count": len(strings),
-                "strings": [
-                    {
-                        "va": s.va,
-                        "section": s.section,
-                        "kind": s.kind,
-                        "size": s.size,
-                        "text": s.text,
-                        "xrefs": [
-                            {"kind": x.kind, "from_va": x.from_va} for x in refs.get(s.va, [])
-                        ],
-                    }
-                    for s in strings
-                ],
-            }
-        )
+        json_print(payload)
         return
 
-    if not strings:
-        if no_data_sections:
-            console.print(
-                f"[yellow]No data sections (.rdata/.data/.rodata) in {binary}; nothing to scan.[/]"
-            )
-        else:
-            console.print(f"[yellow]No strings found in {binary}.[/]")
+    if payload["count"] == 0:
         return
 
     table = Table(title=f"Strings in {binary.name}", show_header=True, header_style="bold")
@@ -155,10 +191,10 @@ def main(
     table.add_column("Text")
     if xref:
         table.add_column("Xrefs")
-    for s in strings:
-        row = [f"0x{s.va:08x}", s.section, s.kind, str(s.size), escape(s.text)]
+    for s in payload["strings"]:
+        row = [f"0x{s['va']:08x}", s["section"], s["kind"], str(s["size"]), escape(s["text"])]
         if xref:
-            row.append(_format_xrefs(refs.get(s.va, [])))
+            row.append(_format_xrefs(s["xrefs"]))
         table.add_row(*row)
     console.print(table)
 

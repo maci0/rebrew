@@ -16,12 +16,13 @@ import struct
 import sys
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
 from bin_util import make_pe
 
-from rebrew.xrefs import app
+from rebrew.xrefs import app, build_xrefs_payload
 
 TEXT_VA = 0x401000
 IMAGE_BASE = 0x400000
@@ -271,3 +272,33 @@ class TestVaFirstPositional:
         result = CliRunner().invoke(app, [str(path), "0x401000"])
         assert result.exit_code == 0, result.output
         assert "no references" in result.output
+
+
+class TestBuildXrefsPayload:
+    """``build_xrefs_payload()`` is the importable form of ``rebrew xrefs --json``."""
+
+    def test_matches_cli_json(self, tmp_path: Path) -> None:
+        path, syms = _make_binary(tmp_path)
+        call_dst = syms["call"] + 5 + 0x10
+        payload = build_xrefs_payload(path, call_dst)
+        result = CliRunner().invoke(app, ["--json", str(path), f"0x{call_dst:X}"])
+        assert result.exit_code == 0
+        assert payload == json.loads(result.output)
+        assert payload["count"] == 1
+        assert payload["refs"][0]["kind"] == "call"
+
+    def test_kind_filter_narrows_refs(self, tmp_path: Path) -> None:
+        path, syms = _make_binary(tmp_path)
+        payload = build_xrefs_payload(path, syms["hello"], ["push"])
+        assert [r["kind"] for r in payload["refs"]] == ["push"]
+
+    def test_empty_result_is_not_an_error(self, tmp_path: Path) -> None:
+        path, _ = _make_binary(tmp_path)
+        payload = build_xrefs_payload(path, IMAGE_BASE + 0x9000)
+        assert payload["count"] == 0
+        assert payload["refs"] == []
+        assert payload["import_name"] is None
+
+    def test_missing_binary_raises(self, tmp_path: Path) -> None:
+        with pytest.raises(FileNotFoundError):
+            build_xrefs_payload(tmp_path / "absent.exe", 0x401000)

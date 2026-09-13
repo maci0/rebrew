@@ -13,7 +13,7 @@ from typer.testing import CliRunner
 sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
 from bin_util import make_elf, make_pe
 
-from rebrew.imports import find_import_stubs, parse_import_table, parse_imports
+from rebrew.imports import find_import_stubs, imports_payload, parse_import_table, parse_imports
 
 IMAGE_BASE = 0x400000
 TEXT_VA = 0x1000
@@ -350,3 +350,27 @@ class TestImportsMark:
         mark_import_stubs(cfg, {0x401000: "MessageBoxA"}, dry_run=False)
         added = mark_import_stubs(cfg, {0x401000: "MessageBoxA"}, dry_run=False)
         assert added == 0  # already annotated
+
+
+class TestImportsPayload:
+    """``imports_payload()`` is the importable form of ``rebrew imports --json``."""
+
+    def test_matches_cli_json(self, pe_path: Path) -> None:
+        from rebrew.imports import app
+
+        payload = imports_payload(pe_path)
+        result = CliRunner().invoke(app, ["--json", str(pe_path)])
+        assert result.exit_code == 0
+        assert payload == json.loads(result.output)
+        assert any(i["name"] == "MessageBoxA" for i in payload["imports"])
+        assert all(s["va"].startswith("0x") for s in payload["stubs"])
+        assert all(str(i["iat_va"]).startswith("0x") for i in payload["imports"])
+
+    def test_accepts_precomputed_stubs(self, pe_path: Path) -> None:
+        stubs = find_import_stubs(pe_path)
+        assert imports_payload(pe_path, stubs)["stubs"] == imports_payload(pe_path)["stubs"]
+
+    def test_non_pe_yields_empty_lists(self, tmp_path: Path) -> None:
+        path = tmp_path / "not_a_pe.bin"
+        path.write_bytes(b"\x00" * 64)
+        assert imports_payload(path) == {"binary": str(path), "imports": [], "stubs": []}
