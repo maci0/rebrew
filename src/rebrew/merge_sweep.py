@@ -326,7 +326,9 @@ def _gap_classes(
     text_va = info.text_va
     text_size = info.text_size
     out: dict[tuple[int, int], str] = {}
-    for prev_va, curr_va in zip(vas, vas[1:], strict=True):
+    for prev_va, curr_va in zip(vas, vas[1:], strict=False):
+        # vas[1:] is one shorter by construction; the trailing element is
+        # simply the one with no successor.
         size = int(registry.get(prev_va, {}).get("canonical_size", 0))
         gap_start = prev_va + size
         gap_len = curr_va - gap_start
