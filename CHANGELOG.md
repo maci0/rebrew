@@ -1,4 +1,4 @@
-## [Unreleased]
+## [1.1.0] - 2026-09-13
 ### Added
 - **`rebrew lib-match` indexes source-vendored library objects and verifies
   stock archives against the toolchain image**: a library vendored as source
