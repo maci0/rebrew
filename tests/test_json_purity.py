@@ -65,6 +65,23 @@ _JSON_COMMANDS: list[tuple[str, set[int]]] = [
     ("gen-layout --json", {0, 2}),
     ("gen-link-stubs --json", {2}),  # 2 = no rebrew-data.toml in the fixture
     ("link-sweep --json", {2}),  # 2 = no link.txt in the fixture
+    ("diff --json src/SERVER/fcn.c", {0, 2}),
+    ("extract list --json", {0}),
+    ("diagnose --json src/SERVER/fcn.c", {0}),
+    ("pe-info --json", {0}),
+    ("context --json", {0}),
+    ("graph --json", {0}),
+    ("crypto-scan --json", {0}),
+    ("fingerprints --json", {0}),
+    ("rename --json 0x401000 newname --dry-run", {0}),
+    ("blocker show --json 0x401000", {0}),
+    ("refactor --json", {0}),
+    ("layout-map --json", {0}),
+    ("inline-strings --json", {0, 2}),
+    ("lib-match --json", {0, 2}),
+    ("crt-match --json", {0, 2}),
+    ("identify-library --json", {0}),
+    ("switch --json", {0, 2}),
 ]
 
 _PROJECT_TOML = """\
