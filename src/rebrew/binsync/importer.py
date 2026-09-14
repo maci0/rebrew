@@ -127,6 +127,25 @@ def _normalize_prototype(proto: str) -> str:
     return re.sub(r"\s*([(),;*])\s*", r"\1", text)
 
 
+def normalize_stack_vars(stack_vars: Any) -> dict[str, dict[str, Any]]:
+    """Normalize a BinSync ``stack_vars`` mapping to ``{offset: {name, type, size}}``.
+
+    Shared by the import and overlay paths — frame offsets are
+    address-independent, so both apply the source's variables unchanged.
+    """
+    if not isinstance(stack_vars, dict) or not stack_vars:
+        return {}
+    return {
+        str(offset): {
+            "name": str(value.get("name") or ""),
+            "type": str(value.get("type") or ""),
+            "size": int(value.get("size") or 0),
+        }
+        for offset, value in stack_vars.items()
+        if isinstance(value, dict)
+    }
+
+
 def _apply_binsync_func_name(
     cfg: Any, local: Any, bs_name: str, local_filepath: str | None
 ) -> bool:
@@ -649,36 +668,26 @@ def import_state(
             continue
         local_mod = getattr(local, "module", "") or "SERVER"
 
-        stack_vars = bs_entry.get("stack_vars")
-        if isinstance(stack_vars, dict) and stack_vars:
-            normalized = {
-                str(offset): {
-                    "name": str(value.get("name") or ""),
-                    "type": str(value.get("type") or ""),
-                    "size": int(value.get("size") or 0),
-                }
-                for offset, value in stack_vars.items()
-                if isinstance(value, dict)
-            }
-            if normalized:
-                if dry_run:
-                    proposed.append(
-                        {
-                            "va": f"0x{va:08x}",
-                            "field": "locals",
-                            "local": "",
-                            "binsync": str(len(normalized)),
-                        }
-                    )
+        normalized = normalize_stack_vars(bs_entry.get("stack_vars"))
+        if normalized:
+            if dry_run:
+                proposed.append(
+                    {
+                        "va": f"0x{va:08x}",
+                        "field": "locals",
+                        "local": "",
+                        "binsync": str(len(normalized)),
+                    }
+                )
+                applied_locals += 1
+            else:
+                try:
+                    update_field(cfg.metadata_dir, va, "locals", normalized, local_mod)
                     applied_locals += 1
-                else:
-                    try:
-                        update_field(cfg.metadata_dir, va, "locals", normalized, local_mod)
-                        applied_locals += 1
-                        touched_vas.append(va)
-                    except Exception:
-                        log.debug("locals apply failed for VA 0x%x", va, exc_info=True)
-                        skipped += 1
+                    touched_vas.append(va)
+                except Exception:
+                    log.debug("locals apply failed for VA 0x%x", va, exc_info=True)
+                    skipped += 1
 
     # Per-instruction comments: the metadata COMMENTS store is lossless, and a
     # comment inside its owning function's range also gets a source marker.

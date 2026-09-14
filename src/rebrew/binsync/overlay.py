@@ -46,6 +46,7 @@ from rebrew.binsync.importer import (
     _is_meaningful,
     _normalize_prototype,
     _strip_cdecl_prefix,
+    normalize_stack_vars,
 )
 from rebrew.binsync.state import (
     load_binsync_comments,
@@ -499,30 +500,20 @@ def overlay_state(
 
         # LOCALS: frame offsets are address-independent, so a matched pair
         # keeps the source's stack variables unchanged.
-        stack_vars = remote.get("stack_vars")
-        if isinstance(stack_vars, dict) and stack_vars:
-            normalized = {
-                str(offset): {
-                    "name": str(value.get("name") or ""),
-                    "type": str(value.get("type") or ""),
-                    "size": int(value.get("size") or 0),
-                }
-                for offset, value in stack_vars.items()
-                if isinstance(value, dict)
-            }
-            if normalized:
-                if dry_run:
+        normalized = normalize_stack_vars(remote.get("stack_vars"))
+        if normalized:
+            if dry_run:
+                applied_locals += 1
+                applied.append("locals")
+            else:
+                try:
+                    update_field(cfg.metadata_dir, dst_va, "locals", normalized, local_module)
                     applied_locals += 1
+                    touched.add(dst_va)
                     applied.append("locals")
-                else:
-                    try:
-                        update_field(cfg.metadata_dir, dst_va, "locals", normalized, local_module)
-                        applied_locals += 1
-                        touched.add(dst_va)
-                        applied.append("locals")
-                    except Exception:
-                        log.debug("locals overlay failed for VA %s", _hex(dst_va), exc_info=True)
-                        skipped += 1
+                except Exception:
+                    log.debug("locals overlay failed for VA %s", _hex(dst_va), exc_info=True)
+                    skipped += 1
 
         # COMMENTS: shift each comment addr by (dst_va - src_va), only for
         # addrs inside the source function's range.

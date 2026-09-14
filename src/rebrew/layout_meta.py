@@ -156,19 +156,6 @@ class LayoutMetadata:
             "exp_rva": self.exp_rva,
         }
 
-    def data_geometry(self) -> tuple[int, int, int]:
-        """``(data_base, raw_end, section_end)`` full-VA from the .data section.
-
-        ``data_base`` = image_base + .data va; ``raw_end`` = base + raw size;
-        ``section_end`` = base + VirtualSize (the BSS tail end).
-        """
-        s = self.section(".data")
-        return (
-            self.image_base + s.va,
-            self.image_base + s.va + s.raw,
-            self.image_base + s.va + s.vs,
-        )
-
 
 def read_layout_geometry(root: Path, target: str) -> tuple[int, int, int]:
     """``(data_base, raw_end, section_end)`` from ``layout/<target>/rebrew-layout.toml``.

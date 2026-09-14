@@ -65,15 +65,6 @@ def _declib() -> Any:
     return artifacts
 
 
-def declib_available() -> bool:
-    """True when declib is importable (used by callers that degrade gracefully)."""
-    try:
-        _declib()
-    except ImportError:
-        return False
-    return True
-
-
 def _class_for(kind: str) -> Any:
     artifacts = _declib()
     try:
@@ -85,19 +76,6 @@ def _class_for(kind: str) -> Any:
 def sanitize_name(name: str) -> str:
     """C-style name sanitization (matches upstream ``State.sanitize_name``)."""
     return re.sub(r"[^a-zA-Z0-9_]", "_", name)
-
-
-# ---------------------------------------------------------------------------
-# Layout paths
-# ---------------------------------------------------------------------------
-
-
-def function_path(state_dir: Path, addr: int) -> Path:
-    return state_dir / FUNCTIONS_DIR / f"{addr:08x}.toml"
-
-
-def struct_path(state_dir: Path, name: str) -> Path:
-    return state_dir / STRUCTS_DIR / f"{sanitize_name(name)}.toml"
 
 
 # ---------------------------------------------------------------------------
@@ -229,24 +207,6 @@ def write_metadata(state_dir: Path, *, user: str, version: str = REBREW_STATE_VE
     doc["user"] = user
     doc["version"] = version
     atomic_write_locked(state_dir / METADATA_FILE, tomlkit.dumps(doc), encoding="utf-8")
-
-
-def read_metadata(state_dir: Path) -> dict[str, str] | None:
-    """Read ``metadata.toml``; ``None`` when absent, ``{}`` when unparseable."""
-    path = state_dir / METADATA_FILE
-    if not path.exists():
-        return None
-    try:
-        doc = tomlkit.parse(path.read_text(encoding="utf-8"))
-    except Exception:
-        log.debug("unparseable BinSync metadata.toml", exc_info=True)
-        return {}
-    out: dict[str, str] = {}
-    for key in ("user", "version", "last_push_time"):
-        value = doc.get(key)
-        if isinstance(value, str) and value.strip():
-            out[key] = value.strip()
-    return out
 
 
 def state_user(state_dir: Path) -> str:

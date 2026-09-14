@@ -109,12 +109,6 @@ def render_context_text(blocks: list[str]) -> str:
     return _CONTEXT_HEADER + "\n\n".join(blocks) + ("\n" if blocks else "")
 
 
-def collect_context_text(cfg: Any, sources_only: bool = False) -> str:
-    """Collect *cfg*'s declarations and render the ``rebrew context`` document."""
-    blocks, _file_count = _collect_context(cfg, include_headers=not sources_only)
-    return render_context_text(blocks)
-
-
 app = typer.Typer(
     help="Emit a universal C context file (types + signatures) for decompiler backends.",
     rich_markup_mode="rich",

@@ -141,33 +141,6 @@ def toolchain_from_toml(name: str, table: dict[str, Any], source: str) -> Toolch
     )
 
 
-def toolchain_to_toml(spec: ToolchainSpec) -> dict[str, Any]:
-    """Serialize a :class:`ToolchainSpec` into a TOML table.
-
-    Defaults are dropped, so ``toolchain_from_toml`` round-trips it."""
-    table: dict[str, Any] = {}
-    for field in (
-        "image",
-        "binary",
-        "image_entrypoint",
-        "runtime",
-        "flags_style",
-        "arg_style",
-        "obj_ext",
-        "host_bin",
-        "tool_root",
-        "description",
-    ):
-        value = getattr(spec, field)
-        if value:
-            table[field] = value
-    if spec.host_path is not None:
-        table["host_path"] = str(spec.host_path)
-    if spec.bits is not None:
-        table["bits"] = spec.bits
-    return table
-
-
 def _merge_entry_point_toolchains(registry: dict[str, ToolchainSpec]) -> None:
     """Merge every ``rebrew.toolchains`` entry-point provider into *registry*."""
     from rebrew.registry import entry_point_registrations, import_registration
