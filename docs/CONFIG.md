@@ -114,8 +114,9 @@ A multi-target source file might look like:
 void __cdecl MyFunc(void) { ... }
 ```
 
-Each target's `rebrew-functions.toml` metadata holds the metadata (STATUS, SIZE, CFLAGS) for the
-corresponding VA.
+The shared `rebrew-functions.toml` holds the metadata (STATUS, SIZE, CFLAGS, …)
+under module-prefixed keys (`SERVER.0x…`, `CLIENT.0x…`) for the corresponding VA —
+one TOML per metadata root, not one per target.
 
 Running `rebrew test --target server_dll` processes only the `SERVER` marker block. Running `rebrew test --target client_exe` processes only the `CLIENT` block.
 
