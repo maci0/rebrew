@@ -1,3 +1,36 @@
+## [Unreleased]
+### Removed
+- **`functions.txt` is gone (second half)**: `cfg add-target` no longer
+  touches an empty list file; `binary-similarity --other-list` takes
+  structure JSON.  The registry's `"list"` source id stays (means
+  "discovery", not the file).
+- **`CATALOG.md` generation is gone**: `generate_catalog` + `rebrew catalog
+  --catalog` deleted (nothing consumed it — status/todo/dashboard read
+  TOML/DB).  The reccmp CSV stays.
+- **`[targets.<t>.layout]` TOML block is gone**: layout geometry comes from
+  `layout/<target>/layout.txt` via `layout_meta.read_layout_geometry`
+  (`data`, `calibrate-bss`); `gen-layout` no longer writes the block
+  (`write_layout_config` deleted); `import-splat` writes a blobs-less
+  `layout.txt` instead.  Existing projects re-run `gen-layout` once.
+- **Dead dict `make_func_entry` deleted** (zero src call sites; the
+  `Annotation` factory in `annotation.py` keeps the name without confusion).
+- **Docs: 43 files → 28** — deleted run logs (CAMPAIGNS, GAP_ANALYSIS,
+  GOAL_STATUS, GOAL_PROGRESS, TOOLING_SWEEP), aspirational sketches
+  (USER_STORIES, ML_TRAINING), landed audits (METADATA_REVIEW, IDEAS),
+  the CODEGEN_REFERENCE stub; merged QUICKSTART+BOOTSTRAPPING→ONBOARDING,
+  GHIDRA_SYNC→BINSYNC_INTEGRATION, SNIPPETS→COMPILERS, CONSOLES→ROADMAP
+  appendix; NEAR_DIAG output regenerates via `--catalog`.
+### Changed
+- **Function discovery is plugin-driven**: `rebrew.discoverers`
+  entry-point group (`fn(binary) -> [(va, size, name)]`); rizin aaa/aap,
+  capstone sweep, NE loader, MZ sweep are packaged providers.  `intake`
+  delegates to `discover_functions` (its private rizin subprocess deleted).
+- **Project AGENTS.md template** names the inventory + layout sources;
+  all 44 `rebrew-projects/*` scaffolds re-rendered.  Also fixed: literal
+  braces crashed `str.format` in `_render_agents_md`.
+- **Metadata docs match code**: PROVEN ranks below RELOC (+ byte-match
+  exception), full field sets, complete W019 list, strip-not-migrate,
+  REVIEW rewritten as as-built record.
 ## [1.2.0] - 2026-09-13
 ### Added
 - **`rebrew asm --format cfg` renders a function's control-flow graph**: the basic

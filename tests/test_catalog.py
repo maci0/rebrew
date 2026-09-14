@@ -10,24 +10,12 @@ from rebrew.catalog import (
     build_function_registry,
     count_detection_sources,
     generate_data_json,
-    make_func_entry,
     scan_reversed_dir,
 )
 from rebrew.config import ProjectConfig
 
 # -------------------------------------------------------------------------
 # Helper factories
-# -------------------------------------------------------------------------
-
-
-class TestMakeFactories:
-    def test_make_func_entry(self) -> None:
-        f = make_func_entry(0x10001000, 64, "_my_func")
-        assert f["va"] == 0x10001000
-        assert f["size"] == 64
-        assert f["name"] == "_my_func"
-
-
 # -------------------------------------------------------------------------
 
 
@@ -47,8 +35,8 @@ class TestBuildFunctionRegistry:
 
     def test_basic(self) -> None:
         funcs = [
-            make_func_entry(0x10001000, 64, "_func_a"),
-            make_func_entry(0x10002000, 128, "_func_b"),
+            {"va": 0x10001000, "size": 64, "name": "_func_a"},
+            {"va": 0x10002000, "size": 128, "name": "_func_b"},
         ]
         reg = build_function_registry(funcs, self.cfg)
         assert 0x10001000 in reg
@@ -59,7 +47,7 @@ class TestBuildFunctionRegistry:
         """Functions with VAs in cfg.r2_bogus_vas should still be in registry but size excluded."""
         bogus_va = 0xDEAD0000
         self.cfg.r2_bogus_vas = [bogus_va]
-        funcs = [make_func_entry(bogus_va, 999999, "_bogus")]
+        funcs = [{"va": bogus_va, "size": 999999, "name": "_bogus"}]
         reg = build_function_registry(funcs, self.cfg)
         assert bogus_va in reg
         # Size should NOT be recorded for bogus VAs
@@ -68,11 +56,11 @@ class TestBuildFunctionRegistry:
         assert reg[bogus_va].get("size", 0) == 0
 
     def test_with_ghidra(self, tmp_path: Path) -> None:
-        funcs = [make_func_entry(0x10001000, 64, "_func_a")]
+        funcs = [{"va": 0x10001000, "size": 64, "name": "_func_a"}]
         ghidra_json = tmp_path / "function_structure.json"
         ghidra_data = [
-            make_func_entry(0x10001000, 64, "func_a"),
-            make_func_entry(0x10003000, 32, "func_c"),
+            {"va": 0x10001000, "size": 64, "name": "func_a"},
+            {"va": 0x10003000, "size": 32, "name": "func_c"},
         ]
         ghidra_json.write_text(json.dumps(ghidra_data), encoding="utf-8")
         reg = build_function_registry(funcs, self.cfg, ghidra_path=ghidra_json)
@@ -81,7 +69,7 @@ class TestBuildFunctionRegistry:
         assert "ghidra" in reg[0x10003000]["detected_by"]
 
     def test_iat_thunks(self) -> None:
-        funcs = [make_func_entry(0x10001000, 6, "_thunk_func")]
+        funcs = [{"va": 0x10001000, "size": 6, "name": "_thunk_func"}]
         cfg = ProjectConfig(
             root=Path("/tmp"),
             iat_thunks=[0x10001000],
@@ -92,7 +80,7 @@ class TestBuildFunctionRegistry:
         assert reg[0x10001000].get("is_thunk") is True
 
     def test_exports(self) -> None:
-        funcs = [make_func_entry(0x10001000, 64, "_my_export")]
+        funcs = [{"va": 0x10001000, "size": 64, "name": "_my_export"}]
         cfg = ProjectConfig(
             root=Path("/tmp"),
             iat_thunks=[],
@@ -115,16 +103,16 @@ class TestCountDetectionSources:
             ignored_symbols=[],
         )
         funcs = [
-            make_func_entry(0x10001000, 64, "_a"),  # list only
-            make_func_entry(0x10002000, 64, "_b"),  # list + ghidra
+            {"va": 0x10001000, "size": 64, "name": "_a"},  # list only
+            {"va": 0x10002000, "size": 64, "name": "_b"},  # list + ghidra
         ]
         ghidra_json = Path("/tmp") / "function_structure.json"
         ghidra_json.write_text(
             json.dumps(
                 [
-                    make_func_entry(0x10002000, 64, "_b"),
-                    make_func_entry(0x10003000, 32, "_c"),  # ghidra only
-                    make_func_entry(0x10004000, 6, "_thunk"),  # thunk
+                    {"va": 0x10002000, "size": 64, "name": "_b"},
+                    {"va": 0x10003000, "size": 32, "name": "_c"},  # ghidra only
+                    {"va": 0x10004000, "size": 6, "name": "_thunk"},  # thunk
                 ]
             ),
             encoding="utf-8",
@@ -178,7 +166,7 @@ class TestGenerateDataJson:
                 marker_type="FUNCTION",
             ),
         ]
-        funcs = [make_func_entry(0x10001000, 64, "_func_a")]
+        funcs = [{"va": 0x10001000, "size": 64, "name": "_func_a"}]
         bin_path = self._laid_out(monkeypatch, tmp_path)
         data = generate_data_json(entries, funcs, text_size=0x3000, bin_path=bin_path)
         assert isinstance(data, dict)
@@ -213,7 +201,7 @@ class TestGenerateDataJson:
                 marker_type="FUNCTION",
             ),
         ]
-        funcs = [make_func_entry(0x10001000, 64, "_func_a")]
+        funcs = [{"va": 0x10001000, "size": 64, "name": "_func_a"}]
         bin_path = self._laid_out(monkeypatch, tmp_path)
         data = generate_data_json(entries, funcs, text_size=0x3000, bin_path=bin_path)
 
@@ -235,7 +223,7 @@ class TestGenerateDataJson:
                 marker_type="FUNCTION",
             ),
         ]
-        funcs = [make_func_entry(0x10001000, 64, "_func_a")]
+        funcs = [{"va": 0x10001000, "size": 64, "name": "_func_a"}]
         data = generate_data_json(entries, funcs, text_size=1000)
         s = data["summary"]
         assert data["functions"] == {}
@@ -285,7 +273,7 @@ class TestGenerateDataJson:
                 marker_type="FUNCTION",
             ),
         ]
-        funcs = [make_func_entry(0x10001000, 64, "_ok_fn")]
+        funcs = [{"va": 0x10001000, "size": 64, "name": "_ok_fn"}]
         bin_path = tmp_path / "t.dll"
         bin_path.write_bytes(b"\x00" * 0x3000)
         info = SimpleNamespace(
@@ -356,14 +344,14 @@ class TestCatalogFunctional:
     def test_r2_bogus_vas_via_config(self, tmp_path: Path) -> None:
         from pathlib import Path
 
-        from rebrew.catalog import build_function_registry, make_func_entry
+        from rebrew.catalog import build_function_registry
         from rebrew.config import ProjectConfig
 
         bogus_va = 0xBEEF0000
         cfg = ProjectConfig(
             root=Path("/tmp"), iat_thunks=[], dll_exports={}, r2_bogus_vas=[bogus_va]
         )
-        funcs = [make_func_entry(bogus_va, 12345, "_bogus")]
+        funcs = [{"va": bogus_va, "size": 12345, "name": "_bogus"}]
         reg = build_function_registry(funcs, cfg)
         assert bogus_va in reg
         assert "list" not in reg[bogus_va]["size_by_tool"]

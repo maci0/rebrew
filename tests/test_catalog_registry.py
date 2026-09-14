@@ -2,7 +2,6 @@
 
 import struct
 
-from rebrew.catalog.loaders import make_func_entry
 from rebrew.catalog.registry import (
     _resolve_canonical_size,
     is_jump_table,
@@ -123,8 +122,3 @@ class TestIsJumpTable:
 
     def test_non_pointer_bytes(self) -> None:
         assert is_jump_table(b"\x01\x02\x03\x04\x05\x06\x07\x08", 0x1000, 0x1000) is False
-
-
-class TestEntryFactories:
-    def test_make_func_entry(self) -> None:
-        assert make_func_entry(0x1000, 64, "_f") == {"va": 0x1000, "size": 64, "name": "_f"}
