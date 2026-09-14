@@ -975,6 +975,24 @@ def check_bin_dir(cfg: ProjectConfig) -> CheckResult:
 # ---------------------------------------------------------------------------
 
 
+def check_layout_package(cfg: ProjectConfig) -> CheckResult:
+    """Check that the layout package exists for byte-identity build steps."""
+    pkg = Path(cfg.root) / "layout" / cfg.target_name / "rebrew-layout.toml"
+    if pkg.is_file():
+        return CheckResult(
+            name="Layout package",
+            status=_PASS,
+            message=str(pkg),
+        )
+    # Warn, not fail: only data/calibrate-bss/postlink/round-trip need it.
+    return CheckResult(
+        name="Layout package",
+        status=_WARN,
+        message=f"Not found: {pkg}",
+        fix=f"Run `rebrew gen-layout --target {cfg.target_name}`.",
+    )
+
+
 def run_doctor(target: str | None = None) -> DoctorReport:
     """Run all diagnostic checks and return a report."""
     report = DoctorReport()
@@ -1010,6 +1028,7 @@ def run_doctor(target: str | None = None) -> DoctorReport:
     report.checks.append(check_source_files(cfg))
     report.checks.append(check_bin_dir(cfg))
     report.checks.append(check_metadata_files(cfg))
+    report.checks.append(check_layout_package(cfg))
     report.checks.append(check_optional_tools(cfg))
     report.checks.append(check_flirt_sigs(cfg))
     report.checks.append(check_ghidra_sync(cfg))
