@@ -11,7 +11,7 @@ the CRT <common> tail), so the tail size is calibrated empirically:
 4. recompile the stub object and repeat until VS == the target.
 
 The target VS defaults to the reference's ``.data`` VirtualSize from the
-project's layout metadata (``[targets.<t>.layout]`` sections).
+project's layout package (``layout/<target>/layout.txt``).
 
 Usage:
     rebrew calibrate-bss [--stub src/link_stubs.c] [--target-vs 0x174059c] [--max-iters 8]
@@ -19,6 +19,7 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import os
 import re
 import subprocess
@@ -43,27 +44,28 @@ app = typer.Typer(
 
 
 def _layout_data_vs(root: Path) -> int | None:
-    try:
-        with open(root / "rebrew-project.toml", "rb") as f:
-            cfg = tomllib.load(f)
-    except (OSError, tomllib.TOMLDecodeError):
-        return None
-    targets = cfg.get("targets", {})
-    if not isinstance(targets, dict) or not targets:
-        return None
-    # Pick the DEFAULT target only — scanning every target and returning the
-    # first .data VS silently calibrated against the wrong binary when the
-    # project has several targets (link-review F7).  The key lives under
-    # [project]; reading it at the top level always missed it.
-    project = cfg.get("project", {})
-    default = project.get("default_target") if isinstance(project, dict) else None
-    if default is None or default not in targets:
-        default = next(iter(targets))
-    tcfg = targets[default]
-    lay = tcfg.get("layout", {}) if isinstance(tcfg, dict) else {}
-    for s in lay.get("sections", []):
-        if s.get("name") == ".data":
-            return int(s.get("vs", 0))
+    """Reference ``.data`` VirtualSize from the layout package (default target)."""
+    from rebrew.layout_meta import read_layout_geometry
+
+    default = ""
+    with (
+        contextlib.suppress(OSError, tomllib.TOMLDecodeError),
+        open(root / "rebrew-project.toml", "rb") as f,
+    ):
+        default = str(tomllib.load(f).get("project", {}).get("default_target") or "")
+    targets = [default] if default else []
+    targets += [
+        p.parent.name
+        for p in sorted((root / "layout").glob("*/layout.txt"))
+        if p.parent.name not in targets
+    ]
+    # Default target first — scanning every target and returning the first
+    # .data VS silently calibrated against the wrong binary when the project
+    # has several targets (link-review F7).
+    for target in targets:
+        with contextlib.suppress(ValueError):
+            base, _raw_end, section_end = read_layout_geometry(root, target)
+            return section_end - base
     return None
 
 

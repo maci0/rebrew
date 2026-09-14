@@ -114,7 +114,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew gen-link-stubs` | `gen_link_stubs.py` | BSS placeholder TU from the data metadata |
 | `rebrew gen-stubs` | `gen_stubs.py` | Stub TU for unresolved linker symbols |
 | `rebrew identify-library` | `identify_library.py` | Library-function backends (CRT/ZLIB marking) |
-| `rebrew import-splat` | `splat_config.py` | Seed a project from a splat config (dry run by default): target metadata, `[targets.<t>.layout]` sections, `// FUNCTION:`/`// LIBRARY:`/`// DATA:` annotations |
+| `rebrew import-splat` | `splat_config.py` | Seed a project from a splat config (dry run by default): target metadata, `layout/<target>/layout.txt` sections, `// FUNCTION:`/`// LIBRARY:`/`// DATA:` annotations |
 | `rebrew inline-strings` | `inline_strings.py` | Materialize string-literal globals from the original binary |
 | `rebrew intake` | `intake.py` | One-shot binary onboarding (FLIRT scan, catalog, triage) |
 | `rebrew lib-match` | `lib_match.py` | Byte-compare reversed functions against linked static-library archives |
@@ -658,7 +658,7 @@ everything `rebrew postlink --layout` needs, zero binary blobs at rest),
 the CRT IAT-forcing import list, and the data-restore bits.  `--def-only`
 emits just the `.def`; `--link-config` prints the derived `[link]` toml
 block for `rebrew-project.toml`; `--layout-config` prints the
-`[targets.<t>.layout]` block; `--data-gap HEX` also emits
+`layout/<target>/layout.txt`; `--data-gap HEX` also emits
 `crt_region/data_restore.c`; `--dry-run` previews the file list without
 writing; `--json` emits a machine-readable manifest.
 
@@ -742,7 +742,7 @@ link's `.data` VirtualSize matches the reference.
 `rebrew calibrate-bss [--stub src/link_stubs.c] [--symbol g_bss_tail] [--target-vs 0x...] [--max-iters 8] [--dry-run] [--json]`
 
 Size the BSS tail pad empirically so the raw link's `.data` VirtualSize
-matches the reference (from `[targets.<t>.layout]` unless `--target`):
+matches the reference (from `layout/<target>/layout.txt`):
 relink raw, measure the VirtualSize, adjust the tail array, recompile the
 stub, repeat until equal.
 
@@ -1937,7 +1937,7 @@ Run it inside a project (`rebrew init` or `rebrew intake` first); a missing
 |--------------|--------|
 | `options.target_path` | `[targets.<t>] binary` (copied to `original/<name>` when it lives outside the project) |
 | `options.platform` / `options.compiler` | `format` / `arch` / `[targets.<t>.compiler] profile` (via the splat tag → profile table; an unmapped tag keeps the project's profile and reports a note) |
-| `segments[].start/vram/subsegments` | `[targets.<t>.layout]` = `image_base` + `sections` (`name`/`va`/`vs`/`raw`/`ptr`/`chars`), the same shape `rebrew gen-layout` writes, so `rebrew data` and `rebrew calibrate-bss` read it unchanged |
+| `segments[].start/vram/subsegments` | `layout/<target>/layout.txt` = `image_base` + `sections` (`name`/`va`/`vs`/`raw`/`ptr`/`chars`), the same shape `rebrew gen-layout` writes, so `rebrew data` and `rebrew calibrate-bss` read it unchanged |
 | `symbol_addrs_path` rows typed `func` in a code segment | `// FUNCTION:` skeleton (marker + stub via `generate_skeleton`; `SIZE`/`STATUS`/`BLOCKER` in `rebrew-functions.toml`) |
 | a row whose `//` comment says `import from <DLL>` in a code segment | `// LIBRARY:` entry in `library_<dll>.h` |
 | rows typed `u8`/`u16`/`u32`/`s32`/`f32` in a data segment | `// DATA:` marker + `extern` declaration, with `size`/`section` in `rebrew-data.toml` |
