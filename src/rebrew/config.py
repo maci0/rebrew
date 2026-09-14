@@ -334,12 +334,10 @@ class ProjectConfig:
     # --- Computed from arch ---
     pointer_size: int = 4
     padding_bytes: list[int] = field(default_factory=lambda: [0xCC, 0x90])
-    symbol_prefix: str = "_"
 
     # --- PE-specific (computed at load time if format == "pe") ---
     image_base: int = 0
     text_va: int = 0
-    text_raw_offset: int = 0
 
     # --- Project-specific (loaded from TOML if present) ---
     iat_thunks: list[int] = field(default_factory=list)
@@ -383,10 +381,6 @@ class ProjectConfig:
         preset = _ARCH_PRESETS.get(self.arch)
         name = preset.get("capstone_mode", "CS_MODE_32") if preset else "CS_MODE_32"
         return int(getattr(capstone, name))
-
-    def va_to_file_offset(self, va: int) -> int:
-        """Convert VA to raw file offset using .text section constants."""
-        return va - self.text_va + self.text_raw_offset
 
     @property
     def metadata_dir(self) -> Path:
@@ -1138,7 +1132,6 @@ def load_config(
         # arch-derived
         pointer_size=arch_preset["pointer_size"],
         padding_bytes=arch_preset["padding_bytes"],
-        symbol_prefix=arch_preset["symbol_prefix"],
         # project-specific
         iat_thunks=_parse_int_list(tgt.get("iat_thunks", []), "iat_thunks"),
         dll_exports=_parse_hex_dict(tgt.get("dll_exports", {})),
@@ -1186,7 +1179,6 @@ def load_config(
         layout = _detect_binary_layout(cfg.target_binary, fmt=cfg.binary_format)
         cfg.image_base = layout["image_base"]
         cfg.text_va = layout["text_va"]
-        cfg.text_raw_offset = layout["text_raw_offset"]
     else:
         # A typo'd/missing binary path silently leaves image_base/text_va at 0,
         # which surfaces later as baffling byte-offset math.  Warn at load time.
