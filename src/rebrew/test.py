@@ -615,11 +615,14 @@ def _fix_size_evidence_ok(
 
 def _disasm_extent(cfg: ProjectConfig, va: int) -> int | None:
     """Disassembly-derived function extent at *va* (best-effort)."""
+    import logging
+
     from rebrew.binary_loader import function_extent_from_disasm
 
     try:
         return function_extent_from_disasm(cfg.target_binary, va)
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("extent failed for 0x%x: %s", va, exc)
         return None
 
 

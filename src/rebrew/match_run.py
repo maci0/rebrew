@@ -189,7 +189,8 @@ def _run_single_ga(
         if best_src is not None and best_score >= 0.1:
             try:
                 annos = parse_c_file_multi(p.seed_c, metadata_dir=p.cfg.metadata_dir)
-            except Exception:
+            except Exception as exc:
+                log.debug("ceiling annotation parse failed for %s: %s", p.seed_c, exc)
                 annos = []
             ann = _select_annotation(annos, p.symbol) or (annos[0] if annos else None)
             module = ann.module if ann is not None else ""
@@ -646,9 +647,10 @@ def _classify_ga_ceiling(
         if enc > 0 and reg == 0 and struct == 0 and equiv == 0:
             return "encoding"
         return None
-    except Exception:
+    except Exception as exc:
         # Best-effort: a classification failure must not crash the run or
         # write a bogus ceiling marker.
+        log.debug("ceiling classification failed: %s", exc)
         return None
 
 
