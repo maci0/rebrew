@@ -520,10 +520,6 @@ def add_target(
     bin_dir = root / "bin" / name
     bin_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create empty function list
-    func_list = src_dir / "functions.txt"
-    func_list.touch(exist_ok=True)
-
     # Build target table
     tgt = tomlkit.table()
     tgt.add("binary", binary)
