@@ -1170,3 +1170,62 @@ class TestRunTest:
         run_test(load_config(root), "src/x/f.c", no_promote=True, json_output=True)
         meta_path = root / "src" / "rebrew-functions.toml"
         assert not meta_path.exists() or "status" not in meta_path.read_text()
+
+
+class TestMissingSizeHint:
+    """A SIZE-less stub whose VA is in the inventory names the fix."""
+
+    def _project(self, tmp_path: Path, monkeypatch: Any) -> Path:
+        import json as _json
+        import shutil
+
+        fixture = Path(__file__).parent / "fixtures" / "mini_pe.exe"
+        (tmp_path / "original").mkdir()
+        shutil.copy(fixture, tmp_path / "original" / "x.exe")
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "x"\n'
+            '[targets.x]\nbinary = "original/x.exe"\n'
+            '[compiler]\nprofile = "msvc-6.0"\n',
+            encoding="utf-8",
+        )
+        src_dir = tmp_path / "src" / "x"
+        src_dir.mkdir(parents=True)
+        (src_dir / "f.c").write_text(
+            "// STUB: X 0x1000\nvoid f(void) {}\n", encoding="utf-8"
+        )
+        (src_dir / "function_structure.json").write_text(
+            _json.dumps([{"va": 0x1000, "size": 32, "name": "f"}]),
+            encoding="utf-8",
+        )
+        return tmp_path
+
+    def test_hint_names_inventory_size(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        self._project(tmp_path, monkeypatch)
+        monkeypatch.setenv("COLUMNS", "200")
+        result = CliRunner().invoke(umbrella, ["test", "src/x/f.c"])
+        assert result.exit_code == 2, result.output
+        assert "SIZE 32" in result.output
+        assert "rebrew catalog --fix-sizes" in result.output
+
+    def test_no_hint_without_inventory_entry(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        import json as _json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        self._project(tmp_path, monkeypatch)
+        (tmp_path / "src" / "x" / "function_structure.json").write_text(
+            _json.dumps([{"va": 0x2000, "size": 32, "name": "other"}]),
+            encoding="utf-8",
+        )
+        result = CliRunner().invoke(umbrella, ["test", "src/x/f.c"])
+        assert result.exit_code == 2, result.output
+        assert "inventory has SIZE" not in result.output
