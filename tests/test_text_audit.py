@@ -129,10 +129,14 @@ class TestTextAuditCli:
         from rebrew.text_audit import app
 
         monkeypatch.chdir(_project(tmp_path))
+        # Wide terminal: Rich wraps at terminal width, which varies by
+        # environment (e.g. under pytest-xdist) and can split "server.dll"
+        # mid-word with a space no normalization can rejoin.
+        monkeypatch.setenv("COLUMNS", "200")
         result = CliRunner().invoke(app, [])
         assert result.exit_code == 2
         assert "server.dll" in result.output
-        assert "not found" in " ".join(result.output.split())
+        assert "not found" in result.output
 
     def test_custom_built_path_honored(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
