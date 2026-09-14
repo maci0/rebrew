@@ -1,5 +1,6 @@
 """types_cli.py - `rebrew types` command: check structs, apply types to signatures."""
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +34,8 @@ def collect_evidence(files: list[Path]) -> dict[str, dict[int, int]]:
             continue
         try:
             result = parse_decomp_for_structs(text)
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("struct parse failed: %s", exc)
             continue
         for name, ent in result.named.items():
             slots = merged.setdefault(name, {})

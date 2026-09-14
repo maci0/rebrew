@@ -168,7 +168,8 @@ class CompileCache:
         """Total bytes used by the cache on disk."""
         try:
             return int(self._cache.volume()) if self._cache is not None else 0
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("cache volume failed: %s", exc)
             return 0
 
     @property
@@ -176,7 +177,8 @@ class CompileCache:
         """Number of entries in the cache."""
         try:
             return len(self._cache) if self._cache is not None else 0
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("cache count failed: %s", exc)
             return 0
 
     def clear(self) -> None:

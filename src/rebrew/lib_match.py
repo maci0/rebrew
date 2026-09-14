@@ -43,6 +43,7 @@ a pre-commit or CI gate.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import shutil
 import subprocess
@@ -159,7 +160,8 @@ def _findings(cfg: Any, index: Index, allow: set[int]) -> list[dict[str, str]]:
             continue
         try:
             data = extract_raw_bytes(cfg.target_binary, va, entry.size or PREFIX_BYTES)
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("byte extract failed for 0x%x: %s", va, exc)
             continue
         hit = match_bytes(index, data)
         if hit is None and (entry.size or 0) > PREFIX_BYTES:
@@ -167,7 +169,8 @@ def _findings(cfg: Any, index: Index, allow: set[int]) -> list[dict[str, str]]:
             # real match; retry on a fixed prefix.
             try:
                 hit = match_bytes(index, extract_raw_bytes(cfg.target_binary, va, PREFIX_BYTES))
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("prefix retry failed for 0x%x: %s", va, exc)
                 hit = None
         if hit is not None:
             sym, obj_name = hit

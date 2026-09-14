@@ -275,7 +275,8 @@ def _docker_backed_profiles() -> frozenset[str]:
         from rebrew.toolchain import TOOLCHAINS
 
         return frozenset(n for n, s in TOOLCHAINS.items() if s.image is not None)
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("docker profile probe failed: %s", exc)
         return frozenset()
 
 
