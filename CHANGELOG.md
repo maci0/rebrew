@@ -1,3 +1,24 @@
+## [Unreleased]
+### Added
+- **Fix-suggestion loop closed**: `rebrew test` refusal names the inventory
+  SIZE + backfill command; `rebrew verify` summary hints `--fix-sizes` when
+  MISSING_SIZE present; `rebrew match` abort inlines the annotation errors
+  (JSON mode lost them); new `doctor` Layout-package check warns with the
+  `gen-layout` fix.
+- **JSON purity pinned (27 → 82 commands)** + `json_mode` on error paths in
+  calibrate-bss/gen-layout/gen-link-stubs/link-sweep/verify-placement/
+  inline-strings; gen-layout/inline-strings convert raw ValueErrors.
+- **`lint` staleness diagnosis revived** on the inventory file (dead since
+  the `function_list` field removal) + names `rebrew discover-functions`.
+### Changed
+- **GA scoring 2.3× faster** (`disasm_lite` tuples instead of CsInsn objects
+  in the normalize path).
+- **Suite hygiene**: 2406 → 23 warnings (rm_rf teardown filter), duplicate
+  tests dropped, skill-validator cost halved, parallel invocation documented,
+  width-proof CLI error tests for xdist.
+### Removed
+- Write-only `symbol_prefix` / `text_raw_offset` / `va_to_file_offset`;
+  dead dict `make_func_entry`; stale `build/` output dir.
 ## [2.1.0] - 2026-09-14
 ### Removed
 - **`functions.txt` is gone (second half)**: `cfg add-target` no longer
