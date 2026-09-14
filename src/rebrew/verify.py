@@ -2303,6 +2303,13 @@ def _print_results(
         result_text.append(", ")
         result_text.append(f"{failed} failed", style="red")
     console.print(result_text)
+    if any(r["status"] == "MISSING_SIZE" for r in results):
+        n = sum(1 for r in results if r["status"] == "MISSING_SIZE")
+        console.print(
+            f"[dim]hint: {n} function(s) have no SIZE — backfill from the "
+            "inventory with `rebrew verify --fix-sizes` (or `rebrew catalog "
+            "--fix-sizes` without verifying).[/dim]"
+        )
 
 
 def main_entry() -> None:
