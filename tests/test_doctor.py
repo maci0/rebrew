@@ -962,3 +962,22 @@ class TestModuleExecution:
         )
         assert "NameError" not in proc.stderr
         assert "Traceback" not in proc.stderr
+
+
+class TestCheckLayoutPackage:
+    def test_missing_warns_with_fix(self, tmp_path: Path) -> None:
+        from rebrew.doctor import check_layout_package
+
+        result = check_layout_package(_make_cfg(tmp_path))  # type: ignore[arg-type]
+        assert result.status == "warn"
+        assert "rebrew-layout.toml" in result.message
+        assert "rebrew gen-layout" in (result.fix or "")
+
+    def test_present_passes(self, tmp_path: Path) -> None:
+        from rebrew.doctor import check_layout_package
+
+        pkg = tmp_path / "layout" / "test" / "rebrew-layout.toml"
+        pkg.parent.mkdir(parents=True)
+        pkg.write_text("[layout]\n", encoding="utf-8")
+        result = check_layout_package(_make_cfg(tmp_path))  # type: ignore[arg-type]
+        assert result.status == "pass"
