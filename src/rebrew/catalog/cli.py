@@ -1,7 +1,7 @@
 """catalog/cli.py - CLI entry point for the catalog command.
 
 Orchestrates annotation scanning, registry building, and output generation
-(CATALOG.md, data.json, reccmp CSV, Ghidra label export, size fixing).
+(data.json, reccmp CSV, Ghidra label export, size fixing).
 
 ``run_catalog()`` holds the orchestration so it is callable in-process; the
 Typer callback is a thin wrapper that resolves config, validates CLI-only
@@ -20,7 +20,7 @@ import typer
 from rich.console import Console
 
 from rebrew.annotation import Annotation, parse_c_file_multi
-from rebrew.catalog.export import generate_catalog, generate_reccmp_csv
+from rebrew.catalog.export import generate_reccmp_csv
 from rebrew.catalog.grid import count_statuses, covered_bytes, generate_data_json
 from rebrew.catalog.loaders import cached_function_list, scan_reversed_dir
 from rebrew.catalog.registry import build_function_registry, count_detection_sources
@@ -42,39 +42,18 @@ app = typer.Typer(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew catalog · · · · · · · · · · · · Validate and summarize (default)\n\n"
         "  rebrew catalog --data-json · · · · · · · Write db/data_<target>.json (feeds build-db)\n\n"
-        "  rebrew catalog --catalog · · · · · · · · Generate CATALOG.md in reversed_dir\n\n"
-        "  rebrew catalog --data-json --catalog · · Write both JSON and CATALOG.md\n\n"
         "  rebrew catalog --json · · · · · · · · · Machine-readable summary to stdout\n\n"
         "  rebrew catalog -t mygame · · · · · · · · Catalog a specific target\n\n"
         "[bold]What it does:[/bold]\n\n"
         "  1. Scans reversed_dir for .c files with reccmp-style annotations\n\n"
-        "  2. Cross-references with function_structure.json and function list\n\n"
+        "  2. Cross-references with function_structure.json\n\n"
         "  3. Builds function registry merging all detection sources\n\n"
         "  4. Generates cell-level coverage data for the .text section\n\n"
-        "  5. Outputs structured data and/or CATALOG.md\n\n"
+        "  5. Outputs structured data\n\n"
         "[dim]Run 'rebrew catalog --data-json && rebrew build-db' to populate the "
         "recoverage SQLite database.[/dim]"
     ),
 )
-
-
-def _is_catalog_generated_structure(path: Path) -> bool:
-    """True when *path* is a `function_structure.json` written by rebrew catalog.
-
-    The catalog-generated compatibility export stamps every entry with
-    ``_generated_by: "rebrew catalog"`` so a re-run can refresh it after the
-    function list changed — while a REAL Ghidra export (no marker) placed at
-    the same path is treated as authoritative and never overwritten.
-    """
-    if not path.exists():
-        return False
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return False
-    if not isinstance(data, list):
-        return False
-    return any(isinstance(d, dict) and d.get("_generated_by") == "rebrew catalog" for d in data)
 
 
 def build_catalog_data(cfg: Any, *, with_data: bool = True) -> dict[str, Any]:
@@ -168,7 +147,6 @@ def build_catalog_data(cfg: Any, *, with_data: bool = True) -> dict[str, Any]:
 def run_catalog(
     cfg: ProjectConfig,
     *,
-    catalog: bool = False,
     gen_data_json: bool = False,
     csv: bool = False,
     summary: bool = False,
@@ -180,9 +158,9 @@ def run_catalog(
 
     The same pipeline the ``rebrew catalog`` callback runs: scan
     ``reversed_dir``, build the function registry, print the human summary,
-    and write the requested artifacts (CATALOG.md, ``db/data_<target>.json``,
+    and write the requested artifacts (``db/data_<target>.json``,
     reccmp CSV, ``ghidra_data_labels.json``, ``--fix-sizes`` metadata updates).
-    With every flag left false the default action set applies (catalog + data
+    With every flag left false the default action set applies (data
     JSON + CSV + summary), matching a bare ``rebrew catalog`` invocation.
 
     Returns the object the CLI prints under ``--json``.
@@ -195,11 +173,8 @@ def run_catalog(
     reversed_dir = cfg.reversed_dir
     target = cfg.target_name
 
-    ghidra_json_path = reversed_dir / FUNCTION_STRUCTURE_JSON
-
     if not any(
         [
-            catalog,
             gen_data_json,
             csv,
             summary,
@@ -208,7 +183,6 @@ def run_catalog(
             json_output,
         ]
     ):
-        catalog = True
         gen_data_json = True
         csv = True
         summary = True
@@ -285,13 +259,6 @@ def run_catalog(
 
     from rebrew.utils import atomic_write_text
 
-    if catalog:
-        catalog_text = generate_catalog(entries, funcs, text_size, getattr(cfg, "text_va", 0))
-        catalog_path = reversed_dir / "CATALOG.md"
-        catalog_path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(catalog_path, catalog_text, encoding="utf-8")
-        console.print(f"Wrote {catalog_path}", style="dim")
-
     if gen_data_json or export_ghidra_labels:
         data = bundle["data"]
         if gen_data_json:
@@ -300,32 +267,6 @@ def run_catalog(
             json_path = coverage_dir / f"data_{target}.json"
             atomic_write_text(json_path, json.dumps(data, indent=2) + "\n", encoding="utf-8")
             console.print(f"Wrote {json_path}", style="dim")
-
-            # Export function_structure.json for compatibility if we parsed from a list.
-            # Provenance-stamped: the catalog-generated file carries a
-            # `_generated_by` marker on every entry, so a RE-RUN refreshes it
-            # when the function list changed — but a real Ghidra export placed
-            # at the same path (no marker) is never overwritten
-            # (idempotency-review F5: the old `not exists()` guard wrote the
-            # file once and never refreshed it, so re-discovery left a stale
-            # structure cache diverging from the freshly-written data JSON).
-            if funcs:
-                is_catalog_generated = _is_catalog_generated_structure(ghidra_json_path)
-                if not ghidra_json_path.exists() or is_catalog_generated:
-                    struct_data = [
-                        {
-                            "va": f["va"],
-                            "size": f["size"],
-                            "name": f["name"],
-                            "tool_name": f["name"],
-                            "_generated_by": "rebrew catalog",
-                        }
-                        for f in funcs
-                    ]
-                    atomic_write_text(
-                        ghidra_json_path, json.dumps(struct_data, indent=2) + "\n", encoding="utf-8"
-                    )
-                    console.print(f"Wrote {ghidra_json_path}", style="dim")
 
         if export_ghidra_labels:
             text_sec = data.get("sections", {}).get(".text", {})
@@ -397,7 +338,6 @@ def run_catalog(
         "text_size": text_size,
         "coverage_pct": round(coverage_pct, 1),
         "wrote_data_json": gen_data_json,
-        "wrote_catalog": catalog,
         "wrote_csv": csv,
     }
     if binary_missing:
@@ -408,9 +348,6 @@ def run_catalog(
 @app.callback(invoke_without_command=True)
 def main(
     gen_data_json: bool = typer.Option(False, "--data-json", help="Write db/data_<target>.json"),
-    catalog: bool = typer.Option(
-        False, "--catalog", help="Generate CATALOG.md in reversed directory"
-    ),
     summary: bool = typer.Option(False, "--summary", help="Print summary table (stderr)"),
     csv: bool = typer.Option(
         False, "--csv", help="Generate reccmp-compatible CSV (written to db/<target>_functions.csv)"
@@ -476,7 +413,6 @@ def main(
     try:
         payload = run_catalog(
             cfg,
-            catalog=catalog,
             gen_data_json=gen_data_json,
             csv=csv,
             summary=summary,

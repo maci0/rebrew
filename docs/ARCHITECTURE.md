@@ -54,7 +54,6 @@ flowchart LR
 
     LOAD --> CATALOG["catalog/ (LIEF section/label data)"]
     CATALOG --> DB["build_db.py → coverage.db"]
-    CATALOG --> CATMD["CATALOG.md (rebrew catalog --catalog)"]
     DB --> DASH["dashboard.py<br/>read-only web UI"]
 
     LOAD --> IMPORTS["imports.py<br/>PE import table + stubs"]

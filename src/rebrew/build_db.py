@@ -1152,7 +1152,6 @@ app = typer.Typer(
         "  Run 'rebrew catalog --json' first to generate db/data_*.json files.\n\n"
         "[bold]What it creates:[/bold]\n\n"
         "  db/coverage.db · · · · · · SQLite database with functions, globals, sections, cells\n\n"
-        "  src/<target>/CATALOG.md · · Markdown catalog (regenerate with 'rebrew catalog --catalog')\n\n"
         "[dim]The database is used by recoverage (coverage dashboard) and can be queried "
         "directly for reports. Schema version is stamped in the metadata table.[/dim]"
     ),

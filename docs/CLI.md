@@ -848,7 +848,6 @@ missing_typing, for_loops, while_loops, suggestions}]}`.
 |------|-----------|
 | `--data-json` | Write `db/data_<target>.json` (input for `build-db`) |
 | `--json` | Print catalog summary as JSON to stdout |
-| `--catalog` | Generate `CATALOG.md` in reversed directory |
 | `--summary` | Print summary to stdout |
 | `--csv` | Generate reccmp-compatible CSV (written to `db/<target>_functions.csv`) |
 | `--export-ghidra` | Cache Ghidra function list |

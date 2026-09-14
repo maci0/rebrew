@@ -1,11 +1,10 @@
-"""Tests for catalog/export.py — CATALOG.md and reccmp CSV generation."""
+"""Tests for catalog/export.py — reccmp CSV generation."""
 
 from types import SimpleNamespace
 
 from rebrew.annotation import Annotation
 from rebrew.catalog.export import (
     _reccmp_type,
-    generate_catalog,
     generate_reccmp_csv,
 )
 
@@ -32,68 +31,6 @@ def _ann(
         marker_type=marker_type,
         filepath=f"{name}.c",
     )
-
-
-class TestGenerateCatalog:
-    def test_basic(self) -> None:
-        entries = [
-            _ann(0x1000, "fn_a", "EXACT"),
-            _ann(0x2000, "fn_b", "RELOC"),
-            _ann(0x3000, "fn_c", "STUB"),
-            _ann(0x4000, "g_x", "EXACT", marker_type="GLOBAL"),  # excluded
-        ]
-        funcs = [
-            {"va": 0x1000, "size": 64, "name": "fn_a"},
-            {"va": 0x5000, "size": 32, "name": "unmatched_fn"},
-        ]
-        out = generate_catalog(entries, funcs, text_size=1000)
-        assert "# Reversed Functions Catalog" in out
-        assert "3/2 functions cataloged" in out  # 3 cataloged, 2 total funcs
-        assert "1 exact" in out
-        assert "## GAME (3 functions)" in out
-        assert "fn_a" in out
-        assert "g_x" not in out
-        assert "## Unmatched Functions (1 remaining)" in out
-        assert "unmatched_fn" in out
-
-    def test_stub_with_near_matching_not_stub(self) -> None:
-        entries = [
-            _ann(0x1000, "fn_a", "STUB"),
-            _ann(0x2000, "fn_b", "STUB"),
-        ]
-        # Both STUB entries: one also has a NEAR_MATCHING annotation at the
-        # same VA via a second entry.
-        entries.append(_ann(0x2000, "fn_b", "NEAR_MATCHING"))
-        out = generate_catalog(entries, [], text_size=100)
-        assert "1 stubs" in out
-        # NEAR_MATCHING is its own bucket, not silently dropped.
-        assert "1 near-matching" in out
-
-    def test_empty(self) -> None:
-        out = generate_catalog([], [], text_size=0)
-        assert "0/0 functions cataloged" in out
-        assert "Coverage: 0.0%" in out
-
-    def test_covered_bytes_fallback(self) -> None:
-        entries = [_ann(0x1000, "fn_a", "EXACT", size=42)]
-        out = generate_catalog(entries, [], text_size=100, text_va=0x1000)
-        assert "42/100 bytes" in out
-
-    def test_overlapping_sizes_count_once(self) -> None:
-        """A function list that lists one range twice must not inflate coverage."""
-        entries = [
-            _ann(0x1000, "fn_a", "EXACT", size=0x40),
-            _ann(0x1010, "fn_a_alias", "EXACT", size=0x40),
-        ]
-        out = generate_catalog(entries, [], text_size=0x100, text_va=0x1000)
-        assert f"{0x50}/256 bytes" in out
-
-    def test_sizes_past_the_section_are_clipped(self) -> None:
-        """A size running past .text cannot push coverage over 100%."""
-        entries = [_ann(0x1000, "fn_a", "EXACT", size=0x1000)]
-        out = generate_catalog(entries, [], text_size=0x100, text_va=0x1000)
-        assert f"{0x100}/256 bytes" in out
-        assert "Coverage: 100.0%" in out
 
 
 class TestReccmpType:
