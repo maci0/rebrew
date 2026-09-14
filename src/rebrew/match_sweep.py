@@ -179,8 +179,12 @@ def resolve_build_params(
             for w in eval_warns:
                 console.print(f"[bold yellow]LINT WARNING:[/bold yellow] {w}")
         if eval_errs and not ignore_lint:
+            detail = "; ".join(eval_errs[:3])
+            if len(eval_errs) > 3:
+                detail += f" (+{len(eval_errs) - 3} more)"
             error_exit(
-                "Aborting due to annotation errors. Fix them or use --ignore-lint to override.",
+                "Aborting due to annotation errors "
+                f"({detail}). Fix them or use --ignore-lint to override.",
                 json_mode=json_output,
             )
 
