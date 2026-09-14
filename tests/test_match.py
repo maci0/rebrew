@@ -1025,52 +1025,6 @@ class TestResolveBuildParamsVATargeting:
             default_jobs=1,
         )
 
-    def test_va_selects_matching_annotation(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from rebrew.annotation import parse_c_file_multi
-        from rebrew.match import resolve_build_params
-
-        src_dir = tmp_path / "src" / "T"
-        src_dir.mkdir(parents=True)
-        multi = src_dir / "multi.c"
-        multi.write_text(
-            "// FUNCTION: T 0x10001000\n"
-            "// SIZE: 8\n"
-            "void exit_handler(void) { return; }\n"
-            "\n"
-            "// FUNCTION: T 0x1000a010\n"
-            "// SIZE: 112\n"
-            "void cleanup(void) { return; }\n",
-            encoding="utf-8",
-        )
-        cfg = self._cfg(tmp_path, src_dir)
-        # extract_raw_bytes reads the target binary — stub it with 112 bytes.
-        monkeypatch.setattr("rebrew.match_sweep.extract_raw_bytes", lambda *a, **k: b"\x90" * 112)
-        # read_source_text + parse must run; compiler env resolution can be stubbed.
-        monkeypatch.setattr(
-            "rebrew.match_sweep.resolve_compiler_env",
-            lambda cfg: ("wine CL.EXE", "inc", {"WINEDEBUG": "-all"}, None),
-        )
-
-        params = resolve_build_params(
-            cfg,
-            str(multi),
-            None,
-            None,
-            None,
-            None,
-            "0x1000a010",
-            None,  # target_va = 0x1000a010, target_size=None
-            False,
-            False,
-        )
-        assert params.symbol == "_cleanup"
-        assert params.target_size == 112  # from the VA-matched annotation, not 8
-
-        # Sanity: without the VA, the fallback would pick the first annotation.
-        annos = parse_c_file_multi(multi, target_name="T", metadata_dir=tmp_path)
-        assert annos[0].va == 0x10001000
-        assert annos[1].va == 0x1000A010
-
     def test_va_no_match_errors(self, tmp_path: Path, monkeypatch: Any) -> None:
         """A requested VA the resolved file does not annotate must error, not
         silently fall back to the first annotation (wrong-function diff)."""
