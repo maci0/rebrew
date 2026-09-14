@@ -178,7 +178,6 @@ class TestKnownSourceWidening:
             '["SERVER.0x4000"]\nstatus = "STUB"\nsize = 16\n',
             encoding="utf-8",
         )
-        (tmp_path / "functions.txt").write_text("0x1000 16 foo\n", encoding="utf-8")
         (src / FUNCTION_STRUCTURE_JSON).write_text(
             '[{"va": 8192, "size": 16, "name": "ghidra_fn"}]', encoding="utf-8"
         )

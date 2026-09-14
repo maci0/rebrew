@@ -280,7 +280,7 @@ def index_local_and_catalog(
 ) -> tuple[dict[int, object], dict[int, object], set[int]]:
     """Index local annotations by VA and overlay catalog-only VAs.
 
-    The catalog (functions.txt / function_structure.json) is the project file:
+    The catalog (discovery inventory) is the project file:
     its VAs represent the ground truth binary layout even when no .c file
     exists yet.  Catalog-only VAs land in the second map so callers can
     surface them (stub-able / new-in-BinSync) without overwriting real

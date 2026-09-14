@@ -616,7 +616,7 @@ def generate_test_command(filepath: str, symbol: str, va: int, size: int) -> str
 def _stale_size_note(cfg: ProjectConfig, va: int, size: int) -> str | None:
     """Return a warning string when the resolved *size* looks stale — the
     disassembly extent runs past it, so the first `rebrew test --size N`
-    would fail with SIZE_MISMATCH (a stale functions.txt entry truncates
+    would fail with SIZE_MISMATCH (a stale inventory entry truncates
     mid-code), or the entry spans SEVERAL merged functions.  None when the
     size is fine or cannot be cross-checked.  x86-32 only — the extent
     walker is an x86 disassembler."""
@@ -625,7 +625,7 @@ def _stale_size_note(cfg: ProjectConfig, va: int, size: int) -> str | None:
     from rebrew.binary_loader import function_extent_from_disasm
 
     # Merged-region check: an entry spanning several functions (a bad
-    # functions.txt boundary) has multiple ret-terminated epilogues within
+    # inventory boundary) has multiple ret-terminated epilogues within
     # its declared size — the user should split it, not treat it as one.
     try:
         from rebrew.binary_loader import extract_raw_bytes

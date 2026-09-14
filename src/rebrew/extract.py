@@ -309,7 +309,7 @@ app = typer.Typer(
         "  rebrew extract show 0x10001860 · · · Extract + disassemble one VA\n\n"
         "  rebrew extract batch 20 · · · · · · Extract first 20 smallest\n\n"
         "  rebrew extract batch 20 --start 10 · Offset into sorted list\n\n"
-        "[dim]Reads function list from functions.txt or .json and auto-detects "
+        "[dim]Reads the discovery inventory (function_structure.json) and auto-detects "
         "already-reversed VAs. Outputs .bin files to the configured bin_dir.[/dim]"
     ),
 )

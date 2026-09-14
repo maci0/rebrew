@@ -196,7 +196,6 @@ class TestCli:
             "int f(void) { return 0; }\n",
             encoding="utf-8",
         )
-        (src / "functions.txt").write_text("0x00401000 8 f\n", encoding="utf-8")
         cfg = SimpleNamespace(
             target_name="SERVER",
             target_binary=tmp_path / "x.exe",
@@ -235,7 +234,6 @@ class TestCli:
         (src / "f.c").write_text(
             "// FUNCTION: SERVER 0x401000\nint f(void) { return 0; }\n", encoding="utf-8"
         )
-        (src / "functions.txt").write_text("0x00401000 8 f\n", encoding="utf-8")
         cfg = SimpleNamespace(
             target_name="SERVER",
             target_binary=tmp_path / "x.exe",

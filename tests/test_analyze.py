@@ -52,9 +52,9 @@ class TestCollectFunctions:
         assert out["total"] == 1  # Ghidra list wins
         assert out["total_bytes"] == 100
 
-    def test_functions_txt_fallback(self, tmp_path: Path) -> None:
-        """Without a Ghidra export, functions.total comes from functions.txt
-        (regression: a functions.txt-only project reported total=0)."""
+    def test_inventory_fallback(self, tmp_path: Path) -> None:
+        """Without a Ghidra export, functions.total comes from the discovery
+        inventory (regression: an inventory-only project reported total=0)."""
         import json as _json
 
         from rebrew.analyze import _collect_functions
@@ -397,8 +397,6 @@ class TestDispatchTablesShape:
             "// FUNCTION: SERVER 0x401000\n// SIZE: 8\nint f1(void) { return 0; }\n",
             encoding="utf-8",
         )
-        funcs = tmp_path / "functions.txt"
-        funcs.write_text("", encoding="utf-8")
         seen: dict[str, object] = {}
 
         def _fake(data, sections, known, **kwargs):
