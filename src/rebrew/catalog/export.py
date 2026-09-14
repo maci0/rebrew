@@ -24,7 +24,7 @@ def generate_catalog(
     # Deduplicate by VA (keep first occurrence per VA)
     by_va: dict[int, list[Annotation]] = {}
     for e in entries:
-        if e.get("marker_type") in ("GLOBAL", "DATA"):
+        if e.get("is_data", False):
             continue
         by_va.setdefault(e.va, []).append(e)
 
@@ -58,7 +58,7 @@ def generate_catalog(
     # Group by module (discovered dynamically from data, excluding GLOBAL/DATA)
     by_module: dict[str, list[Annotation]] = {}
     for e in entries:
-        if e.get("marker_type") in ("GLOBAL", "DATA"):
+        if e.get("is_data", False):
             continue
         module = e.module or "GAME"
         by_module.setdefault(module, []).append(e)
@@ -125,7 +125,7 @@ def generate_reccmp_csv(
         # functions — every other consumer (generate_catalog, grid, build_db,
         # dashboard) filters them; emitting them here yields a bogus
         # `0x00001000|||function|0` row that reccmp treats as a function.
-        if e.marker_type in ("GLOBAL", "DATA"):
+        if e.is_data:
             continue
         if e.va not in by_va:
             by_va[e.va] = e

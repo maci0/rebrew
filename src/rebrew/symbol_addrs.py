@@ -332,7 +332,7 @@ def main(
     skipped_va = 0
     for _path, annos in iter_annotations(sources, target=marker, metadata_dir=cfg.metadata_dir):
         for a in annos:
-            if a.marker_type in ("GLOBAL", "DATA"):
+            if a.is_data:
                 continue
             name = a.symbol or a.name or ""
             if not name:

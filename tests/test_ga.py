@@ -33,18 +33,17 @@ class TestParseStubInfo:
         f = tmp_path / f"func_{va:08x}.c"
         f.write_text(
             f"// FUNCTION: SERVER 0x{va:08X}\n"
-            f"// STATUS: {status}\n"
             f"// CFLAGS: /O2 /Gd\n"
             f"void __cdecl {func_name}(void) {{\n"
             f"    // stub\n"
             f"}}\n",
             encoding="utf-8",
         )
-        # SIZE lives in metadata, not inline
+        # SIZE + STATUS live in metadata, not inline
         metadata_toml = tmp_path / "rebrew-functions.toml"
         existing = metadata_toml.read_text(encoding="utf-8") if metadata_toml.exists() else ""
         metadata_toml.write_text(
-            existing + f'["SERVER.0x{va:08X}"]\nsize = {size}\n',
+            existing + f'["SERVER.0x{va:08X}"]\nsize = {size}\nstatus = "{status}"\n',
             encoding="utf-8",
         )
         return f
@@ -157,12 +156,14 @@ class TestFindAllStubs:
         f = tmp_path / "exact.c"
         f.write_text(
             "// FUNCTION: SERVER 0x10001000\n"
-            "// STATUS: EXACT\n"
             "// SIZE: 64\n"
             "// CFLAGS: /O2 /Gd\n"
-            "// SYMBOL: _exact\n"
             "void __cdecl _exact(void) {}\n",
             encoding="utf-8",
+        )
+        # STATUS lives in metadata, not inline
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8"
         )
         stubs = find_all_stubs(tmp_path)
         assert stubs == []
@@ -1290,7 +1291,7 @@ class TestGABuildCacheKey:
         g._compile_source(src)  # miss → compile
         g._compile_source(src)  # hit (same instance, same flags)
         assert seen == ["/O2"]
-        g.cache.close()
+        g.close()
 
     def test_same_source_different_symbol_recompiles(
         self, tmp_path: Path, monkeypatch: Any
@@ -1350,26 +1351,17 @@ class TestGABuildCacheKey:
             pop_size=2,
             num_jobs=1,
         )
-        puts: list[str] = []
-        orig_put = ga.cache.put
-
-        def _counting_put(key: str, res: Any) -> None:
-            puts.append(key)
-            orig_put(key, res)
-
-        monkeypatch.setattr(ga.cache, "put", _counting_put)
         monkeypatch.setattr(
             "rebrew.match_ga.build_candidate_obj_only",
             lambda *a, **k: BuildResult(ok=True, obj_bytes=b"\xc3"),
         )
         src = "int f(void) { return 0; }"
         key = _ga_cache_key(src, "/O2", "cl", "", [], [], "_f")
-        ga._compile_source(src)  # miss: no write yet (no fitness attached)
-        assert puts == []
-        assert ga.cache.get(key) is None  # not stored before scoring
+        ga._compile_source(src)  # miss: no store yet (no fitness attached)
+        assert key not in ga.cache  # not stored before scoring
         ga._compute_fitness(BuildResult(ok=True, obj_bytes=b"\xc3"), key, src)
-        assert puts == [key]
-        ga.cache.close()
+        assert key in ga.cache
+        ga.close()
 
     def test_success_is_stored_under_the_key_compile_reads(
         self, tmp_path: Path, monkeypatch: Any
@@ -1408,11 +1400,9 @@ class TestGABuildCacheKey:
         res = ga._compile_source(src)
         # Exactly how _run_inner calls it: the digest, not the compile key.
         ga._compute_fitness(res, source_digest(src), src)
-        ga.cache.close()
 
-        ga2 = _ga()
-        ga2._compile_source(src)  # must hit the disk cache
-        ga2.cache.close()
+        ga._compile_source(src)  # must hit the same-run memo
+        ga.close()
         assert calls == [src]
 
     def test_failure_still_cached_on_compile(self, tmp_path: Path, monkeypatch: Any) -> None:
@@ -1444,7 +1434,7 @@ class TestGABuildCacheKey:
         ga._compile_source(src)  # miss → compile → failure stored
         ga._compile_source(src)  # hit: no recompile
         assert calls == [src]
-        ga.cache.close()
+        ga.close()
 
     def test_run_uses_single_executor(self, tmp_path: Path, monkeypatch: Any) -> None:
         """The whole run shares one ThreadPoolExecutor (no per-generation
@@ -1479,7 +1469,7 @@ class TestGABuildCacheKey:
             num_jobs=1,
         )
         ga._run_inner()
-        ga.cache.close()
+        ga.close()
         assert len(created) == 1
 
 
@@ -1761,7 +1751,7 @@ class TestRunOneStubGaPersistsFlags:
 
 
 class TestCrossProjectSeeding:
-    """rebrew match --all --seed-solutions-file <other-project>/solutions.json.
+    """rebrew match --all --seed-solutions-file <other-project>/.rebrew/ga_runs.jsonl.
 
     Cross-project seeding transfers winning cflags (and source files when
     they resolve) from another project's solutions into this project's batch

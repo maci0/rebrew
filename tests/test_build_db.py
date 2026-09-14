@@ -145,6 +145,16 @@ def project_root(tmp_path: Path) -> Path:
     return tmp_path
 
 
+def _write_cache(project_root: Path, target: str, entries: dict) -> None:
+    """Seed .rebrew/verify_cache.json (the verify_results import source)."""
+    cache_dir = project_root / ".rebrew"
+    cache_dir.mkdir(exist_ok=True)
+    (cache_dir / "verify_cache.json").write_text(
+        json.dumps({"version": 2, "target": target, "entries": entries}),
+        encoding="utf-8",
+    )
+
+
 def _open_db(project_root: Path) -> tuple[sqlite3.Connection, sqlite3.Cursor]:
     """Build the coverage DB and return a (connection, cursor) pair."""
     build_db(project_root)
@@ -381,24 +391,17 @@ binary = "test.exe"
         dropped on rebuild") — a full rebuild must NOT wipe it (db-review F3:
         the old DROP TABLE wiped every target's rows, keeping only the
         last-verified target's re-import)."""
-        import json as _json
 
-        db_dir = project_root / "db"
-        # First build: import a report row.
-        (db_dir / "verify_results.json").write_text(
-            _json.dumps(
-                {
-                    "target": "testbin",
-                    "timestamp": "2026-01-01T00:00:00+00:00",
-                    "results": [{"va": "0x1000", "delta": 3}],
-                }
-            ),
-            encoding="utf-8",
+        # First build: import a cache row.
+        _write_cache(
+            project_root,
+            "testbin",
+            {"0x00001000": {"va": "0x00001000", "status": "EXACT", "delta": 3}},
         )
         build_db(project_root)
-        # Full rebuild WITHOUT the report (simulates a later run where the
-        # report was regenerated for a different target or is absent).
-        (db_dir / "verify_results.json").unlink()
+        # Full rebuild WITHOUT the cache (simulates a later run where the
+        # cache was regenerated for a different target or is absent).
+        (project_root / ".rebrew" / "verify_cache.json").unlink()
         build_db(project_root)
         conn = sqlite3.connect(project_root / "db" / "coverage.db")
         c = conn.cursor()
@@ -407,36 +410,19 @@ binary = "test.exe"
         conn.close()
 
     def test_verify_results_unparseable_va_does_not_wipe(self, project_root: Path) -> None:
-        """A report whose every `va` fails to parse must NOT delete the
+        """A cache whose every `va` fails to parse must NOT delete the
         target's history — the old prune built `va NOT IN ()`, which SQLite
         treats as vacuously TRUE and wiped ALL rows (db-review F5)."""
-        import json as _json
-
-        db_dir = project_root / "db"
-        # Seed a row with a VALID report first.
-        (db_dir / "verify_results.json").write_text(
-            _json.dumps(
-                {
-                    "target": "testbin",
-                    "timestamp": "2026-01-01T00:00:00+00:00",
-                    "results": [{"va": "0x1000", "delta": 3}],
-                }
-            ),
-            encoding="utf-8",
+        # Seed a row with a VALID cache entry first.
+        _write_cache(
+            project_root,
+            "testbin",
+            {"0x00001000": {"va": "0x00001000", "status": "EXACT", "delta": 3}},
         )
         build_db(project_root)
-        # Rebuild with a report whose VAs do not parse — the prune must not
+        # Rebuild with a cache whose VAs do not parse — the prune must not
         # wipe the previously-imported row.
-        (db_dir / "verify_results.json").write_text(
-            _json.dumps(
-                {
-                    "target": "testbin",
-                    "timestamp": "2026-01-02T00:00:00+00:00",
-                    "results": [{"va": None, "delta": 3}],
-                }
-            ),
-            encoding="utf-8",
-        )
+        _write_cache(project_root, "testbin", {"0x00001000": {"va": None, "delta": 3}})
         build_db(project_root)
         conn = sqlite3.connect(project_root / "db" / "coverage.db")
         c = conn.cursor()
@@ -827,8 +813,8 @@ class TestBuildDbTargetFiltering:
 
     def test_scoped_rebuild_keeps_verify_history(self, tmp_path: Path) -> None:
         """A scoped --target rebuild must not wipe that target's verify_results:
-        the shared db/verify_results.json may name another target, in which case
-        nothing is re-imported — and the full-rebuild path never drops the table
+        the shared cache may name another target, in which case nothing is
+        re-imported — and the full-rebuild path never drops the table
         (DB_FORMAT.md: 'never dropped on rebuild')."""
         db_dir = tmp_path / "db"
         db_dir.mkdir()
@@ -859,10 +845,8 @@ class TestBuildDbTargetFiltering:
         conn.commit()
         conn.close()
 
-        # The shared report belongs to ANOTHER target → no re-import for alpha.
-        (db_dir / "verify_results.json").write_text(
-            json.dumps({"target": "beta", "timestamp": "t2", "results": []}), encoding="utf-8"
-        )
+        # The shared cache belongs to ANOTHER target → no re-import for alpha.
+        _write_cache(tmp_path, "beta", {})
         build_db(tmp_path, target="alpha")
 
         conn = sqlite3.connect(db_dir / "coverage.db")

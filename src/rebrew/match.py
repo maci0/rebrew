@@ -230,8 +230,8 @@ def main(
         None,
         "--seed-solutions-file",
         help=(
-            "Batch: extra solutions.json to seed from (cross-project cflags/"
-            "source transfer).  E.g. ../makehm-rebrew/.rebrew/solutions.json"
+            "Batch: extra GA run log to seed from (cross-project cflags/"
+            "source transfer).  E.g. ../makehm-rebrew/.rebrew/ga_runs.jsonl"
         ),
         rich_help_panel="Batch Mode",
     ),

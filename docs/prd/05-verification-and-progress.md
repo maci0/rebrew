@@ -5,6 +5,10 @@
 percentage of bytes match today" with caching so it's cheap to ask, and
 guard against regressions when changes ship.
 
+> **Scope:** behavior spec (CLI contracts, goals, metrics) for `verify` /
+> `status` / `graph` / `cache`.  For tables, columns, and `db_version` see
+> [../DB_FORMAT.md](../DB_FORMAT.md).
+
 ## Problem It Solves
 
 Once a project has more than a handful of functions, the user needs:
@@ -26,8 +30,11 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   where they were.
 - **AI agent** (`rebrew-workflow` skill) running `rebrew verify --json` to
   detect regressions before promoting STATUS.
-- **CI bot** running `rebrew verify --compare` against the previous
-  `db/verify_results.json` to fail on regressions.
+- **CI bot** running `rebrew verify --compare` against the local
+  `.rebrew/verify_baseline.json` baseline to fail on regressions.
+  (>2026-09: was `db/verify_results.json`; the baseline is now a local
+  gitignored `.rebrew/` file with target/compiler/binary identity guards —
+  first run warns + skips the diff.)
 - **Team lead** generating `rebrew graph --format mermaid` for design
   reviews.
 
@@ -64,8 +71,9 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   CFLAGS and compares against the target DLL.
 - Reports EXACT, RELOC, NEAR_MATCHING (with delta), STUB, or
   COMPILE_ERROR.
-- Writes a JSON report to `db/verify_results.json` by default
-  (overridable with `-o`).
+- Writes no default report file — `-o` is explicit export only
+  (>2026-09: was `db/verify_results.json` by default; the `--compare`
+  baseline lives in `.rebrew/verify_baseline.json` and needs no flag).
 - `--compare` diffs against the last saved report and flags regressions
   (STATUS downgrades, new compile errors).
 - `--full` ignores cache hits and re-verifies everything (edits to shared
@@ -87,7 +95,8 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   metadata.
 - Prints:
   - Counts per STATUS (PROVEN, EXACT, RELOC, NEAR_MATCHING, STUB,
-    LIBRARY, …).
+    SKIP, … — per `metadata.KNOWN_STATUSES`; LIBRARY is a marker type,
+    not a status).
   - Coverage as % bytes / % functions.
   - Counts of unresolved BLOCKERs.
   - Pointer to next action (`rebrew todo`).
@@ -140,8 +149,10 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 
 ### Story 1 — Pre-merge regression check
 
-1. CI runs `rebrew verify --compare --json` against the committed
-   `db/verify_results.json`.
+1. CI runs `rebrew verify --compare --json` against the local
+   `.rebrew/verify_baseline.json` baseline (>2026-09: was the committed
+   `db/verify_results.json`; the baseline is now local gitignored run state
+   with identity guards — first run warns + skips).
 2. If any function regressed (EXACT → NEAR_MATCHING, etc.) the job fails.
 3. The author runs the same command locally to inspect the regression and
    pinpoint the offending file.
@@ -185,7 +196,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 rebrew verify [OPTIONS]
       --root PATH
   -j, --jobs N
-  -o, --output PATH (default db/verify_results.json)
+  -o, --output PATH (explicit export only; no default report file)
   -s, --summary
       --compare
       --full
@@ -252,8 +263,9 @@ rebrew round-trip [OPTIONS]
   reachable header via `_headers_hash` + `_external_includes_hash` in
   `verify.py`, so editing a shared header re-verifies exactly the entries
   whose sources reach it; `--full` remains available for a hard reset.)
-- `verify --compare` baseline lives in a single file
-  (`db/verify_results.json`); branching workflows may need
+- `verify --compare` baseline lives in a single local gitignored file
+  (`.rebrew/verify_baseline.json`, with target/compiler/binary identity
+  guards — first run warns + skips); branching workflows may need
   per-branch artifacts (left to CI to manage).
 - `status` percentages are computed from `function_structure.json` if
   available, else from the function list. With neither, % coverage shows

@@ -862,7 +862,7 @@ def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
             # the function VA map — otherwise a same-named function is shadowed
             # and REL32 calls resolve to the data slot (CreateListenSocket:
             # function@0x10009e60 vs data@0x101deb14).
-            if ann.marker_type in ("DATA", "GLOBAL"):
+            if ann.is_data:
                 data[key] = ann.va
             else:
                 funcs[ann.va] = key

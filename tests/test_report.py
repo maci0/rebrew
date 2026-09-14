@@ -29,17 +29,16 @@ marker = "SERVER"
 
 _FUNC_A = (
     "// FUNCTION: SERVER 0x10001000\n"
-    "// STATUS: EXACT\n"
     "// SIZE: 100\n"
     "// CFLAGS: /O2 /Gd\n"
     "int func_a(void) { return 0; }\n"
 )
 
-_FUNC_B = (
-    "// FUNCTION: SERVER 0x10002000\n"
-    "// STATUS: NEAR_MATCHING\n"
-    "// SIZE: 200\n"
-    "int func_b(void) { return 1; }\n"
+_FUNC_B = "// FUNCTION: SERVER 0x10002000\n// SIZE: 200\nint func_b(void) { return 1; }\n"
+
+# STATUS lives in rebrew-functions.toml, not inline.
+_METADATA_TOML = (
+    '["SERVER.0x10001000"]\nstatus = "EXACT"\n["SERVER.0x10002000"]\nstatus = "NEAR_MATCHING"\n'
 )
 
 
@@ -48,6 +47,7 @@ def _write_project(tmp_path: Path, pe_bytes: bytes | None = None) -> None:
     (tmp_path / "rebrew-project.toml").write_text(_TOML, encoding="utf-8")
     if pe_bytes is not None:
         (tmp_path / "game.exe").write_bytes(pe_bytes)
+    (tmp_path / "rebrew-functions.toml").write_text(_METADATA_TOML, encoding="utf-8")
     src = tmp_path / "src"
     src.mkdir()
     (src / "func_a.c").write_text(_FUNC_A, encoding="utf-8")

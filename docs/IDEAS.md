@@ -26,7 +26,7 @@ Ideas collected during hands-on workflow testing, sorted by impact-to-effort rat
 | — | Dotted key resolution | `rebrew cfg show/set/get` — greedy longest-match resolution for TOML keys containing dots. |
 | — | CLI code audit / deduplication | `normalize_name()` in `naming.py`; `disasm_bytes()` in `asm.py`; `iter_annotations()` in `cli.py`; removed `_find_block_lines` dead code; removed `_make_progress_printer` in favour of `Console(stderr=True)` pattern. All 1784 tests pass. |
 | 4 | GA code layout mutations | `mutator.py` — 120 structural mutations for GA exploration. |
-| 19 | Cross-function solution transfer | `solutions.py` — GA auto-saves and seeds from `.rebrew/solutions.json`. |
+| 19 | Cross-function solution transfer | `solutions.py` — GA auto-saves and seeds from `.rebrew/ga_runs.jsonl`. |
 
 ---
 

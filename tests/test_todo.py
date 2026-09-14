@@ -128,22 +128,19 @@ class TestCallerCounts:
 class TestCollectors:
     def test_active_functions_compile_error(self, tmp_path: Path) -> None:
         _cfg = _make_cfg(tmp_path)
-        from rebrew.verify_cache import VerifyCacheEntry, VerifyResult
+        from rebrew.verify_cache import VerifyCacheEntry
 
         entries = {
             "0x00001000": VerifyCacheEntry(
                 source_hash="",
                 filepath="a.c",
                 mtime_ns=0,
-                result=VerifyResult(
-                    status="COMPILE_ERROR",
-                    va=0x1000,
-                    size=100,
-                    filepath="a.c",
-                    name="a",
-                    message="",
-                    passed=False,
-                ),
+                status="COMPILE_ERROR",
+                va=0x1000,
+                size=100,
+                name="a",
+                message="",
+                passed=False,
             )
         }
         items = _collect_active_functions({0x1000: {"status": "STUB"}}, {}, {}, entries)
@@ -157,22 +154,19 @@ class TestCollectors:
         sweep cannot fix a missing symbol.  Regression: guild-rebrew's
         EXTRACT_ERROR stubs showed up as fix-delta with ROI 85."""
         _cfg = _make_cfg(tmp_path)
-        from rebrew.verify_cache import VerifyCacheEntry, VerifyResult
+        from rebrew.verify_cache import VerifyCacheEntry
 
         entries = {
             "0x00001000": VerifyCacheEntry(
                 source_hash="",
                 filepath="a.c",
                 mtime_ns=0,
-                result=VerifyResult(
-                    status="EXTRACT_ERROR",
-                    va=0x1000,
-                    size=100,
-                    filepath="a.c",
-                    name="a",
-                    message="",
-                    passed=False,
-                ),
+                status="EXTRACT_ERROR",
+                va=0x1000,
+                size=100,
+                name="a",
+                message="",
+                passed=False,
             )
         }
         items = _collect_active_functions({0x1000: {"status": "STUB"}}, {}, {}, entries)
@@ -193,24 +187,21 @@ class TestCollectors:
         """A measured NEAR_MATCHING result still carrying the default FUN_
         label is matched work — it must use the verify-driven lanes, not
         the skeleton lane."""
-        from rebrew.verify_cache import VerifyCacheEntry, VerifyResult
+        from rebrew.verify_cache import VerifyCacheEntry
 
         entries = {
             "0x00001000": VerifyCacheEntry(
                 source_hash="",
                 filepath="a.c",
                 mtime_ns=0,
-                result=VerifyResult(
-                    status="NEAR_MATCHING",
-                    va=0x1000,
-                    size=100,
-                    filepath="a.c",
-                    name="FUN_00001000",
-                    message="",
-                    passed=False,
-                    match_percent=99.0,
-                    delta=3,
-                ),
+                status="NEAR_MATCHING",
+                va=0x1000,
+                size=100,
+                name="FUN_00001000",
+                message="",
+                passed=False,
+                match_percent=99.0,
+                delta=3,
             )
         }
         existing = {0x1000: {"status": "STUB", "symbol": "FUN_00001000", "filename": "a.c"}}
@@ -279,22 +270,19 @@ class TestCollectors:
         extracted) — it must NOT appear as a '0B diff' fix-delta quick-win.
         Regression: smygb's intake-documented stubs showed as 0B-diff while
         rebrew test refused them with 'Invalid SIZE: 0'."""
-        from rebrew.verify_cache import VerifyCacheEntry, VerifyResult
+        from rebrew.verify_cache import VerifyCacheEntry
 
         entries = {
             "0x00001000": VerifyCacheEntry(
                 source_hash="",
                 filepath="fcn_0040e44d.c",
                 mtime_ns=0,
-                result=VerifyResult(
-                    status="MISSING_SIZE",
-                    va=0x1000,
-                    size=0,
-                    filepath="fcn_0040e44d.c",
-                    name="fcn_0040e44d",
-                    message="MISSING_SIZE: No SIZE annotation",
-                    passed=False,
-                ),
+                status="MISSING_SIZE",
+                va=0x1000,
+                size=0,
+                name="fcn_0040e44d",
+                message="MISSING_SIZE: No SIZE annotation",
+                passed=False,
             )
         }
         existing = {
@@ -324,23 +312,20 @@ class TestCollectors:
         fix-delta (regression: smygb's 0x00404a90 stayed a '20B diff — try
         flag sweep' item after the sweep already ran and near-diag said
         STRUCTURAL)."""
-        from rebrew.verify_cache import VerifyCacheEntry, VerifyResult
+        from rebrew.verify_cache import VerifyCacheEntry
 
         entries = {
             "0x00001000": VerifyCacheEntry(
                 source_hash="",
                 filepath="f.c",
                 mtime_ns=0,
-                result=VerifyResult(
-                    status="NEAR_MATCHING",
-                    va=0x1000,
-                    size=22,
-                    filepath="f.c",
-                    name="func_a",
-                    message="",
-                    passed=False,
-                    delta=20,
-                ),
+                status="NEAR_MATCHING",
+                va=0x1000,
+                size=22,
+                name="func_a",
+                message="",
+                passed=False,
+                delta=20,
             )
         }
         existing = {
@@ -359,23 +344,20 @@ class TestCollectors:
     def test_active_functions_register_blocker_stays_fix_delta(self) -> None:
         """A register-class blocker is still a flag-sweep quick-win — only
         STRUCTURAL verdicts demote."""
-        from rebrew.verify_cache import VerifyCacheEntry, VerifyResult
+        from rebrew.verify_cache import VerifyCacheEntry
 
         entries = {
             "0x00001000": VerifyCacheEntry(
                 source_hash="",
                 filepath="f.c",
                 mtime_ns=0,
-                result=VerifyResult(
-                    status="NEAR_MATCHING",
-                    va=0x1000,
-                    size=22,
-                    filepath="f.c",
-                    name="func_a",
-                    message="",
-                    passed=False,
-                    delta=12,
-                ),
+                status="NEAR_MATCHING",
+                va=0x1000,
+                size=22,
+                name="func_a",
+                message="",
+                passed=False,
+                delta=12,
             )
         }
         existing = {
@@ -446,23 +428,20 @@ class TestCollectors:
         existing = {
             0x1000: {"status": "NEAR_MATCHING", "symbol": "func_a", "blocker": "register swap"}
         }
-        from rebrew.verify_cache import VerifyCacheEntry, VerifyResult
+        from rebrew.verify_cache import VerifyCacheEntry
 
         entries = {
             "0x00001000": VerifyCacheEntry(
                 source_hash="",
                 filepath="a.c",
                 mtime_ns=0,
-                result=VerifyResult(
-                    status="NEAR_MATCHING",
-                    va=0x1000,
-                    size=100,
-                    filepath="a.c",
-                    name="func_a",
-                    message="",
-                    passed=False,
-                    match_percent=85.0,
-                ),
+                status="NEAR_MATCHING",
+                va=0x1000,
+                size=100,
+                name="func_a",
+                message="",
+                passed=False,
+                match_percent=85.0,
             )
         }
         items = _collect_active_functions(existing, {0x1000: 100}, {}, entries)
@@ -484,23 +463,20 @@ class TestCollectors:
                 ),
             }
         }
-        from rebrew.verify_cache import VerifyCacheEntry, VerifyResult
+        from rebrew.verify_cache import VerifyCacheEntry
 
         entries = {
             "0x00001000": VerifyCacheEntry(
                 source_hash="",
                 filepath="a.c",
                 mtime_ns=0,
-                result=VerifyResult(
-                    status="NEAR_MATCHING",
-                    va=0x1000,
-                    size=100,
-                    filepath="a.c",
-                    name="func_a",
-                    message="",
-                    passed=False,
-                    match_percent=85.0,
-                ),
+                status="NEAR_MATCHING",
+                va=0x1000,
+                size=100,
+                name="func_a",
+                message="",
+                passed=False,
+                match_percent=85.0,
             )
         }
         items = _collect_active_functions(existing, {0x1000: 100}, {}, entries)
@@ -818,12 +794,12 @@ class TestLoadVerifyEntries:
         import json
 
         from rebrew.todo import _load_verify_entries
-        from rebrew.verify_cache import VerifyCacheEntry, VerifyResult
+        from rebrew.verify_cache import VerifyCacheEntry
 
         d = tmp_path / ".rebrew"
         d.mkdir()
         cache = {
-            "version": 1,
+            "version": 2,
             "compiler_hash": "",
             "headers_hash": "",
             "target": "SERVER",
@@ -832,15 +808,12 @@ class TestLoadVerifyEntries:
                     source_hash="",
                     filepath="a.c",
                     mtime_ns=0,
-                    result=VerifyResult(
-                        status="EXACT",
-                        va=0x1000,
-                        size=10,
-                        filepath="a.c",
-                        name="a",
-                        message="",
-                        passed=True,
-                    ),
+                    status="EXACT",
+                    va=0x1000,
+                    size=10,
+                    name="a",
+                    message="",
+                    passed=True,
                 ).to_dict(),
             },
         }
@@ -859,12 +832,12 @@ class TestLoadVerifyEntries:
         import json
 
         from rebrew.todo import _load_verify_entries
-        from rebrew.verify_cache import VerifyCacheEntry, VerifyResult
+        from rebrew.verify_cache import VerifyCacheEntry
 
         d = tmp_path / ".rebrew"
         d.mkdir()
         cache = {
-            "version": 1,
+            "version": 2,
             "compiler_hash": "",
             "headers_hash": "",
             "entries": {
@@ -872,15 +845,12 @@ class TestLoadVerifyEntries:
                     source_hash="",
                     filepath="a.c",
                     mtime_ns=0,
-                    result=VerifyResult(
-                        status="EXACT",
-                        va=0x1000,
-                        size=10,
-                        filepath="a.c",
-                        name="a",
-                        message="",
-                        passed=True,
-                    ),
+                    status="EXACT",
+                    va=0x1000,
+                    size=10,
+                    name="a",
+                    message="",
+                    passed=True,
                 ).to_dict(),
             },
         }
@@ -938,9 +908,7 @@ class TestActiveFunctionsEdges:
         from rebrew.todo import _collect_active_functions
 
         # A non-numeric VA key raises ValueError on int() and is skipped.
-        verify_entries = {
-            "bogus": SN(result=SN(status="COMPILE_ERROR", match_percent=None, delta=None))
-        }
+        verify_entries = {"bogus": SN(status="COMPILE_ERROR", match_percent=None, delta=None)}
         items = _collect_active_functions({}, {}, {}, verify_entries)  # type: ignore[arg-type]
         assert items == []
 
@@ -991,9 +959,7 @@ class TestProverCandidatesWithAngr:
             0x3000: {"status": "NEAR_MATCHING", "symbol": "c", "size": "600"},
             0x4000: {"status": "EXACT", "symbol": "d", "size": "50"},
         }
-        verify_entries = {
-            "0x00001000": SN(result=SN(status="NEAR_MATCHING", match_percent=97.0, delta=8))
-        }
+        verify_entries = {"0x00001000": SN(status="NEAR_MATCHING", match_percent=97.0, delta=8)}
         size_by_va = {0x1000: 50, 0x2000: 50, 0x3000: 600, 0x4000: 50}
         items = _collect_prover_candidates(existing, size_by_va, verify_entries)  # type: ignore[arg-type]
         assert len(items) == 1
@@ -1014,13 +980,14 @@ class TestLoadVerifyEntriesValid:
         (d / "verify_cache.json").write_text(
             json.dumps(
                 {
-                    "version": 1,
+                    "version": 2,
                     "entries": {
                         "0x1000": {
                             "source_hash": "abc",
                             "filepath": "f.c",
                             "mtime_ns": 1,
-                            "result": {"status": "COMPILE_ERROR", "va": "0x1000"},
+                            "status": "COMPILE_ERROR",
+                            "va": "0x1000",
                         }
                     },
                 }
@@ -1272,7 +1239,7 @@ class TestTodoCli:
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
         (cache_dir / "verify_cache.json").write_text(
-            json.dumps({"version": 1, "entries": {}}), encoding="utf-8"
+            json.dumps({"version": 2, "entries": {}}), encoding="utf-8"
         )
         result = self._invoke(
             tmp_path,
@@ -1298,14 +1265,15 @@ class TestTodoCli:
         (cache_dir / "verify_cache.json").write_text(
             json.dumps(
                 {
-                    "version": 1,
+                    "version": 2,
                     "target": "test",  # must match cfg.target_name (target guard)
                     "entries": {
                         "0x1000": {
                             "source_hash": "h",
                             "filepath": "f.c",
                             "mtime_ns": 1,
-                            "result": {"status": "COMPILE_ERROR", "va": "0x1000"},
+                            "status": "COMPILE_ERROR",
+                            "va": "0x1000",
                         }
                     },
                 }
@@ -1340,7 +1308,7 @@ class TestProverCandidateFiltering:
 
         monkeypatch.setitem(sys.modules, "angr", SN())  # fake: treat as available
         existing = self._existing("50")
-        verify = {"0x00001000": SN(result=SN(status="NEAR_MATCHING", match_percent=65.0, delta=17))}
+        verify = {"0x00001000": SN(status="NEAR_MATCHING", match_percent=65.0, delta=17)}
         items = _collect_prover_candidates(existing, {0x1000: 50}, verify)  # type: ignore[arg-type]
         assert items == []
 
@@ -1363,7 +1331,7 @@ class TestProverCandidateFiltering:
         monkeypatch.setitem(sys.modules, "angr", SN())  # fake: treat as available
         # Ghidra says 600, metadata says 50 → the real extent is small → kept.
         existing = self._existing("50")
-        verify = {"0x00001000": SN(result=SN(status="NEAR_MATCHING", match_percent=96.0, delta=2))}
+        verify = {"0x00001000": SN(status="NEAR_MATCHING", match_percent=96.0, delta=2)}
         items = _collect_prover_candidates(existing, {0x1000: 600}, verify)  # type: ignore[arg-type]
         assert len(items) == 1
         assert items[0].va == 0x1000
@@ -1473,9 +1441,7 @@ class TestPlaceholderLaneVerifyState:
             }
         }
         verify = {
-            "0x00001000": SimpleNamespace(
-                result=SimpleNamespace(status="NEAR_MATCHING", match_percent=95.0, delta=20)
-            )
+            "0x00001000": SimpleNamespace(status="NEAR_MATCHING", match_percent=95.0, delta=20)
         }
         items = _collect_active_functions(existing, {}, {}, verify)
         assert len(items) == 1
@@ -1490,9 +1456,7 @@ class TestPlaceholderLaneVerifyState:
 
         existing = {0x1000: {"status": "STUB", "symbol": ""}}
         verify = {
-            "0x00001000": SimpleNamespace(
-                result=SimpleNamespace(status="MISSING_SIZE", match_percent=None, delta=None)
-            )
+            "0x00001000": SimpleNamespace(status="MISSING_SIZE", match_percent=None, delta=None)
         }
         items = _collect_active_functions(existing, {}, {}, verify)
         assert len(items) == 1

@@ -13,8 +13,8 @@ same tiers and the data/globals/layout pipeline.
 |---|---|---|
 | **Canonical (user-owned)** | `.c` marker lines, `rebrew-functions.toml`, `rebrew-data.toml`, `rebrew-libraries.toml`, `rebrew-project.toml` | The only stores you hand-edit or that hold non-derivable facts.  Everything below is regenerable from these (plus the binary). |
 | **Derived, VCS-intended** | `functions.txt`, `src/<target>/CATALOG.md`, `<target>.def`, `crt_region/*.c`, `src/link_stubs.c`, `src/<target>/bss_padding.c`, `src/<target>/rebrew_globals.h`, `layout/<target>/`, `[targets.<t>.layout]` + `[link]` config blocks, `flirt_sigs/*.pat`, `cmake/toolchain-*.cmake` | Build scaffolding generated from the binary / binary-derived facts (gen-layout, discover, catalog, link-stubs, `rebrew data --fix-bss` / `--gen-header`, flirt).  Committed to git so a rebuild never needs `original/` around; regenerable via the generating command.  Never hand-edit. |
-| **Derived, gitignored (build output)** | `db/data_<target>.json`, `db/coverage.db`, `db/verify_results.json`, `db/<target>_functions.csv`, `bin/<target>/*.bin`, `output/report/` | Rebuildable via `rebrew catalog` / `rebrew build-db` / `rebrew verify` / `rebrew extract` / `rebrew report`.  Treat as build output. |
-| **Cache (delete-safe)** | `.rebrew/verify_cache.json`, `.rebrew/ghidra_sync_state.json`, `.rebrew/compile_cache/`, `output/ga_runs/*/build_cache*`, `output/ga_runs/*/checkpoints/*.json`, `output/ga_runs/*/best.c`, in-memory mtime caches | Regenerated on demand.  Deleting costs a recompile/re-verify/resync at most.  The exception: `.rebrew/solutions.json` and `.rebrew/ga_runs.jsonl` are *history*, not caches — they accumulate knowledge re-running GA would not reproduce. |
+| **Derived, gitignored (build output)** | `db/data_<target>.json`, `db/coverage.db`, `db/<target>_functions.csv`, `bin/<target>/*.bin`, `output/report/` | Rebuildable via `rebrew catalog` / `rebrew build-db` / `rebrew verify` / `rebrew extract` / `rebrew report`.  Treat as build output.  `rebrew verify` writes a report file only with an explicit `--output` path; the `--compare` baseline lives in `.rebrew/verify_baseline.json` (the old `db/verify_results.json` snapshot was unguarded and is no longer written — see `verify_cache.load_baseline`). |
+| **Cache (delete-safe)** | `.rebrew/verify_cache.json`, `.rebrew/ghidra_sync_state.json`, `.rebrew/compile_cache/`, `output/ga_runs/*/checkpoints/*.json`, `output/ga_runs/*/best.c`, in-memory mtime caches | Regenerated on demand.  Deleting costs a recompile/re-verify/resync at most.  The exception: `.rebrew/ga_runs.jsonl` is *history*, not cache — it accumulates GA outcomes (including winning fingerprints) re-running would not reproduce.  There is no per-run build diskcache — same-run compiles memoize in memory, cross-run persistence is the shared compile cache's job. |
 
 ## Who owns which fact
 
@@ -37,9 +37,14 @@ same tiers and the data/globals/layout pipeline.
 ## Precedence rules (who wins on conflict)
 
 1. **Metadata wins over inline `.c` annotations** for owned fields (STATUS,
-   SIZE, CFLAGS, TOOLCHAIN, BLOCKER, NOTE, GHIDRA, …).  Inline forms of
+   TOOLCHAIN, BLOCKER, NOTE, GHIDRA, …).  Inline forms of
    those keys are deprecated — lint **W019** flags them, `--fix` migrates.
-   The `.c` marker line keeps only identity: `// FUNCTION: MODULE 0xVA`.
+   `SIZE`/`CFLAGS` are co-read, not migrated: `// SIZE:`/`// CFLAGS:` are the
+   reccmp-native contract in the `.c` (an external build reads the file
+   directly) and the TOML value is an override — W019 warns only on
+   inline↔metadata **disagreement**.  `// SOURCE: naked` is likewise
+   file-borne and exempt (it must travel with the file; self-clears when the
+   C body replaces it).  The `.c` marker line keeps only identity: `// FUNCTION: MODULE 0xVA`.
 2. **STATUS display precedence**: metadata STATUS > `.rebrew/verify_cache.json`
    measured result (PROVEN is never baked into the cache, so a later
    demotion isn't masked) > grid/DB snapshot.

@@ -44,7 +44,9 @@ _GRID_COLUMNS = 64
 # This is not a byte-match claim.  PROVEN ranks BELOW RELOC in
 # verify._STATUS_RANK because a proven function compiles to different bytes
 # than the target; only EXACT/RELOC are byte-identical (see the
-# "byte_matched" field in the verify summary).
+# "byte_matched" field in the verify summary).  NEAR_MATCH is accepted as an
+# alias for NEAR_MATCHING (hand-written/older inputs); the canonical spelling
+# is NEAR_MATCHING (see metadata.KNOWN_STATUSES).
 _STATUS_PRIORITY = (
     ("EXACT",),
     ("RELOC", "PROVEN"),
@@ -61,7 +63,7 @@ def count_statuses(by_va: dict[int, list[Annotation]]) -> dict[str, int]:
     """
     counters = {"EXACT": 0, "RELOC": 0, "NEAR_MATCHING": 0, "STUB": 0}
     for vas in by_va.values():
-        if not any(e.get("marker_type") not in ("GLOBAL", "DATA") for e in vas):
+        if not any(e.get("is_function", True) for e in vas):
             continue
         statuses = {e["status"] for e in vas}
         for status_group in _STATUS_PRIORITY:
@@ -94,7 +96,7 @@ def covered_bytes(
     """
     ranges: list[tuple[int, int]] = []
     for va, vas in by_va.items():
-        if not any(e.get("marker_type") not in ("GLOBAL", "DATA") for e in vas):
+        if not any(e.get("is_function", True) for e in vas):
             continue
         canonical = sizes.get(va)
         if not canonical:
@@ -257,7 +259,7 @@ def generate_data_json(
     by_va: dict[int, list[Annotation]] = {}
     for e in entries:
         # GLOBAL/DATA markers describe data globals, not code functions
-        if e.marker_type in ("GLOBAL", "DATA"):
+        if e.is_data:
             continue
         by_va.setdefault(e.va, []).append(e)
 

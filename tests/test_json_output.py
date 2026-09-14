@@ -14,7 +14,8 @@ import pytest
 from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH
 from rebrew.compile import CompareResult
 from rebrew.matcher.scoring import diff_functions
-from rebrew.test import _run_all_batch, build_result_dict_from_compare
+from rebrew.test import build_result_dict_from_compare
+from rebrew.test import emit_test_batch as _run_all_batch
 
 # ---------------------------------------------------------------------------
 # diff_functions(as_dict=True)
@@ -272,6 +273,8 @@ class TestBuildResultDict:
 
 
 class TestRebrewTestBatchJson:
+    """`test --all --json` emits the shared report shape (see build_report)."""
+
     def test_empty_batch_outputs_json(self, monkeypatch: Any, capsys: Any, tmp_path: Path) -> None:
         cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
 
@@ -287,14 +290,28 @@ class TestRebrewTestBatchJson:
             dry_run=False,
             no_promote=False,
             json_output=True,
+            jobs=cfg.default_jobs,
         )
 
-        assert json.loads(capsys.readouterr().out) == {
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["provenance"] == "test"
+        assert payload["summary"] == {
             "total": 0,
             "passed": 0,
             "failed": 0,
-            "results": [],
+            "exact": 0,
+            "reloc": 0,
+            "proven": 0,
+            "stub": 0,
+            "matching": 0,
+            "size_mismatch": 0,
+            "compile_error": 0,
+            "missing_file": 0,
+            "byte_matched": 0,
+            "library_excluded": 0,
+            "orphans_pruned": 0,
         }
+        assert payload["results"] == []
 
     def test_failed_batch_raises_mismatch_exit(
         self, monkeypatch: Any, capsys: Any, tmp_path: Path
@@ -326,7 +343,15 @@ class TestRebrewTestBatchJson:
         monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
 
         with pytest.raises(typer.Exit) as exc:
-            _run_all_batch(cfg, None, None, dry_run=False, no_promote=True, json_output=True)
+            _run_all_batch(
+                cfg,
+                batch_dir=None,
+                origin_filter=None,
+                dry_run=False,
+                no_promote=True,
+                json_output=True,
+                jobs=cfg.default_jobs,
+            )
         assert exc.value.exit_code == EXIT_MISMATCH
 
     def test_compile_error_batch_raises_error_exit(self, monkeypatch: Any, tmp_path: Path) -> None:
@@ -363,7 +388,15 @@ class TestRebrewTestBatchJson:
         monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
 
         with pytest.raises(typer.Exit) as exc:
-            _run_all_batch(cfg, None, None, dry_run=False, no_promote=True, json_output=True)
+            _run_all_batch(
+                cfg,
+                batch_dir=None,
+                origin_filter=None,
+                dry_run=False,
+                no_promote=True,
+                json_output=True,
+                jobs=cfg.default_jobs,
+            )
         assert exc.value.exit_code == EXIT_ERROR
 
 
@@ -770,7 +803,7 @@ class TestRebrewTestBatchDir:
         self, monkeypatch: Any, tmp_path: Path, capsys: Any
     ) -> None:
         from rebrew.annotation import Annotation
-        from rebrew.test import _run_all_batch
+        from rebrew.test import emit_test_batch as _run_all_batch
 
         cfg = self._cfg(tmp_path)
         (cfg.reversed_dir / "Units" / "mem").mkdir(parents=True)
@@ -810,6 +843,7 @@ class TestRebrewTestBatchDir:
             dry_run=True,
             no_promote=True,
             json_output=True,
+            jobs=cfg.default_jobs,
         )
         payload = json.loads(capsys.readouterr().out)
         assert payload["files"] == ["Units/mem/a.c"]
@@ -820,7 +854,7 @@ class TestRebrewTestBatchDir:
         """`Units` must not match the sibling `Units_extra` (a raw string
         prefix did)."""
         from rebrew.annotation import Annotation
-        from rebrew.test import _run_all_batch
+        from rebrew.test import emit_test_batch as _run_all_batch
 
         cfg = self._cfg(tmp_path)
         (cfg.reversed_dir / "Units" / "mem").mkdir(parents=True)
@@ -857,6 +891,7 @@ class TestRebrewTestBatchDir:
             dry_run=True,
             no_promote=True,
             json_output=True,
+            jobs=cfg.default_jobs,
         )
         payload = json.loads(capsys.readouterr().out)
         assert payload["files"] == ["Units/mem/a.c"]
@@ -866,7 +901,7 @@ class TestRebrewTestBatchDir:
     ) -> None:
         """A `..`-bearing root still matches after resolution."""
         from rebrew.annotation import Annotation
-        from rebrew.test import _run_all_batch
+        from rebrew.test import emit_test_batch as _run_all_batch
 
         cfg = self._cfg(tmp_path)
         (cfg.reversed_dir / "Units" / "mem").mkdir(parents=True)
@@ -899,6 +934,7 @@ class TestRebrewTestBatchDir:
             dry_run=True,
             no_promote=True,
             json_output=True,
+            jobs=cfg.default_jobs,
         )
         payload = json.loads(capsys.readouterr().out)
         assert payload["files"] == ["Units/mem/a.c"]
@@ -910,7 +946,7 @@ class TestRebrewTestBatchDryRunJson:
     ) -> None:
         import json
 
-        from rebrew.test import _run_all_batch
+        from rebrew.test import emit_test_batch as _run_all_batch
 
         cfg = SimpleNamespace(default_jobs=1, root=tmp_path, reversed_dir=tmp_path / "src")
         monkeypatch.setattr(
@@ -924,6 +960,7 @@ class TestRebrewTestBatchDryRunJson:
             dry_run=True,
             no_promote=False,
             json_output=True,
+            jobs=cfg.default_jobs,
         )
         data = json.loads(capsys.readouterr().out)
         assert data == {"total": 0, "files": [], "functions": []}
@@ -934,7 +971,7 @@ class TestRebrewTestBatchDryRunJson:
         import json
         from types import SimpleNamespace
 
-        from rebrew.test import _run_all_batch
+        from rebrew.test import emit_test_batch as _run_all_batch
 
         entries = [
             SimpleNamespace(va=0x2000, name="z_fn", filepath="z.c", status="STUB"),
@@ -952,6 +989,7 @@ class TestRebrewTestBatchDryRunJson:
             dry_run=True,
             no_promote=False,
             json_output=True,
+            jobs=cfg.default_jobs,
         )
         data = json.loads(capsys.readouterr().out)
         assert [f["filepath"] for f in data["functions"]] == ["a.c", "z.c"]
@@ -963,7 +1001,7 @@ class TestRebrewTestBatchDryRunJson:
         import json
         from types import SimpleNamespace
 
-        from rebrew.test import _run_all_batch
+        from rebrew.test import emit_test_batch as _run_all_batch
 
         entry = SimpleNamespace(
             va=0x10001130,
@@ -983,6 +1021,7 @@ class TestRebrewTestBatchDryRunJson:
             dry_run=True,
             no_promote=False,
             json_output=True,
+            jobs=cfg.default_jobs,
         )
         data = json.loads(capsys.readouterr().out)
         assert data["total"] == 1
@@ -1008,7 +1047,7 @@ class TestRebrewTestBatchCachePatch:
 
         import typer
 
-        from rebrew.test import _run_all_batch
+        from rebrew.test import emit_test_batch as _run_all_batch
 
         entries = [
             SimpleNamespace(va=0x1000, name="a", filepath="a.c", status="STUB"),
@@ -1047,6 +1086,7 @@ class TestRebrewTestBatchCachePatch:
                 dry_run=False,
                 no_promote=False,
                 json_output=True,
+                jobs=cfg.default_jobs,
             )
         assert [p["va"] for p in captured[0]] == [0x1000]
 

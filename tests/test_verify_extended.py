@@ -505,10 +505,10 @@ class TestVerifyCli:
         )
         monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
 
-        def _prev(out_file, diff_mode, json_output):
+        def _prev(cfg):
             return (previous, None) if previous is not None else (None, None)
 
-        monkeypatch.setattr("rebrew.verify._load_previous_report", _prev)
+        monkeypatch.setattr("rebrew.verify_cache.load_baseline", _prev)
         monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
 
@@ -623,7 +623,7 @@ class TestVerifyCli:
         )
         monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
         monkeypatch.setattr(
-            "rebrew.verify._load_previous_report",
+            "rebrew.verify_cache.load_baseline",
             lambda out_file, diff_mode, json_output: (None, None),
         )
         monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
@@ -667,7 +667,7 @@ class TestVerifyCli:
         )
         monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
         monkeypatch.setattr(
-            "rebrew.verify._load_previous_report",
+            "rebrew.verify_cache.load_baseline",
             lambda out_file, diff_mode, json_output: (None, None),
         )
         captured: dict[str, object] = {}
@@ -716,7 +716,7 @@ class TestVerifyCli:
         )
         monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
         monkeypatch.setattr(
-            "rebrew.verify._load_previous_report",
+            "rebrew.verify_cache.load_baseline",
             lambda out_file, diff_mode, json_output: (None, None),
         )
         monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
@@ -940,48 +940,53 @@ class TestApplyStatusUpdates:
         assert any("Could not update STATUS" in r.message for r in caplog.records)
 
 
-class TestLoadPreviousReport:
-    def test_not_diff_mode_returns_none(self, tmp_path: Path) -> None:
-        from rebrew.verify import _load_previous_report
+class TestLoadBaseline:
+    """The --compare baseline lives in .rebrew/ with identity guards."""
 
-        prev, warning = _load_previous_report(tmp_path / "r.json", False, False)
-        assert prev is None and warning is None
+    def _cfg(self, tmp_path: Path):
+        cfg = _cfg(tmp_path)
+        return cfg
 
-    def test_missing_file_warning(self, tmp_path: Path) -> None:
-        from rebrew.verify import _load_previous_report
+    def test_missing_baseline_warning(self, tmp_path: Path) -> None:
+        from rebrew.verify_cache import load_baseline
 
-        prev, warning = _load_previous_report(tmp_path / "nope.json", True, True)
+        prev, warning = load_baseline(_cfg(tmp_path))
         assert prev is None
-        assert "No previous verify report" in (warning or "")
+        assert "No previous verify baseline" in (warning or "")
 
-    def test_valid_report_loaded(self, tmp_path: Path) -> None:
-        import json
+    def test_valid_baseline_loaded(self, tmp_path: Path) -> None:
 
-        from rebrew.verify import _load_previous_report
+        from rebrew.verify_cache import load_baseline, save_baseline
 
-        out = tmp_path / "r.json"
-        out.write_text(json.dumps({"summary": {"total": 5}}), encoding="utf-8")
-        prev, warning = _load_previous_report(out, True, True)
-        assert prev == {"summary": {"total": 5}}
+        cfg = _cfg(tmp_path)
+        save_baseline(cfg, {"target": "SERVER", "summary": {"total": 5}, "results": []})
+        prev, warning = load_baseline(cfg)
+        assert prev is not None and prev["summary"] == {"total": 5}
         assert warning is None
 
-    def test_invalid_report_warning(self, tmp_path: Path) -> None:
-        from rebrew.verify import _load_previous_report
-
-        out = tmp_path / "r.json"
-        out.write_text("{broken", encoding="utf-8")
-        prev, warning = _load_previous_report(out, True, True)
-        assert prev is None
-        assert "Could not read previous verify report" in (warning or "")
-
-    def test_non_dict_report_warning(self, tmp_path: Path) -> None:
+    def test_wrong_target_rejected(self, tmp_path: Path) -> None:
         import json
 
-        from rebrew.verify import _load_previous_report
+        from rebrew.verify_cache import baseline_path, load_baseline
 
-        out = tmp_path / "r.json"
-        out.write_text(json.dumps([1, 2, 3]), encoding="utf-8")
-        prev, warning = _load_previous_report(out, True, True)
+        cfg = _cfg(tmp_path)
+        path = baseline_path(cfg)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"target": "OTHER", "results": []}), encoding="utf-8")
+        prev, warning = load_baseline(cfg)
+        assert prev is None
+        assert "OTHER" in (warning or "")
+
+    def test_non_dict_baseline_warning(self, tmp_path: Path) -> None:
+        import json
+
+        from rebrew.verify_cache import baseline_path, load_baseline
+
+        cfg = _cfg(tmp_path)
+        path = baseline_path(cfg)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps([1, 2, 3]), encoding="utf-8")
+        prev, warning = load_baseline(cfg)
         assert prev is None
         assert "invalid JSON object" in (warning or "")
 
@@ -1045,7 +1050,7 @@ class TestSaveVerifyCacheBranches:
         _save_verify_cache(tmp_path / ".rebrew" / "verify_cache.json", cfg, results, [_ann(0x1000)])
         data = json.loads((tmp_path / ".rebrew" / "verify_cache.json").read_text(encoding="utf-8"))
         entry = data["entries"]["0x00001000"]
-        assert entry["result"]["status"] == "EXACT"
+        assert entry["status"] == "EXACT"
         assert entry["source_hash"] != ""
 
 
@@ -1188,7 +1193,7 @@ class TestVerifyWatch:
             "rebrew.verify.prepare_entries", lambda *a, **k: ([], 0, 0, [], [], 0, [], [], [])
         )
         monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
-        monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (None, None))
+        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
         monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
@@ -1218,7 +1223,7 @@ class TestProvenOverlay:
             "rebrew.verify.run_verification",
             lambda *a, **k: (0, 1, fail_details, results, []),
         )
-        monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (None, None))
+        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
         monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
@@ -1255,7 +1260,7 @@ class TestProvenOverlay:
         monkeypatch.setattr(
             "rebrew.verify.run_verification", lambda *a, **k: (0, 1, [], results, [])
         )
-        monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (None, None))
+        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
         monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
@@ -1289,7 +1294,7 @@ class TestProvenOverlay:
         monkeypatch.setattr(
             "rebrew.verify.run_verification", lambda *a, **k: (0, 1, [], results, [])
         )
-        monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (None, None))
+        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
         monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
@@ -1326,7 +1331,7 @@ class TestProvenOverlay:
         monkeypatch.setattr(
             "rebrew.verify.run_verification", lambda *a, **k: (0, 1, [], results, [])
         )
-        monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (None, None))
+        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
         monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
@@ -1357,7 +1362,7 @@ class TestProvenOverlay:
         monkeypatch.setattr(
             "rebrew.verify.run_verification", lambda *a, **k: (1, 0, [], results, [])
         )
-        monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (None, None))
+        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
         monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
@@ -1392,7 +1397,7 @@ class TestProvenOverlay:
         monkeypatch.setattr(
             "rebrew.verify.run_verification", lambda *a, **k: (0, 1, fail_details, results, [])
         )
-        monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (None, None))
+        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
         result = CliRunner().invoke(app, ["--json"])
@@ -1409,8 +1414,8 @@ class TestProvenOverlay:
         loaded = _load_verify_cache(cache_path, cfg)
         assert loaded is not None
         entry = loaded.entries["0x00001000"]
-        assert entry.result.status == "NEAR_MATCHING"
-        assert entry.result.passed is False
+        assert entry.status == "NEAR_MATCHING"
+        assert entry.passed is False
 
 
 class TestRunVerification:
@@ -1672,20 +1677,22 @@ class TestCompareBaseline:
     ) -> None:
         """A failing --compare run must NOT overwrite the last good baseline.
 
-        The report file IS the baseline for future --compare runs; a
+        The baseline IS the reference for future --compare runs; a
         regressed run that advances it would let the gate self-heal on the
         next invocation (the regression becomes "pre-existing").
         """
         from rebrew.verify import app
+        from rebrew.verify_cache import save_baseline
 
         cfg = _cfg(tmp_path)
-        (cfg.db_dir).mkdir(parents=True, exist_ok=True)
         baseline = {
-            "schema_version": 1,
+            "schema_version": 2,
+            "target": "SERVER",
             "results": [],
             "summary": {"total": 1, "passed": 1, "failed": 0},
         }
-        (cfg.db_dir / "verify_results.json").write_text(json.dumps(baseline), encoding="utf-8")
+        save_baseline(cfg, baseline)
+        baseline_path = cfg.root / ".rebrew" / "verify_baseline.json"
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         entry = _ann(0x1000)
         monkeypatch.setattr(
@@ -1696,11 +1703,11 @@ class TestCompareBaseline:
             "rebrew.verify.run_verification", lambda *a, **k: (0, 1, [], results, [])
         )
         previous = {
-            "schema_version": 1,
+            "schema_version": 2,
             "results": [{"va": "0x00001000", "status": "EXACT", "passed": True}],
             "summary": {"total": 1, "passed": 1, "failed": 0},
         }
-        monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (previous, None))
+        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (previous, None))
         # NOTE: _save_verify_cache is intentionally NOT mocked — a failed
         # gate run must not write the compile cache either (F9: a CI failure
         # records no new state).
@@ -1711,8 +1718,8 @@ class TestCompareBaseline:
         # Gate fails (regression EXACT -> COMPILE_ERROR).
         assert result.exit_code == 1
         # The baseline on disk is untouched.
-        on_disk = json.loads((cfg.db_dir / "verify_results.json").read_text(encoding="utf-8"))
-        assert on_disk == baseline
+        on_disk = json.loads(baseline_path.read_text(encoding="utf-8"))
+        assert on_disk["results"] == []
         # And no verify cache was written by the failed run.
         assert not (cfg.root / ".rebrew" / "verify_cache.json").exists()
 
@@ -1721,15 +1728,18 @@ class TestCompareBaseline:
     ) -> None:
         """A clean --compare run records the new report as the baseline."""
         from rebrew.verify import app
+        from rebrew.verify_cache import save_baseline
 
         cfg = _cfg(tmp_path)
-        (cfg.db_dir).mkdir(parents=True, exist_ok=True)
-        baseline = {
-            "schema_version": 1,
-            "results": [],
-            "summary": {"total": 0, "passed": 0, "failed": 0},
-        }
-        (cfg.db_dir / "verify_results.json").write_text(json.dumps(baseline), encoding="utf-8")
+        save_baseline(
+            cfg,
+            {
+                "schema_version": 2,
+                "target": "SERVER",
+                "results": [],
+                "summary": {"total": 0, "passed": 0, "failed": 0},
+            },
+        )
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         entry = _ann(0x1000)
         monkeypatch.setattr(
@@ -1740,20 +1750,20 @@ class TestCompareBaseline:
             "rebrew.verify.run_verification", lambda *a, **k: (1, 0, [], results, [])
         )
         previous = {
-            "schema_version": 1,
+            "schema_version": 2,
             "results": [],
             "summary": {"total": 0, "passed": 0, "failed": 0},
         }
-        monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (previous, None))
+        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (previous, None))
         monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
 
         result = CliRunner().invoke(app, ["--compare", "--json"])
         assert result.exit_code == 0
-        on_disk = json.loads((cfg.db_dir / "verify_results.json").read_text(encoding="utf-8"))
-        # Baseline advanced to the new report (differs from the old one).
-        assert on_disk["summary"] != baseline["summary"]
+        on_disk = json.loads((cfg.root / ".rebrew" / "verify_baseline.json").read_text())
+        # Baseline advanced to the new report.
+        assert on_disk["summary"]["total"] == 1
         assert on_disk["results"][0]["status"] == "EXACT"
 
 
@@ -1924,7 +1934,7 @@ class TestVerifySymbolField:
         monkeypatch.setattr(
             "rebrew.verify.run_verification", lambda *a, **k: (0, 1, [], results, [])
         )
-        monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (None, None))
+        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
         monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
@@ -1952,7 +1962,7 @@ class TestVerifySymbolField:
         monkeypatch.setattr(
             "rebrew.verify.run_verification", lambda *a, **k: (0, 1, [], results, [])
         )
-        monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a, **k: (None, None))
+        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
         monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)

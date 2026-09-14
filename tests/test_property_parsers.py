@@ -282,8 +282,8 @@ def test_annotation_block_roundtrip(
     assert ann is not None
     assert ann.va == va
     assert ann.module == "SERVER"
-    if status is not None:
-        assert ann.status == status
+    # Volatile keys live in rebrew-functions.toml: inline STATUS is ignored.
+    assert ann.status == "STUB"
     if size is not None:
         assert ann.size == size
     if cflags is not None:

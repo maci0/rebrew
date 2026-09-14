@@ -326,9 +326,9 @@ compiler) and prints the claim URL to share.
 
 ### Regression Detection
 
-`rebrew verify --compare` compares the current run against `db/verify_results.json`.
+`rebrew verify --compare` compares the current run against `.rebrew/verify_baseline.json`.
 Exit code 1 if any regressions — suitable for CI/pre-commit hooks.
-The first run has no baseline: it warns "No previous verify report" and skips the diff.
+The first run has no baseline: it warns "No previous verify baseline" and skips the diff.
 
 ## 8b. Types (Struct Layouts and Signature Rewrites)
 

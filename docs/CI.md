@@ -35,9 +35,10 @@ Wire these into the **game/workspace** repo (the one with `rebrew-project.toml`
 and binaries), not necessarily this package:
 
 ```bash
-# Bulk byte-check with regression detection against the previous report.
-# PROVEN ranks with RELOC (not FAIL) under --compare.
-rebrew verify --compare --json -o db/verify_results.json
+# Bulk byte-check with regression detection against the local baseline.
+# --compare needs no -o; the baseline lives in .rebrew/ (gitignored run
+# state) and carries target/compiler/binary identity guards.
+rebrew verify --compare --json
 
 # End-to-end splice check. Default: fail only on hard mismatches.
 # --strict-catalog also fails on unresolved symbols / zero successful splices.
@@ -61,7 +62,7 @@ rebrew round-trip --strict-catalog --json
 
 ### JSON contracts
 
-Reports include `schema_version: 1` for:
+Reports include `schema_version: 2` (plus a `provenance` field) for:
 
 - `rebrew verify --json`
 - `rebrew round-trip --json`

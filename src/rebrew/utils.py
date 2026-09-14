@@ -760,6 +760,27 @@ def parse_metadata_doc(doc: dict[str, Any]) -> dict[tuple[str, int], dict[str, A
     return result
 
 
+def canonical_va_key(va: Any) -> Any:
+    """Normalize a bare-VA key to its canonical form.
+
+    Hex strings (``0x1000`` vs ``0x00001000``) map to the same int so key
+    spelling drift can't silently break lookups.  Non-hex values pass
+    through unchanged (still unique).  The single parser for bare-VA keys
+    in JSON files (verify cache, verify reports); TOML ``MODULE.0xVA`` keys
+    go through :func:`parse_metadata_key` instead.
+    """
+    if isinstance(va, int):
+        return va
+    if isinstance(va, str):
+        s = va.strip()
+        if s[:2].lower() == "0x":
+            try:
+                return int(s, 16)
+            except ValueError:
+                return s
+    return str(va)
+
+
 def build_metadata_doc(
     data: dict[tuple[str, int], dict[str, Any]],
     canonical_order: Sequence[str],

@@ -887,8 +887,8 @@ def export_state(
         entries = [e for e in entries if getattr(e, "module", "") == module]
 
     # Partition annotations
-    func_entries = [e for e in entries if e.marker_type not in ("GLOBAL", "DATA")]
-    global_entries = [e for e in entries if e.marker_type in ("GLOBAL", "DATA")]
+    func_entries = [e for e in entries if e.is_function]
+    global_entries = [e for e in entries if e.is_data]
 
     # Also include functions from the project file / catalog that have not yet
     # been reversed (no .c annotation).  This makes BinSync reflect the full

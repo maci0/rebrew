@@ -1,5 +1,7 @@
 """Tests for rebrew.depgraph graph building and rendering."""
 
+from types import SimpleNamespace
+
 from rebrew.data import DispatchEntry, DispatchTable
 from rebrew.depgraph import (
     NodeInfo,
@@ -52,12 +54,16 @@ class TestExtractCallees:
 
 
 class TestBuildGraph:
+    def _cfg(self, d) -> SimpleNamespace:
+        """Minimal cfg so build_graph overlays the per-dir metadata."""
+        return SimpleNamespace(metadata_dir=d, marker=None, source_ext=".c", shared_dir=None)
+
     def _make_c_file(self, d, name, va, status, origin, externs=None) -> None:
         """Helper to create a minimal .c file with annotations."""
+        from rebrew.metadata import load_metadata, save_metadata
+
         lines = [
             f"// FUNCTION: SERVER 0x{va:08x}",
-            f"// STATUS: {status}",
-            f"// ORIGIN: {origin}",
             "// SIZE: 100",
             "// CFLAGS: /O2 /Gd",
             f"// SYMBOL: _{name}",
@@ -67,6 +73,9 @@ class TestBuildGraph:
             lines.append(f"extern int __cdecl {ext}(void);")
         lines.append(f"int __cdecl {name}(void) {{ return 0; }}")
         (d / f"{name}.c").write_text("\n".join(lines), encoding="utf-8")
+        data = dict(load_metadata(d))
+        data[("SERVER", va)] = {"status": status}
+        save_metadata(d, data)
 
     def _va_key(self, va: int) -> str:
         return f"va:0x{va:08x}"
@@ -74,7 +83,7 @@ class TestBuildGraph:
     def test_basic_graph(self, tmp_path) -> None:
         self._make_c_file(tmp_path, "FuncA", 0x10001000, "RELOC", "GAME", ["FuncB"])
         self._make_c_file(tmp_path, "FuncB", 0x10002000, "STUB", "GAME")
-        nodes, edges, dispatch_edges = build_graph(tmp_path)
+        nodes, edges, dispatch_edges = build_graph(tmp_path, cfg=self._cfg(tmp_path))
         assert self._va_key(0x10001000) in nodes
         assert self._va_key(0x10002000) in nodes
         assert nodes[self._va_key(0x10001000)]["symbol"] == "_FuncA"
@@ -84,20 +93,20 @@ class TestBuildGraph:
     def test_symbol_spellings_share_one_node(self, tmp_path) -> None:
         """``_foo`` and ``foo`` spellings key one VA node, not two."""
         self._make_c_file(tmp_path, "foo", 0x10001000, "RELOC", "GAME", ["_foo"])
-        nodes, edges, _ = build_graph(tmp_path)
+        nodes, edges, _ = build_graph(tmp_path, cfg=self._cfg(tmp_path))
         assert list(nodes) == [self._va_key(0x10001000)]
         assert edges == []  # the extern resolves to the same node: no self-edge
 
     def test_unknown_callee(self, tmp_path) -> None:
         self._make_c_file(tmp_path, "FuncA", 0x10001000, "RELOC", "GAME", ["UnknownFunc"])
-        nodes, edges, dispatch_edges = build_graph(tmp_path)
+        nodes, edges, dispatch_edges = build_graph(tmp_path, cfg=self._cfg(tmp_path))
         assert "UnknownFunc" in nodes
         assert nodes["UnknownFunc"]["status"] == "UNKNOWN"
         assert (self._va_key(0x10001000), "UnknownFunc") in edges
 
     def test_no_self_edges(self, tmp_path) -> None:
         self._make_c_file(tmp_path, "FuncA", 0x10001000, "RELOC", "GAME", ["FuncA"])
-        _, edges, _ = build_graph(tmp_path)
+        _, edges, _ = build_graph(tmp_path, cfg=self._cfg(tmp_path))
         assert edges == []
 
     def test_merged_tu_externs_stay_with_their_block(self, tmp_path) -> None:
@@ -106,8 +115,6 @@ class TestBuildGraph:
         merged = "\n".join(
             [
                 "// FUNCTION: SERVER 0x10001000",
-                "// STATUS: RELOC",
-                "// ORIGIN: GAME",
                 "// SIZE: 100",
                 "// CFLAGS: /O2 /Gd",
                 "// SYMBOL: _FuncA",
@@ -116,8 +123,6 @@ class TestBuildGraph:
                 "int __cdecl FuncA(void) { return Other(); }",
                 "",
                 "// FUNCTION: SERVER 0x10002000",
-                "// STATUS: STUB",
-                "// ORIGIN: GAME",
                 "// SIZE: 100",
                 "// CFLAGS: /O2 /Gd",
                 "// SYMBOL: _FuncB",
@@ -127,7 +132,16 @@ class TestBuildGraph:
             ]
         )
         (tmp_path / "merged.c").write_text(merged, encoding="utf-8")
-        _, edges, _ = build_graph(tmp_path)
+        from rebrew.metadata import save_metadata
+
+        save_metadata(
+            tmp_path,
+            {
+                ("SERVER", 0x10001000): {"status": "RELOC"},
+                ("SERVER", 0x10002000): {"status": "STUB"},
+            },
+        )
+        _, edges, _ = build_graph(tmp_path, cfg=self._cfg(tmp_path))
         by_caller = {a for a, _ in edges}
         assert self._va_key(0x10001000) in by_caller
         assert self._va_key(0x10002000) in by_caller
@@ -148,8 +162,6 @@ class TestBuildGraph:
         multi_content = "\n".join(
             [
                 "// FUNCTION: SERVER 0x10001000",
-                "// STATUS: RELOC",
-                "// ORIGIN: GAME",
                 "// SIZE: 100",
                 "// CFLAGS: /O2 /Gd",
                 "// SYMBOL: _FirstFunc",
@@ -157,8 +169,6 @@ class TestBuildGraph:
                 "int __cdecl FirstFunc(void) { return 0; }",
                 "",
                 "// FUNCTION: SERVER 0x10002000",
-                "// STATUS: STUB",
-                "// ORIGIN: GAME",
                 "// SIZE: 200",
                 "// CFLAGS: /O2 /Gd",
                 "// SYMBOL: _SecondFunc",
@@ -167,8 +177,17 @@ class TestBuildGraph:
             ]
         )
         (tmp_path / "multi.c").write_text(multi_content, encoding="utf-8")
+        from rebrew.metadata import save_metadata
 
-        nodes, _, _ = build_graph(tmp_path)
+        save_metadata(
+            tmp_path,
+            {
+                ("SERVER", 0x10001000): {"status": "RELOC"},
+                ("SERVER", 0x10002000): {"status": "STUB"},
+            },
+        )
+
+        nodes, _, _ = build_graph(tmp_path, cfg=self._cfg(tmp_path))
         assert self._va_key(0x10001000) in nodes, (
             "First annotation in multi-function file should be captured"
         )
@@ -194,7 +213,9 @@ class TestBuildGraph:
             ],
         )
 
-        nodes, edges, dispatch_edges = build_graph(tmp_path, dispatch_tables=[tbl])
+        nodes, edges, dispatch_edges = build_graph(
+            tmp_path, cfg=self._cfg(tmp_path), dispatch_tables=[tbl]
+        )
 
         dispatch_node = "dispatch_0x20000000"
         assert dispatch_node in nodes
@@ -211,7 +232,7 @@ class TestBuildGraph:
     def test_no_dispatch_when_tables_none(self, tmp_path) -> None:
         """dispatch_tables=None produces empty dispatch_edges (default behaviour)."""
         self._make_c_file(tmp_path, "FuncA", 0x10001000, "EXACT", "GAME")
-        _, _, dispatch_edges = build_graph(tmp_path, dispatch_tables=None)
+        _, _, dispatch_edges = build_graph(tmp_path, cfg=self._cfg(tmp_path), dispatch_tables=None)
         assert dispatch_edges == []
 
     def test_multiple_dispatch_tables(self, tmp_path) -> None:
@@ -237,7 +258,9 @@ class TestBuildGraph:
             ],
         )
 
-        nodes, _, dispatch_edges = build_graph(tmp_path, dispatch_tables=[tbl1, tbl2])
+        nodes, _, dispatch_edges = build_graph(
+            tmp_path, cfg=self._cfg(tmp_path), dispatch_tables=[tbl1, tbl2]
+        )
 
         assert "dispatch_0x20000000" in nodes
         assert "dispatch_0x20001000" in nodes

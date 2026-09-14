@@ -1,9 +1,10 @@
 """Recoverage schema contract test.
 
 Recoverage (the sibling dashboard) is a pure consumer of ``db/coverage.db``
-built by ``rebrew build-db`` from ``db/data_*.json`` written by ``rebrew
-catalog --data-json``.  This test runs that real pipeline on the checked-in
-fixture binary and asserts the SQLite schema contains exactly the objects and
+built by ``rebrew build-db`` — either from ``db/data_*.json`` written by
+``rebrew catalog --data-json``, or in-process via ``rebrew build-db
+--regen``.  This test runs the real pipeline on the checked-in fixture
+binary and asserts the SQLite schema contains exactly the objects and
 columns recoverage queries — so a rebrew change that silently breaks the
 dashboard is caught here, without importing recoverage.
 
@@ -71,9 +72,14 @@ def _build_fixture_project(tmp_path: Path, monkeypatch) -> Path:
     return root
 
 
-def _run_pipeline(tmp_path: Path, monkeypatch) -> Path:
-    """catalog --data-json → build-db; returns the project root."""
+def _run_pipeline(tmp_path: Path, monkeypatch, *, regen: bool = False) -> Path:
+    """catalog --data-json → build-db (or build-db --regen); returns the root."""
     root = _build_fixture_project(tmp_path, monkeypatch)
+    if regen:
+        result = CliRunner().invoke(app, ["catalog", "--json"])
+        assert result.exit_code == 0, result.output
+        build_db(root, regen=True)
+        return root
     result = CliRunner().invoke(app, ["catalog", "--data-json", "--json"])
     assert result.exit_code == 0, result.output
     data_json = root / "db" / "data_SERVER.json"
@@ -90,6 +96,78 @@ class TestRecoverageContract:
         data = json.loads((root / "db" / "data_SERVER.json").read_text(encoding="utf-8"))
         for key in ("sections", "functions", "summary"):
             assert key in data, f"data JSON missing {key}"
+
+    def test_regen_pipeline_produces_same_db(self, tmp_path, monkeypatch) -> None:
+        """build-db --regen skips the data_*.json files but yields the same schema."""
+        root = _run_pipeline(tmp_path, monkeypatch, regen=True)
+        assert (root / "db" / "coverage.db").is_file()
+        assert not list((root / "db").glob("data_*.json"))
+        conn = sqlite3.connect(root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT name FROM sqlite_master WHERE type IN ('table','view') ORDER BY name")
+        objects = {r[0] for r in c.fetchall()}
+        for required in ("functions", "globals", "sections", "cells", "metadata"):
+            assert required in objects, f"missing DB object {required}"
+        c.execute("SELECT COUNT(*) FROM functions WHERE target = 'SERVER'")
+        assert c.fetchone()[0] > 0
+        conn.close()
+
+    def test_verify_cache_feeds_verify_results(self, tmp_path, monkeypatch) -> None:
+        """The dashboard's verify_results rows come from .rebrew/verify_cache.json."""
+        import rebrew.verify_cache as vc
+        from rebrew.annotation import Annotation
+
+        root = _build_fixture_project(tmp_path, monkeypatch)
+        cache_path = root / ".rebrew" / "verify_cache.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+        class _Cfg:
+            target_name = "SERVER"
+            compiler_command = "cmd"
+            compiler_runner = ""
+            base_cflags = ""
+            compiler_includes = ""
+            compiler_libs = ""
+            defines = []
+
+        _Cfg.root = root
+        _Cfg.reversed_dir = root / "src" / "SERVER"
+        _Cfg.target_binary = root / "original" / "mini_pe.exe"
+
+        entries = [
+            Annotation(
+                va=0x00401000,
+                name="_func1",
+                symbol="_func1",
+                module="SERVER",
+                status="EXACT",
+                size=11,
+                filepath="fcn.c",
+            )
+        ]
+        results = [
+            {
+                "va": "0x00401000",
+                "name": "_func1",
+                "symbol": "_func1",
+                "module": "SERVER",
+                "filepath": "fcn.c",
+                "size": 11,
+                "status": "EXACT",
+                "message": "EXACT MATCH",
+                "passed": True,
+                "match_percent": 100.0,
+                "delta": 0,
+            }
+        ]
+        vc._save_verify_cache(cache_path, _Cfg(), results, entries)
+        build_db(root, regen=True)
+        conn = sqlite3.connect(root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT byte_delta FROM verify_results WHERE target='SERVER' AND va=4198400")
+        row = c.fetchone()
+        conn.close()
+        assert row is not None and row[0] == 0
 
     def test_db_schema_matches_recoverage_queries(self, tmp_path, monkeypatch) -> None:
         root = _run_pipeline(tmp_path, monkeypatch)

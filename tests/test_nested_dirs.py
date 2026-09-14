@@ -21,12 +21,9 @@ from rebrew.utils import rel_display_path
 # ---------------------------------------------------------------------------
 
 STUB_TEMPLATE = """\
-// FUNCTION: SERVER 0x{va:08X}
-// STATUS: {status}
-// ORIGIN: {origin}
+ // FUNCTION: SERVER 0x{va:08X}
 // SIZE: {size}
 // CFLAGS: /O2 /Gd
-{blocker}
 void __cdecl {symbol_bare}(void)
 {{
     return;
@@ -68,6 +65,8 @@ def _make_c(
     blocker: str = "",
 ) -> Path:
     """Create a .c file with annotations in a (possibly nested) directory."""
+    from rebrew.metadata import load_metadata, save_metadata
+
     filepath = directory / filename
     filepath.parent.mkdir(parents=True, exist_ok=True)
     sym = symbol or f"_func_{va:08x}"
@@ -80,10 +79,18 @@ def _make_c(
             size=size,
             symbol=sym,
             symbol_bare=sym_bare,
-            blocker=f"// BLOCKER: {blocker}" if blocker else "",
         ),
         encoding="utf-8",
     )
+    # Volatile STATUS/BLOCKER live in rebrew-functions.toml — the metadata
+    # root here is the file's own parent (per-directory metadata).
+    meta_dir = filepath.parent
+    data = dict(load_metadata(meta_dir))
+    entry: dict[str, object] = {"status": status}
+    if blocker:
+        entry["blocker"] = blocker
+    data[("SERVER", va)] = entry
+    save_metadata(meta_dir, data)
     return filepath
 
 
@@ -257,12 +264,16 @@ class TestFindNearMissNested:
             status="NEAR_MATCHING",
             blocker="5B diff: off at offsets 0, 1, 2, 3, 4",
         )
-        # Write blocker_delta to metadata so _parse_annotations picks it up
-        md = tmp_path / "game" / "rebrew-functions.toml"
-        md.write_text(
-            '["SERVER.0x10001000"]\nblocker_delta = 5\n',
-            encoding="utf-8",
-        )
+        # Merge blocker_delta via the metadata writer (the file is
+        # write-locked after _make_c's save).
+        from rebrew.metadata import load_metadata, save_metadata
+
+        meta_dir = tmp_path / "game"
+        data = dict(load_metadata(meta_dir))
+        entry = dict(data.get(("SERVER", 0x10001000), {}))
+        entry["blocker_delta"] = 5
+        data[("SERVER", 0x10001000)] = entry
+        save_metadata(meta_dir, data)
         results = find_near_miss(tmp_path, max_delta=10)
         assert len(results) == 1
 

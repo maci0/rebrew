@@ -4,8 +4,11 @@ Records GA solution fingerprints (cflags, size) when functions reach
 EXACT match. Seeds new GA runs from structurally similar solved functions to
 reduce convergence time.
 
-Storage: ``.rebrew/solutions.json`` — append-only JSON array, deduped by
-``(target, symbol)`` so multi-target projects keep one winning entry per target.
+Storage: ``.rebrew/ga_runs.jsonl`` — one append-only log for every GA
+outcome.  A win record carries the full solution fingerprint (cflags, size,
+source, mutations); ``load_solutions`` derives the winning entry per
+``(target, symbol)`` (newest win) from the log.  Losses stay for
+``--skip-recent`` / ``--ga-history``.
 """
 
 from __future__ import annotations
@@ -13,17 +16,15 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from rebrew.utils import atomic_write_text, metadata_write_lock
-
 log = logging.getLogger(__name__)
 
-_SOLUTIONS_DIR = ".rebrew"
-_SOLUTIONS_FILE = "solutions.json"
+_REBREW_DIR = ".rebrew"
+_GA_RUNS_FILE = "ga_runs.jsonl"
 
 
 @dataclass
@@ -69,76 +70,112 @@ class SolutionEntry:
     seeding)."""
 
 
-def _solutions_path(project_root: Path) -> Path:
-    """Return the solutions.json path (no side effects)."""
-    return project_root / _SOLUTIONS_DIR / _SOLUTIONS_FILE
+def _runs_path(project_root: Path) -> Path:
+    """Return the ga_runs.jsonl path (no side effects)."""
+    return project_root / _REBREW_DIR / _GA_RUNS_FILE
 
 
-def _ensure_solutions_dir(project_root: Path) -> Path:
-    """Return the solutions.json path, creating the directory if needed."""
-    d = project_root / _SOLUTIONS_DIR
+def _ensure_runs_dir(project_root: Path) -> Path:
+    """Return the ga_runs.jsonl path, creating the directory if needed."""
+    d = project_root / _REBREW_DIR
     d.mkdir(parents=True, exist_ok=True)
-    return d / _SOLUTIONS_FILE
+    return d / _GA_RUNS_FILE
+
+
+def _entry_from_record(item: dict[str, Any]) -> SolutionEntry | None:
+    """Build a SolutionEntry from a win record.
+
+    Returns None when the record is not a usable win (missing fields, wrong
+    types) — a malformed record must not break seeding for the whole batch.
+    """
+    try:
+        known = {f.name for f in dataclasses.fields(SolutionEntry)}
+        entry = SolutionEntry(**{k: v for k, v in item.items() if k in known})
+    except TypeError:
+        return None  # missing required field
+    # JSON round-trips the tuple-typed `mutations` field as a list —
+    # normalize it so downstream seeding reads a tuple.
+    if not isinstance(entry.mutations, tuple):
+        try:
+            entry = dataclasses.replace(entry, mutations=tuple(entry.mutations))
+        except TypeError:
+            return None
+    # Type-check the fields the readers rely on: a malformed record
+    # (e.g. {"size": "abc"}) constructs fine but would raise TypeError
+    # inside find_similar's abs(e.size - size), which the per-stub
+    # except Exception turns into "Solution lookup failed" for the whole
+    # batch.  Skip bad records instead.
+    if (
+        not isinstance(entry.symbol, str)
+        or not entry.symbol
+        or not isinstance(entry.cflags, str)
+        or not isinstance(entry.source_file, str)
+        or not isinstance(entry.target, str)
+        or not isinstance(entry.size, int)
+        or isinstance(entry.size, bool)
+        or not isinstance(entry.score, (int, float))
+        or isinstance(entry.score, bool)
+    ):
+        return None
+    return entry
 
 
 def load_solutions(project_root: Path) -> list[SolutionEntry]:
-    """Load all solution entries from ``.rebrew/solutions.json``.
+    """Load winning solution entries (newest win per ``(target, symbol)``).
 
-    Returns an empty list if the file doesn't exist or is malformed.
+    Derived from ``.rebrew/ga_runs.jsonl`` win records.  Returns [] when
+    nothing is stored (never raises).
     """
-    return load_solutions_file(_solutions_path(project_root))
+    wins: dict[tuple[str, str], SolutionEntry] = {}
+    for rec in _iter_run_records(_runs_path(project_root)):
+        if not rec.get("matched"):
+            continue
+        entry = _entry_from_record(rec)
+        if entry is not None:
+            wins[(entry.target, entry.symbol)] = entry  # log order: newest wins
+    return sorted(wins.values(), key=lambda e: (e.target, e.symbol))
+
+
+def _iter_run_records(path: Path) -> Any:
+    """Yield dict records from a JSONL file (skips malformed lines)."""
+    if not path.exists():
+        return
+    try:
+        fh = path.open(encoding="utf-8")
+    except OSError:
+        return
+    with fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(record, dict):
+                yield record
 
 
 def load_solutions_file(path: Path) -> list[SolutionEntry]:
-    """Load solution entries from an explicit ``solutions.json`` *path*.
+    """Load solution entries from another project's run log.
 
     Supports cross-project seeding: ``rebrew match --seed-solutions
-    ../other-project/.rebrew/solutions.json`` transfers winning cflags/source
-    fingerprints between projects sharing a compiler.  Returns an empty list
-    when the file is missing or malformed (never raises).
+    ../other-project/.rebrew/ga_runs.jsonl`` transfers winning
+    cflags/source fingerprints between projects sharing a compiler.
+    Returns an empty list when the file is missing or malformed (never
+    raises).
     """
     if not path.exists():
         return []
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
-        log.warning("Failed to read solutions at %s: %s", path, exc)
-        return []
-    if not isinstance(raw, list):
-        log.warning("solutions file %s is not a JSON array, ignoring", path)
-        return []
-    entries: list[SolutionEntry] = []
-    for item in raw:
-        if not isinstance(item, dict):
+    wins: dict[tuple[str, str], SolutionEntry] = {}
+    for rec in _iter_run_records(path):
+        if not rec.get("matched"):
             continue
-        try:
-            known = {f.name for f in dataclasses.fields(SolutionEntry)}
-            entry = SolutionEntry(**{k: v for k, v in item.items() if k in known})
-        except TypeError:
-            continue  # missing required field
-        # JSON round-trips the tuple-typed `mutations` field as a list —
-        # normalize it so downstream seeding reads a tuple.
-        if not isinstance(entry.mutations, tuple):
-            entry = dataclasses.replace(entry, mutations=tuple(entry.mutations))
-        # Type-check the fields the readers rely on: a malformed record
-        # (e.g. {"size": "abc"}) constructs fine but would raise TypeError
-        # inside find_similar's abs(e.size - size), which the per-stub
-        # except Exception turns into "Solution lookup failed" for the whole
-        # batch.  Skip bad records instead.
-        if (
-            not isinstance(entry.symbol, str)
-            or not isinstance(entry.cflags, str)
-            or not isinstance(entry.source_file, str)
-            or not isinstance(entry.target, str)
-            or not isinstance(entry.size, int)
-            or isinstance(entry.size, bool)
-            or not isinstance(entry.score, (int, float))
-            or isinstance(entry.score, bool)
-        ):
-            log.warning("skipping malformed solution entry in %s: %r", path, item)
-            continue
-        entries.append(entry)
-    return entries
+        entry = _entry_from_record(rec)
+        if entry is not None:
+            wins[(entry.target, entry.symbol)] = entry
+    return sorted(wins.values(), key=lambda e: (e.target, e.symbol))
 
 
 def _relative_source(project_root: Path, source_file: str) -> str:
@@ -159,56 +196,39 @@ def _relative_source(project_root: Path, source_file: str) -> str:
 
 
 def save_solution(project_root: Path, entry: SolutionEntry) -> None:
-    """Append a solution entry to the DB, deduplicating by ``(target, symbol)``.
+    """Record a solution win (appended to the GA run log).
 
-    If an entry for the same (target, symbol) already exists, it is replaced
-    (the newer solution wins — it may have better cflags or score).  Uses
-    ``atomic_write_text`` for crash-safe writes.
+    A win is one record in ``ga_runs.jsonl`` carrying the full fingerprint —
+    ``load_solutions`` derives the newest win per ``(target, symbol)`` from
+    the log, so no dedup rewrite is needed here.
 
     ``entry.source_file`` is normalized to a project-root-relative path so all
     writers agree on the base the reader assumes.
     """
-    entry = dataclasses.replace(
-        entry, source_file=_relative_source(project_root, entry.source_file)
+    record_ga_run(
+        project_root,
+        target=entry.target,
+        va="",
+        symbol=entry.symbol,
+        matched=True,
+        score=entry.score,
+        generations=entry.generations,
+        cflags=entry.cflags,
+        size=entry.size,
+        source_file=_relative_source(project_root, entry.source_file),
+        mutations=list(entry.mutations),
+        solved_at=entry.solved_at,
     )
-    with metadata_write_lock(project_root / _SOLUTIONS_DIR, _SOLUTIONS_FILE):
-        existing = load_solutions(project_root)
-        # Replace existing entry for the same (target, symbol)
-        updated = [
-            e for e in existing if not (e.symbol == entry.symbol and e.target == entry.target)
-        ]
-        updated.append(entry)
-        # Sort by (target, symbol) for stable output
-        updated.sort(key=lambda e: (e.target, e.symbol))
-
-        data = [asdict(e) for e in updated]
-        p = _ensure_solutions_dir(project_root)
-        atomic_write_text(p, json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    log.info("Saved solution for %s/%s (%d total)", entry.target, entry.symbol, len(updated))
 
 
 def save_solutions(project_root: Path, entries: list[SolutionEntry]) -> None:
-    """Batch-append solution entries, deduplicating by ``(target, symbol)``.
+    """Record solution wins (batch form — one append per entry, no rewrite).
 
-    Same semantics as :func:`save_solution` but loads and rewrites the whole
-    file ONCE for *entries* — the batch flag-sweep path previously called
-    ``save_solution`` per exact match (N whole-file reads + rewrites).
+    Same record as :func:`save_solution`; the log is append-only so a batch
+    costs N line-appends, never a whole-file read-modify-write.
     """
-    if not entries:
-        return
-    with metadata_write_lock(project_root / _SOLUTIONS_DIR, _SOLUTIONS_FILE):
-        existing = load_solutions(project_root)
-        existing_by_key = {(e.symbol, e.target): e for e in existing}
-        for entry in entries:
-            entry = dataclasses.replace(
-                entry, source_file=_relative_source(project_root, entry.source_file)
-            )
-            existing_by_key[(entry.symbol, entry.target)] = entry
-        updated = sorted(existing_by_key.values(), key=lambda e: (e.target, e.symbol))
-        data = [asdict(e) for e in updated]
-        p = _ensure_solutions_dir(project_root)
-        atomic_write_text(p, json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    log.info("Saved %d solution(s) (%d total)", len(entries), len(updated))
+    for entry in entries:
+        save_solution(project_root, entry)
 
 
 def find_similar(
@@ -264,14 +284,11 @@ def _normalize_cflags(cflags: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# GA run history — append-only JSONL of per-function batch outcomes.
+# GA run log — one append-only JSONL for every outcome (wins + losses).
 # ---------------------------------------------------------------------------
 #
-# Unlike solutions.json (winning fingerprints), ga_runs.jsonl keeps the full
-# history of every `rebrew match --all` attempt — matched/failed per run — so
-# progress across runs and targets can be tracked and diffed.
-
-_GA_RUNS_FILE = "ga_runs.jsonl"
+# Wins carry the full solution fingerprint, so `load_solutions` derives the
+# winning entry per (target, symbol) from this same log — no second file.
 
 
 def record_ga_run(
@@ -283,8 +300,17 @@ def record_ga_run(
     matched: bool,
     score: float | None = None,
     generations: int = 0,
+    cflags: str = "",
+    size: int = 0,
+    source_file: str = "",
+    mutations: list[str] | None = None,
+    solved_at: str = "",
 ) -> Path:
-    """Append one GA outcome to ``.rebrew/ga_runs.jsonl`` (append-only)."""
+    """Append one GA outcome to ``.rebrew/ga_runs.jsonl`` (append-only).
+
+    Win-only fields (*cflags*, *size*, *source_file*, *mutations*) turn the
+    record into a solution fingerprint readable by ``load_solutions``.
+    """
     record: dict[str, Any] = {
         "ts": datetime.now(UTC).isoformat(),
         "target": target,
@@ -296,8 +322,16 @@ def record_ga_run(
         record["score"] = round(float(score), 2)
     if generations:
         record["generations"] = int(generations)
-    p = project_root / ".rebrew" / _GA_RUNS_FILE
-    p.parent.mkdir(parents=True, exist_ok=True)
+    if matched:
+        # Solution fingerprint (see SolutionEntry) — only wins seed later runs.
+        record["cflags"] = cflags
+        record["size"] = size if isinstance(size, int) and not isinstance(size, bool) else 0
+        if source_file:
+            record["source_file"] = source_file
+        if mutations:
+            record["mutations"] = list(mutations)
+        record["solved_at"] = solved_at or datetime.now(UTC).isoformat()
+    p = _ensure_runs_dir(project_root)
     with p.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
     return p
@@ -321,7 +355,7 @@ def load_ga_runs(
     """
     from collections import deque
 
-    p = project_root / ".rebrew" / _GA_RUNS_FILE
+    p = _runs_path(project_root)
     if not p.exists():
         return []
     # Bounded deque: the log is append-only and chronological, so only the
@@ -330,8 +364,12 @@ def load_ga_runs(
     # target" (a filtered target must not lose its older records to other
     # targets' newer ones).
     records: deque[dict[str, Any]] = deque(maxlen=limit)
-    with p.open(encoding="utf-8") as f:
-        for line in f:
+    try:
+        fh = p.open(encoding="utf-8")
+    except OSError:
+        return []
+    with fh:
+        for line in fh:
             line = line.strip()
             if not line:
                 continue

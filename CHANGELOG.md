@@ -26,12 +26,58 @@
   and asset emitters, the non-win32 platforms) instead of being dropped.  A
   re-run is an idempotent no-op, and a foreign file at an annotation's path is a
   hard refusal naming the conflict.
-## [Unreleased]
+## [2.0.0] - 2026-09-14
 ### Changed
 - **`rebrew asm` and `rebrew test` are callable in-process**: `asm.hex_disassembly`,
   `asm.build_cfg_payload` and `test.run_test` return exactly what the CLI prints
   (hex text, the CFG payload, the test result object), so the last two engine
   operations a consumer needed no longer go through the CLI.
+- **Batch engine split by emitter, not by flag**: `verify.run_batch` is one
+  pipeline (scan → scope → compile → STATUS sync → PROVEN overlay) returning a
+  `BatchResult`; `rebrew verify` emits via `_save_report` (report + cache +
+  baseline + CI gate) and `rebrew test --all` via `test.emit_test_batch`
+  (dry-run listing, compact summary, exit codes).  The `provenance` switch is
+  gone — no behavior change beyond the structure.
+- **Verify cache rows are flat v2 only**: the version-1 `result`-nesting
+  fallback is removed from the writer, readers (`status`, `todo`, `build-db`,
+  `report`), and tests.  Cache rows carry `module`, and a same-VA /
+  different-module entry is a miss.  `canonical_va_key` lives in
+  `rebrew.utils` next to the other key helpers.
+- **`db/verify_results.json` is gone**: `rebrew verify` writes no default
+  report file.  The `--compare` baseline is `.rebrew/verify_baseline.json`
+  (with target/compiler/binary identity guards the old snapshot lacked);
+  `-o` is explicit export only.  `rebrew build-db` imports its
+  `verify_results` rows from `.rebrew/verify_cache.json` instead.
+- **`rebrew build-db --regen`**: generates coverage in-process per target —
+  no `db/data_*.json` intermediate files.  The file pipeline still works.
+- **GA learning is one log**: wins are records in `.rebrew/ga_runs.jsonl`
+  (full fingerprint inline); `solutions.json` is no longer written or read.
+  `save_solution(s)` appends instead of whole-file read-modify-write.
+- **No per-run GA disk cache**: same-run compiles memoize in memory, cross-run
+  persistence is the shared compile cache.  `BuildCache` stays for import
+  compatibility.  `output/ga_runs/*/` holds checkpoints + `best.c` only.
+- **Inline volatile metadata is not parsed**: `// STATUS:`/`// BLOCKER:`/
+  `// NOTE:`/`// GHIDRA:` etc. in `.c` files are ignored (STATUS defaults
+  STUB); they live in `rebrew-functions.toml` (`lint --fix` migrates them).
+  Still read inline: SIZE/CFLAGS (reccmp contract), SECTION/STRUCT/CALLERS,
+  TOOLCHAIN, SOURCE (`// SOURCE: naked` travels with the file).  The
+  `library_*.h` extended parser is the exception.
+- **One status vocabulary**: `workspace.status` re-exports
+  `metadata.KNOWN_STATUSES`/`MATCHED_STATUSES`; a coverage test pins colors +
+  gate ranks for every status.  SKIP has an explicit neutral gate rank
+  (STUB↔SKIP transitions are status-equal, not regressions).
+- **One compilability predicate**: `Annotation.is_data`/`is_function` plus
+  `DATA_MARKERS`/`FUNCTION_MARKERS` replace ~20 scattered marker tuples
+  (including a dead BSS/RODATA/VTBL check no parser produces).
+- **Docs de-drifted against `--help` and the code**: `CLI.md` gains the
+  missing flags (`verify --dir/--origin/--no-promote`, `build-db --regen`,
+  `match --seed-llm/--seed-kuna/--sweep-*`, `cache`/`todo`/`report`/`catalog`
+  flags) and drops the bogus `verify -f`; metadata docs now state the
+  inline contract correctly (SIZE/CFLAGS co-read, STATUS/BLOCKER/NOTE
+  TOML-only); the `--compare` baseline is `.rebrew/verify_baseline.json`
+  everywhere including the architecture diagram; `DB_FORMAT.md` and
+  `prd/05` carry mutual scope headers; ADR-012 keeps its original text with
+  appended superseded-notes.
 
 ## [1.1.0] - 2026-09-13
 ### Added

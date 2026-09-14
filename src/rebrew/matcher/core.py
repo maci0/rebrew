@@ -1,6 +1,8 @@
 """core.py – Data types and caching for the GA matching engine.
 
-Defines Score, StructuralSimilarity, BuildResult, BuildCache (disk-backed),
+Defines Score, StructuralSimilarity, BuildResult, BuildCache (disk-backed,
+kept for import compatibility — the GA engine itself memoizes same-run
+compiles in memory and persists across runs via the shared compile cache),
 and GACheckpoint (serializable run state) for the GA matching engine.
 """
 
@@ -62,7 +64,12 @@ class BuildResult:
 
 
 class BuildCache:
-    """Disk-backed cache mapping source hashes to build results."""
+    """Disk-backed cache mapping source hashes to build results.
+
+    Kept for import compatibility (tests, external callers); the GA engine
+    no longer instantiates one per run — same-run compiles memoize in
+    memory and cross-run persistence lives in the shared compile cache.
+    """
 
     def __init__(self, db_path: str | Path = "build_cache.db") -> None:
         """Open (or create) the disk-backed build cache.

@@ -234,12 +234,54 @@ class TestCatalogCli:
 
 class TestCatalogCliSummary:
     def _entries(self) -> list[dict]:
+        # Shape mirrors Annotation.to_dict() (which always emits size +
+        # is_function/is_data alongside marker_type).
         return [
-            {"va": 0x1000, "module": "GAME", "marker_type": "FUNCTION", "status": "EXACT"},
-            {"va": 0x2000, "module": "GAME", "marker_type": "FUNCTION", "status": "RELOC"},
-            {"va": 0x3000, "module": "ZLIB", "marker_type": "FUNCTION", "status": "NEAR_MATCHING"},
-            {"va": 0x4000, "module": "GAME", "marker_type": "FUNCTION", "status": "STUB"},
-            {"va": 0x5000, "module": "GAME", "marker_type": "DATA", "status": "EXACT"},
+            {
+                "va": 0x1000,
+                "module": "GAME",
+                "marker_type": "FUNCTION",
+                "status": "EXACT",
+                "size": 64,
+                "is_function": True,
+                "is_data": False,
+            },
+            {
+                "va": 0x2000,
+                "module": "GAME",
+                "marker_type": "FUNCTION",
+                "status": "RELOC",
+                "size": 32,
+                "is_function": True,
+                "is_data": False,
+            },
+            {
+                "va": 0x3000,
+                "module": "ZLIB",
+                "marker_type": "FUNCTION",
+                "status": "NEAR_MATCHING",
+                "size": 16,
+                "is_function": True,
+                "is_data": False,
+            },
+            {
+                "va": 0x4000,
+                "module": "GAME",
+                "marker_type": "FUNCTION",
+                "status": "STUB",
+                "size": 8,
+                "is_function": True,
+                "is_data": False,
+            },
+            {
+                "va": 0x5000,
+                "module": "GAME",
+                "marker_type": "DATA",
+                "status": "EXACT",
+                "size": 4,
+                "is_function": False,
+                "is_data": True,
+            },
         ]
 
     def test_summary_counts(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

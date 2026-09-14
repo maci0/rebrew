@@ -157,8 +157,9 @@ rebrew test src/target_name/my_func.c           # compile + update STATUS
 rebrew test src/target_name/my_func.c --no-promote  # compile without updating STATUS
 ```
 
-The `.c` file only ever contains the stable `// FUNCTION: MODULE 0xVA` marker line.
-STATUS, SIZE, and CFLAGS all live in the metadata.
+The `.c` file only ever contains the stable `// FUNCTION: MODULE 0xVA` marker line
+(SIZE/CFLAGS still inline-read as reccmp-native contract keys).
+Other volatile STATUS/BLOCKER/NOTE fields live in the metadata.
 
 For NEAR_MATCHING functions, auto-classify and write the BLOCKER:
 
@@ -408,7 +409,7 @@ A file may contain **multiple marker blocks** for multi-function compilation. Se
 | [CODEGEN_PATTERNS.md](CODEGEN_PATTERNS.md) | MSVC6 codegen patterns, SEH helpers, matching idioms |
 | [BOOTSTRAPPING.md](BOOTSTRAPPING.md) | Adding a new binary to a project from scratch |
 | [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / NEAR_MATCHING explained with byte-level examples |
-| [ANNOTATIONS.md](ANNOTATIONS.md) | Full marker format reference and linter codes (E000–E023, W001–W028) |
+| [ANNOTATIONS.md](ANNOTATIONS.md) | Full marker format reference and linter codes (E000–E023, W001–W029) |
 | [GHIDRA_SYNC.md](GHIDRA_SYNC.md) | Ghidra ↔ Rebrew sync feature matrix and known issues |
 | [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md) | Obtaining, creating, and using FLIRT signatures |
 | [CLI.md](CLI.md) | All CLI commands, flags, and examples |

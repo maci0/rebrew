@@ -289,24 +289,21 @@ class TestProveCLIStatusGuard:
         (cache_dir / "verify_cache.json").write_text(
             json.dumps(
                 {
-                    "version": 1,
+                    "version": 2,
                     "compiler_hash": "",
                     "headers_hash": "",
                     "target": "GAME",
                     "entries": {
                         f"0x{va:08x}": {
                             "source_hash": "",
-                            "filepath": src.name,
                             "mtime_ns": 0,
-                            "result": {
-                                "status": "NEAR_MATCHING",
-                                "va": f"0x{va:08x}",
-                                "size": 100,
-                                "filepath": src.name,
-                                "name": "f",
-                                "message": "",
-                                "passed": False,
-                            },
+                            "status": "NEAR_MATCHING",
+                            "va": f"0x{va:08x}",
+                            "size": 100,
+                            "filepath": src.name,
+                            "name": "f",
+                            "message": "",
+                            "passed": False,
                         }
                     },
                 }

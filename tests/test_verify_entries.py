@@ -152,23 +152,21 @@ class TestPrepareEntriesCache:
             "source_hash": source_hash,
             "filepath": filepath,
             "mtime_ns": mtime,
+            # Flat v2 row: one `size` (annotation SIZE at cache time — the
+            # invalidation guard AND the verdict size are both entry.size).
             "size": size,  # 64 matches _ann's default annotation size
             "cflags": cflags,
             "headers_fp": headers_fp,
             "toolchain": toolchain,
             "defines": "(none)",
-            "result": {
-                "status": "EXACT" if passed else "STUB",
-                "va": "0x1000",
-                "size": 64,
-                "filepath": filepath,
-                "name": "f",
-                "symbol": "_f",
-                "delta": 0 if passed else 4,
-                "match_percent": 100.0 if passed else 90.0,
-                "passed": passed,
-                "message": "" if passed else "9B diff",
-            },
+            "status": "EXACT" if passed else "STUB",
+            "va": "0x1000",
+            "name": "f",
+            "symbol": "_f",
+            "delta": 0 if passed else 4,
+            "match_percent": 100.0 if passed else 90.0,
+            "passed": passed,
+            "message": "" if passed else "9B diff",
         }
 
     def test_cached_pass_reused(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -181,7 +179,7 @@ class TestPrepareEntriesCache:
             verify_mod,
             "_load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
-                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+                version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
         entries, passed, failed, fail_details, results, cached, size_div, _miss, _dup = (
@@ -211,7 +209,7 @@ class TestPrepareEntriesCache:
             verify_mod,
             "_load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
-                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+                version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
         ctx = CompileContext(path=tmp_path / "ctx.c", text="typedef int myint;\n", sha256="abc123")
@@ -246,7 +244,7 @@ class TestPrepareEntriesCache:
             verify_mod,
             "_load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
-                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+                version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
         _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
@@ -271,12 +269,12 @@ class TestPrepareEntriesCache:
                 self._cache_entry("f.c", passed=True)
             )
         }
-        cache["0x00001000"].result.status = "PROVEN"  # stale pre-fix baked value
+        cache["0x00001000"].status = "PROVEN"  # stale pre-fix baked value
         monkeypatch.setattr(
             verify_mod,
             "_load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
-                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+                version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
         _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
@@ -299,7 +297,7 @@ class TestPrepareEntriesCache:
             verify_mod,
             "_load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
-                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+                version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
         _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
@@ -327,7 +325,7 @@ class TestPrepareEntriesCache:
             verify_mod,
             "_load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
-                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+                version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
         # First pass: cache hit (resolved flags match the cached entry).
@@ -353,7 +351,7 @@ class TestPrepareEntriesCache:
             verify_mod,
             "_load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
-                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+                version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
         entries, passed, failed, fail_details, results, cached, size_div, _miss, _dup = (
@@ -383,7 +381,7 @@ class TestPrepareEntriesCache:
             verify_mod,
             "_load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
-                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+                version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
         _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
@@ -404,7 +402,7 @@ class TestPrepareEntriesCache:
             verify_mod,
             "_load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
-                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+                version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
         _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
@@ -432,7 +430,7 @@ class TestPrepareEntriesCache:
             verify_mod,
             "_load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
-                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+                version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
         _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
@@ -458,7 +456,7 @@ class TestPrepareEntriesCache:
             verify_mod,
             "_load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
-                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+                version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
         _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
@@ -480,7 +478,7 @@ class TestPrepareEntriesCache:
             verify_mod,
             "_load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
-                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+                version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
         _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
@@ -500,7 +498,7 @@ class TestPrepareEntriesCache:
             verify_mod,
             "_load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
-                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+                version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
         _entries, passed, _failed, _fd, results, cached, size_div, _miss, _dup = (
@@ -525,7 +523,7 @@ class TestPrepareEntriesCache:
             verify_mod,
             "_load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
-                version=1, compiler_hash="", headers_hash="", target="", entries=cache
+                version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
         _entries, passed, _failed, _fd, results, cached, size_div, _miss, _dup = (
@@ -654,7 +652,7 @@ class TestBinaryIdCacheGuard:
         )
         cache_path = tmp_path / "verify_cache.json"
         cache = verify_cache_mod.VerifyCache(
-            version=1,
+            version=2,
             compiler_hash=verify_hash_mod._compiler_config_hash(cfg),
             headers_hash=verify_hash_mod._headers_hash(cfg),
             target="T",

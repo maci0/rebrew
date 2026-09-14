@@ -243,7 +243,7 @@ def build_graph(
         for entry in parse_c_file_multi(
             cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir if cfg else None
         ):
-            if entry.marker_type in ("GLOBAL", "DATA"):
+            if entry.is_data:
                 continue
 
             key = _func_key(entry, cfile.stem)

@@ -248,7 +248,9 @@ class TestParseNewFormat:
         result = parse_new_format(lines)
         assert result is not None
         assert result["va"] == 0x10008880
-        assert result["status"] == "EXACT"
+        # Inline volatile keys are not read (STATUS lives in
+        # rebrew-functions.toml) — only SIZE/CFLAGS travel with the file.
+        assert result["status"] == "STUB"
         assert result["size"] == 31
         assert result["name"] == "bit_reverse"
         assert result["symbol"] == "_bit_reverse"
@@ -270,10 +272,11 @@ class TestParseNewFormat:
         result = parse_new_format(lines)
         assert result is not None
         assert result["va"] == 0x10001000
-        assert result["status"] == "EXACT"
+        # Inline STATUS/GLOBALS are metadata-owned — not read from source.
+        assert result["status"] == "STUB"
         assert result["size"] == 100
         assert result["cflags"] == "/O2"
-        assert result["globals"] == ["g_counter", "g_flag"]
+        assert result["globals"] == []
 
 
 class TestParseCFile:
@@ -292,7 +295,8 @@ int myfunc(void) { return 0; }
         assert len(results) == 1
         result = results[0]
         assert result["va"] == 0x10001234
-        assert result["status"] == "EXACT"
+        # Inline STATUS is metadata-owned — the raw parse defaults to STUB.
+        assert result["status"] == "STUB"
         assert result["size"] == 42
         assert result["cflags"] == "/O2"
         assert result["symbol"] == "_myfunc"
@@ -340,10 +344,11 @@ class TestMultiFunctionParsing:
         assert len(results) == 2
         assert results[0].va == 0x10001000
         assert results[0].symbol == "_func_a"
-        assert results[0].status == "EXACT"
+        # Inline STATUS is metadata-owned — raw parses default to STUB.
+        assert results[0].status == "STUB"
         assert results[1].va == 0x10002000
         assert results[1].symbol == "_func_b"
-        assert results[1].status == "NEAR_MATCHING"
+        assert results[1].status == "STUB"
         assert results[1].module == "SERVER"
 
     def test_parse_three_with_code_between(self) -> None:
@@ -447,7 +452,8 @@ int func_b(void) { return 1; }
         assert len(results) == 2
         result = results[0]
         assert result.va == 0x10001000
-        assert result.status == "EXACT"
+        # Inline STATUS is metadata-owned — the raw parse defaults to STUB.
+        assert result.status == "STUB"
         assert result.symbol == "_func_a"
         # parse_c_file_multi with metadata_dir picks up SIZE from metadata
         results = parse_c_file_multi(f, metadata_dir=f.parent)

@@ -45,7 +45,7 @@
         <mxCell id="prj" value="&lt;b&gt;*-rebrew workspace&lt;/b&gt;&lt;br&gt;target binary + C sources&lt;br&gt;rebrew-project.toml&lt;br&gt;rebrew-functions.toml (STATUS/CFLAGS/BLOCKER)&lt;br&gt;flirt_sigs/ (project overlays)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef9c3;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="460" y="304" width="340" height="124" as="geometry"/>
         </mxCell>
-        <mxCell id="arts" value="&lt;b&gt;Artifacts rebrew writes&lt;/b&gt;&lt;br&gt;db/coverage.db + data_*.json&lt;br&gt;ga_runs.jsonl · solutions DB&lt;br&gt;matched .c + locked metadata TOML&lt;br&gt;verify_results (incl. similarity)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="arts" value="&lt;b&gt;Artifacts rebrew writes&lt;/b&gt;&lt;br&gt;db/coverage.db + data_*.json&lt;br&gt;ga_runs.jsonl solutions log&lt;br&gt;matched .c + locked metadata TOML&lt;br&gt;verify_results (incl. similarity)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="880" y="304" width="340" height="124" as="geometry"/>
         </mxCell>
         <mxCell id="spec" value="&lt;b&gt;toolchain.py&lt;/b&gt;&lt;br&gt;ToolchainSpec registry&lt;br&gt;entry points + TOML overlay&lt;br&gt;docker run &amp;lt;image&amp;gt; &amp;lt;cc&amp;gt; &amp;lt;args&amp;gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
@@ -603,7 +603,7 @@
         <mxCell id="cov3" value="&lt;b&gt;recoverage serve&lt;/b&gt;&lt;br&gt;Bottle + VanJS defrag grid&lt;br&gt;imports nothing from rebrew" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="540" y="350" width="240" height="80" as="geometry"/>
         </mxCell>
-        <mxCell id="cov4" value="&lt;b&gt;POST /api/regen&lt;/b&gt;&lt;br&gt;or recoverage serve --regen&lt;br&gt;uv run rebrew catalog + build-db&lt;br&gt;rewrites coverage.db in-place" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="cov4" value="&lt;b&gt;POST /api/regen&lt;/b&gt;&lt;br&gt;or recoverage serve --regen&lt;br&gt;uv run rebrew build-db --regen&lt;br&gt;rewrites coverage.db in-place" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="820" y="350" width="280" height="80" as="geometry"/>
         </mxCell>
         <mxCell id="cov5" value="recoverage check / stats&lt;br&gt;CI gate, read-only&lt;br&gt;rebrew dashboard.py also reads db" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
@@ -768,7 +768,7 @@
         <mxCell id="d4" value="&lt;b&gt;Signatures / cmake&lt;/b&gt;&lt;br&gt;flirt_sigs/*.pat (project overlay)&lt;br&gt;cmake/toolchain-*.cmake&lt;br&gt;rebrew cmake-toolchain&lt;br&gt;gen-flirt-pat from .lib" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="880" y="568" width="260" height="110" as="geometry"/>
         </mxCell>
-        <mxCell id="d5" value="&lt;b&gt;History (not a cache)&lt;/b&gt;&lt;br&gt;.rebrew/solutions.json&lt;br&gt;.rebrew/ga_runs.jsonl&lt;br&gt;re-running GA does not&lt;br&gt;reproduce these" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="d5" value="&lt;b&gt;History (not a cache)&lt;/b&gt;&lt;br&gt;.rebrew/ga_runs.jsonl&lt;br&gt;re-running GA does not&lt;br&gt;reproduce these" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1160" y="568" width="240" height="110" as="geometry"/>
         </mxCell>
         <mxCell id="d6" value="&lt;b&gt;Binsync export&lt;/b&gt;&lt;br&gt;functions/*.toml&lt;br&gt;global_vars.toml&lt;br&gt;structs/*.toml&lt;br&gt;0444 interchange, not canonical" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
@@ -785,7 +785,7 @@
         <mxCell id="b2" value="db/coverage.db&lt;br&gt;rebrew build-db" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="260" y="756" width="180" height="86" as="geometry"/>
         </mxCell>
-        <mxCell id="b3" value="db/verify_results.json&lt;br&gt;incl. similarity col" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="b3" value=".rebrew/verify_baseline.json&lt;br&gt;incl. similarity col" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="460" y="756" width="180" height="86" as="geometry"/>
         </mxCell>
         <mxCell id="b4" value="bin/ · output/report/&lt;br&gt;extract · report" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
@@ -1000,7 +1000,7 @@
         <mxCell id="a2" value="&lt;b&gt;recompile POST /api/v1/compile&lt;/b&gt;&lt;br&gt;emit_assembly: true  (default false)&lt;br&gt;MSVC-family adds /FA; first .asm/.cod captured&lt;br&gt;&lt;br&gt;train_data/train.jsonl  (RECOMPILE_TRAIN_DIR)&lt;br&gt;{job_id, compiler, image, filename, flags,&lt;br&gt; source, assembly, time}&lt;br&gt;&lt;br&gt;Best-effort: missing listing skips the sample,&lt;br&gt;never fails the compile. Unauthenticated today." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="490" y="116" width="400" height="190" as="geometry"/>
         </mxCell>
-        <mxCell id="a3" value="&lt;b&gt;History files (not a collector flag)&lt;/b&gt;&lt;br&gt;.rebrew/ga_runs.jsonl&lt;br&gt;.rebrew/solutions.json&lt;br&gt;&lt;br&gt;Winning cflags + mutation traces.&lt;br&gt;Re-running GA does not reproduce them.&lt;br&gt;Useful as seed labels, not as a byte corpus.&lt;br&gt;&lt;br&gt;verify_results.json similarity column&lt;br&gt;(resembl 0–100) is a ranking feature." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="a3" value="&lt;b&gt;History files (not a collector flag)&lt;/b&gt;&lt;br&gt;.rebrew/ga_runs.jsonl&lt;br&gt;&lt;br&gt;Winning cflags + mutation traces.&lt;br&gt;Re-running GA does not reproduce them.&lt;br&gt;Useful as seed labels, not as a byte corpus.&lt;br&gt;&lt;br&gt;verify similarity column&lt;br&gt;(resembl 0–100) is a ranking feature." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="920" y="116" width="370" height="190" as="geometry"/>
         </mxCell>
         <mxCell id="a4" value="&lt;b&gt;What these are for&lt;/b&gt;&lt;br&gt;collect-pairs → mutation / score model&lt;br&gt;(how C edits change bytes)&lt;br&gt;&lt;br&gt;train.jsonl → C↔asm listing model&lt;br&gt;(Godbolt-style, vintage MSVC)&lt;br&gt;&lt;br&gt;Neither is a decompiler dataset by itself.&lt;br&gt;Ground-truth C is the EXACT/RELOC/PROVEN&lt;br&gt;sources in *-rebrew projects." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
@@ -1105,7 +1105,7 @@
         <mxCell id="f11" value="&lt;b&gt;new EXACT pairs&lt;/b&gt;&lt;br&gt;re-export → retrain&lt;br&gt;snowball. relumea owns this loop." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;dashed=1;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="760" y="1014" width="200" height="90" as="geometry"/>
         </mxCell>
-        <mxCell id="f12" value="&lt;b&gt;Already usable without any of D&lt;/b&gt;&lt;br&gt;solutions.json seeds GA · --llm-seed / --kuna-seed · reagent imports rebrew.*&lt;br&gt;A trained model is optional. The pinned image is the ground-truth filter either way." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="f12" value="&lt;b&gt;Already usable without any of D&lt;/b&gt;&lt;br&gt;ga_runs.jsonl seeds GA · --llm-seed / --kuna-seed · reagent imports rebrew.*&lt;br&gt;A trained model is optional. The pinned image is the ground-truth filter either way." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dcfce7;strokeColor=#16a34a;fontColor=#14532d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="990" y="1014" width="700" height="90" as="geometry"/>
         </mxCell>
 

@@ -73,6 +73,15 @@ __all__ = [
 
 VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"}
 
+#: Markers for compilable code (functions + stubs).  Everything else is data.
+FUNCTION_MARKERS: frozenset[str] = frozenset({"FUNCTION", "LIBRARY", "STUB"})
+
+#: Markers for data annotations (globals / static data) — never compiled.
+#: Single home for the "is this compilable?" check; do not re-spell the
+#: tuple at call sites (one site once listed BSS/RODATA/VTBL, which no
+#: parser produces — dead defense that has since been removed).
+DATA_MARKERS: frozenset[str] = frozenset({"GLOBAL", "DATA"})
+
 # OPTIONAL_KEYS: only reccmp-compatible keys that are permitted inline.
 # All rebrew-specific keys (ORIGIN, CFLAGS, SKIP, GLOBALS, BLOCKER, SOURCE,
 # NOTE, SECTION, GHIDRA, BLOCKER_DELTA) must live in rebrew-functions.toml
@@ -397,6 +406,16 @@ class Annotation:
         except KeyError:
             return default
 
+    @property
+    def is_data(self) -> bool:
+        """True for data annotations (GLOBAL/DATA markers) — never compiled."""
+        return self.marker_type in DATA_MARKERS
+
+    @property
+    def is_function(self) -> bool:
+        """True for compilable code annotations (FUNCTION/LIBRARY/STUB)."""
+        return not self.is_data
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict for JSON output and generic dict processing."""
         d = {
@@ -430,6 +449,10 @@ class Annotation:
             d["locals"] = self.locals
         if self.comments:
             d["comments"] = self.comments
+        # Derived predicates ride along so dict-shaped annotations answer
+        # the same "compilable?" question without re-spelling the sets.
+        d["is_data"] = self.is_data
+        d["is_function"] = self.is_function
         return d
 
     def validate(
@@ -749,6 +772,16 @@ def _kv_to_annotation(
 
     ``// SYMBOL:`` and ``// PROTOTYPE:`` inline annotations are not supported;
     they are ignored during parsing and will trigger W010 (unknown key) in lint.
+
+    Volatile metadata (STATUS, BLOCKER, NOTE, GHIDRA, ...) is likewise NOT
+    read inline — it lives in rebrew-functions.toml (overlay via
+    merge_into_annotation) and inline copies are migration debt (lint W019
+    + ``lint --fix`` move them).  Only the reccmp-native contract keys
+    (SIZE, CFLAGS) plus structural/file-borne keys (SECTION, STRUCT,
+    CALLERS, TOOLCHAIN, SOURCE) are read from the source: an external build
+    reads the .c directly (SIZE/CFLAGS), the toolchain override and the
+    naked-reconstruction marker (``// SOURCE: naked``, which self-clears
+    when the C body replaces it) must travel with the file.
     """
     c_func_name = kv.get("_C_FUNC_NAME", "")
     c_func_proto = kv.get("_C_FUNC_PROTO", "")
@@ -776,35 +809,26 @@ def _kv_to_annotation(
     except ValueError:
         size = 0
 
-    blocker_delta: int | None = None
-    raw_delta = kv.get("BLOCKER_DELTA", "")
-    if raw_delta:
-        with contextlib.suppress(ValueError):
-            blocker_delta = int(raw_delta)
-
-    raw_globals = kv.get("GLOBALS", "")
-    globals_list = [g.strip() for g in raw_globals.split(",") if g.strip()] if raw_globals else []
-
     ann = make_func_entry(
         va=va,
         size=size,
         name=name,
         symbol=symbol,
         module=module,
-        status=kv.get("STATUS", "STUB").upper(),
+        status="STUB",
         cflags=kv.get("CFLAGS", ""),
         toolchain=kv.get("TOOLCHAIN", ""),
         marker_type=marker_type,
         filepath="",
         source=kv.get("SOURCE", ""),
-        blocker=kv.get("BLOCKER", ""),
-        note=kv.get("NOTE", ""),
+        blocker="",
+        note="",
         inline_error=kv.get("_INLINE_ERROR", ""),
-        globals_list=globals_list,
+        globals_list=[],
     )
     ann.section = kv.get("SECTION", "")
-    ann.blocker_delta = blocker_delta
-    ann.ghidra = kv.get("GHIDRA", "")
+    ann.blocker_delta = None
+    ann.ghidra = ""
     ann.prototype = prototype
     ann.struct = kv.get("STRUCT", "")
     ann.callers = kv.get("CALLERS", "")

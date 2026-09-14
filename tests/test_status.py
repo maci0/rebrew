@@ -185,13 +185,18 @@ class TestCollectStatus:
         ]
         (src / "function_structure.json").write_text(json.dumps(funcs), encoding="utf-8")
 
-        # Create source files with annotations
+        # Create source files with annotations (SIZE/CFLAGS stay inline;
+        # STATUS lives in rebrew-functions.toml)
         (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\n// STATUS: EXACT\nvoid func_a(void) {}\n",
+            "// FUNCTION: TEST 0x1000\nvoid func_a(void) {}\n",
             encoding="utf-8",
         )
         (src / "func_b.c").write_text(
-            "// FUNCTION: TEST 0x2000\n// STATUS: NEAR_MATCHING\nvoid func_b(void) {}\n",
+            "// FUNCTION: TEST 0x2000\nvoid func_b(void) {}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["TEST.0x1000"]\nstatus = "EXACT"\n["TEST.0x2000"]\nstatus = "NEAR_MATCHING"\n',
             encoding="utf-8",
         )
 
@@ -216,8 +221,11 @@ class TestCollectStatus:
             encoding="utf-8",
         )
         (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\n// SIZE: 100\n// STATUS: EXACT\n"
-            "// SOURCE: naked\nvoid func_a(void) {}\n",
+            "// FUNCTION: TEST 0x1000\n// SIZE: 100\n// SOURCE: naked\nvoid func_a(void) {}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["TEST.0x1000"]\nstatus = "EXACT"\n',
             encoding="utf-8",
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
@@ -286,34 +294,28 @@ class TestCollectStatus:
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
         cache_data = {
-            "version": 1,
+            "version": 2,
             "target": "test",
             "entries": {
                 "0x1000": {
                     "source_hash": "abc",
-                    "filepath": "a.c",
                     "mtime_ns": 0,
-                    "result": {
-                        "status": "EXACT",
-                        "va": "0x1000",
-                        "size": 100,
-                        "filepath": "a.c",
-                        "name": "func_a",
-                        "passed": True,
-                    },
+                    "status": "EXACT",
+                    "va": "0x1000",
+                    "size": 100,
+                    "filepath": "a.c",
+                    "name": "func_a",
+                    "passed": True,
                 },
                 "0x2000": {
                     "source_hash": "def",
-                    "filepath": "b.c",
                     "mtime_ns": 0,
-                    "result": {
-                        "status": "MISMATCH",
-                        "va": "0x2000",
-                        "size": 50,
-                        "filepath": "b.c",
-                        "name": "func_b",
-                        "passed": False,
-                    },
+                    "status": "MISMATCH",
+                    "va": "0x2000",
+                    "size": 50,
+                    "filepath": "b.c",
+                    "name": "func_b",
+                    "passed": False,
                 },
             },
         }
@@ -336,9 +338,9 @@ class TestCollectStatus:
         assert report.verify_info is None
 
     def test_verify_cache_null_result_is_skipped(self, tmp_path: Path) -> None:
-        """`"result": null` is a known cache shape (the sibling reader guards
-        it); it must be skipped, not raise AttributeError out of `rebrew status`
-        (and `rebrew todo`, which shares this loader)."""
+        """A row without a verdict status is malformed; it must be skipped,
+        not raise out of `rebrew status` (and `rebrew todo`, which shares
+        this loader)."""
         cfg = _make_cfg(tmp_path)
         src = tmp_path / "src"
         src.mkdir()
@@ -348,7 +350,7 @@ class TestCollectStatus:
         (cache_dir / "verify_cache.json").write_text(
             json.dumps(
                 {
-                    "version": 1,
+                    "version": 2,
                     "target": "test",
                     "entries": {"0x1000": {"result": None}},
                 }
@@ -430,17 +432,23 @@ class TestCollectStatus:
         ]
         (src / "function_structure.json").write_text(json.dumps(funcs), encoding="utf-8")
 
-        # All annotated as RELOC
+        # All annotated as RELOC (via metadata; inline STATUS no longer parses)
         (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\n// STATUS: RELOC\nvoid func_a(void) {}\n",
+            "// FUNCTION: TEST 0x1000\nvoid func_a(void) {}\n",
             encoding="utf-8",
         )
         (src / "func_b.c").write_text(
-            "// FUNCTION: TEST 0x2000\n// STATUS: RELOC\nvoid func_b(void) {}\n",
+            "// FUNCTION: TEST 0x2000\nvoid func_b(void) {}\n",
             encoding="utf-8",
         )
         (src / "func_c.c").write_text(
-            "// FUNCTION: TEST 0x3000\n// STATUS: RELOC\nvoid func_c(void) {}\n",
+            "// FUNCTION: TEST 0x3000\nvoid func_c(void) {}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["TEST.0x1000"]\nstatus = "RELOC"\n'
+            '["TEST.0x2000"]\nstatus = "RELOC"\n'
+            '["TEST.0x3000"]\nstatus = "RELOC"\n',
             encoding="utf-8",
         )
 
@@ -448,36 +456,35 @@ class TestCollectStatus:
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
         cache_data = {
-            "version": 1,
+            "version": 2,
             "target": "test",
             "entries": {
                 "0x1000": {
                     "source_hash": "a",
                     "filepath": "func_a.c",
                     "mtime_ns": 0,
-                    "result": {"status": "RELOC", "va": "0x1000", "size": 100, "passed": True},
+                    "status": "RELOC",
+                    "va": "0x1000",
+                    "size": 100,
+                    "passed": True,
                 },
                 "0x2000": {
                     "source_hash": "b",
                     "filepath": "func_b.c",
                     "mtime_ns": 0,
-                    "result": {
-                        "status": "MISMATCH",
-                        "va": "0x2000",
-                        "size": 200,
-                        "passed": False,
-                    },
+                    "status": "MISMATCH",
+                    "va": "0x2000",
+                    "size": 200,
+                    "passed": False,
                 },
                 "0x3000": {
                     "source_hash": "c",
                     "filepath": "func_c.c",
                     "mtime_ns": 0,
-                    "result": {
-                        "status": "COMPILE_ERROR",
-                        "va": "0x3000",
-                        "size": 50,
-                        "passed": False,
-                    },
+                    "status": "COMPILE_ERROR",
+                    "va": "0x3000",
+                    "size": 50,
+                    "passed": False,
                 },
             },
         }
@@ -506,7 +513,11 @@ class TestCollectStatus:
             encoding="utf-8",
         )
         (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\n// STATUS: EXACT\nvoid func_a(void) {}\n",
+            "// FUNCTION: TEST 0x1000\nvoid func_a(void) {}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["TEST.0x1000"]\nstatus = "EXACT"\n',
             encoding="utf-8",
         )
         cache_dir = tmp_path / ".rebrew"
@@ -514,19 +525,17 @@ class TestCollectStatus:
         (cache_dir / "verify_cache.json").write_text(
             json.dumps(
                 {
-                    "version": 1,
+                    "version": 2,
                     "target": "test",
                     "entries": {
                         "0x1000": {
                             "source_hash": "a",
                             "filepath": "func_a.c",
                             "mtime_ns": 0,
-                            "result": {
-                                "status": "MISSING_SIZE",
-                                "va": "0x1000",
-                                "size": 0,
-                                "passed": False,
-                            },
+                            "status": "MISSING_SIZE",
+                            "va": "0x1000",
+                            "size": 0,
+                            "passed": False,
                         }
                     },
                 }
@@ -741,7 +750,7 @@ class TestVerifyCacheHelpers:
     def test_verify_info_empty_entries(self, tmp_path: Path) -> None:
         from rebrew.status import _load_verify_info
 
-        self._write_cache(tmp_path, {"version": 1, "entries": {}})
+        self._write_cache(tmp_path, {"version": 2, "entries": {}})
         assert _load_verify_info(self._cfg(tmp_path)) is None
 
     def test_verify_info_counts(self, tmp_path: Path) -> None:
@@ -750,11 +759,11 @@ class TestVerifyCacheHelpers:
         self._write_cache(
             tmp_path,
             {
-                "version": 1,
+                "version": 2,
                 "target": "T",
                 "entries": {
-                    "0x1": {"result": {"passed": True}},
-                    "0x2": {"result": {"passed": False}},
+                    "0x1": {"status": "EXACT", "passed": True},
+                    "0x2": {"status": "STUB", "passed": False},
                     "0x3": "not-a-dict",  # skipped
                 },
             },
@@ -771,13 +780,19 @@ class TestVerifyCacheHelpers:
         self._write_cache(
             tmp_path,
             {
-                "version": 1,
+                "version": 2,
                 "target": "T",
                 "entries": {
-                    "0x1000": {"result": {"status": "EXACT"}},
-                    "zzz": {"result": {"status": "EXACT"}},  # bad VA skipped
-                    "4097": {"result": {"status": "STUB"}},  # non-hex key skipped
-                    "0x2000": {"result": {}},  # no status skipped
+                    "0x1000": {
+                        "status": "EXACT",
+                    },
+                    "zzz": {
+                        "status": "EXACT",
+                    },  # bad VA skipped
+                    "4097": {
+                        "status": "STUB",
+                    },  # non-hex key skipped
+                    "0x2000": {},  # no status skipped
                 },
             },
         )
@@ -791,9 +806,13 @@ class TestVerifyCacheHelpers:
         self._write_cache(
             tmp_path,
             {
-                "version": 1,
+                "version": 2,
                 "target": "OTHER",
-                "entries": {"0x1": {"result": {"passed": True}}},
+                "entries": {
+                    "0x1": {
+                        "passed": True,
+                    }
+                },
             },
         )
         assert _load_verify_info(self._cfg(tmp_path)) is None
@@ -804,26 +823,30 @@ class TestVerifyCacheHelpers:
         self._write_cache(
             tmp_path,
             {
-                "version": 1,
+                "version": 2,
                 "target": "OTHER",
-                "entries": {"0x1": {"result": {"status": "EXACT"}}},
+                "entries": {
+                    "0x1": {
+                        "status": "EXACT",
+                    }
+                },
             },
         )
         assert load_verify_statuses(self._cfg(tmp_path)) == {}
 
     def test_verify_info_null_result_skipped_not_failed(self, tmp_path: Path) -> None:
-        """Null/truthy-non-dict results are skipped, never counted as failures."""
+        """Rows without a verdict status are skipped, never counted as failures."""
         from rebrew.status import _load_verify_info
 
         self._write_cache(
             tmp_path,
             {
-                "version": 1,
+                "version": 2,
                 "target": "T",
                 "entries": {
-                    "0x1": {"result": None},  # skipped
-                    "0x2": {"result": "COMPILE_ERROR"},  # skipped
-                    "0x3": {"result": {"passed": False}},  # real failure
+                    "0x1": {"result": None},  # skipped (no status)
+                    "0x2": {"status": "COMPILE_ERROR"},  # real failure
+                    "0x3": {"passed": False},  # skipped (no status)
                 },
             },
         )
@@ -837,13 +860,13 @@ class TestVerifyCacheHelpers:
         """A malformed cache whose entries is a list is treated as absent."""
         from rebrew.status import _load_verify_info
 
-        self._write_cache(tmp_path, {"version": 1, "target": "T", "entries": ["0x1", "0x2"]})
+        self._write_cache(tmp_path, {"version": 2, "target": "T", "entries": ["0x1", "0x2"]})
         assert _load_verify_info(self._cfg(tmp_path)) is None
 
     def test_verify_statuses_entries_list_no_crash(self, tmp_path: Path) -> None:
         from rebrew.status import load_verify_statuses
 
-        self._write_cache(tmp_path, {"version": 1, "target": "T", "entries": ["0x1"]})
+        self._write_cache(tmp_path, {"version": 2, "target": "T", "entries": ["0x1"]})
         assert load_verify_statuses(self._cfg(tmp_path)) == {}
 
     def test_verify_statuses_missing_file(self, tmp_path: Path) -> None:
@@ -895,12 +918,14 @@ class TestStatusBranches:
         (cache / "verify_cache.json").write_text(
             json.dumps(
                 {
-                    "version": 1,
+                    "version": 2,
                     "target": "T",
                     "entries": {
                         "0x1000": "junk",
-                        "0x2000": {"result": {"status": "EXACT"}},
-                        "0x3000": {"result": {}},  # no status → skipped
+                        "0x2000": {
+                            "status": "EXACT",
+                        },
+                        "0x3000": {},  # no status → skipped
                     },
                 }
             ),
@@ -1078,7 +1103,11 @@ class TestCollectStatusSizeFallback:
         src.mkdir()
         # EXACT function with metadata SIZE but NO function_structure.json.
         (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\n// SIZE: 100\n// STATUS: EXACT\nvoid func_a(void) {}\n",
+            "// FUNCTION: TEST 0x1000\n// SIZE: 100\nvoid func_a(void) {}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["TEST.0x1000"]\nstatus = "EXACT"\n',
             encoding="utf-8",
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
@@ -1124,9 +1153,12 @@ class TestEffectiveMatches:
         )
         cache = {
             "target": "test",
-            "version": 1,
+            "version": 2,
             "entries": {
-                "0x00001000": {"result": {"status": "NEAR_MATCHING", "effective_match": True}}
+                "0x00001000": {
+                    "status": "NEAR_MATCHING",
+                    "effective_match": True,
+                }
             },
         }
         (tmp_path / ".rebrew").mkdir(exist_ok=True)

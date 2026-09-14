@@ -24,7 +24,6 @@ from rebrew.compile_cache import CacheBackend, source_digest
 from rebrew.config import ProjectConfig
 from rebrew.match_sweep import _BuildParams
 from rebrew.matcher import (
-    BuildCache,
     BuildResult,
     GACheckpoint,
     build_candidate,
@@ -235,15 +234,12 @@ def _ga_cache_key(
     the compiler flags, the compiler command, the include directory, the
     extra include dirs (different headers → different codegen), the
     per-target defines (a version switch changes ``#ifdef``-driven codegen),
-    the extracted symbol (stubs share one cache DB, and the same source
-    compiled for different symbols yields different bytes), and the toolchain
-    profile.  The build cache persists across runs
-    (``output/ga_runs/<rel>/build_cache.db``), so a sweep-then-GA or
-    CFLAGS-metadata change must not reuse an .obj compiled under different
-    flags.  The profile matters because every image-backed toolchain compiles
-    through docker: ``cl_cmd`` is empty and ``inc_dir`` is the same default
-    for all of them, so without the profile an msvc-6.0 object is reused for a
-    borland-5.5 or borland-3.1 run on the same source.
+    the extracted symbol, and the toolchain profile.  The same source
+    compiled for different symbols yields different bytes; without the
+    profile an msvc-6.0 object is reused for a borland-5.5 or borland-3.1
+    run on the same source (``cl_cmd`` is empty and ``inc_dir`` the same
+    default for every image-backed toolchain, which all compile through
+    docker).
     """
     # Incremental hashing — the old code built a full material buffer per
     # candidate (src.encode() + joins), and the source hash was recomputed
@@ -362,7 +358,7 @@ class BinaryMatchingGA:
         #: provenance — see SolutionEntry.mutations).  Filled by _mutate().
         self.applied_mutations: set[str] = set()
 
-        self.cache = BuildCache(str(self.out_dir / "build_cache.db"))
+        self.cache: dict[str, BuildResult] = {}
         self.compile_cache = compile_cache
         self.extra_seeds = extra_seeds or []
 
@@ -507,8 +503,13 @@ class BinaryMatchingGA:
         )
 
     def _compile_source(self, src: str) -> BuildResult:
-        # The cache persists across runs (output/ga_runs/<rel>/build_cache.db),
-        # so the key must cover everything that changes the .obj — not just
+        # Same-run memo (plain dict): elites persist across generations
+        # unchanged, and a resumed run replays its population.  Cross-run
+        # persistence is the shared compile cache's job (`self.compile_cache`,
+        # keyed on full compile inputs) — the old per-run diskcache
+        # (`output/ga_runs/<rel>/build_cache.db` + `_cache/`) bought nothing
+        # a dict + the shared cache don't already cover.
+        # The key must cover everything that changes the .obj — not just
         # the source.  A sweep-then-GA or CFLAGS-metadata change used to
         # reuse the previous flag combination's .obj.
         src_hash = self._cache_key(src)
@@ -561,11 +562,11 @@ class BinaryMatchingGA:
 
         # No disk write for successes here: the result carries no fitness yet,
         # and _compute_fitness stores the scored result with one put —
-        # writing now would double every candidate's disk-cache writes.
+        # writing now would double every candidate's writes.
         # Failures never reach that put (they return early there), so they
         # are stored here instead: one write per candidate either way.
         if not res.ok:
-            self.cache.put(src_hash, res)
+            self.cache[src_hash] = res
         return res
 
     def _compute_fitness(self, res: BuildResult, src_hash: str, src: str) -> float:
@@ -632,14 +633,14 @@ class BinaryMatchingGA:
         # the field existed.
         res.fitness = total
         self._fitness_memo[src_hash] = total
-        # One disk write per candidate: _compile_source skipped the store on
+        # One memo store per candidate: _compile_source skipped the store on
         # a miss (it defers to the scored result here), so this put persists
-        # both the .obj and the fitness — a later process loads fitness set
-        # and takes the warm-cache skip.  Keyed on the compile configuration
-        # (``_cache_key``), NOT the ``src_hash`` argument: the caller passes
-        # the bare source digest for memoization, and a digest-keyed entry is
-        # never read by ``_compile_source``.
-        self.cache.put(self._cache_key(src), res)
+        # both the .obj and the fitness — a later generation loads fitness
+        # set and takes the warm-cache skip.  Keyed on the compile
+        # configuration (``_cache_key``), NOT the ``src_hash`` argument: the
+        # caller passes the bare source digest for memoization, and a
+        # digest-keyed entry is never read by ``_compile_source``.
+        self.cache[self._cache_key(src)] = res
         _log(
             f"[{src_hash[:8]}] SUCCESS. Score={total:.2f} (len_bytes={len(obj_bytes)}, excess={excess})"
         )
@@ -702,12 +703,11 @@ class BinaryMatchingGA:
                 scored_pop = []
                 # Perf-review F5: consult the in-process fitness memo BEFORE
                 # submitting — elite/unchanged sources keep their score across
-                # generations, so skipping _compile_source entirely avoids the
-                # disk BuildCache round-trip (sqlite read + unpickle) per
-                # generation for every surviving member.  Key on the full
-                # SHA-256 hex, not the old 32-bit [:8] truncation: at ~300k
-                # unique sources the birthday bound gives ~10 collision pairs,
-                # silently mixing scores of different sources.
+                # generations, so skipping _compile_source entirely avoids a
+                # cache lookup per generation for every surviving member.
+                # Key on the full SHA-256 hex, not the old 32-bit [:8]
+                # truncation: at ~300k unique sources the birthday bound gives
+                # ~10 collision pairs, silently mixing scores of sources.
                 futures: dict[Future[BuildResult], tuple[str, str]] = {}
                 for src in self.population:
                     src_hash = source_digest(src)
@@ -854,11 +854,11 @@ class BinaryMatchingGA:
                 log.warning("Checkpoint save failed for %s — --resume unavailable", self.symbol)
 
     def close(self) -> None:
-        """Close the build cache (releases SQLite connection)."""
+        """Release per-run state (kept for call-site compat; the memo is in-memory)."""
         from rebrew.matcher import set_target_range
 
         set_target_range(None, None)  # safety: ensure no scope leaks
-        self.cache.close()
+        self.cache.clear()
 
     def __enter__(self) -> BinaryMatchingGA:
         return self
