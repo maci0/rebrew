@@ -353,10 +353,33 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
         if not changed:
             return
         raw["entries"] = entries
+        # Refresh the patched entry's freshness guards so a test-run patch
+        # cannot outlive the source it measured: without this, a later source
+        # edit whose mtime lands in the same slot (coarse filesystems, git
+        # checkout, sub-second agent edits) can pass the mtime fast-path and
+        # the patch's metrics are re-served as current.  Refreshing the hash
+        # is O(file size) but patches are rare (one per promotion).
+        for p in patches:
+            va_key = f"0x{p['va']:08x}"
+            entry = entries.get(va_key)
+            if entry is None:
+                continue
+            fpath = entry.get("filepath", "")
+            if not fpath:
+                continue
+            fspath = cfg.reversed_dir / fpath
+            try:
+                st = fspath.stat()
+            except OSError:
+                continue
+            entry["mtime_ns"] = st.st_mtime_ns
+            try:
+                entry["source_hash"] = _source_hash(fspath)
+            except OSError:
+                continue
+            entries[va_key] = entry
 
         try:
-            from rebrew.utils import atomic_write_text
-
             atomic_write_text(cache_path, json.dumps(raw, indent=2), encoding="utf-8")
         except (OSError, TypeError) as exc:
             logging.warning(
