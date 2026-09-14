@@ -100,6 +100,14 @@ _JSON_COMMANDS: list[tuple[str, set[int]]] = [
     ("gen-stubs --json", {0, 2}),
     ("link-order --json", {0, 2}),
     ("order-sources --json src/SERVER/fcn.c", {0}),
+    ("binary-similarity --json original/mini_pe.exe", {0, 2}),
+    ("test --json", {0, 1, 2}),
+    ("verify --json", {0, 1, 2}),
+    ("types --json", {0}),
+    ("split --json", {0, 2}),
+    ("skills list --json", {0}),
+    ("security-scan --json", {0}),
+    ("recover-structs --json", {0, 2}),
 ]
 
 _PROJECT_TOML = """\
