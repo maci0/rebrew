@@ -369,6 +369,38 @@ class TestPatchVerifyCacheEntries:
         )
         assert not (tmp_path / ".rebrew" / "verify_cache.json").exists()
 
+    def test_patch_refreshes_freshness_guards(self, tmp_path: Path) -> None:
+        """A patch refreshes mtime_ns + source_hash to the file on disk.
+
+        The patch previously updated only the result payload, leaving the
+        guards from whatever earlier verify wrote the entry.  A later edit
+        whose mtime collides then passes the fast-path and the patch's
+        metrics are re-served as current.
+        """
+        import hashlib
+
+        from rebrew.verify_cache import patch_verify_cache_entries
+
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src" / "func_a.c"
+        src.write_text("int f(void) { return 1; }\n", encoding="utf-8")
+        cache_path = self._make_cache(tmp_path, cfg, status="STUB")
+        patch_verify_cache_entries(
+            cfg,
+            [
+                {
+                    "va": 0x1000,
+                    "status": "RELOC",
+                    "match_count": 8,
+                    "total": 8,
+                    "delta": 0,
+                }
+            ],
+        )
+        entry = json.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
+        assert entry["mtime_ns"] == src.stat().st_mtime_ns
+        assert entry["source_hash"] == hashlib.sha256(src.read_bytes()).hexdigest()
+
     def test_identity_swapped_under_lock_not_patched(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
