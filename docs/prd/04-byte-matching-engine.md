@@ -50,7 +50,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
 - The GA is not an LLM; mutations are deterministic AST/text transforms
   drawn from the `matcher/mutator.py` library.
 - The flag sweep is bounded to flag presets defined in `matcher/flag_data.py`;
-  it does not invent flags or experiment with non-MSVC compilers.
+  it does not invent flags (non-MSVC axes exist: watcom opt/codegen/pack).
 - `rebrew prove` runs only when the function is already NEAR_MATCHING or
   SIZE_MISMATCH; it does not rewrite source to make it provable.
 - No GUI; CLI only.
