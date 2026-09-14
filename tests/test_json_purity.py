@@ -57,6 +57,14 @@ _JSON_COMMANDS: list[tuple[str, set[int]]] = [
     ("report --json", {0}),
     (f"gen-flirt-pat {FIXTURES}/mini.lib --json", {0}),
     ("document-unmatched --json", {0}),
+    ("catalog --json", {0}),
+    ("skeleton --json 0x401000", {0}),
+    ("verify-placement --json", {2}),  # 2 = no rebrew-data.toml in the fixture
+    ("text-audit --json", {0, 2}),  # 2 = no built binary in the fixture
+    ("calibrate-bss --json", {2}),  # 2 = no link.txt / layout in the fixture
+    ("gen-layout --json", {0, 2}),
+    ("gen-link-stubs --json", {2}),  # 2 = no rebrew-data.toml in the fixture
+    ("link-sweep --json", {2}),  # 2 = no link.txt in the fixture
 ]
 
 _PROJECT_TOML = """\
