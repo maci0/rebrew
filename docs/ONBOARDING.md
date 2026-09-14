@@ -130,9 +130,29 @@ rebrew verify            # bulk: compile every annotated function, compare, prom
 rebrew match src/SERVER/fcn_00401000.c    # GA engine — search for the byte-perfect C
 ```
 
+Before reversing, rule out library code — statically linked CRT sits in
+`.text` looking exactly like target code:
+
+```bash
+rebrew flirt flirt_sigs/              # identify library functions via FLIRT
+rebrew crt-match --all --fix-source   # auto-annotate MSVCRT functions
+```
+
 The agent skills in `.agents/skills/` (`rebrew-intake`, `rebrew-workflow`,
 `rebrew-matching`, `rebrew-data-analysis`) walk the same loop with
 step-by-step instructions for AI agents.
+
+```mermaid
+graph TD
+    Init[rebrew intake] --> Doctor[rebrew doctor]
+    Doctor --> Todo[rebrew todo]
+    Todo --> Skeleton[rebrew skeleton 0xVA]
+    Skeleton --> Test[rebrew test]
+    Test -->|EXACT / RELOC| Done[first function matched]
+    Test -->|MISMATCH| Edit[edit C · rebrew diff]
+    Edit --> Test
+    Done --> Loop[WORKFLOW.md for the full loop]
+```
 
 ## First-run errors and what they mean
 
@@ -151,6 +171,26 @@ step-by-step instructions for AI agents.
 For MZ/NE (DOS) binaries `intake` sets `arch = "x86_16"` automatically and
 the profile must be a 16-bit-capable compiler (`msvc-1.52`, `borland-3.1`, `borland-2.0`,
 `watcom-2.0-win16`).  `rebrew doctor` explains exactly which profile to configure.
+
+## Manual discovery (without `intake`)
+
+When onboarding by hand (or feeding a third-party tool's output), write
+`src/<target>/function_structure.json` directly — `[{va, size, name}]` with
+integer VAs:
+
+```bash
+# Ghidra: Auto-Analyze, export the function list, save as above.
+# radare2 / rizin headless:
+r2 -q -c 'aaa; aflj' original/mygame.exe > /tmp/funcs.json
+python3 -c "
+import json
+funcs = json.load(open('/tmp/funcs.json'))
+out = [{'va': f['offset'], 'size': f['size'], 'name': f['name']} for f in funcs]
+json.dump(out, open('src/mygame/function_structure.json', 'w'), indent=2)
+"
+```
+
+Then continue at step 3 (`rebrew doctor`).
 
 ## Next
 

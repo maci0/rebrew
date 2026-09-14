@@ -958,7 +958,7 @@ Connected via ReVa MCP (Model Context Protocol). Rebrew uses the following MCP t
 | Call graph | `get-call-graph`, `get-call-tree` |
 | Vtable analysis | `analyze-vtable` |
 
-See [GHIDRA_SYNC.md](GHIDRA_SYNC.md) for the sync feature matrix and known issues.
+See [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) for the sync feature matrix and known issues.
 
 ### radare2 / rizin
 

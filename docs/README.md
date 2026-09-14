@@ -4,10 +4,9 @@
 
 | Document | Description |
 |----------|-------------|
-| [QUICKSTART.md](QUICKSTART.md) | 5-step path from clone to first matched function |
+| [ONBOARDING.md](ONBOARDING.md) | First-run walkthrough: binary → intake → doctor → first match (incl. manual discovery) |
 | [WORKFLOW.md](WORKFLOW.md) | Full iteration loop — test, diff, match, prove, verify; multi-binary; JSON / CI |
 | [CODEGEN_PATTERNS.md](CODEGEN_PATTERNS.md) | MSVC6 codegen patterns table, SEH helpers, C89 rules, matching idioms |
-| [BOOTSTRAPPING.md](BOOTSTRAPPING.md) | Adding a new binary to a project from scratch (no prior RE work) |
 | [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md) | Obtaining, creating, and using FLIRT signatures for library identification |
 
 ## Reference
@@ -36,8 +35,9 @@
 
 | Document | Description |
 |----------|-------------|
-| [GHIDRA_SYNC.md](GHIDRA_SYNC.md) | `rebrew sync` feature matrix and known issues (current state; see [prd/07](prd/07-ghidra-sync.md) for roadmap) |
-| [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) | `rebrew binsync-init/export/import/diff/overlay`: declib-backed state bridge (names, prototypes, globals, structs, enums, typedefs, locals, comments) |
+| [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) | `rebrew binsync-init/export/import/diff/overlay`: declib-backed state bridge (names, prototypes, globals, structs, enums, typedefs, locals, comments) + `rebrew sync` feature matrix |
+| [DECOMPME_COMPILERS.md](DECOMPME_COMPILERS.md) | decomp.me compiler fleet research + snippet-scrape guide |
+| [ROADMAP.md](ROADMAP.md) | Multi-arch plan + consoles dossier appendix |
 
 ## Ecosystem
 
@@ -51,8 +51,3 @@
 | Document | Description |
 |----------|-------------|
 | [PRINCIPLES.md](PRINCIPLES.md) | Core architectural philosophy (idempotency, score monotonicity, snowball effect) |
-| [USER_STORIES.md](USER_STORIES.md) | Personas, acceptance criteria, and mermaid workflow diagrams |
-| [CAMPAIGNS.md](CAMPAIGNS.md) | Record of systematic `rebrew match` runs across the corpus |
-| [GAP_ANALYSIS.md](GAP_ANALYSIS.md) | Known gaps / missing-feature analysis for the toolchain |
-| [IDEAS.md](IDEAS.md) | Open improvement ideas and completed-work log |
-| [ML_TRAINING.md](ML_TRAINING.md) | Aspirational: generating binary-source pair datasets and training ML models (not shipped) |

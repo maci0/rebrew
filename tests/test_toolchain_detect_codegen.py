@@ -3,7 +3,7 @@
 Covers the pure pattern counter (``_count_codegen_signals``), the evidence
 wiring in ``detect_toolchain``, stack-probe symbol detection, and the 16-bit
 MZ codegen scan.  Every byte pattern is verified against real toolchain
-output — see docs/CODEGEN_REFERENCE.md for the provenance.
+output — see docs/codegen/README.md for the provenance.
 """
 
 from __future__ import annotations

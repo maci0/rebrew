@@ -3,8 +3,8 @@
 Step-by-step guide for the full reversing iteration loop. Aimed at contributors and
 AI agents who have already completed initial setup.
 
-**First time here?** Start with [QUICKSTART.md](QUICKSTART.md) to get from clone to
-first matched function in 5 steps. Come back here for the deeper loop.
+**First time here?** Start with [ONBOARDING.md](ONBOARDING.md) to get from binary to
+first matched function in 5 minutes. Come back here for the deeper loop.
 
 **Byte-level mismatches?** See [CODEGEN_PATTERNS.md](CODEGEN_PATTERNS.md) for MSVC6
 codegen patterns, SEH helpers, and matching idioms.
@@ -405,12 +405,12 @@ A file may contain **multiple marker blocks** for multi-function compilation. Se
 
 | Document | Content |
 |----------|---------|
-| [QUICKSTART.md](QUICKSTART.md) | 5-step path from clone to first matched function |
+| [ONBOARDING.md](ONBOARDING.md) | 5-minute path from binary to first matched function |
 | [CODEGEN_PATTERNS.md](CODEGEN_PATTERNS.md) | MSVC6 codegen patterns, SEH helpers, matching idioms |
-| [BOOTSTRAPPING.md](BOOTSTRAPPING.md) | Adding a new binary to a project from scratch |
+| [ONBOARDING.md](ONBOARDING.md) | Adding a new binary (incl. manual discovery without `intake`) |
 | [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / NEAR_MATCHING explained with byte-level examples |
 | [ANNOTATIONS.md](ANNOTATIONS.md) | Full marker format reference and linter codes (E000–E023, W001–W029) |
-| [GHIDRA_SYNC.md](GHIDRA_SYNC.md) | Ghidra ↔ Rebrew sync feature matrix and known issues |
+| [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) | BinSync bridge + `rebrew sync` feature matrix and known issues |
 | [FLIRT_SIGNATURES.md](FLIRT_SIGNATURES.md) | Obtaining, creating, and using FLIRT signatures |
 | [CLI.md](CLI.md) | All CLI commands, flags, and examples |
 | [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, arch presets, compiler profiles |
