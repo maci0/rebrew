@@ -38,7 +38,6 @@ binary = "original/mini_pe.exe"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src/SERVER"
-function_list = "src/SERVER/functions.txt"
 bin_dir = "bin/SERVER"
 source_ext = ".c"
 marker = "SERVER"
@@ -61,8 +60,14 @@ def _build_fixture_project(tmp_path: Path, monkeypatch) -> Path:
     (root / "bin" / "SERVER").mkdir(parents=True)
     shutil.copy(FIXTURES / "mini_pe.exe", root / "original" / "mini_pe.exe")
     (root / "rebrew-project.toml").write_text(_PROJECT_TOML, encoding="utf-8")
-    (root / "src" / "SERVER" / "functions.txt").write_text(
-        "0x00401000 11 _func1\n0x00401010 10 _func2\n", encoding="utf-8"
+    (root / "src" / "SERVER" / "function_structure.json").write_text(
+        json.dumps(
+            [
+                {"va": 0x00401000, "size": 11, "name": "_func1"},
+                {"va": 0x00401010, "size": 10, "name": "_func2"},
+            ]
+        ),
+        encoding="utf-8",
     )
     (root / "src" / "SERVER" / "fcn.c").write_text(
         "// FUNCTION: SERVER 0x00401000\nint __cdecl _func1(void) { return 0; }\n",

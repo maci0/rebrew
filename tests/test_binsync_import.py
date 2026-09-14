@@ -351,8 +351,16 @@ reversed_dir = "src/server"
             "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 10\nint foo(void){return 1;}\n",
             encoding="utf-8",
         )
-        src.joinpath("functions.txt").write_text(
-            "0x10001000 10 foo\n0x10002000 16 bar_func\n", encoding="utf-8"
+        import json as _json
+
+        src.joinpath("function_structure.json").write_text(
+            _json.dumps(
+                [
+                    {"va": 0x10001000, "size": 10, "name": "foo"},
+                    {"va": 0x10002000, "size": 16, "name": "bar_func"},
+                ]
+            ),
+            encoding="utf-8",
         )
 
         state = _make_state(tmp_path, funcs={0x10002000: "_NewCatalogName"})
@@ -383,8 +391,16 @@ reversed_dir = "src/server"
             "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 10\nint foo(void){return 1;}\n",
             encoding="utf-8",
         )
-        src.joinpath("functions.txt").write_text(
-            "0x10001000 10 foo\n0x10002000 16 bar_func\n", encoding="utf-8"
+        import json as _json
+
+        src.joinpath("function_structure.json").write_text(
+            _json.dumps(
+                [
+                    {"va": 0x10001000, "size": 10, "name": "foo"},
+                    {"va": 0x10002000, "size": 16, "name": "bar_func"},
+                ]
+            ),
+            encoding="utf-8",
         )
         # Build a BinSync entry with a real prototype
         state = tmp_path / "state_proto"
@@ -417,8 +433,16 @@ reversed_dir = "src/server"
             "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 10\nint foo(void){return 1;}\n",
             encoding="utf-8",
         )
-        src.joinpath("functions.txt").write_text(
-            "0x10001000 10 foo\n0x10002000 16 bar_func\n", encoding="utf-8"
+        import json as _json
+
+        src.joinpath("function_structure.json").write_text(
+            _json.dumps(
+                [
+                    {"va": 0x10001000, "size": 10, "name": "foo"},
+                    {"va": 0x10002000, "size": 16, "name": "bar_func"},
+                ]
+            ),
+            encoding="utf-8",
         )
 
         state = _make_state(tmp_path, funcs={0x10002000: "_FromBinSync"})

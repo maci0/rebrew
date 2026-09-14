@@ -96,7 +96,7 @@ class TestFindSimilar:
             0x2000: {"canonical_size": 6, "list_name": "_twin", "ghidra_name": ""},
             0x3000: {"canonical_size": 3, "list_name": "_other", "ghidra_name": ""},
         }
-        monkeypatch.setattr("rebrew.catalog.parse_function_list", lambda path: [])
+        monkeypatch.setattr("rebrew.catalog.cached_function_list", lambda cfg: [])
         monkeypatch.setattr(
             "rebrew.catalog.build_function_registry",
             lambda funcs, cfg, ghidra, bin_path: registry,
@@ -111,7 +111,6 @@ class TestFindSimilar:
             {
                 "capstone_arch": "CS_ARCH_X86",
                 "capstone_mode": "CS_MODE_32",
-                "function_list": "functions.txt",
                 "reversed_dir": Path("/tmp"),
                 "target_binary": Path("/tmp/target.dll"),
             },

@@ -141,7 +141,6 @@ def bench_catalog_grid() -> dict[str, float]:
             'format = "pe"\n'
             'arch = "x86_32"\n'
             'reversed_dir = "src/SERVER"\n'
-            'function_list = "src/SERVER/functions.txt"\n'
             'bin_dir = "bin/SERVER"\n'
             'marker = "SERVER"\n\n'
             "[compiler]\n"
@@ -150,8 +149,16 @@ def bench_catalog_grid() -> dict[str, float]:
             'includes = ""\nlibs = ""\ncflags = "-O2"\n',
             encoding="utf-8",
         )
-        (root / "src" / "SERVER" / "functions.txt").write_text(
-            "0x00401000 11 _func1\n0x00401018 2 _func2\n", encoding="utf-8"
+        import json as _json
+
+        (root / "src" / "SERVER" / "function_structure.json").write_text(
+            _json.dumps(
+                [
+                    {"va": 0x00401000, "size": 11, "name": "_func1"},
+                    {"va": 0x00401018, "size": 2, "name": "_func2"},
+                ]
+            ),
+            encoding="utf-8",
         )
         runner = CliRunner()
         import os
@@ -345,17 +352,21 @@ def bench_diff_structural() -> dict[str, float]:
 
 
 def bench_registry_build() -> dict[str, float]:
-    """parse_function_list + build_function_registry over 2000 entries."""
-    from rebrew.catalog.loaders import parse_function_list
+    """load_function_structure + build_function_registry over 2000 entries."""
+    import json as _json
+
+    from rebrew.catalog.loaders import load_function_structure
     from rebrew.catalog.registry import build_function_registry
 
-    lines = "".join(f"0x{0x401000 + i * 16:08x} {32 + i % 16} f_{i}\n" for i in range(2000))
+    rows = [{"va": 0x401000 + i * 16, "size": 32 + i % 16, "name": f"f_{i}"} for i in range(2000)]
     with tempfile.TemporaryDirectory() as d:
-        fl = Path(d) / "functions.txt"
-        fl.write_text(lines, encoding="utf-8")
+        fl = Path(d) / "function_structure.json"
+        fl.write_text(_json.dumps(rows), encoding="utf-8")
 
         def run() -> None:
-            funcs = parse_function_list(fl)
+            funcs = [
+                {"va": e.va, "size": e.size, "name": e.name} for e in load_function_structure(fl)
+            ]
             reg = build_function_registry(funcs, None)
             assert len(reg) >= 2000
 
@@ -371,14 +382,16 @@ def bench_status_aggregation() -> dict[str, float]:
         root = Path(d)
         src_dir = root / "src" / "SERVER"
         src_dir.mkdir(parents=True)
-        flines: list[str] = []
+        rows: list[dict[str, object]] = []
         for i in range(500):
             va = 0x10001000 + i * 0x100
-            flines.append(f"0x{va:08x} 64 f_{i}")
+            rows.append({"va": va, "size": 64, "name": f"f_{i}"})
             (src_dir / f"f_{i}.c").write_text(
                 f"// STUB: SERVER 0x{va:x}\nvoid f_{i}(void) {{}}\n", encoding="utf-8"
             )
-        (src_dir / "functions.txt").write_text("\n".join(flines), encoding="utf-8")
+        import json as _json2
+
+        (src_dir / "function_structure.json").write_text(_json2.dumps(rows), encoding="utf-8")
         meta_lines: list[str] = []
         for i in range(500):
             va = 0x10001000 + i * 0x100
@@ -390,7 +403,6 @@ def bench_status_aggregation() -> dict[str, float]:
             arch="x86_32",
             root=root,
             reversed_dir=src_dir,
-            function_list=src_dir / "functions.txt",
             marker="SERVER",
             source_ext=".c",
             db_dir=root / "db",

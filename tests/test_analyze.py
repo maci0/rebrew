@@ -22,15 +22,23 @@ def _cfg() -> SimpleNamespace:
 class TestCollectFunctions:
     def test_ghidra_functions_preferred(self, tmp_path: Path, monkeypatch) -> None:
         """A Ghidra export takes precedence for functions.total."""
+        import json as _json
+
         from rebrew.analyze import _collect_functions
 
         cfg = SimpleNamespace(
-            function_list=tmp_path / "functions.txt",
             reversed_dir=tmp_path / "src",
             metadata_dir=tmp_path / "src",
         )
-        (tmp_path / "functions.txt").write_text(
-            "0x00401000 f1 32\n0x00401020 f2 64\n", encoding="utf-8"
+        (tmp_path / "src").mkdir(exist_ok=True)
+        (tmp_path / "src" / "function_structure.json").write_text(
+            _json.dumps(
+                [
+                    {"va": 0x00401000, "size": 32, "name": "f1"},
+                    {"va": 0x00401020, "size": 64, "name": "f2"},
+                ]
+            ),
+            encoding="utf-8",
         )
 
         def _fake_load_data(cfg):
@@ -47,15 +55,22 @@ class TestCollectFunctions:
     def test_functions_txt_fallback(self, tmp_path: Path) -> None:
         """Without a Ghidra export, functions.total comes from functions.txt
         (regression: a functions.txt-only project reported total=0)."""
+        import json as _json
+
         from rebrew.analyze import _collect_functions
 
-        (tmp_path / "functions.txt").write_text(
-            "0x00401000 f1 32\n0x00401020 f2 64\n# comment line\n", encoding="utf-8"
-        )
         (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "function_structure.json").write_text(
+            _json.dumps(
+                [
+                    {"va": 0x00401000, "size": 32, "name": "f1"},
+                    {"va": 0x00401020, "size": 64, "name": "f2"},
+                ]
+            ),
+            encoding="utf-8",
+        )
         out = _collect_functions(
             SimpleNamespace(
-                function_list=tmp_path / "functions.txt",
                 reversed_dir=tmp_path / "src",
                 metadata_dir=tmp_path / "src",
                 marker="S",
@@ -153,7 +168,6 @@ binary = "original/mini_pe.exe"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src/S"
-function_list = "src/S/functions.txt"
 bin_dir = "bin/S"
 marker = "S"
 
@@ -204,7 +218,6 @@ binary = "original/missing.exe"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src/S"
-function_list = "src/S/functions.txt"
 bin_dir = "bin/S"
 marker = "S"
 
@@ -290,7 +303,6 @@ binary = "original/mini_pe.exe"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src/S"
-function_list = "src/S/functions.txt"
 bin_dir = "bin/S"
 marker = "S"
 
@@ -361,7 +373,6 @@ class TestDispatchTablesShape:
         cfg = SimpleNamespace(
             reversed_dir=tmp_path / "src",
             metadata_dir=None,
-            function_list=tmp_path / "functions.txt",
             target_binary=tmp_path / "t.dll",
             marker="SERVER",
             source_ext=".c",
@@ -398,7 +409,6 @@ class TestDispatchTablesShape:
         cfg = SimpleNamespace(
             reversed_dir=src,
             metadata_dir=None,
-            function_list=funcs,
             target_binary=tmp_path / "t.dll",
             marker="SERVER",
             source_ext=".c",

@@ -25,7 +25,6 @@ binary = "original/Server/server.dll"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src/server.dll"
-function_list = "src/server.dll/functions.txt"
 bin_dir = "bin/server.dll"
 origins = ["GAME", "ZLIB"]
 
@@ -140,7 +139,6 @@ class TestAddTarget:
         tgt.add("format", "pe")
         tgt.add("arch", "x86_32")
         tgt.add("reversed_dir", "src/client.exe")
-        tgt.add("function_list", "src/client.exe/functions.txt")
         tgt.add("bin_dir", "bin/client.exe")
         tgt.add("origins", ["GAME"])
         targets["client.exe"] = tgt

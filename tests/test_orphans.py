@@ -15,7 +15,6 @@ def _mock_cfg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespac
         marker="SERVER",
         source_ext=".c",
         shared_dir=None,
-        function_list=tmp_path / "functions.txt",
         dll_exports={},
     )
     import rebrew.cli as cli_mod

@@ -493,7 +493,6 @@ class TestCheckOptionalTools:
             compiler_command="gcc",
             compiler_includes=tmp_path / "inc",
             compiler_libs=tmp_path / "lib",
-            function_list=tmp_path / "funcs.txt",
             reversed_dir=tmp_path / "src",
             metadata_dir=tmp_path,
             bin_dir=tmp_path / "bin",

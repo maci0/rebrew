@@ -208,28 +208,3 @@ class TestCmdList:
         assert "f0" in captured.err
         assert "f1" in captured.err
         assert "f2" in captured.err
-
-
-class TestBatchTypeSafety:
-    """Verify that extract.load_functions returns dicts with correct types."""
-
-    def test_load_from_txt(self, tmp_path: Path) -> None:
-        """parse_function_list returns {va: int, size: int, name: str}."""
-        from types import SimpleNamespace
-        from typing import Any
-
-        from rebrew.extract import load_functions
-
-        func_list = tmp_path / "functions.txt"
-        func_list.write_text(
-            "0x10001000 64 _func_a\n0x10002000 128 _func_b\n",
-            encoding="utf-8",
-        )
-        cfg: Any = SimpleNamespace(function_list=func_list)
-        funcs = load_functions(cfg)
-        assert len(funcs) == 2
-        assert isinstance(funcs[0]["va"], int)
-        assert isinstance(funcs[0]["size"], int)
-        assert isinstance(funcs[0]["name"], str)
-        assert funcs[0]["va"] == 0x10001000
-        assert funcs[0]["size"] == 64

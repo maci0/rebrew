@@ -299,7 +299,6 @@ binary = "original/mini_pe.exe"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src/S"
-function_list = "src/S/functions.txt"
 bin_dir = "bin/S"
 marker = "S"
 

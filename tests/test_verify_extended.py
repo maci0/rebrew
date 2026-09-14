@@ -51,7 +51,6 @@ def _cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "base_cflags": "/O2",
         "compiler_includes": [],
         "compiler_libs": [],
-        "function_list": src / "functions.txt",
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -117,7 +116,11 @@ class TestVerifyEntryBranches:
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
-        (cfg.reversed_dir / "functions.txt").write_text("0x2000 16 other\n", encoding="utf-8")
+        import json as _json
+
+        (cfg.reversed_dir / "function_structure.json").write_text(
+            _json.dumps([{"va": 0x2000, "size": 16, "name": "other"}]), encoding="utf-8"
+        )
         monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: None)
         result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
         assert result.status == "EXTRACT_ERROR"
@@ -134,7 +137,11 @@ class TestVerifyEntryBranches:
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
-        (cfg.reversed_dir / "functions.txt").write_text("0x1000 64 my_func\n", encoding="utf-8")
+        import json as _json
+
+        (cfg.reversed_dir / "function_structure.json").write_text(
+            _json.dumps([{"va": 0x1000, "size": 64, "name": "my_func"}]), encoding="utf-8"
+        )
         monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: None)
         result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
         assert result.status == "EXTRACT_ERROR"

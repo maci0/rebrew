@@ -254,7 +254,6 @@ class ProjectConfig:
     per-target ``defines``.  ``None`` (or an empty ``[project] shared_dir``)
     disables shared sources.
     """
-    function_list: Path = field(default_factory=lambda: Path())
     bin_dir: Path = field(default_factory=lambda: Path())
     marker: str = ""  # Prefix used in annotations, e.g. // FUNCTION: SERVER 0x... (default: target_name.upper())
     r2_bogus_vas: list[int] = field(default_factory=list)  # VAs with known-bad r2 size data
@@ -811,7 +810,6 @@ _KNOWN_TARGET_KEYS = {
     "format",
     "marker",
     "reversed_dir",
-    "function_list",
     "bin_dir",
     "compiler",
     "r2_bogus_vas",
@@ -1024,12 +1022,6 @@ def load_config(
         shared_dir = None
     else:
         shared_dir = _required_path(root, shared_dir_raw, "src/shared", "[project].shared_dir")
-    function_list = _required_path(
-        root,
-        sources.get("function_list"),
-        f"src/{target}/functions.txt",
-        f"[targets.{target}].function_list",
-    )
     bin_dir = _required_path(
         root, sources.get("bin_dir"), f"bin/{target}", f"[targets.{target}].bin_dir"
     )
@@ -1108,7 +1100,6 @@ def load_config(
         # sources
         reversed_dir=reversed_dir,
         shared_dir=shared_dir,
-        function_list=function_list,
         bin_dir=bin_dir,
         # marker defaults to the target name upper-cased with non-identifier
         # characters stripped: for `server.dll` the raw upper() yields

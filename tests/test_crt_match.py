@@ -354,7 +354,6 @@ class TestCollectLibraryAnnotations:
             source_ext=".c",
             root=tmp_path,
             library_modules=[],
-            function_list="",
             target_binary=None,
             dll_exports={},
             iat_thunks=set(),
@@ -913,7 +912,6 @@ class TestFixSourceDryRun:
             crt_sources={"MSVCRT": str(crt)},
             dll_exports={},
             iat_thunks=set(),
-            function_list="",
             target_binary=None,
         )
         monkeypatch_patch = None

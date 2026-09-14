@@ -1,5 +1,5 @@
 """Audit every rebrew-* project: config validation, toolchain resolution,
-metadata syntax, functions.txt, and annotation parseability."""
+metadata syntax, function inventory, and annotation parseability."""
 
 from __future__ import annotations
 
@@ -16,9 +16,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from rebrew.annotation import parse_c_file_multi
-from rebrew.catalog.loaders import parse_function_list
+from rebrew.catalog.loaders import load_function_structure
 from rebrew.compile import resolve_cl_command
-from rebrew.config import load_config
+from rebrew.config import FUNCTION_STRUCTURE_JSON, load_config
 from rebrew.data_metadata import load_data_metadata
 from rebrew.metadata import KNOWN_STATUSES, load_metadata
 from rebrew.toolchain import TOOLCHAINS
@@ -38,20 +38,20 @@ _VA_RE = re.compile(r"^0x[0-9a-fA-F]+$")
 
 
 def check_functions_txt(ft: Path) -> list[str]:
-    """Use the same parser rebrew itself uses — header lines (radare2/rizin
-    exports) and non-matching lines are legitimately skipped, so only a
-    warning or a completely empty result counts as a problem."""
-    import warnings
+    """Validate the discovery inventory (function_structure.json).
 
-    with warnings.catch_warnings(record=True) as wlist:
-        warnings.simplefilter("always")
-        funcs = parse_function_list(ft)
-    out = [f"warning: {w.message}" for w in wlist if issubclass(w.category, UserWarning)]
-    nonempty = any(
-        line.strip() and not line.strip().startswith("#")
-        for line in ft.read_text(encoding="utf-8", errors="replace").splitlines()
-    )
-    if nonempty and not funcs:
+    Uses the same loader rebrew itself uses — corrupt files warn, and an
+    empty inventory counts as a problem.
+    """
+
+    out: list[str] = []
+    try:
+        funcs = load_function_structure(ft)
+    except ValueError as exc:
+        return [f"corrupt inventory: {exc}"]
+    except OSError as exc:
+        return [f"cannot read: {exc}"]
+    if not funcs:
         out.append("no functions parsed from a non-empty file")
     return out
 
@@ -149,11 +149,11 @@ def main(argv: list[str] | None = None) -> int:
                 inc = getattr(cfg, "compiler_includes", Path())
                 if inc and not inc.exists():
                     issues.append(f"[{t}] includes missing: {inc}")
-                # functions.txt
-                ft = getattr(cfg, "function_list", Path())
-                if ft.exists():
-                    for b in check_functions_txt(ft):
-                        issues.append(f"[{t}] functions.txt: {b}")
+                # function inventory
+                inv = Path(cfg.reversed_dir) / FUNCTION_STRUCTURE_JSON
+                if inv.exists():
+                    for b in check_functions_txt(inv):
+                        issues.append(f"[{t}] inventory: {b}")
                 # Metadata
                 meta_root = cfg.metadata_dir
                 fn_meta = meta_root / "rebrew-functions.toml"

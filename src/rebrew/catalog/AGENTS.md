@@ -1,22 +1,22 @@
 # AGENTS.md — catalog/
 
-Merges function sources (lists, Ghidra JSON, PE exports) into a unified registry, builds cell-level coverage grids, and exports CATALOG.md / reccmp CSV.
+Merges function sources (discovery inventory, Ghidra JSON, PE exports) into a unified registry, builds cell-level coverage grids, and exports CATALOG.md / reccmp CSV.
 
 ## Module Map
 
 | Module | Role | Key Exports |
 |--------|------|-------------|
-| `loaders.py` | I/O (Ghidra JSON, function lists, DLL bytes, source + library header scanning) | `load_function_structure()`, `load_ghidra_data_labels()`, `make_func_entry()`, `parse_function_list()`, `scan_reversed_dir()` |
+| `loaders.py` | I/O (Ghidra JSON, discovery inventory, DLL bytes, source + library header scanning) | `load_function_structure()`, `cached_function_list()`, `load_ghidra_data_labels()`, `make_func_entry()`, `parse_rizin_afl()`, `scan_reversed_dir()` |
 | `registry.py` | Merge sources, resolve canonical sizes | `build_function_registry()` |
 | `grid.py` | Coverage grid generation | `generate_data_json()` |
 | `export.py` | Output (CATALOG.md, reccmp CSV) | `generate_catalog()`, `generate_reccmp_csv()` |
-| `cli.py` | Orchestrator + Typer CLI wrapper | `run_catalog()`, `app`, `main`, `main_entry` |
+| `cli.py` | Orchestrator + Typer CLI wrapper | `run_catalog()`, `build_catalog_data()`, `app`, `main`, `main_entry` |
 
 ## Dependency Graph
 
 ```
 cli.py (run_catalog() orchestrator — calls all others; main() is the CLI wrapper)
-├── loaders.py (scan_reversed_dir, parse_function_list)
+├── loaders.py (scan_reversed_dir, cached_function_list)
 ├── registry.py (build_function_registry)
 ├── grid.py (generate_data_json)
 ├── export.py (generate_catalog, generate_reccmp_csv)
@@ -49,13 +49,12 @@ package; `binary_loader.py`, `config.py`, and `cli.py` are their other externals
 ```
 [Inputs]
   ├─ Reversed .c + library_*.h → loaders.scan_reversed_dir() → list[Annotation]
-  ├─ functions.txt     → loaders.parse_function_list() → list[dict]
-  ├─ ghidra JSON       → loaders.load_function_structure() → list[FunctionEntry]
+  ├─ Discovery / Ghidra JSON → loaders.load_function_structure() → list[FunctionEntry]
   └─ PE binary         → binary_loader.load_binary() → BinaryInfo
         │
         ▼
 [Registry] registry.build_function_registry()
-  ├─ Merge by VA: list + ghidra + exports
+  ├─ Merge by VA: discovery + ghidra + exports
   ├─ Canonical size resolution (_resolve_canonical_size)
   │   └─ Classifies extra bytes as: jump table (.text pointers), padding (0x90/0xCC), out-of-line code (jumps back)
   └─ Output: dict[va, {detected_by, size_by_tool, canonical_size}]
@@ -78,7 +77,7 @@ package; `binary_loader.py`, `config.py`, and `cli.py` are their other externals
 ## Key Concepts
 
 ### Canonical Size Resolution
-When list and Ghidra sizes disagree, `_resolve_canonical_size()` checks if extra bytes are: (1) jump/switch table (.text pointers), (2) padding (NOP 0x90 / INT3 0xCC), or (3) out-of-line code (jumps back into body). Needs binary data — falls back to Ghidra size otherwise.
+When discovery and Ghidra sizes disagree, `_resolve_canonical_size()` checks if extra bytes are: (1) jump/switch table (.text pointers), (2) padding (NOP 0x90 / INT3 0xCC), or (3) out-of-line code (jumps back into body). Needs binary data — falls back to Ghidra size otherwise.
 
 ### Gap Absorption
 Loop in `generate_data_json()`: gaps between functions are absorbed into the predecessor if they contain jump tables, out-of-line code, or small tail code (≤64B). Repeats until stable.

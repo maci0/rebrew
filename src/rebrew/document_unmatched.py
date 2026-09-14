@@ -24,7 +24,7 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from rebrew.catalog import parse_function_list
+from rebrew.catalog import cached_function_list
 from rebrew.cli import (
     TargetOption,
     error_exit,
@@ -90,7 +90,7 @@ def main(
     """Run the document-unmatched step in the current project."""
     cfg = require_config(target=target, json_mode=json_output)
 
-    funcs = parse_function_list(cfg.function_list)
+    funcs = cached_function_list(cfg)
     src_dir = cfg.reversed_dir
     if not src_dir.is_dir():
         error_exit(f"reversed dir not found: {src_dir}", json_mode=json_output)

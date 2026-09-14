@@ -60,15 +60,19 @@ def _patch(
     """
     binary = tmp_path / "target.bin"
     binary.write_bytes(b"\x90")
-    functions = tmp_path / "functions.txt"
     if declared is not None:
-        functions.write_text(f"0x{BASE_VA:x} func {declared}\n", encoding="utf-8")
+        import json as _json
+
+        (tmp_path / "function_structure.json").write_text(
+            _json.dumps([{"va": BASE_VA, "size": declared, "name": "func"}]),
+            encoding="utf-8",
+        )
     cfg = SimpleNamespace(
         root=tmp_path,
         target_binary=binary,
+        reversed_dir=tmp_path,
         arch=arch,
         capstone_mode=capstone.CS_MODE_32,
-        function_list=str(functions) if declared is not None else "",
     )
     monkeypatch.setattr(asm, "require_config", lambda target=None, json_mode=False: cfg)
     monkeypatch.setattr(binary_loader, "extract_raw_bytes", lambda path, va, size: code)

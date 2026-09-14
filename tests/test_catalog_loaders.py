@@ -10,7 +10,6 @@ from rebrew.catalog.loaders import (
     _classify_ghidra_label,
     load_function_structure,
     load_ghidra_data_labels,
-    parse_function_list,
 )
 
 
@@ -94,82 +93,6 @@ class TestLoadGhidraDataLabels:
         )
         labels = load_ghidra_data_labels(tmp_path)
         assert list(labels) == [0x10001000]
-
-
-class TestParseFunctionList:
-    def test_size_first(self, tmp_path: Path) -> None:
-        p = tmp_path / "functions.txt"
-        p.write_text("0x10001000 64 _func_a\n", encoding="utf-8")
-        funcs = parse_function_list(p)
-        assert funcs == [{"va": 0x10001000, "size": 64, "name": "_func_a"}]
-
-    def test_name_first(self, tmp_path: Path) -> None:
-        p = tmp_path / "functions.txt"
-        p.write_text("0x10002000 _func_b 128\n", encoding="utf-8")
-        funcs = parse_function_list(p)
-        assert funcs == [{"va": 0x10002000, "size": 128, "name": "_func_b"}]
-
-    def test_comments_and_blanks_skipped(self, tmp_path: Path) -> None:
-        p = tmp_path / "functions.txt"
-        p.write_text("# comment\n\n0x10003000 32 _func_c\n", encoding="utf-8")
-        assert len(parse_function_list(p)) == 1
-
-    def test_unreadable_warns_and_empty(self, tmp_path: Path) -> None:
-        p = tmp_path / "missing.txt"
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            out = parse_function_list(p)
-        assert out == []
-        assert any("Cannot read" in str(x.message) for x in w)
-
-    def test_legacy_encoding_no_crash(self, tmp_path: Path) -> None:
-        """A cp1252 byte in the file must not crash the parser (regression:
-        strict UTF-8 read raised UnicodeDecodeError; found by fuzzing)."""
-        p = tmp_path / "functions.txt"
-        # 0xe4 = 'ä' in cp1252, invalid UTF-8; in a name field it is skipped
-        # by the line regex, but the READ must not raise.
-        p.write_bytes(b"0x10001000 64 _f\xe4n\n0x10002000 32 _ok\n")
-        funcs = parse_function_list(p)
-        assert any(f["va"] == 0x10002000 for f in funcs)
-
-    def test_rizin_alias_arrow_skipped(self, tmp_path: Path) -> None:
-        """rizin afl alias lines ('VA -> N') must not parse as functions: the
-        '->' is an alias marker and the trailing number is not a size.  Found
-        on errlook: '0x00401040 -> 8512' fed a bogus 8512-byte canonical size
-        (real extent ~48B) into the registry and verify --fix-sizes."""
-        p = tmp_path / "functions.txt"
-        p.write_text(
-            "0x10001000 64 _func_a\n0x10001040 -> 8512\n0x10001070 200 _func_b\n0x10002000 32 ->\n",
-            encoding="utf-8",
-        )
-        funcs = parse_function_list(p)
-        assert funcs == [
-            {"va": 0x10001000, "size": 64, "name": "_func_a"},
-            {"va": 0x10001070, "size": 200, "name": "_func_b"},
-        ]
-
-    def test_size_less_name_only_lines_parsed(self, tmp_path: Path) -> None:
-        """`VA NAME` (no size) lines must still parse as functions (size 0):
-        rizin afl can omit sizes, and the whole line was previously dropped,
-        hiding the function from the universe (status/extract/registry)."""
-        p = tmp_path / "functions.txt"
-        p.write_text(
-            "0x10001000 64 _func_a\n0x10001040 _func_b\n0x10001070 200 _func_c\n",
-            encoding="utf-8",
-        )
-        funcs = parse_function_list(p)
-        assert funcs == [
-            {"va": 0x10001000, "size": 64, "name": "_func_a"},
-            {"va": 0x10001040, "size": 0, "name": "_func_b"},
-            {"va": 0x10001070, "size": 200, "name": "_func_c"},
-        ]
-
-    def test_bare_va_number_line_skipped(self, tmp_path: Path) -> None:
-        """`VA DIGITS` (no name) is malformed, not a size-less entry."""
-        p = tmp_path / "functions.txt"
-        p.write_text("0x10001000 8512\n0x10002000 _ok 32\n", encoding="utf-8")
-        funcs = parse_function_list(p)
-        assert funcs == [{"va": 0x10002000, "size": 32, "name": "_ok"}]
 
 
 class TestLoadGhidraDataLabelsMore:

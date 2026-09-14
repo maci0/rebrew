@@ -227,7 +227,6 @@ def _make_cfg(tmp_path: Path) -> Any:
         metadata_dir=tmp_path,
         root=tmp_path,
         target_binary=tmp_path / "target.exe",
-        function_list=tmp_path / "functions.txt",
         padding_bytes=[0xCC, 0x90],
         text_va=0x10000000,
         text_size=0x10000,
@@ -255,8 +254,8 @@ def _patch_cli(monkeypatch: Any, cfg: Any) -> None:
         lambda path: SimpleNamespace(text_va=0x10000000, text_size=0x10000),
     )
     monkeypatch.setattr(
-        "rebrew.merge_sweep.parse_function_list",
-        lambda path: [
+        "rebrew.catalog.cached_function_list",
+        lambda cfg: [
             {"va": A, "size": 10, "name": "func_a"},
             {"va": B, "size": 10, "name": "func_b"},
         ],
@@ -282,7 +281,9 @@ class TestDryRunCli:
     def test_dry_run_shows_partition_and_candidates(self, tmp_path: Path, monkeypatch: Any) -> None:
         cfg = _make_cfg(tmp_path)
         cfg.target_binary.write_bytes(b"x")
-        cfg.function_list.write_text("x\n", encoding="utf-8")
+        (cfg.reversed_dir / "function_structure.json").write_text(
+            '[{"va": 268435456, "size": 10, "name": "func_a"}]', encoding="utf-8"
+        )
         _write_source(cfg.reversed_dir / "a.c", A, "_func_a")
         _write_source(cfg.reversed_dir / "b.c", B, "_func_b")
         _patch_cli(monkeypatch, cfg)
@@ -295,7 +296,9 @@ class TestDryRunCli:
     def test_dry_run_json_payload(self, tmp_path: Path, monkeypatch: Any) -> None:
         cfg = _make_cfg(tmp_path)
         cfg.target_binary.write_bytes(b"x")
-        cfg.function_list.write_text("x\n", encoding="utf-8")
+        (cfg.reversed_dir / "function_structure.json").write_text(
+            '[{"va": 268435456, "size": 10, "name": "func_a"}]', encoding="utf-8"
+        )
         _write_source(cfg.reversed_dir / "a.c", A, "_func_a")
         _write_source(cfg.reversed_dir / "b.c", B, "_func_b")
         _patch_cli(monkeypatch, cfg)
@@ -315,7 +318,9 @@ class TestAuditCli:
 
         cfg = _make_cfg(tmp_path)
         cfg.target_binary.write_bytes(b"x")
-        cfg.function_list.write_text("x\n", encoding="utf-8")
+        (cfg.reversed_dir / "function_structure.json").write_text(
+            '[{"va": 268435456, "size": 10, "name": "func_a"}]', encoding="utf-8"
+        )
         _write_source(cfg.reversed_dir / "a.c", A, "_func_a")
         _write_source(cfg.reversed_dir / "b.c", B, "_func_b")
         _patch_cli(monkeypatch, cfg)
@@ -344,7 +349,9 @@ class TestAuditCli:
 
         cfg = _make_cfg(tmp_path)
         cfg.target_binary.write_bytes(b"x")
-        cfg.function_list.write_text("x\n", encoding="utf-8")
+        (cfg.reversed_dir / "function_structure.json").write_text(
+            '[{"va": 268435456, "size": 10, "name": "func_a"}]', encoding="utf-8"
+        )
         _write_source(cfg.reversed_dir / "a.c", A, "_func_a")
         _write_source(cfg.reversed_dir / "b.c", B, "_func_b")
         _patch_cli(monkeypatch, cfg)
@@ -388,7 +395,6 @@ def _scorer_cfg(tmp_path: Path) -> SimpleNamespace:
         metadata_dir=tmp_path,
         root=tmp_path,
         target_binary=tmp_path / "target.exe",
-        function_list=tmp_path / "functions.txt",
         padding_bytes=[0xCC, 0x90],
         text_va=0x10000000,
         text_size=0x10000,

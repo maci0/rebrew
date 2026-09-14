@@ -85,7 +85,7 @@ above the same function body.
 
 For a brand-new project directory, `rebrew intake <binary>` performs the whole
 onboarding in one shot: toolchain detection → `rebrew init` with a matching
-profile → copy binary → symlink vendored toolchain → rizin `functions.txt`
+profile → copy binary → symlink vendored toolchain → rizin discovery
 (`aaa`, `aap` fallback) → document every function (STUB .c + metadata blocker).
 The result is a lint-clean project where every function is matched or
 blocker-documented.  Use `--toolchain` to override the auto-detected profile,
@@ -282,8 +282,8 @@ rebrew catalog --fix-sizes              # backfill SIZE in rebrew-functions.toml
 rebrew build-db                         # build SQLite coverage database (db/coverage.db)
 ```
 
-- `catalog --data-json` scans reversed sources + the function list into `db/data_bench.json`;
-  it also writes `src/bench/function_structure.json` from `functions.txt` when no Ghidra
+- `catalog --data-json` scans reversed sources + the discovery inventory into `db/data_bench.json`;
+  it also writes `src/bench/function_structure.json` from discovery when no Ghidra
   export exists (skeleton generation needs one of the two).
 - `--export-ghidra-labels` writes `src/bench/ghidra_data_labels.json` (data cells, switch
   tables) for labeling non-function addresses in Ghidra.

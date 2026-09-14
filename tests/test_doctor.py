@@ -38,7 +38,6 @@ def _make_cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "compiler_command": "gcc",
         "compiler_includes": tmp_path / "includes",
         "compiler_libs": tmp_path / "libs",
-        "function_list": tmp_path / "funcs.txt",
         "reversed_dir": tmp_path / "src",
         "metadata_dir": tmp_path,
         "bin_dir": tmp_path / "bin",
@@ -247,9 +246,21 @@ class TestCheckLibs:
 
 
 class TestCheckFunctionList:
+    def _write_structure(self, tmp_path: Path, entries: list[dict]) -> None:
+        import json
+
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        (src / "function_structure.json").write_text(json.dumps(entries), encoding="utf-8")
+
     def test_exists(self, tmp_path: Path) -> None:
-        fl = tmp_path / "funcs.txt"
-        fl.write_text("0x1000 func_a\n0x2000 func_b\n", encoding="utf-8")
+        self._write_structure(
+            tmp_path,
+            [
+                {"va": 0x1000, "size": 16, "name": "func_a"},
+                {"va": 0x2000, "size": 16, "name": "func_b"},
+            ],
+        )
         cfg = _make_cfg(tmp_path)
         result = check_function_list(cfg)
         assert result.status == _PASS
@@ -260,35 +271,9 @@ class TestCheckFunctionList:
         result = check_function_list(cfg)
         assert result.status == _WARN
 
-    def test_corrupt_lines_fail(self, tmp_path: Path) -> None:
-        fl = tmp_path / "funcs.txt"
-        fl.write_text("0x1000 func_a\nnot-a-function-line\n0x2000 func_b\n", encoding="utf-8")
-        cfg = _make_cfg(tmp_path)
-        result = check_function_list(cfg)
-        assert result.status == _FAIL
-        assert "1 of 3" in result.message
-
-    def test_comments_and_blanks_ignored(self, tmp_path: Path) -> None:
-        fl = tmp_path / "funcs.txt"
-        fl.write_text("# header\n\n0x1000 func_a\n", encoding="utf-8")
-        cfg = _make_cfg(tmp_path)
-        result = check_function_list(cfg)
-        assert result.status == _PASS
-        assert "1 entries" in result.message
-
-    def test_va_number_lines_are_corrupt(self, tmp_path: Path) -> None:
-        """`VA NUMBER` is malformed (parse_function_list drops it), so a list of
-        only such lines must FAIL, not report a healthy 2-entry list."""
-        fl = tmp_path / "funcs.txt"
-        fl.write_text("0x1000 4096\n0x2000 8192\n", encoding="utf-8")
-        cfg = _make_cfg(tmp_path)
-        result = check_function_list(cfg)
-        assert result.status == _FAIL
-        assert "2 of 2" in result.message
-
     def test_no_parseable_entries_warns(self, tmp_path: Path) -> None:
-        fl = tmp_path / "funcs.txt"
-        fl.write_text("# only a comment\n\n", encoding="utf-8")
+        """An inventory with no valid-VA entries warns, like a missing one."""
+        self._write_structure(tmp_path, [{"va": 0, "size": 0, "name": "null"}])
         cfg = _make_cfg(tmp_path)
         result = check_function_list(cfg)
         assert result.status == _WARN

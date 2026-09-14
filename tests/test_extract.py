@@ -21,7 +21,6 @@ def _make_cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "arch": "x86_32",
         "reversed_dir": tmp_path / "src",
         "metadata_dir": tmp_path,
-        "function_list": tmp_path / "functions.txt",
         "bin_dir": tmp_path / "bin",
         "source_ext": ".c",
         "marker": "TEST",
@@ -56,10 +55,17 @@ class TestDetectReversedVas:
 
 
 class TestLoadFunctions:
-    def test_load_from_txt(self, tmp_path: Path) -> None:
+    def test_load_from_inventory(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
-        (tmp_path / "functions.txt").write_text(
-            "0x00001000 48 func_a\n0x00002000 120 func_b\n",
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        (src / "function_structure.json").write_text(
+            json.dumps(
+                [
+                    {"va": 0x1000, "size": 48, "name": "func_a"},
+                    {"va": 0x2000, "size": 120, "name": "func_b"},
+                ]
+            ),
             encoding="utf-8",
         )
         funcs = load_functions(cfg)  # type: ignore[arg-type]
@@ -68,7 +74,7 @@ class TestLoadFunctions:
         assert funcs[0]["size"] == 48
         assert funcs[0]["name"] == "func_a"
 
-    def test_no_function_list_raises(self, tmp_path: Path) -> None:
+    def test_no_inventory_raises(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         import pytest
 

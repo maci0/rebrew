@@ -247,11 +247,11 @@ def _collect_far_calls(binary: Path) -> list[dict[str, Any]] | None:
 
 
 def _function_list_stats(cfg: Any) -> tuple[int, int]:
-    """``(count, total_bytes)`` from ``cfg.function_list`` (functions.txt) —
-    the fallback when the project has no Ghidra export."""
-    from rebrew.catalog import parse_function_list
+    """``(count, total_bytes)`` from the discovery inventory
+    (function_structure.json) — the fallback when the project has no Ghidra export."""
+    from rebrew.catalog import cached_function_list
 
-    funcs = parse_function_list(Path(getattr(cfg, "function_list", "")))
+    funcs = cached_function_list(cfg)
     return len(funcs), sum(int(f.get("size") or 0) for f in funcs)
 
 

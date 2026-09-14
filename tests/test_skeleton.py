@@ -228,15 +228,18 @@ class TestListUncovered:
 
     def test_merges_function_list_only_entries(self, tmp_path: Path) -> None:
         """Functions known only to the function list (not the Ghidra cache) appear."""
+        import json as _json
+
         from rebrew.skeleton import list_uncovered
 
         cfg = ProjectConfig(
             root=tmp_path,
+            reversed_dir=tmp_path,
             ignored_symbols=[],
-            function_list=str(tmp_path / "functions.txt"),
         )
-        (tmp_path / "functions.txt").write_text(
-            "  0x10005000     32  fcn.10005000\n", encoding="utf-8"
+        (tmp_path / "function_structure.json").write_text(
+            _json.dumps([{"va": 0x10005000, "size": 32, "name": "fcn.10005000"}]),
+            encoding="utf-8",
         )
         ghidra = [FunctionEntry(va=0x10001000, tool_name="func_a", size=64)]
         result = list_uncovered(ghidra, {}, cfg)
@@ -407,8 +410,11 @@ class TestSkeletonListFallback:
         src_dir = tmp_path / "src"
         src_dir.mkdir(exist_ok=True)
         (tmp_path / "md").mkdir(exist_ok=True)
-        (tmp_path / "functions.txt").write_text(
-            "  0x10001000     42  fcn.10001000\n", encoding="utf-8"
+        import json as _json
+
+        (src_dir / "function_structure.json").write_text(
+            _json.dumps([{"va": 0x10001000, "size": 42, "name": "fcn.10001000"}]),
+            encoding="utf-8",
         )
         (tmp_path / "game.dll").write_bytes(b"\x00" * 256)
         return SimpleNamespace(
@@ -417,7 +423,6 @@ class TestSkeletonListFallback:
             metadata_dir=tmp_path / "md",
             marker="GAME",
             source_ext=".c",
-            function_list=tmp_path / "functions.txt",
             target_binary=tmp_path / "game.dll",
             iat_thunks=set(),
             dll_exports={},
@@ -461,8 +466,11 @@ class TestSkeletonMetadataSize:
         src = tmp_path / "src"
         src.mkdir(exist_ok=True)
         (tmp_path / "md").mkdir(exist_ok=True)
-        (tmp_path / "functions.txt").write_text(
-            "  0x10001000     42  fcn.10001000\n", encoding="utf-8"
+        import json as _json
+
+        (src / "function_structure.json").write_text(
+            _json.dumps([{"va": 0x10001000, "size": 42, "name": "fcn.10001000"}]),
+            encoding="utf-8",
         )
         (tmp_path / "game.dll").write_bytes(b"\x00" * 256)
         return SimpleNamespace(
@@ -471,7 +479,6 @@ class TestSkeletonMetadataSize:
             metadata_dir=tmp_path / "md",
             marker="GAME",
             source_ext=".c",
-            function_list=tmp_path / "functions.txt",
             target_binary=tmp_path / "game.dll",
             iat_thunks=set(),
             dll_exports={},
@@ -513,8 +520,15 @@ class TestSkeletonDryRun:
         src = tmp_path / "src"
         src.mkdir(exist_ok=True)
         (tmp_path / "md").mkdir(exist_ok=True)
-        (tmp_path / "functions.txt").write_text(
-            "  0x10001000     42  fcn.10001000\n  0x10002000     10  fcn.10002000\n",
+        import json as _json
+
+        (src / "function_structure.json").write_text(
+            _json.dumps(
+                [
+                    {"va": 0x10001000, "size": 42, "name": "fcn.10001000"},
+                    {"va": 0x10002000, "size": 10, "name": "fcn.10002000"},
+                ]
+            ),
             encoding="utf-8",
         )
         (tmp_path / "game.dll").write_bytes(b"\x00" * 256)
@@ -524,7 +538,6 @@ class TestSkeletonDryRun:
             metadata_dir=tmp_path / "md",
             marker="GAME",
             source_ext=".c",
-            function_list=tmp_path / "functions.txt",
             target_binary=tmp_path / "game.dll",
             iat_thunks=set(),
             dll_exports={},

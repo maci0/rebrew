@@ -21,54 +21,27 @@ def _cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "marker": "SERVER",
         "source_ext": ".c",
         "bin_dir": tmp_path / "bin",
-        "function_list": tmp_path / "functions.txt",
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
 
 
+def _write_inv(tmp_path: Path, rows: list) -> None:
+    src = tmp_path / "src" / "SERVER"
+    src.mkdir(parents=True, exist_ok=True)
+    (src / "function_structure.json").write_text(json.dumps(rows), encoding="utf-8")
+
+
 class TestLoadFunctions:
-    def test_txt_preferred(self, tmp_path: Path) -> None:
+    def test_loads_inventory(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
-        (tmp_path / "functions.txt").write_text("0x1000 64 func_a\n", encoding="utf-8")
+        _write_inv(tmp_path, [{"va": 0x1000, "size": 64, "name": "func_a"}])
         funcs = load_functions(cfg)  # type: ignore[arg-type]
         assert funcs[0]["va"] == 0x1000
-
-    def test_json_fallback(self, tmp_path: Path) -> None:
-        cfg = _cfg(tmp_path)
-        (tmp_path / "functions.json").write_text(
-            json.dumps([{"offset": "0x2000", "realsz": 128, "name": "fn_b"}]),
-            encoding="utf-8",
-        )
-        funcs = load_functions(cfg)  # type: ignore[arg-type]
-        assert funcs == [{"va": 0x2000, "size": 128, "name": "fn_b"}]
-
-    def test_json_size_fallback_key(self, tmp_path: Path) -> None:
-        cfg = _cfg(tmp_path)
-        (tmp_path / "functions.json").write_text(
-            json.dumps([{"offset": 0x3000, "size": 32, "name": "fn_c"}]),
-            encoding="utf-8",
-        )
-        funcs = load_functions(cfg)  # type: ignore[arg-type]
-        assert funcs == [{"va": 0x3000, "size": 32, "name": "fn_c"}]
 
     def test_missing_raises(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
         with pytest.raises(FileNotFoundError):
-            load_functions(cfg)  # type: ignore[arg-type]
-
-    def test_json_missing_field_raises_value_error(self, tmp_path: Path) -> None:
-        cfg = _cfg(tmp_path)
-        (tmp_path / "functions.json").write_text(
-            json.dumps([{"realsz": 128, "name": "fn_b"}]), encoding="utf-8"
-        )
-        with pytest.raises(ValueError, match="Malformed function list"):
-            load_functions(cfg)  # type: ignore[arg-type]
-
-    def test_json_corrupt_raises_value_error(self, tmp_path: Path) -> None:
-        cfg = _cfg(tmp_path)
-        (tmp_path / "functions.json").write_text("[{", encoding="utf-8")
-        with pytest.raises(ValueError):
             load_functions(cfg)  # type: ignore[arg-type]
 
 
@@ -204,7 +177,7 @@ class TestExtractCli:
         from rebrew.extract import app
 
         self._setup(tmp_path, monkeypatch)
-        (tmp_path / "functions.txt").write_text("0x1000 64 func_a\n", encoding="utf-8")
+        _write_inv(tmp_path, [{"va": 0x1000, "size": 64, "name": "func_a"}])
         result = CliRunner().invoke(app, ["list", "--json"])
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -215,8 +188,12 @@ class TestExtractCli:
         from rebrew.extract import app
 
         self._setup(tmp_path, monkeypatch)
-        (tmp_path / "functions.txt").write_text(
-            "0x1000 64 func_a\n0x2000 200 func_b\n", encoding="utf-8"
+        _write_inv(
+            tmp_path,
+            [
+                {"va": 0x1000, "size": 64, "name": "func_a"},
+                {"va": 0x2000, "size": 200, "name": "func_b"},
+            ],
         )
         result = CliRunner().invoke(app, ["list", "--json", "--min-size", "100"])
         data = json.loads(result.output)
@@ -227,7 +204,7 @@ class TestExtractCli:
         from rebrew.extract import app
 
         self._setup(tmp_path, monkeypatch)
-        (tmp_path / "functions.txt").write_text("0x1000 64 func_a\n", encoding="utf-8")
+        _write_inv(tmp_path, [{"va": 0x1000, "size": 64, "name": "func_a"}])
         monkeypatch.setattr("rebrew.extract.extract_bytes_at_va", lambda *a, **k: b"\x90" * 16)
         monkeypatch.setattr("rebrew.extract.disasm_bytes", lambda *a, **k: "nop")
         result = CliRunner().invoke(app, ["show", "0x1000", "--size", "16", "--json"])
@@ -240,8 +217,12 @@ class TestExtractCli:
         from rebrew.extract import app
 
         self._setup(tmp_path, monkeypatch)
-        (tmp_path / "functions.txt").write_text(
-            "0x1000 64 func_a\n0x2000 32 func_b\n", encoding="utf-8"
+        _write_inv(
+            tmp_path,
+            [
+                {"va": 0x1000, "size": 64, "name": "func_a"},
+                {"va": 0x2000, "size": 32, "name": "func_b"},
+            ],
         )
         monkeypatch.setattr("rebrew.extract.extract_bytes_at_va", lambda *a, **k: b"\x90" * 8)
         monkeypatch.setattr("rebrew.extract.disasm_bytes", lambda *a, **k: "nop")
@@ -258,4 +239,4 @@ class TestExtractCli:
         self._setup(tmp_path, monkeypatch)
         result = CliRunner().invoke(app, ["list", "--json"])
         assert result.exit_code != 0
-        assert "No function list found" in result.output
+        assert "No function inventory" in result.output

@@ -239,7 +239,6 @@ class TestDecompDevUnitNames:
             target_binary=tmp_path / "x.dll",
             source_ext=".c",
             arch="x86_32",
-            function_list=tmp_path / "functions.txt",
         )
         out = tmp_path / "report.json"
         generate_decomp_dev_report(cfg, out)

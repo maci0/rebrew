@@ -234,8 +234,7 @@ class TestResolveBuildParamsSymbol:
             '[project]\ndefault_target = "server"\n\n'
             "[targets.server]\n"
             'binary = "x.dll"\nformat = "pe"\narch = "x86_32"\n'
-            'reversed_dir = "src/SERVER"\nmarker = "SERVER"\n'
-            'function_list = "src/SERVER/functions.txt"\n',
+            'reversed_dir = "src/SERVER"\nmarker = "SERVER"\n',
             encoding="utf-8",
         )
         cfg = load_config(tmp_path)
@@ -268,8 +267,7 @@ class TestResolveBuildParamsSymbol:
             '[project]\ndefault_target = "server"\n\n'
             "[targets.server]\n"
             'binary = "x.dll"\nformat = "pe"\narch = "x86_32"\n'
-            'reversed_dir = "src/SERVER"\nmarker = "SERVER"\n'
-            'function_list = "src/SERVER/functions.txt"\n',
+            'reversed_dir = "src/SERVER"\nmarker = "SERVER"\n',
             encoding="utf-8",
         )
         cfg = load_config(tmp_path)
@@ -303,8 +301,7 @@ class TestResolveBuildParamsSymbol:
             '[project]\ndefault_target = "server"\n\n'
             "[targets.server]\n"
             'binary = "x.dll"\nformat = "pe"\narch = "x86_32"\n'
-            'reversed_dir = "src/SERVER"\nmarker = "SERVER"\n'
-            'function_list = "src/SERVER/functions.txt"\n',
+            'reversed_dir = "src/SERVER"\nmarker = "SERVER"\n',
             encoding="utf-8",
         )
         cfg = load_config(tmp_path)

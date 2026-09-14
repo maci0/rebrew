@@ -389,7 +389,7 @@ The generated stub signature follows the target's calling convention
 `__stdcall` with N args), inferred from the disassembly extent — functions
 longer than a fixed 48-byte window no longer fall back to a wrong
 `int __cdecl f(void)` default.  When the resolved size is stale (the
-disassembly extent runs past it — a truncated `functions.txt` entry),
+disassembly extent runs past it — a truncated discovery entry),
 skeleton warns with the real extent and suggests `rebrew asm --size
 <extent>` / `rebrew test --fix-sizes`; JSON output carries `size_warning`.
 | `--batch N` | Generate N skeletons (smallest first) |
@@ -605,7 +605,7 @@ See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–
 
 `rebrew lint` is the source-corpus checker — in addition to markers and
 metadata it cross-references every `// FUNCTION:`/`// STUB:` marker against
-the current `functions.txt` (**W028**): a VA that no longer has a function
+the current discovery inventory (**W028**): a VA that no longer has a function
 there, or that now points *inside* another function's span, is a stale
 annotation after a binary update (LIBRARY/DATA/GLOBAL markers are excluded
 so import stubs and data labels never false-positive).  **W029** flags
@@ -1122,7 +1122,7 @@ body (>2 insns) is a `tail call` (forwarding function); only 1-2 insn
 jmp sequences are pure `tail-call thunk`s.
 
 When the function-list size is stale (the code continues past the declared
-size, e.g. a `functions.txt` entry that truncates mid-instruction), `asm`
+size, e.g. a discovery entry that truncates mid-instruction), `asm`
 warns and extends the dump to the disassembly extent; an explicit `--size`
 is honored as-is (warn only).  The JSON report carries `stale_size` and the
 pre-extension `requested_size`.
@@ -1404,8 +1404,8 @@ seconds), and the report gives:
   shares
 - the lowest-scoring functions — the *version deltas* to decompile first
 
-`--other-list` supplies the other binary's function list (functions.txt
-format: `VA SIZE NAME`); `--other-target NAME` resolves the binary + list
+`--other-list` supplies the other binary's function inventory (`function_structure.json`);
+`--other-target NAME` resolves the binary + inventory
 from a configured target.  Same-arch binaries only.
 
 
@@ -1547,8 +1547,8 @@ Standardized toolchain management — the docker-first abstraction
 ### `rebrew binsync-export`
 
 Export annotations to a BinSync state directory.  Merges reversed annotations
-(`scan_reversed_dir`) with the **project file / catalog** (`functions.txt` +
-`function_structure.json` → `build_function_registry`, canonical sizes) so that
+(`scan_reversed_dir`) with the **project catalog** (`function_structure.json` →
+`build_function_registry`, canonical sizes) so that
 catalog-only functions appear in BinSync with correct offsets/sizes even before
 they have a `.c` file.  Collaborators in IDA/BinSync see the same function list
 and offsets as your project file.

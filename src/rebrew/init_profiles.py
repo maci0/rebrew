@@ -33,7 +33,6 @@ binary = "original/{binary_name}"
 format = "__TARGET_FORMAT__"               # pe | elf | macho | ne | mz
 arch = "__TARGET_ARCH__"               # x86_16 | x86_32 | x86_64 | arm32 | arm64
 reversed_dir = "src/{target_name}"   # directory containing reversed .c files
-function_list = "src/{target_name}/functions.txt"
 bin_dir = "bin/{target_name}"        # directory for extracted .bin files
 source_ext = ".c"                      # source file extension (.c, .cpp, etc.)
 marker = "{marker}"                  # annotation marker (e.g. // FUNCTION: SERVER 0x...)

@@ -22,7 +22,6 @@ yield an empty result, and unresolvable entries are shown as raw VAs.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import Any
 
 import typer
@@ -395,24 +394,25 @@ def main(
 
 
 def _scan_all(cfg: Any, window: int, json_output: bool) -> None:
-    """Scan every function-list entry and report those containing dispatches.
+    """Scan every discovery entry and report those containing dispatches.
 
     Recon pass for the "which of my remaining functions are switch
     dispatches?" question — each function is disassembled up to *window*
     bytes and checked for an indirect jump-table jmp.
     """
-    from rebrew.catalog import parse_function_list
+    from rebrew.catalog import cached_function_list
 
-    func_list_path = getattr(cfg, "function_list", "")
-    if not func_list_path or not Path(func_list_path).is_file():
+    funcs = cached_function_list(cfg)
+    if not funcs:
         error_exit(
-            f"Function list not found at {func_list_path} (needed for --all)",
+            "No function inventory (needed for --all) — run `rebrew intake` or "
+            "`rebrew discover-functions` first",
             json_mode=json_output,
         )
 
     found: list[dict[str, Any]] = []
-    for func in parse_function_list(Path(func_list_path)):
-        va = func.get("va") if isinstance(func, dict) else getattr(func, "va", None)
+    for func in funcs:
+        va = func.get("va")
         if not va:
             continue
         try:
@@ -424,9 +424,7 @@ def _scan_all(cfg: Any, window: int, json_output: bool) -> None:
             continue
         switches = find_switches(cfg, va_int, window=window)
         if switches:
-            name = (
-                func.get("name") if isinstance(func, dict) else getattr(func, "name", "")
-            ) or f"fcn.{va_int:08x}"
+            name = func.get("name") or f"fcn.{va_int:08x}"
             found.append(
                 {
                     "va": f"0x{va_int:08x}",

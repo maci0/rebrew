@@ -17,7 +17,7 @@ The `rebrew` tooling ecosystem uses SQLite databases to power its reverse-engine
 flowchart LR
     A["*.c annotations"] -->|rebrew catalog| B["db/data_*.json"]
     LH["library_*.h headers"] -->|rebrew catalog| B
-    FL["functions.txt"] -->|rebrew catalog| B
+    FL["function_structure.json"] -->|rebrew catalog| B
     GH["function_structure.json"] -->|rebrew catalog| B
     BIN["target binary"] -->|rebrew catalog| B
     B -->|rebrew build-db| C["db/coverage.db"]
@@ -29,7 +29,7 @@ flowchart LR
 
 | Step | Tool | Input | Output |
 |------|------|-------|--------|
-| 1. Catalog | `rebrew catalog --data-json` | `*.c` annotations, `library_*.h` headers, `functions.txt`, `function_structure.json`, target binary | `db/data_<target>.json` |
+| 1. Catalog | `rebrew catalog --data-json` | `*.c` annotations, `library_*.h` headers, `function_structure.json`, target binary | `db/data_<target>.json` |
 | 1b. Export Labels | `rebrew catalog --export-ghidra-labels` | (same as above) | `ghidra_data_labels.json` (detected data labels/thunks for Ghidra round-trip) |
 | 2. Build DB | `rebrew build-db [--regen] [--target T]` | `db/data_*.json` (skipped with `--regen`: coverage generated in-process per target) | `db/coverage.db` |
 | 3. Serve | `recoverage serve` | `db/coverage.db` | HTTP dashboard at `localhost:8001` |

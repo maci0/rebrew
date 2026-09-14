@@ -35,7 +35,7 @@ from rebrew.annotation import parse_c_file_multi
 from rebrew.binary_loader import extract_raw_bytes, load_binary
 from rebrew.catalog import (
     build_function_registry,
-    parse_function_list,
+    cached_function_list,
 )
 from rebrew.cli import (
     TargetOption,
@@ -605,11 +605,11 @@ def main(
 
     if not cfg.target_binary.exists():
         error_exit(f"Target binary not found: {cfg.target_binary}", json_mode=json_output)
-    if not cfg.function_list.exists():
-        error_exit(f"Function list not found: {cfg.function_list}", json_mode=json_output)
+    if not cached_function_list(cfg):
+        error_exit("No function inventory — run `rebrew intake` first", json_mode=json_output)
     info = load_binary(cfg.target_binary)
 
-    funcs = parse_function_list(cfg.function_list)
+    funcs = cached_function_list(cfg)
     ghidra_path = cfg.reversed_dir / FUNCTION_STRUCTURE_JSON if cfg.reversed_dir else None
     registry = build_function_registry(
         funcs, cfg, ghidra_path=ghidra_path, bin_path=cfg.target_binary

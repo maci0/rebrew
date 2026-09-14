@@ -20,7 +20,6 @@ def _patch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
         reversed_dir=tmp_path / "src",
         root=tmp_path,
         target_name="T",
-        function_list=tmp_path / "functions.txt",
         metadata_dir=tmp_path,
         db_dir=tmp_path / "db",
     )
@@ -29,7 +28,7 @@ def _patch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
         catalog_cli, "require_config", lambda target=None, json_mode=False, root=None: cfg
     )
     monkeypatch.setattr(catalog_cli, "scan_reversed_dir", lambda _d, cfg=None: [])
-    monkeypatch.setattr(catalog_cli, "parse_function_list", lambda _p: [])
+    monkeypatch.setattr(catalog_cli, "cached_function_list", lambda _cfg: [])
     monkeypatch.setattr(catalog_cli, "build_function_registry", lambda *a, **k: {})
     monkeypatch.setattr(catalog_cli, "get_text_section_size", lambda _p: 0x1000)
     monkeypatch.setattr(catalog_cli, "generate_catalog", lambda *a, **k: "catalog md")
@@ -47,20 +46,19 @@ class TestCatalogCli:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The catalog-generated function_structure.json is provenance-stamped
-        and REFRESHED on re-run after the function list changes — the old
+        and REFRESHED on re-run after the inventory changes — the old
         `not exists()` guard wrote it once and never updated it, leaving a
         stale structure cache diverging from the freshly-written data JSON
         (idempotency-review F5)."""
         cfg = _patch(monkeypatch, tmp_path)
-        # load_func_list only calls parse_function_list when the list file
-        # exists — provide the fixture so the mocked list is actually used.
-        cfg.function_list.write_text("0x10001000 32 f_a\n0x10002000 64 f_b\n", encoding="utf-8")
+        # The inventory is read via cached_function_list (threadpool) — mock
+        # it to return the fixture instead of writing functions.txt.
         monkeypatch.setattr(
             catalog_cli,
-            "parse_function_list",
-            lambda _p: [
-                {"va": "0x10001000", "size": 32, "name": "f_a"},
-                {"va": "0x10002000", "size": 64, "name": "f_b"},
+            "cached_function_list",
+            lambda _cfg: [
+                {"va": 0x10001000, "size": 32, "name": "f_a"},
+                {"va": 0x10002000, "size": 64, "name": "f_b"},
             ],
         )
         r1 = runner.invoke(catalog_cli.app, ["--data-json"])
@@ -71,13 +69,13 @@ class TestCatalogCli:
         assert len(data1) == 2
         assert data1[0]["_generated_by"] == "rebrew catalog"
 
-        # Function list changed — re-run must refresh the catalog-generated file.
+        # Inventory changed — re-run must refresh the catalog-generated file.
         monkeypatch.setattr(
             catalog_cli,
-            "parse_function_list",
-            lambda _p: [
-                {"va": "0x10001000", "size": 32, "name": "f_a"},
-                {"va": "0x10003000", "size": 16, "name": "f_c"},
+            "cached_function_list",
+            lambda _cfg: [
+                {"va": 0x10001000, "size": 32, "name": "f_a"},
+                {"va": 0x10003000, "size": 16, "name": "f_c"},
             ],
         )
         r2 = runner.invoke(catalog_cli.app, ["--data-json"])
@@ -100,8 +98,8 @@ class TestCatalogCli:
         )
         monkeypatch.setattr(
             catalog_cli,
-            "parse_function_list",
-            lambda _p: [{"va": "0x10001000", "size": 32, "name": "f_a"}],
+            "cached_function_list",
+            lambda _cfg: [{"va": 0x10001000, "size": 32, "name": "f_a"}],
         )
         r = runner.invoke(catalog_cli.app, ["--data-json"])
         assert r.exit_code == 0
@@ -359,22 +357,23 @@ class TestCatalogCliSummary:
 
 
 def _write_project(tmp_path: Path) -> Path:
-    """Minimal on-disk project: config, one reversed source, one function list entry."""
+    """Minimal on-disk project: config, one reversed source, one inventory entry."""
     reversed_dir = tmp_path / "original"
     reversed_dir.mkdir()
     (reversed_dir / "func.c").write_text(
         "// FUNCTION: GAME 0x10001000\n// STATUS: EXACT\n// SIZE: 16\nint f(void) { return 0; }\n",
         encoding="utf-8",
     )
-    (reversed_dir / "functions.txt").write_text("0x10001000 16 f\n", encoding="utf-8")
+    (reversed_dir / "function_structure.json").write_text(
+        json.dumps([{"va": 0x10001000, "size": 16, "name": "f"}]), encoding="utf-8"
+    )
     (tmp_path / "rebrew-project.toml").write_text(
         "[project]\n"
         'default_target = "GAME"\n'
         "\n"
         "[targets.GAME]\n"
         'binary = "bin/game.exe"\n'
-        'reversed_dir = "original"\n'
-        'function_list = "original/functions.txt"\n',
+        'reversed_dir = "original"\n',
         encoding="utf-8",
     )
     return tmp_path

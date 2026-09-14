@@ -42,7 +42,6 @@ def _make_cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "compiler_command": "gcc",
         "reversed_dir": tmp_path / "src",
         "metadata_dir": tmp_path,
-        "function_list": tmp_path / "functions.txt",
         "bin_dir": tmp_path / "bin",
         "source_ext": ".c",
         "marker": "TEST",
@@ -678,10 +677,13 @@ class TestSetupSteps:
     def test_no_ghidra_json_with_funclist(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         (tmp_path / "src").mkdir()
-        (tmp_path / "functions.txt").write_text("0x1000 func\n", encoding="utf-8")
-        items = _collect_setup_steps(cfg, [], {})
-        assert len(items) == 1
-        assert "catalog" in items[0].command
+        (tmp_path / "src" / "function_structure.json").write_text(
+            json.dumps([{"va": 0x1000, "size": 16, "name": "func"}]), encoding="utf-8"
+        )
+        items = _collect_setup_steps(cfg, [FunctionEntry(va=0x1000, size=16, name="func")], {})
+        assert len(items) == 2
+        assert any("todo" in i.command for i in items)
+        assert any("skeleton" in i.command for i in items)
 
     def test_ghidra_json_no_sources(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)

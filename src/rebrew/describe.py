@@ -42,7 +42,7 @@ from rebrew.analysis import (
 )
 from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.binary_loader import BinaryInfo, load_binary
-from rebrew.catalog import parse_function_list
+from rebrew.catalog import cached_function_list
 from rebrew.cli import (
     TargetOption,
     error_exit,
@@ -129,7 +129,7 @@ def _build_lookup(
             if ann.size > 0:
                 ranges.append((ann.va, ann.va + ann.size, name))
     try:
-        for f in parse_function_list(cfg.function_list):
+        for f in cached_function_list(cfg):
             va = int(f["va"])
             size = int(f["size"])
             name = str(f["name"])

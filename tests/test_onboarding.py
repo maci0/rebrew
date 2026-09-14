@@ -68,10 +68,15 @@ class TestOnboardingJourney:
         assert data["documented"] == 2
         assert "doctor" in data["next"]
 
-        # functions.txt populated from the binary.
-        funcs = (tmp_path / "src" / "mini_pe" / "functions.txt").read_text(encoding="utf-8")
-        assert "0x00401000" in funcs
-        assert "0x00401018" in funcs
+        # function_structure.json populated from the binary.
+        import json as _json
+
+        rows = _json.loads(
+            (tmp_path / "src" / "mini_pe" / "function_structure.json").read_text(encoding="utf-8")
+        )
+        vas = {r["va"] for r in rows}
+        assert 0x00401000 in vas
+        assert 0x00401018 in vas
 
         # Documented skeletons carry valid rebrew markers.
         skeletons = sorted((tmp_path / "src" / "mini_pe").glob("*.c"))

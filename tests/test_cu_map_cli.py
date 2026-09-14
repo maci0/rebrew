@@ -15,7 +15,6 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
     return SimpleNamespace(
         root=tmp_path,
         target_binary=tmp_path / "x.dll",
-        function_list=tmp_path / "functions.txt",
         reversed_dir=tmp_path / "src",
         target_name="T",
     )
@@ -32,10 +31,16 @@ def _setup(
     cfg = _cfg(tmp_path)
     if not binary_missing:
         (tmp_path / "x.dll").write_bytes(b"MZ" + b"\x00" * 100)
-    (tmp_path / "functions.txt").write_text("0x1000 64 fn_a\n", encoding="utf-8")
+    (tmp_path / "src").mkdir(exist_ok=True)
+    (tmp_path / "src" / "function_structure.json").write_text(
+        json.dumps([{"va": 0x1000, "size": 64, "name": "fn_a"}]), encoding="utf-8"
+    )
     monkeypatch.setattr("rebrew.cu_map.require_config", lambda **kw: cfg)
     monkeypatch.setattr("rebrew.cu_map.load_binary", lambda p: SimpleNamespace())
-    monkeypatch.setattr("rebrew.cu_map.parse_function_list", lambda p: [])
+    monkeypatch.setattr(
+        "rebrew.catalog.cached_function_list",
+        lambda cfg: [{"va": 0x1000, "size": 64, "name": "fn_a"}],
+    )
     monkeypatch.setattr(
         "rebrew.cu_map.build_function_registry",
         lambda funcs, cfg, ghidra_path=None, bin_path=None: registry or {},

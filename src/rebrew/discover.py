@@ -18,7 +18,7 @@ problem).
 Usage::
 
     rebrew discover-functions original/game.exe
-    rebrew discover-functions game.exe --output src/game/functions.txt
+    rebrew discover-functions game.exe --output src/game/function_structure.json
 """
 
 from __future__ import annotations
@@ -479,7 +479,10 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
 def main(
     binary: str = typer.Argument(..., help="Path to the target binary."),
     output: str | None = typer.Option(
-        None, "--output", "-o", help="Write functions.txt to this path (default: stdout)."
+        None,
+        "--output",
+        "-o",
+        help="Write function_structure.json to this path (default: stdout as text).",
     ),
     min_size: int = typer.Option(8, "--min-size", help="Drop functions smaller than this."),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -494,8 +497,17 @@ def main(
     text = "".join(f"0x{va:08x} {name} {size}\n" for va, size, name in d.functions)
 
     if output:
+        import json
+
         Path(output).parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(Path(output), text)
+        atomic_write_text(
+            Path(output),
+            json.dumps(
+                [{"va": va, "size": size, "name": name} for va, size, name in d.functions],
+                indent=2,
+            )
+            + "\n",
+        )
 
     if json_output:
         json_print(

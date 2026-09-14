@@ -357,8 +357,10 @@ class TestInit:
         assert (tmp_path / "src" / "game").is_dir()
         assert (tmp_path / "bin" / "game").is_dir()
 
-    def test_creates_function_list(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """main() creates an empty functions.txt."""
+    def test_creates_no_function_list(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """main() creates no functions.txt — discovery writes function_structure.json."""
         monkeypatch.chdir(tmp_path)
         main(
             target_name="t",
@@ -368,8 +370,7 @@ class TestInit:
             json_output=False,
             install_completions=False,
         )
-        func_list = tmp_path / "src" / "t" / "functions.txt"
-        assert func_list.exists()
+        assert not (tmp_path / "src" / "t" / "functions.txt").exists()
 
     def test_binary_original_prefix_stripped(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

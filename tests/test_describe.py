@@ -36,8 +36,6 @@ default_target = "game"
 binary = "game.exe"
 marker = "GAME"
 reversed_dir = "src"
-function_list = "src/functions.txt"
-
 [compiler]
 profile = "msvc-6.0"
 command = "cl"
@@ -153,7 +151,18 @@ def _make_project(
     src = tmp_path / "src"
     src.mkdir()
     (src / "game.c").write_text(source, encoding="utf-8")
-    (src / "functions.txt").write_text(functions, encoding="utf-8")
+    import contextlib as _contextlib
+    import json as _json
+
+    entries = []
+    for _line in functions.splitlines():
+        _parts = _line.split()
+        if len(_parts) >= 3:
+            with _contextlib.suppress(ValueError):
+                entries.append(
+                    {"va": int(_parts[0], 16), "size": int(_parts[1]), "name": _parts[2]}
+                )
+    (src / "function_structure.json").write_text(_json.dumps(entries), encoding="utf-8")
     if source == _PROBE_C:
         # Volatile STATUS lives in rebrew-functions.toml at the metadata
         # root (the parent of reversed_dir).

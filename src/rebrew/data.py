@@ -428,10 +428,10 @@ def build_dispatch_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[in
                 }
 
     try:
-        from rebrew.catalog import build_function_registry, parse_function_list
+        from rebrew.catalog import build_function_registry, cached_function_list
         from rebrew.config import FUNCTION_STRUCTURE_JSON
 
-        funcs = parse_function_list(cfg.function_list)
+        funcs = cached_function_list(cfg)
         registry = build_function_registry(
             funcs, cfg, src_dir / FUNCTION_STRUCTURE_JSON, cfg.target_binary
         )

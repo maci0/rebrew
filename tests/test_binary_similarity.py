@@ -100,9 +100,13 @@ class TestCli:
         target.write_bytes(b"MZfake")
         other = tmp_path / "b.dll"
         other.write_bytes(b"MZfake")
-        other_list = tmp_path / "b.txt"
-        other_list.write_text("0x2000 100 g1\n", encoding="utf-8")
-        cfg = SimpleNamespace(target_binary=target, function_list=tmp_path / "a.txt")
+        import json as _json
+
+        other_list = tmp_path / "b.json"
+        other_list.write_text(
+            _json.dumps([{"va": 0x2000, "size": 100, "name": "g1"}]), encoding="utf-8"
+        )
+        cfg = SimpleNamespace(target_binary=target, reversed_dir=tmp_path)
         monkeypatch.setattr("rebrew.binary_similarity.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
             bs,
@@ -154,4 +158,4 @@ class TestCli:
         # No --other-list and no --other-target → explicit error.
         result = CliRunner().invoke(app, [str(other)])
         assert result.exit_code == EXIT_ERROR
-        assert "function list" in result.output
+        assert "function inventory" in result.output

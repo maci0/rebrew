@@ -105,7 +105,7 @@ def main(
         return
 
     entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
-    # Normalize a hex VA identifier once (functions.txt writes zero-padded
+    # Normalize a hex VA identifier once (discovery writes zero-padded
     # 0x000100a0; other tools accept both — rename must too).
     va_ident: int | None = None
     if target_ident.lower().startswith("0x"):

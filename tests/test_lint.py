@@ -23,15 +23,26 @@ def _make_cfg(
     library_modules: set | None = None,
     reversed_dir: Path | None = None,
     cflags: str = "",
-) -> SimpleNamespace:
+) -> ProjectConfig:
     """Create a minimal config-like namespace for config-aware lint tests."""
     return ProjectConfig(
         root=Path("/tmp"),
         marker=marker,
         base_cflags=base_cflags,
         library_modules=library_modules or set(),
-        reversed_dir=reversed_dir or Path("."),
+        reversed_dir=reversed_dir or Path("/tmp"),
         cflags=cflags,
+    )
+
+
+def _write_inventory(reversed_dir: Path, *entries: tuple[int, int, str]) -> None:
+    """Write function_structure.json next to the target for index tests."""
+    import json as _json
+
+    reversed_dir.mkdir(parents=True, exist_ok=True)
+    (reversed_dir / "function_structure.json").write_text(
+        _json.dumps([{"va": va, "size": size, "name": name} for va, size, name in entries]),
+        encoding="utf-8",
     )
 
 
@@ -1256,18 +1267,15 @@ class TestAnnotationStaleness:
     def test_build_function_index(self, tmp_path: Path) -> None:
         from rebrew.lint import _build_function_index
 
-        funcs = tmp_path / "funcs.txt"
-        funcs.write_text("0x1000 256 func_a\n0x2000 128 func_b\n", encoding="utf-8")
-        cfg = _make_cfg()
-        cfg.function_list = funcs
+        cfg = _make_cfg(reversed_dir=tmp_path)
+        _write_inventory(tmp_path, (0x1000, 256, "func_a"), (0x2000, 128, "func_b"))
         index = _build_function_index(cfg)
         assert index == self.INDEX
 
     def test_build_function_index_empty_list(self, tmp_path: Path) -> None:
         from rebrew.lint import _build_function_index
 
-        cfg = _make_cfg()
-        cfg.function_list = tmp_path / "missing.txt"
+        cfg = _make_cfg(reversed_dir=tmp_path / "missing")
         assert _build_function_index(cfg) is None
 
 
@@ -1278,10 +1286,8 @@ class TestBuildFunctionIndexVaFloor:
         `// FUNCTION: GAME 0x0` annotation."""
         from rebrew.lint import _build_function_index
 
-        fl = tmp_path / "functions.txt"
-        fl.write_text("0x0 8 seg_start\n0x100 16 other\n", encoding="utf-8")
-        cfg = _make_cfg()
-        cfg.function_list = str(fl)
+        cfg = _make_cfg(reversed_dir=tmp_path)
+        _write_inventory(tmp_path, (0x0, 8, "seg_start"), (0x100, 16, "other"))
         cfg.arch = "x86_16"
 
         index = _build_function_index(cfg)
@@ -1380,10 +1386,8 @@ class TestW029RedundantCflags:
             cflags="/O2 /Gd",
             cflags_presets={},
             marker="SERVER",
-            function_list=tmp_path / "funcs.txt",
             library_modules=set(),
         )
-        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
         with patch("rebrew.lint.load_config", return_value=cfg):
             result = CliRunner().invoke(app, [])
         assert result.exit_code == 0, result.output
@@ -1414,11 +1418,9 @@ class TestW029RedundantCflags:
             cflags="/O2 /Gd",
             cflags_presets={"SERVER": "/O2 /Gd"},  # redundant preset → synthetic W029 entry
             marker="SERVER",
-            function_list=tmp_path / "funcs.txt",
             library_modules=set(),
             target_name="",
         )
-        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
         with patch("rebrew.lint.load_config", return_value=cfg):
             result = CliRunner().invoke(app, ["--json"])
         assert result.exit_code == 0, result.output
@@ -1434,7 +1436,6 @@ class TestW029RedundantCflags:
             cflags="/O2 /Gd",
             cflags_presets={},
             marker="SERVER",
-            function_list=tmp_path / "funcs.txt",
             library_modules=set(),
             target_name="",
         )
@@ -1459,7 +1460,6 @@ class TestW029RedundantCflags:
             encoding="utf-8",
         )
         cfg = self._lint_cfg(tmp_path, src)
-        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
         monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
         result = CliRunner().invoke(app, ["--fix", str(f)])
         assert result.exit_code == 0, result.output
@@ -1485,7 +1485,6 @@ class TestW029RedundantCflags:
             '["SERVER.0x1000"]\ncflags = "/O2 /Gd"\n', encoding="utf-8"
         )
         cfg = self._lint_cfg(tmp_path, src)
-        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
         monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
         result = CliRunner().invoke(app, ["--fix", "--dry-run", str(f)])
         assert result.exit_code == 0, result.output
@@ -1512,7 +1511,6 @@ class TestW029RedundantCflags:
             encoding="utf-8",
         )
         cfg = self._lint_cfg(tmp_path, src, cflags_presets={"SERVER": "/O2 /Gd", "MSVCRT": "/O1"})
-        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
         monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
         result = CliRunner().invoke(app, ["--fix", str(f)])
         assert result.exit_code == 0, result.output
@@ -1537,7 +1535,6 @@ class TestW029RedundantCflags:
         )
         (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
         cfg = self._lint_cfg(tmp_path, src)
-        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
         monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
         result = CliRunner().invoke(app, ["--fix", str(f)])
         assert result.exit_code == 0, result.output
@@ -1561,7 +1558,6 @@ class TestW029RedundantCflags:
         )
         (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
         cfg = self._lint_cfg(tmp_path, src)
-        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
         monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
         result = CliRunner().invoke(app, ["--fix", str(f)])
         assert result.exit_code == 0, result.output
@@ -1585,7 +1581,6 @@ class TestW029RedundantCflags:
         )
         (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
         cfg = self._lint_cfg(tmp_path, src)
-        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
         monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
         result = CliRunner().invoke(app, ["--fix", str(f)])
         assert result.exit_code == 0, result.output
@@ -1607,7 +1602,6 @@ class TestW029RedundantCflags:
         )
         (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
         cfg = self._lint_cfg(tmp_path, src)
-        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
         monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
         result = CliRunner().invoke(app, ["--fix", str(f)])
         assert result.exit_code == 0, result.output
@@ -1628,7 +1622,6 @@ class TestW029RedundantCflags:
         f.write_text("// GLOBAL: SERVER 0x2000\nint g;\n", encoding="utf-8")
         (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
         cfg = self._lint_cfg(tmp_path, src)
-        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
         (tmp_path / "target.dll").write_bytes(b"MZ")
         cfg.target_binary = tmp_path / "target.dll"
         monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
@@ -1659,7 +1652,6 @@ class TestW029RedundantCflags:
         f.write_text("// GLOBAL: SERVER 0x2000\nint g;\n", encoding="utf-8")
         (tmp_path / "rebrew-functions.toml").write_text("", encoding="utf-8")
         cfg = self._lint_cfg(tmp_path, src)
-        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
         (tmp_path / "target.dll").write_bytes(b"MZ")
         cfg.target_binary = tmp_path / "target.dll"
         monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
@@ -1698,7 +1690,6 @@ class TestW029RedundantCflags:
             '["SERVER.0x1000"]\nstatus = "EXACT"\ncflags = "/O2 /Gd"\n', encoding="utf-8"
         )
         cfg = self._lint_cfg(tmp_path, src)
-        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
         monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
         result = CliRunner().invoke(app, ["--fix", str(f)])
         assert result.exit_code == 0, result.output
@@ -1724,7 +1715,6 @@ class TestW029RedundantCflags:
             '["SERVER.0x1000"]\nstatus = "EXACT"\nnote = "store words"\n', encoding="utf-8"
         )
         cfg = self._lint_cfg(tmp_path, src)
-        cfg.function_list.write_text("0x1000 16 foo\n", encoding="utf-8")
         monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
         result = CliRunner().invoke(app, ["--fix", str(f)])
         assert result.exit_code == 0, result.output

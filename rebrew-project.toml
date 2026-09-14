@@ -5,7 +5,6 @@ default_target = "test"
 [targets.test]
 binary = "dummy.bin"
 reversed_dir = "src/rebrew"
-function_list = "dummy.txt"
 
 [compiler]
 profile = "msvc-6.0"

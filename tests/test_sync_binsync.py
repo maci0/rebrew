@@ -22,7 +22,6 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
         root=tmp_path,
         target_name="T",
         metadata_dir=tmp_path,
-        function_list=tmp_path / "functions.txt",
         marker="T",
         iat_thunks=[],
         compiler_profile="msvc-6.0",
@@ -190,7 +189,7 @@ class TestSyncCli:
     ) -> None:
         _patch_cfg(tmp_path, monkeypatch)
         monkeypatch.setattr("rebrew.ghidra.cli._probe_program_path", lambda cfg, ep, pp, j: pp)
-        monkeypatch.setattr("rebrew.catalog.parse_function_list", lambda _p: [])
+        monkeypatch.setattr("rebrew.catalog.cached_function_list", lambda _cfg: [])
         monkeypatch.setattr(
             "rebrew.catalog.build_function_registry",
             lambda *a, **k: {
@@ -219,7 +218,7 @@ class TestSyncCli:
             raise AssertionError("dry run must not contact Ghidra")
 
         monkeypatch.setattr(sync_cli, "_probe_program_path", _must_not_probe)
-        monkeypatch.setattr("rebrew.catalog.parse_function_list", lambda _p: [])
+        monkeypatch.setattr("rebrew.catalog.cached_function_list", lambda _cfg: [])
         monkeypatch.setattr(
             "rebrew.catalog.build_function_registry",
             lambda *a, **k: {

@@ -58,7 +58,6 @@ from rebrew.catalog import (
     RegistryEntry,
     build_function_registry,
     is_jump_table,
-    parse_function_list,
 )
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
@@ -707,10 +706,13 @@ def main(
     info = load_binary(bin_path)
 
     # Build function registry
-    func_list_path = cfg.function_list
-    if not func_list_path.exists():
-        error_exit(f"Function list not found: {func_list_path}", json_mode=json_output)
-    funcs = parse_function_list(func_list_path)
+    from rebrew.catalog import cached_function_list
+
+    funcs = cached_function_list(cfg)
+    if not funcs:
+        error_exit(
+            "No function inventory (needed here) — run `rebrew intake` first", json_mode=json_output
+        )
 
     reversed_dir = cfg.reversed_dir
     ghidra_path = reversed_dir / FUNCTION_STRUCTURE_JSON if reversed_dir else None

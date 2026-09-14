@@ -1038,10 +1038,8 @@ def main(
     bin_dir.mkdir(parents=True, exist_ok=True)
     console.print(f"[green]Created bin/{target_name}/[/]")
 
-    # 4. Create empty function list
-    func_list = src_dir / "functions.txt"
-    func_list.touch(exist_ok=True)
-    console.print(f"[green]Created src/{target_name}/functions.txt[/]")
+    # 4. Discovery inventory is written by intake/discover as
+    # src/<target>/function_structure.json — no functions.txt scaffold.
 
     # 5. Create metadata TOML files (in src/, not src/<target>/)
     metadata_parent = src_dir.parent  # src/

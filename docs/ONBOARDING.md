@@ -75,7 +75,7 @@ rebrew intake original/server.dll --toolchain msvc-6.0   # or pin it explicitly
 2. runs `rebrew init` (skipped if the project already exists — re-running
    intake is a safe re-discovery)
 3. copies the binary to `original/`
-4. **enumerates functions** with rizin → `src/SERVER/functions.txt`
+4. **enumerates functions** with rizin → `src/SERVER/function_structure.json`
 5. **documents every function** as a `// STUB:` skeleton with a BLOCKER,
    so `rebrew status`/`rebrew todo` show the full reversing landscape
 

@@ -858,70 +858,40 @@ def check_libs(cfg: ProjectConfig) -> CheckResult:
 
 
 def check_function_list(cfg: ProjectConfig) -> CheckResult:
-    """Check that the function list file exists and has valid content."""
-    func_list: Path = cfg.function_list
-    if not func_list.exists():
+    """Check that the discovery inventory exists and parses."""
+    from rebrew.catalog import cached_function_list
+    from rebrew.config import FUNCTION_STRUCTURE_JSON
+
+    inv_path = Path(cfg.reversed_dir) / FUNCTION_STRUCTURE_JSON if cfg.reversed_dir else None
+    if inv_path is None or not inv_path.exists():
         return CheckResult(
-            name="Function list",
+            name="Function inventory",
             status=_WARN,
-            message=f"Not found: {func_list}",
+            message=f"Not found: {inv_path}",
             fix=(
-                "Create the function list (e.g. 'r2 -qc \"afl\" binary > functions.txt' "
-                "or 'rz -qc \"afl\" binary > functions.txt')."
+                "Run `rebrew intake` or `rebrew discover-functions "
+                "--output src/<target>/function_structure.json`."
             ),
         )
 
     try:
-        from rebrew.catalog.loaders import (
-            _FUNC_LINE_RE_NAME_FIRST,
-            _FUNC_LINE_RE_NAME_ONLY,
-            _FUNC_LINE_RE_SIZE_FIRST,
-        )
-
-        text = func_list.read_text(encoding="utf-8", errors="replace")
-        valid = 0
-        corrupt = 0
-        for line in text.splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            if (
-                _FUNC_LINE_RE_SIZE_FIRST.match(line)
-                or _FUNC_LINE_RE_NAME_FIRST.match(line)
-                # `VA NAME` only: the loader treats a bare `VA NUMBER` line as
-                # malformed (`m3.group(2).isdigit()`), so the doctor must too —
-                # otherwise a list with zero parsable functions reports healthy.
-                or (
-                    (m3 := _FUNC_LINE_RE_NAME_ONLY.match(line)) is not None
-                    and not m3.group(2).isdigit()
-                )
-            ):
-                valid += 1
-            else:
-                corrupt += 1
-        if corrupt > 0:
-            return CheckResult(
-                name="Function list",
-                status=_FAIL,
-                message=f"{func_list.name}: {corrupt} of {valid + corrupt} lines "
-                "do not parse as VA + name entries",
-                fix="Regenerate the list (e.g. 'r2 -qc \"afl\" binary > functions.txt').",
-            )
+        funcs = cached_function_list(cfg)
+        valid = sum(1 for f in funcs if int(f.get("va") or 0) > 0)
         if valid == 0:
             return CheckResult(
-                name="Function list",
+                name="Function inventory",
                 status=_WARN,
-                message=f"{func_list.name} has no parseable entries",
-                fix="Regenerate the list (e.g. 'r2 -qc \"afl\" binary > functions.txt').",
+                message=f"{inv_path.name} has no parseable entries",
+                fix="Regenerate it with `rebrew discover-functions`.",
             )
         return CheckResult(
-            name="Function list",
+            name="Function inventory",
             status=_PASS,
-            message=f"{func_list.name} ({valid} entries)",
+            message=f"{inv_path.name} ({valid} entries)",
         )
-    except OSError as e:
+    except (OSError, ValueError, KeyError) as e:
         return CheckResult(
-            name="Function list",
+            name="Function inventory",
             status=_FAIL,
             message=f"Cannot read: {e}",
             fix="Check file permissions.",

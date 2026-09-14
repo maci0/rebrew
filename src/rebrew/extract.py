@@ -1,8 +1,8 @@
 """extract.py - Extract and disassemble functions from the target binary.
 
-Reads a function list (functions.txt or .json), auto-detects already-reversed VAs from
-the project's src directory, and lets you list/extract/batch the remaining
-candidates.
+Reads the discovery inventory (function_structure.json), auto-detects
+already-reversed VAs from the project's src directory, and lets you
+list/extract/batch the remaining candidates.
 
 Usage:
     rebrew extract list                # List un-reversed candidates
@@ -11,10 +11,8 @@ Usage:
     rebrew extract batch 20 --start 10 # Offset into sorted list
 """
 
-import json
 import logging
 from pathlib import Path
-from typing import Any, cast
 
 import typer
 from rich.console import Console
@@ -22,7 +20,7 @@ from rich.table import Table
 
 from rebrew.asm import disasm_bytes
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
-from rebrew.catalog import parse_function_list, scan_reversed_dir
+from rebrew.catalog import cached_function_list, scan_reversed_dir
 from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
@@ -62,49 +60,20 @@ def detect_reversed_vas(src_dir: Path, cfg: ProjectConfig | None = None) -> set[
 # ---------------------------------------------------------------------------
 
 
-def _parse_int_field(value: Any) -> int:
-    """Parse an int field accepting hex strings ("0x2000"), decimal strings, or ints."""
-    if isinstance(value, str):
-        return int(value, 0)
-    return int(value)
-
-
 def load_functions(cfg: ProjectConfig) -> list[dict[str, int | str]]:
-    """Load function list from functions.txt (preferred) or .json."""
-    txt_path = cfg.function_list
-    json_path = txt_path.with_suffix(".json")
+    """Load the discovery inventory (function_structure.json)."""
+    from rebrew.config import FUNCTION_STRUCTURE_JSON
 
-    if txt_path.exists():
-        raw_funcs = parse_function_list(txt_path)
-        return [
-            {"va": int(fn["va"]), "size": int(fn["size"]), "name": str(fn["name"])}
-            for fn in raw_funcs
-        ]
-
-    if json_path.exists():
-        # Externally produced (Ghidra/rizin export): a truncated or renamed-field
-        # file must surface as a readable error, not a raw KeyError traceback.
-        try:
-            with json_path.open(encoding="utf-8") as f:
-                raw = cast(list[dict[str, Any]], json.load(f))
-            return [
-                {
-                    # Accept hex ("0x2000") or decimal offsets, mirroring the
-                    # txt-path behavior of parse_function_list.
-                    "va": _parse_int_field(fn["offset"]),
-                    "size": _parse_int_field(fn.get("realsz", fn.get("size", 0))),
-                    "name": str(fn["name"]),
-                }
-                for fn in raw
-            ]
-        except KeyError as exc:
-            raise ValueError(
-                f"Malformed function list at {json_path}: missing field {exc}"
-            ) from exc
-        except (ValueError, TypeError, AttributeError) as exc:
-            raise ValueError(f"Malformed function list at {json_path}: {exc}") from exc
-
-    raise FileNotFoundError(f"No function list found at {txt_path} or {json_path}")
+    inv = Path(cfg.reversed_dir) / FUNCTION_STRUCTURE_JSON if cfg.reversed_dir else None
+    if inv is None or not inv.exists():
+        raise FileNotFoundError(
+            f"No function inventory at {inv} — run `rebrew intake` or "
+            "`rebrew discover-functions` first"
+        )
+    return [
+        {"va": int(fn["va"]), "size": int(fn["size"]), "name": str(fn["name"])}
+        for fn in cached_function_list(cfg)
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -322,30 +291,6 @@ def _setup_candidates(
             continue
 
         candidates.append((va, size, name))
-
-    # The function list (functions.txt) can be stale relative to the
-    # Ghidra/RE-tool structure cache (function_structure.json) — the same
-    # universe `rebrew status` counts.  Functions in the structure cache that
-    # are NOT in functions.txt and have no source coverage are invisible to
-    # extract otherwise (fleet sweep: smygb had 15 such functions and
-    # extract returned 0 candidates).  Merge them in.
-    try:
-        from rebrew.catalog import load_function_structure
-        from rebrew.config import FUNCTION_STRUCTURE_JSON
-
-        ghidra_json = cfg.reversed_dir / FUNCTION_STRUCTURE_JSON
-        existing = {c[0] for c in candidates}
-        for fe in load_function_structure(ghidra_json):
-            if fe.va in reversed_vas or fe.va in existing:
-                continue
-            if fe.size <= 0 or fe.size < min_size or fe.size > max_size:
-                continue
-            candidates.append((fe.va, fe.size, fe.name or fe.tool_name or f"fcn.{fe.va:08x}"))
-            existing.add(fe.va)
-    except Exception as exc:
-        # structure-cache enrichment is best-effort — never block the list,
-        # but a corrupt function_structure.json must be visible at DEBUG.
-        log.debug("structure-cache enrichment skipped for %s: %s", exe_path, exc, exc_info=True)
 
     candidates.sort(key=lambda x: x[1])  # Sort by size
     return cfg, candidates, exe_path

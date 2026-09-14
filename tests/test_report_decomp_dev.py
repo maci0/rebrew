@@ -31,7 +31,6 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
         root=tmp_path,
         target_name="T",
         metadata_dir=tmp_path,
-        function_list=tmp_path / "functions.txt",
         compiler_profile="msvc-6.0",
         source_ext=".c",
         marker="T",

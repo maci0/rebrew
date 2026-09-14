@@ -119,7 +119,6 @@ binary = "original/Server/server.dll"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src/server_dll"
- function_list = "src/server_dll/functions.txt"
 bin_dir = "bin/server_dll"
 
 [targets.client_exe]
@@ -127,7 +126,6 @@ binary = "original/Client/client.exe"
 format = "pe"
 arch = "x86_64"
 reversed_dir = "src/client_exe"
-function_list = "src/client_exe/funcs.txt"
 
 [compiler]
 profile = "gcc-14.2.0"
@@ -226,7 +224,7 @@ binary = "test.exe"
         assert cfg.binary_format == "pe"  # default
         assert cfg.arch == "x86_32"  # default
         assert cfg.reversed_dir == root / "src" / "main"
-        assert cfg.function_list == root / "src" / "main" / "functions.txt"
+        assert not hasattr(cfg, "function_list")
         assert cfg.bin_dir == root / "bin" / "main"
 
     def test_link_file_align_warns_informational(self, tmp_path: Path) -> None:
