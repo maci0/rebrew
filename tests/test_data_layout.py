@@ -30,7 +30,7 @@ def test_data_symbols(tmp_path: Path) -> None:
 def test_layout_geometry(tmp_path: Path) -> None:
     pkg = tmp_path / "layout" / "game.dll"
     pkg.mkdir(parents=True)
-    (pkg / "layout.txt").write_text(
+    (pkg / "rebrew-layout.toml").write_text(
         "[layout]\n"
         'target = "game.dll"\n'
         "image_base = 268435456\n"
@@ -107,7 +107,7 @@ def _make_pe(data_raw: bytes, image_base: int = 0x10000000, data_va: int = 0x180
 def _write_layout(tmp_path: Path, data_base: int, raw_size: int, vs: int) -> None:
     pkg = tmp_path / "layout" / "game.dll"
     pkg.mkdir(parents=True, exist_ok=True)
-    (pkg / "layout.txt").write_text(
+    (pkg / "rebrew-layout.toml").write_text(
         "[layout]\n"
         'target = "game.dll"\n'
         f"image_base = {data_base - 0x18000}\n"
@@ -426,7 +426,7 @@ def test_converge_layout_resolves_target_from_config(tmp_path: Path) -> None:
     _write_rsp(tmp_path, [obj_a])
     pkg = tmp_path / "layout" / "game.dll"
     pkg.mkdir(parents=True)
-    (pkg / "layout.txt").write_text(
+    (pkg / "rebrew-layout.toml").write_text(
         "[layout]\n"
         'target = "game.dll"\n'
         f"image_base = {0x10000000}\n"
@@ -753,7 +753,7 @@ def test_layout_geometry_honours_the_requested_target(tmp_path: Path) -> None:
     ]:
         pkg = tmp_path / "layout" / target
         pkg.mkdir(parents=True)
-        (pkg / "layout.txt").write_text(
+        (pkg / "rebrew-layout.toml").write_text(
             "[layout]\n"
             f'target = "{target}"\n'
             f"image_base = {base}\n"

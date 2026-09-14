@@ -759,7 +759,7 @@
         <mxCell id="d1" value="&lt;b&gt;Function identity&lt;/b&gt;&lt;br&gt;functions.txt&lt;br&gt;function_structure.json&lt;br&gt;CATALOG.md · &amp;lt;t&amp;gt;.def&lt;br&gt;discover / catalog / exports" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="568" width="240" height="110" as="geometry"/>
         </mxCell>
-        <mxCell id="d2" value="&lt;b&gt;Layout package&lt;/b&gt;&lt;br&gt;layout/&amp;lt;target&amp;gt;/&lt;br&gt;layout.txt + *.hex + operands/calls&lt;br&gt;rebrew gen-layout&lt;br&gt;feeds postlink without original/" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="d2" value="&lt;b&gt;Layout package&lt;/b&gt;&lt;br&gt;layout/&amp;lt;target&amp;gt;/&lt;br&gt;rebrew-layout.toml + *.hex + operands/calls&lt;br&gt;rebrew gen-layout&lt;br&gt;feeds postlink without original/" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="320" y="568" width="260" height="110" as="geometry"/>
         </mxCell>
         <mxCell id="d3" value="&lt;b&gt;Link scaffolding&lt;/b&gt;&lt;br&gt;src/link_stubs.c  (calibrate-bss)&lt;br&gt;src/&amp;lt;t&amp;gt;/bss_padding.c&lt;br&gt;src/&amp;lt;t&amp;gt;/rebrew_globals.h&lt;br&gt;crt_region/*.c · gen-stubs" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
@@ -921,7 +921,7 @@
         <mxCell id="l0" value="&lt;b&gt;rebrew gen-layout&lt;/b&gt;&lt;br&gt;from reference PE&lt;br&gt;text-only package" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="560" width="180" height="80" as="geometry"/>
         </mxCell>
-        <mxCell id="l1" value="&lt;b&gt;layout/&amp;lt;target&amp;gt;/&lt;/b&gt;&lt;br&gt;layout.txt  sections, IAT, exports&lt;br&gt;header.hex iat.hex data.hex reloc.hex&lt;br&gt;prefix.hex bookkeeping.hex&lt;br&gt;operands.txt calls.txt" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="l1" value="&lt;b&gt;layout/&amp;lt;target&amp;gt;/&lt;/b&gt;&lt;br&gt;rebrew-layout.toml  sections, IAT, exports&lt;br&gt;header.hex iat.hex data.hex reloc.hex&lt;br&gt;prefix.hex bookkeeping.hex&lt;br&gt;operands.txt calls.txt" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#bbf7d0;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="270" y="548" width="280" height="104" as="geometry"/>
         </mxCell>
         <mxCell id="l2" value="&lt;b&gt;link helpers&lt;/b&gt;&lt;br&gt;gen-link-stubs  BSS TU&lt;br&gt;gen-stubs  unresolved symbols&lt;br&gt;&amp;lt;t&amp;gt;.def  export ordinals&lt;br&gt;link-sweep  LINK.EXE flags" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">

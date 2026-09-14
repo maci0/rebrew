@@ -16,7 +16,7 @@ reference's VirtualSize.  This module provides the shared machinery used by
 
 All addresses are full image VAs; the section geometry (``data_base``,
 ``raw_end``, ``section_end``) comes from the layout package
-(``layout/<target>/layout.txt``), so nothing is hardcoded per project.
+(``layout/<target>/rebrew-layout.toml``), so nothing is hardcoded per project.
 """
 
 from __future__ import annotations
@@ -218,9 +218,11 @@ def layout_geometry(project_toml: Path, target: str | None = None) -> tuple[int,
     with open(project_toml, "rb") as fh:
         cfg = tomllib.load(fh)
     default = str(cfg.get("project", {}).get("default_target") or "")
-    if default and (root / "layout" / default / "layout.txt").exists():
+    if default and (root / "layout" / default / "rebrew-layout.toml").exists():
         return read_layout_geometry(root, default)
-    pkgs = sorted((root / "layout").glob("*/layout.txt")) if (root / "layout").is_dir() else []
+    pkgs = (
+        sorted((root / "layout").glob("*/rebrew-layout.toml")) if (root / "layout").is_dir() else []
+    )
     if pkgs:
         return read_layout_geometry(root, pkgs[0].parent.name)
     raise ValueError(f"no layout package under {root / 'layout'} (run rebrew gen-layout first)")

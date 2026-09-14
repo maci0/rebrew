@@ -28,9 +28,9 @@ same tiers and the data/globals/layout pipeline.
 | **cflags / toolchain** | `rebrew-functions.toml` (per-function) → `rebrew-libraries.toml` (per-library, walk-up) → project defaults, resolved by `resolve_compile_overrides` | grid `cflags`, DB column |
 | **Data symbols (globals)** | `rebrew-data.toml` (`name`/`type`/`size`/`section`/`note`, plus verify-written data STATUS `VERIFIED`/`DRIFT`/`UNCHECKED`) | grid `globals`, DB `globals` table, `src/<target>/rebrew_globals.h` (`rebrew data --gen-header` — extern declarations for the build); `rebrew status` data counts + `rebrew todo -c data-drift` |
 | Coverage presence | grid JSON (`db/data_<target>.json`) | coverage.db (pure function of the JSON) |
-| **Layout / PE normalization** | `layout/<target>/` package — `layout.txt` (sections, exports, imports, export_stamp, link_options, image_base), `header.hex` (full PE header block: SizeOfImage/CheckSum/TimeDateStamp/section table), `iat.hex`, `prefix.hex`, `bookkeeping.hex`, `data.hex`, `reloc.hex`, `operands.txt`, `calls.txt` | `[link]` block (`file_align`, `stack_*`, `tsaware`, `timestamp`) consumed by `round_trip --fix-headers` |
-| **Import order / IAT** | original binary (IAT order), captured into `layout/<target>/` | `crt_region/crt_imports.c` (`#pragma comment(linker, "/include:__imp_...")`), `layout/<target>/layout.txt` `imports[]` |
-| **`.data` / BSS layout** | `rebrew-data.toml` (symbols) + `layout/<target>/data.hex` (reference bytes) | `src/link_stubs.c` (`g_bss_tail` pad, mutated by `rebrew calibrate-bss`), `src/<target>/bss_padding.c` (`rebrew data --fix-bss` — `_pad_<va>[N]` dummy arrays for detected gaps), `_dpad_<addr>[N]` pads inserted into `.c` files by `rebrew data --fill-data` (byte-exact from the reference in the raw region, zero-init for BSS), `layout.txt` `sections[.data].vs` |
+| **Layout / PE normalization** | `layout/<target>/` package — `rebrew-layout.toml` (sections, exports, imports, export_stamp, link_options, image_base), `header.hex` (full PE header block: SizeOfImage/CheckSum/TimeDateStamp/section table), `iat.hex`, `prefix.hex`, `bookkeeping.hex`, `data.hex`, `reloc.hex`, `operands.txt`, `calls.txt` | `[link]` block (`file_align`, `stack_*`, `tsaware`, `timestamp`) consumed by `round_trip --fix-headers` |
+| **Import order / IAT** | original binary (IAT order), captured into `layout/<target>/` | `crt_region/crt_imports.c` (`#pragma comment(linker, "/include:__imp_...")`), `layout/<target>/rebrew-layout.toml` `imports[]` |
+| **`.data` / BSS layout** | `rebrew-data.toml` (symbols) + `layout/<target>/data.hex` (reference bytes) | `src/link_stubs.c` (`g_bss_tail` pad, mutated by `rebrew calibrate-bss`), `src/<target>/bss_padding.c` (`rebrew data --fix-bss` — `_pad_<va>[N]` dummy arrays for detected gaps), `_dpad_<addr>[N]` pads inserted into `.c` files by `rebrew data --fill-data` (byte-exact from the reference in the raw region, zero-init for BSS), `rebrew-layout.toml` `sections[.data].vs` |
 | **Export table** | original binary, captured into `layout/<target>/` (`exports`, `export_stamp`, `exp_rva`) | `<target>.def` (`name @ ordinal` for the linker) |
 | **Ghidra provenance** (names/sizes) | `src/<target>/function_structure.json`, `ghidra_data_labels.json` (external exports, provenance-stamped) | registry `list_name`/`ghidra_name`, grid/DB columns |
 
@@ -75,7 +75,7 @@ same tiers and the data/globals/layout pipeline.
 
 ## Layout package lifecycle
 
-`rebrew gen-layout` derives `layout/<target>/` (text-only: `layout.txt` +
+`rebrew gen-layout` derives `layout/<target>/` (text-only: `rebrew-layout.toml` +
 `*.hex` byte files) and the `[link]` config block
 from the reference binary.  The package is committed to git; `rebrew
 postlink --layout <dir>` consumes it to normalize a built binary onto the

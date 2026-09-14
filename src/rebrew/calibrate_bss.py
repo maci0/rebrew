@@ -11,7 +11,7 @@ the CRT <common> tail), so the tail size is calibrated empirically:
 4. recompile the stub object and repeat until VS == the target.
 
 The target VS defaults to the reference's ``.data`` VirtualSize from the
-project's layout package (``layout/<target>/layout.txt``).
+project's layout package (``layout/<target>/rebrew-layout.toml``).
 
 Usage:
     rebrew calibrate-bss [--stub src/link_stubs.c] [--target-vs 0x174059c] [--max-iters 8]
@@ -56,7 +56,7 @@ def _layout_data_vs(root: Path) -> int | None:
     targets = [default] if default else []
     targets += [
         p.parent.name
-        for p in sorted((root / "layout").glob("*/layout.txt"))
+        for p in sorted((root / "layout").glob("*/rebrew-layout.toml"))
         if p.parent.name not in targets
     ]
     # Default target first — scanning every target and returning the first

@@ -56,7 +56,7 @@ This writes, into the project:
   IAT-forcing list in the binary's true IAT order (suffixes resolved from the toolchain
   import libraries; ordinal imports such as WS2_32 resolved by name).
 - `layout/<target>/` — a text-only layout package (no binary blobs): a structured
-  `layout.txt` (image base, sections, exports, imports with reference IAT-slot VAs)
+  `rebrew-layout.toml` (image base, sections, exports, imports with reference IAT-slot VAs)
   plus hex dumps of the opaque linker-stamped regions (`header.hex`, `iat.hex`,
   `prefix.hex`, `bookkeeping.hex`, `data.hex`, `reloc.hex`) and sparse `.text` maps
   (`operands.txt`, `calls.txt`). `rebrew postlink <built.dll> --layout layout/<target>`
