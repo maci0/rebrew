@@ -149,6 +149,57 @@ class TestDiscoverFunctions:
         assert all(size > 0 for _va, size, _n in d.functions)
 
 
+class TestDiscovererPlugins:
+    """Third-party discoverers join every branch via rebrew.discoverers."""
+
+    def test_plugin_results_merge(self, monkeypatch) -> None:
+        import rebrew.discover as disc
+
+        monkeypatch.setattr("rebrew.discover._rizin_functions", lambda b, c: [])
+        monkeypatch.setattr("rebrew.discover._capstone_sweep", lambda b: [])
+        monkeypatch.setitem(disc._DISCOVERER_MAP, "ghidra", lambda b: [(0x401000, 40, "main")])
+        monkeypatch.setattr("rebrew.discover.load_binary", lambda b: _mk_info(b""))
+        monkeypatch.setattr("rebrew.discover._validate_and_refine", lambda info, funcs: funcs)
+        d = disc.discover_functions(Path("x.exe"))
+        assert d.sources["ghidra"] == 1
+        assert (0x401000, 40, "main") in d.functions
+
+    def test_broken_plugin_skipped(self, monkeypatch) -> None:
+        import rebrew.discover as disc
+
+        def _boom(binary: Path) -> list:
+            raise RuntimeError("no backend here")
+
+        monkeypatch.setattr("rebrew.discover._rizin_functions", lambda b, c: [])
+        monkeypatch.setattr("rebrew.discover._capstone_sweep", lambda b: [])
+        monkeypatch.setitem(disc._DISCOVERER_MAP, "broken", _boom)
+        monkeypatch.setattr("rebrew.discover.load_binary", lambda b: _mk_info(b""))
+        monkeypatch.setattr("rebrew.discover._validate_and_refine", lambda info, funcs: funcs)
+        d = disc.discover_functions(Path("x.exe"))
+        assert d.sources["broken"] == 0
+        assert d.functions == []
+
+    def test_plugin_entry_point_merge(self, monkeypatch) -> None:
+        """Entry-point registrations join the map; conflicts are skipped."""
+        import rebrew.discover as disc
+        from rebrew.registry import Registration
+
+        reg = Registration(
+            name="mine",
+            module="nope",
+            attr="",
+            group="rebrew.discoverers",
+            origin="test",
+        )
+        monkeypatch.setattr("rebrew.registry.entry_point_registrations", lambda group: [reg])
+        monkeypatch.setattr(
+            "rebrew.registry.load_registration_optional", lambda r, log: lambda b: []
+        )
+        merged = disc.discoverer_map()
+        assert "mine" in merged
+        assert "rizin aaa" in merged  # packaged set intact
+
+
 class TestDiscoverMZ:
     """Plain DOS MZ binaries short-circuit to the 16-bit capstone sweep
     (rizin cannot analyze MZ) — the DOS-game discovery path."""
