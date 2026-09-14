@@ -15,6 +15,7 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -63,7 +64,8 @@ def exported_symbol_vas(binary: Path) -> dict[str, int]:
 
     try:
         pe = lief.PE.parse(str(binary))
-    except Exception:  # parse failures degrade to "no exports"
+    except Exception as exc:  # parse failures degrade to "no exports"
+        logging.getLogger(__name__).debug("export parse failed for %s: %s", binary, exc)
         return {}
     if pe is None:
         return {}

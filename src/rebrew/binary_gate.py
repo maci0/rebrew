@@ -7,6 +7,7 @@ gate-relevant facts.  The ``verify --whole-binary`` wiring lives in
 ``verify.py``.
 """
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -78,7 +79,8 @@ def snapshot_binary(binary_path: Path) -> dict[str, Any]:
         imports = sorted(
             {f"{r.get('dll', '')}!{r.get('name', '')}" for r in parse_imports(binary_path)}
         )
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("import/export parse failed for %s: %s", binary_path, exc)
         exports, imports = [], []
     return {
         "sections": sections,

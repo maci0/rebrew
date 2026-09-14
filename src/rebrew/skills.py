@@ -363,8 +363,9 @@ def show_skill(
         from rich.markdown import Markdown
 
         _stdout_console.print(Markdown(text))
-    except Exception:
+    except Exception as exc:
         # Fallback: plain output
+        logger.debug("markdown render failed: %s", exc)
         print(text, end="")
 
 

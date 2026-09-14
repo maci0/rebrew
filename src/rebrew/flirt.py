@@ -3,6 +3,7 @@
 Usage: rebrew flirt [sig_dir]
 """
 
+import logging
 import os
 import warnings
 from pathlib import Path
@@ -131,7 +132,8 @@ def find_func_size(code_data: bytes, offset: int) -> int:
         # STOPS at that byte, so the loop ended without a terminator and the
         # function was reported as the full 4096-byte window.
         md.skipdata = True
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("capstone skipdata setup failed: %s", exc)
         md = None
     if md is not None:
         for insn in md.disasm(code_data[offset:scan_end], offset):

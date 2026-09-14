@@ -12,6 +12,7 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +34,8 @@ def parse_exports(binary_path: Path) -> list[str]:
 
     try:
         pe = lief.PE.parse(str(binary_path))
-    except Exception:  # parse failures degrade to "no exports"
+    except Exception as exc:  # parse failures degrade to "no exports"
+        logging.getLogger(__name__).debug("export parse failed for %s: %s", binary_path, exc)
         return []
     if pe is None:
         return []

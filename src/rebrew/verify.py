@@ -271,7 +271,7 @@ def verify_entry(
                     )
                     result.message = f"{result.message} {note}".strip()
         except Exception as exc:  # diff_lines is best-effort
-            log.debug("diff_lines failed for 0x%x: %s", result.va, exc)
+            log.debug("diff_lines failed for 0x%x: %s", entry.va, exc)
             result.diff_lines = None
     # Structural code-similarity score (0–100), computed for EVERY verified
     # function with compiled bytes — matched (short-circuit ~100) and
@@ -285,7 +285,7 @@ def verify_entry(
 
             result.similarity = code_similarity(target_bytes, result.obj_bytes)
         except Exception as exc:  # similarity is best-effort
-            log.debug("similarity failed for 0x%x: %s", result.va, exc)
+            log.debug("similarity failed for 0x%x: %s", entry.va, exc)
             result.similarity = None
     return result
 

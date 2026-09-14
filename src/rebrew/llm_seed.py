@@ -75,7 +75,8 @@ def valid_c_source(src: str) -> bool:
 
     try:
         return extract_function_name_and_proto(src) is not None
-    except Exception:  # garbage must never break seeding
+    except Exception as exc:  # garbage must never break seeding
+        logging.getLogger(__name__).debug("seed parse failed: %s", exc)
         return False
 
 
