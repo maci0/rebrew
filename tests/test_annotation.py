@@ -1856,3 +1856,24 @@ class TestRemoveKeyDoesNotCrossBlocks:
         )
         assert remove_inline_annotation_key(f, 0x2000, "CFLAGS") is False
         assert "// CFLAGS: /O1" in f.read_text(encoding="utf-8")
+
+
+def test_data_markers_are_exempt_from_the_size_check() -> None:
+    """A DATA/GLOBAL annotation has no byte size, and must not fail validate().
+
+    Regression: validate() applied the function-only `size > 0` rule to every
+    marker, so a single `// DATA:` line in an otherwise-valid source made
+    `rebrew diff --fix-blocker` abort with "Invalid SIZE: 0" and refuse to
+    refresh that function's blocker -- while `rebrew lint`, which knows the
+    difference, passed the same file.  Two tools disagreeing about the same
+    annotation is the bug.
+    """
+    for marker in ("DATA", "GLOBAL"):
+        ann = Annotation(va=0x10027104, size=0, marker_type=marker, name="g_msg")
+        errors, _ = ann.validate()
+        assert not any("Invalid SIZE" in e for e in errors), (marker, errors)
+
+    # Code annotations must still be caught.
+    code = Annotation(va=0x10002770, size=0, marker_type="FUNCTION", name="f")
+    errors, _ = code.validate()
+    assert any("Invalid SIZE" in e for e in errors), errors
