@@ -466,9 +466,60 @@ The metadata-comment column is notes and differing Ghidra names only —
 
 ---
 
+## `rebrew sync` — feature matrix and known issues
+
+`rebrew sync` is BinSync-primary: field sync (names, prototypes, structs,
+globals) goes through the shared state dir above, and ReVa MCP remains only
+for the structural ops the state dir cannot express (create-functions,
+bookmarks, pull-data).  For the product vision see [prd/07-ghidra-sync.md](prd/07-ghidra-sync.md);
+for flags see [CLI.md](CLI.md#rebrew-sync).
+
+```mermaid
+graph TD
+    Sync[rebrew sync] --> Push[--push state-dir]
+    Push --> Relay[external BinSync plugin relays into Ghidra]
+    Sync --> Pull[--pull state-dir]
+    Pull --> Names[names + prototypes + structs + globals + notes]
+    Pull --> Create[--create-functions chains MCP function creation]
+    Sync --> Struct[--create-functions · --bookmarks · --pull-data]
+    Struct --> MCP[ReVa MCP structural ops]
+    Names --> Conflict{conflict?}
+    Conflict -->|yes| Decide[--accept-binsync / --accept-local]
+    Decide --> Update[update metadata]
+    Conflict -->|no| Update
+    Update --> Summary[--summary / --dry-run preview]
+```
+
+| Feature | Direction | Status | Command |
+|---------|-----------|--------|---------|
+| Export annotations to a BinSync state dir | Local → file | ✅ Done | `--push --state-dir D` |
+| Import a BinSync state dir into rebrew | File → Local | ✅ Done | `--pull --state-dir D` |
+| Import structs / notes / global types+sizes | File → Local | ✅ Done | `--pull` (structs → `binsync_types.h`, notes → metadata, global type/size → `rebrew-data.toml`) |
+| Create missing functions in Ghidra | Local → Ghidra | ✅ Done | `--pull --create-functions` (MCP create op over imported VAs) |
+| Status-based bookmark categories | Local → Ghidra | ✅ Done | automatic (`rebrew/exact`, `/reloc`, etc.) via `--bookmarks` |
+| Custom MCP endpoint URL | — | ✅ Done | `--endpoint URL` |
+| Summary / dry-run preview | — | ✅ Done | `--summary`, `--dry-run` |
+| Prototype conflict gating | File → Local | ✅ Done | differing local prototype reports a conflict; `--accept-binsync` overwrites |
+| Whitespace-normalized prototype compare | — | ✅ Done | formatting-only differences are not divergence |
+| Freshness manifest | File | ✅ Done | `manifest.toml` (`exported_at`, `content_hash`); surfaced by `binsync-diff --json` |
+| Conflict detection (names, prototypes) | Both | ✅ Done | Warns on conflict, `--accept-binsync`/`--accept-local` |
+| Pull data labels from Ghidra | Ghidra → Local | ✅ Done | `--pull-data` (generates `rebrew_globals.h`) |
+| Validate `programPath` against Ghidra project | — | ✅ Done | queries `get-current-program` via ReVa MCP and warns on mismatch |
+| Watch mode (live file-change sync) | Local → Ghidra | ✅ Done | `--watch` (push only) |
+| XREF context in skeleton generation | Ghidra → Local | ✅ Done | `skeleton --xrefs` |
+| Ghidra decompilation backend for skeleton | Ghidra → Local | ✅ Done | `skeleton --decomp --decomp-backend ghidra` |
+| Metadata-aware linting | Local | ✅ Done | `rebrew lint` reads `rebrew-functions.toml` before validation |
+
+### Known issues
+
+- **Per-instruction comments do not round-trip** — function-level notes sync
+  via `[comments]`; per-instruction comments have no BinSync surface in the
+  current format and are not synced.
+
+---
+
 ## Related
 
-- [`rebrew sync`](GHIDRA_SYNC.md) — bidirectional Ghidra sync via ReVa MCP
 - [`rebrew catalog`](CLI.md#rebrew-catalog) — function registry and coverage grid
 - [BinSync GitHub](https://github.com/binsync/binsync)
 - [declib](https://github.com/binsync/declib)

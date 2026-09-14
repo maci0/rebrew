@@ -651,7 +651,7 @@ def _gcc_era_hint(count_modern: int, count_old: int) -> str:
     return "mixed GCC codegen styles"
 
 
-# --- byte-level codegen fingerprint patterns (verified — see docs/CODEGEN_REFERENCE.md) ---
+# --- byte-level codegen fingerprint patterns (verified — see docs/codegen/README.md) ---
 
 #: VC 7.0+ loop-alignment nop `lea esp,[esp]` — verified inside optimized
 #: function bodies for VC 7.0..11.0; VC 2.0-6.0 never emit it (their nop
@@ -795,7 +795,7 @@ class CodegenSignals:
     """Byte-level codegen fingerprint counts for one .text section.
 
     Every pattern is verified against real toolchain output — see
-    docs/CODEGEN_REFERENCE.md for the provenance of each field.
+    docs/codegen/README.md for the provenance of each field.
     """
 
     lea_esp_nops: int = 0  # lea esp,[esp] — VC 7.0+ loop alignment
@@ -1480,7 +1480,7 @@ def _detect_toolchain_core(path: Path | str) -> ToolchainInfo:
             )
 
     # --- additional codegen fingerprints (verified patterns — see
-    # docs/CODEGEN_REFERENCE.md).  Raw whole-file counts are unreliable
+    # docs/codegen/README.md).  Raw whole-file counts are unreliable
     # (resource data contains coincidental pattern bytes); these run on
     # .text only. ---
     if signals.lea_esp_nops >= 2:

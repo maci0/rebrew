@@ -5,8 +5,8 @@ details**: prologues, register conventions, integer division, FPU, loops,
 string ops, padding, stack probes — how adjacent major versions differ, and
 which fingerprints are (verified) 100% unique to a version.
 
-This folder supersedes the single-doc `docs/CODEGEN_REFERENCE.md` (now a
-pointer).  Cross-references: [TOOLCHAIN.md](../TOOLCHAIN.md) (profiles and
+This folder supersedes the former single-doc `docs/CODEGEN_REFERENCE.md`
+(deleted).  Cross-references: [TOOLCHAIN.md](../TOOLCHAIN.md) (profiles and
 detection), [CODEGEN_PATTERNS.md](../CODEGEN_PATTERNS.md) (MSVC6 C-source
 rules for byte matching).
 

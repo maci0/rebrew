@@ -1686,7 +1686,8 @@ fix the first mismatch and the rest usually follows).
 match), closing the classify → document loop in one command.  The written
 blocker text includes the top GA mutation operators to try next (the
 actionable step) ahead of the suggestion prose when the 200-char metadata
-budget is tight.
+budget is tight.  `rebrew near-diag --catalog` prints the full symptom index
+(category → suggestion → GA mutations) live from the verdict registry.
 `--all` runs the same classify-and-document pipeline over every
 `NEAR_MATCHING` function in the project (mirrors `rebrew prove --all`:
 per-function compile/extract failures are recorded in the results instead of
