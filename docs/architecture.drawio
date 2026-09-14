@@ -412,7 +412,7 @@
         <mxCell id="tbin" value="&lt;b&gt;target binary&lt;/b&gt;&lt;br&gt;PE/ELF/NE bytes" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e2e8f0;strokeColor=#475569;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="118" width="160" height="70" as="geometry"/>
         </mxCell>
-        <mxCell id="disc" value="&lt;b&gt;discover.py&lt;/b&gt;&lt;br&gt;rizin aaa → aap&lt;br&gt;→ capstone linear sweep" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="disc" value="&lt;b&gt;discover.py&lt;/b&gt;&lt;br&gt;rebrew.discoverers plugins&lt;br&gt;(rizin / capstone / NE / MZ packaged)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="260" y="110" width="200" height="86" as="geometry"/>
         </mxCell>
         <mxCell id="flirt" value="&lt;b&gt;flirt.py&lt;/b&gt;&lt;br&gt;python-flirt  .sig / .pat&lt;br&gt;rebrew-flirt-sigs + project flirt_sigs/&lt;br&gt;rebrew gen-flirt-pat from .lib" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fde68a;strokeColor=#ca8a04;fontColor=#713f12;align=center;fontSize=11;" vertex="1" parent="1">

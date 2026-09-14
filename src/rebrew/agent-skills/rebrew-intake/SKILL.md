@@ -85,8 +85,9 @@ above the same function body.
 
 For a brand-new project directory, `rebrew intake <binary>` performs the whole
 onboarding in one shot: toolchain detection → `rebrew init` with a matching
-profile → copy binary → symlink vendored toolchain → rizin discovery
-(`aaa`, `aap` fallback) → document every function (STUB .c + metadata blocker).
+profile → copy binary → symlink vendored toolchain → discoverer-plugin
+enumeration (packaged: rizin `aaa`/`aap`, capstone sweep, NE/MZ loaders) →
+document every function (STUB .c + metadata blocker).
 The result is a lint-clean project where every function is matched or
 blocker-documented.  Use `--toolchain` to override the auto-detected profile,
 `--dry-run` to preview.  Use the manual procedure below when you need to
@@ -105,8 +106,9 @@ pipeline (MSVC6 vs MinGW GCC):
   (`ExitProcess`, `GetStdHandle`, `WriteFile`, ...) and FLIRT finds zero
   matches (no MSVC CRT).
 - If MinGW: `rebrew init --toolchain mingw-16.2.0` (see `docs/TOOLCHAIN.md`).
-  Function discovery needs `rizin -qc 'aa; aap; afl'` — `aaa` mis-merges
-  functions on this toolchain.  Note that byte-exact matching requires the
+  The packaged rizin discoverers use `aa; aap` here — `aaa` mis-merges
+  functions on this toolchain (a third-party `rebrew.discoverers` plugin can
+  replace them).  Note that byte-exact matching requires the
   author's exact GCC version; old builds typically match structurally only
   (document the semantic decomp + blocker the byte delta).
 - If MSVC: continue with FLIRT from `msvcrt.lib` **and** `libcmt.lib`
@@ -123,14 +125,15 @@ pipeline (MSVC6 vs MinGW GCC):
   2.0 — the 1988/89-era compiler diec reports as "Borland C/C++ 1991";
   C89-strict, so skeletons use `/* */` markers); Open Watcom wcc16-built
   DOS targets use `watcom-2.0-win16`.  `rebrew init --guess-compiler` picks the
-  profile automatically, and `rebrew discover-functions` runs the 16-bit
-  capstone sweep over the MZ code region (rizin cannot analyze MZ) — the
+  profile automatically, and `rebrew discover-functions` runs the packaged
+  16-bit MZ sweep over the code region (the rizin providers cannot analyze
+  MZ) — the
   full unpack → init → discover → skeleton → test loop is verified
   end-to-end (see `tests/fixtures/tc16_hello_lzexe.exe`, packed with the
   original LZEXE.EXE).
 - If 16-bit NE (Windows 3.x): `file <binary>` shows "NE version N for MS
   Windows 3.x".  `rebrew intake` handles it end-to-end — native NE parsing,
-  the loader's linear sweep for function discovery (rizin cannot analyze
+  the packaged NE-loader discoverer (the rizin providers cannot analyze
   NE), auto `format = "ne"` + `arch = "x86_16"`, and family detection from
   the Borland segment-marker convention (`delphi` vs MSVC-style).
   **MSVC-style NE byte-matches with the `msvc-1.52` profile** (DOSBox

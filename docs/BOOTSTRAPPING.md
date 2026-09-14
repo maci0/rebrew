@@ -12,7 +12,7 @@ no catalog entries.
 graph TD
     Start[New binary — no prior RE work] --> Init[1. Initialize<br/>rebrew init]
     Init --> Place[2. Place the binary<br/>original/&lt;name&gt;.exe · .dll]
-    Place --> Discover[3. Discover functions<br/>Ghidra export / r2 / rizin → function_structure.json]
+    Place --> Discover[3. Discover functions<br/>discoverer plugins (rizin packaged)<br/>→ function_structure.json]
     Discover --> Doctor[4. Health check<br/>rebrew doctor]
     Doctor --> Flirt[5. FLIRT scan<br/>rebrew flirt / rebrew gen-flirt-pat]
     Flirt --> Catalog[6. Catalog + DB<br/>rebrew catalog --data-json · rebrew build-db]

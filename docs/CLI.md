@@ -106,7 +106,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew cross-import` | `cross_import.py` | Import functions matched in another target |
 | `rebrew decompile` | `name_decomp.py` | Decompile a function, optionally applying known struct names (`--named`) |
 | `rebrew decompme` | `decompme.py` | Upload a function to decomp.me as a scratch |
-| `rebrew discover-functions` | `discover.py` | Function enumeration (rizin-driven linear sweep) |
+| `rebrew discover-functions` | `discover.py` | Function enumeration via `rebrew.discoverers` plugins (packaged: rizin, capstone, NE/MZ) |
 | `rebrew document-unmatched` | `document_unmatched.py` | STUB skeletons + blockers for remaining functions |
 | `rebrew fix` | `fixup.py` | DecBench-style compilability fixup for decompiler output |
 | `rebrew gen-layout` | `gen_layout.py` | Linker-script scaffolding from a target binary (writes `layout.fingerprint`) |
@@ -1908,12 +1908,13 @@ triage — the automated version of the `rebrew-intake` skill's steps.
 |------|-------------|
 | `--toolchain NAME` | Compiler profile (default: auto-detected) |
 | `-t NAME` / `--target NAME` | Target name (default: binary stem) |
-| `--dry-run` | Preview the onboarding without writing — runs rizin (read-only) and reports how many functions would be documented |
+| `--dry-run` | Preview the onboarding without writing — runs the discoverers (read-only) and reports how many functions would be documented |
 | `--json` | Structured JSON result |
 
-Intake fails (exit 2) when rizin yields **zero** functions — a missing rizin
-or an analysis timeout must not be reported as a successful empty onboarding
-(the project scaffold is still created; fix rizin and re-run).
+Intake fails (exit 2) when no discoverer yields **any** function — a missing
+rizin or an analysis timeout must not be reported as a successful empty
+onboarding (the project scaffold is still created; fix rizin or register
+another plugin and re-run).
 
 ### `rebrew import-splat`
 
