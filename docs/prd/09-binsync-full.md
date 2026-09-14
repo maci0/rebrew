@@ -1,9 +1,10 @@
 # PRD 09 — Full BinSync Integration
 
 > **Correction (2026-09):** `rebrew sync --push/--pull --state-dir` now uses
-> the same BinSync state (conflicts via `--accept-binsync` / `--accept-local`)
-> — the umbrella shape below ships through `rebrew sync`, not a separate
-> `rebrew binsync` command. PRDs are historical records, kept as written.
+> the same BinSync state (conflicts via `--accept-binsync` / `--accept-local`),
+> and the `rebrew binsync` umbrella (`push`/`pull`/`summary`/`init`/`diff`/
+> `overlay`) ships alongside the flat commands. What remains: git-backed
+> state and libbs. PRDs are historical records, kept as written.
 
 **Feature name:** Bidirectional BinSync ↔ Rebrew Sync (git-backed state, libbs format)
 **One-line value:** Turn rebrew into a first-class BinSync peer so reverse-engineering knowledge round-trips losslessly between IDA Pro, Binary Ninja, Ghidra, and rebrew's C source — collaborators on different decompilers share names, types, comments, and stack vars without conversion friction.
@@ -49,7 +50,7 @@ PRD 09 closes the loop: a `rebrew binsync` umbrella with `push` / `pull` / `summ
 
 ## Goals
 
-- One umbrella command (`rebrew binsync`) with explicit `push`, `pull`, `summary`, `init` subcommands. Mirrors `rebrew sync`'s shape for muscle-memory. (Not yet shipped — today the pieces live in flat `binsync-export` / `binsync-import` / `binsync-diff`.)
+- One umbrella command (`rebrew binsync`) with explicit `push`, `pull`, `summary`, `init` subcommands. Mirrors `rebrew sync`'s shape for muscle-memory. (Shipped — umbrella plus flat commands coexist.)
 - True bidirectional sync via git: `rebrew binsync pull` does `git pull` on the state directory before reading; `push` does `git commit` + optional `git push` after writing. (Export's `--git` commit is the only git step shipped so far.)
 - Real `libbs`-compatible struct fields, enums, typedefs. (Struct fields ship today via hand-rolled TOML; enums/typedefs and libbs remain.)
 - New annotation surface for stack vars / local vars (see "Annotation Surface" below).
