@@ -31,6 +31,7 @@ built: a CLI process composes once and has no module to swap, and
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
@@ -111,29 +112,45 @@ class Context:
         self._effects: list[_Effect] = []
         self._owners: list[list[_Effect]] = []
         self._disposed = False
-        self._on_change: Callable[[], None] | None = None
+        self._on_change: list[Callable[[], None]] = []
 
     # -- coeffect half: the dependency table --------------------------------
 
     def provide(self, key: str, value: Any) -> None:
         """Bind *value* at *key*; the binding is an effect.
 
-        The key may not already be bound in this context (Definition 20's
-        precondition).  The inverse is the restriction of the key, recorded on
-        the accumulator, so ``unprovide`` or disposal withdraws the binding.
+        The key may not already be bound in this context or any enclosing one
+        (single-source disjointness: a fork that shadowed a parent key would
+        silently multiplex one key to two values).  The inverse is the
+        restriction of the key, recorded on the accumulator, so ``unprovide``
+        or disposal withdraws the binding.
         """
         if self._disposed:
             raise ComponentError("context is disposed; cannot provide services")
-        if key in self._services:
+        if self.has(key):
             raise ComponentError(f"service {key!r} is already provided")
         self._services[key] = value
         self._record(_Effect(dispose=self._restrict(key), key=key))
         self._changed()
 
     def unprovide(self, key: str) -> None:
-        """Withdraw *key*, running exactly its binding's inverse."""
+        """Withdraw *key*, running exactly its binding's inverse.
+
+        Dependents deactivate first: every scope on the chain reverts entries
+        needing *key* while the binding is still resolvable, so no component
+        reverts against a half-withdrawn table (Theorem 70).
+        """
         if key not in self._services:
             raise ComponentError(f"service {key!r} is not provided")
+        seen: set[int] = set()
+        ctx: Context | None = self
+        while ctx is not None:
+            for callback in list(ctx._on_change):
+                scope = getattr(callback, "__self__", None)
+                if id(callback) not in seen and isinstance(scope, CoeffectScope):
+                    seen.add(id(callback))
+                    scope._withdraw_key(key)
+            ctx = ctx._parent
         for index, effect in enumerate(self._effects):
             if effect.key == key:
                 del self._effects[index]
@@ -188,6 +205,10 @@ class Context:
         """A derived context that resolves services through this one."""
         return Context(parent=self)
 
+    # ponytail: no isolation realms or service interception (paper Def 24-27);
+    # fork() is lookup-only. Add isolate()/intercept() when a component needs
+    # a private service view or a proxied dependency.
+
     @property
     def disposed(self) -> bool:
         return self._disposed
@@ -197,19 +218,25 @@ class Context:
         if self._disposed:
             return
         self._disposed = True
-        # Detach the scope first: withdrawing the provisions as they revert
+        # Detach the scopes first: withdrawing the provisions as they revert
         # must not reclassify anything during teardown.
-        self._on_change = None
+        self._on_change.clear()
         while self._effects:
             self._effects.pop().dispose()
 
     def _changed(self) -> None:
-        """A service table change: hand it to the nearest attached scope."""
+        """A service table change: hand it to every attached scope.
+
+        Definition 22 classifies every change against every specification, so
+        all scopes on the lookup chain reclassify — not just the nearest.
+        """
+        seen: set[int] = set()
         ctx: Context | None = self
         while ctx is not None:
-            if ctx._on_change is not None:
-                ctx._on_change()
-                return
+            for callback in list(ctx._on_change):
+                if id(callback) not in seen:
+                    seen.add(id(callback))
+                    callback()
             ctx = ctx._parent
 
 
@@ -222,6 +249,10 @@ class Component(Protocol):
     component's effects on the context; the scope records them, so deactivation
     reverts exactly those.
     """
+
+    # ponytail: no lifecycle states beyond inactive/active, no confinement
+    # boundary (paper §4.2.2/§4.2.3); apply() receives the whole Context.
+    # Add states + a restricted view when hosting untrusted third-party code.
 
     needs: tuple[str, ...]
 
@@ -254,7 +285,7 @@ class CoeffectScope:
         self._ctx = ctx
         self._entries: list[_Entry] = []
         self._settling = False
-        ctx._on_change = self._classify
+        ctx._on_change.append(self._classify)
 
     def add(self, component: Component) -> None:
         """Register *component*; it activates as soon as its needs are met."""
@@ -267,7 +298,8 @@ class CoeffectScope:
 
     def close(self) -> None:
         """Deactivate every entry, newest first."""
-        self._ctx._on_change = None
+        with contextlib.suppress(ValueError):
+            self._ctx._on_change.remove(self._classify)
         self._settling = True
         try:
             for entry in reversed(self._entries):
@@ -279,12 +311,32 @@ class CoeffectScope:
     def _satisfied(self, needs: tuple[str, ...]) -> bool:
         return all(self._ctx.has(key) for key in needs)
 
+    def _withdraw_key(self, key: str) -> None:
+        """Deactivate every active entry needing *key*, newest first.
+
+        Called by ``unprovide`` before the binding is withdrawn, so each
+        dependent reverts while the service is still resolvable.
+        """
+        if self._settling:
+            return
+        self._settling = True
+        try:
+            for entry in reversed(self._entries):
+                if entry.effects is not None and key in entry.needs:
+                    self._deactivate(entry)
+        finally:
+            self._settling = False
+
     def _classify(self) -> None:
         """Drive activation and deactivation from the current satisfaction.
 
         Activating one component may provide a service another is waiting on,
         so the pass repeats until no specification changes status.  Reentrant
         calls (a change made while classifying) are absorbed into that loop.
+        Deactivation runs newest-first: a dependent that activated later than
+        its provider deactivates before the provider's own withdrawal is
+        processed, so no component ever resolves against a half-withdrawn
+        table (the relied-upon-before-dependent order of Theorem 70).
         """
         if self._settling:
             return
@@ -298,7 +350,8 @@ class CoeffectScope:
                     if satisfied and entry.effects is None:
                         entry.effects = self._activate(entry.component)
                         changed = True
-                    elif not satisfied and entry.effects is not None:
+                for entry in reversed(self._entries):
+                    if entry.effects is not None and not self._satisfied(entry.needs):
                         self._deactivate(entry)
                         changed = True
         finally:
