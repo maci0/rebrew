@@ -864,8 +864,23 @@ def _run_test_impl(
             elif sel_ann is not None and getattr(sel_ann, "va", None):
                 section_va = sel_ann.va
     else:
+        hint = ""
+        if va_str is not None:
+            try:
+                from rebrew.catalog import cached_function_list
+
+                va_int = parse_va(va_str, json_mode=json_output)
+                for f in cached_function_list(cfg):
+                    if int(f["va"]) == va_int and int(f.get("size") or 0) > 0:
+                        hint = (
+                            f" (the inventory has SIZE {int(f['size'])} for this VA — "
+                            "pass `--size`, or backfill with `rebrew catalog --fix-sizes`)"
+                        )
+                        break
+            except (ValueError, OSError, KeyError, TypeError):
+                pass
         error_exit(
-            "Specify either target_bin or (VA and SIZE) via args or source metadata",
+            "Specify either target_bin or (VA and SIZE) via args or source metadata" + hint,
             json_mode=json_output,
         )
 
