@@ -681,12 +681,12 @@ def main(
     """Generate the linker-script scaffolding for a target binary."""
     cfg = require_config(target)
     if not cfg.target_binary.exists():
-        error_exit(f"binary not found: {cfg.target_binary}")
+        error_exit(f"binary not found: {cfg.target_binary}", json_mode=json_output)
     data = cfg.target_binary.read_bytes()
     try:
         sections, exports, imports_raw, pe = parse_pe(data)
     except ValueError as exc:
-        error_exit(f"{cfg.target_binary}: {exc}")
+        error_exit(f"{cfg.target_binary}: {exc}", json_mode=json_output)
 
     link_options, link_toml = derive_link_options(pe)
 

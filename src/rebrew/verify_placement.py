@@ -46,10 +46,13 @@ def main(
     root = Path.cwd()
     metadata = data_metadata if data_metadata.is_absolute() else root / data_metadata
     if not metadata.exists():
-        error_exit(f"data metadata not found: {metadata}")
+        error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
     dll = built if built.is_absolute() else root / built
     if not dll.exists():
-        error_exit(f"{dll} not found — build the project first (or pass --built <path>)")
+        error_exit(
+            f"{dll} not found — build the project first (or pass --built <path>)",
+            json_mode=json_output,
+        )
     from rebrew.data_layout import data_symbols, link_objects, obj_data_symbol_offsets
 
     data_va = built_data_va(dll)
@@ -64,7 +67,7 @@ def main(
                 here.setdefault(sym, data_va + tot + off)
             tot += dsize
     except (RuntimeError, OSError) as exc:
-        error_exit(f"cannot inventory build objects: {exc}")
+        error_exit(f"cannot inventory build objects: {exc}", json_mode=json_output)
 
     good = bad = 0
     bads: list[tuple[str, int, int]] = []

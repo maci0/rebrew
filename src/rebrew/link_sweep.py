@@ -197,14 +197,17 @@ def main(
     """Link the project's objects with candidate option sets and diff headers."""
     cfg = require_config(target)
     if not cfg.target_binary.exists():
-        error_exit(f"binary not found: {cfg.target_binary}")
+        error_exit(f"binary not found: {cfg.target_binary}", json_mode=json_output)
 
     if link_cmd:
         cmd_tpl, workdir = link_cmd, (cwd or Path("."))
     else:
         found = _discover_link_cmd()
         if found is None:
-            error_exit("no build/CMakeFiles/*/link.txt found — pass --link-cmd")
+            error_exit(
+                "no build/CMakeFiles/*/link.txt found — pass --link-cmd",
+                json_mode=json_output,
+            )
         workdir, cmd_tpl = found
         if cwd:
             workdir = cwd
