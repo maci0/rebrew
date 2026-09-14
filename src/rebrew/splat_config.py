@@ -37,7 +37,7 @@ What it delegates to (no second mechanism):
 - Data annotations: the ``// DATA: <MODULE> 0x<va>`` marker plus
   :func:`rebrew.data_metadata.set_data_field` for ``size``/``section``.
 - Layout entries: :class:`rebrew.layout_meta.SectionMeta` records, written
-  into ``layout/<target>/layout.txt`` in the same shape
+  into ``layout/<target>/rebrew-layout.toml`` in the same shape
   ``rebrew gen-layout`` writes, so ``rebrew data``/``calibrate-bss`` read them
   unchanged.
 
@@ -1010,7 +1010,7 @@ def _inside_project(path: Path, root: Path) -> bool:
 def _layout_sections(
     cfg_splat: SplatConfig, info: Any
 ) -> tuple[list[SectionMeta], list[str], list[tuple[str, str]]]:
-    """Section records for ``layout/<target>/layout.txt`` from the splat segments.
+    """Section records for ``layout/<target>/rebrew-layout.toml`` from the splat segments.
 
     Each ``type: code`` segment becomes one :class:`SectionMeta` with the PE
     section name and the section's RVA (``vram - image_base``).  When the
@@ -1484,7 +1484,7 @@ def _report(written: list[str], unchanged: int) -> dict[str, Any]:
 def _write_target_metadata(plan: ImportPlan, root: Path) -> bool:
     """Patch the target's binary/format/arch/profile and write its layout package.
 
-    Layout sections + image base go to ``layout/<target>/layout.txt`` (the
+    Layout sections + image base go to ``layout/<target>/rebrew-layout.toml`` (the
     same package ``rebrew gen-layout`` writes, minus the hex blobs a splat
     import has no binary to derive) so ``data``/``calibrate-bss`` read one
     source.  Uses a tomlkit round trip for the project config so comments
@@ -1510,7 +1510,7 @@ def _write_target_metadata(plan: ImportPlan, root: Path) -> bool:
         atomic_write_text(toml_path, rendered, encoding="utf-8")
         changed = True
 
-    # Layout package (layout.txt only — a splat import has no reference
+    # Layout package (rebrew-layout.toml only — a splat import has no reference
     # binary to derive hex blobs from; postlink fixers need a real package).
     pkg_dir = root / "layout" / plan.target
     pkg_dir.mkdir(parents=True, exist_ok=True)
@@ -1529,7 +1529,7 @@ def _write_target_metadata(plan: ImportPlan, root: Path) -> bool:
         "source": f"splat:{plan.splat.path.name}",
     }
     lay_text = tomlkit.dumps(lay)
-    lay_path = pkg_dir / "layout.txt"
+    lay_path = pkg_dir / "rebrew-layout.toml"
     if not lay_path.is_file() or lay_path.read_text(encoding="utf-8") != lay_text:
         atomic_write_text(lay_path, lay_text, encoding="utf-8")
         changed = True

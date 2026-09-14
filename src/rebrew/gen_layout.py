@@ -14,7 +14,7 @@ What it emits (into the target's ``reversed_dir`` unless overridden):
   ``layout/<target>/`` (text-only layout package, committed to git)
       Everything ``rebrew postlink --layout`` needs to reconstruct the
       reference with **zero binary blobs at rest**: a structured
-      ``layout.txt`` (image base, sections with raw pointers, exports,
+      ``rebrew-layout.toml`` (image base, sections with raw pointers, exports,
       imports with reference IAT-slot VAs, export-directory stamp) plus hex
       dumps of the opaque linker-stamped regions (header block, IAT,
       import bookkeeping + drift-check prefix, ``.data`` raw, ``.reloc``
@@ -552,7 +552,7 @@ def layout_config_dict(
     link_options: list[str],
     resolve_names: bool = True,
 ) -> dict[str, Any]:
-    """The layout package dict (``layout.txt`` content + extras).
+    """The layout package dict (``rebrew-layout.toml`` content + extras).
 
     *resolved_imports* is the import list with ordinal names resolved (the
     same order as ``meta.imports``).  With ``resolve_names=True`` (the
@@ -598,7 +598,7 @@ def layout_config_dict(
 def fmt_layout_toml(
     meta: LayoutMetadata, resolved_imports: list[dict[str, Any]], link_options: list[str]
 ) -> str:
-    """Render the ``layout.txt`` structured file (TOML) for a layout package.
+    """Render the ``rebrew-layout.toml`` structured file (TOML) for a layout package.
 
     Uses the raw import list (ordinal-only entries stay ordinal-only) so the
     package is the exact input the post-link fixers compare against.
@@ -754,7 +754,7 @@ def main(
     (out_dir / "crt_region").mkdir(parents=True, exist_ok=True)
 
     # Text-only layout package (committed, no binary blobs): the structured
-    # layout.txt + hex dumps of the opaque linker-stamped regions + sparse
+    # rebrew-layout.toml + hex dumps of the opaque linker-stamped regions + sparse
     # .text maps land in layout/<target>/, which the build's
     # 'rebrew postlink --layout' consumes without the original DLL.
     meta = extract_layout(data, cfg.target_name)

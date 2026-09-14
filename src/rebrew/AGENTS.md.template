@@ -11,7 +11,7 @@
 - **Function inventory**: `src/<target>/function_structure.json` (`[{{va, size, name}}]`
   written by discoverer plugins — packaged: rizin, capstone, NE/MZ; third-party
   plugins join via the `rebrew.discoverers` entry-point group, no host edits)
-- **Layout source of truth**: `layout/<target>/layout.txt` (+ hex blobs)
+- **Layout source of truth**: `layout/<target>/rebrew-layout.toml` (+ hex blobs)
 
 ## Quick Start
 

@@ -621,7 +621,7 @@ class TestLayoutPackage:
         ]
         # every committed file is plain text (no binary blobs at rest)
         for f in pkg.iterdir():
-            if f.name != "layout.txt":
+            if f.name != "rebrew-layout.toml":
                 assert f.read_bytes().decode("ascii"), f"not text: {f.name}"
 
     def test_fixers_run_from_package(self, tmp_path: Path) -> None:
@@ -644,7 +644,7 @@ class TestLayoutPackage:
 
         from rebrew.layout_meta import load_package
 
-        with pytest.raises(ValueError, match="missing layout.txt"):
+        with pytest.raises(ValueError, match="missing rebrew-layout.toml"):
             load_package(pkg)
 
     def test_full_fixer_chain_from_package(self, tmp_path: Path) -> None:

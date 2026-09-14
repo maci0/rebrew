@@ -11,7 +11,7 @@ This module defines the replacement: a *text-only* layout package whose
 bytes are the least amount of verbatim content the fixers actually need,
 everything else reconstructed from structured metadata:
 
-``layout/<target>/layout.txt``
+``layout/<target>/rebrew-layout.toml``
     Structured metadata (TOML): image base, sections (VA/virtual size/raw
     size/raw pointer/characteristics), exports, imports (with their
     reference IAT-slot VAs), link options, export-directory stamp pair.
@@ -27,7 +27,7 @@ everything else reconstructed from structured metadata:
     The reference IAT array (``.rdata`` start).  Its slot order is the
     linker's hash-driven assignment and cannot be forced, so the bytes are
     stored verbatim (416 bytes) and the slot map per symbol lives in
-    ``layout.txt``.
+    ``rebrew-layout.toml``.
 
 ``layout/<target>/prefix.hex``
     The reference ``.rdata`` prefix between the IAT and the import
@@ -144,7 +144,7 @@ class LayoutMetadata:
         raise KeyError(name)
 
     def as_dict(self) -> dict[str, Any]:
-        """Structured metadata as a plain dict (the ``layout.txt`` content)."""
+        """Structured metadata as a plain dict (the ``rebrew-layout.toml`` content)."""
         return {
             "target": self.target,
             "image_base": self.image_base,
@@ -171,14 +171,14 @@ class LayoutMetadata:
 
 
 def read_layout_geometry(root: Path, target: str) -> tuple[int, int, int]:
-    """``(data_base, raw_end, section_end)`` from ``layout/<target>/layout.txt``.
+    """``(data_base, raw_end, section_end)`` from ``layout/<target>/rebrew-layout.toml``.
 
     The single reader for layout geometry — the package is the source of
     truth, not a TOML block in rebrew-project.toml.
     """
     import tomllib
 
-    txt = Path(root) / "layout" / target / "layout.txt"
+    txt = Path(root) / "layout" / target / "rebrew-layout.toml"
     try:
         raw = tomllib.loads(txt.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as exc:
@@ -478,7 +478,7 @@ def write_package(
 ) -> list[Path]:
     """Write the text-only layout package into *out_dir*.
 
-    *fmt_toml* is an optional callable(meta) -> str for ``layout.txt``
+    *fmt_toml* is an optional callable(meta) -> str for ``rebrew-layout.toml``
     (the caller controls the exact TOML rendering).  Returns the written
     paths.
     """
@@ -520,7 +520,7 @@ def write_package(
     written.append(p)
 
     if fmt_toml is not None:
-        p = out_dir / "layout.txt"
+        p = out_dir / "rebrew-layout.toml"
         p.write_text(fmt_toml(meta), encoding="utf-8")
         written.append(p)
     return written
@@ -531,9 +531,9 @@ def load_package(pkg_dir: Path) -> LayoutMetadata:
     import tomlkit
 
     pkg = Path(pkg_dir)
-    if not (pkg / "layout.txt").exists():
+    if not (pkg / "rebrew-layout.toml").exists():
         raise ValueError(
-            f"layout package {pkg} is missing layout.txt — expected the text "
+            f"layout package {pkg} is missing rebrew-layout.toml — expected the text "
             "package from 'rebrew gen-layout' (layout/<target>/), not a binary"
         )
 
@@ -543,7 +543,7 @@ def load_package(pkg_dir: Path) -> LayoutMetadata:
             raise ValueError(f"layout package missing {name} (run 'rebrew gen-layout')")
         return _from_hex(p.read_text(encoding="utf-8"))
 
-    structured: Any = tomlkit.parse((pkg / "layout.txt").read_text(encoding="utf-8"))
+    structured: Any = tomlkit.parse((pkg / "rebrew-layout.toml").read_text(encoding="utf-8"))
     lay: Any = structured["layout"]
 
     sections = [

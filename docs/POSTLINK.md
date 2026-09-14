@@ -25,7 +25,7 @@ The fixers never need the original DLL (or any binary snapshot): they
 reconstruct the reference from a **text-only layout package** written by
 `rebrew gen-layout` into `layout/<target>/` and committed to git:
 
-- `layout.txt` — structured metadata (image base, sections with raw
+- `rebrew-layout.toml` — structured metadata (image base, sections with raw
   pointers, exports, imports with their reference IAT-slot VAs, export
   directory stamp);
 - `header.hex`, `iat.hex`, `prefix.hex`, `bookkeeping.hex`, `data.hex`,

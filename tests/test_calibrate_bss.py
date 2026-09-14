@@ -22,7 +22,7 @@ class TestLayoutDataVs:
     def _pkg(self, root: Path, target: str, sections: str, base: int = 0) -> None:
         pkg = root / "layout" / target
         pkg.mkdir(parents=True, exist_ok=True)
-        (pkg / "layout.txt").write_text(
+        (pkg / "rebrew-layout.toml").write_text(
             "[layout]\n"
             f'target = "{target}"\n'
             f"image_base = {base}\n"
@@ -140,7 +140,7 @@ class TestDefaultTargetUnderProjectTable:
         for target, vs in (("A", 111), ("B", 4096)):
             pkg = tmp_path / "layout" / target
             pkg.mkdir(parents=True)
-            (pkg / "layout.txt").write_text(
+            (pkg / "rebrew-layout.toml").write_text(
                 "[layout]\n"
                 f'target = "{target}"\n'
                 "image_base = 0\n"

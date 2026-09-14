@@ -39,7 +39,7 @@ Adopt an explicit **four-tier model** and document it as the contract:
    TOML stores (overrides), `rebrew-project.toml` (config).  The only
    stores that hold non-derivable facts.
 2. **Derived, VCS-intended** — `functions.txt`, `src/<target>/CATALOG.md`,
-   the layout package (`layout/<target>/`: `layout.txt` + `*.hex`),
+   the layout package (`layout/<target>/`: `rebrew-layout.toml` + `*.hex`),
    `<target>.def`, `crt_region/*.c`, `src/link_stubs.c`,
    `flirt_sigs/*.pat`, toolchain files.  Generated from the binary but
    committed so a rebuild never needs `original/` around; regenerable via
