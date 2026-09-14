@@ -1028,7 +1028,7 @@ _EPILOG = (
     "  rebrew doctor --target mygame · · Check specific target\n\n"
     "  rebrew doctor --json · · · · · · Machine-readable output\n\n"
     "[dim]Validates: rebrew-project.toml, target binary, arch/format, compiler "
-    "toolchain & runner, include/lib paths, function list, source dir, bin dir, "
+    "toolchain & runner, include/lib paths, function inventory, source dir, bin dir, "
     "and metadata files.  Per-function/corpus checks (markers, VAs, metadata "
     "fields, cflags redundancy) are `rebrew lint` instead.[/dim]"
 )
