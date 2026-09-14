@@ -68,9 +68,12 @@ class TestVerifyPlacement:
         monkeypatch.chdir(tmp_path)
         (tmp_path / "src").mkdir()
         (tmp_path / "src" / "rebrew-data.toml").write_text("", encoding="utf-8")
+        # Wide terminal: Rich wraps at terminal width, which varies by
+        # environment (e.g. under pytest-xdist) and can split filenames
+        # mid-word with a space no normalization can rejoin.
+        monkeypatch.setenv("COLUMNS", "200")
         result = CliRunner().invoke(app, [])
         assert result.exit_code == 2
-        # Rich wraps the long absolute path; match the pieces, not the wrap.
         assert "server.dll" in result.output
         assert "not found — build the project first" in result.output
 
