@@ -19,6 +19,8 @@ def _fake_ann(va: int, size: int, name: str, status: str) -> SimpleNamespace:
         module="GAME",
         marker_type="FUNCTION",
         filepath=f"src/{name}.c",
+        is_data=False,
+        is_function=True,
     )
 
 
@@ -118,11 +120,8 @@ class TestDecompDevReport:
         self._setup(tmp_path, monkeypatch, annos)
         self._mock_progress(monkeypatch, total_functions=1, status_counts={})
 
-        class _Result:
-            match_percent = 72.5
-
         class _Entry:
-            result = _Result()
+            match_percent = 72.5
 
         class _Cache:
             entries = {0x2000: _Entry()}
@@ -143,11 +142,8 @@ class TestDecompDevReport:
         self._setup(tmp_path, monkeypatch, annos)
         self._mock_progress(monkeypatch, total_functions=1, status_counts={})
 
-        class _Result:
-            match_percent = 61.0
-
         class _Entry:
-            result = _Result()
+            match_percent = 61.0
 
         class _Cache:
             entries = {"0x2000": _Entry()}

@@ -9,15 +9,16 @@ After verification, STATUS is always promoted/demoted in
 — the ``.c`` files are **never modified**.  PROVEN status is sticky and
 never demoted.
 
-With ``--compare`` it compares the current run against the last saved
-``db/verify_results.json`` and exits with code 1 on any regression (suitable
-for CI / pre-commit hooks).
+With ``--compare`` it compares the current run against the last good
+baseline (``.rebrew/verify_baseline.json``) and exits with code 1 on any
+regression (suitable for CI / pre-commit hooks).
 """
 
 import concurrent.futures
 import contextlib
 import json
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -61,12 +62,10 @@ from rebrew.verify_cache import (
     _save_verify_cache,
     canonical_va_key,
 )
-from rebrew.verify_hash import (
-    _DEFAULT_TOOLCHAIN,
-    _entry_headers_fp,
-    _expected_text_functions,
-    _source_hash,
-)
+
+#: Re-exported for tests/consumers (canonical home: verify_hash).
+from rebrew.verify_hash import _DEFAULT_TOOLCHAIN as _DEFAULT_TOOLCHAIN
+from rebrew.verify_hash import _expected_text_functions
 
 log = logging.getLogger(__name__)
 
@@ -303,7 +302,7 @@ app = typer.Typer(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew verify · · · · · · · · · · · · · Verify all .c files (rich progress bar)\n\n"
         "  rebrew verify --json · · · · · · · · · · Emit structured JSON report to stdout\n\n"
-        "  rebrew verify -o db/verify_results.json · Write JSON report to file\n\n"
+        "  rebrew verify -o report.json · · · · · · Export the JSON report to a file\n\n"
         "  rebrew verify -j 8 · · · · · · · · · · · Use 8 parallel compile jobs\n\n"
         "  rebrew verify -t mygame · · · · · · · · · Verify a specific target\n\n"
         "  rebrew verify --compare · · · · · · · · · Compare against last run, detect regressions\n\n"
@@ -333,6 +332,10 @@ _STATUS_RANK: dict[str, int] = {
     "STUB": 2,
     "NEAR_MATCHING": 2,
     "SIZE_MISMATCH": 2,
+    # SKIP is a user parking classification ("don't touch"), not a verdict —
+    # it neither passes nor fails the gate (ranked with the neutral band so
+    # a newly-SKIPped entry is not a "new failure").
+    "SKIP": 2,
     "COMPILE_ERROR": 3,
     "EXTRACT_ERROR": 3,
     "MISSING_FILE": 4,
@@ -362,6 +365,10 @@ _STATUS_ORDER: dict[str, int] = {
     "NEAR_MATCHING": 3,
     "SIZE_MISMATCH": 4,
     "STUB": 5,
+    # SKIP shares STUB's order: parking/unparking work is status-equal, so a
+    # STUB → SKIP transition is not a regression and SKIP → STUB is not an
+    # "improvement" — the gate stays silent either way.
+    "SKIP": 5,
     "COMPILE_ERROR": 6,
     "EXTRACT_ERROR": 6,
     "MISSING_FILE": 7,
@@ -535,7 +542,8 @@ def main(
         None,
         "--output",
         "-o",
-        help="Write JSON report to file (default: project db_dir/verify_results.json)",
+        help="Write the JSON report to a file (explicit export; the --compare "
+        "baseline lives in .rebrew/ and needs no flag)",
     ),
     summary: bool = typer.Option(
         False,
@@ -561,6 +569,15 @@ def main(
         "rebrew test refuses) are both backfilled into metadata",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    batch_dir: str | None = typer.Option(
+        None, "--dir", help="Restrict to this subdirectory of reversed_dir"
+    ),
+    origin: str | None = typer.Option(None, "--origin", help="Restrict to one module (e.g. GAME)"),
+    no_promote: bool = typer.Option(
+        False,
+        "--no-promote",
+        help="Measure only: write NOTHING to rebrew-functions.toml (report + cache still save)",
+    ),
     watch: bool = typer.Option(
         False, "--watch", help="Re-verify all sources whenever any .c file changes"
     ),
@@ -688,6 +705,9 @@ def main(
                 text=text,
                 whole_binary=whole_binary,
                 context=context,
+                batch_dir=batch_dir,
+                origin=origin,
+                no_promote=no_promote,
                 watch=False,  # never nest watch loops
                 target=target,
             )
@@ -695,8 +715,14 @@ def main(
         watch_files(_sources(), _retest, path_provider=_sources)
         return
 
-    out_file = Path(output_path) if output_path else cfg.db_dir / "verify_results.json"
-    previous_report, diff_warning = _load_previous_report(out_file, diff_mode, json_output)
+    previous_report: dict[str, Any] | None = None
+    diff_warning: str | None = None
+    if diff_mode:
+        from rebrew.verify_cache import load_baseline
+
+        previous_report, diff_warning = load_baseline(cfg)
+        if diff_warning and not json_output:
+            console.print(f"[yellow]warning:[/yellow] {diff_warning}")
 
     orphans_pruned = 0
     if prune_orphans:
@@ -880,6 +906,78 @@ def main(
                         "regenerate with rebrew gen-layout"
                     )
 
+    batch = run_batch(
+        cfg,
+        full=full,
+        json_output=json_output,
+        jobs=jobs,
+        dry_run=dry_run,
+        batch_dir=batch_dir,
+        origin_filter=origin,
+        nolib=nolib,
+        no_promote=no_promote,
+        context=compile_context,
+    )
+    _save_report(
+        cfg,
+        batch,
+        data_report=data_report,
+        text_report=text_report,
+        whole_report=whole_report,
+        previous_report=previous_report,
+        diff_warning=diff_warning,
+        diff_mode=diff_mode,
+        summary=summary,
+        output_path=output_path,
+        dry_run=dry_run,
+        json_output=json_output,
+        compile_context=compile_context,
+        fix_sizes=fix_sizes,
+        orphans_pruned=orphans_pruned,
+    )
+
+
+@dataclass
+class BatchResult:
+    """Verdict bundle from the shared batch pipeline (no display, no files)."""
+
+    entries: list[Annotation]
+    total: int
+    passed: int
+    failed: int
+    fail_details: list[tuple[Annotation, str]]
+    results: list[dict[str, Any]]
+    deferred: list[tuple[Annotation, str, int]]
+    raw_statuses: dict[str, tuple[str, bool]]
+    size_divergences: list[dict[str, Any]]
+    missing_sizes: list[dict[str, Any]]
+    duplicate_vas: list[dict[str, str]]
+    library_excluded: int
+    excluded_keys: set[str]
+    cached_count: int
+
+
+def run_batch(
+    cfg: Any,
+    *,
+    full: bool,
+    json_output: bool,
+    jobs: int,
+    dry_run: bool = False,
+    batch_dir: str | None = None,
+    origin_filter: str | None = None,
+    nolib: bool = False,
+    no_promote: bool = False,
+    context: "CompileContext | None" = None,
+) -> BatchResult:
+    """Shared batch pipeline: scan → scope → compile → STATUS sync → overlay.
+
+    prepare_entries → scope → run_verification → STATUS sync → PROVEN
+    overlay.  Returns the verdict bundle; each caller emits its own shape
+    (``test --all`` prints a compact summary, ``verify`` saves the full
+    report + baseline + gate).  *no_promote* (test's measure-only mode)
+    previews STATUS writes while the results still compute.
+    """
     (
         unique_entries,
         passed,
@@ -890,175 +988,125 @@ def main(
         size_divergences,
         missing_sizes,
         duplicate_vas,
-    ) = prepare_entries(
-        cfg,
-        full,
-        json_output,
-        context=compile_context,
+    ) = prepare_entries(cfg, full, json_output, context=context)
+    (
+        unique_entries,
+        total,
+        passed,
+        failed,
+        fail_details,
+        results,
+        cached_count,
+        size_divergences,
+        missing_sizes,
+        library_excluded,
+        excluded_keys,
+    ) = _scope_entries(
+        unique_entries,
+        (passed, failed, fail_details, results, cached_count),
+        (size_divergences, missing_sizes),
+        nolib=nolib,
+        batch_dir=batch_dir,
+        origin_filter=origin_filter,
+        cfg=cfg,
+        json_output=json_output,
     )
-
-    total = len(unique_entries)
-
-    # --nolib (reccmp equivalent): drop LIBRARY-marked functions entirely —
-    # from the work list, the cached results already counted, and the size
-    # audit — so the gate reflects game code only.  Excluded functions are
-    # neither compiled nor counted, exactly like reccmp's --nolib filter.
-    library_excluded = 0
-    nolib_excluded_keys: set[str] = set()
-    if nolib:
-        lib_vas = {e.va for e in unique_entries if getattr(e, "marker_type", "") == "LIBRARY"}
-        if lib_vas:
-            lib_keys = {f"0x{v:08x}" for v in lib_vas}
-            nolib_excluded_keys = lib_keys
-            unique_entries = [e for e in unique_entries if e.va not in lib_vas]
-            results = [r for r in results if r.get("va") not in lib_keys]
-            fail_details = [(e, m) for e, m in fail_details if e.va not in lib_vas]
-            size_divergences = [d for d in size_divergences if d.get("va") not in lib_keys]
-            missing_sizes = [d for d in missing_sizes if d.get("va") not in lib_keys]
-            # Recompute the pre-compile counts from the filtered structures —
-            # the cached rows that were dropped are no longer "results".
-            passed = sum(1 for r in results if r.get("passed", False))
-            failed = len(fail_details)
-            library_excluded = len(lib_vas)
-            total = len(unique_entries)
-    if library_excluded and not json_output:
-        console.print(
-            f"[dim]--nolib: excluded {library_excluded} LIBRARY function(s) from verification[/dim]"
-        )
 
     cached_vas = {r["va"] for r in results}
-    v_passed, v_failed, v_fail_details, v_results, deferred = run_verification(
-        [e for e in unique_entries if f"0x{e.va:08x}" not in cached_vas],
-        cfg,
-        jobs,
-        total,
-        cached_count,
-        json_output,
-        compile_context,
-    )
+    if unique_entries:
+        v_passed, v_failed, v_fail_details, v_results, deferred = run_verification(
+            [e for e in unique_entries if f"0x{e.va:08x}" not in cached_vas],
+            cfg,
+            jobs,
+            total,
+            cached_count,
+            json_output,
+            context,
+        )
+    else:
+        v_passed, v_failed, v_fail_details, v_results, deferred = 0, 0, [], [], []
     passed += v_passed
     failed += v_failed
     fail_details.extend(v_fail_details)
     results.extend(v_results)
 
     # Always promote/demote STATUS metadata to match verification results
-    _apply_or_preview_status(deferred, cfg, dry_run)
+    _apply_or_preview_status(deferred, cfg, dry_run or no_promote)
 
     results.sort(key=lambda r: r["va"])
 
-    # Overlay PROVEN status from metadata onto results.  PROVEN is a
-    # post-verify promotion (from `rebrew prove`) that byte-level comparison
-    # cannot detect.  Preserve it only over the byte states a proven function
-    # legitimately produces — its compiled bytes differ from the target, so
-    # the byte compare yields NEAR_MATCHING or SIZE_MISMATCH.  COMPILE_ERROR,
-    # EXTRACT_ERROR, MISSING_FILE, or STUB mean the source no longer builds
-    # or the annotation changed: the PROVEN claim is stale and must not be
-    # masked as a pass.
-    proven_vas: set[str] = {
-        f"0x{entry.va:08x}" for entry in unique_entries if getattr(entry, "status", "") == "PROVEN"
-    }
-    # A PROVEN claim is honored over the byte states a proven function
-    # legitimately produces: NEAR_MATCHING / SIZE_MISMATCH (bytes differ
-    # structurally). A blocker-documented STUB is also legitimate now —
-    # `rebrew prove` accepts those (developed function parked at a wall,
-    # classifier <60% on a real body), so verify must not demote a fresh
-    # prove-earned PROVEN back to STUB.
-    _proven_compatible = ("NEAR_MATCHING", "SIZE_MISMATCH")
-    _blocker_documented_stub_vas: set[str] = {
-        f"0x{entry.va:08x}"
-        for entry in unique_entries
-        if getattr(entry, "status", "") == "PROVEN"
-        and bool(getattr(entry, "blocker", "") or getattr(entry, "blocker_delta", 0))
-    }
-    overlaid_vas: set[str] = set()
-    # Raw byte-level truth for overlaid entries — the verify cache must store
-    # the result as compiled, not the metadata-derived PROVEN.  The overlay is
-    # re-applied from CURRENT metadata at every report run (including cached
-    # results), so baking PROVEN into the cache would mask a later STATUS
-    # demotion with a stale cached pass.
-    raw_statuses: dict[str, tuple[str, bool]] = {}
-    if proven_vas:
-        for r in results:
-            compatible = r["status"] in _proven_compatible or (
-                r["status"] == "STUB" and r["va"] in _blocker_documented_stub_vas
-            )
-            if r["va"] in proven_vas and compatible:
-                raw_statuses[r["va"]] = (r["status"], bool(r.get("passed", False)))
-                was_failed = not r.get("passed", False)
-                r["status"] = "PROVEN"
-                r["passed"] = True
-                overlaid_vas.add(r["va"])
-                if was_failed:
-                    passed += 1
-                    failed -= 1
-        # Remove only the OVERLAID functions from fail_details (they may have
-        # been added from stale cache entries before the overlay).  A PROVEN
-        # function that now fails as COMPILE_ERROR stays in the failure list
-        # the overlay must not hide its diagnostic.
-        fail_details = [(e, m) for e, m in fail_details if f"0x{e.va:08x}" not in overlaid_vas]
+    fail_details, raw_statuses, _stale, counts = apply_proven_overlay(
+        results,
+        fail_details,
+        unique_entries,
+        [passed, failed],
+        cfg=cfg,
+        dry_run=dry_run or no_promote,
+    )
+    passed, failed = counts
+    return BatchResult(
+        entries=unique_entries,
+        total=total,
+        passed=passed,
+        failed=failed,
+        fail_details=fail_details,
+        results=results,
+        deferred=deferred,
+        raw_statuses=raw_statuses,
+        size_divergences=size_divergences,
+        missing_sizes=missing_sizes,
+        duplicate_vas=duplicate_vas,
+        library_excluded=library_excluded,
+        excluded_keys=excluded_keys,
+        cached_count=cached_count,
+    )
 
-        # Flag stale PROVEN claims: metadata says PROVEN but the byte compile
-        # cannot support it (source no longer builds, annotation changed, or
-        # the status was hand-claimed).  The real byte result stands and a
-        # metadata: warning is emitted — a claimed PROVEN is only honored
-        # over the byte states a proven function legitimately produces
-        # (metadata-review F2).  The demotion is written through (force —
-        # PROVEN stickiness protects earned claims, but a STUB/COMPILE_ERROR
-        # body demonstrably no longer contains the proven code, so the claim
-        # is void and the warning must fire exactly once).
-        # A stale claim is a byte state that cannot support PROVEN.  Two
-        # statuses are excluded: EXACT/RELOC are the documented PROVEN upgrade
-        # (`should_promote_status` allows PROVEN → EXACT/RELOC, and the
-        # promotion above already wrote it), and INTERNAL_ERROR is a tooling
-        # crash, not a verdict — it is not in metadata's KNOWN_STATUSES, so
-        # persisting it over PROVEN would store an invalid status (and log a
-        # phantom demotion for a function whose bytes were never compared).
-        stale_proven = sorted(
-            r["va"]
-            for r in results
-            if r["va"] in proven_vas
-            and r["va"] not in overlaid_vas
-            and r["status"] not in ("EXACT", "RELOC", "INTERNAL_ERROR")
-        )
-        if stale_proven and not dry_run:
-            from rebrew.metadata import update_statuses_batch
 
-            by_va = {r["va"]: r for r in results}
-            by_entry = {f"0x{e.va:08x}": e for e in unique_entries}
-            update_statuses_batch(
-                cfg.metadata_dir,
-                [
-                    {
-                        "module": getattr(by_entry[va], "module", "") or "",
-                        "va": by_entry[va].va,
-                        "new_status": by_va[va]["status"],
-                        "clear_blockers": False,
-                        "force": True,
-                        "updated_by": "verify",
-                    }
-                    for va in stale_proven
-                    if getattr(by_entry.get(va), "module", "") and by_va[va]["status"] != "PROVEN"
-                ],
-            )
-        for va in stale_proven:
-            status = next(r["status"] for r in results if r["va"] == va)
-            console.print(
-                f"  [yellow]metadata: warning:[/yellow] PROVEN claim for {va} not "
-                f"backed by a byte-match (compiled: {status}) — demoted to the "
-                "real byte result; re-run rebrew verify once the code byte-matches"
-            )
+#: Report schema version.  2 = the ``test --all`` and ``verify`` JSON
+#: payloads share one shape (same top-level keys, same result rows —
+#: ``RESULT_FIELDS`` in verify_cache); the writer records which command
+#: produced the report in ``provenance``.
+REPORT_SCHEMA_VERSION = 2
 
+
+def build_report(
+    cfg: Any,
+    results: list[dict[str, Any]],
+    passed: int,
+    failed: int,
+    total: int,
+    size_divergences: list[dict[str, Any]],
+    missing_sizes: list[dict[str, Any]],
+    duplicate_vas: list[dict[str, str]],
+    *,
+    dry_run: bool,
+    compile_context: "CompileContext | None",
+    provenance: str,
+    library_excluded: int = 0,
+    orphans_pruned: int = 0,
+    data_report: dict[str, Any] | None = None,
+    text_report: dict[str, Any] | None = None,
+    whole_report: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Assemble the batch report — one shape for ``verify`` and ``test --all``.
+
+    Both commands emit the same top-level keys and the same result rows;
+    verify-only extras (``data``/``text``/``whole_binary``) are null on the
+    test path, and ``files``/``functions`` stay test-``--dry-run``-only
+    (a candidate listing, not a verdict report).
+    """
     timestamp = datetime.now(UTC).isoformat()
     # Single-pass status counting instead of 7 separate iterations.
     _status_counts: dict[str, int] = {}
     for _r in results:
         _s = _r["status"]
         _status_counts[_s] = _status_counts.get(_s, 0) + 1
-    report = {
-        "schema_version": 1,
+    return {
+        "schema_version": REPORT_SCHEMA_VERSION,
+        "provenance": provenance,
         "timestamp": timestamp,
-        "target": cfg.target_name,
-        "binary": str(cfg.target_binary),
+        "target": getattr(cfg, "target_name", ""),
+        "binary": str(getattr(cfg, "target_binary", "")),
         # SHA-256 of the compile context every verdict in this run was
         # earned under; null when the run compiled without one.
         "context_hash": compile_context.sha256 if compile_context is not None else None,
@@ -1089,6 +1137,48 @@ def main(
         "text": text_report,
         "whole_binary": whole_report,
     }
+
+
+def _save_report(
+    cfg: Any,
+    batch: BatchResult,
+    *,
+    data_report: dict[str, Any] | None,
+    text_report: dict[str, Any] | None,
+    whole_report: dict[str, Any] | None,
+    previous_report: dict[str, Any] | None,
+    diff_warning: str | None,
+    diff_mode: bool,
+    summary: bool,
+    output_path: str | None,
+    dry_run: bool,
+    json_output: bool,
+    compile_context: "CompileContext | None",
+    fix_sizes: bool,
+    orphans_pruned: int,
+) -> None:
+    """Assemble the verify report, save cache + baseline, print, gate."""
+    results = batch.results
+    passed, failed, total = batch.passed, batch.failed, batch.total
+    size_divergences, missing_sizes = batch.size_divergences, batch.missing_sizes
+    report = build_report(
+        cfg,
+        results,
+        passed,
+        failed,
+        total,
+        size_divergences,
+        missing_sizes,
+        batch.duplicate_vas,
+        dry_run=dry_run,
+        compile_context=compile_context,
+        provenance="verify",
+        library_excluded=batch.library_excluded,
+        orphans_pruned=orphans_pruned,
+        data_report=data_report,
+        text_report=text_report,
+        whole_report=whole_report,
+    )
 
     if size_divergences and not json_output:
         console.print(
@@ -1140,6 +1230,7 @@ def main(
     # A context-scoped run stores nothing: its verdicts were earned under
     # declarations the cache entry type cannot record, so writing them would
     # serve them back to a later context-free run that never compiled them.
+    # --no-promote still saves the cache (it only skips STATUS writes).
     if not dry_run and not (diff_mode and gate_failed) and compile_context is None:
         cache_path = cfg.root / ".rebrew" / "verify_cache.json"
         try:
@@ -1147,52 +1238,69 @@ def main(
                 cache_path,
                 cfg,
                 results,
-                unique_entries,
-                raw_statuses,
-                preserve_keys=nolib_excluded_keys,
+                batch.entries,
+                batch.raw_statuses,
+                preserve_keys=batch.excluded_keys,
             )
         except (OSError, TypeError):
             # Warn on stderr regardless of json mode — silent cache-I/O
             # failures degrade performance invisibly.
             logging.warning("Could not write verify cache to %s", cache_path)
 
-    if json_output or output_path or diff_mode or not dry_run:
-        report_json = json.dumps(report, indent=2)
-        # In --compare mode the report IS the baseline for future runs — a
-        # regressed run must not overwrite the last good baseline, or the
-        # gate would self-heal on the next invocation.  Plain verify always
-        # records the report (pre-existing failures are the baseline's
-        # business); --compare advances it only on a passing gate.  The
-        # default location is honored in PLAIN mode too — the help promises
-        # "default: project db_dir/verify_results.json", and a first
-        # `rebrew verify --compare` needs a baseline from a prior plain run
-        # (previously nothing was written unless --json/--output/--compare
-        # were passed, so --compare's first run was a silent no-op gate).
-        if not dry_run and not (diff_mode and gate_failed):
+    # The --compare baseline lives in .rebrew next to the cache (both are
+    # local, gitignored run state — db/verify_results.json was never
+    # committed either).  A regressed run must not overwrite the last good
+    # baseline, or the gate would self-heal on the next invocation:
+    # --compare advances it only on a passing gate, plain verify always.
+    if not dry_run and not (diff_mode and gate_failed):
+        from rebrew.verify_cache import save_baseline
+
+        save_baseline(cfg, report)
+        if output_path:
+            out_file = Path(output_path)
             out_file.parent.mkdir(parents=True, exist_ok=True)
-            atomic_write_text(out_file, report_json, encoding="utf-8")
+            atomic_write_text(out_file, json.dumps(report, indent=2), encoding="utf-8")
             if not json_output:
                 console.print(f"Report written to {out_file}")
 
-        if json_output:
-            if diff_mode:
-                payload: dict[str, Any] = {"report": report, "diff": diff_result}
-                if diff_warning:
-                    payload["warning"] = diff_warning
-                json_print(payload)
-            else:
-                json_print(report)
+    if json_output:
+        if diff_mode:
+            payload: dict[str, Any] = {"report": report, "diff": diff_result}
+            if diff_warning:
+                payload["warning"] = diff_warning
+            json_print(payload)
+        else:
+            json_print(report)
 
-            _raise_if_regression(
-                diff_result,
-                failed,
-                text_misplaced=text_report["misplaced"] if text_report else 0,
-            )
-            return
+        _raise_if_regression(
+            diff_result,
+            failed,
+            text_misplaced=text_report["misplaced"] if text_report else 0,
+        )
+        return
+
+    if dry_run and not diff_mode:
+        _print_results(
+            results,
+            batch.fail_details,
+            diff_result,
+            diff_warning,
+            diff_mode,
+            summary,
+            total,
+            passed,
+            failed,
+        )
+        _raise_if_regression(
+            diff_result,
+            failed,
+            text_misplaced=text_report["misplaced"] if text_report else 0,
+        )
+        return
 
     _print_results(
         results,
-        fail_details,
+        batch.fail_details,
         diff_result,
         diff_warning,
         diff_mode,
@@ -1276,36 +1384,6 @@ def _raise_if_regression(
 # ---------------------------------------------------------------------------
 
 
-def _load_previous_report(
-    out_file: Path,
-    diff_mode: bool,
-    json_output: bool,
-) -> tuple[dict[str, Any] | None, str | None]:
-    """Load previous verify report for --compare mode."""
-    if not diff_mode:
-        return None, None
-
-    diff_warning: str | None = None
-    previous_report: dict[str, Any] | None = None
-
-    if not out_file.exists():
-        diff_warning = f"No previous verify report at {out_file}; skipping diff"
-    else:
-        try:
-            loaded = json.loads(out_file.read_text(encoding="utf-8"))
-            if isinstance(loaded, dict):
-                previous_report = loaded
-            else:
-                diff_warning = f"Previous verify report at {out_file} is invalid JSON object"
-        except (OSError, json.JSONDecodeError) as exc:
-            diff_warning = f"Could not read previous verify report at {out_file}: {exc}"
-
-    if diff_warning and not json_output:
-        console.print(f"[yellow]warning:[/yellow] {diff_warning}")
-
-    return previous_report, diff_warning
-
-
 def _alignment_padding(ann_size: int, canonical: int) -> bool:
     """Whether the canonical size is just the annotation rounded up to the
     next 16-byte function-alignment boundary (functions start 16-aligned, so
@@ -1339,6 +1417,258 @@ def _size_divergence_action(ann_size: int, canonical: int, status: str | None) -
     if _skip_validated_overcount(ann_size, canonical, status):
         return "skip"
     return "warn"
+
+
+def patch_cache_from_results(cfg: Any, v_results: list[dict[str, Any]]) -> None:
+    """Sync the verify cache from batch results (one read + one write).
+
+    Shared by ``rebrew verify`` (via the report save) and ``rebrew test
+    --all`` so promoted statuses show up in status/todo immediately.  A
+    worker crash (INTERNAL_ERROR) is not a verdict and is never patched.
+    """
+    from rebrew.verify_cache import patch_verify_cache_entries
+
+    patches: list[dict[str, Any]] = []
+    for r in v_results:
+        try:
+            va_int = int(r["va"], 16)
+        except (ValueError, TypeError, KeyError):
+            continue
+        if r.get("status") == "INTERNAL_ERROR":
+            continue
+        pct = r.get("match_percent") or 0.0
+        patches.append(
+            {
+                "va": va_int,
+                "status": r.get("status", ""),
+                "match_count": round(pct),
+                "total": 100,
+                # verify's real byte delta — recomputing from match_percent
+                # would store a percent-scale number into the byte field
+                # (todo.py's ROI thresholds read it as bytes).
+                "delta": r.get("delta"),
+            }
+        )
+    patch_verify_cache_entries(cfg, patches)
+
+
+def _scope_entries(
+    unique_entries: list[Annotation],
+    cached: tuple[int, int, list[tuple[Annotation, str]], list[dict[str, Any]], int],
+    size_audits: tuple[list[dict[str, Any]], list[dict[str, Any]]],
+    *,
+    nolib: bool = False,
+    batch_dir: str | None = None,
+    origin_filter: str | None = None,
+    cfg: Any,
+    json_output: bool = False,
+) -> tuple[
+    list[Annotation],
+    int,
+    int,
+    int,
+    list[tuple[Annotation, str]],
+    list[dict[str, Any]],
+    int,
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    int,
+    set[str],
+]:
+    """Restrict the batch work list to --nolib/--dir/--origin scope.
+
+    Shared by ``rebrew verify`` and ``rebrew test --all`` so both batch
+    paths filter identically.  *batch_dir* resolves against
+    ``cfg.reversed_dir`` with real path containment (a raw string prefix
+    also matched sibling directories).  *origin_filter* matches the
+    annotation's module — ORIGIN is derivable from the FUNCTION-marker
+    module, which is also what test's old ``origin`` attribute check meant
+    (it matched nothing since Annotation has no such field).
+
+    Returns ``(entries, total, passed, failed, fail_details, results,
+    cached_count, size_divergences, missing_sizes, library_excluded,
+    excluded_keys)`` — the filtered work list plus the filtered
+    pre-compile state.  Cached rows for excluded entries stay in the cache
+    file; only the run scope shrinks.
+    """
+    passed, failed, fail_details, results, cached_count = cached
+    size_divergences, missing_sizes = size_audits
+    library_excluded = 0
+    excluded_keys: set[str] = set()
+    # --nolib (reccmp equivalent): drop LIBRARY-marked functions entirely —
+    # from the work list, the cached results already counted, and the size
+    # audit — so the gate reflects game code only.  Excluded functions are
+    # neither compiled nor counted, exactly like reccmp's --nolib filter.
+    if nolib:
+        lib_vas = {e.va for e in unique_entries if getattr(e, "marker_type", "") == "LIBRARY"}
+        if lib_vas:
+            excluded_keys = {f"0x{v:08x}" for v in lib_vas}
+            unique_entries = [e for e in unique_entries if e.va not in lib_vas]
+            library_excluded = len(lib_vas)
+    if batch_dir:
+        batch_root = (
+            Path(batch_dir) if Path(batch_dir).is_absolute() else Path(cfg.reversed_dir) / batch_dir
+        ).resolve()
+        # Path-aware containment: a raw string prefix also matched sibling
+        # directories (`game_dll_extra` under `game_dll`) and broke on a root
+        # with `..` in it; resolve both sides and compare real paths.
+        unique_entries = [
+            e
+            for e in unique_entries
+            if (Path(cfg.reversed_dir) / e.filepath).resolve().is_relative_to(batch_root)
+        ]
+    if origin_filter:
+        want = origin_filter.upper()
+        unique_entries = [e for e in unique_entries if (e.module or "").upper() == want]
+    if library_excluded or batch_dir or origin_filter:
+        keep = {f"0x{e.va:08x}" for e in unique_entries}
+        results = [r for r in results if r.get("va") in keep]
+        fail_details = [(e, m) for e, m in fail_details if e in unique_entries]
+        size_divergences = [d for d in size_divergences if d.get("va") in keep]
+        missing_sizes = [d for d in missing_sizes if d.get("va") in keep]
+        # Recompute the pre-compile counts from the filtered structures —
+        # the cached rows that were dropped are no longer "results".
+        passed = sum(1 for r in results if r.get("passed", False))
+        failed = len(fail_details)
+        cached_count = len(results)
+        if not json_output:
+            scope = (
+                f"--nolib excluded {library_excluded}"
+                if nolib and library_excluded
+                else f"scoped to {len(unique_entries)}"
+            )
+            console.print(f"[dim]{scope} function(s)[/dim]")
+    total = len(unique_entries)
+    return (
+        unique_entries,
+        total,
+        passed,
+        failed,
+        fail_details,
+        results,
+        cached_count,
+        size_divergences,
+        missing_sizes,
+        library_excluded,
+        excluded_keys,
+    )
+
+
+def apply_proven_overlay(
+    results: list[dict[str, Any]],
+    fail_details: list[tuple[Annotation, str]],
+    unique_entries: list[Annotation],
+    counts: list[int],
+    *,
+    cfg: Any = None,
+    dry_run: bool = False,
+) -> tuple[list[tuple[Annotation, str]], dict[str, tuple[str, bool]], list[str], list[int]]:
+    """Overlay metadata PROVEN status onto byte-compare *results*.
+
+    PROVEN is a post-verify promotion (from ``rebrew prove``) that byte-level
+    comparison cannot detect.  Shared by ``rebrew verify`` and ``rebrew test
+    --all`` — previously only verify overlaid, so the batch path reported and
+    cached raw NEAR_MATCHING for proven functions.  Returns ``(fail_details,
+    raw_statuses, stale_proven, counts)``: the filtered failure list, the raw
+    byte truth the cache must store (not the overlay), the stale claims to
+    warn about, and the adjusted ``[passed, failed]`` counts.
+    """
+    passed, failed = counts
+    proven_vas: set[str] = {
+        f"0x{entry.va:08x}" for entry in unique_entries if getattr(entry, "status", "") == "PROVEN"
+    }
+    # A PROVEN claim is honored over the byte states a proven function
+    # legitimately produces: NEAR_MATCHING / SIZE_MISMATCH (bytes differ
+    # structurally). A blocker-documented STUB is also legitimate now —
+    # `rebrew prove` accepts those (developed function parked at a wall,
+    # classifier <60% on a real body), so verify must not demote a fresh
+    # prove-earned PROVEN back to STUB.
+    _proven_compatible = ("NEAR_MATCHING", "SIZE_MISMATCH")
+    _blocker_documented_stub_vas: set[str] = {
+        f"0x{entry.va:08x}"
+        for entry in unique_entries
+        if getattr(entry, "status", "") == "PROVEN"
+        and bool(getattr(entry, "blocker", "") or getattr(entry, "blocker_delta", 0))
+    }
+    overlaid_vas: set[str] = set()
+    # Raw byte-level truth for overlaid entries — the verify cache must store
+    # the result as compiled, not the metadata-derived PROVEN.  The overlay is
+    # re-applied from CURRENT metadata at every report run (including cached
+    # results), so baking PROVEN into the cache would mask a later STATUS
+    # demotion with a stale cached pass.
+    raw_statuses: dict[str, tuple[str, bool]] = {}
+    stale_proven: list[str] = []
+    if proven_vas:
+        for r in results:
+            compatible = r["status"] in _proven_compatible or (
+                r["status"] == "STUB" and r["va"] in _blocker_documented_stub_vas
+            )
+            if r["va"] in proven_vas and compatible:
+                raw_statuses[r["va"]] = (r["status"], bool(r.get("passed", False)))
+                was_failed = not r.get("passed", False)
+                r["status"] = "PROVEN"
+                r["passed"] = True
+                overlaid_vas.add(r["va"])
+                if was_failed:
+                    passed += 1
+                    failed -= 1
+        # Remove only the OVERLAID functions from fail_details (they may have
+        # been added from stale cache entries before the overlay).  A PROVEN
+        # function that now fails as COMPILE_ERROR stays in the failure list
+        # the overlay must not hide its diagnostic.
+        fail_details = [(e, m) for e, m in fail_details if f"0x{e.va:08x}" not in overlaid_vas]
+
+        # Flag stale PROVEN claims: metadata says PROVEN but the byte compile
+        # cannot support it (source no longer builds, annotation changed, or
+        # the status was hand-claimed).  The real byte result stands and a
+        # metadata: warning is emitted — a claimed PROVEN is only honored
+        # over the byte states a proven function legitimately produces
+        # (metadata-review F2).  The demotion is written through (force —
+        # PROVEN stickiness protects earned claims, but a STUB/COMPILE_ERROR
+        # body demonstrably no longer contains the proven code, so the claim
+        # is void and the warning must fire exactly once).
+        # A stale claim is a byte state that cannot support PROVEN.  Two
+        # statuses are excluded: EXACT/RELOC are the documented PROVEN upgrade
+        # (`should_promote_status` allows PROVEN → EXACT/RELOC, and the
+        # promotion above already wrote it), and INTERNAL_ERROR is a tooling
+        # crash, not a verdict — it is not in metadata's KNOWN_STATUSES, so
+        # persisting it over PROVEN would store an invalid status (and log a
+        # phantom demotion for a function whose bytes were never compared).
+        stale_proven = sorted(
+            r["va"]
+            for r in results
+            if r["va"] in proven_vas
+            and r["va"] not in overlaid_vas
+            and r["status"] not in ("EXACT", "RELOC", "INTERNAL_ERROR")
+        )
+        if stale_proven and cfg is not None and not dry_run:
+            from rebrew.metadata import update_statuses_batch
+
+            by_va = {r["va"]: r for r in results}
+            by_entry = {f"0x{e.va:08x}": e for e in unique_entries}
+            update_statuses_batch(
+                cfg.metadata_dir,
+                [
+                    {
+                        "module": getattr(by_entry[va], "module", "") or "",
+                        "va": by_entry[va].va,
+                        "new_status": by_va[va]["status"],
+                        "clear_blockers": False,
+                        "force": True,
+                        "updated_by": "verify",
+                    }
+                    for va in stale_proven
+                    if getattr(by_entry.get(va), "module", "") and by_va[va]["status"] != "PROVEN"
+                ],
+            )
+        for va in stale_proven:
+            status = next(r["status"] for r in results if r["va"] == va)
+            console.print(
+                f"  [yellow]metadata: warning:[/yellow] PROVEN claim for {va} not "
+                f"backed by a byte-match (compiled: {status}) — demoted to the "
+                "real byte result; re-run rebrew verify once the code byte-matches"
+            )
+    return fail_details, raw_statuses, stale_proven, [passed, failed]
 
 
 def prepare_entries(
@@ -1397,7 +1727,7 @@ def prepare_entries(
     library_header_count = 0
     duplicate_vas: list[tuple[int, str, str]] = []
     for entry in sorted(entries, key=lambda x: x.va):
-        if getattr(entry, "marker_type", "FUNCTION") in ("DATA", "GLOBAL", "BSS", "RODATA", "VTBL"):
+        if getattr(entry, "is_data", False):
             data_count += 1
             continue
         fp = getattr(entry, "filepath", "")
@@ -1430,7 +1760,7 @@ def prepare_entries(
                 "(see 'duplicate_vas' in the report JSON)"
             )
     if data_count and not json_output:
-        console.print(f"Skipped {data_count} DATA/GLOBAL/BSS/RODATA/VTBL entries (not compilable)")
+        console.print(f"Skipped {data_count} DATA/GLOBAL entries (not compilable)")
     if library_header_count and not json_output:
         console.print(
             f"Skipped {library_header_count} library header entries (identified, not compiled)"
@@ -1463,105 +1793,51 @@ def prepare_entries(
         # comes from pre-fix code that baked the overlay in, and cannot be
         # trusted after a metadata STATUS demotion: the stale pass would mask
         # the demotion forever.  Treat it as a miss and re-verify once.
-        if cached_entry.result.status == "PROVEN":
+        if cached_entry.status == "PROVEN":
             continue
 
         if cached_entry.filepath != getattr(entry, "filepath", ""):
             continue
 
-        # CFLAGS/TOOLCHAIN come from rebrew-functions.toml AND the config
-        # fallback chain (per-function → per-library rebrew-libraries.toml →
-        # preset → [compiler].cflags), so a metadata edit is invisible to the
-        # source hash below.  The entry stores the RESOLVED effective values
-        # the compile used; compare against the freshly-resolved ones so a
-        # `rebrew library set` / `rebrew cfg set-cflags` / [compiler].cflags
-        # edit invalidates cached results (previously only the metadata CFLAGS
-        # were compared, leaving stale EXACT/RELOC served after a config
-        # change — and TOOLCHAIN was not stored at all, so a library toolchain
-        # override swap served stale results for every function under it).
-        import shlex
-
-        from rebrew.cli import resolve_compile_overrides
-
-        _tc, _cf2 = resolve_compile_overrides(
-            cfg,
-            (cfg.reversed_dir / entry.filepath).parent if entry.filepath else cfg.root,
-            getattr(entry, "toolchain", ""),
-            getattr(entry, "cflags", ""),
-            getattr(entry, "module", ""),
-        )
-        # Legacy entries written before the toolchain field existed carry ""
-        # re-verify them once (same pattern as cflags/headers_fp).
-        if not cached_entry.toolchain:
-            continue
-        if cached_entry.toolchain != (_tc or _DEFAULT_TOOLCHAIN):
+        # Same VA re-annotated under another module is a different function
+        # for STATUS purposes — a stale verdict earned under the old module
+        # must not be served (legacy rows without a module still hit).
+        if cached_entry.module and cached_entry.module != getattr(entry, "module", ""):
             continue
 
-        # Per-target defines are compile inputs invisible to the source hash
-        # and cflags string — a defines edit (a version switch in a shared
-        # multi-version source) must invalidate the entry.
-        if not cached_entry.defines:
-            continue  # legacy entry
-        if cached_entry.defines != (
-            ",".join(sorted(getattr(cfg, "defines", None) or [])) or "(none)"
-        ):
+        # One shared identity check (see verify_hash.entry_fingerprint):
+        # resolved toolchain/cflags, defines, size, per-entry header closure,
+        # and source hash.  Legacy entries ("" / -1 fields) are re-verified
+        # once.  Cosmetic-only CFLAGS differences (reorder, dedup) still hit.
+        from rebrew.verify_hash import cflags_equivalent, entry_fingerprint
+
+        fp = entry_fingerprint(cfg, entry)
+        if fp is None:
             continue
-
-        if cached_entry.cflags != _cf2:
-            # Raw strings differ — but only a change that could alter the
-            # compiled object is material.  A rebrew-libraries.toml edit that
-            # merely reorders flags (e.g. preset vs override ordering) or
-            # deduplicates them compiles identically, so compare the
-            # canonicalized equivalence class (observational equivalence:
-            # the compiler is the observer) and treat it as a hit.  A legacy
-            # or degenerate entry ("" on either side) is re-verified once.
-            if not (cached_entry.cflags and _cf2):
-                continue
-            from rebrew.compile_cache import canonicalize_cflags
-
-            if canonicalize_cflags(shlex.split(cached_entry.cflags)) != canonicalize_cflags(
-                shlex.split(_cf2)
-            ):
-                continue
-
-        # SIZE is metadata-only too (catalog --fix-sizes rewrites it without
-        # touching the .c); a size change must invalidate the cached result.
-        if cached_entry.size != (entry.size or 0):
+        if not cached_entry.toolchain or cached_entry.toolchain != fp.toolchain:
             continue
-
-        filepath = cfg.reversed_dir / getattr(entry, "filepath", "")
-        if not filepath.exists():
+        if not cached_entry.defines or cached_entry.defines != fp.defines:
             continue
-
-        # Per-source header dependency: editing a header this source reaches
-        # must invalidate the entry (the old global headers_hash gate
-        # re-verified the whole cache on any header change).  Legacy entries
-        # written before headers_fp existed carry "" and are re-verified once,
-        # like the cflags/size legacy handling.
-        if not cached_entry.headers_fp:
+        if not cflags_equivalent(cached_entry.cflags, fp.cflags):
             continue
-        if cached_entry.headers_fp != _entry_headers_fp(cfg, filepath, _cf2):
+        if cached_entry.size != fp.size:
             continue
-
+        if not cached_entry.headers_fp or cached_entry.headers_fp != fp.headers_fp:
+            continue
         try:
-            current_mtime = filepath.stat().st_mtime_ns
+            current_mtime = (cfg.reversed_dir / getattr(entry, "filepath", "")).stat().st_mtime_ns
         except OSError:
-            # File deleted between exists() and stat() — treat as a miss.
+            # File deleted between fingerprint and stat — treat as a miss.
             continue
-        if current_mtime != cached_entry.mtime_ns:
-            try:
-                current_hash = _source_hash(filepath)
-            except OSError:
-                continue
-            if current_hash != cached_entry.source_hash:
-                continue
+        if current_mtime != cached_entry.mtime_ns and fp.source_hash != cached_entry.source_hash:
+            continue
 
-        results.append(cached_entry.result.to_dict())
-        if cached_entry.result.passed:
+        results.append(cached_entry.result_row())
+        if cached_entry.passed:
             passed += 1
         else:
             failed += 1
-            fail_details.append((entry, str(cached_entry.result.message)))
+            fail_details.append((entry, str(cached_entry.message)))
         cached_count += 1
 
     if verify_cache_obj is not None and not json_output:
@@ -1770,6 +2046,7 @@ def run_verification(
                             "va": f"0x{entry.va:08x}",
                             "name": name,
                             "symbol": getattr(entry, "symbol", "") or "_" + name,
+                            "module": getattr(entry, "module", ""),
                             "filepath": getattr(entry, "filepath", ""),
                             "size": getattr(entry, "size", 0),
                             "status": result.status,

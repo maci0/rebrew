@@ -50,7 +50,7 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `marker` | `[targets.<name>].marker` | Module identifier for source markers (default: target name uppercased, non-alphanumeric characters stripped) |
 | `target_binary` | `[targets.<name>].binary` | Resolved path to the target executable/DLL |
 | `default_jobs` | `[project].jobs` | Default parallelism for batch commands |
-| `db_dir` | `[project].db_dir` | Coverage JSON, SQLite DB, CSV, and verify report directory |
+| `db_dir` | `[project].db_dir` | Coverage JSON, SQLite DB, CSV directory (verify reports are no longer written here by default — the `--compare` baseline lives in `.rebrew/`) |
 | `output_dir` | `[project].output_dir` | Default output directory for generated artifacts |
 | `image_base` | Auto-detected from PE | `0x10000000` for example DLL |
 | `text_va` | Auto-detected from PE | `.text` section virtual address |
@@ -150,7 +150,8 @@ Compiler settings are resolved in layers. Each layer overrides the previous:
 1. **Built-in defaults** — empty host `command` for docker-backed profiles (the docker image is the compiler; `wine CL.EXE` is only a legacy fallback for hand-written configs), `/nologo /c /MT` base flags, 60s timeout
 2. **`[compiler]`** — Global settings shared across all targets
 3. **`[targets.<name>.compiler]`** — Per-target overrides (partial — only keys present override)
-4. **`rebrew-functions.toml` metadata** — Per-function CFLAGS override in the function's entry (highest priority for cflags)
+4. **Nearest `rebrew-libraries.toml`** — Per-library toolchain/flags overrides (walk-up from the source dir; presets fill missing fields)
+5. **`rebrew-functions.toml` metadata** — Per-function TOOLCHAIN/CFLAGS override in the function's entry (highest priority)
 
 ```toml
 # Global defaults — all targets inherit these

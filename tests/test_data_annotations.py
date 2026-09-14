@@ -35,7 +35,6 @@ class TestDataAnnotationMarker:
             "// DATA: SERVER 0x10025000",
             "// SIZE: 256",
             "// SECTION: .rdata",
-            "// NOTE: lookup table for sprite indices",
         ]
         ann = parse_new_format(lines)
         assert ann is not None
@@ -43,7 +42,8 @@ class TestDataAnnotationMarker:
         assert ann.va == 0x10025000
         assert ann.size == 256
         assert ann.section == ".rdata"
-        assert ann.note == "lookup table for sprite indices"
+        # NOTE lives in rebrew-functions.toml now, not inline.
+        assert ann.note == ""
         # DATA annotations have no C function def, so symbol is empty
         assert ann.symbol == ""
 

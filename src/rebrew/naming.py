@@ -276,7 +276,7 @@ def load_data(
         )
         rel_name = rel_display_path(cfile, src_dir)
         for entry in entries:
-            if entry.marker_type in ("GLOBAL", "DATA"):
+            if entry.is_data:
                 continue
             if entry.va < min_valid_va_for(cfg):
                 continue
@@ -343,7 +343,7 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
             cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir if cfg else None
         )
         for entry in entries:
-            if entry.marker_type in ("GLOBAL", "DATA"):
+            if entry.is_data:
                 continue
             if entry.va < min_valid_va_for(cfg):
                 continue

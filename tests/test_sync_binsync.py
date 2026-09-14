@@ -38,11 +38,13 @@ def _patch_cfg(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespa
 
 class TestBuilders:
     def test_bookmark_ops_for_statuses(self) -> None:
+        # Entries are to_dict()-shaped annotations: data markers ride along
+        # as is_data (the builder does not re-spell the marker sets).
         entries = [
-            {"va": 0x1000, "status": "EXACT", "marker_type": "FUNCTION"},
-            {"va": 0x2000, "status": "STUB", "marker_type": "FUNCTION"},
-            {"va": 0x3000, "status": "EXACT", "marker_type": "DATA"},  # excluded
-            {"va": 0x4000, "status": "", "marker_type": "FUNCTION"},  # no status
+            {"va": 0x1000, "status": "EXACT", "marker_type": "FUNCTION", "is_data": False},
+            {"va": 0x2000, "status": "STUB", "marker_type": "FUNCTION", "is_data": False},
+            {"va": 0x3000, "status": "EXACT", "marker_type": "DATA", "is_data": True},  # excluded
+            {"va": 0x4000, "status": "", "marker_type": "FUNCTION", "is_data": False},  # no status
         ]
         ops = build_bookmark_commands(entries, "/x.dll")
         assert len(ops) == 2

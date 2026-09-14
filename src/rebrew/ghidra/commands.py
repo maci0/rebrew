@@ -63,7 +63,7 @@ def build_bookmark_commands(
     """
     out: list[dict[str, Any]] = []
     for e in entries:
-        if e.get("marker_type") in ("DATA", "GLOBAL"):
+        if e.get("is_data", False):
             continue
         va = e.get("va")
         status = str(e.get("status", ""))

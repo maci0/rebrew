@@ -25,8 +25,8 @@ rebrew verify            Bulk-verify all reversed functions
 | Command | Scope | Caching | Use when |
 |---------|-------|---------|----------|
 | `rebrew test <file>` | Single function | No | Iterating on one function |
-| `rebrew test --all` | Batch (all files) | No | Like verify but always recompiles |
-| `rebrew verify` | Batch (incremental) | Yes | CI / bulk status check |
+| `rebrew test --all` | Batch (all files) | No | Verify's engine, always recompiles |
+| `rebrew verify` | Batch (incremental) | Yes | CI / bulk status check (`--compare` regression baseline; `match --all` finds matches, `verify --full` re-checks all sans cache, `--no-promote` measures without writing) |
 | `rebrew match <file>` | Single function | No | GA engine to find byte-perfect match |
 
 Byte-match ladder (best → worst): `EXACT` → `RELOC` → `NEAR_MATCHING` → `STUB`.
@@ -214,11 +214,17 @@ skills.
 | `--seed-file FILE` | Extra `.c` file(s) to seed GA population from solved functions |
 | `--no-seeds` | Disable cross-function solution seeding |
 | `--mutation-focus CAT` | Bias GA mutation selection: `register` / `equivalent` / `structural`, or `auto` (derives the category from the function's BLOCKER metadata; single-function only) — the category's suggested operators get 6x selection weight |
-| `--cl COMMAND` | CL.EXE command (auto from rebrew-project.toml) |
 | `--lib DIR` | Lib dir (for non-obj comparison) |
+| `--link COMMAND` | Linker command (auto from rebrew-project.toml) |
 | `--ldflags FLAGS` | Linker flags (for non-obj comparison) |
 | `--flag-sweep-only` | Exhaustive flag-combination sweep; skip GA (**MSVC-only** — posix profiles like mingw-16.2.0 refuse with a clear error) |
 | `--flag-sweep-toolchains` | Try each vendored MSVC toolchain (the full 4.0→7.0 line: 6.0-sp3/sp6, 7.0, 4.2, 5.0, 4.0); combine with `--flag-sweep-only` to flag-sweep with each toolchain ("which MSVC version + flags built this function?" — the combined mode reports the best flags per toolchain) |
+| `--sweep-toolchains CSV` / `--toolchain CSV` | Sweep only these toolchains (comma-separated profile names or version prefixes) |
+| `--sweep-exclude-toolchains CSV` | Skip these toolchains in the sweep (comma-separated profile names or version prefixes) |
+| `--seed-llm` | Ask a configured LLM endpoint for alternative C implementations and inject them into the GA's initial population (see config / `REBREW_LLM_ENDPOINT`) |
+| `--seed-kuna` | Seed the GA's initial population with Kuna's decompilation of the target function (requires the `kuna` binary on PATH), compilability-fixed (`rebrew fix`) before injection |
+| `--watch` | Watch the seed source and re-run the GA on every change |
+| `--target NAME` / `-t NAME` | Select a target from `rebrew-project.toml` |
 | `--tier NAME` | Flag-sweep tier: `quick`, `targeted` (default), `normal`, `thorough`, `full` — see [FLAG_SWEEP_TIERS.md](FLAG_SWEEP_TIERS.md) |
 | `--collect-pairs FILE` | Save source/binary pairs to JSONL for ML training |
 | `--json` | Output results as JSON |
@@ -291,6 +297,7 @@ consumers can learn whether the blocker landed (mirrors `near-diag`'s
 | `--target-bin PATH` | Test against a raw `.bin` file instead of the target binary |
 | `--size N` | Target size in bytes |
 | `--cflags FLAGS` | Override compiler flags |
+| `--toolchain TEXT` | Vendored compiler override (overrides the project default) |
 | `--all` | Batch test all reversed .c files |
 | `--dir PATH` | With `--all`, restrict to this subdirectory |
 | `--origin TYPE` | With `--all`, filter by origin (GAME, MSVCRT, ZLIB) |
@@ -354,9 +361,10 @@ reach the compiler (tree-sitter span edit, encoding-preserving atomic write).
 | Flag | Description |
 |------|-------------|
 | `-n N` / `--count N` | Number of items to show (default 20) |
-| `-c CAT` / `--category CAT` | Filter by category (e.g. `start-function`, `fix-delta`, `compile-error`, `extract-error`, `improve-match`, `missing-annotation`, `documented`, `data-drift`) |
+| `-c CAT` / `--category CAT` | Filter by category (e.g. `setup`, `start-function`, `fix-delta`, `compile-error`, `extract-error`, `improve-match`, `missing-annotation`, `identify-library`, `run-prover`, `documented`, `data-drift`) |
 | `-s` / `--stats` | Show the coverage stats header |
 | `--json` | Output results as JSON |
+| `--target NAME` / `-t NAME` | Select a target from `rebrew-project.toml` |
 
 `improve-match` items whose blocker was written by `near-diag --fix-blocker`
 carry a `mutations` array in `--json` (the GA operators to try next) and a
@@ -402,7 +410,7 @@ graph TD
     Classify -->|EXACT / RELOC| Pass[pass · STATUS promoted]
     Classify -->|NEAR_MATCHING| NM[near-match · STATUS kept]
     Classify -->|MISMATCH / COMPILE_ERROR| Fail[fail · STATUS demoted]
-    Pass --> Report[aggregate report<br/>--json · --output db/verify_results.json]
+    Pass --> Report[aggregate report<br/>--json · -o file (baseline: .rebrew/verify_baseline.json)]
     NM --> Report
     Fail --> Report
     Report -->|--data| Data[byte-compare built<br/>.data/.rdata per symbol]
@@ -419,9 +427,11 @@ graph TD
 
 | Flag | Description |
 |------|-------------|
-| `--compare` | Compare against last saved `db/verify_results.json`, detect regressions/improvements; exit code 1 on regression |
-| `--summary` | Show EXACT/RELOC/NEAR_MATCHING summary table with match percentages |
-| `--full` / `-f` | Force full verification, ignoring cached results (also required after header/include changes) |
+| `--root PATH` | Project root directory (auto-detected from rebrew-project.toml if omitted) |
+| `--jobs N` / `-j N` | Number of parallel compile jobs (default: from project.jobs or 4) |
+| `--compare` | Compare against last saved `.rebrew/verify_baseline.json`, detect regressions/improvements; exit code 1 on regression |
+| `-s` / `--summary` | Show EXACT/RELOC/NEAR_MATCHING summary table with match percentages |
+| `--full` | Force full verification, ignoring cached results (also required after header/include changes) |
 | `--json` | Structured JSON report to stdout |
 | `-o FILE` / `--output FILE` | Write report to specific file |
 | `--dry-run` | Preview STATUS metadata changes without writing (JSON report carries `dry_run: true`) |
@@ -434,6 +444,9 @@ graph TD
 | `--text` | Check built `.text` function placement against the `// FUNCTION:` markers via `text-audit` (needs `--built`); exit 1 on any misplaced function |
 | `--whole-binary` | Compare built binary against the reference: section sizes, exports, imports, `.rsrc` bytes, headers, plus layout-freshness check (needs `--built`) |
 | `--context FILE` | Compile every source with these declarations merged ahead of it under `#line` directives (see `rebrew test --context`); each result and the report carry `context_hash`. A context run bypasses the result cache in both directions: no cached verdict is served, and nothing is written back, because a cache entry records no context digest |
+| `--dir TEXT` | Restrict to this subdirectory of reversed_dir |
+| `--origin TEXT` | Restrict to one module (e.g. GAME) |
+| `--no-promote` | Measure only: write NOTHING to rebrew-functions.toml (report + cache still save) |
 
 The `--json` report carries `dry_run`, `size_divergences`, and `missing_sizes`
 (plus `sizes_fixed` when `--fix-sizes` ran); VAs fixed by `--fix-sizes` are
@@ -488,7 +501,6 @@ Output prefixes for unambiguous parsing:
 | `--generations N` / `-g N` | GA generations per function (default 100) |
 | `--jobs N` / `-j N` | Parallel jobs (default: from `[project].jobs`); stubs run in parallel, per-stub compiles serialized |
 | `--pop-size N` / `-p N` | GA population size (default 64) |
-| `-j N` / `--jobs N` | Parallel jobs (default: from `[project].jobs`); stubs run in parallel, per-stub compiles serialized |
 | `--timeout-min N` | Per-function GA timeout in minutes (default 30) |
 | `--min-size N` | Min target size to attempt |
 | `--max-size N` | Max target size to attempt |
@@ -498,7 +510,7 @@ Output prefixes for unambiguous parsing:
 | `--threshold N` | Max byte delta for `--near-miss` mode (default 10) |
 | `--dry-run` | Preview changes without writing |
 | `--seed-solved` / `--no-seed-solved` | Seed GA population from similar solved functions (default: on) |
-| `--seed-solutions-file PATH` | Extra solutions.json to seed from (cross-project transfer) |
+| `--seed-solutions-file PATH` | Batch: extra GA run log to seed from (cross-project cflags/source transfer), e.g. `../other/.rebrew/ga_runs.jsonl` |
 | `--flag-sweep` | Sweep compiler flags before GA |
 | `--flag-sweep-only` | Flag sweep only, no GA |
 | `--fix-cflags` | Write winning sweep flags to metadata |
@@ -511,7 +523,7 @@ Output prefixes for unambiguous parsing:
 | `--seed-llm` | Seed GA with LLM-proposed implementations |
 | `--seed-kuna` | Seed GA with kuna decompiler output (needs `kuna` on PATH; SLEIGH specs auto-resolved from the pypcode install, override with `KUNA_SPECS`) |
 | `--resume` | Resume from GA checkpoints |
-| `--ga-history` | Record GA run history |
+| `--ga-history` | Show GA run history summary (from `.rebrew/ga_runs.jsonl`) |
 | `--watch` | Re-run on source changes |
 | `--mutation-focus` | Focus mutations on near-diag classified operators |
 | `--collect-pairs` | Collect (source, listing) training pairs |
@@ -838,10 +850,12 @@ missing_typing, for_loops, while_loops, suggestions}]}`.
 | `--json` | Print catalog summary as JSON to stdout |
 | `--catalog` | Generate `CATALOG.md` in reversed directory |
 | `--summary` | Print summary to stdout |
-| `--csv` | Generate reccmp-compatible CSV |
+| `--csv` | Generate reccmp-compatible CSV (written to `db/<target>_functions.csv`) |
 | `--export-ghidra` | Cache Ghidra function list |
 | `--export-ghidra-labels` | Generate `ghidra_data_labels.json` from detected tables |
 | `--fix-sizes` | Update `SIZE` entries in `rebrew-functions.toml` metadata to match canonical sizes — fixes both stale sizes (false `SIZE_MISMATCH`) and missing sizes (`MISSING_SIZE` stubs that `rebrew test` refuses) |
+| `--force` | Skip the `--fix-sizes` confirmation prompt |
+| `--target NAME` / `-t NAME` | Select a target from `rebrew-project.toml` |
 | `--root DIR` | Project root directory (auto-detected if omitted) |
 ### `rebrew sync`
 
@@ -1028,6 +1042,8 @@ audit log. Nothing in the source tree is modified — the search only reads.
 | `--root DIR` | Project root directory (auto-detected if omitted) |
 | `--force` | Delete and recreate the database if its schema version is incompatible |
 | `--json` | Output results as JSON |
+| `--target NAME` / `-t NAME` | Select a target from `rebrew-project.toml` |
+| `--regen` | Generate coverage data in-process per target instead of reading `db/data_*.json` files (no intermediate files; alternative to the `catalog --data-json` workflow) |
 
 ### `rebrew init`
 
@@ -1449,18 +1465,18 @@ For the "keep the same `.c` for multiple target versions" workflow (binary versi
 
 | Subcommand | Description |
 |------------|-------------|
-| `stats` | Cache size, entry count, and session hit/miss rate |
-| `clear` | Empty the compile result cache |
+| `stats [--json] [--target NAME]` | Cache size, entry count, and session hit/miss rate |
+| `clear [--force] [--json] [--target NAME]` | Empty the compile result cache |
 
 ### `rebrew solutions`
 
 `rebrew solutions [--symbol SUBSTR] [--min-size N] [--max-size N] [--best] [--json] [--target NAME]`
 
 Query the GA solutions database.  Default mode lists winning solution
-fingerprints from `.rebrew/solutions.json` (target, symbol, size, cflags,
-score, solved_at); `--symbol`/`--min-size`/`--max-size` filter.  `--best`
-instead shows the best-known GA outcome per function from the append-only run
-history (`.rebrew/ga_runs.jsonl`).  Read-only.
+fingerprints from `.rebrew/ga_runs.jsonl` (target, symbol,
+size, cflags, score, solved_at); `--symbol`/`--min-size`/`--max-size`
+filter.  `--best` instead shows the best-known GA outcome per function from
+the append-only run history (same file).  Read-only.
 
 ### `rebrew cfg`
 
@@ -1994,7 +2010,7 @@ command line) — feeds toolchain detection and per-function CFLAGS discovery.
 
 ### `rebrew report`
 
-`rebrew report [OPTIONS] [--output DIR] [--json]`
+`rebrew report [OPTIONS] [--output DIR] [-o DIR] [--target NAME] [--json]`
 `rebrew report --decomp-dev report.json [--json]`
 
 Generate a static self-contained HTML documentation site (`index.html`,
@@ -2202,7 +2218,7 @@ rebrew match --all --dry-run                       # List candidates only
 rebrew verify                                      # Verify all reversed functions
 rebrew verify --compare                            # Compare against last report, detect regressions
 rebrew verify --json                               # Structured JSON report
-rebrew verify -o db/verify_results.json            # Write report to file
+rebrew verify -o /tmp/verify_report.json           # Write report to file (explicit export path)
 rebrew lint --fix && rebrew lint                   # Fix then re-lint
 rebrew status                                      # Reversing progress overview
 rebrew catalog                      # build catalog and show summary
@@ -2353,8 +2369,8 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 | `matcher/flag_data.py` | Auto-generated MSVC flags + sweep tiers (from `tools/sync_decomp_flags.py`) |
 | `matcher/parsers.py` | COFF `.obj` and PE byte extraction (LIEF-based) |
 | `matcher/mutator.py` | 121 C mutation operators for GA |
-| `matcher/core.py` | SQLite `BuildCache` + GA checkpointing |
-| `solutions.py` | Cross-function solution transfer database (`.rebrew/solutions.json`) |
+| `matcher/core.py` | GA types (`Score`, `BuildResult`, `GACheckpoint`); `BuildCache` kept for import compatibility only (same-run compiles memoize in memory, cross-run persistence lives in the shared compile cache) |
+| `solutions.py` | Cross-function solution transfer database (`.rebrew/ga_runs.jsonl` win records) |
 
 ### Source Markers, Metadata & Sync
 

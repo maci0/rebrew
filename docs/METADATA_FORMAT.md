@@ -39,6 +39,14 @@ Variants for different marker types:
 - `// SIZE: N` — the **reccmp-native** compile contract (reccmp reads it
   from the `.c`).  The TOML `SIZE` is an *override*; lint W019 warns only
   when the two disagree.
+- `// CFLAGS:` — same co-read contract: an external build reads the `.c`
+  directly, so W019 warns only on inline↔metadata disagreement, never
+  migrates.
+- `// TOOLCHAIN:` / `// SOURCE:` / `// SECTION:` / `// STRUCT:` /
+  `// CALLERS:` — structural/file-borne keys still read inline by
+  `_kv_to_annotation` (the toolchain override and `// SOURCE: naked`
+  must travel with the file; SECTION is owned by `rebrew-data.toml` for
+  DATA/GLOBAL entries and never lands in `rebrew-functions.toml`).
 
 ### What does **not** stay inline
 
@@ -47,8 +55,8 @@ The following keys are **metadata-only** and must not appear in source files.
 `rebrew lint --fix` migrates them to the correct TOML, and also drops
 W029-redundant per-function `cflags` that only repeat the inherited ladder.
 
-`STATUS`, `CFLAGS`, `TOOLCHAIN`, `SKIP`, `GLOBALS`, `BLOCKER`, `BLOCKER_DELTA`,
-`SOURCE`, `NOTE`, `SECTION`, `GHIDRA`, `ANALYSIS`, `ORIGIN`,
+`STATUS`, `SKIP`, `GLOBALS`, `BLOCKER`, `BLOCKER_DELTA`,
+`NOTE`, `GHIDRA`, `ANALYSIS`, `ORIGIN`,
 `PROVE_CONSTRAINTS`
 
 ## Layer 2: Metadata TOML Files
@@ -114,11 +122,12 @@ STUB → NEAR_MATCHING → RELOC → EXACT → PROVEN
 | `RELOC`          | Byte-match after relocation masking              |
 | `EXACT`          | Byte-identical to target                         |
 | `PROVEN`         | Semantically verified via `rebrew prove`         |
+| `SKIP`           | User-parked ("don't touch") — neutral gate rank, status-equal with `STUB` (`STUB`↔`SKIP` is silent in the `--compare` gate; see `verify._STATUS_RANK`/`_STATUS_ORDER`) |
 
 `rebrew test`/`rebrew verify` also persist machine verdicts outside this
 lifecycle: `SIZE_MISMATCH`, `COMPILE_ERROR`, `EXTRACT_ERROR`, `MISSING_SIZE`,
-`MISSING_FILE`, `INVALID_VA`, plus `SKIP` for user-skipped functions (see
-`rebrew.metadata.KNOWN_STATUSES`).
+`MISSING_FILE`, `INVALID_VA` (see `rebrew.metadata.KNOWN_STATUSES`;
+`INTERNAL_ERROR` is deliberately never persisted).
 
 ### PROVEN Guard
 
@@ -134,7 +143,9 @@ rebrew lint --fix
 ```
 
 This will:
-1. Remove `// STATUS:`, `// CFLAGS:`, `// BLOCKER:`, etc. from `.c` files.
+1. Remove `// STATUS:`, `// BLOCKER:`, etc. from `.c` files (leaving co-read
+   `// SIZE:`/`// CFLAGS:` and file-borne `// TOOLCHAIN:`/`// SOURCE:`/
+   `// SECTION:`/`// STRUCT:`/`// CALLERS:` in place).
 2. Write the values to the appropriate TOML (`rebrew-functions.toml`, or
    `rebrew-data.toml` for DATA/GLOBAL markers).
 3. Leave only the reccmp marker line (`// FUNCTION: MODULE 0xVA`) inline.

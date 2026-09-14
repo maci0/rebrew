@@ -9,11 +9,90 @@ from __future__ import annotations
 
 import functools
 import hashlib
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from rebrew.config import ProjectConfig
 
 _DEFAULT_TOOLCHAIN = "(default)"
+
+
+@dataclass
+class EntryFingerprint:
+    """Every verify-cache identity input for one entry, computed once.
+
+    Shared by the hit check (:func:`rebrew.verify.prepare_entries`) and the
+    writer (:func:`rebrew.verify_cache._save_verify_cache`) so the two cannot
+    drift — previously each recomputed resolved flags/toolchain/headers/
+    source-hash independently.
+    """
+
+    toolchain: str
+    cflags: str
+    defines: str
+    size: int
+    headers_fp: str
+    source_hash: str
+    mtime_ns: int
+
+
+def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None:
+    """Compute the cache identity for *entry*, or None when unreadable.
+
+    Returns None when the entry has no source path or the file cannot be
+    read — the caller treats that as a cache miss, never a hit.
+    """
+    from rebrew.cli import resolve_compile_overrides
+
+    relative_path = getattr(entry, "filepath", "") or ""
+    if not relative_path:
+        return None
+    filepath = Path(cfg.reversed_dir) / relative_path
+    try:
+        st = filepath.stat()
+    except OSError:
+        return None
+    try:
+        source_hash = _source_hash(filepath)
+    except OSError:
+        return None
+    toolchain, cflags = resolve_compile_overrides(
+        cfg,
+        filepath.parent,
+        getattr(entry, "toolchain", ""),
+        getattr(entry, "cflags", ""),
+        getattr(entry, "module", ""),
+    )
+    defines = ",".join(sorted(getattr(cfg, "defines", None) or [])) or "(none)"
+    return EntryFingerprint(
+        toolchain=toolchain or _DEFAULT_TOOLCHAIN,
+        cflags=cflags,
+        defines=defines,
+        size=getattr(entry, "size", 0) or 0,
+        headers_fp=_entry_headers_fp(cfg, filepath, cflags),
+        source_hash=source_hash,
+        mtime_ns=st.st_mtime_ns,
+    )
+
+
+def cflags_equivalent(stored: str, current: str) -> bool:
+    """True when two CFLAGS strings compile identically.
+
+    Raw strings may differ cosmetically (flag reorder, dedup) while landing
+    in the same canonical equivalence class — only a material difference
+    invalidates the entry.  A legacy/degenerate empty side is never
+    equivalent (re-verify once).
+    """
+    import shlex
+
+    if not (stored and current):
+        return False
+    if stored == current:
+        return True
+    from rebrew.compile_cache import canonicalize_cflags
+
+    return canonicalize_cflags(shlex.split(stored)) == canonicalize_cflags(shlex.split(current))
 
 
 @functools.lru_cache(maxsize=1)

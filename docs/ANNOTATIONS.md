@@ -50,9 +50,9 @@ Rebrew extends the reccmp baseline with:
 |----------|---------|
 | `DATA` marker | Marks standalone global data (`// DATA: MODULE 0xVA`) |
 | `STUB` marker | Marks incomplete implementations (`STATUS: STUB`) — not a reccmp marker |
-| `STATUS` key | Track match quality (EXACT, RELOC, NEAR_MATCHING, etc.) |
-| `CFLAGS` key | Compiler flags needed to reproduce original compilation |
-| `SIZE` key | Function/data size in bytes from the original binary |
+| `STATUS` key | Track match quality (EXACT, RELOC, NEAR_MATCHING, etc.) — metadata-only, never parsed inline from `.c` (`_kv_to_annotation` hardcodes `STUB`; the value lives in `rebrew-functions.toml`) |
+| `CFLAGS` key | Compiler flags needed to reproduce original compilation — co-read inline (reccmp contract) + metadata override |
+| `SIZE` key | Function/data size in bytes from the original binary — co-read inline (reccmp contract) + metadata override |
 | `SOURCE` key | Reference file for library functions |
 | `BLOCKER` key | Explanation for why a STUB doesn't match yet |
 | `NOTE` key | Freeform notes |
@@ -78,9 +78,13 @@ Every `.c` file containing a reversed function must begin with a **marker line**
 // MARKER: MODULE 0xVA
 ```
 
-That's it. All metadata (STATUS, SIZE, CFLAGS, BLOCKER, etc.) lives in the
-`rebrew-functions.toml` file at `cfg.metadata_dir` — the parent of `reversed_dir`
-(e.g. `src/` for sources under `src/<module>/`). There is no walk-up: callers must
+That's it. Volatile per-function fields (STATUS, BLOCKER, NOTE, GHIDRA, …)
+live in the `rebrew-functions.toml` file at `cfg.metadata_dir` — the parent of `reversed_dir`
+(e.g. `src/` for sources under `src/<module>/`). Inline `// STATUS:` etc. in
+`.c` files are NOT parsed (`_kv_to_annotation` hardcodes `STUB`) — they are
+migration debt that `lint --fix` (W019) moves to the TOML. Co-read exceptions:
+`SIZE`/`CFLAGS` (reccmp contract, read from the `.c`) and file-borne
+`TOOLCHAIN`/`SOURCE`/`SECTION`/`STRUCT`/`CALLERS`. There is no walk-up: callers must
 pass the correct metadata root. Metadata is managed automatically by the CLI tools.
 
 > [!CAUTION]
@@ -144,9 +148,9 @@ support TU only when nothing in the reversed tree can carry it.
 | Key | Required? | Linter | Description |
 |-----|:---------:|--------|-------------|
 | Marker line | **Mandatory** | E001 | `// FUNCTION:`, `// LIBRARY:`, or `// STUB:` with MODULE and VA — or `// SUPPORT:` (see below) for link-only files |
-| `STATUS` | Metadata-owned | — | Match quality (see below); lives in rebrew-functions.toml, not inline |
-| `SIZE` | Metadata-owned | — | Function size in bytes from the original binary; lives in rebrew-functions.toml, not inline |
-| `CFLAGS` | Optional | W018 | Per-function compiler flag override. Falls back to the target's `base_cflags` in `rebrew-project.toml`. Only needed for functions compiled with non-default flags (e.g. a static lib linked with `/O1` into an `/O2` binary). |
+| `STATUS` | Metadata-owned | — | Match quality (see below); lives in rebrew-functions.toml, never parsed inline |
+| `SIZE` | Co-read (inline + override) | — | Function size in bytes from the original binary; `// SIZE:` is the reccmp contract in the `.c`, TOML `SIZE` is an override (W019 warns only on disagreement) |
+| `CFLAGS` | Co-read (inline + override) | W018 | Per-function compiler flag override, read both inline and from metadata. Falls back to the target's `base_cflags` in `rebrew-project.toml`. Only needed for functions compiled with non-default flags (e.g. a static lib linked with `/O1` into an `/O2` binary). |
 | `SOURCE` | Conditional | W006 | **Required for library modules** — reference file (e.g. `SBHEAP.C:195`, `deflate.c`). Use `rebrew crt-match --fix-source` to auto-populate. |
 | `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet. Lives in `rebrew-functions.toml` metadata; set via `rebrew blocker set <file|0xVA> "<reason>"` or auto-written by `rebrew diff --fix-blocker` — never hand-edit the TOML. |
 | `NOTE` | Optional | — | Freeform notes (e.g. `NOTE: uses SSE2 intrinsics`) — lives in metadata |
@@ -196,6 +200,13 @@ the metadata `comments` store for the same address.
 | `NEAR_MATCHING` | Functionally equivalent but bytes differ |
 | `PROVEN` | Semantically equivalent, proven via symbolic execution (angr + Z3) |
 | `STUB` | Placeholder, doesn't match yet |
+| `SKIP` | User-parked ("don't touch") — neutral gate rank, status-equal with `STUB` (see `verify._STATUS_RANK`/`_STATUS_ORDER`) |
+
+Machine verdicts persisted outside the lifecycle (see
+`rebrew.metadata.KNOWN_STATUSES`): `SIZE_MISMATCH`, `COMPILE_ERROR`,
+`EXTRACT_ERROR`, `MISSING_SIZE`, `MISSING_FILE`, `INVALID_VA`
+(`INTERNAL_ERROR` is never persisted). `LIBRARY` is a marker type, not a
+status.
 
 A `NEAR_MATCHING` whose **entire** byte delta is register allocation is
 labeled an *effective match* (reccmp's 100% effective-match case): `rebrew
@@ -465,7 +476,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 |------|-------------|--------------|
 | W008 | *(not implemented)* | Reserved for CFLAGS preset validation |
 | W018 | Missing CFLAGS with no config fallback | No CFLAGS in metadata **and** no `base_cflags` in project config — compile may use wrong flags |
-| W019 | Inline metadata annotation | `// STATUS:`, `// ORIGIN:`, `// SIZE:`, `// CFLAGS:`, `// BLOCKER:`, `// NOTE:`, `// GHIDRA:`, etc. inline — run `--fix` to move to `rebrew-functions.toml` |
+| W019 | Inline metadata annotation | `// STATUS:`, `// ORIGIN:`, `// BLOCKER:`, `// NOTE:`, `// GHIDRA:`, etc. inline — run `--fix` to move to `rebrew-functions.toml`. `SIZE`/`CFLAGS` exempt from migration (co-read; W019 warns only on inline↔metadata disagreement). `// SOURCE: naked` exempt (file-borne) |
 | W010 | Unknown annotation key | `// FOOBAR: value` — key not in the known set. `--fix` strips only retired derived keys (`SYMBOL`, `PROTOTYPE` — recomputed from the C source); anything else stays until a human decides |
 | W015 | Mixed-case VA hex digits | `0x10003Da0` — prefer consistent `0x10003da0` or `0x10003DA0` |
 | W020 | Asm-dump placeholder | Body uses `__asm`/`__emit` — pasted disassembly, not real C.  Does **not** fire for whole-function `__declspec(naked)` + asm (that is **E023** — error).  **Escalates** when the file's `STATUS` claims a non-stub match (`EXACT`/`RELOC`/...): an asm dump cannot be a byte-match, so the metadata status is wrong (fix it or mark `BLOCKER`).  `STATUS: STUB` + asm dump is an expected documented placeholder and gets the base message only |
@@ -676,7 +687,7 @@ Running `rebrew test --target SERVER_V2 getenv.c` will compile and diff against 
 
 ## Multi-Function Files
 
-A single `.c` file may contain **multiple `// FUNCTION:` annotation blocks**, each with its own `STATUS`, `SIZE`, etc. This enables grouping related functions together (e.g., all CRT environment functions in one file).
+A single `.c` file may contain **multiple `// FUNCTION:` annotation blocks**, each anchored to its own VA. Per-block STATUS etc. live in `rebrew-functions.toml` (inline `// STATUS:` is not parsed) — the block's identity is the marker line. This enables grouping related functions together (e.g., all CRT environment functions in one file).
 
 Use `rebrew split` to break a multi-function file into individual files, or `rebrew merge` to combine single-function files into one. Use `rebrew split --va 0xVA` to extract a single function for focused iteration (creates `<stem>_c/name.c` — e.g. `sim.c` → `sim_c/` — and removes the block from the original). Both tools preserve annotation blocks and shared preamble.
 

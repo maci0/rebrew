@@ -97,7 +97,7 @@ class TestLoadVerifyCache:
         cache_path = tmp_path / ".rebrew" / "verify_cache.json"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
-            "version": 1,
+            "version": 2,
             "compiler_hash": _compiler_config_hash(cfg),
             "headers_hash": _headers_hash(cfg),
             "target": cfg.target_name,
@@ -107,7 +107,7 @@ class TestLoadVerifyCache:
 
         loaded = _load_verify_cache(cache_path, cfg)
         assert loaded is not None
-        assert loaded.version == 1
+        assert loaded.version == 2
 
     def test_reject_invalid_json(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
@@ -136,7 +136,7 @@ class TestLoadVerifyCache:
         cache_path = tmp_path / ".rebrew" / "verify_cache.json"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
-            "version": 1,
+            "version": 2,
             "compiler_hash": _compiler_config_hash(cfg),
             "target": "OTHER",
             "entries": {},
@@ -150,7 +150,7 @@ class TestLoadVerifyCache:
         cache_path = tmp_path / ".rebrew" / "verify_cache.json"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
-            "version": 1,
+            "version": 2,
             "compiler_hash": "deadbeef",
             "target": cfg.target_name,
             "entries": {},
@@ -172,7 +172,7 @@ class TestVerifyCacheMatchesCfg:
         cache_path = tmp_path / ".rebrew" / "verify_cache.json"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
-            "version": 1,
+            "version": 2,
             "compiler_hash": _compiler_config_hash(cfg),
             "headers_hash": _headers_hash(cfg),
             "target": cfg.target_name,
@@ -188,7 +188,7 @@ class TestVerifyCacheMatchesCfg:
         cache_path = tmp_path / ".rebrew" / "verify_cache.json"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
-            "version": 1,
+            "version": 2,
             "compiler_hash": _compiler_config_hash(cfg),
             "headers_hash": _headers_hash(cfg),
             "target": "OTHER",
@@ -204,7 +204,7 @@ class TestVerifyCacheMatchesCfg:
         cache_path = tmp_path / ".rebrew" / "verify_cache.json"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
-            "version": 1,
+            "version": 2,
             "compiler_hash": "deadbeef",
             "headers_hash": _headers_hash(cfg),
             "target": cfg.target_name,
@@ -230,27 +230,23 @@ class TestPatchVerifyCacheEntries:
         cache_path = tmp_path / ".rebrew" / "verify_cache.json"
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
-            "version": 1,
+            "version": 2,
             "compiler_hash": _compiler_config_hash(cfg),
             "headers_hash": _headers_hash(cfg),
             "target": cfg.target_name,
             "entries": {
                 "0x00001000": {
                     "source_hash": "abc",
-                    "filepath": "func_a.c",
                     "mtime_ns": 1,
-                    "result": {
-                        "status": status,
-                        "va": "0x00001000",
-                        "size": 8,
-                        "filepath": "func_a.c",
-                        "name": "func_a",
-                        "symbol": "_func_a",
-                        "delta": 3,
-                        "match_percent": 50.0,
-                        "passed": False,
-                        "message": "",
-                    },
+                    "status": status,
+                    "va": "0x00001000",
+                    "filepath": "func_a.c",
+                    "name": "func_a",
+                    "symbol": "_func_a",
+                    "delta": 3,
+                    "match_percent": 50.0,
+                    "passed": False,
+                    "message": "",
                     "cflags": "",
                     "size": 8,
                 }
@@ -277,7 +273,7 @@ class TestPatchVerifyCacheEntries:
             ],
         )
         raw = json.loads((tmp_path / ".rebrew" / "verify_cache.json").read_text())
-        entry = raw["entries"]["0x00001000"]["result"]
+        entry = raw["entries"]["0x00001000"]
         assert entry["status"] == "RELOC"
         assert entry["passed"] is True
         assert entry["match_percent"] == 100.0
@@ -295,8 +291,8 @@ class TestPatchVerifyCacheEntries:
         cfg = _make_cfg(tmp_path)
         cache_path = self._make_cache(tmp_path, cfg, status="NEAR_MATCHING")
         data = json.loads(cache_path.read_text(encoding="utf-8"))
-        data["entries"]["0x00001000"]["result"]["match_percent"] = 60.0
-        data["entries"]["0x00001000"]["result"]["delta"] = 40
+        data["entries"]["0x00001000"]["match_percent"] = 60.0
+        data["entries"]["0x00001000"]["delta"] = 40
         cache_path.write_text(json.dumps(data), encoding="utf-8")
 
         patch_verify_cache_entries(
@@ -311,9 +307,7 @@ class TestPatchVerifyCacheEntries:
                 }
             ],
         )
-        entry = json.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"][
-            "result"
-        ]
+        entry = json.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
         assert entry["status"] == "NEAR_MATCHING"
         assert entry["match_percent"] == 92.0
         assert entry["delta"] == 8
@@ -348,7 +342,7 @@ class TestPatchVerifyCacheEntries:
             ],
         )
         raw = json.loads((tmp_path / ".rebrew" / "verify_cache.json").read_text())
-        assert raw["entries"]["0x00001000"]["result"]["status"] == "STUB"
+        assert raw["entries"]["0x00001000"]["status"] == "STUB"
 
     def test_no_patch_when_absent(self, tmp_path: Path) -> None:
         """No cache file → no crash, no file created."""
@@ -447,7 +441,7 @@ class TestPatchVerifyCacheEntries:
         )
         raw = json.loads(cache_path.read_text(encoding="utf-8"))
         assert raw["target"] == "OTHER"  # the concurrent save is intact...
-        assert raw["entries"]["0x00001000"]["result"]["status"] == "STUB"  # ...and unpatched
+        assert raw["entries"]["0x00001000"]["status"] == "STUB"  # ...and unpatched
 
     def test_save_and_round_trip(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
@@ -487,7 +481,7 @@ class TestPatchVerifyCacheEntries:
         cache_entries = loaded.entries
         assert "0x10001000" in cache_entries
         assert cache_entries["0x10001000"].filepath == "func_a.c"
-        assert cache_entries["0x10001000"].result.status == "EXACT"
+        assert cache_entries["0x10001000"].status == "EXACT"
 
     def test_overlaid_proven_stored_raw(self, tmp_path: Path) -> None:
         """The PROVEN overlay must not be baked into the cache.
@@ -535,8 +529,8 @@ class TestPatchVerifyCacheEntries:
 
         assert loaded is not None
         entry = loaded.entries["0x10001000"]
-        assert entry.result.status == "NEAR_MATCHING"
-        assert entry.result.passed is False
+        assert entry.status == "NEAR_MATCHING"
+        assert entry.passed is False
 
     def test_save_persists_reg_delta_and_effective_match(self, tmp_path: Path) -> None:
         """The prove queue reads effective_match back from the cache.
@@ -584,8 +578,8 @@ class TestPatchVerifyCacheEntries:
 
         assert loaded is not None
         entry = loaded.entries["0x10001000"]
-        assert entry.result.reg_delta == 4
-        assert entry.result.effective_match is True
+        assert entry.reg_delta == 4
+        assert entry.effective_match is True
         assert load_verify_details(cfg)[0x10001000] == ("NEAR_MATCHING", True)
 
 
@@ -840,7 +834,7 @@ class TestHeadersHashCacheInvalidation:
 
         # Write a cache with an intentionally wrong headers_hash
         data = {
-            "version": 1,
+            "version": 2,
             "compiler_hash": _compiler_config_hash(cfg),
             "headers_hash": "deadbeef",
             "target": cfg.target_name,
@@ -857,7 +851,7 @@ class TestHeadersHashCacheInvalidation:
 
         # Write a cache with the correct headers_hash (no headers present)
         data = {
-            "version": 1,
+            "version": 2,
             "compiler_hash": _compiler_config_hash(cfg),
             "headers_hash": _headers_hash(cfg),
             "target": cfg.target_name,

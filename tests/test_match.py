@@ -920,12 +920,16 @@ class TestFindSizeMismatch:
     --size-mismatch closes that gap (np-rebrew TOOLCHAIN_BUGS)."""
 
     def _write(self, tmp_path: Path, name: str, va: str, status: str) -> Path:
+        from rebrew.metadata import load_metadata, save_metadata
+
         f = tmp_path / name
         f.write_text(
-            f"// FUNCTION: SERVER {va}\n// STATUS: {status}\n// SIZE: 64\n"
-            f"int f(void) {{ return 0; }}\n",
+            f"// FUNCTION: SERVER {va}\n// SIZE: 64\nint f(void) {{ return 0; }}\n",
             encoding="utf-8",
         )
+        data = dict(load_metadata(tmp_path))
+        data[("SERVER", int(va, 16))] = {"status": status}
+        save_metadata(tmp_path, data)
         return f
 
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
@@ -1227,12 +1231,16 @@ class TestGaCeiling:
     GA batch selectors while staying prove-eligible."""
 
     def _write_near(self, tmp_path: Path, name: str, va: str) -> Path:
+        from rebrew.metadata import load_metadata, save_metadata
+
         f = tmp_path / name
         f.write_text(
-            f"// FUNCTION: SERVER {va}\n// STATUS: NEAR_MATCHING\n// SIZE: 64\n"
-            f"int f(void) {{ return 0; }}\n",
+            f"// FUNCTION: SERVER {va}\n// SIZE: 64\nint f(void) {{ return 0; }}\n",
             encoding="utf-8",
         )
+        data = dict(load_metadata(tmp_path))
+        data[("SERVER", int(va, 16))] = {"status": "NEAR_MATCHING"}
+        save_metadata(tmp_path, data)
         return f
 
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
@@ -1247,11 +1255,11 @@ class TestGaCeiling:
         )
 
     def _set_blocker(self, tmp_path: Path, va: int, text: str) -> None:
-        from rebrew.metadata import save_metadata
+        from rebrew.metadata import load_metadata, save_metadata
 
-        save_metadata(
-            tmp_path, {("SERVER", va): {"blocker": text, "status": "NEAR_MATCHING", "size": 64}}
-        )
+        data = dict(load_metadata(tmp_path))
+        data[("SERVER", va)] = {"blocker": text, "status": "NEAR_MATCHING", "size": 64}
+        save_metadata(tmp_path, data)
 
     def test_ceiling_excluded_from_improve_selectors(self, tmp_path: Path) -> None:
         from rebrew.match_batch import find_all_matching

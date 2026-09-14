@@ -277,7 +277,7 @@ def _resolve_annotation(
     annos = parse_c_file_multi(
         source, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
     )
-    funcs = [a for a in annos if a.marker_type not in ("GLOBAL", "DATA")]
+    funcs = [a for a in annos if a.is_function]
     if not funcs:
         raise ValueError(f"no function annotations in {source}")
     ann = funcs[0]

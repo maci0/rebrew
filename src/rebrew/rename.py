@@ -269,7 +269,7 @@ def _rename_data(
         )
 
     entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
-    data_entries = [e for e in entries if getattr(e, "marker_type", "") in ("DATA", "GLOBAL")]
+    data_entries = [e for e in entries if getattr(e, "is_data", False)]
 
     va_ident: int | None = None
     if target_ident.lower().startswith("0x"):
@@ -348,7 +348,7 @@ def _rename_data(
                 "renaming would create a duplicate symbol. Pick a different name.",
                 json_mode=json_output,
             )
-        if getattr(e, "marker_type", "") in ("DATA", "GLOBAL"):
+        if getattr(e, "is_data", False):
             other = str(
                 get_data_entry(
                     cfg.metadata_dir, getattr(e, "va", 0), getattr(e, "module", "") or ""

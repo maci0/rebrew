@@ -46,14 +46,20 @@ cflags = "/O2"
 
 _PROBE_C = """\
 // FUNCTION: GAME 0x00401000
-// STATUS: EXACT
 // SIZE: 22
 int my_func(void) { return 1; }
 
 // FUNCTION: GAME 0x00401034
-// STATUS: STUB
 // SIZE: 4
 int helper_fn(void) { return 0; }
+"""
+
+_PROBE_META = """\
+["GAME.0x00401000"]
+status = "EXACT"
+
+["GAME.0x00401034"]
+status = "STUB"
 """
 
 _FUNCTIONS_TXT = """\
@@ -148,6 +154,10 @@ def _make_project(
     src.mkdir()
     (src / "game.c").write_text(source, encoding="utf-8")
     (src / "functions.txt").write_text(functions, encoding="utf-8")
+    if source == _PROBE_C:
+        # Volatile STATUS lives in rebrew-functions.toml at the metadata
+        # root (the parent of reversed_dir).
+        (tmp_path / "rebrew-functions.toml").write_text(_PROBE_META, encoding="utf-8")
 
 
 def _make_binary(tmp_path: Path) -> int:

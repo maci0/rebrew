@@ -98,3 +98,23 @@ Single-source rules enforced by code where cheap:
 - `verify_cache.json` stays a *measured-result mirror* (not folded into
   metadata) so `rebrew status`/`todo` serve without recompiling and
   demotions aren't masked; its overlay precedence is documented.
+
+## Superseded notes (appended later — original text above left intact)
+
+Since this ADR was accepted:
+
+- **Baseline path**: the `--compare` baseline lives in
+  `.rebrew/verify_baseline.json`, not `db/verify_results.json` (unguarded
+  snapshot, no longer written — see `verify_cache.load_baseline`).
+- **Solutions merge**: `.rebrew/ga_runs.jsonl` is the live GA history log;
+  `.rebrew/solutions.json` is only the legacy pre-merge format, merged
+  read-only when present (see `matcher/solutions.py`).
+- **Inline parsing removal**: inline `// STATUS:`/`// BLOCKER:`/`// NOTE:`
+  etc. in `.c` files are no longer parsed (`_kv_to_annotation` hardcodes
+  `STUB`; values live in `rebrew-functions.toml`, migrated by `lint --fix`
+  / W019) — not "still read, linter migrates". Still read inline:
+  `SIZE`/`CFLAGS` (reccmp contract, co-read with metadata as override —
+  W019 warns only on disagreement) and file-borne `TOOLCHAIN`/`SOURCE`
+  (`// SOURCE: naked` must travel with the file)/`SECTION`/`STRUCT`/
+  `CALLERS`. The `library_*.h` extended KV parser remains the exception
+  (reads STATUS/SIZE/CFLAGS/SOURCE/BLOCKER/NOTE). See [METADATA.md](../METADATA.md).

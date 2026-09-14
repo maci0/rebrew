@@ -14,7 +14,9 @@ runner = CliRunner()
 
 
 def _ann(va: int = 0x401000, size: int = 16, name: str = "func_a", symbol: str = "_func_a"):
-    return SimpleNamespace(
+    from rebrew.annotation import Annotation
+
+    return Annotation(
         va=va,
         size=size,
         name=name,
@@ -23,6 +25,7 @@ def _ann(va: int = 0x401000, size: int = 16, name: str = "func_a", symbol: str =
         module="GAME",
         toolchain="msvc-6.0",
         cflags="/O2",
+        filepath="func_a.c",
     )
 
 

@@ -43,7 +43,7 @@ app = typer.Typer(
         "rebrew verify · · · · · · · Bulk-verify all reversed functions\n\n"
         "[bold]test vs verify vs match:[/bold]\n\n"
         "rebrew test <file> · · · · · Single function — compile, compare, auto-promote STATUS\n\n"
-        "rebrew test --all · · · · ·  Batch — same as verify but always recompiles\n\n"
+        "rebrew test --all · · · · ·  Batch — verify's engine, always recompiles\n\n"
         "rebrew verify · · · · · · ·  Batch — incremental verify with caching (--compare for CI)\n\n"
         "rebrew match <file> · · · ·  GA engine — iteratively mutate source to find byte match\n\n"
         "[bold]Status ladder (byte match, best → worst):[/bold]\n\n"

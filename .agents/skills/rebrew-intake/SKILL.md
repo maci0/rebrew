@@ -378,7 +378,7 @@ per-section cell stats, globals, and status-change history — at `http://127.0.
 (`--port` to change). It is read-only, so it is safe to leave running.
 
 The dashboard is the handoff to the reversing loop. As reversing proceeds, `rebrew verify`
-(writes `db/verify_results.json` by default) plus the next `rebrew build-db` import each
+(updates `.rebrew/verify_cache.json`) plus the next `rebrew build-db` import each
 function's byte delta into the DB's `verify_results` table, so the dashboard stays current.
 
 ## Summary Checklist

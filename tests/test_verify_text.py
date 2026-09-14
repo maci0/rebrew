@@ -24,6 +24,12 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
         target_binary=tmp_path / "fake.dll",
         db_dir=tmp_path / "db",
         default_jobs=2,
+        compiler_command="wine CL.EXE",
+        compiler_runner="docker",
+        base_cflags="/O2",
+        compiler_includes="",
+        compiler_libs="",
+        source_ext=".c",
     )
 
 
@@ -49,7 +55,7 @@ def _patch_flow(monkeypatch: pytest.MonkeyPatch, cfg: SimpleNamespace) -> None:
         lambda cfg, full, json_output, context=None: ([_ann(0x1000)], 1, 0, [], [], 0, [], [], []),
     )
     monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
-    monkeypatch.setattr("rebrew.verify._load_previous_report", lambda *a: (None, None))
+    monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda cfg: (None, None))
     monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
     monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
 

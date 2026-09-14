@@ -11,6 +11,8 @@ arbitrary annotation mixes:
 - should_promote_status is consistent with the three documented rules
   (sticky, STUB→SIZE_MISMATCH, unchanged) and never promotes to the same
   status.
+- every KNOWN_STATUS is covered by the display + gate tables (no silent
+  "unknown status" rendering or fail-open gating).
 """
 
 from __future__ import annotations
@@ -149,3 +151,38 @@ class TestShouldPromoteStatusInvariants:
         assert should_promote_status("STUB", "EXACT") is True
         assert should_promote_status("NEAR_MATCHING", "RELOC") is True
         assert should_promote_status("EXACT", "STUB") is True  # demotion ok
+
+
+class TestVocabularyCoverage:
+    """Every KNOWN_STATUS must be covered by the display + gate tables.
+
+    The canonical vocabulary lives in rebrew.metadata; the color table
+    (cli.STATUS_COLORS), the compare-gate ranks (verify._STATUS_RANK /
+    _STATUS_ORDER), and the workspace re-export must not silently miss a
+    status (uncolored output, fail-open gating).
+    """
+
+    def test_colors_cover_known_statuses(self) -> None:
+        from rebrew.cli import STATUS_COLORS
+        from rebrew.metadata import KNOWN_STATUSES
+
+        missing = set(KNOWN_STATUSES) - set(STATUS_COLORS)
+        assert not missing, f"statuses without display color: {missing}"
+
+    def test_gate_ranks_cover_known_statuses(self) -> None:
+        from rebrew.metadata import KNOWN_STATUSES
+        from rebrew.verify import _STATUS_ORDER, _STATUS_RANK
+
+        # INTERNAL_ERROR is deliberately absent from metadata (verify never
+        # persists tooling crashes) but must still rank in the gate tables.
+        for table in (_STATUS_RANK, _STATUS_ORDER):
+            missing = set(KNOWN_STATUSES) - set(table)
+            assert not missing, f"statuses without gate rank: {missing}"
+        assert "INTERNAL_ERROR" in _STATUS_RANK and "INTERNAL_ERROR" in _STATUS_ORDER
+
+    def test_workspace_mirror_is_identical(self) -> None:
+        from rebrew import metadata as _metadata
+        from rebrew.workspace import status as _workspace_status
+
+        assert _workspace_status.MATCHED_STATUSES == _metadata.MATCHED_STATUSES
+        assert _workspace_status.KNOWN_STATUSES == _metadata.KNOWN_STATUSES

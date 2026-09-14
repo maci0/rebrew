@@ -140,7 +140,7 @@ def _synthesize_target_objects(cfg: Any, out_dir: Path) -> list[dict[str, Any]]:
     for path, annos in iter_annotations(sources, target=marker, metadata_dir=cfg.metadata_dir):
         fns: list[tuple[str, int, bytes]] = []
         for a in annos:
-            if a.marker_type in ("GLOBAL", "DATA"):
+            if a.is_data:
                 continue
             va = int(a.va)
             size = int(a.size or 0)

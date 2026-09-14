@@ -376,9 +376,9 @@ def _collect_active_functions(
         # Get verify cache data if available
         va_key = f"0x{va:08x}"
         v_entry = verify_entries.get(va_key)
-        v_status = v_entry.result.status if v_entry else None
-        v_match = v_entry.result.match_percent if v_entry else None
-        v_delta = v_entry.result.delta if v_entry else None
+        v_status = v_entry.status if v_entry else None
+        v_match = v_entry.match_percent if v_entry else None
+        v_delta = v_entry.delta if v_entry else None
         if v_status == "MISSING_SIZE":
             # Nothing was extracted (0 target bytes), so the cached delta 0 is
             # vacuous — never present it as a "0B diff" quick-win.
@@ -580,7 +580,7 @@ def _collect_prover_candidates(
             continue
         va_key = f"0x{va:08x}"
         cached = verify_entries.get(va_key)
-        effective_status = cached.result.status if cached else ann_status
+        effective_status = cached.status if cached else ann_status
         if effective_status != "NEAR_MATCHING":
             continue
         # Metadata SIZE is authoritative (the real function extent — Ghidra's
@@ -591,8 +591,8 @@ def _collect_prover_candidates(
             continue
 
         filename = info.get("filename", "")
-        match_pct = cached.result.match_percent if cached else None
-        byte_delta = cached.result.delta if cached else None
+        match_pct = cached.match_percent if cached else None
+        byte_delta = cached.delta if cached else None
 
         # A measured candidate whose bytes are far apart (e.g. 65% match on a
         # 340B function) is not provable — the prover just exhausts its
@@ -637,12 +637,12 @@ def _load_verify_entries(cfg: ProjectConfig) -> dict[str, "VerifyCacheEntry"]:
     if raw is None:
         return {}
     try:
-        from rebrew.verify_cache import VerifyCache
+        from rebrew.verify_cache import CACHE_VERSION, VerifyCache
 
         data = VerifyCache.from_dict(raw)
     except (ValueError, AttributeError, ImportError, TypeError):
         return {}
-    if data.version != 1:
+    if data.version != CACHE_VERSION:
         return {}
     # Mirrors status.py's target guard: any mismatch is rejected, including a
     # legacy cache with no `target` against a named target (the old

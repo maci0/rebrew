@@ -10,7 +10,7 @@ blockers found.
 ```bash
 # One project, bounded batch, resume-aware, cross-project solutions seeding:
 rebrew match --all --max-stubs 20 --generations 50 --pop-size 32 --jobs 4 \
-    --seed-solutions-file ../<best-solved-project>/.rebrew/solutions.json --resume --json
+    --seed-solutions-file ../<best-solved-project>/.rebrew/ga_runs.jsonl --resume --json
 ```
 
 Measure progress with `rebrew status --json` (matched_pct) and

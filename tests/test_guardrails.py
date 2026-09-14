@@ -63,9 +63,10 @@ class TestParserConsolidation:
     """Verify parse_source_metadata delegates to parse_c_file_multi."""
 
     def test_status_matches(self, tmp_path: Path) -> None:
+        # Volatile keys are metadata-owned: inline STATUS is ignored (STUB default).
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
         meta = parse_source_metadata(str(p))
-        assert meta["STATUS"] == "EXACT"
+        assert meta["STATUS"] == "STUB"
 
     def test_cflags_matches(self, tmp_path: Path) -> None:
         p = _write_c(tmp_path, "func.c", VALID_HEADER)
@@ -94,10 +95,10 @@ class TestParserConsolidation:
         assert "FUNCTION" in meta
 
     def test_blocker_present(self, tmp_path: Path) -> None:
+        # Volatile keys are metadata-owned: inline BLOCKER is ignored.
         p = _write_c(tmp_path, "stub.c", STUB_HEADER)
         meta = parse_source_metadata(str(p))
-        assert "BLOCKER" in meta
-        assert "initial" in meta["BLOCKER"]
+        assert "BLOCKER" not in meta
 
 
 # ---------------------------------------------------------------------------

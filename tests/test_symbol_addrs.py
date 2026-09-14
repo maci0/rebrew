@@ -36,7 +36,14 @@ TEXT_VA = 0x1000
 def _fake_ann(
     va: int, name: str, marker: str = "FUNCTION", symbol: str = "", size: int = 0
 ) -> SimpleNamespace:
-    return SimpleNamespace(va=va, name=name, symbol=symbol, marker_type=marker, size=size)
+    return SimpleNamespace(
+        va=va,
+        name=name,
+        symbol=symbol,
+        marker_type=marker,
+        size=size,
+        is_data=marker in ("GLOBAL", "DATA"),
+    )
 
 
 def _patch(

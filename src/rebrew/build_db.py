@@ -10,6 +10,7 @@ import logging
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import typer
@@ -65,7 +66,9 @@ def _parse_int(value: Any, default: int = 0) -> int:
 #: none/padding/data/thunk and Ghidra label states).  Used to WARN on
 #: out-of-set states from hand-edited JSON — an unknown state otherwise
 #: vanishes silently into the section_cell_stats `other_count` bucket with no
-#: signal (db-review F4).
+#: signal (db-review F4).  `near_match` is the accepted alias for
+#: `near_matching` (canonical spelling: metadata.KNOWN_STATUSES); both read
+#: identically everywhere below.
 _KNOWN_CELL_STATES = {
     "exact",
     "reloc",
@@ -386,8 +389,14 @@ def build_db(
     target: str | None = None,
     json_output: bool = False,
     force: bool = False,
+    regen: bool = False,
 ) -> None:
-    """Aggregate ``data_*.json`` files into the configured coverage database."""
+    """Aggregate coverage data into the configured coverage database.
+
+    By default reads ``db/data_*.json`` files (written by ``rebrew catalog
+    --data-json``).  With *regen*, the coverage dicts are generated
+    in-process per target instead — no intermediate files.
+    """
     root_dir = Path(project_root).resolve() if project_root else Path.cwd().resolve()
     db_dir = resolve_db_dir(root_dir, json_output=json_output)
     db_dir.mkdir(parents=True, exist_ok=True)
@@ -640,40 +649,57 @@ def build_db(
             for table in ("sections", "functions", "globals", "metadata"):
                 c.execute(f"DELETE FROM {table} WHERE target = ?", (target,))
 
-        # Process data_*.json files, optionally filtered by target
-        json_files = list(db_dir.glob("data_*.json"))
-        if target:
-            json_files = [f for f in json_files if f.stem.removeprefix("data_") == target]
-        if not json_files:
-            error_exit(
-                f"No data_*.json files found in {db_dir}. Run 'rebrew catalog --json' first.",
-                json_mode=json_output,
-                code=EXIT_ERROR,
-            )
+        # Process data_*.json files, optionally filtered by target.
+        # With --regen the dicts come straight from the catalog pipeline
+        # (no intermediate files); otherwise they are read from disk.
+        datasets: list[tuple[str, dict[str, Any]]] = []
+        if regen:
+            from rebrew.catalog.cli import build_catalog_data
 
-        for json_path in json_files:
-            target_name = json_path.stem.removeprefix("data_")
-            console.print(f"Processing {target_name}...")
-
-            with json_path.open(encoding="utf-8") as f:
+            base_cfg = load_config(root_dir)
+            regen_targets = [target] if target else (base_cfg.all_targets or [base_cfg.target_name])
+            for tgt in regen_targets:
                 try:
-                    data = json.load(f)
-                except json.JSONDecodeError as exc:
-                    error_exit(
-                        f"{json_path.name} is not valid JSON: {exc}. Regenerate it "
-                        "with 'rebrew catalog --data-json'.",
-                        json_mode=json_output,
-                        code=EXIT_ERROR,
-                    )
-                if not isinstance(data, dict):
-                    error_exit(
-                        f"{json_path.name} has unexpected shape (expected a JSON "
-                        f"object, got {type(data).__name__}). Regenerate it with "
-                        "'rebrew catalog --data-json'.",
-                        json_mode=json_output,
-                        code=EXIT_ERROR,
-                    )
+                    tgt_cfg = load_config(root_dir, target=tgt)
+                except (FileNotFoundError, KeyError, ValueError, TypeError) as exc:
+                    error_exit(f"Config error for target {tgt!r}: {exc}", json_mode=json_output)
+                console.print(f"Processing {tgt}...")
+                datasets.append((tgt, build_catalog_data(tgt_cfg)["data"]))
+        else:
+            json_files = list(db_dir.glob("data_*.json"))
+            if target:
+                json_files = [f for f in json_files if f.stem.removeprefix("data_") == target]
+            if not json_files:
+                error_exit(
+                    f"No data_*.json files found in {db_dir}. Run 'rebrew catalog --json' first.",
+                    json_mode=json_output,
+                    code=EXIT_ERROR,
+                )
+            for json_path in json_files:
+                target_name = json_path.stem.removeprefix("data_")
+                console.print(f"Processing {target_name}...")
 
+                with json_path.open(encoding="utf-8") as f:
+                    try:
+                        data = json.load(f)
+                    except json.JSONDecodeError as exc:
+                        error_exit(
+                            f"{json_path.name} is not valid JSON: {exc}. Regenerate it "
+                            "with 'rebrew catalog --data-json'.",
+                            json_mode=json_output,
+                            code=EXIT_ERROR,
+                        )
+                    if not isinstance(data, dict):
+                        error_exit(
+                            f"{json_path.name} has unexpected shape (expected a JSON "
+                            f"object, got {type(data).__name__}). Regenerate it with "
+                            "'rebrew catalog --data-json'.",
+                            json_mode=json_output,
+                            code=EXIT_ERROR,
+                        )
+                datasets.append((target_name, data))
+
+        for target_name, data in datasets:
             fn_rows = []
             bad_va = 0
             for va, fn in data.get("functions", {}).items():
@@ -1008,61 +1034,76 @@ def build_db(
                 (_HISTORY_RETENTION,),
             )
 
-            # Import the last `rebrew verify -o` report (db/verify_results.json)
-            # so the verify_results table carries real per-function data instead
-            # of staying empty.  Best-effort: a missing/stale report is fine.
-            vr_path = db_dir / "verify_results.json"
-            if vr_path.exists():
-                try:
-                    vr_data = json.loads(vr_path.read_text(encoding="utf-8"))
-                except (OSError, json.JSONDecodeError, TypeError):
-                    vr_data = {}
-                if vr_data.get("target") == target_name:
-                    vr_time = str(vr_data.get("timestamp") or now_iso)
-                    vr_rows = []
-                    for item in vr_data.get("results", []):
-                        try:
-                            va_int = int(item.get("va", "0"), 0)
-                        except (ValueError, TypeError):
-                            continue
-                        vr_rows.append(
-                            (
-                                target_name,
-                                va_int,
-                                vr_time,
-                                item.get("delta"),
-                                item.get("diff_lines"),
-                                item.get("similarity"),
-                                item.get("reg_delta"),
-                                item.get("effective_match"),
-                            )
+            # Import the verify cache's per-function rows so the
+            # verify_results table carries real per-function data instead of
+            # staying empty.  The cache rows ARE the report rows (same shape),
+            # and they carry identity guards the old db/verify_results.json
+            # snapshot lacked.  Best-effort: a missing cache is fine.
+            from rebrew.cli import load_verify_cache_raw
+
+            vr_rows = []
+            vr_time = now_iso
+            raw_cache = load_verify_cache_raw(SimpleNamespace(root=root_dir))
+            cache_entries: dict[str, Any] = {}
+            ours = isinstance(raw_cache, dict) and raw_cache.get("target") == target_name
+            if ours and isinstance(raw_cache, dict):
+                maybe_entries = raw_cache.get("entries")
+                if isinstance(maybe_entries, dict):
+                    cache_entries = maybe_entries
+            if cache_entries:
+                with contextlib.suppress(OSError):
+                    vr_time = str(
+                        datetime.fromtimestamp(
+                            (root_dir / ".rebrew" / "verify_cache.json").stat().st_mtime,
+                            tz=UTC,
+                        ).isoformat()
+                    )
+                for va_key, item in cache_entries.items():
+                    if not isinstance(item, dict):
+                        continue
+                    try:
+                        va_int = int(str(item.get("va", va_key)), 0)
+                    except (ValueError, TypeError):
+                        continue
+                    vr_rows.append(
+                        (
+                            target_name,
+                            va_int,
+                            vr_time,
+                            item.get("delta"),
+                            item.get("diff_lines"),
+                            item.get("similarity"),
+                            item.get("reg_delta"),
+                            item.get("effective_match"),
                         )
-                    if vr_rows:
-                        c.executemany(
-                            "INSERT OR REPLACE INTO verify_results "
-                            "(target, va, verified_at, byte_delta, diff_lines, "
-                            "similarity, reg_delta, effective_match) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                            vr_rows,
-                        )
-                    # Prune rows for functions absent from the latest report
-                    # (the report is best-effort and can legitimately shrink).
-                    # Guard on the PARSED vr_rows, not the raw results list:
-                    # a report whose every `va` fails to parse (e.g. null)
-                    # yields an empty IN-list, and SQLite treats `x NOT IN ()`
-                    # as vacuously TRUE — deleting the target's ENTIRE history
-                    # silently (db-review F5).  With no parseable VAs, prune
-                    # nothing; only a report with results AND parseable VAs
-                    # prunes its stale rows.
-                    if vr_rows:
-                        c.execute(
-                            "DELETE FROM verify_results WHERE target = ? AND va NOT IN ("
-                            + ",".join("?" * len(vr_rows))
-                            + ")",
-                            (target_name, *(r[1] for r in vr_rows)),
-                        )
-                    elif not vr_data.get("results"):
-                        c.execute("DELETE FROM verify_results WHERE target = ?", (target_name,))
+                    )
+            if vr_rows:
+                c.executemany(
+                    "INSERT OR REPLACE INTO verify_results "
+                    "(target, va, verified_at, byte_delta, diff_lines, "
+                    "similarity, reg_delta, effective_match) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    vr_rows,
+                )
+                # Prune rows for functions absent from the latest cache
+                # (it is best-effort and can legitimately shrink).
+                # Guard on the PARSED vr_rows, not the raw entries:
+                # zero parseable VAs prunes nothing; only rows with
+                # parseable VAs prune their stale siblings.
+                c.execute(
+                    "DELETE FROM verify_results WHERE target = ? AND va NOT IN ("
+                    + ",".join("?" * len(vr_rows))
+                    + ")",
+                    (target_name, *(r[1] for r in vr_rows)),
+                )
+            elif ours and not cache_entries:
+                # The cache names this target but holds no rows — the target
+                # was fully unverified, so its stale rows go.  (A missing or
+                # other-target cache leaves rows alone — the table is never
+                # dropped on rebuild.)
+                c.execute("DELETE FROM verify_results WHERE target = ?", (target_name,))
+            # Otherwise (no cache, or another target's): leave rows alone —
+            # the table is never dropped on rebuild.
 
             # Schema version stamp: written under a reserved __schema__ row so
             # readers never depend on an arbitrary target's stamp (a scoped
@@ -1104,7 +1145,8 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew build-db · · · · · · · · · · · Build db/coverage.db from db/data_*.json\n\n"
+        "  rebrew build-db · · · · · · · · · · · Build db/coverage.db (reads db/data_*.json)\n\n"
+        "  rebrew build-db --regen · · · · · · · Generate coverage in-process, no JSON files\n\n"
         "  rebrew build-db --root /path/to/project  Specify project root explicitly\n\n"
         "[bold]Prerequisites:[/bold]\n\n"
         "  Run 'rebrew catalog --json' first to generate db/data_*.json files.\n\n"
@@ -1131,9 +1173,15 @@ def main(
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
+    regen: bool = typer.Option(
+        False,
+        "--regen",
+        help="Generate coverage data in-process per target instead of reading "
+        "db/data_*.json files (no intermediate files)",
+    ),
 ) -> None:
     """CLI entry point for rebrew build-db."""
-    build_db(root, target=target, json_output=json_output, force=force)
+    build_db(root, target=target, json_output=json_output, force=force, regen=regen)
 
 
 def main_entry() -> None:

@@ -236,7 +236,7 @@ def _load_verify_info(cfg: ProjectConfig) -> VerifyInfo | None:
     if raw is None:
         return None
 
-    if not isinstance(raw, dict) or raw.get("version") != 1:
+    if not isinstance(raw, dict) or raw.get("version") != 2:
         return None
     # A cache written for another target (or with stale compiler/hash state)
     # must not be presented as this project's verification summary.
@@ -252,10 +252,11 @@ def _load_verify_info(cfg: ProjectConfig) -> VerifyInfo | None:
     for entry_data in entries.values():
         if not isinstance(entry_data, dict):
             continue
-        result = entry_data.get("result")
-        if not isinstance(result, dict):
-            continue  # null/malformed result — skip, don't count as failed
-        if result.get("passed", False):
+        # A row without a verdict status is malformed — skipped, never
+        # counted as failed.
+        if not entry_data.get("status"):
+            continue
+        if entry_data.get("passed", False):
             passed += 1
         else:
             failed += 1
@@ -330,13 +331,7 @@ def load_verify_details(cfg: ProjectConfig) -> dict[int, tuple[str, bool]]:
     for va_str, entry_data in entries.items():
         if not isinstance(entry_data, dict):
             continue
-        # `.get(key, {})` only defaults when the key is ABSENT; a null result
-        # (which the sibling `_load_verify_info` explicitly guards) would raise
-        # AttributeError here and take `rebrew status`/`todo` down with it.
-        result = entry_data.get("result")
-        if not isinstance(result, dict):
-            continue
-        status = result.get("status", "")
+        status = entry_data.get("status", "")
         if not status:
             continue
         from rebrew.verify_cache import canonical_va_key
@@ -344,7 +339,7 @@ def load_verify_details(cfg: ProjectConfig) -> dict[int, tuple[str, bool]]:
         va = canonical_va_key(va_str)
         if not isinstance(va, int):
             continue
-        details[va] = (status, bool(result.get("effective_match", False)))
+        details[va] = (status, bool(entry_data.get("effective_match", False)))
     return details
 
 
@@ -614,7 +609,9 @@ def _w019_key_backed(
     """
     marker_type, module, va = block
     mod_va = (module, va)
-    if marker_type in ("DATA", "GLOBAL"):
+    from rebrew.annotation import DATA_MARKERS
+
+    if marker_type in DATA_MARKERS:
         if key.lower() in {"size", "section", "note"}:
             entry = data_entries.get(mod_va, {})
             return key.lower() in {k.lower() for k in entry}

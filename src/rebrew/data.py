@@ -370,7 +370,7 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
         for ann in parse_c_file_multi(
             cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir if cfg else None
         ):
-            if ann.marker_type == "DATA":
+            if ann.is_data:
                 # Metadata root is cfg.metadata_dir — passing cfile.parent
                 # silently no-ops the overlay when the metadata dir differs
                 # from the source dir (the sibling call at line ~1000 uses

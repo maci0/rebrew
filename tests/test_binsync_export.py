@@ -196,18 +196,15 @@ class TestBinsyncExportComments:
     def test_note_written_at_va_plus_one(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        from rebrew.metadata import update_field
+
         _make_project(
             tmp_path,
             {
-                "g.c": (
-                    "// FUNCTION: SERVER 0x10020000\n"
-                    "// STATUS: EXACT\n"
-                    "// SIZE: 8\n"
-                    "// NOTE: worth double-checking\n"
-                    "void g(void) {}\n"
-                ),
+                "g.c": ("// FUNCTION: SERVER 0x10020000\n// SIZE: 8\nvoid g(void) {}\n"),
             },
         )
+        update_field(tmp_path, 0x10020000, "note", "worth double-checking", "SERVER")
         result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
         comments = _load_artifacts(outdir / "comments.toml", "comment")
@@ -771,15 +768,13 @@ class TestDeclibParse:
     ) -> None:
         from declib.artifacts import Comment, Enum, Function, GlobalVariable, Struct, Typedef
 
+        from rebrew.metadata import update_field
+
         _make_project(
             tmp_path,
             {
                 "foo.c": (
-                    "// FUNCTION: SERVER 0x10001000\n"
-                    "// STATUS: EXACT\n"
-                    "// SIZE: 16\n"
-                    "// NOTE: a note\n"
-                    "int foo(void) { return 1; }\n"
+                    "// FUNCTION: SERVER 0x10001000\n// SIZE: 16\nint foo(void) { return 1; }\n"
                 ),
                 "data.c": "// GLOBAL: SERVER 0x01008000\n// SIZE: 4\nchar g_x;\n",
                 "types.h": (
@@ -789,6 +784,7 @@ class TestDeclibParse:
                 ),
             },
         )
+        update_field(tmp_path, 0x10001000, "note", "a note", "SERVER")
         result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0, result.output
 

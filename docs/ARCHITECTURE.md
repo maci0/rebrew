@@ -136,9 +136,13 @@ would be a second answer to that question. See
 
 ## The compile → compare → STATUS/BLOCKER loop
 
-1. `parse_c_file_multi()` reads markers + inline keys from a `.c` file.
+1. `parse_c_file_multi()` reads the marker line + co-read inline keys
+   (`SIZE`/`CFLAGS` reccmp contract, file-borne `TOOLCHAIN`/`SOURCE`/
+   `SECTION`/`STRUCT`/`CALLERS`) from a `.c` file. Inline `STATUS` etc.
+   are NOT parsed (`_kv_to_annotation` hardcodes `STUB`).
 2. `merge_into_annotation()` overlays `rebrew-functions.toml` values (metadata
-   wins for owned fields: STATUS, SIZE, CFLAGS, BLOCKER, NOTE, GHIDRA, …).
+   wins for owned fields: STATUS, BLOCKER, NOTE, GHIDRA, …; SIZE/CFLAGS are
+   co-read with metadata as override).
 3. `compile_and_compare()` compiles the source in the pinned toolchain
    image (`toolchain.py` — docker-only for every Windows/DOS compiler, built
    from the `rebrew-toolchains` checkout) and byte-compares against the
@@ -150,15 +154,21 @@ would be a second answer to that question. See
 
 ## Metadata routing rules (file-only vs metadata-only)
 
-- **metadata-owned**: STATUS, SIZE, CFLAGS, TOOLCHAIN, BLOCKER, BLOCKER_DELTA,
+- **metadata-owned**: STATUS, TOOLCHAIN, BLOCKER, BLOCKER_DELTA,
   NOTE, GHIDRA, ANALYSIS, SKIP, GLOBALS, SOURCE, PROVE_CONSTRAINTS,
   UPDATED_BY, UPDATED_AT (STATUS-write provenance) — live in
-  `rebrew-functions.toml`; inline use fires lint W019.
+  `rebrew-functions.toml`; inline use fires lint W019. SIZE/CFLAGS are also
+  metadata fields but co-read inline (reccmp contract — W019 warns only on
+  disagreement, never migrates); `// SOURCE: naked` is file-borne and
+  exempt.
 - **file-only**: MARKER, VA, MODULE, SYMBOL — live in the `.c` block.
-- **legacy**: ORIGIN (derived from module), SECTION (owned by
-  `rebrew-data.toml`) — inline → W019, never stored in function metadata.
+- **legacy**: ORIGIN (derived from module) — inline → W019, never stored in function metadata.
+- **data-owned**: SECTION (owned by `rebrew-data.toml` for DATA/GLOBAL
+  entries) — deliberately absent from function `METADATA_FIELDS`.
 - `metadata.METADATA_FIELDS` is the single routing table (annotation.py keeps
-  `METADATA_KEYS` in sync so lint W019 fires on inline metadata keys);
+  `METADATA_KEYS` in sync so lint W019 fires on inline metadata keys; the
+  `SIZE`/`CFLAGS`/`SOURCE:naked` exemptions live in W019's check, not the
+  key set);
   `metadata_model.MetadataEntry.apply` rejects writes of any other key with
   `MetadataValidationError`.
 

@@ -109,17 +109,17 @@ def _cached_verify_status(cfg: Any, va: int) -> str | None:
     if not cache_path.exists():
         return None
     try:
-        from rebrew.verify_cache import VerifyCache
+        from rebrew.verify_cache import CACHE_VERSION, VerifyCache
 
         data = VerifyCache.from_dict(json.loads(cache_path.read_text(encoding="utf-8")))
     except (json.JSONDecodeError, OSError, ValueError, AttributeError, ImportError):
         return None
-    if data.version != 1:
+    if data.version != CACHE_VERSION:
         return None
     if data.target and data.target != getattr(cfg, "target_name", None):
         return None
     entry = data.entries.get(f"0x{va:08x}")
-    return entry.result.status if entry is not None else None
+    return entry.status if entry is not None else None
 
 
 # ---------------------------------------------------------------------------

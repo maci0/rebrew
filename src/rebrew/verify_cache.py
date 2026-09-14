@@ -1,8 +1,12 @@
 """verify_cache.py — the verify result cache.
 
-VerifyResult / VerifyCacheEntry / VerifyCache, the cache-identity predicate,
-the atomic read/write helpers, and the VA-key canonicalisation shared by the
-status, todo, report, and match views.
+The cache row IS the report row: ``VerifyCacheEntry`` carries the same
+verdict fields (``status``, ``va``, ``passed``, ``match_percent``,
+``delta``, ...) that ``rebrew verify --json`` emits per function, plus the
+cache-identity inputs (``source_hash``, ``mtime_ns``, ``cflags``,
+``size``, ``headers_fp``, ``toolchain``, ``defines``) alongside — no
+``result`` nesting.  ``rebrew status``/``todo``/``report`` therefore read
+the same shape the report writes.
 """
 
 from __future__ import annotations
@@ -12,18 +16,17 @@ import hashlib
 import json
 import logging
 import threading
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from rebrew.metadata import MATCHED_STATUSES
 from rebrew.utils import atomic_write_text
+from rebrew.utils import canonical_va_key as canonical_va_key
 from rebrew.verify_hash import (
-    _DEFAULT_TOOLCHAIN,
     _compiler_config_hash,
-    _entry_headers_fp,
     _headers_hash,
-    _source_hash,
+    entry_fingerprint,
 )
 
 if TYPE_CHECKING:
@@ -32,17 +35,52 @@ if TYPE_CHECKING:
     from rebrew.annotation import Annotation
     from rebrew.config import ProjectConfig
 
+#: Current cache schema version (flat rows).
+CACHE_VERSION = 2
+
+
+#: Verdict fields shared by the report row and the cache row — one shape,
+#: two envelopes.  The cache adds the identity inputs alongside (see
+#: VerifyCacheEntry); the report nests rows under ``results``.
+#: ``module`` rides along so a re-annotated function (same VA, new module)
+#: cannot be served a stale verdict earned under its old module.
+RESULT_FIELDS: tuple[str, ...] = (
+    "status",
+    "va",
+    "size",
+    "filepath",
+    "name",
+    "symbol",
+    "module",
+    "delta",
+    "match_percent",
+    "passed",
+    "message",
+    "similarity",
+    "reg_delta",
+    "effective_match",
+    # report-only extras, carried so a cached row re-serves byte-identically
+    "diff_lines",
+    "context_hash",
+)
+
 
 @dataclass
-class VerifyResult:
-    """Represents the verification result of a single compiled function."""
+class VerifyCacheEntry:
+    """One cached verdict: the report row + its cache-identity inputs, flat.
 
-    status: str
-    va: str | int
+    No ``result`` nesting — the verdict fields ARE the entry's fields, so
+    ``rebrew status``/``todo``/``report`` read the same keys ``rebrew verify
+    --json`` emits.
+    """
+
+    status: str = ""
+    va: str | int = ""
     size: int = 0
     filepath: str = ""
     name: str = ""
     symbol: str = ""
+    module: str = ""
     delta: int | None = None
     match_percent: float | None = None
     passed: bool = False
@@ -50,39 +88,10 @@ class VerifyResult:
     similarity: float | None = None
     reg_delta: int | None = None
     effective_match: bool = False
-
-    @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> VerifyResult:
-        """Reconstruct a VerifyResult from a JSON dictionary."""
-        return cls(
-            status=str(d.get("status", "")),
-            va=d.get("va", ""),
-            size=int(d.get("size", 0)),
-            filepath=str(d.get("filepath", "")),
-            name=str(d.get("name", "")),
-            symbol=str(d.get("symbol", "")),
-            delta=d.get("delta"),
-            match_percent=d.get("match_percent"),
-            passed=bool(d.get("passed", False)),
-            message=str(d.get("message", "")),
-            similarity=d.get("similarity"),
-            reg_delta=d.get("reg_delta"),
-            effective_match=bool(d.get("effective_match", False)),
-        )
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert this VerifyResult to a JSON-serializable dictionary."""
-        return asdict(self)
-
-
-@dataclass
-class VerifyCacheEntry:
-    """A single cache entry linking a source file hash to its VerifyResult."""
-
-    source_hash: str
-    filepath: str
-    mtime_ns: int
-    result: VerifyResult
+    diff_lines: int | None = None
+    context_hash: str | None = None
+    source_hash: str = ""
+    mtime_ns: int = 0
     cflags: str = ""
     """Per-function CFLAGS used for the cached run.
 
@@ -91,14 +100,6 @@ class VerifyCacheEntry:
     --fix-cflags`` rewrites metadata and leaves the source untouched).
     Entries written before this field existed carry ``""`` and are re-verified
     once."""
-
-    size: int = -1
-    """Annotation SIZE at cache time.
-
-    SIZE is metadata-only (``rebrew-functions.toml``) — editing it via
-    ``rebrew catalog --fix-sizes`` never touches the ``.c`` mtime, so the
-    source hash cannot detect it either.  Entries written before this field
-    existed carry ``-1`` (unknown) and are re-verified once."""
 
     headers_fp: str = ""
     """Per-source header-dependency fingerprint (reached ``#include`` closure).
@@ -131,22 +132,21 @@ class VerifyCacheEntry:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> VerifyCacheEntry:
-        """Reconstruct a VerifyCacheEntry from a JSON dictionary."""
-        return cls(
-            source_hash=str(d.get("source_hash", "")),
-            filepath=str(d.get("filepath", "")),
-            mtime_ns=int(d.get("mtime_ns", 0)),
-            result=VerifyResult.from_dict(d.get("result", {})),
-            cflags=str(d.get("cflags", "")),
-            size=int(d.get("size", -1)),
-            headers_fp=str(d.get("headers_fp", "")),
-            toolchain=str(d.get("toolchain", "")),
-            defines=str(d.get("defines", "")),
-        )
+        """Reconstruct a VerifyCacheEntry from a JSON dictionary (flat v2 form)."""
+        kwargs: dict[str, Any] = {}
+        for f in fields(cls):
+            if f.name in d:
+                kwargs[f.name] = d[f.name]
+        return cls(**kwargs)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert this VerifyCacheEntry to a JSON-serializable dictionary."""
         return asdict(self)
+
+    def result_row(self) -> dict[str, Any]:
+        """The report row: verdict fields only, no cache-identity inputs."""
+        d = asdict(self)
+        return {k: d[k] for k in RESULT_FIELDS if k in d}
 
 
 @dataclass
@@ -319,9 +319,8 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
         for p in patches:
             va_key = f"0x{p['va']:08x}"
             entry = entries.get(va_key)
-            if entry is None:
+            if not isinstance(entry, dict):
                 continue  # No cached entry to patch
-            result = entry.get("result", {})
             total = p["total"]
             match_pct = round(100.0 * p["match_count"] / total, 1) if total > 0 else 0.0
             passed = p["status"] in MATCHED_STATUSES
@@ -330,23 +329,22 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             elif total > 0:
                 delta = total - p["match_count"]
             else:
-                delta = result.get("delta")
+                delta = entry.get("delta")
             # An unchanged status can still carry a fresh match count/percent
             # (a GA run improving NEAR_MATCHING 60% -> 92%): skipping only on
             # status equality left todo's prover queue reading the stale
             # percent and dropping the candidate.
             if (
-                result.get("status", "") == p["status"]
-                and result.get("match_percent") == match_pct
-                and result.get("passed") == passed
-                and result.get("delta") == delta
+                entry.get("status", "") == p["status"]
+                and entry.get("match_percent") == match_pct
+                and entry.get("passed") == passed
+                and entry.get("delta") == delta
             ):
                 continue  # Already in sync
-            result["status"] = p["status"]
-            result["match_percent"] = match_pct
-            result["passed"] = passed
-            result["delta"] = delta
-            entry["result"] = result
+            entry["status"] = p["status"]
+            entry["match_percent"] = match_pct
+            entry["passed"] = passed
+            entry["delta"] = delta
             entries[va_key] = entry
             changed = True
 
@@ -374,6 +372,8 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
                 continue
             entry["mtime_ns"] = st.st_mtime_ns
             try:
+                from rebrew.verify_hash import _source_hash
+
                 entry["source_hash"] = _source_hash(fspath)
             except OSError:
                 continue
@@ -394,7 +394,7 @@ def _load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | No
         data = VerifyCache.from_dict(json.loads(cache_path.read_text(encoding="utf-8")))
     except (json.JSONDecodeError, OSError, TypeError, ValueError, AttributeError):
         return None
-    if data.version != 1:
+    if data.version != CACHE_VERSION:
         return None
     if data.target != cfg.target_name:
         return None
@@ -420,38 +420,20 @@ def _save_verify_cache(
     preserve_keys: set[str] | None = None,
 ) -> None:
     filepath_info: dict[str, tuple[int, str]] = {}
-    cflags_by_va: dict[str, str] = {}
-    size_by_va: dict[str, int] = {}
-    headers_fp_by_va: dict[str, str] = {}
-    toolchain_by_va: dict[str, str] = {}
-    defines_norm = ",".join(sorted(getattr(cfg, "defines", None) or [])) or "(none)"
+    fp_by_va: dict[str, Any] = {}
     for entry in entries:
         va_key = f"0x{entry.va:08x}"
-        # Store the RESOLVED effective flags (per-function metadata → module
-        # preset → [compiler].cflags → default) — the flags the compile
-        # actually used.  The old code stored only the metadata CFLAGS, so a
-        # `rebrew cfg set-cflags` or [compiler].cflags edit changed the
-        # effective flags without changing the cache key or entry guard, and
-        # stale results kept being served (config-review F3).
-        from rebrew.cli import resolve_compile_overrides
-
-        _tc, _cf = resolve_compile_overrides(
-            cfg,
-            (cfg.reversed_dir / entry.filepath).parent if entry.filepath else cfg.root,
-            getattr(entry, "toolchain", ""),
-            getattr(entry, "cflags", ""),
-            getattr(entry, "module", ""),
-        )
-        cflags_by_va[va_key] = _cf
-        size_by_va[va_key] = entry.size or 0
-        toolchain_by_va[va_key] = _tc or _DEFAULT_TOOLCHAIN
+        # One shared computation of every identity input (resolved flags,
+        # toolchain, defines, size, header closure, source hash) — the hit
+        # check in prepare_entries compares against these same values.
+        fp = entry_fingerprint(cfg, entry)
+        if fp is None:
+            continue
         relative_path = getattr(entry, "filepath", "")
         if not relative_path:
             continue
-        filepath = cfg.reversed_dir / relative_path
-        if filepath.exists():
-            filepath_info[relative_path] = (filepath.stat().st_mtime_ns, _source_hash(filepath))
-            headers_fp_by_va[va_key] = _entry_headers_fp(cfg, filepath, _cf)
+        filepath_info[relative_path] = (fp.mtime_ns, fp.source_hash)
+        fp_by_va[va_key] = fp
 
     cache_entries: dict[str, dict[str, Any]] = {}
     for result in results:
@@ -468,41 +450,24 @@ def _save_verify_cache(
             continue
         mtime, source_hash = file_info
 
-        # Ensure result has default fields present
-        res_dict = {
-            "status": result.get("status", ""),
-            "va": va_key,
-            "size": result.get("size", 0),
-            "filepath": filepath,
-            "name": result.get("name", ""),
-            "symbol": result.get("symbol", ""),
-            "delta": result.get("delta", None),
-            "match_percent": result.get("match_percent", None),
-            "passed": result.get("passed", False),
-            "message": result.get("message", ""),
-            "similarity": result.get("similarity", None),
-            # reg_delta/effective_match drive the prove queue (status.py) and
-            # the coverage DB; dropping them here made every cached entry read
-            # back as "not effective" and kept ``rebrew status`` reporting 0
-            # effective matches.
-            "reg_delta": result.get("reg_delta"),
-            "effective_match": result.get("effective_match", False),
-        }
+        # The stored row IS the report row (verdict fields) plus the
+        # cache-identity inputs alongside — one shape, no nesting.
+        fp_entry = fp_by_va[str(va_key)]
+        res_dict = {k: result.get(k) for k in RESULT_FIELDS}
+        res_dict["va"] = va_key
         # Overlaid PROVEN entries store their pre-overlay byte result so a
         # later metadata STATUS demotion is not masked by a stale cache hit.
         if raw_statuses is not None and va_key in raw_statuses:
             res_dict["status"], res_dict["passed"] = raw_statuses[va_key]
 
         cache_entries[str(va_key)] = {
+            **res_dict,
             "source_hash": source_hash,
-            "filepath": filepath,
             "mtime_ns": mtime,
-            "result": res_dict,
-            "cflags": cflags_by_va.get(str(va_key), ""),
-            "size": size_by_va.get(str(va_key), 0),
-            "headers_fp": headers_fp_by_va.get(str(va_key), ""),
-            "toolchain": toolchain_by_va.get(str(va_key), ""),
-            "defines": defines_norm,
+            "cflags": fp_entry.cflags,
+            "headers_fp": fp_entry.headers_fp,
+            "toolchain": fp_entry.toolchain,
+            "defines": fp_entry.defines,
         }
 
     # A filtered run (--nolib) drops its excluded VAs from `results`, but this
@@ -524,7 +489,7 @@ def _save_verify_cache(
                     cache_entries[key] = kept
 
     cache_data = VerifyCache(
-        version=1,
+        version=CACHE_VERSION,
         compiler_hash=_compiler_config_hash(cfg),
         headers_hash=_headers_hash(cfg),
         target=cfg.target_name,
@@ -536,21 +501,52 @@ def _save_verify_cache(
         atomic_write_text(cache_path, json.dumps(cache_data.to_dict(), indent=2), encoding="utf-8")
 
 
-def canonical_va_key(va: Any) -> Any:
-    """Normalize a verify-cache VA key to its canonical form.
+#: The --compare baseline: last good report, next to the cache (both local,
+#: gitignored run state).  Carries the same identity guards as the cache so
+#: a baseline from another target/compiler/binary never gates this project.
+BASELINE_FILENAME = "verify_baseline.json"
 
-    Hex strings (``0x1000`` vs ``0x00001000``) map to the same int so report
-    format drift can't silently break diffing.  Non-hex values pass through
-    unchanged (still unique).  This is the single parser for keys written by
-    ``_save_verify_cache``; readers elsewhere must use it.
+
+def baseline_path(cfg: ProjectConfig) -> Path:
+    """Path of the --compare baseline file for this project."""
+    return cfg.root / ".rebrew" / BASELINE_FILENAME
+
+
+def load_baseline(cfg: ProjectConfig) -> tuple[dict[str, Any] | None, str | None]:
+    """Load the --compare baseline report, or (None, warning).
+
+    Rejects baselines written for another target/compiler/binary — a stale
+    baseline is a warning + no gate, never a false green or false red.
     """
-    if isinstance(va, int):
-        return va
-    if isinstance(va, str):
-        s = va.strip()
-        if s[:2].lower() == "0x":
-            try:
-                return int(s, 16)
-            except ValueError:
-                return s
-    return str(va)
+    path = baseline_path(cfg)
+    if not path.exists():
+        return None, f"No previous verify baseline at {path}; skipping diff"
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return None, f"Could not read verify baseline at {path}: {exc}"
+    if not isinstance(loaded, dict):
+        return None, f"Verify baseline at {path} is invalid JSON object"
+    if loaded.get("target") != cfg.target_name:
+        return None, f"Verify baseline at {path} targets {loaded.get('target')!r}; skipping diff"
+    if loaded.get("compiler_hash") != _compiler_config_hash(cfg):
+        return None, f"Verify baseline at {path} was earned under different compiler config"
+    if loaded.get("binary_id") and loaded.get("binary_id") != _binary_id(cfg):
+        return None, f"Verify baseline at {path} was earned against a different binary"
+    return loaded, None
+
+
+def save_baseline(cfg: ProjectConfig, report: dict[str, Any]) -> None:
+    """Persist *report* as the --compare baseline (with cache identity).
+
+    Advances only on passing gates — the caller enforces that; this just
+    stamps + writes under the shared write lock so a concurrent ``verify
+    --watch`` save cannot interleave.
+    """
+    baseline = dict(report)
+    baseline["compiler_hash"] = _compiler_config_hash(cfg)
+    baseline["binary_id"] = _binary_id(cfg)
+    path = baseline_path(cfg)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _verify_cache_write_lock(path):
+        atomic_write_text(path, json.dumps(baseline, indent=2), encoding="utf-8")

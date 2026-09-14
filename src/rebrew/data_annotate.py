@@ -299,7 +299,7 @@ def _gen_globals_header(
             logging.debug("Skipping %s: annotation parse failed", src, exc_info=True)
             continue
         for ann in annotations:
-            if ann.marker_type not in ("GLOBAL", "DATA"):
+            if ann.is_function:
                 continue
             va = ann.va
             if not va or va in seen_va:

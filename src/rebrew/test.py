@@ -9,8 +9,8 @@ persisted CFLAGS is what every other tool resolves for that function.
 Usage:
     rebrew test <source.c> [--symbol NAME] [--va 0xHEX --size N] [--cflags ...]
     rebrew test <source.c> --no-promote   # skip STATUS update
-    rebrew test --all                     # batch test all reversed functions
-    rebrew test --all --origin GAME       # batch mode, filter by origin
+    rebrew test --all                     # batch: verify's engine, always recompiles
+    rebrew test --all --origin GAME       # batch mode, filter by module
     rebrew test --all --dir src/game_dll/ # batch mode, restrict to subdir
 """
 
@@ -133,7 +133,7 @@ _EPILOG = (
     "  rebrew test src/game_dll/my_func.c --no-promote  Measure only, write no metadata\n\n"
     "  rebrew test src/game_dll/my_func.c --json · · · · Machine-readable JSON output\n\n"
     "  rebrew test --all · · · · · · · · · · · · · · · Batch test all reversed functions\n\n"
-    "  rebrew test --all --origin GAME · · · · · · · · Only GAME-origin functions\n\n"
+    "  rebrew test --all --origin GAME · · · · · · · · Only GAME-module functions\n\n"
     "  rebrew test --all --dir src/game_dll/ · · · · · Restrict batch to a subdirectory\n\n"
     "  rebrew test --all --dry-run · · · · · · · · · · List batch candidates without testing\n\n"
     "[bold]Auto-promote (default behaviour):[/bold]\n\n"
@@ -203,7 +203,7 @@ def main(
         None, "--dir", help="With --all, restrict to this subdirectory"
     ),
     origin: str | None = typer.Option(
-        None, "--origin", help="With --all, filter by origin (GAME, MSVCRT, ZLIB)"
+        None, "--origin", help="With --all, filter by module (e.g. GAME)"
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     jobs: int | None = typer.Option(
@@ -283,9 +283,10 @@ def main(
         va: Optional hex VA used with ``size`` to extract target bytes.
         size: Optional byte count for the target function.
         cflags: Optional compiler flags string overriding annotation/config defaults.
-        all_sources: Batch mode — test every .c file in reversed_dir.
+        all_sources: Batch mode — verify's engine over every .c file in
+        reversed_dir (always recompiles).
         batch_dir: Optional subdirectory to restrict batch mode.
-        origin: Optional origin filter for batch mode.
+        origin: Optional module filter for batch mode.
         dry_run: List batch candidates without running tests.
         watch: Re-test the source file on every change (single-file mode only).
         json_output: Emit machine-readable JSON responses.
@@ -355,13 +356,17 @@ def main(
                 json_mode=json_output,
                 code=EXIT_ERROR,
             )
-        _run_all_batch(
+        # The batch path is verify's shared pipeline (scan → scope →
+        # compile → STATUS sync → PROVEN overlay), emitted in test's shape:
+        # always recompile (full), filterable by --dir/--origin, measurable
+        # via --no-promote.
+        emit_test_batch(
             cfg,
-            batch_dir,
-            origin,
-            dry_run,
-            no_promote,
-            json_output,
+            batch_dir=batch_dir,
+            origin_filter=origin,
+            dry_run=dry_run,
+            no_promote=no_promote,
+            json_output=json_output,
             jobs=jobs,
             context=compile_context,
         )
@@ -1524,8 +1529,9 @@ def _test_multi(
     return
 
 
-def _run_all_batch(
-    cfg: "ProjectConfig",
+def emit_test_batch(
+    cfg: ProjectConfig,
+    *,
     batch_dir: str | None,
     origin_filter: str | None,
     dry_run: bool,
@@ -1534,112 +1540,38 @@ def _run_all_batch(
     jobs: int | None = None,
     context: CompileContext | None = None,
 ) -> None:
-    """Batch-test all .c files using verify's parallel/cached engine.
+    """Run the shared batch pipeline, emitted in ``test --all`` shape.
 
-    Delegates to :func:`rebrew.verify.prepare_entries` and
-    :func:`rebrew.verify.run_verification` for parallel compilation
-    with incremental caching.  STATUS is always promoted/demoted unless
-    *no_promote* is True.
-
-    Args:
-        cfg: Project configuration.
-        batch_dir: Optional subdirectory to restrict search (relative to reversed_dir).
-        origin_filter: Optional origin string filter (e.g. "GAME", "MSVCRT").
-        dry_run: If True, list candidates without running any tests.
-        no_promote: Pass-through to suppress STATUS updates.
-        json_output: Emit JSON output.
-        jobs: Number of parallel compile jobs (default: from config).
-
+    Always recompiles (full).  ``--dry-run`` lists candidates without
+    compiling; ``--no-promote`` measures without writing STATUS.  Raises
+    typer.Exit per the exit-code contract (0 match, 1 needs-work,
+    2 tooling).
     """
-    from rebrew.verify import apply_status_updates, prepare_entries, run_verification
+    from rebrew.verify import build_report, patch_cache_from_results, run_batch
 
     if jobs is None:
         jobs = cfg.default_jobs
-
-    # Reuse verify's scanning + caching engine
-    (
-        unique_entries,
-        passed,
-        failed,
-        fail_details,
-        results,
-        cached_count,
-        size_divergences,
-        _missing_sizes,
-        _duplicate_vas,
-    ) = prepare_entries(
-        cfg,
-        full=True,  # test --all always recompiles (no incremental)
-        json_output=json_output,
-        context=context,
-    )
-
-    if size_divergences and not json_output:
-        console.print(
-            f"[yellow]warning:[/yellow] {len(size_divergences)} function(s) have annotation "
-            "SIZE differing from the binary-derived size; run with --json for details"
-        )
-
-    if not unique_entries:
-        if json_output:
-            if dry_run:
-                # Same dry-run shape as the non-empty path (canonical keys).
-                json_print({"total": 0, "files": [], "functions": []})
-            else:
-                json_print({"total": 0, "passed": 0, "failed": 0, "results": []})
-        else:
-            console.print("[yellow]No testable source files found[/yellow]")
-        return
-
-    # Filter by batch_dir if specified
-    if batch_dir:
-        batch_root = (
-            Path(batch_dir) if Path(batch_dir).is_absolute() else Path(cfg.reversed_dir) / batch_dir
-        ).resolve()
-        # Path-aware containment: a raw string prefix also matched sibling
-        # directories (`game_dll_extra` under `game_dll`) and broke on a root
-        # with `..` in it; resolve both sides and compare real paths.
-        unique_entries = [
-            e
-            for e in unique_entries
-            if (Path(cfg.reversed_dir) / e.filepath).resolve().is_relative_to(batch_root)
-        ]
-
-    # Filter by origin if specified
-    if origin_filter:
-        unique_entries = [
-            e
-            for e in unique_entries
-            if hasattr(e, "origin") and e.origin and e.origin.upper() == origin_filter.upper()
-        ]
-
-    if not unique_entries:
-        if json_output:
-            if dry_run:
-                json_print({"total": 0, "files": [], "functions": []})
-            else:
-                json_print({"total": 0, "passed": 0, "failed": 0, "results": []})
-        else:
-            console.print(
-                f"[yellow]No source files match filters "
-                f"(dir={batch_dir}, origin={origin_filter})[/yellow]"
-            )
-        return
-
-    total = len(unique_entries)
-
+    # Scope preview without compiling: prepare_entries is cheap, the
+    # compile is not — dry-run lists candidates straight from the scan.
     if dry_run:
+        from rebrew.verify import _scope_entries, prepare_entries
+
+        scanned = prepare_entries(cfg, True, json_output, context=context)
+        scoped = _scope_entries(
+            scanned[0],
+            (scanned[1], scanned[2], scanned[3], scanned[4], scanned[5]),
+            (scanned[6], scanned[7]),
+            batch_dir=batch_dir,
+            origin_filter=origin_filter,
+            cfg=cfg,
+            json_output=json_output,
+        )
+        unique_entries, total = scoped[0], scoped[1]
         if json_output:
             json_print(
                 {
-                    # Canonical "total" key, matching the empty-batch and
-                    # non-dry-run result payloads.
                     "total": total,
                     "files": sorted({e.filepath for e in unique_entries}),
-                    # Sorted by filepath so "functions" pairs 1:1 with "files"
-                    # (which a consumer may zip).  "current_status" is the
-                    # ANNOTATED status — distinct from result "status" (the
-                    # compile outcome) in the non-dry-run payload.
                     "functions": sorted(
                         (
                             {
@@ -1655,65 +1587,79 @@ def _run_all_batch(
                 }
             )
         else:
+            if not unique_entries:
+                console.print("[yellow]No testable source files found[/yellow]")
+                return
             console.print(f"[bold]Batch test candidates ({total} functions):[/bold]")
             for e in unique_entries:
                 console.print(f"  0x{e.va:08X} {e.name} ({getattr(e, 'filepath', '')})")
         return
 
     if not json_output:
-        console.print(f"\n[bold]Batch testing {total} function(s)…[/bold]\n")
-
-    # Run verification in parallel
-    v_passed, v_failed, v_fail_details, v_results, deferred = run_verification(
-        unique_entries,
+        console.print("\n[bold]Batch testing…[/bold]\n")
+    batch = run_batch(
         cfg,
-        jobs,
-        total,
-        0,  # cached_count=0 since we pass full=True
-        json_output,
-        context,
+        full=True,  # test --all always recompiles (no incremental)
+        json_output=json_output,
+        jobs=jobs,
+        dry_run=False,
+        batch_dir=batch_dir,
+        origin_filter=origin_filter,
+        no_promote=no_promote,
+        context=context,
     )
-
-    # Always promote/demote STATUS metadata unless --no-promote
-    if not no_promote and deferred:
-        apply_status_updates(deferred, cfg)
-
+    if not batch.entries:
+        if json_output:
+            json_print(
+                build_report(
+                    cfg,
+                    [],
+                    0,
+                    0,
+                    0,
+                    batch.size_divergences,
+                    batch.missing_sizes,
+                    batch.duplicate_vas,
+                    dry_run=no_promote,
+                    compile_context=context,
+                    provenance="test",
+                )
+            )
+        else:
+            console.print("[yellow]No testable source files found[/yellow]")
+        return
     # Sync the verify cache so status/todo don't keep reporting stale
     # pre-batch statuses (the single-file path patches per function).
     if not no_promote:
-        patches: list[dict[str, Any]] = []
-        for r in v_results:
-            try:
-                va_int = int(r["va"], 16)
-            except (ValueError, TypeError, KeyError):
-                continue
-            # A worker crash is not a verification verdict: the cache writer
-            # refuses to store INTERNAL_ERROR (verify.py:_save_verify_cache) and
-            # metadata deliberately leaves it out of `deferred`, so patching it
-            # here left a phantom failure that status/todo serve forever for a
-            # function whose real metadata status is untouched.
-            if r.get("status") == "INTERNAL_ERROR":
-                continue
-            pct = r.get("match_percent") or 0.0
-            patches.append(
-                {
-                    "va": va_int,
-                    "status": r.get("status", ""),
-                    "match_count": round(pct),
-                    "total": 100,
-                    # verify's real byte delta — recomputing from match_percent
-                    # would store a percent-scale number into the byte field
-                    # (todo.py's ROI thresholds read it as bytes).
-                    "delta": r.get("delta"),
-                }
+        patch_cache_from_results(cfg, batch.results)
+    if json_output:
+        # Same shape as `rebrew verify --json` (see build_report) —
+        # verify-only extras are null on this path.
+        json_print(
+            build_report(
+                cfg,
+                batch.results,
+                batch.passed,
+                batch.failed,
+                batch.total,
+                batch.size_divergences,
+                batch.missing_sizes,
+                batch.duplicate_vas,
+                dry_run=no_promote,
+                compile_context=context,
+                provenance="test",
             )
-        # One read + one write for the whole batch (the per-result patch was
-        # O(N) full-file rewrites of verify_cache.json).
-        from rebrew.verify_cache import patch_verify_cache_entries
+        )
+    else:
+        print_test_summary(batch.deferred, len({e.filepath for e in batch.entries}))
+    if any(r.get("status") in ("COMPILE_ERROR", "EXTRACT_ERROR") for r in batch.results):
+        raise typer.Exit(code=EXIT_ERROR)
+    if batch.failed > 0:
+        raise typer.Exit(code=EXIT_MISMATCH)
 
-        patch_verify_cache_entries(cfg, patches)
 
-    # Build transitions for summary display
+def print_test_summary(deferred: list[tuple[Annotation, str, int]], total_files: int) -> None:
+    """Compact batch summary for ``rebrew test --all`` (STATUS transitions)."""
     transitions: list[tuple[str, str]] = []
     for entry, status, _delta in deferred:
         old_status = getattr(entry, "status", "") or "STUB"
@@ -1722,102 +1668,46 @@ def _run_all_batch(
             transitions.append((old_status, old_status))
         else:
             transitions.append((old_status, status))
-
-    # Count unique files for the summary
-    unique_files = len({e.filepath for e in unique_entries})
-
-    if json_output:
-        json_print(
-            {
-                "total": total,
-                "passed": v_passed,
-                "failed": v_failed,
-                "results": v_results,
-            }
-        )
-    else:
-        _print_batch_summary(transitions, unique_files)
-
-    if not dry_run:
-        # Honor the documented exit-code contract (help: "0 EXACT or RELOC
-        # match; 1 NEAR_MATCHING or STUB; 2 Build error") — the batch path
-        # previously always exited 0, a false green for CI gates.  Tooling
-        # failures (compile/extract) exit 2 so a CI script never reads them
-        # as "fix your code" (exit 1).
-        if any(r.get("status") in ("COMPILE_ERROR", "EXTRACT_ERROR") for r in v_results):
-            raise typer.Exit(code=EXIT_ERROR)
-        if v_failed > 0:
-            raise typer.Exit(code=EXIT_MISMATCH)
-
-
-# ---------------------------------------------------------------------------
-# Batch summary
-# ---------------------------------------------------------------------------
-
-
-def _print_batch_summary(
-    transitions: list[tuple[str, str]],
-    total_files: int,
-) -> None:
-    """Print a rich summary table after batch testing."""
     if not transitions:
         console.print(
             f"\n[bold]Batch complete.[/bold] Tested {total_files} file(s), 0 functions compared."
         )
         return
-
-    # --- Result counts ---
     result_counts: dict[str, int] = {}
     for _old, new in transitions:
         result_counts[new] = result_counts.get(new, 0) + 1
-
-    # --- Transition counts (only where status changed) ---
     transition_counts: dict[tuple[str, str], int] = {}
     for old, new in transitions:
         if old != new:
-            key = (old, new)
-            transition_counts[key] = transition_counts.get(key, 0) + 1
-
-    # --- Print ---
+            transition_counts[(old, new)] = transition_counts.get((old, new), 0) + 1
     console.print()
     console.print("[bold]━━━ Batch Summary ━━━[/bold]")
     console.print()
-
-    # Result breakdown
     console.print(
         f"  [bold]{len(transitions)}[/bold] functions tested across {total_files} file(s)"
     )
     console.print()
-
     for status in DISPLAY_STATUSES:
         count = result_counts.get(status, 0)
         if count == 0:
             continue
         color = STATUS_COLORS.get(status, "white")
         pct = round(100.0 * count / len(transitions), 1)
-        bar_len = int(20 * count / len(transitions))
-        bar = "█" * max(bar_len, 1)
+        bar = "█" * max(int(20 * count / len(transitions)), 1)
         console.print(f"  [{color}]{status:12s}  {count:4d}  ({pct:5.1f}%)  {bar}[/{color}]")
-
-    # Other statuses not in the standard order
     for status in sorted(set(result_counts) - set(DISPLAY_STATUSES)):
-        count = result_counts[status]
-        console.print(f"  [dim]{status:12s}  {count:4d}[/dim]")
-
-    # Status transitions
+        console.print(f"  [dim]{status:12s}  {result_counts[status]:4d}[/dim]")
     if transition_counts:
         console.print()
         console.print("  [bold]Status changes:[/bold]")
         for (old, new), count in sorted(transition_counts.items(), key=lambda x: -x[1]):
-            old_color = STATUS_COLORS.get(old, "dim")
-            new_color = STATUS_COLORS.get(new, "dim")
             console.print(
-                f"    [{old_color}]{old}[/{old_color}] → [{new_color}]{new}[/{new_color}]  ×{count}"
+                f"    [{STATUS_COLORS.get(old, 'dim')}]{old}[/{STATUS_COLORS.get(old, 'dim')}] → "
+                f"[{STATUS_COLORS.get(new, 'dim')}]{new}[/{STATUS_COLORS.get(new, 'dim')}]  ×{count}"
             )
     else:
         console.print()
         console.print("  [dim]No status changes.[/dim]")
-
     console.print()
 
 

@@ -176,7 +176,7 @@ def bench_catalog_grid() -> dict[str, float]:
 
 def bench_verify_cache() -> dict[str, float]:
     """VerifyCache save + load round-trip with 500 entries."""
-    from rebrew.verify_cache import VerifyCache, VerifyCacheEntry, VerifyResult
+    from rebrew.verify_cache import VerifyCache, VerifyCacheEntry
 
     entries: dict[str, VerifyCacheEntry] = {}
     for i in range(500):
@@ -185,16 +185,14 @@ def bench_verify_cache() -> dict[str, float]:
             source_hash=f"hash{i}",
             filepath=f"src/f{i}.c",
             mtime_ns=12345 + i,
-            result=VerifyResult(
-                status="EXACT",
-                va=va,
-                size=64,
-                passed=True,
-                message="",
-            ),
+            status="EXACT",
+            va=va,
+            size=64,
+            passed=True,
+            message="",
             cflags="/O2",
         )
-    cache = VerifyCache(version=1, target="SERVER", compiler_hash="bench", entries=entries)
+    cache = VerifyCache(version=2, target="SERVER", compiler_hash="bench", entries=entries)
 
     def run() -> None:
         data = cache.to_dict()

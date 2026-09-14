@@ -179,7 +179,7 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
         metadata_dir=metadata_dir,
     ):
         for ann in annos:
-            if ann.marker_type in ("GLOBAL", "DATA"):
+            if ann.is_data:
                 continue
             if ann.va < min_valid_va_for(cfg):
                 continue
@@ -668,7 +668,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
         cache = _load_verify_cache(cfg.root / ".rebrew" / "verify_cache.json", cfg)
         if cache is not None:
             for key, entry in cache.entries.items():
-                mp = entry.result.match_percent
+                mp = entry.match_percent
                 if mp is None:
                     continue
                 try:
@@ -696,7 +696,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
         unit_fuzzy = 0.0
         unit_fns = 0
         for a in annos:
-            if a.marker_type in ("GLOBAL", "DATA"):
+            if a.is_data:
                 continue
             size = int(a.size or 0)
             if size <= 0:

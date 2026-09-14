@@ -77,54 +77,19 @@ def _is_catalog_generated_structure(path: Path) -> bool:
     return any(isinstance(d, dict) and d.get("_generated_by") == "rebrew catalog" for d in data)
 
 
-def run_catalog(
-    cfg: ProjectConfig,
-    *,
-    catalog: bool = False,
-    gen_data_json: bool = False,
-    csv: bool = False,
-    summary: bool = False,
-    export_ghidra_labels: bool = False,
-    fix_sizes: bool = False,
-    json_output: bool = False,
-) -> dict[str, Any]:
-    """Parse annotations, build the catalog and coverage data, and write the artifacts.
+def build_catalog_data(cfg: Any, *, with_data: bool = True) -> dict[str, Any]:
+    """Scan, registry, and coverage-grid dict for one target (no disk writes).
 
-    The same pipeline the ``rebrew catalog`` callback runs: scan
-    ``reversed_dir``, build the function registry, print the human summary,
-    and write the requested artifacts (CATALOG.md, ``db/data_<target>.json``,
-    reccmp CSV, ``ghidra_data_labels.json``, ``--fix-sizes`` metadata updates).
-    With every flag left false the default action set applies (catalog + data
-    JSON + CSV + summary), matching a bare ``rebrew catalog`` invocation.
-
-    Returns the object the CLI prints under ``--json``.
-
-    Raises:
-        ValueError: ``function_structure.json`` is corrupt.  The CLI turns
-            this into ``error_exit``; an in-process caller gets the exception.
+    Shared by ``run_catalog`` (which then writes the requested artifacts)
+    and ``rebrew build-db --regen`` (which imports the dict straight into
+    SQLite) — the ``db/data_<target>.json`` file is just the serialized
+    form of this dict, not a separate pipeline stage.  With
+    *with_data* False the (expensive) grid generation is skipped — the
+    ``data`` value is None.
     """
     bin_path = cfg.target_binary
     reversed_dir = cfg.reversed_dir
-    root = cfg.root
-    target = cfg.target_name
-
     ghidra_json_path = reversed_dir / FUNCTION_STRUCTURE_JSON
-
-    if not any(
-        [
-            catalog,
-            gen_data_json,
-            csv,
-            summary,
-            export_ghidra_labels,
-            fix_sizes,
-            json_output,
-        ]
-    ):
-        catalog = True
-        gen_data_json = True
-        csv = True
-        summary = True
 
     console.print(f"Scanning {reversed_dir}...", style="dim")
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
@@ -174,17 +139,101 @@ def run_catalog(
         f"thunks: {thunk_count})",
         style="dim",
     )
+    data = (
+        generate_data_json(
+            entries,
+            funcs,
+            text_size,
+            bin_path,
+            registry,
+            reversed_dir,
+            cfg.root,
+            metadata_dir=cfg.metadata_dir,
+            cfg=cfg,
+        )
+        if with_data
+        else None
+    )
+    return {
+        "target": cfg.target_name,
+        "entries": entries,
+        "funcs": funcs,
+        "registry": registry,
+        "text_size": text_size,
+        "binary_missing": binary_missing,
+        "counts": {
+            "ghidra": ghidra_count,
+            "list": list_count,
+            "both": both_count,
+            "thunks": thunk_count,
+        },
+        "data": data,
+    }
+
+
+def run_catalog(
+    cfg: ProjectConfig,
+    *,
+    catalog: bool = False,
+    gen_data_json: bool = False,
+    csv: bool = False,
+    summary: bool = False,
+    export_ghidra_labels: bool = False,
+    fix_sizes: bool = False,
+    json_output: bool = False,
+) -> dict[str, Any]:
+    """Parse annotations, build the catalog and coverage data, and write the artifacts.
+
+    The same pipeline the ``rebrew catalog`` callback runs: scan
+    ``reversed_dir``, build the function registry, print the human summary,
+    and write the requested artifacts (CATALOG.md, ``db/data_<target>.json``,
+    reccmp CSV, ``ghidra_data_labels.json``, ``--fix-sizes`` metadata updates).
+    With every flag left false the default action set applies (catalog + data
+    JSON + CSV + summary), matching a bare ``rebrew catalog`` invocation.
+
+    Returns the object the CLI prints under ``--json``.
+
+    Raises:
+        ValueError: ``function_structure.json`` is corrupt.  The CLI turns
+            this into ``error_exit``; an in-process caller gets the exception.
+    """
+    bin_path = cfg.target_binary
+    reversed_dir = cfg.reversed_dir
+    target = cfg.target_name
+
+    ghidra_json_path = reversed_dir / FUNCTION_STRUCTURE_JSON
+
+    if not any(
+        [
+            catalog,
+            gen_data_json,
+            csv,
+            summary,
+            export_ghidra_labels,
+            fix_sizes,
+            json_output,
+        ]
+    ):
+        catalog = True
+        gen_data_json = True
+        csv = True
+        summary = True
+
+    bundle = build_catalog_data(cfg, with_data=bool(gen_data_json or export_ghidra_labels))
+    entries = bundle["entries"]
+    funcs = bundle["funcs"]
+    registry = bundle["registry"]
+    text_size = bundle["text_size"]
+    binary_missing = bundle["binary_missing"]
+    both_count = bundle["counts"]["both"]
+    thunk_count = bundle["counts"]["thunks"]
 
     by_va: dict[int, list[Annotation]] = {}
     if summary or json_output:
         for e in entries:
             by_va.setdefault(e["va"], []).append(e)
 
-    fn_vas = {
-        va
-        for va, vas in by_va.items()
-        if any(e["marker_type"] not in ("GLOBAL", "DATA") for e in vas)
-    }
+    fn_vas = {va for va, vas in by_va.items() if any(e.get("is_function", True) for e in vas)}
 
     covered = covered_bytes(
         by_va,
@@ -250,17 +299,7 @@ def run_catalog(
         console.print(f"Wrote {catalog_path}", style="dim")
 
     if gen_data_json or export_ghidra_labels:
-        data = generate_data_json(
-            entries,
-            funcs,
-            text_size,
-            bin_path,
-            registry,
-            reversed_dir,
-            root,
-            metadata_dir=cfg.metadata_dir,
-            cfg=cfg,
-        )
+        data = bundle["data"]
         if gen_data_json:
             coverage_dir = cfg.db_dir
             coverage_dir.mkdir(parents=True, exist_ok=True)

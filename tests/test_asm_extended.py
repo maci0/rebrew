@@ -186,13 +186,18 @@ class TestGenerateInlineC:
         src_dir = cfg.reversed_dir
         src_dir.mkdir(parents=True, exist_ok=True)
         (src_dir / "f.c").write_text(
-            "// FUNCTION: SERVER 0x10001000\n// SIZE: 8\n// STATUS: EXACT\nint f(void) { return 0; }\n",
+            "// FUNCTION: SERVER 0x10001000\n// SIZE: 8\nint f(void) { return 0; }\n",
             encoding="utf-8",
         )
         (src_dir / "g.c").write_text(
             "// FUNCTION: SERVER 0x10002000\n// SIZE: 6\nint g(void) { return 0; }\n",
             encoding="utf-8",
         )
+        from rebrew.metadata import update_source_status
+
+        # STATUS lives in rebrew-functions.toml now: f.c is EXACT (skipped by
+        # stubs_only), g.c stays STUB.
+        update_source_status(tmp_path, "EXACT", "SERVER", 0x10001000, force=True)
         monkeypatch.setattr(
             "rebrew.binary_loader.extract_raw_bytes",
             lambda *a, **k: bytes.fromhex("558bec83ec08"),

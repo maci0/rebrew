@@ -49,15 +49,19 @@ class TestBuildFunctionLookup:
         src = tmp_path / "game_func.c"
         src.write_text(
             "// FUNCTION: SERVER 0x10001000\n"
-            "// STATUS: RELOC\n"
-            "// ORIGIN: GAME\n"
             "// SIZE: 64\n"
             "// CFLAGS: /O2 /Gd\n"
-            "// SYMBOL: _game_func\n"
             "void game_func(void) {}\n",
             encoding="utf-8",
         )
-        cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path)
+        # STATUS lives in metadata, not inline.
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x10001000"]\nstatus = "RELOC"\n', encoding="utf-8"
+        )
+        cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path / "src")
+        (tmp_path / "src").mkdir()
+        src.rename(tmp_path / "src" / "game_func.c")
+        ghidra_json.rename(tmp_path / "src" / "function_structure.json")
         result = build_function_lookup(cfg)
         # Source file overrides Ghidra
         assert result[0x10001000] == ("game_func", "RELOC")

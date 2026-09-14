@@ -16,16 +16,28 @@ def _write_stub(tmp_path: Path, name: str, content: str) -> Path:
     return f
 
 
+def _write_meta(tmp_path: Path, va: int, status: str, **fields: object) -> None:
+    """Write volatile STATUS/BLOCKER fields to rebrew-functions.toml.
+
+    Inline ``// STATUS:``/``// BLOCKER:`` comments are migration debt, not
+    read — the parser defaults to STUB without a metadata overlay.
+    """
+    from rebrew.metadata import save_metadata
+
+    save_metadata(tmp_path, {("SERVER", va): {"status": status, **fields}})
+
+
 def _stub_file(tmp_path: Path, va: int = 0x10001000, status: str = "STUB", size: int = 64) -> Path:
-    return _write_stub(
+    f = _write_stub(
         tmp_path,
         "func.c",
         f"// FUNCTION: SERVER 0x{va:x}\n"
-        f"// STATUS: {status}\n"
         f"// SIZE: {size}\n"
         f"// SYMBOL: _func\n"
         f"int func(void) {{ return 1; }}\n",
     )
+    _write_meta(tmp_path, va, status)
+    return f
 
 
 class TestParseStubInfo:
@@ -61,12 +73,11 @@ class TestParseMatchingInfo:
             tmp_path,
             "func.c",
             "// FUNCTION: SERVER 0x10001000\n"
-            "// STATUS: NEAR_MATCHING\n"
             "// SIZE: 32\n"
             "// SYMBOL: _func\n"
-            "// BLOCKER_DELTA: 4\n"
             "int func(void) { return 1; }\n",
         )
+        _write_meta(tmp_path, 0x10001000, "NEAR_MATCHING", blocker_delta=4)
         stubs = parse_matching_info(f, max_delta=10)
         assert len(stubs) == 1
         assert stubs[0].delta == 4
@@ -90,12 +101,11 @@ class TestFindNearMiss:
             tmp_path,
             "func.c",
             "// FUNCTION: SERVER 0x10001000\n"
-            "// STATUS: NEAR_MATCHING\n"
             "// SIZE: 32\n"
             "// SYMBOL: _func\n"
-            "// BLOCKER_DELTA: 3\n"
             "int func(void) { return 1; }\n",
         )
+        _write_meta(tmp_path, 0x10001000, "NEAR_MATCHING", blocker_delta=3)
         stubs = find_near_miss(tmp_path)
         assert len(stubs) == 1
         assert stubs[0].status == "NEAR_MATCHING"

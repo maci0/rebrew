@@ -4,6 +4,7 @@ import json
 import struct
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
@@ -13,10 +14,19 @@ import rebrew.objdiff_project as objdiff_project
 runner = CliRunner()
 
 
-def _fake_ann(
-    va: int, size: int, name: str, symbol: str = "", marker: str = "FUNCTION"
-) -> SimpleNamespace:
-    return SimpleNamespace(va=va, size=size, name=name, symbol=symbol, marker_type=marker)
+def _fake_ann(va: int, size: int, name: str, symbol: str = "", marker: str = "FUNCTION") -> Any:
+    from rebrew.annotation import Annotation
+
+    return Annotation(
+        va=va,
+        size=size,
+        name=name,
+        symbol=symbol,
+        module="T",
+        status="STUB",
+        marker_type=marker,
+        filepath="a.c",
+    )
 
 
 class TestWriteCoffObject:

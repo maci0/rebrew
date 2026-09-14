@@ -153,32 +153,36 @@ class TestLoadSave:
         assert load_solutions(project_root) == []
 
     def test_malformed_json_returns_empty(self, project_root: Path) -> None:
-        p = project_root / ".rebrew" / "solutions.json"
+        p = project_root / ".rebrew" / "ga_runs.jsonl"
         p.write_text("not json!", encoding="utf-8")
         assert load_solutions(project_root) == []
 
-    def test_non_array_json_returns_empty(self, project_root: Path) -> None:
-        p = project_root / ".rebrew" / "solutions.json"
-        p.write_text('{"key": "value"}', encoding="utf-8")
+    def test_non_dict_lines_ignored(self, project_root: Path) -> None:
+        p = project_root / ".rebrew" / "ga_runs.jsonl"
+        p.write_text('{"key": "value"}\n[1, 2]\n', encoding="utf-8")
         assert load_solutions(project_root) == []
 
     def test_extra_fields_ignored(self, project_root: Path) -> None:
         """Future-proofing: extra fields in JSON should be silently ignored."""
-        p = project_root / ".rebrew" / "solutions.json"
-        data = [
-            {
-                "symbol": "_f",
-                "cflags": "/O2",
-                "origin": "GAME",
-                "size": 50,
-                "source_file": "f.c",
-                "score": 0.0,
-                "solved_at": "2026-01-01T00:00:00Z",
-                "generations": 10,
-                "future_field": "should be ignored",
-            }
-        ]
-        p.write_text(json.dumps(data), encoding="utf-8")
+        p = project_root / ".rebrew" / "ga_runs.jsonl"
+        p.write_text(
+            json.dumps(
+                {
+                    "symbol": "_f",
+                    "cflags": "/O2",
+                    "origin": "GAME",
+                    "size": 50,
+                    "source_file": "f.c",
+                    "score": 0.0,
+                    "solved_at": "2026-01-01T00:00:00Z",
+                    "generations": 10,
+                    "matched": True,
+                    "future_field": "should be ignored",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         loaded = load_solutions(project_root)
         assert len(loaded) == 1
         assert loaded[0].symbol == "_f"
@@ -186,9 +190,9 @@ class TestLoadSave:
     def test_concurrent_saves_no_lost_entries(self, project_root: Path) -> None:
         """Parallel savers must not lose each other's entries.
 
-        Each save is a whole-file read-modify-write; without the per-file
-        write lock (thread lock + flock sidecar), interleaved cycles would
-        drop every entry but the last writer's.
+        Appends are O_APPEND line writes (atomic across threads/processes) —
+        interleaved savers each keep their own record, unlike the old
+        whole-file read-modify-write.
         """
         import threading
 
@@ -214,16 +218,6 @@ class TestLoadSave:
             t.join()
         loaded = load_solutions(project_root)
         assert {e.symbol for e in loaded} == {f"_func_{i}" for i in range(n)}
-
-    def test_save_creates_sidecar_lock(self, project_root: Path) -> None:
-        """The cross-process flock discipline leaves a .lock sidecar next to
-        the store — concurrent rebrew processes serialize on it instead of
-        last-writer-wins over whole-file rewrites."""
-        save_solution(
-            project_root,
-            SolutionEntry(symbol="_f", cflags="/O2", size=8, source_file="f.c"),
-        )
-        assert (project_root / ".rebrew" / "solutions.json.lock").exists()
 
 
 # -------------------------------------------------------------------------
@@ -313,12 +307,21 @@ class TestTargetScoping:
         assert len(loaded) == 1
         assert loaded[0].cflags == "/O1"
 
-    def test_legacy_entries_load_without_target(self, project_root: Path) -> None:
-        """Old JSON without a 'target' field still loads (defaults to '')."""
-        p = project_root / ".rebrew" / "solutions.json"
+    def test_entries_without_target_default_empty(self, project_root: Path) -> None:
+        """Win records without a 'target' field still load (defaults to '')."""
+        p = project_root / ".rebrew" / "ga_runs.jsonl"
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(
-            '[{"symbol": "_old", "cflags": "/O2", "size": 16, "source_file": "old.c"}]\n',
+            json.dumps(
+                {
+                    "symbol": "_old",
+                    "cflags": "/O2",
+                    "size": 16,
+                    "source_file": "old.c",
+                    "matched": True,
+                }
+            )
+            + "\n",
             encoding="utf-8",
         )
         loaded = load_solutions(project_root)
@@ -378,32 +381,32 @@ class TestLoadSolutionsFile:
     """load_solutions_file — explicit-path loading for cross-project seeding."""
 
     def test_missing_file_returns_empty(self, tmp_path: Path) -> None:
-        assert load_solutions_file(tmp_path / "nope.json") == []
+        assert load_solutions_file(tmp_path / "nope.jsonl") == []
 
     def test_malformed_returns_empty(self, tmp_path: Path) -> None:
-        p = tmp_path / "solutions.json"
+        p = tmp_path / "runs.jsonl"
         p.write_text("not json!", encoding="utf-8")
         assert load_solutions_file(p) == []
 
-    def test_non_array_returns_empty(self, tmp_path: Path) -> None:
-        p = tmp_path / "solutions.json"
-        p.write_text('{"a": 1}', encoding="utf-8")
+    def test_non_dict_lines_ignored(self, tmp_path: Path) -> None:
+        p = tmp_path / "runs.jsonl"
+        p.write_text('{"a": 1}\n[1, 2]\n', encoding="utf-8")
         assert load_solutions_file(p) == []
 
     def test_valid_entries_loaded(self, tmp_path: Path) -> None:
-        p = tmp_path / "solutions.json"
+        p = tmp_path / "runs.jsonl"
         p.write_text(
             json.dumps(
-                [
-                    {
-                        "symbol": "_f",
-                        "cflags": "/O1",
-                        "size": 42,
-                        "source_file": "src/f.c",
-                        "target": "OTHER",
-                    }
-                ]
-            ),
+                {
+                    "symbol": "_f",
+                    "cflags": "/O1",
+                    "size": 42,
+                    "source_file": "src/f.c",
+                    "target": "OTHER",
+                    "matched": True,
+                }
+            )
+            + "\n",
             encoding="utf-8",
         )
         entries = load_solutions_file(p)
@@ -433,22 +436,22 @@ class TestMutationsProvenance:
         loaded = load_solutions(project_root)
         assert loaded[0].mutations == ("mut_swap_if_else", "mut_reorder_register_vars")
 
-    def test_legacy_entry_without_mutations_loads(self, tmp_path: Path, project_root: Path) -> None:
-        # A pre-provenance solutions file (no `mutations` key) must load clean.
-        p = project_root / ".rebrew" / "solutions.json"
+    def test_win_without_mutations_loads(self, tmp_path: Path, project_root: Path) -> None:
+        # A win record without `mutations` loads clean (defaults to ()).
+        p = project_root / ".rebrew" / "ga_runs.jsonl"
         p.write_text(
             json.dumps(
-                [
-                    {
-                        "symbol": "_old",
-                        "cflags": "/O2",
-                        "size": 32,
-                        "source_file": "old.c",
-                        "score": 0.0,
-                        "generations": 5,
-                    }
-                ]
-            ),
+                {
+                    "symbol": "_old",
+                    "cflags": "/O2",
+                    "size": 32,
+                    "source_file": "old.c",
+                    "score": 0.0,
+                    "generations": 5,
+                    "matched": True,
+                }
+            )
+            + "\n",
             encoding="utf-8",
         )
         loaded = load_solutions(project_root)
@@ -457,20 +460,20 @@ class TestMutationsProvenance:
 
     def test_json_list_normalized_to_tuple(self, tmp_path: Path, project_root: Path) -> None:
         # JSON round-trips the tuple field as a list — the loader normalizes.
-        p = project_root / ".rebrew" / "solutions.json"
+        p = project_root / ".rebrew" / "ga_runs.jsonl"
         p.write_text(
             json.dumps(
-                [
-                    {
-                        "symbol": "_f",
-                        "cflags": "/O2",
-                        "size": 32,
-                        "source_file": "f.c",
-                        "score": 0.0,
-                        "mutations": ["mut_a", "mut_b"],
-                    }
-                ]
-            ),
+                {
+                    "symbol": "_f",
+                    "cflags": "/O2",
+                    "size": 32,
+                    "source_file": "f.c",
+                    "score": 0.0,
+                    "mutations": ["mut_a", "mut_b"],
+                    "matched": True,
+                }
+            )
+            + "\n",
             encoding="utf-8",
         )
         loaded = load_solutions(project_root)
