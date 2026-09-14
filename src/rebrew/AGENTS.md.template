@@ -8,6 +8,10 @@
 - **Compiler**: {compiler_profile} (`{compiler_command}`)
 - **Language**: {lang} — follow compiler constraints below
 - **Config**: `rebrew-project.toml` (all tools read from here)
+- **Function inventory**: `src/<target>/function_structure.json` (`[{{va, size, name}}]`
+  written by discoverer plugins — packaged: rizin, capstone, NE/MZ; third-party
+  plugins join via the `rebrew.discoverers` entry-point group, no host edits)
+- **Layout source of truth**: `layout/<target>/layout.txt` (+ hex blobs)
 
 ## Quick Start
 
@@ -62,7 +66,7 @@ Use `--json` for structured output (preferred for agents).
 | `rebrew verify --data --built build/<target>` | Byte-compare built data sections per symbol |
 | `rebrew verify --whole-binary --built build/<target>` | Sections/exports/imports/rsrc/headers + layout freshness |
 | `rebrew graph --format summary` | Dependency graph stats and blockers |
-| `rebrew catalog --json` | Generate coverage catalog |
+| `rebrew catalog --json` | Coverage data + reccmp CSV (`db/data_<target>.json`) |
 | `rebrew flirt --json` | FLIRT scan for known library functions |
 | `rebrew extract list --json` | Extract and disassemble functions (list/show/batch) |
 | `rebrew asm 0x<VA> --size 128 --json` | Quick offline disassembly |
