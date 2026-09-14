@@ -184,7 +184,6 @@ binary = "test.exe"
         root = _make_project(tmp_path, self.MULTI_TOML)
         cfg = load_config(root, target="client_exe")
         assert cfg.pointer_size == 8
-        assert cfg.symbol_prefix == ""
 
     def test_per_target_sources(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path, self.MULTI_TOML)
@@ -444,13 +443,6 @@ command = "CL.EXE"
 
 
 class TestProjectConfig:
-    def test_va_to_file_offset(self) -> None:
-        cfg = ProjectConfig(root=Path("."))
-        cfg.text_va = 0x10001000
-        cfg.text_raw_offset = 0x400
-        assert cfg.va_to_file_offset(0x10001000) == 0x400
-        assert cfg.va_to_file_offset(0x10001100) == 0x500
-
     def test_default_values(self) -> None:
         cfg = ProjectConfig(root=Path("."))
         assert cfg.binary_format == "pe"
@@ -459,7 +451,6 @@ class TestProjectConfig:
         assert cfg.padding_bytes == [0xCC, 0x90]
         assert cfg.image_base == 0
         assert cfg.text_va == 0
-        assert cfg.text_raw_offset == 0
 
 
 # ---------------------------------------------------------------------------

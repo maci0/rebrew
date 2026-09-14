@@ -54,7 +54,6 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `output_dir` | `[project].output_dir` | Default output directory for generated artifacts |
 | `image_base` | Auto-detected from PE | `0x10000000` for example DLL |
 | `text_va` | Auto-detected from PE | `.text` section virtual address |
-| `text_raw_offset` | Auto-detected from PE | `.text` section raw file offset |
 | `reversed_dir` | `[targets.<name>].reversed_dir` | Where `.c` files are stored |
 | `shared_dir` | `[project].shared_dir` | Project-level shared-sources root (`src/shared` by default); sources here are scanned for every target and may carry one `// FUNCTION: <target> <va>` marker per target. Empty value disables shared sources |
 | `metadata_dir` | Derived: parent of `reversed_dir` | Canonical home of `rebrew-functions.toml` / `rebrew-data.toml`; callers must pass it explicitly (no walk-up) |
