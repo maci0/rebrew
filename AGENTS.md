@@ -55,6 +55,9 @@ uv sync --all-extras            # with dev deps
 # Run all tests (~6000)
 uv run pytest tests/ -v
 
+# Faster: parallel workers (needs pytest-xdist; ~26s vs ~73s serial)
+uv run pytest tests/ -q -n 8 -p no:cacheprovider
+
 # Single file
 uv run pytest tests/test_annotation.py -v
 
