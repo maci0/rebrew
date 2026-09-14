@@ -7,6 +7,7 @@ reshaping, and expression-level rewrites.
 
 from __future__ import annotations
 
+import logging
 import random
 import re
 from typing import Any
@@ -1396,10 +1397,11 @@ def quick_validate(source: str) -> bool:
         return False
     try:
         return _quick_validate_ast_checks(source)
-    except Exception:
+    except Exception as exc:
         # Parse failure: fall back to the whole-source scan.  A duplicate
         # check scoped per function needs the AST; without it, identical
         # labels in sibling functions would reject everything.
+        logging.getLogger(__name__).debug("quick_validate AST failed, regex fallback: %s", exc)
         seen: set[str] = set()
         for m in _RE_VALIDATE_LABEL.finditer(source):
             seen_label = m.group(1)

@@ -271,7 +271,13 @@ def verify_entry(
                     )
                     result.message = f"{result.message} {note}".strip()
         except Exception as exc:  # diff_lines is best-effort
-            log.debug("diff_lines failed for 0x%x: %s", entry.va, exc)
+            # The logging call itself is inside the guard on purpose: a bad
+            # format argument here would otherwise escape this handler and
+            # fail the whole verify run, which is exactly what a best-effort
+            # block exists to prevent (it once reported 31/283 instead of
+            # 281/283 because this line referenced a missing attribute).
+            with contextlib.suppress(Exception):
+                log.debug("diff_lines failed for 0x%x: %s", entry.va, exc)
             result.diff_lines = None
     # Structural code-similarity score (0–100), computed for EVERY verified
     # function with compiled bytes — matched (short-circuit ~100) and
@@ -285,7 +291,8 @@ def verify_entry(
 
             result.similarity = code_similarity(target_bytes, result.obj_bytes)
         except Exception as exc:  # similarity is best-effort
-            log.debug("similarity failed for 0x%x: %s", entry.va, exc)
+            with contextlib.suppress(Exception):  # see diff_lines above
+                log.debug("similarity failed for 0x%x: %s", entry.va, exc)
             result.similarity = None
     return result
 

@@ -669,3 +669,58 @@ class TestBinaryIdCacheGuard:
         cache.binary_id = ""
         cache_path.write_text(_json.dumps(cache.to_dict()))
         assert verify_cache_mod._load_verify_cache(cache_path, cfg) is not None
+
+
+def test_verify_entry_survives_a_raising_logger(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A failing log call inside a best-effort block must not fail the entry.
+
+    Regression: the diff_lines/similarity handlers logged ``result.va``, an
+    attribute ``CompareResult`` does not have, so every function that reached
+    those blocks raised out of a guard whose entire purpose is to swallow
+    failures.  ``rebrew verify --full`` reported 31/283 instead of 281/283 on
+    a tree with no source change.  Best-effort has to include its own
+    diagnostics.
+    """
+    from rebrew.compile import CompareResult
+
+    result = CompareResult(
+        matched=False,
+        status="NEAR_MATCHING",
+        match_percent=50.0,
+        delta=4,
+        obj_bytes=b"\x90\x90\x90\x90",
+        reloc_offsets=[],
+    )
+
+    import rebrew.binary_loader as bl_mod
+    import rebrew.compile as compile_mod
+
+    monkeypatch.setattr(compile_mod, "compile_and_compare", lambda *a, **k: result)
+    monkeypatch.setattr(bl_mod, "extract_raw_bytes", lambda *a, **k: b"\x90\x90\x90\x91")
+
+    def _raising_debug(*_a: object, **_k: object) -> None:
+        raise AttributeError("'CompareResult' object has no attribute 'va'")
+
+    monkeypatch.setattr(verify_mod.log, "debug", _raising_debug)
+
+    # Force both best-effort blocks to enter their handlers.
+    import rebrew.matcher as matcher_mod
+
+    def _boom(*_a: object, **_k: object) -> None:
+        raise RuntimeError("disassembly unavailable")
+
+    monkeypatch.setattr(matcher_mod, "diff_functions", _boom, raising=False)
+    monkeypatch.setattr(matcher_mod, "code_similarity", _boom, raising=False)
+
+    cfg = _cfg(tmp_path)
+    cfg.arch = "x86_32"
+    cfg.cflags = ""
+    cfg.toolchain = None
+    (tmp_path / "src").mkdir(exist_ok=True)
+    (tmp_path / "src" / "f.c").write_text("void f1000(void) {}\n")
+
+    out = verify_mod.verify_entry(_ann(0x1000), cfg)  # must not raise
+    assert out.diff_lines is None
+    assert out.similarity is None
