@@ -50,6 +50,10 @@ Composability", arXiv:2608.25512):
 - Coeffects are reactive: a service published by one component (or a plugin
   loaded later) activates its dependents without a hand-maintained order, and
   a withdrawn service reverts exactly the dependents it had activated.
+  Three refinements landed after the initial composition: every scope on the
+  chain classifies every change (not just the nearest), provision is
+  single-source across forks (no shadowing), and `unprovide` deactivates
+  dependents newest-first before running the inverse (Theorem 70 order).
 - The loader tier of the paper (configuration reconciliation and hot module
   replacement) is deliberately not built.  A CLI process composes once and has
   no module to swap; `CoeffectScope` is the seam a long-lived host (the
