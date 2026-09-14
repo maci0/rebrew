@@ -7,7 +7,7 @@ Takes a target binary and produces a working rebrew decomp project:
 2. ``rebrew init`` with that profile.
 3. Copy the binary into ``original/`` and symlink the vendored toolchain
    (from the rebrew repo's ``tools/`` when present).
-4. Enumerate functions via rizin (``aaa``, falling back to ``aa; aap``) and
+4. Enumerate functions via the discoverer plugins and
    write ``function_structure.json``.
 5. Document every function: a STUB .c + metadata blocker explaining the
    family (the "document-unmatched" step that used to be a per-project
@@ -27,7 +27,6 @@ from __future__ import annotations
 import json
 import re
 import shutil
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -133,45 +132,17 @@ def _suggest_profile(binary: Path) -> tuple[str, str, str, list[str]]:
     return profile, family, hint, notes
 
 
-def _run_ne_functions(binary: Path) -> list[tuple[int, int, str]]:
-    """Enumerate functions in a 16-bit NE binary via the built-in linear
-    sweep (rizin cannot analyze NE).  Returns ``[(va, size, name)]`` with
-    synthetic flat VAs (``segment << 16 | offset``)."""
-    from rebrew.binary_loader import load_binary
-    from rebrew.ne_loader import enumerate_ne_functions
-
-    info = load_binary(binary)
-    return [(f.va, f.size, f.name) for f in enumerate_ne_functions(info)]
-
-
 def _enumerate_functions(binary: Path) -> list[tuple[int, int, str]]:
-    """Function list for a binary: NE linear sweep for 16-bit targets, rizin
-    otherwise."""
-    from rebrew.binary_loader import is_ne
+    """Function list for a binary via the discoverer plugins.
 
-    if is_ne(binary):
-        return _run_ne_functions(binary)
-    return _run_rizin_functions(binary)
+    The same pipeline ``rebrew discover-functions`` runs (packaged rizin /
+    capstone / NE / MZ providers plus ``rebrew.discoverers`` plugins),
+    minus the capstone-refine pass ``discover`` applies — intake writes the
+    raw inventory and lets ``rebrew test --fix-sizes`` converge sizes later.
+    """
+    from rebrew.discover import discover_functions
 
-
-def _run_rizin_functions(binary: Path) -> list[tuple[int, int, str]]:
-    """Enumerate functions via rizin. ``aaa`` first, ``aa; aap`` fallback."""
-    from rebrew.catalog import parse_rizin_afl
-
-    for cmd in (["aaa"], ["aa", "aap"]):
-        try:
-            r = subprocess.run(
-                ["rizin", "-q", "-c", "; ".join(cmd) + "; afl", str(binary)],
-                capture_output=True,
-                text=True,
-                timeout=300,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            continue
-        funcs = parse_rizin_afl(r.stdout)
-        if funcs:
-            return sorted(funcs)
-    return []
+    return sorted(discover_functions(binary).functions)
 
 
 def blocker_reason(family: str, size: int, version_hint: str) -> str:
@@ -296,7 +267,7 @@ def prune_stale_stubs(
     """Remove auto-generated STUB files + metadata for functions absent from
     the (re-discovered) function list.
 
-    Re-running intake after a discovery change (rizin update, NE fix, …) can
+    Re-running intake after a discovery change (new plugin, NE fix, …) can
     leave orphaned ``fcn_<va>.c`` stubs behind — they inflate ``rebrew
     status`` totals and clutter the source tree.  This prunes only files
     whose content still matches the exact auto-stub pattern for *marker*;
@@ -430,8 +401,8 @@ def main(
         _warn_explicit_toolchain(bin_path, profile, notes)
 
     if dry_run:
-        # Preview mode: enumerate functions too (rizin is a read-only
-        # subprocess — no writes happen), so the preview tells the user how
+        # Preview mode: enumerate functions too (discoverers are read-only
+        # — no writes happen), so the preview tells the user how
         # many functions would actually be documented instead of a thin 0.
         funcs = _enumerate_functions(bin_path)
         preview_count = len(funcs)
@@ -459,7 +430,7 @@ def main(
                 "rebrew init --target <name> --binary <name>.exe --toolchain <profile>",
                 "copy binary to original/",
                 "symlink vendored toolchain into tools/",
-                "generate src/<target>/functions.txt via rizin",
+                "enumerate functions via the discoverer plugins",
                 "write STUB .c + blocker per function",
             ],
         }
@@ -518,15 +489,16 @@ def main(
     # 3. symlink the vendored toolchain
     linked = _link_toolchain(project, profile)
 
-    # 4. function inventory via rizin
+    # 4. function inventory via the discoverer plugins
     funcs = _enumerate_functions(dest)
     if not funcs:
         # A project with an empty function inventory is not a successful
-        # onboarding — rizin is missing, timed out, or could not analyze the
-        # binary.  Fail loudly instead of reporting "Intake complete: 0".
+        # onboarding — no discoverer found functions.  Fail loudly instead
+        # of reporting "Intake complete: 0".
         msg = (
-            "rizin produced no functions — install rizin (or fix the analysis "
-            "timeout) and re-run intake; the project scaffold was still created"
+            "no functions discovered — install rizin (or register another "
+            "rebrew.discoverers plugin) and re-run intake; the project "
+            "scaffold was still created"
         )
         error_exit(msg, json_mode=json_output)
 

@@ -89,7 +89,7 @@ whenever the reference binary changes — the layout files carry
    from existing canonical data, it belongs in Derived or Cache — and
    should be buildable from one command, never hand-edited.
 2. One parser per file format.  Shared parsers live in
-   `catalog/loaders.py` (function lists, rizin `afl`) and
+   `catalog/loaders.py` (discovery inventory, rizin `afl`) and
    `rebrew/utils.py` (`load_metadata_doc`, `parse_metadata_doc`,
    `metadata_write_lock`) — do not hand-roll a third copy.
 3. Writes to canonical stores go through the gated APIs:

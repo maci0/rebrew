@@ -284,7 +284,7 @@ src/rebrew/
 ├── pdb_info.py          # PDB metadata (S_COMPILE3 compiler + command line)
 ├── identify_library.py  # Library-function backends (CRT/ZLIB marking)
 ├── intake.py            # One-shot binary onboarding (FLIRT scan, catalog, triage)
-├── discover.py          # Function enumeration (rizin aaa→aap→capstone linear sweep)
+├── discover.py          # Function enumeration via rebrew.discoverers plugins (packaged: rizin, capstone, NE/MZ)
 ├── strings.py           # Extract printable strings from data sections + xrefs
 ├── xrefs.py             # Cross-reference explorer for an address
 ├── describe.py          # Per-function dossier (callers, callees, strings, imports)

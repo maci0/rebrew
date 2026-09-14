@@ -962,12 +962,15 @@ See [GHIDRA_SYNC.md](GHIDRA_SYNC.md) for the sync feature matrix and known issue
 
 ### radare2 / rizin
 
-Used for decompilation backends (r2ghidra, r2dec) and as an alternative analysis
-perspective. Rebrew auto-detects whichever is installed (`rz` preferred over `r2`).
+Used for decompilation backends (r2ghidra, r2dec), as an alternative analysis
+perspective, and as packaged `rebrew.discoverers` providers (rizin `aaa` /
+`aa; aap`).  Rebrew auto-detects whichever is installed (`rz` preferred over
+`r2`).  Third-party discoverers plug in via the `rebrew.discoverers`
+entry-point group without host edits.
 
 **Data files consumed by rebrew:**
-- `functions.txt` — Human-readable function list (VA, size, name) — tool-agnostic format
-- `function_structure.json` — Ghidra function list (consumed by `rebrew skeleton`, `rebrew todo`)
+- `function_structure.json` — discovery inventory `[{va, size, name}]`
+  (consumed by `rebrew skeleton`, `rebrew todo`, `rebrew catalog`)
 
 **Known issues:**
 - r2/rz occasionally report bogus sizes for some functions

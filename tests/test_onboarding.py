@@ -53,7 +53,7 @@ class TestOnboardingJourney:
     def _patch_env(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> CliRunner:
         runner = CliRunner()
         monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr("rebrew.intake._run_rizin_functions", lambda b: FAKE_FUNCS)
+        monkeypatch.setattr("rebrew.intake._enumerate_functions", lambda b: FAKE_FUNCS)
         return runner
 
     def test_intake_produces_documented_project(

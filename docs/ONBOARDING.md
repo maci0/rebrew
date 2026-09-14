@@ -13,7 +13,7 @@ see [TOOLCHAIN.md](TOOLCHAIN.md).
 | Python 3.12+ + `uv` | running rebrew | `pip install uv` / your distro |
 | rebrew itself | everything | `uv pip install -e .` in this checkout |
 | **docker** | every compiler (MSVC, Borland, Watcom, Turbo C, Delphi, GCC, Clang, MinGW) — execution is docker-only; the image wraps wine/DOSBox or holds the native compiler | your distro's `docker` |
-| **rizin** (`rz`/`rizin`) | function discovery (`rebrew intake` enumerates functions with it) | `apt install rizin` / [rizin.re](https://rizin.re) |
+| **rizin** (`rz`/`rizin`) | packaged function discoverer (`rebrew.discoverers`; alternatives plug in without host edits) | `apt install rizin` / [rizin.re](https://rizin.re) |
 | `diec` (optional) | stronger compiler detection in `rebrew doctor`/`intake` | `tools/diec` (vendored) |
 
 Every compiler — including GCC, Clang and MinGW — needs docker: the image
@@ -75,7 +75,7 @@ rebrew intake original/server.dll --toolchain msvc-6.0   # or pin it explicitly
 2. runs `rebrew init` (skipped if the project already exists — re-running
    intake is a safe re-discovery)
 3. copies the binary to `original/`
-4. **enumerates functions** with rizin → `src/SERVER/function_structure.json`
+4. **enumerates functions** via discoverer plugins → `src/SERVER/function_structure.json`
 5. **documents every function** as a `// STUB:` skeleton with a BLOCKER,
    so `rebrew status`/`rebrew todo` show the full reversing landscape
 
@@ -139,7 +139,7 @@ step-by-step instructions for AI agents.
 | Error | Cause | Fix |
 |-------|-------|-----|
 | `binary not found: …` | typo'd path | pass the real path — `rebrew intake` copies it to `original/` |
-| `rizin produced no functions` | rizin missing, timed out, or couldn't analyze the binary | `apt install rizin`; re-run `rebrew intake` (the scaffold is kept) |
+| `no functions discovered` | no discoverer found functions (rizin missing, timed out, or couldn't analyze the binary) | `apt install rizin` or register another `rebrew.discoverers` plugin; re-run `rebrew intake` (the scaffold is kept) |
 | `docker image rebrew/… not built` | image missing | `rebrew toolchain build <profile>` (or `rebrew toolchain pull <profile>`) |
 | `Toolchain alignment` fail | detected family ≠ configured profile | `rebrew cfg set compiler.profile <detected>` |
 | `Cannot extract DLL bytes` (verify) | binary changed since the annotation | re-run `rebrew intake` for re-discovery, or fix the marker VA (see `rebrew doctor`'s *Annotation staleness* check) |

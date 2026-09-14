@@ -21,10 +21,10 @@ def _run_main(tmp_path: Path, monkeypatch, *, argv: list[str]) -> str:
     runner = CliRunner()
     monkeypatch.chdir(tmp_path)
 
-    def _fake_rizin(binary: Path) -> list[tuple[int, int, str]]:
+    def _fake_discover(binary: Path) -> list[tuple[int, int, str]]:
         return FAKE_FUNCS
 
-    monkeypatch.setattr("rebrew.intake._run_rizin_functions", _fake_rizin)
+    monkeypatch.setattr("rebrew.intake._enumerate_functions", _fake_discover)
     monkeypatch.setattr(
         "rebrew.intake._suggest_profile",
         lambda b: ("msvc-6.0", "msvc", "MSVC 6.0", []),
@@ -43,7 +43,7 @@ class TestIntake:
         assert data["dry_run"] is True
         assert data["profile"] == "msvc-6.0"
         assert data["family"] == "msvc"
-        # The preview now runs rizin (read-only) so the user sees the real
+        # The preview now runs the discoverers (read-only) so the user sees the real
         # function count before committing to the onboarding.
         assert data["function_count"] == 2
         assert not (tmp_path / "rebrew-project.toml").exists()
@@ -96,7 +96,7 @@ class TestIntake:
 
         binary = tmp_path / "game.exe"
         binary.write_bytes(b"MZ")
-        monkeypatch.setattr("rebrew.intake._run_rizin_functions", lambda b: FAKE_FUNCS)
+        monkeypatch.setattr("rebrew.intake._enumerate_functions", lambda b: FAKE_FUNCS)
         monkeypatch.setattr(
             "rebrew.intake._suggest_profile",
             lambda b: ("msvc-6.0", "msvc", "MSVC 6.0", []),
@@ -111,8 +111,8 @@ class TestIntake:
         assert "toolchain build" in combined
         assert "symlink tools" not in combined
 
-    def test_rizin_empty_functions_fails(self, tmp_path: Path, monkeypatch) -> None:
-        """Regression (error-review F2): rizin failing/timing out must not be
+    def test_empty_discovery_fails(self, tmp_path: Path, monkeypatch) -> None:
+        """Regression (error-review F2): no discoverer finding functions must not be
         reported as a successful 'Intake complete: functions: 0' — onboarding
         with an empty function list is useless and misleading."""
         from typer.testing import CliRunner
@@ -121,7 +121,7 @@ class TestIntake:
 
         binary = tmp_path / "game.exe"
         binary.write_bytes(b"MZ")
-        monkeypatch.setattr("rebrew.intake._run_rizin_functions", lambda b: [])
+        monkeypatch.setattr("rebrew.intake._enumerate_functions", lambda b: [])
         monkeypatch.setattr(
             "rebrew.intake._suggest_profile",
             lambda b: ("msvc-6.0", "msvc", "MSVC 6.0", []),
@@ -146,10 +146,10 @@ class TestIntake:
         binary = tmp_path / "game.exe"
         binary.write_bytes(b"MZ")
 
-        def _fake_rizin_v1(binary: Path) -> list[tuple[int, int, str]]:
+        def _fake_discover_v1(binary: Path) -> list[tuple[int, int, str]]:
             return [(0x401000, 32, "fcn.00401000"), (0x402000, 64, "fcn.00402000")]
 
-        monkeypatch.setattr("rebrew.intake._run_rizin_functions", _fake_rizin_v1)
+        monkeypatch.setattr("rebrew.intake._enumerate_functions", _fake_discover_v1)
         monkeypatch.setattr(
             "rebrew.intake._suggest_profile",
             lambda b: ("msvc-6.0", "msvc", "MSVC 6.0", []),
@@ -162,7 +162,7 @@ class TestIntake:
 
         # Re-discovery: one function vanishes, one new one appears.
         monkeypatch.setattr(
-            "rebrew.intake._run_rizin_functions",
+            "rebrew.intake._enumerate_functions",
             lambda b: [(0x401000, 32, "fcn.00401000"), (0x403000, 16, "fcn.00403000")],
         )
         out2 = runner.invoke(main_mod.app, ["intake", "game.exe", "--json"])
@@ -185,7 +185,7 @@ class TestIntake:
         binary = tmp_path / "game.exe"
         binary.write_bytes(b"MZ")
         monkeypatch.setattr(
-            "rebrew.intake._run_rizin_functions",
+            "rebrew.intake._enumerate_functions",
             lambda b: [(0x401000, 32, "fcn.00401000"), (0x402000, 64, "fcn.00402000")],
         )
         monkeypatch.setattr(
@@ -202,7 +202,7 @@ class TestIntake:
         stub.write_text("// my decompilation work\nint real_fn(void) { return 0; }\n")
 
         monkeypatch.setattr(
-            "rebrew.intake._run_rizin_functions",
+            "rebrew.intake._enumerate_functions",
             lambda b: [(0x401000, 32, "fcn.00401000")],
         )
         out2 = runner.invoke(main_mod.app, ["intake", "game.exe", "--json"])
@@ -223,7 +223,7 @@ class TestIntake:
         binary = tmp_path / "game.exe"
         binary.write_bytes(b"MZ")
         monkeypatch.setattr(
-            "rebrew.intake._run_rizin_functions",
+            "rebrew.intake._enumerate_functions",
             lambda b: [(0x401000, 32, "fcn.00401000"), (0x402000, 64, "fcn.00402000")],
         )
         monkeypatch.setattr(
