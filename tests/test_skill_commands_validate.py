@@ -12,8 +12,6 @@ so it requires the package to be installed (editable install is fine).
 from __future__ import annotations
 
 import importlib.util
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -58,16 +56,25 @@ class TestValidateSkillCommands:
         """validate() must return a boolean."""
         assert isinstance(_validate_once, bool)
 
-    def test_no_unknown_subcommands(self) -> None:
-        """All subcommands referenced in SKILL.md files must exist in the CLI."""
-        result = subprocess.run(
-            [sys.executable, str(_SCRIPT), "--quiet"],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            cwd=str(_REPO_ROOT),
-        )
-        # Exit 0 = all OK; exit 1 = failures
-        assert result.returncode == 0, (
-            "validate_skill_commands.py found drift:\n" + result.stdout + result.stderr
-        )
+    def test_no_unknown_subcommands(self, _validate_once: bool) -> None:
+        """All subcommands referenced in SKILL.md files must exist in the CLI.
+
+        Reuses the session fixture's in-process run (the same probe set the
+        script entrypoint runs) instead of spawning the script a second time.
+        """
+        assert _validate_once is True
+
+    def test_main_exit_code_mapping(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """main() maps validate() True/False to exit 0/1 (no probes)."""
+        spec = importlib.util.spec_from_file_location("validate_skill_commands", _SCRIPT)
+        assert spec is not None and spec.loader is not None
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        import sys
+
+        for result, code in ((True, 0), (False, 1)):
+            monkeypatch.setattr(mod, "validate", lambda quiet=False, _r=result: _r)
+            monkeypatch.setattr(sys, "argv", ["validate_skill_commands.py", "--quiet"])
+            with pytest.raises(SystemExit) as exc:
+                mod.main()
+            assert exc.value.code == code
