@@ -269,3 +269,90 @@ class TestBuiltinManifest:
         from rebrew.builtins import BUILTIN_COMPONENTS
 
         assert all(c.panel in Panel.ALL for c in BUILTIN_COMPONENTS)
+
+
+class _Probe:
+    """Minimal Component: records apply calls, optionally provides."""
+
+    def __init__(
+        self,
+        name: str,
+        needs: tuple[str, ...] = (),
+        provides: dict[str, Any] | None = None,
+        calls: list[str] | None = None,
+    ) -> None:
+        self._name = name
+        self.needs = needs
+        self._provides = provides or {}
+        self.calls = calls if calls is not None else []
+
+    def apply(self, ctx: Context) -> None:
+        self.calls.append(self._name)
+        for key, value in self._provides.items():
+            ctx.provide(key, value)
+
+
+class TestMultiScope:
+    """Every change classifies against every scope (Definition 22)."""
+
+    def test_two_scopes_on_one_context_both_classify(self) -> None:
+        ctx = Context()
+        first = _Probe("first", needs=("a",))
+        second = _Probe("second", needs=("a",))
+        CoeffectScope(ctx).add(first)
+        CoeffectScope(ctx).add(second)
+        ctx.provide("a", 1)
+        assert first.calls == ["first"]
+        assert second.calls == ["second"]
+
+    def test_closed_scope_stops_classifying(self) -> None:
+        ctx = Context()
+        first = _Probe("first", needs=("a",))
+        scope = CoeffectScope(ctx)
+        scope.add(first)
+        scope.close()
+        ctx.provide("a", 1)
+        assert first.calls == []
+
+
+class TestSingleSource:
+    """A key binds once across the whole lookup chain."""
+
+    def test_fork_cannot_shadow_parent_key(self) -> None:
+        parent = Context()
+        parent.provide("a", 1)
+        with pytest.raises(ComponentError, match="already provided"):
+            parent.fork().provide("a", 2)
+
+
+class TestDependentFirstWithdrawal:
+    """Dependents deactivate before their provider's withdrawal lands."""
+
+    def test_dependent_reverts_before_provider(self) -> None:
+        ctx = Context()
+        provider = _Probe("provider", provides={"a": 1})
+        dependent = _Probe("dependent", needs=("a",))
+        scope = CoeffectScope(ctx)
+        scope.add(provider)
+        scope.add(dependent)
+        assert dependent.calls == ["dependent"]
+
+        # Withdraw the base service: newest-first deactivation means each
+        # entry reverts while "a" is still resolvable.
+        resolutions: list[bool] = []
+        orig_deactivate = scope._deactivate
+
+        def _spying(entry: Any) -> None:
+            resolutions.append(ctx.has("a"))
+            orig_deactivate(entry)
+
+        scope._deactivate = _spying  # type: ignore[method-assign]
+        try:
+            ctx.unprovide("a")
+        finally:
+            scope._deactivate = orig_deactivate  # type: ignore[method-assign]
+        # Only the dependent deactivates (the provider has empty needs and
+        # stays active); it reverts while "a" is still resolvable.
+        assert resolutions == [True]
+        assert dependent.calls == ["dependent"]
+        assert provider.calls == ["provider"]
