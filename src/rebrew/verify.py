@@ -270,7 +270,8 @@ def verify_entry(
                         "tweaks for byte-identity)"
                     )
                     result.message = f"{result.message} {note}".strip()
-        except Exception:  # diff_lines is best-effort
+        except Exception as exc:  # diff_lines is best-effort
+            log.debug("diff_lines failed for 0x%x: %s", result.va, exc)
             result.diff_lines = None
     # Structural code-similarity score (0–100), computed for EVERY verified
     # function with compiled bytes — matched (short-circuit ~100) and
@@ -283,7 +284,8 @@ def verify_entry(
             from rebrew.matcher import code_similarity
 
             result.similarity = code_similarity(target_bytes, result.obj_bytes)
-        except Exception:  # similarity is best-effort
+        except Exception as exc:  # similarity is best-effort
+            log.debug("similarity failed for 0x%x: %s", result.va, exc)
             result.similarity = None
     return result
 
