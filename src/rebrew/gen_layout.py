@@ -757,7 +757,10 @@ def main(
     # rebrew-layout.toml + hex dumps of the opaque linker-stamped regions + sparse
     # .text maps land in layout/<target>/, which the build's
     # 'rebrew postlink --layout' consumes without the original DLL.
-    meta = extract_layout(data, cfg.target_name)
+    try:
+        meta = extract_layout(data, cfg.target_name)
+    except ValueError as exc:
+        error_exit(str(exc), json_mode=json_output)
 
     pkg_dir = cfg.root / "layout" / cfg.target_name
     tname = cfg.target_name.rsplit(".", 1)[0]
