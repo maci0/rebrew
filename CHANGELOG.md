@@ -28,6 +28,12 @@
   hard refusal naming the conflict.
 ## [2.0.0] - 2026-09-14
 ### Changed
+- **`functions.txt` is gone**: the discovery inventory is
+  `src/<target>/function_structure.json` (`[{va, size, name}]`), written by
+  `rebrew intake`/`discover-functions`.  `parse_function_list` is deleted;
+  every consumer reads via `cached_function_list` (structure file) and the
+  `function_list` config key is removed.  `binary-similarity --other-list`
+  takes a structure JSON file.
 - **`rebrew asm` and `rebrew test` are callable in-process**: `asm.hex_disassembly`,
   `asm.build_cfg_payload` and `test.run_test` return exactly what the CLI prints
   (hex text, the CFG payload, the test result object), so the last two engine

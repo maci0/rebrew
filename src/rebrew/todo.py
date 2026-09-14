@@ -211,38 +211,22 @@ def _collect_setup_steps(
     src_dir = Path(cfg.reversed_dir)
     ghidra_json = src_dir / FUNCTION_STRUCTURE_JSON
 
-    # 2. No function list → need to generate it
+    # 2. No discovery inventory → need to generate it
     if not ghidra_json.exists():
-        func_list = cfg.function_list
-        if func_list.exists():
-            step += 1
-            items.append(
-                TodoItem(
-                    category=CAT_SETUP,
-                    roi_score=99.0 - step,
-                    va=0,
-                    name="",
-                    size=0,
-                    filename="",
-                    description="Build function catalog from Ghidra or function list",
-                    command="rebrew catalog",
-                )
+        step += 1
+        items.append(
+            TodoItem(
+                category=CAT_SETUP,
+                roi_score=99.0 - step,
+                va=0,
+                name="",
+                size=0,
+                filename="",
+                description="Export function inventory from Ghidra/r2/rizin",
+                command="rebrew doctor",
             )
-        else:
-            step += 1
-            items.append(
-                TodoItem(
-                    category=CAT_SETUP,
-                    roi_score=99.0 - step,
-                    va=0,
-                    name="",
-                    size=0,
-                    filename="",
-                    description="Export function list from Ghidra/r2/rizin",
-                    command="rebrew doctor",
-                )
-            )
-        return items  # Can't do much more without function list
+        )
+        return items  # Can't do much more without the inventory
 
     # 3. Have function list but no source files → run triage + skeleton
     if not ghidra_funcs:

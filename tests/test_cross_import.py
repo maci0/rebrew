@@ -232,7 +232,6 @@ class TestImportMechanics:
             reversed_dir=rev,
             metadata_dir=tmp_path,
             target_binary=binary,
-            function_list=tmp_path / f"{target}.txt",
             source_ext=".c",
             marker=marker if marker is not None else target,
             posix_style=False,
@@ -502,7 +501,6 @@ class TestSizelessMatching:
             reversed_dir=rev,
             metadata_dir=tmp_path,
             target_binary=binary,
-            function_list=tmp_path / f"{target}.txt",
         )
 
     def test_disasm_sizes_ret_only(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -796,7 +794,6 @@ class TestMingwEndToEnd:
                 target_name=target,
                 target_binary=binary,
                 reversed_dir=rev,
-                function_list=fl,
                 compiler_command="i686-w64-mingw32-gcc",
                 compiler_profile="mingw-16.2.0",
                 # mingw-16.2.0 projects set gcc-style flags explicitly (the MSVC

@@ -1,6 +1,6 @@
 """catalog/registry.py - Function registry building and size resolution.
 
-Merges function list and Ghidra function lists into a unified registry with
+Merges discovery inventory and Ghidra function lists into a unified registry with
 smart size resolution (jump table detection, padding absorption, etc.).
 """
 
@@ -209,7 +209,7 @@ def build_function_registry(
     ghidra_path: Path | None = None,
     bin_path: Path | None = None,
 ) -> dict[int, RegistryEntry]:
-    """Build a unified function registry merging function list + ghidra + exports.
+    """Build a unified function registry merging discovery + ghidra + exports.
 
     Returns dict keyed by VA with:
         detected_by: list of tool names
@@ -226,7 +226,7 @@ def build_function_registry(
     registry: dict[int, RegistryEntry] = {}
     iat_vas = _iat_slot_vas(bin_path) if bin_path else set()
 
-    # --- Function list ---
+    # --- Discovery inventory ---
     r2_bogus = set(getattr(cfg, "r2_bogus_vas", [])) if cfg else _DEFAULT_R2_BOGUS_SIZES
     for func in funcs:
         va = int(func["va"])

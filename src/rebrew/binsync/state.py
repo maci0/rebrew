@@ -19,7 +19,7 @@ from typing import Any
 
 import tomlkit
 
-from rebrew.catalog import build_function_registry, parse_function_list, scan_reversed_dir
+from rebrew.catalog import build_function_registry, cached_function_list, scan_reversed_dir
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 
 log = logging.getLogger(__name__)
@@ -298,7 +298,7 @@ def index_local_and_catalog(
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
-            funcs = parse_function_list(cfg.function_list)
+            funcs = cached_function_list(cfg)
         ghidra_path = cfg.reversed_dir / FUNCTION_STRUCTURE_JSON
         registry = build_function_registry(funcs, cfg, ghidra_path, cfg.target_binary)
         for va, reg_entry in registry.items():

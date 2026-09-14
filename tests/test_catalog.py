@@ -12,7 +12,6 @@ from rebrew.catalog import (
     generate_catalog,
     generate_data_json,
     make_func_entry,
-    parse_function_list,
     scan_reversed_dir,
 )
 from rebrew.config import ProjectConfig
@@ -359,31 +358,6 @@ class TestGenerateDataJson:
 
 
 # -------------------------------------------------------------------------
-# parse_function_list (additional cases)
-# -------------------------------------------------------------------------
-
-
-class TestParseFunctionListExtended:
-    def test_empty_file(self, tmp_path: Path) -> None:
-        f = tmp_path / "empty.txt"
-        f.write_text("", encoding="utf-8")
-        result = parse_function_list(f)
-        assert result == []
-
-    def test_missing_file(self, tmp_path: Path) -> None:
-        f = tmp_path / "nonexistent.txt"
-        with pytest.warns(UserWarning, match="Cannot read"):
-            result = parse_function_list(f)
-        assert result == []
-
-    def test_malformed_lines(self, tmp_path: Path) -> None:
-        f = tmp_path / "bad.txt"
-        f.write_text("not a valid line\n0x10001000\nfoo bar baz\n", encoding="utf-8")
-        result = parse_function_list(f)
-        assert result == []
-
-
-# -------------------------------------------------------------------------
 # scan_reversed_dir (additional cases)
 # -------------------------------------------------------------------------
 
@@ -407,23 +381,6 @@ class TestScanReversedDirExtended:
 
 
 class TestCatalogFunctional:
-    def test_parse_function_list_parses_correctly(self, tmp_path: Path) -> None:
-        from rebrew.catalog import parse_function_list
-
-        func_list = tmp_path / "functions.txt"
-        func_list.write_text(
-            "0x10001000 64 _my_func\n"
-            "0x10002000 128 _other_func\n"
-            "# comment line\n"
-            "0x10003000 32 _third_func\n",
-            encoding="utf-8",
-        )
-        funcs = parse_function_list(func_list)
-        assert len(funcs) == 3
-        assert funcs[0]["va"] == 0x10001000
-        assert funcs[0]["size"] == 64
-        assert funcs[0]["name"] == "_my_func"
-
     def test_scan_reversed_dir_finds_annotated_files(self, tmp_path: Path) -> None:
         from rebrew.catalog import scan_reversed_dir
 
@@ -456,26 +413,3 @@ class TestCatalogFunctional:
         reg = build_function_registry(funcs, cfg)
         assert bogus_va in reg
         assert "list" not in reg[bogus_va]["size_by_tool"]
-
-
-class TestParseFunctionListImportFilter:
-    """rizin names IAT slots `sym.imp.<DLL>.<func>` — parse_function_list
-    must skip them (they are import-table data, not functions)."""
-
-    def test_skips_sym_imp_entries(self, tmp_path: Path) -> None:
-        f = tmp_path / "funcs.txt"
-        f.write_text(
-            "0x1000127c sym.imp.MFC42u.DLL_CWnd::EnableWindow 8\n"
-            "0x100018c0 sym.imp.MFC42u.DLL_CWndconstCWnd::wndTop 12\n"
-            "0x10002000 fcn.01002000 64\n",
-            encoding="utf-8",
-        )
-        result = parse_function_list(f)
-        assert len(result) == 1
-        assert result[0]["va"] == 0x10002000
-
-    def test_size_first_format(self, tmp_path: Path) -> None:
-        f = tmp_path / "funcs.txt"
-        f.write_text("12 0x100018c0 sym.imp.MFC42u.DLL_X 12\n", encoding="utf-8")
-        result = parse_function_list(f)
-        assert result == []

@@ -165,15 +165,18 @@ class TestDispatchHeaderWidth:
 
 class TestScanAll:
     def test_scan_all_console_no_double_prefix(self, tmp_path: Path, monkeypatch, capsys) -> None:
+        import json as _json
+
         from rebrew.switch import _scan_all
 
-        func_list = tmp_path / "functions.txt"
-        func_list.write_text("0x01031150 fcn.01031150 144\n", encoding="utf-8")
+        (tmp_path / "function_structure.json").write_text(
+            _json.dumps([{"va": 0x01031150, "size": 144, "name": "fcn.01031150"}]),
+            encoding="utf-8",
+        )
         cfg = SimpleNamespace(
             target_binary=tmp_path / "x.exe",
             root=tmp_path,
             reversed_dir=tmp_path,
-            function_list=func_list,
             target_name="SERVER",
         )
         monkeypatch.setattr(

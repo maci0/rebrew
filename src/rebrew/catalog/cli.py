@@ -22,7 +22,7 @@ from rich.console import Console
 from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.catalog.export import generate_catalog, generate_reccmp_csv
 from rebrew.catalog.grid import count_statuses, covered_bytes, generate_data_json
-from rebrew.catalog.loaders import parse_function_list, scan_reversed_dir
+from rebrew.catalog.loaders import cached_function_list, scan_reversed_dir
 from rebrew.catalog.registry import build_function_registry, count_detection_sources
 from rebrew.cli import (
     TargetOption,
@@ -94,17 +94,11 @@ def build_catalog_data(cfg: Any, *, with_data: bool = True) -> dict[str, Any]:
     console.print(f"Scanning {reversed_dir}...", style="dim")
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
 
-    # Load function list and function structure in parallel
+    # Load the discovery inventory in parallel
     jobs = getattr(cfg, "default_jobs", 4) or 4
-    func_list_path = cfg.function_list
-
-    def load_func_list() -> list[dict[str, Any]]:
-        if func_list_path and Path(func_list_path).exists():
-            return parse_function_list(Path(func_list_path))
-        return []
 
     with ThreadPoolExecutor(max_workers=jobs) as pool:
-        future_funcs = pool.submit(load_func_list)
+        future_funcs = pool.submit(cached_function_list, cfg)
         funcs = future_funcs.result()
 
     # The .text size drives the coverage percentage.  A missing binary used

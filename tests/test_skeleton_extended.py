@@ -32,7 +32,6 @@ def _cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
         "base_cflags": "/O2",
         "dll_exports": {},
         "iat_thunks": set(),
-        "function_list": "",
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

@@ -24,7 +24,7 @@ compare in seconds.
 
 Usage::
 
-    rebrew binary-similarity ../v2/server.dll --other-list ../v2/functions.txt
+    rebrew binary-similarity ../v2/server.dll --other-list ../v2/src/SERVER/function_structure.json
     rebrew binary-similarity --other-target CLIENT --json
 """
 
@@ -209,9 +209,16 @@ def _load_side(
 ) -> list[dict[str, Any]]:
     """Load ``{va, size, name, signature}`` records for one binary."""
     from rebrew.binary_loader import extract_raw_bytes
-    from rebrew.catalog import parse_function_list
+    from rebrew.catalog import load_function_structure
 
-    funcs = parse_function_list(func_list) if func_list and func_list.exists() else []
+    funcs: list[dict[str, Any]] = (
+        [
+            {"va": e.va, "size": e.size, "name": e.name or e.tool_name}
+            for e in load_function_structure(func_list)
+        ]
+        if func_list and func_list.exists()
+        else []
+    )
     out: list[dict[str, Any]] = []
     for f in funcs:
         va = int(f.get("va", 0))
@@ -244,8 +251,8 @@ def run_binary_similarity(
         error_exit(f"other function list not found: {other_list}", json_mode=json_output)
     if other_list is None:
         error_exit(
-            "a function list for the other binary is required — pass --other-list "
-            "(functions.txt format: VA SIZE NAME) or use --other-target to pick a "
+            "a function inventory for the other binary is required — pass --other-list "
+            "(function_structure.json: [{va, size, name}]) or use --other-target to pick a "
             "configured target",
             json_mode=json_output,
         )
@@ -253,7 +260,11 @@ def run_binary_similarity(
     cs_arch = getattr(cfg, "capstone_arch", DEFAULT_CS_ARCH)
     cs_mode = getattr(cfg, "capstone_mode", DEFAULT_CS_MODE)
 
-    funcs_a = _load_side(cfg.target_binary, cfg.function_list, cs_arch, cs_mode)
+    from rebrew.config import FUNCTION_STRUCTURE_JSON
+
+    funcs_a = _load_side(
+        cfg.target_binary, cfg.reversed_dir / FUNCTION_STRUCTURE_JSON, cs_arch, cs_mode
+    )
     funcs_b = _load_side(other_binary, other_list, cs_arch, cs_mode)
 
     result = aggregate_similarity(funcs_a, funcs_b, low_count=low_count)
@@ -303,9 +314,9 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=(
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew binary-similarity ../v2/server.dll --other-list ../v2/functions.txt\n\n"
+        "  rebrew binary-similarity ../v2/server.dll --other-list ../v2/src/SERVER/function_structure.json\n\n"
         "  rebrew binary-similarity --other-target CLIENT --json\n\n"
-        "  rebrew binary-similarity other.dll --other-list other.txt --low 20\n\n"
+        "  rebrew binary-similarity other.dll --other-list other.json --low 20\n\n"
         "[dim]Matches every function of the current target against the other "
         "binary's function list by structural signature (mnemonic histogram + "
         "call/branch agreement) and aggregates the best matches into a "
@@ -323,7 +334,7 @@ def main(
     other_list: Path | None = typer.Option(
         None,
         "--other-list",
-        help="Function list for the other binary (functions.txt format: VA SIZE NAME)",
+        help="Function inventory for the other binary (function_structure.json)",
     ),
     other_target: str | None = typer.Option(
         None,
@@ -347,14 +358,18 @@ def main(
         )
 
     if other_target:
-        from rebrew.config import load_config
+        from rebrew.config import FUNCTION_STRUCTURE_JSON, load_config
 
         try:
             other_cfg = load_config(target=other_target)
         except Exception as exc:  # report the config error
             error_exit(f"cannot load target {other_target!r}: {exc}", json_mode=json_output)
         run_binary_similarity(
-            other_cfg.target_binary, other_cfg.function_list, json_output, low, target
+            other_cfg.target_binary,
+            other_cfg.reversed_dir / FUNCTION_STRUCTURE_JSON,
+            json_output,
+            low,
+            target,
         )
         return
 

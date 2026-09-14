@@ -49,20 +49,20 @@ def _make_project(tmp_path: Path) -> Path:
         "[project]\nname = 'probe'\ndefault_target = 'B'\n"
         "[compiler]\nprofile = 'msvc-6.0'\ncommand = 'CL.EXE'\n"
         "[targets.A]\nbinary = 'a.exe'\nreversed_dir = 'src/a'\n"
-        "function_list = 'src/a/functions.txt'\n"
-        "[targets.B]\nbinary = 'b.exe'\nreversed_dir = 'src/b'\n"
-        "function_list = 'src/b/functions.txt'\n",
+        "[targets.B]\nbinary = 'b.exe'\nreversed_dir = 'src/b'\n",
         encoding="utf-8",
     )
     (tmp_path / "a.exe").write_bytes(_pe_a())
     (tmp_path / "b.exe").write_bytes(_pe_b())
     (tmp_path / "src" / "a").mkdir(parents=True)
     (tmp_path / "src" / "b").mkdir(parents=True)
-    (tmp_path / "src" / "a" / "functions.txt").write_text(
-        f"0x{A_F1:08x} {len(F1)} f1\n", encoding="utf-8"
+    import json as _json
+
+    (tmp_path / "src" / "a" / "function_structure.json").write_text(
+        _json.dumps([{"va": A_F1, "size": len(F1), "name": "f1"}]), encoding="utf-8"
     )
-    (tmp_path / "src" / "b" / "functions.txt").write_text(
-        f"0x{B_F1:08x} {len(F1)} f1\n", encoding="utf-8"
+    (tmp_path / "src" / "b" / "function_structure.json").write_text(
+        _json.dumps([{"va": B_F1, "size": len(F1), "name": "f1"}]), encoding="utf-8"
     )
     return tmp_path
 

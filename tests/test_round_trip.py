@@ -1065,13 +1065,14 @@ class TestDriftDetail:
 
 class TestListName:
     def test_lists_function_list_names(self, tmp_path: Path) -> None:
+        import json as _json
+
         from rebrew.round_trip import _list_name
 
-        cfg = SimpleNamespace(
-            function_list=str(tmp_path / "functions.txt"),
-        )
-        (tmp_path / "functions.txt").write_text(
-            "  0x1001a286     19  fcn.1001a286\n", encoding="utf-8"
+        cfg = SimpleNamespace(reversed_dir=tmp_path)
+        (tmp_path / "function_structure.json").write_text(
+            _json.dumps([{"va": 0x1001A286, "size": 19, "name": "fcn.1001a286"}]),
+            encoding="utf-8",
         )
         assert _list_name(cfg, 0x1001A286) == "fcn.1001a286"
         assert _list_name(cfg, 0x999999) == ""
@@ -1080,7 +1081,7 @@ class TestListName:
     def test_missing_function_list_returns_empty(self, tmp_path: Path) -> None:
         from rebrew.round_trip import _list_name
 
-        cfg = SimpleNamespace(function_list=str(tmp_path / "nope.txt"))
+        cfg = SimpleNamespace()
         assert _list_name(cfg, 0x1000) == ""
 
 

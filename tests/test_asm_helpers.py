@@ -74,13 +74,14 @@ class TestVerifyRoundtrip:
 
 class TestListSizeFor:
     def test_returns_list_size(self, tmp_path: Path) -> None:
+        import json as _json
+
         from rebrew.asm import _list_size_for
 
-        cfg = SimpleNamespace(
-            function_list=str(tmp_path / "functions.txt"),
-        )
-        (tmp_path / "functions.txt").write_text(
-            "  0x10001000     42  fcn.10001000\n", encoding="utf-8"
+        cfg = SimpleNamespace(reversed_dir=tmp_path)
+        (tmp_path / "function_structure.json").write_text(
+            _json.dumps([{"va": 0x10001000, "size": 42, "name": "fcn.10001000"}]),
+            encoding="utf-8",
         )
         assert _list_size_for(cfg, 0x10001000) == 42
         assert _list_size_for(cfg, 0x2000) is None
@@ -88,7 +89,7 @@ class TestListSizeFor:
     def test_missing_list_returns_none(self, tmp_path: Path) -> None:
         from rebrew.asm import _list_size_for
 
-        cfg = SimpleNamespace(function_list=str(tmp_path / "nope.txt"))
+        cfg = SimpleNamespace()
         assert _list_size_for(cfg, 0x1000) is None
 
 

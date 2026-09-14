@@ -468,7 +468,6 @@ class TestRunAllBatch:
             image_base=0x10000000,
             dll_exports={},
             target_binary=tmp_path / "test.dll",
-            function_list="",
             all_targets=["T"],
         )
 
@@ -727,7 +726,6 @@ class TestFlagSweepMatchValidation:
             image_base=0x10000000,
             dll_exports={},
             target_binary=tmp_path / "test.dll",
-            function_list="",
             all_targets=["T"],
             source_ext=".c",
             base_cflags="",

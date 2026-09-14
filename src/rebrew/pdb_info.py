@@ -10,7 +10,7 @@ most authoritative offline source of the *exact* build configuration:
   compiler options (``/O1``, ``-MT``) count as CFLAGS candidates, and
   ``--write-cflags`` refuses to write a symbolic switch list into the config.
 - ``S_GPROC32``/``S_LPROC32`` records — function names (and best-effort
-  addresses/sizes) for ``functions.txt``.
+  addresses/sizes) for the discovery inventory.
 - module list — a ``.zig-cache`` path identifies a Zig build.
 
 Parsing goes through ``llvm-pdbutil`` (LLVM's PDB dumper).  Note llvm-pdbutil

@@ -541,13 +541,10 @@ def _next_function_va(cfg: ProjectConfig, va: int) -> int | None:
     Lets ``calling_convention`` trim a disassembly window that bleeds past
     the function's end into its neighbor.
     """
-    func_list_path = getattr(cfg, "function_list", "")
-    if not func_list_path or not Path(func_list_path).is_file():
-        return None
-    from rebrew.catalog import parse_function_list
+    from rebrew.catalog import cached_function_list
 
     try:
-        vas = sorted(int(f["va"]) for f in parse_function_list(Path(func_list_path)))
+        vas = sorted(int(f["va"]) for f in cached_function_list(cfg))
     except (OSError, ValueError, KeyError):
         return None
     for cand in vas:
@@ -1531,13 +1528,10 @@ def _list_size_for(cfg: ProjectConfig, va_int: int) -> int | None:
     Lets ``rebrew asm <va>`` default to the real function size instead of a
     hardcoded 32-byte window (which bleeds into the adjacent function).
     """
-    func_list_path = getattr(cfg, "function_list", "")
-    if not func_list_path or not Path(func_list_path).is_file():
-        return None
-    from rebrew.catalog import parse_function_list
+    from rebrew.catalog import cached_function_list
 
     try:
-        for f in parse_function_list(Path(func_list_path)):
+        for f in cached_function_list(cfg):
             if int(f["va"]) == va_int:
                 return int(f["size"])
     except (OSError, ValueError, KeyError):

@@ -20,7 +20,6 @@ def _ann(va: int, marker: str = "FUNCTION", filepath: str = "f.c", size: int = 6
 def _cfg(tmp_path: Path) -> SimpleNamespace:
     return SimpleNamespace(
         reversed_dir=tmp_path / "src",
-        function_list=tmp_path / "functions.txt",
         target_binary=tmp_path / "x.dll",
         root=tmp_path,
         metadata_dir=tmp_path,

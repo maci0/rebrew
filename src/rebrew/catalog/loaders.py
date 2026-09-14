@@ -6,7 +6,6 @@ and scans reversed directories for annotated source files.
 
 import contextlib
 import json
-import re
 import warnings
 from pathlib import Path
 from typing import Any
@@ -15,7 +14,6 @@ from rebrew.annotation import Annotation, parse_c_file_multi, parse_library_head
 from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
 from rebrew.config import ProjectConfig
 from rebrew.sources import iter_library_headers, iter_sources, target_marker
-from rebrew.utils import read_source_text
 
 
 def make_func_entry(va: int, size: int, name: str) -> dict[str, int | str]:
@@ -119,27 +117,25 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, GhidraDataLabel]:
 
 
 # ---------------------------------------------------------------------------
-# Function list parser
+# Discovery inventory (function_structure.json)
 # ---------------------------------------------------------------------------
 
-_FUNC_LINE_RE_SIZE_FIRST = re.compile(r"^\s*(0x[0-9a-fA-F]+)\s+(0x[0-9a-fA-F]+|\d+)\s+(\S+)")
-_FUNC_LINE_RE_NAME_FIRST = re.compile(r"^\s*(0x[0-9a-fA-F]+)\s+(\S+)\s+(0x[0-9a-fA-F]+|\d+)\s*$")
-# `VA NAME` with no size (rizin afl may omit sizes).  The name must not be
-# pure digits — a bare `VA NUMBER` line is malformed, not a size-less entry.
-_FUNC_LINE_RE_NAME_ONLY = re.compile(r"^\s*(0x[0-9a-fA-F]+)\s+(\S+)\s*$")
-
-# Path-keyed cache of parsed function lists (multiple projects per process).
+# Path-keyed cache of discovery inventories (multiple projects per process).
 _function_list_cache: dict[str, list[dict[str, Any]]] = {}
 
 
 def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
-    """Parse ``cfg.function_list`` once per path, caching the raw entries.
+    """Discovery inventory as ``[{va, size, name}]``, once per path.
 
-    Shared by crt-match and round-trip, which both need the list as a
-    ``{va: …}`` map and previously duplicated the cache/parse/fallback
-    scaffold.  Returns ``[]`` when the list is unset, missing, or corrupt.
+    Reads ``function_structure.json`` next to the target (written by
+    ``rebrew intake``/``discover`` or a Ghidra export) — the former
+    ``functions.txt`` list is gone.  Returns ``[]`` when unset, missing,
+    or corrupt.
     """
-    path = str(getattr(cfg, "function_list", ""))
+    from rebrew.config import FUNCTION_STRUCTURE_JSON
+
+    reversed_dir = getattr(cfg, "reversed_dir", "")
+    path = str(Path(reversed_dir) / FUNCTION_STRUCTURE_JSON) if reversed_dir else ""
     # Include mtime in cache key to avoid stale entries after file rewrites
     mtime_key = ""
     with contextlib.suppress(OSError):
@@ -148,97 +144,15 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
     funcs = _function_list_cache.get(cache_key)
     if funcs is None:
         try:
-            p = Path(path)
-            funcs = parse_function_list(p) if p.is_file() else []
+            funcs = [
+                {"va": e.va, "size": e.size, "name": e.name or e.tool_name}
+                for e in load_function_structure(Path(path))
+                if path and Path(path).is_file()
+            ]
         except (OSError, ValueError, KeyError):
             funcs = []
         _function_list_cache[cache_key] = funcs
     return list(funcs)
-
-
-def parse_function_list(path: Path) -> list[dict[str, Any]]:
-    """Parse function list into list of {va, size, name}."""
-    funcs: list[dict[str, Any]] = []
-    try:
-        text, _ = read_source_text(path)
-    except OSError as exc:
-        warnings.warn(f"Cannot read {path}: {exc}", stacklevel=2)
-        return funcs
-
-    seen_vas: set[int] = set()
-    for line in text.splitlines():
-        if not line.strip() or line.strip().startswith("#"):
-            continue
-
-        m1 = _FUNC_LINE_RE_SIZE_FIRST.match(line)
-        if m1:
-            if m1.group(3).startswith("sym.imp."):
-                # rizin names IAT slots `sym.imp.<DLL>.<func>` — the import
-                # address table lives INSIDE .text on MSVC PEs, so discovery
-                # walks it as code and emits a fake "function" per slot.
-                # They are data, not functions; skip (see build_function_registry
-                # for the VA-based guard that catches non-`sym.imp.` names too).
-                continue
-            if m1.group(3) == "->":
-                # rizin afl alias marker ("0x1000 5 -> 0x2000"): the target
-                # is its own entry, so nothing to record here.  Treating the
-                # trailing number as a size fed garbage extents (e.g. an
-                # 8512-byte "size" for a 6-byte thunk) into the registry and
-                # verify --fix-sizes.  Mirrors parse_rizin_afl's handling.
-                continue
-            va1 = int(m1.group(1), 16)
-            if va1 in seen_vas:
-                continue
-            seen_vas.add(va1)
-            funcs.append(
-                make_func_entry(
-                    va=va1,
-                    size=int(m1.group(2), 0),
-                    name=m1.group(3),
-                )
-            )
-            continue
-
-        m2 = _FUNC_LINE_RE_NAME_FIRST.match(line)
-        if m2:
-            if m2.group(2).startswith("sym.imp."):
-                continue
-            if m2.group(2) == "->":
-                # rizin afl alias marker ("0x1000 -> 0x2000") — see above.
-                continue
-            va2 = int(m2.group(1), 16)
-            if va2 in seen_vas:
-                continue
-            seen_vas.add(va2)
-            funcs.append(
-                make_func_entry(
-                    va=va2,
-                    size=int(m2.group(3), 0),
-                    name=m2.group(2),
-                )
-            )
-            continue
-
-        m3 = _FUNC_LINE_RE_NAME_ONLY.match(line)
-        if m3 and not m3.group(2).isdigit():
-            # `VA NAME` with no size (rizin afl can omit sizes): record the
-            # function with size 0 so it stays visible in the universe
-            # (registry/status/extract); sizing tools fall back elsewhere.
-            if m3.group(2).startswith("sym.imp."):
-                continue
-            va3 = int(m3.group(1), 16)
-            if va3 in seen_vas:
-                continue
-            seen_vas.add(va3)
-            funcs.append(
-                make_func_entry(
-                    va=va3,
-                    size=0,
-                    name=m3.group(2),
-                )
-            )
-
-    return funcs
 
 
 def parse_rizin_afl(text: str) -> list[tuple[int, int, str]]:

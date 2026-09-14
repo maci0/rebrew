@@ -898,12 +898,12 @@ def export_state(
     try:
         import warnings
 
-        from rebrew.catalog import build_function_registry, parse_function_list
+        from rebrew.catalog import build_function_registry, cached_function_list
         from rebrew.config import FUNCTION_STRUCTURE_JSON
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
-            funcs = parse_function_list(cfg.function_list)
+            funcs = cached_function_list(cfg)
         ghidra_path = cfg.reversed_dir / FUNCTION_STRUCTURE_JSON
         bin_path = cfg.target_binary
         registry = build_function_registry(funcs, cfg, ghidra_path, bin_path)

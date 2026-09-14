@@ -607,14 +607,22 @@ class TestBuildDispatchKnownFunctions:
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         src = tmp_path / "src" / "SERVER"
         src.mkdir(parents=True, exist_ok=True)
-        func_list = tmp_path / "functions.txt"
-        func_list.write_text("0x1000 fcn_a 32\n0x2000 crt_handler 64\n", encoding="utf-8")
+        import json as _json
+
+        (src / "function_structure.json").write_text(
+            _json.dumps(
+                [
+                    {"va": 0x1000, "size": 32, "name": "fcn_a"},
+                    {"va": 0x2000, "size": 64, "name": "crt_handler"},
+                ]
+            ),
+            encoding="utf-8",
+        )
         (tmp_path / "fake.dll").write_bytes(b"\x00" * 16)
         return SimpleNamespace(
             root=tmp_path,
             target_name="SERVER",
             reversed_dir=src,
-            function_list=func_list,
             metadata_dir=tmp_path,
             marker="SERVER",
             target_binary=tmp_path / "fake.dll",
@@ -650,7 +658,8 @@ class TestBuildDispatchKnownFunctions:
         from rebrew.data import build_dispatch_known_functions
 
         cfg = self._cfg(tmp_path)
-        cfg.function_list = tmp_path / "nope.txt"  # type: ignore[attr-defined]
+        cfg.reversed_dir = tmp_path / "empty_src"
+        cfg.reversed_dir.mkdir(exist_ok=True)
         known = build_dispatch_known_functions(cfg, cfg.reversed_dir)  # type: ignore[arg-type]
         assert known == {}
 

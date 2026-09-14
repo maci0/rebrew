@@ -59,7 +59,6 @@ _TARGET_SCOPED_KEYS: frozenset[str] = frozenset(
         "format",
         "arch",
         "reversed_dir",
-        "function_list",
         "bin_dir",
         "source_ext",
         "marker",
@@ -531,7 +530,6 @@ def add_target(
     tgt.add("format", fmt)
     tgt.add("arch", arch)
     tgt.add("reversed_dir", f"src/{name}")
-    tgt.add("function_list", f"src/{name}/functions.txt")
     tgt.add("bin_dir", f"bin/{name}")
     tgt.add("source_ext", source_ext)
 

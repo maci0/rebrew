@@ -28,8 +28,6 @@ default_target = "game"
 binary = "game.exe"
 marker = "GAME"
 reversed_dir = "src"
-function_list = "src/functions.txt"
-
 [compiler]
 profile = "msvc-6.0"
 command = "cl"
@@ -64,7 +62,23 @@ def _project(tmp_path: Path, pe: bytes, functions: str) -> Path:
     (tmp_path / "game.exe").write_bytes(pe)
     src = tmp_path / "src"
     src.mkdir()
-    (src / "functions.txt").write_text(functions, encoding="utf-8")
+    import json as _json
+
+    def _parse_va_size_name(line: str) -> dict[str, object] | None:
+        parts = line.split()
+        if len(parts) < 3:
+            return None
+        try:
+            va = int(parts[0], 16)
+        except ValueError:
+            return None
+        try:
+            return {"va": va, "size": int(parts[1]), "name": parts[2]}
+        except ValueError:
+            return {"va": va, "size": int(parts[2]), "name": parts[1]}
+
+    entries = [e for e in (_parse_va_size_name(ln) for ln in functions.splitlines()) if e]
+    (src / "function_structure.json").write_text(_json.dumps(entries), encoding="utf-8")
     return tmp_path
 
 

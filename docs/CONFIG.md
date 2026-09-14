@@ -19,7 +19,7 @@ format = "pe"                            # Binary format: pe, elf, macho, ne, mz
 arch = "x86_32"                          # Architecture: x86_16, x86_32, x86_64, arm32, arm64
 # marker = "TARGET_NAME"                 # Defaults to target key uppercased (see below)
 reversed_dir = "src/target_name"         # Where reversed .c files live
-function_list = "src/target_name/functions.txt"
+# (discovery lives in src/<target>/function_structure.json — no config key)
 bin_dir = "bin/target_name"
 # source_ext = ".c"                      # Source file extension (default: ".c")
 # ghidra_program_path = ""               # Ghidra program path for ReVa MCP sync
@@ -281,7 +281,7 @@ Configuration precedence is: CLI flags > per-function metadata > `rebrew-project
 The config loader fail-fasts on missing/invalid structure:
 - No `[targets]`, missing `default_target`, unknown target name, or missing/empty `binary`.
 - Non-string or empty `project.default_target`.
-- Explicitly empty required path fields (`reversed_dir`, `function_list`, `bin_dir`,
+- Explicitly empty required path fields (`reversed_dir`, `bin_dir`,
   `db_dir`, `output_dir`) or an empty `compiler.command` on a native (non-image)
   profile (these otherwise resolve to the project root or fail only when a compiler
   subprocess is launched). `includes`/`libs` may be empty — that means "no extra
@@ -328,7 +328,7 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 | `lint.py` | `reversed_dir`, module name |
 | `init.py` | All target config (scaffolding) |
 | `rename.py` | `reversed_dir` |
-| `doctor.py` | `target_binary`, `reversed_dir`, `bin_dir`, `function_list`, compiler paths, `arch`, `binary_format` |
+| `doctor.py` | `target_binary`, `reversed_dir`, `bin_dir`, compiler paths, `arch`, `binary_format` |
 | `flirt.py` | `target_binary`, `root` |
 | `crt_match.py` | `crt_sources`, `reversed_dir`, `target_binary` |
 | `build_db.py` | `project_root`, `db_dir` |

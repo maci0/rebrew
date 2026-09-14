@@ -223,7 +223,7 @@ class TestRenameCli:
         assert "Could not find function" in result.output
 
     def test_zero_padded_va_identifier(self, tmp_path: Path, monkeypatch: Any) -> None:
-        """Regression: functions.txt writes zero-padded VAs (0x00001000);
+        """Regression: discovery writes zero-padded VAs (0x00001000);
         rename must accept them like every other VA-taking tool."""
         result = self._invoke(tmp_path, monkeypatch, "--dry-run", "0x00001000", "new_fn")
         assert result.exit_code == 0, result.output

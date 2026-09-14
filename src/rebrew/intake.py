@@ -8,7 +8,7 @@ Takes a target binary and produces a working rebrew decomp project:
 3. Copy the binary into ``original/`` and symlink the vendored toolchain
    (from the rebrew repo's ``tools/`` when present).
 4. Enumerate functions via rizin (``aaa``, falling back to ``aa; aap``) and
-   write ``functions.txt``.
+   write ``function_structure.json``.
 5. Document every function: a STUB .c + metadata blocker explaining the
    family (the "document-unmatched" step that used to be a per-project
    throwaway script).
@@ -24,6 +24,7 @@ Usage::
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
@@ -517,10 +518,10 @@ def main(
     # 3. symlink the vendored toolchain
     linked = _link_toolchain(project, profile)
 
-    # 4. functions.txt via rizin
+    # 4. function inventory via rizin
     funcs = _enumerate_functions(dest)
     if not funcs:
-        # A project with an empty function list is not a successful
+        # A project with an empty function inventory is not a successful
         # onboarding — rizin is missing, timed out, or could not analyze the
         # binary.  Fail loudly instead of reporting "Intake complete: 0".
         msg = (
@@ -532,8 +533,9 @@ def main(
     src_dir = project / "src" / target_name
     src_dir.mkdir(parents=True, exist_ok=True)
     atomic_write_text(
-        src_dir / "functions.txt",
-        "".join(f"0x{va:08x} {name} {size}\n" for va, size, name in funcs),
+        src_dir / "function_structure.json",
+        json.dumps([{"va": va, "size": size, "name": name} for va, size, name in funcs], indent=2)
+        + "\n",
     )
 
     # 5. document unmatched functions

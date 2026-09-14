@@ -528,8 +528,16 @@ reversed_dir = "src/server"
             "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 10\nint foo(void){return 1;}\n",
             encoding="utf-8",
         )
-        (tmp_path / "src" / "server" / "functions.txt").write_text(
-            "0x10001000 10 foo\n0x10002000 16 bar_func\n", encoding="utf-8"
+        import json as _json
+
+        (tmp_path / "src" / "server" / "function_structure.json").write_text(
+            _json.dumps(
+                [
+                    {"va": 0x10001000, "size": 10, "name": "foo"},
+                    {"va": 0x10002000, "size": 16, "name": "bar_func"},
+                ]
+            ),
+            encoding="utf-8",
         )
         outdir = tmp_path / "binsync_out"
         monkeypatch.chdir(tmp_path)
@@ -562,8 +570,16 @@ reversed_dir = "src/server"
             "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 10\nint foo(void){return 1;}\n",
             encoding="utf-8",
         )
-        (tmp_path / "src" / "server" / "functions.txt").write_text(
-            "0x10001000 10 foo\n0x10002000 16 bar_func\n", encoding="utf-8"
+        import json as _json
+
+        (tmp_path / "src" / "server" / "function_structure.json").write_text(
+            _json.dumps(
+                [
+                    {"va": 0x10001000, "size": 10, "name": "foo"},
+                    {"va": 0x10002000, "size": 16, "name": "bar_func"},
+                ]
+            ),
+            encoding="utf-8",
         )
         outdir = tmp_path / "binsync_out_clean"
         monkeypatch.chdir(tmp_path)
@@ -572,8 +588,9 @@ reversed_dir = "src/server"
         # Orphan a file
         (outdir / "functions" / "99999999.toml").write_text('[info]\nname = "orphan"\naddr = 1\n')
         # Remove bar from catalog, then --clean should delete both 10002000 and orphan
-        (tmp_path / "src" / "server" / "functions.txt").write_text(
-            "0x10001000 10 foo\n", encoding="utf-8"
+        (tmp_path / "src" / "server" / "function_structure.json").write_text(
+            _json.dumps([{"va": 0x10001000, "size": 10, "name": "foo"}]),
+            encoding="utf-8",
         )
         r2 = runner.invoke(app, ["binsync-export", str(outdir), "--clean", "--json"])
         assert r2.exit_code == 0, r2.output
@@ -599,8 +616,11 @@ reversed_dir = "src/server"
 """
         (tmp_path / "rebrew-project.toml").write_text(_TOML_WITH_SERVER, encoding="utf-8")
         (tmp_path / "src" / "server").mkdir(parents=True)
-        (tmp_path / "src" / "server" / "functions.txt").write_text(
-            "0x10002000 16 bar_func\n", encoding="utf-8"
+        import json as _json
+
+        (tmp_path / "src" / "server" / "function_structure.json").write_text(
+            _json.dumps([{"va": 0x10002000, "size": 16, "name": "bar_func"}]),
+            encoding="utf-8",
         )
         outdir = tmp_path / "binsync_out2"
         monkeypatch.chdir(tmp_path)

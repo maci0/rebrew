@@ -132,10 +132,10 @@ def _annotations_by_va(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
 
 def _registry(cfg: ProjectConfig) -> dict[int, RegistryEntry]:
     """The target's function catalog (VA -> entry with ``canonical_size``)."""
-    from rebrew.catalog import build_function_registry, parse_function_list
+    from rebrew.catalog import build_function_registry, cached_function_list
     from rebrew.config import FUNCTION_STRUCTURE_JSON
 
-    funcs = parse_function_list(cfg.function_list)
+    funcs = cached_function_list(cfg)
     return build_function_registry(
         funcs, cfg, cfg.reversed_dir / FUNCTION_STRUCTURE_JSON, cfg.target_binary
     )

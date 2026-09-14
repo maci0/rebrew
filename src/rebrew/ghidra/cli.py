@@ -276,14 +276,10 @@ def main(
         program_path = _probe_program_path(cfg, endpoint, program_path, json_output)
 
     if create_functions:
-        from rebrew.catalog import build_function_registry, parse_function_list
+        from rebrew.catalog import build_function_registry, cached_function_list
         from rebrew.config import FUNCTION_STRUCTURE_JSON
 
-        funcs = (
-            list(parse_function_list(cfg.function_list))
-            if cfg.function_list and Path(cfg.function_list).exists()
-            else []
-        )
+        funcs = cached_function_list(cfg)
         registry = build_function_registry(
             funcs, cfg, cfg.reversed_dir / FUNCTION_STRUCTURE_JSON, cfg.target_binary
         )

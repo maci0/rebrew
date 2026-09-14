@@ -881,28 +881,24 @@ def list_uncovered(
     for func in ghidra_funcs:
         name = func.name if func.name else f"FUN_{func.va:08x}"
         funcs_by_va[func.va] = (func.size, name)
-    func_list_path = getattr(cfg, "function_list", "")
-    # ProjectConfig.function_list defaults to Path() — truthy and resolves to
-    # "." — so guard on is_file(); never parse an unset/missing list.
-    if func_list_path and Path(func_list_path).is_file():
-        try:
-            from rebrew.catalog import build_function_registry, parse_function_list
+    try:
+        from rebrew.catalog import build_function_registry, cached_function_list
 
-            reg = build_function_registry(
-                parse_function_list(Path(func_list_path)),
-                cfg,
-                None,
-                getattr(cfg, "target_binary", None),
+        reg = build_function_registry(
+            cached_function_list(cfg),
+            cfg,
+            None,
+            getattr(cfg, "target_binary", None),
+        )
+        for va, entry in reg.items():
+            if entry["canonical_size"] <= 0 or va in funcs_by_va:
+                continue  # ghidra size wins on conflict
+            funcs_by_va[va] = (
+                entry["canonical_size"],
+                entry.get("list_name") or entry.get("ghidra_name") or f"FUN_{va:08x}",
             )
-            for va, entry in reg.items():
-                if entry["canonical_size"] <= 0 or va in funcs_by_va:
-                    continue  # ghidra size wins on conflict
-                funcs_by_va[va] = (
-                    entry["canonical_size"],
-                    entry.get("list_name") or entry.get("ghidra_name") or f"FUN_{va:08x}",
-                )
-        except (OSError, ValueError, KeyError):
-            pass  # no usable function list — ghidra-only batch
+    except (OSError, ValueError, KeyError):
+        pass  # no usable inventory — ghidra-only batch
 
     uncovered: list[tuple[int, int, str]] = []
     for va, (size, name) in funcs_by_va.items():
@@ -1424,26 +1420,20 @@ def main(
         size = ghidra_entry.size
         ghidra_name = ghidra_entry.name if ghidra_entry.name else f"FUN_{va_int:08x}"
     else:
-        # Fall back to the function list (r2/radare2) — many real functions
+        # Fall back to the discovery inventory — many real functions
         # (e.g. recently added CRT ones) exist only there, not in the Ghidra
         # cache.  Use the registry's canonical size when available.
-        from rebrew.catalog import build_function_registry, parse_function_list
+        from rebrew.catalog import build_function_registry, cached_function_list
 
-        func_list_path = getattr(cfg, "function_list", "")
         try:
-            list_funcs = (
-                parse_function_list(Path(func_list_path))
-                if func_list_path and Path(func_list_path).is_file()
-                else []
-            )
             reg_entry = build_function_registry(
-                list_funcs,
+                cached_function_list(cfg),
                 cfg,
                 None,
                 getattr(cfg, "target_binary", None),
             ).get(va_int)
         except (OSError, ValueError, KeyError):
-            reg_entry = None  # no usable function list — fall through to not-found
+            reg_entry = None  # no usable inventory — fall through to not-found
         if reg_entry and reg_entry["canonical_size"] > 0:
             size = reg_entry["canonical_size"]
             ghidra_name = (
@@ -1451,7 +1441,7 @@ def main(
             )
         else:
             error_exit(
-                f"VA 0x{va_int:08x} not found in {FUNCTION_STRUCTURE_JSON} or the function list",
+                f"VA 0x{va_int:08x} not found in {FUNCTION_STRUCTURE_JSON}",
                 json_mode=json_output,
             )
 

@@ -47,7 +47,6 @@ def _cfg(
         marker=target,
         reversed_dir=rev,
         shared_dir=tmp_path / shared if shared else None,
-        function_list=tmp_path / "functions.txt",
         defines=defines or [],
     )
 
@@ -461,7 +460,6 @@ class TestGANativeEndToEnd:
             target_binary=binary,
             reversed_dir=tmp_path / "src" / "GAME",
             shared_dir=None,
-            function_list=tmp_path / "functions.txt",
             compiler_command="i686-w64-mingw32-gcc",
             compiler_profile="mingw-16.2.0",
             base_cflags="",
@@ -512,7 +510,6 @@ class TestVerifySharedFile:
             target_binary=binary,
             reversed_dir=tmp_path / "src_V2",
             shared_dir=tmp_path / "src" / "shared",
-            function_list=tmp_path / "functions.txt",
             compiler_command="i686-w64-mingw32-gcc",
             compiler_profile="mingw-16.2.0",
             base_cflags="",

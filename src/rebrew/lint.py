@@ -374,7 +374,7 @@ def _check_W028_stale_annotation(
     against the wrong bytes and status/todo keep reporting phantom
     functions.
 
-    Uses the target's ``functions.txt`` (the same list ``rebrew intake`` /
+    Uses the target's discovery inventory (the same file ``rebrew intake`` /
     ``discover`` write) as ground truth.  ``LIBRARY`` markers are excluded
     (import stubs) and ``GLOBAL``/``DATA`` markers are data, not code;
     markers of a different target module are filtered by the caller's

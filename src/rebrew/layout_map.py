@@ -31,7 +31,7 @@ from rich.console import Console
 from rich.table import Table
 
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
-from rebrew.catalog.loaders import parse_function_list
+from rebrew.catalog.loaders import cached_function_list
 from rebrew.catalog.registry import RegistryEntry, build_function_registry
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
@@ -114,9 +114,7 @@ def _section_rows(info: BinaryInfo, pe: lief.PE.Binary | None) -> list[dict[str,
 
 def _catalog_vas(cfg: ProjectConfig) -> dict[int, RegistryEntry]:
     """Function VAs from the catalog registry (list + Ghidra + exports)."""
-    funcs: list[dict[str, Any]] = []
-    if cfg.function_list and Path(cfg.function_list).exists():
-        funcs = parse_function_list(Path(cfg.function_list))
+    funcs: list[dict[str, Any]] = cached_function_list(cfg)
     reversed_dir = cfg.reversed_dir
     ghidra_path = reversed_dir / FUNCTION_STRUCTURE_JSON if reversed_dir else None
     return build_function_registry(funcs, cfg, ghidra_path=ghidra_path, bin_path=cfg.target_binary)

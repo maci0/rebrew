@@ -35,7 +35,6 @@ def _make_cfg(tmp_path: Path) -> ProjectConfig:
         target_name="SERVER",
         target_binary=target_binary,
         reversed_dir=reversed_dir,
-        function_list=tmp_path / "functions.txt",
         compiler_command="wine CL.EXE",
         base_cflags="/nologo /c /MT",
         compiler_includes=tmp_path / "include",
@@ -323,7 +322,6 @@ class TestPatchVerifyCacheEntries:
             target_name="CLIENT",
             target_binary=cfg.target_binary,
             reversed_dir=cfg.reversed_dir,
-            function_list=cfg.function_list,
             compiler_command=cfg.compiler_command,
             base_cflags=cfg.base_cflags,
             compiler_includes=cfg.compiler_includes,
@@ -624,7 +622,7 @@ class TestIncrementalVerify:
         def fake_scan_reversed_dir(*args: object, **kwargs: object) -> list[dict[str, object]]:
             return entries
 
-        def fake_parse_function_list(*args: object, **kwargs: object) -> list[dict[str, object]]:
+        def fake_cached_function_list(*args: object, **kwargs: object) -> list[dict[str, object]]:
             return []
 
         def fake_build_registry(*args: object, **kwargs: object) -> dict[int, dict[str, object]]:
@@ -649,7 +647,7 @@ class TestIncrementalVerify:
 
         monkeypatch.setattr("rebrew.verify.require_config", fake_require_config)
         monkeypatch.setattr("rebrew.verify.scan_reversed_dir", fake_scan_reversed_dir)
-        monkeypatch.setattr("rebrew.verify.cached_function_list", fake_parse_function_list)
+        monkeypatch.setattr("rebrew.verify.cached_function_list", fake_cached_function_list)
         monkeypatch.setattr("rebrew.verify.build_function_registry", fake_build_registry)
         monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify_entry)
 
@@ -713,7 +711,7 @@ class TestIncrementalVerify:
         def fake_scan_reversed_dir(*args: object, **kwargs: object) -> list[dict[str, object]]:
             return entries
 
-        def fake_parse_function_list(*args: object, **kwargs: object) -> list[dict[str, object]]:
+        def fake_cached_function_list(*args: object, **kwargs: object) -> list[dict[str, object]]:
             return []
 
         def fake_build_registry(*args: object, **kwargs: object) -> dict[int, dict[str, object]]:
@@ -737,7 +735,7 @@ class TestIncrementalVerify:
 
         monkeypatch.setattr("rebrew.verify.require_config", fake_require_config)
         monkeypatch.setattr("rebrew.verify.scan_reversed_dir", fake_scan_reversed_dir)
-        monkeypatch.setattr("rebrew.verify.cached_function_list", fake_parse_function_list)
+        monkeypatch.setattr("rebrew.verify.cached_function_list", fake_cached_function_list)
         monkeypatch.setattr("rebrew.verify.build_function_registry", fake_build_registry)
         monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify_entry)
 

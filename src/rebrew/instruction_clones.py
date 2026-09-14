@@ -330,10 +330,10 @@ def _unit_for(
 
 
 def _registry(cfg: Any) -> dict[int, Any]:
-    from rebrew.catalog import build_function_registry, parse_function_list
+    from rebrew.catalog import build_function_registry, cached_function_list
 
     return build_function_registry(
-        parse_function_list(cfg.function_list),
+        cached_function_list(cfg),
         cfg,
         cfg.reversed_dir / FUNCTION_STRUCTURE_JSON,
         cfg.target_binary,

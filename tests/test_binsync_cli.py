@@ -35,15 +35,18 @@ def _make_project(tmp_path: Path) -> Path:
     (tmp_path / "rebrew-project.toml").write_text(
         "[project]\nname = 'probe'\ndefault_target = 'A'\n"
         "[compiler]\nprofile = 'msvc-6.0'\ncommand = 'CL.EXE'\n"
-        "[targets.A]\nbinary = 'a.exe'\nreversed_dir = 'src/a'\n"
-        "function_list = 'src/a/functions.txt'\n",
+        "[targets.A]\nbinary = 'a.exe'\nreversed_dir = 'src/a'\n",
         encoding="utf-8",
     )
     src = tmp_path / "src" / "a"
     src.mkdir(parents=True)
     (tmp_path / "a.exe").write_bytes(_BINARY)
     (src / "foo.c").write_text(_FOO, encoding="utf-8")
-    (src / "functions.txt").write_text("0x401000 11 foo\n", encoding="utf-8")
+    import json as _json
+
+    (src / "function_structure.json").write_text(
+        _json.dumps([{"va": 0x401000, "size": 11, "name": "foo"}]), encoding="utf-8"
+    )
     return tmp_path
 
 

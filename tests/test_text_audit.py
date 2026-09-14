@@ -31,8 +31,6 @@ default_target = "game"
 binary = "game.exe"
 marker = "GAME"
 reversed_dir = "src"
-function_list = "src/functions.txt"
-
 [compiler]
 profile = "msvc-6.0"
 command = "cl"
@@ -58,7 +56,6 @@ def _project(tmp_path: Path, sources: dict[str, str] | None = None) -> Path:
     src.mkdir(exist_ok=True)
     for name, text in (sources or {"a.c": _TWO_FUNCS_C}).items():
         (src / name).write_text(text, encoding="utf-8")
-    (src / "functions.txt").write_text("", encoding="utf-8")
     (tmp_path / "build").mkdir(exist_ok=True)
     return tmp_path
 

@@ -56,9 +56,11 @@ class TestIntake:
         assert data["functions"] == 2
         assert data["documented"] == 2
         assert data["target"] == "game"
-        # functions.txt written
-        funcs = (tmp_path / "src" / "game" / "functions.txt").read_text()
-        assert "0x00401000" in funcs
+        # function_structure.json written
+        funcs = (tmp_path / "src" / "game" / "function_structure.json").read_text()
+        assert "0x00401000" not in funcs  # VAs are ints, not hex strings
+        assert "4198400" in funcs  # 0x401000
+        assert "fcn.00401000" in funcs
         # STUB .c written
         stub = (tmp_path / "src" / "game" / "fcn_00401000.c").read_text()
         assert "// STUB: GAME 0x00401000" in stub

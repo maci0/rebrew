@@ -342,9 +342,9 @@ def _build_indexes(cfg: ProjectConfig) -> dict[str, list[CrtSourceEntry]]:
     return indexes
 
 
-# Keyed by function-list path: multiple projects in one process must not
+# Keyed by config identity: multiple projects in one process must not
 # share canonical sizes (VAs collide across binaries).
-_canonical_sizes: dict[str, dict[int, int]] = {}
+_canonical_sizes: dict[int, dict[int, int]] = {}
 
 
 def _canonical_size(cfg: ProjectConfig, va: int) -> int:
@@ -354,8 +354,7 @@ def _canonical_size(cfg: ProjectConfig, va: int) -> int:
     ``binary_size: 0`` for e.g. _malloc (real size 252).  Falls back to the
     registry's canonical size; returns 0 when unavailable.
     """
-    func_list_path = str(getattr(cfg, "function_list", ""))
-    sizes = _canonical_sizes.get(func_list_path)
+    sizes = _canonical_sizes.get(id(cfg))
     if sizes is None:
         from rebrew.catalog import cached_function_list
 
@@ -363,7 +362,7 @@ def _canonical_size(cfg: ProjectConfig, va: int) -> int:
             sizes = {f["va"]: int(f["size"]) for f in cached_function_list(cfg)}
         except (OSError, ValueError, KeyError, TypeError):
             sizes = {}
-        _canonical_sizes[func_list_path] = sizes
+        _canonical_sizes[id(cfg)] = sizes
     return sizes.get(va, 0)
 
 
