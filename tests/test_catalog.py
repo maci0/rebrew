@@ -9,7 +9,6 @@ from rebrew.annotation import Annotation
 from rebrew.catalog import (
     build_function_registry,
     count_detection_sources,
-    generate_catalog,
     generate_data_json,
     make_func_entry,
     scan_reversed_dir,
@@ -136,51 +135,6 @@ class TestCountDetectionSources:
         assert list_count == 2  # 0x10001000, 0x10002000
         assert both_count == 1  # 0x10002000
         assert thunk_count == 1  # 0x10004000
-
-
-# -------------------------------------------------------------------------
-# generate_catalog
-# -------------------------------------------------------------------------
-
-
-class TestGenerateCatalog:
-    def test_basic(self) -> None:
-        entries = [
-            Annotation(
-                va=0x10001000,
-                name="func_a",
-                status="EXACT",
-                size=64,
-                symbol="_func_a",
-                filepath="/src/func_a.c",
-                cflags="/O2",
-                marker_type="FUNCTION",
-            ),
-            Annotation(
-                va=0x10002000,
-                name="func_b",
-                status="STUB",
-                size=32,
-                symbol="_func_b",
-                filepath="/src/func_b.c",
-                cflags="/O2",
-                marker_type="FUNCTION",
-            ),
-        ]
-        funcs = [
-            make_func_entry(0x10001000, 64, "_func_a"),
-            make_func_entry(0x10002000, 32, "_func_b"),
-        ]
-        md = generate_catalog(entries, funcs, text_size=1000)
-        assert isinstance(md, str)
-        assert "func_a" in md
-        assert "func_b" in md
-        assert len(md) > 50
-
-    def test_empty(self) -> None:
-        md = generate_catalog([], [], text_size=1000)
-        assert isinstance(md, str)
-        assert "0 of" in md or "0%" in md or "0.0%" in md  # should report zero coverage
 
 
 # -------------------------------------------------------------------------

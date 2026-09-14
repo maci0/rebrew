@@ -289,8 +289,8 @@ rebrew build-db                         # build SQLite coverage database (db/cov
   tables) for labeling non-function addresses in Ghidra.
 - `--fix-sizes` edits metadata in place — it prompts interactively, so pass `--force` when
   scripting or in `--json` mode (`--json` without `--force` errors out).
-- `build-db` aggregates every `db/data_*.json` into `db/coverage.db` and regenerates
-  `CATALOG.md`. On a schema mismatch it refuses unless `--force` is passed (deletes + rebuilds).
+- `build-db` aggregates every `db/data_*.json` into `db/coverage.db`.
+  On a schema mismatch it refuses unless `--force` is passed (deletes + rebuilds).
 
 ### 4. Initial Triage
 

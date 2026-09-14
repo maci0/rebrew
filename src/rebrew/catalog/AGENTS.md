@@ -1,6 +1,6 @@
 # AGENTS.md — catalog/
 
-Merges function sources (discovery inventory, Ghidra JSON, PE exports) into a unified registry, builds cell-level coverage grids, and exports CATALOG.md / reccmp CSV.
+Merges function sources (discovery inventory, Ghidra JSON, PE exports) into a unified registry, builds cell-level coverage grids, and exports reccmp CSV.
 
 ## Module Map
 
@@ -9,7 +9,7 @@ Merges function sources (discovery inventory, Ghidra JSON, PE exports) into a un
 | `loaders.py` | I/O (Ghidra JSON, discovery inventory, DLL bytes, source + library header scanning) | `load_function_structure()`, `cached_function_list()`, `load_ghidra_data_labels()`, `make_func_entry()`, `parse_rizin_afl()`, `scan_reversed_dir()` |
 | `registry.py` | Merge sources, resolve canonical sizes | `build_function_registry()` |
 | `grid.py` | Coverage grid generation | `generate_data_json()` |
-| `export.py` | Output (CATALOG.md, reccmp CSV) | `generate_catalog()`, `generate_reccmp_csv()` |
+| `export.py` | Output (reccmp CSV) | `generate_reccmp_csv()` |
 | `cli.py` | Orchestrator + Typer CLI wrapper | `run_catalog()`, `build_catalog_data()`, `app`, `main`, `main_entry` |
 
 ## Dependency Graph
@@ -19,7 +19,7 @@ cli.py (run_catalog() orchestrator — calls all others; main() is the CLI wrapp
 ├── loaders.py (scan_reversed_dir, cached_function_list)
 ├── registry.py (build_function_registry)
 ├── grid.py (generate_data_json)
-├── export.py (generate_catalog, generate_reccmp_csv)
+├── export.py (generate_reccmp_csv)
 ├── rebrew.sections (external — get_text_section_size)
 └── annotation.py (external — parse_c_file_multi, update_size_annotation)
 
@@ -69,7 +69,6 @@ package; `binary_loader.py`, `config.py`, and `cli.py` are their other externals
         │
         ▼
 [Export]
-  ├─ export.generate_catalog() → src/<target>/CATALOG.md
   ├─ export.generate_reccmp_csv() → db/{target}_functions.csv (pipe-delimited)
   └─ grid output → db/data_{target}.json (recoverage dashboard)
 ```

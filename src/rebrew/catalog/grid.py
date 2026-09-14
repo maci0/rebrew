@@ -81,11 +81,11 @@ def covered_bytes(
     """Bytes of *section* claimed by at least one annotated function.
 
     Uses the *sizes* lookup (registry canonical sizes in the CLI, the
-    disassembler function list in the catalog export) when the VA is present,
+    disassembler inventory in the catalog export) when the VA is present,
     falling back to the annotation's own size.  Both callers previously
-    diverged — the CLI counted 0 for registry-missing VAs while CATALOG.md
-    counted the annotation size — so the summary and report disagreed
-    (catalog-review F9).  GLOBAL/DATA markers are excluded.
+    diverged — the CLI counted 0 for registry-missing VAs while the old
+    CATALOG.md generator counted the annotation size — so the summary and
+    report disagreed (catalog-review F9).  GLOBAL/DATA markers are excluded.
 
     The ranges are merged and clipped to *section* (``(va, size)``) rather
     than summed.  Both steps are load-bearing on real projects: summing

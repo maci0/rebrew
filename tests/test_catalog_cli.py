@@ -31,7 +31,6 @@ def _patch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
     monkeypatch.setattr(catalog_cli, "cached_function_list", lambda _cfg: [])
     monkeypatch.setattr(catalog_cli, "build_function_registry", lambda *a, **k: {})
     monkeypatch.setattr(catalog_cli, "get_text_section_size", lambda _p: 0x1000)
-    monkeypatch.setattr(catalog_cli, "generate_catalog", lambda *a, **k: "catalog md")
     monkeypatch.setattr(
         catalog_cli,
         "generate_data_json",
@@ -42,71 +41,6 @@ def _patch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
 
 
 class TestCatalogCli:
-    def test_function_structure_refreshed_when_catalog_generated(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The catalog-generated function_structure.json is provenance-stamped
-        and REFRESHED on re-run after the inventory changes — the old
-        `not exists()` guard wrote it once and never updated it, leaving a
-        stale structure cache diverging from the freshly-written data JSON
-        (idempotency-review F5)."""
-        cfg = _patch(monkeypatch, tmp_path)
-        # The inventory is read via cached_function_list (threadpool) — mock
-        # it to return the fixture instead of writing functions.txt.
-        monkeypatch.setattr(
-            catalog_cli,
-            "cached_function_list",
-            lambda _cfg: [
-                {"va": 0x10001000, "size": 32, "name": "f_a"},
-                {"va": 0x10002000, "size": 64, "name": "f_b"},
-            ],
-        )
-        r1 = runner.invoke(catalog_cli.app, ["--data-json"])
-        assert r1.exit_code == 0
-        ghidra_path = cfg.reversed_dir / "function_structure.json"
-        assert ghidra_path.exists()
-        data1 = json.loads(ghidra_path.read_text())
-        assert len(data1) == 2
-        assert data1[0]["_generated_by"] == "rebrew catalog"
-
-        # Inventory changed — re-run must refresh the catalog-generated file.
-        monkeypatch.setattr(
-            catalog_cli,
-            "cached_function_list",
-            lambda _cfg: [
-                {"va": 0x10001000, "size": 32, "name": "f_a"},
-                {"va": 0x10003000, "size": 16, "name": "f_c"},
-            ],
-        )
-        r2 = runner.invoke(catalog_cli.app, ["--data-json"])
-        assert r2.exit_code == 0
-        data2 = json.loads(ghidra_path.read_text())
-        names = [d["name"] for d in data2]
-        assert "f_c" in names  # refreshed
-        assert "f_b" not in names  # stale entry gone
-
-    def test_function_structure_never_overwrites_ghidra_export(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A REAL Ghidra export (no catalog marker) is authoritative and must
-        never be overwritten by the catalog's compatibility export."""
-        cfg = _patch(monkeypatch, tmp_path)
-        ghidra_path = cfg.reversed_dir / "function_structure.json"
-        ghidra_path.write_text(
-            json.dumps([{"va": 0x10001000, "size": 32, "tool_name": "FUN_10001000"}]) + "\n",
-            encoding="utf-8",
-        )
-        monkeypatch.setattr(
-            catalog_cli,
-            "cached_function_list",
-            lambda _cfg: [{"va": 0x10001000, "size": 32, "name": "f_a"}],
-        )
-        r = runner.invoke(catalog_cli.app, ["--data-json"])
-        assert r.exit_code == 0
-        data = json.loads(ghidra_path.read_text())
-        assert data[0]["tool_name"] == "FUN_10001000"  # untouched
-        assert "_generated_by" not in data[0]
-
     def test_data_json_written(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _patch(monkeypatch, tmp_path)
         r = runner.invoke(catalog_cli.app, ["--data-json"])
@@ -115,12 +49,6 @@ class TestCatalogCli:
         assert out.exists()
         payload = json.loads(out.read_text())
         assert "summary" in payload
-
-    def test_catalog_md_written(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        _patch(monkeypatch, tmp_path)
-        r = runner.invoke(catalog_cli.app, ["--catalog"])
-        assert r.exit_code == 0
-        assert (tmp_path / "src" / "CATALOG.md").read_text() == "catalog md"
 
     def test_csv_written(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _patch(monkeypatch, tmp_path)
@@ -145,7 +73,6 @@ class TestCatalogCli:
             "text_size": 0,
             "coverage_pct": 0.0,
             "wrote_data_json": False,
-            "wrote_catalog": False,
             "wrote_csv": False,
         }
         assert {k: v for k, v in payload.items() if k != "warning"} == expected
@@ -173,7 +100,6 @@ class TestCatalogCli:
         cfg = _patch(monkeypatch, tmp_path)
         r = runner.invoke(catalog_cli.app, [])
         assert r.exit_code == 0
-        assert (tmp_path / "src" / "CATALOG.md").exists()
         assert (cfg.db_dir / "data_T.json").exists()
         assert (cfg.db_dir / "t_functions.csv").exists()
 
@@ -396,14 +322,12 @@ class TestRunCatalog:
         assert payload["total_functions"] == 1
         assert payload["text_size"] == 0
         assert payload["wrote_data_json"] is True
-        assert payload["wrote_catalog"] is True
         assert payload["wrote_csv"] is True
         assert payload["warning"].startswith("target binary missing")
 
         data_json = root / "db" / "data_GAME.json"
         assert "summary" in json.loads(data_json.read_text(encoding="utf-8"))
         assert (root / "db" / "game_functions.csv").exists()
-        assert (root / "original" / "CATALOG.md").exists()
 
     def test_explicit_flag_skips_defaults(self, tmp_path: Path) -> None:
         """An explicit action flag selects only that action; the default set is
@@ -411,10 +335,8 @@ class TestRunCatalog:
         root = _write_project(tmp_path)
         cfg = load_config(root=root)
 
-        payload = run_catalog(cfg, catalog=True)
+        payload = run_catalog(cfg, gen_data_json=True)
 
-        assert payload["wrote_catalog"] is True
-        assert payload["wrote_data_json"] is False
+        assert payload["wrote_data_json"] is True
         assert payload["wrote_csv"] is False
-        assert (root / "original" / "CATALOG.md").exists()
-        assert not (root / "db" / "data_GAME.json").exists()
+        assert (root / "db" / "data_GAME.json").exists()

@@ -19,10 +19,12 @@ ground-truth catalog the user:
   files once.
 
 The Function Catalog feature unifies these by collecting **all** known
-function metadata from Ghidra exports, the function list file, FLIRT
+function metadata from Ghidra exports, the discovery inventory, FLIRT
 signatures, CRT source mirrors, and the user's own `// FUNCTION:` /
 `// LIBRARY:` / `// STUB:` annotations, then publishes the merged view as
-CATALOG.md, JSON, CSV, and a SQLite coverage DB.
+JSON, CSV, and a SQLite coverage DB.
+(>2026-09: CATALOG.md generation and `functions.txt` were removed — the same
+information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboard.)
 
 ## Users
 
@@ -31,12 +33,12 @@ CATALOG.md, JSON, CSV, and a SQLite coverage DB.
   catalog + FLIRT + CRT triage as part of onboarding.
 - **Dashboard / CI** consumers reading `db/coverage.db` or `data_<target>.json`
   for progress reporting.
-- **Team lead** producing a high-level CATALOG.md to share with stakeholders.
+- **Team lead** producing a high-level progress view to share with stakeholders
+  (`rebrew status`, dashboard).
 
 ## Goals
 
 - Single command (`rebrew catalog`) that scans annotations and produces:
-  - Markdown CATALOG.md
   - SQLite-ready JSON in `db/data_<target>.json`
   - Optional `reccmp`-compatible CSV for interop with other tooling
   - Ghidra function/label exports
@@ -50,7 +52,7 @@ CATALOG.md, JSON, CSV, and a SQLite coverage DB.
 
 ## Non-Goals
 
-- The catalog does not modify source files (CATALOG.md is generated; `.c`
+- The catalog does not modify source files (data JSON/CSV are generated; `.c`
   files are read-only).
 - `rebrew extract` produces `.bin` files only, never C skeletons. Skeleton
   generation lives in PRD 03.
@@ -68,14 +70,13 @@ CATALOG.md, JSON, CSV, and a SQLite coverage DB.
 - Builds a unified registry merging:
   - Local annotations
   - Ghidra functions
-  - Bare function-list entries (size-only, no name)
+  - Bare discovery entries (size-only, no name)
 - Resolves canonical sizes (Ghidra/Catalog wins over annotation; warns on
   conflict).
 - Outputs in any combination of modes:
-  - Default (no flags): scan + validate, write CATALOG.md, data JSON, and
+  - Default (no flags): scan + validate, write data JSON and
     CSV, and print the summary table.
   - `--data-json` writes `db/data_<target>.json` (cell-level coverage grid).
-  - `--catalog` writes CATALOG.md to `reversed_dir`.
   - `--csv` writes `db/<target>_functions.csv` (reccmp-compatible CSV) next
     to the data JSON.
   - `--summary` prints the summary table to stderr.
@@ -132,8 +133,7 @@ Output `.bin` files land in the configured `bin_dir`.
 
 - Consumes `db/data_<target>.json` (one per target) and produces
   `db/coverage.db` (SQLite) containing function, global, section, and
-  cell tables. CATALOG.md is generated separately by `rebrew catalog
-  --catalog`.
+  cell tables.
 - `--force` deletes and recreates `db/coverage.db` when the schema version
   is incompatible.
 - Schema version is stamped in a `metadata` table.
@@ -144,7 +144,7 @@ Output `.bin` files land in the configured `bin_dir`.
 
 1. After `rebrew init` + `rebrew doctor`, the user runs
    `rebrew flirt --json` and discovers 412 MSVCRT/MFC/DirectX functions.
-2. `rebrew catalog --catalog --data-json --json` builds a snapshot of all
+2. `rebrew catalog --data-json --json` builds a snapshot of all
    uncovered functions.
 3. `rebrew extract batch 20` produces 20 `.bin` files ready for the
    reversing loop.
@@ -225,8 +225,8 @@ rebrew build-db
   uncovered functions in `rebrew todo` drops to <5% (the rest become
   `identify-library` follow-up work).
 - `db/coverage.db` schema is stable across patch releases (versioned).
-- CATALOG.md is human-readable and round-trips cleanly through `git diff`
-  (deterministic ordering).
+- `rebrew status` output is human-readable; metadata TOMLs round-trip
+  cleanly through `git diff` (deterministic ordering).
 
 ## Open Questions / Known Limitations
 

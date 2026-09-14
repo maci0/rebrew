@@ -1,91 +1,16 @@
-"""catalog/export.py - Catalog and CSV report generation.
+"""catalog/export.py - reccmp-compatible CSV report generation.
 
-Generates CATALOG.md markdown reports and reccmp-compatible CSV files
-from parsed annotations and function registries.
+Generates reccmp-compatible CSV files from parsed annotations and function
+registries.
 """
 
 from typing import TYPE_CHECKING, Any
 
 from rebrew.annotation import Annotation
-from rebrew.catalog.grid import count_statuses, covered_bytes
 from rebrew.config import ProjectConfig
 
 if TYPE_CHECKING:
     from rebrew.catalog.registry import RegistryEntry
-
-
-def generate_catalog(
-    entries: list[Annotation],
-    funcs: list[dict[str, Any]],
-    text_size: int,
-    text_va: int = 0,
-) -> str:
-    """Generate CATALOG.md content."""
-    # Deduplicate by VA (keep first occurrence per VA)
-    by_va: dict[int, list[Annotation]] = {}
-    for e in entries:
-        if e.get("is_data", False):
-            continue
-        by_va.setdefault(e.va, []).append(e)
-
-    unique_vas = set(by_va)
-    counts = count_statuses(by_va)
-    exact_count = counts["EXACT"]
-    reloc_count = counts["RELOC"]
-    near_count = counts["NEAR_MATCHING"]
-    stub_count = counts["STUB"]
-
-    # Coverage bytes — shared helper keeps CATALOG.md and the CLI summary
-    # denominator identical (registry/function-list size preferred, annotation
-    # size as fallback), merged and clipped to the section so the percentage
-    # cannot exceed 100.
-    sizes_by_va = {f["va"]: f["size"] for f in funcs}
-    covered = covered_bytes(by_va, sizes_by_va, section=(text_va, text_size))
-
-    total_funcs = len(funcs)
-    matched_count = len(unique_vas)
-    coverage_pct = (covered / text_size * 100.0) if text_size else 0.0
-
-    lines = []
-    lines.append("# Reversed Functions Catalog\n")
-    lines.append(
-        f"Total: {matched_count}/{total_funcs} functions cataloged "
-        f"({exact_count} exact, {reloc_count} reloc-normalized, "
-        f"{near_count} near-matching, {stub_count} stubs)  "
-    )
-    lines.append(f"Coverage: {coverage_pct:.1f}% of .text section ({covered}/{text_size} bytes)\n")
-
-    # Group by module (discovered dynamically from data, excluding GLOBAL/DATA)
-    by_module: dict[str, list[Annotation]] = {}
-    for e in entries:
-        if e.get("is_data", False):
-            continue
-        module = e.module or "GAME"
-        by_module.setdefault(module, []).append(e)
-
-    for module in sorted(by_module):
-        group = sorted(by_module.get(module, []), key=lambda x: x.va)
-        lines.append(f"\n## {module} ({len(group)} functions)\n")
-        lines.append("| VA | Size | Name | Symbol | Flags | Match | File |")
-        lines.append("|-----|------|------|--------|-------|-------|------|")
-        for e in group:
-            va_str = f"0x{e.va:08X}"
-            match_str = f"{e.marker_type}/{e.status}"
-            lines.append(
-                f"| {va_str} | {e.size}B | {e.name} | "
-                f"{e.symbol} | {e.cflags} | {match_str} | {e.filepath} |"
-            )
-
-    # Unmatched functions
-    unmatched = [f for f in funcs if f["va"] not in unique_vas]
-    unmatched.sort(key=lambda x: x["va"])
-    lines.append(f"\n## Unmatched Functions ({len(unmatched)} remaining)\n")
-    lines.append("| VA | Size | Name |")
-    lines.append("|-----|------|---------|")
-    lines.extend(f"| 0x{f['va']:08X} | {f['size']}B | {f['name']} |" for f in unmatched)
-
-    lines.append("")
-    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +47,7 @@ def generate_reccmp_csv(
     by_va: dict[int, Annotation] = {}
     for e in entries:
         # GLOBAL/DATA markers take no C-definition name and are not
-        # functions — every other consumer (generate_catalog, grid, build_db,
+        # functions — every other consumer (grid, build_db,
         # dashboard) filters them; emitting them here yields a bogus
         # `0x00001000|||function|0` row that reccmp treats as a function.
         if e.is_data:

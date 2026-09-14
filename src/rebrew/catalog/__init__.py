@@ -9,9 +9,6 @@ from rebrew.catalog.cli import main as main
 from rebrew.catalog.cli import main_entry as main_entry
 from rebrew.catalog.cli import run_catalog as run_catalog
 from rebrew.catalog.export import (
-    generate_catalog as generate_catalog,
-)
-from rebrew.catalog.export import (
     generate_reccmp_csv as generate_reccmp_csv,
 )
 from rebrew.catalog.grid import (
@@ -62,7 +59,6 @@ __all__ = [
     "build_function_registry",
     "cached_function_list",
     "count_detection_sources",
-    "generate_catalog",
     "generate_data_json",
     "generate_reccmp_csv",
     "is_jump_table",
