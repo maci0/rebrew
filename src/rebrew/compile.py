@@ -564,13 +564,7 @@ def _dedupe_flags(flags: list[str]) -> list[str]:
     Base + per-function cflags often repeat (``/O2 /Gd /O2 /Gd /Oy-``) -
     dedup keeps compile lines readable without changing the result.
     """
-    seen: set[str] = set()
-    out: list[str] = []
-    for flag in flags:
-        if flag not in seen:
-            seen.add(flag)
-            out.append(flag)
-    return out
+    return list(dict.fromkeys(flags))
 
 
 def _merged_include_tokens(flags: list[str]) -> Iterator[str]:
