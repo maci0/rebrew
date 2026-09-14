@@ -198,6 +198,7 @@ def refresh_all() -> dict[str, int]:
         binary_loader,
         compile_cache,
         decompiler,
+        discover,
         metadata,
         toolchain,
         toolchain_detect,
@@ -214,4 +215,5 @@ def refresh_all() -> dict[str, int]:
     counts["detectors"] = len(toolchain_detect._PLUGIN_DETECTORS)
     counts["binary_loaders"] = len(binary_loader.refresh_loaders())
     counts["cache_backends"] = len(compile_cache.refresh_cache_backends())
+    counts["discoverers"] = len(discover.refresh_discoverers())
     return counts

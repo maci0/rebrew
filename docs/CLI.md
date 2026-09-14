@@ -1879,6 +1879,10 @@ garbled merges and short sizes.  16-bit NE binaries short-circuit to the
 native NE loader's linear sweep (rizin cannot analyze NE — its output is
 garbage file-offset "functions").
 
+Discoverers are plugins: `rebrew.discoverers` entry points
+(`fn(binary: Path) -> [(va, size, name)]`) join every format branch under
+their entry-point name; a broken plugin is skipped with a warning.
+
 ### `rebrew gen-flirt-pat`
 
 `rebrew gen-flirt-pat [OPTIONS] LIB_PATH`

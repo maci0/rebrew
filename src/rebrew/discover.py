@@ -26,6 +26,7 @@ from __future__ import annotations
 import logging
 import re
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -41,6 +42,21 @@ from rebrew.utils import atomic_write_text
 console = Console(stderr=True)
 
 app = typer.Typer(help="Enumerate functions: rizin aaa/aap + capstone sweep, sizes validated.")
+
+#: setuptools entry-point group whose members register extra function
+#: discoverers.  A member is a callable ``fn(binary: Path) ->
+#: list[tuple[va, size, name]]`` keyed by its entry-point name — e.g. a
+#: Ghidra/rizin-alternative backend emitting the same triple shape
+#: ``discover --output`` writes.  An optional registry: a broken plugin is
+#: skipped with a warning instead of bricking discovery.
+DISCOVERER_ENTRY_POINT_GROUP = "rebrew.discoverers"
+
+#: A function discoverer: binary path in, ``[(va, size, name)]`` out.
+#: Empty list = nothing found (never None, never raises — providers that
+#: fail return [] so one broken backend cannot abort the merge).
+Discoverer = Callable[[Path], list[tuple[int, int, str]]]
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -68,6 +84,103 @@ def _rizin_functions(binary: Path, cmds: list[str]) -> list[tuple[int, int, str]
         logging.debug("rizin %s failed (rc=%d): %s", cmds, r.returncode, r.stderr[:500])
         return []
     return parse_rizin_afl(r.stdout)
+
+
+def _discover_rizin_aaa(binary: Path) -> list[tuple[int, int, str]]:
+    """Packaged discoverer: rizin full analysis."""
+    return _rizin_functions(binary, ["aaa"])
+
+
+def _discover_rizin_aap(binary: Path) -> list[tuple[int, int, str]]:
+    """Packaged discoverer: rizin function-prelude analysis."""
+    return _rizin_functions(binary, ["aa", "aap"])
+
+
+def _discover_capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
+    """Packaged discoverer: capstone linear sweep (sizes unvalidated)."""
+    try:
+        return _capstone_sweep(binary)
+    except Exception as exc:
+        # A fallback source's absence must not be silent — without it,
+        # rizin-derived sizes go unvalidated.
+        logging.warning("capstone linear sweep failed (sizes unvalidated): %s", exc)
+        return []
+
+
+def _discover_ne_loader(binary: Path) -> list[tuple[int, int, str]]:
+    """Packaged discoverer: 16-bit NE native loader (None unless NE)."""
+    from rebrew.binary_loader import is_ne, load_binary
+    from rebrew.ne_loader import enumerate_ne_functions
+
+    if not is_ne(binary):
+        return []
+    info = load_binary(binary)
+    return [(f.va, f.size, f.name) for f in enumerate_ne_functions(info)]
+
+
+def _discover_mz_sweep(binary: Path) -> list[tuple[int, int, str]]:
+    """Packaged discoverer: 16-bit DOS MZ sweep (None unless MZ)."""
+    from rebrew.binary_loader import is_mz
+
+    if not is_mz(binary):
+        return []
+    return sorted(_mz_capstone_sweep(binary))
+
+
+#: Packaged discoverers: name -> provider.  Plugins join via the
+#: ``rebrew.discoverers`` entry-point group (see :func:`discoverer_map`).
+_PACKAGED_DISCOVERERS: dict[str, Discoverer] = {
+    "rizin aaa": _discover_rizin_aaa,
+    "rizin aa;aap": _discover_rizin_aap,
+    "capstone sweep": _discover_capstone_sweep,
+    "ne loader": _discover_ne_loader,
+    "mz sweep": _discover_mz_sweep,
+}
+
+
+def discoverer_map() -> dict[str, Discoverer]:
+    """Packaged discoverers + ``rebrew.discoverers`` entry-point plugins.
+
+    Merging order: packaged first, then plugins in discovery order.  A
+    broken or conflicting plugin is skipped with a warning (discovery
+    degrades to the packaged set) instead of bricking onboarding.
+    """
+    from rebrew.registry import (
+        RegistryError,
+        entry_point_registrations,
+        load_registration_optional,
+        merge_into,
+    )
+
+    merged: dict[str, Discoverer] = dict(_PACKAGED_DISCOVERERS)
+    for reg in entry_point_registrations(DISCOVERER_ENTRY_POINT_GROUP):
+        fn = load_registration_optional(reg, logger)
+        if fn is None or not callable(fn):
+            logger.warning(
+                "skipping %s registration %r: expected a callable discoverer",
+                reg.group,
+                reg.name,
+            )
+            continue
+        try:
+            merge_into(merged, reg.name, fn, reg.origin, group=reg.group)
+        except RegistryError as exc:
+            logger.warning("skipping %s registration %r: %s", reg.group, reg.name, exc)
+    return merged
+
+
+def refresh_discoverers() -> dict[str, Discoverer]:
+    """Re-run discovery and refresh the discoverer snapshot.
+
+    Long-lived processes can pick up discoverers installed after startup
+    without a restart."""
+    global _DISCOVERER_MAP
+
+    _DISCOVERER_MAP = discoverer_map()
+    return _DISCOVERER_MAP
+
+
+_DISCOVERER_MAP = discoverer_map()
 
 
 def _capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
@@ -386,69 +499,94 @@ def _mz_capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
     return out
 
 
-def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
-    """Chain rizin + capstone strategies and merge into validated functions.
+def _run_providers(
+    names: list[str], binary: Path, d: Discovery
+) -> dict[str, list[tuple[int, int, str]]]:
+    """Run named providers, recording per-source counts on *d*.
 
-    16-bit NE binaries short-circuit to the native NE loader's linear sweep
-    — rizin cannot analyze NE, and its output is garbage file-offset
-    "functions" (the 233-function false enumeration that once polluted the
-    SkiFree intake).  Plain DOS MZ binaries short-circuit to the 16-bit
-    capstone sweep (rizin cannot analyze MZ either).
+    A provider that raises is recorded as empty (one broken backend cannot
+    abort the merge).  Returns ``{name: [(va, size, name)]}``.
+    """
+    out: dict[str, list[tuple[int, int, str]]] = {}
+    for name in names:
+        fn = _DISCOVERER_MAP.get(name)
+        if fn is None:
+            continue
+        try:
+            found = fn(binary)
+        except Exception as exc:
+            logging.warning("discoverer %r failed (skipped): %s", name, exc)
+            found = []
+        d.sources[name] = len(found)
+        out[name] = found
+    return out
+
+
+def _merge_union(
+    found: dict[str, list[tuple[int, int, str]]], *, min_size: int = 0
+) -> dict[int, tuple[int, str]]:
+    """Prefer-larger-size union over provider outputs."""
+    merged: dict[int, tuple[int, str]] = {}
+    for funcs in found.values():
+        for va, size, name in funcs:
+            if min_size and size < min_size:
+                continue
+            cur = merged.get(va)
+            if cur is None or size > cur[0]:
+                merged[va] = (size, name)
+    return merged
+
+
+def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
+    """Chain packaged + plugin discoverers and merge into validated functions.
+
+    Format branches keep their size semantics: 16-bit NE binaries use the
+    native NE loader only (rizin output is garbage file-offset
+    "functions" \u2014 the 233-function false enumeration that once polluted
+    the SkiFree intake); plain DOS MZ binaries use the 16-bit sweep with
+    gap-to-next sizing (no symbol table); everything else merges the rizin
+    strategies with the capstone sweep and refines sizes against the binary.
+    Plugin discoverers (``rebrew.discoverers``) join every branch under
+    their entry-point name.
     """
     from rebrew.binary_loader import is_mz, is_ne, load_binary
 
-    if is_ne(binary):
-        from rebrew.ne_loader import enumerate_ne_functions
+    d = Discovery()
+    plugins = [n for n in _DISCOVERER_MAP if n not in _PACKAGED_DISCOVERERS]
 
-        info = load_binary(binary)
-        funcs = [(f.va, f.size, f.name) for f in enumerate_ne_functions(info) if f.size >= min_size]
-        d = Discovery()
-        d.functions = funcs
-        d.sources = {"ne loader": len(funcs)}
+    if is_ne(binary):
+        merged = _merge_union(_run_providers(["ne loader", *plugins], binary, d), min_size=min_size)
+        d.functions = sorted((va, size, name) for va, (size, name) in merged.items())
         return d
 
     if is_mz(binary):
         # Sizes are unknown in a bare MZ sweep (no symbol table) — estimate
         # each candidate's extent as the gap to the next candidate so
         # --min-size is honored (a size-0 filter would drop everything).
-        funcs = sorted(_mz_capstone_sweep(binary))
+        merged = _merge_union(_run_providers(["mz sweep", *plugins], binary, d))
+        pairs = sorted(merged.items())
         sized: list[tuple[int, int, str]] = []
-        for idx, (va, _size, name) in enumerate(funcs):
-            nxt = funcs[idx + 1][0] if idx + 1 < len(funcs) else va + 0x100
+        for idx, (va, (_size, name)) in enumerate(pairs):
+            nxt = pairs[idx + 1][0] if idx + 1 < len(pairs) else va + 0x100
             sized.append((va, max(1, nxt - va), name))
-        d = Discovery()
         d.functions = [f for f in sized if f[1] >= min_size]
-        d.sources = {"mz sweep": len(d.functions)}
         return d
 
-    d = Discovery()
-
-    aaa = _rizin_functions(binary, ["aaa"])
-    d.sources["rizin aaa"] = len(aaa)
-    aap = _rizin_functions(binary, ["aa", "aap"])
-    d.sources["rizin aa;aap"] = len(aap)
-
-    # Merge: prefer the strategy with more candidates; union them.
-    merged: dict[int, tuple[int, str]] = {}
-    for funcs, _src in ((aaa, "aaa"), (aap, "aap")):
-        for va, size, name in funcs:
-            cur = merged.get(va)
-            if cur is None or size > cur[0]:
-                merged[va] = (size, name)
-    d.sources["merged-rizin"] = len(merged)
+    found = _run_providers(["rizin aaa", "rizin aa;aap", *plugins], binary, d)
+    # Merge: prefer-larger-size union over every provider (rizin strategies
+    # and plugins alike); the merged-rizin count tracks the rizin pair only.
+    merged = _merge_union(found)
+    d.sources["merged-rizin"] = len(
+        _merge_union({k: found[k] for k in ("rizin aaa", "rizin aa;aap") if k in found})
+    )
 
     # Add capstone sweep candidates not already present.
-    sweep: list[tuple[int, int, str]] = []
-    try:
-        sweep = _capstone_sweep(binary)
-    except Exception as exc:
-        # The capstone sweep is a fallback source; its absence must not be
-        # silent — without it, rizin-derived sizes go unvalidated.
-        logging.warning("capstone linear sweep failed (sizes unvalidated): %s", exc)
-    for va, _size, name in sweep:
+    sweep = _run_providers(["capstone sweep"], binary, d)["capstone sweep"]
+    sweep_names = {va: name for va, _, name in sweep}
+    for va in sweep_names:
         if va not in merged:
-            merged[va] = (0, name)
-    d.sources["capstone sweep"] = len([va for va in merged if va in {x[0] for x in sweep}])
+            merged[va] = (0, sweep_names[va])
+    d.sources["capstone sweep"] = len(sweep_names)
 
     # Validate: drop candidates that fall inside a larger span.
     ordered = sorted(merged.items())
@@ -459,7 +597,9 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
             continue  # duplicate/adjacent junk
         kept[va] = (size, name)
 
-    funcs = [(va, size, name) for va, (size, name) in sorted(kept.items())]
+    funcs: list[tuple[int, int, str]] = [
+        (va, size, name) for va, (size, name) in sorted(kept.items())
+    ]
 
     # Refine sizes against the binary (first-ret).
     try:
