@@ -317,7 +317,7 @@ def _staleness_fix(cfg: ProjectConfig | None) -> str:
     """Pick a staleness fix hint from which artifact is newer.
 
     Stale annotations have two very different causes: the target binary was
-    replaced (refresh the function list), or the annotations moved / the list
+    replaced (refresh the function inventory), or the annotations moved / the inventory
     no longer reflects the target (re-annotate) — recommending ``rebrew
     intake`` for the second case is wrong.  The binary-vs-list mtime
     comparison is a cheap proxy: a binary newer than the list means it
@@ -329,30 +329,34 @@ def _staleness_fix(cfg: ProjectConfig | None) -> str:
     """
     binary_newer: bool | None = None
     try:
+        from rebrew.config import FUNCTION_STRUCTURE_JSON
+
         bin_path = Path(str(getattr(cfg, "target_binary", "")))
-        list_path: Path | None = getattr(cfg, "function_list", None) if cfg is not None else None
-        if list_path is not None and bin_path.is_file() and list_path.is_file():
-            binary_newer = bin_path.stat().st_mtime > list_path.stat().st_mtime
+        rev_dir = getattr(cfg, "reversed_dir", None)
+        inv_path = Path(rev_dir) / FUNCTION_STRUCTURE_JSON if rev_dir else None
+        if inv_path is not None and bin_path.is_file() and inv_path.is_file():
+            binary_newer = bin_path.stat().st_mtime > inv_path.stat().st_mtime
     except OSError:
         binary_newer = None
 
     annotate = "re-annotate the moved functions (`rebrew skeleton <new_va>` or edit the marker VA)"
     if binary_newer is True:
         return (
-            "The target binary is newer than the function list — it likely changed: "
-            "re-run `rebrew intake` / `rebrew discover` to refresh the list, then " + annotate
+            "The target binary is newer than the function inventory — it likely changed: "
+            "re-run `rebrew intake` / `rebrew discover-functions` to refresh it, then "
+            + annotate
         )
     if binary_newer is False:
         return (
-            "The function list is as new as the target binary, so the binary did not "
-            "change: " + annotate + ". If the list was regenerated from a different "
+            "The function inventory is as new as the target binary, so the binary did not "
+            "change: " + annotate + ". If the inventory was regenerated from a different "
             "binary (e.g. a rebuilt artifact) instead of the target, regenerate it "
             "from the target"
         )
     return (
-        "The function list no longer matches these annotations: if the target binary "
-        "changed, re-run `rebrew intake` / `rebrew discover` to refresh the list; "
-        "otherwise " + annotate + " (or regenerate the list if it was built from a "
+        "The function inventory no longer matches these annotations: if the target binary "
+        "changed, re-run `rebrew intake` / `rebrew discover-functions` to refresh it; "
+        "otherwise " + annotate + " (or regenerate the inventory if it was built from a "
         "different binary, e.g. a rebuilt artifact)"
     )
 
@@ -398,15 +402,15 @@ def _check_W028_stale_annotation(
             "W028",
             f"annotation VA 0x{va_int:x} points inside function "
             f"'{host[2] or 'a function'}' (moved/merged) — re-annotate the "
-            "marker VA or refresh the function list" + hint,
+            "marker VA or refresh the function inventory (`rebrew discover-functions`)" + hint,
         )
     else:
         result.warning(
             result.marker_line,
             "W028",
             f"annotation VA 0x{va_int:x} has no function in the current "
-            "function list (removed or shifted) — re-annotate the marker VA "
-            "or refresh the function list" + hint,
+            "function inventory (removed or shifted) — re-annotate the marker VA "
+            "or refresh the function inventory (`rebrew discover-functions`)" + hint,
         )
 
 
