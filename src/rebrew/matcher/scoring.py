@@ -241,14 +241,16 @@ def _normalize_and_mnems_x86_32(
     bytes (legacy prefixes skipped).  Instructions that could carry a 32-bit
     displacement (the rare SIB/disp32 fallback, which needs detail
     attributes) are re-disassembled individually with a detail handle.
+    ``disasm_lite`` yields plain tuples instead of CsInsn objects, skipping
+    capstone's per-instruction ctypes marshaling entirely.
     """
     md = _get_cs(cs_arch, cs_mode, detail=False)
     md_det = _get_cs(cs_arch, cs_mode, detail=True)
     out = bytearray(code)
     mnems: list[str] = []
-    for insn in md.disasm(code, 0):
-        mnems.append(insn.mnemonic)
-        _zero_reloc_fields_raw(insn, out, md_det)
+    for addr, size, mnem, _op in md.disasm_lite(code, 0):
+        mnems.append(mnem)
+        _zero_reloc_fields_raw(addr, size, code[addr : addr + size], out, md_det)
     return bytes(out), mnems
 
 
@@ -315,20 +317,20 @@ def _has_disp32(insn_bytes: bytes) -> bool:
     return False
 
 
-def _zero_reloc_fields_raw(insn: capstone.CsInsn, out: bytearray, md_det: capstone.Cs) -> None:
+def _zero_reloc_fields_raw(
+    addr: int, size: int, b: bytes, out: bytearray, md_det: capstone.Cs
+) -> None:
     """Non-detail variant of :func:`_zero_reloc_fields`.
 
-    Reads opcode bytes directly from ``insn.bytes`` (no detail attribute
-    access) for the four common reloc patterns.  Instructions that could
-    carry a 32-bit displacement (the detail-only fallback) are re-disassembled
-    with *md_det* and delegated to :func:`_zero_reloc_fields` — identical
-    semantics, detail work limited to the rare cases.
+    Takes plain ``(address, size, bytes)`` (from ``disasm_lite``) instead of a
+    CsInsn — no detail attribute access — for the four common reloc patterns.
+    Instructions that could carry a 32-bit displacement (the detail-only
+    fallback) are re-disassembled with *md_det* and delegated to
+    :func:`_zero_reloc_fields` — identical semantics, detail work limited to
+    the rare cases.
     """
-    size = insn.size
     if size < 5:
         return  # no room for a 32-bit relocatable field
-    addr = insn.address
-    b = insn.bytes
     op0 = _first_opcode_byte(b)
     # call rel32 / jmp rel32 / MOV abs32 (A0-A3)
     if op0 in (0xE8, 0xE9, 0xA0, 0xA1, 0xA2, 0xA3):
@@ -723,9 +725,13 @@ def diff_functions(
         # zeroing (only actually disassembles when such an instruction appears).
         _md_det_fallback = _get_cs(cs_arch, cs_mode, detail=True)
         for insn in target_insns:
-            _zero_reloc_fields_raw(insn, norm_target_buf, _md_det_fallback)
+            _zero_reloc_fields_raw(
+                insn.address, insn.size, insn.bytes, norm_target_buf, _md_det_fallback
+            )
         for insn in cand_insns:
-            _zero_reloc_fields_raw(insn, norm_cand_buf, _md_det_fallback)
+            _zero_reloc_fields_raw(
+                insn.address, insn.size, insn.bytes, norm_cand_buf, _md_det_fallback
+            )
         norm_target = bytes(norm_target_buf)
         norm_cand = bytes(norm_cand_buf)
     if register_aware and norm_target:
