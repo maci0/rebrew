@@ -156,6 +156,41 @@ class LayoutMetadata:
             "exp_rva": self.exp_rva,
         }
 
+    def data_geometry(self) -> tuple[int, int, int]:
+        """``(data_base, raw_end, section_end)`` full-VA from the .data section.
+
+        ``data_base`` = image_base + .data va; ``raw_end`` = base + raw size;
+        ``section_end`` = base + VirtualSize (the BSS tail end).
+        """
+        s = self.section(".data")
+        return (
+            self.image_base + s.va,
+            self.image_base + s.va + s.raw,
+            self.image_base + s.va + s.vs,
+        )
+
+
+def read_layout_geometry(root: Path, target: str) -> tuple[int, int, int]:
+    """``(data_base, raw_end, section_end)`` from ``layout/<target>/layout.txt``.
+
+    The single reader for layout geometry — the package is the source of
+    truth, not a TOML block in rebrew-project.toml.
+    """
+    import tomllib
+
+    txt = Path(root) / "layout" / target / "layout.txt"
+    try:
+        raw = tomllib.loads(txt.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise ValueError(f"no layout package at {txt} (run rebrew gen-layout first): {exc}")
+    lay = raw.get("layout", {})
+    base = int(lay.get("image_base", 0) or 0)
+    for s in lay.get("sections", []):
+        if s.get("name") == ".data":
+            va, raw_sz, vs = int(s["va"]), int(s["raw"]), int(s["vs"])
+            return base + va, base + va + raw_sz, base + va + vs
+    raise ValueError(f"no .data section in {txt} (run rebrew gen-layout first)")
+
 
 # ---------------------------------------------------------------------------
 # Extraction from a binary

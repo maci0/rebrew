@@ -19,28 +19,37 @@ class TestLayoutDataVs:
         (root / "rebrew-project.toml").write_text(toml, encoding="utf-8")
         return root
 
+    def _pkg(self, root: Path, target: str, sections: str, base: int = 0) -> None:
+        pkg = root / "layout" / target
+        pkg.mkdir(parents=True, exist_ok=True)
+        (pkg / "layout.txt").write_text(
+            "[layout]\n"
+            f'target = "{target}"\n'
+            f"image_base = {base}\n"
+            f"sections = [{sections}]\n"
+            "imports = []\n"
+            "exports = []\n",
+            encoding="utf-8",
+        )
+
     def test_reads_default_target_data_vs(self, tmp_path: Path) -> None:
-        self._project(
-            tmp_path,
-            '[project]\ndefault_target = "A"\n'
-            "[targets.A]\n[targets.A.layout]\n[[targets.A.layout.sections]]\n"
-            'name = ".data"\nvs = 4096\n',
+        self._project(tmp_path, '[project]\ndefault_target = "A"\n')
+        self._pkg(
+            tmp_path, "A", '{ name = ".data", va = 0, raw = 0, vs = 4096, ptr = 0, chars = 0 }'
         )
         assert _layout_data_vs(tmp_path) == 4096
 
     def test_missing_layout_returns_none(self, tmp_path: Path) -> None:
-        self._project(tmp_path, '[project]\ndefault_target = "A"\n[targets.A]\n')
+        self._project(tmp_path, '[project]\ndefault_target = "A"\n')
         assert _layout_data_vs(tmp_path) is None
 
     def test_missing_toml_returns_none(self, tmp_path: Path) -> None:
         assert _layout_data_vs(tmp_path) is None
 
     def test_no_data_section_returns_none(self, tmp_path: Path) -> None:
-        self._project(
-            tmp_path,
-            '[project]\ndefault_target = "A"\n'
-            "[targets.A]\n[targets.A.layout]\n[[targets.A.layout.sections]]\n"
-            'name = ".text"\nvs = 128\n',
+        self._project(tmp_path, '[project]\ndefault_target = "A"\n')
+        self._pkg(
+            tmp_path, "A", '{ name = ".text", va = 0, raw = 0, vs = 128, ptr = 0, chars = 0 }'
         )
         assert _layout_data_vs(tmp_path) is None
 
@@ -126,11 +135,18 @@ class TestDefaultTargetUnderProjectTable:
         always missed it and fell back to the FIRST declared target, so a
         multi-target project calibrated the wrong binary."""
         (tmp_path / "rebrew-project.toml").write_text(
-            '[project]\ndefault_target = "B"\n'
-            "[targets.A]\n[targets.A.layout]\n[[targets.A.layout.sections]]\n"
-            'name = ".data"\nvs = 111\n'
-            "[targets.B]\n[targets.B.layout]\n[[targets.B.layout.sections]]\n"
-            'name = ".data"\nvs = 4096\n',
-            encoding="utf-8",
+            '[project]\ndefault_target = "B"\n', encoding="utf-8"
         )
+        for target, vs in (("A", 111), ("B", 4096)):
+            pkg = tmp_path / "layout" / target
+            pkg.mkdir(parents=True)
+            (pkg / "layout.txt").write_text(
+                "[layout]\n"
+                f'target = "{target}"\n'
+                "image_base = 0\n"
+                f'sections = [{{ name = ".data", va = 0, raw = 0, vs = {vs}, ptr = 0, chars = 0 }}]\n'
+                "imports = []\n"
+                "exports = []\n",
+                encoding="utf-8",
+            )
         assert _layout_data_vs(tmp_path) == 4096

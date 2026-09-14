@@ -59,7 +59,7 @@ from rich.console import Console
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.layout_meta import LayoutMetadata, extract_layout, write_package
 from rebrew.pe_headers import pe_layout, pe_lfanew, sections_at
-from rebrew.utils import atomic_write_text, container_runtime, load_toml_for_write
+from rebrew.utils import atomic_write_text, container_runtime
 
 console = Console(stderr=True)
 
@@ -552,15 +552,16 @@ def layout_config_dict(
     link_options: list[str],
     resolve_names: bool = True,
 ) -> dict[str, Any]:
-    """The ``[targets.<t>.layout]`` block as a plain dict (toml + layout.txt).
+    """The layout package dict (``layout.txt`` content + extras).
 
     *resolved_imports* is the import list with ordinal names resolved (the
     same order as ``meta.imports``).  With ``resolve_names=True`` (the
-    reviewable project toml) those names are kept and the reference IAT-slot
+    reviewable package) those names are kept and the reference IAT-slot
     VA from ``meta.imports`` is attached by position.  With
-    ``resolve_names=False`` (the layout package the fixers consume) the raw
-    imports are used — ordinal-only entries stay ordinal-only, which is what
-    the import-set signature and the IAT-slot remap compare against.
+    ``resolve_names=False`` (the exact input the post-link fixers compare
+    against) the raw imports are used — ordinal-only entries stay
+    ordinal-only, which is what the import-set signature and the IAT-slot
+    remap compare against.
     """
     if not resolve_names:
         imports: list[dict[str, Any]] = [i.as_dict() for i in meta.imports]
@@ -612,33 +613,6 @@ def fmt_layout_toml(
     doc = tomlkit.document()
     doc["layout"] = lay
     return tomlkit.dumps(doc)
-
-
-def write_layout_config(
-    toml_path: Path,
-    target: str,
-    meta: LayoutMetadata,
-    resolved_imports: list[dict[str, Any]],
-    link_options: list[str],
-) -> None:
-    """Merge the readable layout metadata into ``rebrew-project.toml``.
-
-    Writes ``[targets."<target>".layout]`` (sections with raw pointers,
-    exports, imports with reference IAT-slot VAs, image base, export
-    stamp) so the project config is the committed, human-readable source
-    of truth for the layout metadata.  The opaque reconstruction bytes
-    (hex dumps) live in ``layout/<target>/`` — also committed, plain text.
-    """
-    import tomlkit
-
-    doc = load_toml_for_write(toml_path, "rebrew-project.toml")
-    targets = doc.setdefault("targets", tomlkit.table())
-    t = targets.setdefault(target, tomlkit.table())
-    t["layout"] = tomlkit.inline_table()
-    lay = t["layout"]
-    for k, v in layout_config_dict(meta, resolved_imports, link_options).items():
-        lay[k] = v
-    atomic_write_text(toml_path, tomlkit.dumps(doc), encoding="utf-8")
 
 
 def gen_data_restore(data: bytes, marker: str, raw_start: int) -> str:
@@ -779,16 +753,11 @@ def main(
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "crt_region").mkdir(parents=True, exist_ok=True)
 
-    # Text-only layout metadata (committed, no binary blobs): the readable
-    # summary merges into rebrew-project.toml; the full package (structured
+    # Text-only layout package (committed, no binary blobs): the structured
     # layout.txt + hex dumps of the opaque linker-stamped regions + sparse
-    # .text maps) lands in layout/<target>/, which the build's
+    # .text maps land in layout/<target>/, which the build's
     # 'rebrew postlink --layout' consumes without the original DLL.
     meta = extract_layout(data, cfg.target_name)
-    if not def_only:
-        write_layout_config(
-            cfg.root / "rebrew-project.toml", cfg.target_name, meta, imports, link_options
-        )
 
     pkg_dir = cfg.root / "layout" / cfg.target_name
     tname = cfg.target_name.rsplit(".", 1)[0]

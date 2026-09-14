@@ -28,13 +28,19 @@ def test_data_symbols(tmp_path: Path) -> None:
 
 
 def test_layout_geometry(tmp_path: Path) -> None:
-    toml = tmp_path / "rebrew-project.toml"
-    toml.write_text(
-        '[targets."game.dll".layout]\n'
+    pkg = tmp_path / "layout" / "game.dll"
+    pkg.mkdir(parents=True)
+    (pkg / "layout.txt").write_text(
+        "[layout]\n"
+        'target = "game.dll"\n'
         "image_base = 268435456\n"
-        'sections = [{ name = ".data", va = 98304, raw = 57344, vs = 24380828 }]\n',
+        'sections = [{ name = ".data", va = 98304, raw = 57344, vs = 24380828, ptr = 0, chars = 0 }]\n'
+        "imports = []\n"
+        "exports = []\n",
         encoding="utf-8",
     )
+    toml = tmp_path / "rebrew-project.toml"
+    toml.write_text('[project]\ndefault_target = "game.dll"\n', encoding="utf-8")
     base, raw_end, sec_end = layout_geometry(toml)
     assert base == 0x10018000  # 0x10000000 + 0x18000
     assert raw_end == 0x10026000
@@ -99,16 +105,23 @@ def _make_pe(data_raw: bytes, image_base: int = 0x10000000, data_va: int = 0x180
 
 
 def _write_layout(tmp_path: Path, data_base: int, raw_size: int, vs: int) -> None:
-    toml = tmp_path / "rebrew-project.toml"
-    toml.write_text(
+    pkg = tmp_path / "layout" / "game.dll"
+    pkg.mkdir(parents=True, exist_ok=True)
+    (pkg / "layout.txt").write_text(
+        "[layout]\n"
+        'target = "game.dll"\n'
+        f"image_base = {data_base - 0x18000}\n"
+        f'sections = [{{ name = ".data", va = 0x18000, raw = {raw_size}, vs = {vs}, ptr = 0, chars = 0 }}]\n'
+        "imports = []\n"
+        "exports = []\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "rebrew-project.toml").write_text(
         "[project]\n"
         'default_target = "game.dll"\n'
-        f'[targets."game.dll"]\n'
+        '[targets."game.dll"]\n'
         'binary = "original/x.dll"\n'
-        'reversed_dir = "src"\n'
-        f'[targets."game.dll".layout]\n'
-        f"image_base = {data_base - 0x18000}\n"
-        f'sections = [{{ name = ".data", va = 0x18000, raw = {raw_size}, vs = {vs} }}]\n',
+        'reversed_dir = "src"\n',
         encoding="utf-8",
     )
 
@@ -411,15 +424,23 @@ def test_converge_layout_resolves_target_from_config(tmp_path: Path) -> None:
     data_base = 0x10027000
     obj_a = _mingw_obj(tmp_path, "a", "int g_a = 1;\n")
     _write_rsp(tmp_path, [obj_a])
+    pkg = tmp_path / "layout" / "game.dll"
+    pkg.mkdir(parents=True)
+    (pkg / "layout.txt").write_text(
+        "[layout]\n"
+        'target = "game.dll"\n'
+        f"image_base = {0x10000000}\n"
+        'sections = [{ name = ".data", va = 0x18000, raw = 4096, vs = 4096, ptr = 0, chars = 0 }]\n'
+        "imports = []\n"
+        "exports = []\n",
+        encoding="utf-8",
+    )
     (tmp_path / "rebrew-project.toml").write_text(
         "[project]\n"
         'default_target = "game.dll"\n'
-        f'[targets."game.dll"]\n'
+        '[targets."game.dll"]\n'
         'binary = "original/x.dll"\n'
-        'reversed_dir = "src"\n'
-        f'[targets."game.dll".layout]\n'
-        f"image_base = {0x10000000}\n"
-        'sections = [{ name = ".data", va = 0x18000, raw = 4096, vs = 4096 }]\n',
+        'reversed_dir = "src"\n',
         encoding="utf-8",
     )
     assert _converge_target(tmp_path, None) == "game.dll"
@@ -726,24 +747,29 @@ def test_layout_geometry_honours_the_requested_target(tmp_path: Path) -> None:
     The old reader returned the first `[targets.*]` match, so
     `data --converge --target B` sized its pads against target A's data_base.
     """
+    for target, base, va, raw, vs in [
+        ("A", 4194304, 4096, 256, 512),
+        ("B", 8388608, 8192, 1024, 2048),
+    ]:
+        pkg = tmp_path / "layout" / target
+        pkg.mkdir(parents=True)
+        (pkg / "layout.txt").write_text(
+            "[layout]\n"
+            f'target = "{target}"\n'
+            f"image_base = {base}\n"
+            f'sections = [{{ name = ".data", va = {va}, raw = {raw}, vs = {vs}, ptr = 0, chars = 0 }}]\n'
+            "imports = []\n"
+            "exports = []\n",
+            encoding="utf-8",
+        )
     toml = tmp_path / "rebrew-project.toml"
-    toml.write_text(
-        "[project]\n"
-        'default_target = "A"\n'
-        '[targets."A".layout]\n'
-        "image_base = 4194304\n"
-        'sections = [{ name = ".data", va = 4096, raw = 256, vs = 512 }]\n'
-        '[targets."B".layout]\n'
-        "image_base = 8388608\n"
-        'sections = [{ name = ".data", va = 8192, raw = 1024, vs = 2048 }]\n',
-        encoding="utf-8",
-    )
+    toml.write_text('[project]\ndefault_target = "A"\n', encoding="utf-8")
     # No target → the project default (A).
     assert layout_geometry(toml) == (0x400000 + 0x1000, 0x400000 + 0x1100, 0x400000 + 0x1200)
     # Explicit target → that target's numbers.
     assert layout_geometry(toml, "B") == (0x800000 + 0x2000, 0x800000 + 0x2400, 0x800000 + 0x2800)
     # Unknown target fails loud rather than borrowing another target's geometry.
-    with pytest.raises(ValueError, match=r"no \[targets\.C\]"):
+    with pytest.raises(ValueError, match=r"no layout package"):
         layout_geometry(toml, "C")
 
 

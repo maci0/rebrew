@@ -15,8 +15,8 @@ reference's VirtualSize.  This module provides the shared machinery used by
   an owning TU's source.
 
 All addresses are full image VAs; the section geometry (``data_base``,
-``raw_end``, ``section_end``) comes from the layout metadata
-(``[targets.<t>.layout]`` sections), so nothing is hardcoded per project.
+``raw_end``, ``section_end``) comes from the layout package
+(``layout/<target>/layout.txt``), so nothing is hardcoded per project.
 """
 
 from __future__ import annotations
@@ -198,39 +198,32 @@ def data_symbols(metadata: Path, section: str | Sequence[str] | None = ".data") 
 
 
 def layout_geometry(project_toml: Path, target: str | None = None) -> tuple[int, int, int]:
-    """``(data_base, raw_end, section_end)`` full-VA from the layout metadata.
+    """``(data_base, raw_end, section_end)`` full-VA from the layout package.
 
-    ``data_base`` = image_base + .data va; ``raw_end`` = base + raw size;
-    ``section_end`` = base + VirtualSize (the BSS tail end).
-
-    *target* selects the ``[targets.*]`` entry; without it the project's
-    ``default_target`` is used, falling back to the first declared target.  The
-    old code always read the FIRST target, so a multi-target project sized
-    ``data --converge``'s pads against another binary's geometry.
+    *target* selects the ``layout/<target>/`` package; without it the
+    project's ``default_target`` is used, falling back to the first
+    ``layout/*/`` package present.  *project_toml* locates the project
+    root (its parent dir).  The old code read ``[targets.*.layout]`` from
+    the TOML itself and always took the FIRST target, so a multi-target
+    project sized ``data --converge``'s pads against another binary's
+    geometry.
     """
+    from rebrew.layout_meta import read_layout_geometry
+
+    root = project_toml.parent
+    if target:
+        return read_layout_geometry(root, target)
+    import tomllib
+
     with open(project_toml, "rb") as fh:
         cfg = tomllib.load(fh)
-    targets = cfg.get("targets", {})
-    if target:
-        tcfg = targets.get(target)
-        if tcfg is None:
-            raise ValueError(f"no [targets.{target}] in {project_toml}")
-        candidates = [(target, tcfg)]
-    else:
-        default = str(cfg.get("project", {}).get("default_target") or "")
-        if default and default in targets:
-            candidates = [(default, targets[default])]
-        else:
-            candidates = list(targets.items())
-    for _target, tcfg in candidates:
-        for s in tcfg.get("layout", {}).get("sections", []):
-            if s.get("name") == ".data":
-                image_base = int(tcfg.get("layout", {}).get("image_base", 0) or 0)
-                va = int(s["va"])
-                raw = int(s["raw"])
-                vs = int(s["vs"])
-                return image_base + va, image_base + va + raw, image_base + va + vs
-    raise ValueError("no .data section in the layout metadata (run rebrew gen-layout first)")
+    default = str(cfg.get("project", {}).get("default_target") or "")
+    if default and (root / "layout" / default / "layout.txt").exists():
+        return read_layout_geometry(root, default)
+    pkgs = sorted((root / "layout").glob("*/layout.txt")) if (root / "layout").is_dir() else []
+    if pkgs:
+        return read_layout_geometry(root, pkgs[0].parent.name)
+    raise ValueError(f"no layout package under {root / 'layout'} (run rebrew gen-layout first)")
 
 
 def data_raw_from_binary(bin_path: Path) -> bytes:

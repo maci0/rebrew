@@ -37,7 +37,7 @@ What it delegates to (no second mechanism):
 - Data annotations: the ``// DATA: <MODULE> 0x<va>`` marker plus
   :func:`rebrew.data_metadata.set_data_field` for ``size``/``section``.
 - Layout entries: :class:`rebrew.layout_meta.SectionMeta` records, written
-  into ``[targets.<target>.layout]`` in the same shape
+  into ``layout/<target>/layout.txt`` in the same shape
   ``rebrew gen-layout`` writes, so ``rebrew data``/``calibrate-bss`` read them
   unchanged.
 
@@ -1010,7 +1010,7 @@ def _inside_project(path: Path, root: Path) -> bool:
 def _layout_sections(
     cfg_splat: SplatConfig, info: Any
 ) -> tuple[list[SectionMeta], list[str], list[tuple[str, str]]]:
-    """Section records for ``[targets.<t>.layout]`` from the splat segments.
+    """Section records for ``layout/<target>/layout.txt`` from the splat segments.
 
     Each ``type: code`` segment becomes one :class:`SectionMeta` with the PE
     section name and the section's RVA (``vram - image_base``).  When the
@@ -1482,17 +1482,20 @@ def _report(written: list[str], unchanged: int) -> dict[str, Any]:
 
 
 def _write_target_metadata(plan: ImportPlan, root: Path) -> bool:
-    """Patch the target's binary/format/arch/profile and its layout sections.
+    """Patch the target's binary/format/arch/profile and write its layout package.
 
-    Uses a tomlkit round trip (the same ``load_toml_for_write`` +
-    ``atomic_write_text`` pair ``rebrew gen-layout`` uses) so comments and
-    unrelated keys survive.  Returns whether the file changed, so a re-run
-    does not bump the mtime of an unchanged config (caches key on it).
+    Layout sections + image base go to ``layout/<target>/layout.txt`` (the
+    same package ``rebrew gen-layout`` writes, minus the hex blobs a splat
+    import has no binary to derive) so ``data``/``calibrate-bss`` read one
+    source.  Uses a tomlkit round trip for the project config so comments
+    and unrelated keys survive.  Returns whether anything changed, so a
+    re-run does not bump mtimes of unchanged files (caches key on it).
     """
     import tomlkit
 
     from rebrew.utils import load_toml_for_write
 
+    changed = False
     toml_path = root / "rebrew-project.toml"
     doc = load_toml_for_write(toml_path, "rebrew-project.toml")
     targets = doc.setdefault("targets", tomlkit.table())
@@ -1502,23 +1505,35 @@ def _write_target_metadata(plan: ImportPlan, root: Path) -> bool:
     entry["arch"] = plan.arch
     compiler = entry.setdefault("compiler", tomlkit.table())
     compiler["profile"] = plan.profile
-    layout = entry.setdefault("layout", tomlkit.table())
-    layout["image_base"] = plan.image_base
-    sections = tomlkit.array().multiline(True)
-    for section in plan.sections:
-        if not isinstance(section, SectionMeta):
-            continue
-        inline = tomlkit.inline_table()
-        for key, value in section.as_dict().items():
-            inline[key] = value
-        sections.append(inline)
-    layout["sections"] = sections
-    layout["source"] = f"splat:{plan.splat.path.name}"
     rendered = tomlkit.dumps(doc)
-    if toml_path.is_file() and toml_path.read_text(encoding="utf-8") == rendered:
-        return False
-    atomic_write_text(toml_path, rendered, encoding="utf-8")
-    return True
+    if not toml_path.is_file() or toml_path.read_text(encoding="utf-8") != rendered:
+        atomic_write_text(toml_path, rendered, encoding="utf-8")
+        changed = True
+
+    # Layout package (layout.txt only — a splat import has no reference
+    # binary to derive hex blobs from; postlink fixers need a real package).
+    pkg_dir = root / "layout" / plan.target
+    pkg_dir.mkdir(parents=True, exist_ok=True)
+    lay = tomlkit.document()
+    lay["layout"] = {
+        "target": plan.target,
+        "image_base": plan.image_base,
+        "link_options": [],
+        "sections": [
+            section.as_dict() for section in plan.sections if isinstance(section, SectionMeta)
+        ],
+        "exports": [],
+        "imports": [],
+        "export_stamp": [0, 0],
+        "exp_rva": 0,
+        "source": f"splat:{plan.splat.path.name}",
+    }
+    lay_text = tomlkit.dumps(lay)
+    lay_path = pkg_dir / "layout.txt"
+    if not lay_path.is_file() or lay_path.read_text(encoding="utf-8") != lay_text:
+        atomic_write_text(lay_path, lay_text, encoding="utf-8")
+        changed = True
+    return changed
 
 
 def _write_functions(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> list[str]:

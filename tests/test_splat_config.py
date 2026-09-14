@@ -464,8 +464,9 @@ class TestApply:
         assert (project / "original" / "fixture.exe").is_file()
         config = (project / "rebrew-project.toml").read_text(encoding="utf-8")
         assert '[targets."fixture.exe".compiler]' in config
-        assert 'source = "splat:win32_app.yaml"' in config
-        assert '{name = ".text", va = 4096, vs = 19, raw = 512, ptr = 512' in config
+        lay = (project / "layout" / "fixture.exe" / "layout.txt").read_text(encoding="utf-8")
+        assert 'source = "splat:win32_app.yaml"' in lay
+        assert 'name = ".text"' in lay and "va = 4096" in lay
 
         functions = (project / "src" / "rebrew-functions.toml").read_text(encoding="utf-8")
         assert 'status = "STUB"' in functions
