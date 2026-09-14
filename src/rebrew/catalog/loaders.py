@@ -15,12 +15,6 @@ from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
 from rebrew.config import ProjectConfig
 from rebrew.sources import iter_library_headers, iter_sources, target_marker
 
-
-def make_func_entry(va: int, size: int, name: str) -> dict[str, int | str]:
-    """Create a normalized function-list record."""
-    return {"va": va, "size": size, "name": name}
-
-
 # ---------------------------------------------------------------------------
 # Ghidra function loader
 # ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@ Merges function sources (discovery inventory, Ghidra JSON, PE exports) into a un
 
 | Module | Role | Key Exports |
 |--------|------|-------------|
-| `loaders.py` | I/O (Ghidra JSON, discovery inventory, DLL bytes, source + library header scanning) | `load_function_structure()`, `cached_function_list()`, `load_ghidra_data_labels()`, `make_func_entry()`, `parse_rizin_afl()`, `scan_reversed_dir()` |
+| `loaders.py` | I/O (Ghidra JSON, discovery inventory, DLL bytes, source + library header scanning) | `load_function_structure()`, `cached_function_list()`, `load_ghidra_data_labels()`, `parse_rizin_afl()`, `scan_reversed_dir()` |
 | `registry.py` | Merge sources, resolve canonical sizes | `build_function_registry()` |
 | `grid.py` | Coverage grid generation | `generate_data_json()` |
 | `export.py` | Output (reccmp CSV) | `generate_reccmp_csv()` |

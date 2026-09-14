@@ -24,9 +24,6 @@ from rebrew.catalog.loaders import (
     load_ghidra_data_labels as load_ghidra_data_labels,
 )
 from rebrew.catalog.loaders import (
-    make_func_entry as make_func_entry,
-)
-from rebrew.catalog.loaders import (
     parse_rizin_afl as parse_rizin_afl,
 )
 from rebrew.catalog.loaders import (
@@ -66,7 +63,6 @@ __all__ = [
     "load_ghidra_data_labels",
     "main",
     "main_entry",
-    "make_func_entry",
     "parse_rizin_afl",
     "run_catalog",
     "scan_reversed_dir",
