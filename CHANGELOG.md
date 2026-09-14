@@ -1,4 +1,4 @@
-## [Unreleased]
+## [2.1.0] - 2026-09-14
 ### Removed
 - **`functions.txt` is gone (second half)**: `cfg add-target` no longer
   touches an empty list file; `binary-similarity --other-list` takes
@@ -8,12 +8,14 @@
   --catalog` deleted (nothing consumed it — status/todo/dashboard read
   TOML/DB).  The reccmp CSV stays.
 - **`[targets.<t>.layout]` TOML block is gone**: layout geometry comes from
-  `layout/<target>/layout.txt` via `layout_meta.read_layout_geometry`
+  `layout/<target>/rebrew-layout.toml` via `layout_meta.read_layout_geometry`
   (`data`, `calibrate-bss`); `gen-layout` no longer writes the block
   (`write_layout_config` deleted); `import-splat` writes a blobs-less
-  `layout.txt` instead.  Existing projects re-run `gen-layout` once.
-- **Dead dict `make_func_entry` deleted** (zero src call sites; the
-  `Annotation` factory in `annotation.py` keeps the name without confusion).
+  `rebrew-layout.toml` instead.  Existing projects re-run `gen-layout` once.
+  (`layout.txt` renamed to `rebrew-layout.toml` — same dir, honest extension.)
+- **Dead code**: dict `make_func_entry` (zero src call sites), 7 dead
+  binsync/toolchain/context/layout helpers, write-only `symbol_prefix` /
+  `text_raw_offset` / `va_to_file_offset`, `_dedupe_flags` loop → `dict.fromkeys`.
 - **Docs: 43 files → 28** — deleted run logs (CAMPAIGNS, GAP_ANALYSIS,
   GOAL_STATUS, GOAL_PROGRESS, TOOLING_SWEEP), aspirational sketches
   (USER_STORIES, ML_TRAINING), landed audits (METADATA_REVIEW, IDEAS),
