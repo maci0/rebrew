@@ -90,7 +90,7 @@ def main(
     root = Path.cwd()
     metadata = data_metadata if data_metadata.is_absolute() else root / data_metadata
     if not metadata.exists():
-        error_exit(f"data metadata not found: {metadata}")
+        error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
     content = gen_link_stubs(metadata)
     if dry_run or json_output:
         if json_output:

@@ -112,27 +112,32 @@ def main(
     """Calibrate *symbol* in *stub* so the raw link's .data VirtualSize == *target_vs*."""
     root = walk_up_to_root(Path.cwd())
     if root is None:
-        error_exit("no rebrew-project.toml found above the cwd")
+        error_exit("no rebrew-project.toml found above the cwd", json_mode=json_output)
     stub = stub if stub.is_absolute() else root / stub
     if not stub.exists():
-        error_exit(f"stub file not found: {stub}")
+        error_exit(f"stub file not found: {stub}", json_mode=json_output)
     if target_vs is None:
         target_vs_int = _layout_data_vs(root)
         if target_vs_int is None:
-            error_exit("no target VS given and no .data vs in the layout metadata")
+            error_exit(
+                "no target VS given and no .data vs in the layout metadata", json_mode=json_output
+            )
         target_vs_int = int(target_vs_int)
     else:
         try:
             target_vs_int = int(target_vs, 0)
         except ValueError:
-            error_exit(f"--target-vs must be an integer-like value (got {target_vs!r})")
+            error_exit(
+                f"--target-vs must be an integer-like value (got {target_vs!r})",
+                json_mode=json_output,
+            )
 
     if max_iters < 1:
-        error_exit("--max-iters must be at least 1")
+        error_exit("--max-iters must be at least 1", json_mode=json_output)
 
     tail_re = re.compile(rf"{symbol}\[\s*0x([0-9A-Fa-f]+)\s*\]")
     if not tail_re.search(stub.read_text(encoding="utf-8")):
-        error_exit(f"{symbol}[0x..] not found in {stub}")
+        error_exit(f"{symbol}[0x..] not found in {stub}", json_mode=json_output)
 
     if dry_run:
         if json_output:
@@ -172,12 +177,17 @@ def main(
                     cmd, shell=True, cwd=link_cwd, check=True, capture_output=True, timeout=600
                 )
             except subprocess.TimeoutExpired:
-                error_exit(f"raw link timed out after 600s (iter {it}): {cmd}")
+                error_exit(
+                    f"raw link timed out after 600s (iter {it}): {cmd}", json_mode=json_output
+                )
             except subprocess.CalledProcessError as exc:
                 # capture_output swallows the linker's stderr — surface it, or the
                 # failure is an opaque traceback with no diagnostic.
                 stderr = exc.stderr.decode(errors="replace")[-400:].strip() if exc.stderr else ""
-                error_exit(f"raw link failed (rc={exc.returncode}) on iter {it}: {stderr}")
+                error_exit(
+                    f"raw link failed (rc={exc.returncode}) on iter {it}: {stderr}",
+                    json_mode=json_output,
+                )
             vs = read_data_vs(scratch)
             delta = target_vs_int - vs
             iters.append({"iter": it, "vs": vs, "delta": delta})
@@ -186,10 +196,13 @@ def main(
             text = stub.read_text(encoding="utf-8")
             m = tail_re.search(text)
             if m is None:
-                error_exit(f"{symbol}[0x..] not found in {stub}")
+                error_exit(f"{symbol}[0x..] not found in {stub}", json_mode=json_output)
             new_tail = int(m.group(1), 16) + delta
             if new_tail <= 0:
-                error_exit(f"tail would go non-positive ({new_tail:#x}) — manual fix needed")
+                error_exit(
+                    f"tail would go non-positive ({new_tail:#x}) — manual fix needed",
+                    json_mode=json_output,
+                )
             atomic_write_text(
                 stub, text[: m.start(1)] + f"{new_tail:x}" + text[m.end(1) :], encoding="utf-8"
             )
@@ -203,12 +216,19 @@ def main(
                     timeout=300,
                 )
             except subprocess.TimeoutExpired:
-                error_exit(f"stub compile timed out after 300s: {compile_cmd}")
+                error_exit(
+                    f"stub compile timed out after 300s: {compile_cmd}", json_mode=json_output
+                )
             except subprocess.CalledProcessError as exc:
                 stderr = exc.stderr.decode(errors="replace")[-400:].strip() if exc.stderr else ""
-                error_exit(f"stub compile failed (rc={exc.returncode}): {stderr}")
+                error_exit(
+                    f"stub compile failed (rc={exc.returncode}): {stderr}", json_mode=json_output
+                )
         else:
-            error_exit(f"did not converge in {max_iters} iterations (last delta {delta:+d})")
+            error_exit(
+                f"did not converge in {max_iters} iterations (last delta {delta:+d})",
+                json_mode=json_output,
+            )
     except BaseException:
         atomic_write_text(stub, original_stub, encoding="utf-8")
         raise
