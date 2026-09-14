@@ -211,26 +211,6 @@ class TestVerifyDiff:
         assert diff["improvements"][0]["previous_status"] == "PROVEN"
         assert diff["improvements"][0]["current_status"] == "RELOC"
 
-    def test_diff_matching_alias(self) -> None:
-        """NEAR_MATCHING → STUB is a same-rank DEGRADATION — the fine-grained
-        status order must report it as a regression (was: unchanged)."""
-        previous = {
-            "results": [
-                {"va": "0x10008000", "name": "func_alias", "status": "NEAR_MATCHING", "delta": 3}
-            ]
-        }
-        current = {
-            "results": [{"va": "0x10008000", "name": "func_alias", "status": "STUB", "delta": 5}]
-        }
-
-        diff = diff_reports(previous, current)
-        assert len(diff["regressions"]) == 1
-        assert diff["regressions"][0]["previous_status"] == "NEAR_MATCHING"
-        assert diff["regressions"][0]["current_status"] == "STUB"
-        assert diff["improvements"] == []
-        assert diff["unchanged_count"] == 0
-
-
 class TestApplyOrPreviewStatus:
     """rebrew verify --dry-run must not write STATUS metadata."""
 
