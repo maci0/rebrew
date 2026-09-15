@@ -802,3 +802,38 @@ def test_scope_entries_batch_file_empty_errors(tmp_path: Path) -> None:
             batch_file="missing.c",
             cfg=cfg,
         )
+
+
+def test_fix_sizes_never_rewrites_a_byte_matched_size() -> None:
+    """A size that already produces a match is evidence, not a defect.
+
+    Regression: --fix-sizes applied every size divergence, taking heuristic
+    discovery as authority.  But discovery merges adjacent functions when the
+    only boundary is `ret` plus padding, and counts trailing jump tables the
+    body excludes -- so it under-counts and over-counts byte-matched entries
+    alike.  One run on guild-rebrew rewrote 13 sizes and dropped byte-matched
+    functions from 264 to 252.
+
+    _skip_validated_overcount already covered over-counts; the under-count
+    direction (the jump-table case, e.g. vfs_OpenStream body 667 against a
+    canonical 704) was applied automatically and is what did the damage.
+    """
+    from rebrew.verify import _partition_size_fixes
+
+    fixes = [
+        {"va": "0x1000cfe0", "annotation_size": 64, "binary_size": 96, "status": "RELOC"},
+        {"va": "0x10009020", "annotation_size": 667, "binary_size": 704, "status": "PROVEN"},
+        {"va": "0x10001000", "annotation_size": 10, "binary_size": 40, "status": "EXACT"},
+        {"va": "0x10002000", "annotation_size": 0, "binary_size": 110, "status": "MISSING_SIZE"},
+        {"va": "0x10003000", "annotation_size": 20, "binary_size": 80, "status": "STUB"},
+    ]
+    appliable, protected = _partition_size_fixes(fixes)
+
+    # The three matched/proven entries are kept; only genuinely unverified
+    # sizes may be rewritten.
+    assert {f["va"] for f in protected} == {"0x1000cfe0", "0x10009020", "0x10001000"}
+    assert {f["va"] for f in appliable} == {"0x10002000", "0x10003000"}
+
+    # No protected entries means the list passes through untouched.
+    plain = [{"va": "0x10004000", "annotation_size": 0, "binary_size": 8, "status": "STUB"}]
+    assert _partition_size_fixes(plain) == (plain, [])
