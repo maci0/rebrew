@@ -16,8 +16,8 @@ import re
 import shlex
 import shutil
 import subprocess
-import time
 import tempfile
+import time
 import warnings
 from pathlib import Path
 from typing import Any
