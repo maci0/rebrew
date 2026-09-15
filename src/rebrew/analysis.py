@@ -505,6 +505,7 @@ def iter_strings(
     """
     if min_len < 1:
         min_len = 1
+    names: list[str]
     if info.format == "ne":
         data_segs = [s for s in info.ne_segments if not s.is_code]  # type: ignore[attr-defined]
         names = section_names if section_names is not None else [f"SEG{s.index}" for s in data_segs]

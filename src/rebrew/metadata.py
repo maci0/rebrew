@@ -400,7 +400,7 @@ def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> N
         if toml_key not in doc:
             doc[toml_key] = tomlkit.table()
 
-        doc[toml_key][key] = _toml_safe(value)  # type: ignore[index]
+        doc[toml_key][key] = _toml_safe(value)
         atomic_write_locked(path, tomlkit.dumps(doc))
         _metadata_cache.pop(path, None)
 
