@@ -1885,6 +1885,45 @@ Discoverers are plugins: `rebrew.discoverers` entry points
 (`fn(binary: Path) -> [(va, size, name)]`) join every format branch under
 their entry-point name; a broken plugin is skipped with a warning.
 
+### `rebrew drift`
+
+`rebrew drift [OPTIONS] SOURCE`
+
+Localise where a function's compiled bytes drift from the reference, using
+branch targets rather than a byte diff.
+
+A jump whose *encoding* matches the reference but whose *target* differs is not
+a defect — it is a measurement.  The difference between the two targets is
+exactly the byte drift accumulated between the jump and its target, so each
+such pair yields a window with a signed byte count, obtained without
+disassembling the window's contents.  This answers "where did the bytes go?"
+for a function that compiles to roughly the right size but not the right bytes,
+where a raw byte diff is a wall of noise because one early size difference
+shifts everything after it.
+
+Windows nest, and nested windows **subtract**: a window strictly inside another
+accounts for part of the outer one's drift, so the remainder belongs to the
+region the inner does not cover — and that remainder can carry the opposite
+sign.  This is the only way to see a region with no branch pair of its own.
+
+A **negative** drift means the compiled code is *shorter* across that span.
+That is evidence about register pressure, not a defect to fix: it constrains
+what any change to an opposing window can achieve.  Read both signs before
+attributing a cause.
+
+| Option | Description |
+|--------|-------------|
+| `--va VA` | Function VA (default: from the `// FUNCTION:` header) |
+| `--size N` | Function size (default: from annotation metadata) |
+| `--cflags STR` | Override compiler flags |
+| `--toolchain NAME` | Override the toolchain profile |
+| `--json` | Machine-readable windows and derived regions |
+
+```
+rebrew drift src/server.dll/Units/Error/CrashDump.c
+rebrew drift --va 0x10002770 --size 2115 --json src/…/CrashDump.c
+```
+
 ### `rebrew gen-flirt-pat`
 
 `rebrew gen-flirt-pat [OPTIONS] LIB_PATH`
