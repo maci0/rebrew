@@ -1215,8 +1215,6 @@ def compile_batch_objs(
     the combined output and the map is empty (caller falls back per file
     to attribute it, per ADR-021).
     """
-    from rebrew.toolchain import ToolchainError, run_toolchain
-
     style = spec.effective_arg_style
     if style not in ("posix", "msvc"):
         return {}, f"batch compile needs posix/msvc style, got {style!r}"
