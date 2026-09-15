@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 import tomlkit
-from click.exceptions import Exit as ClickExit
+from typer import Exit as TyperExit
 
 from rebrew.cfg import (
     _detect_format_and_arch,
@@ -90,7 +90,7 @@ class TestLoadSave:
         assert "timeout" not in result
 
     def test_load_nonexistent_raises(self, tmp_path: Path) -> None:
-        with pytest.raises(ClickExit):
+        with pytest.raises(TyperExit):
             load_toml(tmp_path)
 
 
@@ -118,7 +118,7 @@ class TestResolveTarget:
     def test_missing_target_raises(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
         doc, _ = load_toml(root)
-        with pytest.raises(ClickExit):
+        with pytest.raises(TyperExit):
             _resolve_target(doc, "nonexistent")
 
 
@@ -745,9 +745,9 @@ class TestResolveDottedKey:
     def test_missing_key_raises(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path)
         doc, _ = load_toml(root)
-        from click.exceptions import Exit as ClickExit
+        from typer import Exit as TyperExit
 
-        with pytest.raises(ClickExit):
+        with pytest.raises(TyperExit):
             _resolve_dotted_key(doc, "nonexistent.key.path")
 
     def test_create_missing(self, tmp_path: Path) -> None:
