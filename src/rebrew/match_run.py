@@ -922,8 +922,15 @@ def _run_all(
         # the catalog before promoting.
         name_to_va = build_name_to_va(cfg)
         matched, failed = _run_batch_flag_sweep(
-            stubs, cfg, tier, jobs, fix_cflags, json_output, mode_label,
-            name_to_va=name_to_va, timeout_min=timeout_min,
+            stubs,
+            cfg,
+            tier,
+            jobs,
+            fix_cflags,
+            json_output,
+            mode_label,
+            name_to_va=name_to_va,
+            timeout_min=timeout_min,
         )
         return matched, failed
 

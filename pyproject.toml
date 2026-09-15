@@ -15,11 +15,10 @@ license-files = ["LICENSE"]
 authors = [
     { name = "Marcel W. Wysocki", email = "maci.stgn@gmail.com" },
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Disassemblers",
