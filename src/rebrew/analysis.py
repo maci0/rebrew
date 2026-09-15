@@ -510,7 +510,7 @@ def iter_strings(
         data_segs = [s for s in info.ne_segments if not s.is_code]  # type: ignore[attr-defined]
         names = section_names if section_names is not None else [f"SEG{s.index}" for s in data_segs]
     else:
-        default = [n for n in (".rdata", ".data", ".rodata") if n in info.sections]
+        default: list[str] = [n for n in (".rdata", ".data", ".rodata") if n in info.sections]
         names = section_names if section_names is not None else default
 
     strings: list[StringEntry] = []
