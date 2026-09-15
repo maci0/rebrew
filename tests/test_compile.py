@@ -983,3 +983,91 @@ class TestLinkedSpec:
         spec, err = _linked_spec(cfg, None)
         assert spec is None
         assert "MSVC" in err
+
+
+class TestCompileBatchObjs:
+    def _spec(self):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            name="mingw-16.2.0",
+            image="rebrew/mingw:16.2.0-win32",
+            effective_arg_style="posix",
+        )
+
+    def test_single_invocation_many_objects(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """N sources → one run_toolchain call, N objects collected."""
+        from types import SimpleNamespace
+
+        from rebrew.compile import compile_batch_objs
+
+        calls: list[list[str]] = []
+
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+            calls.append(args)
+            for i in (1, 2, 3):
+                (workdir / f"f{i}.o").write_bytes(b"\x00")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        for i in (1, 2, 3):
+            (tmp_path / f"f{i}.c").write_text("int f(void){return 1;}\n", encoding="utf-8")
+        out, err = compile_batch_objs(
+            self._spec(), ["f1.c", "f2.c", "f3.c"], ["-O2"], tmp_path, [], 60
+        )
+        assert err == ""
+        assert sorted(out) == ["f1.c", "f2.c", "f3.c"]
+        assert len(calls) == 1
+        assert calls[0][:2] == ["-O2", "-c"]
+
+    def test_group_failure_returns_empty(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Nonzero exit → empty map + error (caller falls back per file)."""
+        from types import SimpleNamespace
+
+        from rebrew.compile import compile_batch_objs
+
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+            return SimpleNamespace(returncode=1, stdout="", stderr="boom")
+
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        out, err = compile_batch_objs(self._spec(), ["f1.c"], ["-O2"], tmp_path, [], 60)
+        assert out == {}
+        assert "boom" in err
+
+    def test_exotic_style_refused(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.compile import compile_batch_objs
+
+        spec = SimpleNamespace(name="x", image="img", effective_arg_style="dos")
+        out, err = compile_batch_objs(spec, ["f.c"], [], tmp_path, [], 60)
+        assert out == {}
+        assert "posix/msvc" in err
+
+
+class TestBatchCacheParity:
+    def test_identical_keys_both_paths(self, tmp_path: Path) -> None:
+        """_cache_key_for is the single computation — same inputs pin the
+        same key regardless of which path wrote the entry."""
+        from types import SimpleNamespace
+
+        from rebrew.compile import _cache_key_for
+
+        cfg = SimpleNamespace(root=tmp_path, compiler_includes=tmp_path,
+            compiler_command="CL.EXE", compiler_runner="")
+        k1 = _cache_key_for(
+            cfg, None, "int f(void){return 1;}\n", "f.c", ["/O2"],
+            str(tmp_path), tmp_path, None, ".c",
+        )
+        k2 = _cache_key_for(
+            cfg, None, "int f(void){return 1;}\n", "f.c", ["/O2"],
+            str(tmp_path), tmp_path, None, ".c",
+        )
+        assert k1 == k2
+        k3 = _cache_key_for(
+            cfg, None, "int f(void){return 2;}\n", "f.c", ["/O2"],
+            str(tmp_path), tmp_path, None, ".c",
+        )
+        assert k3 != k1
