@@ -1556,4 +1556,7 @@ class TestFlagSweepDeadline:
         from rebrew import match as match_mod
 
         src = inspect.getsource(match_mod)
-        assert "_run_single_flag_sweep(params, tier, jobs, json_output, timeout_min=timeout_min)" in src
+        assert (
+            "_run_single_flag_sweep(params, tier, jobs, json_output, timeout_min=timeout_min)"
+            in src
+        )
