@@ -273,8 +273,12 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
         lines = text.splitlines()
         fname = rel_display_path(cfile, src_dir)
 
-        # Pre-compute extern variables from tree-sitter (used for unannotated scan)
-        extern_vars = {v.name: v for v in find_extern_variables(text)}
+        # Pre-compute extern variables from tree-sitter (used for unannotated
+        # scan).  Definitions are included: a global's real type lives on its
+        # definition, and conflict detection that only sees `extern` lines
+        # cannot report the mismatch that matters most -- `int g[4] = {...}`
+        # in one file against `extern short g;` in another.
+        extern_vars = {v.name: v for v in find_extern_variables(text, include_definitions=True)}
 
         # Track which (name, va) pairs are already handled via GLOBAL annotation
         annotated_keys: set[tuple[str, int]] = set()

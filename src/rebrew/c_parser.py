@@ -48,6 +48,11 @@ _CC_PATTERN = re.compile(
 # grammar doesn't know them.  Allow any content up to the matching ')',
 # including a nested (...) such as align(16).
 _DECLSPEC_PATTERN = re.compile(r"__declspec\s*\((?:[^()]*|\([^)]*\))*\)")
+# The declared name of a `__declspec(dllimport)` variable, read from the raw
+# source because `_strip_cc` removes the declspec before parsing.
+_DLLIMPORT_DECL_RE = re.compile(
+    r"__declspec\s*\(\s*dllimport\s*\)[^;{}]*?([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)*[;=]"
+)
 
 # ---------------------------------------------------------------------------
 # Lazy tree-sitter initialisation
@@ -479,12 +484,21 @@ class ExternVar:
     array_suffix: str  # e.g. "[10]", "[]", ""
 
 
-def find_extern_variables(source: str) -> list[ExternVar]:
+def find_extern_variables(source: str, *, include_definitions: bool = False) -> list[ExternVar]:
     """Find extern variable (non-function) declarations.
 
     Tree-sitter naturally distinguishes function declarations (which have
     ``function_declarator`` nodes) from variable declarations (which have
     plain ``identifier`` or ``pointer_declarator`` + ``identifier``).
+
+    With *include_definitions*, file-scope **definitions** are returned too
+    (``char g_t[4] = {...};``), not only ``extern`` declarations.  A
+    definition is where a global's real type lives, so a caller comparing
+    types across files -- conflict detection above all -- sees nothing useful
+    without them: a definition typed ``int[4]`` in one file against an
+    ``extern short`` in another is exactly the mismatch worth reporting, and it
+    is invisible while only ``extern`` is parsed.  Off by default because the
+    existing callers ask specifically about declarations.
     """
     if not source or not source.strip():
         return []
@@ -492,6 +506,16 @@ def find_extern_variables(source: str) -> list[ExternVar]:
         tree, src_bytes = _parse(_strip_cc(source))
     except ImportError:
         return []
+
+    # `_strip_cc` deletes the whole `__declspec(...)` before tree-sitter sees
+    # it, so the in-tree dllimport check below can never fire on a declaration
+    # that has no `extern` -- it only ever worked because such declarations
+    # were rejected for lacking `extern`.  Once definitions are in scope that
+    # is no longer true, so collect the dllimport names from the raw text.
+    # Unconditional: the in-tree check was also silently failing for
+    # `extern __declspec(dllimport) int g;`, which reached the results despite
+    # the documented intent to skip dllimport.
+    dllimport_names: set[str] = {m.group(1) for m in _DLLIMPORT_DECL_RE.finditer(source)}
 
     results: list[ExternVar] = []
 
@@ -515,7 +539,10 @@ def find_extern_variables(source: str) -> list[ExternVar]:
                 if "dllimport" in text:
                     has_dllimport = True
 
-            if not has_extern or has_dllimport:
+            # A definition qualifies only at file scope: a local `int i = 0;`
+            # inside a function body is not a global and must not be reported.
+            at_file_scope = node.parent is not None and node.parent.type == "translation_unit"
+            if not (has_extern or (include_definitions and at_file_scope)) or has_dllimport:
                 for child in node.children:
                     walk(child)
                 return
@@ -585,6 +612,8 @@ def find_extern_variables(source: str) -> list[ExternVar]:
                         array_suffix = _extract_array_suffix(arr_node, src_bytes)
 
                     name = _find_declarator_name(decl, src_bytes)
+                    if name in dllimport_names:
+                        continue
                     if name:
                         full_type = type_str
                         if ptr_depth:

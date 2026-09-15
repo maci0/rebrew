@@ -268,3 +268,36 @@ class TestCallingConventionDeclarators:
         assert result is not None
         assert result[0] == expected
         assert expected in result[1]
+
+
+class TestDefinitionsAndDllimport:
+    """Definitions carry a global's real type; dllimport must never be reported."""
+
+    def test_definitions_only_with_the_flag(self) -> None:
+        from rebrew.c_parser import find_extern_variables
+
+        src = "extern int g_decl;\nint g_def[4] = { 1, 2, 3, 4 };\n"
+        assert [v.name for v in find_extern_variables(src)] == ["g_decl"]
+        both = find_extern_variables(src, include_definitions=True)
+        assert [v.name for v in both] == ["g_decl", "g_def"]
+        assert next(v for v in both if v.name == "g_def").type_str == "int[4]"
+
+    def test_function_locals_are_not_globals(self) -> None:
+        from rebrew.c_parser import find_extern_variables
+
+        src = "int f(void) {\n    int local = 3;\n    static int slocal = 4;\n    return local + slocal;\n}\n"
+        assert find_extern_variables(src, include_definitions=True) == []
+
+    def test_dllimport_variables_are_skipped(self) -> None:
+        """`_strip_cc` deletes the declspec before tree-sitter sees it, so the
+        in-tree check could never fire; `extern __declspec(dllimport) int g;`
+        was reported despite the documented intent to skip it."""
+        from rebrew.c_parser import find_extern_variables
+
+        for src in (
+            "__declspec(dllimport) int g_imp;\n",
+            "extern __declspec(dllimport) int g_imp;\n",
+            "__declspec(dllimport) int g_imp[4];\n",
+        ):
+            assert find_extern_variables(src) == [], src
+            assert find_extern_variables(src, include_definitions=True) == [], src
