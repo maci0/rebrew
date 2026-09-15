@@ -211,6 +211,7 @@ class TestVerifyDiff:
         assert diff["improvements"][0]["previous_status"] == "PROVEN"
         assert diff["improvements"][0]["current_status"] == "RELOC"
 
+
 class TestApplyOrPreviewStatus:
     """rebrew verify --dry-run must not write STATUS metadata."""
 

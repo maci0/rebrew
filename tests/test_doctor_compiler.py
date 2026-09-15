@@ -85,8 +85,21 @@ class TestCheckDelphi16Toolchain:
         monkeypatch.setattr(
             "rebrew.delphi16.find_dcc", lambda: (_ for _ in ()).throw(Delphi16Error("not found"))
         )
-        result = check_delphi16_toolchain(_cfg(arch="x86_16"))
+        result = check_delphi16_toolchain(_cfg(arch="x86_16", compiler_profile="delphi-1.0"))
         assert result.status == _FAIL
+        assert "not found" in result.message
+
+    def test_missing_toolchain_warns_when_not_delphi_profile(self, monkeypatch) -> None:
+        """A 16-bit project on another profile (e.g. msvc-1.52) doesn't need
+        Delphi — missing media is a warning, not a failure."""
+        from rebrew.delphi16 import Delphi16Error
+        from rebrew.doctor import _WARN, check_delphi16_toolchain
+
+        monkeypatch.setattr(
+            "rebrew.delphi16.find_dcc", lambda: (_ for _ in ()).throw(Delphi16Error("not found"))
+        )
+        result = check_delphi16_toolchain(_cfg(arch="x86_16", compiler_profile="msvc-1.52"))
+        assert result.status == _WARN
         assert "not found" in result.message
 
     def test_ready_passes(self, monkeypatch, tmp_path: Path) -> None:

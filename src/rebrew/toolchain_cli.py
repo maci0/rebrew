@@ -488,6 +488,13 @@ _SMOKE_GOLDEN: dict[
         "t.c",
         (4, 8),
     ),  # COFF TimeDateStamp
+    "msvc-6.0-win9x": (
+        ["/c", "t.c"],
+        "t.obj",
+        "4b50f0dbba945a5bc80f9e40ed05bcfb06505fff2204a4b567192c7e5fb1e224",
+        "t.c",
+        (4, 8),
+    ),  # COFF TimeDateStamp (same smoke codegen as msvc-6.0; images differ in hosted tree)
     "msvc-2.0": (
         ["/c", "t.c"],
         "t.obj",
