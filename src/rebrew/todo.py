@@ -93,6 +93,7 @@ _CATEGORY_COLORS = {
     CAT_DOCUMENTED: "dim",
     CAT_NAKED: "magenta",
     CAT_DATA_DRIFT: "yellow",
+    "blocked": "red",
 }
 
 # ---------------------------------------------------------------------------
@@ -117,6 +118,7 @@ class TodoItem:
     status: str = ""
     match_percent: float | None = None
     mutations: list[str] = field(default_factory=list)
+    blocker: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for JSON output."""
@@ -140,6 +142,8 @@ class TodoItem:
             d["match_percent"] = self.match_percent
         if self.mutations:
             d["mutations"] = self.mutations
+        if self.blocker:
+            d["blocker"] = self.blocker
         return d
 
 
@@ -519,6 +523,7 @@ def _collect_active_functions(
                 status=status,
                 match_percent=v_match,
                 mutations=mutations,
+                blocker=info.get("blocker", "") or "",
             )
         )
 
@@ -1081,7 +1086,12 @@ def main(
     denominator = len(ghidra_vas | set(covered_vas))
     pct = round(100.0 * (exact + reloc + proven) / denominator, 1) if denominator else 0.0
 
-    if category:
+    if category == "blocked":
+        # Lens, not a move: every item with BLOCKER text, whatever its home
+        # category (ADR-019).  Matched on presence so JSON consumers filter
+        # the same way (items[?blocker]).
+        all_items = [i for i in all_items if i.blocker]
+    elif category:
         all_items = [i for i in all_items if i.category == category]
     else:
         # Documented non-targets are audit info, not work — hide them from the
