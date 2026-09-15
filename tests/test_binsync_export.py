@@ -552,6 +552,58 @@ reversed_dir = "src/server"
         comments = _load_artifacts(comments_path, "comment") if comments_path.exists() else []
         assert not any(c.func_addr == 0x10002000 for c in comments)
 
+    def test_catalog_vas_inside_an_annotated_function_are_not_exported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A catalog VA inside an annotated span is not a separate function.
+
+        Regression: the skip test was `va in reversed_vas`, an exact START
+        match, so a catalog entry falling *inside* an annotated function was
+        exported as its own function.  Heuristic discovery emits switch arms as
+        pseudo-functions (`case.0x...`), so guild-rebrew's state dir gained 18
+        of them -- and because import reads the same state back,
+        `rebrew sync --pull` then proposed creating them as real functions
+        inside code that was already EXACT/RELOC.
+        """
+        toml = """
+[project]
+default_target = "server"
+
+[targets.server]
+binary = "server.dll"
+reversed_dir = "src/server"
+"""
+        (tmp_path / "rebrew-project.toml").write_text(toml, encoding="utf-8")
+        (tmp_path / "src" / "server").mkdir(parents=True)
+        (tmp_path / "src" / "server" / "foo.c").write_text(
+            "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 256\n"
+            "int foo(void){return 1;}\n",
+            encoding="utf-8",
+        )
+        import json as _json
+
+        (tmp_path / "src" / "server" / "function_structure.json").write_text(
+            _json.dumps(
+                [
+                    {"va": 0x10001000, "size": 256, "name": "foo"},
+                    # A switch arm 0x50 into foo: must NOT be exported.
+                    {"va": 0x10001050, "size": 32, "name": "case.0x10001000.1"},
+                    # Immediately after foo ends: a real neighbour.
+                    {"va": 0x10001100, "size": 16, "name": "after_func"},
+                ]
+            ),
+            encoding="utf-8",
+        )
+        outdir = tmp_path / "binsync_out"
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(app, ["binsync-export", str(outdir), "--json"])
+        assert result.exit_code == 0, result.output
+        assert (outdir / "functions" / "10001000.toml").exists()
+        assert (outdir / "functions" / "10001100.toml").exists()
+        assert not (outdir / "functions" / "10001050.toml").exists(), (
+            "a VA inside an annotated function must not be exported"
+        )
+
     def test_catalog_clean_removes_orphans(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

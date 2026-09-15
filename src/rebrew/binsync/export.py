@@ -23,6 +23,7 @@ metadata-review R2).
 
 from __future__ import annotations
 
+import bisect
 import datetime
 import logging
 import re
@@ -908,8 +909,26 @@ def export_state(
         bin_path = cfg.target_binary
         registry = build_function_registry(funcs, cfg, ghidra_path, bin_path)
         reversed_vas = {e.va for e in func_entries}
+        # `va in reversed_vas` is an exact START match, so a catalog VA falling
+        # *inside* an annotated function was exported as a separate function.
+        # Heuristic discovery produces these constantly: it emits switch arms as
+        # pseudo-functions (`case.0x1000ad61.*`) and splits bodies it cannot
+        # walk.  Exporting them pollutes the shared state, and because import
+        # reads the same state back, `sync --pull` then proposes creating them
+        # as real functions -- inside code that is already EXACT/RELOC.
+        # Build spans from the annotated sizes and skip anything they contain.
+        annotated_spans = sorted(
+            (e.va, e.va + int(getattr(e, "size", 0) or 0))
+            for e in func_entries
+            if int(getattr(e, "size", 0) or 0) > 0
+        )
+
+        def _inside_annotated(probe: int) -> bool:
+            i = bisect.bisect_right(annotated_spans, (probe, 1 << 62)) - 1
+            return i >= 0 and annotated_spans[i][0] < probe < annotated_spans[i][1]
+
         for va, reg_entry in registry.items():
-            if va in reversed_vas:
+            if va in reversed_vas or _inside_annotated(va):
                 continue
             # Skip IAT thunks — they are not user functions
             if reg_entry.get("is_thunk"):
