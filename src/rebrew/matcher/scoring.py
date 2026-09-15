@@ -657,6 +657,15 @@ def precompute_target(
     return _normalize_and_mnems_x86_32(target_bytes, cs_arch, cs_mode)
 
 
+def _insn_fields(insn: Any) -> tuple[int, int, str, str, bytes]:
+    """Unpack ``(address, size, mnemonic, op_str, bytes)`` from either a lite
+    5-tuple or a full CsInsn — the diff lists hold tuples on the fast path
+    and objects when register detail is needed."""
+    if isinstance(insn, tuple):
+        return insn
+    return insn.address, insn.size, insn.mnemonic, insn.op_str, insn.bytes
+
+
 def diff_functions(
     target_bytes: bytes,
     candidate_bytes: bytes,
@@ -703,35 +712,53 @@ def diff_functions(
         # in the human-readable diff output.  register_aware needs detail
         # attributes (modrm/opcode) for _mask_registers_inplace below.
         md_use = _get_cs(cs_arch, cs_mode, detail=True) if register_aware else md
-        target_insns = list(md_use.disasm(target_bytes, 0))
-        cand_insns = list(md_use.disasm(candidate_bytes, 0))
+        if register_aware:
+            target_insns = list(md_use.disasm(target_bytes, 0))
+            cand_insns = list(md_use.disasm(candidate_bytes, 0))
+        else:
+            target_insns = [
+                (addr, size, mnem, op, target_bytes[addr : addr + size])
+                for addr, size, mnem, op in md_use.disasm_lite(target_bytes, 0)
+            ]
+            cand_insns = [
+                (addr, size, mnem, op, candidate_bytes[addr : addr + size])
+                for addr, size, mnem, op in md_use.disasm_lite(candidate_bytes, 0)
+            ]
         norm_target = _normalize_with_reloc_offsets(target_bytes, reloc_offsets, pointer_size)
         norm_cand = _normalize_with_reloc_offsets(candidate_bytes, reloc_offsets, pointer_size)
     else:
-        # Reloc-less diff: a NON-detail disassembly serves the rows; the
-        # norm buffers are zeroed from raw bytes (_zero_reloc_fields_raw,
-        # the GA fast path) so detail mode is only entered when the
+        # Reloc-less diff: lite tuples (address, size, mnemonic, op_str)
+        # serve the rows — the row loop touches no detail attributes, so the
+        # ctypes materialization of full CsInsn objects (the profile leader:
+        # copy_ctypes) is pure waste.  Detail mode is only entered when the
         # register-aware mask needs modrm/opcode attributes.
         if register_aware:
             md_det = _get_cs(cs_arch, cs_mode, detail=True)
             target_insns = list(md_det.disasm(target_bytes, 0))
             cand_insns = list(md_det.disasm(candidate_bytes, 0))
         else:
-            target_insns = list(md.disasm(target_bytes, 0))
-            cand_insns = list(md.disasm(candidate_bytes, 0))
+            # (address, size, mnemonic, op_str, bytes) — bytes sliced once
+            # here so the row loop below reads fields uniformly whether the
+            # lists hold lite tuples or full CsInsn objects.
+            target_insns = [
+                (addr, size, mnem, op, target_bytes[addr : addr + size])
+                for addr, size, mnem, op in md.disasm_lite(target_bytes, 0)
+            ]
+            cand_insns = [
+                (addr, size, mnem, op, candidate_bytes[addr : addr + size])
+                for addr, size, mnem, op in md.disasm_lite(candidate_bytes, 0)
+            ]
         norm_target_buf = bytearray(target_bytes)
         norm_cand_buf = bytearray(candidate_bytes)
         # Cached detail handle for the rare SIB/disp32 fallback in the raw
         # zeroing (only actually disassembles when such an instruction appears).
         _md_det_fallback = _get_cs(cs_arch, cs_mode, detail=True)
         for insn in target_insns:
-            _zero_reloc_fields_raw(
-                insn.address, insn.size, insn.bytes, norm_target_buf, _md_det_fallback
-            )
+            addr, size, _mnem, _op, b = _insn_fields(insn)
+            _zero_reloc_fields_raw(addr, size, b, norm_target_buf, _md_det_fallback)
         for insn in cand_insns:
-            _zero_reloc_fields_raw(
-                insn.address, insn.size, insn.bytes, norm_cand_buf, _md_det_fallback
-            )
+            addr, size, _mnem, _op, b = _insn_fields(insn)
+            _zero_reloc_fields_raw(addr, size, b, norm_cand_buf, _md_det_fallback)
         norm_target = bytes(norm_target_buf)
         norm_cand = bytes(norm_cand_buf)
     if register_aware and norm_target:
@@ -771,46 +798,43 @@ def diff_functions(
         t_disasm = ""
         t_str = ""
         if i < len(target_insns):
-            ti = target_insns[i]
-            target_mnems.append(ti.mnemonic)
+            t_a, t_s, t_m, t_o, t_b = _insn_fields(target_insns[i])
+            target_mnems.append(t_m)
             if not summary_only:
-                t_bytes_hex = ti.bytes.hex()
-                t_disasm = f"{ti.mnemonic} {ti.op_str}".strip()
+                t_bytes_hex = t_b.hex()
+                t_disasm = f"{t_m} {t_o}".strip()
                 if not as_dict:
-                    t_str = f"{ti.mnemonic:6} {ti.op_str}"
+                    t_str = f"{t_m:6} {t_o}"
 
         c_bytes_hex = ""
         c_disasm = ""
         c_str = ""
         match_char = "  "
         if i < len(cand_insns):
-            ci = cand_insns[i]
-            cand_mnems.append(ci.mnemonic)
+            c_a, c_s, c_m, c_o, c_b = _insn_fields(cand_insns[i])
+            cand_mnems.append(c_m)
             if not summary_only:
-                c_bytes_hex = ci.bytes.hex()
-                c_disasm = f"{ci.mnemonic} {ci.op_str}".strip()
+                c_bytes_hex = c_b.hex()
+                c_disasm = f"{c_m} {c_o}".strip()
                 if not as_dict:
-                    c_str = f"{ci.mnemonic:6} {ci.op_str}"
+                    c_str = f"{c_m:6} {c_o}"
 
             if i < len(target_insns):
-                ti = target_insns[i]
-                if ti.bytes == ci.bytes:
+                if t_b == c_b:
                     match_char = "=="
                 else:
-                    t_norm = norm_target[ti.address : ti.address + ti.size]
-                    c_norm = norm_cand[ci.address : ci.address + ci.size]
+                    t_norm = norm_target[t_a : t_a + t_s]
+                    c_norm = norm_cand[c_a : c_a + c_s]
                     if t_norm == c_norm and t_norm:
                         # Check if any byte in this instruction overlaps an
                         # invalid reloc span (O(1) via the precomputed mask).
-                        is_invalid = bool(invalid_mask) and any(
-                            invalid_mask[ti.address : ti.address + ti.size]
-                        )
+                        is_invalid = bool(invalid_mask) and any(invalid_mask[t_a : t_a + t_s])
                         match_char = "XX" if is_invalid else "~~"
                     elif (
                         register_aware and reg_norm_target is not None and reg_norm_cand is not None
                     ):
-                        t_reg = reg_norm_target[ti.address : ti.address + ti.size]
-                        c_reg = reg_norm_cand[ci.address : ci.address + ci.size]
+                        t_reg = reg_norm_target[t_a : t_a + t_s]
+                        c_reg = reg_norm_cand[c_a : c_a + c_s]
                         match_char = "RR" if (t_reg == c_reg and t_reg) else "**"
                     else:
                         match_char = "**"
