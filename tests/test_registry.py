@@ -72,7 +72,10 @@ def _activate_cli_plugins(app: typer.Typer, existing: set[str] | None = None) ->
     ctx = Context()
     ctx.provide(CLI_SERVICE, app)
     ctx.provide(CONSOLE_SERVICE, console)
-    activate(entry_point_components(set(existing or ()), console), ctx)
+    components, warnings = entry_point_components(set(existing or ()))
+    for warning in warnings:
+        console.print(f"[yellow]warning:[/yellow] {warning}")
+    activate(components, ctx)
     return ctx
 
 

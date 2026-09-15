@@ -589,24 +589,25 @@ class CliComponent(Component):
             _track_registration(app, is_group=False, registered=registered_command, ctx=ctx)
 
 
-def entry_point_components(existing: set[str], console: Console) -> list[CliComponent]:
+def entry_point_components(existing: set[str]) -> tuple[list[CliComponent], list[str]]:
     """Third-party CLI components from the plugin entry-point groups.
 
-    A name already present (a packaged command) is skipped with a warning on
-    stderr: a plugin must not shadow a built-in.  Malformed registrations keep
-    degrading to an ``[unavailable]`` stub, so one broken plugin never takes
-    the CLI down.
+    Returns ``(components, warnings)``: duplicate names (a plugin must not
+    shadow a built-in) come back as data — discovery runs before any context
+    exists, so the caller prints them through CONSOLE_SERVICE.  Malformed
+    registrations keep degrading to an ``[unavailable]`` stub, so one broken
+    plugin never takes the CLI down.
     """
     from rebrew.registry import entry_point_registrations
 
     components: list[CliComponent] = []
+    warnings: list[str] = []
     for group, is_group in ((COMMANDS_GROUP, False), (MULTI_COMMANDS_GROUP, True)):
         for registration in entry_point_registrations(group):
             if registration.name in existing:
-                console.print(
-                    f"[yellow]warning:[/yellow] duplicate CLI command "
-                    f"{registration.name!r} from {registration.origin} ignored "
-                    f"(a built-in already uses that name)"
+                warnings.append(
+                    f"duplicate CLI command {registration.name!r} from "
+                    f"{registration.origin} ignored (a built-in already uses that name)"
                 )
                 continue
             components.append(
@@ -621,4 +622,4 @@ def entry_point_components(existing: set[str], console: Console) -> list[CliComp
                 )
             )
             existing.add(registration.name)
-    return components
+    return components, warnings
