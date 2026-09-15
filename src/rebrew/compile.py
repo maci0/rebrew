@@ -1169,6 +1169,44 @@ def compile_to_obj(
                 cc.put(cache_key, obj_file.read_bytes())
         return str(obj_file), ""
 
+
+def compile_batch_objs(
+    spec: "ToolchainSpec",
+    src_names: list[str],
+    all_flags: list[str],
+    workdir: Path,
+    mounts: list[tuple[str, str]],
+    timeout: int,
+) -> tuple[dict[str, str], str]:
+    """Compile N sources already staged in *workdir* with one container run.
+
+    posix/msvc styles only (``-c a b...`` / ``/c a b...`` with default-named
+    outputs); dos/borland/watcom keep single-file compiles.  Returns
+    ``({src_name: obj_path}, error)`` — on nonzero exit the error carries
+    the combined output and the map is empty (caller falls back per file
+    to attribute it, per ADR-021).
+    """
+    from rebrew.toolchain import ToolchainError, run_toolchain
+
+    style = spec.effective_arg_style
+    if style not in ("posix", "msvc"):
+        return {}, f"batch compile needs posix/msvc style, got {style!r}"
+    args = all_flags + (["-c", *src_names] if style == "posix" else ["/c", *src_names])
+    try:
+        tr = run_toolchain(spec, args, workdir=workdir, timeout=timeout, mounts=mounts)
+    except ToolchainError as exc:
+        return {}, str(exc)
+    if tr.returncode != 0:
+        err = (tr.stdout + "\n" + tr.stderr).strip() or "batch compile failed with no output"
+        return {}, err
+    ext = ".o" if style == "posix" else ".obj"
+    out: dict[str, str] = {}
+    for src in src_names:
+        obj = workdir / (Path(src).stem + ext)
+        if obj.is_file():
+            out[src] = str(obj)
+    return out, ""
+
     # Unknown/unregistered profile: nothing to run.  Execution is docker-
     # (or native-runner-)only; a plain command string cannot be exec'd.
     return None, (
