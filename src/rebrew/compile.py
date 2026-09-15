@@ -1216,6 +1216,98 @@ def compile_batch_objs(
     return out, ""
 
 
+def precompile_batch(
+    cfg: ProjectConfig,
+    entries: list,
+    *,
+    cache: CacheBackend | None = None,
+    context: CompileContext | None = None,
+) -> dict[int, str]:
+    """Compile many entries' sources with one container run per flag group.
+
+    Groups cache-miss entries by (toolchain, cflags), stages their sources
+    into a shared workdir, and calls :func:`compile_batch_objs` once per
+    group.  Returns ``{id(entry): obj_path}`` for batch-built objects;
+    entries that can't batch (cache hits, context-merged units, recompile
+    backend, exotic arg styles, groups of one) are absent — their callers
+    compile individually as before.  Never raises (batch is an
+    optimization): failures return what succeeded, the rest fall back.
+    """
+    import contextlib
+    import logging as _logging
+
+    from rebrew.cli import resolve_compile_overrides
+
+    log = _logging.getLogger(__name__)
+    if len(entries) < 2 or recompile_url(cfg) is not None:
+        return {}
+    try:
+        spec_profile = getattr(cfg, "compiler_profile", "")
+        base_spec = TOOLCHAINS.get(spec_profile) if spec_profile else None
+    except Exception:
+        return {}
+    if base_spec is not None and base_spec.effective_arg_style not in ("posix", "msvc"):
+        return {}
+
+    from rebrew.utils import writable_temp_dir
+
+    out: dict[int, str] = {}
+    groups: dict[tuple[str, str], list] = {}
+    for e in entries:
+        try:
+            cfile = Path(cfg.reversed_dir) / e.filepath
+            if not cfile.is_file():
+                continue
+            toolchain, cflags = resolve_compile_overrides(
+                cfg,
+                cfile.parent,
+                getattr(e, "toolchain", ""),
+                getattr(e, "cflags", ""),
+                getattr(e, "module", ""),
+            )
+            # Per-function toolchain override with an exotic style can't
+            # join the batch — leave it for the individual path.
+            if toolchain:
+                override = TOOLCHAINS.get(toolchain)
+                if override is None or override.effective_arg_style not in ("posix", "msvc"):
+                    continue
+            if context is not None:
+                continue  # merged units differ per file; not batchable
+            groups.setdefault((toolchain or "", cflags), []).append(e)
+        except Exception as exc:
+            log.debug("batch grouping skipped %s: %s", getattr(e, "name", "?"), exc)
+    for (toolchain, cflags), members in groups.items():
+        if len(members) < 2:
+            continue
+        try:
+            spec = TOOLCHAINS.get(toolchain) if toolchain else base_spec
+            if spec is None:
+                continue
+            workdir = writable_temp_dir("rebrew_batch_")
+            staged: dict[str, object] = {}
+            for e in members:
+                src = Path(cfg.reversed_dir) / e.filepath
+                # Unique stems per group (foo/bar.c + baz/bar.c collide).
+                dest = workdir / f"{e.va:08x}_{src.name}"
+                with contextlib.suppress(OSError):
+                    dest.write_bytes(src.read_bytes())
+                    staged[dest.name] = e
+            if len(staged) < 2:
+                continue
+            flags = safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
+            objs, err = compile_batch_objs(
+                spec, sorted(staged), flags, workdir, [], cfg.compile_timeout
+            )
+            if err:
+                log.debug("batch group failed, falling back per file: %s", err[:120])
+                continue
+            for name, obj in objs.items():
+                out[id(staged[name])] = obj
+        except Exception as exc:
+            log.debug("batch group skipped: %s", exc)
+    return out
+
+
 def _extract_and_compare(
     obj_path: str,
     symbol: str,
@@ -1309,6 +1401,7 @@ def compile_and_compare(
     section_va: int | None = None,
     toolchain: str | None = None,
     context: CompileContext | None = None,
+    _precompiled_obj: str | None = None,
 ) -> CompareResult:
     """Compile source, extract COFF symbol, compare against target bytes with reloc masking.
 
@@ -1354,16 +1447,19 @@ def compile_and_compare(
         from rebrew.utils import writable_temp_dir
 
         workdir = writable_temp_dir("rebrew_cmp_")
-        obj_path, err = compile_to_obj(
-            cfg,
-            source_path,
-            cflags_list,
-            workdir,
-            cache=cache,
-            use_cache=use_cache,
-            toolchain=toolchain,
-            context=context,
-        )
+        if _precompiled_obj is not None and Path(_precompiled_obj).is_file():
+            obj_path, err = _precompiled_obj, ""
+        else:
+            obj_path, err = compile_to_obj(
+                cfg,
+                source_path,
+                cflags_list,
+                workdir,
+                cache=cache,
+                use_cache=use_cache,
+                toolchain=toolchain,
+                context=context,
+            )
         if obj_path is None:
             return _pin(
                 classify_compare_result(
