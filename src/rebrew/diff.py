@@ -301,7 +301,16 @@ def run_diff(
     has_structural = False
     if summary:
         blockers = classify_blockers(summary)
-        sim = structural_similarity(p.target_bytes, obj_bytes, res.reloc_offsets, cs_mode=cs_mode)
+        # Reuse the display summary when it was built register-aware (the
+        # default-off flag changes the reg counts) — else fall back to the
+        # internal summary_only re-run.
+        sim = structural_similarity(
+            p.target_bytes,
+            obj_bytes,
+            res.reloc_offsets,
+            cs_mode=cs_mode,
+            _summary=summary if register_aware else None,
+        )
 
         # Short-candidate triage: target instructions with no compiled
         # counterpart are the not-yet-decompiled tail (SIZE_MISMATCH class).

@@ -699,3 +699,15 @@ class TestDiffRegisterAwareWithRelocs:
         result = diff_functions(target, cand, reloc_offsets=[1], register_aware=True, as_dict=True)
         assert result is not None
         assert result["summary"]["reg"] > 0  # register-aware masking classified it
+
+    def test_summary_reuse_matches_fresh(self) -> None:
+        """Passing a display summary via _summary must equal the fresh run."""
+        from rebrew.matcher.scoring import diff_functions
+
+        target = b"\x55\x8b\xec\x83\xec\x10\xc3"
+        cand = b"\x55\x8b\xec\x83\xec\x20\xc3"
+        fresh = structural_similarity(target, cand)
+        disp = diff_functions(target, cand, None, register_aware=True, as_dict=True)
+        assert disp is not None
+        reused = structural_similarity(target, cand, None, _summary=disp)
+        assert reused == fresh
