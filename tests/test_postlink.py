@@ -334,6 +334,51 @@ class TestDataFixer:
         assert patched == ref.read_bytes()
         assert patched[0x1001:0x1008] == b"\xcc" * 7  # padding untouched
 
+    def test_built_overshoot_past_reference_vsize_is_zeroed(self, tmp_path: Path) -> None:
+        """Code emitted past the reference's .text VirtualSize must not ship.
+
+        Regression (round 200): the tail trim starts at the reference's RAW
+        size, so anything the link emitted between the reference's VirtualSize
+        and its raw size survived.  guild-rebrew shipped 638 real bytes there
+        -- a stub DllMain plus ~100 `ff 25` IAT thunks -- because its link
+        overshoots the reference's .text by 0x282.
+        `scripts/postlink_residual.py` normalized that span for its own
+        measurement, so the residue number looked clean while `rebrew postlink`
+        shipped the bytes: a measure-vs-ship divergence.
+
+        The guard matters as much as the fix: when the built .text does NOT
+        overshoot, that span is the reference's own padding, which real linkers
+        fill with 0xCC, and zeroing it would corrupt a matching build.  That
+        case is covered by test_preserves_reference_text_padding.
+        """
+        from rebrew.binary_loader import load_binary
+        from rebrew.layout_meta import extract_layout
+        from rebrew.postlink import _fix_data
+
+        ref_bytes = make_full_pe(code=b"\xc3")
+        ref = _write(tmp_path, "ref.dll", ref_bytes)
+        meta = extract_layout(ref_bytes, "ref.dll")
+
+        # Built binary: same geometry, but its .text VirtualSize overshoots and
+        # real bytes sit past the reference's VirtualSize.
+        raw = bytearray(ref_bytes)
+        sec_text = 0x178  # .text section-table entry in the fixture
+        text_ptr = struct.unpack_from("<I", raw, sec_text + 20)[0]
+        overshoot = b"\x6a\x01\x58\xc2\x0c\x00"  # the real stub DllMain
+        raw[text_ptr + 1 : text_ptr + 1 + len(overshoot)] = overshoot
+        struct.pack_into("<I", raw, sec_text + 8, 1 + len(overshoot))  # vsize
+        built = _write(tmp_path, "built.dll", bytes(raw))
+
+        blob = bytearray(built.read_bytes())
+        report = _fix_data(blob, meta, load_binary(built))
+        # The count is of NONZERO bytes found, so the stub's own 0x00 does not
+        # contribute -- 5 of the 6 stub bytes are nonzero.
+        expected = sum(1 for b in overshoot if b)
+        assert report.stats.get("text_overshoot_zeroed") == expected, report.stats
+        assert bytes(blob[text_ptr + 1 : text_ptr + 1 + len(overshoot)]) == b"\x00" * len(
+            overshoot
+        )
+
     def test_reloc_written_at_built_offset_not_reference(self, tmp_path: Path) -> None:
         """The .reloc bytes must land at the *built* file's own .reloc raw
         pointer (from its headers), not the reference's raw_ptr: a built

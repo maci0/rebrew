@@ -420,6 +420,39 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
         struct.pack_into("<I", built, _section_header_offset(info_b, ".text") + 8, text_m.vs)
         report.changed = True
 
+    # The trim above starts at the reference's RAW size, so anything the link
+    # emitted between the reference's VirtualSize and its raw size survived --
+    # and that region is zero in the reference.  guild-rebrew shipped 638 real
+    # bytes there (a stub DllMain `6a 01 58 c2 0c 00` plus ~100 `ff 25` IAT
+    # thunks the original build dead-stripped), because its link overshoots the
+    # reference's .text VirtualSize.  `scripts/postlink_residual.py` normalized
+    # that span for its own measurement, so the residue number looked clean
+    # while `rebrew postlink` shipped the bytes: a measure-vs-ship divergence.
+    # Zero it here instead, and only where the reference really is zero.
+    # Only when the BUILT .text overshot the reference's VirtualSize: the bytes
+    # between the reference's VirtualSize and its raw size then hold code this
+    # link emitted past the reference's end, which the original build does not
+    # have.  guild-rebrew shipped 638 such bytes (a stub DllMain
+    # `6a 01 58 c2 0c 00` plus ~100 `ff 25` IAT thunks) because its link
+    # overshoots by 0x282.  scripts/postlink_residual.py normalized that span
+    # for its own measurement while `rebrew postlink` shipped it -- a
+    # measure-vs-ship divergence.
+    #
+    # Guarded three ways, because a correct build must not be touched: the
+    # overshoot must be real (built vs > reference vs), the span must actually
+    # hold nonzero bytes, and it must lie inside the built raw size.  When the
+    # built .text does NOT overshoot, this is the reference's own padding --
+    # which real linkers fill with 0xCC, not zeros -- and zeroing it would
+    # corrupt an already-matching build.
+    if text_b.size > text_m.vs:
+        pad_start = text_b.file_offset + text_m.vs
+        pad_end = min(text_b.file_offset + text_m.raw, text_b.file_offset + text_b.raw_size)
+        stale = sum(1 for i in range(pad_start, pad_end) if built[i]) if pad_start < pad_end else 0
+        if stale:
+            built[pad_start:pad_end] = b"\x00" * (pad_end - pad_start)
+            report.stats["text_overshoot_zeroed"] = stale
+            report.changed = True
+
     # ---- 4. grow .data to the reference raw size and copy it ----
     data_b = info_b.sections[".data"]
     if len(meta.data) > len(built) - data_b.file_offset:
