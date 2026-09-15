@@ -1,18 +1,18 @@
 """skills.py – Discover and display agent skills bundled with rebrew.
 
 Enumerates the ``agent-skills/`` directory that ships with the package and
-exposes four subcommands:
+exposes two subcommands:
 
 ``rebrew skills list`` — table of skill name + first line of description.
 ``rebrew skills show NAME`` — pretty-print the full SKILL.md for NAME.
-``rebrew skills install DIR`` — copy a skill into REBREW_SKILLS_DIR.
-``rebrew skills remove NAME`` — remove a skill from REBREW_SKILLS_DIR.
 
 Community/user skills extend the packaged set through the
 ``REBREW_SKILLS_DIR`` environment variable: a directory of SKILL.md
 directories, merged over the packaged tree (a user skill with the same name
 as a packaged one wins — skills are docs, and the user's copy is the one
-they want served).
+they want served).  Drop skill directories there by hand (or check them out
+of version control) — no install/remove commands; copying a directory needs
+no CLI.
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from __future__ import annotations
 import logging
 import os
 import re
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -212,118 +211,6 @@ def list_skills(
         name = f"{s['name']} [dim](user)[/dim]" if s["origin"] == "user" else s["name"]
         table.add_row(name, s["first_line"] or s["description"][:80])
     _stdout_console.print(table)
-
-
-@app.command("install")
-def install_skill(
-    source: str = typer.Argument(
-        ..., help="Directory containing a SKILL.md to install (local path)."
-    ),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-) -> None:
-    """Install a community skill into the REBREW_SKILLS_DIR overlay.
-
-    Copies *source* (a directory with a SKILL.md, or a git/https URL to
-    clone) into the user skills dir, creating it if needed.  A skill with
-    the same name overrides the packaged one — the same semantics
-    ``rebrew skills list`` serves."""
-    user_dir = _user_skills_dir()
-    if user_dir is None:
-        error_exit(
-            f"{REBREW_SKILLS_DIR_ENV} is not set — set it to a directory to enable "
-            "community skills, then re-run install",
-            json_mode=json_output,
-        )
-    if user_dir.exists() and not user_dir.is_dir():
-        error_exit(
-            f"{REBREW_SKILLS_DIR_ENV}={user_dir} is a file, not a directory",
-            json_mode=json_output,
-        )
-
-    tmp_clone: Path | None = None
-    src = Path(source)
-    if source.startswith(("http://", "https://", "git@", "git://")):
-        if shutil.which("git") is None:
-            error_exit("git is required to install a skill from a URL", json_mode=json_output)
-        import subprocess
-        import tempfile
-
-        tmp_clone = Path(tempfile.mkdtemp(prefix="rebrew_skill_"))
-        repo_dir = tmp_clone / "repo"
-        result = subprocess.run(
-            ["git", "clone", "--depth", "1", source, str(repo_dir)],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            shutil.rmtree(tmp_clone, ignore_errors=True)
-            error_exit(
-                f"git clone failed: {(result.stderr or result.stdout).strip()[:200]}",
-                json_mode=json_output,
-            )
-        # The skill is the repo root or a subdirectory carrying a SKILL.md.
-        candidates = [repo_dir] + [d.parent for d in sorted(repo_dir.rglob("SKILL.md"))]
-        src = next((c for c in candidates if (c / "SKILL.md").is_file()), repo_dir)
-
-    if not (src / "SKILL.md").is_file():
-        if tmp_clone is not None:
-            shutil.rmtree(tmp_clone, ignore_errors=True)
-        error_exit(f"{source} is not a skill directory (no SKILL.md inside)", json_mode=json_output)
-    fm = _parse_frontmatter((src / "SKILL.md").read_text(encoding="utf-8"))
-    name = _safe_skill_name(fm.get("name") or src.name)
-    if not name:
-        if tmp_clone is not None:
-            shutil.rmtree(tmp_clone, ignore_errors=True)
-        error_exit(
-            f"skill name {fm.get('name') or src.name!r} is not a usable directory name",
-            json_mode=json_output,
-        )
-    dest = user_dir / name
-    user_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        shutil.copytree(src, dest, dirs_exist_ok=True)
-    finally:
-        if tmp_clone is not None:
-            shutil.rmtree(tmp_clone, ignore_errors=True)
-    if json_output:
-        json_print({"installed": name, "path": str(dest), "origin": "user"})
-        return
-    console.print(f"[green]Installed skill {name!r} into {dest}[/green]")
-
-
-@app.command("remove")
-def remove_skill(
-    name: str = typer.Argument(..., help="Skill name (user-skill dir or frontmatter name)."),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-) -> None:
-    """Remove a user-installed skill from the REBREW_SKILLS_DIR overlay.
-
-    Only user skills can be removed — the packaged tree is never touched."""
-    user_dir = _user_skills_dir()
-    if user_dir is None or not user_dir.is_dir():
-        error_exit(
-            f"{REBREW_SKILLS_DIR_ENV} is not set to an existing directory — nothing to remove",
-            json_mode=json_output,
-        )
-    target: Path | None = None
-    for skill_dir in sorted(user_dir.iterdir()):
-        skill_md = skill_dir / "SKILL.md"
-        if not skill_md.is_file():
-            continue
-        if skill_dir.name == name:
-            target = skill_dir
-            break
-        fm = _parse_frontmatter(skill_md.read_text(encoding="utf-8"))
-        if fm.get("name") == name:
-            target = skill_dir
-            break
-    if target is None:
-        error_exit(f"no user skill named {name!r} in {user_dir}", json_mode=json_output)
-    shutil.rmtree(target)
-    if json_output:
-        json_print({"removed": name, "path": str(target)})
-        return
-    console.print(f"[green]Removed user skill {name!r} from {target.parent}[/green]")
 
 
 @app.command("show")
