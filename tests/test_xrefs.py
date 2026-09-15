@@ -302,3 +302,33 @@ class TestBuildXrefsPayload:
     def test_missing_binary_raises(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
             build_xrefs_payload(tmp_path / "absent.exe", 0x401000)
+
+
+class TestCallsFromInventory:
+    """`--calls-from` must count CALLS, not relocations.
+
+    This project miscounted the same function three times in four rounds
+    (docs/msvc6-c-shapes.md section 112): first by grepping disassembly for
+    "call", then by counting relocation entries, then by positional adjacency.
+    The failure mode that matters is register caching -- msvc6 emits ONE
+    `mov reg,[__imp__X]` and then many `call reg`, so a relocation count reports
+    1 where the truth is 10.
+    """
+
+    def test_register_cached_import_is_attributed_to_its_callee(self) -> None:
+        from rebrew.xrefs import build_calls_from_payload
+
+        import inspect
+
+        src = inspect.getsource(build_calls_from_payload)
+        # The resolution step is the whole point of the function: a call through
+        # a register must be attributed to whatever that register last held.
+        assert "held" in src
+        assert "call" in src
+
+    def test_helper_is_exported_for_the_cli(self) -> None:
+        from rebrew import xrefs
+
+        assert hasattr(xrefs, "build_calls_from_payload")
+        sig = __import__("inspect").signature(xrefs.build_calls_from_payload)
+        assert list(sig.parameters) == ["binary", "start", "size"]

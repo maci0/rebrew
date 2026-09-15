@@ -119,15 +119,12 @@ def build_calls_from_payload(binary: Path, start: int, size: int) -> dict[str, A
     direct call.  The result is the inventory that actually reflects the source.
     """
     info = load_binary(binary)
-    imports = {}
     try:
-        for imp in parse_import_table(binary):
-            imports[imp.iat_va] = imp.name or f"ordinal#{imp.ordinal}"
-    except Exception:  # noqa: BLE001 - import table is optional
-        pass
+        imports = parse_import_table(binary)  # {iat_va: api_name}
+    except Exception:  # the import table is optional for this inventory
+        imports = {}
 
-    end = start + size
-    insns = [i for i in iter_instructions(info) if start <= i.address < end]
+    insns = iter_instructions(info, start, size)
     # reg -> callee name, updated as we walk; a call through a register is
     # attributed to whatever that register last held.
     held: dict[str, str] = {}
@@ -154,13 +151,13 @@ def build_calls_from_payload(binary: Path, start: int, size: int) -> dict[str, A
             op = ops.strip()
             if op.startswith("dword ptr [0x"):
                 slot = int(op[op.index("[") + 1 : op.index("]")], 16)
-                record(imports.get(slot, f"[{slot:#x}]"), ins.address)
+                record(imports.get(slot, f"[{slot:#x}]"), ins.va)
             elif op.startswith("0x"):
-                record(op, ins.address)
+                record(op, ins.va)
             elif op in held:
-                record(held[op], ins.address)
+                record(held[op], ins.va)
             else:
-                record(f"reg:{op}", ins.address)
+                record(f"reg:{op}", ins.va)
 
     return {
         "start": start,
@@ -224,6 +221,12 @@ def main(
     binary: Path | None = typer.Argument(None, help="Binary path (default: project target)"),
     kind: list[str] = typer.Option(None, "--kind", help="Only show this ref kind (repeatable)"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    calls_from: int = typer.Option(
+        0,
+        "--calls-from",
+        help="Instead of refs TO va, inventory calls FROM the function at va, "
+        "for this many bytes (resolves register-cached imports)",
+    ),
     target: str | None = TargetOption,
 ) -> None:
     """Show every reference to *va* in the binary's code sections."""
@@ -243,6 +246,20 @@ def main(
             error_exit(f"target binary missing: {binary}", json_mode=json_output, code=2)
     if not binary.exists():
         error_exit(f"binary not found: {binary}", json_mode=json_output)
+
+    if calls_from:
+        payload = build_calls_from_payload(binary, target_va, calls_from)
+        if json_output:
+            json_print(payload)
+        else:
+            table = Table(title=f"calls from {target_va:#x} ({calls_from} bytes)")
+            table.add_column("callee")
+            table.add_column("count", justify="right")
+            for row in payload["callees"]:
+                table.add_row(str(row["name"]), str(row["count"]))
+            Console().print(table)
+            Console().print(f"total calls: {payload['total_calls']}")
+        return
 
     try:
         payload = build_xrefs_payload(binary, target_va, kind)
