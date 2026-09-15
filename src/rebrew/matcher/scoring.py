@@ -657,15 +657,6 @@ def precompute_target(
     return _normalize_and_mnems_x86_32(target_bytes, cs_arch, cs_mode)
 
 
-def _insn_fields(insn: Any) -> tuple[int, int, str, str, bytes]:
-    """Unpack ``(address, size, mnemonic, op_str, bytes)`` from either a lite
-    5-tuple or a full CsInsn — the diff lists hold tuples on the fast path
-    and objects when register detail is needed."""
-    if isinstance(insn, tuple):
-        return insn
-    return insn.address, insn.size, insn.mnemonic, insn.op_str, insn.bytes
-
-
 def diff_functions(
     target_bytes: bytes,
     candidate_bytes: bytes,
@@ -709,21 +700,16 @@ def diff_functions(
 
     if reloc_offsets is not None:
         # Disassemble at base 0 so instruction addresses equal byte offsets
-        # in the human-readable diff output.  register_aware needs detail
-        # attributes (modrm/opcode) for _mask_registers_inplace below.
-        md_use = _get_cs(cs_arch, cs_mode, detail=True) if register_aware else md
-        if register_aware:
-            target_insns = list(md_use.disasm(target_bytes, 0))
-            cand_insns = list(md_use.disasm(candidate_bytes, 0))
-        else:
-            target_insns = [
-                (addr, size, mnem, op, target_bytes[addr : addr + size])
-                for addr, size, mnem, op in md_use.disasm_lite(target_bytes, 0)
-            ]
-            cand_insns = [
-                (addr, size, mnem, op, candidate_bytes[addr : addr + size])
-                for addr, size, mnem, op in md_use.disasm_lite(candidate_bytes, 0)
-            ]
+        # in the human-readable diff output.  Same shape discipline as below:
+        # tuples downstream, throwaway objects only for the mask.
+        target_insns = [
+            (addr, size, mnem, op, target_bytes[addr : addr + size])
+            for addr, size, mnem, op in md.disasm_lite(target_bytes, 0)
+        ]
+        cand_insns = [
+            (addr, size, mnem, op, candidate_bytes[addr : addr + size])
+            for addr, size, mnem, op in md.disasm_lite(candidate_bytes, 0)
+        ]
         norm_target = _normalize_with_reloc_offsets(target_bytes, reloc_offsets, pointer_size)
         norm_cand = _normalize_with_reloc_offsets(candidate_bytes, reloc_offsets, pointer_size)
     else:
@@ -732,44 +718,43 @@ def diff_functions(
         # ctypes materialization of full CsInsn objects (the profile leader:
         # copy_ctypes) is pure waste.  Detail mode is only entered when the
         # register-aware mask needs modrm/opcode attributes.
-        if register_aware:
-            md_det = _get_cs(cs_arch, cs_mode, detail=True)
-            target_insns = list(md_det.disasm(target_bytes, 0))
-            cand_insns = list(md_det.disasm(candidate_bytes, 0))
-        else:
-            # (address, size, mnemonic, op_str, bytes) — bytes sliced once
-            # here so the row loop below reads fields uniformly whether the
-            # lists hold lite tuples or full CsInsn objects.
-            target_insns = [
-                (addr, size, mnem, op, target_bytes[addr : addr + size])
-                for addr, size, mnem, op in md.disasm_lite(target_bytes, 0)
-            ]
-            cand_insns = [
-                (addr, size, mnem, op, candidate_bytes[addr : addr + size])
-                for addr, size, mnem, op in md.disasm_lite(candidate_bytes, 0)
-            ]
+        #
+        # Shape discipline: the lists ALWAYS hold 5-tuples downstream.  The
+        # register_aware path additionally builds throwaway object lists for
+        # the mask, then discards them — no downstream consumer branches on
+        # shape, so no per-instruction isinstance check anywhere.
+        target_insns = [
+            (addr, size, mnem, op, target_bytes[addr : addr + size])
+            for addr, size, mnem, op in md.disasm_lite(target_bytes, 0)
+        ]
+        cand_insns = [
+            (addr, size, mnem, op, candidate_bytes[addr : addr + size])
+            for addr, size, mnem, op in md.disasm_lite(candidate_bytes, 0)
+        ]
         norm_target_buf = bytearray(target_bytes)
         norm_cand_buf = bytearray(candidate_bytes)
         # Cached detail handle for the rare SIB/disp32 fallback in the raw
         # zeroing (only actually disassembles when such an instruction appears).
         _md_det_fallback = _get_cs(cs_arch, cs_mode, detail=True)
-        for insn in target_insns:
-            addr, size, _mnem, _op, b = _insn_fields(insn)
+        for addr, size, _mnem, _op, b in target_insns:
             _zero_reloc_fields_raw(addr, size, b, norm_target_buf, _md_det_fallback)
-        for insn in cand_insns:
-            addr, size, _mnem, _op, b = _insn_fields(insn)
+        for addr, size, _mnem, _op, b in cand_insns:
             _zero_reloc_fields_raw(addr, size, b, norm_cand_buf, _md_det_fallback)
         norm_target = bytes(norm_target_buf)
         norm_cand = bytes(norm_cand_buf)
     if register_aware and norm_target:
         _t_buf = bytearray(norm_target)
-        _mask_registers_inplace(target_insns, _t_buf)
+        _mask_registers_inplace(
+            list(_get_cs(cs_arch, cs_mode, detail=True).disasm(target_bytes, 0)), _t_buf
+        )
         reg_norm_target = bytes(_t_buf)
     else:
         reg_norm_target = None
     if register_aware and norm_cand:
         _c_buf = bytearray(norm_cand)
-        _mask_registers_inplace(cand_insns, _c_buf)
+        _mask_registers_inplace(
+            list(_get_cs(cs_arch, cs_mode, detail=True).disasm(candidate_bytes, 0)), _c_buf
+        )
         reg_norm_cand = bytes(_c_buf)
     else:
         reg_norm_cand = None
@@ -798,7 +783,7 @@ def diff_functions(
         t_disasm = ""
         t_str = ""
         if i < len(target_insns):
-            t_a, t_s, t_m, t_o, t_b = _insn_fields(target_insns[i])
+            t_a, t_s, t_m, t_o, t_b = target_insns[i]
             target_mnems.append(t_m)
             if not summary_only:
                 t_bytes_hex = t_b.hex()
@@ -811,7 +796,7 @@ def diff_functions(
         c_str = ""
         match_char = "  "
         if i < len(cand_insns):
-            c_a, c_s, c_m, c_o, c_b = _insn_fields(cand_insns[i])
+            c_a, c_s, c_m, c_o, c_b = cand_insns[i]
             cand_mnems.append(c_m)
             if not summary_only:
                 c_bytes_hex = c_b.hex()
