@@ -54,6 +54,38 @@ def _sig_files(dirs: list[Path]) -> list[Path]:
     return list(seen.values())
 
 
+def _init_project_sigs(cfg: Any, json_output: bool) -> None:
+    """Copy the shared sig checkout into the project's ``flirt_sigs/``.
+
+    Explicit, versioned per project: later upstream additions don't silently
+    change a project's matches.  Existing project files win (never
+    overwritten) — delete one to re-sync it.
+    """
+    from rebrew.cli import error_exit, json_print
+
+    repo = _flirt_sigs_repo()
+    if not repo.is_dir():
+        error_exit(
+            f"signature source not found: {repo} — clone rebrew-flirt-sigs "
+            "next to this repo or set REBREW_FLIRT_SIGS_DIR",
+            json_mode=json_output,
+        )
+    dest = Path(cfg.root) / "flirt_sigs"
+    dest.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for src in sorted(repo.glob("*.sig")) + sorted(repo.glob("*.pat")):
+        target = dest / src.name
+        if target.exists():
+            continue
+        target.write_bytes(src.read_bytes())
+        copied += 1
+    total = len(list(dest.glob("*.sig"))) + len(list(dest.glob("*.pat")))
+    if json_output:
+        json_print({"copied": copied, "total": total, "dir": str(dest)})
+        return
+    console.print(f"[green]flirt_sigs/: {copied} copied, {total} total[/green]")
+
+
 def _parse_sig_files(files: list[Path]) -> list[Any]:
     """Parse each FLIRT signature file, warning (not aborting) on bad ones."""
     if flirt is None:
@@ -238,11 +270,20 @@ def main(
         "--show-ambiguous",
         help=(f"Report ambiguous matches (offsets with >{_MAX_AMBIGUOUS} candidate names) as well"),
     ),
+    init: bool = typer.Option(
+        False,
+        "--init",
+        help="Copy the rebrew-flirt-sigs checkout into the project's flirt_sigs/ and exit",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """FLIRT signature scanner for binaries."""
     cfg = require_config(target=target, json_mode=json_output)
+
+    if init:
+        _init_project_sigs(cfg, json_output)
+        return
 
     final_exe = binary or cfg.target_binary
 
