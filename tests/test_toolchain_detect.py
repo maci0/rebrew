@@ -792,3 +792,20 @@ class TestTc16BuiltBinary:
         info = detect_toolchain(str(packed))
         assert info.packed == "pklite"
         assert any("PKLITE" in e for e in info.evidence)
+
+
+def test_every_msvc6_image_in_the_binary_map_has_a_spec() -> None:
+    """A docker image with no spec is invisible to --toolchain.
+
+    Regression: `rebrew/msvc:6.0-win9x-win32` shipped as an image but had no
+    ToolchainSpec, so service-pack sweeps silently covered eight of the nine
+    distinct MSVC6 code generators and the ninth had to be driven through
+    docker by hand.  Its C2.DLL md5 (3c21de2c) matches none of the other
+    eight, so the gap hid a genuinely different backend.
+    """
+    from rebrew.toolchain_data import BUILTIN_TOOLCHAINS, IMAGE_ENTRYPOINTS
+
+    spec_images = {s.image for s in BUILTIN_TOOLCHAINS.values()}
+    msvc6_images = {i for i in IMAGE_ENTRYPOINTS if i.startswith("rebrew/msvc:6.0")}
+    assert msvc6_images, "no msvc6 images registered at all"
+    assert msvc6_images <= spec_images, sorted(msvc6_images - spec_images)
