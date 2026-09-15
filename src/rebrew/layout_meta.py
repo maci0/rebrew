@@ -270,10 +270,16 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
         for s in sections:
             if s.name == name:
                 return s
-        raise ValueError(f"missing section {name!r} (layout needs .text/.data/.rdata/.reloc)")
+        raise ValueError(f"missing section {name!r} (layout needs .text/.data/.rdata)")
+
+    def find_sec_opt(name: str) -> SectionMeta | None:
+        for s in sections:
+            if s.name == name:
+                return s
+        return None
 
     data_sec = find_sec(".data")
-    reloc_sec = find_sec(".reloc")
+    reloc_sec = find_sec_opt(".reloc")
     rdata_sec = find_sec(".rdata")
     text_sec = find_sec(".text")
 
@@ -282,14 +288,19 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
 
     # .reloc content = relocation blocks only; the fixer zero-fills the rest
     # of the section's raw size (MSVC6 rounds raw up, padding with zeros).
-    rblob = data[reloc_sec.raw_ptr : reloc_sec.raw_ptr + reloc_sec.raw]
-    content_end = 0
-    while content_end + 8 <= len(rblob):
-        _page, blksz = struct.unpack_from("<II", rblob, content_end)
-        if blksz == 0 or blksz > len(rblob) - content_end:
-            break
-        content_end += blksz
-    reloc_bytes = rblob[:content_end]
+    # Binaries linked without relocations (stripped game EXEs) have no
+    # .reloc section — the fixer gets empty bytes, not an error.
+    if reloc_sec is None:
+        reloc_bytes = b""
+    else:
+        rblob = data[reloc_sec.raw_ptr : reloc_sec.raw_ptr + reloc_sec.raw]
+        content_end = 0
+        while content_end + 8 <= len(rblob):
+            _page, blksz = struct.unpack_from("<II", rblob, content_end)
+            if blksz == 0 or blksz > len(rblob) - content_end:
+                break
+            content_end += blksz
+        reloc_bytes = rblob[:content_end]
 
     # sparse .text rewrite maps (offsets relative to .text raw start)
     tb = data[text_sec.raw_ptr : text_sec.raw_ptr + text_sec.raw]

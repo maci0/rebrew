@@ -86,13 +86,14 @@ def _make_pe(section_names: list[bytes], opt_chars: int = 0x0102) -> bytes:
 
 
 class TestExtractLayoutMissingSection:
-    def test_missing_reloc_raises_valueerror(self) -> None:
+    def test_missing_reloc_yields_empty_bytes(self) -> None:
         """A PE without .reloc (relocations stripped — notepad.exe has only
-        .text/.data/.rsrc) must raise a clean ValueError naming the missing
-        section, not StopIteration."""
-        pe = _make_pe([b".text\x00\x00\x00", b".data\x00\x00\x00", b".rsrc\x00\x00\x00"])
-        with pytest.raises(ValueError, match=r"missing section '\.reloc'"):
-            extract_layout(pe)
+        .text/.data/.rsrc, Europa1400Gold has no .reloc) extracts fine with
+        empty reloc bytes; the fixer has nothing to converge."""
+        pe = _make_pe(
+            [b".text\x00\x00\x00", b".data\x00\x00\x00", b".rdata\x00\x00", b".rsrc\x00\x00\x00"]
+        )
+        assert extract_layout(pe).reloc == b""
 
     def test_missing_rdata_raises_valueerror(self) -> None:
         pe = _make_pe([b".text\x00\x00\x00", b".data\x00\x00\x00", b".reloc\x00\x00"])
