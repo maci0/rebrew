@@ -1,3 +1,41 @@
+## [2.3.0] - 2026-09-15
+### Added
+- **Batch container compiles (ADR-021)**: `verify --all` groups cache-miss
+  functions by (toolchain, cflags) and compiles each group with one
+  `docker run` instead of one per function (~13× wall-time win measured).
+  Cache reads before grouping, per-file writes after, per-file fallback
+  on group failure. (`compile_batch_objs`, `precompile_batch`)
+- **`rebrew verify <file.c>`** (ADR-018): positional file scope for
+  per-file CI gating; empty scope errors instead of silent green.
+- **`rebrew todo -c blocked`** (ADR-019): lens over BLOCKER-carrying items
+  whatever their home category; `blocker` field in `--json`.
+- **`rebrew flirt --init`**: vendors the shared sig checkout into the
+  project's `flirt_sigs/` (explicit, idempotent).
+- **`rebrew-init` skill** (ADR-020): bare directory → scaffold → doctor
+  gate → intake handoff. Six packaged skills.
+### Changed
+- **Python 3.13 floor** (`requires-python`, `.python-version`, lock
+  re-resolved; 3.12 wheels pruned). Suite green on 3.13.14.
+- **Deps to latest**: typer 0.27, rich 15, tomlkit 0.15, tree-sitter
+  0.26, numpy 2.5, click 8.5, LIEF 0.17.6 (lief<1 and typer sandboxing
+  notes in pyproject). Control-char sanitizer (`_toml_safe`) at all
+  metadata writes — tomlkit 0.15 emits invalid `\e` otherwise.
+- **Diff 3× → 1× disassembly**: display summary reuse in
+  `structural_similarity` (2.6×), `print_diff_summary` renders the table
+  from the dict, non-register path on `disasm_lite`, uniform tuple lists.
+- **Bench**: `mutation_apply` row added; all 14 baselines re-recorded so
+  `--compare` gates regressions.
+### Removed
+- `skills install/remove` (copying a directory needs no CLI).
+- Write-only `symbol_prefix` / `text_raw_offset` / `va_to_file_offset`;
+  dead `make_func_entry`; stale `build/` dir; 2 duplicate tests.
+### Fixed
+- `lint` staleness diagnosis revived on the inventory file; W028 names
+  `rebrew discover-functions`.
+- `gen-layout` tolerates `.reloc`-less binaries; `byte_match_counts`
+  split from PROVEN in the verify summary; doctor Delphi check warns
+  (not fails) on non-Delphi 16-bit profiles; `match` abort names errors
+  in JSON mode.
 ## [2.2.0] - 2026-09-15
 ### Added
 - **Fix-suggestion loop closed**: `rebrew test` refusal names the inventory
