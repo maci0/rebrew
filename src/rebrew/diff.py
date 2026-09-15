@@ -282,15 +282,10 @@ def run_diff(
         as_dict=True,
         cs_mode=cs_mode,
     )
-    if not json_output and not csv_output:
-        diff_functions(
-            p.target_bytes,
-            obj_bytes,
-            res.reloc_offsets,
-            mismatches_only=mismatches_only,
-            register_aware=register_aware,
-            cs_mode=cs_mode,
-        )
+    if not json_output and not csv_output and isinstance(summary, dict):
+        from rebrew.matcher.scoring import print_diff_summary
+
+        print_diff_summary(summary, mismatches_only=mismatches_only, register_aware=register_aware)
 
     if isinstance(summary, dict) and summary.get("instructions"):
         _resolve_global_names(summary["instructions"], p.cfg)

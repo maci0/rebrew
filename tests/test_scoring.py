@@ -711,3 +711,26 @@ class TestDiffRegisterAwareWithRelocs:
         assert disp is not None
         reused = structural_similarity(target, cand, None, _summary=disp)
         assert reused == fresh
+
+    def test_print_diff_summary_matches_direct_print(self) -> None:
+        """print_diff_summary over an as_dict payload renders byte-identical
+        output to the direct print path (lets callers disassemble once)."""
+        import io
+        from contextlib import redirect_stdout
+
+        from rebrew.matcher.scoring import diff_functions, print_diff_summary
+
+        target = b"\x55\x8b\xec\x83\xec\x10\x83\xc0\x01\xc3"
+        cand = b"\x55\x8b\xec\x83\xec\x20\x83\xc0\x02\xc3"
+        for mismatches_only in (False, True):
+            old_buf = io.StringIO()
+            with redirect_stdout(old_buf):
+                diff_functions(target, cand, None, mismatches_only=mismatches_only)
+            payload = diff_functions(
+                target, cand, None, mismatches_only=mismatches_only, as_dict=True
+            )
+            assert payload is not None
+            new_buf = io.StringIO()
+            with redirect_stdout(new_buf):
+                print_diff_summary(payload, mismatches_only=mismatches_only)
+            assert new_buf.getvalue() == old_buf.getvalue()
