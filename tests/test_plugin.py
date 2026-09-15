@@ -379,3 +379,24 @@ class TestCliComponentNeeds:
         assert len(app.registered_commands) == 1
         ctx.unprovide(CONSOLE_SERVICE)
         assert app.registered_commands == []
+
+
+class TestMidApplyFailure:
+    def test_failed_apply_leaves_no_residue(self) -> None:
+        """Effects installed before apply() raises belong to no live entry;
+        _activate reverts them inline so nothing orphans."""
+
+        class _Boom:
+            needs: tuple[str, ...] = ()
+
+            def apply(self, ctx: Context) -> None:
+                ctx.provide("half", 1)
+                raise RuntimeError("mid-apply failure")
+
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+        with pytest.raises(RuntimeError, match="mid-apply failure"):
+            scope.add(_Boom())
+        assert not ctx.has("half")
+        assert ctx._effects == []
+        assert scope._entries[0].effects is None
