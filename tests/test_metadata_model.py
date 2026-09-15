@@ -163,17 +163,13 @@ def _roundtrip_fields(draw) -> dict[str, object]:
             # printable text + tab/newline.
             fields[key] = draw(
                 st.text(
-                    alphabet=st.characters(
-                min_codepoint=0x20, blacklist_categories=("Cc", "Cs")
-            ),
+                    alphabet=st.characters(min_codepoint=0x20, blacklist_categories=("Cc", "Cs")),
                     max_size=40,
                 )
             )
     if draw(st.booleans()):
         text = st.text(
-            alphabet=st.characters(
-                min_codepoint=0x20, blacklist_categories=("Cc", "Cs")
-            ),
+            alphabet=st.characters(min_codepoint=0x20, blacklist_categories=("Cc", "Cs")),
             max_size=16,
         )
         fields["globals"] = ", ".join(draw(st.lists(text, max_size=4)))
