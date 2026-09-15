@@ -56,6 +56,7 @@ BASELINES: dict[str, float] = {
     "status_aggregation": 0.030,
     "compile_cache": 0.003,
     "verify_cached": 0.006,
+    "mutation_apply": 0.019,
 }
 
 
@@ -461,6 +462,30 @@ def bench_verify_cached() -> dict[str, float]:
         return {"ops": len(paths), "seconds": _timeit(run, repeat=5)}
 
 
+def bench_mutation_apply() -> dict[str, float]:
+    """mutate_code over a realistic function (the GA's per-candidate cost)."""
+    import random
+
+    from rebrew.matcher.mutator import mutate_code
+
+    src = (
+        "int add(int a, int b) {\n"
+        "    int s = 0;\n"
+        "    for (int i = 0; i < 10; i++) {\n"
+        "        s += a * i + b;\n"
+        "    }\n"
+        "    return s;\n"
+        "}\n"
+    )
+
+    def run() -> None:
+        rng = random.Random(42)
+        for _ in range(200):
+            mutate_code(src, rng)
+
+    return {"ops": 200, "seconds": _timeit(run, repeat=5)}
+
+
 _BENCHES: dict[str, Callable[[], dict[str, float]]] = {
     "annotation_parsing": bench_annotation_parsing,
     "metadata_load": bench_metadata_load,
@@ -476,6 +501,7 @@ _BENCHES: dict[str, Callable[[], dict[str, float]]] = {
     "status_aggregation": bench_status_aggregation,
     "compile_cache": bench_compile_cache,
     "verify_cached": bench_verify_cached,
+    "mutation_apply": bench_mutation_apply,
 }
 
 
