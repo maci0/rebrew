@@ -343,8 +343,7 @@ def _staleness_fix(cfg: ProjectConfig | None) -> str:
     if binary_newer is True:
         return (
             "The target binary is newer than the function inventory — it likely changed: "
-            "re-run `rebrew intake` / `rebrew discover-functions` to refresh it, then "
-            + annotate
+            "re-run `rebrew intake` / `rebrew discover-functions` to refresh it, then " + annotate
         )
     if binary_newer is False:
         return (

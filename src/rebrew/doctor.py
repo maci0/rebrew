@@ -589,19 +589,22 @@ def check_delphi16_toolchain(cfg: ProjectConfig) -> CheckResult:
     executables headless (``rebrew.delphi16.compile_ne``); Delphi's
     Borland ABI has no matchable rebrew profile, so the toolchain is for
     research (compile + NE parse), and Delphi functions are documented as
-    blockers.  Skipped for non-16-bit targets.
+    blockers.  Skipped for non-16-bit targets.  Warns (not fails) when the
+    configured profile isn't Delphi — the toolchain is optional research
+    scaffolding there, not the build path.
     """
     if getattr(cfg, "arch", "") != "x86_16":
         return CheckResult(name="Delphi 1.0 toolchain", status=_SKIP, message="not a 16-bit target")
 
     from rebrew.delphi16 import Delphi16Error, find_dcc
 
+    needs_delphi = getattr(cfg, "compiler_profile", "") == "delphi-1.0"
     try:
         dcc = find_dcc()
     except Delphi16Error as exc:
         return CheckResult(
             name="Delphi 1.0 toolchain",
-            status=_FAIL,
+            status=_FAIL if needs_delphi else _WARN,
             message=str(exc),
             fix="Restore the vendored toolchain (DCC.EXE + DELPHI.DSL + "
             "DPMI16BI.OVL + RTM.EXE) under rebrew-toolchains/delphi/1.0-win16/source.",

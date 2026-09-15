@@ -1,4 +1,4 @@
-## [Unreleased]
+## [2.2.0] - 2026-09-15
 ### Added
 - **Fix-suggestion loop closed**: `rebrew test` refusal names the inventory
   SIZE + backfill command; `rebrew verify` summary hints `--fix-sizes` when

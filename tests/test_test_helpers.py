@@ -1191,9 +1191,7 @@ class TestMissingSizeHint:
         )
         src_dir = tmp_path / "src" / "x"
         src_dir.mkdir(parents=True)
-        (src_dir / "f.c").write_text(
-            "// STUB: X 0x1000\nvoid f(void) {}\n", encoding="utf-8"
-        )
+        (src_dir / "f.c").write_text("// STUB: X 0x1000\nvoid f(void) {}\n", encoding="utf-8")
         (src_dir / "function_structure.json").write_text(
             _json.dumps([{"va": 0x1000, "size": 32, "name": "f"}]),
             encoding="utf-8",
@@ -1212,9 +1210,7 @@ class TestMissingSizeHint:
         assert "SIZE 32" in result.output
         assert "rebrew catalog --fix-sizes" in result.output
 
-    def test_no_hint_without_inventory_entry(
-        self, tmp_path: Path, monkeypatch: Any
-    ) -> None:
+    def test_no_hint_without_inventory_entry(self, tmp_path: Path, monkeypatch: Any) -> None:
         import json as _json
 
         from typer.testing import CliRunner
