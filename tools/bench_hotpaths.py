@@ -40,23 +40,22 @@ _FIXTURE = _REPO_ROOT / "tests" / "fixtures" / "mini_pe.exe"
 #: size prefilter, per-call import hoisting).  `--compare` prints the delta
 #: against these so an optimization's claim is reproducible.
 BASELINES: dict[str, float] = {
-    "annotation_parsing": 0.002,
-    "metadata_load": 0.087,
-    "catalog_grid": 0.016,
+    "annotation_parsing": 0.004,
+    "metadata_load": 0.005,
+    "catalog_grid": 0.024,
     "verify_cache": 0.002,
-    "near_diag": 0.031,
-    "binary_similarity": 0.020,
-    "ga_scoring": 0.361,
-    # Follow-on pass baselines (recorded before the follow-on optimizations:
-    # metadata-once merge in parse_c_file_multi, diff summary_only fast path,
-    # inline register mask, non-detail no-reloc diff normalization).
-    "parse_tree": 0.022,
-    "diff_structural": 0.409,
+    "near_diag": 0.010,
+    "binary_similarity": 0.015,
+    "ga_scoring": 0.046,
+    # Follow-on pass baselines (re-recorded 2026-09-15 after the disasm_lite
+    # GA fast path, the metadata-once merge, and the diff summary_only path).
+    "parse_tree": 0.020,
+    "diff_structural": 0.244,
     "registry_build": 0.002,
-    "status_aggregation": 0.030,
+    "status_aggregation": 0.045,
     "compile_cache": 0.003,
-    "verify_cached": 0.006,
-    "mutation_apply": 0.019,
+    "verify_cached": 0.005,
+    "mutation_apply": 0.014,
 }
 
 
