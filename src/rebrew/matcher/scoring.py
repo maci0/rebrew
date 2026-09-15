@@ -867,6 +867,9 @@ def diff_functions(
             payload["mnemonics"] = {"target": target_mnems, "candidate": cand_mnems}
         else:
             payload["instructions"] = insn_data
+            # Same mnemonics the rows were built from — lets structural_similarity
+            # reuse a display summary instead of re-running the whole diff.
+            payload["mnemonics"] = {"target": target_mnems, "candidate": cand_mnems}
         return payload
 
     # Print header
@@ -908,19 +911,28 @@ def structural_similarity(
     cs_arch: int = _DEFAULT_CS_ARCH,
     cs_mode: int = _DEFAULT_CS_MODE,
     pointer_size: int = 4,
+    _summary: dict[str, Any] | None = None,
 ) -> StructuralSimilarity:
-    """Compute structural similarity to distinguish flag-fixable vs structural diffs."""
-    summary = diff_functions(
-        target_bytes,
-        candidate_bytes,
-        reloc_offsets,
-        register_aware=True,
-        as_dict=True,
-        summary_only=True,
-        cs_arch=cs_arch,
-        cs_mode=cs_mode,
-        pointer_size=pointer_size,
-    )
+    """Compute structural similarity to distinguish flag-fixable vs structural diffs.
+
+    Pass a display ``diff_functions(..., as_dict=True)`` result as *_summary*
+    to skip the internal re-run — it carries the same ``summary`` counts plus
+    ``mnemonics`` from its own pass.  (Private kwarg: the summary must come
+    from the same byte pair; callers with only bytes omit it.)
+    """
+    summary = _summary
+    if summary is None:
+        summary = diff_functions(
+            target_bytes,
+            candidate_bytes,
+            reloc_offsets,
+            register_aware=True,
+            as_dict=True,
+            summary_only=True,
+            cs_arch=cs_arch,
+            cs_mode=cs_mode,
+            pointer_size=pointer_size,
+        )
     if summary is None:
         raise RuntimeError(
             "diff_functions(as_dict=True) returned None — indicates a bug in the scoring pipeline"
