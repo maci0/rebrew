@@ -570,6 +570,38 @@ class TestCollectors:
         items = _collect_new_functions(ghidra_funcs, existing, {0x1000: "f.c"}, cfg)
         assert len(items) == 0
 
+    def test_new_functions_skips_vas_inside_an_annotated_function(
+        self, tmp_path: Path
+    ) -> None:
+        """A VA inside a covered function is never new work.
+
+        Regression: the skip test was `va in existing`, an exact start match,
+        so a VA falling *inside* an annotated span passed through and was
+        recommended as a function to reverse.  Heuristic discovery produces
+        these constantly -- it emits switch arms as pseudo-functions
+        (`case.0x...`) and splits bodies it cannot walk.  On guild-rebrew 18 of
+        20 start-function actions were such artifacts: 17 switch arms plus one
+        sitting 420 bytes inside an EXACT function, where "reverse this" would
+        have duplicated already-matched code.
+        """
+        cfg = _make_cfg(tmp_path)
+        existing = {
+            0x1000: {
+                "status": "EXACT",
+                "symbol": "host",
+                "filename": "f.c",
+                "origin": "GAME",
+                "size": "256",
+            }
+        }
+        ghidra_funcs = [
+            FunctionEntry(va=0x1050, size=32, name="case.0x1000.1"),  # inside
+            FunctionEntry(va=0x10FF, size=20, name="case.0x1000.2"),  # inside, last byte
+            FunctionEntry(va=0x1100, size=40, name="after"),  # exactly at the end: real
+        ]
+        items = _collect_new_functions(ghidra_funcs, existing, {0x1000: "f.c"}, cfg)
+        assert [i.va for i in items] == [0x1100], [(hex(i.va), i.name) for i in items]
+
     def test_prover_candidates(self) -> None:
         existing = {
             0x1000: {"status": "NEAR_MATCHING", "symbol": "a", "size": "50"},
