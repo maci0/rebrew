@@ -570,9 +570,7 @@ class TestCollectors:
         items = _collect_new_functions(ghidra_funcs, existing, {0x1000: "f.c"}, cfg)
         assert len(items) == 0
 
-    def test_new_functions_skips_vas_inside_an_annotated_function(
-        self, tmp_path: Path
-    ) -> None:
+    def test_new_functions_skips_vas_inside_an_annotated_function(self, tmp_path: Path) -> None:
         """A VA inside a covered function is never new work.
 
         Regression: the skip test was `va in existing`, an exact start match,
@@ -1266,7 +1264,12 @@ class TestTodoCli:
         import json
 
         existing = {
-            0x1000: {"status": "NEAR_MATCHING", "symbol": "a", "size": "50", "blocker": "STRUCTURAL 5B"},
+            0x1000: {
+                "status": "NEAR_MATCHING",
+                "symbol": "a",
+                "size": "50",
+                "blocker": "STRUCTURAL 5B",
+            },
             0x2000: {"status": "STUB", "symbol": "b", "size": "50"},
         }
         result = self._invoke(
@@ -1529,4 +1532,3 @@ class TestPlaceholderLaneVerifyState:
         items = _collect_new_functions(ghidra_funcs, {}, {}, cfg)
         assert len(items) == 1
         assert "reference source" in items[0].description
-

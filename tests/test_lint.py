@@ -1268,9 +1268,7 @@ class TestAnnotationStaleness:
             tmp_path, "m_stub.c", "// FUNCTION: SERVER 0x1050\nint a(void) { return 0; }\n"
         )
         meta = {("SERVER", 0x1050): {"status": "STUB"}}
-        result = lint_file(
-            f, cfg=_make_cfg(), function_index=self.INDEX, preloaded_metadata=meta
-        )
+        result = lint_file(f, cfg=_make_cfg(), function_index=self.INDEX, preloaded_metadata=meta)
         assert len(self._w028(result)) == 1
 
     def test_library_marker_ignored(self, tmp_path: Path) -> None:

@@ -1433,9 +1433,7 @@ def lint_file(
                     mod,
                     cfg,
                     function_index,
-                    status=str(
-                        _metadata_entries.get((mod, va_int), {}).get("status", "")
-                    ),
+                    status=str(_metadata_entries.get((mod, va_int), {}).get("status", "")),
                 )
 
             if marker not in ("GLOBAL", "DATA"):

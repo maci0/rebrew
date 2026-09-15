@@ -375,9 +375,7 @@ class TestDataFixer:
         # contribute -- 5 of the 6 stub bytes are nonzero.
         expected = sum(1 for b in overshoot if b)
         assert report.stats.get("text_overshoot_zeroed") == expected, report.stats
-        assert bytes(blob[text_ptr + 1 : text_ptr + 1 + len(overshoot)]) == b"\x00" * len(
-            overshoot
-        )
+        assert bytes(blob[text_ptr + 1 : text_ptr + 1 + len(overshoot)]) == b"\x00" * len(overshoot)
 
     def test_reloc_written_at_built_offset_not_reference(self, tmp_path: Path) -> None:
         """The .reloc bytes must land at the *built* file's own .reloc raw
