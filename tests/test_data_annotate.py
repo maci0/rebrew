@@ -99,3 +99,41 @@ def test_annotate_duplicate_names_are_not_reported_unnamed(tmp_path: Path) -> No
     per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=True)
     assert skipped == 0
     assert per_file == {"mod.c": 1}
+
+
+def test_gen_header_skips_non_c_identifiers(tmp_path) -> None:
+    """A decorated import symbol is a fine metadata name and a C syntax error.
+
+    `__imp__GetLocalTime@4` names an IAT slot perfectly well, but the generated
+    header is compiled, so emitting `extern void* __imp__GetLocalTime@4;` breaks
+    every TU that includes it.  This is the real shape from guild-rebrew's
+    crt_imports.c: a `// DATA:` marker with no declaration under it, whose name
+    comes from the metadata.
+    """
+    from types import SimpleNamespace
+
+    from rebrew.data_annotate import _gen_globals_header
+    from rebrew.data_metadata import set_data_field
+
+    src = tmp_path / "src" / "SERVER"
+    src.mkdir(parents=True)
+    cfg = SimpleNamespace(
+        root=tmp_path,
+        target_name="SERVER",
+        target_binary=tmp_path / "fake.dll",
+        reversed_dir=src,
+        metadata_dir=tmp_path,
+        marker="SERVER",
+        source_ext=".c",
+    )
+    (src / "imports.c").write_text(
+        "// DATA: SERVER 0x1000\n// AUTO-GENERATED, no declaration follows\n",
+        encoding="utf-8",
+    )
+    set_data_field(cfg.metadata_dir, 0x1000, "name", "__imp__GetLocalTime@4", "SERVER")
+    set_data_field(cfg.metadata_dir, 0x1000, "type", "void*", "SERVER")
+    set_data_field(cfg.metadata_dir, 0x1000, "section", ".idata", "SERVER")
+
+    _gen_globals_header(cfg, src)
+    text = (src / "rebrew_globals.h").read_text(encoding="utf-8")
+    assert "@" not in text, "a decorated symbol must never reach the compiled header"

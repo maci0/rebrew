@@ -168,6 +168,10 @@ def _set_data_types(
 
 
 _VA_COMMENT_RE = re.compile(r"/\*\s*(0x[0-9a-fA-F]+)")
+# A valid C identifier.  The generated header is compiled, so anything else
+# (notably `@`-decorated import symbols such as `__imp__GetLocalTime@4`) must
+# not be emitted as a declaration.
+_C_IDENT_RE = re.compile(r"[A-Za-z_]\w*")
 
 
 def _source_decl_types_by_va(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, str]:
@@ -329,6 +333,15 @@ def _gen_globals_header(
                 if raw_name.startswith("_"):
                     raw_name = raw_name[1:]
             name = raw_name or f"g_{va:08x}"
+
+            # The header is compiled, so a name that is not a C identifier
+            # cannot go in it.  Decorated import symbols are the real case:
+            # `__imp__GetLocalTime@4` is a perfectly good metadata name for an
+            # IAT slot and an instant syntax error in C.  Those slots are
+            # supplied by the import library anyway, so skip rather than emit
+            # something that will not compile.
+            if not _C_IDENT_RE.fullmatch(name):
+                continue
 
             section = ann.section or str(se.get("section", ""))
             size = ann.size or int(se.get("size", 0) or 0)
