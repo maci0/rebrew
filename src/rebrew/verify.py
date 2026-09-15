@@ -128,6 +128,7 @@ def verify_entry(
     *,
     name_to_va: dict[str, int] | None = None,
     context: "CompileContext | None" = None,
+    _precompiled_obj: str | None = None,
 ) -> "CompareResult":
     """Compile a .c file and compare output bytes against DLL.
 
@@ -135,6 +136,8 @@ def verify_entry(
     When *cache* is provided, compilation results are reused across calls
     for the same source content + flags — critical for multi-function files
     where the same .c is compiled once and multiple symbols extracted.
+    *_precompiled_obj* (batch path) skips the compile when the batch already
+    produced this entry's object; ``None`` compiles as before.
 
     *name_to_va* is the shared data-catalog map used for DIR32 absolute
     validation, same source as ``rebrew test``.  *context* is the project's
@@ -222,6 +225,7 @@ def verify_entry(
         section_va=entry.va,
         toolchain=toolchain,
         context=context,
+        _precompiled_obj=_precompiled_obj,
     )
     if not result.matched:
         # A fenced naked source compiled without REBREW_ALLOW_NAKED produces
@@ -2056,10 +2060,34 @@ def run_verification(
     def _verify(
         e: Annotation,
     ) -> tuple[Annotation, "CompareResult"]:
+        precompiled = _batch_objs.pop(id(e), None) if _batch_objs else None
         return (
             e,
-            verify_entry(e, cfg, cache=compile_cache, name_to_va=name_to_va, context=context),
+            verify_entry(
+                e,
+                cfg,
+                cache=compile_cache,
+                name_to_va=name_to_va,
+                context=context,
+                _precompiled_obj=precompiled,
+            ),
         )
+
+    # Batch pre-compile (ADR-021): group cache-miss entries by (toolchain,
+    # cflags) and compile each group with one container invocation instead
+    # of one per function.  Entries that can't batch (context-merged units,
+    # recompile backend, exotic arg styles) compile individually inside
+    # verify_entry as before — _batch_objs only carries what the batch
+    # produced.
+    _batch_objs: dict[int, str] = {}
+    try:
+        from rebrew.compile import precompile_batch
+
+        _batch_objs = precompile_batch(
+            cfg, entries_to_verify, cache=compile_cache, context=context
+        )
+    except Exception as exc:  # batch is an optimization; never fail the run
+        log.debug("batch pre-compile skipped: %s", exc)
 
     with Progress(
         TextColumn("[bold blue]Verifying"),
