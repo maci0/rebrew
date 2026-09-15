@@ -98,9 +98,24 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[dict[Path, str], list[str]
             continue
         seen: list[tuple[str, str]] = []
         for entry in entries:
-            _tc, flags = resolve_compile_overrides(
+            tc, flags = resolve_compile_overrides(
                 cfg, src.parent, entry.toolchain or None, entry.cflags or None, entry.module
             )
+            # A per-function `toolchain` pin is honoured by `rebrew test`/`verify`
+            # (they invoke the compiler directly) but NOT by the CMake build, whose
+            # compiler is fixed by the toolchain file.  Emitting only `flags` here
+            # used to let a pin silently diverge: the metadata claimed one compiler
+            # while the linked object came from another, so a function could read
+            # NEAR_MATCHING at one score in `rebrew test` and contribute different
+            # bytes to the deliverable.  Surface it instead of discarding it.
+            if tc:
+                notes.append(
+                    f"{src.relative_to(cfg.root)}: "
+                    f"{entry.symbol or f'0x{entry.va:08x}'} resolves toolchain "
+                    f"'{tc}', but the CMake build's compiler is fixed by the "
+                    f"toolchain file -- the pin affects `rebrew test`/`verify` "
+                    f"only, never the linked bytes."
+                )
             seen.append((entry.symbol or f"0x{entry.va:08x}", flags))
         distinct = {_codegen_key(f) for _, f in seen}
         if len(distinct) > 1:
