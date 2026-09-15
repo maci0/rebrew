@@ -784,10 +784,19 @@ def main(
         if fingerprint:
             atomic_write_text(pkg_dir / "layout.fingerprint", fingerprint + "\n")
             written.append(str(pkg_dir / "layout.fingerprint"))
+        # `Section.va` is an RVA, and a `// DATA:` marker is a VA -- every other
+        # generator here adds the image base (see gen_data_restore).  Emitting
+        # the bare RVA wrote `// DATA: SERVER 0x24000` for an IAT that lives at
+        # 0x10024000, which falls outside every section range and made the
+        # annotation unresolvable to every tool that reads it.
         iat_section = next((s for s in sections if s.name == ".rdata"), None)
         write(
             Path("crt_region/crt_imports.c"),
-            gen_crt_imports(marker, imports, iat_section.va if iat_section else None),
+            gen_crt_imports(
+                marker,
+                imports,
+                pe["image_base"] + iat_section.va if iat_section else None,
+            ),
         )
         if data_gap:
             write(
