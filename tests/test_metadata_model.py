@@ -158,9 +158,25 @@ def _roundtrip_fields(draw) -> dict[str, object]:
         fields["blocker_delta"] = draw(st.integers(min_value=0, max_value=1_000_000))
     for key in ("cflags", "blocker", "note", "ghidra", "analysis", "skip", "source"):
         if draw(st.booleans()):
-            fields[key] = draw(st.text(max_size=40))
+            # Control characters are sanitized on write (tomlkit>=0.15
+            # emits them as invalid TOML), so roundtrip only promises
+            # printable text + tab/newline.
+            fields[key] = draw(
+                st.text(
+                    alphabet=st.characters(
+                min_codepoint=0x20, blacklist_categories=("Cc", "Cs")
+            ),
+                    max_size=40,
+                )
+            )
     if draw(st.booleans()):
-        fields["globals"] = ", ".join(draw(st.lists(st.text(max_size=16), max_size=4)))
+        text = st.text(
+            alphabet=st.characters(
+                min_codepoint=0x20, blacklist_categories=("Cc", "Cs")
+            ),
+            max_size=16,
+        )
+        fields["globals"] = ", ".join(draw(st.lists(text, max_size=4)))
     if draw(st.booleans()):
         fields["prove_constraints"] = {"stack": draw(st.integers(min_value=0, max_value=32))}
     return fields
