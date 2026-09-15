@@ -148,7 +148,10 @@ def cli_components() -> list[CliComponent]:
     """
     components = list(BUILTIN_COMPONENTS)
     components.extend(_EXTRA_COMPONENTS)
-    components.extend(entry_point_components({c.name for c in components}, console))
+    discovered, warnings = entry_point_components({c.name for c in components})
+    components.extend(discovered)
+    for warning in warnings:
+        console.print(f"[yellow]warning:[/yellow] {warning}")
     return components
 
 
