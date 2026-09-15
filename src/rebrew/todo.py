@@ -12,6 +12,7 @@ Usage::
     rebrew todo --json              Machine-readable output
 """
 
+import bisect
 import contextlib
 import json
 from dataclasses import dataclass, field
@@ -675,6 +676,52 @@ def _collect_new_functions(
     iat_set: set[int] = set(getattr(cfg, "iat_thunks", None) or [])
     sorted_covered = sorted(covered_vas)
 
+    # `va in existing` only catches an EXACT start match, so a VA that falls
+    # *inside* an already-annotated function was recommended as new work.  That
+    # is never actionable: the enclosing function may already be EXACT, and
+    # "reverse this" would duplicate matched code.  It happens constantly
+    # because heuristic discovery emits switch arms as pseudo-functions
+    # (`case.0x1000ad61.*`) and splits bodies it cannot walk — on guild-rebrew
+    # 18 of 20 start-function actions were such artifacts, 17 of them switch
+    # arms and one 420 bytes inside an EXACT function.  Build real spans from
+    # the annotated sizes and skip anything they contain.
+    annotated_spans: list[tuple[int, int]] = sorted(
+        (va, va + int(str(info.get("size", "0") or 0)))
+        for va, info in existing.items()
+        if str(info.get("size", "") or "").strip().isdigit()
+    )
+
+    def _inside_annotated(probe: int) -> bool:
+        i = bisect.bisect_right(annotated_spans, (probe, 1 << 62)) - 1
+        return i >= 0 and annotated_spans[i][0] < probe < annotated_spans[i][1]
+
+    # Statically linked library code sits in .text looking exactly like game
+    # code, and reversing it is wasted work -- the linker supplies those bytes
+    # anyway.  AGENTS.md makes this the FIRST check before reversing anything
+    # (68 functions were once reversed by mistake and matched for weeks).
+    # Recommending it as new work is therefore actively harmful, and it was
+    # happening: all three surviving start-function actions on guild-rebrew
+    # were LIBCMT (`_ftell`, `_strncnt`, `___ld12mul`).  Reuse lib_match's own
+    # index so `todo` and `lib-match` cannot disagree.
+    _lib_index = None
+    with contextlib.suppress(Exception):
+        from rebrew.lib_match import index_library, stock_lib_cache
+
+        _cached = stock_lib_cache(cfg.root, "LIBCMT.LIB")
+        if _cached.exists():
+            _lib_index = index_library(_cached)
+
+    def _is_library_code(probe: int, probe_size: int) -> bool:
+        if _lib_index is None:
+            return False
+        with contextlib.suppress(Exception):
+            from rebrew.binary_loader import extract_raw_bytes
+            from rebrew.lib_match import match_bytes
+
+            data = extract_raw_bytes(cfg.target_binary, probe, probe_size or 64)
+            return match_bytes(_lib_index, data) is not None
+        return False
+
     # Load binary for unmatchable detection
     binary_info = None
     bin_path = cfg.target_binary
@@ -693,6 +740,10 @@ def _collect_new_functions(
         name = func.name or f"FUN_{va:08x}"
 
         if va in existing or va in iat_set or name in ignored:
+            continue
+        if _inside_annotated(va):
+            continue
+        if _is_library_code(va, size):
             continue
         if size < 10:
             continue
