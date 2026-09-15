@@ -888,13 +888,13 @@ class TestBuildDbTargetFiltering:
 
     def test_nonexistent_target_raises(self, tmp_path: Path) -> None:
         """Filtering by a non-existent target should raise Exit (no JSON found)."""
-        from click.exceptions import Exit as ClickExit
+        from typer import Exit as TyperExit
 
         db_dir = tmp_path / "db"
         db_dir.mkdir()
         (db_dir / "data_testbin.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
 
-        with pytest.raises(ClickExit):
+        with pytest.raises(TyperExit):
             build_db(tmp_path, target="nonexistent")
 
     def test_scoped_rebuild_preserves_other_targets(self, tmp_path: Path) -> None:
@@ -976,7 +976,7 @@ class TestBuildDbForceFlag:
 
     def test_mismatch_without_force_raises(self, tmp_path: Path) -> None:
         """A stale DB without --force must raise Exit (error message)."""
-        from click.exceptions import Exit as ClickExit
+        from typer import Exit as TyperExit
 
         db_dir = tmp_path / "db"
         db_dir.mkdir()
@@ -985,7 +985,7 @@ class TestBuildDbForceFlag:
         db_path = db_dir / "coverage.db"
         _write_stale_db(db_path, stale_version="0")
 
-        with pytest.raises(ClickExit):
+        with pytest.raises(TyperExit):
             build_db(tmp_path, force=False)
 
     def test_mismatch_with_force_recreates(self, tmp_path: Path) -> None:
@@ -1023,24 +1023,24 @@ class TestBuildDbCorruptInput:
     """Corrupt or mis-shaped data_*.json must fail cleanly with file context."""
 
     def test_corrupt_json_errors_with_file_context(self, tmp_path: Path) -> None:
-        from click.exceptions import Exit as ClickExit
+        from typer import Exit as TyperExit
 
         db_dir = tmp_path / "db"
         db_dir.mkdir()
         (db_dir / "data_bad.json").write_text('{"functions": {"0x1000": {', encoding="utf-8")
 
-        with pytest.raises(ClickExit):
+        with pytest.raises(TyperExit):
             build_db(tmp_path)
 
     def test_non_object_json_errors_with_file_context(self, tmp_path: Path) -> None:
         """A valid-JSON-but-not-object file (e.g. a JSON array) must name the file."""
-        from click.exceptions import Exit as ClickExit
+        from typer import Exit as TyperExit
 
         db_dir = tmp_path / "db"
         db_dir.mkdir()
         (db_dir / "data_bad.json").write_text("[1, 2, 3]", encoding="utf-8")
 
-        with pytest.raises(ClickExit):
+        with pytest.raises(TyperExit):
             build_db(tmp_path)
 
     def test_unparseable_va_rows_skipped_with_warning(

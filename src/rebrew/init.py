@@ -12,7 +12,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import click
 import tomlkit
 import typer
 from rich.console import Console
@@ -365,7 +364,11 @@ def _wizard_param_explicit(ctx: typer.Context, param_name: str) -> bool:
         src = ctx.get_parameter_source(param_name)
     except Exception:  # param unknown to the context — assume explicit
         return True
-    return src is not click.core.ParameterSource.DEFAULT
+    if src is None:
+        return False
+    # Name comparison, not identity: typer>=0.25 vendors click
+    # (typer._click) with its own ParameterSource enum.
+    return getattr(src, "name", "") != "DEFAULT"
 
 
 def _binary_stem_target(binary_name: str) -> str | None:

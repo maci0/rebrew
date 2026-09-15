@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 import typer
-from click.exceptions import Exit
+from typer import Exit
 
 from rebrew.init import (
     _AGENTS_MD_TEMPLATE,
