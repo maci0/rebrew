@@ -341,6 +341,13 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
         is_group=False,
     ),
     CliComponent(
+        name="drift",
+        module="rebrew.drift_cmd",
+        help="Localise where compiled bytes drift from the reference, from branch targets.",
+        panel=Panel.ANALYSIS,
+        is_group=False,
+    ),
+    CliComponent(
         name="describe",
         module="rebrew.describe",
         help="Per-function recon dossier: callers, callees, strings, imports.",
