@@ -1220,6 +1220,20 @@ def _save_report(
     sizes_fixed = 0
     if fix_sizes and (size_divergences or missing_sizes):
         all_size_fixes = size_divergences + missing_sizes
+        # Never rewrite a size that is already producing a byte match.
+        all_size_fixes, protected_fixes = _partition_size_fixes(all_size_fixes)
+        report["sizes_protected"] = protected_fixes
+        if protected_fixes and not json_output:
+            console.print(
+                f"[yellow]Kept {len(protected_fixes)} annotation size(s): already "
+                f"EXACT/RELOC at that size, so the annotation is evidence and the "
+                f"canonical size is the unreliable side.[/yellow]"
+            )
+            for d in protected_fixes:
+                console.print(
+                    f"  [dim]kept {d['va']} SIZE {d['annotation_size']} "
+                    f"(canonical {d['binary_size']}) {d['name']}[/dim]"
+                )
         sizes_fixed = _apply_size_fixes(cfg, all_size_fixes, dry_run)
         if not json_output:
             for d in all_size_fixes:
@@ -1436,6 +1450,41 @@ def _skip_validated_overcount(ann_size: int, canonical: int, status: str | None)
     skipped: a truncated annotation can false-EXACT on a prefix."""
     return ann_size > canonical and status in ("EXACT", "RELOC")
 
+
+def _partition_size_fixes(
+    fixes: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split size fixes into ``(appliable, protected)``.
+
+    A function that already reports EXACT/RELOC has compiled and compared
+    byte-for-byte at its annotated size: that size is *evidence*, and the
+    canonical side — heuristic discovery, which merges adjacent functions when
+    the only boundary is ``ret`` plus padding, and which counts trailing jump
+    tables the body excludes — is the unreliable one.  Rewriting those sizes
+    demotes real matches: on guild-rebrew a single ``--fix-sizes`` run rewrote
+    13 sizes and dropped byte-matched functions from 264 to 252.
+
+    ``_skip_validated_overcount`` already protects over-counts, but an
+    *under*-count on a byte-matched entry is exactly the jump-table case and
+    was being applied automatically.  Protect both directions and report them
+    instead.
+
+    PROVEN counts here too.  It is not a byte match, but earning it requires
+    compiling and comparing at the annotated size, and the under-count case is
+    precisely a body size the canonical figure inflates with trailing jump
+    tables: ``vfs_OpenStream`` is body 667 against a canonical 704 that
+    includes a 5-entry jump table and a 13-byte case map, and 667 is the
+    correct value.
+    """
+    protected = [
+        f
+        for f in fixes
+        if str(f.get("status", "")).upper() in ("EXACT", "RELOC", "PROVEN")
+    ]
+    if not protected:
+        return fixes, []
+    protected_vas = {f["va"] for f in protected}
+    return [f for f in fixes if f["va"] not in protected_vas], protected
 
 def _size_divergence_action(ann_size: int, canonical: int, status: str | None) -> str:
     """Classify an annotation-vs-canonical size difference.
@@ -1923,6 +1972,9 @@ def prepare_entries(
                     "binary_size": canonical,
                     "name": entry.name or entry.symbol or "",
                     "module": getattr(entry, "module", ""),
+                    # Needed by --fix-sizes: a byte-matched entry's size is
+                    # evidence, not a defect (see _partition_size_fixes).
+                    "status": stored,
                 }
             )
         elif canonical > 0 and ann_size == 0:
