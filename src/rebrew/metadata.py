@@ -370,6 +370,19 @@ def _validate_field(key: str, value: Any) -> Any:
     return value
 
 
+def _toml_safe(value: Any) -> Any:
+    """Strip control characters from strings before TOML serialization.
+
+    tomlkit>=0.15 emits some controls (e.g. ESC) as ``\\e``, which is not
+    valid TOML and fails the next parse — a Ghidra comment or note carrying
+    one would corrupt the whole metadata file.  Tab/newline survive (valid
+    TOML escapes); other C0/C1 controls are dropped.
+    """
+    if not isinstance(value, str):
+        return value
+    return "".join(ch for ch in value if ord(ch) >= 0x20 or ch in ("\t", "\n"))
+
+
 def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> None:
     """Set one field for *(module, va)* in the metadata.  **Private** — use
     :func:`update_field` or :func:`update_source_status` instead.
@@ -387,7 +400,7 @@ def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> N
         if toml_key not in doc:
             doc[toml_key] = tomlkit.table()
 
-        doc[toml_key][key] = value  # type: ignore[index]
+        doc[toml_key][key] = _toml_safe(value)  # type: ignore[index]
         atomic_write_locked(path, tomlkit.dumps(doc))
         _metadata_cache.pop(path, None)
 
@@ -419,7 +432,7 @@ def _set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) -
                     "Use update_source_status() for STATUS changes — it enforces promotion rules"
                 )
             if entry.get(key) != value:
-                entry[key] = value
+                entry[key] = _toml_safe(value)
                 changed = True
         if changed:
             atomic_write_locked(path, tomlkit.dumps(doc))
