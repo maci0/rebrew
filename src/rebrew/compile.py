@@ -877,6 +877,69 @@ def contextualized_source(
     )
 
 
+def _cache_key_for(
+    cfg: ProjectConfig,
+    spec: "ToolchainSpec | None",
+    source_content: str,
+    src_name: str,
+    all_flags: list[str],
+    inc_path: str,
+    src_parent: Path,
+    extra_include_dirs: list[str] | None,
+    source_ext: str,
+) -> str:
+    """Compile-cache key shared by single-file and batch compiles.
+
+    Extracted verbatim from ``compile_to_obj`` so both paths pin identical
+    keys — a batch-built object must hit on the next single-file lookup
+    and vice versa.
+    """
+    if spec is not None and spec.image is not None:
+        toolchain_id = _toolchain_cache_id(spec)
+    elif spec is not None:
+        # Native (host) spec: the compiler binary IS the toolchain — two
+        # native compilers (gcc vs clang) must never share a cache entry,
+        # and neither may a compiler upgrade (see _native_toolchain_id).
+        toolchain_id = _native_toolchain_id(spec)
+    else:
+        toolchain_id = " ".join(resolve_cl_command(cfg))
+    # A remote compile does not see host include dirs (single-file model:
+    # source text + flags only), so key it on its own id: a backend switch
+    # can never serve the other's object.  The image tag alone is not
+    # enough, because the service may run a different image build than
+    # local docker, so pin the identity to the backend that produced it.
+    if recompile_url(cfg) is not None and spec is not None:
+        toolchain_id = f"recompile:{recompile_url(cfg)}/{spec.name}"
+    # extra_include_dirs feed the /I flags and bind mounts - they are
+    # compile inputs and must shape the key (two functions whose
+    # relative #include resolves differently would otherwise share
+    # a cache entry and one would get the other's object).  The /I dirs
+    # carried by the flags themselves join the search set too, so their
+    # headers participate in the per-source dependency fingerprints
+    # (a dir only reachable via a flag's /I would otherwise be untracked).
+    include_dirs = [
+        d
+        for d in dict.fromkeys(
+            [
+                inc_path,
+                str(src_parent),
+                *(extra_include_dirs or []),
+                *extract_include_dirs(all_flags),
+            ]
+        )
+        if d
+    ]
+    return compile_cache_key(
+        source_content=source_content,
+        source_filename=src_name,
+        cflags=all_flags,
+        include_dirs=include_dirs,
+        toolchain_id=toolchain_id,
+        source_ext=source_ext,
+        source_dir=str(src_parent),
+    )
+
+
 def compile_to_obj(
     cfg: ProjectConfig,
     source_path: str | Path,
@@ -1002,51 +1065,9 @@ def compile_to_obj(
 
     cache_key: str | None = None
     if cc is not None:
-        source_content = compile_text
-        if spec is not None and spec.image is not None:
-            toolchain_id = _toolchain_cache_id(spec)
-        elif spec is not None:
-            # Native (host) spec: the compiler binary IS the toolchain — two
-            # native compilers (gcc vs clang) must never share a cache entry,
-            # and neither may a compiler upgrade (see _native_toolchain_id).
-            toolchain_id = _native_toolchain_id(spec)
-        else:
-            toolchain_id = " ".join(resolve_cl_command(cfg))
-        # A remote compile does not see host include dirs (single-file model:
-        # source text + flags only), so key it on its own id: a backend switch
-        # can never serve the other's object.  The image tag alone is not
-        # enough, because the service may run a different image build than
-        # local docker, so pin the identity to the backend that produced it.
-        if recompile_url(cfg) is not None and spec is not None:
-            toolchain_id = f"recompile:{recompile_url(cfg)}/{spec.name}"
-        # extra_include_dirs feed the /I flags and bind mounts - they are
-        # compile inputs and must shape the key (two functions whose
-        # relative #include resolves differently would otherwise share
-        # a cache entry and one would get the other's object).  The /I dirs
-        # carried by the flags themselves join the search set too, so their
-        # headers participate in the per-source dependency fingerprints
-        # (a dir only reachable via a flag's /I would otherwise be untracked).
-        include_dirs = [
-            d
-            for d in dict.fromkeys(
-                [
-                    inc_path,
-                    str(src_parent),
-                    *(extra_include_dirs or []),
-                    *extract_include_dirs(all_flags),
-                ]
-            )
-            if d
-        ]
-        source_ext = source_path.suffix or ".c"
-        cache_key = compile_cache_key(
-            source_content=source_content,
-            source_filename=src_name,
-            cflags=all_flags,
-            include_dirs=include_dirs,
-            toolchain_id=toolchain_id,
-            source_ext=source_ext,
-            source_dir=str(src_parent),
+        cache_key = _cache_key_for(
+            cfg, spec, compile_text, src_name, all_flags, inc_path, src_parent,
+            extra_include_dirs, source_path.suffix or ".c",
         )
         cached_obj = cc.get(cache_key)
         if cached_obj is not None:
@@ -1273,6 +1294,22 @@ def precompile_batch(
                     continue
             if context is not None:
                 continue  # merged units differ per file; not batchable
+            if cache is not None:
+                # Skip cache hits — the individual path serves them without
+                # compiling.  Key inputs mirror compile_to_obj exactly.
+                spec = TOOLCHAINS.get(toolchain) if toolchain else base_spec
+                try:
+                    text = cfile.read_bytes().decode("utf-8", errors="surrogateescape")
+                    flags = safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
+                    key = _cache_key_for(
+                        cfg, spec, text, cfile.name, flags,
+                        str(cfg.compiler_includes), cfile.resolve().parent,
+                        None, cfile.suffix or ".c",
+                    )
+                    if cache.get(key) is not None:
+                        continue
+                except Exception as exc:
+                    log.debug("batch cache check skipped %s: %s", getattr(e, "name", "?"), exc)
             groups.setdefault((toolchain or "", cflags), []).append(e)
         except Exception as exc:
             log.debug("batch grouping skipped %s: %s", getattr(e, "name", "?"), exc)
@@ -1302,7 +1339,21 @@ def precompile_batch(
                 log.debug("batch group failed, falling back per file: %s", err[:120])
                 continue
             for name, obj in objs.items():
-                out[id(staged[name])] = obj
+                e = staged[name]
+                out[id(e)] = obj
+                # Pin the batch-built object in the compile cache under the
+                # identical key the single-file path uses — the next run
+                # hits cache instead of re-batching.
+                if cache is not None:
+                    with contextlib.suppress(OSError):
+                        src = Path(cfg.reversed_dir) / e.filepath
+                        key = _cache_key_for(
+                            cfg, spec,
+                            src.read_bytes().decode("utf-8", errors="surrogateescape"),
+                            src.name, flags, str(cfg.compiler_includes),
+                            src.resolve().parent, None, src.suffix or ".c",
+                        )
+                        cache.put(key, Path(obj).read_bytes())
         except Exception as exc:
             log.debug("batch group skipped: %s", exc)
     return out
