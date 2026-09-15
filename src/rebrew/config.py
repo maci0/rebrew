@@ -820,6 +820,13 @@ _KNOWN_TARGET_KEYS = {
     # used for annotation filtering (module filters come from the
     # annotations themselves).
     "cflags_presets",  # written by `rebrew cfg set-cflags` (per-origin compiler flag overrides)
+    "layout",  # written by `rebrew layout capture`: the position-alignment
+    # package (image base, section geometry, exports, imports).  Not read by
+    # this loader -- the layout tooling parses it directly -- but it must be
+    # recognised here: a target carrying it warned "unrecognized keys:
+    # {'layout'}" on every single rebrew invocation, and an unrecognised key is
+    # one a config rewriter will silently drop.  guild-rebrew lost its whole
+    # layout block that way.
 }
 
 _KNOWN_COMPILER_KEYS = {

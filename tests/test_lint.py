@@ -1239,6 +1239,40 @@ class TestAnnotationStaleness:
         assert len(w028) == 1
         assert "points inside function 'func_a'" in w028[0][1]
 
+    def test_byte_matched_va_inside_span_is_not_flagged(self, tmp_path: Path) -> None:
+        """A matched annotation outranks the heuristic inventory.
+
+        Regression: the inventory comes from rizin plus a capstone sweep, which
+        merges adjacent functions when the only boundary is `ret` plus
+        alignment padding.  W028 then fired on annotations that had ALREADY
+        compiled and compared byte-for-byte at that VA, and its advice
+        ("re-annotate the marker VA") would have broken a matched function.
+        guild-rebrew hit 15 at once, one of them EXACT, whose supposed host was
+        separated from it by `ret; nop; nop`.
+        """
+        for status in ("EXACT", "RELOC", "PROVEN"):
+            f = _write_c(
+                tmp_path,
+                f"m_{status}.c",
+                "// FUNCTION: SERVER 0x1050\nint a(void) { return 0; }\n",
+            )
+            meta = {("SERVER", 0x1050): {"status": status}}
+            result = lint_file(
+                f, cfg=_make_cfg(), function_index=self.INDEX, preloaded_metadata=meta
+            )
+            assert self._w028(result) == [], (status, result.warnings)
+
+        # An unmatched status is still a real finding: the inventory is the
+        # only evidence available, so keep warning.
+        f = _write_c(
+            tmp_path, "m_stub.c", "// FUNCTION: SERVER 0x1050\nint a(void) { return 0; }\n"
+        )
+        meta = {("SERVER", 0x1050): {"status": "STUB"}}
+        result = lint_file(
+            f, cfg=_make_cfg(), function_index=self.INDEX, preloaded_metadata=meta
+        )
+        assert len(self._w028(result)) == 1
+
     def test_library_marker_ignored(self, tmp_path: Path) -> None:
         # LIBRARY markers may point at import stubs the parser filters out.
         f = _write_c(tmp_path, "l.c", "// LIBRARY: SERVER 0x3000\nint l(void) { return 0; }\n")

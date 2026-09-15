@@ -366,6 +366,7 @@ def _check_W028_stale_annotation(
     module: str,
     cfg: ProjectConfig | None,
     function_index: tuple[set[int], list[tuple[int, int, str]]] | None,
+    status: str = "",
 ) -> None:
     """Warn when a FUNCTION/STUB marker VA matches no function start (W028).
 
@@ -390,6 +391,20 @@ def _check_W028_stale_annotation(
         return  # another target's marker — E012 already flags the module
     starts, spans = function_index
     if va_int in starts:
+        return
+    # A byte-matched annotation outranks the inventory.  The inventory comes
+    # from heuristic discovery (rizin + a capstone sweep), which merges
+    # adjacent functions when the boundary is only `ret` + alignment padding;
+    # EXACT/RELOC means this VA already compiled and compared byte-for-byte
+    # against the target there, which is strictly stronger evidence than a
+    # sweep's guess.  Warning on those is a false positive that cannot be
+    # actioned -- "re-annotate the marker VA" would break a matched function.
+    # guild-rebrew hit 15 of these at once, including an EXACT row whose
+    # supposed host was split from it by `ret; nop; nop` at 0x1000d92d.
+    # PROVEN counts here too: it is not a byte match, but earning it requires
+    # the same compile-and-compare at this VA, so it is equally strong evidence
+    # that a real function starts here.
+    if status.upper() in ("EXACT", "RELOC", "PROVEN"):
         return
     host = _function_containing_va(spans, va_int)
     # Append the mtime-aware fix hint only to the first stale marker in the
@@ -1412,7 +1427,16 @@ def lint_file(
             _check_E013_duplicate_va(result, va_int, va_str, filepath, seen_vas, module=mod)
 
             if marker in ("FUNCTION", "STUB") and va_int is not None:
-                _check_W028_stale_annotation(result, va_int, mod, cfg, function_index)
+                _check_W028_stale_annotation(
+                    result,
+                    va_int,
+                    mod,
+                    cfg,
+                    function_index,
+                    status=str(
+                        _metadata_entries.get((mod, va_int), {}).get("status", "")
+                    ),
+                )
 
             if marker not in ("GLOBAL", "DATA"):
                 _check_W018_cflags(result, found_keys, cfg)
