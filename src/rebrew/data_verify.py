@@ -98,6 +98,7 @@ def section_symbol_bytes(
     import tomllib
 
     from rebrew.binary_loader import load_binary
+    from rebrew.data_layout import estimate_type_size
 
     with open(metadata_path, "rb") as fh:
         db = tomllib.load(fh)
@@ -122,6 +123,14 @@ def section_symbol_bytes(
             size = int(val.get("size") or 0)
         except (TypeError, ValueError):
             continue
+        if size <= 0:
+            # Fall back to the declared type.  `size` is an optional field and
+            # a project may carry none at all (guild-rebrew: 310 entries, zero
+            # `size`, but 303 with a `type`), in which case skipping meant
+            # `rebrew verify --data` compared NOTHING and still reported
+            # "0 matched, 0 mismatched, 0 missing" -- a pass that had verified
+            # nothing.  The type is what the summary already sizes globals by.
+            size = estimate_type_size(str(val.get("type") or "")) if val.get("type") else 0
         if size <= 0:
             continue
         sec = info.sections.get(str(val.get("section")))
