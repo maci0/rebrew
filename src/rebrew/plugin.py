@@ -362,6 +362,14 @@ class CoeffectScope:
         self._ctx._owners.append(owned)
         try:
             component.apply(self._ctx)
+        except Exception:
+            # A mid-apply failure must not leave orphaned residue: effects
+            # already installed belong to no live entry (entry.effects stays
+            # None), so no later deactivation would revert them. Revert here.
+            for effect in reversed(owned):
+                self._ctx._forget(effect)
+                effect.dispose()
+            raise
         finally:
             self._ctx._owners.pop()
         return owned
