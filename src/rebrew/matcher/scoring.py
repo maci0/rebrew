@@ -925,12 +925,14 @@ def print_diff_summary(
     (it folds into ``structural``), so it prints from the stored split.
     """
     s = summary["summary"]
-    mismatch_count = s["structural"]
-    reg_count = s["reg"]
-    reloc_count = s["reloc"]
-    exact_count = s["exact"]
+    mismatch_count = s.get("structural", 0)
+    reg_count = s.get("reg", 0)
+    reloc_count = s.get("reloc", 0)
+    exact_count = s.get("exact", 0)
     invalid_reloc_count = s.get("invalid", 0)
-    print(f"\nTarget ({summary['target_size']}B) vs Candidate ({summary['candidate_size']}B)")
+    print(
+        f"\nTarget ({summary.get('target_size', '?')}B) vs Candidate ({summary.get('candidate_size', '?')}B)"
+    )
     if mismatches_only:
         print(f"Showing {mismatch_count} structural differences only (** lines)")
     print("-" * 80)
@@ -949,7 +951,9 @@ def print_diff_summary(
         c = row.get("candidate") or {}
         t_str = _pad_disasm(t.get("disasm") or "")
         c_str = _pad_disasm(c.get("disasm") or "")
-        print(f"{t.get('bytes', ''):20} {t_str:30} | {match_char} | {c.get('bytes', ''):20} {c_str}")
+        print(
+            f"{t.get('bytes', ''):20} {t_str:30} | {match_char} | {c.get('bytes', ''):20} {c_str}"
+        )
 
     print("-" * 80)
     if not mismatches_only:

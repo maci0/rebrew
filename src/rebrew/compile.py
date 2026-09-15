@@ -58,6 +58,7 @@ import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -1066,8 +1067,15 @@ def compile_to_obj(
     cache_key: str | None = None
     if cc is not None:
         cache_key = _cache_key_for(
-            cfg, spec, compile_text, src_name, all_flags, inc_path, src_parent,
-            extra_include_dirs, source_path.suffix or ".c",
+            cfg,
+            spec,
+            compile_text,
+            src_name,
+            all_flags,
+            inc_path,
+            src_parent,
+            extra_include_dirs,
+            source_path.suffix or ".c",
         )
         cached_obj = cc.get(cache_key)
         if cached_obj is not None:
@@ -1237,7 +1245,7 @@ def compile_batch_objs(
 
 def precompile_batch(
     cfg: ProjectConfig,
-    entries: list,
+    entries: list[Any],
     *,
     cache: CacheBackend | None = None,
     context: CompileContext | None = None,
@@ -1271,7 +1279,7 @@ def precompile_batch(
     from rebrew.utils import writable_temp_dir
 
     out: dict[int, str] = {}
-    groups: dict[tuple[str, str], list] = {}
+    groups: dict[tuple[str, str], list[Any]] = {}
     for e in entries:
         try:
             cfile = Path(cfg.reversed_dir) / e.filepath
@@ -1300,9 +1308,15 @@ def precompile_batch(
                     text = cfile.read_bytes().decode("utf-8", errors="surrogateescape")
                     flags = safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
                     key = _cache_key_for(
-                        cfg, spec, text, cfile.name, flags,
-                        str(cfg.compiler_includes), cfile.resolve().parent,
-                        None, cfile.suffix or ".c",
+                        cfg,
+                        spec,
+                        text,
+                        cfile.name,
+                        flags,
+                        str(cfg.compiler_includes),
+                        cfile.resolve().parent,
+                        None,
+                        cfile.suffix or ".c",
                     )
                     if cache.get(key) is not None:
                         continue
@@ -1319,7 +1333,7 @@ def precompile_batch(
             if spec is None:
                 continue
             workdir = writable_temp_dir("rebrew_batch_")
-            staged: dict[str, object] = {}
+            staged: dict[str, Any] = {}
             for e in members:
                 src = Path(cfg.reversed_dir) / e.filepath
                 # Unique stems per group (foo/bar.c + baz/bar.c collide).
@@ -1346,10 +1360,15 @@ def precompile_batch(
                     with contextlib.suppress(OSError):
                         src = Path(cfg.reversed_dir) / e.filepath
                         key = _cache_key_for(
-                            cfg, spec,
+                            cfg,
+                            spec,
                             src.read_bytes().decode("utf-8", errors="surrogateescape"),
-                            src.name, flags, str(cfg.compiler_includes),
-                            src.resolve().parent, None, src.suffix or ".c",
+                            src.name,
+                            flags,
+                            str(cfg.compiler_includes),
+                            src.resolve().parent,
+                            None,
+                            src.suffix or ".c",
                         )
                         cache.put(key, Path(obj).read_bytes())
         except Exception as exc:
@@ -1496,6 +1515,7 @@ def compile_and_compare(
         from rebrew.utils import writable_temp_dir
 
         workdir = writable_temp_dir("rebrew_cmp_")
+        obj_path: str | None
         if _precompiled_obj is not None and Path(_precompiled_obj).is_file():
             obj_path, err = _precompiled_obj, ""
         else:

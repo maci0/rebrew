@@ -1481,14 +1481,13 @@ def _partition_size_fixes(
     correct value.
     """
     protected = [
-        f
-        for f in fixes
-        if str(f.get("status", "")).upper() in ("EXACT", "RELOC", "PROVEN")
+        f for f in fixes if str(f.get("status", "")).upper() in ("EXACT", "RELOC", "PROVEN")
     ]
     if not protected:
         return fixes, []
     protected_vas = {f["va"] for f in protected}
     return [f for f in fixes if f["va"] not in protected_vas], protected
+
 
 def _size_divergence_action(ann_size: int, canonical: int, status: str | None) -> str:
     """Classify an annotation-vs-canonical size difference.
@@ -2083,9 +2082,7 @@ def run_verification(
     try:
         from rebrew.compile import precompile_batch
 
-        _batch_objs = precompile_batch(
-            cfg, entries_to_verify, cache=compile_cache, context=context
-        )
+        _batch_objs = precompile_batch(cfg, entries_to_verify, cache=compile_cache, context=context)
     except Exception as exc:  # batch is an optimization; never fail the run
         log.debug("batch pre-compile skipped: %s", exc)
 

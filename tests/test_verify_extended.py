@@ -1429,7 +1429,7 @@ class TestRunVerification:
     def _patch(self, monkeypatch: pytest.MonkeyPatch, results: dict) -> None:
         from rebrew.compile import CompareResult
 
-        def _verify(e, cfg, cache=None, name_to_va=None, context=None):
+        def _verify(e, cfg, cache=None, name_to_va=None, context=None, **kw):
             r = results.get(e.va, {})
             return CompareResult(
                 matched=r.get("matched", True),
