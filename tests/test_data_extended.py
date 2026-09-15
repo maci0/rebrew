@@ -778,3 +778,43 @@ class TestDataMoreBranches:
         assert "g_und" in text  # leading underscore stripped
         assert "g_other" in text
         assert "(unknown section)" in text
+
+
+class TestDataMarkerScan:
+    """`// DATA:` is a global marker too, and the metadata can name it.
+
+    guild-rebrew annotates every global with `// DATA:` and none with
+    `// GLOBAL:`; scan_globals used to match only the latter, so all 118
+    markers scanned as zero annotated globals in section "unknown".
+    """
+
+    def test_data_marker_counts_as_an_annotated_global(self, tmp_path: Path) -> None:
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "a.c").write_text(
+            "// DATA: SERVER 0x1000\nextern int g_from_data_marker;\n",
+            encoding="utf-8",
+        )
+        scan = scan_globals(cfg.reversed_dir, cfg)
+        entry = scan.globals["g_from_data_marker"]
+        assert entry.annotated is True
+        assert entry.va == 0x1000
+
+    def test_metadata_names_a_marker_with_no_declaration(self, tmp_path: Path) -> None:
+        """53 of guild-rebrew's markers have no declaration under them: they
+        annotate a global defined in another TU.  The name and type live in
+        rebrew-data.toml, so the entry must resolve from there instead of
+        landing as "unknown"."""
+        from rebrew.data_metadata import set_data_field
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "a.c").write_text(
+            "// DATA: SERVER 0x2000\n\nint __cdecl f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        set_data_field(cfg.metadata_dir, 0x2000, "name", "g_elsewhere", "SERVER")
+        set_data_field(cfg.metadata_dir, 0x2000, "type", "char[24]", "SERVER")
+        scan = scan_globals(cfg.reversed_dir, cfg)
+        assert "unknown" not in scan.globals
+        entry = scan.globals["g_elsewhere"]
+        assert entry.annotated is True
+        assert entry.type_str == "char[24]"
