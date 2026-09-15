@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 import typer
@@ -474,7 +474,10 @@ class CliComponent(Component):
     is_group: bool = False
     attr: str = ""
     origin: str = "builtin"
-    needs: tuple[str, ...] = field(default_factory=tuple)
+    # Every apply() resolves CLI_SERVICE + CONSOLE_SERVICE, so every
+    # component declares them: withdrawing either service deactivates its
+    # dependents instead of leaving them mounted on a stale app.
+    needs: tuple[str, ...] = (CLI_SERVICE, CONSOLE_SERVICE)
 
     @property
     def group(self) -> str:
