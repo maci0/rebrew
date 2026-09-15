@@ -724,3 +724,35 @@ def test_verify_entry_survives_a_raising_logger(
     out = verify_mod.verify_entry(_ann(0x1000), cfg)  # must not raise
     assert out.diff_lines is None
     assert out.similarity is None
+
+
+def test_byte_match_counts_excludes_proven() -> None:
+    """PROVEN must never be counted as a byte match.
+
+    Regression: the verify summary printed only `passed/total`, and `passed`
+    folds PROVEN in with EXACT/RELOC.  For a byte-identical goal that number is
+    wrong twice over -- it overstates progress, and a RELOC -> PROVEN
+    regression leaves it unchanged while the deliverable loses bytes.  The JSON
+    always exposed `summary.byte_matched`; the human line now does too, via
+    this helper.
+    """
+    from rebrew.verify import byte_match_counts
+
+    results = [
+        {"status": "EXACT"},
+        {"status": "RELOC"},
+        {"status": "RELOC"},
+        {"status": "PROVEN"},
+        {"status": "PROVEN"},
+        {"status": "STUB"},
+        {"status": "NEAR_MATCHING"},
+    ]
+    assert byte_match_counts(results) == (3, 2)
+
+    # A RELOC -> PROVEN regression must move the byte-match count down even
+    # though `passed` would not change.
+    regressed = [dict(r) for r in results]
+    regressed[1]["status"] = "PROVEN"
+    assert byte_match_counts(regressed) == (2, 3)
+
+    assert byte_match_counts([]) == (0, 0)
