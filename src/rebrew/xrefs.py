@@ -100,6 +100,79 @@ def _payload(
     }
 
 
+def build_calls_from_payload(binary: Path, start: int, size: int) -> dict[str, Any]:
+    """Inventory every call made *from* one function, resolved per callee.
+
+    Counting calls is harder than it looks, and this project got it wrong three
+    times in four rounds (docs/msvc6-c-shapes.md section 112):
+
+    * grepping disassembly for "call" also matches operands and comments;
+    * counting *relocations* undercounts badly, because a relocation marks
+      where an address is materialised, not where it is called -- msvc6 caches
+      an import in a callee-saved register with ONE `mov reg,[__imp__X]` and
+      then issues any number of `call reg`;
+    * the direct-vs-register encoding ratio is a register-allocation artefact,
+      not a source property.
+
+    So this resolves each `call reg` by walking backwards to the instruction
+    that last defined that register, and attributes it to the same callee as a
+    direct call.  The result is the inventory that actually reflects the source.
+    """
+    info = load_binary(binary)
+    imports = {}
+    try:
+        for imp in parse_import_table(binary):
+            imports[imp.iat_va] = imp.name or f"ordinal#{imp.ordinal}"
+    except Exception:  # noqa: BLE001 - import table is optional
+        pass
+
+    end = start + size
+    insns = [i for i in iter_instructions(info) if start <= i.address < end]
+    # reg -> callee name, updated as we walk; a call through a register is
+    # attributed to whatever that register last held.
+    held: dict[str, str] = {}
+    counts: Counter[str] = Counter()
+    sites: dict[str, list[int]] = {}
+
+    def record(name: str, va: int) -> None:
+        counts[name] += 1
+        sites.setdefault(name, []).append(va)
+
+    for ins in insns:
+        mnem, ops = ins.mnemonic, ins.op_str
+        if mnem == "mov" and "," in ops:
+            dst, src = (p.strip() for p in ops.split(",", 1))
+            if src.startswith("dword ptr [0x") and dst.isalpha():
+                slot = int(src[src.index("[") + 1 : src.index("]")], 16)
+                if slot in imports:
+                    held[dst] = imports[slot]
+                else:
+                    held.pop(dst, None)
+            elif dst.isalpha():
+                held.pop(dst, None)
+        elif mnem == "call":
+            op = ops.strip()
+            if op.startswith("dword ptr [0x"):
+                slot = int(op[op.index("[") + 1 : op.index("]")], 16)
+                record(imports.get(slot, f"[{slot:#x}]"), ins.address)
+            elif op.startswith("0x"):
+                record(op, ins.address)
+            elif op in held:
+                record(held[op], ins.address)
+            else:
+                record(f"reg:{op}", ins.address)
+
+    return {
+        "start": start,
+        "size": size,
+        "total_calls": sum(counts.values()),
+        "callees": [
+            {"name": n, "count": c, "sites": sites[n]}
+            for n, c in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        ],
+    }
+
+
 def build_xrefs_payload(
     binary: Path,
     target_va: int,

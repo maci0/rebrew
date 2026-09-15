@@ -29,7 +29,7 @@ dependencies = [
     "diskcache>=5.6",  # advisory (unsafe pickle) has no fix yet — cache stores only compile .obj bytes, not untrusted input
     "httpx>=0.28",  # ReVa MCP / remote-tooling HTTP client (ghidra/, skeleton.py, decompiler.py, wibo.py)
     "idna>=3.19",  # NO direct import — transitive security pin: idna <3.15 has a Unicode-property DoS advisory; this floor forces the fixed version through httpx's tree
-    "lief>=0.17.4,<1",  # 1.0.0 is breaking
+    "lief>=1.0.0",  # 1.0 verified: full suite green (was held at <1 on breaking rumors)
     "numpy>=2.5.3",  # byte/structural similarity scoring (matcher/scoring.py, core/matching.py, binary_similarity.py)
     "python-flirt>=0.10.0",  # FLIRT .sig signature scanning (flirt.py; imports as `flirt`)
     "rich>=15.0",  # console rendering (Console(stderr=True) convention) and typer's markup backend
