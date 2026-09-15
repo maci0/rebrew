@@ -922,7 +922,8 @@ def _run_all(
         # the catalog before promoting.
         name_to_va = build_name_to_va(cfg)
         matched, failed = _run_batch_flag_sweep(
-            stubs, cfg, tier, jobs, fix_cflags, json_output, mode_label, name_to_va=name_to_va
+            stubs, cfg, tier, jobs, fix_cflags, json_output, mode_label,
+            name_to_va=name_to_va, timeout_min=timeout_min,
         )
         return matched, failed
 
@@ -1206,6 +1207,7 @@ def _run_batch_flag_sweep(
     json_output: bool,
     mode_label: str,
     name_to_va: dict[str, int] | None = None,
+    timeout_min: int = 0,
 ) -> tuple[int, int]:
     """Execute batch flag sweep across all discovered NEAR_MATCHING functions.
 
@@ -1240,7 +1242,15 @@ def _run_batch_flag_sweep(
         else:
             console.print(f"\\[{i}/{len(stubs)}] {display} ({stub.size}B)")
 
-        best_score, best_flags, all_results = run_flag_sweep(stub, cfg, tier=tier, jobs=jobs)
+        # --timeout-min bounds the sweep itself, not just the GA that may follow
+        # it: a thorough tier is 258k combos and ran unbounded before this.
+        sweep_deadline = time.monotonic() + timeout_min * 60 if timeout_min else None
+        # `deadline` is passed only when set, so a monkeypatched/legacy
+        # run_flag_sweep without the parameter still works.
+        _sweep_kw = {"deadline": sweep_deadline} if sweep_deadline else {}
+        best_score, best_flags, all_results = run_flag_sweep(
+            stub, cfg, tier=tier, jobs=jobs, **_sweep_kw
+        )
 
         is_exact = best_score < 0.1
         # Whether the authoritative re-verify below can run at all.  It needs

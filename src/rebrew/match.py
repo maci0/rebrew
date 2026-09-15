@@ -679,7 +679,7 @@ def main(
         return
 
     if flag_sweep_only:
-        _run_single_flag_sweep(params, tier, jobs, json_output)
+        _run_single_flag_sweep(params, tier, jobs, json_output, timeout_min=timeout_min)
         return
 
     if flag_sweep_toolchains:

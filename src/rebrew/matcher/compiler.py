@@ -16,6 +16,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import time
 import tempfile
 import warnings
 from pathlib import Path
@@ -715,6 +716,7 @@ def flag_sweep(
     posix_style: bool = False,
     profile: str = "",
     cfg: Any = None,
+    deadline: float | None = None,
 ) -> list[tuple[float, str]]:
     """Sweep compiler flags to find the best match.
 
@@ -838,6 +840,15 @@ def flag_sweep(
                 else:
                     if score < float("inf"):
                         results.append((score, flags))
+                # Cooperative deadline: stop feeding the pool once the budget is
+                # spent, and let the in-flight compiles drain.  Without this
+                # `--timeout-min` was silently ignored on the --flag-sweep-only
+                # path -- it was only applied around the GA run -- so a sweep of
+                # a thorough tier (258k combos) ran unbounded.  Measured on
+                # guild-rebrew: `--timeout-min 6` was still going after 13
+                # minutes and had to be killed.
+                if deadline is not None and time.monotonic() >= deadline:
+                    combo_iter = iter(())
                 with contextlib.suppress(StopIteration):
                     pending.add(executor.submit(_eval_flags, next(combo_iter)))
 
