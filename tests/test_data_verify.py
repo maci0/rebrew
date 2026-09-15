@@ -177,3 +177,37 @@ class TestSectionSymbolBytesBounds:
         )
         assert by_va == {}
         assert sizes == {}
+
+
+def test_size_falls_back_to_declared_type(tmp_path: Path, monkeypatch) -> None:
+    """`size` is optional metadata; the declared type must size the symbol.
+
+    guild-rebrew carries 310 data entries with ZERO `size` fields and 303
+    `type` fields.  Skipping sizeless entries meant `rebrew verify --data`
+    compared nothing at all and still printed "0 matched, 0 mismatched, 0
+    missing" -- a pass that had verified nothing.
+    """
+    from types import SimpleNamespace
+
+    from rebrew import data_verify
+
+    meta = tmp_path / "rebrew-data.toml"
+    _write(
+        meta,
+        '["SERVER.0x10001000"]\nname = "g_typed"\nsection = ".data"\ntype = "char[4]"\n'
+        '["SERVER.0x10001004"]\nname = "g_sized"\nsection = ".data"\nsize = 4\n'
+        '["SERVER.0x10001008"]\nname = "g_untyped"\nsection = ".data"\n',
+    )
+
+    sec = SimpleNamespace(name=".data", va=0x10001000, size=0x100, raw_size=0x100, file_offset=0)
+    info = SimpleNamespace(sections={".data": sec}, data=bytes(range(16)) * 16)
+    monkeypatch.setattr(data_verify, "load_binary", lambda _p: info, raising=False)
+    monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda _p: info, raising=False)
+
+    _by_va, sizes = data_verify.section_symbol_bytes(
+        metadata_path=meta, binary_path=tmp_path / "fake.dll"
+    )
+    # typed and explicitly-sized symbols are both read; the one with neither is not
+    assert sizes[0x10001000] == 4, "declared type must size the symbol"
+    assert sizes[0x10001004] == 4
+    assert 0x10001008 not in sizes

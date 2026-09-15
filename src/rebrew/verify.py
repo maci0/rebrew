@@ -817,6 +817,37 @@ def main(
             actual=built_bytes,
             sizes={va: ref_sizes.get(va, built_sizes.get(va, 0)) for va in ref_sizes | built_sizes},
         )
+        # A postlinked binary is not evidence.  Where a project's postlink step
+        # copies whole sections from the reference (rebrew's own `data` fixer
+        # does exactly that), every symbol in them matches by construction and
+        # this check grades its own answer key.  A *perfect* score on a section
+        # the build does not yet produce is the tell, so say so rather than
+        # reporting a vacuous pass.
+        _dsec = None
+        try:
+            from rebrew.binary_loader import load_binary
+
+            _rb = load_binary(cfg.target_binary)
+            _bb = load_binary(built_path)
+            for _sname in (".data", ".rdata"):
+                _rs, _bs = _rb.sections.get(_sname), _bb.sections.get(_sname)
+                if _rs is None or _bs is None or _rs.raw_size != _bs.raw_size:
+                    continue
+                _r = bytes(_rb.data[_rs.file_offset : _rs.file_offset + _rs.raw_size])
+                _b = bytes(_bb.data[_bs.file_offset : _bs.file_offset + _bs.raw_size])
+                if _r == _b and _rs.raw_size:
+                    _dsec = _sname
+                    break
+        except (OSError, ValueError, KeyError, AttributeError):
+            _dsec = None
+        if _dsec and not json_output:
+            console.print(
+                f"[yellow]warning:[/yellow] {built_path.name}'s {_dsec} is byte-identical to the "
+                f"reference. If the build postlinks by copying that section, these results are "
+                f"tautological — point --built at the raw link instead."
+            )
+        if _dsec:
+            data_report["section_copied_warning"] = _dsec
         if not dry_run:
             from rebrew.data_metadata import (
                 DATA_STATUS_DRIFT,
