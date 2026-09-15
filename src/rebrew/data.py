@@ -73,12 +73,43 @@ app = typer.Typer(
 # ---------------------------------------------------------------------------
 
 # reccmp-compatible GLOBAL annotation:  // GLOBAL: SERVER 0x10031ae8
-_GLOBAL_RE = re.compile(r"(?://|/\*)\s*GLOBAL:\s*(?P<module>[A-Z0-9_]+)\s+(?P<va>0x[0-9a-fA-F]+)")
+#
+# `DATA:` is the same marker for this scan's purpose -- annotation.DATA_MARKERS
+# holds {"GLOBAL", "DATA"} and `Annotation.is_data` treats them identically, so
+# a project that spells its globals `// DATA:` (guild-rebrew: 118 DATA, 0
+# GLOBAL) used to scan as zero annotated globals and report every one of them
+# in section "unknown".
+_GLOBAL_RE = re.compile(
+    r"(?://|/\*)\s*(?:GLOBAL|DATA):\s*(?P<module>[A-Z0-9_]+)\s+(?P<va>0x[0-9a-fA-F]+)"
+)
 
 # extern data declarations are parsed by c_parser.find_extern_variables()
 # via tree-sitter AST walking — see scan_globals().
 
-_DECL_IDENT_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[.*\])?\s*;")
+# The identifier of a declaration the tree-sitter pass did not return.  It must
+# accept a *definition with an initialiser* and not just a `;`-terminated
+# declaration: `char s_msg[] = "...";` and `char g_blob[568] = {` are how a
+# reversed source spells a global it actually defines, and matching only `;`
+# used to send every one of them to the "unknown" bucket.  Array extents may
+# repeat (`char g_t[4][8]`), and the initialiser may open a brace on the same
+# line or run to a `;`.
+_DECL_IDENT_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[[^\]]*\]\s*)*\s*(?:=|;)")
+
+
+def _data_meta(cfg: ProjectConfig | None, module: str, va: int) -> dict[str, Any]:
+    """`rebrew-data.toml` fields for *(module, va)*, or `{}`.
+
+    Tolerant by design: the scan must still report the annotation when there is
+    no metadata root, no entry, or an unreadable file.
+    """
+    if cfg is None or not module:
+        return {}
+    from rebrew.data_metadata import get_data_entry
+
+    try:
+        return get_data_entry(cfg.metadata_dir, va, module=module)
+    except (OSError, ValueError, KeyError):
+        return {}
 
 
 # ---------------------------------------------------------------------------
@@ -255,12 +286,6 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                 va = int(gm.group("va"), 16)
                 # Next line should be the declaration
                 decl = lines[i + 1].strip() if i + 1 < len(lines) else ""
-                if not decl:
-                    warnings.warn(
-                        f"{fname}:{i + 1}: // GLOBAL: annotation at 0x{va:08x} "
-                        f"has no declaration on the following line",
-                        stacklevel=2,
-                    )
                 name = "unknown"
                 type_str = ""
 
@@ -276,6 +301,32 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                     id_match = _DECL_IDENT_RE.search(decl)
                     if id_match:
                         name = id_match.group(1)
+
+                # Last resort: the metadata.  A marker may legitimately have no
+                # declaration under it -- it annotates a global defined in
+                # another TU, or one the source only reaches through a pointer
+                # -- and rebrew-data.toml is where that global's name/type/
+                # section already live.  Without this the entry lands as
+                # "unknown" with no section, which is what made 53 of
+                # guild-rebrew's 118 markers unattributable.
+                meta = _data_meta(cfg, gm.group("module"), va)
+                if meta:
+                    if name == "unknown" and meta.get("name"):
+                        name = str(meta["name"])
+                    if not type_str and meta.get("type"):
+                        type_str = str(meta["type"])
+
+                # Warn only when nothing could name it -- neither the source
+                # nor the metadata.  Warning on "no declaration on the next
+                # line" alone cried wolf on every marker that the metadata
+                # resolves perfectly well.
+                if name == "unknown":
+                    warnings.warn(
+                        f"{fname}:{i + 1}: data annotation at 0x{va:08x} has no "
+                        f"declaration on the following line and no name in the "
+                        f"data metadata",
+                        stacklevel=2,
+                    )
 
                 key = (name, va)
                 annotated_keys.add(key)
