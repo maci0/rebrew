@@ -329,11 +329,18 @@ def _verdict(counts: dict[str, int], raw_total: int) -> tuple[str, str]:
     # are real deltas too (canonical test/verify calls the pair NEAR_MATCHING),
     # so "the match is RELOC-level" must not be claimed for any of them.
     if dominant == "reloc" and non_match > counts["reloc"]:
+        # Say which unit this is.  These counts are INSTRUCTION-GRANULAR: a
+        # differing instruction contributes its whole size to a category, so
+        # the figure does not equal `rebrew test`'s byte delta and can land
+        # either side of it (guild-rebrew: 56 vs 28 on one function, 13 vs 15
+        # on another).  Readers reconciled those by hand twice before this
+        # said so; see docs/msvc6-c-shapes.md section 108.
         suggestion = (
             "Most of the delta sits at relocation sites, but "
-            f"{non_match - counts['reloc']} real byte(s) differ — the match is "
-            "NEAR_MATCHING-level, not RELOC: inspect the structural spans "
-            "(likely a wrong call target or global address)."
+            f"{non_match - counts['reloc']} real byte(s) differ (instruction-"
+            "granular; compare `rebrew test` for the masked byte delta) — the "
+            "match is NEAR_MATCHING-level, not RELOC: inspect the structural "
+            "spans (likely a wrong call target or global address)."
         )
     # When a secondary category is also significant, mention it too — e.g.
     # structural churn WITH register allocation noise is a different fix
