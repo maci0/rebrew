@@ -1022,7 +1022,9 @@ class TestCompileBatchObjs:
         assert len(calls) == 1
         assert calls[0][:2] == ["-O2", "-c"]
 
-    def test_group_failure_returns_empty(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_group_failure_returns_empty(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Nonzero exit → empty map + error (caller falls back per file)."""
         from types import SimpleNamespace
 
@@ -1055,19 +1057,41 @@ class TestBatchCacheParity:
 
         from rebrew.compile import _cache_key_for
 
-        cfg = SimpleNamespace(root=tmp_path, compiler_includes=tmp_path,
-            compiler_command="CL.EXE", compiler_runner="")
+        cfg = SimpleNamespace(
+            root=tmp_path, compiler_includes=tmp_path, compiler_command="CL.EXE", compiler_runner=""
+        )
         k1 = _cache_key_for(
-            cfg, None, "int f(void){return 1;}\n", "f.c", ["/O2"],
-            str(tmp_path), tmp_path, None, ".c",
+            cfg,
+            None,
+            "int f(void){return 1;}\n",
+            "f.c",
+            ["/O2"],
+            str(tmp_path),
+            tmp_path,
+            None,
+            ".c",
         )
         k2 = _cache_key_for(
-            cfg, None, "int f(void){return 1;}\n", "f.c", ["/O2"],
-            str(tmp_path), tmp_path, None, ".c",
+            cfg,
+            None,
+            "int f(void){return 1;}\n",
+            "f.c",
+            ["/O2"],
+            str(tmp_path),
+            tmp_path,
+            None,
+            ".c",
         )
         assert k1 == k2
         k3 = _cache_key_for(
-            cfg, None, "int f(void){return 2;}\n", "f.c", ["/O2"],
-            str(tmp_path), tmp_path, None, ".c",
+            cfg,
+            None,
+            "int f(void){return 2;}\n",
+            "f.c",
+            ["/O2"],
+            str(tmp_path),
+            tmp_path,
+            None,
+            ".c",
         )
         assert k3 != k1
