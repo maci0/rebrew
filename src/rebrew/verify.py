@@ -329,6 +329,7 @@ app = typer.Typer(
     ),
 )
 
+
 def byte_match_counts(results: list[dict]) -> tuple[int, int]:
     """Return ``(byte_matched, proven)`` over verify *results*.
 
@@ -341,6 +342,7 @@ def byte_match_counts(results: list[dict]) -> tuple[int, int]:
     byte_matched = sum(1 for r in results if r.get("status") in ("EXACT", "RELOC"))
     proven = sum(1 for r in results if r.get("status") == "PROVEN")
     return byte_matched, proven
+
 
 _STATUS_RANK: dict[str, int] = {
     # PROVEN is a post-verify semantic promotion, NOT a byte match: a proven
@@ -1551,9 +1553,14 @@ def _scope_entries(
         want = origin_filter.upper()
         unique_entries = [e for e in unique_entries if (e.module or "").upper() == want]
     if batch_file:
-        target = (
-            Path(batch_file) if Path(batch_file).is_absolute() else Path(cfg.reversed_dir) / batch_file
-        ).resolve()
+        raw = Path(batch_file)
+        if raw.is_absolute():
+            target = raw.resolve()
+        else:
+            # Project-relative first (src/x/foo.c), then relative to the
+            # reversed dir (foo.c) — whichever names an existing file.
+            root_hit = (Path(cfg.root) / raw).resolve()
+            target = root_hit if root_hit.is_file() else (Path(cfg.reversed_dir) / raw).resolve()
         unique_entries = [
             e for e in unique_entries if (Path(cfg.reversed_dir) / e.filepath).resolve() == target
         ]
@@ -2346,8 +2353,7 @@ def _print_results(
     byte_matched, proven = byte_match_counts(results)
     if proven:
         result_text.append(
-            f" ({byte_matched} byte-matched + {proven} PROVEN, which is not a "
-            f"byte match)",
+            f" ({byte_matched} byte-matched + {proven} PROVEN, which is not a byte match)",
             style="yellow",
         )
     console.print(result_text)
