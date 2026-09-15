@@ -356,3 +356,28 @@ class TestDependentFirstWithdrawal:
         assert resolutions == [True]
         assert dependent.calls == ["dependent"]
         assert provider.calls == ["provider"]
+
+
+class TestCliComponentNeeds:
+    def test_default_needs_declares_cli_services(self) -> None:
+        """CliComponent.apply resolves both services, so both are declared:
+        withdrawing either deactivates every mounted component."""
+        import typer
+
+        from rebrew.plugin import CLI_SERVICE, CONSOLE_SERVICE, CliComponent, CoeffectScope, Context
+
+        ctx = Context()
+        app = typer.Typer()
+        from rich.console import Console
+
+        ctx.provide(CLI_SERVICE, app)
+        ctx.provide(CONSOLE_SERVICE, Console())
+        scope = CoeffectScope(ctx)
+        comp = CliComponent(
+            name="probe", module="rebrew.status", help="h", panel="Development"
+        )
+        assert comp.needs == (CLI_SERVICE, CONSOLE_SERVICE)
+        scope.add(comp)
+        assert len(app.registered_commands) == 1
+        ctx.unprovide(CONSOLE_SERVICE)
+        assert app.registered_commands == []
