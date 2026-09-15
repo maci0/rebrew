@@ -184,8 +184,9 @@ a 32/64-bit compiler.
 Community/user agent skills extend the packaged `agent-skills/` tree through
 the `REBREW_SKILLS_DIR` environment variable — a directory of SKILL.md
 directories merged over the packaged set (a user skill with the same name
-wins; unset means packaged-only).  `rebrew skills install <dir|git-url>` /
-`rebrew skills remove <name>` manage that overlay, `rebrew skills list`
+wins; unset means packaged-only).  Drop skill directories into that dir by
+hand (or check them out of version control) — no install/remove commands;
+copying a directory needs no CLI.  `rebrew skills list`
 marks user skills (`origin` in JSON, a `(user)` suffix in the table), and
 `rebrew init` renders both the packaged and the community skills into a
 project's `.agents/skills/` (same override semantics).  A missing
