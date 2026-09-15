@@ -389,9 +389,16 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
         else:
             result.globals[name] = entry
 
-    # Detect type conflicts: same name, different type strings
+    # Detect type conflicts: same name, different type strings.
+    #
+    # Compare on a whitespace-normalised key, so `char *` and `char*` are one
+    # type rather than a reported conflict.  Spelling a pointer either way is a
+    # style difference that no compiler can see, and mixing real conflicts with
+    # cosmetic ones is what makes a report like this get ignored.  The original
+    # spellings are still what the conflict carries, since the point is to show
+    # where each came from.
     for name, types in type_by_name.items():
-        if len(types) > 1:
+        if len({" ".join(t.split()).replace(" *", "*") for t in types}) > 1:
             conflict = {
                 "name": name,
                 "types": dict(types),
