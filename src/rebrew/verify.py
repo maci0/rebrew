@@ -334,7 +334,7 @@ app = typer.Typer(
 )
 
 
-def byte_match_counts(results: list[dict]) -> tuple[int, int]:
+def byte_match_counts(results: list[dict[str, Any]]) -> tuple[int, int]:
     """Return ``(byte_matched, proven)`` over verify *results*.
 
     ``passed`` folds PROVEN in with EXACT/RELOC, but PROVEN is semantic

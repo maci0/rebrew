@@ -373,9 +373,7 @@ class TestCliComponentNeeds:
         ctx.provide(CLI_SERVICE, app)
         ctx.provide(CONSOLE_SERVICE, Console())
         scope = CoeffectScope(ctx)
-        comp = CliComponent(
-            name="probe", module="rebrew.status", help="h", panel="Development"
-        )
+        comp = CliComponent(name="probe", module="rebrew.status", help="h", panel="Development")
         assert comp.needs == (CLI_SERVICE, CONSOLE_SERVICE)
         scope.add(comp)
         assert len(app.registered_commands) == 1
