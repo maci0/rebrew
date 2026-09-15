@@ -385,10 +385,24 @@ def tc_main() -> None:
             "rebrew-cmake-*: no rebrew-project.toml found above the cwd — run "
             "CMake from inside the project (build dir under the project root)"
         )
-    name = os.environ.get("REBREW_TOOLCHAIN") or _load_profile(root)
+    # Per-file compiler selection.  CMake fixes one compiler for the whole
+    # target through the toolchain file, and COMPILE_FLAGS is the only per-file
+    # lever it has -- so accept the toolchain as a pseudo-flag and strip it
+    # before the real command line is built.  Without this a per-function
+    # toolchain pin could only ever affect `rebrew test`, never the linked
+    # bytes (guild-rebrew round 224 measured a real +11 byte gain that was
+    # unreachable for exactly this reason).
+    argv = list(sys.argv[1:])
+    pinned: str | None = None
+    for i, a in enumerate(argv):
+        if a.startswith(("/REBREW_TOOLCHAIN:", "-REBREW_TOOLCHAIN:")):
+            pinned = a.split(":", 1)[1]
+            del argv[i]
+            break
+    name = pinned or os.environ.get("REBREW_TOOLCHAIN") or _load_profile(root)
     spec = _resolve_spec(name)
     try:
-        rc = _docker_run(spec, mode, sys.argv[1:])
+        rc = _docker_run(spec, mode, argv)
     except subprocess.TimeoutExpired:
         # A hung wine build must exit with a clean message, not a raw
         # traceback polluting CMake's error output (link-review F6).
