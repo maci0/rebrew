@@ -329,6 +329,19 @@ app = typer.Typer(
     ),
 )
 
+def byte_match_counts(results: list[dict]) -> tuple[int, int]:
+    """Return ``(byte_matched, proven)`` over verify *results*.
+
+    ``passed`` folds PROVEN in with EXACT/RELOC, but PROVEN is semantic
+    equivalence and explicitly not a byte match — every PROVEN entry carries a
+    non-zero delta.  For a byte-identical goal only EXACT and RELOC count, so
+    the two numbers must be reported separately or a RELOC -> PROVEN regression
+    hides behind an unchanged headline.
+    """
+    byte_matched = sum(1 for r in results if r.get("status") in ("EXACT", "RELOC"))
+    proven = sum(1 for r in results if r.get("status") == "PROVEN")
+    return byte_matched, proven
+
 _STATUS_RANK: dict[str, int] = {
     # PROVEN is a post-verify semantic promotion, NOT a byte match: a proven
     # function compiles to bytes that differ from the target (every PROVEN
@@ -536,6 +549,9 @@ _COMPARE_DROP_PCT = 5.0
 
 @app.callback(invoke_without_command=True)
 def main(
+    file: str | None = typer.Argument(
+        None, help="Restrict to one source file (e.g. src/x/foo.c) for per-file CI gating"
+    ),
     root: Path | None = typer.Option(
         None,
         "--root",
@@ -716,6 +732,7 @@ def main(
                 context=context,
                 batch_dir=batch_dir,
                 origin=origin,
+                file=file,
                 no_promote=no_promote,
                 watch=False,  # never nest watch loops
                 target=target,
@@ -923,6 +940,7 @@ def main(
         dry_run=dry_run,
         batch_dir=batch_dir,
         origin_filter=origin,
+        batch_file=file,
         nolib=nolib,
         no_promote=no_promote,
         context=compile_context,
@@ -975,6 +993,7 @@ def run_batch(
     dry_run: bool = False,
     batch_dir: str | None = None,
     origin_filter: str | None = None,
+    batch_file: str | None = None,
     nolib: bool = False,
     no_promote: bool = False,
     context: "CompileContext | None" = None,
@@ -1017,6 +1036,7 @@ def run_batch(
         nolib=nolib,
         batch_dir=batch_dir,
         origin_filter=origin_filter,
+        batch_file=batch_file,
         cfg=cfg,
         json_output=json_output,
     )
@@ -1469,6 +1489,7 @@ def _scope_entries(
     nolib: bool = False,
     batch_dir: str | None = None,
     origin_filter: str | None = None,
+    batch_file: str | None = None,
     cfg: Any,
     json_output: bool = False,
 ) -> tuple[
@@ -1529,7 +1550,21 @@ def _scope_entries(
     if origin_filter:
         want = origin_filter.upper()
         unique_entries = [e for e in unique_entries if (e.module or "").upper() == want]
-    if library_excluded or batch_dir or origin_filter:
+    if batch_file:
+        target = (
+            Path(batch_file) if Path(batch_file).is_absolute() else Path(cfg.reversed_dir) / batch_file
+        ).resolve()
+        unique_entries = [
+            e for e in unique_entries if (Path(cfg.reversed_dir) / e.filepath).resolve() == target
+        ]
+        if not unique_entries:
+            from rebrew.cli import error_exit
+
+            error_exit(
+                f"no annotations found in {batch_file} — empty scope is not a green gate",
+                json_mode=json_output,
+            )
+    if library_excluded or batch_dir or origin_filter or batch_file:
         keep = {f"0x{e.va:08x}" for e in unique_entries}
         results = [r for r in results if r.get("va") in keep]
         fail_details = [(e, m) for e, m in fail_details if e in unique_entries]
@@ -2302,6 +2337,19 @@ def _print_results(
     if failed:
         result_text.append(", ")
         result_text.append(f"{failed} failed", style="red")
+    # `passed` folds PROVEN in with EXACT/RELOC, but PROVEN is semantic
+    # equivalence and explicitly NOT a byte match (every PROVEN entry carries a
+    # non-zero delta).  Printing only `passed` let a RELOC -> PROVEN regression
+    # leave the headline number unchanged while the deliverable lost bytes, and
+    # made the figure read as "done" for a byte-identical goal.  The JSON has
+    # carried `summary.byte_matched` all along; surface it here too.
+    byte_matched, proven = byte_match_counts(results)
+    if proven:
+        result_text.append(
+            f" ({byte_matched} byte-matched + {proven} PROVEN, which is not a "
+            f"byte match)",
+            style="yellow",
+        )
     console.print(result_text)
     if any(r["status"] == "MISSING_SIZE" for r in results):
         n = sum(1 for r in results if r["status"] == "MISSING_SIZE")
