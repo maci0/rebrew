@@ -756,3 +756,49 @@ def test_byte_match_counts_excludes_proven() -> None:
     assert byte_match_counts(regressed) == (2, 3)
 
     assert byte_match_counts([]) == (0, 0)
+
+
+def test_scope_entries_batch_file_filters_to_file(tmp_path: Path) -> None:
+    """Single-file scope keeps only that file's annotations."""
+    from types import SimpleNamespace
+
+    from rebrew.annotation import Annotation
+    from rebrew.verify import _scope_entries
+
+    rev = tmp_path / "src"
+    rev.mkdir()
+    (rev / "a.c").write_text("x", encoding="utf-8")
+    (rev / "b.c").write_text("x", encoding="utf-8")
+
+    def _ann(path: str, va: int) -> Annotation:
+        return Annotation(va=va, name="f", filepath=path, module="T")
+
+    cfg = SimpleNamespace(reversed_dir=rev, root=tmp_path)
+    entries = [_ann("a.c", 0x1000), _ann("b.c", 0x2000)]
+    scoped, total, *_rest = _scope_entries(
+        entries, (0, 0, [], [], 0), ([], []), batch_file="a.c", cfg=cfg
+    )
+    assert total == 1
+    assert [e.va for e in scoped] == [0x1000]
+
+
+def test_scope_entries_batch_file_empty_errors(tmp_path: Path) -> None:
+    """An empty file scope is an error, never a silent green gate."""
+    from types import SimpleNamespace
+
+    import typer
+
+    from rebrew.annotation import Annotation
+    from rebrew.verify import _scope_entries
+
+    rev = tmp_path / "src"
+    rev.mkdir()
+    cfg = SimpleNamespace(reversed_dir=rev, root=tmp_path)
+    with pytest.raises(typer.Exit):
+        _scope_entries(
+            [Annotation(va=0x1000, name="f", filepath="a.c", module="T")],
+            (0, 0, [], [], 0),
+            ([], []),
+            batch_file="missing.c",
+            cfg=cfg,
+        )
