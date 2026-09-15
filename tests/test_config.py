@@ -554,6 +554,34 @@ typo_field = "oops"
         with pytest.warns(UserWarning, match=r"unrecognized keys.*typo_field"):
             load_config(root)
 
+    def test_layout_key_is_recognised(self, tmp_path: Path) -> None:
+        """`rebrew layout capture` writes it, so the loader must know it.
+
+        Regression: `layout` was missing from the known-target keys, so a
+        project carrying the position-alignment package warned "unrecognized
+        keys: {'layout'}" on EVERY rebrew invocation -- and an unrecognised key
+        is one a config rewriter drops.  guild-rebrew lost its whole layout
+        block that way during a `discover-functions` run.
+        """
+        import warnings
+
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+layout = {target = "test.exe", image_base = 268435456}
+"""
+        root = _make_project(tmp_path, toml)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            load_config(root)
+        # Other warnings (e.g. the absent test binary) are fine; the point is
+        # that `layout` itself must not be called unrecognised.
+        messages = [str(w.message) for w in caught]
+        assert not [m for m in messages if "unrecognized" in m and "layout" in m], messages
+
     def test_unknown_compiler_key_warns(self, tmp_path: Path) -> None:
         toml = """\
 [project]
