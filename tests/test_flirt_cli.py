@@ -114,3 +114,35 @@ class TestFlirtCli:
         # 10 names > _MAX_AMBIGUOUS → skipped.
         assert data["match_count"] == 0
         assert data["skipped_ambiguous"] >= 1
+
+
+class TestFlirtInit:
+    def test_copies_repo_sigs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import json as _json
+
+        from rebrew.flirt import _init_project_sigs
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / "a.pat").write_bytes(b"---\n")
+        (repo / "b.sig").write_bytes(b"---\n")
+        monkeypatch.setenv("REBREW_FLIRT_SIGS_DIR", str(repo))
+        cfg = _cfg(tmp_path)
+
+        _init_project_sigs(cfg, False)
+        assert (tmp_path / "flirt_sigs" / "a.pat").exists()
+        assert (tmp_path / "flirt_sigs" / "b.sig").exists()
+
+        # Idempotent: existing files never overwritten.
+        (tmp_path / "flirt_sigs" / "a.pat").write_bytes(b"custom")
+        _init_project_sigs(cfg, False)
+        assert (tmp_path / "flirt_sigs" / "a.pat").read_bytes() == b"custom"
+
+    def test_missing_repo_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import typer
+
+        from rebrew.flirt import _init_project_sigs
+
+        monkeypatch.setenv("REBREW_FLIRT_SIGS_DIR", str(tmp_path / "nope"))
+        with pytest.raises(typer.Exit):
+            _init_project_sigs(_cfg(tmp_path), False)
