@@ -1288,6 +1288,27 @@ class TestTodoCli:
         assert data["items"][0]["va"] == "0x00001000"
         assert data["items"][0]["blocker"] == "STRUCTURAL 5B"
 
+    def test_start_data_filter(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import json
+
+        (tmp_path / "rebrew-data.toml").write_text(
+            '["TEST.0x00002000"]\nname = "g_counter"\nsize = 4\nstatus = "UNCHECKED"\n'
+            '["TEST.0x00002010"]\nname = "g_done"\nsize = 4\nstatus = "VERIFIED"\n',
+            encoding="utf-8",
+        )
+        result = self._invoke(
+            tmp_path,
+            monkeypatch,
+            ghidra_funcs=[],
+            existing={},
+            covered_vas={},
+            args=["--json", "-c", "start-data"],
+        )
+        data = json.loads(result.output)
+        assert data["total_items"] == 1
+        assert data["items"][0]["va"] == "0x00002000"
+        assert data["items"][0]["category"] == "start-data"
+
     def test_no_items_message(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import json
 

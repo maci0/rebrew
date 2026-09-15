@@ -68,6 +68,8 @@ CAT_NAKED = "naked-reconstruction"
 # Data symbol whose built bytes differ from the reference (`verify --data`
 # wrote STATUS DRIFT in rebrew-data.toml).
 CAT_DATA_DRIFT = "data-drift"
+# Data symbol never verified (STATUS UNCHECKED or absent in rebrew-data.toml).
+CAT_START_DATA = "start-data"
 
 # Proving is only feasible when few bytes actually differ: symbolic execution
 # over hundreds of mismatched bytes just times out.  Cap the estimated byte
@@ -93,6 +95,7 @@ _CATEGORY_COLORS = {
     CAT_DOCUMENTED: "dim",
     CAT_NAKED: "magenta",
     CAT_DATA_DRIFT: "yellow",
+    CAT_START_DATA: "cyan",
     "blocked": "red",
 }
 
@@ -892,6 +895,8 @@ def _collect_data_drift(cfg: ProjectConfig) -> list[TodoItem]:
     Reads rebrew-data.toml STATUS verdicts written by ``verify --data``.
     Data VAs live in a separate address space from function VAs in practice
     (.data/.rdata vs .text), so no dedup against function items is needed.
+    NOTE doubles as the data-side blocker text so ``-c blocked`` catches
+    stuck symbols with zero schema change (data has no BLOCKER field).
     """
     from rebrew.data_metadata import load_data_metadata
 
@@ -915,6 +920,44 @@ def _collect_data_drift(cfg: ProjectConfig) -> list[TodoItem]:
                 description=f"data symbol {name} differs from reference bytes ({module} 0x{va:x})",
                 command="rebrew verify --data",
                 status="DRIFT",
+                blocker=str(fields.get("note") or ""),
+            )
+        )
+    return items
+
+
+
+
+def _collect_start_data(cfg: ProjectConfig) -> list[TodoItem]:
+    """Collect data symbols never verified (STATUS UNCHECKED or absent).
+
+    The data-side "undone work" lane: same file already read for drift, so
+    this costs one more filter pass, not another load.  Command verifies
+    just the symbol's section scope.
+    """
+    from rebrew.data_metadata import load_data_metadata
+
+    items: list[TodoItem] = []
+    for (module, va), fields in load_data_metadata(cfg.metadata_dir).items():
+        if str(fields.get("status") or "").upper() not in ("", "UNCHECKED"):
+            continue
+        name = str(fields.get("name") or f"DAT_{va:08x}")
+        try:
+            size = int(fields.get("size") or 0)
+        except (TypeError, ValueError):
+            size = 0
+        items.append(
+            TodoItem(
+                category=CAT_START_DATA,
+                roi_score=10.0,
+                va=va,
+                name=name,
+                size=size,
+                filename="",
+                description=f"data symbol {name} never verified ({module} 0x{va:x})",
+                command="rebrew verify --data",
+                status=str(fields.get("status") or "UNCHECKED"),
+                blocker=str(fields.get("note") or ""),
             )
         )
     return items
@@ -961,6 +1004,7 @@ def collect_all(
     items.extend(_collect_new_functions(ghidra_funcs, existing, covered_vas, cfg))
     items.extend(_collect_library_candidates(ghidra_funcs, existing, cfg))
     items.extend(_collect_data_drift(cfg))
+    items.extend(_collect_start_data(cfg))
 
     # Deduplicate by VA — keep only the highest-ROI item per function.
     # Setup items (va=0) are category-level, not per-function, so they skip dedup.
@@ -1004,6 +1048,8 @@ _EPILOG = (
     "  documented · · · · · · · IAT thunks / non-reproducible code — audit only, "
     "hidden from the default list\n\n"
     "  data-drift · · · · · · · Data symbol differs from reference bytes — run\n\n"
+    "                         `rebrew verify --data`\n\n"
+    "  start-data · · · · · · · Data symbol never verified — run\n\n"
     "                         `rebrew verify --data`\n\n"
     "[dim]Reads from ghidra_functions.json, source files, and .rebrew/verify_cache.json.[/dim]"
 )
