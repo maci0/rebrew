@@ -475,6 +475,7 @@ IMAGE_ENTRYPOINTS: dict[str, str] = {
     "rebrew/msvc:6.0-sp5-win32": "/usr/local/bin/cl",
     "rebrew/msvc:6.0-sp6-win32": "/usr/local/bin/cl",
     "rebrew/msvc:6.0-win32": "/usr/local/bin/cl",
+    "rebrew/msvc:6.0-win9x-win32": "/usr/local/bin/cl",
     "rebrew/msvc:7.0-rtm-win32": "/usr/local/bin/cl",
     "rebrew/msvc:7.0-sp1-win32": "/usr/local/bin/cl",
     "rebrew/msvc:7.0-win32": "/usr/local/bin/cl",
@@ -796,6 +797,25 @@ BUILTIN_TOOLCHAINS: dict[str, ToolchainSpec] = {
         else None,
         host_bin="Bin",
         description="MSVC 6.0 SP5 (32-bit PE, C89) — docker image (wine inside)",
+    ),
+    "msvc-6.0-win9x": ToolchainSpec(
+        name="msvc-6.0-win9x",
+        image="rebrew/msvc:6.0-win9x-win32",
+        binary="cl",
+        runtime="wibo",
+        flags_style="msvc",
+        obj_ext=".obj",
+        tool_root="/opt/msvc6.0-win9x/Bin",
+        host_path=vendored_path("msvc/6.0-win9x-win32")
+        if vendored_path("msvc/6.0-win9x-win32").exists()
+        else None,
+        host_bin="Bin",
+        description=(
+            "MSVC 6.0 win9x-hosted tree (32-bit PE, C89) -- docker image (wibo inside). "
+            "A NINTH distinct 6.0 code generator: C2.DLL md5 3c21de2c matches none of "
+            "the other eight, CL 12.00.8168.  Registered so service-pack sweeps can "
+            "reach it from the CLI instead of docker-by-hand."
+        ),
     ),
     "msvc-6.0-sp5-pp": ToolchainSpec(
         name="msvc-6.0-sp5-pp",
