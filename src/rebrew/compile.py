@@ -1169,6 +1169,14 @@ def compile_to_obj(
                 cc.put(cache_key, obj_file.read_bytes())
         return str(obj_file), ""
 
+    # Unknown/unregistered profile: nothing to run.  Execution is docker-
+    # (or native-runner-)only; a plain command string cannot be exec'd.
+    return None, (
+        f"profile {profile!r} is not a docker/native toolchain - every compile "
+        "runs through the standardized runner; "
+        "run `rebrew toolchain list` for the available profiles"
+    )
+
 
 def compile_batch_objs(
     spec: "ToolchainSpec",
@@ -1206,14 +1214,6 @@ def compile_batch_objs(
         if obj.is_file():
             out[src] = str(obj)
     return out, ""
-
-    # Unknown/unregistered profile: nothing to run.  Execution is docker-
-    # (or native-runner-)only; a plain command string cannot be exec'd.
-    return None, (
-        f"profile {profile!r} is not a docker/native toolchain - every compile "
-        "runs through the standardized runner; "
-        "run `rebrew toolchain list` for the available profiles"
-    )
 
 
 def _extract_and_compare(
