@@ -329,8 +329,18 @@ def _run_single_flag_sweep(
     tier: str,
     jobs: int,
     json_output: bool,
+    timeout_min: int = 0,
 ) -> None:
-    """Run compiler flag sweep on one function and report results."""
+    """Run compiler flag sweep on one function and report results.
+
+    ``timeout_min`` bounds the sweep itself.  It used to be accepted by the CLI
+    and applied only around the GA run, so ``--flag-sweep-only`` ignored it
+    entirely: a thorough tier is 258k combos, and on guild-rebrew a
+    ``--timeout-min 2`` run was still going after 7 minutes with no output.
+    """
+    import time as _time
+
+    deadline = _time.monotonic() + timeout_min * 60 if timeout_min else None
     try:
         results = flag_sweep(
             p.seed_src,
@@ -348,6 +358,7 @@ def _run_single_flag_sweep(
             posix_style=getattr(p.cfg, "posix_style", False),
             profile=getattr(p.cfg, "compiler_profile", ""),
             cfg=p.cfg,
+            deadline=deadline,
         )
     except ValueError as exc:
         error_exit(str(exc), json_mode=json_output)
@@ -420,6 +431,7 @@ def run_flag_sweep(
     cfg: ProjectConfig,
     tier: str = "targeted",
     jobs: int = 4,
+    deadline: float | None = None,
 ) -> tuple[float, str, list[tuple[float, str]]]:
     """Run a compiler flag sweep on a single StubInfo in-process.
 
@@ -478,6 +490,7 @@ def run_flag_sweep(
             posix_style=bool(getattr(cfg, "posix_style", False)),
             profile=str(toolchain_name or getattr(cfg, "compiler_profile", "") or ""),
             cfg=cfg,
+            deadline=deadline,
         )
     except ValueError as exc:
         # The flag sweep is MSVC-only — a posix project must not silently

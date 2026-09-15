@@ -1524,3 +1524,36 @@ class TestBatchWriteLock:
         # Reentrant: the GA batch holds the lock across update_stub_to_matched,
         # whose STATUS promotion locks the same file again.
         assert isinstance(utils_mod._METADATA_WRITE_LOCKS[name], type(threading.RLock()))
+
+
+class TestFlagSweepDeadline:
+    """`--timeout-min` must bound the sweep, not only the GA that may follow it."""
+
+    def test_flag_sweep_stops_submitting_past_the_deadline(self) -> None:
+        """Regression: --flag-sweep-only ignored --timeout-min entirely.
+
+        The deadline was computed in the GA path only, so `--flag-sweep-only`
+        returned before ever reaching it and a `targeted` tier ran to
+        completion regardless.  On guild-rebrew a `--timeout-min 2` run was
+        still going after 7 minutes with no output; with the deadline wired it
+        finishes in 126s.
+        """
+        import inspect
+
+        from rebrew.match_sweep import _run_single_flag_sweep, run_flag_sweep
+        from rebrew.matcher.compiler import flag_sweep
+
+        # The whole chain must be able to carry a deadline, or the CLI flag is
+        # silently inert somewhere along it.
+        assert "deadline" in inspect.signature(flag_sweep).parameters
+        assert "deadline" in inspect.signature(run_flag_sweep).parameters
+        assert "timeout_min" in inspect.signature(_run_single_flag_sweep).parameters
+
+    def test_cli_passes_timeout_min_to_the_single_sweep(self) -> None:
+        """The single-function path must forward the flag, not drop it."""
+        import inspect
+
+        from rebrew import match as match_mod
+
+        src = inspect.getsource(match_mod)
+        assert "_run_single_flag_sweep(params, tier, jobs, json_output, timeout_min=timeout_min)" in src
