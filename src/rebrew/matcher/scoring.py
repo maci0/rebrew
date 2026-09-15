@@ -858,6 +858,7 @@ def diff_functions(
                 "reloc": reloc_count,
                 "reg": reg_count,
                 "structural": mismatch_count,
+                "invalid": invalid_reloc_count,
                 "total": max_insns,
             },
         }
@@ -902,6 +903,66 @@ def diff_functions(
         f"{exact_count} exact match(es)"
     )
     return None
+
+
+def print_diff_summary(
+    summary: dict[str, Any], *, mismatches_only: bool = False, register_aware: bool = False
+) -> None:
+    """Render a ``diff_functions(..., as_dict=True)`` payload as the human table.
+
+    Lets callers that need both shapes (e.g. ``rebrew diff`` prints the table
+    and embeds the dict in ``--json``) disassemble once instead of calling
+    ``diff_functions`` twice.  The ``invalid`` count is not in the payload
+    (it folds into ``structural``), so it prints from the stored split.
+    """
+    s = summary["summary"]
+    mismatch_count = s["structural"]
+    reg_count = s["reg"]
+    reloc_count = s["reloc"]
+    exact_count = s["exact"]
+    invalid_reloc_count = s.get("invalid", 0)
+    print(f"\nTarget ({summary['target_size']}B) vs Candidate ({summary['candidate_size']}B)")
+    if mismatches_only:
+        print(f"Showing {mismatch_count} structural differences only (** lines)")
+    print("-" * 80)
+    print(
+        f"{'Target bytes':20} {'Target disassembly':30} | MS | "
+        f"{'Candidate bytes':20} {'Candidate disassembly'}"
+    )
+    print("-" * 80)
+
+    for row in summary.get("instructions") or []:
+        match = row.get("match")
+        match_char = match if match in ("==", "~~", "XX", "RR", "**") else "  "
+        if mismatches_only and match_char != "**":
+            continue
+        t = row.get("target") or {}
+        c = row.get("candidate") or {}
+        t_str = _pad_disasm(t.get("disasm") or "")
+        c_str = _pad_disasm(c.get("disasm") or "")
+        print(f"{t.get('bytes', ''):20} {t_str:30} | {match_char} | {c.get('bytes', ''):20} {c_str}")
+
+    print("-" * 80)
+    if not mismatches_only:
+        print("== : exact match")
+        print("~~ : relocation difference (acceptable)")
+        if register_aware:
+            print("RR : register encoding difference")
+        print("** : structural difference")
+    print(
+        f"Summary: {mismatch_count} structural diff(s), "
+        f"{reg_count} register diff(s), "
+        f"{reloc_count} reloc diff(s), {invalid_reloc_count} invalid reloc(s), "
+        f"{exact_count} exact match(es)"
+    )
+
+
+def _pad_disasm(disasm: str) -> str:
+    """Rebuild the ``f"{mnemonic:6} {op_str}"`` cell from combined disasm text."""
+    if not disasm:
+        return ""
+    mnemonic, _, rest = disasm.partition(" ")
+    return f"{mnemonic:6} {rest}"
 
 
 def structural_similarity(
