@@ -132,3 +132,27 @@ def test_written_include_is_valid_cmake(tmp_path: Path) -> None:
         r'\s+PROPERTIES COMPILE_FLAGS "[^"]+"\)\n',
         line,
     )
+
+
+def test_toolchain_pin_is_reported_because_the_build_cannot_honour_it(
+    tmp_path: Path,
+) -> None:
+    """A per-function toolchain changes `rebrew test`, never the linked bytes.
+
+    Regression: `collect` resolved the effective toolchain and threw it away
+    (`_tc, flags = resolve_compile_overrides(...)`), emitting only flags.  The
+    CMake build's compiler is fixed by the toolchain file, so a pin let the
+    metadata claim one compiler while the deliverable was built by another —
+    the same divergence class this module's docstring describes for CFLAGS,
+    and the reason a round-188 service-pack sweep could not be acted on.
+    """
+    cfg = _project(
+        tmp_path,
+        '["SERVER.0x10001000"]\ntoolchain = "msvc-6.0"\n',
+        {"a.c": "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n"},
+    )
+    _files, problems, notes = collect(cfg, "SERVER")
+    assert problems == []
+    joined = " ".join(notes)
+    assert "msvc-6.0" in joined, notes
+    assert "never the linked bytes" in joined, notes
