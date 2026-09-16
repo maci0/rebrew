@@ -538,6 +538,8 @@ class TestHostValidation:
         assert "X-Content-Type-Options" in header_names
         assert "X-Frame-Options" in header_names
         assert "Content-Security-Policy" in header_names
+        assert "Referrer-Policy" in header_names
+        assert "Permissions-Policy" in header_names
         assert ("Cache-Control", "no-store") in sent
 
     def test_handler_gzip_and_etag_on_index(self, dashboard: Dashboard) -> None:
@@ -629,3 +631,36 @@ class TestHostValidation:
         assert statuses == [500]
         body = b"".join(written)
         assert b"internal server error" in body
+
+    def test_handler_sqlite_error_hides_details(self) -> None:
+        """SQLite failures answer a generic 500 — no schema/path leak on the wire."""
+        import sqlite3
+
+        from rebrew.dashboard import Dashboard, _Handler, allowed_hosts_for
+
+        handler = _Handler.__new__(_Handler)
+        handler.headers = {"Host": "127.0.0.1:8000"}
+        handler.path = "/api/targets"
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        handler.dashboard.handle = lambda *a, **k: (_ for _ in ()).throw(  # type: ignore[method-assign]
+            sqlite3.DatabaseError("no such table: secrets")
+        )
+        sent: list[tuple] = []
+        handler.send_response = lambda status: sent.append(("status", status))  # type: ignore[method-assign]
+        handler.send_header = lambda name, value: sent.append((name, value))  # type: ignore[method-assign]
+        handler.end_headers = lambda: sent.append(("end", None))  # type: ignore[method-assign]
+        written: list[bytes] = []
+
+        class _FakeWFile:
+            def write(self, data: bytes) -> int:
+                written.append(data)
+                return len(data)
+
+        handler.wfile = _FakeWFile()
+        handler._respond("GET")
+        assert [v for k, v in sent if k == "status"] == [500]
+        body = b"".join(written)
+        assert b'"database error"' in body
+        assert b"no such table" not in body
+        assert b"secrets" not in body

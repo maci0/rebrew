@@ -25,6 +25,7 @@ class _FakeHTTPResponse:
             self.content = payload
             self.text = payload.decode("utf-8", errors="replace")
         self.status_code = status_code
+        self.headers: dict[str, str] = {}
 
     def json(self) -> dict:  # type: ignore[type-arg]
         return json.loads(self.text)
@@ -42,7 +43,9 @@ def _release_payload(digest: str) -> str:
             "assets": [
                 {
                     "name": "wibo-x86_64",
-                    "browser_download_url": "https://example.invalid/wibo-x86_64",
+                    "browser_download_url": (
+                        "https://github.com/decompals/wibo/releases/download/v0.9.0/wibo-x86_64"
+                    ),
                     "digest": f"sha256:{digest}",
                 }
             ],
@@ -275,7 +278,12 @@ class TestDownloadWiboErrors:
                 {
                     "tag_name": "v1",
                     "assets": [
-                        {"name": wibo_mod._wibo_asset_name(), "browser_download_url": "http://x"}
+                        {
+                            "name": wibo_mod._wibo_asset_name(),
+                            "browser_download_url": (
+                                "https://github.com/decompals/wibo/releases/download/v1/wibo"
+                            ),
+                        }
                     ],
                 }
             ),
@@ -283,18 +291,54 @@ class TestDownloadWiboErrors:
         with pytest.raises(RuntimeError, match="missing SHA256 digest"):
             wibo_mod.download_wibo(Path("/tmp/wibo"))
 
+    def test_untrusted_download_host_rejected(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A poisoned browser_download_url must not be fetched (SSRF guard)."""
+        dest = tmp_path / "tools" / "wibo"
+        payload = json.dumps(
+            {
+                "tag_name": "v0.9.0",
+                "assets": [
+                    {
+                        "name": "wibo-x86_64",
+                        "browser_download_url": "https://evil.example/wibo",
+                        "digest": f"sha256:{'ab' * 32}",
+                    }
+                ],
+            }
+        )
+        fetched: list[str] = []
+
+        def _fake_httpx_get(url: str, **kwargs: object) -> _FakeHTTPResponse:
+            fetched.append(url)
+            if url == _WIBO_API_URL:
+                return _FakeHTTPResponse(payload)
+            raise AssertionError(f"download must not run for {url!r}")
+
+        monkeypatch.setattr(sys, "platform", "linux", raising=False)
+        monkeypatch.setattr("platform.machine", lambda: "x86_64")
+        monkeypatch.setattr("rebrew.wibo.httpx.get", _fake_httpx_get)
+
+        with pytest.raises(RuntimeError, match="not a trusted GitHub https host"):
+            download_wibo(dest)
+        assert fetched == [_WIBO_API_URL]
+        assert not dest.exists()
+
     def test_download_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import httpx
 
         def get(url: str, **kw: object) -> SimpleNamespace:
-            if "releases" in url:
+            if "api.github.com" in url:
                 return self._meta(
                     {
                         "tag_name": "v1",
                         "assets": [
                             {
                                 "name": wibo_mod._wibo_asset_name(),
-                                "browser_download_url": "http://dl",
+                                "browser_download_url": (
+                                    "https://github.com/decompals/wibo/releases/download/v1/wibo"
+                                ),
                                 "digest": "sha256:abc",
                             }
                         ],
