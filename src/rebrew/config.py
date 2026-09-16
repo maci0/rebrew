@@ -782,7 +782,7 @@ def detect_crt_sources(root: Path) -> dict[str, str]:
         else:
             # All components matched
             rel = candidate.relative_to(root)
-            found[origin] = str(rel)
+            found[origin] = rel.as_posix()
 
     return found
 

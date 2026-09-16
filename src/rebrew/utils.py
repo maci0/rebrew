@@ -393,7 +393,10 @@ def atomic_write_text(filepath: Path, text: str, encoding: str = "utf-8") -> Non
     # lazily on first write).
     filepath.parent.mkdir(parents=True, exist_ok=True)
     try:
-        tmp_path.write_text(text, encoding=encoding)
+        # newline="" keeps the caller's line endings byte-exact.  Path.write_text
+        # defaults to newline=None, which on Windows translates ``\n`` to
+        # ``\r\n`` and would CRLF-corrupt every LF source/metadata rewrite.
+        tmp_path.write_text(text, encoding=encoding, newline="")
         os.replace(tmp_path, filepath)
     except BaseException:
         with contextlib.suppress(OSError):
@@ -1041,13 +1044,17 @@ def rel_display_path(filepath: Path, base_dir: Path | None = None) -> str:
     bare filename would resolve to the wrong location from the base dir.
     Falls back to ``filepath.name`` if even that is impossible (cross-drive
     on Windows) or no *base_dir* is given.
+
+    Always uses forward slashes so the same relative key works in metadata,
+    JSON reports, and set membership on every host (``str(Path)`` would emit
+    backslashes on Windows and break matching against POSIX-stored paths).
     """
     if base_dir is not None:
         try:
-            return str(filepath.relative_to(base_dir))
+            return filepath.relative_to(base_dir).as_posix()
         except ValueError:
             try:
-                return str(os.path.relpath(filepath, base_dir))
+                return Path(os.path.relpath(filepath, base_dir)).as_posix()
             except ValueError:  # cross-drive on Windows
                 return filepath.name
     return filepath.name

@@ -667,6 +667,33 @@ class TestKunaBackend:
         (good / "x86.sla").write_bytes(b"sla\x04binary")
         assert all(isinstance(d, Path) for d in dc._kuna_spec_dirs())
 
+    def test_kuna_spec_dirs_honors_uv_tool_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """UV_TOOL_DIR + current python tag locate a tool-env pypcode tree."""
+        import sys
+
+        import rebrew.decompiler as dc
+
+        tool_root = tmp_path / "tools"
+        py_tag = f"python{sys.version_info.major}.{sys.version_info.minor}"
+        sla_dir = (
+            tool_root
+            / "rebrew"
+            / "lib"
+            / py_tag
+            / "site-packages"
+            / "pypcode"
+            / "processors"
+            / "x86"
+            / "data"
+            / "languages"
+        )
+        sla_dir.mkdir(parents=True)
+        (sla_dir / "x86.sla").write_bytes(b"sla\x04binary")
+        monkeypatch.setenv("UV_TOOL_DIR", str(tool_root))
+        assert sla_dir in dc._kuna_spec_dirs()
+
     def test_fetch_kuna_injects_specs_env(self, tmp_path: Path, monkeypatch) -> None:
         """Without KUNA_SPECS, fetch_kuna injects the resolved spec dir."""
         import rebrew.decompiler as dc

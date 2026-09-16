@@ -971,7 +971,7 @@ def build_plan(cfg_splat: SplatConfig, target: str | None = None) -> ImportPlan:
         marker=marker,
         reversed_display=_display_dir(cfg),
         binary=binary,
-        binary_dest=str(binary.relative_to(cfg.root)) if in_project else binary_dest,
+        binary_dest=binary.relative_to(cfg.root).as_posix() if in_project else binary_dest,
         copy_binary=not in_project,
         profile=profile,
         format="pe",
@@ -992,7 +992,7 @@ def build_plan(cfg_splat: SplatConfig, target: str | None = None) -> ImportPlan:
 def _display_dir(cfg: Any) -> str:
     """The target's reversed_dir as a project-relative display prefix."""
     try:
-        return str(cfg.reversed_dir.relative_to(cfg.root))
+        return str(cfg.reversed_dir.relative_to(cfg.root).as_posix())
     except ValueError:
         return str(cfg.reversed_dir.name)
 
@@ -1561,7 +1561,7 @@ def _write_functions(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> l
         )
         target_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(target_path, body)
-        written.append(str(target_path.relative_to(cfg.root)))
+        written.append(target_path.relative_to(cfg.root).as_posix())
         fields: dict[str, Any] = {"blocker": SEED_BLOCKER}
         if ann.size:
             fields["size"] = ann.size
@@ -1589,7 +1589,7 @@ def _write_data(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> list[s
         target_path = cfg.reversed_dir / ann.path
         target_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(target_path, f"{ann.marker}\n")
-        written.append(str(target_path.relative_to(cfg.root)))
+        written.append(target_path.relative_to(cfg.root).as_posix())
         set_data_field(cfg.metadata_dir, ann.va, "section", ann.section, plan.marker)
         set_data_field(cfg.metadata_dir, ann.va, "name", ann.name, plan.marker)
         if ann.size:
@@ -1620,7 +1620,7 @@ def _write_libraries(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> l
     if not written:
         return []
     headers = sorted({ann.path for ann in planned})
-    return [str((cfg.reversed_dir / h).relative_to(cfg.root)) for h in headers]
+    return [(cfg.reversed_dir / h).relative_to(cfg.root).as_posix() for h in headers]
 
 
 # ---------------------------------------------------------------------------

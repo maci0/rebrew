@@ -15,6 +15,28 @@ def test_atomic_write_text_success(tmp_path: Path) -> None:
     assert list(tmp_path.iterdir()) == [f]
 
 
+def test_atomic_write_text_preserves_lf(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Writes must not translate ``\\n`` to ``os.linesep`` (Windows default)."""
+    recorded: dict[str, object] = {}
+    original = Path.write_text
+
+    def _spy(
+        self: Path,
+        data: str,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> int:
+        recorded["newline"] = newline
+        return original(self, data, encoding=encoding, errors=errors, newline=newline)
+
+    monkeypatch.setattr(Path, "write_text", _spy)
+    f = tmp_path / "lf.txt"
+    atomic_write_text(f, "a\nb\n")
+    assert recorded["newline"] == ""
+    assert f.read_bytes() == b"a\nb\n"
+
+
 def test_atomic_write_text_overwrite(tmp_path: Path) -> None:
     f = tmp_path / "test.txt"
     f.write_text("old")

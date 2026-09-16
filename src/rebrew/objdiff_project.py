@@ -167,7 +167,7 @@ def _synthesize_target_objects(cfg: Any, out_dir: Path) -> list[dict[str, Any]]:
         # Place functions at their (va - base_va) offsets so the object's
         # address space mirrors the binary layout.
         placed = [(name, va - base_va, raw) for name, va, raw in fns]
-        file_rel = str(path.relative_to(cfg.reversed_dir))
+        file_rel = path.relative_to(cfg.reversed_dir).as_posix()
         target_path = out_dir / f"{file_rel}.o"
         target_path.parent.mkdir(parents=True, exist_ok=True)
         write_coff_object(target_path, placed)
@@ -251,7 +251,7 @@ def _watch_patterns(cfg: Any) -> list[str]:
     root = getattr(cfg, "root", None)
     prefix = ""
     if root:
-        rel = rel_display_path(cfg.reversed_dir, root).replace("\\", "/")
+        rel = rel_display_path(cfg.reversed_dir, root)
         if rel not in (".", ""):
             prefix = f"{rel}/"
     return [f"{prefix}**/*{ext}" for ext in source_exts(cfg)] + [f"{prefix}**/*.h"]

@@ -1158,7 +1158,7 @@ def converge_layout(
                 atomic_write_text(f, text, encoding=encoding)
             changes.append(
                 {
-                    "tu": str(f.relative_to(root)),
+                    "tu": f.relative_to(root).as_posix(),
                     "first": first,
                     "expected": f"0x{exp:x}",
                     "current": f"0x{cur:x}",

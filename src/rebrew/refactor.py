@@ -56,7 +56,7 @@ def _analyse_file(path: Path, root: Path) -> dict[str, Any]:
     while_loop_count = sum(1 for line in lines if line.strip().startswith("while "))
 
     return {
-        "file": str(path.relative_to(root)),
+        "file": path.relative_to(root).as_posix(),
         "lines": num_lines,
         "too_long": too_long,
         "todos": many_todos,

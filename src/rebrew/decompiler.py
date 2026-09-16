@@ -24,6 +24,7 @@ import atexit
 import hashlib
 import importlib
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -287,6 +288,28 @@ def fetch_r2dec(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None
     return _run_re(binary, va, "pdd", root)
 
 
+def _uv_tool_roots() -> list[Path]:
+    """Candidate ``uv tool`` install roots across host layouts.
+
+    Prefer ``UV_TOOL_DIR`` when set; otherwise probe the default locations uv
+    uses on Linux, macOS, and Windows so a pypcode install under a tool env
+    is found without hard-coding one OS path.
+    """
+    roots: list[Path] = []
+    env = os.environ.get("UV_TOOL_DIR")
+    if env:
+        roots.append(Path(env))
+    home = Path.home()
+    for candidate in (
+        home / ".local" / "share" / "uv" / "tools",
+        home / "Library" / "Application Support" / "uv" / "tools",
+        Path(os.environ["LOCALAPPDATA"]) / "uv" / "tools" if "LOCALAPPDATA" in os.environ else None,
+    ):
+        if candidate is not None and candidate not in roots:
+            roots.append(candidate)
+    return roots
+
+
 def _kuna_spec_dirs() -> list[Path]:
     """Candidate SLEIGH spec dirs for kuna, best first.
 
@@ -297,26 +320,29 @@ def _kuna_spec_dirs() -> list[Path]:
     rizin dir as a fallback.  Only dirs containing ``x86.sla`` qualify so a
     partial tree never shadows a working one.
     """
-    candidates = []
+    candidates: list[Path] = []
     try:
         import pypcode
 
-        candidates.append(Path(pypcode.__file__).parent / "processors/x86/data/languages")
+        candidates.append(
+            Path(pypcode.__file__).parent / "processors" / "x86" / "data" / "languages"
+        )
     except ImportError:
         pass
-    for uv_tool in ("rebrew", "angr"):
-        candidates.append(
-            Path.home()
-            / ".local/share/uv/tools"
-            / uv_tool
-            / "lib/python3.13/site-packages/pypcode/processors/x86/data/languages"
-        )
-        candidates.append(
-            Path.home()
-            / ".local/share/uv/tools"
-            / uv_tool
-            / "lib/python3.12/site-packages/pypcode/processors/x86/data/languages"
-        )
+    py_tag = f"python{sys.version_info.major}.{sys.version_info.minor}"
+    sla_tail = (
+        Path("lib")
+        / py_tag
+        / "site-packages"
+        / "pypcode"
+        / "processors"
+        / "x86"
+        / "data"
+        / "languages"
+    )
+    for root in _uv_tool_roots():
+        for uv_tool in ("rebrew", "angr"):
+            candidates.append(root / uv_tool / sla_tail)
     candidates.append(Path("/usr/lib/rizin/plugins/rz_ghidra_sleigh"))
     return [d for d in candidates if (d / "x86.sla").is_file()]
 
