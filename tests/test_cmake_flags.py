@@ -9,10 +9,15 @@ which resolves flags from ``rebrew-functions.toml``.  guild-rebrew's
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
-from rebrew.cmake_flags import _codegen_key, _defines, collect
+import pytest
+from typer.testing import CliRunner
+
+from rebrew.cli import EXIT_ERROR
+from rebrew.cmake_flags import _codegen_key, _defines, app, collect
 from rebrew.config import load_config
 
 TOML = """\
@@ -24,6 +29,7 @@ binary = "original/server.dll"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src/server_dll"
+marker = "SERVER"
 
 [compiler]
 profile = "msvc-6.0"
@@ -132,6 +138,50 @@ def test_written_include_is_valid_cmake(tmp_path: Path) -> None:
         r'\s+PROPERTIES COMPILE_FLAGS "[^"]+"\)\n',
         line,
     )
+
+
+def test_cli_json_dry_run_stdout_is_pure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``--json --dry-run`` must emit only JSON on stdout (no CMake include text)."""
+    _project(
+        tmp_path,
+        '["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
+        {"a.c": "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n"},
+    )
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(app, ["--json", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["written"] is None
+    assert payload["problems"] == []
+    assert "set_source_files_properties" not in result.stdout
+    assert any(str(p).endswith("a.c") for p in payload["files"])
+
+
+def test_cli_conflicting_flags_exit_error_with_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Conflicting per-file flags exit EXIT_ERROR and still emit a JSON envelope."""
+    _project(
+        tmp_path,
+        '["SERVER.0x10001000"]\ncflags = "/O2 /Gd"\n'
+        '["SERVER.0x10001020"]\ncflags = "/O2 /Ob0 /Gd"\n',
+        {
+            "a.c": "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n"
+            "// FUNCTION: SERVER 0x10001020\nint b(void) { return 0; }\n"
+        },
+    )
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(app, ["--json", "-o", str(tmp_path / "out.cmake")])
+    assert result.exit_code == EXIT_ERROR, result.output
+    payload = json.loads(result.stdout)
+    assert payload["written"] is None
+    assert payload["problems"]
+    assert not (tmp_path / "out.cmake").exists()
+
+    # Conflicts must fail under --dry-run too (preview is not a free pass).
+    dry = CliRunner().invoke(app, ["--json", "--dry-run"])
+    assert dry.exit_code == EXIT_ERROR
+    assert json.loads(dry.stdout)["problems"]
 
 
 def test_toolchain_pin_is_reported_because_the_build_cannot_honour_it(

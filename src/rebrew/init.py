@@ -17,7 +17,7 @@ import typer
 from rich.console import Console
 from rich.prompt import Confirm, Prompt
 
-from rebrew.cli import EXIT_MISMATCH, error_exit, json_print, option_default
+from rebrew.cli import EXIT_MISMATCH, EXIT_OK, error_exit, json_print, option_default
 from rebrew.init_profiles import (
     DEFAULT_REBREW_TOML,
     DELPHI16_CONSTRAINTS,
@@ -527,7 +527,7 @@ def _run_wizard(
             "Aborted — nothing was written. Re-run with flags to skip the wizard:\n"
             "  rebrew init --no-wizard --target <name> --binary <file> --compiler <profile>"
         )
-        raise typer.Exit(code=EXIT_MISMATCH)
+        raise typer.Exit(code=EXIT_OK)
 
     if not _wizard_param_explicit(ctx, "install_completions"):
         install_completions = Confirm.ask(

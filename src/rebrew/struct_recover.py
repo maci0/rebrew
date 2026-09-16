@@ -697,7 +697,7 @@ def main(
     apply: Path | None = typer.Option(
         None, "--apply", help="Append new struct definitions to this file"
     ),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Preview what --apply would write"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:

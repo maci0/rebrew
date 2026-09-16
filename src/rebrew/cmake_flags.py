@@ -27,7 +27,6 @@ error naming the functions and their flags, not silently averaged.
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 
@@ -35,8 +34,14 @@ import typer
 from rich.console import Console
 
 from rebrew.annotation import parse_c_file_multi
-from rebrew.cli import resolve_compile_overrides
-from rebrew.config import ProjectConfig, load_config
+from rebrew.cli import (
+    EXIT_ERROR,
+    TargetOption,
+    json_print,
+    require_config,
+    resolve_compile_overrides,
+)
+from rebrew.config import ProjectConfig
 from rebrew.utils import atomic_write_text
 
 app = typer.Typer(add_completion=False, help=__doc__)
@@ -143,9 +148,6 @@ def main(
     output: Path = typer.Option(
         Path("build/rebrew-cflags.cmake"), "--output", "-o", help="CMake include to write"
     ),
-    target: str = typer.Option(
-        "", "--target", "-t", help="Annotation marker to emit (default: the project target's)"
-    ),
     sources_file: Path = typer.Option(
         None,
         "--sources-file",
@@ -155,12 +157,13 @@ def main(
         "does not.  Without this, a file the build compiles but nothing "
         "annotates would silently lose its flags.",
     ),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Print, do not write"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
 ) -> None:
     """Write the per-file CFLAGS table as a CMake include."""
-    cfg = load_config(root=Path.cwd(), target=target or None)
-    files, problems, notes = collect(cfg, target or cfg.marker)
+    cfg = require_config(target=target, json_mode=json_output)
+    files, problems, notes = collect(cfg, cfg.marker)
 
     # The table is keyed by the path spelling CMake knows: a listed source
     # keeps the spelling the build gave it (references/zlib-1.1.3 is a symlink
@@ -189,15 +192,14 @@ def main(
             continue
         emit[os.path.relpath(path, cfg.root).replace(os.sep, "/")] = flags
 
-    for line in notes:
-        console.print(f"[yellow]note:[/] {line}")
-    for line in problems:
-        console.print(
-            f"[red]error:[/] functions in one file resolve to different "
-            f"flags — split the file or align the metadata:\n  {line}"
-        )
-    if problems and not dry_run:
-        raise typer.Exit(code=1)
+    if not json_output:
+        for line in notes:
+            console.print(f"[yellow]note:[/] {line}")
+        for line in problems:
+            console.print(
+                f"[red]error:[/] functions in one file resolve to different "
+                f"flags — split the file or align the metadata:\n  {line}"
+            )
 
     lines = [HEADER]
     for rel, flags in sorted(emit.items()):
@@ -207,20 +209,34 @@ def main(
         )
     text = "".join(lines)
 
+    if problems:
+        if json_output:
+            json_print(
+                {
+                    "written": None,
+                    "files": {str(p): f for p, f in files.items()},
+                    "problems": problems,
+                    "notes": notes,
+                }
+            )
+        raise typer.Exit(code=EXIT_ERROR)
+
+    written: str | None = None
     if dry_run:
-        print(text)
+        if not json_output:
+            print(text)
     else:
         atomic_write_text(output, text)
+        written = str(output)
+
     if json_output:
-        json.dump(
+        json_print(
             {
-                "written": None if dry_run else str(output),
+                "written": written,
                 "files": {str(p): f for p, f in files.items()},
                 "problems": problems,
-            },
-            __import__("sys").stdout,
-            indent=1,
+                "notes": notes,
+            }
         )
-        print()
     elif not dry_run:
         console.print(f"[green]cmake-flags:[/] wrote {output} ({len(files)} source files)")

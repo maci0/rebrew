@@ -89,7 +89,6 @@ from rich.console import Console
 from rich.table import Table
 
 from rebrew.cli import (
-    EXIT_MISMATCH,
     error_exit,
     iter_annotations,
     json_print,
@@ -2000,7 +1999,7 @@ def main(
         try:
             result = apply_plan(plan, force=force)
         except ValueError as exc:
-            error_exit(str(exc), json_mode=json_output, code=EXIT_MISMATCH)
+            error_exit(str(exc), json_mode=json_output)
     else:
         result = apply_plan(plan, force=force, dry_run=True)
 

@@ -68,12 +68,13 @@ def test_extract_writes_rsrc(tmp_path: Path) -> None:
 
 
 def test_extract_missing_rsrc_fails(tmp_path: Path) -> None:
+    from rebrew.cli import EXIT_ERROR
     from rebrew.resource import app
 
     a = tmp_path / "a.exe"
     a.write_bytes(make_pe(b"\xc3"))
     result = runner.invoke(app, ["extract", str(a)])
-    assert result.exit_code == 1
+    assert result.exit_code == EXIT_ERROR
 
 
 def test_extract_json(tmp_path: Path) -> None:
@@ -92,11 +93,12 @@ def test_extract_json(tmp_path: Path) -> None:
 
 
 def test_extract_missing_rsrc_json(tmp_path: Path) -> None:
+    from rebrew.cli import EXIT_ERROR
     from rebrew.resource import app
 
     a = tmp_path / "a.exe"
     a.write_bytes(make_pe(b"\xc3"))
     result = runner.invoke(app, ["extract", str(a), "--json"])
-    assert result.exit_code == 1
+    assert result.exit_code == EXIT_ERROR
     data = json.loads(result.stdout)
     assert data["present"] is False

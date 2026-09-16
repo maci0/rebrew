@@ -281,9 +281,7 @@ def _compile_check(cfg: Any, source_text: str, src_hint: Path) -> str | None:
 @app.callback(invoke_without_command=True)
 def main(
     source_file: Path = typer.Argument(..., help="Path to the pseudo-C file to fix"),
-    dry_run: bool = typer.Option(
-        False, "--dry-run", help="Print the fixed source to stdout instead of writing"
-    ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     out: Path | None = typer.Option(
         None, "--output", "-o", help="Write the fixed source to this path (default: <file>.fixed.c)"
     ),

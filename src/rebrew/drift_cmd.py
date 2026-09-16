@@ -23,6 +23,7 @@ from rebrew.annotation import parse_c_file_multi, parse_source_metadata
 from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import (
     EXIT_ERROR,
+    TargetOption,
     error_exit,
     json_print,
     parse_va,
@@ -33,7 +34,7 @@ from rebrew.compile import compile_and_compare
 from rebrew.drift import DerivedRegion, DriftWindow, derive_regions, drift_windows
 from rebrew.sources import target_marker
 
-console = Console()
+console = Console(stderr=True)
 
 # Module-form registration (empty ``attr`` in builtins.py) resolves BOTH a
 # ``main`` callable and a module-level ``app``.  A module exposing only ``main``
@@ -106,7 +107,8 @@ def main(
     size: int = typer.Option(None, "--size", help="Function size (default: from metadata)."),
     cflags: str = typer.Option(None, "--cflags", help="Override compiler flags."),
     toolchain: str = typer.Option(None, "--toolchain", help="Override toolchain profile."),
-    json_output: bool = typer.Option(False, "--json", help="Emit JSON."),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
 ) -> None:
     """Localise where a function's bytes drift from the reference, using branch targets.
 
@@ -114,7 +116,7 @@ def main(
     the drift accumulated between it and its target.  Nested windows subtract, so
     regions with no branch pair of their own can still be bounded.
     """
-    cfg = require_config(json_mode=json_output)
+    cfg = require_config(target=target, json_mode=json_output)
 
     src_path = Path(source)
     if not src_path.exists():

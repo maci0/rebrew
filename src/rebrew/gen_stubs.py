@@ -700,7 +700,7 @@ def main(
     footer: Path | None = typer.Option(
         None, "--footer", help="Text file appended verbatim (e.g. a _fltused marker)"
     ),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Print instead of writing"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Generate a stub TU for unresolved linker symbols."""

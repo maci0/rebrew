@@ -69,11 +69,14 @@ def _layout_data_vs(root: Path) -> int | None:
     return None
 
 
-def find_link_cmd(root: Path) -> tuple[Path, str, Path]:
+def find_link_cmd(root: Path, *, json_mode: bool = False) -> tuple[Path, str, Path]:
     """(link cwd, link template, target dir) from build/CMakeFiles/*/link.txt."""
     hits = sorted((root / "build/CMakeFiles").glob("*/link.txt"))
     if not hits:
-        error_exit("no build/CMakeFiles/*/link.txt found — build the project first")
+        error_exit(
+            "no build/CMakeFiles/*/link.txt found — build the project first",
+            json_mode=json_mode,
+        )
     txt = hits[0].read_text(encoding="utf-8").strip()
     txt = re.sub(r"/out:[^ ]+", "/out:{out}", txt, flags=re.IGNORECASE)
     txt = re.sub(r"/pdb:[^ ]+", "/pdb:{out}.pdb", txt, flags=re.IGNORECASE)
@@ -156,7 +159,7 @@ def main(
             )
         return
 
-    link_cwd, cmd_tpl, target_dir = find_link_cmd(root)
+    link_cwd, cmd_tpl, target_dir = find_link_cmd(root, json_mode=json_output)
     # Unpredictable scratch name in the shared temp dir: a fixed
     # "rebrew-calibrate-bss.dll" would let any local user pre-create/symlink
     # the path (the linker follows it) or swap the DLL between iterations and
@@ -239,8 +242,10 @@ def main(
         json_print({"target_vs": hex(target_vs_int), "symbol": symbol, "iters": iters})
     else:
         for row in iters:
-            print(f"iter {row['iter']}: raw .data VS=0x{row['vs']:x} delta={row['delta']:+d}")
-        print(f"calibrated OK (target 0x{target_vs_int:x})")
+            console.print(
+                f"iter {row['iter']}: raw .data VS=0x{row['vs']:x} delta={row['delta']:+d}"
+            )
+        console.print(f"calibrated OK (target 0x{target_vs_int:x})")
 
 
 def main_entry() -> None:

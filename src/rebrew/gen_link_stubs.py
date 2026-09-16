@@ -83,7 +83,7 @@ def main(
         Path("src/rebrew-data.toml"), "--data-metadata", help="Data metadata toml path"
     ),
     output: Path = typer.Option(Path("src/link_stubs.c"), "--output", "-o", help="Output TU path"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Print instead of writing"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Generate the BSS placeholder TU."""

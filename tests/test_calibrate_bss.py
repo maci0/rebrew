@@ -92,7 +92,9 @@ class TestCalibrateLoop:
         stub = self._project(tmp_path)
         original = stub.read_text(encoding="utf-8")
 
-        monkeypatch.setattr(cb, "find_link_cmd", lambda root: (tmp_path, "true {out}", tmp_path))
+        monkeypatch.setattr(
+            cb, "find_link_cmd", lambda root, json_mode=False: (tmp_path, "true {out}", tmp_path)
+        )
         # Raw .data VS is 0x10 against a 0x20 target, so the tail is rewritten
         # before the compile that then fails.
         monkeypatch.setattr(cb, "read_data_vs", lambda path: 0x10)

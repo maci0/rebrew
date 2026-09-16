@@ -16,7 +16,7 @@ import typer
 from rich.console import Console
 
 from rebrew.binary_loader import load_binary
-from rebrew.cli import EXIT_MISMATCH, json_print
+from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH, json_print
 
 console = Console(stderr=True)
 
@@ -123,7 +123,7 @@ def extract(
             json_print({"pe": str(pe), "present": False, "output": None})
         else:
             console.print(f"[yellow]{pe} has no .rsrc section.[/yellow]")
-        raise typer.Exit(code=EXIT_MISMATCH)
+        raise typer.Exit(code=EXIT_ERROR)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(raw)
     if json_output:
