@@ -310,8 +310,8 @@ Notes:
   vendored **objconv** (tools/objconv) and parsed by LIEF transparently;
   32-bit OMF byte-matching is enabled.  A project configured with
   `profile = "watcom-2.0-win32"` compiles through the toolchain runner in
-  `rebrew compile` (`-fo=`/`-I` flag shape, docker image or vendored
-  host binary), so `rebrew test`/`verify` work for Watcom targets.
+  `rebrew compile` (`-fo=`/`-I` flag shape, docker image), so
+  `rebrew test`/`verify` work for Watcom targets.
   objconv crashes on 16-bit OMF — `rebrew.omf16` now decodes the
   MSVC 1.52 dialect in both flavors (unoptimized: code from 0xA0 records,
   publics from MODEND; **/O-optimized: code from 0xC2 records, publics

@@ -29,7 +29,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew rename` | Rename a function across the entire codebase (symbol, filename, cross-references) |
 | `rebrew split` | Break multi-function `.c` files into individual files; `--va` to extract one function |
 | `rebrew merge` | Combine single-function files into one multi-function file |
-| `rebrew lint` | Validate source marker correctness (E000–E023 errors, W003–W028 warnings, incl. W019 inline-metadata and W020 asm-dump warnings) |
+| `rebrew lint` | Validate source marker correctness (E000–E023 errors, W003–W029 warnings, incl. W019 inline-metadata and W020 asm-dump warnings) |
 
 ### Analysis
 

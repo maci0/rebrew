@@ -400,7 +400,7 @@ def _mutation_weight_list(
     """Flatten a mutation-weight mapping into the per-mutation weight list.
 
     Cached: the GA passes the same ``mutation_weights`` dict for every
-    ``mutate_code`` call (perf-review: rebuilding the 114-entry list with a
+    ``mutate_code`` call (perf-review: rebuilding the 128-entry list with a
     dict lookup per mutation function on every call was pure overhead in
     the per-generation mutation loop).  Returns ``None`` when no weight is
     positive (caller then falls back to uniform ``rng.choice``).
