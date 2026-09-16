@@ -1095,3 +1095,17 @@ class TestBatchCacheParity:
             ".c",
         )
         assert k3 != k1
+
+
+class TestBatchGroupKey:
+    def test_ignores_include_dirs_and_order(self) -> None:
+        from rebrew.compile import _batch_group_key
+
+        assert _batch_group_key("", "/O2 /Gd /Ifoo") == _batch_group_key("", "/Gd /O2 /Ibar")
+        assert _batch_group_key("", "/O1 /Gd") != _batch_group_key("", "/O2 /Gd")
+        assert _batch_group_key("a", "/O2") != _batch_group_key("b", "/O2")
+
+    def test_posix_include_prefix_ignored(self) -> None:
+        from rebrew.compile import _batch_group_key
+
+        assert _batch_group_key("", "-O2 -Ifoo") == _batch_group_key("", "-O2 -Ibar")
