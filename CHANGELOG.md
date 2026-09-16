@@ -1,4 +1,4 @@
-## [Unreleased]
+## [2.4.0] - 2026-09-17
 ### Added
 - **Schema v7: `section_cells_json`**: `build-db` now materializes each
   target+section's cell JSON (zstd level 3) so a dashboard reads one row instead
@@ -18,6 +18,20 @@
   codec); `build-db` uses it for the cache blobs.  `rebrew.workspace` shares that
   codec, but imports zstandard lazily so its path/config readers stay
   dependency-free.
+- **Batch compiles that actually work**: `precompile_batch` groups by
+  (toolchain, flags-minus-`/I`, order-normalized) — 26 → 10 groups on a real
+  MSVC project — unions member `/I` dirs, mirrors the source tree (flat
+  staging broke relative includes), matches single-file parity
+  (`base_cflags`, `compiler_includes`, root mount, container include
+  rewrite), fans objects out to every function sharing a file, keeps
+  partial-group objects when siblings fail, and compiles groups 8-wide.
+  `verify --full` on 283 functions: 65s cold → 17s, 1.8s warm.
+- **38% faster CLI startup**: LIEF's 148ms native load deferred to first use
+  in `binary_loader`, `toolchain_detect`, `pe_symbols`, `postlink`,
+  `layout_map`, `pe_info` (`import rebrew.main` 391ms → 243ms).
+- **`flirt --init-matched`**: copies only the CRT sig family matching the
+  target's detected linkage plus WinAPI sigs (259 vs 263 files on a static
+  MSVC6 binary) instead of the whole checkout.
 
 ### Changed
 - **`section_cell_stats` is a table, not a view, and `db_version` is now `"7"`.**
@@ -36,6 +50,21 @@
   same 8.4 MB of cell JSON, and it *reduced* the build-time cost of this change
   (build-db p50 290 ms with zlib, 250 ms with zstd, against a 218 ms pre-change
   baseline).
+- **63 identical `main_entry` bodies → `cli.run_standalone`**: one helper,
+  −429 lines.  `order_sources` lib folded into `link_order` (thin CLI shim
+  keeps the command); `near_diag.Insn` deleted in favor of `analysis.Insn`.
+- **CORDIS pass**: duplicate-plugin warnings print through CONSOLE_SERVICE
+  (not the module global); `compose()` returns `(ctx, scope)` so withdrawal
+  can deactivate.
+
+### Fixed
+- **Stale `skills install` test removed** (the command was cut; the test
+  asserted exit 0 on a gone subcommand).
+- **`toolchain_paths` no longer raises without a checkout**: `toolchains_repo()`
+  returns a non-existent sentinel so `uv tool install` snapshots build the
+  registry; only commands consuming the build source raise the actionable
+  error.
+- **Doctor's FLIRT fix names `flirt --init-matched`** first.
 
 ## [2.3.0] - 2026-09-15
 ### Added

@@ -65,6 +65,20 @@ from rebrew.pe_headers import pe_lfanew
 logger = logging.getLogger(__name__)
 
 
+def _lief() -> Any:
+    """The LIEF module, imported on first detection (148ms native load).
+
+    Module-global (not function-local) so ``rebrew.toolchain_detect.lief``
+    stays patchable — the version-table tests mock ``lief.parse`` here.
+    Eager ``import lief`` is pointless: this module loads at CLI startup
+    regardless, but detection itself runs only on demand.
+    """
+    import lief as _lief
+
+    globals()["lief"] = _lief
+    return _lief
+
+
 def _rich_compiler_build(entries: list[Any]) -> int:
     """The compiler build from Rich-header entries: the most common build.
 
@@ -954,8 +968,8 @@ def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
     2.x linker version is ambiguous with MinGW's GNU ld, so that case only
     fills version/suggested_profiles evidence and lets the heuristics pick
     the family.  Returns None for non-PE / unparseable binaries."""
-    import lief
-
+    # Present global (a test mock) wins; otherwise import on demand.
+    lief = globals().get("lief") or _lief()
     try:
         pe = lief.parse(str(path))
     except Exception:
