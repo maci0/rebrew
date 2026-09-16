@@ -167,6 +167,21 @@ def parse_coff_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
             yield str(sym.name), code, reloc_offsets
 
 
+#: No relocation fixes up more than 8 bytes (the widest is a 64-bit address).
+_MAX_RELOC_SPAN = 8
+
+
+def _reloc_span(size_bits: int) -> int:
+    """Bytes masked around an ELF relocation, from LIEF's bit-size.
+
+    LIEF reports a garbage bit-size for some targets — observed on ppc64le
+    ``libm`` objects, where the value made ``range(width)`` run for hours
+    instead of microseconds.  A bogus size must not turn that loop unbounded.
+    """
+    span = max(int(size_bits) // 8, 1)
+    return min(span, _MAX_RELOC_SPAN)
+
+
 def parse_elf_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
     """Parse an ELF .o member (console .a archives) → (name, code, reloc_offsets).
 
@@ -237,7 +252,7 @@ def parse_elf_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
                 for k in range(word_start, min(word_start + 4, len(code))):
                     reloc_offsets.add(k)
             else:
-                width = max(int(reloc.size) // 8, 1)
+                width = _reloc_span(reloc.size)
                 for k in range(width):
                     if func_rel + k < len(code):
                         reloc_offsets.add(func_rel + k)
