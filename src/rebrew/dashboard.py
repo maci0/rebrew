@@ -57,39 +57,65 @@ _INDEX_HTML = """<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rebrew coverage dashboard</title>
 <style>
   body { font-family: system-ui, sans-serif; margin: 1.5rem; color: #1a1a1a; }
-  select, input { min-height: 2.75rem; padding: .3rem; margin-right: .5rem; }
+  .filters { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: end;
+    margin-bottom: .5rem; }
+  .filters > div { display: flex; flex-direction: column; gap: .25rem; font-size: .9rem; }
+  select, input { min-height: 2.75rem; padding: .3rem .5rem; min-width: 10rem; }
   :focus-visible { outline: 3px solid #005fcc; outline-offset: 2px; }
   h1 { margin-bottom: .25rem; }
   .cards { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
   .card { border: 1px solid #ccc; border-radius: 6px; padding: .6rem 1rem; min-width: 110px; }
   .card b { font-size: 1.4rem; display: block; }
-  .table-scroll { overflow-x: auto; }
+  .table-scroll { overflow-x: auto; position: relative; }
+  .table-scroll[aria-busy="true"]::after {
+    content: "Loading…"; position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; background: rgba(255,255,255,.7); font-size: .95rem; color: #444;
+  }
   .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   table { border-collapse: collapse; width: 100%; margin-top: 1rem; font-size: .85rem; }
   th, td { border: 1px solid #ddd; padding: .3rem .5rem; text-align: left; }
   th { background: #f5f5f5; }
   td.va { font-family: monospace; }
+  #dashboard-error { color: #9a3412; background: #fff7ed; border: 1px solid #fed7aa;
+    border-radius: 6px; padding: .6rem .8rem; margin: .75rem 0; }
+  #empty-state, #no-targets { color: #555; margin: 1rem 0; }
+  #results-hint { color: #555; font-size: .9rem; margin: .25rem 0 0; }
 </style>
 </head>
 <body>
 <main>
 <h1>Rebrew coverage</h1>
-<label>Target <select id="target"></select></label>
-<label>Status <select id="status"><option value="">any</option></select></label>
+<p id="no-targets" hidden>No targets found in coverage.db. Run
+  <code>rebrew build-db</code> for this project, then reload.</p>
+<div id="controls" class="filters" hidden>
+<div>
+<label for="target">Target</label>
+<select id="target"></select>
+</div>
+<div>
+<label for="status">Status</label>
+<select id="status"><option value="">any</option></select>
+</div>
+<div>
 <label for="q">Search name or symbol</label>
-<input id="q" type="search" size="24">
-<section id="summary" aria-labelledby="summary-heading" aria-busy="false">
+<input id="q" type="search" size="24" placeholder="name or symbol" autocomplete="off">
+</div>
+</div>
+<section id="summary" aria-labelledby="summary-heading" aria-busy="false" hidden>
 <h2 class="visually-hidden" id="summary-heading">Coverage summary</h2>
 <div class="cards" id="cards"></div>
 </section>
 <p class="visually-hidden" id="results-status" role="status" aria-live="polite"></p>
 <p id="dashboard-error" role="alert" hidden></p>
+<p id="results-hint" hidden></p>
+<p id="empty-state" hidden>No functions match these filters. Clear search or set Status to any.</p>
 <div id="results" class="table-scroll" tabindex="0" role="region"
-  aria-label="Function results" aria-busy="false">
+  aria-label="Function results" aria-busy="false" hidden>
 <table id="rows"><caption class="visually-hidden">Functions matching the selected filters</caption><thead><tr>
   <th scope="col">VA</th><th scope="col">Name</th><th scope="col">Symbol</th>
   <th scope="col">Size</th><th scope="col">Status</th>
@@ -100,6 +126,8 @@ _INDEX_HTML = """<!doctype html>
 <script>
 const $ = (id) => document.getElementById(id);
 let targets = [];
+let searchTimer = null;
+let functionsSeq = 0;
 const busyCounts = new Map();
 async function get(path) {
   const r = await fetch(path);
@@ -124,63 +152,125 @@ function esc(s) {
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
   })[c]);
 }
-function statuses() {
-  const set = new Set();
-  document.querySelectorAll("#rows tbody tr td:nth-child(5)")
-    .forEach(td => set.add(td.textContent));
-  return [...set].sort();
-}
-async function loadFunctions() {
-  const t = $("target").value; if (!t) return;
-  const params = new URLSearchParams({ target: t });
-  if ($("status").value) params.set("status", $("status").value);
-  if ($("q").value) params.set("q", $("q").value);
-  const data = await whileBusy("results", () => get("/api/functions?" + params));
-  const body = $("rows").querySelector("tbody");
-  body.innerHTML = "";
-  for (const f of data.functions) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = "<td class=va>" + esc(f.va) + "</td><td>" + esc(f.name || "")
-      + "</td><td>" + esc(f.symbol || "") + "</td><td>" + esc(f.size ?? "")
-      + "</td><td>" + esc(f.status || "") + "</td><td>" + esc(f.module || "")
-      + "</td><td>" + esc(f.files || "") + "</td>";
-    body.appendChild(tr);
-  }
-  $("results-status").textContent = data.count + " function"
-    + (data.count === 1 ? "" : "s") + " shown";
-  $("status").innerHTML = "<option value=''>any</option>"
-    + statuses().map(s => "<option>" + esc(s) + "</option>").join("");
-}
-async function loadSummary() {
-  const t = $("target").value; if (!t) return;
-  const s = await whileBusy("summary", () =>
-    get("/api/summary?target=" + encodeURIComponent(t)));
-  const cards = [
-    ["Functions", s.function_stats.total],
-    ["Matched", (s.coverage_pct ?? 0).toFixed(1) + "%"],
-    ["Identified", (s.identified_pct ?? 0).toFixed(1) + "%"],
-  ];
-  for (const [k, v] of Object.entries(s.function_stats.by_status || {}))
-    cards.push([k, v]);
-  $("cards").innerHTML = cards.map(([k, v]) =>
-    "<div class=card><b>" + esc(v) + "</b>" + esc(k) + "</div>").join("");
-}
-async function init() {
-  targets = (await get("/api/targets")).targets;
-  $("target").innerHTML = targets.map(t => "<option>" + esc(t) + "</option>").join("");
-  if (targets.length) {
-    $("target").onchange = () => { loadSummary(); loadFunctions(); };
-    $("status").onchange = loadFunctions;
-    $("q").oninput = loadFunctions;
-    await loadSummary();
-    await loadFunctions();
-  }
-}
-init().catch(error => {
-  const message = "Dashboard failed to load: " + error.message;
+function showError(message) {
   $("results-status").textContent = message;
   $("dashboard-error").textContent = message;
   $("dashboard-error").hidden = false;
+}
+function clearError() {
+  $("dashboard-error").textContent = "";
+  $("dashboard-error").hidden = true;
+}
+function setStatusOptions(byStatus) {
+  const select = $("status");
+  const previous = select.value;
+  const names = Object.keys(byStatus || {}).sort();
+  select.innerHTML = "<option value=''>any</option>"
+    + names.map(s => "<option value='" + esc(s) + "'>" + esc(s) + "</option>").join("");
+  if (previous && names.includes(previous)) select.value = previous;
+  else select.value = "";
+}
+function setResultsMessage(count, total) {
+  const hint = $("results-hint");
+  if (!total) {
+    $("results-status").textContent = "No functions match";
+    hint.hidden = true;
+    hint.textContent = "";
+    return;
+  }
+  if (count < total) {
+    const msg = "Showing " + count + " of " + total + " matching functions (page limit)";
+    $("results-status").textContent = msg;
+    hint.textContent = msg + ". Narrow Status or Search to see the rest.";
+    hint.hidden = false;
+  } else {
+    const msg = count + " function" + (count === 1 ? "" : "s") + " shown";
+    $("results-status").textContent = msg;
+    hint.hidden = true;
+    hint.textContent = "";
+  }
+}
+async function loadFunctions() {
+  const t = $("target").value; if (!t) return;
+  const seq = ++functionsSeq;
+  const params = new URLSearchParams({ target: t });
+  if ($("status").value) params.set("status", $("status").value);
+  if ($("q").value.trim()) params.set("q", $("q").value.trim());
+  try {
+    $("results").hidden = false;
+    $("empty-state").hidden = true;
+    const data = await whileBusy("results", () => get("/api/functions?" + params));
+    if (seq !== functionsSeq) return;
+    clearError();
+    const body = $("rows").querySelector("tbody");
+    body.innerHTML = "";
+    for (const f of data.functions) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = "<td class=va>" + esc(f.va) + "</td><td>" + esc(f.name || "")
+        + "</td><td>" + esc(f.symbol || "") + "</td><td>" + esc(f.size ?? "")
+        + "</td><td>" + esc(f.status || "") + "</td><td>" + esc(f.module || "")
+        + "</td><td>" + esc(f.files || "") + "</td>";
+      body.appendChild(tr);
+    }
+    const total = data.total ?? data.count;
+    setResultsMessage(data.count, total);
+    $("empty-state").hidden = data.count !== 0;
+  } catch (error) {
+    if (seq !== functionsSeq) return;
+    showError("Failed to load functions: " + error.message);
+  }
+}
+async function loadSummary() {
+  const t = $("target").value; if (!t) return;
+  try {
+    const s = await whileBusy("summary", () =>
+      get("/api/summary?target=" + encodeURIComponent(t)));
+    clearError();
+    const byStatus = s.function_stats.by_status || {};
+    setStatusOptions(byStatus);
+    const cards = [
+      ["Functions", s.function_stats.total],
+      ["Matched", (s.coverage_pct ?? 0).toFixed(1) + "%"],
+      ["Identified", (s.identified_pct ?? 0).toFixed(1) + "%"],
+    ];
+    for (const [k, v] of Object.entries(byStatus)) cards.push([k, v]);
+    $("cards").innerHTML = cards.map(([k, v]) =>
+      "<div class=card><b>" + esc(v) + "</b>" + esc(k) + "</div>").join("");
+    $("summary").hidden = false;
+  } catch (error) {
+    showError("Failed to load summary: " + error.message);
+  }
+}
+function scheduleSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(loadFunctions, 200);
+}
+async function init() {
+  targets = (await get("/api/targets")).targets;
+  if (!targets.length) {
+    $("no-targets").hidden = false;
+    $("results-status").textContent = "No targets in coverage.db";
+    return;
+  }
+  $("controls").hidden = false;
+  $("target").innerHTML = targets.map(t =>
+    "<option value='" + esc(t) + "'>" + esc(t) + "</option>").join("");
+  $("target").onchange = () => {
+    $("status").value = "";
+    $("q").value = "";
+    clearTimeout(searchTimer);
+    void (async () => {
+      await loadSummary();
+      await loadFunctions();
+    })();
+  };
+  $("status").onchange = loadFunctions;
+  $("q").oninput = scheduleSearch;
+  await loadSummary();
+  await loadFunctions();
+}
+init().catch(error => {
+  showError("Dashboard failed to load: " + error.message);
 });
 </script>
 </body>

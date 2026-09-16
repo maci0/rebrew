@@ -259,6 +259,11 @@ class TestHandle:
         assert body.count('scope="col"') == 7
         assert 'aria-label="Function results"' in body
         assert body.count('aria-busy="false"') == 2
+        assert 'name="viewport"' in body
+        assert "setStatusOptions" in body
+        assert 'id="no-targets"' in body
+        assert 'id="empty-state"' in body
+        assert "Showing " in body and "of " in body  # truncation copy in JS
 
     def test_api_targets(self, dashboard: Dashboard) -> None:
         status, content_type, body = dashboard.handle("GET", "/api/targets", {})
