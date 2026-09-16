@@ -30,7 +30,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from rebrew.analysis import capstone_handle
+from rebrew.analysis import Insn, capstone_handle  # re-exported: nd.Insn is analysis.Insn
 from rebrew.cli import (
     TargetOption,
     error_exit,
@@ -79,22 +79,6 @@ _REGISTER_RE = re.compile(
 )
 
 
-class Insn:
-    """Minimal instruction view for classification."""
-
-    __slots__ = ("va", "mnemonic", "op_str", "bytes", "size")
-
-    def __init__(self, va: int, mnemonic: str, op_str: str, raw: bytes) -> None:
-        self.va = va
-        self.mnemonic = mnemonic
-        self.op_str = op_str
-        self.bytes = raw
-        self.size = len(raw)
-
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return f"<Insn {self.va:08x} {self.mnemonic} {self.op_str}>"
-
-
 def _resolve_capstone(value: str | int) -> int:
     """Resolve a capstone constant-name string ("CS_MODE_32") or int to an int."""
     if isinstance(value, int):
@@ -135,7 +119,10 @@ def disasm_insns(
     return, or a bare numeric string ("3") — both config styles must work.
     """
     md = capstone_handle(_resolve_capstone(cs_arch), _resolve_capstone(cs_mode))
-    return [Insn(i.address, i.mnemonic, i.op_str, bytes(i.bytes)) for i in md.disasm(code, va)]
+    return [
+        Insn(va=i.address, size=i.size, mnemonic=i.mnemonic, op_str=i.op_str, raw=bytes(i.bytes))
+        for i in md.disasm(code, va)
+    ]
 
 
 class _OperandCarrier(Protocol):
@@ -163,7 +150,7 @@ def _equiv_class(mnemonic: str) -> tuple[str, ...]:
 
 def classify_pair(target: Insn, compiled: Insn) -> str:
     """Classify one aligned (target, compiled) instruction pair."""
-    if target.bytes == compiled.bytes:
+    if target.raw == compiled.raw:
         return "match"
     if target.mnemonic == compiled.mnemonic:
         if target.op_str == compiled.op_str:
