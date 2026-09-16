@@ -105,8 +105,9 @@ Six bundled skills for AI coding agent integration:
 > executes inside its toolchain image (wine/DOSBox live in the image; there is
 > no host wine path) — build or pull it with `rebrew toolchain build <name>`
 > (see [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md)). Analysis-only commands
-> (`asm`, `analyze`, `flirt`, `catalog`, …) are pure Python 3.13+ and have no
-> host-OS requirement.
+> (`asm`, `analyze`, `flirt`, `catalog`, …) are pure Python 3.13+ and avoid
+> host-OS assumptions in path and text I/O; CI currently validates them on
+> Linux only.
 
 ```bash
 # 1. Install

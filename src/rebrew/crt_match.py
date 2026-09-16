@@ -175,7 +175,7 @@ def build_crt_index(source_dir: Path, module: str) -> list[CrtSourceEntry]:
         if suffix not in {".c", ".cpp", ".asm"}:
             continue
 
-        rel_file = str(file_path.relative_to(source_dir)).replace("\\", "/")
+        rel_file = file_path.relative_to(source_dir).as_posix()
 
         try:
             text = file_path.read_text(encoding="utf-8", errors="replace")

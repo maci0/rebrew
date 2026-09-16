@@ -174,7 +174,7 @@ def _agent_skill_files(target_name: str) -> dict[str, bytes]:
     if _AGENT_SKILLS_SRC.is_dir():
         for src in sorted(_AGENT_SKILLS_SRC.rglob("*")):
             if src.is_file():
-                files[str(src.relative_to(_AGENT_SKILLS_SRC))] = src.read_bytes()
+                files[src.relative_to(_AGENT_SKILLS_SRC).as_posix()] = src.read_bytes()
 
     from rebrew.skills import _parse_frontmatter, _safe_skill_name, _user_skills_dir
 
@@ -193,7 +193,7 @@ def _agent_skill_files(target_name: str) -> dict[str, bytes]:
                 continue
             for src in sorted(skill_dir.rglob("*")):
                 if src.is_file():
-                    files[f"{name}/{src.relative_to(skill_dir)}"] = src.read_bytes()
+                    files[f"{name}/{src.relative_to(skill_dir).as_posix()}"] = src.read_bytes()
 
     marker = b"<target>"
     replacement = target_name.encode("utf-8")
@@ -416,7 +416,7 @@ def _prompt_binary(cwd: Path, binary_name: str) -> str:
         return _resolve_manual_binary(
             cwd, Prompt.ask("Binary path or name", default=binary_name, console=console)
         )
-    labels = [str(p.relative_to(cwd)) if p.is_relative_to(cwd) else str(p) for p in found]
+    labels = [p.relative_to(cwd).as_posix() if p.is_relative_to(cwd) else str(p) for p in found]
     console.print("[bold]Select the target binary:[/bold]")
     for i, label in enumerate(labels, 1):
         console.print(f"  {i}. {label}")
