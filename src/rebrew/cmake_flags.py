@@ -42,7 +42,7 @@ from rebrew.cli import (
 )
 from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, config_path
 
 app = typer.Typer(add_completion=False, help=__doc__)
 console = Console(stderr=True)
@@ -173,7 +173,7 @@ def main(
     listed: set[Path] = set()
     if sources_file is not None:
         for line in sources_file.read_text(encoding="utf-8").splitlines():
-            rel = line.strip()
+            rel = config_path(line.strip()).as_posix()
             if not rel or not (cfg.root / rel).is_file():
                 continue
             path = (cfg.root / rel).resolve()

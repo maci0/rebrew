@@ -18,6 +18,8 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from rebrew.utils import config_path
+
 CONFIG_NAME = "rebrew-project.toml"
 
 #: Directory used when ``[project].db_dir`` is absent or empty.
@@ -127,7 +129,7 @@ def target_reversed_dir(root: Path, name: str, entry: dict[str, Any]) -> Path:
     """Reversed-source directory: ``reversed_dir``, else ``root/src/<name>``."""
     configured = entry.get("reversed_dir")
     if isinstance(configured, str) and configured.strip():
-        return root / configured
+        return root / config_path(configured)
     return root / DEFAULT_REVERSED_ROOT / name
 
 
@@ -140,7 +142,7 @@ def target_binary(root: Path, entry: dict[str, Any]) -> Path | None:
     configured = entry.get("binary")
     if not isinstance(configured, str) or not configured.strip():
         return None
-    path = Path(configured)
+    path = config_path(configured)
     return path if path.is_absolute() else root / path
 
 
@@ -148,7 +150,7 @@ def db_dir(root: Path) -> Path:
     """Directory holding coverage.db: ``[project].db_dir``, else ``root/db``."""
     configured = project_table(read_config(root)).get("db_dir")
     if isinstance(configured, str) and configured.strip():
-        return (root / configured.strip()).resolve()
+        return (root / config_path(configured.strip())).resolve()
     return (root / DEFAULT_DB_DIR).resolve()
 
 

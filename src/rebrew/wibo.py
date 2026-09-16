@@ -25,19 +25,21 @@ _WIBO_DEFAULT_PATH = Path("tools/wibo")
 
 
 def _wibo_asset_name() -> str:
-    """Return the correct wibo asset name for the current platform."""
-    if sys.platform == "darwin":
-        return "wibo-macos"
+    """Return the correct wibo asset name for the current platform.
 
+    Host support matches the project claim (Linux x86 only): there is no
+    macOS/Windows download path, and Linux aarch64 has no upstream asset.
+    """
+    machine = platform.machine().lower()
     if sys.platform.startswith("linux"):
-        machine = platform.machine().lower()
         if machine in {"x86_64", "amd64"}:
             return "wibo-x86_64"
         if machine in {"i686", "i386"}:
             return "wibo-i686"
 
     raise RuntimeError(
-        f"Unsupported platform for wibo: platform={sys.platform!r}, machine={platform.machine()!r}"
+        "Unsupported platform for wibo: need Linux x86_64 or i686 "
+        f"(platform={sys.platform!r}, machine={platform.machine()!r})"
     )
 
 

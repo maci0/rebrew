@@ -35,6 +35,11 @@ class TestResolve:
         result = _resolve(tmp_path, "foo/bar.dll")
         assert result == tmp_path / "foo" / "bar.dll"
 
+    def test_windows_separators_normalize(self, tmp_path: Path) -> None:
+        """Config paths copied from Windows must resolve as POSIX components."""
+        result = _resolve(tmp_path, r"foo\bar.dll")
+        assert result == tmp_path / "foo" / "bar.dll"
+
     def test_absolute_path(self, tmp_path: Path) -> None:
         result = _resolve(tmp_path, "/absolute/path.dll")
         assert result == Path("/absolute/path.dll")

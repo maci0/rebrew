@@ -96,7 +96,7 @@ from rebrew.cli import (
 )
 from rebrew.layout_meta import SectionMeta
 from rebrew.sources import iter_sources, target_marker
-from rebrew.utils import atomic_write_text, parse_int_literal
+from rebrew.utils import atomic_write_text, config_path, parse_int_literal
 
 if TYPE_CHECKING:
     from rebrew.symbol_addrs import SymbolRow
@@ -516,7 +516,7 @@ def _rel(base: Path, raw: Any) -> Path | None:
     """Resolve a YAML path value against *base* (splat's ``base_path``)."""
     if not isinstance(raw, str) or not raw.strip():
         return None
-    path = Path(raw)
+    path = config_path(raw)
     return path if path.is_absolute() else (base / path)
 
 

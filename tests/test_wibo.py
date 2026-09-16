@@ -74,10 +74,17 @@ class TestWiboAssetName:
         monkeypatch.setattr("platform.machine", lambda: "i686")
         assert _wibo_asset_name() == "wibo-i686"
 
-    def test_darwin(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_darwin_unsupported(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(sys, "platform", "darwin", raising=False)
         monkeypatch.setattr("platform.machine", lambda: "arm64")
-        assert _wibo_asset_name() == "wibo-macos"
+        with pytest.raises(RuntimeError, match="Linux x86_64 or i686"):
+            _wibo_asset_name()
+
+    def test_linux_aarch64_unsupported(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(sys, "platform", "linux", raising=False)
+        monkeypatch.setattr("platform.machine", lambda: "aarch64")
+        with pytest.raises(RuntimeError, match="Linux x86_64 or i686"):
+            _wibo_asset_name()
 
     def test_unsupported_platform(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(sys, "platform", "win32", raising=False)

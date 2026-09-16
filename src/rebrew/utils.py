@@ -1081,6 +1081,19 @@ def remove_temp_dir(path: Path, retries: int = 5, delay: float = 0.2) -> None:
             time.sleep(delay)
 
 
+def config_path(rel: str | Path) -> Path:
+    """Build a :class:`~pathlib.Path` from a config / YAML / CLI path string.
+
+    Project files and splat YAML may use Windows separators.  On POSIX,
+    ``Path("src\\\\foo.c")`` is a single name component containing a
+    literal backslash, so ``src\\\\foo.c`` never resolves to ``src/foo.c``.
+    Normalize separators before constructing the path.  Absolute Windows
+    drive paths (``C:/…``) stay non-absolute on POSIX — they cannot be
+    used as host paths on Linux and are left for the caller to reject.
+    """
+    return Path(os.fspath(rel).replace("\\", "/"))
+
+
 def rel_display_path(filepath: Path, base_dir: Path | None = None) -> str:
     """Return a display-friendly relative path for a source file.
 

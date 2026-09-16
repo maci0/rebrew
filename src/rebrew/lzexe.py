@@ -538,7 +538,8 @@ class LzexeResult:
 
     ``image`` is the decompressed program image (everything after the
     reconstructed header).  ``header_words`` holds the 14 rebuilt MZ header
-    words (native word order, as unlzexe writes them) so :meth:`to_bytes`
+    words as host ``int`` values (on-disk layout is little-endian MZ, written
+    by :meth:`to_bytes` via ``struct.pack_into("<…")``) so the method
     reassembles a loadable MZ executable.
     """
 
