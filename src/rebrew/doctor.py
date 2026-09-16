@@ -1259,10 +1259,10 @@ def check_flirt_sigs(cfg: ProjectConfig) -> CheckResult:
             status=_WARN,
             message="flirt_sigs/ directory not found",
             fix=(
-                "Generate signatures from a compiler .lib with "
+                "Run 'rebrew flirt --init-matched' for the linkage-matched "
+                "set, or generate from a compiler .lib with "
                 "'rebrew gen-flirt-pat /path/to/msvcrt.lib "
-                "--output flirt_sigs/msvcrt_vc6.pat', or copy .sig files "
-                "(e.g. from fireeye/siglib) into flirt_sigs/."
+                "--output flirt_sigs/msvcrt_vc6.pat'."
             ),
         )
 

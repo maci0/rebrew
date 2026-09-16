@@ -54,12 +54,17 @@ def _sig_files(dirs: list[Path]) -> list[Path]:
     return list(seen.values())
 
 
-def _init_project_sigs(cfg: Any, json_output: bool) -> None:
+def _init_project_sigs(cfg: Any, json_output: bool, matched_only: bool = False) -> None:
     """Copy the shared sig checkout into the project's ``flirt_sigs/``.
 
     Explicit, versioned per project: later upstream additions don't silently
     change a project's matches.  Existing project files win (never
     overwritten) — delete one to re-sync it.
+
+    With *matched_only*, copy just the CRT family matching the target's
+    detected linkage (static→``libcmt*``, dynamic→``msvcrt*``/``crtdll*``;
+    unknown linkage copies both) plus the WinAPI import sigs — typically a
+    third of the checkout instead of all 260+ files.
     """
     from rebrew.cli import error_exit, json_print
 
@@ -70,10 +75,17 @@ def _init_project_sigs(cfg: Any, json_output: bool) -> None:
             "next to this repo or set REBREW_FLIRT_SIGS_DIR",
             json_mode=json_output,
         )
+    wanted: set[str] | None = None
+    linkage = ""
+    if matched_only:
+        linkage = _detect_crt_linkage(cfg)
+        wanted = _matched_sig_names(linkage)
     dest = Path(cfg.root) / "flirt_sigs"
     dest.mkdir(parents=True, exist_ok=True)
     copied = 0
     for src in sorted(repo.glob("*.sig")) + sorted(repo.glob("*.pat")):
+        if wanted is not None and src.name not in wanted:
+            continue
         target = dest / src.name
         if target.exists():
             continue
@@ -81,9 +93,49 @@ def _init_project_sigs(cfg: Any, json_output: bool) -> None:
         copied += 1
     total = len(list(dest.glob("*.sig"))) + len(list(dest.glob("*.pat")))
     if json_output:
-        json_print({"copied": copied, "total": total, "dir": str(dest)})
+        json_print({"copied": copied, "total": total, "dir": str(dest), "linkage": linkage})
         return
     console.print(f"[green]flirt_sigs/: {copied} copied, {total} total[/green]")
+
+
+def _detect_crt_linkage(cfg: Any) -> str:
+    """``static`` / ``dynamic`` / ``""`` for the target binary."""
+    try:
+        from rebrew.toolchain_detect import detect_toolchain
+
+        info = detect_toolchain(Path(cfg.target_binary))
+        return str(info.crt_linkage or "")
+    except Exception:
+        return ""
+
+
+#: CRT sig stems by linkage (``*_vc6.pat`` suffix stripped for matching).
+_CRT_STATIC_STEMS = ("libcmt", "libcmtd")
+_CRT_DYNAMIC_STEMS = ("msvcrt", "msvcrtd", "msvcirt", "msvcirtd", "crtdll")
+
+
+def _matched_sig_names(linkage: str) -> set[str]:
+    """Sig filenames worth copying for *linkage* (best-effort heuristics).
+
+    Unknown linkage keeps everything CRT-ish plus WinAPI; known linkage
+    keeps its own CRT family plus WinAPI and drops the other family (a
+    static binary never matches msvcrt imports and vice versa).
+    """
+    names: set[str] = set()
+    repo = _flirt_sigs_repo()
+    if not repo.is_dir():
+        return names
+    for src in list(repo.glob("*.sig")) + list(repo.glob("*.pat")):
+        stem = src.name.lower()
+        is_crt = stem.startswith(_CRT_STATIC_STEMS + _CRT_DYNAMIC_STEMS)
+        if (
+            not is_crt
+            or not linkage
+            or (linkage == "static" and stem.startswith(_CRT_STATIC_STEMS))
+            or (linkage == "dynamic" and stem.startswith(_CRT_DYNAMIC_STEMS))
+        ):
+            names.add(src.name)  # WinAPI + misc always; CRT iff linkage matches
+    return names
 
 
 def _parse_sig_files(files: list[Path]) -> list[Any]:
@@ -275,6 +327,12 @@ def main(
         "--init",
         help="Copy the rebrew-flirt-sigs checkout into the project's flirt_sigs/ and exit",
     ),
+    init_matched: bool = typer.Option(
+        False,
+        "--init-matched",
+        help="Copy only the sigs matching the target's detected CRT linkage "
+        "(static→libcmt*, dynamic→msvcrt*/crtdll*) plus WinAPI imports, and exit",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -283,6 +341,9 @@ def main(
 
     if init:
         _init_project_sigs(cfg, json_output)
+        return
+    if init_matched:
+        _init_project_sigs(cfg, json_output, matched_only=True)
         return
 
     final_exe = binary or cfg.target_binary
