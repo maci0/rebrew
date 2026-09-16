@@ -28,6 +28,26 @@ class TestPackagingMetadata:
         init = (PKG / "__init__.py").read_text(encoding="utf-8")
         assert '__version__ = "' in init
 
+    def test_changelog_opens_with_unreleased_or_current_version(self) -> None:
+        """Keep a Changelog: notes land under Unreleased until the tag bump.
+
+        The dated ``[version]`` section must exist for every released
+        ``__version__``; between tags the file opens with ``[Unreleased]``.
+        """
+        from rebrew import __version__
+
+        text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        assert f"## [{__version__}]" in text
+        first = next(line for line in text.splitlines() if line.startswith("## "))
+        assert first == "## [Unreleased]" or first.startswith(f"## [{__version__}]")
+
+    def test_contributing_major_line_matches_package(self) -> None:
+        from rebrew import __version__
+
+        major = __version__.split(".", 1)[0]
+        text = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+        assert f"Rebrew is {major}.x." in text
+
     def test_requires_python_matches_ci_floor(self) -> None:
         assert _project()["requires-python"] == ">=3.13"
 
