@@ -84,6 +84,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import threading
 import tomllib
 import typing
 from collections.abc import Callable
@@ -97,9 +98,11 @@ import tomlkit
 from rebrew.utils import (
     atomic_write_locked,
     build_metadata_doc,
+    clear_metadata_doc_cache,
     load_metadata_doc,
     load_toml_for_write,
     metadata_write_lock,
+    pop_metadata_doc_cache,
     resolve_metadata_key,
 )
 from rebrew.workspace.status import KNOWN_STATUSES as KNOWN_STATUSES
@@ -125,7 +128,7 @@ def clear_metadata_cache() -> None:
     Call between top-level CLI commands if running multiple in-process,
     or after writing metadata to ensure subsequent reads see fresh data.
     """
-    _metadata_cache.clear()
+    clear_metadata_doc_cache(_metadata_cache)
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +271,7 @@ def load_metadata(
     # Resolve so cache keys are stable across relative/absolute call sites.
     path = (directory / METADATA_FILENAME).resolve()
     if not path.exists():
-        _metadata_cache.pop(path, None)
+        pop_metadata_doc_cache(_metadata_cache, path)
         return {}
 
     return load_metadata_doc(path, _metadata_cache, "metadata", deepcopy=deepcopy)
@@ -289,7 +292,7 @@ def save_metadata(
     doc = build_metadata_doc(data, _CANONICAL_ORDER)
     with metadata_write_lock(directory, METADATA_FILENAME):
         atomic_write_locked(path, tomlkit.dumps(doc))
-        _metadata_cache.pop(path, None)
+        pop_metadata_doc_cache(_metadata_cache, path)
 
 
 # ---------------------------------------------------------------------------
@@ -416,7 +419,7 @@ def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> N
 
         doc[toml_key][key] = toml_safe(value)
         atomic_write_locked(path, tomlkit.dumps(doc))
-        _metadata_cache.pop(path, None)
+        pop_metadata_doc_cache(_metadata_cache, path)
 
 
 def set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) -> None:
@@ -451,7 +454,7 @@ def set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) ->
                 changed = True
         if changed:
             atomic_write_locked(path, tomlkit.dumps(doc))
-            _metadata_cache.pop(path, None)
+            pop_metadata_doc_cache(_metadata_cache, path)
 
 
 def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
@@ -492,7 +495,7 @@ def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
                 changed_entries += 1
         if changed_entries:
             atomic_write_locked(path, tomlkit.dumps(doc))
-        _metadata_cache.pop(path, None)
+        pop_metadata_doc_cache(_metadata_cache, path)
     return changed_entries
 
 
@@ -538,7 +541,7 @@ def remove_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> in
                 changed_entries += 1
         if changed_entries:
             atomic_write_locked(path, tomlkit.dumps(doc))
-            _metadata_cache.pop(path, None)
+            pop_metadata_doc_cache(_metadata_cache, path)
     return changed_entries
 
 
@@ -569,7 +572,7 @@ def delete_entries_batch(metadata_dir: Path, targets: list[tuple[str, int]]) -> 
             removed += 1
         if removed:
             atomic_write_locked(path, tomlkit.dumps(doc))
-            _metadata_cache.pop(path, None)
+            pop_metadata_doc_cache(_metadata_cache, path)
     return removed
 
 
@@ -602,7 +605,7 @@ def _mutate_entry_doc(
         if not mutate(doc_dict, toml_key):
             return False
         atomic_write_locked(path, tomlkit.dumps(doc))
-        _metadata_cache.pop(path, None)
+        pop_metadata_doc_cache(_metadata_cache, path)
         return True
 
 
@@ -917,7 +920,7 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
         # Single write for the whole batch
         if changed:
             atomic_write_locked(path, tomlkit.dumps(doc))
-        _metadata_cache.pop(path, None)
+        pop_metadata_doc_cache(_metadata_cache, path)
     return changed
 
 
@@ -1190,8 +1193,12 @@ def all_library_presets() -> dict[str, dict[str, str]]:
 #: Entries hold ``((mtime_ns, size), parsed_dict)`` so a repeated resolution
 #: skips the read+parse while any rewrite (new mtime/size) re-parses.  Cleared
 #: wholesale when full — library files per project are few.
+#: Guarded: ``rebrew verify -j N`` resolves overrides from worker threads; the
+#: walk cache's check-then-``del`` and the meta cache's clear-then-store are
+#: multi-step mutations on shared dicts.
 _LIBRARY_META_CACHE: dict[str, tuple[tuple[int, int], dict[str, Any]]] = {}
 _LIBRARY_META_CACHE_MAX = 64
+_LIBRARY_CACHE_LOCK = threading.Lock()
 
 
 def parse_library_metadata(path: Path) -> dict[str, Any]:
@@ -1212,21 +1219,28 @@ def parse_library_metadata(path: Path) -> dict[str, Any]:
     try:
         st = path.stat()
     except OSError:
-        _LIBRARY_META_CACHE.pop(key, None)
+        with _LIBRARY_CACHE_LOCK:
+            _LIBRARY_META_CACHE.pop(key, None)
         return {}
     fp = (st.st_mtime_ns, st.st_size)
-    cached = _LIBRARY_META_CACHE.get(key)
-    if cached is not None and cached[0] == fp:
-        return dict(cached[1])
+    with _LIBRARY_CACHE_LOCK:
+        cached = _LIBRARY_META_CACHE.get(key)
+        if cached is not None and cached[0] == fp:
+            return dict(cached[1])
     try:
         raw = tomllib.loads(path.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise LibraryOverrideError(f"bad {LIBRARY_METADATA_FILE} at {path}: {exc}") from exc
     if not isinstance(raw, dict):
         raise LibraryOverrideError(f"{path} must be a TOML table")
-    if len(_LIBRARY_META_CACHE) >= _LIBRARY_META_CACHE_MAX:
-        _LIBRARY_META_CACHE.clear()
-    _LIBRARY_META_CACHE[key] = (fp, raw)
+    with _LIBRARY_CACHE_LOCK:
+        # Re-check: another worker may have filled it while we parsed.
+        cached = _LIBRARY_META_CACHE.get(key)
+        if cached is not None and cached[0] == fp:
+            return dict(cached[1])
+        if len(_LIBRARY_META_CACHE) >= _LIBRARY_META_CACHE_MAX:
+            _LIBRARY_META_CACHE.clear()
+        _LIBRARY_META_CACHE[key] = (fp, raw)
     return dict(raw)
 
 
@@ -1252,8 +1266,10 @@ _LIBRARY_WALK_CACHE_MAX = 256
 
 
 def clear_library_override_cache() -> None:
-    """Forget cached ``rebrew-libraries.toml`` walk results (call after writes)."""
-    _LIBRARY_WALK_CACHE.clear()
+    """Forget cached ``rebrew-libraries.toml`` walk + parse results (call after writes)."""
+    with _LIBRARY_CACHE_LOCK:
+        _LIBRARY_WALK_CACHE.clear()
+        _LIBRARY_META_CACHE.clear()
 
 
 def find_library_override(
@@ -1273,11 +1289,22 @@ def find_library_override(
     cur = Path(start_dir).resolve()
     root_p = Path(root).resolve() if root is not None else None
     key = (str(cur), str(root_p) if root_p is not None else "")
-    cached = _LIBRARY_WALK_CACHE.get(key)
-    if cached is not None and not cached.exists():
-        del _LIBRARY_WALK_CACHE[key]  # deleted since the walk — re-walk
+
+    with _LIBRARY_CACHE_LOCK:
+        cached = _LIBRARY_WALK_CACHE.get(key)
+        present = key in _LIBRARY_WALK_CACHE
+
+    # Stale-path check outside the lock so a deleted library file does not
+    # serialize every worker on a filesystem round-trip.
+    if present and cached is not None and not cached.exists():
+        with _LIBRARY_CACHE_LOCK:
+            # pop, not del: concurrent workers can both observe a deleted path
+            # and race the invalidate — del would KeyError the loser.
+            _LIBRARY_WALK_CACHE.pop(key, None)
+        present = False
         cached = None
-    if key not in _LIBRARY_WALK_CACHE:
+
+    if not present:
         found: Path | None = None
         walk = cur
         while True:
@@ -1290,10 +1317,13 @@ def find_library_override(
             if walk.parent == walk:
                 break
             walk = walk.parent
-        if len(_LIBRARY_WALK_CACHE) >= _LIBRARY_WALK_CACHE_MAX:
-            _LIBRARY_WALK_CACHE.clear()
-        _LIBRARY_WALK_CACHE[key] = found
-        cached = found
+        with _LIBRARY_CACHE_LOCK:
+            if key not in _LIBRARY_WALK_CACHE:
+                if len(_LIBRARY_WALK_CACHE) >= _LIBRARY_WALK_CACHE_MAX:
+                    _LIBRARY_WALK_CACHE.clear()
+                _LIBRARY_WALK_CACHE[key] = found
+            cached = _LIBRARY_WALK_CACHE[key]
+
     if cached is None:
         return None
     meta = parse_library_metadata(cached)

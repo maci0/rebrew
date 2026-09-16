@@ -6,6 +6,7 @@ and scans reversed directories for annotated source files.
 
 import contextlib
 import json
+import threading
 import warnings
 from pathlib import Path
 from typing import Any
@@ -117,8 +118,11 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, GhidraDataLabel]:
 # Path-keyed cache of discovery inventories (multiple projects per process).
 # Value is ``(mtime_ns_str, funcs)`` so a rewrite replaces the same slot
 # instead of orphaning a new ``path:mtime`` key on every edit (unbounded growth).
+# Guarded: eviction is a multi-step next(iter)+del on a shared dict; concurrent
+# catalog/verify callers must not race the check-then-act.
 _function_list_cache: dict[str, tuple[str, list[dict[str, Any]]]] = {}
 _FUNCTION_LIST_CACHE_MAX = 32
+_function_list_cache_lock = threading.Lock()
 
 
 def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
@@ -141,9 +145,10 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
     with contextlib.suppress(OSError):
         mtime_key = str(Path(path).stat().st_mtime_ns)
     cache_key = path if path else ""
-    cached = _function_list_cache.get(cache_key)
-    if cached is not None and cached[0] == mtime_key:
-        return list(cached[1])
+    with _function_list_cache_lock:
+        cached = _function_list_cache.get(cache_key)
+        if cached is not None and cached[0] == mtime_key:
+            return list(cached[1])
     try:
         funcs = [
             {"va": e.va, "size": e.size, "name": e.name or e.tool_name}
@@ -157,13 +162,14 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
             exc,
         )
         funcs = []
-    if (
-        len(_function_list_cache) >= _FUNCTION_LIST_CACHE_MAX
-        and cache_key not in _function_list_cache
-    ):
-        oldest = next(iter(_function_list_cache))
-        del _function_list_cache[oldest]
-    _function_list_cache[cache_key] = (mtime_key, funcs)
+    with _function_list_cache_lock:
+        if (
+            len(_function_list_cache) >= _FUNCTION_LIST_CACHE_MAX
+            and cache_key not in _function_list_cache
+        ):
+            oldest = next(iter(_function_list_cache))
+            _function_list_cache.pop(oldest, None)
+        _function_list_cache[cache_key] = (mtime_key, funcs)
     return list(funcs)
 
 

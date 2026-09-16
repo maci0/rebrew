@@ -611,6 +611,30 @@ def metadata_write_lock(directory: Path, filename: str) -> Iterator[None]:
             depth.pop(filename, None)
 
 
+#: Serializes in-memory metadata-doc cache mutations (``rebrew-functions.toml``
+#: / ``rebrew-data.toml``).  ``rebrew verify -j N`` fills the cache from
+#: workers while ``rebrew test`` / match / GA writers pop after STATUS
+#: promotion — unguarded clear/pop vs fill races the shared dict.
+_METADATA_DOC_CACHE_LOCK = threading.Lock()
+
+
+def pop_metadata_doc_cache(
+    cache: dict[Path, tuple[int, dict[tuple[str, int], dict[str, Any]]]],
+    path: Path,
+) -> None:
+    """Drop one entry from a metadata-doc cache under the shared lock."""
+    with _METADATA_DOC_CACHE_LOCK:
+        cache.pop(path, None)
+
+
+def clear_metadata_doc_cache(
+    cache: dict[Path, tuple[int, dict[tuple[str, int], dict[str, Any]]]],
+) -> None:
+    """Clear a metadata-doc cache under the shared lock."""
+    with _METADATA_DOC_CACHE_LOCK:
+        cache.clear()
+
+
 def load_metadata_doc(
     path: Path,
     cache: dict[Path, tuple[int, dict[tuple[str, int], dict[str, Any]]]],
@@ -638,18 +662,19 @@ def load_metadata_doc(
     """
     path = path.resolve()
     if not path.exists():
-        cache.pop(path, None)
+        pop_metadata_doc_cache(cache, path)
         return {}
 
     try:
         current_mtime = path.stat().st_mtime_ns
     except OSError:
         current_mtime = 0
-    cached = cache.get(path)
-    if cached is not None and cached[0] == current_mtime:
-        # Deep copy: callers mutate the entries they get (merge overlays,
-        # status promotion), and an aliased dict would corrupt the cache.
-        return copy.deepcopy(cached[1]) if deepcopy else cached[1]
+    with _METADATA_DOC_CACHE_LOCK:
+        cached = cache.get(path)
+        if cached is not None and cached[0] == current_mtime:
+            # Deep copy: callers mutate the entries they get (merge overlays,
+            # status promotion), and an aliased dict would corrupt the cache.
+            return copy.deepcopy(cached[1]) if deepcopy else cached[1]
 
     try:
         doc = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -658,7 +683,13 @@ def load_metadata_doc(
         return {}
 
     result = parse_metadata_doc(doc)
-    cache[path] = (current_mtime, result)
+    with _METADATA_DOC_CACHE_LOCK:
+        # Re-check: a writer may have invalidated (or another reader filled)
+        # while we parsed — prefer a fresher entry if one landed.
+        cached = cache.get(path)
+        if cached is not None and cached[0] == current_mtime:
+            return copy.deepcopy(cached[1]) if deepcopy else cached[1]
+        cache[path] = (current_mtime, result)
     # Deep copy for the same reason as the cache-hit path above.
     return copy.deepcopy(result) if deepcopy else result
 

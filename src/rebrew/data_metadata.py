@@ -58,6 +58,7 @@ from rebrew.utils import (
     load_metadata_doc,
     load_toml_for_write,
     metadata_write_lock,
+    pop_metadata_doc_cache,
     resolve_metadata_key,
 )
 
@@ -79,7 +80,7 @@ _data_metadata_cache: dict[Path, tuple[int, dict[tuple[str, int], dict[str, Any]
 
 def _invalidate_data_cache(path: Path) -> None:
     """Drop the cached parse for *path* (resolved) after a write."""
-    _data_metadata_cache.pop(path.resolve(), None)
+    pop_metadata_doc_cache(_data_metadata_cache, path.resolve())
 
 
 # ---------------------------------------------------------------------------

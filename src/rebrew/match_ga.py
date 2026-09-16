@@ -377,7 +377,10 @@ class BinaryMatchingGA:
         # the warm-scoring fast path in _compute_fitness could never fire.
         # Elite sources persist across generations unchanged, so a dict
         # here (no extra disk write) captures the real win.
+        # Guarded: ``num_jobs`` workers read/write this dict and ``self.cache``
+        # concurrently; compound check-then-act without a lock races.
         self._fitness_memo: dict[str, float] = {}
+        self._memo_lock = threading.Lock()
 
         # Scope mutation queries to the target function's byte range — only
         # that function's compiled bytes are scored, so mutating siblings in
@@ -520,7 +523,8 @@ class BinaryMatchingGA:
         # the source.  A sweep-then-GA or CFLAGS-metadata change used to
         # reuse the previous flag combination's .obj.
         src_hash = self._cache_key(src)
-        res = self.cache.get(src_hash)
+        with self._memo_lock:
+            res = self.cache.get(src_hash)
         if res:
             return res
 
@@ -573,7 +577,8 @@ class BinaryMatchingGA:
         # Failures never reach that put (they return early there), so they
         # are stored here instead: one write per candidate either way.
         if not res.ok:
-            self.cache[src_hash] = res
+            with self._memo_lock:
+                self.cache[src_hash] = res
         return res
 
     def _compute_fitness(self, res: BuildResult, src_hash: str, src: str) -> float:
@@ -590,12 +595,14 @@ class BinaryMatchingGA:
         # skips re-disassembly + re-scoring entirely.  Perf-review F6:
         # ~2.8s per 300k-candidate warm batch of elite/unchanged sources
         # that persist across generations.
-        memoized = self._fitness_memo.get(src_hash)
+        with self._memo_lock:
+            memoized = self._fitness_memo.get(src_hash)
         if memoized is not None:
             return memoized
         cached_fitness = getattr(res, "fitness", None)
         if res.ok and cached_fitness is not None:
-            self._fitness_memo[src_hash] = float(cached_fitness)
+            with self._memo_lock:
+                self._fitness_memo[src_hash] = float(cached_fitness)
             return float(cached_fitness)
 
         if not res.ok or res.obj_bytes is None:
@@ -639,15 +646,16 @@ class BinaryMatchingGA:
         # 300k-candidate warm batch).  getattr guards pickles written before
         # the field existed.
         res.fitness = total
-        self._fitness_memo[src_hash] = total
-        # One memo store per candidate: _compile_source skipped the store on
-        # a miss (it defers to the scored result here), so this put persists
-        # both the .obj and the fitness — a later generation loads fitness
-        # set and takes the warm-cache skip.  Keyed on the compile
-        # configuration (``_cache_key``), NOT the ``src_hash`` argument: the
-        # caller passes the bare source digest for memoization, and a
-        # digest-keyed entry is never read by ``_compile_source``.
-        self.cache[self._cache_key(src)] = res
+        with self._memo_lock:
+            self._fitness_memo[src_hash] = total
+            # One memo store per candidate: _compile_source skipped the store on
+            # a miss (it defers to the scored result here), so this put persists
+            # both the .obj and the fitness — a later generation loads fitness
+            # set and takes the warm-cache skip.  Keyed on the compile
+            # configuration (``_cache_key``), NOT the ``src_hash`` argument: the
+            # caller passes the bare source digest for memoization, and a
+            # digest-keyed entry is never read by ``_compile_source``.
+            self.cache[self._cache_key(src)] = res
         _log(
             f"[{src_hash[:8]}] SUCCESS. Score={total:.2f} (len_bytes={len(obj_bytes)}, excess={excess})"
         )
@@ -718,7 +726,8 @@ class BinaryMatchingGA:
                 futures: dict[Future[BuildResult], tuple[str, str]] = {}
                 for src in self.population:
                     src_hash = source_digest(src)
-                    memoized = self._fitness_memo.get(src_hash)
+                    with self._memo_lock:
+                        memoized = self._fitness_memo.get(src_hash)
                     if memoized is not None:
                         scored_pop.append((memoized, src))
                         continue
@@ -865,7 +874,9 @@ class BinaryMatchingGA:
         from rebrew.matcher import set_target_range
 
         set_target_range(None, None)  # safety: ensure no scope leaks
-        self.cache.clear()
+        with self._memo_lock:
+            self.cache.clear()
+            self._fitness_memo.clear()
 
     def __enter__(self) -> BinaryMatchingGA:
         return self
