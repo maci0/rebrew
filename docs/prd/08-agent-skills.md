@@ -15,7 +15,7 @@ discover the workflow on the fly:
 - Mixes up edges that humans tolerate but cause silent failures (e.g.
   forgetting `--json`, editing `rebrew-functions.toml` directly).
 
-PRD 08 bundles five skill packs that load only when relevant (via
+PRD 08 bundles six skill packs that load only when relevant (via
 keyword triggers in their frontmatter) and provide focused command
 recipes for each phase of a project.
 
@@ -29,8 +29,8 @@ recipes for each phase of a project.
 ## Goals
 
 - One SKILL.md per major workflow phase.
-- Frontmatter description tuned for keyword routing (intake, matching,
-  data-analysis, ghidra sync, day-to-day workflow).
+- Frontmatter description tuned for keyword routing (init, intake,
+  matching, data-analysis, ghidra sync, day-to-day workflow).
 - Each skill explicitly states when **not** to use it, pointing at the
   sibling skill instead.
 - All command examples in skills use `--json` so the agent receives
@@ -46,6 +46,21 @@ recipes for each phase of a project.
   `rebrew-project.toml` for paths.
 
 ## Functional Requirements
+
+### `rebrew-init` (bare-directory scaffolding)
+
+Trigger keywords: `init`, `scaffold`, `new project`, `bare directory`,
+`guess-compiler`, `create project`.
+
+Scope:
+
+- Bare directory + binary → working scaffold (`rebrew init` flag
+  selection, including `--guess-compiler` and when to override it).
+- Target naming and `.agents/skills/` rendering check.
+- `rebrew doctor` as the done-gate; handoff to `rebrew-intake`.
+
+Excludes: in-project intake, day-to-day reversing, matching.
+(See ADR-020.)
 
 ### `rebrew-workflow` (day-to-day reversing)
 
@@ -71,12 +86,14 @@ Trigger keywords: `intake`, `onboard`, `new binary`, `new target`,
 
 Scope:
 
-- Prerequisites and project bootstrap (`rebrew init`, `rebrew doctor`).
+- Prerequisites and project bootstrap (assumes scaffold exists; for a
+  bare directory, route to `rebrew-init` first).
 - Multi-target file layout.
 - Ordered intake procedure: doctor → catalog → FLIRT → CRT → triage.
 - Outputs and post-intake hand-off to other skills.
 
-Excludes: day-to-day work, deep matching, individual function reversing.
+Excludes: empty-directory scaffolding (`rebrew-init`), day-to-day work,
+deep matching, individual function reversing.
 
 ### `rebrew-matching` (deep byte matching)
 
@@ -155,11 +172,12 @@ Excludes: source editing, picking functions, data analysis without Ghidra.
 
 ### Story 4 — Multi-skill sequence
 
-1. Fresh project → `rebrew-intake` runs.
-2. After intake completes, agent transitions to `rebrew-workflow` for
+1. Empty directory → `rebrew-init` scaffolds, then hands off.
+2. Fresh project → `rebrew-intake` runs.
+3. After intake completes, agent transitions to `rebrew-workflow` for
    day-to-day reversing.
-3. When NEAR_MATCHING piles up, `rebrew-matching` is engaged.
-4. Before merging, `rebrew-ghidra-sync` pushes new labels.
+4. When NEAR_MATCHING piles up, `rebrew-matching` is engaged.
+5. Before merging, `rebrew-ghidra-sync` pushes new labels.
 
 ## Skill File Layout
 
@@ -230,6 +248,8 @@ rebrew skills show <name> --json  # name/description/path + raw content
   a dual-default between 8089 and 8080; see gap report for history.)
 - Skills do not yet ship a "scaffolding" skill for `rebrew init` itself;
   initial onboarding is documented inside `rebrew-intake`.
+  (Resolved — `rebrew-init` ships; see ADR-020. Intake keeps in-project
+  scope; init owns the empty-directory case.)
 - `rebrew skills list` / `rebrew skills show` provide built-in discovery
   (`--json` for machine-readable output). (Resolved — was missing; agents no
   longer need to scan the directory.)

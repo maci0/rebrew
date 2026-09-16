@@ -22,7 +22,7 @@ PRDs are organised by feature area:
 | 05 | [Verification & Progress](05-verification-and-progress.md) | `verify`, `status`, `graph`, `cache`, `round-trip` |
 | 06 | [Data Section Analysis](06-data-section-analysis.md) | `data` (conflicts, dispatch, bss, gen-header) |
 | 07 | [Ghidra Sync](07-ghidra-sync.md)                 | `sync` (push, pull, structs, comments, data labels) |
-| 08 | [Agent Skills](08-agent-skills.md)               | The five `agent-skills/*/SKILL.md` workflows |
+| 08 | [Agent Skills](08-agent-skills.md)               | The six `agent-skills/*/SKILL.md` workflows |
 | 09 | [Full BinSync Integration](09-binsync-full.md) *(umbrella `rebrew binsync` ships; git-backed state + libbs remain)* | Bidirectional sync with libbs, git-backed state, locals/enums/typedefs |
 
 For source-side gaps discovered while validating these PRDs see
