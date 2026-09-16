@@ -97,7 +97,7 @@ def _parse_annotations(
     if not entries:
         return []
 
-    if has_skip_annotation(filepath, metadata_dir=meta_dir):
+    if has_skip_annotation(filepath, metadata_dir=meta_dir, annotations=entries):
         return []
 
     stubs: list[StubInfo] = []

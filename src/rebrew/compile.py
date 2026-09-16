@@ -706,6 +706,7 @@ def _docker_include_rewrite(
     container-root mount (``/incN``) would let ``../..`` escape to ``/``.
     Returns ``(rewritten_flags, mounts)``."""
     mounts: list[tuple[str, str]] = []
+    seen_mounts: set[str] = set()
     out: list[str] = []
     for flag in flags:
         if flag.startswith(("/I", "-I")) and len(flag) > 2:
@@ -716,7 +717,8 @@ def _docker_include_rewrite(
                 out.append(flag[:2] + str(rel))
             except ValueError:
                 host = str(p.resolve())
-                if host not in [m[0] for m in mounts]:
+                if host not in seen_mounts:
+                    seen_mounts.add(host)
                     mounts.append((host, host))
                 out.append(flag)
         else:

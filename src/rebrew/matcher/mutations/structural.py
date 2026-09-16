@@ -369,6 +369,8 @@ def mut_cast_to_bitmask(s: str, rng: random.Random) -> str | None:
 
 # --- Category 5: Register Pressure Fuzzing ---
 
+_QUERY_ALL_DECLARATIONS = _LazyQuery(_C_LANGUAGE, "(declaration) @decl")
+
 
 def mut_swap_register_keywords(s: str, rng: random.Random) -> str | None:
     """Swap register keyword between two local variable declarations.
@@ -381,8 +383,7 @@ def mut_swap_register_keywords(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     # Find ALL declarations
-    q_all = _LazyQuery(_C_LANGUAGE, "(declaration) @decl")
-    cursor_all = _cursor(q_all)
+    cursor_all = _cursor(_QUERY_ALL_DECLARATIONS)
     all_decls = cursor_all.matches(tree.root_node)
 
     if len(all_decls) < 2:

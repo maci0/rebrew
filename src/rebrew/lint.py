@@ -1320,7 +1320,9 @@ def lint_file(
     # (avoids repeated I/O for the common batch-lint case).
     _metadata_dir = cfg.metadata_dir if cfg else filepath.parent
     _metadata_entries = (
-        preloaded_metadata if preloaded_metadata is not None else load_metadata(_metadata_dir)
+        preloaded_metadata
+        if preloaded_metadata is not None
+        else load_metadata(_metadata_dir, deepcopy=False)
     )
     _data_metadata_entries = (
         preloaded_data_metadata
@@ -1640,7 +1642,7 @@ def main(
     _preloaded_metadata: dict[tuple[str, int], dict[str, Any]] | None = None
     _preloaded_data_metadata: dict[tuple[str, int], dict[str, Any]] | None = None
     if cfg:
-        _preloaded_metadata = load_metadata(cfg.metadata_dir)
+        _preloaded_metadata = load_metadata(cfg.metadata_dir, deepcopy=False)
         _preloaded_data_metadata = load_data_metadata(cfg.metadata_dir)
     # Pre-load the function list once for the whole batch (W028).
     function_index = _build_function_index(cfg) if cfg else None

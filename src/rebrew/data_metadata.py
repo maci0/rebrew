@@ -180,8 +180,10 @@ def load_data_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]
         return {}
 
     # Shared loader: tomllib reads (fast), mtime-keyed cache — same
-    # mechanism as rebrew-functions.toml (metadata.py).
-    cached = load_metadata_doc(path, _data_metadata_cache, "data metadata")
+    # mechanism as rebrew-functions.toml (metadata.py).  deepcopy=False:
+    # this function already returns a shallow copy of the outer map and
+    # each entry, so a full deep clone of the cache is wasted work.
+    cached = load_metadata_doc(path, _data_metadata_cache, "data metadata", deepcopy=False)
     # Return a shallow copy of outer dict + each entry dict so callers cannot
     # mutate the cached object and corrupt subsequent reads.
     return {k: dict(v) for k, v in cached.items()}
