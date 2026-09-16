@@ -118,3 +118,7 @@ Since this ADR was accepted:
   (`// SOURCE: naked` must travel with the file)/`SECTION`/`STRUCT`/
   `CALLERS`. The `library_*.h` extended KV parser remains the exception
   (reads STATUS/SIZE/CFLAGS/SOURCE/BLOCKER/NOTE). See [METADATA.md](../METADATA.md).
+- **Function list**: `functions.txt` and `CATALOG.md` are gone. Discovery
+  inventory is `src/<target>/function_structure.json` only (see
+  `catalog/loaders.cached_function_list`); coverage progress lives in
+  `rebrew-functions.toml` via `status`/`todo`/dashboard.

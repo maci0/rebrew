@@ -65,8 +65,8 @@ information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboar
 ### `rebrew catalog`
 
 - Scans `reversed_dir` for `.c` files containing reccmp-style markers.
-- Loads optional `function_structure.json` (Ghidra export) and
-  `functions.txt`/`.json` (function list).
+- Loads optional `function_structure.json` (discovery inventory / Ghidra
+  export — the former `functions.txt` list is gone).
 - Builds a unified registry merging:
   - Local annotations
   - Ghidra functions
@@ -235,9 +235,8 @@ rebrew build-db
   converting `.pat` → `.sig` still requires the upstream `sigmake` tool.
 - CRT matching relies on symbol heuristics; ambiguous names yield multiple
   candidates and require manual disambiguation.
-- The function list ingester accepts both `functions.txt` (one VA per line
-  or `VA size name`) and `function_structure.json` (Ghidra export); other
-  formats are not supported.
+- The function list ingester reads `function_structure.json` (discovery /
+  Ghidra export). The former `functions.txt` format is gone.
 - `--export-ghidra` writes no cache: it prints interactive Ghidra MCP export
   instructions for `function_structure.json` / `ghidra_data_labels.json` and
   exits (refuses `--json`). `rebrew catalog --data-json` writes a

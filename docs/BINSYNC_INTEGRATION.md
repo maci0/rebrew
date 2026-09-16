@@ -88,7 +88,7 @@ project's annotations and metadata:
 
 Export merges two sources: reversed annotations (`scan_reversed_dir`, the
 authoritative names/sizes/prototypes) plus the **project file / catalog**
-(`src/<target>/functions.txt` + `function_structure.json` → `build_function_registry`,
+(`src/<target>/function_structure.json` → `build_function_registry`,
 canonical sizes) for functions that have not yet been reversed.  This keeps
 BinSync in sync with your binary's full function list and offsets, not just the
 reversed subset.  Catalog-only functions are exported with no `STATUS`/`CFLAGS`

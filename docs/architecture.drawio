@@ -756,7 +756,7 @@
         <mxCell id="t1" value="Tier 1  Derived, VCS-intended. Generate once from the binary, commit so rebuilds do not need original/. Never hand-edit; generators are idempotent." style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;fontStyle=1;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="40" y="528" width="1680" height="170" as="geometry"/>
         </mxCell>
-        <mxCell id="d1" value="&lt;b&gt;Function identity&lt;/b&gt;&lt;br&gt;functions.txt&lt;br&gt;function_structure.json&lt;br&gt;CATALOG.md · &amp;lt;t&amp;gt;.def&lt;br&gt;discover / catalog / exports" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="d1" value="&lt;b&gt;Function identity&lt;/b&gt;&lt;br&gt;function_structure.json&lt;br&gt;&amp;lt;t&amp;gt;.def&lt;br&gt;discover / catalog / exports" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="568" width="240" height="110" as="geometry"/>
         </mxCell>
         <mxCell id="d2" value="&lt;b&gt;Layout package&lt;/b&gt;&lt;br&gt;layout/&amp;lt;target&amp;gt;/&lt;br&gt;rebrew-layout.toml + *.hex + operands/calls&lt;br&gt;rebrew gen-layout&lt;br&gt;feeds postlink without original/" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">

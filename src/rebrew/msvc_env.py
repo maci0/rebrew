@@ -1,8 +1,10 @@
-"""MSVC environment setup for rebrew compiler invocation under Wine/wibo.
+"""MSVC environment setup for rebrew compiler invocation.
 
 Provides ``msvc_env_from_config()`` to construct subprocess environment
 variables (INCLUDE, LIB, PATH, WINEPATH, WINEDEBUG) from a project
-configuration.
+configuration.  Image-backed profiles run inside docker and do not need a
+host wine/wibo runner; this helper still builds the VCVARS-style env used
+by native/plugin compilers and by leftover host-runner config.
 """
 
 import os

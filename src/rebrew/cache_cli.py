@@ -17,7 +17,7 @@ app = typer.Typer(
         "  rebrew cache clear · · · · · · Delete all cached .obj files\n\n"
         "  rebrew cache clear --target x · Clear cache for a specific project root\n\n"
         "[dim]The compile cache stores .obj bytes keyed by (source + flags + compiler), "
-        "skipping Wine/wibo subprocess startup on cache hit (200-500ms savings). "
+        "skipping docker/compiler startup on cache hit (hundreds of ms savings). "
         "The store is pluggable: [cache] backend in rebrew-project.toml selects it "
         "(default diskcache at {project_root}/.rebrew/compile_cache/).[/dim]"
     ),
