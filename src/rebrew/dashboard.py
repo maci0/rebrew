@@ -70,6 +70,9 @@ _INDEX_HTML = """<!doctype html>
 <title>Rebrew coverage dashboard</title>
 <style>
   body { font-family: system-ui, sans-serif; margin: 1.5rem; color: #1a1a1a; }
+  .skip-link { position: absolute; left: -9999px; top: 0; z-index: 100;
+    padding: .5rem 1rem; background: #fff; color: #005fcc; text-decoration: underline; }
+  .skip-link:focus { left: 1rem; top: 1rem; }
   .filters { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: end;
     margin-bottom: .5rem; }
   .filters > div { display: flex; flex-direction: column; gap: .25rem; font-size: .9rem; }
@@ -78,7 +81,8 @@ _INDEX_HTML = """<!doctype html>
   h1 { margin-bottom: .25rem; }
   .cards { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
   .card { border: 1px solid #ccc; border-radius: 6px; padding: .6rem 1rem; min-width: 110px; }
-  .card b { font-size: 1.4rem; display: block; }
+  .card .value { font-size: 1.4rem; font-weight: 700; display: block; }
+  .card .label { color: #444; }
   .table-scroll { overflow-x: auto; position: relative; }
   .table-scroll[aria-busy="true"]::after {
     content: "Loading…"; position: absolute; inset: 0; display: flex; align-items: center;
@@ -97,7 +101,8 @@ _INDEX_HTML = """<!doctype html>
 </style>
 </head>
 <body>
-<main>
+<a class="skip-link" href="#main">Skip to content</a>
+<main id="main">
 <h1>Rebrew coverage</h1>
 <p id="no-targets" hidden>No targets found in coverage.db. Run
   <code>rebrew build-db</code> for this project, then reload.</p>
@@ -208,6 +213,7 @@ async function loadFunctions() {
   try {
     $("results").hidden = false;
     $("empty-state").hidden = true;
+    $("results-status").textContent = "Loading functions…";
     const data = await whileBusy("results", () => get("/api/functions?" + params));
     if (seq !== functionsSeq) return;
     clearError();
@@ -241,7 +247,8 @@ async function loadSummary() {
     ];
     for (const [k, v] of Object.entries(byStatus)) cards.push([k, v]);
     $("cards").innerHTML = cards.map(([k, v]) =>
-      "<div class=card><b>" + esc(v) + "</b>" + esc(k) + "</div>").join("");
+      "<div class=card><span class=value>" + esc(v) + "</span>"
+        + "<span class=label>" + esc(k) + "</span></div>").join("");
     $("summary").hidden = false;
   } catch (error) {
     showError("Failed to load summary: " + error.message);

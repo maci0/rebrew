@@ -72,6 +72,10 @@ _PAGES: list[tuple[str, str]] = [
 _CSS = """
 body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
        margin: 0; background: #f5f6f8; color: #222; }
+.skip-link { position: absolute; left: -9999px; top: 0; z-index: 100;
+             padding: 0.5rem 1rem; background: #fff; color: #1e293b;
+             text-decoration: underline; }
+.skip-link:focus { left: 1rem; top: 1rem; }
 header { background: #1e293b; color: #fff; padding: 0.75rem 1.5rem;
          display: flex; flex-wrap: wrap; align-items: baseline; gap: 1rem 2rem; }
 header h1 { font-size: 1.05rem; margin: 0; }
@@ -79,6 +83,8 @@ nav { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
 nav a { color: #cbd5e1; text-decoration: none; }
 nav a:hover { color: #fff; }
 nav a.active { color: #fff; font-weight: 600; text-decoration: underline; }
+:focus-visible { outline: 3px solid #2563eb; outline-offset: 2px; }
+nav a:focus-visible { outline-color: #93c5fd; }
 main { max-width: 1100px; margin: 1.5rem auto; padding: 0 1.5rem; }
 .cards { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
 .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
@@ -93,6 +99,11 @@ table { width: 100%; border-collapse: collapse; background: #fff;
 th, td { text-align: left; padding: 0.5rem 0.75rem;
          border-bottom: 1px solid #eef2f7; font-size: 0.85rem; }
 th { background: #f1f5f9; font-weight: 600; }
+caption { caption-side: top; text-align: left; padding: 0.5rem 0.75rem;
+          font-size: 0.85rem; font-weight: 600; color: #334155; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0;
+                   margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0);
+                   white-space: nowrap; border: 0; }
 tr:last-child td { border-bottom: none; }
 td.mono, code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
 td.blocker { max-width: 28rem; overflow-wrap: anywhere; }
@@ -100,8 +111,12 @@ td.blocker { max-width: 28rem; overflow-wrap: anywhere; }
 .status-RELOC { color: #0369a1; font-weight: 600; }
 .status-PROVEN { color: #0e7490; font-weight: 600; }
 .status-NEAR_MATCHING { color: #b45309; font-weight: 600; }
-.status-STUB { color: #94a3b8; }
+.status-STUB { color: #475569; font-weight: 600; }
 .status-UNKNOWN { color: #64748b; }
+@media (forced-colors: active) {
+  .status-EXACT, .status-RELOC, .status-PROVEN, .status-NEAR_MATCHING,
+  .status-STUB, .status-UNKNOWN { color: CanvasText; font-weight: 700; }
+}
 .note { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px;
         padding: 0.9rem 1.1rem; color: #9a3412; margin-bottom: 1.5rem; }
 pre.mermaid, pre.adjacency { background: #fff; border: 1px solid #e2e8f0;
@@ -114,12 +129,29 @@ pre.mermaid, pre.adjacency { background: #fff; border: 1px solid #e2e8f0;
 def _nav_link(href: str, label: str, active: bool) -> str:
     """Render one navigation link (single-quoted attributes)."""
     cls = " class='active'" if active else ""
-    return f"<a href='{href}'{cls}>{label}</a>"
+    current = " aria-current='page'" if active else ""
+    return f"<a href='{href}'{cls}{current}>{html.escape(label)}</a>"
 
 
 def _table_scroll(table_html: str) -> str:
     """Wrap a table so wide columns scroll instead of forcing page overflow."""
-    return f"<div class='table-scroll'>{table_html}</div>"
+    return (
+        f"<div class='table-scroll' tabindex='0' role='region' "
+        f"aria-label='Scrollable table'>{table_html}</div>"
+    )
+
+
+def _data_table(caption: str, headers: list[str], rows_html: str) -> str:
+    """Build a captioned data table with column scopes and a scroll region."""
+    ths = "".join(f"<th scope='col'>{html.escape(h)}</th>" for h in headers)
+    table = (
+        "<table>"
+        f"<caption class='visually-hidden'>{html.escape(caption)}</caption>"
+        f"<thead><tr>{ths}</tr></thead>"
+        f"<tbody>{rows_html}</tbody>"
+        "</table>"
+    )
+    return _table_scroll(table)
 
 
 def _page(title: str, target: str, active: str, body: str) -> str:
@@ -137,8 +169,10 @@ def _page(title: str, target: str, active: str, body: str) -> str:
         f"<title>{html.escape(title)} - {html.escape(target)}</title>\n"
         f"<style>{_CSS}</style>\n"
         "</head>\n<body>\n"
-        f"<header><h1>{html.escape(target)} - Rebrew report</h1><nav>{nav}</nav></header>\n"
-        f"<main>\n{body}\n</main>\n"
+        "<a class='skip-link' href='#main'>Skip to content</a>\n"
+        f"<header><h1>{html.escape(target)} - Rebrew report</h1>"
+        f"<nav aria-label='Report pages'>{nav}</nav></header>\n"
+        f"<main id='main'>\n{body}\n</main>\n"
         "</body>\n</html>\n"
     )
 
@@ -321,12 +355,10 @@ def _render_index(
             "</tr>"
             for fn in functions
         )
-        table = _table_scroll(
-            "<table>"
-            "<tr><th>Name</th><th>VA</th><th>Status</th><th>Size</th><th>CFLAGS</th>"
-            "<th>Blocker</th></tr>"
-            f"{rows}"
-            "</table>"
+        table = _data_table(
+            "Reversed functions",
+            ["Name", "VA", "Status", "Size", "CFLAGS", "Blocker"],
+            rows,
         )
     else:
         table = "<p class='note'>No reversed functions found in the project.</p>"
@@ -391,15 +423,10 @@ def _render_strings(cfg: ProjectConfig) -> str:
         refs = {}
 
     rows = "".join(_string_row(s, refs.get(s.va) or []) for s in strings)
-    body = (
-        "<p>Strings extracted from the binary's data sections (min length 4).</p>"
-        + _table_scroll(
-            "<table>"
-            "<tr><th>VA</th><th>Section</th><th>Kind</th><th>Text</th>"
-            "<th>Refs</th><th>Referenced from</th></tr>"
-            f"{rows}"
-            "</table>"
-        )
+    body = "<p>Strings extracted from the binary's data sections (min length 4).</p>" + _data_table(
+        "Strings from data sections",
+        ["VA", "Section", "Kind", "Text", "Refs", "Referenced from"],
+        rows,
     )
     return _page("Strings", _target_name(cfg), "strings.html", body)
 
@@ -464,9 +491,7 @@ def _render_imports(cfg: ProjectConfig) -> str:
     )
     parts = [
         f"<p>{len(imports)} imported APIs.</p>",
-        _table_scroll(
-            f"<table><tr><th>DLL</th><th>Function</th><th>IAT slot</th></tr>{rows}</table>"
-        ),
+        _data_table("Imported APIs", ["DLL", "Function", "IAT slot"], rows),
     ]
     if stubs:
         stub_rows = "".join(
@@ -476,7 +501,7 @@ def _render_imports(cfg: ProjectConfig) -> str:
         parts.extend(
             [
                 "<h3>Import stubs (jmp [IAT])</h3>",
-                _table_scroll(f"<table><tr><th>VA</th><th>API</th></tr>{stub_rows}</table>"),
+                _data_table("Import stubs (jmp [IAT])", ["VA", "API"], stub_rows),
             ]
         )
     return _page("Imports", target, "imports.html", "".join(parts))
