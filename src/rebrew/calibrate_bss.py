@@ -194,7 +194,11 @@ def main(
             except subprocess.CalledProcessError as exc:
                 # capture_output swallows the linker's stderr — surface it, or the
                 # failure is an opaque traceback with no diagnostic.
-                stderr = exc.stderr.decode(errors="replace")[-400:].strip() if exc.stderr else ""
+                stderr = (
+                    exc.stderr.decode("utf-8", errors="replace")[-400:].strip()
+                    if exc.stderr
+                    else ""
+                )
                 error_exit(
                     f"raw link failed (rc={exc.returncode}) on iter {it}: {stderr}",
                     json_mode=json_output,
@@ -231,7 +235,11 @@ def main(
                     f"stub compile timed out after 300s: {compile_cmd}", json_mode=json_output
                 )
             except subprocess.CalledProcessError as exc:
-                stderr = exc.stderr.decode(errors="replace")[-400:].strip() if exc.stderr else ""
+                stderr = (
+                    exc.stderr.decode("utf-8", errors="replace")[-400:].strip()
+                    if exc.stderr
+                    else ""
+                )
                 error_exit(
                     f"stub compile failed (rc={exc.returncode}): {stderr}", json_mode=json_output
                 )

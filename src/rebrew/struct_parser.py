@@ -36,7 +36,7 @@ def _iter_definitions(
 
     encoding = detect_source_encoding(code_bytes)
     tree = parser.parse(code_bytes)
-    specifier_type = f"{keyword.decode()}_specifier"
+    specifier_type = f"{keyword.decode('ascii')}_specifier"
 
     def walk(node: Any) -> Iterator[str]:
         if node.type == "type_definition":

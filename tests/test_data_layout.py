@@ -64,11 +64,30 @@ def test_insert_definition(tmp_path: Path) -> None:
     f.write_text("extern int g_a[1];\n", encoding="utf-8")
     ok = insert_definition(f, "g_a", "unsigned char", 8, "{0x01,0x02,0x03,0x04}", dry_run=True)
     assert ok
-    assert "unsigned char g_a[8]" not in f.read_text()  # dry run
+    assert "unsigned char g_a[8]" not in f.read_text(encoding="utf-8")  # dry run
     ok = insert_definition(f, "g_a", "unsigned char", 8, "{0x01,0x02,0x03,0x04}", dry_run=False)
     assert ok
-    text = f.read_text()
+    text = f.read_text(encoding="utf-8")
     assert "unsigned char g_a[8] = {0x01,0x02,0x03,0x04};" in text
+
+
+def test_insert_definition_preserves_shift_jis(tmp_path: Path) -> None:
+    """Write-back must not UTF-8-rewrite a Shift-JIS TU (corrupting comments).
+
+    Concrete input: Shift-JIS bytes for ``// 日本語`` (U+65E5 U+672C U+8A9E).
+    Reading as UTF-8+replace then writing UTF-8 permanently replaced those
+    bytes with U+FFFD; round-trip via read_source_text keeps them intact.
+    """
+    comment = "// \u65e5\u672c\u8a9e\n".encode("shift_jis")
+    body = b"extern int g_a[1];\n" + comment
+    f = tmp_path / "jp.c"
+    f.write_bytes(body)
+    ok = insert_definition(f, "g_a", "unsigned char", 4, "{0}", dry_run=False)
+    assert ok
+    raw = f.read_bytes()
+    assert comment.strip() in raw  # original Shift-JIS comment bytes survive
+    assert b"unsigned char g_a[4] = {0};" in raw
+    assert b"\xef\xbf\xbd" not in raw  # no U+FFFD UTF-8 replacement
 
 
 # ---------------------------------------------------------------------------
@@ -136,7 +155,7 @@ def test_insert_definition_scalar(tmp_path: Path) -> None:
     f.write_text("extern int g_a;\n", encoding="utf-8")
     ok = insert_definition(f, "g_a", "int", 4, "42", dry_run=False, is_array=False)
     assert ok
-    assert "int g_a = 42;" in f.read_text()
+    assert "int g_a = 42;" in f.read_text(encoding="utf-8")
 
 
 def test_parse_stub_globals(tmp_path: Path) -> None:

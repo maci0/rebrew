@@ -599,7 +599,9 @@ def build_candidate_obj_only(
         obj_path = workdir / obj_name
 
         if r.returncode != 0 or not obj_path.exists():
-            err_output = _filter_wine_stderr((r.stdout + b"\n" + r.stderr).decode(errors="replace"))
+            err_output = _filter_wine_stderr(
+                (r.stdout + b"\n" + r.stderr).decode("utf-8", errors="replace")
+            )
             detailed_err = f"Command: {' '.join(cmd)}\nReturn code: {r.returncode}\nObj Exists: {obj_path.exists()}\nOutput: {err_output}"
             return BuildResult(ok=False, error_msg=detailed_err)
 
@@ -670,7 +672,7 @@ def build_candidate(
 
         if r.returncode != 0 or not exe_path.exists() or not map_path.exists():
             err_output = _filter_wine_stderr(
-                (r.stdout + b"\n" + r.stderr).decode(errors="replace")
+                (r.stdout + b"\n" + r.stderr).decode("utf-8", errors="replace")
             )[:400]
             return BuildResult(ok=False, error_msg=err_output)
 

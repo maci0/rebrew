@@ -309,7 +309,7 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
         if r.returncode != 0:
             # A half-initialized prefix makes every later compile fail with
             # confusing wine errors — fail here where the cause is visible.
-            stderr = r.stderr.decode(errors="replace")[-400:].strip()
+            stderr = r.stderr.decode("utf-8", errors="replace")[-400:].strip()
             error_exit(f"wineprefix init failed (rc={r.returncode}) at {prefix}: {stderr}")
 
 

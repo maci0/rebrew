@@ -71,7 +71,10 @@ def _running_xvfb_displays() -> dict[str, int]:
                 continue
             try:
                 cmdline = (
-                    (entry / "cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
+                    (entry / "cmdline")
+                    .read_bytes()
+                    .replace(b"\0", b" ")
+                    .decode("utf-8", errors="replace")
                 )
             except OSError:
                 continue
