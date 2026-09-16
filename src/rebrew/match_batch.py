@@ -406,6 +406,10 @@ def update_stub_to_matched(
     post-write parse validation passed — a failed splice or a validation
     error must not claim RELOC on a file whose body is still a stub.
 
+    The ``.c.bak`` is written only when absent: a second splice (retry after
+    a STATUS promotion failure, or another stub in the same file) must not
+    overwrite the original stub backup with already-matched content.
+
     Returns True when the splice landed, the file was rewritten, and STATUS
     was promoted; False when the stub's own block could not be located (the
     file is left untouched).
@@ -483,7 +487,8 @@ def update_stub_to_matched(
     # dir — must not leave rebrew-functions.toml saying RELOC while the .c
     # still holds the stub).  The promotion therefore runs AFTER the write.
 
-    shutil.copy2(filepath, bak_path)
+    if not bak_path.exists():
+        shutil.copy2(filepath, bak_path)
     atomic_write_text(filepath, updated, encoding=encoding)
 
     meta_root = metadata_dir or filepath.parent

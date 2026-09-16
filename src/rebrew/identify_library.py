@@ -404,6 +404,7 @@ def write_candidates(cfg: Any, candidates: list[LibCandidate], existing: set[int
         header = cfg.reversed_dir / f"library_{module.lower()}.h"
         for cand in cands:
             _append_entry(header, cand)
+            existing.add(cand.va)
             if (
                 cand.kind == "crt"
                 and cand.confidence >= SOURCE_AUTO_WRITE_MIN_CONFIDENCE

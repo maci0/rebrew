@@ -9,6 +9,7 @@ invoked (docker image vs vendored path vs PATH binary).
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -270,6 +271,29 @@ def _flatten_wrapper_dir(payload: Path, extract_dir: Path) -> None:
         child.rename(extract_dir / child.name)
 
 
+def _vendor_tree_complete(host: Path, name: str) -> bool:
+    """True when *host* already holds a usable vendored compiler for *name*.
+
+    Used so a failed prior ``vendor`` (empty or partial ``source/``) can be
+    retried instead of refusing to clobber forever.
+    """
+    from rebrew.toolchain import get_toolchain, vendored_binary
+
+    spec = get_toolchain(name)
+    probe = vendored_binary(replace(spec, host_path=host))
+    if probe is None:
+        # Pre-source/ flat layout still counts as complete when the binary is there.
+        probe = vendored_binary(replace(spec, host_path=host / "source"))
+    return probe is not None
+
+
+def _abort_incomplete_vendor(extract_dir: Path, msg: str, *, json_mode: bool) -> None:
+    """Remove a partial extract tree, then exit — so the next vendor can retry."""
+    if extract_dir.exists():
+        shutil.rmtree(extract_dir, ignore_errors=True)
+    error_exit(msg, json_mode=json_mode)
+
+
 @app.command("vendor")
 def vendor_cmd(
     name: str = typer.Argument(..., help="Toolchain name (e.g. msvc-1.52, borland-5.5)"),
@@ -280,8 +304,9 @@ def vendor_cmd(
     Downloads (sha256-verified) or extracts the pinned tarball into
     ``<family>/<version>-<arch>/source`` under the rebrew-toolchains
     checkout — the same source the docker image builds from, so host trees
-    and containers are byte-identical.  Refuses to clobber an existing tree
-    unless empty.
+    and containers are byte-identical.  Refuses to clobber an existing
+    *complete* tree; an incomplete ``source/`` from a failed prior run is
+    removed so retry converges.
     """
     import hashlib
     import subprocess
@@ -298,6 +323,7 @@ def vendor_cmd(
         error_exit(msg, json_mode=json_output)
 
     host = REPO_TOOLS / src.host_dir
+    extract_dir = host / "source"
     # Canonical layout: every vendored tree nests the actual toolchain one
     # level under ``source/`` (<family>/<ver>-<arch>/source/...), so all
     # toolchain folders share the same shape.  Tracked metadata (Dockerfile,
@@ -311,6 +337,10 @@ def vendor_cmd(
         ".dockerignore",
         *("*.sh", "*.tar.xz", "*.md"),
     }
+    # Crash / timeout mid-extract leaves source/ (often empty or partial).
+    # Wipe incomplete trees so a re-run succeeds instead of "already has files".
+    if host.exists() and extract_dir.exists() and not _vendor_tree_complete(host, name):
+        shutil.rmtree(extract_dir)
     content = (
         [p for p in host.iterdir() if not any(p.match(m) for m in _META)] if host.exists() else []
     )
@@ -318,7 +348,6 @@ def vendor_cmd(
         msg = f"{host} already has files — refusing to clobber"
         error_exit(msg, json_mode=json_output)
     host.mkdir(parents=True, exist_ok=True)
-    extract_dir = host / "source"
     extract_dir.mkdir()
 
     try:
@@ -406,8 +435,7 @@ def vendor_cmd(
                     )
                 console.print(f"[green]Downloaded + verified[/green] {src.url} -> {src.host_dir}")
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
-        msg = f"vendor {name} failed: {exc}"
-        error_exit(msg, json_mode=json_output)
+        _abort_incomplete_vendor(extract_dir, f"vendor {name} failed: {exc}", json_mode=json_output)
 
     # MSVC 6.0's classic master layout wraps the tree in VC98/ (the decomp.me
     # tarball is flat) — canonical config paths and every legacy
@@ -442,8 +470,11 @@ def vendor_cmd(
         # nesting) — still resolve so re-vendoring is not blocked.
         probe = vendored_binary(replace(spec, host_path=host / "source"))
     if probe is None:
-        msg = f"vendor {name} produced no {spec.binary} under {host}"
-        error_exit(msg, json_mode=json_output)
+        _abort_incomplete_vendor(
+            extract_dir,
+            f"vendor {name} produced no {spec.binary} under {host}",
+            json_mode=json_output,
+        )
 
     if json_output:
         json_print({"vendored": src.host_dir, "binary": str(probe)})

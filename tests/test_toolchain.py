@@ -1264,3 +1264,88 @@ class TestVendorFlatten:
 
         assert (dest / "bin").is_dir()
         assert (dest / "README").is_file()
+
+
+class TestVendorRetryAfterPartialFailure:
+    """A crashed/failed ``vendor`` must leave the tree retryable — empty or
+    binary-less ``source/`` is wiped so the next run is not blocked by
+    ``already has files``."""
+
+    def test_empty_source_is_incomplete(self, tmp_path: Path) -> None:
+        from rebrew.toolchain_cli import _vendor_tree_complete
+
+        host = tmp_path / "msvc" / "6.0-win32"
+        (host / "source").mkdir(parents=True)
+        assert _vendor_tree_complete(host, "msvc-6.0") is False
+
+    def test_partial_source_without_binary_is_incomplete(self, tmp_path: Path) -> None:
+        from rebrew.toolchain_cli import _vendor_tree_complete
+
+        host = tmp_path / "msvc" / "6.0-win32"
+        junk = host / "source" / "VC98" / "Include"
+        junk.mkdir(parents=True)
+        (junk / "stdio.h").write_text("/* partial */\n", encoding="utf-8")
+        assert _vendor_tree_complete(host, "msvc-6.0") is False
+
+    def test_source_with_cl_is_complete(self, tmp_path: Path) -> None:
+        from rebrew.toolchain_cli import _vendor_tree_complete
+
+        host = tmp_path / "msvc" / "6.0-win32"
+        bin_dir = host / "source" / "VC98" / "Bin"
+        bin_dir.mkdir(parents=True)
+        (bin_dir / "CL.EXE").write_bytes(b"MZ")
+        assert _vendor_tree_complete(host, "msvc-6.0") is True
+
+    def test_vendor_retries_after_empty_source(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Empty source/ from a prior mkdir-then-fail must be wiped so extract runs."""
+        import io
+        import tarfile
+        from dataclasses import replace as dc_replace
+
+        from typer.testing import CliRunner
+
+        from rebrew.toolchain import get_toolchain
+        from rebrew.toolchain_cli import app
+        from rebrew.toolchain_spec import ToolchainSource
+
+        host = tmp_path / "fake" / "1.0-win32"
+        (host / "source").mkdir(parents=True)
+        (host / "Dockerfile").write_text("# meta\n", encoding="utf-8")
+        # Archive lives outside host_dir (still under REPO_TOOLS) so it is not
+        # treated as vendored content by the clobber check.
+        tarball = tmp_path / "pins" / "fake.tar"
+        tarball.parent.mkdir(parents=True)
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tf:
+            info = tarfile.TarInfo(name="Bin/CL.EXE")
+            data = b"MZ"
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
+        tarball.write_bytes(buf.getvalue())
+
+        src = ToolchainSource(
+            in_repo="pins/fake.tar",
+            host_dir="fake/1.0-win32",
+        )
+        base = get_toolchain("msvc-6.0")
+        fake_spec = dc_replace(base, name="fake-1.0")
+        orig_gt = get_toolchain
+
+        monkeypatch.setattr("rebrew.toolchain.require_toolchains_repo", lambda: tmp_path)
+        monkeypatch.setattr("rebrew.toolchain_paths.REPO_TOOLS", tmp_path)
+        monkeypatch.setattr("rebrew.toolchain_data.SOURCES", {"fake-1.0": src})
+        monkeypatch.setattr(
+            "rebrew.toolchain.get_toolchain",
+            lambda name: fake_spec if name == "fake-1.0" else orig_gt(name),
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(app, ["vendor", "fake-1.0"])
+        assert result.exit_code == 0, result.output
+        assert (host / "source" / "Bin" / "CL.EXE").is_file()
+        # Second run on a complete tree still refuses.
+        result2 = runner.invoke(app, ["vendor", "fake-1.0"])
+        assert result2.exit_code != 0
+        assert "already has files" in result2.output

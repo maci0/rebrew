@@ -710,6 +710,31 @@ class TestUpdateStubToMatched:
         assert "return 3;" in text  # sibling AFTER the target survives
         assert "0x10003000" in text
 
+    def test_bak_preserves_original_across_rerun(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A second splice must not overwrite .c.bak with already-matched body
+        (retry after STATUS promotion failed, or another stub in the file)."""
+        from rebrew.match_batch import update_stub_to_matched
+
+        f = tmp_path / "stub.c"
+        original = "// FUNCTION: SERVER 0x10002000\nint second(void) { return 2; }\n"
+        f.write_text(original, encoding="utf-8")
+        best = "int second(void) { return 42; }\n"
+        assert update_stub_to_matched(f, best, self._stub("0x10002000"), metadata_dir=tmp_path)
+        bak = tmp_path / "stub.c.bak"
+        assert bak.read_text(encoding="utf-8") == original
+
+        # Simulate a retry / second splice: file already matched, bak must stay.
+        f.write_text(
+            "// FUNCTION: SERVER 0x10002000\nint second(void) { return 42; }\n",
+            encoding="utf-8",
+        )
+        again = "int second(void) { return 99; }\n"
+        assert update_stub_to_matched(f, again, self._stub("0x10002000"), metadata_dir=tmp_path)
+        assert bak.read_text(encoding="utf-8") == original
+        assert "return 99;" in f.read_text(encoding="utf-8")
+
 
 class TestFlagSweepMatchValidation:
     """A flag-sweep "exact" is reloc-masked only — the batch driver must
