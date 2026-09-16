@@ -385,6 +385,8 @@ def main(
 
         def _retest() -> None:
             # Re-run the full single-file test path; --watch must not nest.
+            # Forward every CLI param — an omitted one leaks as a truthy
+            # OptionInfo on direct main() re-entry (see docs/DEVELOPMENT.md).
             main(
                 source=source,
                 va=va,
@@ -392,6 +394,7 @@ def main(
                 target_bin=target_bin,
                 size=size,
                 cflags=cflags,
+                toolchain=toolchain,
                 all_sources=False,
                 batch_dir=None,
                 origin=None,
@@ -401,6 +404,7 @@ def main(
                 force_status=force_status,
                 fix_sizes=fix_sizes,
                 linked=linked,
+                watch=False,
                 context=context,
                 json_output=json_output,
                 target=target,
@@ -1534,15 +1538,14 @@ def _test_multi(
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
-    if not dry_run:
-        # Honor the documented exit-code contract (help: "0 EXACT or RELOC
-        # match; 1 NEAR_MATCHING or STUB; 2 Build error") — the multi-
-        # function path previously always exited 0, a false green for CI
-        # gates (mirrors _run_all_batch).
-        if any_extract_error:
-            raise typer.Exit(code=EXIT_ERROR)
-        if any_failed:
-            raise typer.Exit(code=EXIT_MISMATCH)
+    # Honor the documented exit-code contract (help: "0 EXACT or RELOC
+    # match; 1 NEAR_MATCHING or STUB; 2 Build error") — including under
+    # --dry-run, which still compiles/compares and only skips STATUS
+    # writes (mirrors the single-function path).
+    if any_extract_error:
+        raise typer.Exit(code=EXIT_ERROR)
+    if any_failed:
+        raise typer.Exit(code=EXIT_MISMATCH)
 
     return
 
@@ -1638,7 +1641,7 @@ def emit_test_batch(
                     batch.size_divergences,
                     batch.missing_sizes,
                     batch.duplicate_vas,
-                    dry_run=no_promote,
+                    dry_run=False,
                     compile_context=context,
                     provenance="test",
                 )
@@ -1652,7 +1655,9 @@ def emit_test_batch(
         patch_cache_from_results(cfg, batch.results)
     if json_output:
         # Same shape as `rebrew verify --json` (see build_report) —
-        # verify-only extras are null on this path.
+        # verify-only extras are null on this path.  ``dry_run`` is the
+        # preview flag (already early-returned above); ``--no-promote``
+        # is measure-only and must not flip this field.
         json_print(
             build_report(
                 cfg,
@@ -1663,7 +1668,7 @@ def emit_test_batch(
                 batch.size_divergences,
                 batch.missing_sizes,
                 batch.duplicate_vas,
-                dry_run=no_promote,
+                dry_run=False,
                 compile_context=context,
                 provenance="test",
             )

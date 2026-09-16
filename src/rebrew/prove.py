@@ -1184,9 +1184,13 @@ def main(
 
         def _retest() -> None:
             # Re-run the full single-function prove path; --watch must not nest.
+            # Forward every CLI param — an omitted one leaks as a truthy
+            # OptionInfo on direct main() re-entry (see docs/DEVELOPMENT.md).
             main(
                 source=source,
                 all_sources=all_sources,
+                ceiling_only=ceiling_only,
+                max_delta=max_delta,
                 timeout=timeout,
                 loop_bound=loop_bound,
                 start_offset=start_offset,
