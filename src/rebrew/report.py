@@ -133,11 +133,11 @@ def _nav_link(href: str, label: str, active: bool) -> str:
     return f"<a href='{href}'{cls}{current}>{html.escape(label)}</a>"
 
 
-def _table_scroll(table_html: str) -> str:
+def _table_scroll(table_html: str, aria_label: str = "Scrollable table") -> str:
     """Wrap a table so wide columns scroll instead of forcing page overflow."""
     return (
         f"<div class='table-scroll' tabindex='0' role='region' "
-        f"aria-label='Scrollable table'>{table_html}</div>"
+        f"aria-label='{html.escape(aria_label, quote=True)}'>{table_html}</div>"
     )
 
 
@@ -151,7 +151,7 @@ def _data_table(caption: str, headers: list[str], rows_html: str) -> str:
         f"<tbody>{rows_html}</tbody>"
         "</table>"
     )
-    return _table_scroll(table)
+    return _table_scroll(table, aria_label=caption)
 
 
 def _page(title: str, target: str, active: str, body: str) -> str:
@@ -361,7 +361,10 @@ def _render_index(
             rows,
         )
     else:
-        table = "<p class='note'>No reversed functions found in the project.</p>"
+        table = (
+            "<p class='note'>No reversed functions found. Add annotated sources under "
+            "the project's reversed directory, then regenerate this report.</p>"
+        )
 
     # 16-bit NE targets get their own card set (segments, VMTs).
     ne_html = ""
@@ -395,7 +398,8 @@ def _render_strings(cfg: ProjectConfig) -> str:
             "Strings",
             _target_name(cfg),
             "strings.html",
-            "<p class='note'>Target binary not found - nothing to report.</p>",
+            "<p class='note'>Target binary not found. Check the binary path in "
+            "rebrew-project.toml, then regenerate this report.</p>",
         )
     try:
         info = load_binary(binary)
@@ -405,7 +409,8 @@ def _render_strings(cfg: ProjectConfig) -> str:
             "Strings",
             _target_name(cfg),
             "strings.html",
-            "<p class='note'>Failed to parse the target binary - nothing to report.</p>",
+            "<p class='note'>Failed to parse the target binary. Confirm the file is a "
+            "supported PE/ELF/NE binary, then regenerate this report.</p>",
         )
     if not strings:
         data_sections = [n for n in (".rdata", ".data", ".rodata") if n in info.sections]
@@ -433,18 +438,23 @@ def _render_strings(cfg: ProjectConfig) -> str:
 
 def _string_row(s: StringEntry, xrefs: list[Xref]) -> str:
     """Render one string table row with ref count and first referencing VAs."""
-    text = s.text if len(s.text) <= 80 else s.text[:80] + "\u2026"
+    truncated = len(s.text) > 80
+    text = s.text if not truncated else s.text[:80] + "\u2026"
+    text_title = f' title="{html.escape(s.text, quote=True)}"' if truncated else ""
+    all_refs = ", ".join(f"0x{x.from_va:08x}" for x in xrefs)
     first = ", ".join(f"0x{x.from_va:08x}" for x in xrefs[:5])
+    refs_title = ""
     if len(xrefs) > 5:
         first += f" (+{len(xrefs) - 5} more)"
+        refs_title = f' title="{html.escape(all_refs, quote=True)}"'
     return (
         "<tr>"
         f"<td class='mono'>0x{s.va:08x}</td>"
         f"<td>{html.escape(s.section)}</td>"
         f"<td>{html.escape(s.kind)}</td>"
-        f"<td class='mono'>{html.escape(text)}</td>"
+        f"<td class='mono'{text_title}>{html.escape(text)}</td>"
         f"<td>{len(xrefs)}</td>"
-        f"<td class='mono'>{html.escape(first) or '&mdash;'}</td>"
+        f"<td class='mono'{refs_title}>{html.escape(first) or '&mdash;'}</td>"
         "</tr>"
     )
 
@@ -458,7 +468,8 @@ def _render_imports(cfg: ProjectConfig) -> str:
             "Imports",
             target,
             "imports.html",
-            "<p class='note'>Target binary not found - nothing to report.</p>",
+            "<p class='note'>Target binary not found. Check the binary path in "
+            "rebrew-project.toml, then regenerate this report.</p>",
         )
     try:
         imports: list[dict[str, Any]] = parse_imports(binary)
@@ -467,7 +478,8 @@ def _render_imports(cfg: ProjectConfig) -> str:
             "Imports",
             target,
             "imports.html",
-            "<p class='note'>Failed to parse imports from the target binary.</p>",
+            "<p class='note'>Failed to parse imports from the target binary. Confirm "
+            "the file is a supported PE binary, then regenerate this report.</p>",
         )
     try:
         stubs = find_import_stubs(binary)

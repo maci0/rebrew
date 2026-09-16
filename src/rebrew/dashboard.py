@@ -81,7 +81,11 @@ _INDEX_HTML = """<!doctype html>
   :focus-visible { outline: 3px solid #005fcc; outline-offset: 2px; }
   h1 { margin-bottom: .25rem; }
   .cards { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
-  .card { border: 1px solid #ccc; border-radius: 6px; padding: .6rem 1rem; min-width: 110px; }
+  .card { border: 1px solid #ccc; border-radius: 6px; padding: .6rem 1rem; min-width: 110px;
+    background: #fff; }
+  button.card { font: inherit; color: inherit; text-align: left; cursor: pointer; }
+  button.card:hover { border-color: #888; }
+  button.card.active { border-color: #005fcc; box-shadow: 0 0 0 2px rgba(0,95,204,.25); }
   .card .value { font-size: 1.4rem; font-weight: 700; display: block; }
   .card .label { color: #444; }
   .table-scroll { overflow-x: auto; position: relative; }
@@ -99,6 +103,8 @@ _INDEX_HTML = """<!doctype html>
     border-radius: 6px; padding: .6rem .8rem; margin: .75rem 0; }
   #empty-state, #no-targets { color: #555; margin: 1rem 0; }
   #results-hint { color: #555; font-size: .9rem; margin: .25rem 0 0; }
+  #filter-actions, #show-more-wrap { margin: .35rem 0 .75rem; }
+  #clear-filters, #show-more { min-height: 2.75rem; padding: .3rem .75rem; }
 </style>
 </head>
 <body>
@@ -118,8 +124,11 @@ _INDEX_HTML = """<!doctype html>
 </div>
 <div>
 <label for="q">Search name or symbol</label>
-<input id="q" type="search" size="24" placeholder="name or symbol" autocomplete="off">
+<input id="q" type="search" size="24" placeholder="e.g. WinMain" autocomplete="off">
 </div>
+</div>
+<div id="filter-actions" hidden>
+<button type="button" id="clear-filters">Clear filters</button>
 </div>
 <section id="summary" aria-labelledby="summary-heading" aria-busy="false" hidden>
 <h2 class="visually-hidden" id="summary-heading">Coverage summary</h2>
@@ -128,7 +137,10 @@ _INDEX_HTML = """<!doctype html>
 <p class="visually-hidden" id="results-status" role="status" aria-live="polite"></p>
 <p id="dashboard-error" role="alert" hidden></p>
 <p id="results-hint" hidden></p>
-<p id="empty-state" hidden>No functions match these filters. Clear search or set Status to any.</p>
+<p id="empty-state" hidden>No functions match these filters. Use Clear filters, or set Status to any.</p>
+<div id="show-more-wrap" hidden>
+<button type="button" id="show-more">Show more functions</button>
+</div>
 <div id="results" class="table-scroll" tabindex="0" role="region"
   aria-label="Function results" aria-busy="false" hidden>
 <table id="rows"><caption class="visually-hidden">Functions matching the selected filters</caption><thead><tr>
@@ -143,6 +155,10 @@ const $ = (id) => document.getElementById(id);
 let targets = [];
 let searchTimer = null;
 let functionsSeq = 0;
+let pageLimit = 500;
+const PAGE_STEP = 500;
+const PAGE_MAX = 5000;
+const loadErrors = { summary: "", functions: "" };
 const busyCounts = new Map();
 async function get(path) {
   const r = await fetch(path);
@@ -167,14 +183,32 @@ function esc(s) {
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
   })[c]);
 }
-function showError(message) {
-  $("results-status").textContent = message;
-  $("dashboard-error").textContent = message;
-  $("dashboard-error").hidden = false;
+function syncError() {
+  const message = loadErrors.summary || loadErrors.functions;
+  if (message) {
+    $("results-status").textContent = message;
+    $("dashboard-error").textContent = message;
+    $("dashboard-error").hidden = false;
+  } else {
+    $("dashboard-error").textContent = "";
+    $("dashboard-error").hidden = true;
+  }
 }
-function clearError() {
-  $("dashboard-error").textContent = "";
-  $("dashboard-error").hidden = true;
+function setLoadError(source, message) {
+  loadErrors[source] = message || "";
+  syncError();
+}
+function filtersActive() {
+  return !!($("status").value || $("q").value.trim());
+}
+function updateFilterActions() {
+  $("filter-actions").hidden = !filtersActive();
+}
+function syncCardActive() {
+  const current = $("status").value;
+  document.querySelectorAll("#cards button[data-status]").forEach(btn => {
+    btn.classList.toggle("active", btn.getAttribute("data-status") === current);
+  });
 }
 function setStatusOptions(byStatus) {
   const select = $("status");
@@ -187,37 +221,48 @@ function setStatusOptions(byStatus) {
 }
 function setResultsMessage(count, total) {
   const hint = $("results-hint");
+  const more = $("show-more-wrap");
   if (!total) {
     $("results-status").textContent = "No functions match";
     hint.hidden = true;
     hint.textContent = "";
+    more.hidden = true;
     return;
   }
   if (count < total) {
     const msg = "Showing " + count + " of " + total + " matching functions (page limit)";
     $("results-status").textContent = msg;
-    hint.textContent = msg + ". Narrow Status or Search to see the rest.";
+    hint.textContent = msg + ". Use Show more, or narrow Status or Search.";
     hint.hidden = false;
+    const next = Math.min(pageLimit + PAGE_STEP, total, PAGE_MAX);
+    more.hidden = pageLimit >= PAGE_MAX || pageLimit >= total;
+    $("show-more").textContent = "Show more (up to " + next + ")";
   } else {
     const msg = count + " function" + (count === 1 ? "" : "s") + " shown";
     $("results-status").textContent = msg;
     hint.hidden = true;
     hint.textContent = "";
+    more.hidden = true;
   }
+}
+function resetPaging() {
+  pageLimit = 500;
 }
 async function loadFunctions() {
   const t = $("target").value; if (!t) return;
   const seq = ++functionsSeq;
-  const params = new URLSearchParams({ target: t });
+  const params = new URLSearchParams({ target: t, limit: String(pageLimit) });
   if ($("status").value) params.set("status", $("status").value);
   if ($("q").value.trim()) params.set("q", $("q").value.trim());
+  updateFilterActions();
   try {
     $("results").hidden = false;
     $("empty-state").hidden = true;
+    $("show-more-wrap").hidden = true;
     $("results-status").textContent = "Loading functions…";
     const data = await whileBusy("results", () => get("/api/functions?" + params));
     if (seq !== functionsSeq) return;
-    clearError();
+    setLoadError("functions", "");
     const body = $("rows").querySelector("tbody");
     // One write avoids layout thrash on the default 500-row page.
     body.innerHTML = data.functions.map(f =>
@@ -228,9 +273,15 @@ async function loadFunctions() {
     const total = data.total ?? data.count;
     setResultsMessage(data.count, total);
     $("empty-state").hidden = data.count !== 0;
+    $("results").hidden = data.count === 0;
   } catch (error) {
     if (seq !== functionsSeq) return;
-    showError("Failed to load functions: " + error.message);
+    $("rows").querySelector("tbody").innerHTML = "";
+    $("results").hidden = true;
+    $("empty-state").hidden = true;
+    $("show-more-wrap").hidden = true;
+    $("results-hint").hidden = true;
+    setLoadError("functions", "Failed to load functions: " + error.message);
   }
 }
 async function loadSummary() {
@@ -238,26 +289,44 @@ async function loadSummary() {
   try {
     const s = await whileBusy("summary", () =>
       get("/api/summary?target=" + encodeURIComponent(t)));
-    clearError();
+    setLoadError("summary", "");
     const byStatus = s.function_stats.by_status || {};
     setStatusOptions(byStatus);
     const cards = [
-      ["Functions", s.function_stats.total],
-      ["Matched", (s.coverage_pct ?? 0).toFixed(1) + "%"],
-      ["Identified", (s.identified_pct ?? 0).toFixed(1) + "%"],
+      ["Functions", s.function_stats.total, null],
+      ["Matched", (s.coverage_pct ?? 0).toFixed(1) + "%", null],
+      ["Identified", (s.identified_pct ?? 0).toFixed(1) + "%", null],
     ];
-    for (const [k, v] of Object.entries(byStatus)) cards.push([k, v]);
-    $("cards").innerHTML = cards.map(([k, v]) =>
-      "<div class=card><span class=value>" + esc(v) + "</span>"
-        + "<span class=label>" + esc(k) + "</span></div>").join("");
+    for (const [k, v] of Object.entries(byStatus)) cards.push([k, v, k]);
+    $("cards").innerHTML = cards.map(([k, v, status]) => {
+      if (status) {
+        const active = $("status").value === status ? " active" : "";
+        return "<button type=button class='card" + active + "' data-status='" + esc(status)
+          + "' title='Filter by " + esc(status) + "'>"
+          + "<span class=value>" + esc(v) + "</span>"
+          + "<span class=label>" + esc(k) + "</span></button>";
+      }
+      return "<div class=card><span class=value>" + esc(v) + "</span>"
+        + "<span class=label>" + esc(k) + "</span></div>";
+    }).join("");
     $("summary").hidden = false;
+    updateFilterActions();
   } catch (error) {
-    showError("Failed to load summary: " + error.message);
+    setLoadError("summary", "Failed to load summary: " + error.message);
   }
 }
 function scheduleSearch() {
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(loadFunctions, 200);
+  searchTimer = setTimeout(() => {
+    resetPaging();
+    loadFunctions();
+  }, 200);
+}
+function onStatusChange() {
+  resetPaging();
+  syncCardActive();
+  updateFilterActions();
+  loadFunctions();
 }
 async function init() {
   targets = (await get("/api/targets")).targets;
@@ -272,15 +341,37 @@ async function init() {
   $("target").onchange = () => {
     $("status").value = "";
     $("q").value = "";
+    resetPaging();
+    updateFilterActions();
     clearTimeout(searchTimer);
     void Promise.all([loadSummary(), loadFunctions()]);
   };
-  $("status").onchange = loadFunctions;
+  $("status").onchange = onStatusChange;
   $("q").oninput = scheduleSearch;
+  $("clear-filters").onclick = () => {
+    $("status").value = "";
+    $("q").value = "";
+    resetPaging();
+    syncCardActive();
+    updateFilterActions();
+    clearTimeout(searchTimer);
+    loadFunctions();
+  };
+  $("show-more").onclick = () => {
+    pageLimit = Math.min(pageLimit + PAGE_STEP, PAGE_MAX);
+    loadFunctions();
+  };
+  $("cards").onclick = (ev) => {
+    const btn = ev.target.closest("button[data-status]");
+    if (!btn) return;
+    const status = btn.getAttribute("data-status");
+    $("status").value = ($("status").value === status) ? "" : status;
+    onStatusChange();
+  };
   await Promise.all([loadSummary(), loadFunctions()]);
 }
 init().catch(error => {
-  showError("Dashboard failed to load: " + error.message);
+  setLoadError("summary", "Dashboard failed to load: " + error.message);
 });
 </script>
 </body>

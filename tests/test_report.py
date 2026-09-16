@@ -191,6 +191,26 @@ class TestReportCli:
 
 
 class TestAdjacencyListLabels:
+    def test_truncated_string_cells_expose_full_text(self) -> None:
+        """Long strings and xref lists truncate in the cell but keep a title tooltip."""
+        from types import SimpleNamespace
+
+        from rebrew.report import _string_row
+
+        long_text = "A" * 100
+        xrefs = [SimpleNamespace(from_va=0x1000 + i) for i in range(7)]
+        row = _string_row(
+            SimpleNamespace(va=0x2000, section=".rdata", kind="ascii", text=long_text),
+            xrefs,
+        )
+        assert f'title="{long_text}"' in row
+        assert "…" in row
+        assert "(+2 more)" in row
+        assert (
+            'title="0x00001000, 0x00001001, 0x00001002, 0x00001003, 0x00001004, 0x00001005, 0x00001006"'
+            in row
+        )
+
     def test_prints_symbols_not_internal_keys(self) -> None:
         """Node keys are `va:0x…`/`sym:…` internal identifiers; the adjacency
         fallback must print the symbol (mermaid/dot already do)."""

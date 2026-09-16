@@ -271,6 +271,11 @@ class TestHandle:
         assert "Showing " in body and "of " in body  # truncation copy in JS
         assert "Loading functions" in body
         assert "class=value" in body
+        assert 'id="clear-filters"' in body
+        assert 'id="show-more"' in body
+        assert "setLoadError" in body
+        assert "data-status" in body
+        assert "Use Show more" in body
 
     def test_api_targets(self, dashboard: Dashboard) -> None:
         status, content_type, body = dashboard.handle("GET", "/api/targets", {})
