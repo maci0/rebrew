@@ -2,13 +2,13 @@
   <img src="https://raw.githubusercontent.com/maci0/rebrew/main/docs/mascot.png" alt="Rebrew mascot" width="256" />
 </p>
 
-# ☕ Rebrew
+# Rebrew
 
 **Compiler-in-the-loop decompilation workbench for binary-matching game reversing.**
 
 Rebrew is a reusable Python tooling package for reconstructing exact C source code from compiled binaries. It provides a genetic algorithm engine, source metadata pipeline, verification framework, and CLI tools.
 
-## ✨ Features
+## Features
 
 ### Core Loop
 
@@ -99,7 +99,7 @@ Six bundled skills for AI coding agent integration:
 | `rebrew-intake` | Binary onboarding, triage, and initial FLIRT scanning |
 | `rebrew-ghidra-sync` | Ghidra ↔ Rebrew sync via ReVa MCP |
 
-## 🚀 Quick Start
+## Quick Start
 
 > **Host requirements:** Linux with Docker. Every Windows/DOS compiler profile
 > executes inside its toolchain image (wine/DOSBox live in the image; there is
@@ -130,7 +130,7 @@ rebrew test src/server/func_10003da0.c  # compile and compare
 `rebrew init` creates `rebrew-project.toml`, source/bin directories, and agent skills.
 All tools find the config by searching upward from the current directory (like `git` finds `.git/`).
 
-## 💻 Usage & Workflow
+## Usage & Workflow
 
 All CLI tools must be run **from within a project directory** that contains a `rebrew-project.toml` config file.
 
@@ -213,7 +213,7 @@ rebrew sync --pull-data             # fetch Ghidra data labels into rebrew_globa
 rebrew sync --pull --dry-run        # preview pull without modifying files
 ```
 
-## ✅ Match Statuses
+## Match Statuses
 
 Every annotated function carries a `STATUS`. Status is *earned*, never
 claimed: `rebrew verify` / `rebrew test` derive it from the real byte
@@ -241,7 +241,7 @@ Typical progress runs `STUB` → `NEAR_MATCHING` → `EXACT` / `RELOC`, with
 `rebrew todo` summarize the rest).  Source-marker mechanics live in
 [docs/ANNOTATIONS.md](docs/ANNOTATIONS.md).
 
-## ⚙️ Supported Platforms
+## Supported Platforms
 
 | Architecture | Binary Format | Compiler | Binary Loading | Object Parsing | GA Matching | Verification |
 |:------------|:-------------|:---------|:--------------:|:--------------:|:-----------:|:------------:|
@@ -285,7 +285,7 @@ codegen differences.  Profile selection happens automatically on
 `rebrew intake` from the detected family; the full list is
 `rebrew toolchain list`.
 
-## 🛠️ Development
+## Development
 
 Clean clone needs **uv**, **Python 3.13+** (`.python-version`), **nasm** on
 `PATH`, and a sibling [`resembl`](https://github.com/maci0/resembl) checkout at
@@ -309,9 +309,9 @@ python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me
 
 The flag sweep uses compiler flag definitions synced from [decomp.me](https://github.com/decompme/decomp.me). The `generate_flag_combinations(tier)` function supports five effort levels: `quick` (192 combos), `targeted` (~1.2K combos), `normal` (~5.4K combos), `thorough` (~258K combos), and `full` (~6.2M combos; stride-sampled down to a 100K memory bound). The `msvc-6.0` compiler profile automatically excludes incompatible MSVC 7.x+ flags. See [docs/FLAG_SWEEP_TIERS.md](docs/FLAG_SWEEP_TIERS.md).
 
-## 🌐 Ecosystem & Related Tools
+## Ecosystem & Related Tools
 
-Rebrew is part of a broader decompilation ecosystem. These are the notable projects it integrates with or draws from:
+Projects rebrew integrates with or draws from:
 
 ### Integrated
 

@@ -808,16 +808,13 @@ def mut_move_switch_default(s: str, rng: random.Random) -> str | None:
     if default_node is None or not case_nodes:
         return None
 
-    # Check if default is already at desired position
-    # Move to top if currently at bottom, bottom if at top/middle
+    # Move default to top if currently at bottom, bottom if at top/middle
     all_cases = [c for c in body_node.children if c.type == "case_statement"]
     default_idx = all_cases.index(default_node)
     new_order = case_nodes + [default_node] if default_idx == 0 else [default_node] + case_nodes
 
-    # Reconstruct the body with reordered cases
     open_brace = b_source[body_node.start_byte : body_node.start_byte + 1]
     close_brace = b_source[body_node.end_byte - 1 : body_node.end_byte]
-    # Use the indentation from the first case statement
     indent = b"\n    "
     new_body = open_brace + indent
     new_body += indent.join(b_source[c.start_byte : c.end_byte] for c in new_order)
@@ -957,7 +954,6 @@ def mut_switch_add_explicit_default(s: str, rng: random.Random) -> str | None:
         cases = []
         for child in body.children:
             if child.type == "case_statement":
-                # Check if this case is actually a default
                 if any(c.type == "default" for c in child.children):
                     has_default = True
                     break

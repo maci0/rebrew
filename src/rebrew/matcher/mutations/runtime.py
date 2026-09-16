@@ -119,13 +119,11 @@ def _find_function_body_insert_pos(source: bytes, ref_byte: int) -> int | None:
     C89 scoping rules (all declarations before any statements).
     """
     tree = parse_c_ast(source)
-    # Find the deepest node at ref_byte and walk up to find function body
     node = tree.root_node.descendant_for_byte_range(ref_byte, ref_byte)
     while node is not None:
         if node.type == "compound_statement":
             parent = node.parent
             if parent is not None and parent.type == "function_definition":
-                # Return position right after the opening brace
                 return int(node.start_byte) + 1
         node = node.parent
     return None
@@ -163,12 +161,7 @@ def _apply_query_once(
     if not matches:
         return None
 
-    # Match is a tuple of (pattern_index, dict_of_captures)
-    # We want a random match
     _, captures = rng.choice(matches)
-
-    # captures is a dict mapping capture name (e.g. "expr") to a list of Nodes
-    # We assume one node per capture name in our queries
     single_captures = _first_caps(captures)
 
     target_node = _capture(single_captures, "stmt") or _capture(single_captures, "expr")

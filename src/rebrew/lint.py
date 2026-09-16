@@ -1309,9 +1309,6 @@ def lint_file(
         result._marker_counts["SUPPORT"] += 1
         _check_body_rules(result, lines, True)
         return result
-    # DEBUG
-    # print(f"[DEBUG] Linting {filepath} with {len(lines)} lines")
-
     all_headers = _parse_multi_headers(lines)
     if not all_headers:
         # Totally broken file — no recognisable marker format found.

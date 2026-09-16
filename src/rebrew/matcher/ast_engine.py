@@ -10,7 +10,6 @@ import threading
 import tree_sitter as ts
 import tree_sitter_c as tsc
 
-# Initialize tree-sitter parser for C
 _C_LANGUAGE = ts.Language(tsc.language())
 
 # tree-sitter documents TSParser as per-thread state; batch GA runs N worker
