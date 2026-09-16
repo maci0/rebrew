@@ -1,0 +1,29 @@
+# Advanced / linkage commands
+
+Manual inspection and linkage tools outside the main reverse loop. Run
+`rebrew <cmd> --help` for options; structured output uses `--json`.
+
+| Command | Purpose |
+|---------|---------|
+| `rebrew describe` | Per-function recon dossier: callers, callees, strings, imports. |
+| `rebrew diagnose` | Explain why a function compiles with its toolchain and flags (resolution trace). |
+| `rebrew stack-cmp` | Compare the compiled function's stack frame against the target binary. |
+| `rebrew pdb-info` | Extract compiler version, flags, and function names from a sibling PDB. |
+| `rebrew recover-structs` | Recover struct definitions from decompiler output (offset evidence to typedefs). |
+| `rebrew document-unmatched` | Document unmatched functions as STUB skeletons plus blockers. |
+| `rebrew binary-similarity` | Whole-binary structural similarity against another binary (versions, DLL+EXE). |
+| `rebrew cross-import` | Import matched functions from another target (same code, different VAs). |
+| `rebrew verify-exports` | Verify the recompiled binary's export table matches the original target. |
+| `rebrew order-sources` | Order source files by their first function's original VA (position-aligned `.text`). |
+| `rebrew calibrate-bss` | Calibrate a BSS tail pad so the raw link's `.data` VirtualSize matches the reference. |
+| `rebrew gen-stubs` | Generate a stub TU for unresolved linker symbols (LNK2001/LNK2019). |
+| `rebrew gen-link-stubs` | Generate a `link_stubs.c`-style BSS placeholder TU from the data metadata. |
+| `rebrew inline-strings` | Inline string-literal globals (`s_<hint>_<0xADDR>`) from the reference binary. |
+| `rebrew link-sweep` | Sweep LINK options to reproduce the reference PE header (find stamp-only fields). |
+| `rebrew cmake-toolchain` | Write a CMake toolchain file that drives a docker toolchain via `rebrew-cmake-*`. |
+| `rebrew cmake-flags` | Write per-file CFLAGS from `rebrew-functions.toml` as a CMake include. |
+| `rebrew binsync-init` | Initialize a BinSync git repo (root and user branches) for a target. |
+| `rebrew binsync-export` | Export annotations to an experimental BinSync state directory. |
+| `rebrew binsync-import` | Import a BinSync state directory into rebrew metadata. |
+| `rebrew binsync-overlay` | Overlay a related target's BinSync names onto this target. |
+| `rebrew refactor` | Analyse the source tree and suggest refactoring opportunities. |

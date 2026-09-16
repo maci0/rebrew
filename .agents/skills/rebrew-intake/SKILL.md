@@ -1,6 +1,6 @@
 ---
 name: rebrew-intake
-description: Onboards a new binary into an existing rebrew project. Runs initial reconnaissance (FLIRT signatures, function catalog, coverage database, triage) and produces an actionable summary of the binary's reversing landscape. Use this skill whenever adding a new target binary, starting a new reversing campaign, performing initial binary analysis, running FLIRT scans, building the function catalog, or triaging a binary for the first time. Also use when the user mentions 'intake', 'onboard', 'new binary', 'new target', 'catalog', 'triage', or 'FLIRT scan'.
+description: Onboards a new binary into an existing rebrew project — doctor, FLIRT, catalog, coverage DB, first triage/skeletons. Use once per new target (or when re-running initial recon). Triggers on 'intake', 'onboard', 'new binary', 'new target', 'first triage'. Not for day-to-day flirt/todo/test on an already-onboarded target (use rebrew-workflow). Fresh empty directory → rebrew-init first.
 license: MIT
 ---
 
@@ -42,42 +42,23 @@ rebrew toolchain build <profile>      # fetch the profile's docker image (wibo/h
 
 ## Linker-script scaffolding (optional, after the catalog)
 
-Once the target binary is in place (and ideally after `rebrew catalog` has run), generate
-the byte-identity build scaffolding from the binary:
-
 ```bash
 rebrew gen-layout --target <name>
 ```
 
-This writes, into the project:
+Writes `src/bench/bench.def`, `src/bench/crt_region/crt_imports.c`, and
+`layout/bench/` (text-only `rebrew-layout.toml` + hex dumps). Then
+`rebrew postlink <built.dll> --layout layout/bench` can converge without the
+original DLL present. Keep `layout/` in VCS.
 
-- `src/bench/bench.def` — the EXPORTS table with the original's ordinals.
-- `src/bench/crt_region/crt_imports.c` — the `#pragma comment(linker, "/include:__imp_...@N")`
-  IAT-forcing list in the binary's true IAT order (suffixes resolved from the toolchain
-  import libraries; ordinal imports such as WS2_32 resolved by name).
-- `layout/bench/` — a text-only layout package (no binary blobs): a structured
-  `rebrew-layout.toml` (image base, sections, exports, imports with reference IAT-slot VAs)
-  plus hex dumps of the opaque linker-stamped regions (`header.hex`, `iat.hex`,
-  `prefix.hex`, `bookkeeping.hex`, `data.hex`, `reloc.hex`) and sparse `.text` maps
-  (`operands.txt`, `calls.txt`). `rebrew postlink <built.dll> --layout layout/bench`
-  can then converge a built binary onto the original **without the original DLL
-  present** (PE normalization, import order, .data/.reloc), reconstructing the
-  reference purely from this metadata.
-
-The layout package is the project-side source of truth for the reference layout; keep it
-in VCS (it is plain text) so later fixes never need `original/` around.
-
-Then place the binary at the path specified in `rebrew-project.toml` (default: `original/<filename>`).
-
-`rebrew init` creates `rebrew-project.toml`, `AGENTS.md`, `original/`, `src/bench/`, and
-empty `src/rebrew-functions.toml` + `src/rebrew-data.toml` metadata files. Every
-Windows/DOS toolchain compiles through its docker image (`rebrew toolchain build <profile>`);
-`--install-wibo` is ignored for image-backed profiles (see `docs/TOOLCHAIN.md`).
+Place the binary at the configured path (default `original/<filename>`).
+`rebrew init` creates project dirs + empty metadata TOMLs. Shipped toolchains
+are docker-only (`rebrew toolchain build <profile>`); `--install-wibo` is ignored
+for image-backed profiles.
 
 ### Multi-Target File Layout
-When adding a new target that shares codebase with an existing target (e.g., adding `BETA10` to a `LEGO1`
-project), you do not need to duplicate `.c` files. Add a second `// FUNCTION: BETA10 0x...` annotation block
-above the same function body.
+When adding a target that shares code with an existing one, add a second
+`// FUNCTION: BETA10 0x...` marker above the same body — do not duplicate `.c` files.
 
 ## Intake Procedure
 
@@ -85,9 +66,10 @@ above the same function body.
 
 For a brand-new project directory, `rebrew intake <binary>` performs the whole
 onboarding in one shot: toolchain detection → `rebrew init` with a matching
-profile → copy binary → symlink vendored toolchain → discoverer-plugin
-enumeration (packaged: rizin `aaa`/`aap`, capstone sweep, NE/MZ loaders) →
-document every function (STUB .c + metadata blocker).
+profile → copy binary → optional symlink of the vendored toolchain tree into
+`tools/` (build-source nicety; compile still uses the docker image) →
+discoverer-plugin enumeration → document every function (STUB .c + metadata
+blocker).
 The result is a lint-clean project where every function is matched or
 blocker-documented.  Use `--toolchain` to override the auto-detected profile,
 `--dry-run` to preview.  Use the manual procedure below when you need to
@@ -95,128 +77,15 @@ customize a step.
 
 ### 0b. Identify the Toolchain First
 
-Before anything else, determine the compiler family — it decides the whole
-pipeline (MSVC6 vs MinGW GCC):
+Before FLIRT/catalog, determine the compiler family (MSVC vs MinGW vs DOS MZ vs NE).
+Decision tree, packing (LZEXE/PKLITE), and profile picks:
+`references/toolchain-id.md`. Prefer `rebrew init --guess-compiler` /
+`rebrew intake`; override with `--toolchain` when headers lie.
 
-- `file <binary>` + section list: a `.buildid` section, GNU-style `0f 1f`
-  multi-byte nops, and a `mov eax, N; call ___chkstk_ms` stack probe mean
-  **MinGW GCC**, not MSVC.
-- Imports: MSVC static-CRT binaries import KERNEL32 broadly (`GetCommandLineA`,
-  `HeapCreate`, ...).  A standalone MinGW build imports only a handful
-  (`ExitProcess`, `GetStdHandle`, `WriteFile`, ...) and FLIRT finds zero
-  matches (no MSVC CRT).
-- If MinGW: `rebrew init --toolchain mingw-16.2.0` (see `docs/TOOLCHAIN.md`).
-  The packaged rizin discoverers use `aa; aap` here — `aaa` mis-merges
-  functions on this toolchain (a third-party `rebrew.discoverers` plugin can
-  replace them).  Note that byte-exact matching requires the
-  author's exact GCC version; old builds typically match structurally only
-  (document the semantic decomp + blocker the byte delta).
-- If MSVC: continue with FLIRT from `msvcrt.lib` **and** `libcmt.lib`
-  (statically-linked CRT code only matches libcmt signatures).
-- If a plain DOS MZ executable (`file` shows "MS-DOS executable, MZ"):
-  **check for packing first** — `rebrew toolchain detect` reports
-  `packed: lzexe 0.91` (or `packed: pklite` — PKWARE's compressor, also
-  very common in the era) when the file is packed (very common for 1990s
-  shareware; the visible code is only a decompressor stub, so
-  discovery/detection see almost nothing until unpacked).  For LZEXE run
-  `rebrew unpack-lzexe <binary>` first and analyze the unpacked file;
-  PKLITE has no built-in unpacker — find an unpacked copy.  Borland Turbo C/C++ targets
-  byte-match with the `borland-3.1` profile (Turbo C++ 3.1) or `borland-2.0` (Turbo C
-  2.0 — the 1988/89-era compiler diec reports as "Borland C/C++ 1991";
-  C89-strict, so skeletons use `/* */` markers); Open Watcom wcc16-built
-  DOS targets use `watcom-2.0-win16`.  `rebrew init --guess-compiler` picks the
-  profile automatically, and `rebrew discover-functions` runs the packaged
-  16-bit MZ sweep over the code region (the rizin providers cannot analyze
-  MZ) — the
-  full unpack → init → discover → skeleton → test loop is verified
-  end-to-end (see `tests/fixtures/tc16_hello_lzexe.exe`, packed with the
-  original LZEXE.EXE).
-- If 16-bit NE (Windows 3.x): `file <binary>` shows "NE version N for MS
-  Windows 3.x".  `rebrew intake` handles it end-to-end — native NE parsing,
-  the packaged NE-loader discoverer (the rizin providers cannot analyze
-  NE), auto `format = "ne"` + `arch = "x86_16"`, and family detection from
-  the Borland segment-marker convention (`delphi` vs MSVC-style).
-  **MSVC-style NE byte-matches with the `msvc-1.52` profile** (DOSBox
-  CL.EXE → 16-bit OMF, parsed by `rebrew.matcher.omf16` — skifree16-class
-  targets).  Borland *Delphi* NE remains unmatchable (ADR-001): `rebrew
-  verify` short-circuits, `rebrew doctor` reports Delphi 1.0 toolchain
-  readiness, and functions are documented as BLOCKER stubs for analysis
-  only.  `rebrew.delphi16.compile_ne` can already compile 16-bit
-  executables headless (the future matching foundation).  Borland *Turbo
-  C/C++* DOS targets (plain MZ, e.g. 1990s shareware games) byte-match
-  with the `borland-3.1` profile (Turbo C++ 3.1) or `borland-2.0` (Turbo C 2.0 — the
-  earlier codegen generation; pick it when the binary is
-  1988/89-era-built or `borland-3.1` output drifts).  See
-  `docs/TOOLCHAIN.md`.
+### 0c–0d. Optional recon
 
-### 0c. Binary Fingerprint
-
-Record the binary's identity before analysis.  `rebrew fingerprints` returns
-the streamed file digests (md5, sha1, sha256, sha512, the four SHA-3 digests
-and crc32), imphash, export hash, Rich-header hash, and per-section entropy in
-one bundle, which tells two builds of the same target apart and flags a
-changed import set, export set or linker stamp after a rebuild.
-
-```bash
-rebrew fingerprints --json                 # fingerprint the target binary
-rebrew fingerprints original/<filename>    # fingerprint a specific binary
-```
-
-The `imphash`, `export_hash` and `rich_header_hash` fields are the cheap
-build-identity checks; `format` / `arch` confirm the toolchain family the rest
-of intake assumes.
-
-For the PE build identity itself, `rebrew pe-info` dumps the headers and
-section table (each section's entropy and full `IMAGE_SCN_*` characteristic
-names), the export table, the resource count, the DllCharacteristics
-mitigations with the load-config GS and SafeSEH state and the 11-item security
-checklist with its `N/11` score, the Authenticode summary, the debug directory
-(CodeView PDB path / GUID / age when present), and the Rich header (key and
-decoded entries).  It complements the fingerprint bundle for PE targets: use
-it to read the subsystem, entry point, linker timestamp, section protections,
-and Rich build numbers without an external PE viewer.  ELF and Mach-O
-inputs report the shared identity fields plus a note that the PE-only
-metadata is unavailable.
-
-```bash
-rebrew pe-info --json                      # metadata for the target binary
-rebrew pe-info original/<filename>         # metadata for a specific binary
-```
-
-A crypto scan complements the fingerprint: `rebrew crypto-scan` finds the
-fixed AES/SHA/MD5 constant tables in the data sections and matches crypto
-imports and function names, so a target with an embedded hash or cipher is
-known before function triage starts.
-
-```bash
-rebrew crypto-scan --json                  # scan the target binary for crypto
-rebrew crypto-scan original/<filename>     # scan a specific binary
-```
-
-Constants (AES S-boxes, SHA-256 K/H, SHA-1 H, MD5 T) are `high` confidence;
-crypto imports are `high`; crypto-named project functions are `medium`. An
-empty finding list is a valid result.
-
-### 0d. Source Security Scan
-
-The reversed sources carry the target's own unsafe calls.  `rebrew
-security-scan` matches the C call sites on the tree-sitter AST and reports
-them by CWE, severity, and confidence: unbounded copies (CWE-120),
-non-literal format strings (CWE-134), command execution (CWE-78), unchecked
-`memcpy` sizes (CWE-787), weak randomness (CWE-338), and non-literal
-`alloca` (CWE-770).  It needs no project: a directory argument selects any C
-source tree, and the project's reversed sources are the default.
-
-```bash
-rebrew security-scan --json                       # scan the project's reversed sources
-rebrew security-scan src/NP                        # scan an explicit C source tree
-rebrew security-scan --min-severity high             # only high-severity findings
-```
-
-A finding is a review indicator, not proof of an exploitable bug: the same
-call can be safe in context.  No findings is a valid result.
-
-### 1. Health Check — run `rebrew doctor` first
+Fingerprints, `pe-info`, crypto-scan, and source `security-scan` are optional
+before triage — see `references/binary-recon.md`.
 
 ```bash
 rebrew doctor                           # validate config, binary, toolchain, metadata
@@ -225,32 +94,13 @@ rebrew toolchain build <profile>        # fetch the profile's docker image when 
 rebrew cfg list-targets                 # confirm target is configured
 ```
 
-Run `rebrew doctor` before anything else. It checks that `rebrew-project.toml` parses, the
-target binary loads, the toolchain image is present, include/lib
-paths exist, `flirt_sigs/` parses, and `rebrew-functions.toml`/`rebrew-data.toml` exist.
-
-- **Exit code is 1 if any check failed** — treat `fail` checks as blockers, not warnings.
-- `--json` prints `{"target", "passed", "summary": {"pass","fail","warn"}, "checks": [{name, status, message, fix}]}`.
-  Use it to decide what to fix: each `checks[].fix` contains the repair command.
-- Toolchain check failing means the profile's docker image is missing — build it
-  with `rebrew toolchain build <profile>` (every Windows/DOS toolchain compiles
-  through its image; host wine/wibo are gone).
-
-Common failures and fixes:
-
-- Config parse fails → run `rebrew init` in the project directory.
-- "Target binary not found" → place the binary at the configured path.
-- Toolchain image missing → `rebrew toolchain build <profile>` (see `checks[].fix`).
-- FLIRT signatures missing → generate from a `.lib` or drop `.sig` files into `flirt_sigs/`:
+Exit 1 on any `fail`. `--json` → `checks[].fix` repair commands. Missing image →
+`rebrew toolchain build <profile>`. Config fail → `rebrew init`. Missing binary →
+place at configured path. Missing FLIRT →:
 
 ```bash
 rebrew gen-flirt-pat toolchain/msvc/6.0-win32/source/VC98/Lib/msvcrt.lib --output flirt_sigs/msvcrt_vc6.pat
-```
-
-If the target is missing, add it (the binary must already exist, or pass `--force`):
-
-```bash
-rebrew cfg add-target <name> --binary original/<filename>
+rebrew cfg add-target <name> --binary original/<filename>   # or --force if binary absent
 ```
 
 ### 2. FLIRT Library Scan
@@ -265,16 +115,9 @@ rebrew crt-match --index --json         # verify CRT source directories are conf
 rebrew crt-match --all --fix-source --json # auto-annotate SOURCE references for library functions
 ```
 
-Without `rebrew cfg detect-crt`, `crt-match --all` finds zero matches because no CRT
-source directories are registered in `rebrew-project.toml`.
-
-- `rebrew flirt --json` prints `{signature_count, match_count, skipped_ambiguous, matches: [{va, size, names}]}`.
-  Ambiguous hits (>N candidate names) are skipped by default and listed in `ambiguous_matches`.
-- Use `matches[].names` to identify library code, and `crt-match --all --fix-source` to record
-  `// SOURCE:` references for confirmed matches. `crt-match --index` alone just shows the index.
-
-Library matches are fast wins — they can be skeletonized and matched quickly
-since the original source is often available.
+Needs `cfg detect-crt` first or `crt-match --all` finds nothing. FLIRT JSON:
+`matches[].names`; ambiguous hits in `ambiguous_matches`. Use
+`crt-match --all --fix-source` for `// SOURCE:` on confirmed library hits.
 
 ### 3. Build Function Catalog + Coverage DB
 
@@ -285,15 +128,9 @@ rebrew catalog --fix-sizes              # backfill SIZE in rebrew-functions.toml
 rebrew build-db                         # build SQLite coverage database (db/coverage.db)
 ```
 
-- `catalog --data-json` scans reversed sources + the discovery inventory into `db/data_bench.json`;
-  it also writes `src/bench/function_structure.json` from discovery when no Ghidra
-  export exists (skeleton generation needs one of the two).
-- `--export-ghidra-labels` writes `src/bench/ghidra_data_labels.json` (data cells, switch
-  tables) for labeling non-function addresses in Ghidra.
-- `--fix-sizes` edits metadata in place — it prompts interactively, so pass `--force` when
-  scripting or in `--json` mode (`--json` without `--force` errors out).
-- `build-db` aggregates every `db/data_*.json` into `db/coverage.db`.
-  On a schema mismatch it refuses unless `--force` is passed (deletes + rebuilds).
+`--data-json` → `db/data_bench.json` (+ `function_structure.json` when no Ghidra
+export). `--fix-sizes` prompts unless `--force` (required with `--json`).
+`build-db` needs `--force` to rebuild on schema mismatch.
 
 ### 4. Initial Triage
 
@@ -373,34 +210,16 @@ rebrew sync --push --state-dir <dir>      # export annotations to the BinSync st
 
 ```bash
 rebrew build-db                         # refresh db/coverage.db after any changes
-rebrew dashboard                        # serve read-only web dashboard on http://127.0.0.1:8000
+rebrew dashboard                        # read-only coverage UI (http://127.0.0.1:8000)
 ```
 
-`rebrew dashboard` serves the coverage database — targets, per-status counts, function search,
-per-section cell stats, globals, and status-change history — at `http://127.0.0.1:8000`
-(`--port` to change). It is read-only, so it is safe to leave running.
-
-The dashboard is the handoff to the reversing loop. As reversing proceeds, `rebrew verify`
-(updates `.rebrew/verify_cache.json`) plus the next `rebrew build-db` import each
-function's byte delta into the DB's `verify_results` table, so the dashboard stays current.
+`rebrew dashboard` serves the coverage DB (targets, status counts, search, globals,
+history). It blocks the shell until stopped — run it only when the user wants the
+UI handoff; do not leave it running unattended. `--port` changes the bind port.
 
 ## Summary Checklist
 
-```
-Intake Progress:
-- [ ] Binary placed at configured path
-- [ ] rebrew doctor passes (config, binary, compiler, metadata)
-- [ ] rebrew cfg confirms target
-- [ ] CRT source dirs detected (rebrew cfg detect-crt --write)
-- [ ] FLIRT scan complete (rebrew flirt --json)
-- [ ] Catalog + coverage DB built (rebrew catalog --data-json && rebrew build-db)
-- [ ] Ghidra data labels exported (rebrew catalog --export-ghidra-labels)
-- [ ] SIZE backfilled (rebrew catalog --fix-sizes)
-- [ ] Status + triage reviewed (rebrew status / rebrew todo)
-- [ ] Compilation units inferred (rebrew graph --cu-map)
-- [ ] First skeletons generated
-- [ ] Ghidra synced (if available)
-- [ ] Dashboard served (rebrew dashboard) — handoff ready
-```
-
-After intake completes, hand off to the `rebrew-workflow` skill for the iterative reversing loop.
+Binary placed → `doctor` pass → `cfg detect-crt --write` → `flirt --json` →
+`catalog --data-json` + `--export-ghidra-labels` + `--fix-sizes` → `build-db` →
+`status`/`todo` → `graph --cu-map` → first skeletons → optional Ghidra sync →
+optional `dashboard` handoff. Then switch to `rebrew-workflow`.

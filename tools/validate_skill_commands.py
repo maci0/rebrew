@@ -160,7 +160,7 @@ def _run_help(subcommand: str) -> tuple[bool, str]:
 
 
 def validate(*, quiet: bool = False) -> bool:
-    """Validate all SKILL.md command references.  Returns True if all pass."""
+    """Validate all agent-skills markdown command references.  Returns True if all pass."""
     if not _SKILLS_DIR.is_dir():
         print(f"[SKIP] agent-skills dir not found: {_SKILLS_DIR}", file=sys.stderr)
         return True
@@ -173,19 +173,21 @@ def validate(*, quiet: bool = False) -> bool:
 
     combos: list[tuple[str, str, tuple[str, ...]]] = []
     for skill_dir in sorted(_SKILLS_DIR.iterdir()):
-        skill_md = skill_dir / "SKILL.md"
-        if not skill_md.is_file():
+        if not skill_dir.is_dir():
             continue
         skill_name = skill_dir.name
-        commands = _extract_commands(skill_md)
-
+        # SKILL.md plus progressive-disclosure references/*.md
+        md_files = [skill_dir / "SKILL.md", *sorted((skill_dir / "references").glob("*.md"))]
         seen: set[tuple[str, tuple[str, ...]]] = set()
-        for subcommand, flags in commands:
-            key = (subcommand, tuple(sorted(flags)))
-            if key in seen:
+        for md_path in md_files:
+            if not md_path.is_file():
                 continue
-            seen.add(key)
-            combos.append((skill_name, subcommand, tuple(sorted(flags))))
+            for subcommand, flags in _extract_commands(md_path):
+                key = (subcommand, tuple(sorted(flags)))
+                if key in seen:
+                    continue
+                seen.add(key)
+                combos.append((skill_name, subcommand, tuple(sorted(flags))))
 
     unique_subs = sorted({c[1] for c in combos})
     with ThreadPoolExecutor(max_workers=8) as pool:

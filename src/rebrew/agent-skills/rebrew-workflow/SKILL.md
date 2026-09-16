@@ -1,6 +1,13 @@
 ---
 name: rebrew-workflow
-description: Guides the end-to-end reverse engineering workflow for matching C source against target binary functions. Covers function selection, skeleton generation, compile-and-compare iteration, verification, and dependency analysis. Use this skill for ANY reversing task including picking functions to work on, generating skeletons, testing implementations, running verification, linting annotations, or tracking progress. Triggers on 'reverse', 'decompile', 'skeleton', 'test function', 'verify', 'lint', 'next function', 'workflow', or any rebrew CLI command not covered by a more specific skill.
+description: >-
+  End-to-end reversing loop for matching C against target functions — pick work
+  (`todo`), skeleton, edit, `test`/`diff`, verify, lint, round-trip. Use for
+  day-to-day reversing: next function, skeleton, test, verify, lint, or progress.
+  Triggers on 'reverse', 'decompile', 'skeleton', 'test function', 'verify',
+  'lint', 'next function', 'workflow', 'todo'. Hand off near-miss GA/prove to
+  rebrew-matching; new binaries to rebrew-intake; globals/BSS to
+  rebrew-data-analysis; Ghidra to rebrew-ghidra-sync.
 license: MIT
 ---
 
@@ -35,7 +42,7 @@ For annotation syntax details, see `references/annotation-format.md`.
 - Deep byte-level matching / GA / flag sweep / prove → use `rebrew-matching`
 - Global variables, `.bss` gaps, dispatch tables → use `rebrew-data-analysis`
 - Ghidra push/pull operations → use `rebrew-ghidra-sync`
-- Struct layouts, type checking, signature rewrites → `rebrew types` (this skill, §8b)
+Also note `rebrew types` in §8 for struct/signature rewrites.
 
 ## 1. Pick a Function
 
@@ -48,47 +55,24 @@ rebrew crt-match --all --json           # Find matching CRT source files for LIB
 rebrew similar 0x10001000 --json        # Find structurally similar functions (same source family)
 ```
 
-**Default to `rebrew todo --json`.** Each item carries a ready-to-run `command` field
-(e.g. `rebrew skeleton 0x...`, `rebrew diff 0x...`, `rebrew prove 0x...`) — run it verbatim.
-Items are tiered by ROI:
-1. Compile errors / extract errors (blocks progress — fix the source/marker/symbol first)
-2. Near-misses (1-4 byte deltas, fast wins)
-3. Stubs that need finishing
-4. New function starts (ranked by similarity + size)
-5. Automated tasks (prove, data fixups)
-
-> **`extract-error` items** mean the compiled `.obj` lacks the annotated symbol:
-> the STUB/FUNCTION marker name, the C definition's decorated symbol, or the
-> implementation is wrong. Run the item's `rebrew test 0x<va>` command to see
-> the exact failure. Do NOT run a flag sweep or GA on these — the symbol must
-> resolve before matching can help.
-
-The JSON `coverage` block (`total`/`covered`/`exact`/`reloc`/`proven`/`matching`/`stub`/`pct_matched`)
-is the source of truth for progress. Use `rebrew status --json` first if the project state is
-unfamiliar — it is read-only and cheap (no compilation).
+**Default to `rebrew todo --json`.** Each item has a ready `command` — run it.
+ROI tiers: compile/extract errors → near-misses → stubs → new starts → prove/data.
+`extract-error` = symbol missing from `.obj`; fix the marker/definition before GA.
+`coverage` in JSON is the progress source of truth; `status --json` is cheap recon.
 
 > [!IMPORTANT]
-> **Before starting a function, check it is not library code.** Statically
-> linked CRT/zlib/runtime code sits in `.text` looking exactly like target
-> code, and a decompiler names it `fcn_XXXX` like anything else. Reversing it
-> is wasted effort: the linker supplies those bytes anyway, so the work is
-> committed, counted as coverage, and refined for weeks before anyone notices
-> it was never the target's.
+> **Before starting a function, check it is not library code.** CRT/zlib in
+> `.text` looks like target code. Probe first:
 >
 > ```bash
-> rebrew flirt --va 0x<VA> --json     # signature match
-> rebrew crt-match 0x<VA> --json      # reference-source match (CRT, zlib)
-> rebrew lib-match --lib LIBCMT.LIB --va 0x<VA>  # byte match vs a linked archive
+> rebrew flirt --va 0x<VA> --json
+> rebrew crt-match 0x<VA> --json
+> rebrew lib-match --lib LIBCMT.LIB --va 0x<VA>
 > ```
 >
-> A miss is inconclusive, not a verdict of "target code". FLIRT matches short
-> byte patterns against prebuilt signatures, so a signature set generated from
-> a different library build misses real matches: on one MSVC 6 project it
-> identified 9 of the 68 CRT functions actually present. `lib-match` settles
-> it: it compares whole function bodies against the archive the project links,
-> masking each object's relocation slots (and indexing COFF static symbols,
-> which never appear in the archive symbol index). Whatever is identical
-> outside those slots is library code. Mark it `// LIBRARY:` and move on.
+> A miss is inconclusive. FLIRT can under-match across library builds;
+> `lib-match` settles whole-body identity against the linked archive. Mark hits
+> `// LIBRARY:` and move on.
 
 ## 2. Generate Skeleton
 
@@ -123,24 +107,12 @@ void my_func() {}
 ```
 
 > [!CAUTION]
-> **All volatile metadata lives in `rebrew-functions.toml` at `cfg.metadata_dir`
-> (the parent of `reversed_dir`, e.g. `src/` for `src/server.dll/`), never inline
-> in the `.c` file — and never by hand-editing the TOML.** Metadata-owned keys: STATUS, SIZE, CFLAGS, BLOCKER/BLOCKER_DELTA,
-> NOTE, GHIDRA, ORIGIN, SOURCE, SECTION, SKIP, GLOBALS, prove_constraints.
-> STATUS is promoted only by `rebrew test` / `rebrew verify` (canonical writer:
-> `metadata.update_source_status`); PROVEN is sticky — never silently demoted
-> (deliberate demotion: `rebrew test <file> --force-status`). Use
-> `rebrew lint --fix` to migrate any leftover inline `// STATUS:`-style keys.
-> **Never manually edit `rebrew-functions.toml` or `rebrew-data.toml`.**
-> **The metadata files are write-locked (mode 0444):** `rebrew-functions.toml`,
-> `rebrew-data.toml`, and the binsync exports (`functions/*.toml`,
-> `global_vars.toml`, `structs/*.toml`) are written read-only by the tool —
-> direct edits fail with Permission denied. To change anything there, run the
-> CLI (e.g. `rebrew verify` for STATUS, `rebrew blocker set/clear`, `rebrew
-> rename`) — it chmods writable, updates, and re-locks. Status is *earned*,
-> never claimed: a hand-written `STATUS: PROVEN` is honored only when a verify
-> byte-compare supports it, otherwise demoted to the real byte result with a
-> `metadata: warning`.
+> **Volatile metadata lives only in `rebrew-functions.toml` at `cfg.metadata_dir`
+> — never inline in `.c`, never hand-edit the TOML.** Keys: STATUS, SIZE, CFLAGS,
+> BLOCKER/BLOCKER_DELTA, NOTE, GHIDRA, ORIGIN, SOURCE, SECTION, SKIP, GLOBALS,
+> prove_constraints. STATUS via `rebrew test`/`verify` only; use `rebrew blocker
+> set/clear`, `rebrew lint --fix` for migrations. Files are mode 0444
+> (`atomic_write_locked`). Full rules: `references/annotation-format.md`.
 
 ## 4. Implement and Test
 
@@ -153,12 +125,6 @@ rebrew test src/<target>/<file>.c --no-promote          # skip STATUS update
 rebrew test 0x<VA> --json                  # find by VA (also accepts a symbol name)
 rebrew test src/<target>/<file>.c --va 0x10001000 \
     --symbol _myfunc --size 64 --cflags "/O1 /Gd"        # override metadata for ad-hoc tests
-```
-
-On a multi-function file, `--va` selects the annotation AT that VA (its symbol
-and fallback size come from it — same rule as diff/match/prove). Pass
-`--symbol` too to override the symbol explicitly; with no `--va`/`--symbol`/
-`--size`, every annotated function in the file is tested.
 rebrew test --all --json                   # batch test all reversed .c files
 rebrew test --all --origin GAME --json     # batch mode, filter by origin
 rebrew test --all --dir src/<target>/ --json    # restrict to subdir
@@ -167,22 +133,18 @@ rebrew test --all --dry-run                # list candidates without compiling
 rebrew test src/<target>/<file>.c --dry-run  # compile but PREVIEW the STATUS change (no write)
 ```
 
-**`--dry-run` semantics** (consistent across tools): it must never write. For
-`rebrew test`, single-function `--dry-run` compiles and prints the would-be
-STATUS change without writing; `--all --dry-run` lists candidates without
-compiling. `rebrew match --dry-run` is **batch-only** (`--all`); a single-file
-`match --dry-run` is rejected — the GA always runs for a single function.
-`rebrew prove --dry-run` previews the STATUS promotion; `rebrew verify
---dry-run` previews STATUS sync and skips cache/report writes.
+On a multi-function file, `--va` selects the annotation AT that VA (its symbol
+and fallback size come from it — same rule as diff/match/prove). Pass
+`--symbol` too to override the symbol explicitly; with no `--va`/`--symbol`/
+`--size`, every annotated function in the file is tested.
 
-`rebrew test` always syncs STATUS in `rebrew-functions.toml` after each run (`--no-promote` skips):
-- **EXACT / RELOC** → STATUS updated; BLOCKER/BLOCKER_DELTA cleared
-- **NEAR_MATCHING** (≥60% byte match) → STATUS updated; user-set BLOCKERs preserved
-- **STUB** (<60%) → STATUS demoted to STUB
-- **PROVEN is sticky** — never demoted by test/verify (set only by `rebrew prove`);
-  to deliberately demote a stale PROVEN (source changed, no longer byte-matches),
-  run `rebrew test src/<target>/<file>.c --force-status` (single-function only)
-- Exit codes: `0` EXACT/RELOC · `1` NEAR_MATCHING/STUB · `2` compile error (scriptable)
+**`--dry-run` never writes.** `test` single-file: compile + preview STATUS;
+`--all --dry-run`: list only. `match --dry-run` is batch-only (`--all`).
+`prove`/`verify --dry-run` preview STATUS/cache writes.
+
+`rebrew test` syncs STATUS (`--no-promote` skips): EXACT/RELOC update + clear
+BLOCKER; NEAR_MATCHING (≥60%) updates; STUB (<60%) demotes; PROVEN is sticky
+(`--force-status` to demote). Exit: `0` EXACT/RELOC · `1` NEAR/STUB · `2` compile error.
 
 For a byte diff of the current state:
 
@@ -198,188 +160,66 @@ rebrew blocker set 0x<VA> "SEH helper -- not matchable from C"
 rebrew blocker clear src/<target>/<file>.c       # remove BLOCKER again
 ```
 
-`rebrew diff` also accepts a VA or symbol name. Exit codes: `0` no structural diffs ·
-`1` structural diffs (`**` rows) · `2` build failed. `--fix-blocker` classifies structural
-diffs (register allocation, jump-condition swap, loop rotation, stack-frame choice, …) and
-writes BLOCKER/BLOCKER_DELTA metadata. Unresolved global references (a `[0]` operand on a
-non-reloc row) are reported as hints — add a `// GLOBAL:` annotation for the target address.
-
-For deeper matching (GA engine), see the `rebrew-matching` skill.
+`rebrew diff` accepts VA/symbol. Exit: `0` clean · `1` structural `**` · `2` build fail.
+`--fix-blocker` writes BLOCKER metadata. Unresolved `[0]` globals → add `// GLOBAL:`.
+Deep GA/prove → `rebrew-matching`.
 
 ## 5. File Organization
 
 ```bash
-rebrew split src/<target>/multi.c                    # split into individual files
-rebrew split src/<target>/multi.c --dry-run           # preview without writing
-rebrew split --va 0x10003DA0 src/<target>/multi.c     # extract one function
-rebrew merge a.c b.c -o merged.c                     # merge into one file
-rebrew merge-sweep --dry-run                          # TU-partition search preview (merge/split by matched bytes)
-rebrew link-order --check                             # SOURCES order matches VA order (CI drift gate)
-rebrew layout-map                                     # reference layout measurements (sections/gaps/IAT/exports)
-rebrew rename old_func new_func                       # rename across entire project
-rebrew rename old_func new_func --dry-run             # preview rename without writing
+rebrew split src/<target>/multi.c [--dry-run] [--va 0x...]
+rebrew merge a.c b.c -o merged.c
+rebrew merge-sweep --dry-run
+rebrew link-order --check
+rebrew layout-map
+rebrew rename old_func new_func [--dry-run]
+rebrew graph --cu-map --json              # infer TU boundaries for merge decisions
 ```
 
-Split when functions need different CFLAGS or independent tracking.
-Merge when functions share a translation unit (static locals, file-scoped globals).
-
-Use `rebrew graph --cu-map` to identify functions likely from the same compilation unit:
-
-```bash
-rebrew graph --cu-map --json                         # infer TU boundaries
-```
+Split for different CFLAGS; merge for shared TU (statics/file globals).
 
 ## 6. Global Data
 
-If the function references globals, use the `rebrew-data-analysis` skill for
-`// GLOBAL:` / `// DATA:` annotations and the `rebrew data` tool. Global metadata
-lives in the **`rebrew-data.toml`** metadata file at `cfg.metadata_dir`, managed
-automatically by `rebrew data`, `rebrew data --fix-bss`, and `rebrew sync --pull --state-dir <dir>`.
+Globals → `rebrew-data-analysis` (`// GLOBAL:` / `// DATA:`, `rebrew data`).
+Metadata in `rebrew-data.toml` at `cfg.metadata_dir`.
 
 ## 7. Prove Stubborn NEAR_MATCHING Functions
 
-If a function remains NEAR_MATCHING after source adjustments (structural blockers like
-register allocation), use `rebrew prove` for symbolic equivalence:
+Hand off to `rebrew-matching` (`rebrew prove`). Quick path:
 
 ```bash
-rebrew prove src/<target>/<file>.c --json               # prove NEAR_MATCHING → PROVEN
-rebrew prove src/<target>/<file>.c --dry-run --json      # preview without updating
-rebrew prove my_func --timeout 120 --json                # find by symbol, 2 min timeout
-rebrew prove src/<target>/<file>.c --watch-va 0x10034640 --json  # also compare 4 bytes of memory at this VA (repeatable)
-rebrew prove --all --json                                # batch-prove all NEAR_MATCHING functions
+rebrew prove src/<target>/<file>.c --json
+rebrew prove --all --json
 ```
 
-- Requires the optional dep: `uv pip install -e ".[prove]"` (angr).
-- Precondition: STATUS must be NEAR_MATCHING (EXACT/RELOC already match byte-for-byte;
-  PROVEN is reserved for semantic equivalence).
-- If the compiled bytes already match after relocation accounting, it promotes to
-  RELOC/EXACT instead of PROVEN (`already_matched` in the JSON output).
-- 64-bit returns (`long long`, `__int64`, `int64_t`) auto-compare the EDX:EAX pair;
-  `--check-edx` forces the EDX check.
-- `--watch-va` values are decimal unless `0x`-prefixed (unlike most other rebrew tools).
-- On success, STATUS → PROVEN via metadata; PROVEN is sticky, so test/verify
-  never demote it. To deliberately demote a stale PROVEN (source changed since
-  the proof), run `rebrew test <file> --force-status` (single-function only).
-
-For details, see the `rebrew-matching` skill.
+Needs `uv pip install -e ".[prove]"`. STATUS must be NEAR_MATCHING; PROVEN sticky
+(`rebrew test <file> --force-status` to demote).
 
 ## 8. Verify and Track Progress
 
 ```bash
-rebrew doctor                           # check toolchain/config health (run first on any breakage)
-rebrew verify --summary                 # summary table with match %
-rebrew verify --json                    # bulk compile + diff all reversed functions
-rebrew verify -j 8 -o report.json       # parallel compile, save report to file
-rebrew verify --compare --json          # compare against last saved report, detect regressions
-rebrew verify --watch                   # re-verify all sources on every file change
-rebrew verify --full --json             # ignore cache, force full re-verification
-rebrew lint src/<target>/<file>.c       # lint one file (files are POSITIONAL args)
-rebrew lint --json                      # check annotation correctness
-rebrew lint --fix                       # migrate leftover inline metadata; drop W029-redundant cflags
-rebrew lint --fix --dry-run             # preview migrations / cflags drops without writing
-rebrew lint --summary                   # status/origin breakdown table
-rebrew lint --quiet                     # errors only, suppress warnings
-rebrew orphans                          # list metadata blocks with no source marker
-rebrew orphans --prune --dry-run        # preview deleting them (matched EXACT/RELOC/PROVEN held back)
-rebrew types                            # check declared struct layouts vs decompiler evidence
-rebrew types apply-type <file> --param N --type T   # rewrite one param type in source
-rebrew verify --data --built build/<target>   # byte-compare built .data/.rdata per symbol
-rebrew verify --whole-binary --built build/<target>  # sections/exports/imports/rsrc/headers + layout freshness
-rebrew verify --text --built build/<target>           # fold the .text placement gate into verify
-rebrew text-audit --built build/<target>  # .text function VAs vs markers (position-alignment gate)
-rebrew verify-placement --built build/<target>  # .data symbol VAs vs the metadata
+rebrew doctor
+rebrew verify --summary                 # or --json / --compare / --full
+rebrew lint --json                      # --fix migrates leftover inline metadata
+rebrew orphans --prune --dry-run
+rebrew types --json
+rebrew types apply-type <file> --param N --type T
 ```
 
-`rebrew verify` compiles every annotated `.c`, reports EXACT/RELOC/NEAR_MATCHING/STUB/
-COMPILE_ERROR per function, and syncs STATUS (PROVEN preserved). The JSON report has a
-`summary` block (per-status counts) plus per-function `results` — use it for triage.
-Exit code 1 when any function fails.
-
-`rebrew lint` checks marker syntax (E001/E002/…), duplicate VAs, and warns (W019) when
-metadata-owned keys appear inline. Pass specific files as positional args; exit code 1 on
-any error. Link-only files with no VA of their own declare `// SUPPORT: <MODULE> <reason>`
-instead of faking a function marker.
-
-### Coverage Database
-
-```bash
-rebrew catalog --data-json              # write db/data_<target>.json
-rebrew build-db                         # build SQLite coverage database
-```
-
-### Interchange & Progress Hub
-
-```bash
-rebrew symbol-addrs --output symbol_addrs.csv   # splat-style 0xVA,name CSV (Ghidra/tooling interop)
-rebrew context --output ctx.c                   # universal decompiler context (structs+typedefs+prototypes)
-rebrew report --decomp-dev report.json       # objdiff-format progress report for decomp.dev
-```
-
-`rebrew context` feeds the decompiler backends (kuna/r2ghidra) one deduplicated
-context file (m2c-style), so decompiled output arrives with real type/function
-names. `rebrew report --decomp-dev` emits the objdiff report v2 JSON the
-decomp.dev hub ingests: upload it as a GitHub Actions artifact named
-`<version>_report`, then register the repo at decomp.dev/manage/new.
-`rebrew decompme <file>.c` uploads a function to decomp.me as a collaborative
-scratch (target object + C seed + context, toolchain mapped to a decomp.me
-compiler) and prints the claim URL to share.
-
-### Regression Detection
-
-`rebrew verify --compare` compares the current run against `.rebrew/verify_baseline.json`.
-Exit code 1 if any regressions — suitable for CI/pre-commit hooks.
-The first run has no baseline: it warns "No previous verify baseline" and skips the diff.
-
-## 8b. Types (Struct Layouts and Signature Rewrites)
-
-```bash
-rebrew types --json                                    # check declared structs vs *.dec.c evidence
-rebrew types apply-type <file> --param N --type T [--dry-run]   # e.g. --param 1 --type "Player *"
-```
-
-`rebrew types` parses `typedef struct` definitions once (shared tree-sitter
-model: offsets, MSVC alignment, completeness) and reports offsets the
-declaration does not cover or covers too narrowly. `apply-type` rewrites the
-indexed parameter's type spelling in place (encoding-preserving atomic
-write) so recovered types reach the compiler — close the recover → check →
-apply → `rebrew test` loop per function.
+Full flag set + coverage DB + decomp.me: `references/verify-and-progress.md`.
+`verify --compare` is the CI regression gate.
 
 ## 9. Final Validation: Round-Trip
 
-When a whole set of functions is matched, validate the entire binary reassembles to the
-original byte-for-byte:
+When a whole set is matched, splice EXACT/RELOC back into a byte-identical PE:
 
 ```bash
 rebrew round-trip --json                # splice every EXACT/RELOC function back into the PE
 rebrew round-trip --dry-run             # preview without writing <binary>.reasm
-rebrew round-trip --strict-catalog      # exit non-zero on unresolved catalog symbols
-rebrew round-trip --filter <substr>     # only splice symbols containing this substring
-rebrew round-trip --output <path>          # override output path
 ```
 
-- Compiles every EXACT/RELOC function, applies COFF relocations against the function +
-  data catalogs, splices the patched bytes into a byte copy of the target PE, SHA-256s the
-  result, and writes `<binary>.reasm` next to the original.
-- **Every EXACT/RELOC function needs SIZE in `rebrew-functions.toml`** — a legacy
-  inline-only `// SIZE:` makes round-trip report `oversize (size <= 0 in metadata)` and
-  fail the splice. Run `rebrew lint --fix` first to migrate inline SIZE/CFLAGS/STATUS
-  keys into the metadata file (dry-run with `--dry-run`).
-- **`catalog_resolution_drift` with CRT names** (e.g. `_fread`): the library
-  header can list both `fread` (a small wrapper) and `_fread` (the real
-  implementation) at different VAs — MSVC-decorated calls exact-match `_fread`
-  while the target's code called the wrapper. Correct the `library_*.h` VA
-  mapping (rename/drop the shadowing entry) or annotate the call sites; the
-  drift is never silent.
-- **Resolution fallbacks** for symbols the catalog cannot resolve by name: Ghidra
-  auto-names encoding their VA in trailing hex (`_g_1003546c`), MSVC `$L<N>` /
-  `$cleanup_loop$<N>` jump/dispatch tables mapped from the compiled .obj layout, and
-  string literals whose compiled copy is a strict prefix of the target's (bound to the
-  target string's start). A wrong fallback surfaces as a `catalog_resolution_drift`
-  mismatch, never silent corruption.
-- **PROVEN functions are deliberately skipped** — their bytes differ by design (semantic,
-  not byte, equivalence) and are reported as `skipped_proven`.
-- Exit `0` = SHA-equal + no mismatches; exit `1` otherwise. Read the JSON `reason_counts`
-  (per-reason triage) and `byte_coverage` (spliced vs passthrough %) to see what's left.
+SIZE must live in `rebrew-functions.toml` (`rebrew lint --fix` migrates inline keys).
+PROVEN is skipped. Full fallback/drift rules: `references/round-trip.md`.
 
 ## 10. Dependency Graph
 
@@ -395,34 +235,10 @@ For GA matching and batch processing, see the `rebrew-matching` skill.
 
 ## Toolchains
 
-Compiler selection uses the toolchain abstraction (`rebrew.toolchain` — docker image first, vendored fallback): `rebrew toolchain list/status/pull`; see docs/TOOLCHAIN.md.
+Shipped profiles (`msvc-*`, `mingw-*`, …) compile only through their docker image —
+`rebrew toolchain list/status/pull/build`. No host wine/wibo fallback. See `docs/TOOLCHAIN.md`.
 
 ## Advanced commands
 
-Manual inspection and linkage tools that sit outside the main loop. Run
-`rebrew <cmd> --help` for options; structured output uses `--json`.
-
-| Command | Purpose |
-|---------|---------|
-| `rebrew describe` | Per-function recon dossier: callers, callees, strings, imports. |
-| `rebrew diagnose` | Explain why a function compiles with its toolchain and flags (resolution trace). |
-| `rebrew stack-cmp` | Compare the compiled function's stack frame against the target binary. |
-| `rebrew pdb-info` | Extract compiler version, flags, and function names from a sibling PDB. |
-| `rebrew recover-structs` | Recover struct definitions from decompiler output (offset evidence to typedefs). |
-| `rebrew document-unmatched` | Document unmatched functions as STUB skeletons plus blockers. |
-| `rebrew binary-similarity` | Whole-binary structural similarity against another binary (versions, DLL+EXE). |
-| `rebrew cross-import` | Import matched functions from another target (same code, different VAs). |
-| `rebrew verify-exports` | Verify the recompiled binary's export table matches the original target. |
-| `rebrew order-sources` | Order source files by their first function's original VA (position-aligned `.text`). |
-| `rebrew calibrate-bss` | Calibrate a BSS tail pad so the raw link's `.data` VirtualSize matches the reference. |
-| `rebrew gen-stubs` | Generate a stub TU for unresolved linker symbols (LNK2001/LNK2019). |
-| `rebrew gen-link-stubs` | Generate a `link_stubs.c`-style BSS placeholder TU from the data metadata. |
-| `rebrew inline-strings` | Inline string-literal globals (`s_<hint>_<0xADDR>`) from the reference binary. |
-| `rebrew link-sweep` | Sweep LINK options to reproduce the reference PE header (find stamp-only fields). |
-| `rebrew cmake-toolchain` | Write a CMake toolchain file that drives a docker toolchain via `rebrew-cmake-*`. |
-| `rebrew cmake-flags` | Write the per-file CFLAGS from `rebrew-functions.toml` as a CMake include, so the build compiles what the tools measure. |
-| `rebrew binsync-init` | Initialize a BinSync git repo (root and user branches) for a target. |
-| `rebrew binsync-export` | Export annotations to an experimental BinSync state directory. |
-| `rebrew binsync-import` | Import a BinSync state directory into rebrew metadata. |
-| `rebrew binsync-overlay` | Overlay a related target's BinSync names onto this target. |
-| `rebrew refactor` | Analyse the source tree and suggest refactoring opportunities. |
+Linkage / inspection tools outside the main loop:
+`references/advanced-commands.md`.

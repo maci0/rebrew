@@ -57,8 +57,8 @@ def test_every_cli_command_documented() -> None:
 
 #: Commands intentionally absent from the agent skills — meta/niche tooling
 #: agents never drive (PE resource compare, skill discovery itself).  Every
-#: other command must be named in a SKILL.md; the advanced/manual tools are
-#: listed in the workflow skill's "Advanced commands" section.
+#: other command must be named in a SKILL.md or a progressive-disclosure
+#: reference under agent-skills/ (e.g. workflow references/advanced-commands.md).
 _SKILL_OUT_OF_SCOPE = {"resource", "skills"}
 
 
@@ -67,12 +67,12 @@ def test_every_cli_command_covered_by_agent_skills() -> None:
     names = {c.name for c in BUILTIN_COMPONENTS}
     skills_dir = ROOT / "src" / "rebrew" / "agent-skills"
     skills_text = "\n".join(
-        p.read_text(encoding="utf-8", errors="replace") for p in skills_dir.rglob("SKILL.md")
+        p.read_text(encoding="utf-8", errors="replace") for p in skills_dir.rglob("*.md")
     )
     missing = sorted(n for n in names if n not in skills_text and n not in _SKILL_OUT_OF_SCOPE)
     assert not missing, (
-        f"commands {missing} are not mentioned in any agent-skills SKILL.md — "
-        "add them to the relevant workflow skill or document the carve-out"
+        f"commands {missing} are not mentioned in any agent-skills markdown — "
+        "add them to the relevant skill/reference or document the carve-out"
     )
 
 
