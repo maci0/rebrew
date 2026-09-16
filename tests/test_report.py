@@ -79,6 +79,8 @@ class TestReportCli:
         assert "0x10001000" in index
         assert "CFLAGS" in index
         assert "/O2 /Gd" in index
+        assert "table-scroll" in index
+        assert "flex-wrap" in index
 
     def test_index_shows_blockers(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The function table's Blocker column surfaces near-diag blockers."""

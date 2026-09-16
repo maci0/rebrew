@@ -73,9 +73,10 @@ _CSS = """
 body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
        margin: 0; background: #f5f6f8; color: #222; }
 header { background: #1e293b; color: #fff; padding: 0.75rem 1.5rem;
-         display: flex; align-items: baseline; gap: 2rem; }
+         display: flex; flex-wrap: wrap; align-items: baseline; gap: 1rem 2rem; }
 header h1 { font-size: 1.05rem; margin: 0; }
-nav a { color: #cbd5e1; text-decoration: none; margin-right: 1rem; }
+nav { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
+nav a { color: #cbd5e1; text-decoration: none; }
 nav a:hover { color: #fff; }
 nav a.active { color: #fff; font-weight: 600; text-decoration: underline; }
 main { max-width: 1100px; margin: 1.5rem auto; padding: 0 1.5rem; }
@@ -85,14 +86,16 @@ main { max-width: 1100px; margin: 1.5rem auto; padding: 0 1.5rem; }
 .card .value { font-size: 1.5rem; font-weight: 700; }
 .card .label { color: #64748b; font-size: 0.75rem; text-transform: uppercase;
                letter-spacing: 0.05em; }
+.table-scroll { overflow-x: auto; margin-bottom: 1.5rem; }
 table { width: 100%; border-collapse: collapse; background: #fff;
         border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;
-        margin-bottom: 1.5rem; }
+        margin-bottom: 0; }
 th, td { text-align: left; padding: 0.5rem 0.75rem;
          border-bottom: 1px solid #eef2f7; font-size: 0.85rem; }
 th { background: #f1f5f9; font-weight: 600; }
 tr:last-child td { border-bottom: none; }
 td.mono, code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+td.blocker { max-width: 28rem; overflow-wrap: anywhere; }
 .status-EXACT { color: #15803d; font-weight: 600; }
 .status-RELOC { color: #0369a1; font-weight: 600; }
 .status-PROVEN { color: #0e7490; font-weight: 600; }
@@ -112,6 +115,11 @@ def _nav_link(href: str, label: str, active: bool) -> str:
     """Render one navigation link (single-quoted attributes)."""
     cls = " class='active'" if active else ""
     return f"<a href='{href}'{cls}>{label}</a>"
+
+
+def _table_scroll(table_html: str) -> str:
+    """Wrap a table so wide columns scroll instead of forcing page overflow."""
+    return f"<div class='table-scroll'>{table_html}</div>"
 
 
 def _page(title: str, target: str, active: str, body: str) -> str:
@@ -313,7 +321,7 @@ def _render_index(
             "</tr>"
             for fn in functions
         )
-        table = (
+        table = _table_scroll(
             "<table>"
             "<tr><th>Name</th><th>VA</th><th>Status</th><th>Size</th><th>CFLAGS</th>"
             "<th>Blocker</th></tr>"
@@ -385,11 +393,13 @@ def _render_strings(cfg: ProjectConfig) -> str:
     rows = "".join(_string_row(s, refs.get(s.va) or []) for s in strings)
     body = (
         "<p>Strings extracted from the binary's data sections (min length 4).</p>"
-        "<table>"
-        "<tr><th>VA</th><th>Section</th><th>Kind</th><th>Text</th>"
-        "<th>Refs</th><th>Referenced from</th></tr>"
-        f"{rows}"
-        "</table>"
+        + _table_scroll(
+            "<table>"
+            "<tr><th>VA</th><th>Section</th><th>Kind</th><th>Text</th>"
+            "<th>Refs</th><th>Referenced from</th></tr>"
+            f"{rows}"
+            "</table>"
+        )
     )
     return _page("Strings", _target_name(cfg), "strings.html", body)
 
@@ -454,9 +464,9 @@ def _render_imports(cfg: ProjectConfig) -> str:
     )
     parts = [
         f"<p>{len(imports)} imported APIs.</p>",
-        "<table><tr><th>DLL</th><th>Function</th><th>IAT slot</th></tr>",
-        rows,
-        "</table>",
+        _table_scroll(
+            f"<table><tr><th>DLL</th><th>Function</th><th>IAT slot</th></tr>{rows}</table>"
+        ),
     ]
     if stubs:
         stub_rows = "".join(
@@ -466,9 +476,7 @@ def _render_imports(cfg: ProjectConfig) -> str:
         parts.extend(
             [
                 "<h3>Import stubs (jmp [IAT])</h3>",
-                "<table><tr><th>VA</th><th>API</th></tr>",
-                stub_rows,
-                "</table>",
+                _table_scroll(f"<table><tr><th>VA</th><th>API</th></tr>{stub_rows}</table>"),
             ]
         )
     return _page("Imports", target, "imports.html", "".join(parts))

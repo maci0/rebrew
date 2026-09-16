@@ -94,7 +94,7 @@ def _init_project_sigs(cfg: Any, json_output: bool, matched_only: bool = False) 
     dest = Path(cfg.root) / "flirt_sigs"
     dest.mkdir(parents=True, exist_ok=True)
     copied = 0
-    for src in sorted(repo.rglob("*.sig")) + sorted(repo.rglob("*.pat")):
+    for src in _sig_files([repo]):
         if wanted is not None and src.name not in wanted:
             continue
         target = dest / src.name
@@ -102,7 +102,7 @@ def _init_project_sigs(cfg: Any, json_output: bool, matched_only: bool = False) 
             continue
         target.write_bytes(src.read_bytes())
         copied += 1
-    total = len(list(dest.rglob("*.sig"))) + len(list(dest.rglob("*.pat")))
+    total = len(_sig_files([dest]))
     if json_output:
         json_print({"copied": copied, "total": total, "dir": str(dest), "linkage": linkage})
         return
@@ -136,7 +136,7 @@ def _matched_sig_names(linkage: str) -> set[str]:
     repo = _flirt_sigs_repo()
     if not repo.is_dir():
         return names
-    for src in list(repo.rglob("*.sig")) + list(repo.rglob("*.pat")):
+    for src in _sig_files([repo]):
         stem = src.name.lower()
         is_crt = stem.startswith(_CRT_STATIC_STEMS + _CRT_DYNAMIC_STEMS)
         if (
@@ -182,7 +182,7 @@ def load_signatures(sig_dir: str) -> list[Any]:
         console.print(f"Signature directory {sig_dir} not found or not a directory.")
         return []
 
-    return _parse_sig_files(sorted(sig_path.rglob("*.sig")) + sorted(sig_path.rglob("*.pat")))
+    return _parse_sig_files(_sig_files([sig_path]))
 
 
 def load_signatures_merged(project_dir: Path, repo_dir: Path) -> list[Any]:
