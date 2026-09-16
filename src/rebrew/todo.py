@@ -926,8 +926,6 @@ def _collect_data_drift(cfg: ProjectConfig) -> list[TodoItem]:
     return items
 
 
-
-
 def _collect_start_data(cfg: ProjectConfig) -> list[TodoItem]:
     """Collect data symbols never verified (STATUS UNCHECKED or absent).
 
@@ -1242,17 +1240,10 @@ def main(
 
 
 def main_entry() -> None:
-    """Run the Typer CLI application.
+    """Run the Typer CLI application (standalone single-command form)."""
+    from rebrew.cli import run_standalone
 
-    The callback is registered as a plain command on a fresh app: the
-    group-style ``invoke_without_command`` callback fails to parse
-    positional-then-option invocations (``rebrew-<cmd> ARG --opt`` — click
-    treats the positional as a command name), while the umbrella's command
-    registration parses both orderings (cli-review F1).
-    """
-    _standalone = typer.Typer()
-    _standalone.command()(main)
-    _standalone()
+    run_standalone(main)
 
 
 if __name__ == "__main__":
