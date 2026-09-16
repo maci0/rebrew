@@ -477,8 +477,11 @@ def _pe_identity(pe: Any, size: int, arch: str) -> dict[str, object]:
     if subsystem is not None:
         identity["subsystem"] = _text(subsystem)
     if timestamp is not None:
-        identity["timestamp"] = timestamp
-        iso = _timestamp_iso(timestamp)
+        # PE TimeDateStamp is a DWORD; keep the reported integer unsigned so
+        # a signed binding's high-bit stamp stays in the PE calendar range.
+        stamp = timestamp & 0xFFFFFFFF
+        identity["timestamp"] = stamp
+        iso = _timestamp_iso(stamp)
         if iso is not None:
             identity["timestamp_iso"] = iso
     if checksum is not None:
@@ -582,11 +585,16 @@ def _timestamp_iso(timestamp: int) -> str | None:
     Derives only from the value already in the file, so it stays
     deterministic; ``0`` (unstamped) and out-of-range values are omitted
     rather than rendered as a bogus 1970 date.
+
+    PE ``TimeDateStamp`` is a DWORD (unsigned).  Mask before conversion so a
+    binding that surfaces the high bit as a signed int32 (post-2038 stamps)
+    still yields the PE calendar date instead of being dropped as ``<= 0``.
     """
-    if timestamp <= 0:
+    stamp = timestamp & 0xFFFFFFFF
+    if stamp == 0:
         return None
     try:
-        moment = datetime.datetime.fromtimestamp(timestamp, datetime.UTC)
+        moment = datetime.datetime.fromtimestamp(stamp, datetime.UTC)
     except (OverflowError, OSError, ValueError):
         return None
     return moment.isoformat().replace("+00:00", "Z")

@@ -23,6 +23,7 @@ from rebrew.pe_info import (
     _security,
     _security_flags,
     _security_score,
+    _timestamp_iso,
     pe_info,
 )
 
@@ -248,6 +249,25 @@ class TestExports:
         info = pe_info(MINI_PE)
         assert info["exports"] == []
         assert info["export_count"] == 0
+
+
+class TestTimestampIso:
+    """PE TimeDateStamp is a DWORD; ISO rendering must treat it as unsigned."""
+
+    def test_zero_is_unstamped(self) -> None:
+        assert _timestamp_iso(0) is None
+
+    def test_epoch_y2k(self) -> None:
+        assert _timestamp_iso(946684800) == "2000-01-01T00:00:00Z"
+
+    def test_post_y2038_unsigned(self) -> None:
+        # 0x80000000 — first second after the signed-32-bit epoch rollover.
+        assert _timestamp_iso(0x80000000) == "2038-01-19T03:14:08Z"
+
+    def test_signed_negative_high_bit_recovered(self) -> None:
+        # A binding that surfaces DWORD 0xFFFFFFFF as signed -1 must still
+        # render the PE calendar date (year 2106), not omit the field.
+        assert _timestamp_iso(-1) == "2106-02-07T06:28:15Z"
 
 
 class TestResourceCount:
