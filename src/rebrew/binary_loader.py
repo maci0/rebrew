@@ -234,6 +234,7 @@ def _load_pe(binary: lief.PE.Binary, path: Path) -> BinaryInfo:
 
 def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
     """Extract layout information from an ELF binary."""
+    import lief
     # Image base: lowest PT_LOAD segment virtual address
     load_segments = [seg for seg in binary.segments if seg.type == lief.ELF.Segment.TYPE.LOAD]
     image_base = min((seg.virtual_address for seg in load_segments), default=0)
@@ -906,6 +907,7 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
     binary_path = Path(binary_path)
     if not binary_path.exists():
         return ("C", ".c")
+    import lief
 
     try:
         parsed = lief.parse(str(binary_path))

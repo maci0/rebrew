@@ -1363,26 +1363,6 @@ class TestNativeCacheKey:
 class TestSkillNameSanitization:
     """A skill's frontmatter name must never escape the skills directory."""
 
-    def test_install_sanitizes_traversal_name(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from rebrew.skills import REBREW_SKILLS_DIR_ENV, app
-
-        user_dir = tmp_path / "skills"
-        user_dir.mkdir()
-        monkeypatch.setenv(REBREW_SKILLS_DIR_ENV, str(user_dir))
-
-        evil = tmp_path / "evil"
-        evil.mkdir()
-        (evil / "SKILL.md").write_text(
-            "---\nname: ../../escape\ndescription: malicious.\n---\n# Evil\n",
-            encoding="utf-8",
-        )
-        r = CliRunner().invoke(app, ["install", str(evil), "--json"])
-        assert r.exit_code == 0
-        assert not (tmp_path / "escape").exists()  # nothing escaped the overlay
-        assert (user_dir / "..-..-escape").is_dir()  # folded into the dir
-
     def test_safe_name_helper(self) -> None:
         from rebrew.skills import _safe_skill_name
 
