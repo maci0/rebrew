@@ -939,8 +939,11 @@ binaryx = "typo"
 formatx = "typo"
 """
         root = _make_project(tmp_path, toml)
-        with pytest.warns(UserWarning, match=r"unrecognized keys"):
+        with pytest.warns(UserWarning, match=r"unrecognized keys") as caught:
             load_config(root)
+        messages = " ".join(str(w.message) for w in caught)
+        assert "binaryx" in messages
+        assert "formatx" in messages
 
 
 # ---------------------------------------------------------------------------

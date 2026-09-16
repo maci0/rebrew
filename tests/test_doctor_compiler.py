@@ -381,6 +381,8 @@ class TestDoctorCli:
     def test_terminal_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         result = self._invoke(tmp_path, monkeypatch, [])
         assert result.exit_code == 0
+        assert "Project looks healthy!" in result.output
+        assert "Rebrew Doctor" in result.output
 
     def test_install_wibo_updates_toml(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -460,6 +462,8 @@ class TestInstallWiboToml:
     def test_no_toml_no_crash(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         result = self._invoke(tmp_path, monkeypatch, ["--install-wibo"])
         assert result.exit_code == 0
+        assert "Downloaded wibo" in result.output
+        assert not (tmp_path / "rebrew-project.toml").exists()
 
 
 class TestCheckOptionalTools:

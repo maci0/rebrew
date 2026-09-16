@@ -37,6 +37,8 @@ class TestUmbrellaCli:
     def test_unknown_command_fails(self) -> None:
         r = runner.invoke(app, ["definitely-not-a-command"])
         assert r.exit_code != 0
+        assert "No such command" in r.output
+        assert "definitely-not-a-command" in r.output
 
     def test_no_args_errors_with_missing_command(self) -> None:
         r = runner.invoke(app, [])

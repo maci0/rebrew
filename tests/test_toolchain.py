@@ -423,6 +423,7 @@ class TestCli:
 
         result = CliRunner().invoke(umbrella, ["toolchain", "status", "nope"])
         assert result.exit_code != 0
+        assert "unknown toolchain 'nope'" in result.output
 
     def test_pull_host_only_errors(self, monkeypatch) -> None:
         from typer.testing import CliRunner

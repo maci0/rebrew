@@ -87,6 +87,10 @@ class TestSplitExtensionHandling:
         )
         result = runner.invoke(app, [str(src)])
         assert result.exit_code == 0, result.output
+        # Input suffix is preserved (.C stays .C); acceptance is the contract.
+        assert (tmp_path / "func_a.C").exists()
+        assert (tmp_path / "func_b.C").exists()
+        assert "Split 2 functions" in result.output
 
 
 class TestSplitBasic:

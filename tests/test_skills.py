@@ -87,6 +87,8 @@ class TestCLISkillsList:
     def test_list_exits_zero(self) -> None:
         result = runner.invoke(skills_app, ["list"])
         assert result.exit_code == 0
+        assert "rebrew-workflow" in result.output
+        assert "rebrew-intake" in result.output
 
     def test_list_shows_known_skills(self) -> None:
         result = runner.invoke(skills_app, ["list"])
@@ -113,12 +115,13 @@ class TestCLISkillsShow:
     def test_show_known_skill(self) -> None:
         result = runner.invoke(skills_app, ["show", "rebrew-workflow"])
         assert result.exit_code == 0
-        # Should contain at least the skill title
-        assert "rebrew" in result.output.lower() or "workflow" in result.output.lower()
+        assert "name: rebrew-workflow" in result.output
 
     def test_show_unknown_skill_fails(self) -> None:
         result = runner.invoke(skills_app, ["show", "no-such-skill-xyz"])
         assert result.exit_code != 0
+        assert "Skill 'no-such-skill-xyz' not found" in result.output
+        assert "rebrew-workflow" in result.output
 
     def test_show_json_output(self) -> None:
         result = runner.invoke(skills_app, ["show", "rebrew-workflow", "--json"])

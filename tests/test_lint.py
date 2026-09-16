@@ -486,6 +486,7 @@ class TestLintFile:
         f = _make_c_file(tmp_path)
         result = lint_file(f, cfg=cfg)
         assert result.passed
+        assert result.errors == []
 
     def test_multiple_functions_in_file(self, tmp_path: Path) -> None:
         f = _make_c_file(

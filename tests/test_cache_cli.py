@@ -28,12 +28,11 @@ class TestStats:
         payload = json.loads(r.stdout)
         assert payload == {"exists": False, "entries": 0, "volume_mb": 0}
 
-    def test_no_cache_dir_human(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture
-    ) -> None:
+    def test_no_cache_dir_human(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_cfg(monkeypatch, tmp_path)
         r = runner.invoke(cache_cli.app, ["stats"])
         assert r.exit_code == 0
+        assert "No compile cache found (not yet created)." in r.output
 
     def test_existing_cache_reports(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         (tmp_path / ".rebrew" / "compile_cache").mkdir(parents=True)

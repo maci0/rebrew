@@ -122,7 +122,12 @@ class TestDocumentUnmatched:
         """stdout is exactly one JSON document."""
         result = CliRunner().invoke(app, ["document-unmatched", "--json"])
         assert result.exit_code == 0, result.output
-        json.loads(result.stdout)  # pure JSON — no preamble
+        payload = json.loads(result.stdout)
+        assert isinstance(payload, dict)
+        assert "written" in payload and "unmatched" in payload
+        # No Rich/stderr bleed into the machine-readable stream.
+        assert result.stdout.lstrip().startswith("{")
+        assert result.stdout.rstrip().endswith("}")
 
     def test_backfill_blockers(self, project: Path) -> None:
         """Existing STUB functions missing a BLOCKER get one (W005 class)."""

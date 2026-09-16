@@ -1,5 +1,6 @@
 """End-to-end tests for the rebrew round-trip CLI."""
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -25,8 +26,10 @@ class TestRoundTripCli:
     ) -> None:
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(app, ["--json"])
-        # require_config raises typer.Exit; treat any non-zero as success here.
         assert result.exit_code != 0
+        payload = json.loads(result.stdout)
+        assert "rebrew-project.toml" in payload["error"]
+        assert payload["code"] == 2
 
 
 def _make_fake_cfg(tmp_path: Path) -> SimpleNamespace:

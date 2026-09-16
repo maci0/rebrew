@@ -54,6 +54,8 @@ class TestSimilarCli:
         _patch(monkeypatch, [])
         r = runner.invoke(rebrew.main.app, ["similar", "not-a-va"])
         assert r.exit_code != 0
+        assert "Invalid hex VA" in r.output
+        assert "not-a-va" in r.output
 
     def test_unknown_va_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A VA with no catalog entry must fail loudly, not print empty results."""

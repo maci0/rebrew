@@ -114,6 +114,7 @@ def test_relative_include_deep_nesting() -> None:
     work.mkdir(exist_ok=True)
     obj, err = compile_to_obj(cfg, src, ["/O1"], work, use_cache=False)
     assert obj is not None, f"deep relative include failed: {err}"
+    assert Path(obj).exists()
 
 
 @pytest.mark.skipif(

@@ -86,7 +86,10 @@ def status_cmd(
 
     from rebrew.toolchain import get_toolchain, vendored_binary
 
-    spec = get_toolchain(name)
+    try:
+        spec = get_toolchain(name)
+    except ToolchainError as exc:
+        error_exit(str(exc), json_mode=json_output)
     host_ok: bool | None = None
     resolved_cmd: str | None = None
     if spec.host_path is not None:

@@ -164,7 +164,19 @@ class TestQueryLayer:
     def test_functions_status_filter(self, dashboard: Dashboard) -> None:
         data = dashboard.functions("server_dll", status="STUB")
         assert data["count"] == 1
+        assert data["total"] == 1
         assert data["functions"][0]["name"] == "func_b"
+        assert data["functions"][0]["status"] == "STUB"
+
+    def test_functions_module_filter(self, dashboard: Dashboard) -> None:
+        data = dashboard.functions("server_dll", module="SERVER")
+        assert data["count"] == 2
+        assert data["total"] == 2
+        assert {row["module"] for row in data["functions"]} == {"SERVER"}
+        empty = dashboard.functions("server_dll", module="NOPE")
+        assert empty["count"] == 0
+        assert empty["total"] == 0
+        assert empty["functions"] == []
 
     def test_functions_search(self, dashboard: Dashboard) -> None:
         data = dashboard.functions("server_dll", q="func_a")
@@ -327,7 +339,11 @@ class TestHandle:
             "GET", "/api/functions", {"target": ["server_dll"], "status": ["STUB"]}
         )
         assert status == 200
-        assert json.loads(body)["count"] == 1
+        payload = json.loads(body)
+        assert payload["count"] == 1
+        assert payload["total"] == 1
+        assert payload["functions"][0]["name"] == "func_b"
+        assert payload["functions"][0]["status"] == "STUB"
 
     def test_api_functions_nonpositive_limit_uses_default(self, dashboard: Dashboard) -> None:
         status, _, body = dashboard.handle(
