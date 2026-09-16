@@ -287,13 +287,20 @@ codegen differences.  Profile selection happens automatically on
 
 ## 🛠️ Development
 
+Clean clone needs **uv**, **Python 3.13+** (`.python-version`), **nasm** on
+`PATH`, and a sibling [`resembl`](https://github.com/maci0/resembl) checkout at
+`../resembl` (tag `v2.0.0`, matching CI `RESEMBL_REF` / `uv.lock`).  See
+[`CONTRIBUTING.md`](CONTRIBUTING.md); `make help` lists targets.
+
 ```bash
+git clone --depth 1 --branch v2.0.0 https://github.com/maci0/resembl.git ../resembl
 cd rebrew/
 make setup                 # uv sync --frozen --all-extras --group similarity + pre-commit hooks
-# or: uv sync --frozen --all-extras --group similarity
-uv run pytest tests/ -v    # run tests
+make test-one T=tests/test_annotation.py   # single-file edit-test loop
+make test                  # full suite (needs nasm)
 uv run ruff check src/ tests/ tools/
 uv run ruff format src/ tests/ tools/
+make all                   # local mirror of CI lint + test gates
 make build                 # sdist + wheel (SOURCE_DATE_EPOCH / TZ=UTC for deterministic wheels)
 python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me
 ```

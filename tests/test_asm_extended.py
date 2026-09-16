@@ -1,6 +1,7 @@
 """Tests for rebrew asm.py — disasm, NASM conversion, inline C, batch extraction."""
 
 from pathlib import Path
+from shutil import which
 from types import SimpleNamespace
 
 import pytest
@@ -17,6 +18,13 @@ from rebrew.asm import (
 
 # push ebp; mov ebp, esp; sub esp, 8; mov eax, 1; leave; ret
 _CODE = bytes.fromhex("558bec83ec08b801000000c9c3")
+
+# Real nasm on PATH — same host dep CI installs.  Without it, round-trip
+# helpers return soft failures that look like product bugs (nasm_ok == 0).
+requires_nasm = pytest.mark.skipif(
+    which("nasm") is None,
+    reason="nasm not on PATH (install nasm; CI and `make test` require it)",
+)
 
 
 def _cfg(tmp_path: Path, **overrides: object) -> SimpleNamespace:
@@ -73,6 +81,7 @@ class TestCapstoneToNasm:
         assert capstone_to_nasm("ret", "") == "ret"
 
 
+@requires_nasm
 class TestDisassembleToNasm:
     def test_roundtrip_simple(self) -> None:
         src, stats = disassemble_to_nasm(_CODE, 0x1000, "my_func")
