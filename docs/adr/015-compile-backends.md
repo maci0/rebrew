@@ -41,22 +41,20 @@ service as a second, opt-in backend.
   switching backends cannot serve the other's object.
 - `recompile_emit_assembly` passes the service's opt-in training tap.
 
-*(The "native path stays" / deferred image-backed migration below was
-resolved by ADR-016 — every shipped profile is image-backed now.)*
-
-Making `gcc-14.2.0`, `mingw-16.2.0`, `clang-18.1.8` and `watcom-2.0-win16` image-backed is deferred
-until a pinned source with the author's exact compiler version exists for
-each, recorded in `sources.json`, and the 16-bit Watcom media is available.
+The image-backed migration for `gcc-14.2.0`, `mingw-16.2.0`,
+`clang-18.1.8`, and `watcom-2.0-win16` landed in
+[ADR-016](016-image-backed-native-profiles.md) — every shipped profile is
+image-backed now.  An image-less native branch remains only for plugin
+toolchains registered without an `image`.
 
 ## Consequences
 
 - A compile runs locally (docker images) or against a shared recompile
   service without a project-config change, and a backend switch cannot
   serve the other's cached object.
-- *(Superseded by ADR-016:)* `gcc-14.2.0`, `mingw-16.2.0`, `clang-18.1.8` and `watcom-2.0-win16` remain native specs; `command`,
-  `runner`, `wibo.py` and `headless.py` stay in place.
-- *(Superseded by ADR-016 — migration landed; image-less native branch
-  remains only for plugin toolchains without an `image`.)* The all-image migration, when it lands, removes the native branch, the
-  `command`/`runner` keys, `wibo.py` and `headless.py`. Whether it also
-  retires `match --link/--lib/--no-compare-obj` is a separate product
-  decision.
+- *(Historical — superseded by ADR-016:)* at acceptance, `gcc-14.2.0`,
+  `mingw-16.2.0`, `clang-18.1.8` and `watcom-2.0-win16` were still native
+  specs and the Decision deferred their images.  That migration landed;
+  whether it also retires `match --link/--lib/--no-compare-obj` remains a
+  separate product decision.  `wibo.py` / `headless.py` remain for doctor /
+  init / plugin host paths, not as a shipped-profile compile backend.

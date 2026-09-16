@@ -1,12 +1,15 @@
 # ADR-007: Complete containerization + unified byte-reproducibility gate
 
-- **Status**: Amended by [ADR-011](011-external-toolchains-checkout.md)
+- **Status**: Amended by [ADR-011](011-external-toolchains-checkout.md),
+  [ADR-016](016-image-backed-native-profiles.md)
 - **Date**: 2026-08
 - **Amended by (detail)**: [ADR-011](011-external-toolchains-checkout.md)
   (the build source this ADR described as in-repo — Dockerfiles, media
   tarballs, vendored trees — moved to the sibling rebrew-toolchains
   checkout; the pinned-source and smoke-gate invariants below are
-  unchanged).
+  unchanged), [ADR-016](016-image-backed-native-profiles.md)
+  (the deliberate `mingw-16.2.0` PATH/no-image exception below is gone —
+  every shipped profile is image-backed).
 
 ## Context
 
@@ -42,9 +45,10 @@ invariants:
 2. **A docker image (or a documented exception).**  msvc-4.0/msvc-4.2/msvc-5.0
    gained `rebrew/msvc:<ver>-win32` Dockerfiles (same `rebrew/base`
    pattern as msvc-6.0: sha256-verified download, `cl` wrapper from
-   `wrapper-common.sh`, OCI labels).  The only registry toolchain without
-   an image is `mingw-16.2.0`, deliberately: it is a PATH tool, not a vendored
-   tree, so there is nothing to pin or reproduce.
+   `wrapper-common.sh`, OCI labels).  *(At acceptance the only registry
+   toolchain without an image was `mingw-16.2.0`, deliberately a PATH
+   tool.  ADR-016 closed that exception — every shipped profile is
+   image-backed now.)*
 3. **A smoke-gate slot.**  The gate now runs image-backed toolchains via
    docker AND host-only vendored trees via the uniform host runner (the
    runner wine-prefixes wine-runtime binaries — previously a latent bug:

@@ -15,16 +15,18 @@ Today rebrew ships the one-way half as flat commands: `rebrew binsync-export`
 writes names + sizes + globals (with real C types) + structs (with fields) to a
 BinSync state directory; `rebrew binsync-import` applies BinSync names /
 prototypes / global labels back into rebrew metadata; `rebrew binsync-diff`
-reports divergences read-only (exit 1 on any, for CI). The full bidirectional
-workflows are still out of reach:
+reports divergences read-only (exit 1 on any, for CI). Gaps that remain
+(or recently closed):
 
-- **Round-trip via flat commands, not git-backed sync.** Symbol renames a
-  collaborator does in IDA/BN/Ghidra can now flow back via `rebrew
-  binsync-import`, but there is still no `rebrew binsync` umbrella: push, pull,
-  merge, and conflict resolution against a shared git repo are out of reach.
-- **Static snapshot, no git merge.** BinSync's substrate is git. Export's
-  `--git` flag only commits locally — no pull, no push, no awareness of
-  upstream changes.
+- **Umbrella — resolved.** `rebrew binsync` now ships `push` / `pull` /
+  `summary` / `init` / `diff` / `overlay` alongside the flat commands.
+  Git-backed upstream merge (pull from remote + push upstream as the
+  default substrate) is still open; export's `--git` and pull's optional
+  fast-forward are the git steps today.
+- **Static snapshot, no full git merge.** BinSync's substrate is git.
+  Export's `--git` flag commits locally; pull can fast-forward — there is
+  still no full awareness of upstream divergent changes as the primary
+  sync path.
 - **Struct fields — resolved.** `structs/<name>.toml` is now emitted with real
   `[fields.<name>]` entries (types parsed from `*.h` headers / sources via
   tree-sitter; the raw `definition` is preserved). Placeholders remain only for
@@ -39,7 +41,9 @@ workflows are still out of reach:
   any format evolution upstream (libbs is BinSync's format crate) breaks
   silently.
 
-PRD 09 closes the loop: a `rebrew binsync` umbrella with `push` / `pull` / `summary` modes, optional git auto-commit, full libbs serialization, and new annotation surfaces for enums, typedefs, and locals.
+PRD 09 closes the remaining loop: full `libbs` serialization, git-backed
+upstream merge as the default substrate, and new annotation surfaces for
+enums, typedefs, and locals (the umbrella command itself already ships).
 
 ## Users
 
@@ -50,11 +54,14 @@ PRD 09 closes the loop: a `rebrew binsync` umbrella with `push` / `pull` / `summ
 
 ## Goals
 
-- One umbrella command (`rebrew binsync`) with explicit `push`, `pull`, `summary`, `init` subcommands. Mirrors `rebrew sync`'s shape for muscle-memory. (Shipped — umbrella plus flat commands coexist.)
-- True bidirectional sync via git: `rebrew binsync pull` does `git pull` on the state directory before reading; `push` does `git commit` + optional `git push` after writing. (Export's `--git` commit is the only git step shipped so far.)
+- One umbrella command (`rebrew binsync`) with explicit `push`, `pull`,
+  `summary`, `init` subcommands. Mirrors `rebrew sync`'s shape for
+  muscle-memory. (Shipped — umbrella plus flat commands coexist; `diff`
+  and `overlay` also ship under the umbrella.)
+- True bidirectional sync via git: `rebrew binsync pull` does `git pull` on the state directory before reading; `push` does `git commit` + optional `git push` after writing. (Export's `--git` commit and pull's optional fast-forward are the git steps shipped so far.)
 - Real `libbs`-compatible struct fields, enums, typedefs. (Struct fields ship today via hand-rolled TOML; enums/typedefs and libbs remain.)
 - New annotation surface for stack vars / local vars (see "Annotation Surface" below).
-- Conflict detection on pull: when both rebrew and BinSync have meaningful (non-generic) names for the same VA, report and let the user pick via `--accept-binsync` / `--accept-local` (same pattern as `rebrew sync`). (The conflict detection + accept-flags half ships in `binsync-import`; the umbrella shape remains.)
+- Conflict detection on pull: when both rebrew and BinSync have meaningful (non-generic) names for the same VA, report and let the user pick via `--accept-binsync` / `--accept-local` (same pattern as `rebrew sync`). (Shipped on umbrella `pull` and flat `binsync-import`.)
 - Per-instruction comments — both directions.
 - `libbs` as an optional dependency (under `[project.optional-dependencies].binsync`) so users who don't need this feature aren't forced to install it.
 
@@ -67,31 +74,31 @@ PRD 09 closes the loop: a `rebrew binsync` umbrella with `push` / `pull` / `summ
 
 ## Functional Requirements
 
-**Status (2026-08):** the one-way half of this design ships as three flat
-commands — `rebrew binsync-export` (the push-write: state dir + optional
-`--git` commit), `rebrew binsync-import` (the pull-apply: names / prototypes /
-globals with `--accept-binsync` / `--accept-local` and `--create-missing`),
-and `rebrew binsync-diff` (read-only divergence report, exit 1 on divergence).
-None use `libbs`; git pull, stack vars, enums, typedefs, and per-instruction
-comments are not covered. The umbrella below is the remaining target.
+**Status (2026-09):** the `rebrew binsync` umbrella ships (`push` / `pull` /
+`summary` / `init` / `diff` / `overlay`) alongside the flat
+`binsync-export` / `binsync-import` / `binsync-diff` / `binsync-init` /
+`binsync-overlay` commands.  Conflict accept-flags
+(`--accept-binsync` / `--accept-local`) ship on pull/import.  Still open:
+full `libbs` serialization, stack vars / enums / typedefs / per-instruction
+comments, and git-backed upstream pull/push as the default sync substrate
+(export's `--git` local commit and pull's optional fast-forward are the
+git steps today).
 
 ### F1 — `rebrew binsync` umbrella
 
-Five subcommands:
+Shipped subcommands:
 
 ```bash
 rebrew binsync push <state-dir>      # write local annotations into BinSync state + git commit
-rebrew binsync pull <state-dir>      # git pull + read BinSync state into local metadata
+rebrew binsync pull <state-dir>      # optional git fast-forward + apply BinSync state
 rebrew binsync summary <state-dir>   # preview what would push / pull (read-only)
-rebrew binsync init <state-dir>      # initialise a fresh BinSync state directory (git init + skeleton)
+rebrew binsync init <state-dir>      # initialise a fresh BinSync state directory
 rebrew binsync diff <state-dir>      # per-VA diff: where do rebrew + BinSync disagree?
+rebrew binsync overlay ...           # overlay a related target's BinSync data
 ```
 
-Shipped today as flat commands: `binsync-export` (≈ `push --no-git`, plus the
-`--git` commit), `binsync-import` (≈ `pull` minus the git pull), and
-`binsync-diff` (≈ the planned `diff` subcommand, read-only).
-
-Plus the existing `rebrew binsync-export` stays as a back-compat alias for `binsync push --no-git`.
+Flat commands remain as peers (not only aliases): `binsync-export`,
+`binsync-import`, `binsync-diff`, `binsync-init`, `binsync-overlay`.
 
 Shared flags: `--target`, `--json`, `--dry-run`, `--module FILTER` (mirroring `rebrew sync --module`).
 

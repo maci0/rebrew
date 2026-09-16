@@ -33,23 +33,30 @@ harder to see:
 
 ## Decision
 
-Adopt an explicit **four-tier model** and document it as the contract:
+Adopt an explicit **four-tier model** and document it as the contract
+(current store map: [METADATA.md](../METADATA.md)):
 
 1. **Canonical (user-owned)** — `.c` marker lines (identity), the three
    TOML stores (overrides), `rebrew-project.toml` (config).  The only
    stores that hold non-derivable facts.
-2. **Derived, VCS-intended** — `functions.txt`, `src/<target>/CATALOG.md`,
-   the layout package (`layout/<target>/`: `rebrew-layout.toml` + `*.hex`),
-   `<target>.def`, `crt_region/*.c`, `src/link_stubs.c`,
-   `flirt_sigs/*.pat`, toolchain files.  Generated from the binary but
-   committed so a rebuild never needs `original/` around; regenerable via
-   the generating command (gen-layout, discover, catalog, link-stubs).
-3. **Derived, gitignored (build output)** — grid JSON, coverage.db,
-   verify_results.json, CSV, `bin/<target>/*.bin`, `output/report/`.
-   Rebuildable via one command; never hand-edited.
+2. **Derived, VCS-intended** — `src/<target>/function_structure.json`
+   (discovery inventory; replaces the removed `functions.txt` /
+   `CATALOG.md`), the layout package (`layout/<target>/`:
+   `rebrew-layout.toml` + `*.hex`), `<target>.def`, `crt_region/*.c`,
+   `src/link_stubs.c`, `flirt_sigs/*.pat`, toolchain files.  Generated
+   from the binary but committed so a rebuild never needs `original/`
+   around; regenerable via the generating command (gen-layout, discover,
+   catalog, link-stubs).
+3. **Derived, gitignored (build output)** — grid JSON, coverage.db, CSV,
+   `bin/<target>/*.bin`, `output/report/`.  Rebuildable via one command;
+   never hand-edited.  The `--compare` baseline lives in
+   `.rebrew/verify_baseline.json` (unguarded `db/verify_results.json`
+   snapshots are no longer written — see `verify_cache.load_baseline`).
 4. **Cache (delete-safe)** — verify cache, Ghidra sync-state, compile
    caches, GA build caches/checkpoints, in-memory mtime caches.  Except
-   `solutions.json`/`ga_runs.jsonl`, which are history.
+   `.rebrew/ga_runs.jsonl` (live GA history).  Legacy
+   `.rebrew/solutions.json` is read-only merge input when present (see
+   `matcher/solutions.py`).
 
 Single-source rules enforced by code where cheap:
 
@@ -62,6 +69,12 @@ Single-source rules enforced by code where cheap:
   strictly via `update_source_status`.
 - No module-less metadata keys; `TOOLCHAIN` is a declared metadata field.
 - BinSync import routes STATUS through the metadata gate.
+- Volatile metadata (`STATUS`/`BLOCKER`/`NOTE`/…) is not parsed from
+  inline `.c` comments (`_kv_to_annotation` defaults STATUS to `STUB`);
+  values live in `rebrew-functions.toml`, migrated by `lint --fix` /
+  W019.  Still read inline: `SIZE`/`CFLAGS` (reccmp contract) and
+  file-borne `TOOLCHAIN`/`SOURCE`/`SECTION`/`STRUCT`/`CALLERS`.  The
+  `library_*.h` extended KV parser remains the exception.
 
 ## Consequences
 
@@ -79,11 +92,13 @@ Single-source rules enforced by code where cheap:
 **Negative**
 
 - Behavioral strictness: empty-module metadata writes now raise instead of
-  silently writing an unreadable key; inline `// STATUS:`/`// SIZE:`/
-  `// NOTE:` are no longer produced by import paths (existing files are
-  still read — the linter migrates them).
+  silently writing an unreadable key; inline `// STATUS:`/`// NOTE:` (and
+  other volatile keys) are no longer produced by import paths and are no
+  longer parsed from existing `.c` files — `lint --fix` / W019 migrate
+  them into `rebrew-functions.toml`.
 - The docs and ADR must be kept current when the store map changes (the
-  ADR convention already requires this).
+  ADR convention already requires this); [METADATA.md](../METADATA.md) is
+  the living store map.
 
 **Trade-offs accepted**
 
@@ -98,27 +113,3 @@ Single-source rules enforced by code where cheap:
 - `verify_cache.json` stays a *measured-result mirror* (not folded into
   metadata) so `rebrew status`/`todo` serve without recompiling and
   demotions aren't masked; its overlay precedence is documented.
-
-## Superseded notes (appended later — original text above left intact)
-
-Since this ADR was accepted:
-
-- **Baseline path**: the `--compare` baseline lives in
-  `.rebrew/verify_baseline.json`, not `db/verify_results.json` (unguarded
-  snapshot, no longer written — see `verify_cache.load_baseline`).
-- **Solutions merge**: `.rebrew/ga_runs.jsonl` is the live GA history log;
-  `.rebrew/solutions.json` is only the legacy pre-merge format, merged
-  read-only when present (see `matcher/solutions.py`).
-- **Inline parsing removal**: inline `// STATUS:`/`// BLOCKER:`/`// NOTE:`
-  etc. in `.c` files are no longer parsed (`_kv_to_annotation` hardcodes
-  `STUB`; values live in `rebrew-functions.toml`, migrated by `lint --fix`
-  / W019) — not "still read, linter migrates". Still read inline:
-  `SIZE`/`CFLAGS` (reccmp contract, co-read with metadata as override —
-  W019 warns only on disagreement) and file-borne `TOOLCHAIN`/`SOURCE`
-  (`// SOURCE: naked` must travel with the file)/`SECTION`/`STRUCT`/
-  `CALLERS`. The `library_*.h` extended KV parser remains the exception
-  (reads STATUS/SIZE/CFLAGS/SOURCE/BLOCKER/NOTE). See [METADATA.md](../METADATA.md).
-- **Function list**: `functions.txt` and `CATALOG.md` are gone. Discovery
-  inventory is `src/<target>/function_structure.json` only (see
-  `catalog/loaders.cached_function_list`); coverage progress lives in
-  `rebrew-functions.toml` via `status`/`todo`/dashboard.
