@@ -939,8 +939,18 @@ class TestStatusCasePolicy:
         assert should_promote_status("near_matching", "RELOC") is True
         # Same status differing only by case is a no-op.
         assert should_promote_status("exact", "EXACT") is False
+        # SKIP is parked: never auto-unpark, even for a byte match.
+        assert should_promote_status("skip", "EXACT") is False
+        assert should_promote_status("SKIP", "RELOC") is False
 
-    def test_merge_normalizes_metadata_status_case(self, tmp_path: Path) -> None:
+    def test_merge_normalizes_near_match_alias(self, tmp_path: Path) -> None:
+        from rebrew.annotation import Annotation
+        from rebrew.metadata import merge_into_annotation, save_metadata
+
+        save_metadata(tmp_path, {("T", 0x1000): {"status": "NEAR_MATCH"}})
+        ann = Annotation(va=0x1000, size=10, module="T")
+        merge_into_annotation(ann, tmp_path)
+        assert ann.status == "NEAR_MATCHING"
         from rebrew.annotation import Annotation
         from rebrew.metadata import merge_into_annotation, save_metadata
 

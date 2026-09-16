@@ -402,8 +402,9 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     verify_statuses = {va: status for va, (status, _eff) in verify_details.items()}
 
     # Single pass: status breakdown + byte-level coverage.
-    # Exception: PROVEN (from rebrew prove) is a post-verify promotion that
-    # takes precedence over verify cache RELOC/EXACT results.
+    # Exception: PROVEN (from rebrew prove) and SKIP (user parking) are
+    # post-/non-verify classifications that take precedence over verify
+    # cache RELOC/EXACT/NEAR_MATCHING results.
     status_counts: dict[str, int] = {}
     size_by_va: dict[int, int] = {f.va: f.size for f in ghidra_funcs}
     matched_bytes = 0
@@ -425,7 +426,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         # Metadata is authoritative for STUB (a stub's size mismatch is
         # expected); only more actionable cache states (COMPILE_ERROR,
         # matched) override.  Same rule as todo.py.
-        if ann_status == "PROVEN":
+        if ann_status in ("PROVEN", "SKIP"):
             effective = ann_status
         elif ann_status == "STUB":
             cached = verify_statuses.get(va)

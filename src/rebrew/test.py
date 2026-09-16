@@ -62,6 +62,7 @@ from rebrew.config import ProjectConfig
 from rebrew.context import CompileContext
 from rebrew.matcher import parse_obj_symbol_and_relocs
 from rebrew.metadata import (
+    is_status_parked,
     is_status_sticky,
     set_fields_batch,
     should_promote_status,
@@ -92,6 +93,7 @@ def _patch_verify_cache(
     total: int,
     *,
     delta: int | None = None,
+    match_percent: float | None = None,
 ) -> None:
     """Update the verify cache entry for *va* so status/todo stay in sync.
 
@@ -105,24 +107,26 @@ def _patch_verify_cache(
     caller has a real byte delta (the batch path gets one from verify;
     recomputing from match_percent would store a percent-scale number).
 
+    *match_percent* is the CompareResult percent (target-length denominator);
+    when omitted the cache recomputes from ``match_count / total``, which
+    drifts on SIZE_MISMATCH / truncated compares.
+
     Thin local wrapper over the single shared implementation
     :func:`rebrew.verify_cache.patch_verify_cache_entries` (identity check +
     cross-process lock included).
     """
     from rebrew.verify_cache import patch_verify_cache_entries
 
-    patch_verify_cache_entries(
-        cfg,
-        [
-            {
-                "va": va,
-                "status": new_status,
-                "match_count": match_count,
-                "total": total,
-                "delta": delta,
-            }
-        ],
-    )
+    patch: dict[str, object] = {
+        "va": va,
+        "status": new_status,
+        "match_count": match_count,
+        "total": total,
+        "delta": delta,
+    }
+    if match_percent is not None:
+        patch["match_percent"] = match_percent
+    patch_verify_cache_entries(cfg, [patch])
 
 
 _EPILOG = (
@@ -1098,7 +1102,7 @@ def _run_test_impl(
             cmp.status if cmp.status else classify_match_status(matched, match_count, total, relocs)
         )
         if not force_status and not should_promote_status(old_status, new_status):
-            if is_status_sticky(old_status) and not json_output:
+            if (is_status_sticky(old_status) or is_status_parked(old_status)) and not json_output:
                 console.print(f"[dim]STATUS → skipped ({old_status})[/dim]")
             # A refused promotion with the SAME status still carries fresh
             # metrics: status/todo rank ROI from the cache's match_percent and
@@ -1117,6 +1121,7 @@ def _run_test_impl(
                     match_count,
                     total,
                     delta=cmp.delta,
+                    match_percent=cmp.match_percent,
                 )
         elif dry_run:
             # --dry-run must not write: preview the STATUS change (the compile
@@ -1149,6 +1154,7 @@ def _run_test_impl(
                     # truncated to the target length), which todo would read as
                     # a "0B diff — try flag sweep" quick-win.
                     delta=cmp.delta,
+                    match_percent=cmp.match_percent,
                 )
             if not json_output:
                 console.print(f"[dim]STATUS → {new_status}[/dim]")
@@ -1518,7 +1524,9 @@ def _test_multi(
             # Auto-promote: update STATUS in metadata (mirrors single-function path)
             if not no_promote:
                 if not should_promote_status(old_status, new_status):
-                    if is_status_sticky(old_status) and not json_output:
+                    if (
+                        is_status_sticky(old_status) or is_status_parked(old_status)
+                    ) and not json_output:
                         console.print(f"[dim]  STATUS → skipped ({old_status})[/dim]")
                 elif dry_run:
                     # --dry-run must not write: preview (compile already ran).
@@ -1552,6 +1560,7 @@ def _test_multi(
                             # target), which todo then reads as a "0B diff —
                             # try flag sweep" quick-win.
                             delta=cmp.delta,
+                            match_percent=cmp.match_percent,
                         )
                     if not json_output:
                         console.print(f"[dim]  STATUS → {new_status}[/dim]")
@@ -1709,8 +1718,9 @@ def print_test_summary(deferred: list[tuple[Annotation, str, int]], total_files:
     transitions: list[tuple[str, str]] = []
     for entry, status, _delta in deferred:
         old_status = getattr(entry, "status", "") or "STUB"
-        # Sticky statuses (PROVEN) keep their status regardless of byte-level result
-        if is_status_sticky(old_status):
+        # Sticky (PROVEN) / parked (SKIP) statuses keep their status regardless
+        # of the byte-level result (same gate as should_promote_status).
+        if is_status_sticky(old_status) or is_status_parked(old_status):
             transitions.append((old_status, old_status))
         else:
             transitions.append((old_status, status))

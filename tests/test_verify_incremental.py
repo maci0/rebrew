@@ -311,6 +311,36 @@ class TestPatchVerifyCacheEntries:
         assert entry["match_percent"] == 92.0
         assert entry["delta"] == 8
 
+    def test_patch_honors_explicit_match_percent(self, tmp_path: Path) -> None:
+        """CompareResult percent wins over match_count/total recomputation.
+
+        On SIZE_MISMATCH the patch may carry match_count against max(target,obj)
+        while classify used target length — recomputing would drift the cache
+        percent that status/todo read for ROI ranking.
+        """
+        from rebrew.verify_cache import patch_verify_cache_entries
+
+        cfg = _make_cfg(tmp_path)
+        self._make_cache(tmp_path, cfg, status="SIZE_MISMATCH")
+        patch_verify_cache_entries(
+            cfg,
+            [
+                {
+                    "va": 0x1000,
+                    "status": "SIZE_MISMATCH",
+                    "match_count": 5,
+                    "total": 13,
+                    "delta": 8,
+                    "match_percent": 50.0,
+                }
+            ],
+        )
+        entry = json.loads(
+            (tmp_path / ".rebrew" / "verify_cache.json").read_text(encoding="utf-8")
+        )["entries"]["0x00001000"]
+        assert entry["match_percent"] == 50.0
+        assert entry["delta"] == 8
+
     def test_wrong_target_not_patched(self, tmp_path: Path) -> None:
         """A cache written for a different target must not be touched."""
         from rebrew.verify_cache import patch_verify_cache_entries

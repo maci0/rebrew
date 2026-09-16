@@ -30,6 +30,7 @@ from rebrew.metadata import (
     KNOWN_STATUSES,
     METADATA_FIELDS,
     _set_fields,
+    canonical_status,
     get_entry,
     remove_field,
     update_source_status,
@@ -149,7 +150,7 @@ class MetadataEntry:
     def problems(self) -> list[str]:
         """Return human-readable validation problems (empty when valid)."""
         out: list[str] = list(self.load_problems)
-        if self.status is not None and self.status.upper() not in KNOWN_STATUSES:
+        if self.status is not None and canonical_status(self.status) not in KNOWN_STATUSES:
             out.append(f"unknown STATUS {self.status!r} (expected one of {sorted(KNOWN_STATUSES)})")
         if self.size is not None and self.size < 0:
             out.append(f"negative SIZE {self.size}")
@@ -190,11 +191,13 @@ class MetadataEntry:
 
         status = coerced.pop("status", None)
         if status is not None:
-            if str(status).upper() not in KNOWN_STATUSES:
+            if canonical_status(str(status)) not in KNOWN_STATUSES:
                 raise MetadataValidationError(
                     f"unknown STATUS {status!r} (expected one of {sorted(KNOWN_STATUSES)})"
                 )
-            update_source_status(directory, str(status), self.module, self.va, force=force)
+            update_source_status(
+                directory, canonical_status(str(status)), self.module, self.va, force=force
+            )
         if coerced:
             _set_fields(directory, self.va, coerced, module=self.module)
 

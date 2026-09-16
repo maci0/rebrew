@@ -499,9 +499,9 @@ def _check_E015_marker_consistency(
 def _check_E004_status_value(result: LintResult, status: str) -> None:
     """A persisted STATUS outside KNOWN_STATUSES is a typo/legacy value.
 
-    ``canonical_status`` only upper-cases, so an unknown word flows through the
-    overlay as if valid; flag it instead of silently treating it as a real
-    classification.
+    ``canonical_status`` upper-cases and maps the ``NEAR_MATCH`` alias; an
+    unknown word still flows through the overlay as if valid, so flag it
+    instead of silently treating it as a real classification.
     """
     if status and canonical_status(status) not in KNOWN_STATUSES:
         result.error(

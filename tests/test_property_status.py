@@ -22,9 +22,24 @@ from hypothesis import strategies as st
 
 from rebrew.annotation import Annotation
 from rebrew.catalog.grid import count_statuses
-from rebrew.metadata import is_status_sticky, should_promote_status
+from rebrew.metadata import (
+    canonical_status,
+    is_status_parked,
+    is_status_sticky,
+    should_promote_status,
+)
 
-_STATUSES = ["EXACT", "RELOC", "NEAR_MATCHING", "NEAR_MATCH", "STUB", "SIZE_MISMATCH", "PROVEN", ""]
+_STATUSES = [
+    "EXACT",
+    "RELOC",
+    "NEAR_MATCHING",
+    "NEAR_MATCH",
+    "STUB",
+    "SIZE_MISMATCH",
+    "PROVEN",
+    "SKIP",
+    "",
+]
 _MARKERS = ["FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"]
 
 
@@ -118,7 +133,9 @@ class TestShouldPromoteStatusInvariants:
     def test_never_promotes_to_unchanged(self, current: str, new: str) -> None:
         """Same-status never promotes; a sticky status is refused too, except
         that PROVEN -> EXACT/RELOC records a real byte match."""
-        if current == new and not is_status_sticky(current):
+        cur = canonical_status(current)
+        neu = canonical_status(new)
+        if cur == neu and not is_status_sticky(cur) and not is_status_parked(cur):
             assert should_promote_status(current, new) is False
 
     @given(st.sampled_from(_STATUSES), st.sampled_from(_STATUSES))
@@ -126,24 +143,35 @@ class TestShouldPromoteStatusInvariants:
         """PROVEN resists every demotion except a byte match, which supersedes
         it: EXACT/RELOC show what PROVEN could not."""
         if is_status_sticky(current):
-            assert should_promote_status(current, new) is (new in ("EXACT", "RELOC"))
+            assert should_promote_status(current, new) is (
+                canonical_status(new) in ("EXACT", "RELOC")
+            )
+
+    @given(st.sampled_from(_STATUSES), st.sampled_from(_STATUSES))
+    def test_parked_current_never_promotes(self, current: str, new: str) -> None:
+        """SKIP is user parking — no auto unpark, not even for EXACT/RELOC."""
+        if is_status_parked(current):
+            assert should_promote_status(current, new) is False
 
     @given(st.sampled_from(_STATUSES))
     def test_stub_to_size_mismatch_refused(self, current: str) -> None:
-        if current == "STUB":
+        if canonical_status(current) == "STUB":
             assert should_promote_status(current, "SIZE_MISMATCH") is False
             assert should_promote_status(current, "MISSING_SIZE") is False
 
     @given(st.sampled_from(_STATUSES), st.sampled_from(_STATUSES))
     def test_symmetric_under_rule_set(self, current: str, new: str) -> None:
         """A promotion is allowed iff none of the refusal rules fire, with the
-        byte-match carve-out for sticky statuses."""
-        if is_status_sticky(current):
-            expected = new in ("EXACT", "RELOC")
+        byte-match carve-out for sticky statuses and a hard refuse for SKIP."""
+        cur = canonical_status(current)
+        neu = canonical_status(new)
+        if is_status_parked(cur):
+            expected = False
+        elif is_status_sticky(cur):
+            expected = neu in ("EXACT", "RELOC")
         else:
             expected = (
-                not (current == "STUB" and new in ("SIZE_MISMATCH", "MISSING_SIZE"))
-                and current != new
+                not (cur == "STUB" and neu in ("SIZE_MISMATCH", "MISSING_SIZE")) and cur != neu
             )
         assert should_promote_status(current, new) is expected
 
@@ -151,6 +179,20 @@ class TestShouldPromoteStatusInvariants:
         assert should_promote_status("STUB", "EXACT") is True
         assert should_promote_status("NEAR_MATCHING", "RELOC") is True
         assert should_promote_status("EXACT", "STUB") is True  # demotion ok
+
+    def test_near_match_alias_canonicalizes(self) -> None:
+        assert canonical_status("near_match") == "NEAR_MATCHING"
+        assert canonical_status("NEAR_MATCH") == "NEAR_MATCHING"
+        # Alias must promote like NEAR_MATCHING (not an unknown sticky state).
+        assert should_promote_status("NEAR_MATCH", "EXACT") is True
+        assert should_promote_status("NEAR_MATCHING", "NEAR_MATCH") is False
+
+    def test_skip_refuses_byte_match(self) -> None:
+        assert should_promote_status("SKIP", "EXACT") is False
+        assert should_promote_status("SKIP", "RELOC") is False
+        assert should_promote_status("skip", "NEAR_MATCHING") is False
+        assert is_status_parked("SKIP") is True
+        assert is_status_sticky("SKIP") is False
 
 
 class TestVocabularyCoverage:

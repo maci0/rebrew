@@ -321,6 +321,11 @@ def _collect_active_functions(
         name = info.get("symbol") or name_by_va.get(va) or f"FUN_{va:08x}"
         filename = info.get("filename", "")
 
+        # User-parked: intentional "don't touch" — never surface as actionable
+        # work (flag sweep / GA / prove) until someone unparks with force.
+        if status == "SKIP":
+            continue
+
         # Skip finished functions — except naked reconstructions: byte-exact
         # via a generated skeleton (`// SOURCE: naked`) is reproduced, not
         # decompiled, so it stays actionable until the real C body matches
@@ -1099,7 +1104,7 @@ def main(
         # still overrides; SIZE_MISMATCH does not.
         if ann_status == "STUB" and any(m in info.get("blocker", "") for m in _NON_TARGET_MARKERS):
             documented += 1
-        if ann_status == "PROVEN":
+        if ann_status == "PROVEN" or ann_status == "SKIP":
             s = ann_status
         elif ann_status == "STUB":
             cached_s = verify_statuses.get(va_int)

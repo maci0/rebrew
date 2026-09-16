@@ -76,6 +76,22 @@ def test_apply_rejects_invalid_status(tmp_path: Path) -> None:
         e.apply(tmp_path, status="DONE")
 
 
+def test_apply_accepts_near_match_alias(tmp_path: Path) -> None:
+    """Legacy NEAR_MATCH spelling normalizes to NEAR_MATCHING on write."""
+    e = _entry(tmp_path)
+    e.apply(tmp_path, status="NEAR_MATCH")
+    assert MetadataEntry.load(tmp_path, 0x1000, "MAIN").status == "NEAR_MATCHING"
+
+
+def test_problems_accept_near_match_alias(tmp_path: Path) -> None:
+    from rebrew.metadata import _set_field
+
+    _set_field(tmp_path, 0x1000, "status", "NEAR_MATCH", module="MAIN")
+    e = MetadataEntry.load(tmp_path, 0x1000, "MAIN")
+    assert e.status == "NEAR_MATCH"
+    assert e.problems() == []
+
+
 def test_apply_rejects_non_int_size(tmp_path: Path) -> None:
     e = _entry(tmp_path)
     with pytest.raises(MetadataValidationError, match="must be an int"):
