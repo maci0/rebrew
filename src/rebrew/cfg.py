@@ -62,6 +62,7 @@ _TARGET_SCOPED_KEYS: frozenset[str] = frozenset(
         "bin_dir",
         "source_ext",
         "marker",
+        "defines",
         "ignored_symbols",
         "origins",
         "crt_sources",
@@ -87,6 +88,7 @@ _PROJECT_SCOPED_KEYS: frozenset[str] = frozenset(
         "db_dir",
         "output_dir",
         "default_target",
+        "shared_dir",
         "lint",
     }
 )

@@ -16,6 +16,12 @@
 - Classifier **Development Status** is Beta (was Alpha).
 
 ### Fixed
+- Config loader: recognise `[project].shared_dir` and `[targets.*.defines]`
+  (they warned as unrecognized every load); honour legacy misplaced
+  `[targets.*.cflags_presets]` with a migrate warning; validate `[llm]` keys
+  and warn when `api_key` is committed in TOML; reject stringy
+  `recompile_emit_assembly` (``bool("false")`` is True).  Documented
+  `REBREW_*` env vars and per-setting precedence in `docs/CONFIG.md`.
 - CI clones sibling `resembl` at `v2.0.0` (`RESEMBL_REF`) to match `uv.lock`
   (was still cloning `v1.0.0`); toolchain-sync now caches uv and shares the pin.
 - `coverage.db` integrity: `section_cell_stats` now has PRIMARY KEY
