@@ -181,7 +181,18 @@ line-length = 100
 # (wrong code, stale after a fix) fails lint instead of silently rotting.
 # C4/DTZ/RSE/EXE/Q/NPY/ICN/G/PGH/YTT are correctness-leaning groups the tree
 # already passes (enabled after fixing their 9 findings; see CHANGELOG).
-select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "DTZ", "RSE", "EXE", "Q", "NPY", "ICN", "G", "PGH", "YTT", "RUF100"]
+# ASYNC/FA/SLOT join them: zero findings on the current tree (ratchet only).
+# Individual RUF codes below are the stable (non-preview) subset of the RUF
+# family the tree already passes; debt codes
+# (RUF001/002/003/005/007/010/012/019/021–023/043/046/059) stay off until
+# clean — no repo-wide ignore for them.
+select = [
+    "E", "F", "W", "I", "UP", "B", "SIM", "C4", "DTZ", "RSE", "EXE", "Q",
+    "NPY", "ICN", "G", "PGH", "YTT", "ASYNC", "FA", "SLOT",
+    "RUF013", "RUF015", "RUF018", "RUF020", "RUF024", "RUF026", "RUF028",
+    "RUF030", "RUF032", "RUF033", "RUF034", "RUF048", "RUF049", "RUF051",
+    "RUF053", "RUF057", "RUF058", "RUF100", "RUF200",
+]
 ignore = ["E501", "B008", "B904"]
 
 [tool.uv]

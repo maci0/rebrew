@@ -96,7 +96,11 @@ class TestPrepareEntriesCache:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry: Annotation
     ) -> SimpleNamespace:
         global cfg_reversed_dir
-        cfg_reversed_dir = lambda: tmp_path / "src"  # noqa: E731
+
+        def _reversed() -> Path:
+            return tmp_path / "src"
+
+        cfg_reversed_dir = _reversed
         cfg = _cfg(tmp_path)
         (tmp_path / "x.dll").write_bytes(b"MZ")
         src = tmp_path / "src"
