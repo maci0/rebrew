@@ -30,6 +30,7 @@ opposing window can achieve.  Read both signs before attributing a cause.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 __all__ = [
     "DriftWindow",
@@ -84,7 +85,7 @@ class DerivedRegion:
     drift: int = field(compare=True)
 
 
-def branch_targets(code: bytes, md) -> dict[int, tuple[int, int]]:
+def branch_targets(code: bytes, md: Any) -> dict[int, tuple[int, int]]:
     """Map branch offset to ``(instruction_size, target_offset)``.
 
     Only intra-function jumps are collected.  ``call`` is excluded because in an
@@ -116,7 +117,7 @@ def branch_targets(code: bytes, md) -> dict[int, tuple[int, int]]:
     return out
 
 
-def drift_windows(ref_code: bytes, our_code: bytes, md) -> list[DriftWindow]:
+def drift_windows(ref_code: bytes, our_code: bytes, md: Any) -> list[DriftWindow]:
     """Measure drift windows between reference and compiled code.
 
     A branch contributes a window only when it appears at the same offset in

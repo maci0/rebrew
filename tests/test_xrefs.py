@@ -316,9 +316,9 @@ class TestCallsFromInventory:
     """
 
     def test_register_cached_import_is_attributed_to_its_callee(self) -> None:
-        from rebrew.xrefs import build_calls_from_payload
-
         import inspect
+
+        from rebrew.xrefs import build_calls_from_payload
 
         src = inspect.getsource(build_calls_from_payload)
         # The resolution step is the whole point of the function: a call through

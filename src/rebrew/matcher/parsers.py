@@ -154,6 +154,7 @@ def _parse_coff(
         return None, None, []
 
     section = target_sym.section
+    assert section is not None  # filtered non-None above; LIEF 1.0 stubs type it Optional
     content = bytes(section.content)
     func_start = target_sym.value
     # Match symbols by SECTION OFFSET, not name: naked functions land in

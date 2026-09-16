@@ -65,6 +65,18 @@ from rebrew.pe_headers import pe_lfanew
 logger = logging.getLogger(__name__)
 
 
+def __getattr__(name: str) -> Any:
+    """Lazily import LIEF on first external attribute use (148ms native load).
+
+    This is what makes ``monkeypatch.setattr("rebrew.toolchain_detect.lief…")``
+    work in the version-table tests: the setattr target resolves through here
+    instead of failing as a missing submodule import.
+    """
+    if name == "lief":
+        return _lief()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 def _lief() -> Any:
     """The LIEF module, imported on first detection (148ms native load).
 
@@ -983,7 +995,9 @@ def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
     # Only PE binaries reach here (guarded by the hasattr above); cast so
     # mypy knows pe exposes the PE-only attributes (imports, optional_header)
     # while preserving the duck-typing that keeps mock-based tests working.
-    pe = cast(lief.PE.Binary, pe)
+    # Any (not lief.PE.Binary): `lief` is lazily imported and mock-patched,
+    # so no statically resolvable name exists here.
+    pe = cast(Any, pe)
     major = pe.optional_header.major_linker_version
     minor = pe.optional_header.minor_linker_version
     linker_ver = f"{major}.{minor}"
