@@ -77,6 +77,10 @@ from typing import Any
 
 from rebrew.pe_headers import pe_lfanew, sections_at
 
+#: Cap on import name-table / descriptor slots read from one PE.  A missing
+#: null terminator would otherwise walk past EOF into ``struct.error``.
+_MAX_IMPORT_SLOTS = 65536
+
 
 @dataclasses.dataclass
 class SectionMeta:
@@ -343,8 +347,9 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
             # *is* bound by the IAT itself (standard PE rule) and the IAT
             # must be used as the lookup table instead of skipping the
             # import or parsing the header region at oft(0) as hint/names.
-            i = 0
-            while io + i * 20 + 20 <= len(data):
+            for i in range(_MAX_IMPORT_SLOTS):
+                if io + i * 20 + 20 > len(data):
+                    break
                 oft, _ts, _fwd, name_rva, iat_va = struct.unpack_from("<IIIII", data, io + i * 20)
                 if oft == 0 and name_rva == 0:
                     break
@@ -357,9 +362,13 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
                     dll = data[dll_off:end].decode("latin1", "replace")
                 lookup_rva = oft if oft else _iat_lookup_rva(iat_va)
                 oo = off(lookup_rva) if lookup_rva else None
-                j = 0
-                while oo is not None:
-                    nm = struct.unpack_from("<I", data, oo + 4 * j)[0]
+                if oo is None:
+                    continue
+                for j in range(_MAX_IMPORT_SLOTS):
+                    slot_off = oo + 4 * j
+                    if slot_off + 4 > len(data):
+                        break
+                    nm = struct.unpack_from("<I", data, slot_off)[0]
                     if nm == 0:
                         break
                     if nm & 0x80000000:
@@ -378,8 +387,6 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
                                     iat_va + 4 * j,
                                 )
                             )
-                    j += 1
-                i += 1
 
     exports: list[dict[str, Any]] = []
     exp_rva_dir, exp_sz = _data_dir(data, opt, 0)

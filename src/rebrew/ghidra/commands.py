@@ -16,6 +16,7 @@ from rich.console import Console
 
 from rebrew.config import ProjectConfig
 from rebrew.ghidra.client import (
+    MAX_MCP_PAGES,
     fetch_mcp_tool_raw,
     init_mcp_session,
 )
@@ -334,7 +335,7 @@ def pull_data(
         all_symbols: list[dict[str, Any]] = []
         start = 0
 
-        while True:
+        for _ in range(MAX_MCP_PAGES):
             try:
                 page = fetch_mcp_tool_raw(
                     client,
@@ -364,6 +365,11 @@ def pull_data(
                 break
             if len(page) < page_size:
                 break
+        else:
+            console.print(
+                f"[yellow]warning:[/yellow] Symbol pagination hit {MAX_MCP_PAGES}-page "
+                "cap; continuing with a partial list"
+            )
 
         data_symbols = [s for s in all_symbols if not s.get("isFunction", False)]
         if not data_symbols:

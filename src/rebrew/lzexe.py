@@ -664,12 +664,26 @@ class _BitReader:
         return v
 
 
-def _decompress(data: bytes, stream_off: int) -> bytes:
-    """Decompress the LZEXE bitstream into the original program image."""
+def _decompress(data: bytes, stream_off: int, *, max_out: int | None = None) -> bytes:
+    """Decompress the LZEXE bitstream into the original program image.
+
+    *max_out* caps the decompressed size.  When omitted, the cap is derived
+    from the packed file length (``16 * len(data) + 64KiB``) so a corrupt
+    all-literal stream cannot grow without bound.  ``unpack_lzexe`` passes
+    the stub's compressed-size + size-increase paragraphs instead.
+    """
+    if max_out is None:
+        max_out = 16 * len(data) + 0x10000
+    if max_out <= 0:
+        raise NotLzexeError("corrupt LZEXE stream: non-positive decompress budget")
     r = _BitReader(data, stream_off)
     out = bytearray()
     while True:
         if r.bit():
+            if len(out) >= max_out:
+                raise NotLzexeError(
+                    f"corrupt LZEXE stream: decompressed size exceeds {max_out} bytes"
+                )
             out.append(r.byte())  # literal
             continue
         if r.bit():
@@ -695,6 +709,8 @@ def _decompress(data: bytes, stream_off: int) -> bytes:
                 f"corrupt LZEXE stream: match distance {dist} exceeds "
                 f"{len(out)} bytes of output at position {len(out)}"
             )
+        if len(out) + length > max_out:
+            raise NotLzexeError(f"corrupt LZEXE stream: decompressed size exceeds {max_out} bytes")
         start = len(out) - dist
         for k in range(length):
             out.append(out[start + k])
@@ -813,13 +829,15 @@ def _unpack_impl(data: bytes, version: int) -> LzexeResult:
     cparhdr = ((end + 0x1FF) & ~0x1FF) >> 4
     ohead[4] = cparhdr
 
-    # Decompress the image.
+    # Decompress the image.  Budget = compressed paras + size-increase paras
+    # (the stub's own expansion estimate) plus one 64KiB window cushion.
     stream_off = (ihead[0x0B] - inf[4] + ihead[4]) * 16
     if not (0 <= stream_off < len(data)):
         raise NotLzexeError(
             f"corrupt LZEXE file: compressed stream at {stream_off:#x} outside file"
         )
-    image = _decompress(data, stream_off)
+    max_out = (inf[4] + inf[5]) * 16 + 0x10000
+    image = _decompress(data, stream_off, max_out=max_out)
     loadsize = len(image)
 
     # Rebuild minalloc/maxalloc/cblp/cp (unlzexe's wrhead).
