@@ -40,7 +40,6 @@ import math
 from pathlib import Path
 from typing import Any
 
-import lief
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -284,6 +283,7 @@ def pe_info(path: str | Path) -> dict[str, object]:
     target = Path(path)
     if not target.exists():
         raise FileNotFoundError(f"Binary not found: {target}")
+    import lief
 
     fmt, arch = detect_format_and_arch(target)
     size = target.stat().st_size
@@ -523,6 +523,8 @@ def _elf_payload(elf: Any, size: int, arch: str) -> dict[str, object]:
 
 def _macho_payload(macho: Any, size: int, arch: str) -> dict[str, object]:
     """Mach-O identity block plus the note that PE-only fields do not apply."""
+    import lief
+
     binary = macho.at(0) if isinstance(macho, lief.MachO.FatBinary) else macho
     header = getattr(binary, "header", None)
     entry_point = _to_int(getattr(binary, "entrypoint", 0)) or 0

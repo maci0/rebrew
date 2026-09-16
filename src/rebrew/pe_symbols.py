@@ -47,8 +47,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import lief
-
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
 from rebrew.imports import parse_imports
 from rebrew.pe_headers import pe_layout
@@ -554,6 +552,8 @@ def pe_directories(path: str | Path) -> PeDirectories:
     target = Path(path)
     if not target.exists():
         return PeDirectories(notes=(f"binary not found: {target}",))
+    import lief
+
     try:
         is_pe = lief.is_pe(str(target))
     except (OSError, ValueError, RuntimeError) as exc:

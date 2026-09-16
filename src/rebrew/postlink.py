@@ -58,9 +58,11 @@ import dataclasses
 import struct
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import lief
+if TYPE_CHECKING:
+    import lief
+
 import typer
 from rich.console import Console
 
@@ -106,6 +108,8 @@ Fixer = Callable[[bytearray, LayoutMetadata, BinaryInfo], FixerReport]
 
 def _pe(raw: bytes) -> lief.PE.Binary:
     """Parse *raw* with LIEF, raising a clear error for non-PE input."""
+    import lief
+
     binary = lief.PE.parse(raw)
     if binary is None:
         raise ValueError("not a PE binary")
@@ -121,6 +125,8 @@ def _binary_info_from_bytes(raw: bytes, path: Path) -> BinaryInfo:
     (mirroring :func:`binary_loader._load_pe`'s mapping so section kinds
     stay identical), falling back to ``load_binary`` for non-PE input.
     """
+    import lief
+
     if not lief.is_pe(list(raw)):
         return load_binary(path)
     pe = _pe(raw)
@@ -259,6 +265,7 @@ def _fix_imports(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> 
         )
 
     pe_b = _pe(bytes(built))
+    import lief
 
     def data_dir(pe: lief.PE.Binary, kind: lief.PE.DataDirectory.TYPES) -> tuple[int, int]:
         for d in pe.data_directories:

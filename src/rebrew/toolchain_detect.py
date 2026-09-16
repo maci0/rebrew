@@ -59,8 +59,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
-import lief
-
 from rebrew.binary_loader import load_binary
 from rebrew.pe_headers import pe_lfanew
 
@@ -956,6 +954,8 @@ def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
     2.x linker version is ambiguous with MinGW's GNU ld, so that case only
     fills version/suggested_profiles evidence and lets the heuristics pick
     the family.  Returns None for non-PE / unparseable binaries."""
+    import lief
+
     try:
         pe = lief.parse(str(path))
     except Exception:

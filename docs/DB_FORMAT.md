@@ -158,7 +158,7 @@ Stores arbitrary target-specific key-value pairs. Primary Key is `(target, key)`
 | `summary` | JSON object with coverage statistics (totalFunctions, matchedFunctions, exactMatches, etc.) |
 | `function_stats` | JSON object with coverage stats for the dashboard headline (`total`, `covered_bytes`, `matched_bytes`, `total_bytes`, `by_status`, `by_module_counts`) |
 | `paths` | JSON object with file paths (originalDll, sourceRoot) |
-| `db_version` | Schema version string (current: `"6"`) |
+| `db_version` | Schema version string (current: `"7"`) |
 
 #### Schema Version History
 
@@ -169,6 +169,7 @@ whenever the schema changes.
 
 | Version | Change |
 |---|---|
+| `"7"` | `section_cell_stats` is a **table** rather than a view; new `section_cells_json` table (per-section cell JSON, zstd-compressed) so dashboards stop re-aggregating `cells` on every request. Migration is `--force` (DROP+rebuild), the existing convention: `history` and `verify_results` are not dropped by a rebuild, but `--force` unlinks the file, so `verify_results` is re-imported from `db/verify_results.json` / `.rebrew/verify_cache.json` and `history` is not recoverable. |
 | `"6"` | `functions` gained `updated_by`/`updated_at` (STATUS-write provenance); `globals` gained `status` (data verdicts); `history` gained `updated_by`. |
 | `"5"` | `verify_results` gained `reg_delta` and `effective_match` (the effective-match signal — register-only delta; see the table below). |
 | `"4"` | Cell rows normalized and range-checked on insert (`start >= 0`, `end >= start`, `span > 0`); `cells` gained a `FOREIGN KEY (target, section_name)` to `sections` with `ON DELETE CASCADE`; `section_cell_stats` gained `other_count`; `verify_results` no longer dropped on full rebuild. |
@@ -217,8 +218,19 @@ Tracks function status changes over time.
 > (`_HISTORY_RETENTION` in `build_db`), so long-lived projects that
 > regenerate often do not accumulate rows forever (db-review F7).
 
-### `section_cell_stats` (View)
-A SQLite view aggregating matching metrics to quickly pull total/exact/stub cells per section.
+### `section_cell_stats` Table
+Aggregated matching metrics per section: total/exact/stub cell counts, so a
+dashboard never re-scans `cells` to render a progress bar.
+
+This was a **view** through DB version 6, and is a table from v7. As a view
+every reader re-aggregated the whole `cells` table — 13 `SUM(CASE state = …)`
+over 64k rows measured 17.3 ms per request, 92% of a dashboard's cold
+`/data` build. Materializing it at build time makes the same query ~0.02 ms.
+No reader changed: every consumer (both dashboards) queries it as
+`SELECT … FROM section_cell_stats WHERE target = ?`, which is indifferent to
+table-vs-view, so a v6 database still carrying the old view stays *readable* —
+though `build-db` requires `--force` to move it to v7 (see the version history
+above).
 
 | Column | Description |
 |--------|-------------|
@@ -236,6 +248,47 @@ A SQLite view aggregating matching metrics to quickly pull total/exact/stub cell
 | `proven_count` | Cells with `state = 'proven'` |
 | `size_mismatch_count` | Cells with `state = 'size_mismatch'` |
 | `other_count` | Cells in any other state (compile_error, missing_*, skip, unknown) — so `total_cells` always equals the sum of the counted columns |
+
+> [!NOTE]
+> Derived from `cells` and rebuilt whole on every build — do not write to it.
+
+### `section_cells_json` Table
+One row per target+section holding that section's cells already aggregated to
+JSON (`json_group_array` of the cell projection) and zstd-compressed.
+
+Serving a grid otherwise re-runs `json_group_array` over every cell on each
+cold request: measured 10.7 ms of SQLite per 39k-cell section versus 0.3 ms to
+read this row, for ~176 KB stored across a whole database. The projection is
+`CELLS_JSON_OBJECT_SQL` in `rebrew.workspace`, shared by this writer and the
+dashboards that read it — the same constant the fallback query uses, so the two
+cannot drift into serving different cell shapes.
+
+| Column | Type | Description |
+|---|---|---|
+| `target` | `TEXT` | Binary target. |
+| `section_name` | `TEXT` | Section name. |
+| `cells_zstd` | `BLOB` | `zstd` frame holding the JSON array of that section's cells. |
+
+The **column name is the codec**, and the codec itself is shared:
+`rebrew.workspace.encode_section_cells`/`decode_section_cells` are the single
+definition used by `build_db` (producer) and by recoverage (reader), so the two
+cannot drift.  Those helpers defer their `zstandard` import to the call, so
+consumers that only resolve a workspace path need no compression dependency.
+
+A reader probes for the `cells_zstd` column rather than consulting `db_version`,
+so a database whose cache table carries a different codec's column falls through
+to the live `cells` query instead of decoding a frame it cannot read.  Renaming
+that column is therefore part of changing the codec. Compression is zstd level 3: on 8.4 MB of cell JSON,
+level 3 gives 176 KB in 3 ms, levels 9 and 15 give *more* bytes (205 KB /
+210 KB), and level 19 reaches 141 KB only by spending 3.3 s.
+
+> [!NOTE]
+> Derived from `cells`, whose only writer is `build_db`, so it cannot go stale
+> between builds — it is rebuilt whole on every build, including a scoped
+> `--target` one. Since v7 it is also part of the versioned schema (listed in
+> `_missing_required_objects`), which is what makes the stamp meaningful; the
+> live-query fallback is what keeps a *pre-v7* database readable rather than
+> merely rejected.
 
 ---
 

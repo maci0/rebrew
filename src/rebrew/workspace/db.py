@@ -18,6 +18,79 @@ SCHEMA_TARGET = "__schema__"
 #: ``metadata.key`` carrying the schema version stamp.
 DB_VERSION_KEY = "db_version"
 
+#: Table of per-section cell JSON (one row per target+section, zstd-compressed),
+#: written by ``build_db`` and served verbatim by dashboards.
+#:
+#: This is a DERIVED CACHE: derived from ``cells``, whose only writer is
+#: ``build_db``.  It therefore cannot go stale between builds, and a reader that
+#: finds it absent (or written by an older codec) falls back to the live
+#: ``cells`` query.
+#:
+#: It became part of the versioned schema at v7 — see ``build_db``'s
+#: ``_missing_required_objects``, which is what makes the stamp meaningful — but
+#: the fallback is what keeps a pre-v7 database *readable* rather than merely
+#: rejected.
+SECTION_CELLS_TABLE = "section_cells_json"
+
+#: BLOB column of :data:`SECTION_CELLS_TABLE`.  Named for its codec, and
+#: load-bearing rather than decorative: a reader probes for THIS column instead
+#: of trusting ``db_version``, so a database still carrying a different codec's
+#: column falls back to the live ``cells`` query instead of feeding an old blob
+#: to the current decoder.  Changing the codec therefore means renaming this
+#: constant (and the column) in the same commit — that rename IS the migration.
+SECTION_CELLS_COLUMN = "cells_zstd"
+
+#: The ``json_object(...)`` projection for ONE coverage cell.  Shared by the
+#: producer (``build_db`` materializes it into :data:`SECTION_CELLS_TABLE`) and
+#: every consumer (dashboards serve it, or rebuild it from ``cells`` when the
+#: cache table is absent).  ONE definition, so a field added for the UI cannot
+#: be written by one side and read by the other under a second name.
+#:
+#: ``id`` is deliberately NOT projected: no consumer reads it, and as a
+#: monotonic autoincrement it was the only high-entropy field per row —
+#: including it compressed 4.3x worse (322 KB vs 75 KB zstd on a 39k-cell
+#: section), because every remaining column repeats heavily.
+CELLS_JSON_OBJECT_SQL = (
+    "json_object('start', start, 'end', end, 'span', span, 'state', state, "
+    "'functions', json(functions), 'label', label, 'parent_function', parent_function)"
+)
+
+#: zstd level for :data:`SECTION_CELLS_TABLE` blobs.  Measured over a database
+#: holding 8.4 MB of cell JSON: level 3 gives 176 KB in 3 ms, levels 9 and 15
+#: give *more* bytes (205 KB / 210 KB), and level 19 reaches 141 KB only by
+#: spending 3.3 s.  (This table briefly used zlib at level 6: 460 KB, 28 ms.)
+_CELLS_ZSTD_LEVEL = 3
+
+
+def encode_section_cells(cells_json: str) -> bytes:
+    """Compress one section's cell JSON for :data:`SECTION_CELLS_TABLE`.
+
+    The codec is shared — one definition for the producer and the readers — but
+    ``zstandard`` is imported per call rather than at module scope: most
+    consumers of this package only resolve a workspace path and read function
+    rows, and none of them should have to satisfy a compression dependency to do
+    that.  ``rebrew`` itself requires zstandard, so the producer never notices.
+    """
+    import zstandard
+
+    return zstandard.ZstdCompressor(level=_CELLS_ZSTD_LEVEL).compress(cells_json.encode("utf-8"))
+
+
+def decode_section_cells(blob: bytes) -> str:
+    """Inverse of :func:`encode_section_cells` (see it for the deferred import).
+
+    A fresh ``ZstdDecompressor`` per call, deliberately: python-zstandard
+    documents no thread-safety for a shared instance (a shared *compressor*
+    raced on one ZSTD_CCtx and reproducibly segfaulted the dashboard), and
+    construction measures ~0.0001 ms against ~0.47 ms to inflate a 4.13 MB
+    section — so sharing one would buy nothing and reintroduce that class of
+    bug.  ``encode_section_cells`` writes the content size into the frame
+    header, so no ``max_output_size`` is needed here.
+    """
+    import zstandard
+
+    return zstandard.ZstdDecompressor().decompress(blob).decode("utf-8")
+
 
 def sqlite_ro_uri(path: Path) -> str:
     """Return a SQLite URI that opens *path* read-only.

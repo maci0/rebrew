@@ -11,7 +11,7 @@ Endpoints
 ``GET /api/targets``           → list of targets
 ``GET /api/summary?target=``   → function stats + coverage % (target required)
 ``GET /api/functions?target=`` → function rows (filters: status, module, q, limit)
-``GET /api/sections?target=``  → per-section cell stats (section_cell_stats view)
+``GET /api/sections?target=``  → per-section cell stats (section_cell_stats table)
 ``GET /api/globals?target=``   → global data rows (filter: q, limit; includes total)
 ``GET /api/history?target=``   → status-change history (limit; includes total)
 

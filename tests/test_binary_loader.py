@@ -604,8 +604,11 @@ class TestLiefLoggingSilenced:
     def test_lief_logger_disabled(self) -> None:
         import lief
 
-        import rebrew.binary_loader  # noqa: F401  (module import silences LIEF)
+        import rebrew.binary_loader as bl
 
+        # Silencing happens on first LIEF use (import is deferred) — touch
+        # the lazy alias to force it, then check the level.
+        assert bl.lief is lief
         assert lief.logging.get_level() == lief.logging.LEVEL.OFF
 
     def test_load_pe_stderr_clean(self, tmp_path) -> None:
