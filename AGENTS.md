@@ -36,7 +36,7 @@ uv pip install -e .
 uv sync --all-extras --group similarity   # optional: prove/binsync extras + resembl
 
 uv run pytest tests/ -v                   # ~6400 tests
-uv run pytest tests/ -q -n 8 -p no:cacheprovider   # parallel (pytest-xdist)
+uv run pytest tests/ -q -p no:cacheprovider
 uv run pytest tests/test_annotation.py -v
 uv run pytest tests/test_annotation.py -k "test_defaults" -v
 uv run pytest tests/test_annotation.py::TestAnnotationDataclass -v
