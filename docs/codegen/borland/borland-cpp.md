@@ -1,7 +1,7 @@
 # Borland C++ 5.5 (bcc32) — codegen patterns
 
 Borland C++ 5.5 (1999) — the free 32-bit Windows command-line tools
-(`bcc32`, wine/wibo).  Emits OMF objects.  Verified with **`-O1`**.
+(`bcc32`, via the docker image — wine lives inside it).  Emits OMF objects.  Verified with **`-O1`**.
 
 **Profiles:** `borland-5.5` — image `rebrew/borland:5.5-win32`.
 

@@ -43,11 +43,17 @@ def _flirt_sigs_repo() -> Path:
 
 
 def _sig_files(dirs: list[Path]) -> list[Path]:
-    """All ``.sig``/``.pat`` files under *dirs*, deduped by name (first wins).
+    """All ``.sig``/``.pat`` files under *dirs*, deduped by stem (first wins).
 
     Recursive: rebrew-flirt-sigs groups signatures by compiler family
     (``sigs/<family>/<toolchain>/``) and mirrors public collections under
     ``sigs/harvested/``.  A flat project ``flirt_sigs/`` keeps working.
+
+    Deduping by stem (not filename) means a compiled ``.sig`` shadows the
+    ``.pat`` it was built from wherever both ship: they carry the same
+    patterns, but python-flirt parses the binary form ~10,000x faster.  An
+    earlier directory still wins outright, so a project's own sigs override
+    the shared checkout.
     """
     seen: dict[str, Path] = {}
     for d in dirs:
@@ -55,7 +61,7 @@ def _sig_files(dirs: list[Path]) -> list[Path]:
             continue
         for suffix in (".sig", ".pat"):
             for p in sorted(d.rglob(f"*{suffix}")):
-                seen.setdefault(p.name, p)
+                seen.setdefault(p.stem, p)
     return list(seen.values())
 
 

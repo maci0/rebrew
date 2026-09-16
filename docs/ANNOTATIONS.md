@@ -487,7 +487,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | W025 | Opening brace style | Opening brace style does not match project configuration (`lint_brace_style` in config) |
 | W026 | Line indent style | Line indent style does not match project configuration (`lint_indent_style` in config) |
 | W027 | Line too long | Line exceeds `lint_max_line_length` characters |
-| W028 | Stale annotation VA | FUNCTION/STUB marker VA has no function in the current `functions.txt` (removed/shifted) or points inside another function's span (moved/merged) — re-annotate or refresh the list; LIBRARY/DATA/GLOBAL markers excluded |
+| W028 | Stale annotation VA | FUNCTION/STUB marker VA has no function in the current discovery inventory (`function_structure.json`, removed/shifted) or points inside another function's span (moved/merged) — re-annotate or refresh with `rebrew discover-functions`; LIBRARY/DATA/GLOBAL markers excluded |
 | W029 | Redundant cflags | Per-function `cflags` in `rebrew-functions.toml` or `compiler.cflags_presets.<MODULE>` that only repeat the inherited value (`resolve_cflags` ladder: function → module preset → project `compiler.cflags`) — flagged by `rebrew lint` (project-level `check_redundant_cflags` moved from `rebrew doctor`). `rebrew lint --fix` drops the redundant field; the fallback chain already supplies the same flags |
 
 #### Data Annotation Warnings

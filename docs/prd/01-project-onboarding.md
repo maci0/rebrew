@@ -49,7 +49,7 @@ Project Onboarding solves all of this with `rebrew init`, `rebrew doctor`, and t
   - The compiler is ready: the profile's docker image is built (execution is
     docker-only for Windows/DOS toolchains) or the native binary is on `PATH`.
   - Include and lib paths exist (docker-backed profiles get them from the image).
-  - The function list (`functions.txt` / Ghidra JSON) is parseable and
+  - The function list (`function_structure.json` / Ghidra JSON) is parseable and
     FUNCTION/STUB annotations are not stale.
   - `reversed_dir` exists, plus metadata TOMLs, FLIRT signatures, and Ghidra
     sync setup.
@@ -75,9 +75,10 @@ Project Onboarding solves all of this with `rebrew init`, `rebrew doctor`, and t
 
 - Creates `rebrew-project.toml` in the current working directory; refuses to run
   when one already exists ("A rebrew-project.toml already exists").
-- Creates `original/`, `src/<target>/`, and `bin/<target>/` subdirectories, an
-  empty `src/<target>/functions.txt`, and `src/rebrew-functions.toml` +
-  `src/rebrew-data.toml` metadata files.
+- Creates `original/`, `src/<target>/`, and `bin/<target>/` subdirectories, and
+  `src/rebrew-functions.toml` + `src/rebrew-data.toml` metadata files.
+  (`function_structure.json` is written later by `rebrew intake` /
+  `discover-functions`; there is no `functions.txt` scaffold.)
 - Writes an `AGENTS.md` from the bundled template so AI agents have project
   context, copies the bundled `agent-skills/` into `.agents/skills/` (with
   `<target>` substituted), and copies `PRINCIPLES.md`.

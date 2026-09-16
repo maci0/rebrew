@@ -443,13 +443,14 @@ def build_candidate_obj_only(
     When *cache* is provided, the raw ``.obj`` bytes are cached on disk
     keyed by ``(source_content, source_filename, cflags, include_dirs,
     toolchain_id, source_ext)``.  On cache hit only the fast LIEF symbol
-    extraction runs, skipping the 200-500 ms Wine/wibo subprocess entirely.
+    extraction runs, skipping the docker/compiler startup entirely.
 
-    Every image-backed profile (all MSVC versions, Watcom, Borland, the
-    16-bit DOS compilers) routes through the shared ``compile_to_obj``
-    runner (docker image — there is no host wine/dosbox fallback) instead
-    of the raw subprocess path.  The raw subprocess path below serves only
-    native Linux compilers without an image (mingw-16.2.0 and friends).
+    Every image-backed profile (all shipped toolchains, including mingw/
+    gcc/clang) routes through the shared ``compile_to_obj`` runner
+    (docker image — there is no host wine/dosbox fallback) instead of the
+    raw subprocess path.  The raw subprocess path below serves only a
+    registered toolchain with no ``image`` (a plugin/overlay native
+    compiler).
     """
     if profile in _DOCKER_BACKED_PROFILES:
         if cfg is None:
@@ -518,7 +519,7 @@ def build_candidate_obj_only(
     # subprocess path must compile with the same flags compile_to_obj
     # applies, or GA/diff results diverge from verify for shared
     # multi-version sources.  (Docker-backed profiles get them inside
-    # compile_to_obj; this path serves native compilers like mingw-16.2.0.)
+    # compile_to_obj; this path serves image-less plugin/overlay natives.)
     for define in getattr(cfg, "defines", None) or []:
         all_flags.append(f"{'-D' if posix_style else '/D'}{define}")
     extra_inc = extra_include_dirs or []

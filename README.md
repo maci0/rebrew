@@ -88,10 +88,11 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 
 ### Agent Skills
 
-Five bundled skills for AI coding agent integration:
+Six bundled skills for AI coding agent integration:
 
 | Skill | Purpose |
 |-------|---------|
+| `rebrew-init` | Scaffold a new project from a bare directory + binary |
 | `rebrew-workflow` | End-to-end reversing workflow and status tracking |
 | `rebrew-matching` | GA matching engine, flag sweeps, diff analysis |
 | `rebrew-data-analysis` | Global data scanning, BSS layout, dispatch tables |
