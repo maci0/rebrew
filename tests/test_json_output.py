@@ -1284,7 +1284,9 @@ class TestSinglePathExitCodes:
         monkeypatch.setattr("rebrew.test.build_name_to_va", lambda cfg: {"_f": 0x1000})
         monkeypatch.setattr("rebrew.test.extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
         monkeypatch.setattr("rebrew.test.parse_source_metadata", lambda *a, **k: {})
-        monkeypatch.setattr("rebrew.cli.resolve_compile_overrides", lambda *a, **k: (None, "/O2"))
+        monkeypatch.setattr(
+            "rebrew.compile_overrides.resolve_compile_overrides", lambda *a, **k: (None, "/O2")
+        )
         monkeypatch.setattr("rebrew.test.compile_and_compare", lambda *a, **k: cmp)
         monkeypatch.setattr(testmod, "_patch_verify_cache", lambda *a, **k: None)
 

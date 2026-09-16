@@ -28,9 +28,9 @@ from rebrew.cli import (
     json_print,
     parse_va,
     require_config,
-    resolve_compile_overrides,
 )
 from rebrew.compile import compile_and_compare
+from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.drift import DerivedRegion, DriftWindow, derive_regions, drift_windows
 from rebrew.sources import target_marker
 

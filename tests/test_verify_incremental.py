@@ -999,7 +999,7 @@ class TestEntryHeadersFp:
 
         raw = json.loads(cache_path.read_text(encoding="utf-8"))
         saved = raw["entries"]["0x10001000"]["headers_fp"]
-        from rebrew.cli import resolve_compile_overrides
+        from rebrew.compile_overrides import resolve_compile_overrides
 
         _tc, _cf = resolve_compile_overrides(cfg, cfg.reversed_dir, "", "", "")
         assert saved == _entry_headers_fp(cfg, src, _cf)

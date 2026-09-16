@@ -256,8 +256,8 @@ def _compile_check(cfg: Any, source_text: str, src_hint: Path) -> str | None:
     """
     import shutil
 
-    from rebrew.cli import resolve_cflags
     from rebrew.compile import compile_to_obj
+    from rebrew.compile_overrides import resolve_cflags
     from rebrew.utils import writable_temp_dir
 
     workdir = writable_temp_dir("rebrew_fixup_")

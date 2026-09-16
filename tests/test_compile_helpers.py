@@ -253,7 +253,7 @@ class TestNativeToolchainId:
 
 class TestInvalidateToolchainDigest:
     def test_pops_one_or_clears_all(self) -> None:
-        from rebrew.compile import (
+        from rebrew.toolchain import (
             _toolchain_digest_cache,
             invalidate_toolchain_digest,
         )

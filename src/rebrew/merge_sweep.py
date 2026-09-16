@@ -42,9 +42,9 @@ from rebrew.cli import (
     error_exit,
     json_print,
     require_config,
-    resolve_compile_overrides,
 )
 from rebrew.coff_reloc import build_name_to_va
+from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.sources import iter_sources, target_marker
 

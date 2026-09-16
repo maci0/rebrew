@@ -282,6 +282,48 @@ def docker_available() -> bool:
 
 _image_presence: dict[str, bool] = {}
 
+#: Cached short docker content ids for compile-cache keys (image tag → digest).
+#: Cleared by :func:`invalidate_toolchain_digest` after a tag swap/rebuild so
+#: objects compiled against the previous image are never served under the new one.
+_toolchain_digest_cache: dict[str, str] = {}
+
+
+def invalidate_toolchain_digest(image: str | None = None) -> None:
+    """Drop cached docker content ids used in compile-cache keys.
+
+    Call after a tag is rebuilt or retagged (``swap_toolchain_image`` /
+    ``pull_toolchain``) so the next compile inspects the live image id
+    instead of serving objects keyed under the pre-swap digest.
+    """
+    if image is None:
+        _toolchain_digest_cache.clear()
+    else:
+        _toolchain_digest_cache.pop(image, None)
+
+
+def cached_image_digest(image: str) -> str:
+    """Short docker content id for *image* (cached per process), or ``""``.
+
+    Used by compile-cache keys.  Falls back to empty when docker is
+    unavailable or inspect fails — the bare image tag remains a usable key.
+    """
+    digest = _toolchain_digest_cache.get(image)
+    if digest is None:
+        digest = ""
+        try:
+            r = subprocess.run(
+                [container_runtime(), "image", "inspect", "--format", "{{.Id}}", image],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                digest = r.stdout.strip().removeprefix("sha256:")[:12]
+        except (OSError, subprocess.TimeoutExpired):
+            digest = ""
+        _toolchain_digest_cache[image] = digest
+    return digest
+
 
 def kill_container(name: str, timeout: int = 30) -> None:
     """Best-effort ``docker kill`` of a timed-out run container.
@@ -366,8 +408,6 @@ def swap_toolchain_image(tag: str, op: Callable[[], None]) -> str:
     # Presence + digest before the swap: callers may have memoized a miss
     # (or an old content id) that must not outlive the tag mutation.
     _image_presence.pop(tag, None)
-    from rebrew.compile import invalidate_toolchain_digest
-
     invalidate_toolchain_digest(tag)
     backup = _image_id(tag)
     try:
@@ -679,8 +719,10 @@ __all__ = [
     "ToolchainError",
     "ToolchainSpec",
     "TOOLCHAINS",
+    "cached_image_digest",
     "docker_available",
     "get_toolchain",
+    "invalidate_toolchain_digest",
     "list_toolchains",
     "pull_toolchain",
     "run_toolchain",

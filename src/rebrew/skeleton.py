@@ -43,8 +43,8 @@ from rebrew.cli import (
     json_print,
     parse_va,
     require_config,
-    resolve_cflags,
 )
+from rebrew.compile_overrides import resolve_cflags
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
 from rebrew.decompiler import fetch_decompilation
 from rebrew.naming import (

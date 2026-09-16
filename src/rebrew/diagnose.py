@@ -15,8 +15,8 @@ declaration references another), so "cycle" failures cannot arise; what the
 paper's model calls a dependency conflict appears here as a declaration
 warning instead.
 
-This mirrors :func:`rebrew.cli.resolve_compile_overrides` step for step via
-its ``_resolve_overrides_steps`` core, so the trace can never drift from
+This mirrors :func:`rebrew.compile_overrides.resolve_compile_overrides` step for step via
+its ``resolve_overrides_steps`` core, so the trace can never drift from
 what verify/test/match/prove actually compile with.
 """
 
@@ -100,12 +100,12 @@ def diagnose_source(cfg: ProjectConfig, source: Path) -> dict[str, Any]:
     Walks every function annotation in *source* (metadata merged), resolves
     each through the shared fallback chain, and validates the declarations.
     A file with no annotations still reports the project-default chain."""
-    from rebrew.cli import _resolve_overrides_steps
+    from rebrew.compile_overrides import resolve_overrides_steps
 
     annos = parse_c_file_multi(source, metadata_dir=cfg.metadata_dir)
     functions: list[dict[str, Any]] = []
     for anno in annos:
-        toolchain, cflags, steps = _resolve_overrides_steps(
+        toolchain, cflags, steps = resolve_overrides_steps(
             cfg,
             source.parent,
             getattr(anno, "toolchain", "") or None,
@@ -126,7 +126,7 @@ def diagnose_source(cfg: ProjectConfig, source: Path) -> dict[str, Any]:
             }
         )
     if not functions:
-        toolchain, cflags, steps = _resolve_overrides_steps(cfg, source.parent, None, None, "")
+        toolchain, cflags, steps = resolve_overrides_steps(cfg, source.parent, None, None, "")
         functions.append(
             {
                 "va": None,

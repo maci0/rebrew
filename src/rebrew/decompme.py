@@ -357,7 +357,7 @@ def main(
         error_exit(str(exc), json_mode=json_output)
     size_val = size or ann_size
 
-    from rebrew.cli import resolve_compile_overrides
+    from rebrew.compile_overrides import resolve_compile_overrides
 
     # Resolve the flags regardless of --compiler: --flags defaults to the
     # function's resolved cflags, and skipping the resolution when the user

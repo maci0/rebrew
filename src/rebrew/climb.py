@@ -46,10 +46,10 @@ from rebrew.cli import (
     json_print,
     parse_va,
     require_config,
-    resolve_compile_overrides,
 )
 from rebrew.coff_reloc import build_name_to_va
 from rebrew.compile import compile_and_compare, matched_byte_count
+from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig
 from rebrew.sources import target_marker
 from rebrew.utils import atomic_write_text, read_source_text

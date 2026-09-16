@@ -201,7 +201,7 @@ def resolve_build_params(
     # from the SELECTED annotation: ``meta`` is the file's FIRST annotation's
     # fields only, so on a multi-function file `--symbol foo` would otherwise
     # compile foo with the first block's flags.
-    from rebrew.cli import resolve_compile_overrides
+    from rebrew.compile_overrides import resolve_compile_overrides
 
     toolchain_meta = (anno.toolchain if anno else "") or meta.get("TOOLCHAIN")
     cflags_meta = (anno.cflags if anno else "") or meta.get("CFLAGS")
@@ -445,7 +445,7 @@ def run_flag_sweep(
     # Same shared override chain as the GA path (docs/TOOLCHAIN.md): a
     # library's own TOOLCHAIN/CFLAGS must drive its sweep, not the project
     # default.
-    from rebrew.cli import resolve_compile_overrides
+    from rebrew.compile_overrides import resolve_compile_overrides
 
     toolchain_name, cflags = resolve_compile_overrides(
         cfg,

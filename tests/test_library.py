@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from rebrew.cli import resolve_compile_overrides
+from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.library import app
 from rebrew.metadata import (
     LIBRARY_METADATA_FILE,

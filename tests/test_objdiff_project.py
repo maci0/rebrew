@@ -203,7 +203,7 @@ class TestObjdiffProject:
 
         monkeypatch.setattr("rebrew.compile.compile_to_obj", _fake_compile)
         monkeypatch.setattr(
-            "rebrew.cli.resolve_compile_overrides", lambda cfg, d, a, b, c: (None, "")
+            "rebrew.compile_overrides.resolve_compile_overrides", lambda cfg, d, a, b, c: (None, "")
         )
         import sys
 
@@ -234,7 +234,7 @@ class TestObjdiffProject:
         base.parent.mkdir(parents=True, exist_ok=True)
         seen: dict[str, str] = {}
         monkeypatch.setattr(
-            "rebrew.cli.resolve_compile_overrides",
+            "rebrew.compile_overrides.resolve_compile_overrides",
             lambda cfg_, d, tool, cfl, mod: (
                 seen.update(tool=tool, cflags=cfl, module=mod),
                 ("msvc-5.0", "/O1"),

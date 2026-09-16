@@ -168,7 +168,7 @@ def _collect_splice_set(
             # nearest rebrew-libraries.toml → module cflags preset → project
             # cflags → "/O2 /Gd" (the manual chain here skipped the preset and
             # the default, so round-trip compiled different bytes than verify).
-            from rebrew.cli import resolve_compile_overrides
+            from rebrew.compile_overrides import resolve_compile_overrides
 
             toolchain, resolved_cflags = resolve_compile_overrides(
                 cfg,

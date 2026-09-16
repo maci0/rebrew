@@ -590,7 +590,7 @@ def _source_flags(cfg_src: ProjectConfig, src_path: Path) -> str:
     source built at ``/O1`` would not compare under the destination's ``/O2``.
     """
     from rebrew.annotation import parse_c_file_multi
-    from rebrew.cli import resolve_cflags
+    from rebrew.compile_overrides import resolve_cflags
 
     try:
         anns = parse_c_file_multi(

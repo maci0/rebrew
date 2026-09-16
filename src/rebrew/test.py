@@ -844,7 +844,7 @@ def _run_test_impl(
         except ValueError:
             error_exit(f"Invalid SIZE metadata: {meta['SIZE']!r}", json_mode=json_output)
 
-    from rebrew.cli import resolve_compile_overrides
+    from rebrew.compile_overrides import resolve_compile_overrides
 
     _mod = (sel_ann or lint_annos[0]).module if lint_annos else ""
     # Shared fallback chain (per-function metadata → per-library
@@ -1227,7 +1227,7 @@ def _test_multi(
     # and the single-function path do; an explicit --toolchain / --cflags
     # wins over the annotation value.
     def _effective_overrides(ann: Annotation) -> tuple[str | None, str]:
-        from rebrew.cli import resolve_compile_overrides
+        from rebrew.compile_overrides import resolve_compile_overrides
 
         return resolve_compile_overrides(
             cfg,
