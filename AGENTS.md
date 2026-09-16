@@ -4,7 +4,7 @@
 
 **Rebrew** is a compiler-in-the-loop decompilation workbench for binary-matching game reversing. Python package (`src/rebrew/`) with CLI tools to compile, compare, and match C source against target binary functions.
 
-Install editable (`uv pip install -e .`) inside a workspace containing binaries, sources, and toolchains. Optional: `uv sync --all-extras --group similarity` (dev + `resembl` scoring; needs sibling `../resembl`).
+Install editable (`uv pip install -e .`) inside a workspace containing binaries, sources, and toolchains. Contributor/dev install: `make setup` (or `uv sync --frozen --all-extras --group similarity`) — needs sibling `../resembl` at the `RESEMBL_REF` pin (see `Makefile` / CI) and **nasm** on `PATH` for the test suite. `make help` lists targets.
 
 ## Compiler Profiles
 
@@ -32,10 +32,11 @@ Docker build source lives in the sibling **rebrew-toolchains** checkout (`REBREW
 ## Build & Test Commands
 
 ```bash
-uv pip install -e .
-uv sync --all-extras --group similarity   # optional: prove/binsync extras + resembl
+make setup                                # frozen sync + pre-commit; checks ../resembl
+make test-one T=tests/test_annotation.py  # single-file edit-test loop
+# or: uv sync --frozen --all-extras --group similarity
 
-uv run pytest tests/ -v                   # ~6400 tests
+uv run pytest tests/ -v                   # ~6700 tests (needs nasm)
 uv run pytest tests/ -q -p no:cacheprovider
 uv run pytest tests/test_annotation.py -v
 uv run pytest tests/test_annotation.py -k "test_defaults" -v
@@ -46,6 +47,7 @@ uv run ruff check --fix src/
 uv run ruff format src/
 
 uv run pre-commit run --all-files         # see .pre-commit-config.yaml
+make all                                  # local mirror of CI lint + test gates
 uv run python -m slipcover --fail-under 80 -m pytest
 ```
 

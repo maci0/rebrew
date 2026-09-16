@@ -93,8 +93,14 @@ see [`AGENTS.md`](../AGENTS.md); for the CLI surface see [`CLI.md`](CLI.md).
 
 ## Validation commands
 
+System deps for a green local suite: **nasm** on `PATH` (asm round-trip tests;
+CI installs it).  Bootstrap also needs sibling `../resembl` at tag `v2.0.0` —
+`make setup` checks for it and prints the clone line if missing.  `make help`
+lists every contributor target.
+
 ```bash
 make setup                              # frozen lock + pre-commit install
+make test-one T=tests/test_annotation.py  # single file / pytest nodeid
 uv run pytest tests/ -q                 # full suite
 uv run ruff check src/ tests/ tools/    # lint
 uv run ruff format --check src/ tests/ tools/
@@ -102,6 +108,7 @@ uv run mypy                             # type check (0 issues expected; strict,
                                         # covers src/rebrew + tools)
 uv run pre-commit run --all-files       # 13 of 15 hooks — pytest (pre-push) and
                                         # validate-skill-commands (manual) are stage-gated
+make all                                # local mirror of CI lint + test gates
 make build                              # sdist+wheel (deterministic wheels)
 uv run python -m slipcover -m pytest tests/ -q   # coverage (summary line)
 ```

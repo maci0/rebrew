@@ -15,12 +15,32 @@ pinned docker image).
   read this first to see how the pieces fit together.
 - **`docs/CLI.md`** — the full CLI surface.
 
+## Bootstrap (clean clone)
+
+Needs **uv**, **Python 3.13+** (see `.python-version`), and **nasm** on `PATH`
+(CI installs nasm for asm round-trip tests).  `uv sync` also needs the sibling
+[`resembl`](https://github.com/maci0/resembl) checkout at `../resembl` — the
+path pin in `pyproject.toml` / `uv.lock` (tag `v2.0.0`, same as CI
+`RESEMBL_REF`).  Without it, sync fails with a cryptic “Distribution not found”
+path error; `make setup` names the clone command instead.
+
+```bash
+# from the directory that will hold both checkouts:
+git clone https://github.com/maci0/rebrew.git
+git clone --depth 1 --branch v2.0.0 https://github.com/maci0/resembl.git
+cd rebrew
+make setup                    # uv sync --frozen --all-extras --group similarity + pre-commit install
+make test-one T=tests/test_annotation.py   # smoke the edit-test loop
+```
+
 ## Quick commands
 
 ```bash
-make setup                    # uv sync --frozen --all-extras --group similarity + pre-commit install
-# or: uv sync --frozen --all-extras --group similarity
-uv run pytest tests/ -q       # full suite (~3000 tests)
+make help                     # list contributor make targets
+make setup                    # frozen sync + pre-commit install (checks ../resembl first)
+make test-one T=tests/foo.py  # single file / nodeid (fast edit-test loop)
+make test                     # full suite (~6700 tests; needs nasm)
+make all                      # local mirror of CI lint+test gates (ruff/mypy/audit/pytest/fixtures)
 uv run ruff check src/ tests/ tools/
 uv run mypy
 uv run pre-commit run --all-files

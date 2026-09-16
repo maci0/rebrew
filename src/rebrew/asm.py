@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import logging
 import re
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -1380,6 +1381,8 @@ def _run_nasm(source: str, *, tmpdir: Path | None = None) -> bytes | None:
 
 def verify_roundtrip(nasm_source: str, original_bytes: bytes) -> tuple[bool, str]:
     """Assemble NASM source and verify it matches original bytes exactly."""
+    if shutil.which("nasm") is None:
+        return False, "nasm not on PATH (install nasm; required for round-trip verification)"
     result = _run_nasm(nasm_source)
     if result is None:
         return False, "NASM assembly failed"
