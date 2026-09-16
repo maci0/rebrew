@@ -270,14 +270,57 @@ def load_signatures_for(dirs: list[Path], arch: str = "") -> list[Any]:
     return _parse_sig_files(files)
 
 
-def find_func_size(code_data: bytes, offset: int) -> int:
-    """Estimate function size by disassembling to the first return.
+def _capstone_for_arch(arch: str) -> tuple[int, int]:
+    """Capstone ``(cs_arch, mode)`` for a rebrew arch string.
+
+    ``x86_16`` is decoded as 16-bit — the 32-bit default mis-sizes every Win16
+    or DOS function.
+    """
+    import capstone
+
+    table: dict[str, tuple[int, int]] = {
+        "x86_16": (capstone.CS_ARCH_X86, capstone.CS_MODE_16),
+        "x86_32": (capstone.CS_ARCH_X86, capstone.CS_MODE_32),
+        "x86_64": (capstone.CS_ARCH_X86, capstone.CS_MODE_64),
+        "arm32": (capstone.CS_ARCH_ARM, capstone.CS_MODE_ARM),
+        "arm64": (capstone.CS_ARCH_ARM64, capstone.CS_MODE_ARM),
+        "mips32": (capstone.CS_ARCH_MIPS, capstone.CS_MODE_MIPS32 | capstone.CS_MODE_BIG_ENDIAN),
+        "mips64": (capstone.CS_ARCH_MIPS, capstone.CS_MODE_MIPS64 | capstone.CS_MODE_BIG_ENDIAN),
+        "ppc32": (capstone.CS_ARCH_PPC, capstone.CS_MODE_32),
+        "ppc64": (capstone.CS_ARCH_PPC, capstone.CS_MODE_64),
+        "sh2": (capstone.CS_ARCH_SH, capstone.CS_MODE_SH2),
+    }
+    return table.get(arch, (capstone.CS_ARCH_X86, capstone.CS_MODE_32))
+
+
+#: Probe stride per arch: RISC functions start on an instruction boundary
+#: (4 bytes; SH2 instructions are 2), so a 16-byte stride would miss most of
+#: them.  x86 keeps the historical 16.
+_ARCH_STRIDE: dict[str, int] = {
+    "mips32": 4,
+    "mips64": 4,
+    "arm32": 4,
+    "arm64": 4,
+    "ppc32": 4,
+    "ppc64": 4,
+    "sh2": 2,
+}
+
+
+def arch_stride(arch: str) -> int:
+    """Probe stride for *arch* (``_FUNC_ALIGNMENT`` when unknown)."""
+    return _ARCH_STRIDE.get(arch, _FUNC_ALIGNMENT)
+
+
+def find_func_size(code_data: bytes, offset: int, arch: str = "x86_32") -> int:
+    """Estimate function size by disassembling to the arch's terminator.
 
     Capstone decodes from *offset* so a ``0xC3``/``0xC2`` byte that is an
     opcode operand or ModRM (not a real ``ret``) never ends the function
     early; ``int3`` padding and unknown bytes end the scan without
-    contributing.  Falls back to the old byte window when capstone is
-    unavailable.
+    contributing.  RISC terminators are architecture-specific (``jr $ra`` with
+    its delay slot, ``bx lr``, ``blr``, ``rts``).  Falls back to the old byte
+    window when capstone is unavailable.
     """
     if offset < 0:
         offset = 0
@@ -288,7 +331,8 @@ def find_func_size(code_data: bytes, offset: int) -> int:
     try:
         import capstone
 
-        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        cs_arch, mode = _capstone_for_arch(arch)
+        md: Any = capstone.Cs(cs_arch, mode)
         # skipdata=True makes an undecodable byte emit a `.byte` pseudo-insn
         # (the default skipdata_mnem).  With skipdata=False capstone simply
         # STOPS at that byte, so the loop ended without a terminator and the
@@ -300,12 +344,37 @@ def find_func_size(code_data: bytes, offset: int) -> int:
     if md is not None:
         for insn in md.disasm(code_data[offset:scan_end], offset):
             mnemonic = str(insn.mnemonic)
-            if mnemonic.startswith("ret"):
-                return int(insn.address) - offset + int(insn.size)
-            if mnemonic in ("int3", "hlt", "ud2"):
-                return int(insn.address) - offset
-            if mnemonic == ".byte":
-                return int(insn.address) - offset
+            operands = str(insn.op_str)
+            done = int(insn.address) - offset + int(insn.size)
+            if arch.startswith("mips"):
+                # Return jumps carry a delay slot that belongs to the function.
+                if mnemonic == "jr" and "$ra" in operands:
+                    return min(done + 4, max_scan)
+                if mnemonic in ("j", "jr"):
+                    return min(done + 4, max_scan)
+            elif arch == "arm32":
+                if mnemonic == "pop" and "pc" in operands:
+                    return done
+                if mnemonic == "bx" and "lr" in operands:
+                    return done
+                if mnemonic == "b":
+                    return done
+            elif arch == "arm64":
+                if mnemonic == "ret":
+                    return done
+            elif arch.startswith("ppc"):
+                if mnemonic in ("blr", "bctr"):
+                    return done
+            elif arch == "sh2":
+                if mnemonic == "rts":
+                    return min(done + 2, max_scan)
+            else:  # x86
+                if mnemonic.startswith("ret"):
+                    return done
+                if mnemonic in ("int3", "hlt", "ud2"):
+                    return int(insn.address) - offset
+                if mnemonic == ".byte":
+                    return int(insn.address) - offset
         return max_scan
     for i in range(offset, scan_end):
         b = code_data[i]
@@ -330,7 +399,8 @@ def match_text(
     code_data: bytes,
     base_va: int,
     *,
-    stride: int = _FUNC_ALIGNMENT,
+    stride: int | None = None,
+    arch: str = "x86_32",
     max_ambiguous: int = _MAX_AMBIGUOUS,
 ) -> list[dict[str, Any]]:
     """Scan *code_data* with a compiled FLIRT *matcher*.
@@ -340,7 +410,12 @@ def match_text(
     *max_ambiguous* candidate names at one offset) are skipped so library
     identification never guesses.  Shared by ``rebrew flirt``, ``rebrew
     analyze``, and ``rebrew identify-library``.
+
+    *stride* defaults to the probe stride for *arch* (4 bytes for RISC, 16 for
+    x86); function sizes are decoded with the same architecture.
     """
+    if stride is None:
+        stride = arch_stride(arch)
     matches: list[dict[str, Any]] = []
     seen_vas: set[int] = set()
     for offset in iter_match_offsets(len(code_data), stride=stride, min_window=_MIN_MATCH_WINDOW):
@@ -361,7 +436,9 @@ def match_text(
         if va in seen_vas:
             continue  # overlapping stride windows can report the same VA
         seen_vas.add(va)
-        matches.append({"va": va, "size": find_func_size(code_data, offset), "name": names[0]})
+        matches.append(
+            {"va": va, "size": find_func_size(code_data, offset, arch), "name": names[0]}
+        )
     return matches
 
 
@@ -453,10 +530,17 @@ def main(
 
     # 3. Extract function bytes from the binary
 
-    # Find the text section (PE: .text, Mach-O: __text)
+    # Find the code section: PE/ELF/Mach-O name it .text/__text, but a 16-bit
+    # NE or MZ image has only numbered segments, and the largest one holds the
+    # code in practice (SEG1 of a NE executable; the MZ loader emits a single
+    # pseudo code section).
     text_name = ".text" if ".text" in info.sections else "__text"
     if text_name not in info.sections:
-        error_exit("Could not find .text section", json_mode=json_output)
+        if getattr(info, "arch", "") == "x86_16" and info.sections:
+            text_name = max(info.sections, key=lambda n: info.sections[n].raw_size)
+            console.print(f"16-bit image: scanning largest segment {text_name}")
+        else:
+            error_exit("Could not find .text section", json_mode=json_output)
 
     text_sec = info.sections[text_name]
     end = min(text_sec.file_offset + text_sec.raw_size, len(info.data))
@@ -473,7 +557,7 @@ def main(
     skipped = 0
     matches_list: list[dict[str, Any]] = []
     ambiguous_list: list[dict[str, Any]] = []
-    stride = _FUNC_ALIGNMENT
+    stride = arch_stride(arch)
     max_ambiguous = _MAX_AMBIGUOUS
 
     # Guard: FLIRT signatures need at least _MIN_MATCH_WINDOW bytes to match.
@@ -513,7 +597,7 @@ def main(
             # size, so the size gate below does not apply here.
             skipped += 1
             if show_ambiguous:
-                func_size = find_func_size(code_data, offset)
+                func_size = find_func_size(code_data, offset, arch)
                 ambiguous_list.append(
                     {
                         "va": f"0x{va:08x}",
@@ -528,7 +612,7 @@ def main(
                         shown += ", ..."
                     console.print(f"[dim]~ 0x{va:08x} ({func_size:4d}B): ambiguous: {shown}[/dim]")
             return
-        func_size = find_func_size(code_data, offset)
+        func_size = find_func_size(code_data, offset, arch)
         if not force and func_size < min_size:
             return
         if json_output:
