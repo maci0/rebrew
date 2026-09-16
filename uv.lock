@@ -1618,17 +1618,10 @@ dependencies = [
 binsync = [
     { name = "declib" },
 ]
-m2c = [
-    { name = "m2c" },
-]
 prove = [
     { name = "angr" },
     { name = "claripy" },
     { name = "gitpython" },
-]
-similarity = [
-    { name = "rapidfuzz" },
-    { name = "resembl" },
 ]
 
 [package.dev-dependencies]
@@ -1640,6 +1633,13 @@ dev = [
     { name = "ruff" },
     { name = "skills-ref" },
     { name = "slipcover" },
+]
+m2c = [
+    { name = "m2c" },
+]
+similarity = [
+    { name = "rapidfuzz" },
+    { name = "resembl" },
 ]
 
 [package.metadata]
@@ -1654,11 +1654,8 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28" },
     { name = "idna", specifier = ">=3.19" },
     { name = "lief", specifier = ">=1.0.0" },
-    { name = "m2c", marker = "extra == 'm2c'", git = "https://github.com/matt-kempster/m2c.git" },
     { name = "numpy", specifier = ">=2.5.3" },
     { name = "python-flirt", specifier = ">=0.10.0" },
-    { name = "rapidfuzz", marker = "extra == 'similarity'", specifier = ">=3.13" },
-    { name = "resembl", marker = "extra == 'similarity'", directory = "../resembl" },
     { name = "rich", specifier = ">=15.0" },
     { name = "tomlkit", specifier = ">=0.15.1" },
     { name = "tree-sitter", specifier = ">=0.26.0" },
@@ -1666,7 +1663,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.27.2" },
     { name = "zstandard", specifier = ">=0.22" },
 ]
-provides-extras = ["prove", "similarity", "m2c", "binsync"]
+provides-extras = ["prove", "binsync"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1677,6 +1674,11 @@ dev = [
     { name = "ruff", specifier = ">=0.3" },
     { name = "skills-ref", specifier = ">=0.1.1" },
     { name = "slipcover", specifier = ">=1.0.17" },
+]
+m2c = [{ name = "m2c", git = "https://github.com/matt-kempster/m2c.git" }]
+similarity = [
+    { name = "rapidfuzz", specifier = ">=3.13" },
+    { name = "resembl", directory = "../resembl" },
 ]
 
 [[package]]

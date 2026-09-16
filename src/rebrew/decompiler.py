@@ -616,8 +616,9 @@ def fetch_m2c(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     ``rebrew context`` output as ``--context`` when a ``ctx.c`` exists in the
     project root (run ``rebrew context`` first to populate it).
 
-    Requires the ``m2c`` package — extra ``pip install 'rebrew[m2c]'`` (the
-    real decompiler is installed from git, not PyPI).  Returns ``None`` when
+    Requires the ``m2c`` package — install with ``uv sync --group m2c`` or
+    ``uv pip install "m2c @ git+https://github.com/matt-kempster/m2c.git"``
+    (the real decompiler is not on PyPI under this name).  Returns ``None`` when
     m2c is unavailable, the arch has no m2c target (x86), the function does
     not cleanly disassemble, or m2c fails.  PPC currently also returns
     ``None``: capstone 5 ships no working PPC engine, so there is no

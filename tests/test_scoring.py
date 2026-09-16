@@ -616,8 +616,8 @@ class TestScoreFastPaths:
 class TestCodeSimilarity:
     """code_similarity delegates to refinements of the `resembl` scoring core.
 
-    Skipped when the optional ``resembl`` dependency (the ``[similarity]``
-    extra) is not installed — plain rebrew installs must stay green.
+    Skipped when the optional ``resembl`` dependency (the ``similarity``
+    dependency group) is not installed — plain rebrew installs must stay green.
     """
 
     # mov eax,[ebp+8]; add eax,1 (the base function under test).

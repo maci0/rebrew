@@ -50,7 +50,7 @@ MSVC static CRT, `/MT /O2 /Gd`) fill missing fields via presets.  See
 ```bash
 # Install (editable)
 uv pip install -e .
-uv sync --all-extras            # with dev deps
+uv sync --all-extras --group similarity  # with dev deps + resembl scoring
 
 # Run all tests (~6000)
 uv run pytest tests/ -v
@@ -86,7 +86,7 @@ No conftest.py — tests use `tmp_path` + inline helpers.
 
 ### Formatting & Linting (ruff)
 
-- **Python 3.12+**
+- **Python 3.13+**
 - **100-char lines** (E501 ignored)
 - **4-space indent**
 - Ruff rules: `["E", "F", "W", "I", "UP", "B", "SIM"]`

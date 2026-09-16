@@ -31,9 +31,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-      - name: Check out sibling resembl (path dependency of the `similarity` extra)
+      - name: Check out sibling resembl (path dependency of the `similarity` group)
         # [tool.uv.sources] resolves `resembl` from ../resembl, so every uv
-        # command needs the sibling present even when the extra is not
+        # command needs the sibling present even when the group is not
         # installed.  actions/checkout refuses to write outside the workspace,
         # and the lock pins the sibling at 1.0.0, so clone that tag into the
         # parent directory — the same layout a developer's checkout has.
@@ -47,7 +47,9 @@ jobs:
         # --all-extras matters for mypy: prove.py's angr/SimProcedure stubs
         # only type-check correctly with angr installed (otherwise mypy
         # reports phantom unused-ignore / Any-subclass errors).
-        run: uv sync --frozen --all-extras
+        # --group similarity installs the sibling resembl path dep (not a
+        # PyPI extra — see pyproject.toml [dependency-groups]).
+        run: uv sync --frozen --all-extras --group similarity
       - name: Ruff lint
         run: uv run ruff check src/ tests/ tools/
       - name: Ruff format check
@@ -73,7 +75,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-      - name: Check out sibling resembl (path dependency of the `similarity` extra)
+      - name: Check out sibling resembl (path dependency of the `similarity` group)
         # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
         run: git clone --depth 1 --branch v1.0.0 https://github.com/maci0/resembl.git ../resembl
       - name: Set up uv
@@ -83,7 +85,7 @@ jobs:
           enable-cache: true
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
-        run: uv sync --frozen --all-extras
+        run: uv sync --frozen --all-extras --group similarity
       - name: Install nasm (NASM round-trip verification in asm tests)
         run: sudo apt-get update && sudo apt-get install -y nasm
       - name: Run tests
@@ -102,7 +104,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-      - name: Check out sibling resembl (path dependency of the `similarity` extra)
+      - name: Check out sibling resembl (path dependency of the `similarity` group)
         # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
         run: git clone --depth 1 --branch v1.0.0 https://github.com/maci0/resembl.git ../resembl
       - name: Set up uv
@@ -111,7 +113,7 @@ jobs:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
       - name: Install dependencies
-        run: uv sync --frozen --all-extras
+        run: uv sync --frozen --all-extras --group similarity
       - name: Run pre-commit hooks
         run: uv run pre-commit run --all-files
 
@@ -185,7 +187,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
-      - name: Check out sibling resembl (path dependency of the `similarity` extra)
+      - name: Check out sibling resembl (path dependency of the `similarity` group)
         # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
         run: git clone --depth 1 --branch v1.0.0 https://github.com/maci0/resembl.git ../resembl
       - name: Set up uv

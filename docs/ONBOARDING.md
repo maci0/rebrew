@@ -10,7 +10,7 @@ see [TOOLCHAIN.md](TOOLCHAIN.md).
 
 | Tool | Needed for | Install |
 |------|-----------|---------|
-| Python 3.12+ + `uv` | running rebrew | `pip install uv` / your distro |
+| Python 3.13+ + `uv` | running rebrew | `pip install uv` / your distro |
 | rebrew itself | everything | `uv pip install -e .` in this checkout |
 | **docker** | every compiler (MSVC, Borland, Watcom, Turbo C, Delphi, GCC, Clang, MinGW) — execution is docker-only; the image wraps wine/DOSBox or holds the native compiler | your distro's `docker` |
 | **rizin** (`rz`/`rizin`) | packaged function discoverer (`rebrew.discoverers`; alternatives plug in without host edits) | `apt install rizin` / [rizin.re](https://rizin.re) |

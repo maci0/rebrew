@@ -49,11 +49,11 @@ flowchart TB
     RT -->|"build.sh / rebrew toolchain build"| IMG
     RB -->|"reads Dockerfiles via<br/>REBREW_TOOLCHAINS_DIR"| RT
     RB -->|"docker run"| IMG
-    RB -->|"similarity extra:<br/>resembl/scoring.py"| RES
+    RB -->|"similarity group:<br/>resembl/scoring.py"| RES
     RB -->|"rebrew catalog + rebrew build-db"| RECOV
     RB -->|"rebrew CLI: analyze · asm · decompile ·<br/>fingerprints · crypto-scan · xrefs"| REPORTAL
     RECOV -.->|"coverage.db format"| REPORTAL
-    RES -.->|"scoring core (similarity extra)"| REPORTAL
+    RES -.->|"scoring core (similarity group)"| REPORTAL
     RB -.->|"operates on"| PRJ
     REAGENT -->|"direct rebrew.* imports"| RB
     RC -->|"path dep: rebrew.toolchain catalog"| RB
@@ -112,8 +112,8 @@ weighted shingling, MinHash + banded LSH index, and a hybrid
 Jaccard + Levenshtein (rapidfuzz) score, plus CFG similarity in `compare`.
 Backends: SQLite (default), PostgreSQL, MySQL, DuckDB.
 
-Integration with rebrew is at the package level: the `similarity` extra
-path-pins the sibling `resembl` checkout, and rebrew reuses
+Integration with rebrew is at the package level: the `similarity` dependency
+group path-pins the sibling `resembl` checkout, and rebrew reuses
 `resembl/scoring.py` (importable without resembl's DB stack) for the
 `verify_results.similarity` column — the structural score verify reports for
 unmatched functions. resembl itself has no rebrew dependency and keeps its
@@ -155,7 +155,7 @@ recovered-struct, and crypto scans, and serves the generated report site.
 Backing engines: `rebrew` is invoked through its CLI (`analyze`, `asm`,
 `decompile`, `imports`, `strings`, `xrefs`, `fingerprints`, `crypto-scan`,
 `recover-structs`, `report`), and `resembl`'s scoring core supplies the
-matching similarity (the optional `similarity` extra). The contract is
+matching similarity (the optional `similarity` dependency group). The contract is
 rebrew's `db/coverage.db` plus its project directories; reportal imports
 nothing from rebrew at runtime and runs offline. The hosted AI surfaces
 (embedding matching, AI decompilation prose, the security and LM agents,

@@ -7,5 +7,8 @@ prune tests
 prune docs
 prune tools
 prune toolchain-images
+prune .agents
+prune .github
+prune .scratch
 global-exclude *.py[cod]
 global-exclude __pycache__

@@ -1111,7 +1111,7 @@ def code_similarity(
     except ImportError as exc:
         raise RuntimeError(
             "code_similarity requires the optional 'resembl' dependency "
-            "(uv pip install -e .[similarity])"
+            "(uv sync --group similarity; needs ../resembl checked out)"
         ) from exc
 
     md = _get_cs(cs_arch, cs_mode)

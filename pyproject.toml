@@ -17,7 +17,7 @@ authors = [
 ]
 requires-python = ">=3.13"
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
@@ -41,39 +41,14 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Only PyPI-installable extras belong here — their Requires-Dist lines ship in
+# the wheel METADATA.  Path/git-only deps (similarity, m2c) live under
+# [dependency-groups] so a `pip install rebrew[...]` / PyPI upload cannot
+# resolve the wrong package or reject a direct URL.
 prove = [
     "angr>=9.2",
     "claripy",  # direct import in prove.py / doctor.py (angr hard-depends on it, but the extra must declare its own imports)
     "gitpython>=3.1.58",  # angr→gitpython transitively; 3.1.58 fixes the RCE-class advisories
-]
-# Optional code-similarity scoring (rebrew verify "Sim %"): the similarity
-# score reuses the sibling `resembl` project's dependency-light scoring core
-# (resembl/scoring.py — importable without its sqlmodel/sqlalchemy DB stack).
-# resembl pulls pygments/rapidfuzz/datasketch/numpy transitively.  Plain
-# `uv pip install -e .` keeps working (the column stays NULL); install this
-# extra to enable the score.  Path is relative to this checkout: it resolves
-# against the conventional sibling layout (same parent dir as rebrew, like
-# the rebrew-toolchains checkout).
-# UV-ONLY: [tool.uv.sources] below pins `resembl` to the sibling path, but a
-# non-uv `pip install ".[similarity]"` would resolve the bare name from PyPI,
-# which this project does not own — pip users must install ../resembl by hand.
-similarity = [
-    # Pinned to the sibling checkout via [tool.uv.sources] (path dep).  The
-    # bare name is uv-only by construction: uv resolves it from ../resembl
-    # and never touches PyPI, but a non-uv `pip install ".[similarity]"`
-    # would resolve the bare name from PyPI (a different project) — pip
-    # users must install ../resembl by hand. There is no version to pin:
-    # the path dep has no PyPI release to confuse with, and the sibling
-    # checkout is the single source of truth.
-    "resembl",
-    "rapidfuzz>=3.13",  # direct import in matcher/scoring.py code_similarity (resembl only declares it transitively)
-]
-# m2c decompiler backend (decompiler.py fetch_m2c): decompiles MIPS/PPC/ARM/SH
-# assembly into C that byte-matches the original compiler (IDO/MWCC).  The
-# real decompiler is NOT on PyPI (the `m2c` name there is an unrelated
-# OpenAPI package) — it installs from git per the upstream README.
-m2c = [
-    "m2c @ git+https://github.com/matt-kempster/m2c.git",
 ]
 # BinSync state I/O: declib is BinSync's artifact layer.  rebrew.binsync.serial
 # is the single module that touches it; the CLIs raise a clear install error
@@ -196,7 +171,7 @@ fail_under = 80
 # Or for JSON output: uv run python -m slipcover --json cov.json -m pytest
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py313"
 line-length = 100
 
 [tool.ruff.lint]
@@ -211,7 +186,7 @@ ignore = ["E501", "B008", "B904"]
 package = true
 
 [tool.uv.sources]
-# Sibling-checkout path dep (see the `similarity` extra above): uv resolves
+# Sibling-checkout path dep (see the `similarity` dependency group): uv resolves
 # `resembl` from ../resembl relative to this pyproject.toml, keeping the
 # manifest free of machine-specific absolute paths.
 resembl = { path = "../resembl" }
@@ -225,6 +200,21 @@ dev = [
     "pre-commit>=4.5.1",
     "hypothesis>=6.165.2",
     "skills-ref>=0.1.1",  # the pre-commit "Validate Agent Skills" hook binary (infra-review F6)
+]
+# Optional code-similarity scoring (rebrew verify "Sim %"): sibling `resembl`
+# scoring core + rapidfuzz.  Path-pinned via [tool.uv.sources] — never an
+# extra, so wheel METADATA cannot point pip at the unrelated PyPI `resembl`.
+# Install: `uv sync --group similarity` (needs ../resembl checked out).
+similarity = [
+    "resembl",
+    "rapidfuzz>=3.13",  # direct import in matcher/scoring.py code_similarity
+]
+# m2c decompiler backend (decompiler.py fetch_m2c).  Not on PyPI under this
+# name (the PyPI `m2c` is an unrelated OpenAPI package) — git-only, so it
+# must not appear in optional-dependencies / wheel Requires-Dist.
+# Install: `uv sync --group m2c` or `uv pip install "m2c @ git+https://github.com/matt-kempster/m2c.git"`.
+m2c = [
+    "m2c @ git+https://github.com/matt-kempster/m2c.git",
 ]
 
 [tool.mypy]
@@ -253,6 +243,6 @@ module = [
     "flirt",
     "flirt.*",  # python-flirt ships no type information
     "resembl",
-    "resembl.*",  # sibling-checkout path dep (see `similarity` extra); no stubs
+    "resembl.*",  # sibling-checkout path dep (see `similarity` group); no stubs
 ]
 ignore_missing_imports = true
