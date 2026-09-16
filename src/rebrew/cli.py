@@ -147,7 +147,9 @@ def error_exit(msg: str, *, json_mode: bool = False, code: int = EXIT_ERROR) -> 
     if json_mode:
         print(json.dumps({"error": msg, "code": code}, indent=2))
     else:
-        _err_console.print(f"[red bold]error:[/red bold] {escape(msg)}")
+        # soft_wrap keeps embedded commands/paths contiguous — without it
+        # Rich folds mid-token (e.g. `rebrew catalog …` → `rebrew\ncatalog`).
+        _err_console.print(f"[red bold]error:[/red bold] {escape(msg)}", soft_wrap=True)
     raise typer.Exit(code=code)
 
 

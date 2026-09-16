@@ -617,6 +617,8 @@ def main(
 
         def _retest() -> None:
             # Re-run the full single-function match path; --watch must not nest.
+            # Forward every CLI param — an omitted one leaks as a truthy
+            # OptionInfo on direct main() re-entry (see docs/DEVELOPMENT.md).
             main(
                 seed_c=seed_c,
                 cl=cl,
@@ -633,6 +635,8 @@ def main(
                 flag_sweep_only=flag_sweep_only,
                 tier=tier,
                 flag_sweep_toolchains=flag_sweep_toolchains,
+                sweep_toolchains=sweep_toolchains,
+                sweep_exclude_toolchains=sweep_exclude_toolchains,
                 flag_sweep_then_ga=flag_sweep_then_ga,
                 skip_recent_hours=skip_recent_hours,
                 seed_solutions=seed_solutions,
@@ -643,6 +647,7 @@ def main(
                 seed=seed,
                 extra_seed=extra_seed,
                 no_seed=no_seed,
+                mutation_focus=mutation_focus,
                 generations=generations,
                 pop_size=pop_size,
                 jobs=jobs,

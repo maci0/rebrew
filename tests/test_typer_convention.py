@@ -89,7 +89,17 @@ class TestConventionEnforced:
 
         result = CliRunner().invoke(match.app, ["--watch", "/tmp/f.c"])
         assert result.exit_code in (0, 1), result.output
-        for key in ("flag_sweep_toolchains", "flag_sweep_then_ga", "skip_recent_hours"):
+        for key in (
+            "flag_sweep_toolchains",
+            "flag_sweep_then_ga",
+            "skip_recent_hours",
+            "mutation_focus",
+            "sweep_toolchains",
+            "sweep_exclude_toolchains",
+        ):
             assert key in captured, f"_retest did not forward {key} (OptionInfo leak)"
         assert captured["flag_sweep_toolchains"] is False
+        assert captured["mutation_focus"] is None
+        assert captured["sweep_toolchains"] == ""
+        assert captured["sweep_exclude_toolchains"] == ""
         assert captured["watch"] is False
