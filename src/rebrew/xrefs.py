@@ -257,8 +257,8 @@ def main(
             table.add_column("count", justify="right")
             for row in payload["callees"]:
                 table.add_row(str(row["name"]), str(row["count"]))
-            Console().print(table)
-            Console().print(f"total calls: {payload['total_calls']}")
+            console.print(table)
+            console.print(f"total calls: {payload['total_calls']}")
         return
 
     try:

@@ -210,7 +210,7 @@ def list_skills(
     for s in skills:
         name = f"{s['name']} [dim](user)[/dim]" if s["origin"] == "user" else s["name"]
         table.add_row(name, s["first_line"] or s["description"][:80])
-    _stdout_console.print(table)
+    console.print(table)
 
 
 @app.command("show")

@@ -108,6 +108,7 @@ _JSON_COMMANDS: list[tuple[str, set[int]]] = [
     ("skills list --json", {0}),
     ("security-scan --json", {0}),
     ("recover-structs --json", {0, 2}),
+    ("drift --json src/SERVER/fcn.c", {0, 2}),
 ]
 
 _PROJECT_TOML = """\

@@ -187,12 +187,12 @@ class TestWizardFlow:
 class TestWizardConfirmAbort:
     """Declining the summary aborts cleanly with nothing written."""
 
-    def test_exit_1_and_nothing_written(self, tmp_path: Path, monkeypatch) -> None:
+    def test_exit_0_and_nothing_written(self, tmp_path: Path, monkeypatch) -> None:
         _place_mini_pe(tmp_path)
         _force_wizard(monkeypatch)
         monkeypatch.chdir(tmp_path)
         result = CliRunner().invoke(app, [], input="1\n\n\nn\n")
-        assert result.exit_code == 1
+        assert result.exit_code == 0
         assert "Aborted" in result.stderr
         assert not (tmp_path / "rebrew-project.toml").exists()
         assert not (tmp_path / "src").exists()

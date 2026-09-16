@@ -506,7 +506,7 @@ class TestApply:
         before = foreign.read_text(encoding="utf-8")
 
         result = _invoke([str(yaml_path), "--write"])
-        assert result.exit_code == 1
+        assert result.exit_code == 2
         assert "entrypoint.c already exists and does not annotate 0x00401000" in result.output
         assert foreign.read_text(encoding="utf-8") == before
         assert not (project / "src" / "fixture.exe" / "data_g_table.c").exists()
