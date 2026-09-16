@@ -346,7 +346,7 @@ def _collect_flirt(cfg: Any, info: Any) -> dict[str, Any] | None:
     sig_dir = cfg.root / "flirt_sigs" if getattr(cfg, "root", None) else None
     if sig_dir is None or not sig_dir.is_dir():
         return None
-    sig_files = list(sig_dir.glob("*.sig")) + list(sig_dir.glob("*.pat"))
+    sig_files = list(sig_dir.rglob("*.sig")) + list(sig_dir.rglob("*.pat"))
     if not sig_files:
         return None
 
