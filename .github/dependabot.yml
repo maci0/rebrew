@@ -1,7 +1,9 @@
 # Weekly bundled update PRs for the pinned GitHub Actions (checkout,
-# setup-uv, ...).  Python dependencies are intentionally NOT automated:
-# uv.lock is the audited inventory and `uv audit --locked` in CI gates it;
-# bumps land as deliberate `uv lock --upgrade` changes.
+# setup-uv, ...).  Workflows pin Actions by commit SHA; Dependabot refreshes
+# those SHAs (and the trailing version comments).  Python dependencies are
+# intentionally NOT automated: uv.lock is the audited inventory and
+# `uv audit --locked` in CI gates it; bumps land as deliberate
+# `uv lock --upgrade` changes.
 version: 2
 updates:
   - package-ecosystem: github-actions

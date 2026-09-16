@@ -44,6 +44,9 @@
   and warn when `api_key` is committed in TOML; reject stringy
   `recompile_emit_assembly` (``bool("false")`` is True).  Documented
   `REBREW_*` env vars and per-setting precedence in `docs/CONFIG.md`.
+- CI: pin `actions/checkout` and `astral-sh/setup-uv` to commit SHAs, bump
+  `UV_VERSION` to 0.12.14 (match local toolchain), retry flaky `apt-get`
+  when installing nasm, and gate pin drift via `tests/test_ci_pins.py`.
 - CI clones sibling `resembl` at `v2.0.0` (`RESEMBL_REF`) to match `uv.lock`
   (was still cloning `v1.0.0`); toolchain-sync now caches uv and shares the pin.
 - `coverage.db` integrity: `section_cell_stats` now has PRIMARY KEY

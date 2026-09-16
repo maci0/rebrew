@@ -14,7 +14,8 @@ installs the wheel into a clean venv for a smoke import, and a `cli-contract`
 job that greps the high-value `--help` surfaces. The lint job also runs
 `uv audit --locked` (diskcache's unfixed pickle advisory is
 `--ignore-until-fixed` until upstream ships a fix). The uv installer is pinned
-via workflow `UV_VERSION`; Python default comes from `.python-version`.
+via workflow `UV_VERSION` (commit-SHA-pinned `setup-uv` / `checkout` Actions);
+Python default comes from `.python-version`.
 It does **not** require a target binary or MSVC toolchain.
 
 Every job that runs `uv sync` first clones the sibling `resembl` repo
