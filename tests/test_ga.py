@@ -981,7 +981,9 @@ class TestSkipRecent:
         assert "0x10000000" not in vas  # recent -> skipped
         assert "0x10001000" in vas  # old -> kept
 
-    def test_naive_timestamp_does_not_crash(self, tmp_path: Path) -> None:
+    def test_naive_timestamp_treated_as_utc(self, tmp_path: Path) -> None:
+        from datetime import UTC, datetime, timedelta
+
         from rebrew.match_batch import StubInfo
         from rebrew.match_run import _filter_recently_run
 
@@ -999,11 +1001,26 @@ class TestSkipRecent:
         ]
         runs = tmp_path / ".rebrew"
         runs.mkdir(parents=True)
-        # Zone-less timestamp: naive-vs-aware comparison raises TypeError,
-        # which must be tolerated like any other malformed line.
+        # Zone-less timestamps are treated as UTC (writers always emit aware
+        # ISO, but hand-edited / older lines may lack an offset).  A recent
+        # naive stamp must skip the stub; a far-past one must keep it —
+        # never TypeError on naive-vs-aware compare.
+        recent_naive = datetime.now(UTC).replace(tzinfo=None).isoformat(timespec="seconds")
         (runs / "ga_runs.jsonl").write_text(
-            '{"ts": "2026-01-01T00:00:00", "target": "SERVER", '
-            '"va": "0x10001000", "symbol": "_s", "matched": false}\n',
+            f'{{"ts": "{recent_naive}", "target": "SERVER", '
+            f'"va": "0x10001000", "symbol": "_s", "matched": false}}\n',
+            encoding="utf-8",
+        )
+        assert _filter_recently_run(stubs, cfg, hours=2, json_output=True) == []
+
+        old_naive = (
+            (datetime.now(UTC) - timedelta(hours=5))
+            .replace(tzinfo=None)
+            .isoformat(timespec="seconds")
+        )
+        (runs / "ga_runs.jsonl").write_text(
+            f'{{"ts": "{old_naive}", "target": "SERVER", '
+            f'"va": "0x10001000", "symbol": "_s", "matched": false}}\n',
             encoding="utf-8",
         )
         assert _filter_recently_run(stubs, cfg, hours=2, json_output=True) == stubs

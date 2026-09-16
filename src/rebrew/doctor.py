@@ -1435,7 +1435,10 @@ def check_binsync_state(cfg: ProjectConfig) -> CheckResult:
     except (ValueError, OSError, subprocess.TimeoutExpired):
         last = 0
     if last:
-        age_days = (datetime.now(UTC).timestamp() - last) / 86400
+        # Absolute elapsed days (not calendar days): a 14-day threshold must
+        # not shrink/expand across a DST transition on the host.
+        age = datetime.now(UTC) - datetime.fromtimestamp(last, tz=UTC)
+        age_days = age.total_seconds() / 86400
         if age_days > 14:
             return CheckResult(
                 name="BinSync sync",

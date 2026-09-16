@@ -506,7 +506,7 @@ def _run_simulation(
 
     Module-level so tests can patch it with crafted states and exercise the
     real comparison logic (:func:`_compare_state_pairs`).  The ``timed_out``
-    flag is True when the wall-clock budget expired while states were still
+    flag is True when the monotonic budget expired while states were still
     active — callers must treat that as an inconclusive proof (fail closed),
     never as equivalence, because unexplored paths may still differ.
     """
@@ -516,7 +516,8 @@ def _run_simulation(
     sm.use_technique(angr.exploration_techniques.LoopSeer(bound=loop_bound))  # type: ignore[no-untyped-call]
 
     # Step-based timeout — angr's broad except handlers swallow SIGALRM,
-    # so we step manually and check wall-clock time each iteration.
+    # so we step manually and check the monotonic clock each iteration
+    # (wall-clock steps from NTP must not shrink or expand the budget).
 
     deadline = time.monotonic() + timeout
     timed_out = False

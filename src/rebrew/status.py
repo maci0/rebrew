@@ -261,10 +261,13 @@ def _load_verify_info(cfg: ProjectConfig) -> VerifyInfo | None:
         else:
             failed += 1
 
-    # Try to get a last-modified timestamp from the file
+    # Try to get a last-modified timestamp from the file.
+    # Rendered in UTC with an explicit suffix: an unlabeled wall time is
+    # read as local, so a host in America/New_York would mis-age the cache
+    # by several hours relative to the UTC instant we store.
     try:
         mtime = cache_path.stat().st_mtime
-        timestamp = datetime.fromtimestamp(mtime, tz=UTC).strftime("%Y-%m-%d %H:%M")
+        timestamp = datetime.fromtimestamp(mtime, tz=UTC).strftime("%Y-%m-%d %H:%M UTC")
     except OSError:
         timestamp = ""
 
