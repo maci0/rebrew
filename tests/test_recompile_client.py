@@ -10,7 +10,7 @@ import httpx
 import pytest
 
 from rebrew.compile import _compile_via_recompile, recompile_url
-from rebrew.recompile_client import RecompileError, compile_source
+from rebrew.recompile_client import RecompileError, _same_origin_artifact_url, compile_source
 
 
 class _Resp:
@@ -105,6 +105,52 @@ class TestCompileSource:
             compile_source("http://svc", "msvc-6.0", "x", ["/c"] * 65)
         with pytest.raises(RecompileError, match="flag too long"):
             compile_source("http://svc", "msvc-6.0", "x", ["/" + "a" * 300])
+
+    def test_off_origin_artifact_url_is_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        body = {
+            "status": "ok",
+            "artifact_url": "http://169.254.169.254/latest/meta-data/",
+        }
+        client = _patch(monkeypatch, _Resp(200, json_body=body), _Resp(200, content=b"NO"))
+        with pytest.raises(RecompileError, match="same-origin"):
+            compile_source("http://svc", "msvc-6.0", "int f(void){}", ["/c"])
+        assert client.calls == [("post", "http://svc/api/v1/compile")]
+
+    def test_protocol_relative_artifact_url_is_rejected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        body = {"status": "ok", "artifact_url": "//evil.example/steal"}
+        client = _patch(monkeypatch, _Resp(200, json_body=body), _Resp(200, content=b"NO"))
+        with pytest.raises(RecompileError, match="same-origin"):
+            compile_source("http://svc", "msvc-6.0", "int f(void){}", ["/c"])
+        assert client.calls == [("post", "http://svc/api/v1/compile")]
+
+    def test_absolute_same_origin_artifact_url_is_accepted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        body = {
+            "status": "ok",
+            "artifact_url": "http://svc/api/v1/artifacts/x.obj",
+        }
+        client = _patch(monkeypatch, _Resp(200, json_body=body), _Resp(200, content=b"OBJ"))
+        res = compile_source("http://svc", "msvc-6.0", "int f(void){}", ["/c"])
+        assert res.ok and res.obj_bytes == b"OBJ"
+        assert client.calls == [
+            ("post", "http://svc/api/v1/compile"),
+            ("get", "http://svc/api/v1/artifacts/x.obj"),
+        ]
+
+
+class TestSameOriginArtifactUrl:
+    def test_relative_path(self) -> None:
+        assert (
+            _same_origin_artifact_url("http://svc", "/api/v1/artifacts/x.obj")
+            == "http://svc/api/v1/artifacts/x.obj"
+        )
+
+    def test_rejects_cross_host(self) -> None:
+        with pytest.raises(RecompileError, match="same-origin"):
+            _same_origin_artifact_url("http://svc", "https://svc/api/x")
 
 
 class TestRecompileUrl:

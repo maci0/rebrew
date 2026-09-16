@@ -43,6 +43,7 @@ from rich.console import Console
 
 from rebrew.build_db import resolve_db_dir
 from rebrew.cli import error_exit, json_print
+from rebrew.workspace.db import sqlite_ro_uri
 
 console = Console(stderr=True)
 log = logging.getLogger(__name__)
@@ -219,8 +220,11 @@ class Dashboard:
         threaded HTTP server that would leave one GC-dependent connection
         per request; closing here releases the handle deterministically.
         """
-        uri = f"file:{self.db_path.resolve()}?mode=ro"
-        conn = sqlite3.connect(uri, uri=True, timeout=_SQLITE_TIMEOUT_SECONDS)
+        # Percent-encode the path (``sqlite_ro_uri``): a raw ``file:{p}?mode=ro``
+        # truncates or rewrites names that contain ``?`` / ``#`` / ``%``.
+        conn = sqlite3.connect(
+            sqlite_ro_uri(self.db_path), uri=True, timeout=_SQLITE_TIMEOUT_SECONDS
+        )
         try:
             yield conn
         finally:
@@ -573,6 +577,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_response(403)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body_bytes)))
+            self._write_security_headers()
             self.end_headers()
             if method != "HEAD":
                 self.wfile.write(body_bytes)
@@ -601,6 +606,16 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body_bytes)))
+        self._write_security_headers()
+        if status == 405:
+            self.send_header("Allow", "GET, HEAD")
+        self.end_headers()
+        # HEAD: headers only (RFC 9110); body length still advertised.
+        if method != "HEAD":
+            self.wfile.write(body_bytes)
+
+    def _write_security_headers(self) -> None:
+        """Browser hardening shared by every response, including early 403s."""
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         # The app is inline-JS/CSS only and fetches same-origin JSON — this
@@ -611,12 +626,6 @@ class _Handler(BaseHTTPRequestHandler):
             "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
             "connect-src 'self'; img-src 'self'; form-action 'none'; base-uri 'none'",
         )
-        if status == 405:
-            self.send_header("Allow", "GET, HEAD")
-        self.end_headers()
-        # HEAD: headers only (RFC 9110); body length still advertised.
-        if method != "HEAD":
-            self.wfile.write(body_bytes)
 
     def do_GET(self) -> None:  # (http.server API)
         self._respond("GET")

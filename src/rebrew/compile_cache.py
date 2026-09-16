@@ -47,6 +47,7 @@ at key time).
 from __future__ import annotations
 
 import atexit
+import contextlib
 import hashlib
 import logging
 import re
@@ -129,6 +130,11 @@ class CompileCache:
         self._cache: diskcache.Cache | None
         try:
             self._cache = diskcache.Cache(str(cache_dir), size_limit=size_limit)
+            # diskcache stores pickled values: a world-writable cache dir lets
+            # another local user plant a pickle that executes on the next hit.
+            # Tighten the directory (and leave files alone — diskcache owns them).
+            with contextlib.suppress(OSError):
+                Path(cache_dir).chmod(0o700)
         except Exception as exc:  # any store failure must degrade, not raise
             self._cache = None
             _warn_cache_failure(f"open ({cache_dir})", exc)

@@ -328,13 +328,31 @@ class TestHandle:
         """A rogue query cannot mutate the database (mode=ro)."""
         import sqlite3
 
+        from rebrew.workspace.db import sqlite_ro_uri
+
         status, _, _ = dashboard.handle("GET", "/api/targets", {})
         assert status == 200
         # Attempt a write through a fresh ro connection must fail.
         with pytest.raises(sqlite3.OperationalError):
-            conn = sqlite3.connect(f"file:{dashboard.db_path.resolve()}?mode=ro", uri=True)
+            conn = sqlite3.connect(sqlite_ro_uri(dashboard.db_path), uri=True)
             with conn:
                 conn.execute("CREATE TABLE evil (x)")
+
+    def test_reserved_path_chars_open_read_only(self, tmp_path: Path) -> None:
+        """DB filenames with ``?``/``#`` must still open via the percent-encoded URI."""
+        import sqlite3
+
+        weird = tmp_path / "cov erage?#.db"
+        with sqlite3.connect(weird) as conn:
+            conn.execute(
+                "CREATE TABLE functions (target TEXT, va INT, name TEXT, symbol TEXT, "
+                "size INT, status TEXT, module TEXT, files TEXT, markerType TEXT)"
+            )
+            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
+            conn.execute(
+                "INSERT INTO functions VALUES ('t', 1, 'f', 'f', 1, 'STUB', '', '[]', 'FUNC')"
+            )
+        assert Dashboard(weird).targets() == ["t"]
 
 
 class TestCli:
@@ -454,6 +472,10 @@ class TestHostValidation:
         statuses = [v for k, v in sent if k == "status"]
         assert statuses == [403]
         assert b"not allowed" in bytes(written[0])
+        header_names = {k for k, _ in sent if isinstance(k, str)}
+        assert "X-Content-Type-Options" in header_names
+        assert "X-Frame-Options" in header_names
+        assert "Content-Security-Policy" in header_names
 
     def test_handler_unexpected_error_answers_500(self) -> None:
         """An unexpected route error must answer 500 JSON, not reset the connection."""

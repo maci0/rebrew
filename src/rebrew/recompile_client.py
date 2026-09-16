@@ -18,6 +18,7 @@ training.  rebrew passes it through only when the caller asks (the GA's
 from __future__ import annotations
 
 from dataclasses import dataclass
+from urllib.parse import urljoin, urlparse
 
 #: Request cap mirrored from the service (recompile ``_MAX_FLAGS``): longer
 #: flag lists 422 instead of compiling.
@@ -39,6 +40,35 @@ class RecompileResult:
 
 class RecompileError(RuntimeError):
     """The recompile service cannot serve the request (unreachable, 4xx/5xx)."""
+
+
+def _same_origin_artifact_url(base_url: str, artifact_url: str) -> str:
+    """Resolve *artifact_url* against *base_url*, refusing off-origin targets.
+
+    A compromised or malicious recompile service must not be able to redirect
+    the client at an arbitrary URL (SSRF / credentialed-fetch pivot).  Only
+    http(s) URLs whose scheme+netloc match *base_url* are accepted; relative
+    paths (including ``./`` forms) are joined onto the base.
+    """
+    base = urlparse(base_url)
+    if base.scheme not in ("http", "https") or not base.netloc:
+        raise RecompileError(f"recompile base URL must be http(s) with a host: {base_url!r}")
+    raw = artifact_url.strip()
+    if not raw:
+        raise RecompileError("recompile service returned an empty artifact_url")
+    # Protocol-relative (``//evil``) and absolute URLs are parsed as-is;
+    # everything else is joined onto the compile base.
+    if raw.startswith("//") or "://" in raw:
+        resolved = urlparse(raw)
+    else:
+        resolved = urlparse(urljoin(base_url.rstrip("/") + "/", raw.lstrip("/")))
+    if resolved.scheme != base.scheme or resolved.netloc != base.netloc:
+        raise RecompileError(
+            f"recompile artifact_url is not same-origin as {base_url!r}: {artifact_url!r}"
+        )
+    if not resolved.path.startswith("/"):
+        raise RecompileError(f"recompile artifact_url has no path: {artifact_url!r}")
+    return resolved.geturl()
 
 
 def compile_source(
@@ -93,9 +123,7 @@ def compile_source(
         raise RecompileError(f"recompile service returned non-JSON: {exc}") from exc
     if body.get("status") != "ok" or not body.get("artifact_url"):
         return RecompileResult(ok=False, log=str(body.get("log", "")))
-    artifact_url = str(body["artifact_url"])
-    if artifact_url.startswith("/"):
-        artifact_url = f"{url}{artifact_url}"
+    artifact_url = _same_origin_artifact_url(url, str(body["artifact_url"]))
     try:
         with httpx.Client(timeout=timeout) as client:
             art = client.get(artifact_url)
