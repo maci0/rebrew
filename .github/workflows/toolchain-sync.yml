@@ -8,10 +8,15 @@ on:
 permissions:
   contents: read
 
-# Keep in sync with UV_VERSION in ci.yml: one pinned installer everywhere,
-# never setup-uv's floating "latest".
+# Keep in sync with UV_VERSION / RESEMBL_REF in ci.yml: one pinned installer
+# and one sibling tag everywhere, never setup-uv's floating "latest".
 env:
   UV_VERSION: "0.12.3"
+  RESEMBL_REF: "v2.0.0"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   check-updates:
@@ -20,16 +25,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Check out sibling resembl (path dependency of the `similarity` group)
         # [tool.uv.sources] resolves `resembl` from ../resembl, so every uv
         # command needs the sibling checkout present even though this job never
-        # installs the group.  Keep the tag in step with uv.lock's `resembl`
+        # installs the group.  Keep RESEMBL_REF in step with uv.lock's `resembl`
         # version (see the clones in ci.yml).
-        run: git clone --depth 1 --branch v1.0.0 https://github.com/maci0/resembl.git ../resembl
+        run: git clone --depth 1 --branch "${{ env.RESEMBL_REF }}" https://github.com/maci0/resembl.git ../resembl
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:
           version: ${{ env.UV_VERSION }}
+          enable-cache: true
       - name: Install dependencies
         # --frozen installs exactly the audited uv.lock versions; a raw
         # `pip install -e .` here would resolve fresh from PyPI nightly,

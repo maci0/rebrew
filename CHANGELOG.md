@@ -16,6 +16,8 @@
 - Classifier **Development Status** is Beta (was Alpha).
 
 ### Fixed
+- CI clones sibling `resembl` at `v2.0.0` (`RESEMBL_REF`) to match `uv.lock`
+  (was still cloning `v1.0.0`); toolchain-sync now caches uv and shares the pin.
 - Dashboard UX and report table overflow handling.
 - Shell, compile-cache, dashboard, and recompile-client fetch path hardening.
 - UTC / PE timestamp and budget handling in `doctor`, `pe_info`, `prove`, `status`.
