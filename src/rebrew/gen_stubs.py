@@ -777,7 +777,7 @@ def main(
                 "[dim]carry them via --specials/--footer, or keep the existing file[/dim]"
             )
 
-    if dry_run or json_output:
+    if dry_run:
         if json_output:
             json_print(
                 {
@@ -785,6 +785,7 @@ def main(
                     "externs": len(extern_info),
                     "dropped_existing": dropped,
                     "generated": content,
+                    "written": False,
                 }
             )
         else:
@@ -792,6 +793,18 @@ def main(
         return
 
     atomic_write_text(target, content, encoding="utf-8")
+    if json_output:
+        json_print(
+            {
+                "unresolved": len(unresolved),
+                "externs": len(extern_info),
+                "dropped_existing": dropped,
+                "generated": content,
+                "written": True,
+                "output": str(target),
+            }
+        )
+        return
     console.print(f"[green]gen-stubs:[/] wrote {target} ({len(unresolved)} symbols)")
 
 

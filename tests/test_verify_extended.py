@@ -1823,6 +1823,73 @@ class TestFixSizes:
         assert _apply_size_fixes(cfg, divergences, dry_run=False) == 1
         assert get_entry(cfg.metadata_dir, 0x2000, "SERVER").get("size") == 16
 
+    def test_no_promote_skips_size_write(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``--no-promote`` writes nothing to rebrew-functions.toml, SIZE included."""
+        import rebrew.verify as verify_mod
+        from rebrew.metadata import get_entry, update_field
+        from rebrew.verify import BatchResult, _save_report
+
+        cfg = _cfg(tmp_path)
+        update_field(cfg.metadata_dir, 0x1000, "size", 64, module="SERVER")
+        calls: list[bool] = []
+        real_apply = verify_mod._apply_size_fixes
+
+        def _capture(cfg_arg, divergences, dry_run):
+            calls.append(dry_run)
+            return real_apply(cfg_arg, divergences, dry_run)
+
+        monkeypatch.setattr(verify_mod, "_apply_size_fixes", _capture)
+        monkeypatch.setattr(verify_mod, "_save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify_cache.save_baseline", lambda *a, **k: None)
+
+        batch = BatchResult(
+            entries=[],
+            total=0,
+            passed=0,
+            failed=0,
+            fail_details=[],
+            results=[],
+            deferred=[],
+            raw_statuses={},
+            size_divergences=[
+                {
+                    "va": "0x1000",
+                    "annotation_size": 64,
+                    "binary_size": 128,
+                    "name": "f",
+                    "module": "SERVER",
+                    "status": "STUB",
+                }
+            ],
+            missing_sizes=[],
+            duplicate_vas=[],
+            library_excluded=0,
+            excluded_keys=set(),
+            cached_count=0,
+        )
+        _save_report(
+            cfg,
+            batch,
+            data_report=None,
+            text_report=None,
+            whole_report=None,
+            previous_report=None,
+            diff_warning=None,
+            diff_mode=False,
+            summary=False,
+            output_path=None,
+            dry_run=False,
+            no_promote=True,
+            json_output=True,
+            compile_context=None,
+            fix_sizes=True,
+            orphans_pruned=0,
+        )
+        assert calls == [True]
+        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("size") == 64
+
 
 class TestVerifyEntry16BitFloor:
     def test_low_va_valid_for_x86_16(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -270,6 +270,26 @@ class TestCli:
         assert "int g_counter = 0;" in out.read_text(encoding="utf-8")
         assert "int __cdecl write_log(char* a)" in out.read_text(encoding="utf-8")
 
+    def test_json_still_writes_output(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``--json`` is encoding only — the stub TU must still be written."""
+        import json
+
+        from rebrew.gen_stubs import app
+
+        monkeypatch.chdir(tmp_path)
+        _write_src(tmp_path, "extern int g_counter;\nextern int __cdecl write_log(char*);\n")
+        log = tmp_path / "build.log"
+        log.write_text(LNK_OUTPUT, encoding="utf-8")
+        out = tmp_path / "stubs.c"
+        result = CliRunner().invoke(app, ["--log", str(log), "--output", str(out), "--json"])
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload["written"] is True
+        assert out.is_file()
+        assert "int g_counter = 0;" in out.read_text(encoding="utf-8")
+
     def test_footer_preserves_legacy_encoding(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

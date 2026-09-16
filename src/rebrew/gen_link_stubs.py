@@ -92,20 +92,32 @@ def main(
     if not metadata.exists():
         error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
     content = gen_link_stubs(metadata)
-    if dry_run or json_output:
+    target = output if output.is_absolute() else root / output
+    if dry_run:
         if json_output:
             json_print(
                 {
                     "symbols": len(load_data_symbols(metadata)),
                     "tail": f"0x{_TAIL_DEFAULT:x}",
                     "generated": content,
+                    "written": False,
                 }
             )
         else:
             print(content)
         return
-    target = output if output.is_absolute() else root / output
     target.write_text(content, encoding="utf-8")
+    if json_output:
+        json_print(
+            {
+                "symbols": len(load_data_symbols(metadata)),
+                "tail": f"0x{_TAIL_DEFAULT:x}",
+                "generated": content,
+                "written": True,
+                "output": str(target),
+            }
+        )
+        return
     console.print(f"[green]gen-link-stubs:[/] wrote {target}")
     console.print("  next: rebrew calibrate-bss to size g_bss_tail")
 

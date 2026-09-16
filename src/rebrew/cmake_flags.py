@@ -214,7 +214,7 @@ def main(
             json_print(
                 {
                     "written": None,
-                    "files": {str(p): f for p, f in files.items()},
+                    "files": dict(emit),
                     "problems": problems,
                     "notes": notes,
                 }
@@ -230,13 +230,16 @@ def main(
         written = str(output)
 
     if json_output:
+        # Report the same table the include uses (emit), including
+        # --sources-file entries that lack annotations — not collect()'s
+        # annotated-only map.
         json_print(
             {
                 "written": written,
-                "files": {str(p): f for p, f in files.items()},
+                "files": dict(emit),
                 "problems": problems,
                 "notes": notes,
             }
         )
     elif not dry_run:
-        console.print(f"[green]cmake-flags:[/] wrote {output} ({len(files)} source files)")
+        console.print(f"[green]cmake-flags:[/] wrote {output} ({len(emit)} source files)")

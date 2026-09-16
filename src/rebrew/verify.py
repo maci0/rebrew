@@ -764,7 +764,9 @@ def main(
             orphans = split_prunable(cfg, *find_orphans(cfg))
         except OrphanInventoryError as exc:
             error_exit(str(exc), json_mode=json_output)
-        if dry_run:
+        # --no-promote is measure-only for rebrew-functions.toml (same as
+        # STATUS / SIZE): preview prune counts, never delete blocks.
+        if dry_run or no_promote:
             orphans_pruned = len(orphans)
             if not json_output and orphans_pruned:
                 console.print(
@@ -997,6 +999,7 @@ def main(
         summary=summary,
         output_path=output_path,
         dry_run=dry_run,
+        no_promote=no_promote,
         json_output=json_output,
         compile_context=compile_context,
         fix_sizes=fix_sizes,
@@ -1225,6 +1228,7 @@ def _save_report(
     compile_context: "CompileContext | None",
     fix_sizes: bool,
     orphans_pruned: int,
+    no_promote: bool = False,
 ) -> None:
     """Assemble the verify report, save cache + baseline, print, gate."""
     results = batch.results
@@ -1272,10 +1276,12 @@ def _save_report(
                     f"  [dim]kept {d['va']} SIZE {d['annotation_size']} "
                     f"(canonical {d['binary_size']}) {d['name']}[/dim]"
                 )
-        sizes_fixed = _apply_size_fixes(cfg, all_size_fixes, dry_run)
+        # --no-promote writes nothing to rebrew-functions.toml (SIZE included).
+        preview_sizes = dry_run or no_promote
+        sizes_fixed = _apply_size_fixes(cfg, all_size_fixes, preview_sizes)
         if not json_output:
             for d in all_size_fixes:
-                action = "Would fix" if dry_run else "Fixed"
+                action = "Would fix" if preview_sizes else "Fixed"
                 console.print(
                     f"  {action} {d['va']} SIZE {d['annotation_size']} -> "
                     f"{d['binary_size']} ({d['name']})"
@@ -1285,8 +1291,13 @@ def _save_report(
                     f"[dim]{len(all_size_fixes)} size fix(es) — re-run without "
                     "--dry-run to write[/dim]"
                 )
+            elif no_promote and all_size_fixes:
+                console.print(
+                    f"[dim]{len(all_size_fixes)} size fix(es) previewed — "
+                    "re-run without --no-promote to write[/dim]"
+                )
         report["sizes_fixed"] = sizes_fixed
-        if not dry_run and sizes_fixed:
+        if not preview_sizes and sizes_fixed:
             # The report was assembled from the pre-fix scan; strip the
             # just-fixed VAs so the same-run payload is not self-contradictory
             # ("sizes_fixed: N" next to the same entries still listed as
@@ -1313,7 +1324,8 @@ def _save_report(
     # A context-scoped run stores nothing: its verdicts were earned under
     # declarations the cache entry type cannot record, so writing them would
     # serve them back to a later context-free run that never compiled them.
-    # --no-promote still saves the cache (it only skips STATUS writes).
+    # --no-promote still saves the cache/baseline/report; it only skips
+    # rebrew-functions.toml (STATUS, SIZE, orphan prune).
     if not dry_run and not (diff_mode and gate_failed) and compile_context is None:
         cache_path = cfg.root / ".rebrew" / "verify_cache.json"
         try:

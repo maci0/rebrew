@@ -43,6 +43,14 @@
 - Classifier **Development Status** is Beta (was Alpha).
 
 ### Fixed
+- **`rebrew verify --no-promote`** honours its “write NOTHING to
+  `rebrew-functions.toml`” contract for `--fix-sizes` and `--prune-orphans`
+  (STATUS was already gated; SIZE writes and orphan deletes were not).
+- **`rebrew cmake-flags --json`** reports the same emit table the include
+  uses, including `--sources-file` entries without annotations.
+- **`rebrew gen-stubs` / `gen-link-stubs --json`** write the output TU
+  (``--json`` is encoding-only, matching `identify-library`); only
+  `--dry-run` skips the write.
 - **`matcher.mutator.__all__`** keeps a string-literal base list (for mypy
   `import *`) and ``extend``s packaged operator names (PLE0604).
 - **`data_metadata` name overlay** uses ``entry.get("name")`` (RUF019).

@@ -206,3 +206,26 @@ def test_toolchain_pin_is_reported_because_the_build_cannot_honour_it(
     joined = " ".join(notes)
     assert "msvc-6.0" in joined, notes
     assert "never the linked bytes" in joined, notes
+
+
+def test_sources_file_unannotated_appears_in_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``--sources-file`` entries without annotations must still show in ``--json``."""
+    _project(
+        tmp_path,
+        '["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n',
+        {
+            "a.c": "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n",
+            "extra.c": "int extra(void) { return 1; }\n",
+        },
+    )
+    listed = tmp_path / "sources.txt"
+    listed.write_text("src/server_dll/a.c\nsrc/server_dll/extra.c\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(app, ["--json", "--dry-run", "--sources-file", str(listed)])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert "src/server_dll/a.c" in payload["files"]
+    assert "src/server_dll/extra.c" in payload["files"]
+    assert payload["files"]["src/server_dll/a.c"] == "/Ox /Gd"
