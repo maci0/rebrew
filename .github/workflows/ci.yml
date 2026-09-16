@@ -13,11 +13,13 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Pin the uv installer so CI does not drift with setup-uv@v5's default "latest".
+# Pin the uv installer so CI does not drift with setup-uv's default "latest".
 # Bump deliberately when upgrading the local toolchain (see `uv --version`).
 # RESEMBL_REF must match the `resembl` version recorded in uv.lock (path dep).
+# Third-party Actions are commit-SHA pinned (mutable tags can be retargeted);
+# Dependabot's github-actions group refreshes the SHAs weekly.
 env:
-  UV_VERSION: "0.12.3"
+  UV_VERSION: "0.12.14"
   RESEMBL_REF: "v2.0.0"
   # typer renders every --help with ANSI codes whenever GITHUB_ACTIONS is set
   # (it treats the GitHub log renderer as a color terminal), which splits
@@ -32,7 +34,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Check out sibling resembl (path dependency of the `similarity` group)
@@ -43,7 +45,7 @@ jobs:
         # same layout a developer's checkout has.
         run: git clone --depth 1 --branch "${{ env.RESEMBL_REF }}" https://github.com/maci0/resembl.git ../resembl
       - name: Set up uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -79,14 +81,14 @@ jobs:
         python-version: ["3.13", "3.14"]
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Check out sibling resembl (path dependency of the `similarity` group)
         # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
         run: git clone --depth 1 --branch "${{ env.RESEMBL_REF }}" https://github.com/maci0/resembl.git ../resembl
       - name: Set up uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -94,9 +96,25 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --all-extras --group similarity
       - name: Install nasm (NASM round-trip verification in asm tests)
+        # apt mirrors flake under load; retry update before failing the job.
         run: |
-          sudo apt-get update
+          set -euo pipefail
+          if command -v nasm >/dev/null 2>&1; then
+            nasm -v
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            if sudo apt-get update -qq; then
+              break
+            fi
+            if [[ "$attempt" -eq 3 ]]; then
+              echo "apt-get update failed after ${attempt} attempts" >&2
+              exit 1
+            fi
+            sleep $((attempt * 5))
+          done
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nasm
+          nasm -v
       - name: Run tests
         run: uv run pytest tests/ -v --tb=short
       - name: Fixture freshness (checked-in fixtures match the generator)
@@ -112,14 +130,14 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Check out sibling resembl (path dependency of the `similarity` group)
         # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
         run: git clone --depth 1 --branch "${{ env.RESEMBL_REF }}" https://github.com/maci0/resembl.git ../resembl
       - name: Set up uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -137,11 +155,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Set up uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -215,14 +233,14 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Check out sibling resembl (path dependency of the `similarity` group)
         # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
         run: git clone --depth 1 --branch "${{ env.RESEMBL_REF }}" https://github.com/maci0/resembl.git ../resembl
       - name: Set up uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
