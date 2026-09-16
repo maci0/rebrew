@@ -52,10 +52,6 @@ def _new_registry_entry(
     )
 
 
-# VAs where radare2 reports spurious functions; projects customize via r2_bogus_vas config.
-_DEFAULT_R2_BOGUS_SIZES: set[int] = set()
-
-
 # ---------------------------------------------------------------------------
 # Jump table detection (shared by registry + grid)
 # ---------------------------------------------------------------------------
@@ -227,7 +223,7 @@ def build_function_registry(
     iat_vas = _iat_slot_vas(bin_path) if bin_path else set()
 
     # --- Discovery inventory ---
-    r2_bogus = set(getattr(cfg, "r2_bogus_vas", [])) if cfg else _DEFAULT_R2_BOGUS_SIZES
+    r2_bogus = set(getattr(cfg, "r2_bogus_vas", [])) if cfg else set()
     for func in funcs:
         va = int(func["va"])
         if va in iat_vas:

@@ -43,28 +43,15 @@ console = Console(stderr=True)
 
 app = typer.Typer(help="One-shot binary onboarding: init + detect + functions + document.")
 
-#: Vendored-toolchain link overrides: profile -> (project tools/ link name,
-#: vendored toolchain dir in the repo).  Empty by default — link names
-#: derive from the toolchain registry (:func:`_link_names_for`), so every
-#: profile works without a hand-maintained list.
-_TOOLCHAIN_LINK_OVERRIDES: dict[str, tuple[str, str]] = {}
-
-#: Back-compat alias for the old hand-maintained map (kept as the override
-#: table; empty — derivation from the registry covers every profile).
-_TOOLCHAIN_LINKS: dict[str, tuple[str, str]] = _TOOLCHAIN_LINK_OVERRIDES
-
 
 def _link_names_for(profile: str) -> tuple[str, str] | None:
     """Derive the ``(link_name, src_name)`` toolchain symlink for *profile*.
 
     Image ``rebrew/<family>:<tag>`` maps to ``<family>/<tag>`` (the
-    vendored toolchain layout, e.g. msvc-6.0 → ``msvc/6.0-win32``); explicit
-    overrides in :data:`_TOOLCHAIN_LINK_OVERRIDES` win.  ``None`` for an
-    image-less spec (a plugin toolchain — nothing to link) and unknown
-    profiles.
+    vendored toolchain layout, e.g. msvc-6.0 → ``msvc/6.0-win32``).
+    ``None`` for an image-less spec (a plugin toolchain — nothing to link)
+    and unknown profiles.
     """
-    if profile in _TOOLCHAIN_LINK_OVERRIDES:
-        return _TOOLCHAIN_LINK_OVERRIDES[profile]
     from rebrew.toolchain import TOOLCHAINS
 
     spec = TOOLCHAINS.get(profile)

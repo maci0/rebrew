@@ -51,9 +51,6 @@ Current source:
 ```
 """
 
-# Kept for dry-run / callers that want a single printable blob.
-_PROMPT_TEMPLATE = _SYSTEM_PROMPT + "\n" + _USER_PROMPT
-
 
 def _sanitize_source(source: str) -> str:
     """Neutralize markdown fence breakouts and truncate oversized input.
@@ -72,7 +69,7 @@ def _sanitize_source(source: str) -> str:
 def build_prompt(source: str, count: int = _DEFAULT_COUNT) -> str:
     """The exact prompt sent to the endpoint (exposed for --llm-seed --dry-run)."""
     safe = _sanitize_source(source)
-    return _PROMPT_TEMPLATE.format(source=safe, count=count)
+    return (_SYSTEM_PROMPT + "\n" + _USER_PROMPT).format(source=safe, count=count)
 
 
 def llm_config(cfg: Any) -> dict[str, str] | None:

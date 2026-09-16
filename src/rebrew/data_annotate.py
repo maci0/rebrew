@@ -174,14 +174,6 @@ _VA_COMMENT_RE = re.compile(r"/\*\s*(0x[0-9a-fA-F]+)")
 _C_IDENT_RE = re.compile(r"[A-Za-z_]\w*")
 
 
-def _source_decl_types_by_va(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, str]:
-    """Index VA → declared C type from ``extern <type> <name>; /* 0xVA */`` lines.
-
-    Kept as the public name; delegates to :func:`_source_decls_by_va`.
-    """
-    return {va: typ for va, (_name, typ) in _source_decls_by_va(src_dir, cfg).items()}
-
-
 def _source_decls_by_va(
     src_dir: Path,
     cfg: ProjectConfig | None = None,

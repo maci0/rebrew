@@ -95,8 +95,6 @@ def _cmake_c_compiler_versions() -> dict[str, str]:
     return out
 
 
-_CMAKE_C_COMPILER_VERSION = {"msvc-6.0": "12.00.8168"}
-
 _WINE = "/usr/bin/wine"  # the rebrew base image installs wine here
 
 
