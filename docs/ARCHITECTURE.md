@@ -72,11 +72,11 @@ flowchart LR
 | `rebrew/config.py` | `ProjectConfig` dataclass + `rebrew-project.toml` loader (multi-target) |
 | `rebrew/annotation.py` | Marker/KV annotation parsing (`// FUNCTION: MOD 0xVA`), key classification (file-only vs metadata) |
 | `rebrew/metadata.py` | `rebrew-functions.toml` store + routing (`METADATA_FIELDS`, `update_source_status` / `update_field` / `remove_field`); typed facade in `metadata_model.py` (`MetadataEntry`) |
-| `rebrew/compile.py` | Compile (docker image or native backend) + compare → `CompareResult` |
+| `rebrew/compile.py` | Compile (docker image by default; host binary only for plugin toolchains without `image`) + compare → `CompareResult` |
 | `rebrew/binary_loader.py` | PE/ELF/Mach-O loading via LIEF → `BinaryInfo` (sections, VAs, raw bytes) |
-| `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (121 tree-sitter mutations), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
+| `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (128 tree-sitter mutations), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
 | `rebrew/catalog/` | Function registry, coverage grid (`grid.py`), `data_*.json` export, `coverage.db` schema consumers |
-| `rebrew/ghidra/` | ReVa MCP sync: push/pull structs, signatures, renames, size-sync |
+| `rebrew/ghidra/` | BinSync-primary field sync + ReVa MCP structural ops (function create/delete and similar) |
 | `rebrew/core/` | Relocation-aware byte comparison, MSVC env setup |
 | `rebrew/extract.py` | Batch extract/disassemble command (group: `list`/`show`/`batch`) |
 | `rebrew/crt_match.py` | CRT source cross-reference matcher (index, match, ASM detection) |
@@ -85,7 +85,7 @@ flowchart LR
 | `rebrew/delphi16.py` | Delphi 1.0 (16-bit) compile support — headless DOSBox sandbox + NE parse (ADR-001 foundation) |
 | `rebrew/msvc16.py` | MSVC 1.52 (16-bit) compile support — DOSBox + 16-bit OMF objects |
 | `rebrew/dosbox.py` | Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads) |
-| `rebrew/toolchain.py` | Toolchain abstraction: spec registry, docker-only runner (images for Windows/DOS, native for Linux compilers) |
+| `rebrew/toolchain.py` | Toolchain abstraction: spec registry + docker-only runner for every shipped profile (plugin toolchains without `image` may run as a host binary) |
 | `rebrew/toolchain_cli.py` | `rebrew toolchain` CLI (`list`/`status`/`detect`/`pull`/`build`/`vendor`/`smoke`/`update`/`check-updates`) |
 | `rebrew/round_trip.py` | Splice matched functions back into the target PE, verify byte equality |
 | `rebrew/similar.py` | Structural clone detection (mnemonic-histogram similarity) |
@@ -105,7 +105,7 @@ flowchart LR
 | `rebrew/dashboard.py` | Read-only web dashboard over `db/coverage.db` |
 | `rebrew/imports.py` | Import-table symbol listing — PE IAT + `jmp [iat]` stub detection, 16-bit NE module references |
 | `rebrew/skills.py` | Agent-skill discovery CLI (`list`/`show` subcommands) |
-| `rebrew/agent-skills/` | Bundled `SKILL.md` workflows (intake, workflow, matching, data analysis, ghidra sync) |
+| `rebrew/agent-skills/` | Bundled `SKILL.md` workflows (init, intake, workflow, matching, data analysis, ghidra sync) |
 
 ## Which similarity tool
 
@@ -143,9 +143,9 @@ would be a second answer to that question. See
    wins for owned fields: STATUS, BLOCKER, NOTE, GHIDRA, …; SIZE/CFLAGS are
    co-read with metadata as override).
 3. `compile_and_compare()` compiles the source in the pinned toolchain
-   image (`toolchain.py` — docker-only for every Windows/DOS compiler, built
-   from the `rebrew-toolchains` checkout) and byte-compares against the
-   target bytes → `CompareResult`.
+   image (`toolchain.py` — docker-only for every shipped profile, including
+   gcc/clang/mingw; images built from the `rebrew-toolchains` checkout) and
+   byte-compares against the target bytes → `CompareResult`.
 4. `update_source_status()` writes STATUS to the metadata file only — the
    `.c` marker lines are never rewritten. `update_field` / `remove_field`
    (via `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, etc.) do the

@@ -77,14 +77,14 @@ for `--compare` (not “better than EXACT”).
 | `rebrew data` | `data.py` | Global data scanner for .data/.rdata/.bss; `--bss` layout verification; `--dispatch` vtable detection |
 | `rebrew graph` | `depgraph.py` | Function dependency graph (mermaid, DOT, summary); `--cu-map` infers compilation unit boundaries |
 | `rebrew doctor` | `doctor.py` | Diagnostic checks for project health (config, compiler, binary, paths); Delphi 1.0 toolchain readiness for 16-bit targets; `--install-wibo`; `--json` |
-| `rebrew toolchain` | `toolchain_cli.py` | Standardized toolchain management (`list`, `status`, `detect`, `pull`, `build`, `vendor`, `smoke`, `check-updates`, `update`) — docker-only execution for Windows/DOS toolchains |
+| `rebrew toolchain` | `toolchain_cli.py` | Standardized toolchain management (`list`, `status`, `detect`, `pull`, `build`, `vendor`, `smoke`, `check-updates`, `update`) — docker-only for every shipped profile (MSVC/Borland/Watcom/Delphi and gcc/clang/mingw images) |
 | `rebrew library` | `library.py` | Per-library toolchain/flags overrides (`set`/`show`/`list`/`rm` — writes/reads `rebrew-libraries.toml`, walk-up from any function dir; `list` enumerates every override under a project root; `--preset` fills known shipped-library settings like `msvcrt-static`) |
-| `rebrew binsync-export` | `binsync_export.py` | Export source markers and metadata to BinSync state directory (prototype, notes, globals with real types, structs with fields, freshness manifest; `--module`, `--git`, `--clean`) |
-| `rebrew binsync-import` | `binsync_import.py` | Import a BinSync state directory into rebrew metadata (names, prototypes, globals; `--accept-binsync`/`--accept-local`, `--module`) |
-| `rebrew binsync-diff` | `binsync_diff.py` | Read-only divergence report between rebrew and a BinSync state directory (`--module`; exits 1 on any divergence) |
-| `rebrew binsync-init` | `binsync_init.py` | Create the git envelope upstream BinSync requires (root `binsync/__root__` commit with `.gitignore` + `binary_hash`, then a `binsync/<user>` branch; `--user`, `--dry-run`) |
-| `rebrew binsync-overlay` | `binsync_overlay.py` | Overlay a related target's BinSync names/prototypes/notes onto structurally-matched functions of this target (same code at different VAs; `--from`, `--fields name,prototype,note,global`, `--accept-binsync`/`--accept-local`) |
-| `rebrew binsync` | `binsync_cli.py` | Umbrella group: `push` (export + git commit, `--git-push`), `pull` (git `--ff-only` + import), `summary` (read-only preview), plus `init`/`diff`/`overlay` |
+| `rebrew binsync-export` | `binsync/export.py` | Export source markers and metadata to BinSync state directory (prototype, notes, globals with real types, structs with fields, freshness manifest; `--module`, `--git`, `--clean`) |
+| `rebrew binsync-import` | `binsync/importer.py` | Import a BinSync state directory into rebrew metadata (names, prototypes, globals; `--accept-binsync`/`--accept-local`, `--module`) |
+| `rebrew binsync-diff` | `binsync/diff.py` | Read-only divergence report between rebrew and a BinSync state directory (`--module`; exits 1 on any divergence) |
+| `rebrew binsync-init` | `binsync/init.py` | Create the git envelope upstream BinSync requires (root `binsync/__root__` commit with `.gitignore` + `binary_hash`, then a `binsync/<user>` branch; `--user`, `--dry-run`) |
+| `rebrew binsync-overlay` | `binsync/overlay.py` | Overlay a related target's BinSync names/prototypes/notes onto structurally-matched functions of this target (same code at different VAs; `--from`, `--fields name,prototype,note,global`, `--accept-binsync`/`--accept-local`) |
+| `rebrew binsync` | `binsync/cli.py` | Umbrella group: `push` (export + git commit, `--git-push`), `pull` (git `--ff-only` + import), `summary` (read-only preview), plus `init`/`diff`/`overlay` |
 | `rebrew build-db` | `build_db.py` | Build SQLite `db/coverage.db` from `data_*.json` ([schema docs](DB_FORMAT.md)) |
 | `rebrew status` | `status.py` | At-a-glance reversing progress overview (per-module coverage, status ladder counts) |
 | `rebrew similar` | `similar.py` | Find structurally similar functions in the target binary (clone detection) |
@@ -94,7 +94,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew stack-cmp` | `stack_cmp.py` | Compare a compiled function's stack frame against the target (reccmp `stackcmp` without a PDB): frame size, ebp-vs-esp (/Oy), `ret N` popping, `[ebp±N]` slot layout — flag-focused hints for per-function CFLAGS tuning |
 | `rebrew verify-exports` | `exports.py` | Verify the recompiled binary's export table matches the original target (reccmp `verexp` equivalent; compares export names, exits 1 on missing/added) |
 | `rebrew round-trip` | `round_trip.py` | Splice matched functions back into the target PE and verify byte equality |
-| `rebrew skills` | `skills.py` | Discover and manage AI agent skills (`list`, `show`, `install`, `remove` — the latter two manage the `REBREW_SKILLS_DIR` overlay) |
+| `rebrew skills` | `skills.py` | Discover and display agent skills (`list`, `show`); community skills merge via `REBREW_SKILLS_DIR` (drop directories by hand — no install/remove commands) |
 | `rebrew blocker` | `blocker.py` | Manage `BLOCKER` / `BLOCKER_DELTA` in `rebrew-functions.toml` (`set`/`clear`/`show` by file, VA, or symbol; `--delta`, `--va`, `--dry-run`, `--json`) — ad-hoc BLOCKER for STUBs `diff --fix-blocker` cannot classify; every write via `rebrew.metadata` (locked + atomic, never hand-edited) |
 | `rebrew orphans` | `orphans.py` | List or prune metadata blocks whose VA has no source marker (`--prune`, `--include-matched`, `drop 0xVA`; `--dry-run`, `--json`) — every delete via `rebrew.metadata` batch helpers (locked + atomic) |
 | `rebrew types` | `types_cli.py` | Check declared struct layouts vs decompiler evidence; `apply-type` rewrites one param type in source (`--param N --type T`, `--dry-run`, `--json`) |
@@ -535,7 +535,7 @@ Output prefixes for unambiguous parsing:
 
 | Flag | Description |
 |------|-------------|
-| `--install-wibo` | Auto-download wibo (lightweight Wine alternative for Linux) |
+| `--install-wibo` | Download wibo to `tools/wibo` if missing (no-op if already installed); for image-backed profiles downloads only — does not rewrite `compiler.runner` |
 | `--json` | Output results as JSON |
 
 Checks: project toml, target binary, arch/format, toolchain alignment
@@ -602,7 +602,7 @@ Project-specific linting rules can be configured in `rebrew-project.toml` under 
 - `indent_style`: "spaces", "tabs", or "none" (default)
 - `max_line_length`: integer (default: 200)
 
-See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–E023, W001–W029).
+See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–E023, W003–W029).
 
 `rebrew lint` is the source-corpus checker — in addition to markers and
 metadata it cross-references every `// FUNCTION:`/`// STUB:` marker against
@@ -1497,10 +1497,12 @@ the append-only run history (same file).  Read-only.
 
 | Subcommand | Description |
 |------------|-------------|
-| `list` | List bundled agent skills |
+| `list` | List packaged and community agent skills (`origin` in JSON; `(user)` suffix in the table) |
 | `show NAME` | Print a skill's SKILL.md |
-| `install <dir\|git-url>` | Install a skill into the `REBREW_SKILLS_DIR` overlay |
-| `remove NAME` | Remove a skill from the overlay |
+
+Community skills live under `REBREW_SKILLS_DIR` (one SKILL.md directory per
+skill).  Drop directories there by hand or check them out of version control —
+there are no `install`/`remove` subcommands.
 
 ### `rebrew library`
 
@@ -1518,6 +1520,7 @@ project defaults).  Known shipped libraries can be declared by name via
 |------|-------------|
 | `set DIR [--toolchain X] [--cflags Y] [--preset NAME] [--library NAME] [--dry-run]` | Write/update `DIR/rebrew-libraries.toml`; explicit fields always win over a preset |
 | `show DIR` | Show the effective override for DIR (nearest file walking up; `--json`) |
+| `list [ROOT]` | Enumerate every `rebrew-libraries.toml` under ROOT (default: project root); `--json` |
 | `rm DIR [--dry-run]` | Remove `DIR/rebrew-libraries.toml` (revert to project defaults) |
 
 ```toml
@@ -1529,10 +1532,10 @@ cflags = "/O2 /Gd /MT"       # compiler flags
 
 ### `rebrew toolchain`
 
-Standardized toolchain management — the docker-first abstraction
+Standardized toolchain management — docker-only for every shipped profile
 (one image per toolchain-version, uniform `docker run <image> <compiler>
-<args>`, with vendored-host/PATH fallback).  See
-[TOOLCHAIN.md](TOOLCHAIN.md) for the full model.
+<args>`; a plugin toolchain registered without an `image` may still run as a
+host binary).  See [TOOLCHAIN.md](TOOLCHAIN.md) for the full model.
 
 | Subcommand | Description |
 |------------|-------------|
@@ -2413,7 +2416,7 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 | `matcher/flags.py` | `FlagSet`/`Checkbox` primitives (compatible with decomp.me) |
 | `matcher/flag_data.py` | Auto-generated MSVC flags + sweep tiers (from `tools/sync_decomp_flags.py`) |
 | `matcher/parsers.py` | COFF `.obj` and PE byte extraction (LIEF-based) |
-| `matcher/mutator.py` | 121 C mutation operators for GA |
+| `matcher/mutator.py` | 128 C mutation operators for GA |
 | `matcher/core.py` | GA types (`Score`, `BuildResult`, `GACheckpoint`); `BuildCache` kept for import compatibility only (same-run compiles memoize in memory, cross-run persistence lives in the shared compile cache) |
 | `solutions.py` | Cross-function solution transfer database (`.rebrew/ga_runs.jsonl` win records) |
 
@@ -2422,7 +2425,7 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 | Module | Purpose |
 |--------|---------|
 | `annotation.py` | Canonical annotation parser (`parse_c_file_multi`, `parse_c_file_text`) |
-| `lint.py` | Source marker linter (E000–E023 / W001–W029); `--fix` migrates leftover inline metadata and drops W029-redundant cflags; W005 points to `rebrew blocker set` for STUB BLOCKERs |
+| `lint.py` | Source marker linter (E000–E023 / W003–W029); `--fix` migrates leftover inline metadata and drops W029-redundant cflags; W005 points to `rebrew blocker set` for STUB BLOCKERs |
 | `blocker.py` | Programmatic BLOCKER writer — `rebrew blocker set/clear/show` (`--json`, `--dry-run`, `--delta`, `--va`); every write via `rebrew.metadata` (never hand-edit `rebrew-functions.toml`) |
 | `ghidra/cli.py` | Sync annotations to Ghidra via ReVa MCP; skips generic `func_` labels by default |
 

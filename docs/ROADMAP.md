@@ -367,7 +367,7 @@ Grouped by the four seams that need work.  Ordered by dependency (1 → 4).
 | **Only COFF/ELF/Mach-O** | `parsers.py` handles COFF, ELF, Mach-O via LIEF. Watcom OMF already needs a custom parser (`docs/OMF_NOTES.md`). | Console objects are mostly **ELF** (IDO, GCC, CodeWarrior, sh-elf-gcc, ee-gcc) — so *most consoles already work* for the compile side. The gap is **Psy-Q PSYOBJ** (custom) and **Hitachi SH COFF** (variant). Both are small parsers (record framing like OMF). Prioritize ELF consoles first to defer this work. |
 | **Relocation types are PE-centric** | `smart_reloc_compare` understands `IMAGE_REL_I386_DIR32/REL32` and ELF `R_386_*`. | Add MIPS (`R_MIPS_26`, `R_MIPS_HI16/LO16`), PPC (`R_PPC_ADDR32`, `R_PPC_REL24`), SH (`R_SH_DIR32`, `R_SH_REL32`, literal-pool `R_SH_CODE`); reuse the typed `CoffRelocRecord`-style path extended to `RelocRecord` (type + addend). For ELF, LIEF already exposes typed relocs — just extend the dispatch. |
 | **Pointer size = 4 assumption is fine** | Console pointers are all 32-bit (even N64 uses 32-bit ABI). | Keep pointer_size 4 for every console preset (N64 is MIPS64 hardware but o32 ABI). No change. |
-| **Mutator ISA assumptions** | ~15/120 mutations emit or pattern-match x86 codegen idioms (`_asm { int 3 }`, `__try/__except`, `rep movs`, `fs:[0]`). | Tag mutations with `arch` applicability (e.g. `x86_only`, `generic`). Console matching doesn't need these filtered immediately — just disable `x86_only` when arch ≠ x86. Generic C mutations (loop form, const shape, branch order) transfer directly. |
+| **Mutator ISA assumptions** | ~15/128 mutations emit or pattern-match x86 codegen idioms (`_asm { int 3 }`, `__try/__except`, `rep movs`, `fs:[0]`). | Tag mutations with `arch` applicability (e.g. `x86_only`, `generic`). Console matching doesn't need these filtered immediately — just disable `x86_only` when arch ≠ x86. Generic C mutations (loop form, const shape, branch order) transfer directly. |
 
 ---
 
@@ -797,7 +797,7 @@ Ideas beyond "port the existing engine" — native console strengths that would 
 | Language | C/C++ (deterministic cross-compiler) | Hand-written ASM (ca65/wla-dx/rgbds/bass *after* the fact) |
 | Matching target | `C source → compiler → obj bytes → reloc-aware compare` | `ASM source → assembler → ROM bytes → verbatim compare` |
 | Flags matter? | Yes (`-O2` vs `-O1`, `-G`, `cw -inline`…) → `flag_sweep` + `BLOCKER: flag` | No — assembler is 1:1. Options are bank layout / macro style / directive choice. `flag_sweep` is irrelevant. |
-| GA useful? | Yes (120 `mut_*` C rewrites nudge the compiler) | No — `mutator.py` is dead weight. ASM "matching" is formatting/structuring, not logic search. |
+| GA useful? | Yes (128 `mut_*` C rewrites nudge the compiler) | No — `mutator.py` is dead weight. ASM "matching" is formatting/structuring, not logic search. |
 | `BLOCKER` taxonomy | Register allocation, `reloc`, `switch table`, `SEH helper` | Bank boundary, self-modifying code, cycle-timed raster, mapper IRQ, CHR bankswitch |
 | Community output | Matching *recompilation* (`rebrew verify → EXACT`) | Full *disassembly* (`disasm + split + data = rebuildable ROM`) |
 
