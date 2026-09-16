@@ -15,8 +15,10 @@ concurrency:
 
 # Pin the uv installer so CI does not drift with setup-uv@v5's default "latest".
 # Bump deliberately when upgrading the local toolchain (see `uv --version`).
+# RESEMBL_REF must match the `resembl` version recorded in uv.lock (path dep).
 env:
   UV_VERSION: "0.12.3"
+  RESEMBL_REF: "v2.0.0"
   # typer renders every --help with ANSI codes whenever GITHUB_ACTIONS is set
   # (it treats the GitHub log renderer as a color terminal), which splits
   # option names across escape sequences and breaks every assertion on help
@@ -31,13 +33,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Check out sibling resembl (path dependency of the `similarity` group)
         # [tool.uv.sources] resolves `resembl` from ../resembl, so every uv
-        # command needs the sibling present even when the group is not
-        # installed.  actions/checkout refuses to write outside the workspace,
-        # and the lock pins the sibling at 1.0.0, so clone that tag into the
-        # parent directory — the same layout a developer's checkout has.
-        run: git clone --depth 1 --branch v1.0.0 https://github.com/maci0/resembl.git ../resembl
+        # sync needs the sibling present even when the group is not installed.
+        # actions/checkout refuses to write outside the workspace, so clone
+        # RESEMBL_REF (must match uv.lock) into the parent directory — the
+        # same layout a developer's checkout has.
+        run: git clone --depth 1 --branch "${{ env.RESEMBL_REF }}" https://github.com/maci0/resembl.git ../resembl
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -75,9 +79,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Check out sibling resembl (path dependency of the `similarity` group)
         # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
-        run: git clone --depth 1 --branch v1.0.0 https://github.com/maci0/resembl.git ../resembl
+        run: git clone --depth 1 --branch "${{ env.RESEMBL_REF }}" https://github.com/maci0/resembl.git ../resembl
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -87,7 +93,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --all-extras --group similarity
       - name: Install nasm (NASM round-trip verification in asm tests)
-        run: sudo apt-get update && sudo apt-get install -y nasm
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nasm
       - name: Run tests
         run: uv run pytest tests/ -v --tb=short
       - name: Fixture freshness (checked-in fixtures match the generator)
@@ -104,9 +112,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Check out sibling resembl (path dependency of the `similarity` group)
         # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
-        run: git clone --depth 1 --branch v1.0.0 https://github.com/maci0/resembl.git ../resembl
+        run: git clone --depth 1 --branch "${{ env.RESEMBL_REF }}" https://github.com/maci0/resembl.git ../resembl
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -126,6 +136,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -187,9 +199,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Check out sibling resembl (path dependency of the `similarity` group)
         # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
-        run: git clone --depth 1 --branch v1.0.0 https://github.com/maci0/resembl.git ../resembl
+        run: git clone --depth 1 --branch "${{ env.RESEMBL_REF }}" https://github.com/maci0/resembl.git ../resembl
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
         with:
