@@ -279,7 +279,8 @@ def insert_definition(
     """Define ``ctype name = init;`` / ``ctype name[size] = init;`` in *f*.
 
     Replaces an existing matching ``extern`` line in place (keeping its
-    indentation); appends the definition when the TU has no such extern.
+    indentation); replaces an existing definition of *name* in place so a
+    re-run does not append a duplicate; appends only when the TU has neither.
     With ``is_array=False`` a scalar ``TYPE name = value;`` is emitted.
     """
     # Preserve legacy source encodings (Shift-JIS / CP1252): reading as UTF-8
@@ -306,10 +307,54 @@ def insert_definition(
     for i, ln in enumerate(lines):
         m = extern_re.match(ln)
         if m:
-            lines[i] = m.group(1) + def_line
+            new_ln = m.group(1) + def_line
+            if new_ln == ln:
+                return True
+            lines[i] = new_ln
             if not dry_run:
                 atomic_write_text(f, "\n".join(lines) + "\n", encoding=encoding)
             return True
+
+    # Idempotent re-run: an existing definition (with initializer) must be
+    # replaced in place — appending would leave two definitions of *name*.
+    found = _find_definition(text, name)
+    if found is not None:
+        start, end, _typ, _sz = found
+        indent_m = re.match(r"[ \t]*", text[start:])
+        indent = indent_m.group(0) if indent_m else ""
+        replacement = indent + def_line
+        if text[start:end] == replacement:
+            return True
+        new_text = text[:start] + replacement + text[end:]
+        if not new_text.endswith("\n"):
+            new_text += "\n"
+        if not dry_run:
+            atomic_write_text(f, new_text, encoding=encoding)
+        return True
+
+    # No-init pads / tentative defs (``unsigned char _dpad_N[K];``) are not
+    # matched by ``_find_definition`` (it requires ``=``) — replace those too.
+    if is_array:
+        existing_re = re.compile(
+            r"^(\s*)(?!extern\b)([A-Za-z_][\w\s]*\**)\s+"
+            + re.escape(name)
+            + r"\s*(?:\[\s*\d*\s*\])\s*;\s*$"
+        )
+    else:
+        existing_re = re.compile(
+            r"^(\s*)(?!extern\b)([A-Za-z_][\w\s]*\**)\s+" + re.escape(name) + r"\s*;\s*$"
+        )
+    for i, ln in enumerate(lines):
+        m = existing_re.match(ln)
+        if m:
+            new_ln = m.group(1) + def_line
+            if new_ln == ln:
+                return True
+            lines[i] = new_ln
+            if not dry_run:
+                atomic_write_text(f, "\n".join(lines) + "\n", encoding=encoding)
+            return True
+
     lines.append(def_line)
     if not dry_run:
         atomic_write_text(f, "\n".join(lines) + "\n", encoding=encoding)
