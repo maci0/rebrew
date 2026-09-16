@@ -434,18 +434,6 @@ def _track_registration(app: typer.Typer, *, is_group: bool, registered: Any, ct
     ctx.effect(dispose)
 
 
-def make_stub_app(module: str, error: Exception, console: Console) -> typer.Typer:
-    """A Typer app that reports a component that could not be loaded."""
-    stub = typer.Typer(help=f"[unavailable] {module}")
-
-    @stub.callback(invoke_without_command=True)
-    def _stub_main() -> None:
-        console.print(f"[red]Error:[/red] could not load '{escape(module)}': {escape(str(error))}")
-        raise typer.Exit(code=EXIT_ERROR)
-
-    return stub
-
-
 def make_stub_command(module: str, error: Exception, console: Console) -> Callable[[], None]:
     """A command callable that reports why its module could not be loaded."""
 
@@ -454,6 +442,13 @@ def make_stub_command(module: str, error: Exception, console: Console) -> Callab
         raise typer.Exit(code=EXIT_ERROR)
 
     return _stub
+
+
+def make_stub_app(module: str, error: Exception, console: Console) -> typer.Typer:
+    """A Typer app that reports a component that could not be loaded."""
+    stub = typer.Typer(help=f"[unavailable] {module}")
+    stub.callback(invoke_without_command=True)(make_stub_command(module, error, console))
+    return stub
 
 
 def _app_help(app: typer.Typer, fallback: str) -> str:

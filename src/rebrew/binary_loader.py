@@ -26,9 +26,6 @@ from typing import TYPE_CHECKING, Any, Literal, overload
 if TYPE_CHECKING:
     import lief
 
-if False:  # typing-only: the real import is lazy (see __getattr__ below)
-    import lief
-
 
 def __getattr__(name: str) -> Any:
     """Lazily import LIEF on first attribute use.

@@ -13,6 +13,7 @@ import tree_sitter as ts
 from rebrew.matcher.ast_engine import _C_LANGUAGE, parse_c_ast
 from rebrew.matcher.mutations.queries import (
     _QUERY_ADD_VOLATILE_INTERMEDIATE,
+    _QUERY_ARRAY_INDEX,
     _QUERY_BYTE_CAST,
     _QUERY_BYTE_LOCAL_DECL,
     _QUERY_BYTE_TYPE_DECL,
@@ -26,7 +27,6 @@ from rebrew.matcher.mutations.queries import (
     _QUERY_PLAIN_CALL,
     _QUERY_REGISTER_DECL,
     _QUERY_SCOPE_VARIABLE,
-    _QUERY_SUBSCRIPT_EXPR,
     _QUERY_SUBSCRIPT_SCALED,
     _QUERY_WHILE_LOOP,
     _LazyQuery,
@@ -232,7 +232,7 @@ def mut_array_to_ptr_arith(s: str, rng: random.Random) -> str | None:
         idx = b_source[captures["idx"].start_byte : captures["idx"].end_byte]
         return b"*((" + arr + b") + (" + idx + b"))"
 
-    res = _apply_query_once(b_source, _QUERY_SUBSCRIPT_EXPR, _repl, rng)
+    res = _apply_query_once(b_source, _QUERY_ARRAY_INDEX, _repl, rng)
     if not res:
         return None
     res_str = res.decode("utf-8")

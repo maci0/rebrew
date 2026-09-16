@@ -697,8 +697,6 @@ _QUERY_IF_STMT = _LazyQuery(_C_LANGUAGE, "(if_statement) @if_stmt")
 
 # --- Queries for new mutations ---
 
-_QUERY_SUBSCRIPT_EXPR = _QUERY_ARRAY_INDEX
-
 _QUERY_BIN_COND_IF = _LazyQuery(
     _C_LANGUAGE,
     """
