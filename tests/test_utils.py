@@ -613,3 +613,57 @@ class TestParseIntLiteral:
             parse_int_literal("nope")
         with pytest.raises(ValueError):
             parse_int_literal("")
+
+
+class TestPreserveCorrupt:
+    def test_first_salvage_uses_plain_suffix(self, tmp_path: Path) -> None:
+        from rebrew.utils import preserve_corrupt
+
+        path = tmp_path / "meta.toml"
+        path.write_text("broken", encoding="utf-8")
+        backup = preserve_corrupt(path)
+        assert backup == tmp_path / "meta.toml.corrupt"
+        assert backup is not None and backup.read_text(encoding="utf-8") == "broken"
+        assert not path.exists()
+
+    def test_second_salvage_does_not_clobber(self, tmp_path: Path) -> None:
+        from rebrew.utils import preserve_corrupt
+
+        first = tmp_path / "meta.toml"
+        first.write_text("first", encoding="utf-8")
+        assert preserve_corrupt(first) == tmp_path / "meta.toml.corrupt"
+
+        second = tmp_path / "meta.toml"
+        second.write_text("second", encoding="utf-8")
+        backup = preserve_corrupt(second)
+        assert backup is not None
+        assert backup != tmp_path / "meta.toml.corrupt"
+        assert backup.name.startswith("meta.toml.")
+        assert backup.name.endswith(".corrupt")
+        assert (tmp_path / "meta.toml.corrupt").read_text(encoding="utf-8") == "first"
+        assert backup.read_text(encoding="utf-8") == "second"
+
+    def test_same_second_collision_keeps_both(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A wall-clock step-back that reuses a prior suffix must not overwrite."""
+        from rebrew.utils import preserve_corrupt
+
+        plain = tmp_path / "meta.toml.corrupt"
+        plain.write_text("kept", encoding="utf-8")
+        # Force every candidate onto one pre-existing ns name, then free the bump.
+        taken = tmp_path / "meta.toml.100.corrupt"
+        taken.write_text("earlier", encoding="utf-8")
+        calls = {"n": 0}
+
+        def fake_time_ns() -> int:
+            calls["n"] += 1
+            return 100
+
+        monkeypatch.setattr("rebrew.utils.time.time_ns", fake_time_ns)
+        path = tmp_path / "meta.toml"
+        path.write_text("newest", encoding="utf-8")
+        backup = preserve_corrupt(path)
+        assert backup == tmp_path / "meta.toml.101.corrupt"
+        assert taken.read_text(encoding="utf-8") == "earlier"
+        assert backup is not None and backup.read_text(encoding="utf-8") == "newest"

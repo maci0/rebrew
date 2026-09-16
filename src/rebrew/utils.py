@@ -494,9 +494,17 @@ def preserve_corrupt(path: Path) -> Path | None:
     backup = path.with_name(path.name + ".corrupt")
     if backup.exists():
         # Avoid clobbering a previous .corrupt snapshot — keep both.
-        import time
-
-        backup = path.with_name(f"{path.name}.{int(time.time())}.corrupt")
+        # Second-granularity wall-clock suffixes collide within the same
+        # second and again after an NTP step-back; os.replace would then
+        # overwrite the earlier salvage.  Nanoseconds plus a free-slot
+        # bump stay unique across both events.
+        suffix = time.time_ns()
+        while True:
+            candidate = path.with_name(f"{path.name}.{suffix}.corrupt")
+            if not candidate.exists():
+                backup = candidate
+                break
+            suffix += 1
     try:
         os.replace(path, backup)
     except OSError:

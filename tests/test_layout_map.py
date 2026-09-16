@@ -281,3 +281,32 @@ class TestForwarderExports:
 
         _sections, exports, _imports, _pe = parse_pe(_pe_with_null_and_forwarder_exports())
         assert exports == [{"name": "aaa", "ordinal": 1, "va": 0x400000 + 0x1000}]
+
+
+class TestPeHeaderTimestamp:
+    def test_signed_high_bit_stamp_reported_unsigned(self) -> None:
+        """PE TimeDateStamp is a DWORD; layout_map must mask like pe_info."""
+        from types import SimpleNamespace
+
+        from rebrew.layout_map import _pe_header
+
+        pe = SimpleNamespace(
+            header=SimpleNamespace(
+                machine=0x14C,
+                characteristics=0x0102,
+                time_date_stamps=-1,  # signed view of 0xFFFFFFFF
+            ),
+            optional_header=SimpleNamespace(
+                checksum=0,
+                major_linker_version=6,
+                minor_linker_version=0,
+                section_alignment=0x1000,
+                file_alignment=0x200,
+                sizeof_image=0x1000,
+                subsystem=3,
+                dll_characteristics=0,
+            ),
+        )
+        assert _pe_header(pe)["timestamp"] == 0xFFFFFFFF
+        pe.header.time_date_stamps = -2147483648  # signed 0x80000000
+        assert _pe_header(pe)["timestamp"] == 0x80000000

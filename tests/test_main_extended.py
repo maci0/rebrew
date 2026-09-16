@@ -12,14 +12,16 @@ from rebrew.plugin import make_stub_app, make_stub_command
 class TestVerbosity:
     def _invoke(self, args: list[str]) -> object:
         levels: list[int] = []
+        kwargs_seen: list[dict[str, object]] = []
 
         def _basicConfig(format="", level=0, **kw):
             levels.append(level)
+            kwargs_seen.append(kw)
 
         main_mod.logging.basicConfig = _basicConfig
         try:
             result = CliRunner().invoke(main_mod.app, args)
-            return result, levels
+            return result, levels, kwargs_seen
         finally:
             # restore
             import logging
@@ -27,20 +29,25 @@ class TestVerbosity:
             main_mod.logging.basicConfig = logging.basicConfig
 
     def test_default_warning(self) -> None:
-        result, levels = self._invoke(["skills", "list"])
+        result, levels, _kwargs = self._invoke(["skills", "list"])
         assert levels == [main_mod.logging.WARNING]
 
     def test_quiet(self) -> None:
-        result, levels = self._invoke(["-q", "skills", "list"])
+        result, levels, _kwargs = self._invoke(["-q", "skills", "list"])
         assert levels == [main_mod.logging.WARNING]
 
     def test_verbose_once(self) -> None:
-        result, levels = self._invoke(["-v", "skills", "list"])
+        result, levels, _kwargs = self._invoke(["-v", "skills", "list"])
         assert levels == [main_mod.logging.INFO]
 
     def test_verbose_twice(self) -> None:
-        result, levels = self._invoke(["-vv", "skills", "list"])
+        result, levels, _kwargs = self._invoke(["-vv", "skills", "list"])
         assert levels == [main_mod.logging.DEBUG]
+
+    def test_asctime_labeled_utc(self) -> None:
+        _result, _levels, kwargs_seen = self._invoke(["skills", "list"])
+        assert kwargs_seen
+        assert kwargs_seen[0].get("datefmt") == "%Y-%m-%d %H:%M:%S UTC"
 
 
 class TestStubRegistration:

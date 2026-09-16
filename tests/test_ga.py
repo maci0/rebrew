@@ -1025,6 +1025,43 @@ class TestSkipRecent:
         )
         assert _filter_recently_run(stubs, cfg, hours=2, json_output=True) == stubs
 
+    def test_z_suffix_timestamp_compared_as_utc(self, tmp_path: Path) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        from rebrew.match_batch import StubInfo
+        from rebrew.match_run import _filter_recently_run
+
+        cfg = SimpleNamespace(root=tmp_path, target_name="SERVER", reversed_dir=tmp_path)
+        stubs = [
+            StubInfo(
+                filepath=tmp_path / "s.c",
+                va="0x10001000",
+                size=64,
+                symbol="_s",
+                cflags="/O2",
+                status="STUB",
+                module="SERVER",
+            )
+        ]
+        runs = tmp_path / ".rebrew"
+        runs.mkdir(parents=True)
+        # RFC 3339 ``Z`` (used by some writers) must compare like ``+00:00``.
+        recent_z = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        (runs / "ga_runs.jsonl").write_text(
+            f'{{"ts": "{recent_z}", "target": "SERVER", '
+            f'"va": "0x10001000", "symbol": "_s", "matched": false}}\n',
+            encoding="utf-8",
+        )
+        assert _filter_recently_run(stubs, cfg, hours=2, json_output=True) == []
+
+        old_z = (datetime.now(UTC) - timedelta(hours=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        (runs / "ga_runs.jsonl").write_text(
+            f'{{"ts": "{old_z}", "target": "SERVER", '
+            f'"va": "0x10001000", "symbol": "_s", "matched": false}}\n',
+            encoding="utf-8",
+        )
+        assert _filter_recently_run(stubs, cfg, hours=2, json_output=True) == stubs
+
     def test_no_records_keeps_all(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.match_batch import StubInfo
         from rebrew.match_run import _filter_recently_run
