@@ -11,6 +11,7 @@ there and accumulate silently.
 ``rebrew orphans drop`` removes one VA's block on demand.
 """
 
+from pathlib import Path
 from typing import Any
 
 import typer
@@ -19,6 +20,11 @@ from rich.console import Console
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 
 console = Console(stderr=True)
+
+
+class OrphanInventoryError(RuntimeError):
+    """Raised when the function inventory cannot be trusted for orphan safety."""
+
 
 app = typer.Typer(
     help="List or prune orphaned metadata blocks (no source marker).",
@@ -45,7 +51,7 @@ def find_orphans(cfg: Any) -> tuple[list[tuple[str, int, str]], list[tuple[str, 
     otherwise report every first-target block as an orphan — and ``--prune``
     would delete the other target's earned STATUS wholesale.
     """
-    from rebrew.catalog import cached_function_list, scan_reversed_dir
+    from rebrew.catalog import scan_reversed_dir
     from rebrew.catalog.loaders import load_function_structure
     from rebrew.config import FUNCTION_STRUCTURE_JSON
     from rebrew.data_metadata import load_data_metadata
@@ -58,21 +64,24 @@ def find_orphans(cfg: Any) -> tuple[list[tuple[str, int, str]], list[tuple[str, 
         va = int(getattr(entry, "va", 0) or 0)
         if module and va:
             live.add((module, va))
+    # known_vas is the safety net that keeps unreversed-but-real functions
+    # from looking like orphans.  An unreadable inventory must fail closed —
+    # treating it as empty would make every metadata-only block look prunable
+    # and ``--prune`` / ``verify --prune-orphans`` would delete earned STATUS.
     known_vas: set[int] = set()
-    try:
-        for f in cached_function_list(cfg) or []:
-            va = int(f.get("va", 0) or 0)
-            if va:
-                known_vas.add(va)
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
-        known_vas = set()
-    try:
-        structure_path = cfg.reversed_dir / FUNCTION_STRUCTURE_JSON
-        for struct_func in load_function_structure(structure_path):
-            if struct_func.va:
-                known_vas.add(struct_func.va)
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
-        pass
+    structure_path = Path(cfg.reversed_dir) / FUNCTION_STRUCTURE_JSON
+    if structure_path.is_file():
+        try:
+            for struct_func in load_function_structure(structure_path):
+                if struct_func.va:
+                    known_vas.add(struct_func.va)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+            raise OrphanInventoryError(
+                f"Cannot read function inventory {structure_path.name}: {exc}. "
+                "Refusing to classify orphans — a corrupt inventory would make "
+                "every unreversed function look like an orphan and pruning "
+                "would delete earned STATUS."
+            ) from exc
     for va in getattr(cfg, "dll_exports", {}) or {}:
         try:
             if int(va):
@@ -153,7 +162,10 @@ def main(
     if ctx.invoked_subcommand is not None:
         return
     cfg = require_config(target=target, json_mode=json_output)
-    fn_orphans, data_orphans = find_orphans(cfg)
+    try:
+        fn_orphans, data_orphans = find_orphans(cfg)
+    except OrphanInventoryError as exc:
+        error_exit(str(exc), json_mode=json_output)
     total = len(fn_orphans) + len(data_orphans)
 
     orphans = _orphan_dicts(cfg, fn_orphans, data_orphans)

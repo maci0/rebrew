@@ -460,8 +460,13 @@ def _rename_metadata_only(
                     "renaming would create a duplicate symbol. Pick a different name.",
                     json_mode=json_output,
                 )
-    except OSError:
-        pass
+    except OSError as exc:
+        # Skipping the collision check on a read failure used to let rename
+        # create duplicate symbols silently.  Fail closed instead.
+        error_exit(
+            f"Cannot read rebrew-data.toml for rename collision check: {exc}",
+            json_mode=json_output,
+        )
 
     pattern = _name_pattern(old_name)
     files: list[Path] = []

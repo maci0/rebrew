@@ -758,9 +758,12 @@ def main(
 
     orphans_pruned = 0
     if prune_orphans:
-        from rebrew.orphans import find_orphans, split_prunable
+        from rebrew.orphans import OrphanInventoryError, find_orphans, split_prunable
 
-        orphans = split_prunable(cfg, *find_orphans(cfg))
+        try:
+            orphans = split_prunable(cfg, *find_orphans(cfg))
+        except OrphanInventoryError as exc:
+            error_exit(str(exc), json_mode=json_output)
         if dry_run:
             orphans_pruned = len(orphans)
             if not json_output and orphans_pruned:
@@ -2158,7 +2161,7 @@ def run_verification(
                         except Exception as exc:
                             is_internal_error = True
                             internal_errors += 1
-                            log.debug(
+                            log.warning(
                                 "Internal error verifying %s",
                                 getattr(entry, "name", "?"),
                                 exc_info=True,
@@ -2313,6 +2316,10 @@ def apply_status_updates(
         # file must not abort the whole verify run (and lose the report
         # the user waited for).  Warn and keep the verification results.
         logging.warning("Could not update STATUS metadata: %s", exc)
+    except Exception as exc:
+        # Unexpected failures (parse bugs, lock races) must not wipe the
+        # report either, but they are not routine I/O — keep the traceback.
+        logging.warning("Could not update STATUS metadata: %s", exc, exc_info=True)
 
 
 def _print_results(

@@ -165,7 +165,7 @@ def load_artifact(path: Path, kind: str) -> Any | None:
     try:
         return _class_for(kind).loads(text)
     except Exception:
-        log.debug("unparseable BinSync %s at %s", kind, path, exc_info=True)
+        log.warning("unparseable BinSync %s at %s", kind, path, exc_info=True)
         return None
 
 
@@ -190,7 +190,7 @@ def load_many(path: Path, kind: str) -> list[Any]:
     try:
         return list(_class_for(kind).loads_many(text))
     except Exception:
-        log.debug("unparseable BinSync %s at %s", kind, path, exc_info=True)
+        log.warning("unparseable BinSync %s at %s", kind, path, exc_info=True)
         return []
 
 

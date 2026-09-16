@@ -665,8 +665,11 @@ def apply_commands_via_mcp(
                         if retry == max_retries - 1:
                             defn = cmd["args"].get("cDefinition", "")[:80]
                             console.print(f"  PERMANENT FAIL: {error_msg} | {defn}")
-                except httpx.HTTPError:
+                except httpx.HTTPError as exc:
                     still_failing.append(cmd)
+                    if retry == max_retries - 1:
+                        defn = cmd["args"].get("cDefinition", "")[:80]
+                        console.print(f"  PERMANENT FAIL (HTTP): {exc} | {defn}")
             resolved = len(struct_failures) - len(still_failing)
             if resolved > 0:
                 console.print(f"  Resolved {resolved} definitions on retry pass {retry + 2}")
