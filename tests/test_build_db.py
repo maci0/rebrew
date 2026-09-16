@@ -441,6 +441,93 @@ binary = "test.exe"
         assert c.fetchone() is None  # not created, and any stale copy dropped
         conn.close()
 
+    def test_section_cell_stats_has_primary_key(self, project_root: Path) -> None:
+        """section_cell_stats must be keyed on (target, section_name) — CREATE
+        TABLE AS SELECT left it without a PK so WHERE target=? was unindexed
+        and duplicate section rows could accumulate."""
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("PRAGMA table_info(section_cell_stats)")
+        pk_cols = [row[1] for row in c.fetchall() if row[5] > 0]
+        assert pk_cols == ["target", "section_name"]
+        c.execute("SELECT sql FROM sqlite_master WHERE name = 'section_cell_stats'")
+        ddl = c.fetchone()[0]
+        assert "PRIMARY KEY" in ddl
+        assert "CREATE TABLE section_cell_stats" in ddl
+        conn.close()
+
+    def test_verify_results_has_range_checks(self, project_root: Path) -> None:
+        """verify_results columns that carry deltas/scores must reject out-of-
+        range values at the schema level (and migrate pre-CHECK tables)."""
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='verify_results'")
+        ddl = c.fetchone()[0]
+        assert "effective_match IN (0, 1)" in ddl
+        assert "similarity >= 0.0" in ddl
+        with pytest.raises(sqlite3.IntegrityError):
+            c.execute(
+                "INSERT INTO verify_results "
+                "(target, va, verified_at, byte_delta, similarity, effective_match) "
+                "VALUES ('testbin', 1, 't', -1, 0.5, 1)"
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            c.execute(
+                "INSERT INTO verify_results "
+                "(target, va, verified_at, similarity) "
+                "VALUES ('testbin', 2, 't', 1.5)"
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            c.execute(
+                "INSERT INTO verify_results "
+                "(target, va, verified_at, effective_match) "
+                "VALUES ('testbin', 3, 't', 2)"
+            )
+        conn.close()
+
+    def test_verify_results_migrates_pre_check_ddl(self, project_root: Path) -> None:
+        """A persistent verify_results table built without CHECKs is recreated
+        in place on the next rebuild (rows preserved, outliers clamped)."""
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        # Simulate a pre-CHECK table with an out-of-range similarity.
+        c.execute("DROP TABLE verify_results")
+        c.execute(
+            """
+            CREATE TABLE verify_results (
+                target TEXT NOT NULL,
+                va INTEGER NOT NULL,
+                verified_at TEXT NOT NULL,
+                byte_delta INTEGER,
+                diff_lines INTEGER,
+                similarity REAL,
+                reg_delta INTEGER,
+                effective_match INTEGER,
+                PRIMARY KEY (target, va)
+            )
+            """
+        )
+        c.execute("INSERT INTO verify_results VALUES ('testbin', 4096, 't', -3, NULL, 1.5, -1, 7)")
+        conn.commit()
+        conn.close()
+
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='verify_results'")
+        assert "effective_match IN (0, 1)" in c.fetchone()[0]
+        # No verify cache in the fixture → the clamped legacy row is kept.
+        c.execute(
+            "SELECT byte_delta, similarity, reg_delta, effective_match "
+            "FROM verify_results WHERE target = 'testbin' AND va = 4096"
+        )
+        row = c.fetchone()
+        assert row == (0, 1.0, 0, None)
+        conn.close()
+
     def test_history_persists_across_rebuilds(self, project_root: Path) -> None:
         build_db(project_root)
         build_db(project_root)
