@@ -1,3 +1,26 @@
+## [Unreleased]
+### Changed
+- **Breaking:** the `similarity` and `m2c` install extras are gone.  Path/git
+  deps cannot ship in wheel `Requires-Dist`; install them with
+  `uv sync --group similarity` (needs sibling `../resembl`) and
+  `uv sync --group m2c` (or `uv pip install "m2c @ git+https://github.com/matt-kempster/m2c.git"`).
+  `pip install rebrew[similarity]` / `rebrew[m2c]` no longer resolve.
+- **FLIRT signature discovery recurses** under `rebrew-flirt-sigs`
+  (`sigs/<family>/<toolchain>/`, `sigs/harvested/`) and prefers a compiled
+  `.sig` over the matching `.pat` by stem (~10,000× faster to parse).  A flat
+  project `flirt_sigs/` is unchanged.
+- **CLI JSON / exit-code conventions** aligned across more commands (human
+  text on stderr, `--json` stdout purity, standard `--dry-run`/`--json` help,
+  `TargetOption` wiring).  `rebrew cmake-flags` takes `--target` via the
+  shared option; conflict exits use `EXIT_ERROR`.
+- Classifier **Development Status** is Beta (was Alpha).
+
+### Fixed
+- Dashboard UX and report table overflow handling.
+- Shell, compile-cache, dashboard, and recompile-client fetch path hardening.
+- UTC / PE timestamp and budget handling in `doctor`, `pe_info`, `prove`, `status`.
+- `rebrew test --watch` forwards retest params; dry-run exits honor the preview.
+
 ## [2.4.0] - 2026-09-17
 ### Added
 - **Schema v7: `section_cells_json`**: `build-db` now materializes each
@@ -34,22 +57,21 @@
   MSVC6 binary) instead of the whole checkout.
 
 ### Changed
-- **`section_cell_stats` is a table, not a view, and `db_version` is now `"7"`.**
-  As a view every reader re-aggregated the whole `cells` table — 13
-  `SUM(CASE state = …)` over 64k rows measured 17.3 ms per request, 92% of a
-  dashboard's cold `/data` build.  No consumer changed: they all query it as
+- **Breaking:** `section_cell_stats` is a table, not a view, and `db_version`
+  is now `"7"`.  As a view every reader re-aggregated the whole `cells` table —
+  13 `SUM(CASE state = …)` over 64k rows measured 17.3 ms per request, 92% of a
+  dashboard's cold `/data` build.  No SQL consumer changed: they all query it as
   `SELECT … FROM section_cell_stats WHERE target = ?`, which is indifferent to
   table-vs-view.  The builder drops by the type actually present, since SQLite
   refuses `DROP VIEW` on a table and `DROP TABLE` on a view.
   Migration is `--force` (DROP+rebuild), the existing convention, so a v6
   database must be rebuilt; `verify_results` is re-imported from
-  `db/verify_results.json`/`.rebrew/verify_cache.json`, but `history` is not
-  recoverable and is lost.  Both new objects are listed in
-  `_missing_required_objects`, which is what makes the v7 stamp meaningful.
-  The cache codec moved zlib → zstd: 176 KB / 3 ms versus 460 KB / 28 ms on the
-  same 8.4 MB of cell JSON, and it *reduced* the build-time cost of this change
-  (build-db p50 290 ms with zlib, 250 ms with zstd, against a 218 ms pre-change
-  baseline).
+  `.rebrew/verify_cache.json`, but `history` is not recoverable and is lost.
+  Both new objects are listed in `_missing_required_objects`, which is what
+  makes the v7 stamp meaningful.  The cache codec moved zlib → zstd: 176 KB /
+  3 ms versus 460 KB / 28 ms on the same 8.4 MB of cell JSON, and it *reduced*
+  the build-time cost of this change (build-db p50 290 ms with zlib, 250 ms
+  with zstd, against a 218 ms pre-change baseline).
 - **63 identical `main_entry` bodies → `cli.run_standalone`**: one helper,
   −429 lines.  `order_sources` lib folded into `link_order` (thin CLI shim
   keeps the command); `near_diag.Insn` deleted in favor of `analysis.Insn`.
@@ -82,8 +104,8 @@
 - **`rebrew-init` skill** (ADR-020): bare directory → scaffold → doctor
   gate → intake handoff. Six packaged skills.
 ### Changed
-- **Python 3.13 floor** (`requires-python`, `.python-version`, lock
-  re-resolved; 3.12 wheels pruned). Suite green on 3.13.14.
+- **Breaking:** **Python 3.13 floor** (`requires-python`, `.python-version`,
+  lock re-resolved; 3.12 wheels pruned). Suite green on 3.13.14.
 - **Deps to latest**: typer 0.27, rich 15, tomlkit 0.15, tree-sitter
   0.26, numpy 2.5, click 8.5, LIEF 0.17.6 (lief<1 and typer sandboxing
   notes in pyproject). Control-char sanitizer (`_toml_safe`) at all
