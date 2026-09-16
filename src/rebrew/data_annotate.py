@@ -291,8 +291,8 @@ def _gen_globals_header(
     for src in header_sources:
         try:
             annotations = parse_c_file_multi(src, target_name=marker, metadata_dir=cfg.metadata_dir)
-        except Exception:  # non-fatal; skip unparseable files
-            logging.debug("Skipping %s: annotation parse failed", src, exc_info=True)
+        except Exception:  # one bad file must not abort the scan
+            logging.warning("Skipping %s: annotation parse failed", src, exc_info=True)
             continue
         for ann in annotations:
             if ann.is_function:

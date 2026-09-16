@@ -367,3 +367,57 @@ class TestBatchDeletes:
         res = CliRunner().invoke(app, ["--prune", "--include-matched"])
         assert res.exit_code == 0, res.output
         assert get_entry(tmp_path, 0x2000, "SERVER") == {}
+
+
+class TestCorruptInventoryFailClosed:
+    """A corrupt function_structure.json must not classify orphans.
+
+    Treating corruption as an empty inventory would mark every unreversed
+    metadata block as an orphan — ``--prune`` would then delete earned STATUS.
+    """
+
+    def test_corrupt_structure_refuses_to_list(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.config import FUNCTION_STRUCTURE_JSON
+        from rebrew.orphans import app
+
+        _mock_cfg(tmp_path, monkeypatch)
+        src = tmp_path / "reversed"
+        src.mkdir(exist_ok=True)
+        (src / "foo.c").write_text(
+            "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8"
+        )
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x1000"]\nstatus = "STUB"\n\n'
+            '["SERVER.0x2000"]\nstatus = "EXACT"\nsize = 16\n',
+            encoding="utf-8",
+        )
+        (src / FUNCTION_STRUCTURE_JSON).write_text("[{broken", encoding="utf-8")
+        res = CliRunner().invoke(app, [])
+        assert res.exit_code != 0
+        assert "function inventory" in res.output.lower() or "Refusing" in res.output
+
+    def test_corrupt_structure_refuses_to_prune(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.config import FUNCTION_STRUCTURE_JSON
+        from rebrew.metadata import get_entry
+        from rebrew.orphans import app
+
+        _mock_cfg(tmp_path, monkeypatch)
+        src = tmp_path / "reversed"
+        src.mkdir(exist_ok=True)
+        (src / "foo.c").write_text(
+            "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n", encoding="utf-8"
+        )
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x1000"]\nstatus = "STUB"\n\n'
+            '["SERVER.0x2000"]\nstatus = "EXACT"\nsize = 16\n',
+            encoding="utf-8",
+        )
+        (src / FUNCTION_STRUCTURE_JSON).write_text("[{broken", encoding="utf-8")
+        res = CliRunner().invoke(app, ["--prune"])
+        assert res.exit_code != 0
+        # Earned STATUS must survive — prune must not run.
+        assert get_entry(tmp_path, 0x2000, "SERVER").get("status") == "EXACT"

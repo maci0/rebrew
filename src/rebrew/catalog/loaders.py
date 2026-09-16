@@ -127,8 +127,12 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
     Reads ``function_structure.json`` next to the target (written by
     ``rebrew intake``/``discover`` or a Ghidra export) — the former
     ``functions.txt`` list is gone.  Returns ``[]`` when unset, missing,
-    or corrupt.
+    or corrupt.  Corruption is logged at WARNING — callers that must not
+    treat a corrupt inventory as empty (e.g. orphan pruning) should call
+    :func:`load_function_structure` and fail closed instead.
     """
+    import logging
+
     from rebrew.config import FUNCTION_STRUCTURE_JSON
 
     reversed_dir = getattr(cfg, "reversed_dir", "")
@@ -146,7 +150,12 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
             for e in load_function_structure(Path(path))
             if path and Path(path).is_file()
         ]
-    except (OSError, ValueError, KeyError):
+    except (OSError, ValueError, KeyError) as exc:
+        logging.getLogger(__name__).warning(
+            "Failed to load function inventory %s (%s); treating as empty",
+            path or "<unset>",
+            exc,
+        )
         funcs = []
     if (
         len(_function_list_cache) >= _FUNCTION_LIST_CACHE_MAX

@@ -189,7 +189,7 @@ def load_manifest(state_dir: Path) -> dict[str, str]:
     try:
         doc = tomlkit.parse(manifest.read_text(encoding="utf-8"))
     except Exception as exc:
-        log.debug("unparseable BinSync manifest.toml: %s", exc)
+        log.warning("unparseable BinSync manifest.toml: %s", exc)
         return {}
     out: dict[str, str] = {}
     for key in ("exported_at", "content_hash", "commit", "target", "binary_hash"):
