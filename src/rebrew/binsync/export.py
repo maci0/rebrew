@@ -791,7 +791,7 @@ def _git_commit_state_dir(state_dir: Path, target: str) -> str | None:
         console.print("[dim]No changes to commit.[/dim]")
         return None
 
-    utc = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    utc = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
     msg = f"rebrew binsync-export: {target} @ {utc}"
     commit = subprocess.run(
         ["git", "-C", str(state_dir), "commit", "-m", msg],

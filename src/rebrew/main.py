@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import time
 
 import typer
 from rich.console import Console
@@ -109,11 +110,23 @@ def _global_options(
         log_level = logging.INFO
     else:
         log_level = logging.WARNING
+    # Force UTC asctime: the default converter is localtime, so a host in
+    # Europe/Warsaw (or any DST zone) stamps verbose logs with a wall clock
+    # that jumps or repeats on transition nights and disagrees with CI
+    # (TZ=UTC).  Match status/verify metadata, which already label UTC.
     logging.basicConfig(
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+        datefmt="%Y-%m-%d %H:%M:%S UTC",
         level=log_level,
     )
+    # basicConfig is a no-op when root already has handlers; still force UTC
+    # on whatever formatter is installed so a prior localtime config cannot
+    # leak into -v output.
+    for handler in logging.root.handlers:
+        formatter = handler.formatter
+        if formatter is not None:
+            formatter.converter = time.gmtime
+            formatter.datefmt = "%Y-%m-%d %H:%M:%S UTC"
 
 
 # ---------------------------------------------------------------------------

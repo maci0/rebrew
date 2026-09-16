@@ -244,7 +244,10 @@ def _pe_header(pe: lief.PE.Binary | None) -> dict[str, Any]:
     return {
         "machine": int(pe.header.machine),
         "characteristics": int(pe.header.characteristics),
-        "timestamp": int(pe.header.time_date_stamps),
+        # PE TimeDateStamp is a DWORD; mask so a signed binding's high-bit
+        # stamp (post-2038) stays in the PE calendar range — same policy as
+        # pe_info._pe_identity / _timestamp_iso.
+        "timestamp": int(pe.header.time_date_stamps) & 0xFFFFFFFF,
         "checksum": int(oh.checksum),
         "linker_version": f"{int(oh.major_linker_version)}.{int(oh.minor_linker_version)}",
         "section_alignment": int(oh.section_alignment),
