@@ -197,7 +197,6 @@ def mut_merge_nested_ifs(s: str, rng: random.Random) -> str | None:
 
     stmt, cond1, cond2, body = rng.choice(valid_ifs)
 
-    # We want without the surrounding parens if we are going to wrap it
     cond1_str = b_source[cond1.start_byte + 1 : cond1.end_byte - 1]
     cond2_str = b_source[cond2.start_byte + 1 : cond2.end_byte - 1]
     body_str = b_source[body.start_byte : body.end_byte]

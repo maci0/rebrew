@@ -74,11 +74,7 @@ def test_mut_ast_commute_simple_mul() -> None:
 
 def test_mut_ast_flip_eq_zero() -> None:
     source = "int main() { if (a == 0) return 0; if (b != 0) return 1; }"
-    rng = random.Random(
-        42
-    )  # Try with a fixed seed to get the first one, or just check that one of them flipped
-
-    # We loop to make sure we hit both eventually in a simple test
+    rng = random.Random(42)
     results = set()
     for _ in range(10):
         res = mut_flip_eq_zero(source, rng)
@@ -99,8 +95,6 @@ def test_mut_ast_flip_lt_ge() -> None:
 def test_mut_ast_add_redundant_parens() -> None:
     source = "int main() { return a + b; }"
     rng = random.Random(42)
-    # The identifier query will find 'main', 'a', 'b'.
-    # random choice will pick one. Let's run a few times to see it wrap an identifier.
     results = set()
     for _ in range(10):
         res = mut_add_redundant_parens(source, rng)
@@ -197,7 +191,6 @@ def test_mut_ast_toggle_volatile() -> None:
 
     source2 = "volatile int a;"
     mut_toggle_volatile(source2, rng)
-    # The RNG might choose to remove it. Let's just try running it until it flips
     results = set()
     for _ in range(10):
         res = mut_toggle_volatile(source2, rng)

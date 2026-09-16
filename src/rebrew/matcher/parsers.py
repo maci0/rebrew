@@ -324,7 +324,6 @@ def _parse_elf_symbol_bytes(
     if elf is None:
         return None, None
 
-    # Find the target symbol
     target_sym = None
     for sym in elf.symbols:
         if sym.name == symbol and getattr(sym, "section", None) is not None:
@@ -334,7 +333,6 @@ def _parse_elf_symbol_bytes(
     if target_sym is None:
         return None, None
 
-    # Get the section containing this symbol
     # In ELF .o files, sym.shndx gives the section index
     section = None
     if hasattr(target_sym, "section") and target_sym.section is not None:

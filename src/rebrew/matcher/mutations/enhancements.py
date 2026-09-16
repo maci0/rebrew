@@ -256,7 +256,6 @@ def mut_retype_local_equiv(s: str, rng: random.Random) -> str | None:
         # a pointer_declarator — we handle only simple types here.
         type_text = b_source[type_node.start_byte : type_node.end_byte].strip()
 
-        # Also check for "register int" → strip qualifier to match cycle
         bare_type = type_text
         for prefix in (b"register ", b"volatile "):
             if bare_type.startswith(prefix):
@@ -270,7 +269,6 @@ def mut_retype_local_equiv(s: str, rng: random.Random) -> str | None:
 
     node, old_text = rng.choice(valid)
 
-    # Strip qualifiers, cycle the bare type, re-add qualifiers
     prefix = b""
     bare = old_text
     for qual in (b"register ", b"volatile "):
