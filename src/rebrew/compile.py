@@ -1231,15 +1231,20 @@ def compile_batch_objs(
         tr = run_toolchain(spec, args, workdir=workdir, timeout=timeout, mounts=mounts)
     except ToolchainError as exc:
         return {}, str(exc)
-    if tr.returncode != 0:
-        err = (tr.stdout + "\n" + tr.stderr).strip() or "batch compile failed with no output"
-        return {}, err
     ext = ".o" if style == "posix" else ".obj"
     out: dict[str, str] = {}
     for src in src_names:
+        # CL/GCC drop the object in the process CWD (the workdir root),
+        # not next to the source — even for subdir/staged paths.
         obj = workdir / (Path(src).stem + ext)
         if obj.is_file():
             out[src] = str(obj)
+    if tr.returncode != 0:
+        # Partial success: CL compiles each TU independently, so siblings
+        # of a broken file still emit objects — keep them, and report the
+        # error so the caller falls back per file for the REST (ADR-021).
+        err = (tr.stdout + "\n" + tr.stderr).strip() or "batch compile failed with no output"
+        return out, err
     return out, ""
 
 
@@ -1325,23 +1330,52 @@ def precompile_batch(
             groups.setdefault(_batch_group_key(toolchain or "", cflags), []).append(e)
         except Exception as exc:
             log.debug("batch grouping skipped %s: %s", getattr(e, "name", "?"), exc)
-    for (toolchain, group_flags), members in groups.items():
-        if len(members) < 2:
-            continue
+    import concurrent.futures as _futures
+
+    def _compile_group(toolchain: str, group_flags: str, members: list[Any]) -> dict[int, str]:
+        """Compile one flag group; returns ``{id(entry): obj_path}``."""
+        group_out: dict[int, str] = {}
         try:
             spec = TOOLCHAINS.get(toolchain) if toolchain else base_spec
             if spec is None:
-                continue
+                return group_out
             workdir = writable_temp_dir("rebrew_batch_")
-            staged: dict[str, Any] = {}
+            staged: dict[str, list[Any]] = {}
             member_includes: list[str] = []
+            # Relative includes can reach OUTSIDE the group (a header with
+            # no annotation of its own), so copy the whole reversed_dir
+            # tree first and overlay staged copies on top: every sibling
+            # header resolves exactly as in the single-file build.
+            # (Symlinks don't survive the container mount: absolute-link
+            # targets are unreadable inside, so the tree is copied.  A few
+            # hundred small files — negligible next to a container spawn.)
+            rev = Path(cfg.reversed_dir)
+            with contextlib.suppress(OSError):
+                for child in sorted(rev.rglob("*")):
+                    if child.is_dir() or child.is_symlink():
+                        continue
+                    link = workdir / child.relative_to(rev)
+                    if not link.exists():
+                        link.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copyfile(child, link)
             for e in members:
                 src = Path(cfg.reversed_dir) / e.filepath
-                # Unique stems per group (foo/bar.c + baz/bar.c collide).
-                dest = workdir / f"{e.va:08x}_{src.name}"
+                # Mirror the source tree (foo/bar.c → workdir/foo/bar.c):
+                # flat staging breaks relative #includes
+                # ("../../Units/Err/x.h") and same-dir header lookup.
+                # Several functions can share one file: stage the path once
+                # but track EVERY entry (path → entries) so each gets the
+                # built object fanned out below.
+                rel = src.relative_to(cfg.reversed_dir)
+                dest = workdir / rel
                 with contextlib.suppress(OSError):
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    # Unlink first: dest may be a tree copy from above and
+                    # write_bytes must replace it, not merge.
+                    if dest.is_symlink() or dest.exists():
+                        dest.unlink()
                     dest.write_bytes(src.read_bytes())
-                    staged[dest.name] = e
+                    staged.setdefault(str(rel), []).append(e)
                 # Collect this member's own /I flags for the union below.
                 _, own_cflags = resolve_compile_overrides(
                     cfg,
@@ -1357,7 +1391,7 @@ def precompile_batch(
                 )
                 member_includes.extend(f for f in own_flags if f.startswith(("/I", "-I")))
             if len(staged) < 2:
-                continue
+                return group_out
             # Union of include dirs: grouping ignores /I (they shatter
             # groups per-directory), so re-add every member's /I here.
             # A same-basename header in two unioned dirs could resolve to
@@ -1366,48 +1400,93 @@ def precompile_batch(
                 safe_shlex_split(group_flags) if isinstance(group_flags, str) else list(group_flags)
             )
             flags += [f for f in dict.fromkeys(member_includes) if f not in flags]
+            # Single-file parity: base_cflags first (it carries project-wide
+            # /I like references/zlib-1.1.3), then the group + unioned dirs.
+            # Resolve relative /I against the project root (single-file
+            # resolves against src_parent; the batch workdir has no
+            # tree-relative meaning) before the container rewrite.
+            base_flags = safe_shlex_split(getattr(cfg, "base_cflags", ""))
+            flags = _dedupe_flags(base_flags + flags)
+            flags = resolve_include_flags(flags, Path(cfg.root), Path(cfg.root))
+            # Same container setup as the single-file path: project root
+            # same-path mounted (relative ../../ includes resolve), unioned
+            # /I rewritten for the container, global compiler_includes
+            # added (it covers tree-root headers like rebrew_types.h).
+            batch_mounts: list[tuple[str, str]] = []
+            root_dir = getattr(cfg, "root", None)
+            if root_dir is not None:
+                root_p = Path(root_dir).resolve()
+                if root_p.exists():
+                    batch_mounts.append((str(root_p), str(root_p)))
+            inc_path = str(getattr(cfg, "compiler_includes", ""))
+            if inc_path:
+                flags = [f"/I{inc_path}"] + flags
+            flags, extra_mounts = _docker_include_rewrite(flags, workdir)
+            batch_mounts += extra_mounts
             objs, err = compile_batch_objs(
-                spec, sorted(staged), flags, workdir, [], cfg.compile_timeout
+                spec, sorted(staged), flags, workdir, batch_mounts, cfg.compile_timeout
             )
-            if err:
+            if err and not objs:
                 log.debug("batch group failed, falling back per file: %s", err[:120])
-                continue
+                return group_out
+            if err:
+                # Partial group: keep the good objects, fall back per file
+                # for the rest (their errors are in the log).
+                log.debug("batch group partial (%d/%d): %s", len(objs), len(staged), err[:120])
             for name, obj in objs.items():
-                e = staged[name]
-                out[id(e)] = obj
-                # Pin the batch-built object in the compile cache under the
-                # identical key the single-file path uses — the next run
-                # hits cache instead of re-batching.  Key on the file's OWN
-                # flags (not the unioned batch flags) so keys match exactly.
-                if cache is not None:
-                    with contextlib.suppress(OSError):
-                        src = Path(cfg.reversed_dir) / e.filepath
-                        _, own_cflags = resolve_compile_overrides(
-                            cfg,
-                            src.parent,
-                            getattr(e, "toolchain", ""),
-                            getattr(e, "cflags", ""),
-                            getattr(e, "module", ""),
-                        )
-                        own_flags = (
-                            safe_shlex_split(own_cflags)
-                            if isinstance(own_cflags, str)
-                            else list(own_cflags)
-                        )
-                        key = _cache_key_for(
-                            cfg,
-                            spec,
-                            src.read_bytes().decode("utf-8", errors="surrogateescape"),
-                            src.name,
-                            own_flags,
-                            str(cfg.compiler_includes),
-                            src.resolve().parent,
-                            None,
-                            src.suffix or ".c",
-                        )
-                        cache.put(key, Path(obj).read_bytes())
+                for e in staged[name]:
+                    out[id(e)] = obj
+                    # Pin the batch-built object in the compile cache under the
+                    # identical key the single-file path uses — the next run
+                    # hits cache instead of re-batching.  Key on the file's OWN
+                    # flags (not the unioned batch flags) so keys match exactly.
+                    if cache is not None:
+                        with contextlib.suppress(OSError):
+                            src = Path(cfg.reversed_dir) / e.filepath
+                            _, own_cflags = resolve_compile_overrides(
+                                cfg,
+                                src.parent,
+                                getattr(e, "toolchain", ""),
+                                getattr(e, "cflags", ""),
+                                getattr(e, "module", ""),
+                            )
+                            own_flags = (
+                                safe_shlex_split(own_cflags)
+                                if isinstance(own_cflags, str)
+                                else list(own_cflags)
+                            )
+                            key = _cache_key_for(
+                                cfg,
+                                spec,
+                                src.read_bytes().decode("utf-8", errors="surrogateescape"),
+                                src.name,
+                                own_flags,
+                                str(cfg.compiler_includes),
+                                src.resolve().parent,
+                                None,
+                                src.suffix or ".c",
+                            )
+                            cache.put(key, Path(obj).read_bytes())
+            return group_out
         except Exception as exc:
             log.debug("batch group skipped: %s", exc)
+            return group_out
+
+    # Groups are independent workdirs — compile them in parallel (each is a
+    # ~1s container spawn; serial was the whole --full budget on real
+    # projects).  Workers default to the project's job count.
+    batch_jobs = max(1, min(getattr(cfg, "default_jobs", 4) or 4, len(groups)))
+    with _futures.ThreadPoolExecutor(max_workers=batch_jobs) as pool:
+        future_map = {
+            pool.submit(_compile_group, tc, gf, ms): (tc, gf)
+            for (tc, gf), ms in groups.items()
+            if len(ms) >= 2
+        }
+        for future in _futures.as_completed(future_map):
+            try:
+                out.update(future.result())
+            except Exception as exc:
+                log.debug("batch group skipped: %s", exc)
     return out
 
 
