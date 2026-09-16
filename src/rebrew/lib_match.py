@@ -65,7 +65,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.gen_flirt_pat import parse_archive, parse_coff_obj
-from rebrew.utils import container_runtime
+from rebrew.utils import config_path, container_runtime
 
 console = Console(stderr=True)
 
@@ -238,12 +238,12 @@ def vendored_objects(
     for entry in entries:
         if not isinstance(entry, dict) or marker not in str(entry.get("file", "")):
             continue
-        match = re.search(r"/Fo(\S+)", str(entry.get("command", "")))
+        match = re.search(r"[/\\]Fo(\S+)", str(entry.get("command", "")))
         if match is None:
             continue
-        produced = Path(match.group(1))
+        produced = config_path(match.group(1))
         if not produced.is_absolute():
-            produced = Path(str(entry.get("directory") or root)) / produced
+            produced = config_path(str(entry.get("directory") or root)) / produced
         if produced.is_file():
             found.append(produced)
     return found

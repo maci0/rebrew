@@ -37,7 +37,7 @@ from rebrew.matcher import (
 )
 from rebrew.sources import target_marker
 from rebrew.toolchain import TOOLCHAINS
-from rebrew.utils import read_source_text
+from rebrew.utils import config_path, read_source_text
 
 log = logging.getLogger(__name__)
 console = Console(stderr=True)
@@ -243,11 +243,11 @@ def resolve_build_params(
             cl_parts = cl.split()
         cl_parts_res = []
         for part in cl_parts:
-            p = cfg.root / part
+            p = cfg.root / config_path(part)
             cl_parts_res.append(str(p) if p.exists() else part)
         cl_resolved = " ".join(cl_parts_res)
     if inc is not None:
-        inc_path = cfg.root / inc
+        inc_path = cfg.root / config_path(inc)
         inc_resolved = str(inc_path) if inc_path.exists() else inc
 
     if not symbol and anno:

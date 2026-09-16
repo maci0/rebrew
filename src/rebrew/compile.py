@@ -79,7 +79,7 @@ from rebrew.toolchain import (
     cached_image_digest,
     run_toolchain,
 )
-from rebrew.utils import container_runtime, safe_shlex_split
+from rebrew.utils import config_path, container_runtime, safe_shlex_split
 
 # ---------------------------------------------------------------------------
 # Shared result type
@@ -518,14 +518,11 @@ def resolve_cl_command(cfg: ProjectConfig) -> list[str]:
         runner = cmd_parts[0]
         cmd_parts = cmd_parts[1:]
 
-    cl_rel = Path(cmd_parts[0]) if cmd_parts else Path("CL.EXE")
-    if (
-        cmd_parts
-        and not cl_rel.is_absolute()
-        and "/" not in cmd_parts[0]
-        and "\\" not in cmd_parts[0]
-        and not runner
-    ):
+    # Normalize Windows separators so project-relative ``tools\\msvc\\CL.EXE``
+    # resolves to tools/msvc/CL.EXE on Linux hosts.
+    cl_token = cmd_parts[0] if cmd_parts else "CL.EXE"
+    cl_rel = config_path(cl_token)
+    if cmd_parts and not cl_rel.is_absolute() and "/" not in cl_rel.as_posix() and not runner:
         # Bare executable name (e.g. a mingw/mingw toolchain on PATH) -
         # resolve via PATH instead of the project root.
         found = shutil.which(cmd_parts[0])

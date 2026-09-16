@@ -64,7 +64,7 @@ ensure-resembl:
 ensure-nasm:
 	@if ! command -v nasm >/dev/null 2>&1; then \
 	  echo "ERROR: nasm not on PATH (required for asm round-trip tests, same as CI)."; \
-	  echo "Install it, then re-run: e.g. apt install nasm / pacman -S nasm / brew install nasm"; \
+	  echo "Install it, then re-run: e.g. apt install nasm / pacman -S nasm / dnf install nasm"; \
 	  exit 1; \
 	fi
 

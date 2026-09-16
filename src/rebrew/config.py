@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 from rebrew.toolchain_spec import FlagsStyle
-from rebrew.utils import parse_int_literal
+from rebrew.utils import config_path, parse_int_literal
 from rebrew.workspace import walk_up_to_root
 
 
@@ -614,7 +614,7 @@ def _resolve(root: Path, rel: str | Path | None) -> Path | None:
     if not isinstance(rel, (str, Path)):
         _config_warn(f"Expected path string, got {type(rel).__name__}; ignoring")
         return None
-    p = Path(rel)
+    p = config_path(rel)
     if p.is_absolute():
         return p
     return root / p
