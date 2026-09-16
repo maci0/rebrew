@@ -25,7 +25,7 @@ ADD_EAX_EDX_01 = b"\x01\xd0"
 
 
 def _insn(mnemonic: str, op_str: str, raw: bytes) -> nd.Insn:
-    return nd.Insn(0x1000, mnemonic, op_str, raw)
+    return nd.Insn(va=0x1000, size=len(raw), mnemonic=mnemonic, op_str=op_str, raw=raw)
 
 
 class TestClassifyPair:

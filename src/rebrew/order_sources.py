@@ -1,31 +1,20 @@
 """order-sources — order source files by their first function's original VA.
 
-MSVC6 LINK places objects in command-line order and (without /Gy) does not
-reorder functions, so a recompiled binary's .text/.data layout equals its
-object link order.  Sorting the sources by each file's lowest original
-function VA reproduces the original layout — functions land at their
-original addresses (fixes reccmp "0 aligned") and the byte diff shrinks to
-real content differences.
-
-VAs come from the ``// FUNCTION: <module> 0x<VA>`` headers inside the
-files, plus an explicit ``--first-va`` table for library files without
-markers (e.g. zlib).  Files with no discoverable VA sort last (path order);
-``--exclude`` drops files absent from the original binary.
-
-Usage:
-    rebrew order-sources <src.c>... [--first-va zlib/adler32.c=0x10001000]
-                                    [--exclude gzio.c] [--json]
+Thin CLI over :mod:`rebrew.link_order` (which owns ``order_sources``,
+``file_va``, and the VA-order enforcement used by the CMake drift gate).
+Kept as its own command so ``rebrew order-sources`` prints an ordering
+without requiring a CMakeLists.txt.
 """
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import typer
 from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
+from rebrew.link_order import _base_key, file_va, order_sources
 
 console = Console(stderr=True)
 
@@ -34,65 +23,7 @@ app = typer.Typer(
     rich_markup_mode="rich",
 )
 
-_FUNC_RE = re.compile(r"^(?://|/\*)\s*FUNCTION:\s+\S+\s+0x([0-9A-Fa-f]+)", re.M)
-
-
-def file_va(path: Path) -> int | None:
-    """Lowest ``// FUNCTION:``/``/* FUNCTION: */`` VA in *path* (None when none).
-
-    Both marker styles are accepted: the block form is what rebrew emits for
-    C89-strict 16-bit compilers, and matching only ``//`` dropped those files
-    to the unknown-VA tail of the order.
-    """
-    try:
-        text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return None
-    vas = [int(m.group(1), 16) for m in _FUNC_RE.finditer(text)]
-    return min(vas) if vas else None
-
-
-def _base_key(name: str) -> str:
-    """Basename key for ``--first-va``/``--exclude`` matching.
-
-    Users pass paths like ``zlib/adler32.c`` while *files* are ``Path``
-    objects, so both sides normalize to the basename before comparison.
-    """
-    return name.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
-
-
-def order_sources(
-    files: list[Path],
-    first_va: dict[str, int] | None = None,
-    exclude: set[str] | None = None,
-) -> tuple[list[Path], list[str]]:
-    """Order *files* by first-function VA.
-
-    Returns ``(ordered, excluded_names)``: known-VA files sorted by VA, then
-    unknown-VA files in path order; *excluded* files (absent from the
-    original) are dropped.  ``first_va`` and ``exclude`` match on basenames,
-    so ``zlib/adler32.c=0x10001000`` matches ``src/zlib/adler32.c``.
-    """
-    first_by_base = {_base_key(k): v for k, v in (first_va or {}).items()}
-    exclude_bases = {_base_key(e) for e in (exclude or set())}
-    known: list[tuple[int, Path]] = []
-    unknown: list[Path] = []
-    excluded: list[str] = []
-    for f in files:
-        base = _base_key(f.name)
-        if base in exclude_bases:
-            excluded.append(f.name)
-            continue
-        # Presence check, not truthiness: an explicit --first-va of 0x0 is a
-        # real override and must not fall through to the marker.
-        va = first_by_base[base] if base in first_by_base else file_va(f)
-        if va is None:
-            unknown.append(f)
-        else:
-            known.append((va, f))
-    known.sort(key=lambda t: t[0])
-    unknown.sort(key=lambda p: str(p))
-    return [f for _, f in known] + unknown, excluded
+__all__ = ["_base_key", "app", "file_va", "order_sources"]
 
 
 @app.callback(invoke_without_command=True)
