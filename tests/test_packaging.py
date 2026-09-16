@@ -42,6 +42,28 @@ class TestPackagingMetadata:
         first = next(line for line in text.splitlines() if line.startswith("## "))
         assert first == "## [Unreleased]" or first.startswith(f"## [{__version__}]")
 
+    def test_every_git_tag_has_a_changelog_section(self) -> None:
+        """Release tags must keep their dated notes (no swallowed sections).
+
+        Past cuts dropped ``## [0.3.0]`` / ``## [0.9.0]`` headers into the
+        next release body; this pins the tag→section contract so it cannot
+        happen again without a failing packaging test.
+        """
+        import subprocess
+
+        proc = subprocess.run(
+            ["git", "tag", "-l", "v*"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        tags = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+        assert tags, "expected at least one v* tag"
+        text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        missing = [t for t in tags if f"## [{t.lstrip('v')}]" not in text]
+        assert missing == [], f"CHANGELOG.md missing sections for tags: {missing}"
+
     def test_contributing_major_line_matches_package(self) -> None:
         from rebrew import __version__
 

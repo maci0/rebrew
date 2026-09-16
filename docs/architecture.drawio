@@ -68,10 +68,10 @@
         </mxCell>
 
         <!-- L2 -->
-        <mxCell id="l2" value="L2  Intelligence and visualization (optional extras / sibling CLIs)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;fontStyle=1;fontSize=13;" vertex="1" parent="1">
+        <mxCell id="l2" value="L2  Intelligence and visualization (optional groups / sibling CLIs)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=6;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;fontStyle=1;fontSize=13;" vertex="1" parent="1">
           <mxGeometry x="40" y="472" width="1600" height="180" as="geometry"/>
         </mxCell>
-        <mxCell id="res" value="&lt;b&gt;resembl&lt;/b&gt;&lt;br&gt;MinHash + LSH asm similarity&lt;br&gt;own DB (not used by rebrew)&lt;br&gt;rebrew extra: resembl.scoring&lt;br&gt;verify_results.similarity 0–100" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="res" value="&lt;b&gt;resembl&lt;/b&gt;&lt;br&gt;MinHash + LSH asm similarity&lt;br&gt;own DB (not used by rebrew)&lt;br&gt;similarity group: resembl.scoring&lt;br&gt;verify_results.similarity 0–100" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="64" y="512" width="280" height="116" as="geometry"/>
         </mxCell>
         <mxCell id="recov" value="&lt;b&gt;recoverage&lt;/b&gt;&lt;br&gt;Bottle + VanJS coverage SPA&lt;br&gt;reads db/coverage.db only&lt;br&gt;imports nothing from rebrew&lt;br&gt;recoverage check CI gate" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
@@ -83,7 +83,7 @@
         <mxCell id="flirts" value="&lt;b&gt;rebrew-flirt-sigs&lt;/b&gt;&lt;br&gt;sibling .sig / .pat tree&lt;br&gt;REBREW_FLIRT_SIGS_DIR&lt;br&gt;merged under project flirt_sigs/&lt;br&gt;python-flirt, no IDA required" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1140" y="512" width="280" height="116" as="geometry"/>
         </mxCell>
-        <mxCell id="e-rb-res" value="optional extra: scoring.py" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7e22ce;fontSize=10;endArrow=block;" edge="1" parent="1" source="rb" target="res">
+        <mxCell id="e-rb-res" value="similarity group: scoring.py" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7e22ce;fontSize=10;endArrow=block;" edge="1" parent="1" source="rb" target="res">
           <mxGeometry relative="1" as="geometry"/>
         </mxCell>
         <mxCell id="e-arts-recov" value="coverage.db" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#7e22ce;fontSize=10;endArrow=block;" edge="1" parent="1" source="arts" target="recov">
@@ -541,7 +541,7 @@
         <mxCell id="res-lane" value="D. resembl (structural score) vs score_candidate (GA fitness) vs prove (semantics)" style="rounded=1;whiteSpace=wrap;html=1;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fillColor=#f3e8ff;strokeColor=#9333ea;fontColor=#581c87;fontStyle=1;fontSize=12;" vertex="1" parent="1">
           <mxGeometry x="40" y="746" width="1680" height="220" as="geometry"/>
         </mxCell>
-        <mxCell id="r1" value="&lt;b&gt;resembl.scoring&lt;/b&gt;&lt;br&gt;optional extra [similarity]&lt;br&gt;path-pin ../resembl&lt;br&gt;&lt;br&gt;tokenize asm: REG / IMM / MEM_SIZE&lt;br&gt;weighted shingles, MinHash&lt;br&gt;hybrid Jaccard + rapidfuzz ratio&lt;br&gt;&lt;br&gt;code_similarity() → 0–100 float&lt;br&gt;used by verify.py for every function&lt;br&gt;None if extra missing (not a fake 0)&lt;br&gt;resembl's own LSH DB is not used" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="r1" value="&lt;b&gt;resembl.scoring&lt;/b&gt;&lt;br&gt;uv sync --group similarity&lt;br&gt;path-pin ../resembl&lt;br&gt;&lt;br&gt;tokenize asm: REG / IMM / MEM_SIZE&lt;br&gt;weighted shingles, MinHash&lt;br&gt;hybrid Jaccard + rapidfuzz ratio&lt;br&gt;&lt;br&gt;code_similarity() → 0–100 float&lt;br&gt;used by verify.py for every function&lt;br&gt;None if group missing (not a fake 0)&lt;br&gt;resembl's own LSH DB is not used" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="786" width="420" height="160" as="geometry"/>
         </mxCell>
         <mxCell id="r2" value="&lt;b&gt;matcher.scoring (always on)&lt;/b&gt;&lt;br&gt;GA fitness, no resembl required&lt;br&gt;&lt;br&gt;byte_score (reloc-zeroed, prologue-weighted)&lt;br&gt;reloc_score · mnemonic_score · prologue_bonus&lt;br&gt;structural_similarity() for near-diag&lt;br&gt;capstone + numpy only&lt;br&gt;&lt;br&gt;similar.py is a separate clone finder&lt;br&gt;(mnemonic-histogram, not resembl)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
