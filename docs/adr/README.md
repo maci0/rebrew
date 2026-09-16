@@ -27,9 +27,9 @@ itself, and the consequences (including trade-offs accepted).
 | 003 | NE import parsing degrades to module list, never fabricates |
 | 004 | Intake re-discovery prunes only exact auto-stubs |
 | 005 | Toolchain detection: backend order + NE marker family + linker fallback |
-| 006 | Standardized toolchain invocation (docker-first, host fallback) *(amended by 007, 008, 011)* |
+| 006 | Standardized toolchain invocation (docker-first, host fallback) *(amended by 007, 008, 011, 016)* |
 | 007 | Complete containerization + unified byte-reproducibility gate *(amended by 011)* |
-| 008 | Docker-only toolchain execution (no host wine/dosbox) |
+| 008 | Docker-only toolchain execution (no host wine/dosbox) *(amended by 016)* |
 | 009 | Cross-target function import (`rebrew cross-import`) |
 | 010 | Shared multi-version sources (`src/shared` + per-target defines) |
 | 011 | Toolchain build source moves to the sibling rebrew-toolchains checkout |
@@ -39,3 +39,7 @@ itself, and the consequences (including trade-offs accepted).
 | 015 | Compile backends: local docker images plus the recompile service *(amended by 016)* |
 | 016 | Image-backed native compiler profiles (gcc-14.2.0, clang-18.1.8, mingw-16.2.0, watcom-2.0-win16) |
 | 017 | Standardized toolchain profile names (`<image-family>-<version>`) |
+| 018 | Single-file verify scope and baseline (`rebrew verify <file.c> --compare`) |
+| 019 | Todo blocked category (`rebrew todo -c blocked`) |
+| 020 | Init scaffolding skill (`rebrew-init`) |
+| 021 | Batch container compiles (`compile_batch_objs` / `precompile_batch`) |

@@ -1,14 +1,18 @@
 # ADR-006: Standardized toolchain invocation (docker-first, host fallback)
 
-- **Status**: Accepted
+- **Status**: Amended by [ADR-007](007-complete-containerization-reproducibility.md),
+  [ADR-008](008-docker-only-execution.md),
+  [ADR-011](011-external-toolchains-checkout.md),
+  [ADR-016](016-image-backed-native-profiles.md)
 - **Date**: 2026-08
-- **Amended by**: [ADR-007](007-complete-containerization-reproducibility.md)
+- **Amended by (detail)**: [ADR-007](007-complete-containerization-reproducibility.md)
   (pinned-source unification), [ADR-008](008-docker-only-execution.md)
   (docker-only — the host fallback described below no longer exists for
   Windows/DOS toolchains), [ADR-011](011-external-toolchains-checkout.md)
   (build specs moved out of this repo to the sibling rebrew-toolchains
-  checkout).  Read this ADR for the model's origin; 007/008/011 for its
-  current shape.
+  checkout), [ADR-016](016-image-backed-native-profiles.md)
+  (remaining native-PATH profiles became image-backed).  Read this ADR
+  for the model's origin; 007/008/011/016 for its current shape.
 
 ## Context
 
@@ -32,9 +36,10 @@ finicky installer — build once, share).
   host binary, image entry shim, flag style, object extension, vendored
   host path) and a runner that picks backend in order: **docker image
   present → vendored host path → PATH binary**.  *(The docker→host
-  fallback was removed for every Windows/DOS toolchain by ADR-008 —
-  execution is docker-only there; native-Linux specs like mingw-16.2.0 and
-  watcom-2.0-win16 still exec their vendored/PATH binary directly.)*
+  fallback was removed for every Windows/DOS toolchain by ADR-008;
+  ADR-016 made the remaining native-PATH profiles image-backed too —
+  every shipped profile compiles through its docker image; only a plugin
+  toolchain without an `image` still execs a vendored/PATH binary.)*
 - `rebrew toolchain list/status/pull/build/vendor/smoke` exposes the
   registry.
 - `toolchain/<family>/<version>-<arch>/Dockerfile` are the
@@ -65,9 +70,9 @@ finicky installer — build once, share).
 - A toolchain can be shared/pinned via its image tag — reproducible
   matching across machines (the eventual goal for CI and the corpus).
 - Host fallback keeps existing vendored toolchains working without docker.
-  *(Superseded for Windows/DOS toolchains by ADR-008 — execution is
-  docker-only there; the vendored trees remain as the image build source,
-  see ADR-007/011.)*
+  *(Superseded: Windows/DOS by ADR-008; remaining native-PATH profiles by
+  ADR-016 — every shipped profile is image-backed; vendored trees remain
+  as the image build source, see ADR-007/011.)*
 - Watcom/32-bit OMF objects are converted to COFF via the vendored
   **objconv** and parsed by LIEF — 32-bit OMF byte matching is enabled.
   The vendored objconv carries the 16-bit OMF fix from the objconv fork

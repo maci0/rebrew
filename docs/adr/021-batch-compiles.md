@@ -15,7 +15,7 @@ hundreds.
 
 ## Decision
 
-- `compile_batch(cfg, [(source, cflags, toolchain, workdir)], ...)`:
+- `precompile_batch(cfg, entries, ...)` / `compile_batch_objs(...)`:
   group by (toolchain image, cflags, include set), one `docker run` per
   group with N source files, default-named outputs collected per file.
   GCC: `gcc -O2 -c a.c b.c ...` in one workdir (objects land beside

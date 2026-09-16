@@ -1,6 +1,9 @@
 # ADR-008: Docker-only toolchain execution (no host wine/dosbox)
 
-- **Status**: Accepted
+- **Status**: Amended by [ADR-016](016-image-backed-native-profiles.md)
+  (the remaining native-Linux exceptions named below — `mingw-16.2.0`,
+  `watcom-2.0-win16` — are image-backed now; every shipped profile runs
+  through its docker image).
 - **Date**: 2026-08
 
 ## Context
@@ -35,9 +38,10 @@ Execution is **docker-only for every Windows/DOS toolchain**:
 
 - `run_toolchain` invokes the image and nothing else for wine/dosbox
   runtime specs; a missing image is a hard `ToolchainError` telling the
-  user to `rebrew toolchain build <name>`.  Native-Linux toolchains
-  without an image (mingw-16.2.0, watcom-2.0-win16 `wcc`) still exec their vendored/PATH
-  binary directly — they are not Windows binaries, no wine involved.
+  user to `rebrew toolchain build <name>`.  *(Native-Linux exceptions
+  named at acceptance — `mingw-16.2.0`, `watcom-2.0-win16` — became
+  image-backed in ADR-016; only a plugin toolchain registered without an
+  `image` still execs a vendored/PATH binary.)*
 - `compile_to_obj` routes every registered profile through the runner;
   the direct-wine branch is gone.  Project include dirs are
   **same-path bind-mounted** into the container (`-v <dir>:<dir>` at the
