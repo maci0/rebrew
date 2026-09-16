@@ -47,6 +47,7 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
+          python-version: "3.13"
       - name: Install dependencies
         # --all-extras matters for mypy: prove.py's angr/SimProcedure stubs
         # only type-check correctly with angr installed (otherwise mypy
@@ -122,6 +123,7 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
+          python-version: "3.13"
       - name: Install dependencies
         run: uv sync --frozen --all-extras --group similarity
       - name: Run pre-commit hooks
@@ -143,10 +145,14 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
+          # Explicit pin (matches .python-version): do not float with the
+          # runner image if the checkout file is ever absent.
+          python-version: "3.13"
       - name: Build sdist and wheel
         env:
           TZ: UTC
           LC_ALL: C
+          PYTHONHASHSEED: "0"
         run: |
           set -euo pipefail
           export SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
@@ -167,12 +173,16 @@ jobs:
         # The sdist is excluded — setuptools leaves entry mtimes unnormalized
         # (documented Makefile limitation; wheels are the reproducibility
         # contract).
+        env:
+          TZ: UTC
+          LC_ALL: C
+          PYTHONHASHSEED: "0"
         run: |
           set -euo pipefail
           shopt -s nullglob
           export SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
           first_sha=$(sha256sum dist/*.whl | cut -d' ' -f1)
-          TZ=UTC LC_ALL=C uv build --wheel --no-cache --out-dir dist-repro 2>&1 | tail -1
+          uv build --wheel --no-cache --out-dir dist-repro 2>&1 | tail -1
           second_sha=$(sha256sum dist-repro/*.whl | cut -d' ' -f1)
           if [[ "$first_sha" != "$second_sha" ]]; then
             echo "::error::wheel is not reproducible (first=$first_sha second=$second_sha)" >&2
@@ -209,6 +219,7 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
+          python-version: "3.13"
       - name: Install package
         run: uv sync --frozen
       - name: CLI contract (round-trip / verify flags)

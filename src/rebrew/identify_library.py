@@ -268,7 +268,13 @@ def _flirt_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
                 f"[yellow]warning:[/yellow] uncompileable signature {sig_file.name}: {exc}"
             )
             continue
-        for m in match_text(matcher, code_data, text_sec.va, arch=getattr(info, "arch", "")):
+        for m in match_text(
+            matcher,
+            code_data,
+            text_sec.va,
+            arch=getattr(info, "arch", ""),
+            endian=getattr(info, "endian", ""),
+        ):
             out.append(
                 LibCandidate(
                     va=m["va"],

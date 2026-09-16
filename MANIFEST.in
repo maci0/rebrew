@@ -10,5 +10,10 @@ prune toolchain-images
 prune .agents
 prune .github
 prune .scratch
+prune .cache
+prune build
+prune dist
+prune .venv
+prune venv
 global-exclude *.py[cod]
 global-exclude __pycache__

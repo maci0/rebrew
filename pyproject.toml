@@ -1,7 +1,9 @@
 [build-system]
-# Pin upper bound so PEP 517 isolated builds cannot silently pick a new
-# setuptools major that changes wheel/sdist layout or metadata.
-requires = ["setuptools>=68.0,<81"]
+# Exact pin: `uv build` resolves build-system.requires from PyPI on every
+# isolated build (not uv.lock), so a range would let a new setuptools
+# patch silently change wheel/sdist layout.  Keep below 81 — that is the
+# last line known to match this project's SOURCE_DATE_EPOCH wheel contract.
+requires = ["setuptools==80.10.2"]
 build-backend = "setuptools.build_meta"
 
 [project]

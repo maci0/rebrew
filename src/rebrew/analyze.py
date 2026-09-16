@@ -369,7 +369,13 @@ def _collect_flirt(cfg: Any, info: Any) -> dict[str, Any] | None:
         code_data = info.data[text_sec.file_offset : text_sec.file_offset + text_sec.raw_size]
         matches: list[dict[str, Any]] = []
         names_seen: set[str] = set()
-        for m in match_text(matcher, code_data, text_sec.va, arch=getattr(info, "arch", "")):
+        for m in match_text(
+            matcher,
+            code_data,
+            text_sec.va,
+            arch=getattr(info, "arch", ""),
+            endian=getattr(info, "endian", ""),
+        ):
             if m["name"] not in names_seen:
                 names_seen.add(m["name"])
                 matches.append({"va": f"0x{m['va']:08x}", "size": m["size"], "name": m["name"]})

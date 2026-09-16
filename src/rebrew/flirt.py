@@ -270,25 +270,29 @@ def load_signatures_for(dirs: list[Path], arch: str = "") -> list[Any]:
     return _parse_sig_files(files)
 
 
-def _capstone_for_arch(arch: str) -> tuple[int, int]:
+def _capstone_for_arch(arch: str, endian: str = "") -> tuple[int, int]:
     """Capstone ``(cs_arch, mode)`` for a rebrew arch string.
 
     ``x86_16`` is decoded as 16-bit — the 32-bit default mis-sizes every Win16
-    or DOS function.
+    or DOS function.  MIPS follows the file's own endianness (PSP/PS1 are
+    little-endian, the N64/PS2 console targets are big-endian); PPC and SH are
+    big-endian ISAs.  *endian* is ``"little"``/``"big"``/``""`` (unknown).
     """
     import capstone
 
+    little = endian == "little"
+    mips_endian = capstone.CS_MODE_LITTLE_ENDIAN if little else capstone.CS_MODE_BIG_ENDIAN
     table: dict[str, tuple[int, int]] = {
         "x86_16": (capstone.CS_ARCH_X86, capstone.CS_MODE_16),
         "x86_32": (capstone.CS_ARCH_X86, capstone.CS_MODE_32),
         "x86_64": (capstone.CS_ARCH_X86, capstone.CS_MODE_64),
         "arm32": (capstone.CS_ARCH_ARM, capstone.CS_MODE_ARM),
         "arm64": (capstone.CS_ARCH_ARM64, capstone.CS_MODE_ARM),
-        "mips32": (capstone.CS_ARCH_MIPS, capstone.CS_MODE_MIPS32 | capstone.CS_MODE_BIG_ENDIAN),
-        "mips64": (capstone.CS_ARCH_MIPS, capstone.CS_MODE_MIPS64 | capstone.CS_MODE_BIG_ENDIAN),
-        "ppc32": (capstone.CS_ARCH_PPC, capstone.CS_MODE_32),
-        "ppc64": (capstone.CS_ARCH_PPC, capstone.CS_MODE_64),
-        "sh2": (capstone.CS_ARCH_SH, capstone.CS_MODE_SH2),
+        "mips32": (capstone.CS_ARCH_MIPS, capstone.CS_MODE_MIPS32 | mips_endian),
+        "mips64": (capstone.CS_ARCH_MIPS, capstone.CS_MODE_MIPS64 | mips_endian),
+        "ppc32": (capstone.CS_ARCH_PPC, capstone.CS_MODE_32 | capstone.CS_MODE_BIG_ENDIAN),
+        "ppc64": (capstone.CS_ARCH_PPC, capstone.CS_MODE_64 | capstone.CS_MODE_BIG_ENDIAN),
+        "sh2": (capstone.CS_ARCH_SH, capstone.CS_MODE_SH2 | capstone.CS_MODE_BIG_ENDIAN),
     }
     return table.get(arch, (capstone.CS_ARCH_X86, capstone.CS_MODE_32))
 
@@ -312,7 +316,7 @@ def arch_stride(arch: str) -> int:
     return _ARCH_STRIDE.get(arch, _FUNC_ALIGNMENT)
 
 
-def find_func_size(code_data: bytes, offset: int, arch: str = "x86_32") -> int:
+def find_func_size(code_data: bytes, offset: int, arch: str = "x86_32", endian: str = "") -> int:
     """Estimate function size by disassembling to the arch's terminator.
 
     Capstone decodes from *offset* so a ``0xC3``/``0xC2`` byte that is an
@@ -321,6 +325,10 @@ def find_func_size(code_data: bytes, offset: int, arch: str = "x86_32") -> int:
     contributing.  RISC terminators are architecture-specific (``jr $ra`` with
     its delay slot, ``bx lr``, ``blr``, ``rts``).  Falls back to the old byte
     window when capstone is unavailable.
+
+    *arch* is a rebrew arch string (``x86_32``, ``mips32``, ``arm32``, …), not
+    the signature family — mis-decoding MIPS as x86 silently returns the whole
+    4096-byte scan window for every function.
     """
     if offset < 0:
         offset = 0
@@ -331,7 +339,7 @@ def find_func_size(code_data: bytes, offset: int, arch: str = "x86_32") -> int:
     try:
         import capstone
 
-        cs_arch, mode = _capstone_for_arch(arch)
+        cs_arch, mode = _capstone_for_arch(arch, endian)
         md: Any = capstone.Cs(cs_arch, mode)
         # skipdata=True makes an undecodable byte emit a `.byte` pseudo-insn
         # (the default skipdata_mnem).  With skipdata=False capstone simply
@@ -401,6 +409,7 @@ def match_text(
     *,
     stride: int | None = None,
     arch: str = "x86_32",
+    endian: str = "",
     max_ambiguous: int = _MAX_AMBIGUOUS,
 ) -> list[dict[str, Any]]:
     """Scan *code_data* with a compiled FLIRT *matcher*.
@@ -412,7 +421,8 @@ def match_text(
     analyze``, and ``rebrew identify-library``.
 
     *stride* defaults to the probe stride for *arch* (4 bytes for RISC, 16 for
-    x86); function sizes are decoded with the same architecture.
+    x86); function sizes are decoded with the same architecture and *endian*
+    (``"little"``/``"big"``/``""``) — MIPS ships in both byte orders.
     """
     if stride is None:
         stride = arch_stride(arch)
@@ -437,7 +447,11 @@ def match_text(
             continue  # overlapping stride windows can report the same VA
         seen_vas.add(va)
         matches.append(
-            {"va": va, "size": find_func_size(code_data, offset, arch), "name": names[0]}
+            {
+                "va": va,
+                "size": find_func_size(code_data, offset, arch, endian),
+                "name": names[0],
+            }
         )
     return matches
 
@@ -510,7 +524,12 @@ def main(
     # are worth loading (the full library does not fit in one matcher).
     console.print(f"Analyzing {final_exe}...")
     info = load_binary(final_exe)
-    arch = _ARCH_FAMILIES.get(getattr(info, "arch", "") or "", "")
+    # Two arch strings, deliberately: the *family* ("mips") selects which
+    # signatures to load, while capstone and the probe stride need the native
+    # arch ("mips32") and the file's byte order.
+    native_arch = getattr(info, "arch", "") or ""
+    native_endian = getattr(info, "endian", "") or ""
+    arch = _ARCH_FAMILIES.get(native_arch, "")
 
     # 2. Load FLIRT signatures: an explicit dir, else the project flirt_sigs/
     # merged with the rebrew-flirt-sigs checkout (standard library sigs).
@@ -557,7 +576,7 @@ def main(
     skipped = 0
     matches_list: list[dict[str, Any]] = []
     ambiguous_list: list[dict[str, Any]] = []
-    stride = arch_stride(arch)
+    stride = arch_stride(native_arch or arch)
     max_ambiguous = _MAX_AMBIGUOUS
 
     # Guard: FLIRT signatures need at least _MIN_MATCH_WINDOW bytes to match.
@@ -597,7 +616,7 @@ def main(
             # size, so the size gate below does not apply here.
             skipped += 1
             if show_ambiguous:
-                func_size = find_func_size(code_data, offset, arch)
+                func_size = find_func_size(code_data, offset, native_arch, native_endian)
                 ambiguous_list.append(
                     {
                         "va": f"0x{va:08x}",
@@ -612,7 +631,7 @@ def main(
                         shown += ", ..."
                     console.print(f"[dim]~ 0x{va:08x} ({func_size:4d}B): ambiguous: {shown}[/dim]")
             return
-        func_size = find_func_size(code_data, offset, arch)
+        func_size = find_func_size(code_data, offset, native_arch, native_endian)
         if not force and func_size < min_size:
             return
         if json_output:

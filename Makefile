@@ -38,7 +38,7 @@ check:
 
 # Build sdist + wheel under a pinned locale/timezone for deterministic wheels
 build:
-	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C uv build
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 uv build
 
 # Run all non-mutating verification gates (mirrors CI: lint + test jobs
 # plus fixture freshness and idempotency, which CI runs in the test job).
@@ -64,7 +64,7 @@ mypy:
 # push except the release commit, since __version__ stays equal to the last
 # tag during normal development. Run `make release-check` before tagging.
 release-check:
-	@set -eu; \
+	@set -euo pipefail; \
 	V=$$(uv run python -c "from rebrew import __version__; print(__version__)"); \
 	LAST=$$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0); \
 	LASTV=$${LAST#v}; \

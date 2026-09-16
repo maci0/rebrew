@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from rebrew.flirt import find_func_size, iter_match_offsets
+from rebrew.flirt import arch_stride, find_func_size, iter_match_offsets
 
 
 class TestFindFuncSize:
@@ -94,3 +94,40 @@ class TestUndecodableByteEndsScan:
         it, so the function was reported as the full window (here 6 bytes)."""
         # nop; <invalid VEX2 prefix>; nop; ret
         assert find_func_size(b"\x90\xc4\xe2\x78\x90\xc3", 0) == 1
+
+
+class TestRiscFunctionSizing:
+    """RISC terminators need the file's own arch *and* byte order.
+
+    ``find_func_size`` takes a rebrew arch string ("mips32"), while the CLI's
+    signature-loading path uses the family ("mips").  Passing the family
+    silently decoded MIPS as x86 and returned the whole 4096-byte scan window
+    for every function.  MIPS ships little-endian (PSP/PS1) and big-endian
+    (N64/PS2), so the order is a parameter too.
+    """
+
+    # addiu sp,sp,-8 ; li v0,0 ; jr $ra ; nop
+    _MIPS = (0x27BDFFF8, 0x24020000, 0x03E00008, 0x00000000)
+
+    def test_little_endian_mips_ends_after_jr_ra_delay_slot(self) -> None:
+        code = b"".join(w.to_bytes(4, "little") for w in self._MIPS)
+        assert find_func_size(code, 0, "mips32", "little") == 16
+
+    def test_big_endian_mips(self) -> None:
+        code = b"".join(w.to_bytes(4, "big") for w in self._MIPS)
+        assert find_func_size(code, 0, "mips32", "big") == 16
+
+    def test_arm32_bx_lr(self) -> None:
+        code = (0xE3A00000).to_bytes(4, "little") + (0xE12FFF1E).to_bytes(4, "little")
+        assert find_func_size(code, 0, "arm32") == 8
+
+    def test_ppc_blr(self) -> None:
+        code = (0x4E800020).to_bytes(4, "big")
+        assert find_func_size(code, 0, "ppc32", "big") == 4
+
+    def test_risc_probe_stride_is_one_instruction(self) -> None:
+        assert arch_stride("mips32") == 4
+        assert arch_stride("arm32") == 4
+        assert arch_stride("sh2") == 2
+        # the family name is not an arch string — it must not select a stride
+        assert arch_stride("mips") == 16
