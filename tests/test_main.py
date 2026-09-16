@@ -42,3 +42,20 @@ class TestUmbrellaCli:
         r = runner.invoke(app, [])
         assert r.exit_code == 2  # usage error — a command is required
         assert "Missing command" in r.output
+
+    def test_compose_prints_discovery_warnings_via_service(self) -> None:
+        """Duplicate-plugin warnings resolve CONSOLE_SERVICE through the
+        context instead of the module-global console (bypass)."""
+        from rebrew.main import app as global_app
+        from rebrew.main import compose
+        from rebrew.plugin import CLI_SERVICE, CONSOLE_SERVICE
+
+        before = len(global_app.registered_commands)
+        ctx, _scope = compose()
+        assert ctx.resolve(CLI_SERVICE) is not None
+        assert ctx.resolve(CONSOLE_SERVICE) is not None
+        added = len(global_app.registered_commands) - before
+        assert added > 0
+        # Withdrawing the console deactivates every mounted component.
+        ctx.unprovide(CONSOLE_SERVICE)
+        assert len(global_app.registered_commands) == before
