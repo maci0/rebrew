@@ -133,7 +133,7 @@ class TestDeltaOverResembl:
     """These two functions are the delta over ``resembl``; do not reimplement either there.
 
     ``resembl`` (the sibling project, consumed through the optional
-    ``similarity`` extra) is the similarity engine: MinHash + LSH over a
+    ``similarity`` dependency group) is the similarity engine: MinHash + LSH over a
     persisted cross-project corpus, fragment queries, a hybrid
     Jaccard/Levenshtein score, and a snippet key that is already the SHA256 of
     its normalized code, so identical snippets collide in its index.  What it

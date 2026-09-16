@@ -1,7 +1,9 @@
 .PHONY: setup test lint format format-check check build all
 
 # Prefer lockfile-pinned deps. Override with `make setup UV_SYNC_FLAGS=` if needed.
-UV_SYNC_FLAGS ?= --frozen --all-extras
+# --group similarity pulls the sibling resembl path dep (not a PyPI extra);
+# --group m2c is opt-in (git-only decompiler) — add it when exercising fetch_m2c.
+UV_SYNC_FLAGS ?= --frozen --all-extras --group similarity
 
 # Reproducible package builds: honor SOURCE_DATE_EPOCH when set; otherwise use
 # the committer timestamp (or 0 for a non-git tree). Wheel builds with this set

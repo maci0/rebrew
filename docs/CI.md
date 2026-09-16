@@ -5,7 +5,7 @@ Suggested gates for reverse-engineering workspaces that use rebrew.
 ## Package CI (this repo)
 
 GitHub Actions (`.github/workflows/ci.yml`) runs lint, the full unit test suite
-across the supported Python versions (3.12–3.14) — including a fixture-freshness
+across the supported Python versions (3.13–3.14) — including a fixture-freshness
 check (`tools/gen_fixtures.py --check`) and an idempotency sweep over the
 offline `--json` CLI surface — a pre-commit hook-parity job, and a package job
 that builds the sdist/wheel under `SOURCE_DATE_EPOCH` and installs the wheel
@@ -15,10 +15,12 @@ It does **not** require a target binary or MSVC toolchain.
 
 Every job that runs a uv command first clones the sibling `resembl` repo
 (`maci0/resembl`, tag `v1.0.0`) into the directory above the workspace:
-`pyproject.toml`'s `[tool.uv.sources]` resolves the `similarity` extra's
+`pyproject.toml`'s `[tool.uv.sources]` resolves the `similarity` group's
 `resembl` from `../resembl`, so uv fails to build the installation plan when
-that checkout is absent — even for a sync that does not install the extra.
+that checkout is absent — even for a sync that does not install the group.
 Keep the cloned tag in step with the `resembl` version in `uv.lock`.
+Dev installs use `uv sync --frozen --all-extras --group similarity` (Makefile
+`make setup`); the `m2c` git dep is a separate `--group m2c` opt-in.
 
 The workflow sets `_TYPER_FORCE_DISABLE_TERMINAL`, typer's switch for the
 forced-ANSI mode it enables whenever `GITHUB_ACTIONS` is set. Without it the

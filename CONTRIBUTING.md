@@ -18,8 +18,8 @@ pinned docker image).
 ## Quick commands
 
 ```bash
-make setup                    # uv sync --frozen --all-extras + pre-commit install
-# or: uv sync --frozen --all-extras
+make setup                    # uv sync --frozen --all-extras --group similarity + pre-commit install
+# or: uv sync --frozen --all-extras --group similarity
 uv run pytest tests/ -q       # full suite (~3000 tests)
 uv run ruff check src/ tests/ tools/
 uv run mypy

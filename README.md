@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/mascot.png" alt="Rebrew mascot" width="256" />
+  <img src="https://raw.githubusercontent.com/maci0/rebrew/main/docs/mascot.png" alt="Rebrew mascot" width="256" />
 </p>
 
 # ☕ Rebrew
@@ -104,7 +104,7 @@ Five bundled skills for AI coding agent integration:
 > executes inside its toolchain image (wine/DOSBox live in the image; there is
 > no host wine path) — build or pull it with `rebrew toolchain build <name>`
 > (see [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md)). Analysis-only commands
-> (`asm`, `analyze`, `flirt`, `catalog`, …) are pure Python 3.12+ and have no
+> (`asm`, `analyze`, `flirt`, `catalog`, …) are pure Python 3.13+ and have no
 > host-OS requirement.
 
 ```bash
@@ -287,8 +287,8 @@ codegen differences.  Profile selection happens automatically on
 
 ```bash
 cd rebrew/
-make setup                 # uv sync --frozen --all-extras + pre-commit hooks
-# or: uv sync --frozen --all-extras
+make setup                 # uv sync --frozen --all-extras --group similarity + pre-commit hooks
+# or: uv sync --frozen --all-extras --group similarity
 uv run pytest tests/ -v    # run tests
 uv run ruff check src/ tests/ tools/
 uv run ruff format src/ tests/ tools/

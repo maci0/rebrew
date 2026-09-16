@@ -18,7 +18,7 @@ It is **not a second similarity engine**.  Similarity ranking is
 corpus answers fragment queries that are "a small fragment of a larger
 function" and already keys every snippet by the SHA256 of its normalized
 code, so identical functions collide there.  rebrew consumes resembl's
-scoring core through the optional ``similarity`` extra
+scoring core through the optional ``similarity`` dependency group
 (``rebrew.matcher.scoring.code_similarity``).  Everything here is the
 opposite case: in-process, exact, one target, no index, no persistence.
 Cross-project duplicate detection, near-duplicate clustering, or a fragment
@@ -32,10 +32,10 @@ Keys are built from the diff path's register stripping
 thunks that differ only in the address they jump to land in one cluster.
 
 resembl's ``string_normalize``/``code_tokenize`` normalize too, but they are
-not reused here.  Two reasons: resembl is an optional extra
-(``pyproject.toml [similarity]``), and a required import would turn
-``rebrew similar --cluster`` into a feature that fails on a plain install;
-and they produce one flat token stream for a whole snippet, with no
+not reused here.  Two reasons: resembl is an optional dependency group
+(``pyproject.toml [dependency-groups].similarity``), and a required import
+would turn ``rebrew similar --cluster`` into a feature that fails on a plain
+install; and they produce one flat token stream for a whole snippet, with no
 instruction boundaries, which cannot yield the ``(left_va, right_va)``
 offsets :func:`find_common_runs` exists to report.
 
