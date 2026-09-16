@@ -17,11 +17,24 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
 _WIBO_API_URL = "https://api.github.com/repos/decompals/wibo/releases/latest"
 _WIBO_DEFAULT_PATH = Path("tools/wibo")
+
+#: Hosts GitHub release assets may resolve to.  A compromised or MITM'd
+#: release JSON must not redirect ``httpx`` at arbitrary URLs (SSRF /
+#: internal-metadata pivot).  api.github.com is only for the metadata GET.
+_WIBO_DOWNLOAD_HOSTS = frozenset(
+    {
+        "github.com",
+        "objects.githubusercontent.com",
+        "github-releases.githubusercontent.com",
+        "release-assets.githubusercontent.com",
+    }
+)
 
 
 def _wibo_asset_name() -> str:
@@ -44,6 +57,37 @@ def _wibo_asset_name() -> str:
 
 
 _NETWORK_TIMEOUT_S = 30  # Fail fast rather than hang indefinitely in CI/automation
+
+
+def _trusted_wibo_download_url(url: str) -> str:
+    """Return *url* when it is an https GitHub release asset URL; else raise.
+
+    Matches the same-origin discipline used by :mod:`rebrew.recompile_client`:
+    release metadata can name any ``browser_download_url``, so the client must
+    refuse off-GitHub hosts before fetching bytes (or following redirects).
+    """
+    parsed = urlparse(url.strip())
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or host not in _WIBO_DOWNLOAD_HOSTS or not parsed.path:
+        raise RuntimeError(
+            f"wibo release asset download URL is not a trusted GitHub https host: {url!r}"
+        )
+    return url
+
+
+def _get_with_trusted_redirects(url: str) -> httpx.Response:
+    """GET *url*, following redirects only while each hop stays on the allow-list."""
+    current = _trusted_wibo_download_url(url)
+    for _ in range(10):
+        resp = httpx.get(current, timeout=_NETWORK_TIMEOUT_S, follow_redirects=False)
+        if resp.status_code in {301, 302, 303, 307, 308}:
+            location = resp.headers.get("location")
+            if not location:
+                raise RuntimeError(f"wibo download redirect missing Location from {current!r}")
+            current = _trusted_wibo_download_url(urljoin(current, location))
+            continue
+        return resp
+    raise RuntimeError(f"wibo download exceeded redirect limit from {url!r}")
 
 
 def _read_release_metadata() -> dict[str, Any]:
@@ -95,10 +139,13 @@ def download_wibo(dest: Path) -> str:
     if not isinstance(digest, str) or not digest.startswith("sha256:"):
         raise RuntimeError(f"wibo release asset missing SHA256 digest: {asset_name}")
     expected_sha256 = digest.removeprefix("sha256:")
+    # Validate before the GET so a poisoned browser_download_url never leaves
+    # the process (SSRF against link-local / intranet listeners).
+    download_url = _trusted_wibo_download_url(download_url)
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
-        resp = httpx.get(download_url, timeout=_NETWORK_TIMEOUT_S, follow_redirects=True)
+        resp = _get_with_trusted_redirects(download_url)
         resp.raise_for_status()
     except httpx.HTTPError as exc:
         raise RuntimeError(

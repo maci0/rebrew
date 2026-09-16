@@ -212,12 +212,28 @@ def _copy_agent_skills(dest: Path, target_name: str) -> None:
         return
 
     dest_skills = dest / ".agents" / "skills"
+    dest_root = dest_skills.resolve()
+    written = 0
     for rel, data in files.items():
-        out = dest_skills / rel
+        # User/community overlays (REBREW_SKILLS_DIR) feed this map: refuse
+        # absolute paths and ``..`` components so a hostile skill tree cannot
+        # write outside ``.agents/skills``.
+        rel_path = Path(rel)
+        if rel_path.is_absolute() or ".." in rel_path.parts:
+            console.print(f"[yellow]warning:[/yellow] skipping unsafe skill path {rel!r}")
+            continue
+        out = (dest_skills / rel_path).resolve()
+        if not out.is_relative_to(dest_root):
+            console.print(f"[yellow]warning:[/yellow] skipping escaping skill path {rel!r}")
+            continue
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(data)
+        written += 1
 
-    console.print("[green]Created .agents/skills/[/] (AI workflow instructions)")
+    if written:
+        console.print("[green]Created .agents/skills/[/] (AI workflow instructions)")
+    else:
+        console.print("[yellow]warning:[/yellow] no agent-skills written (all paths skipped).")
 
 
 def _write_completion_scripts(project_root: Path) -> list[Path]:

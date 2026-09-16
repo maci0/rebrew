@@ -652,6 +652,22 @@ class TestInitAgentSkills:
         _copy_agent_skills(tmp_path, "test")
         assert (tmp_path / ".agents" / "skills").is_dir()
 
+    def test_skips_traversing_skill_paths(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Hostile overlay keys with ``..`` must not write outside ``.agents/skills``."""
+        from rebrew import init as init_mod
+
+        outside = tmp_path / "outside.txt"
+        monkeypatch.setattr(
+            init_mod,
+            "_agent_skill_files",
+            lambda _target: {"../outside.txt": b"pwned"},
+        )
+        init_mod._copy_agent_skills(tmp_path, "server.dll")
+        assert not outside.exists()
+        assert list((tmp_path / ".agents" / "skills").rglob("*")) == []
+
 
 class TestInitCompletions:
     """rebrew init --install-completions writes bash/zsh/fish scripts."""

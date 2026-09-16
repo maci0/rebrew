@@ -45,6 +45,7 @@ from urllib.parse import parse_qs, urlparse
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from rebrew.build_db import resolve_db_dir
 from rebrew.cli import error_exit, json_print
@@ -765,16 +766,22 @@ class _Handler(BaseHTTPRequestHandler):
             status, content_type, body = self.dashboard.handle(method, self.path, query)
         except sqlite3.Error as exc:
             # A vanished/corrupt database must answer 500 JSON instead of
-            # killing the handler thread with no response at all.
-            console.print(f"[red]dashboard query failed:[/red] {self.path}: {exc}")
-            status, content_type, body = self.dashboard._json(
-                500, {"error": f"database error: {exc}"}
+            # killing the handler thread with no response at all.  Keep the
+            # sqlite detail on stderr only — LAN clients must not learn paths
+            # or schema strings from the wire body.
+            console.print(
+                f"[red]dashboard query failed:[/red] {escape(self.path)}: {escape(str(exc))}"
             )
+            status, content_type, body = self.dashboard._json(500, {"error": "database error"})
         except Exception as exc:  # last-resort handler guard
             # Any other unexpected error (a bug in a route, an OSError on a
             # sidecar read) gets the same treatment: without this the thread
             # dies and the client sees a connection reset instead of a 500.
-            console.print(f"[red]dashboard handler failed:[/red] {self.path}: {exc!r}")
+            # escape(): self.path is remote-controlled and must not be
+            # interpreted as Rich markup (terminal escape / log injection).
+            console.print(
+                f"[red]dashboard handler failed:[/red] {escape(self.path)}: {escape(repr(exc))}"
+            )
             log.debug("dashboard handler error for %s", self.path, exc_info=True)
             status, content_type, body = self.dashboard._json(
                 500, {"error": "internal server error"}
@@ -817,6 +824,11 @@ class _Handler(BaseHTTPRequestHandler):
         """Browser hardening shared by every response, including early 403s."""
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), payment=()",
+        )
         # Successful GETs may be stored but must revalidate (ETag → 304) so a
         # ``rebrew build-db`` rebuild is never served as a silent stale page.
         # Errors stay no-store so a failed probe is not sticky.
@@ -908,6 +920,14 @@ def main(
 
     if json_output:
         json_print({"url": f"http://{host}:{port}", "db": str(db_path)})
+
+    # Non-loopback binds expose the read-only coverage API with no auth
+    # (SECURITY.md).  Warn once at startup so ``--host 0.0.0.0`` is never silent.
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        console.print(
+            f"[yellow]warning:[/] dashboard bound to {host}:{port} with no authentication "
+            "— any client that can reach this host can read coverage.db"
+        )
 
     server = ThreadingHTTPServer((host, port), _Handler)
     _Handler.dashboard = Dashboard(db_path)
