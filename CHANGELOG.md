@@ -1,5 +1,11 @@
 ## [Unreleased]
 ### Changed
+- **Ruff rule set widened by ASYNC, FA, SLOT, and clean RUF codes** —
+  flake8-async, flake8-future-annotations, flake8-slots, and the stable RUF
+  subset the tree already passes (RUF013/015/018/020/024/026/028/030/032–
+  034/048/049/051/053/057/058/100/200) join the existing select as ratchets
+  only.  Groups/codes with real debt (PL/ARG/PT/S/TRY and
+  RUF001/002/003/005/007/010/012/019/021–023/043/046/059) stay off.
 - **Build backend pin**: PEP 517 `build-system.requires` is now exact
   `setuptools==80.10.2` (was a `>=68,<81` range that re-resolved from PyPI
   on every `uv build`).  Package CI also pins Python 3.13 and
