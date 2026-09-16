@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from rebrew.data import BssReport, DispatchTable, ScanResult
 
 
-def _render_dispatch(console: Console, tables: list[DispatchTable]) -> None:
+def render_dispatch(console: Console, tables: list[DispatchTable]) -> None:
     """Print a Rich table of detected dispatch tables."""
     if not tables:
         console.print("  [dim]No dispatch tables detected.[/]")
@@ -66,7 +66,7 @@ def _render_dispatch(console: Console, tables: list[DispatchTable]) -> None:
         console.print()
 
 
-def _render_bss(console: Console, report: BssReport) -> None:
+def render_bss(console: Console, report: BssReport) -> None:
     """Print BSS layout verification report."""
     if not report.bss_size:
         console.print("  [dim]No .bss section found in binary.[/]")
@@ -127,7 +127,7 @@ def _render_bss(console: Console, report: BssReport) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _render_globals(console: Console, scan: ScanResult, conflicts_only: bool = False) -> None:
+def render_globals(console: Console, scan: ScanResult, conflicts_only: bool = False) -> None:
     """Print a Rich table of globals."""
     entries = list(scan.globals.values())
     if conflicts_only:
@@ -159,7 +159,7 @@ def _render_globals(console: Console, scan: ScanResult, conflicts_only: bool = F
     console.print(Panel(tbl, title=title, border_style="blue"))
 
 
-def _section_summary(scan: ScanResult, sections: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def section_summary(scan: ScanResult, sections: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     """Per-section progress: globals, annotated bytes, and % byte coverage.
 
     Annotated bytes are estimated from each annotated global's declared type
@@ -200,11 +200,9 @@ def _section_summary(scan: ScanResult, sections: dict[str, dict[str, Any]]) -> l
     return out
 
 
-def _render_summary(
-    console: Console, scan: ScanResult, sections: dict[str, dict[str, Any]]
-) -> None:
+def render_summary(console: Console, scan: ScanResult, sections: dict[str, dict[str, Any]]) -> None:
     """Print section-level summary."""
-    rows = _section_summary(scan, sections)
+    rows = section_summary(scan, sections)
 
     tbl = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
     tbl.add_column("Section")

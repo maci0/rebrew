@@ -102,6 +102,8 @@ from rebrew.utils import (
     metadata_write_lock,
     resolve_metadata_key,
 )
+from rebrew.workspace.status import KNOWN_STATUSES as KNOWN_STATUSES
+from rebrew.workspace.status import MATCHED_STATUSES as MATCHED_STATUSES
 
 if TYPE_CHECKING:
     from rebrew.annotation import Annotation
@@ -184,6 +186,7 @@ __all__ = [
     "METADATA_FILENAME",
     "METADATA_FIELDS",
     "KNOWN_STATUSES",
+    "MATCHED_STATUSES",
     "clear_metadata_cache",
     "is_metadata_key",
     "is_table_field",
@@ -192,6 +195,8 @@ __all__ = [
     "save_metadata",
     "get_entry",
     "update_field",
+    "set_fields",
+    "toml_safe",
     "remove_field",
     "coerce_metadata_value",
     "merge_into_annotation",
@@ -379,7 +384,7 @@ def _validate_field(key: str, value: Any) -> Any:
     return value
 
 
-def _toml_safe(value: Any) -> Any:
+def toml_safe(value: Any) -> Any:
     """Strip control characters from strings before TOML serialization.
 
     tomlkit>=0.15 emits some controls (e.g. ESC) as ``\\e``, which is not
@@ -409,17 +414,18 @@ def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> N
         if toml_key not in doc:
             doc[toml_key] = tomlkit.table()
 
-        doc[toml_key][key] = _toml_safe(value)
+        doc[toml_key][key] = toml_safe(value)
         atomic_write_locked(path, tomlkit.dumps(doc))
         _metadata_cache.pop(path, None)
 
 
-def _set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) -> None:
+def set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) -> None:
     """Write several fields for *(module, va)* in a single read-modify-write.
 
     Batches what would otherwise be N full TOML rewrites.  Skips fields whose
-    value is unchanged.  **Private** — use :func:`update_field` /
-    :func:`update_source_status` instead.
+    value is unchanged.  Prefer :func:`update_field` for one key, or
+    :func:`update_source_status` for STATUS; use this when several non-STATUS
+    fields must land in one atomic write (e.g. ``blocker`` + ``blocker_delta``).
     """
     if not fields:
         return
@@ -441,7 +447,7 @@ def _set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) -
                     "Use update_source_status() for STATUS changes — it enforces promotion rules"
                 )
             if entry.get(key) != value:
-                entry[key] = _toml_safe(value)
+                entry[key] = toml_safe(value)
                 changed = True
         if changed:
             atomic_write_locked(path, tomlkit.dumps(doc))
@@ -1027,38 +1033,12 @@ def _apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
 # annotation.py); the earlier ``FunctionMetadata``/``load_entry``/``save_entry``/
 # ``field_kind`` facade was deleted — it had drifted from the live model
 # (case-sensitive vs upper() status checks) and only its tests referenced it.
-# ``KNOWN_STATUSES`` and ``coerce_metadata_value`` below remain live:
+# ``KNOWN_STATUSES`` / ``MATCHED_STATUSES`` are owned by
+# :mod:`rebrew.workspace.status` (stdlib-light vocabulary) and re-exported
+# here so metadata writers and the rest of rebrew keep importing from
+# ``rebrew.metadata``.  ``coerce_metadata_value`` below remains live:
 # metadata_model validates against KNOWN_STATUSES, and lint --fix coerces
 # values through coerce_metadata_value.
-
-KNOWN_STATUSES: frozenset[str] = frozenset(
-    {
-        # User classification (annotation / user edits).
-        "STUB",
-        "EXACT",
-        "RELOC",
-        "PROVEN",
-        "NEAR_MATCHING",
-        "SKIP",
-        # Machine outcomes persisted by `rebrew test` / `rebrew verify`
-        # (they pass CompareResult.status straight to update_source_status,
-        # so the validation gate must accept the same vocabulary).
-        # INVALID_VA is a persisted annotation-problem verdict (verify_entry
-        # emits it below the arch-aware VA floor); INTERNAL_ERROR is
-        # deliberately absent — verify never persists tooling crashes.
-        "SIZE_MISMATCH",
-        "COMPILE_ERROR",
-        "EXTRACT_ERROR",
-        "MISSING_SIZE",
-        "MISSING_FILE",
-        "INVALID_VA",
-    }
-)
-
-# Statuses that count as matched work (byte-identical or proven-equivalent),
-# in canonical display order.  Single source of truth: use these instead of
-# re-spelling the tuple locally.
-MATCHED_STATUSES: tuple[str, ...] = ("EXACT", "RELOC", "PROVEN")
 
 #: Blocker prefix marking a function whose residual byte delta is
 #: register-only ("effective match") — the GA ceiling.  Written by

@@ -29,10 +29,10 @@ from typing import Any
 from rebrew.metadata import (
     KNOWN_STATUSES,
     METADATA_FIELDS,
-    _set_fields,
     canonical_status,
     get_entry,
     remove_field,
+    set_fields,
     update_source_status,
 )
 
@@ -199,7 +199,7 @@ class MetadataEntry:
                 directory, canonical_status(str(status)), self.module, self.va, force=force
             )
         if coerced:
-            _set_fields(directory, self.va, coerced, module=self.module)
+            set_fields(directory, self.va, coerced, module=self.module)
 
     def remove(self, directory: Path, key: str) -> bool:
         """Remove one metadata-owned *key*; returns True if anything changed."""

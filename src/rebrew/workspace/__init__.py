@@ -39,7 +39,7 @@ from rebrew.workspace.db import (
     read_db_version,
     sqlite_ro_uri,
 )
-from rebrew.workspace.status import MATCHED_STATUSES
+from rebrew.workspace.status import KNOWN_STATUSES, MATCHED_STATUSES
 from rebrew.workspace.va import VA_MAX, parse_va_candidates
 
 __all__ = [
@@ -49,6 +49,7 @@ __all__ = [
     "DB_VERSION_KEY",
     "DEFAULT_DB_DIR",
     "DEFAULT_REVERSED_ROOT",
+    "KNOWN_STATUSES",
     "MATCHED_STATUSES",
     "SCHEMA_TARGET",
     "SECTION_CELLS_COLUMN",
