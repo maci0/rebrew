@@ -12,6 +12,7 @@ import logging
 import random
 import re
 import subprocess
+import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -38,6 +39,12 @@ from rebrew.utils import atomic_write_text
 
 log = logging.getLogger(__name__)
 console = Console(stderr=True)
+
+#: Serializes appends to ``--collect-pairs`` JSONL.  Parallel
+#: ``match --all -j N`` stubs share one pairs file; each record embeds the
+#: full source plus hex obj bytes and routinely exceeds PIPE_BUF, so bare
+#: O_APPEND can interleave lines into corrupt JSON.
+_COLLECT_PAIRS_LOCK = threading.Lock()
 
 
 def _ga_runs_dir(cfg: ProjectConfig, rel: Path | None = None) -> Path:
@@ -668,9 +675,9 @@ class BinaryMatchingGA:
             "cflags": self.cflags,
             "symbol": self.symbol,
         }
-        with open(self.collect_pairs_path, "a", encoding="utf-8") as f:  # type: ignore[arg-type]
+        with _COLLECT_PAIRS_LOCK, open(self.collect_pairs_path, "a", encoding="utf-8") as f:  # type: ignore[arg-type]
             f.write(json.dumps(record) + "\n")
-        self._pairs_count += 1
+            self._pairs_count += 1
 
     def run(self, deadline: float | None = None) -> tuple[str | None, float]:
         """Run the GA and return ``(best_source, best_score)``.

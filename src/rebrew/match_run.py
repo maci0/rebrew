@@ -483,6 +483,13 @@ def _run_one_stub_ga(
             # flag-sweep path gates identically; the two must agree.
             if confirmed and best_c.exists():
                 try:
+                    # Hold the metadata lock across splice + STATUS + CFLAGS so
+                    # two stubs in the same .c (parallel ``match --all -j``)
+                    # cannot interleave read-modify-writes of the source file.
+                    # Do NOT nest the verify-cache lock here: that lock is also
+                    # taken by concurrent verify/test patches, and metadata→
+                    # verify-cache nesting makes AB-BA deadlock possible with
+                    # any path that ever took verify-cache first.
                     with metadata_write_lock(cfg.metadata_dir, "rebrew-functions.toml"):
                         spliced_ok = update_stub_to_matched(
                             filepath, best_src, stub, metadata_dir=cfg.metadata_dir
@@ -506,54 +513,51 @@ def _run_one_stub_ga(
                             update_cflags_annotation(
                                 filepath, persist_cflags, metadata_dir=cfg.metadata_dir
                             )
-                        # Keep status/todo in sync: the verify cache may still
-                        # hold a STUB entry from the last full verify — without
-                        # this patch, `rebrew status` reads the stale cached
-                        # STUB over the fresh RELOC metadata until the next
-                        # verify (functionality-review F4).  Best-effort: a
-                        # failed cache write must not undo the splice.
-                        if spliced_ok:
-                            try:
-                                from rebrew.verify_cache import patch_verify_cache_entries
-
-                                patch_verify_cache_entries(
-                                    cfg,
-                                    [
-                                        {
-                                            "va": int(stub.va, 16),
-                                            "status": "RELOC",
-                                            "match_count": stub.size or 0,
-                                            "total": stub.size or 0,
-                                            "delta": 0,
-                                        }
-                                    ],
-                                )
-                            except Exception:  # cache patch is best-effort
-                                log.warning(
-                                    "Verify-cache patch failed for %s (status may be stale)",
-                                    stub.symbol,
-                                    exc_info=True,
-                                )
                 except (RuntimeError, OSError) as e:
                     console.print(
                         f"  [yellow]warning:[/yellow] GA matched but failed to update source: {e}"
                     )
+                # Keep status/todo in sync after releasing the metadata lock
+                # (verify-cache has its own cross-process lock).  Best-effort:
+                # a failed cache write must not undo the splice.
+                if spliced_ok:
+                    try:
+                        from rebrew.verify_cache import patch_verify_cache_entries
+
+                        patch_verify_cache_entries(
+                            cfg,
+                            [
+                                {
+                                    "va": int(stub.va, 16),
+                                    "status": "RELOC",
+                                    "match_count": stub.size or 0,
+                                    "total": stub.size or 0,
+                                    "delta": 0,
+                                }
+                            ],
+                        )
+                    except Exception:  # cache patch is best-effort
+                        log.warning(
+                            "Verify-cache patch failed for %s (status may be stale)",
+                            stub.symbol,
+                            exc_info=True,
+                        )
             if spliced_ok:
-                with metadata_write_lock(cfg.metadata_dir, "rebrew-functions.toml"):
-                    _save_solution(
-                        cfg,
-                        stub.symbol,
-                        # find_similar cross-function seeding filters on this field,
-                        # so it must be the raw user-facing flags (matching the
-                        # stub.cflags spelling), not the base-prefixed compile string.
-                        persist_cflags,
-                        stub.size,
-                        str(filepath),
-                        best_score,
-                        generations,
-                        mutations=tuple(sorted(getattr(ga, "applied_mutations", ()))),
-                        collect_out=solutions_out,
-                    )
+                # Append-only JSONL / in-memory collect — no metadata lock.
+                _save_solution(
+                    cfg,
+                    stub.symbol,
+                    # find_similar cross-function seeding filters on this field,
+                    # so it must be the raw user-facing flags (matching the
+                    # stub.cflags spelling), not the base-prefixed compile string.
+                    persist_cflags,
+                    stub.size,
+                    str(filepath),
+                    best_score,
+                    generations,
+                    mutations=tuple(sorted(getattr(ga, "applied_mutations", ()))),
+                    collect_out=solutions_out,
+                )
             # Only claim a match when the source was actually updated — a
             # stub whose block could not be spliced is still a stub, and
             # must not pollute ga_runs/solutions with a false "solved".

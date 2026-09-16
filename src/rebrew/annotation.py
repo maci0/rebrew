@@ -15,6 +15,7 @@ import copy
 import functools
 import logging
 import re
+import threading
 import warnings
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -168,8 +169,11 @@ _TEMPLATE_STRIP_RE = re.compile(r"<[^<>]*>")
 
 
 # Process-lifetime memo for metadata-free parses (see parse_c_file_multi).
+# Guarded: ``rebrew verify -j N`` parses the same sources from worker threads,
+# and the eviction path is a multi-step check-then-act on a shared dict.
 _PARSE_MEMO: dict[tuple[str, int, int], list[Annotation]] = {}
 _PARSE_MEMO_MAX = 512
+_PARSE_MEMO_LOCK = threading.Lock()
 
 
 @functools.lru_cache(maxsize=64)
@@ -1124,16 +1128,25 @@ def parse_c_file_multi(
         key = (str(filepath.resolve()), st.st_mtime_ns, st.st_size)
     except OSError:
         key = None
-    structural = _PARSE_MEMO.get(key) if key is not None else None
+    structural: list[Annotation] | None = None
+    if key is not None:
+        with _PARSE_MEMO_LOCK:
+            structural = _PARSE_MEMO.get(key)
     if structural is None:
         structural = _parse_structural_entries(text)
         if key is not None:
-            if len(_PARSE_MEMO) >= _PARSE_MEMO_MAX:
-                # Evict the oldest entry, not the whole cache — clearing
-                # everything re-parses the entire tree on big projects.
-                oldest = next(iter(_PARSE_MEMO))
-                _PARSE_MEMO.pop(oldest, None)
-            _PARSE_MEMO[key] = structural
+            with _PARSE_MEMO_LOCK:
+                # Re-check: another worker may have filled it while we parsed.
+                cached = _PARSE_MEMO.get(key)
+                if cached is not None:
+                    structural = cached
+                else:
+                    if len(_PARSE_MEMO) >= _PARSE_MEMO_MAX:
+                        # Evict the oldest entry, not the whole cache — clearing
+                        # everything re-parses the entire tree on big projects.
+                        oldest = next(iter(_PARSE_MEMO))
+                        _PARSE_MEMO.pop(oldest, None)
+                    _PARSE_MEMO[key] = structural
     return _finalize_entries(structural, filepath, target_name, base_dir, metadata_dir)
 
 
