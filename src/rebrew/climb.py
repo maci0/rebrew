@@ -431,7 +431,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Relocate one top-level statement at a time and keep every move that matches more bytes."""
-    cfg = require_config(target=target)
+    cfg = require_config(target=target, json_mode=json_output)
     path = Path(source)
     if not path.is_file():
         error_exit(f"Source file not found: {source}", json_mode=json_output)

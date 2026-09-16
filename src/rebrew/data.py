@@ -1017,8 +1017,8 @@ def main(
     fill_data: bool = typer.Option(
         False,
         "--fill-data",
-        help="Emit _dpad_<addr>[N] pads for the uncovered .data byte runs (byte-exact "
-        "from the reference in the raw region, zero-init for BSS)",
+        help=r"Emit _dpad_<addr>\[N] pads for the uncovered .data byte runs (byte-exact "
+        r"from the reference in the raw region, zero-init for BSS)",
     ),
     bss_only: bool = typer.Option(
         False, "--bss-only", help="With --fill-data: only BSS pads, skip initialized-region pads"
@@ -1042,9 +1042,9 @@ def main(
     converge: bool = typer.Option(
         False,
         "--converge",
-        help="Fixed-point .data placement: insert/adjust _dlead_<tu>[N] pads and re-measure "
-        "the current build (rebrew does not invoke the build — rebuild and re-run for the "
-        "next round)",
+        help=r"Fixed-point .data placement: insert/adjust _dlead_<tu>\[N] pads and re-measure "
+        r"the current build (rebrew does not invoke the build — rebuild and re-run for the "
+        r"next round)",
     ),
     rounds: int = typer.Option(
         1,

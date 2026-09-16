@@ -197,8 +197,8 @@ def rm_cmd(
     directory: str = typer.Argument(
         ".", help="Library directory (removes rebrew-libraries.toml here)"
     ),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Remove a rebrew-libraries.toml (revert to project defaults)."""
     path = _resolve_root(directory) / LIBRARY_METADATA_FILE

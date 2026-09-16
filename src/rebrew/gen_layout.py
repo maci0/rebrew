@@ -664,15 +664,16 @@ def gen_data_restore(data: bytes, marker: str, raw_start: int) -> str:
 
 
 def main(
-    target: str | None = TargetOption,
     def_only: bool = typer.Option(False, "--def-only", help="Only emit <target>.def"),
     link_config: bool = typer.Option(
-        False, "--link-config", help="Print the derived [link] toml block for rebrew-project.toml"
+        False,
+        "--link-config",
+        help=r"Print the derived \[link] toml block for rebrew-project.toml",
     ),
     layout_config: bool = typer.Option(
         False,
         "--layout-config",
-        help="Print the [targets.<t>.layout] toml block (readable metadata) for rebrew-project.toml",
+        help=r"Print the \[targets.<t>.layout] toml block (readable metadata) for rebrew-project.toml",
     ),
     data_gap: str | None = typer.Option(
         None,
@@ -683,9 +684,10 @@ def main(
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
 ) -> None:
     """Generate the linker-script scaffolding for a target binary."""
-    cfg = require_config(target)
+    cfg = require_config(target, json_mode=json_output)
     if not cfg.target_binary.exists():
         error_exit(f"binary not found: {cfg.target_binary}", json_mode=json_output)
     data = cfg.target_binary.read_bytes()

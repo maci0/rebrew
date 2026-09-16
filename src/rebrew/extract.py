@@ -376,8 +376,8 @@ def batch_candidates(
     ),
     min_size: int = typer.Option(8, "--min-size", help="Minimum function size"),
     max_size: int = typer.Option(50000, "--max-size", help="Maximum function size"),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Extract and disassemble a batch of functions."""

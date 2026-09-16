@@ -181,7 +181,6 @@ def _candidates(pe: dict[str, Any]) -> list[_Candidate]:
 
 
 def main(
-    target: str | None = TargetOption,
     link_cmd: str | None = typer.Option(
         None,
         "--link-cmd",
@@ -193,9 +192,10 @@ def main(
     ),
     keep: bool = typer.Option(False, "--keep", help="Keep scratch DLLs in the temp dir"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
 ) -> None:
     """Link the project's objects with candidate option sets and diff headers."""
-    cfg = require_config(target)
+    cfg = require_config(target, json_mode=json_output)
     if not cfg.target_binary.exists():
         error_exit(f"binary not found: {cfg.target_binary}", json_mode=json_output)
 
