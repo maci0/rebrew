@@ -1259,7 +1259,7 @@ def check_flirt_sigs(cfg: ProjectConfig) -> CheckResult:
             ),
         )
 
-    sig_files = sorted(sig_dir.glob("*.pat")) + sorted(sig_dir.glob("*.sig"))
+    sig_files = sorted(sig_dir.rglob("*.pat")) + sorted(sig_dir.rglob("*.sig"))
     if not sig_files:
         return CheckResult(
             name="FLIRT signatures",
