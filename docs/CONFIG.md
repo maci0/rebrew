@@ -206,9 +206,8 @@ ZLIB = "/O3"
 
 Per-target presets (`rebrew cfg set-cflags MODULE FLAGS --target <name>`, stored
 under the target's `[compiler]` sub-table) override global presets for the same
-origin key. A top-level `[targets.<name>.cflags_presets]` table is a silent
-no-op — the loader reads presets from `[compiler.cflags_presets]` and
-`[targets.<name>.compiler.cflags_presets]` only.
+origin key. A legacy top-level `[targets.<name>.cflags_presets]` table is still
+honoured but warns at load — move it to `[targets.<name>.compiler.cflags_presets]`.
 
 ### Per-Target Compiler Overrides
 
@@ -253,28 +252,63 @@ An unknown `backend` name is a `ValueError` where the cache is opened.
 
 ## Environment Variables
 
-Configuration precedence is: CLI flags > per-function metadata > `rebrew-project.toml` > environment variables > defaults.
+Project settings live in ``rebrew-project.toml``. Environment variables are
+namespaced ``REBREW_*`` and act as per-run overrides or secret carriers —
+they do **not** all share one global precedence over the TOML.
 
-- `_REBREW_COMPLETE` — shell-completion mode marker (used by `rebrew` completion).
+**Per-setting precedence (when both TOML and env apply):**
+
+| Setting | Winner |
+|---------|--------|
+| `[compiler] recompile_url` / `REBREW_RECOMPILE_URL` | env (per-run override without editing TOML) |
+| `[llm] endpoint` / `REBREW_LLM_ENDPOINT` | TOML, then env |
+| `[llm] api_key` / `REBREW_LLM_API_KEY` | TOML, then env — **prefer the env var**; do not commit keys |
+
+Within a project file, compiler settings still merge as: built-in defaults →
+`[compiler]` → `[targets.<name>.compiler]` → library/metadata overrides
+(see Compiler Configuration above). CLI flags that mirror a setting are owned
+by the CLI layer and win for that invocation.
+
+### Runtime / secrets
+
+- `REBREW_LLM_ENDPOINT` / `REBREW_LLM_API_KEY` — LLM seeding endpoint + key
+  (`rebrew match --seed-llm`). Required for LLM seeding when `[llm]` is unset.
+  The key is sent only as a `Bearer` header to the configured endpoint, never
+  logged. Prefer these env vars over `[llm] api_key` in TOML.
 - `REBREW_RECOMPILE_URL` — base URL of the recompile compile service
   (e.g. `http://localhost:8000`). Same effect as `[compiler] recompile_url`;
   the env var wins when both are set. When set, every compile routes through
   the service instead of local docker images.
+
+### Paths / overlays
+
+- `REBREW_TOOLCHAINS_DIR` — path to the sibling `rebrew-toolchains` checkout
+  (Dockerfiles / wrappers). Default: sibling of this install.
+- `REBREW_TOOLCHAIN_OVERLAY_DIR` — directory of extra toolchain TOML overlays
+  (plugin-style profiles without editing host source).
+- `REBREW_FLIRT_SIGS_DIR` — path to the `rebrew-flirt-sigs` checkout.
+- `REBREW_SKILLS_DIR` — user/community Agent Skills directory (overrides
+  packaged skills of the same name).
+- `REBREW_CONTAINER_RUNTIME` — container CLI (`docker` default, or `podman`).
+
+### Host-wine / cmake (dormant under docker-only profiles)
+
 - `REBREW_WINE_HEADLESS` — set to `0` to disable headless wine (run bare
   wine, e.g. if you genuinely want the window).  Default: wine compiles
   against a persistent `Xvfb` virtual display whenever the `Xvfb` binary
-  is on PATH.  (Host-wine invocations only — dormant under docker-only
-  execution, where wine runs inside the image.)
+  is on PATH.
 - `REBREW_XVFB_DISPLAY` — display (e.g. `:99`) of the virtual X server
   headless wine uses.  Set by rebrew itself on first use; override to pin
-  a specific display (it must host a live Xvfb).  (Host-wine invocations
-  only, as above.)
-- `REBREW_LLM_ENDPOINT` / `REBREW_LLM_API_KEY` — LLM seeding endpoint + key
-  (`rebrew match --seed-llm`). The `[llm]` config keys (`llm_endpoint`,
-  `llm_api_key`) win over these env vars; both fall back to env when unset.
-  The key is sent only as a `Bearer` header to the configured endpoint, never
-  logged. Prefer the env vars over committing the key to
-  `rebrew-project.toml`.
+  a specific display (it must host a live Xvfb).
+- `REBREW_WINEPREFIX` — Wine prefix for cmake toolchain bridge scripts.
+- `REBREW_TOOLCHAIN` — cmake bridge pin for the active profile name.
+- `REBREW_COMPILER_RUNNER` — host PE runner path/name (set by `msvc_env`).
+
+### Other
+
+- `_REBREW_COMPLETE` — shell-completion mode marker (used by `rebrew` completion).
+- `GH_TOKEN` / `GITHUB_TOKEN` — optional GitHub auth for `rebrew toolchain`
+  downloads that need a token (not a rebrew-prefixed name; standard gh env).
 
 ## Validation
 
@@ -288,12 +322,17 @@ The config loader fail-fasts on missing/invalid structure:
   dir" (e.g. `mingw-16.2.0` ships its own headers).
 
 It emits warnings (and applies safe defaults) if:
-- Unrecognized keys are found in top-level, project, global compiler, target, or per-target
-  compiler tables (likely typos).
+- Unrecognized keys are found in top-level, project, global compiler, target,
+  per-target compiler, `[llm]`, or `[cache]` tables (likely typos).
+- `[llm].api_key` is set in the TOML (prefer `REBREW_LLM_API_KEY`) or is set
+  without an endpoint.
+- A legacy `[targets.<name>.cflags_presets]` table is present (wrong place —
+  still honoured; move to `[targets.<name>.compiler.cflags_presets]`).
 - `format` is not one of `pe`, `elf`, `macho`, `ne`, `mz` (falls back to `pe` — never stores the bad value).
 - `arch` is not one of the known presets (falls back to `x86_32`).
 - `profile` is not a known compiler profile (falls back to `msvc-6.0`).
-- String fields (`cflags`, `base_cflags`, `marker`, …) have non-string types.
+- String/bool fields have non-string/non-bool types (e.g. `recompile_emit_assembly = "false"`
+  would otherwise become `True` via Python `bool()`).
 - The target binary is missing — `image_base`/`text_va` auto-detection is skipped
   (warning emitted at load time).
 

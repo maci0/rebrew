@@ -38,8 +38,9 @@ source_ext = ".c"                      # source file extension (.c, .cpp, etc.)
 marker = "{marker}"                  # annotation marker (e.g. // FUNCTION: SERVER 0x...)
 # ignored_symbols = []              # symbols to skip (ASM builtins etc.)
 
-# Per-target cflags presets — keyed by module name, override global presets.
-# [targets."{target_name}".cflags_presets]
+# Per-target cflags presets — keyed by module name, under the target's
+# [compiler] sub-table (a bare [targets."…".cflags_presets] is misplaced).
+# [targets."{target_name}".compiler.cflags_presets]
 # GAME = "/O2 /Gd"
 
 # Per-target compiler override (optional — falls back to global [compiler]).
@@ -64,6 +65,12 @@ timeout = 60                         # compile subprocess timeout (seconds)
 
 [compiler.cflags_presets]
 GAME = "{cflags}"
+
+# Optional LLM seeding for `rebrew match --seed-llm`. Prefer env vars for the
+# key so it is never committed: REBREW_LLM_ENDPOINT / REBREW_LLM_API_KEY.
+# [llm]
+# endpoint = "https://api.example.com/v1"
+# api_key = ""   # leave empty — set REBREW_LLM_API_KEY instead
 
 # Per-directory overrides — rebrew-libraries.toml at a library root can
 # declare toolchain + flags for a whole subtree; per-function TOOLCHAIN/CFLAGS

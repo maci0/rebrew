@@ -590,6 +590,23 @@ def _as_str(value: Any, default: str, field_name: str) -> str:
     return default
 
 
+def _as_bool(value: Any, default: bool, field_name: str) -> bool:
+    """Return a bool config value, warning and using *default* on bad types.
+
+    TOML booleans are real ``bool``s.  Reject stringy ``"false"``/``"0"`` —
+    ``bool("false")`` is ``True`` in Python, which would silently enable a
+    training-data tap like ``recompile_emit_assembly``.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    _config_warn(
+        f"Expected boolean for {field_name}, got {value!r}; using default {default}",
+    )
+    return default
+
+
 def _resolve(root: Path, rel: str | Path | None) -> Path | None:
     """Resolve a path relative to project root.  Returns *None* if *rel* is ``None``."""
     if rel is None:
@@ -661,7 +678,11 @@ def _split_compiler_runner(compiler: dict[str, Any]) -> tuple[str, str]:
 
 
 def _merge_cflags_presets(
-    global_compiler: dict[str, Any], target_compiler: dict[str, Any]
+    global_compiler: dict[str, Any],
+    target_compiler: dict[str, Any],
+    *,
+    target_data: Mapping[str, Any] | None = None,
+    target_name: str = "",
 ) -> dict[str, str]:
     """Merge per-module cflags presets: global, overridden per-key by target.
 
@@ -670,6 +691,11 @@ def _merge_cflags_presets(
     ``[targets.X.compiler.cflags_presets]``.  The target's presets win for
     the same module key, matching the documented "per-target presets
     override global presets for the same origin key" semantics.
+
+    A legacy ``[targets.X.cflags_presets]`` table (wrong place; once written
+    by older ``cfg set-cflags``) is still merged, with a warning pointing at
+    the canonical ``[targets.X.compiler.cflags_presets]`` home — previously
+    it was a silent no-op while remaining a "known" key.
     """
     merged: dict[str, str] = {}
     for table, label in (
@@ -678,6 +704,17 @@ def _merge_cflags_presets(
     ):
         for key, val in (table.get("cflags_presets", {}) or {}).items():
             merged[str(key).upper()] = _as_str(val, "", label)
+    if target_data is not None and "cflags_presets" in target_data:
+        legacy = target_data.get("cflags_presets") or {}
+        if legacy:
+            where = f"targets.{target_name}" if target_name else "targets.<target>"
+            _config_warn(
+                f"[{where}].cflags_presets is misplaced — move it to "
+                f"[{where}.compiler.cflags_presets] (honoured for now; "
+                "`rebrew cfg set-cflags --target` writes the canonical path)"
+            )
+            for key, val in legacy.items() if isinstance(legacy, Mapping) else ():
+                merged[str(key).upper()] = _as_str(val, "", f"{where}.cflags_presets")
     return merged
 
 
@@ -787,6 +824,8 @@ _KNOWN_TOP_KEYS = {"targets", "compiler", "project", "link", "llm", "cache"}
 
 _KNOWN_CACHE_KEYS = {"backend"}
 
+_KNOWN_LLM_KEYS = {"endpoint", "api_key"}
+
 _KNOWN_LINK_KEYS = {
     "file_align",
     "stack_reserve",
@@ -806,6 +845,7 @@ _KNOWN_TARGET_KEYS = {
     "reversed_dir",
     "bin_dir",
     "compiler",
+    "defines",  # per-target compile-time defines (shared multi-version sources)
     "r2_bogus_vas",
     "iat_thunks",
     "dll_exports",
@@ -819,7 +859,10 @@ _KNOWN_TARGET_KEYS = {
     "origins",  # written by `rebrew cfg add-target`; editor/UI only — NOT
     # used for annotation filtering (module filters come from the
     # annotations themselves).
-    "cflags_presets",  # written by `rebrew cfg set-cflags` (per-origin compiler flag overrides)
+    "cflags_presets",  # LEGACY misplaced table — loader still merges it with a
+    # warning; canonical home is [targets.X.compiler.cflags_presets].  Kept in
+    # known keys so projects that still have it do not also get an
+    # "unrecognized keys" warning (and so a rewriter does not drop it).
     "layout",  # written by `rebrew layout capture`: the position-alignment
     # package (image base, section geometry, exports, imports).  Not read by
     # this loader -- the layout tooling parses it directly -- but it must be
@@ -849,6 +892,7 @@ _KNOWN_PROJECT_KEYS = {
     "db_dir",
     "output_dir",
     "default_target",
+    "shared_dir",  # project-level shared sources root (multi-version)
     "lint",
 }
 
@@ -1122,7 +1166,9 @@ def load_config(
         # flags prepended by compile_to_obj; they must stay separate.
         cflags=_as_str(compiler.get("cflags"), "", "compiler.cflags"),
         cflags_explicit="cflags" in compiler,
-        cflags_presets=_merge_cflags_presets(global_compiler, target_compiler),
+        cflags_presets=_merge_cflags_presets(
+            global_compiler, target_compiler, target_data=tgt, target_name=target or ""
+        ),
         defines=defines,
         base_cflags=_as_str(
             compiler.get("base_cflags"),
@@ -1135,7 +1181,9 @@ def load_config(
         ),
         compile_timeout=_positive_int(compiler.get("timeout", 60), 60, "compiler.timeout"),
         recompile_url=_as_str(compiler.get("recompile_url"), "", "compiler.recompile_url").strip(),
-        recompile_emit_assembly=bool(compiler.get("recompile_emit_assembly", False)),
+        recompile_emit_assembly=_as_bool(
+            compiler.get("recompile_emit_assembly"), False, "compiler.recompile_emit_assembly"
+        ),
         # arch-derived
         pointer_size=arch_preset["pointer_size"],
         padding_bytes=arch_preset["padding_bytes"],
@@ -1228,8 +1276,23 @@ def load_config(
     # "" (only the env-var fallback worked).  The match --llm-seed error
     # message even pointed users at `[llm] endpoint` (config-review F2).
     llm_raw = _as_table(raw.get("llm", {}), "llm")
-    cfg.llm_endpoint = _as_str(llm_raw.get("endpoint"), "", "llm.endpoint")
+    unknown_llm = set(llm_raw) - _KNOWN_LLM_KEYS
+    if unknown_llm:
+        _config_warn(f"rebrew-project.toml [llm]: unrecognized keys: {sorted(unknown_llm)}")
+    cfg.llm_endpoint = _as_str(llm_raw.get("endpoint"), "", "llm.endpoint").strip()
     cfg.llm_api_key = _as_str(llm_raw.get("api_key"), "", "llm.api_key")
+    # Prefer REBREW_LLM_API_KEY over committing the key: warn when the TOML
+    # carries a non-empty api_key (value left intact — do not strip secrets).
+    if cfg.llm_api_key.strip():
+        _config_warn(
+            "[llm].api_key is set in rebrew-project.toml — prefer "
+            "REBREW_LLM_API_KEY in the environment so the key is not committed"
+        )
+    if cfg.llm_api_key.strip() and not cfg.llm_endpoint:
+        _config_warn(
+            "[llm].api_key is set but [llm].endpoint is empty — "
+            "set endpoint (or REBREW_LLM_ENDPOINT) or LLM seeding stays disabled"
+        )
 
     # --- [cache] section: compile-cache backend selection ---
     # The store is a pluggable component (rebrew.cache_backends entry-point

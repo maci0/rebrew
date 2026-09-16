@@ -519,9 +519,104 @@ endpoint = "http://localhost:9000/v1"
 api_key = "secret-key"
 """
         root = _make_project(tmp_path, toml)
-        cfg = load_config(root)
+        with pytest.warns(UserWarning, match=r"\[llm\]\.api_key is set in rebrew-project\.toml"):
+            cfg = load_config(root)
         assert cfg.llm_endpoint == "http://localhost:9000/v1"
         assert cfg.llm_api_key == "secret-key"
+
+    def test_llm_unknown_key_warns(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[llm]
+endpoint = "http://localhost:9000/v1"
+model = "gpt-x"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match=r"\[llm\].*unrecognized keys.*model"):
+            load_config(root)
+
+    def test_llm_api_key_without_endpoint_warns(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[llm]
+api_key = "secret-key"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match=r"api_key is set but .*endpoint is empty"):
+            cfg = load_config(root)
+        assert cfg.llm_api_key == "secret-key"
+        assert cfg.llm_endpoint == ""
+
+    def test_defines_and_shared_dir_are_known_keys(self, tmp_path: Path) -> None:
+        """Documented multi-version keys must not warn as unrecognized —
+        same class of bug as the missing `layout` key (rewriters drop
+        "unknown" tables)."""
+        import warnings
+
+        toml = """\
+[project]
+default_target = "main"
+shared_dir = "src/shared"
+
+[targets.main]
+binary = "test.exe"
+defines = ["V1"]
+"""
+        root = _make_project(tmp_path, toml)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            cfg = load_config(root)
+        messages = [str(w.message) for w in caught]
+        assert not [m for m in messages if "unrecognized" in m and "defines" in m], messages
+        assert not [m for m in messages if "unrecognized" in m and "shared_dir" in m], messages
+        assert cfg.defines == ["V1"]
+        assert cfg.shared_dir == root / "src" / "shared"
+
+    def test_legacy_target_cflags_presets_honoured_with_warning(self, tmp_path: Path) -> None:
+        """Misplaced [targets.X.cflags_presets] used to be a silent no-op."""
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[targets.main.cflags_presets]
+GAME = "/O1"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match=r"cflags_presets is misplaced"):
+            cfg = load_config(root)
+        assert cfg.cflags_presets.get("GAME") == "/O1"
+
+    def test_recompile_emit_assembly_rejects_stringy_bool(self, tmp_path: Path) -> None:
+        """``bool("false")`` is True — a string must not enable the training tap."""
+        toml = """\
+[project]
+default_target = "main"
+
+[compiler]
+recompile_emit_assembly = "false"
+
+[targets.main]
+binary = "test.exe"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(
+            UserWarning, match=r"Expected boolean for compiler\.recompile_emit_assembly"
+        ):
+            cfg = load_config(root)
+        assert cfg.recompile_emit_assembly is False
 
     def test_dead_config_keys_warn(self, tmp_path: Path) -> None:
         """Reserved/no-op keys ([compiler.profiles]) must warn at load — a user
