@@ -8,10 +8,13 @@ GitHub Actions (`.github/workflows/ci.yml`) runs lint, the full unit test suite
 across the supported Python versions (3.13–3.14) — including a fixture-freshness
 check (`tools/gen_fixtures.py --check`) and an idempotency sweep over the
 offline `--json` CLI surface — a pre-commit hook-parity job, a package job
-that builds the sdist/wheel under `SOURCE_DATE_EPOCH` and installs the wheel
-into a clean venv for a smoke import, and a `cli-contract` job that greps the
-high-value `--help` surfaces. The uv installer is pinned via workflow
-`UV_VERSION`; Python default comes from `.python-version`.
+that builds the sdist/wheel under `SOURCE_DATE_EPOCH`, emits a CycloneDX 1.5
+SBOM (`dist/rebrew.cdx.json` from `uv.lock` via `tools/generate_sbom.py`), and
+installs the wheel into a clean venv for a smoke import, and a `cli-contract`
+job that greps the high-value `--help` surfaces. The lint job also runs
+`uv audit --locked` (diskcache's unfixed pickle advisory is
+`--ignore-until-fixed` until upstream ships a fix). The uv installer is pinned
+via workflow `UV_VERSION`; Python default comes from `.python-version`.
 It does **not** require a target binary or MSVC toolchain.
 
 Every job that runs `uv sync` first clones the sibling `resembl` repo

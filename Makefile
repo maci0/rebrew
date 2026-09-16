@@ -1,4 +1,4 @@
-.PHONY: help setup test test-one lint format format-check check build all \
+.PHONY: help setup test test-one lint format format-check check build sbom all \
 	gen-fixtures-check idempotency-check mypy audit release-check ensure-resembl ensure-nasm
 
 .DEFAULT_GOAL := help
@@ -39,6 +39,7 @@ help:
 		'  make audit              # uv audit --locked (matches CI lint job)' \
 		'  make check              # pre-commit run --all-files' \
 		'  make build              # reproducible sdist+wheel' \
+		'  make sbom               # CycloneDX 1.5 JSON from uv.lock (offline)' \
 		'  make all                # local mirror of CI lint+test gates' \
 		'  make gen-fixtures-check # tools/gen_fixtures.py --check' \
 		'  make idempotency-check  # tools/check_idempotency.py' \
@@ -99,6 +100,12 @@ check:
 # Build sdist + wheel under a pinned locale/timezone for deterministic wheels
 build:
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 uv build
+
+# CycloneDX 1.5 SBOM from the committed lock (no network).  Writes
+# dist/rebrew.cdx.json so package CI / release consumers share one inventory.
+sbom:
+	@mkdir -p dist
+	uv run python tools/generate_sbom.py -o dist/rebrew.cdx.json
 
 # Run all non-mutating verification gates (mirrors CI lint + test jobs:
 # ruff, mypy, uv audit, pytest, fixture freshness, idempotency sweep).

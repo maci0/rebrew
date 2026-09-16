@@ -166,6 +166,13 @@ jobs:
             exit 1
           fi
           ls -la dist/
+      - name: Generate CycloneDX SBOM from uv.lock
+        # Offline inventory for consumers/scanners.  tools/generate_sbom.py is
+        # stdlib-only so the package job does not need a prior `uv sync`.
+        run: |
+          set -euo pipefail
+          python3 tools/generate_sbom.py -o dist/rebrew.cdx.json
+          python3 -c "import json,sys; d=json.load(open('dist/rebrew.cdx.json')); assert d['bomFormat']=='CycloneDX'; assert len(d['components'])>10; print(len(d['components']), 'components')"
       - name: Verify wheel reproducibility (second clean build)
         # The wheel must be byte-identical across builds of the same commit:
         # --no-cache + a fresh out-dir forces a real second build (no cache
