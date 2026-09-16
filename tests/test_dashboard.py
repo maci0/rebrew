@@ -536,6 +536,66 @@ class TestHostValidation:
         assert "Content-Security-Policy" in header_names
         assert ("Cache-Control", "no-store") in sent
 
+    def test_handler_gzip_and_etag_on_index(self, dashboard: Dashboard) -> None:
+        """HTML/JSON over Accept-Encoding: gzip shrink on the wire; ETag enables 304."""
+        import gzip
+
+        from rebrew.dashboard import _INDEX_ETAG, _Handler, allowed_hosts_for
+
+        handler = _Handler.__new__(_Handler)
+        handler.headers = {
+            "Host": "127.0.0.1:8000",
+            "Accept-Encoding": "gzip, deflate, br",
+        }
+        handler.path = "/"
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = dashboard
+        sent: list[tuple] = []
+        written: list[bytes] = []
+
+        handler.send_response = lambda status: sent.append(("status", status))  # type: ignore[method-assign]
+        handler.send_header = lambda name, value: sent.append((name, value))  # type: ignore[method-assign]
+        handler.end_headers = lambda: sent.append(("end", None))  # type: ignore[method-assign]
+
+        class _FakeWFile:
+            def write(self, data: bytes) -> int:
+                written.append(data)
+                return len(data)
+
+        handler.wfile = _FakeWFile()
+        handler._respond("GET")
+        assert [v for k, v in sent if k == "status"] == [200]
+        assert ("Content-Encoding", "gzip") in sent
+        assert ("ETag", _INDEX_ETAG) in sent
+        assert ("Vary", "Accept-Encoding") in sent
+        assert ("Cache-Control", "private, no-cache") in sent
+        raw = b"".join(written)
+        plain = gzip.decompress(raw)
+        assert b"Rebrew coverage" in plain
+        assert len(raw) < len(plain)
+
+        # Revalidate with If-None-Match → empty 304 (no body re-download).
+        sent.clear()
+        written.clear()
+        handler.headers = {
+            "Host": "127.0.0.1:8000",
+            "If-None-Match": _INDEX_ETAG,
+        }
+        handler._respond("GET")
+        assert [v for k, v in sent if k == "status"] == [304]
+        assert written == []
+
+    def test_functions_omit_unused_marker_type(self, dashboard: Dashboard) -> None:
+        """The table never reads markerType; keep it off the JSON wire."""
+        row = dashboard.functions("server_dll")["functions"][0]
+        assert "markerType" not in row
+
+    def test_index_html_fetches_summary_and_functions_in_parallel(
+        self, dashboard: Dashboard
+    ) -> None:
+        _, _, body = dashboard.handle("GET", "/", {})
+        assert "Promise.all([loadSummary(), loadFunctions()])" in body
+
     def test_handler_unexpected_error_answers_500(self) -> None:
         """An unexpected route error must answer 500 JSON, not reset the connection."""
         from rebrew.dashboard import Dashboard, _Handler, allowed_hosts_for
