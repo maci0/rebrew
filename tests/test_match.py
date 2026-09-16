@@ -172,9 +172,9 @@ class TestBinaryMatchingGAInit:
         )
 
     def test_cache_created(self, tmp_path: Path) -> None:
-        """Build cache is initialized."""
+        """In-memory compile memo starts empty for a fresh GA run."""
         ga = _make_ga(tmp_path)
-        assert ga.cache is not None
+        assert ga.cache == {}
 
     def test_mutation_weights_default_empty(self, tmp_path: Path) -> None:
         """Default mutation weights are empty dict."""
@@ -219,9 +219,9 @@ class TestBinaryMatchingGAInit:
         assert ga.env == env
 
     def test_output_dir_created(self, tmp_path: Path) -> None:
-        """Output directory path is stored as Path."""
+        """Output directory path is stored as the configured Path."""
         ga = _make_ga(tmp_path)
-        assert isinstance(ga.out_dir, Path)
+        assert ga.out_dir == tmp_path / "ga_out"
 
 
 # ---------------------------------------------------------------------------

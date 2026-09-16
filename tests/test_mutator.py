@@ -1378,6 +1378,7 @@ class TestSwapAdjacentStmts:
         src = "void f() {\n    x += 1;\n    y -= 2;\n}"
         result = mut_swap_adjacent_stmts(src, _rng())
         assert result is not None
+        assert result.index("y -= 2;") < result.index("x += 1;")
 
 
 class TestGuardClause:

@@ -674,8 +674,11 @@ class TestRenderDispatchAndBss:
         scan = scan_globals(cfg.reversed_dir, cfg)
         buf = StringIO()
         _render_globals(_console(buf), scan)  # type: ignore[arg-type]
-        # Unannotated externs alone may still yield empty scan; just ensure render is stable.
-        assert isinstance(buf.getvalue(), str)
+        out = buf.getvalue()
+        assert "Global Data Inventory" in out
+        assert "g_x" in out
+        assert "f0.c" in out
+        assert "(+1)" in out  # f0..f2 shown, f3 collapsed into (+1)
 
     def test_render_summary_with_sections(self, tmp_path: Path) -> None:
         from io import StringIO

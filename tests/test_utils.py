@@ -501,10 +501,11 @@ class TestSourceEncoding:
         rng = random.Random(12)
         f = tmp_path / "garbage.c"
         for _ in range(50):
-            f.write_bytes(bytes(rng.randrange(256) for _ in range(400)))
+            raw = bytes(rng.randrange(256) for _ in range(400))
+            f.write_bytes(raw)
             text, encoding = read_source_text(f)
-            assert isinstance(text, str)
-            assert isinstance(encoding, str)
+            assert encoding in {"utf-8", "shift_jis", "cp1252"}
+            assert text == raw.decode(encoding, errors="replace")
 
 
 class TestWritableTempDir:

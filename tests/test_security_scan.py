@@ -195,8 +195,15 @@ class TestFindings:
         assert len(findings[0]["snippet"]) == _SNIPPET_MAX_CHARS
 
     def test_syntax_error_does_not_raise(self) -> None:
+        # Tree-sitter still yields a (partial) tree on syntax errors, so
+        # recognizable callees remain reportable — the contract is no raise
+        # and a well-shaped findings list, not an empty one.
         findings = scan_source("void broken( {\n    strcpy(x);\n", file="bad.c")
         assert isinstance(findings, list)
+        for finding in findings:
+            assert {"rule", "file", "line", "message"} <= finding.keys()
+            assert finding["file"] == "bad.c"
+        assert any(f["rule"] == "unbounded-copy" for f in findings)
 
     def test_empty_source_yields_nothing(self) -> None:
         assert scan_source("", file="e.c") == []

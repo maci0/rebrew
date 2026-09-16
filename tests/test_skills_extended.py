@@ -24,14 +24,18 @@ class TestFindSkill:
     def test_match_by_dir_name(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _skill_dir(tmp_path, "my-skill")
         monkeypatch.setattr(skills, "_SKILLS_DIR", tmp_path)
-        assert skills._find_skill("my-skill") is not None
+        path = skills._find_skill("my-skill")
+        assert path is not None
+        assert path == tmp_path / "my-skill" / "SKILL.md"
 
     def test_match_by_frontmatter_name(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _skill_dir(tmp_path, "dir-name", frontmatter_name="display-name")
         monkeypatch.setattr(skills, "_SKILLS_DIR", tmp_path)
-        assert skills._find_skill("display-name") is not None
+        path = skills._find_skill("display-name")
+        assert path is not None
+        assert path == tmp_path / "dir-name" / "SKILL.md"
 
     def test_missing_dir_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(skills, "_SKILLS_DIR", Path("/nonexistent/skills"))

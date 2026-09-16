@@ -40,8 +40,9 @@ class TestSanitizeTokens:
         assert changes == []
 
     def test_never_raises_on_garbage(self) -> None:
-        out, _ = sanitize_tokens("#### not c at all\n")
-        assert isinstance(out, str)
+        out, changes = sanitize_tokens("#### not c at all\n")
+        assert out == "#### not c at all\n"
+        assert changes == []
 
 
 class TestFixupSource:

@@ -38,8 +38,10 @@ class TestParseFrontmatter:
 class TestListSkills:
     def test_returns_list(self) -> None:
         skills = _list_skills()
-        # The real agent-skills dir should have entries
         assert isinstance(skills, list)
+        assert len(skills) >= 3
+        names = {s["name"] for s in skills}
+        assert {"rebrew-workflow", "rebrew-intake", "rebrew-matching"} <= names
 
     def test_each_entry_has_name(self) -> None:
         for s in _list_skills():
@@ -68,6 +70,9 @@ class TestFindSkill:
         # Directory name and frontmatter name should both resolve
         path = _find_skill("rebrew-intake")
         assert path is not None
+        assert path.is_file()
+        assert path.name == "SKILL.md"
+        assert path.parent.name == "rebrew-intake"
 
     def test_returns_none_for_missing(self) -> None:
         assert _find_skill("no-such-skill-xyz") is None

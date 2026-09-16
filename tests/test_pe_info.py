@@ -125,7 +125,10 @@ class TestPayloadShape:
         assert info["size"] == MINI_PE.stat().st_size
 
     def test_json_serializable(self) -> None:
-        json.dumps(pe_info(MINI_PE))
+        payload = pe_info(MINI_PE)
+        encoded = json.dumps(payload)
+        assert isinstance(encoded, str)
+        assert json.loads(encoded) == payload
 
     def test_deterministic_two_runs(self) -> None:
         first = json.dumps(pe_info(MINI_PE), sort_keys=True)

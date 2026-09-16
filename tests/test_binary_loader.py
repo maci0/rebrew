@@ -396,12 +396,14 @@ class TestMalformedInputRobustness:
         p.write_bytes(data)
         try:
             info = load_binary(p)
-        except (ValueError, FileNotFoundError):
-            return  # clean rejection is the expected path for most garbage
+        except (ValueError, FileNotFoundError) as exc:
+            # Clean rejection is the expected path for most garbage.
+            assert type(exc) in (ValueError, FileNotFoundError)
+            return
         # LIEF may tolerate partial headers — the result must be usable.
         assert isinstance(info, BinaryInfo)
         # Touching the basic fields must not raise.
-        _ = info.sections
+        assert isinstance(info.sections, dict)
 
     def test_hypothesis_random_bytes_no_crash(self, tmp_path: Path) -> None:
         """Property: random bytes (incl. truncated PE/ELF/Mach-O headers)

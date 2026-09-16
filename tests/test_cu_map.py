@@ -193,13 +193,11 @@ class TestScanCallTargets:
         assert 0x100A in result[0x1000]
 
     def test_no_capstone_returns_empty(self) -> None:
-        """When capstone unavailable, should return empty dict gracefully."""
-        # This test verifies the function signature works even if
-        # capstone isn't importable (can't easily mock, so just verify the call works)
+        """Empty registry (and None cfg defaults) yields an empty call map."""
         info = _make_binary_info(0x1000, 0, b"")
         registry: dict[int, dict[str, Any]] = {}
         result = _scan_call_targets(info, registry, None)  # type: ignore[arg-type]
-        assert isinstance(result, dict)
+        assert result == {}
 
 
 # ---------------------------------------------------------------------------

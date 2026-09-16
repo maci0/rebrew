@@ -52,6 +52,8 @@ class TestCallMcpTool:
         client, _ = _mock_client(text=json.dumps(payload))
         result = _call_mcp_tool(client, "http://x", "get-functions", {}, 1, "")
         assert result is not None
+        assert result.isError is False
+        assert [(c.type, c.text) for c in result.content] == [("text", "ok")]
 
     def test_sse_response(self) -> None:
         payload = {
@@ -64,6 +66,8 @@ class TestCallMcpTool:
         )
         result = _call_mcp_tool(client, "http://x", "get-functions", {}, 1, "")
         assert result is not None
+        assert result.isError is False
+        assert [(c.type, c.text) for c in result.content] == [("text", "ok")]
 
     def test_non_200_returns_none(self) -> None:
         client, _ = _mock_client(status_code=500, text="boom")

@@ -870,7 +870,11 @@ class TestHeadersHashCacheInvalidation:
         }
         cache_path.write_text(json.dumps(data), encoding="utf-8")
 
-        assert _load_verify_cache(cache_path, cfg) is not None
+        loaded = _load_verify_cache(cache_path, cfg)
+        assert loaded is not None
+        assert loaded.target == cfg.target_name
+        assert loaded.entries == {}
+        assert loaded.headers_hash == "deadbeef"
 
     def test_cache_hit_when_headers_hash_matches(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
@@ -889,6 +893,9 @@ class TestHeadersHashCacheInvalidation:
 
         loaded = _load_verify_cache(cache_path, cfg)
         assert loaded is not None
+        assert loaded.target == cfg.target_name
+        assert loaded.entries == {}
+        assert loaded.headers_hash == _headers_hash(cfg)
 
     def test_save_persists_headers_hash(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)

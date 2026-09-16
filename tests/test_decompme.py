@@ -387,7 +387,7 @@ class TestVerifyCompiler:
             )
 
         monkeypatch.setattr(httpx, "get", _fake_get)
-        decompme.verify_compiler("msvc6.0")  # must not raise
+        assert decompme.verify_compiler("msvc6.0") is None
 
     def test_unknown_compiler_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import httpx
@@ -411,7 +411,7 @@ class TestVerifyCompiler:
             raise httpx.ConnectError("cf")
 
         monkeypatch.setattr(httpx, "get", _fake_get)
-        decompme.verify_compiler("msvc6.0")  # warning, no raise
+        assert decompme.verify_compiler("msvc6.0") is None
 
     def test_http_error_degrades(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import httpx
@@ -419,4 +419,4 @@ class TestVerifyCompiler:
         monkeypatch.setattr(
             httpx, "get", lambda url, timeout: SimpleNamespace(status_code=403, text="cf")
         )
-        decompme.verify_compiler("msvc6.0")  # warning, no raise
+        assert decompme.verify_compiler("msvc6.0") is None
