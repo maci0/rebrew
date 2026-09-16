@@ -16,7 +16,13 @@ import lief
 
 from rebrew.binary_loader import extract_bytes_at_va, load_binary
 from rebrew.coff_reloc import smart_reloc_compare
-from rebrew.gen_flirt_pat import bytes_to_pat_line, parse_archive, parse_coff_obj
+from rebrew.gen_flirt_pat import (
+    _MAX_RELOC_SPAN,
+    _reloc_span,
+    bytes_to_pat_line,
+    parse_archive,
+    parse_coff_obj,
+)
 from rebrew.matcher.parsers import (
     CoffRelocRecord,
     list_obj_symbols,
@@ -188,3 +194,21 @@ class TestFlirtPipeline:
         matches = matcher.match(code_data[:1024])
         names = {n[0] if isinstance(n, tuple) else str(n) for m in matches for n in m.names}
         assert "_func1" in names
+
+
+class TestRelocSpanClamp:
+    """LIEF reports a garbage relocation bit-size for some targets.
+
+    Observed on ppc64le libm objects: one 1,760-byte object spun for 43
+    minutes of CPU inside ``range(width)`` before the span was clamped.
+    """
+
+    def test_normal_sizes(self) -> None:
+        assert _reloc_span(0) == 1  # LIEF leaves it unset for MSVC6-style input
+        assert _reloc_span(8) == 1
+        assert _reloc_span(32) == 4
+        assert _reloc_span(64) == 8
+
+    def test_garbage_size_is_clamped(self) -> None:
+        assert _reloc_span(2**40) == _MAX_RELOC_SPAN
+        assert _reloc_span(-1) == 1
