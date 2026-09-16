@@ -371,7 +371,7 @@ class TestHandle:
         """A rogue query cannot mutate the database (mode=ro)."""
         import sqlite3
 
-        from rebrew.workspace.db import sqlite_ro_uri
+        from rebrew.workspace import sqlite_ro_uri
 
         status, _, _ = dashboard.handle("GET", "/api/targets", {})
         assert status == 200

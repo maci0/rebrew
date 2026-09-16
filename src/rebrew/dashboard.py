@@ -48,7 +48,7 @@ from rich.console import Console
 
 from rebrew.build_db import resolve_db_dir
 from rebrew.cli import error_exit, json_print
-from rebrew.workspace.db import sqlite_ro_uri
+from rebrew.workspace import sqlite_ro_uri
 
 console = Console(stderr=True)
 log = logging.getLogger(__name__)

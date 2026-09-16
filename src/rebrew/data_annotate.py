@@ -139,7 +139,7 @@ def _emit_extern_decl(row: dict[str, Any]) -> str | None:
     return f"extern {type_str} {name};"
 
 
-def _set_data_types(
+def set_data_types(
     cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
 ) -> list[dict[str, str]]:
     """Set declared global types in rebrew-data.toml from ``0xVA=TYPE`` specs.
@@ -238,7 +238,7 @@ def _source_decls_by_va(
     return found
 
 
-def _gen_globals_header(
+def gen_globals_header(
     cfg: ProjectConfig,
     src_dir: Path,
     out_path: Path | None = None,

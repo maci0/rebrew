@@ -26,13 +26,13 @@ from rich.console import Console
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
-from rebrew.data_annotate import _gen_globals_header, _set_data_types, annotate_globals
+from rebrew.data_annotate import annotate_globals, gen_globals_header, set_data_types
 from rebrew.data_render import (
-    _render_bss,
-    _render_dispatch,
-    _render_globals,
-    _render_summary,
-    _section_summary,
+    render_bss,
+    render_dispatch,
+    render_globals,
+    render_summary,
+    section_summary,
 )
 from rebrew.utils import atomic_write_text, read_source_text
 
@@ -1065,7 +1065,7 @@ def main(
     # --set-type: correct a declared global type in the data metadata
     if set_type:
         try:
-            rows = _set_data_types(cfg, set_type, dry_run=dry_run)
+            rows = set_data_types(cfg, set_type, dry_run=dry_run)
         except ValueError as exc:
             error_exit(str(exc), json_mode=json_output)
         if json_output:
@@ -1077,7 +1077,7 @@ def main(
 
     # --gen-header: generate rebrew_globals.h from annotations (no Ghidra)
     if gen_header:
-        _gen_globals_header(
+        gen_globals_header(
             cfg,
             src_dir,
             out_path=gen_header_out,
@@ -1318,7 +1318,7 @@ def main(
             json_print(bss_report.to_dict())
         else:
             console.print()
-            _render_bss(console, bss_report)
+            render_bss(console, bss_report)
         return
 
     # Dispatch table mode
@@ -1351,7 +1351,7 @@ def main(
             json_print([t.to_dict() for t in tables])
         else:
             console.print()
-            _render_dispatch(console, tables)
+            render_dispatch(console, tables)
         return
 
     # JSON output
@@ -1377,7 +1377,7 @@ def main(
         if summary:
             # --summary composes with --json: emit a structured section progress view.
             data["summary"] = {
-                "sections": _section_summary(scan, sections),
+                "sections": section_summary(scan, sections),
                 "conflicts": len(scan.type_conflicts),
             }
         json_print(data)
@@ -1387,9 +1387,9 @@ def main(
     console.print()
 
     if summary:
-        _render_summary(console, scan, sections)
+        render_summary(console, scan, sections)
     elif conflicts:
-        _render_globals(console, scan, conflicts_only=True)
+        render_globals(console, scan, conflicts_only=True)
         if scan.type_conflicts:
             console.print()
             for c in scan.type_conflicts:
@@ -1397,7 +1397,7 @@ def main(
                 for t, files in c["types"].items():
                     console.print(f"    {t:30s} ← {', '.join(files)}")
     else:
-        _render_globals(console, scan)
+        render_globals(console, scan)
         if scan.type_conflicts:
             console.print(
                 f"\n  [yellow]⚠ {len(scan.type_conflicts)} type conflict(s) detected — run with --conflicts for details[/]"

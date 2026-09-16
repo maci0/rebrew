@@ -112,7 +112,7 @@ def test_gen_header_skips_non_c_identifiers(tmp_path) -> None:
     """
     from types import SimpleNamespace
 
-    from rebrew.data_annotate import _gen_globals_header
+    from rebrew.data_annotate import gen_globals_header
     from rebrew.data_metadata import set_data_field
 
     src = tmp_path / "src" / "SERVER"
@@ -134,6 +134,6 @@ def test_gen_header_skips_non_c_identifiers(tmp_path) -> None:
     set_data_field(cfg.metadata_dir, 0x1000, "type", "void*", "SERVER")
     set_data_field(cfg.metadata_dir, 0x1000, "section", ".idata", "SERVER")
 
-    _gen_globals_header(cfg, src)
+    gen_globals_header(cfg, src)
     text = (src / "rebrew_globals.h").read_text(encoding="utf-8")
     assert "@" not in text, "a decorated symbol must never reach the compiled header"

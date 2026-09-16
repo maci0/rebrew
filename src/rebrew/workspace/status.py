@@ -1,10 +1,38 @@
-"""Function status vocabulary shared by the coverage consumers."""
+"""Function status vocabulary shared by the coverage consumers.
 
-# Single source of truth lives in rebrew.metadata (KNOWN_STATUSES,
-# MATCHED_STATUSES); this module re-exports it for the workspace package so
-# coverage consumers import from one place without depending on the metadata
-# writers.  Reportal's portal status set is a superset: it also carries
-# "MATCHED", the aggregate display label, so portal statuses are not
-# interchangeable with this tuple.
-from rebrew.metadata import KNOWN_STATUSES as KNOWN_STATUSES
-from rebrew.metadata import MATCHED_STATUSES as MATCHED_STATUSES
+Owns the canonical STATUS sets so :mod:`rebrew.workspace` stays free of the
+metadata writers (:mod:`rebrew.metadata` re-exports these for the rest of
+rebrew).  Reportal's portal status set is a superset: it also carries
+``MATCHED``, the aggregate display label, so portal statuses are not
+interchangeable with this tuple.
+"""
+
+from __future__ import annotations
+
+KNOWN_STATUSES: frozenset[str] = frozenset(
+    {
+        # User classification (annotation / user edits).
+        "STUB",
+        "EXACT",
+        "RELOC",
+        "PROVEN",
+        "NEAR_MATCHING",
+        "SKIP",
+        # Machine outcomes persisted by `rebrew test` / `rebrew verify`
+        # (they pass CompareResult.status straight to update_source_status,
+        # so the validation gate must accept the same vocabulary).
+        # INVALID_VA is a persisted annotation-problem verdict (verify_entry
+        # emits it below the arch-aware VA floor); INTERNAL_ERROR is
+        # deliberately absent — verify never persists tooling crashes.
+        "SIZE_MISMATCH",
+        "COMPILE_ERROR",
+        "EXTRACT_ERROR",
+        "MISSING_SIZE",
+        "MISSING_FILE",
+        "INVALID_VA",
+    }
+)
+
+# Statuses that count as matched work (byte-identical or proven-equivalent),
+# in canonical display order.
+MATCHED_STATUSES: tuple[str, ...] = ("EXACT", "RELOC", "PROVEN")

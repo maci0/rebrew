@@ -198,10 +198,11 @@ class TestShouldPromoteStatusInvariants:
 class TestVocabularyCoverage:
     """Every KNOWN_STATUS must be covered by the display + gate tables.
 
-    The canonical vocabulary lives in rebrew.metadata; the color table
-    (cli.STATUS_COLORS), the compare-gate ranks (verify._STATUS_RANK /
-    _STATUS_ORDER), and the workspace re-export must not silently miss a
-    status (uncolored output, fail-open gating).
+    The canonical vocabulary lives in rebrew.workspace.status (re-exported
+    by rebrew.metadata); the color table (cli.STATUS_COLORS), the
+    compare-gate ranks (verify._STATUS_RANK / _STATUS_ORDER), and the
+    metadata re-export must not silently miss a status (uncolored output,
+    fail-open gating).
     """
 
     def test_colors_cover_known_statuses(self) -> None:

@@ -247,9 +247,9 @@ def set_data_field(directory: Path, va: int, key: str, value: Any, module: str) 
                 f"({type(doc[toml_key]).__name__}); repair or remove it first"
             )
 
-        from rebrew.metadata import _toml_safe
+        from rebrew.metadata import toml_safe
 
-        doc[toml_key][key] = _toml_safe(value)
+        doc[toml_key][key] = toml_safe(value)
         atomic_write_locked(path, tomlkit.dumps(doc))
         _invalidate_data_cache(path)
 

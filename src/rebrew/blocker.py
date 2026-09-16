@@ -194,12 +194,12 @@ def blocker_set(
             )
         return
 
-    from rebrew.metadata import _set_fields
+    from rebrew.metadata import set_fields
 
     fields: dict[str, object] = {"blocker": blocker}
     if delta_int is not None:
         fields["blocker_delta"] = delta_int
-    _set_fields(cfg.metadata_dir, va_int, fields, module=module)
+    set_fields(cfg.metadata_dir, va_int, fields, module=module)
 
     if json_output:
         payload["written"] = True

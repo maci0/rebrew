@@ -18,14 +18,14 @@ from rebrew.data import (
 )
 from rebrew.data_annotate import (
     _emit_extern_decl,
-    _gen_globals_header,
-    _set_data_types,
+    gen_globals_header,
+    set_data_types,
 )
 from rebrew.data_render import (
-    _render_bss,
-    _render_globals,
-    _render_summary,
-    _section_summary,
+    render_bss,
+    render_globals,
+    render_summary,
+    section_summary,
 )
 
 
@@ -161,7 +161,7 @@ class TestSetDataType:
         self._meta(cfg).write_text(
             '["SERVER.0x1000"]\nname = "g_x"\ntype = "int"\n', encoding="utf-8"
         )
-        rows = _set_data_types(cfg, ["0x1000=int[]"])
+        rows = set_data_types(cfg, ["0x1000=int[]"])
         assert rows == [{"va": "0x1000", "type": "int[]", "module": "SERVER"}]
         assert 'type = "int[]"' in self._meta(cfg).read_text(encoding="utf-8")
 
@@ -170,13 +170,13 @@ class TestSetDataType:
         self._meta(cfg).write_text(
             '["SERVER.0x1000"]\nname = "g_x"\ntype = "int"\n', encoding="utf-8"
         )
-        _set_data_types(cfg, ["0x1000=int[]"], dry_run=True)
+        set_data_types(cfg, ["0x1000=int[]"], dry_run=True)
         assert 'type = "int"' in self._meta(cfg).read_text(encoding="utf-8")
 
     def test_rejects_a_spec_without_an_equals(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
         with pytest.raises(ValueError, match="0xVA=TYPE"):
-            _set_data_types(cfg, ["0x1000"])
+            set_data_types(cfg, ["0x1000"])
 
     def test_empty_type_clears_it(self, tmp_path: Path) -> None:
         """Clearing the type makes --gen-header omit the global, which is how a
@@ -185,7 +185,7 @@ class TestSetDataType:
         self._meta(cfg).write_text(
             '["SERVER.0x1000"]\nname = "g_x"\ntype = "int"\n', encoding="utf-8"
         )
-        _set_data_types(cfg, ["0x1000="])
+        set_data_types(cfg, ["0x1000="])
         text = self._meta(cfg).read_text(encoding="utf-8")
         assert 'type = "int"' not in text
 
@@ -202,7 +202,7 @@ class TestGenGlobalsHeader:
         )
         set_data_field(cfg.metadata_dir, 0x1000, "type", "int", "SERVER")
         set_data_field(cfg.metadata_dir, 0x2000, "type", "int", "SERVER")
-        _gen_globals_header(cfg, cfg.reversed_dir)
+        gen_globals_header(cfg, cfg.reversed_dir)
         out = cfg.reversed_dir / "rebrew_globals.h"
         assert out.exists()
         text = out.read_text(encoding="utf-8")
@@ -221,7 +221,7 @@ class TestGenGlobalsHeader:
             "// GLOBAL: SERVER 0x1000\nint g_counter;\n", encoding="utf-8"
         )
         set_data_field(cfg.metadata_dir, 0x1000, "type", "int", "SERVER")
-        _gen_globals_header(cfg, cfg.reversed_dir)
+        gen_globals_header(cfg, cfg.reversed_dir)
         out = cfg.reversed_dir / "rebrew_globals.h"
         text = out.read_text(encoding="utf-8")
         assert text.count("extern") == 1  # one decl despite two annotations
@@ -237,7 +237,7 @@ class TestGenGlobalsHeader:
             '["SERVER.0x1000"]\nname = "_FPinit"\ntype = "void *"\nsection = ".data"\n',
             encoding="utf-8",
         )
-        _gen_globals_header(cfg, cfg.reversed_dir, force=True)
+        gen_globals_header(cfg, cfg.reversed_dir, force=True)
         text = (cfg.reversed_dir / "rebrew_globals.h").read_text(encoding="utf-8")
         assert "extern void * _FPinit;" in text, text
 
@@ -259,7 +259,7 @@ class TestGenGlobalsHeader:
         set_data_field(cfg.metadata_dir, 0x10025F88, "type", "double", "SERVER")
         set_data_field(cfg.metadata_dir, 0x100256D0, "name", "WRONG", "SERVER")
         set_data_field(cfg.metadata_dir, 0x10025F88, "name", "WRONG", "SERVER")
-        _gen_globals_header(cfg, cfg.reversed_dir)
+        gen_globals_header(cfg, cfg.reversed_dir)
         text = (cfg.reversed_dir / "rebrew_globals.h").read_text(encoding="utf-8")
         assert "extern double g_dbl_const_6d0;" in text
         assert "extern float g_dbl_const_f88;" in text
@@ -272,7 +272,7 @@ class TestGenGlobalsHeader:
             "// DATA: SERVER 0x3000\nextern double g_stub_const; /* 0x3000 */\n",
             encoding="utf-8",
         )
-        _gen_globals_header(cfg, cfg.reversed_dir)
+        gen_globals_header(cfg, cfg.reversed_dir)
         text = (cfg.reversed_dir / "rebrew_globals.h").read_text(encoding="utf-8")
         assert "extern double g_stub_const;" in text
 
@@ -287,7 +287,7 @@ class TestGenGlobalsHeader:
         )
         set_data_field(cfg.metadata_dir, 0x1000, "type", "int", "SERVER")
         set_data_field(cfg.metadata_dir, 0x1000, "name", "g_counter", "SERVER")
-        _gen_globals_header(cfg, cfg.reversed_dir)
+        gen_globals_header(cfg, cfg.reversed_dir)
         text = (cfg.reversed_dir / "rebrew_globals.h").read_text(encoding="utf-8")
         assert "extern int g_counter;" in text
 
@@ -296,13 +296,13 @@ class TestGenGlobalsHeader:
         out = cfg.reversed_dir / "rebrew_globals.h"
         out.write_text("existing", encoding="utf-8")
         with pytest.raises(typer.Exit):
-            _gen_globals_header(cfg, cfg.reversed_dir, out_path=out)
+            gen_globals_header(cfg, cfg.reversed_dir, out_path=out)
 
     def test_force_overwrites(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
         out = cfg.reversed_dir / "rebrew_globals.h"
         out.write_text("existing", encoding="utf-8")
-        _gen_globals_header(cfg, cfg.reversed_dir, out_path=out, force=True)
+        gen_globals_header(cfg, cfg.reversed_dir, out_path=out, force=True)
         assert "#ifndef REBREW_GLOBALS_H" in out.read_text(encoding="utf-8")
 
     def test_regeneration_is_idempotent(self, tmp_path: Path) -> None:
@@ -311,39 +311,39 @@ class TestGenGlobalsHeader:
         (cfg.reversed_dir / "globals.c").write_text(
             "// DATA: SERVER 0x1000\nint g_counter;\n", encoding="utf-8"
         )
-        _gen_globals_header(cfg, cfg.reversed_dir, force=True)
+        gen_globals_header(cfg, cfg.reversed_dir, force=True)
         out = cfg.reversed_dir / "rebrew_globals.h"
         first = out.read_text(encoding="utf-8")
         # Second run: body identical, only the "Generated:" timestamp would
         # differ — the file must stay byte-identical.
-        _gen_globals_header(cfg, cfg.reversed_dir, force=True)
+        gen_globals_header(cfg, cfg.reversed_dir, force=True)
         assert out.read_text(encoding="utf-8") == first
 
 
 class TestRenderers:
-    def test_render_globals_empty(self) -> None:
+    def testrender_globals_empty(self) -> None:
         from io import StringIO
 
         buf = StringIO()
         scan = scan_globals(Path("/nonexistent"))
-        _render_globals(_console(buf), scan)  # type: ignore[arg-type]
+        render_globals(_console(buf), scan)  # type: ignore[arg-type]
         assert "No globals found" in buf.getvalue()
 
-    def test_render_summary_empty(self) -> None:
+    def testrender_summary_empty(self) -> None:
         from io import StringIO
 
         buf = StringIO()
         scan = scan_globals(Path("/nonexistent"))
-        _render_summary(_console(buf), scan, {})  # type: ignore[arg-type]
+        render_summary(_console(buf), scan, {})  # type: ignore[arg-type]
         # Empty scan still renders a section summary table (zeros).
         assert "Section" in buf.getvalue() or "Globals" in buf.getvalue() or buf.getvalue() != ""
 
-    def test_render_bss_no_section(self) -> None:
+    def testrender_bss_no_section(self) -> None:
         from io import StringIO
 
         buf = StringIO()
         report = BssReport()
-        _render_bss(_console(buf), report)  # type: ignore[arg-type]
+        render_bss(_console(buf), report)  # type: ignore[arg-type]
         assert "No .bss section found" in buf.getvalue()
 
     def test_generate_bss_fix_no_gaps(self, tmp_path: Path) -> None:
@@ -583,7 +583,7 @@ class TestSectionSummary:
         from rebrew.data import enrich_with_sections
 
         enrich_with_sections(scan, sections)
-        rows = _section_summary(scan, sections)
+        rows = section_summary(scan, sections)
         data_row = next(r for r in rows if r["name"] == ".data")
         # char[24] → 24 annotated bytes; section size 0x100 → 9.375 → 9.4%.
         assert data_row["annotated_bytes"] == 24
@@ -597,27 +597,27 @@ class TestSectionSummary:
             encoding="utf-8",
         )
         scan = scan_globals(cfg.reversed_dir, cfg)
-        rows = _section_summary(scan, {})
+        rows = section_summary(scan, {})
         unknown_row = next(r for r in rows if r["name"] == "unknown")
         assert unknown_row["section_size"] == 0
         assert unknown_row["coverage_pct"] == 0.0
 
 
 class TestRenderDispatchAndBss:
-    def test_render_dispatch_empty(self) -> None:
+    def testrender_dispatch_empty(self) -> None:
         from io import StringIO
 
-        from rebrew.data_render import _render_dispatch
+        from rebrew.data_render import render_dispatch
 
         buf = StringIO()
-        _render_dispatch(_console(buf), [])  # type: ignore[arg-type]
+        render_dispatch(_console(buf), [])  # type: ignore[arg-type]
         assert "No dispatch tables detected" in buf.getvalue()
 
-    def test_render_dispatch_with_tables(self) -> None:
+    def testrender_dispatch_with_tables(self) -> None:
         from io import StringIO
 
         from rebrew.data import DispatchEntry, DispatchTable
-        from rebrew.data_render import _render_dispatch
+        from rebrew.data_render import render_dispatch
 
         buf = StringIO()
         tbl = DispatchTable(
@@ -628,12 +628,12 @@ class TestRenderDispatchAndBss:
                 DispatchEntry(target_va=0x2000, name="", status=""),
             ],
         )
-        _render_dispatch(_console(buf), [tbl])  # type: ignore[arg-type]
+        render_dispatch(_console(buf), [tbl])  # type: ignore[arg-type]
         out = buf.getvalue()
         assert "Dispatch Tables" in out
         assert "fn_a" in out or "0x00004000" in out or "0x4000" in out
 
-    def test_render_bss_populated(self) -> None:
+    def testrender_bss_populated(self) -> None:
         from io import StringIO
 
         buf = StringIO()
@@ -644,13 +644,13 @@ class TestRenderDispatchAndBss:
             gaps=[BssGap(offset=0x5004, size=16, before="g_a", after="g_b")],
             coverage_bytes=4,
         )
-        _render_bss(_console(buf), report)  # type: ignore[arg-type]
+        render_bss(_console(buf), report)  # type: ignore[arg-type]
         out = buf.getvalue()
         assert "BSS Layout" in out
         assert "0x00005000" in out or "0x5000" in out
         assert "g_a" in out or "Gaps detected" in out
 
-    def test_render_bss_no_gaps(self) -> None:
+    def testrender_bss_no_gaps(self) -> None:
         from io import StringIO
 
         buf = StringIO()
@@ -660,12 +660,12 @@ class TestRenderDispatchAndBss:
             known_entries=[BssEntry(name="g_a", va=0x5000, size_hint=4)],
             coverage_bytes=4,
         )
-        _render_bss(_console(buf), report)  # type: ignore[arg-type]
+        render_bss(_console(buf), report)  # type: ignore[arg-type]
         out = buf.getvalue()
         assert "BSS Layout" in out
         assert "Gaps detected" in out
 
-    def test_render_globals_many_files(self, tmp_path: Path) -> None:
+    def testrender_globals_many_files(self, tmp_path: Path) -> None:
         from io import StringIO
 
         cfg = _cfg(tmp_path)
@@ -673,14 +673,14 @@ class TestRenderDispatchAndBss:
             (cfg.reversed_dir / f"f{i}.c").write_text("extern int g_x;\n", encoding="utf-8")
         scan = scan_globals(cfg.reversed_dir, cfg)
         buf = StringIO()
-        _render_globals(_console(buf), scan)  # type: ignore[arg-type]
+        render_globals(_console(buf), scan)  # type: ignore[arg-type]
         out = buf.getvalue()
         assert "Global Data Inventory" in out
         assert "g_x" in out
         assert "f0.c" in out
         assert "(+1)" in out  # f0..f2 shown, f3 collapsed into (+1)
 
-    def test_render_summary_with_sections(self, tmp_path: Path) -> None:
+    def testrender_summary_with_sections(self, tmp_path: Path) -> None:
         from io import StringIO
 
         cfg = _cfg(tmp_path)
@@ -690,7 +690,7 @@ class TestRenderDispatchAndBss:
         scan = scan_globals(cfg.reversed_dir, cfg)
         sections = {".data": {"va": 0x1000, "size": 0x100}}
         buf = StringIO()
-        _render_summary(_console(buf), scan, sections)  # type: ignore[arg-type]
+        render_summary(_console(buf), scan, sections)  # type: ignore[arg-type]
         out = buf.getvalue()
         assert "Section" in out or ".data" in out or "Globals" in out
 
@@ -710,7 +710,7 @@ class TestGenGlobalsHeaderMetadata:
         set_data_field(cfg.metadata_dir, 0x1000, "section", ".rdata", "SERVER")
         set_data_field(cfg.metadata_dir, 0x1000, "size", 16, "SERVER")
         set_data_field(cfg.metadata_dir, 0x1000, "type", "int[4]", "SERVER")
-        _gen_globals_header(cfg, cfg.reversed_dir)
+        gen_globals_header(cfg, cfg.reversed_dir)
         text = (cfg.reversed_dir / "rebrew_globals.h").read_text(encoding="utf-8")
         # Underscore stripped from symbol-derived name.
         assert "g_counter" in text
@@ -734,15 +734,15 @@ class TestGenGlobalsHeaderMetadata:
             return real_parse(src, **kw)
 
         monkeypatch.setattr("rebrew.annotation.parse_c_file_multi", _flaky)
-        _gen_globals_header(cfg, cfg.reversed_dir)
+        gen_globals_header(cfg, cfg.reversed_dir)
         out = cfg.reversed_dir / "rebrew_globals.h"
         assert out.exists()  # bad.c skipped, no crash
 
 
 class TestDataMoreBranches:
-    def test_render_summary_with_conflicts(self, tmp_path: Path) -> None:
+    def testrender_summary_with_conflicts(self, tmp_path: Path) -> None:
         from rebrew.data import scan_globals
-        from rebrew.data_render import _render_summary
+        from rebrew.data_render import render_summary
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "a.c").write_text(
@@ -753,7 +753,7 @@ class TestDataMoreBranches:
         )
         scan = scan_globals(cfg.reversed_dir, cfg)
         assert scan.type_conflicts  # ensure the conflicts subtitle path runs
-        _render_summary(_console(), scan, {".data": {"va": 0x1000, "size": 0x100}})  # type: ignore[arg-type]
+        render_summary(_console(), scan, {".data": {"va": 0x1000, "size": 0x100}})  # type: ignore[arg-type]
 
     def test_scan_globals_unreadable_skipped(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
@@ -762,7 +762,7 @@ class TestDataMoreBranches:
         assert scan.globals == {}
 
     def test_gen_header_underscore_strip_and_unknown_section(self, tmp_path: Path) -> None:
-        from rebrew.data_annotate import _gen_globals_header
+        from rebrew.data_annotate import gen_globals_header
         from rebrew.data_metadata import set_data_field
 
         cfg = _cfg(tmp_path)
@@ -776,7 +776,7 @@ class TestDataMoreBranches:
         set_data_field(cfg.metadata_dir, 0x2000, "name", "g_other", "SERVER")
         set_data_field(cfg.metadata_dir, 0x1000, "type", "int", "SERVER")
         set_data_field(cfg.metadata_dir, 0x2000, "type", "int", "SERVER")
-        _gen_globals_header(cfg, cfg.reversed_dir)
+        gen_globals_header(cfg, cfg.reversed_dir)
         text = (cfg.reversed_dir / "rebrew_globals.h").read_text(encoding="utf-8")
         assert "g_und" in text  # leading underscore stripped
         assert "g_other" in text
