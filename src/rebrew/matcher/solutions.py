@@ -13,9 +13,12 @@ source, mutations); ``load_solutions`` derives the winning entry per
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import json
 import logging
+import threading
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -25,6 +28,39 @@ log = logging.getLogger(__name__)
 
 _REBREW_DIR = ".rebrew"
 _GA_RUNS_FILE = "ga_runs.jsonl"
+
+#: Serializes in-process appends to ``ga_runs.jsonl``.  Parallel
+#: ``match --all -j N`` stubs all call :func:`record_ga_run`; O_APPEND is
+#: only atomic for writes ≤ PIPE_BUF, and a buffered text write of a large
+#: win record can interleave with a sibling stub's line.
+_GA_RUNS_APPEND_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def _ga_runs_append_lock(path: Path) -> Iterator[None]:
+    """Thread + cross-process lock around one JSONL append.
+
+    Same discipline as :func:`rebrew.utils.metadata_write_lock`: the thread
+    lock covers in-process workers; an advisory ``flock`` on a ``.lock``
+    sidecar covers concurrent processes.  Falls back to the thread lock
+    alone when ``fcntl`` is unavailable.
+    """
+    try:
+        import fcntl
+    except ImportError:
+        fcntl = None  # type: ignore[assignment]
+
+    with _GA_RUNS_APPEND_LOCK:
+        if fcntl is None:
+            yield
+            return
+        lock_path = Path(str(path) + ".lock")
+        with lock_path.open("w", encoding="utf-8") as lock_fh:
+            fcntl.flock(lock_fh, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_fh, fcntl.LOCK_UN)
 
 
 @dataclass
@@ -332,8 +368,9 @@ def record_ga_run(
             record["mutations"] = list(mutations)
         record["solved_at"] = solved_at or datetime.now(UTC).isoformat()
     p = _ensure_runs_dir(project_root)
-    with p.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(record) + "\n")
+    line = json.dumps(record) + "\n"
+    with _ga_runs_append_lock(p), p.open("a", encoding="utf-8") as f:
+        f.write(line)
     return p
 
 

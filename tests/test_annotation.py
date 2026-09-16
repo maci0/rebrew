@@ -1681,6 +1681,36 @@ class TestParseMemo:
         assert a1[0] is not a2[0]
         assert len(_PARSE_MEMO) == 1
 
+    def test_concurrent_parses_share_memo_safely(self, tmp_path: Path) -> None:
+        """verify -j N workers must not corrupt the shared parse memo."""
+        import threading
+
+        from rebrew.annotation import _PARSE_MEMO, parse_c_file_multi
+
+        f = tmp_path / "f.c"
+        f.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        _PARSE_MEMO.clear()
+        n = 16
+        barrier = threading.Barrier(n)
+        results: list[list] = [[] for _ in range(n)]
+        errors: list[BaseException] = []
+
+        def _work(i: int) -> None:
+            try:
+                barrier.wait(timeout=30)
+                results[i] = parse_c_file_multi(f)
+            except BaseException as exc:  # collect; re-raise after join
+                errors.append(exc)
+
+        threads = [threading.Thread(target=_work, args=(i,)) for i in range(n)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(60)
+        assert not errors
+        assert all(len(r) == 1 and r[0].va == 0x1000 for r in results)
+        assert len(_PARSE_MEMO) == 1
+
     def test_memo_invalidated_by_content_change(self, tmp_path: Path) -> None:
         import os
 

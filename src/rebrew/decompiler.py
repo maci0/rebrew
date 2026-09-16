@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import warnings
 from collections.abc import Callable
 from pathlib import Path
@@ -85,7 +86,10 @@ _ALLOWED_RE_CMDS = frozenset({"pdg", "pdd"})
 #: (``-p``) so analysis runs once per binary per process instead of once per
 #: function.  Entries are removed when the project export fails or the tool
 #: vanishes, so a later call retries from scratch.
+#: Guarded: concurrent callers (batch skeleton / name-decomp) must not both
+#: miss, both spawn ``aaa``, and both publish — that orphans one mkdtemp dir.
 _RE_PROJECT_DIRS: dict[tuple[str, str], str] = {}
+_RE_PROJECT_DIRS_LOCK = threading.Lock()
 
 
 def _re_project_key(binary: Path, tool: str) -> tuple[str, str]:
@@ -170,25 +174,38 @@ def _re_cached_digest_ok(proj_dir: str, tool: str) -> bool:
 def _re_cached_project(binary: Path, tool: str, root: Path) -> str | None:
     """Return the analyzed project dir for (*binary*, *tool*), creating it once."""
     key = _re_project_key(binary, tool)
-    cached = _RE_PROJECT_DIRS.get(key)
-    if cached is not None:
-        if _re_cached_digest_ok(cached, tool):
-            return cached
-        # A tool upgrade invalidates the analysis; remove the old project dir
-        # (a full rizin database) instead of orphaning it — only the entries
-        # still in the map get cleaned at exit.
-        shutil.rmtree(cached, ignore_errors=True)
-        del _RE_PROJECT_DIRS[key]
+    with _RE_PROJECT_DIRS_LOCK:
+        cached = _RE_PROJECT_DIRS.get(key)
+        if cached is not None:
+            if _re_cached_digest_ok(cached, tool):
+                return cached
+            # A tool upgrade invalidates the analysis; remove the old project dir
+            # (a full rizin database) instead of orphaning it — only the entries
+            # still in the map get cleaned at exit.
+            shutil.rmtree(cached, ignore_errors=True)
+            del _RE_PROJECT_DIRS[key]
+
+    # Analyze outside the lock: ``aaa`` can take minutes, and holding the lock
+    # would stall every other binary's decompile for the duration.  Publish
+    # under the lock with a double-check so two racers don't both keep a dir.
     proj_dir = _re_init_project(binary, tool, root)
     if proj_dir is None:
         return None
-    _RE_PROJECT_DIRS[key] = proj_dir
-    return proj_dir
+    with _RE_PROJECT_DIRS_LOCK:
+        existing = _RE_PROJECT_DIRS.get(key)
+        if existing is not None and _re_cached_digest_ok(existing, tool):
+            shutil.rmtree(proj_dir, ignore_errors=True)
+            return existing
+        if existing is not None:
+            shutil.rmtree(existing, ignore_errors=True)
+        _RE_PROJECT_DIRS[key] = proj_dir
+        return proj_dir
 
 
 def _re_drop_project(binary: Path, tool: str) -> None:
     """Forget the cached project dir (analysis failed — retry fresh next call)."""
-    proj_dir = _RE_PROJECT_DIRS.pop(_re_project_key(binary, tool), None)
+    with _RE_PROJECT_DIRS_LOCK:
+        proj_dir = _RE_PROJECT_DIRS.pop(_re_project_key(binary, tool), None)
     if proj_dir is not None:
         # The dir was created by mkdtemp and is not tracked anywhere else once
         # popped, so it must be removed here or it leaks for the process
@@ -198,9 +215,11 @@ def _re_drop_project(binary: Path, tool: str) -> None:
 
 def _clear_re_projects() -> None:
     """Remove every cached rizin/radare2 project dir (test hook + atexit)."""
-    for proj_dir in _RE_PROJECT_DIRS.values():
+    with _RE_PROJECT_DIRS_LOCK:
+        dirs = list(_RE_PROJECT_DIRS.values())
+        _RE_PROJECT_DIRS.clear()
+    for proj_dir in dirs:
         shutil.rmtree(proj_dir, ignore_errors=True)
-    _RE_PROJECT_DIRS.clear()
 
 
 atexit.register(_clear_re_projects)

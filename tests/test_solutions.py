@@ -190,9 +190,9 @@ class TestLoadSave:
     def test_concurrent_saves_no_lost_entries(self, project_root: Path) -> None:
         """Parallel savers must not lose each other's entries.
 
-        Appends are O_APPEND line writes (atomic across threads/processes) —
-        interleaved savers each keep their own record, unlike the old
-        whole-file read-modify-write.
+        Appends run under a thread + flock lock (large win records exceed
+        PIPE_BUF, so bare O_APPEND is not enough).  Interleaved savers each
+        keep their own record, unlike the old whole-file read-modify-write.
         """
         import threading
 
@@ -218,6 +218,48 @@ class TestLoadSave:
             t.join()
         loaded = load_solutions(project_root)
         assert {e.symbol for e in loaded} == {f"_func_{i}" for i in range(n)}
+
+    def test_concurrent_large_records_remain_valid_jsonl(self, project_root: Path) -> None:
+        """Parallel large appends must not splice JSON lines together."""
+        import json
+        import threading
+
+        from rebrew.matcher.solutions import record_ga_run
+
+        n = 8
+        barrier = threading.Barrier(n)
+        # > PIPE_BUF so an unlocked O_APPEND write can interleave mid-record.
+        bulky = "x" * 8192
+
+        def _writer(i: int) -> None:
+            barrier.wait()
+            record_ga_run(
+                project_root,
+                target="T",
+                va=f"0x{i:08x}",
+                symbol=f"_big_{i}",
+                matched=True,
+                score=0.0,
+                cflags=bulky,
+                size=i,
+                source_file=f"{bulky}.c",
+                mutations=[bulky],
+            )
+
+        threads = [threading.Thread(target=_writer, args=(i,)) for i in range(n)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        path = project_root / ".rebrew" / "ga_runs.jsonl"
+        lines = path.read_text(encoding="utf-8").splitlines()
+        assert len(lines) == n
+        symbols = set()
+        for line in lines:
+            rec = json.loads(line)  # must be one complete JSON object
+            symbols.add(rec["symbol"])
+        assert symbols == {f"_big_{i}" for i in range(n)}
 
 
 # -------------------------------------------------------------------------
