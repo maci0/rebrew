@@ -202,3 +202,43 @@ class TestLibraryCli:
         lib.mkdir()
         res = self._invoke("set", str(lib), "--preset", "nope")
         assert res.exit_code == 2
+
+
+class TestLibraryCacheConcurrency:
+    def test_concurrent_stale_path_invalidate_does_not_keyerror(self, tmp_path: Path) -> None:
+        """Workers that all observe a deleted library file must not KeyError on del.
+
+        ``find_library_override`` used ``del _LIBRARY_WALK_CACHE[key]`` after an
+        exists() miss; two threads both passing the check raced the delete.
+        """
+        import threading
+
+        from rebrew.metadata import (
+            LIBRARY_METADATA_FILE,
+            clear_library_override_cache,
+            find_library_override,
+        )
+
+        lib = tmp_path / "lib"
+        lib.mkdir()
+        meta = lib / LIBRARY_METADATA_FILE
+        meta.write_text('toolchain = "msvc-6.0"\n', encoding="utf-8")
+        clear_library_override_cache()
+        assert find_library_override(lib, tmp_path) is not None
+        meta.unlink()
+
+        errors: list[BaseException] = []
+
+        def _worker() -> None:
+            try:
+                for _ in range(50):
+                    find_library_override(lib, tmp_path)
+            except BaseException as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=_worker) for _ in range(16)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert errors == []

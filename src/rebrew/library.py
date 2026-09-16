@@ -30,6 +30,7 @@ from rebrew.metadata import (
     find_library_override,
     parse_library_metadata,
 )
+from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
 
@@ -172,7 +173,7 @@ def set_cmd(
         else:
             console.print(f"[yellow]would write {path}[/yellow]")
         return
-    path.write_text(tomlkit.dumps(doc), encoding="utf-8")
+    atomic_write_text(path, tomlkit.dumps(doc), encoding="utf-8")
     clear_library_override_cache()
     if json_output:
         json_print(
