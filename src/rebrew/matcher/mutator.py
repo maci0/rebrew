@@ -377,6 +377,12 @@ def refresh_mutations() -> list[Callable[..., str | None]]:
     return ALL_MUTATIONS
 
 
+# Only the PACKAGED operators are re-exported: their names are module
+# attributes of mutator.py, so `from .mutator import *` can bind them.
+# A plugin mutation (via rebrew.mutations) lives in the plugin's module,
+# not here — it joins ALL_MUTATIONS but must not leak into __all__.
+# Base list is string literals so mypy can resolve `import *` re-exports;
+# extend() adds operator names without a starred expression (PLE0604).
 __all__ = [
     "ALL_MUTATIONS",
     "MutationLog",
@@ -385,12 +391,8 @@ __all__ = [
     "mutate_chain",
     "mutate_code",
     "quick_validate",
-    # Only the PACKAGED operators are re-exported: their names are module
-    # attributes of mutator.py, so `from .mutator import *` can bind them.
-    # A plugin mutation (via rebrew.mutations) lives in the plugin's module,
-    # not here — it joins ALL_MUTATIONS but must not leak into __all__.
-    *[m.__name__ for m in _BUILTIN_MUTATIONS],
 ]
+__all__.extend(m.__name__ for m in _BUILTIN_MUTATIONS)
 
 
 @lru_cache(maxsize=64)

@@ -56,7 +56,7 @@ uv run python -m slipcover --fail-under 80 -m pytest
 ## Code Style
 
 - **Python 3.13+**, 4-space indent, 100-char lines (E501 ignored)
-- Ruff select: `E, F, W, I, UP, B, SIM, C4, DTZ, RSE, EXE, Q, NPY, ICN, G, PGH, YTT, ASYNC, FA, SLOT`, plus the clean `RUF*` subset in `pyproject.toml` (debt RUF codes stay off)
+- Ruff select: `E, F, W, I, UP, B, SIM, C4, DTZ, RSE, EXE, Q, NPY, ICN, G, PGH, YTT, ASYNC, FA, SLOT, PLE`, plus the clean `RUF*` / bandit / tryceratops / refurb subset in `pyproject.toml` (debt codes stay off)
 
 - Ignore: `E501`, `B008` (typer defaults), `B904`
 - Naming: `snake_case` / `PascalCase` / `UPPER_CASE`; `_private`; `mut_` for GA mutations; **one name per function** (no aliases/shims)

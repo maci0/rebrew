@@ -184,17 +184,39 @@ line-length = 100
 # (wrong code, stale after a fix) fails lint instead of silently rotting.
 # C4/DTZ/RSE/EXE/Q/NPY/ICN/G/PGH/YTT are correctness-leaning groups the tree
 # already passes (enabled after fixing their 9 findings; see CHANGELOG).
-# ASYNC/FA/SLOT join them: zero findings on the current tree (ratchet only).
+# ASYNC/FA/SLOT/PLE join them: zero findings on the current tree (ratchet
+# only; PLE after the mutator `__all__` extend() fix).
 # Individual RUF codes below are the stable (non-preview) subset of the RUF
 # family the tree already passes; debt codes
-# (RUF001/002/003/005/007/010/012/019/021–023/043/046/059) stay off until
-# clean — no repo-wide ignore for them.
+# (RUF001/002/003/005/007/010/012/021–023/043/046/059) stay off until
+# clean — no repo-wide ignore for them.  Preview-only RUF/FURB codes are
+# omitted (selecting them is a no-op without preview=true).
+# Bandit/tryceratops/refurb/pie/ret/flake8-builtins/logging/unused-arg codes
+# listed below are the zero-finding stable subset of those families; debt
+# siblings (S101/S108/S311/S603/…, TRY003/…, ARG001/…) stay off until clean.
 select = [
     "E", "F", "W", "I", "UP", "B", "SIM", "C4", "DTZ", "RSE", "EXE", "Q",
-    "NPY", "ICN", "G", "PGH", "YTT", "ASYNC", "FA", "SLOT",
-    "RUF013", "RUF015", "RUF018", "RUF020", "RUF024", "RUF026", "RUF028",
-    "RUF030", "RUF032", "RUF033", "RUF034", "RUF048", "RUF049", "RUF051",
-    "RUF053", "RUF057", "RUF058", "RUF100", "RUF200",
+    "NPY", "ICN", "G", "PGH", "YTT", "ASYNC", "FA", "SLOT", "PLE",
+    "RUF006", "RUF008", "RUF009", "RUF013", "RUF015", "RUF016", "RUF017",
+    "RUF018", "RUF019", "RUF020", "RUF024", "RUF026", "RUF028", "RUF030",
+    "RUF032", "RUF033", "RUF034", "RUF036", "RUF037", "RUF040", "RUF041",
+    "RUF048", "RUF049", "RUF051", "RUF053", "RUF057", "RUF058", "RUF060",
+    "RUF061", "RUF063", "RUF064", "RUF068", "RUF100", "RUF101", "RUF102",
+    "RUF103", "RUF104", "RUF200",
+    "S102", "S103", "S106", "S107", "S110", "S301", "S302", "S303", "S304",
+    "S305", "S306", "S307", "S308", "S310", "S312", "S313", "S314", "S315",
+    "S316", "S317", "S318", "S319", "S321", "S323", "S501", "S502", "S503",
+    "S504", "S505", "S506", "S507", "S508", "S509", "S601", "S604", "S605",
+    "S606", "S609", "S610", "S611", "S612", "S701", "S704",
+    "TRY002", "TRY201", "TRY401",
+    "FURB105", "FURB116", "FURB129", "FURB132", "FURB157", "FURB161",
+    "FURB163", "FURB164", "FURB166", "FURB168", "FURB169", "FURB177",
+    "FURB181", "FURB187",
+    "PERF101", "RET502", "RET503", "RET507",
+    "PIE794", "PIE800", "PIE804",
+    "A001", "A003", "A004", "A005", "A006",
+    "LOG001", "LOG002", "LOG007", "LOG009",
+    "ARG003", "ARG004",
 ]
 ignore = ["E501", "B008", "B904"]
 

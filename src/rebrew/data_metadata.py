@@ -313,8 +313,8 @@ def merge_into_data_annotation(ann: Annotation, directory: Path) -> Annotation:
     if not entry:
         return ann
 
-    if "name" in entry and entry["name"]:
-        ann.name = str(entry["name"])
+    if name := entry.get("name"):
+        ann.name = str(name)
 
     if "size" in entry:
         with contextlib.suppress(ValueError, TypeError):

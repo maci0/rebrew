@@ -1,5 +1,10 @@
 ## [Unreleased]
 ### Changed
+- **Ruff rule set widened** — PLE (after the mutator `__all__` extend fix),
+  more clean stable RUF codes (incl. RUF019), S704, and the zero-finding
+  stable subsets of bandit / tryceratops / refurb / perf / ret / pie /
+  flake8-builtins / logging / unused-arg join the existing select as
+  ratchets.  Debt siblings and preview-only codes stay off.
 - **Dependency floors track ``uv.lock``**: direct/extra/dev floors raised to
   the audited lock versions (e.g. ``zstandard>=0.25.0``, ``angr``/
   ``claripy>=9.3.4``, ``ruff>=0.16.7``) so a lock-free install cannot resolve
@@ -38,6 +43,9 @@
 - Classifier **Development Status** is Beta (was Alpha).
 
 ### Fixed
+- **`matcher.mutator.__all__`** keeps a string-literal base list (for mypy
+  `import *`) and ``extend``s packaged operator names (PLE0604).
+- **`data_metadata` name overlay** uses ``entry.get("name")`` (RUF019).
 - Config loader: recognise `[project].shared_dir` and `[targets.*.defines]`
   (they warned as unrecognized every load); honour legacy misplaced
   `[targets.*.cflags_presets]` with a migrate warning; validate `[llm]` keys
