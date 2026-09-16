@@ -29,7 +29,9 @@ def _patch(
     cfg = _cfg(tmp_path)
     (tmp_path / "x.dll").write_bytes(b"MZ" + b"\x00" * 100)
     monkeypatch.setattr("rebrew.flirt.require_config", lambda **kw: cfg)
-    monkeypatch.setattr("rebrew.flirt.load_signatures", lambda d: sigs if sigs is not None else [])
+    monkeypatch.setattr(
+        "rebrew.flirt.load_signatures_for", lambda dirs, arch: sigs if sigs is not None else []
+    )
 
     class _EmptyMatcher:
         def match(self, data):

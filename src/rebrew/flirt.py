@@ -3,6 +3,7 @@
 Usage: rebrew flirt [sig_dir]
 """
 
+import json
 import logging
 import os
 import warnings
@@ -203,6 +204,72 @@ def load_signatures_merged(project_dir: Path, repo_dir: Path) -> list[Any]:
     return _parse_sig_files(files)
 
 
+#: BinaryInfo.arch -> the signature index's architecture vocabulary.
+_ARCH_FAMILIES: dict[str, str] = {
+    "x86_16": "x86",
+    "x86_32": "x86",
+    "x86_64": "x64",
+    "arm32": "arm",
+    "arm64": "arm64",
+    "mips32": "mips",
+    "mips64": "mips",
+    "ppc32": "ppc",
+    "ppc64": "ppc",
+}
+
+
+def _arch_index(dirs: list[Path]) -> dict[str, str]:
+    """``name -> arch`` from a ``sigs/index.json`` shipped with the signatures.
+
+    rebrew-flirt-sigs publishes the architecture of every file it could
+    classify (``tools/index_sigs.py``); files missing from the index — or
+    marked with an empty arch — are unknown and always load.  A checkout
+    without an index simply does not filter.
+    """
+    index: dict[str, str] = {}
+    for d in dirs:
+        for candidate in (d / "sigs" / "index.json", d / "index.json"):
+            if not candidate.is_file():
+                continue
+            try:
+                data = json.loads(candidate.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            for name, meta in data.get("files", {}).items():
+                index.setdefault(name, str(meta.get("arch", "") if isinstance(meta, dict) else ""))
+    return index
+
+
+def load_signatures_for(dirs: list[Path], arch: str = "") -> list[Any]:
+    """Load the signatures worth trying for *arch* from *dirs*.
+
+    The whole library is ~12 M patterns and python-flirt builds one matcher
+    for everything loaded, which does not fit in memory.  When the signature
+    checkout ships an architecture index, files known to belong to another
+    architecture are skipped; unknown ones are kept so nothing relevant is
+    dropped silently.
+    """
+    files = _sig_files(dirs)
+    if arch and files:
+        index = _arch_index(dirs)
+        if index:
+            before = len(files)
+            files = [f for f in files if index.get(f.name, "") in ("", arch)]
+            if len(files) != before:
+                console.print(
+                    f"Architecture {arch}: skipped {before - len(files)} "
+                    f"signature file(s) that cannot match"
+                )
+    if not files:
+        console.print(
+            f"No signature files in {', '.join(str(d) for d in dirs)} — "
+            "clone the rebrew-flirt-sigs checkout next to this repo "
+            "(or set REBREW_FLIRT_SIGS_DIR)."
+        )
+        return []
+    return _parse_sig_files(files)
+
+
 def find_func_size(code_data: bytes, offset: int) -> int:
     """Estimate function size by disassembling to the first return.
 
@@ -359,27 +426,32 @@ def main(
 
     final_exe = binary or cfg.target_binary
 
-    # 1. Load FLIRT signatures: explicit dir, else project flirt_sigs/ merged
-    # with the rebrew-flirt-sigs checkout (standard library sigs).
+    if flirt is None:
+        error_exit("python-flirt is not installed", json_mode=json_output)
+
+    # 1. Identify the target first: its architecture decides which signatures
+    # are worth loading (the full library does not fit in one matcher).
+    console.print(f"Analyzing {final_exe}...")
+    info = load_binary(final_exe)
+    arch = _ARCH_FAMILIES.get(getattr(info, "arch", "") or "", "")
+
+    # 2. Load FLIRT signatures: an explicit dir, else the project flirt_sigs/
+    # merged with the rebrew-flirt-sigs checkout (standard library sigs).
     if sig_dir is not None:
-        sigs = load_signatures(str(sig_dir))
+        sigs = load_signatures_for([Path(sig_dir)], arch)
         sig_sources = [str(sig_dir)]
     else:
         project_dir = cfg.root / "flirt_sigs"
         repo_dir = _flirt_sigs_repo()
-        sigs = load_signatures_merged(project_dir, repo_dir)
+        sigs = load_signatures_for([project_dir, repo_dir], arch)
         sig_sources = [str(project_dir), str(repo_dir)]
-    if flirt is None:
-        error_exit("python-flirt is not installed", json_mode=json_output)
     if not sigs:
         error_exit("No signatures loaded", json_mode=json_output)
 
     console.print("Compiling FLIRT matching engine...")
     matcher = flirt.compile(sigs)
 
-    # 2. Extract function bytes from binary
-    console.print(f"Analyzing {final_exe}...")
-    info = load_binary(final_exe)
+    # 3. Extract function bytes from the binary
 
     # Find the text section (PE: .text, Mach-O: __text)
     text_name = ".text" if ".text" in info.sections else "__text"
