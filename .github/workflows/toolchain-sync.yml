@@ -38,6 +38,7 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
+          python-version: "3.13"
       - name: Install dependencies
         # --frozen installs exactly the audited uv.lock versions; a raw
         # `pip install -e .` here would resolve fresh from PyPI nightly,

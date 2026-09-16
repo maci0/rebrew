@@ -50,6 +50,18 @@ class TestPackagingMetadata:
 
     def test_requires_python_matches_ci_floor(self) -> None:
         assert _project()["requires-python"] == ">=3.13"
+        assert (ROOT / ".python-version").read_text(encoding="utf-8").strip() == "3.13"
+
+    def test_build_system_pins_exact_setuptools(self) -> None:
+        """Isolated ``uv build`` resolves build-system.requires from PyPI.
+
+        A range would let a new setuptools patch change wheel layout without
+        a lockfile bump; keep the pin exact and below the 81 cut line.
+        """
+        data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+        requires = data["build-system"]["requires"]
+        assert requires == ["setuptools==80.10.2"], requires
+        assert data["build-system"]["build-backend"] == "setuptools.build_meta"
 
     def test_license_file_ships(self) -> None:
         proj = _project()
@@ -102,5 +114,17 @@ class TestPackagedDataFiles:
 class TestSdistManifest:
     def test_prunes_dev_trees(self) -> None:
         text = MANIFEST.read_text(encoding="utf-8")
-        for tree in ("tests", "docs", "tools", ".agents", ".github"):
+        for tree in (
+            "tests",
+            "docs",
+            "tools",
+            ".agents",
+            ".github",
+            ".scratch",
+            ".cache",
+            "build",
+            "dist",
+            ".venv",
+            "venv",
+        ):
             assert f"prune {tree}" in text, tree

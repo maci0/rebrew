@@ -1,5 +1,10 @@
 ## [Unreleased]
 ### Changed
+- **Build backend pin**: PEP 517 `build-system.requires` is now exact
+  `setuptools==80.10.2` (was a `>=68,<81` range that re-resolved from PyPI
+  on every `uv build`).  Package CI also pins Python 3.13 and
+  `PYTHONHASHSEED=0`; `make build` matches.  sdist `MANIFEST.in` additionally
+  prunes `.cache`/`build`/`dist`/`.venv`/`venv`.
 - **Dependency pins tightened**: `claripy>=9.2` (prove extra was completely
   unpinned), `m2c` git URL commit-pinned to the rev already in `uv.lock`,
   and `ruff>=0.14` (was `>=0.3`).  AGENTS.md no longer documents
