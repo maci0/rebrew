@@ -26,20 +26,22 @@ classifiers = [
     "Topic :: Software Development :: Disassemblers",
 ]
 dependencies = [
-    "capstone>=5.0.8",  # PYSEC-2026-3544 fixed in 5.0.8
+    # Floors track the audited uv.lock versions: a lock-free `pip install`
+    # cannot resolve older advisories this tree already left behind.
+    "capstone>=5.0.9",  # PYSEC-2026-3544 fixed in 5.0.8; lock is 5.0.9
     "click>=8.5.0",  # direct import (init.py shell completion, tests); 8.3.3 fixes CVE-2025-6143/6144
-    "diskcache>=5.6",  # advisory (unsafe pickle) has no fix yet — cache stores only compile .obj bytes, not untrusted input
-    "httpx>=0.28",  # ReVa MCP / remote-tooling HTTP client (ghidra/, skeleton.py, decompiler.py, wibo.py)
+    "diskcache>=5.6.3",  # advisory (unsafe pickle) has no fix yet — cache stores only compile .obj bytes, not untrusted input
+    "httpx>=0.28.1",  # ReVa MCP / remote-tooling HTTP client (ghidra/, skeleton.py, decompiler.py, wibo.py)
     "idna>=3.19",  # NO direct import — transitive security pin: idna <3.15 has a Unicode-property DoS advisory; this floor forces the fixed version through httpx's tree
     "lief>=1.0.0",  # 1.0 verified: full suite green (was held at <1 on breaking rumors)
     "numpy>=2.5.3",  # byte/structural similarity scoring (matcher/scoring.py, core/matching.py, binary_similarity.py)
     "python-flirt>=0.10.0",  # FLIRT .sig signature scanning (flirt.py; imports as `flirt`)
-    "rich>=15.0",  # console rendering (Console(stderr=True) convention) and typer's markup backend
+    "rich>=15.0.0",  # console rendering (Console(stderr=True) convention) and typer's markup backend
     "tomlkit>=0.15.1",  # round-trip-preserving TOML writes (metadata.py, cfg.py, library.py)
     "tree-sitter>=0.26.0",  # C AST parsing (c_parser.py, struct_parser.py, matcher/ast_engine.py) — never regex-parse C
     "tree-sitter-c>=0.24.2",  # C grammar for tree-sitter
     "typer>=0.27.2",  # rich_markup_mode requires 0.10.0
-    "zstandard>=0.22",  # coverage.db codec for the materialized per-section cell JSON (build_db), and the dashboard's wire compression
+    "zstandard>=0.25.0",  # coverage.db codec for the materialized per-section cell JSON (build_db), and the dashboard's wire compression
 ]
 
 [project.optional-dependencies]
@@ -48,15 +50,15 @@ dependencies = [
 # [dependency-groups] so a `pip install rebrew[...]` / PyPI upload cannot
 # resolve the wrong package or reject a direct URL.
 prove = [
-    "angr>=9.2",
-    "claripy>=9.2",  # direct import in prove.py / doctor.py; same release train as angr (was unpinned)
-    "gitpython>=3.1.58",  # angr→gitpython transitively; 3.1.58 fixes the RCE-class advisories
+    "angr>=9.3.4",
+    "claripy>=9.3.4",  # direct import in prove.py / doctor.py; same release train as angr
+    "gitpython>=3.1.62",  # angr→gitpython transitively; 3.1.58+ fixes the RCE-class advisories
 ]
 # BinSync state I/O: declib is BinSync's artifact layer.  rebrew.binsync.serial
 # is the single module that touches it; the CLIs raise a clear install error
 # when the extra is absent.
 binsync = [
-    "declib>=4.5",
+    "declib>=4.5.0",
 ]
 
 [project.scripts]
@@ -206,12 +208,12 @@ resembl = { path = "../resembl" }
 
 [dependency-groups]
 dev = [
-    "mypy>=2.1,<3",
-    "pytest>=9.0.3",  # CVE-2025-71176 (tmpdir) fixed in 9.0.3 (deps-review F1)
-    "slipcover>=1.0.17",
-    "ruff>=0.14",  # floor near the locked 0.16 line; 0.3 admitted years-old lint rulesets
-    "pre-commit>=4.5.1",
-    "hypothesis>=6.165.2",
+    "mypy>=2.3.1,<3",
+    "pytest>=9.1.1",  # CVE-2025-71176 (tmpdir) fixed in 9.0.3; floor tracks lock
+    "slipcover>=1.1.0",
+    "ruff>=0.16.7",  # floor tracks lock; older minors shipped years-old lint rulesets
+    "pre-commit>=4.6.2",
+    "hypothesis>=6.168.0",
     "skills-ref>=0.1.1",  # the pre-commit "Validate Agent Skills" hook binary (infra-review F6)
 ]
 # Optional code-similarity scoring (rebrew verify "Sim %"): sibling `resembl`
@@ -220,7 +222,7 @@ dev = [
 # Install: `uv sync --group similarity` (needs ../resembl checked out).
 similarity = [
     "resembl",
-    "rapidfuzz>=3.13",  # direct import in matcher/scoring.py code_similarity
+    "rapidfuzz>=3.14.6",  # direct import in matcher/scoring.py code_similarity
 ]
 # m2c decompiler backend (decompiler.py fetch_m2c).  Not on PyPI under this
 # name (the PyPI `m2c` is an unrelated OpenAPI package) — git-only, so it

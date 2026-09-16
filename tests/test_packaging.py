@@ -7,6 +7,7 @@ pins the metadata honesty rules that keep that artifact PyPI-safe.
 
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 
@@ -91,6 +92,67 @@ class TestPackagingMetadata:
         assert "m2c" in groups
         assert any(d == "resembl" or d.startswith("resembl") for d in groups["similarity"])
         assert any("git+" in d or "@" in d for d in groups["m2c"])
+
+    def test_direct_dep_floors_match_lock(self) -> None:
+        """pyproject floors must equal the audited lock versions.
+
+        A lock-free install resolves the floor; keeping it equal to ``uv.lock``
+        means ``pip install rebrew`` cannot pull an older advisory this tree
+        already left behind.  When bumping the lock, bump the floor in the
+        same change.
+        """
+        data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+        lock_text = (ROOT / "uv.lock").read_text(encoding="utf-8")
+        locked: dict[str, str] = {}
+        cur: str | None = None
+        for line in lock_text.splitlines():
+            if line.startswith("name = "):
+                cur = line.split("=", 1)[1].strip().strip('"')
+            elif line.startswith("version = ") and cur and cur not in locked:
+                locked[cur] = line.split("=", 1)[1].strip().strip('"')
+
+        floor_re = re.compile(r"^(?P<name>[A-Za-z0-9_.-]+)\s*>=\s*(?P<floor>[0-9][0-9A-Za-z._+]*)")
+        decls: list[str] = list(data["project"]["dependencies"])
+        for extra_deps in data["project"].get("optional-dependencies", {}).values():
+            decls.extend(extra_deps)
+        for group_deps in data.get("dependency-groups", {}).values():
+            decls.extend(group_deps)
+
+        checked = 0
+        for decl in decls:
+            if "git+" in decl or decl.strip() == "resembl":
+                continue
+            m = floor_re.match(decl.split("#", 1)[0].strip())
+            if m is None:
+                continue
+            lock_name = m.group("name").lower().replace("_", "-")
+            floor = m.group("floor")
+            assert lock_name in locked, f"{lock_name} missing from uv.lock"
+            assert locked[lock_name] == floor, (
+                f"{lock_name}: floor {floor} != lock {locked[lock_name]}"
+            )
+            checked += 1
+        assert checked >= 20, checked
+
+
+class TestCycloneDxSbom:
+    def test_generate_sbom_from_lock(self) -> None:
+        from tools.generate_sbom import _project_version, build_bom
+
+        bom = build_bom((ROOT / "uv.lock").read_text(encoding="utf-8"), _project_version())
+        assert bom["bomFormat"] == "CycloneDX"
+        assert bom["specVersion"] == "1.5"
+        assert bom["metadata"]["component"]["name"] == "rebrew"
+        names = {c["name"] for c in bom["components"]}
+        assert "httpx" in names
+        assert "typer" in names
+        assert "rebrew" not in names
+        # Registry wheels carry sha256 hashes in the lock.
+        hashed = [c for c in bom["components"] if c.get("hashes")]
+        assert len(hashed) > 10
+        for c in bom["components"]:
+            assert c["purl"].startswith("pkg:")
+            assert c["version"]
 
 
 class TestPackagedDataFiles:

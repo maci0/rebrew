@@ -1,5 +1,11 @@
 ## [Unreleased]
 ### Changed
+- **Dependency floors track ``uv.lock``**: direct/extra/dev floors raised to
+  the audited lock versions (e.g. ``zstandard>=0.25.0``, ``angr``/
+  ``claripy>=9.3.4``, ``ruff>=0.16.7``) so a lock-free install cannot resolve
+  older advisories this tree already left behind.  ``make sbom`` /
+  ``tools/generate_sbom.py`` emits CycloneDX 1.5 JSON from ``uv.lock``
+  (offline); the package CI job writes ``dist/rebrew.cdx.json``.
 - **Ruff rule set widened by ASYNC, FA, SLOT, and clean RUF codes** —
   flake8-async, flake8-future-annotations, flake8-slots, and the stable RUF
   subset the tree already passes (RUF013/015/018/020/024/026/028/030/032–
