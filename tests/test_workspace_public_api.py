@@ -19,4 +19,5 @@ def test_all_names_unique() -> None:
 
 def test_submodules_import_without_rebrew_stack() -> None:
     for module in ("config", "db", "status", "va"):
-        importlib.import_module(f"rebrew.workspace.{module}")
+        mod = importlib.import_module(f"rebrew.workspace.{module}")
+        assert mod.__name__ == f"rebrew.workspace.{module}"

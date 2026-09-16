@@ -145,11 +145,18 @@ class TestDockerUserArgs:
 
 class TestExclusiveLock:
     def test_released_after_exit(self, tmp_path: Path) -> None:
+        import fcntl
+
         lock_path = tmp_path / ".lock"
         with _exclusive_lock(lock_path):
-            pass
+            assert lock_path.exists()
+        # After the context exits the handle must be gone: a non-blocking
+        # flock on a fresh fd must succeed (no leaked exclusive holder).
+        with open(lock_path) as probe:
+            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(probe, fcntl.LOCK_UN)
         with _exclusive_lock(lock_path):
-            pass  # second acquisition must succeed (no leaked handle)
+            assert lock_path.exists()
 
     def test_excludes_concurrent_holder(self, tmp_path: Path) -> None:
         import fcntl

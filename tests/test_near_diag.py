@@ -275,7 +275,11 @@ class TestAnalyzeDegenerate:
     def test_undecodable_bytes(self) -> None:
         # 0xFF 0xFF 0xFF... may not disassemble cleanly; must not crash.
         result = nd.analyze(b"\xff\xff\xff\xff", b"\xc3", None, 0x1000)
-        assert isinstance(result["categories"], dict)
+        assert result["target_insns"] == 0
+        assert result["compiled_insns"] == 1
+        assert result["bytes"] == 1
+        assert result["categories"]["structural"]["bytes"] == 1
+        assert result["verdict"].startswith("STRUCTURAL")
 
 
 class TestDisasmInsnsCapstoneConstants:

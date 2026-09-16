@@ -41,8 +41,7 @@ class TestBuildCfg:
 
     def test_garbage_does_not_raise(self) -> None:
         cfg = build_cfg(b"\xff\xff\xff\xff\xff", 0x1000)
-        assert isinstance(cfg["blocks"], list)
-        assert isinstance(cfg["edges"], list)
+        assert cfg == {"blocks": [], "edges": []}
 
     def test_jecxz_has_target_and_fallthrough_edges(self) -> None:
         """jecxz/jcxz are conditional: both a branch target and a fallthrough.

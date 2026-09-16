@@ -77,8 +77,12 @@ class TestAnalyzeFrame:
 
     def test_garbage_does_not_raise(self) -> None:
         f = analyze_frame(b"\xff\xff\xff\xff\xff", 0x1000, 4)
-        assert isinstance(f["frame_size"], int)
-        assert isinstance(f["slots"], list)
+        assert f == {
+            "frame_size": 0,
+            "frame_pointer": False,
+            "ret_popping": 0,
+            "slots": [],
+        }
 
 
 class TestCompareFrames:

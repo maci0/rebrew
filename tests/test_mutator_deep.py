@@ -81,8 +81,8 @@ class TestMutateCode:
         trivial = "int f() { return 0; }"
         result = mutate_code(trivial, random.Random(42), track_mutation=True)
         src, name = result
-        # Should either mutate or return "none"
-        assert isinstance(name, str)
+        assert src == trivial
+        assert name == "none"
 
     def test_mutation_weights(self) -> None:
         """mutation_weights should bias selection toward higher-weighted mutations."""
