@@ -31,7 +31,8 @@ document is:
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md)
 
 Operators should treat project source, configured HTTP endpoints
-(recompile, LLM, ReVa MCP, decomp.me), docker images, and installed Python
+(recompile, LLM, ReVa MCP, decomp.me), GitHub release and toolchain-media
+downloads (wibo, SDK tarballs), docker images, and installed Python
 entry-point plugins as part of the trust boundary.
 
 ## Claims this policy does **not** make
@@ -41,5 +42,8 @@ entry-point plugins as part of the trust boundary.
   HTTP API without credentials).
 - No claim that docker toolchain execution is a hardened sandbox against a
   hostile project tree or malicious image.
+- No claim that optional wibo / toolchain-media downloads are attested beyond
+  the in-code host allow-list and hash checks described in
+  [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
 - No claim that dependency CVEs are absent; pin rationale lives in
   `pyproject.toml` comments and the changelog.
