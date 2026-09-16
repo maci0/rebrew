@@ -14,22 +14,40 @@ Usage::
     code = extract_bytes_at_va(info, va=0x10001000, size=64)
 """
 
+from __future__ import annotations
+
 import contextlib
 import logging
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, overload
+from typing import TYPE_CHECKING, Any, Literal, overload
 
-import lief
+if TYPE_CHECKING:
+    import lief
 
-# LIEF logs recoverable conditions (e.g. a delay-import names table that
-# fails to resolve — "Can't read delay_imports.names_table[0]") at
-# CRITICAL level, spewing to stderr on EVERY parse of such binaries even
-# though the parse succeeds.  rebrew has its own logging; silence LIEF's
-# internal logger so tool output stays clean.
-with contextlib.suppress(Exception):
-    lief.logging.disable()
+if False:  # typing-only: the real import is lazy (see __getattr__ below)
+    import lief
+
+
+def __getattr__(name: str) -> Any:
+    """Lazily import LIEF on first attribute use.
+
+    ``lief._lief`` is a 148ms native load paid by every CLI invocation,
+    including ones that never parse a binary (``--help``, ``status`` on a
+    cached project).  Annotations are strings (``from __future__`` is
+    absent here — the names below are only evaluated by type checkers),
+    so deferring costs nothing at runtime.
+    """
+    if name == "lief":
+        import lief as _lief
+
+        globals()["lief"] = _lief
+        with contextlib.suppress(Exception):
+            _lief.logging.disable()
+        return _lief
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 log = logging.getLogger(__name__)
 
@@ -204,7 +222,7 @@ def _load_pe(binary: lief.PE.Binary, path: Path) -> BinaryInfo:
     return BinaryInfo(
         path=path,
         format="pe",
-        arch=_PE_MACHINE_TO_ARCH.get(binary.header.machine, ""),
+        arch=_arch_maps()[0].get(binary.header.machine, ""),
         endian="little",
         image_base=image_base,
         text_va=text_va,
@@ -251,7 +269,7 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
     return BinaryInfo(
         path=path,
         format="elf",
-        arch=_ELF_MACHINE_TO_ARCH.get(binary.header.machine_type, ""),
+        arch=_arch_maps()[1].get(binary.header.machine_type, ""),
         endian=_elf_endian(binary.header.identity_data),
         image_base=image_base,
         text_va=text_va,
@@ -261,20 +279,6 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
     )
 
 
-#: Mach-O section types that occupy no file bytes (`__DATA.__bss` and friends):
-#: their ``offset`` points at unrelated file data, so they must report
-#: ``raw_size == 0`` like ELF NOBITS and PE sections with no raw data.
-_MACHO_ZEROFILL_TYPES: frozenset[Any] = frozenset(
-    t
-    for t in (
-        getattr(lief.MachO.Section.TYPE, "ZEROFILL", None),
-        getattr(lief.MachO.Section.TYPE, "GB_ZEROFILL", None),
-        getattr(lief.MachO.Section.TYPE, "THREAD_LOCAL_ZEROFILL", None),
-    )
-    if t is not None
-)
-
-
 def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: Path) -> BinaryInfo:
     """Extract layout information from a Mach-O binary.
 
@@ -282,6 +286,8 @@ def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: P
     binaries.  We always take the first slice (architecture selection for
     fat binaries is not supported).
     """
+    import lief
+
     if isinstance(fat_or_binary, lief.MachO.FatBinary):
         # Always use first slice -- architecture selection for fat binaries
         # is not supported.
@@ -295,6 +301,17 @@ def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: P
         if seg.name == "__TEXT":
             image_base = seg.virtual_address
             break
+    import lief
+
+    _zerofill = frozenset(
+        t
+        for t in (
+            getattr(lief.MachO.Section.TYPE, "ZEROFILL", None),
+            getattr(lief.MachO.Section.TYPE, "GB_ZEROFILL", None),
+            getattr(lief.MachO.Section.TYPE, "THREAD_LOCAL_ZEROFILL", None),
+        )
+        if t is not None
+    )
 
     sections: dict[str, SectionInfo] = {}
     text_va = image_base
@@ -312,7 +329,7 @@ def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: P
         va = section.virtual_address
         vsize = section.size
         raw_offset = section.offset
-        raw_size = 0 if getattr(section, "type", None) in _MACHO_ZEROFILL_TYPES else vsize
+        raw_size = 0 if getattr(section, "type", None) in _zerofill else vsize
 
         sections[name] = SectionInfo(
             name=name,
@@ -331,7 +348,7 @@ def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: P
     return BinaryInfo(
         path=path,
         format="macho",
-        arch=_MACHO_CPU_TO_ARCH.get(binary.header.cpu_type, ""),
+        arch=_arch_maps()[2].get(binary.header.cpu_type, ""),
         endian="big"
         if binary.header.cpu_type
         in (lief.MachO.Header.CPU_TYPE.POWERPC, lief.MachO.Header.CPU_TYPE.POWERPC64)
@@ -966,34 +983,47 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
     return ("C", ".c")
 
 
-_PE_MACHINE_TO_ARCH: dict[lief.PE.Header.MACHINE_TYPES, str] = {
-    lief.PE.Header.MACHINE_TYPES.I386: "x86_32",
-    lief.PE.Header.MACHINE_TYPES.AMD64: "x86_64",
-    lief.PE.Header.MACHINE_TYPES.ARM: "arm32",
-    lief.PE.Header.MACHINE_TYPES.ARM64: "arm64",
-    lief.PE.Header.MACHINE_TYPES.MIPS16: "mips32",
-}
+_PE_MACHINE_TO_ARCH: dict[Any, str] | None = None
+_ELF_MACHINE_TO_ARCH: dict[Any, str] | None = None
+_MACHO_CPU_TO_ARCH: dict[Any, str] | None = None
 
-_ELF_MACHINE_TO_ARCH: dict[lief.ELF.ARCH, str] = {
-    lief.ELF.ARCH.I386: "x86_32",
-    lief.ELF.ARCH.X86_64: "x86_64",
-    lief.ELF.ARCH.ARM: "arm32",
-    lief.ELF.ARCH.AARCH64: "arm64",
-    lief.ELF.ARCH.MIPS: "mips32",
-    lief.ELF.ARCH.MIPS_X: "mips32",
-    lief.ELF.ARCH.PPC: "ppc32",
-    lief.ELF.ARCH.PPC64: "ppc64",
-    lief.ELF.ARCH.SH: "sh2",
-}
 
-_MACHO_CPU_TO_ARCH: dict[lief.MachO.Header.CPU_TYPE, str] = {
-    lief.MachO.Header.CPU_TYPE.X86: "x86_32",
-    lief.MachO.Header.CPU_TYPE.X86_64: "x86_64",
-    lief.MachO.Header.CPU_TYPE.ARM: "arm32",
-    lief.MachO.Header.CPU_TYPE.ARM64: "arm64",
-    lief.MachO.Header.CPU_TYPE.POWERPC: "ppc32",
-    lief.MachO.Header.CPU_TYPE.POWERPC64: "ppc64",
-}
+def _arch_maps() -> tuple[dict[Any, str], dict[Any, str], dict[Any, str]]:
+    """LIEF-enum-keyed arch maps, built on first use (LIEF import is deferred)."""
+    global _PE_MACHINE_TO_ARCH, _ELF_MACHINE_TO_ARCH, _MACHO_CPU_TO_ARCH
+    if _PE_MACHINE_TO_ARCH is None:
+        import lief as _lf  # deferred: the 148ms native load happens here, not at import
+
+        _PE_MACHINE_TO_ARCH = {
+            _lf.PE.Header.MACHINE_TYPES.I386: "x86_32",
+            _lf.PE.Header.MACHINE_TYPES.AMD64: "x86_64",
+            _lf.PE.Header.MACHINE_TYPES.ARM: "arm32",
+            _lf.PE.Header.MACHINE_TYPES.ARM64: "arm64",
+            _lf.PE.Header.MACHINE_TYPES.MIPS16: "mips32",
+        }
+        _ELF_MACHINE_TO_ARCH = {
+            _lf.ELF.ARCH.I386: "x86_32",
+            _lf.ELF.ARCH.X86_64: "x86_64",
+            _lf.ELF.ARCH.ARM: "arm32",
+            _lf.ELF.ARCH.AARCH64: "arm64",
+            _lf.ELF.ARCH.MIPS: "mips32",
+            _lf.ELF.ARCH.MIPS_X: "mips32",
+            _lf.ELF.ARCH.PPC: "ppc32",
+            _lf.ELF.ARCH.PPC64: "ppc64",
+            _lf.ELF.ARCH.SH: "sh2",
+        }
+        _MACHO_CPU_TO_ARCH = {
+            _lf.MachO.Header.CPU_TYPE.X86: "x86_32",
+            _lf.MachO.Header.CPU_TYPE.X86_64: "x86_64",
+            _lf.MachO.Header.CPU_TYPE.ARM: "arm32",
+            _lf.MachO.Header.CPU_TYPE.ARM64: "arm64",
+            _lf.MachO.Header.CPU_TYPE.POWERPC: "ppc32",
+            _lf.MachO.Header.CPU_TYPE.POWERPC64: "ppc64",
+        }
+    assert _PE_MACHINE_TO_ARCH is not None
+    assert _ELF_MACHINE_TO_ARCH is not None
+    assert _MACHO_CPU_TO_ARCH is not None
+    return _PE_MACHINE_TO_ARCH, _ELF_MACHINE_TO_ARCH, _MACHO_CPU_TO_ARCH
 
 
 def _elf_endian(identity_data: Any) -> str:
@@ -1067,21 +1097,23 @@ def detect_format_and_arch(path: Path) -> tuple[str, str | None]:
     """
     if not path.exists():
         raise FileNotFoundError(path)
+    import lief
+
     spath = str(path)
     binary: Any = None  # format-specific lief.parse results (polymorphic union)
     if lief.is_pe(spath):
         binary = lief.PE.parse(spath)
-        arch = _PE_MACHINE_TO_ARCH.get(binary.header.machine) if binary else None
+        arch = _arch_maps()[0].get(binary.header.machine) if binary else None
         return "pe", arch
     if lief.is_elf(spath):
         binary = lief.ELF.parse(spath)
-        arch = _ELF_MACHINE_TO_ARCH.get(binary.header.machine_type) if binary else None
+        arch = _arch_maps()[1].get(binary.header.machine_type) if binary else None
         return "elf", arch
     if lief.is_macho(spath):
         fat = lief.MachO.parse(spath)
         if fat is not None:
             b = fat.at(0) if isinstance(fat, lief.MachO.FatBinary) else fat
-            return "macho", _MACHO_CPU_TO_ARCH.get(b.header.cpu_type)
+            return "macho", _arch_maps()[2].get(b.header.cpu_type)
         return "macho", None
     raise ValueError(f"Cannot detect binary format: {path}")
 

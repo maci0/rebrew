@@ -23,9 +23,11 @@ Usage::
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import lief
+if TYPE_CHECKING:
+    import lief
+
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -71,6 +73,8 @@ _RELOC_HIGHLOW = 3
 
 def _lief_pe(path: Path) -> lief.PE.Binary | None:
     """The LIEF PE object for *path*, or ``None`` for non-PE binaries."""
+    import lief
+
     try:
         parsed = lief.parse(str(path))
     except Exception:

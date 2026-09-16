@@ -1,3 +1,42 @@
+## [Unreleased]
+### Added
+- **Schema v7: `section_cells_json`**: `build-db` now materializes each
+  target+section's cell JSON (zstd level 3) so a dashboard reads one row instead
+  of re-running `json_group_array` over every cell — measured 0.3 ms versus
+  10.7 ms on a 39k-cell section, for ~176 KB stored across a whole database.
+  Rebuilt whole on every build, including a scoped `--target` rebuild.
+- **`rebrew.workspace` shares the cell projection**: `CELLS_JSON_OBJECT_SQL`,
+  `SECTION_CELLS_TABLE` and `SECTION_CELLS_COLUMN`.  The DDL lives here and the
+  SELECT in the dashboards, so a field added for one side cannot be read under a
+  second name by the other.  The projection omits `cells.id`: nothing reads it,
+  and as the only high-entropy column per row it cost 4.3x on the wire (322 KB
+  versus 75 KB zstd on a 39k-cell section).  The blob codec lives here too, so
+  the producer and the readers share one definition; it defers its `zstandard`
+  import to the call, because resolving a workspace path should not require a
+  compression dependency.
+- **`zstandard` is now a direct dependency** (it was already the dashboard's wire
+  codec); `build-db` uses it for the cache blobs.  `rebrew.workspace` shares that
+  codec, but imports zstandard lazily so its path/config readers stay
+  dependency-free.
+
+### Changed
+- **`section_cell_stats` is a table, not a view, and `db_version` is now `"7"`.**
+  As a view every reader re-aggregated the whole `cells` table — 13
+  `SUM(CASE state = …)` over 64k rows measured 17.3 ms per request, 92% of a
+  dashboard's cold `/data` build.  No consumer changed: they all query it as
+  `SELECT … FROM section_cell_stats WHERE target = ?`, which is indifferent to
+  table-vs-view.  The builder drops by the type actually present, since SQLite
+  refuses `DROP VIEW` on a table and `DROP TABLE` on a view.
+  Migration is `--force` (DROP+rebuild), the existing convention, so a v6
+  database must be rebuilt; `verify_results` is re-imported from
+  `db/verify_results.json`/`.rebrew/verify_cache.json`, but `history` is not
+  recoverable and is lost.  Both new objects are listed in
+  `_missing_required_objects`, which is what makes the v7 stamp meaningful.
+  The cache codec moved zlib → zstd: 176 KB / 3 ms versus 460 KB / 28 ms on the
+  same 8.4 MB of cell JSON, and it *reduced* the build-time cost of this change
+  (build-db p50 290 ms with zlib, 250 ms with zstd, against a 218 ms pre-change
+  baseline).
+
 ## [2.3.0] - 2026-09-15
 ### Added
 - **Batch container compiles (ADR-021)**: `verify --all` groups cache-miss

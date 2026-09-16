@@ -161,6 +161,10 @@ class TestCheckDbVersion:
                     0 AS thunk_count, 0 AS none_count, 0 AS proven_count,
                     0 AS size_mismatch_count
                     FROM cells GROUP BY target, section_name;
+                CREATE TABLE section_cells_json (
+                    target TEXT, section_name TEXT, cells_zstd BLOB,
+                    PRIMARY KEY (target, section_name)
+                );
                 """
             )
             conn.execute(

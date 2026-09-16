@@ -24,12 +24,69 @@ from rebrew.cli import (
 )
 from rebrew.config import load_config
 from rebrew.metadata import MATCHED_STATUSES
-from rebrew.workspace import SCHEMA_TARGET, db_dir
+from rebrew.workspace import (
+    CELLS_JSON_OBJECT_SQL,
+    SCHEMA_TARGET,
+    SECTION_CELLS_COLUMN,
+    SECTION_CELLS_TABLE,
+    db_dir,
+    encode_section_cells,
+)
 
 console = Console(stderr=True)
 
 
-_CURRENT_DB_VERSION = "6"
+_CURRENT_DB_VERSION = "7"
+
+# Per-section coverage buckets, as ONE select used both to declare the
+# ``section_cell_stats`` table and to refill it — the bucket definitions
+# (including the catch-all that keeps total_cells reconcilable) exist in
+# exactly one place.
+#
+# This is a build-time TABLE, not the view it used to be.  As a view, every
+# reader re-aggregated the whole cells table: 13 SUM(CASE state = '<text>')
+# over 64k rows measured 17.3 ms per request — 92% of the remaining cold
+# /data build once the cell JSON was materialized.  A covering index did not
+# help (10% for +3.1 MB): the cost is the string comparisons, not the table
+# lookups.  Every consumer queries it as
+# ``SELECT ... FROM section_cell_stats WHERE target = ?``, which is
+# indifferent to table-vs-view, so no reader changed — and a database still
+# carrying the old view keeps working until its next build replaces it.
+#
+# Safe as a table because ``build_db`` is the only writer of ``cells``.
+_SECTION_CELL_STATS_SELECT = """
+    SELECT
+        target,
+        section_name,
+        COUNT(*) as total_cells,
+        SUM(CASE WHEN state IN ('exact', 'verified') THEN 1 ELSE 0 END) as exact_count,
+        SUM(CASE WHEN state = 'reloc' THEN 1 ELSE 0 END) as reloc_count,
+        SUM(CASE WHEN state IN ('near_match', 'near_matching') THEN 1 ELSE 0 END) as near_match_count,
+        SUM(CASE WHEN state = 'stub' THEN 1 ELSE 0 END) as stub_count,
+        SUM(CASE WHEN state = 'padding' THEN 1 ELSE 0 END) as padding_count,
+        SUM(CASE WHEN state = 'data' THEN 1 ELSE 0 END) as data_count,
+        SUM(CASE WHEN state = 'thunk' THEN 1 ELSE 0 END) as thunk_count,
+        SUM(CASE WHEN state = 'none' THEN 1 ELSE 0 END) as none_count,
+        SUM(CASE WHEN state = 'proven' THEN 1 ELSE 0 END) as proven_count,
+        SUM(CASE WHEN state = 'size_mismatch' THEN 1 ELSE 0 END) as size_mismatch_count,
+        -- Catch-all for every other state (compile_error,
+        -- missing_file, missing_size, skip, unknown, plus the data
+        -- drift/unchecked verdicts): without it total_cells never
+        -- equals the sum of the counted columns and per-section stats
+        -- silently undercount (db-review F4).  `verified` is excluded
+        -- here because it is counted as exact_count above.
+        SUM(CASE WHEN state NOT IN (
+            'exact', 'verified', 'reloc', 'near_match', 'near_matching',
+            'stub', 'padding', 'data', 'thunk', 'none', 'proven',
+            'size_mismatch'
+        ) THEN 1 ELSE 0 END) as other_count
+    FROM cells
+    GROUP BY target, section_name
+"""
+
+#: Name of the derived per-section stats table (was a view before it was
+#: materialized; see _SECTION_CELL_STATS_SELECT).
+SECTION_CELL_STATS_TABLE = "section_cell_stats"
 
 #: Per-target retention cap for the history table: only the newest N status-
 #: change rows per target are kept after each rebuild.  The dashboard pages
@@ -242,7 +299,7 @@ def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool =
 
     if stored_version == _CURRENT_DB_VERSION:
         # The version string alone is not proof of shape: a DB stamped "4" can
-        # be missing required objects (history table, section_cell_stats view)
+        # be missing required objects (history table, section_cell_stats)
         # and pass the gate, then 500 at query time.  Verify the objects the
         # version promises exist.
         missing = _missing_required_objects(db_path)
@@ -273,8 +330,9 @@ def _missing_required_objects(db_path: Path) -> set[str]:
 
     Checks object names AND the query-critical columns: a DB stamped "4"
     whose ``functions`` table lacks ``textOffset``/``similarity`` (or whose
-    ``section_cell_stats`` view is stale) passes a name-only gate and then
-    500s at query time.  Missing columns are reported as ``table.column``.
+    ``section_cell_stats`` is missing a counted bucket) passes a name-only gate
+    and then 500s at query time.  Missing columns are reported as
+    ``table.column``.
     """
     required = {
         "metadata",
@@ -284,7 +342,8 @@ def _missing_required_objects(db_path: Path) -> set[str]:
         "globals",
         "verify_results",
         "history",
-        "section_cell_stats",  # view
+        "section_cell_stats",
+        SECTION_CELLS_TABLE,
     }
     # Columns the recoverage queries depend on; a DB missing any of these
     # fails at runtime despite a correct version stamp.
@@ -357,6 +416,7 @@ def _missing_required_objects(db_path: Path) -> set[str]:
             "proven_count",
             "size_mismatch_count",
         },
+        SECTION_CELLS_TABLE: {"target", "section_name", SECTION_CELLS_COLUMN},
     }
     try:
         with contextlib.closing(sqlite3.connect(db_path, timeout=_SQLITE_TIMEOUT_SECONDS)) as conn:
@@ -443,9 +503,18 @@ def build_db(
                         f"{', '.join(sorted(existing_targets))}"
                     )
 
-        # The stats view is derived from cells — recreate it every run
-        # (scoped rebuilds keep the tables but must refresh the view too).
-        c.execute("DROP VIEW IF EXISTS section_cell_stats")
+        # The stats table is derived from cells — recreate it every run
+        # (scoped rebuilds keep the tables but must refresh the stats too).
+        # It was a VIEW before it was materialized, and SQLite refuses
+        # DROP VIEW on a table (and DROP TABLE on a view), so drop by the type
+        # actually present: that type check IS the migration path for
+        # databases built before the change.
+        existing_stats = c.execute(
+            "SELECT type FROM sqlite_master WHERE name = ?", (SECTION_CELL_STATS_TABLE,)
+        ).fetchone()
+        if existing_stats is not None:
+            stats_kind = "VIEW" if existing_stats[0] == "view" else "TABLE"
+            c.execute(f"DROP {stats_kind} {SECTION_CELL_STATS_TABLE}")
         # Full rebuild (no --target): recreate the whole schema.
         # Scoped rebuild (--target): keep the schema and other targets'
         # rows; only this target's rows are deleted below.
@@ -455,6 +524,8 @@ def build_db(
             c.execute("DROP TABLE IF EXISTS globals")
             c.execute("DROP TABLE IF EXISTS sections")
             c.execute("DROP TABLE IF EXISTS metadata")
+            # Derived from cells; repopulated whole at the end of this function.
+            c.execute(f"DROP TABLE IF EXISTS {SECTION_CELLS_TABLE}")
             # verify_results is NOT dropped here: it is a persistent history
             # table (DB_FORMAT.md documents "never dropped on rebuild"), and
             # dropping it wiped every target's verification rows except the
@@ -554,6 +625,25 @@ def build_db(
             )
         """)
 
+        # Per-section cell JSON, pre-aggregated and zlib-compressed.  Serving a
+        # dashboard grid otherwise re-runs json_group_array over every cell on
+        # each cold request: measured 10.7 ms of SQLite per 39k-cell section
+        # versus 0.3 ms to read this row, for 188 KB stored across the whole
+        # table.  WITHOUT ROWID because it is accessed only by its primary key,
+        # so the implicit rowid (and its index) would be dead weight.
+        #
+        # It is a derived cache: `cells` remains the source of truth and is the
+        # only thing other queries read, so a reader without this table still
+        # works (see rebrew.workspace.CELLS_JSON_OBJECT_SQL).
+        c.execute(f"""
+            CREATE TABLE IF NOT EXISTS {SECTION_CELLS_TABLE} (
+                target TEXT NOT NULL,
+                section_name TEXT NOT NULL,
+                {SECTION_CELLS_COLUMN} BLOB NOT NULL,
+                PRIMARY KEY (target, section_name)
+            ) WITHOUT ROWID
+        """)
+
         c.execute("CREATE INDEX IF NOT EXISTS idx_functions_name ON functions(target, name)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_functions_status ON functions(target, status)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_functions_module ON functions(target, module)")
@@ -604,37 +694,15 @@ def build_db(
             )
         """)
 
-        # Create views for pre-computed aggregate stats (used by both UIs)
-        c.execute("""
-            CREATE VIEW section_cell_stats AS
-            SELECT
-                target,
-                section_name,
-                COUNT(*) as total_cells,
-                SUM(CASE WHEN state IN ('exact', 'verified') THEN 1 ELSE 0 END) as exact_count,
-                SUM(CASE WHEN state = 'reloc' THEN 1 ELSE 0 END) as reloc_count,
-                SUM(CASE WHEN state IN ('near_match', 'near_matching') THEN 1 ELSE 0 END) as near_match_count,
-                SUM(CASE WHEN state = 'stub' THEN 1 ELSE 0 END) as stub_count,
-                SUM(CASE WHEN state = 'padding' THEN 1 ELSE 0 END) as padding_count,
-                SUM(CASE WHEN state = 'data' THEN 1 ELSE 0 END) as data_count,
-                SUM(CASE WHEN state = 'thunk' THEN 1 ELSE 0 END) as thunk_count,
-                SUM(CASE WHEN state = 'none' THEN 1 ELSE 0 END) as none_count,
-                SUM(CASE WHEN state = 'proven' THEN 1 ELSE 0 END) as proven_count,
-                SUM(CASE WHEN state = 'size_mismatch' THEN 1 ELSE 0 END) as size_mismatch_count,
-                -- Catch-all for every other state (compile_error,
-                -- missing_file, missing_size, skip, unknown, plus the data
-                -- drift/unchecked verdicts): without it total_cells never
-                -- equals the sum of the counted columns and per-section stats
-                -- silently undercount (db-review F4).  `verified` is excluded
-                -- here because it is counted as exact_count above.
-                SUM(CASE WHEN state NOT IN (
-                    'exact', 'verified', 'reloc', 'near_match', 'near_matching',
-                    'stub', 'padding', 'data', 'thunk', 'none', 'proven',
-                    'size_mismatch'
-                ) THEN 1 ELSE 0 END) as other_count
-            FROM cells
-            GROUP BY target, section_name
-        """)
+        # Per-section aggregate stats (used by both UIs).  Declared empty here
+        # and filled from _SECTION_CELL_STATS_SELECT after the cells are
+        # inserted; WHERE 0 gives the column set without evaluating the
+        # aggregation against a table that is still empty (or, on a scoped
+        # rebuild, still half-populated).
+        c.execute(
+            f"CREATE TABLE {SECTION_CELL_STATS_TABLE} AS "
+            f"SELECT * FROM ({_SECTION_CELL_STATS_SELECT}) WHERE 0"
+        )
 
         # Scoped rebuild: delete only this target's rows (sections first so
         # the cells FK CASCADE clears cell rows too).  Runs after all tables
@@ -1118,6 +1186,33 @@ def build_db(
                 "INSERT OR REPLACE INTO metadata VALUES (?, ?, ?)",
                 (target_name, "db_version", json.dumps(_CURRENT_DB_VERSION)),
             )
+
+        # Materialize the per-section cell JSON every dashboard grid serves.
+        # Rebuilt WHOLE (not per rebuilt target) from `cells` on every run, so
+        # the table is complete for every target after any build — including a
+        # scoped --target rebuild of an older DB that lacked the table, which
+        # would otherwise leave sibling targets with no cached row and force
+        # readers into a per-target "is it materialized?" guess.
+        #
+        # The DELETE prunes sections/targets that no longer exist; without it a
+        # removed section would keep serving its stale cells.
+        c.execute(f"DELETE FROM {SECTION_CELLS_TABLE}")
+        c.executemany(
+            f"INSERT INTO {SECTION_CELLS_TABLE} (target, section_name, {SECTION_CELLS_COLUMN}) "
+            "VALUES (?, ?, ?)",
+            [
+                (tgt, sec, encode_section_cells(cells_json))
+                for tgt, sec, cells_json in c.execute(
+                    f"SELECT target, section_name, json_group_array({CELLS_JSON_OBJECT_SQL}) "
+                    "FROM cells GROUP BY target, section_name"
+                ).fetchall()
+            ],
+        )
+
+        # Per-section bucket counts, from the single definition above.  Filled
+        # whole (like the cell JSON) so a scoped --target rebuild also leaves
+        # sibling targets with correct rows.
+        c.execute(f"INSERT INTO {SECTION_CELL_STATS_TABLE} {_SECTION_CELL_STATS_SELECT}")
 
         c.execute("COMMIT")
 

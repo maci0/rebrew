@@ -20,10 +20,12 @@ import shutil
 import sqlite3
 from pathlib import Path
 
+import zstandard
 from typer.testing import CliRunner
 
-from rebrew.build_db import build_db
+from rebrew.build_db import _CURRENT_DB_VERSION, build_db
 from rebrew.main import app
+from rebrew.workspace import CELLS_JSON_OBJECT_SQL, SECTION_CELLS_COLUMN, SECTION_CELLS_TABLE
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -259,4 +261,86 @@ class TestRecoverageContract:
         c = conn.cursor()
         c.execute("PRAGMA table_info(globals)")
         assert "status" in {r[1] for r in c.fetchall()}
+        conn.close()
+
+    def test_materialized_cells_match_live_query(self, tmp_path, monkeypatch) -> None:
+        """Every cached cell blob must equal what the live query produces.
+
+        Recoverage serves ``section_cells_json`` instead of re-aggregating
+        ``cells``, so the cache is only sound while the two are byte-identical.
+        Equality is what lets the dashboard serve the blob with no runtime
+        cross-check; if the shared CELLS_JSON_OBJECT_SQL ever diverges between
+        the two call sites, this fails.
+        """
+        root = _run_pipeline(tmp_path, monkeypatch)
+        conn = sqlite3.connect(root / "db" / "coverage.db")
+        c = conn.cursor()
+        live = {
+            (t, s): cells_json
+            for t, s, cells_json in c.execute(
+                f"SELECT target, section_name, json_group_array({CELLS_JSON_OBJECT_SQL})"
+                " FROM cells GROUP BY target, section_name"
+            )
+        }
+        cached = {
+            (t, s): zstandard.ZstdDecompressor().decompress(blob).decode("utf-8")
+            for t, s, blob in c.execute(
+                f"SELECT target, section_name, {SECTION_CELLS_COLUMN} FROM {SECTION_CELLS_TABLE}"
+            )
+        }
+        conn.close()
+        assert live, "fixture produced no cells to compare"
+        assert cached == live
+
+    def test_stamp_and_cache_codec_agree(self, tmp_path, monkeypatch) -> None:
+        """The v7 stamp must mean what the reader assumes it means.
+
+        Recoverage probes for ``SECTION_CELLS_COLUMN`` and decodes with zstd,
+        without consulting the version.  So the two have to agree: a database
+        stamped 7 that carries a different codec's column, or a blob that is not
+        zstd, would make the fast path either silently unreachable or wrongly
+        entered.  Pin the stamp, the column name, and that the bytes really are
+        a zstd frame.
+        """
+        root = _run_pipeline(tmp_path, monkeypatch)
+        conn = sqlite3.connect(root / "db" / "coverage.db")
+        c = conn.cursor()
+
+        c.execute("SELECT value FROM metadata WHERE target = '__schema__' AND key = 'db_version'")
+        assert json.loads(c.fetchone()[0]) == _CURRENT_DB_VERSION
+
+        c.execute(f"SELECT name FROM pragma_table_info('{SECTION_CELLS_TABLE}')")
+        assert {r[0] for r in c.fetchall()} == {"target", "section_name", SECTION_CELLS_COLUMN}
+
+        row = c.execute(
+            f"SELECT {SECTION_CELLS_COLUMN} FROM {SECTION_CELLS_TABLE} LIMIT 1"
+        ).fetchone()
+        assert row is not None, "cache table was left empty"
+        # Zstd frames start with the 4-byte magic 0x28B52FFD; zlib's own header
+        # (0x78 ...) must never appear here.
+        assert row[0][:4] == b"\x28\xb5\x2f\xfd"
+        conn.close()
+
+    def test_rebuild_over_own_output_is_idempotent(self, tmp_path, monkeypatch) -> None:
+        """Re-running build-db on its own output must work.
+
+        This is the ordinary case (a user re-running build-db, a second
+        --regen), and it is where the stats object's migration path bites:
+        SQLite refuses DROP VIEW on a table and DROP TABLE on a view, so the
+        builder has to drop by the type actually present. Building twice also
+        has to leave the derived objects complete, not empty.
+        """
+        root = _run_pipeline(tmp_path, monkeypatch)
+        build_db(root)
+        build_db(root)
+
+        conn = sqlite3.connect(root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT type FROM sqlite_master WHERE name = 'section_cell_stats'")
+        row = c.fetchone()
+        assert row is not None and row[0] == "table"
+        c.execute("SELECT COUNT(*) FROM section_cell_stats WHERE target = 'SERVER'")
+        assert c.fetchone()[0] >= 1, "second build left section_cell_stats empty"
+        c.execute(f"SELECT COUNT(*) FROM {SECTION_CELLS_TABLE} WHERE target = 'SERVER'")
+        assert c.fetchone()[0] >= 1, "second build left the cell cache empty"
         conn.close()
