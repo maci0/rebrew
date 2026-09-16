@@ -211,12 +211,15 @@ def save_toml(doc: tomlkit.TOMLDocument, path: Path, *, dry_run: bool = False) -
         )
 
 
-def _resolve_target(doc: tomlkit.TOMLDocument, target: str | None) -> str:
+def _resolve_target(
+    doc: tomlkit.TOMLDocument, target: str | None, *, json_mode: bool = False
+) -> str:
     """Resolve a target name: use given name, project default, or first target."""
     targets = doc.get("targets", {})
     if not targets:
         error_exit(
-            "No [targets] section in rebrew-project.toml. Add one with 'rebrew cfg add-target'."
+            "No [targets] section in rebrew-project.toml. Add one with 'rebrew cfg add-target'.",
+            json_mode=json_mode,
         )
     if target is None:
         project = doc.get("project", {})
@@ -225,7 +228,10 @@ def _resolve_target(doc: tomlkit.TOMLDocument, target: str | None) -> str:
         if target is None:
             target = next(iter(targets))
     if target not in targets:
-        error_exit(f"Target '{target}' not found. Available: {list(targets)}")
+        error_exit(
+            f"Target '{target}' not found. Available: {list(targets)}",
+            json_mode=json_mode,
+        )
     return target
 
 
@@ -843,8 +849,8 @@ def detect_crt(
         False, "--write", "-w", help="Write detected paths into rebrew-project.toml."
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
-    target: str | None = TargetOption,
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
 ) -> None:
     """Auto-detect CRT source directories from MSVC tools in the project tree."""
     from rebrew.config import detect_crt_sources
@@ -866,7 +872,7 @@ def detect_crt(
             return
         if write:
             doc, toml_path = load_toml(root, json_mode=True)
-            target_name = _resolve_target(doc, target)
+            target_name = _resolve_target(doc, target, json_mode=True)
             targets_table: Any = doc["targets"]
             tgt: Any = targets_table[target_name]
             crt_sources = tgt.get("crt_sources")
@@ -879,6 +885,8 @@ def detect_crt(
                     if not dry_run:
                         crt_sources[origin] = rel_path
                     written += 1
+            if written and not dry_run:
+                save_toml(doc, toml_path)
             result["target"] = target_name
             result["written"] = written
             result["dry_run"] = dry_run

@@ -1551,7 +1551,7 @@ def main(
         True, "--annotate/--no-annotate", help="(hex) Annotate calls with known function names"
     ),
     resolve_imports: bool = typer.Option(
-        False, "--imports", help="(hex) Annotate call/jmp [IAT] with import names"
+        False, "--imports", help=r"(hex) Annotate call/jmp \[IAT] with import names"
     ),
     resolve_strings: bool = typer.Option(
         False, "--strings", help="(hex) Annotate push/mov/lea of string addresses with text"

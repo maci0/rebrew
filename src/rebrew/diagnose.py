@@ -199,7 +199,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Print the toolchain+flags resolution chain for one or more functions."""
-    cfg = require_config(target=target)
+    cfg = require_config(target=target, json_mode=json_output)
     p = Path(source_arg)
     if p.is_dir():
         sources = sorted(iter_sources(p, cfg))

@@ -139,3 +139,20 @@ def test_every_component_module_resolves() -> None:
                 f"component {component.name!r} module {component.module} has neither "
                 "a main callback nor an app"
             )
+
+
+def test_option_help_survives_rich_markup() -> None:
+    """Literal ``[section]`` spans in ``help=`` must render in ``--help``.
+
+    Rich treats ``[link]`` / ``[compiler]`` as markup tags and silently drops
+    them from help text unless escaped as ``\\[…]`` (see ``pdb-info
+    --write-cflags``).  Pin the gen-layout options that previously vanished.
+    """
+    from typer.testing import CliRunner
+
+    from rebrew.main import app
+
+    result = CliRunner().invoke(app, ["gen-layout", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "[link]" in result.stdout
+    assert "[targets.<t>.layout]" in result.stdout
