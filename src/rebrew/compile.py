@@ -158,6 +158,30 @@ class CompareResult:
 NEAR_MATCH_THRESHOLD = 0.60
 
 
+def matched_byte_count(
+    match_percent: float,
+    *,
+    matched: bool,
+    compared_len: int,
+    total: int,
+) -> int:
+    """Reconstruct matching bytes from ``match_percent``.
+
+    :func:`classify_compare_result` defines ``match_percent`` as
+    ``matching / compared_len * 100`` where *compared_len* is the common
+    (possibly truncated) length. Reconstruct against that denominator.
+
+    Scaling by ``total = max(target, full_obj)`` instead invents matches when
+    the object is longer (50% of a 10B target → 6 of 13) and treats a perfect
+    short prefix as a full-target match (100% of 5B → 100 of 100B).
+    """
+    if matched:
+        return total
+    if compared_len <= 0:
+        return 0
+    return int(round(match_percent / 100.0 * compared_len))
+
+
 def is_matched(status: str) -> bool:
     """True when *status* indicates a fully matched function (EXACT, RELOC, or PROVEN)."""
     return status in MATCHED_STATUSES

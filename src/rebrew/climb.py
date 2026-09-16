@@ -49,7 +49,7 @@ from rebrew.cli import (
     resolve_compile_overrides,
 )
 from rebrew.coff_reloc import build_name_to_va
-from rebrew.compile import compile_and_compare
+from rebrew.compile import compile_and_compare, matched_byte_count
 from rebrew.config import ProjectConfig
 from rebrew.sources import target_marker
 from rebrew.utils import atomic_write_text, read_source_text
@@ -205,14 +205,14 @@ def _score(
 
     The arguments and the arithmetic mirror ``rebrew test`` exactly, including
     ``name_to_va``/``section_va`` (DIR32 absolute validation) and the
-    match_percent -> match_count reconstruction.  Scoring a differently computed
-    percentage once made a move look like an improvement while
-    ``rebrew test`` reported one byte fewer.
+    match_percent → match_count reconstruction via :func:`matched_byte_count`.
+    Scoring a differently computed percentage once made a move look like an
+    improvement while ``rebrew test`` reported one byte fewer.
 
     The object length comes back alongside the score because matched bytes
-    alone is not a safe objective: ``total`` is ``max(target, object)``, so a
-    candidate that emits more code can match more bytes while walking away from
-    the target's length.  ``_within_size_budget`` is what refuses those.
+    alone is not a safe objective: a candidate that emits more code can match
+    more of a growing common prefix while walking away from the target's
+    length.  ``_within_size_budget`` is what refuses those.
     """
     result = compile_and_compare(
         cfg,
@@ -227,14 +227,24 @@ def _score(
     if result.obj_bytes is None:
         return -1.0, 0
     # The longer side is truncated before comparison, so ``obj_bytes`` is not
-    # the object's real length on a size mismatch; ``full_obj_size`` is.  The
-    # score's ``total`` keeps using the truncated bytes exactly as before, so
-    # it still mirrors ``rebrew test``.
+    # the object's real length on a size mismatch; ``full_obj_size`` is.
+    # match_percent's denominator is that truncated common length — reconstruct
+    # against it, not against max(original target, common), or a perfect 5B
+    # prefix of a 100B target scores 100.
     obj_len = result.full_obj_size if result.full_obj_size is not None else len(result.obj_bytes)
-    total = max(len(target_bytes), len(result.obj_bytes))
-    if result.matched:
-        return float(total), obj_len
-    return float(round(result.match_percent / 100.0 * total)), obj_len
+    compared = len(result.obj_bytes)
+    total = max(len(target_bytes), compared)
+    return (
+        float(
+            matched_byte_count(
+                result.match_percent,
+                matched=result.matched,
+                compared_len=compared,
+                total=total,
+            )
+        ),
+        obj_len,
+    )
 
 
 def _score_aligned(
