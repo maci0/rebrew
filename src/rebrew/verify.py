@@ -2117,109 +2117,117 @@ def run_verification(
     except Exception as exc:  # batch is an optimization; never fail the run
         log.debug("batch pre-compile skipped: %s", exc)
 
-    with Progress(
-        TextColumn("[bold blue]Verifying"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        TextColumn("[dim]{task.description}"),
-        console=console,
-        disable=json_output,
-    ) as progress:
-        task = progress.add_task("functions", total=total)
-        if cached_count > 0:
-            progress.update(task, advance=cached_count, description="cached")
+    try:
+        with Progress(
+            TextColumn("[bold blue]Verifying"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TextColumn("[dim]{task.description}"),
+            console=console,
+            disable=json_output,
+        ) as progress:
+            task = progress.add_task("functions", total=total)
+            if cached_count > 0:
+                progress.update(task, advance=cached_count, description="cached")
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=effective_jobs) as pool:
-            # Bounded submission: submitting every entry up front (verify
-            # batches can be thousands of functions) builds one Future + one
-            # queued task per entry — the exact pattern flag_sweep was
-            # deliberately changed away from (compiler.py:541).  Submit
-            # effective_jobs at a time and refill as each completes, so
-            # memory stays proportional to the worker count, not the corpus.
-            futures: dict[concurrent.futures.Future[Any], Annotation] = {}
-            entry_iter = iter(entries_to_verify)
-            for _ in range(min(effective_jobs, len(entries_to_verify))):
-                with contextlib.suppress(StopIteration):
-                    e = next(entry_iter)
-                    futures[pool.submit(_verify, e)] = e
-            # Drain-and-refill: as_completed snapshots at call time, so new
-            # submissions need the outer while to re-arm the iterator.
-            while futures:
-                for future in concurrent.futures.as_completed(futures):
-                    entry = futures.pop(future)
-                    is_internal_error = False
-                    try:
-                        _entry, result = future.result()
-                    except Exception as exc:
-                        is_internal_error = True
-                        internal_errors += 1
-                        log.debug(
-                            "Internal error verifying %s",
-                            getattr(entry, "name", "?"),
-                            exc_info=True,
-                        )
-                        if internal_errors <= 5:
-                            console.print(
-                                f"[yellow]warning:[/yellow] internal error verifying "
-                                f"{getattr(entry, 'name', '?')}: {exc}"
-                            )
-                        from rebrew.compile import CompareResult
-
-                        result = CompareResult(
-                            matched=False,
-                            status="INTERNAL_ERROR",
-                            match_percent=0.0,
-                            delta=0,
-                            obj_bytes=None,
-                            reloc_offsets=None,
-                            message=f"INTERNAL_ERROR: {exc}",
-                        )
-                    # Refill the pool slot with the next entry (if any).
+            with concurrent.futures.ThreadPoolExecutor(max_workers=effective_jobs) as pool:
+                # Bounded submission: submitting every entry up front (verify
+                # batches can be thousands of functions) builds one Future + one
+                # queued task per entry — the exact pattern flag_sweep was
+                # deliberately changed away from (compiler.py:541).  Submit
+                # effective_jobs at a time and refill as each completes, so
+                # memory stays proportional to the worker count, not the corpus.
+                futures: dict[concurrent.futures.Future[Any], Annotation] = {}
+                entry_iter = iter(entries_to_verify)
+                for _ in range(min(effective_jobs, len(entries_to_verify))):
                     with contextlib.suppress(StopIteration):
                         e = next(entry_iter)
                         futures[pool.submit(_verify, e)] = e
+                # Drain-and-refill: as_completed snapshots at call time, so new
+                # submissions need the outer while to re-arm the iterator.
+                while futures:
+                    for future in concurrent.futures.as_completed(futures):
+                        entry = futures.pop(future)
+                        is_internal_error = False
+                        try:
+                            _entry, result = future.result()
+                        except Exception as exc:
+                            is_internal_error = True
+                            internal_errors += 1
+                            log.debug(
+                                "Internal error verifying %s",
+                                getattr(entry, "name", "?"),
+                                exc_info=True,
+                            )
+                            if internal_errors <= 5:
+                                console.print(
+                                    f"[yellow]warning:[/yellow] internal error verifying "
+                                    f"{getattr(entry, 'name', '?')}: {exc}"
+                                )
+                            from rebrew.compile import CompareResult
 
-                    name = entry.name
-                    progress.update(task, advance=1, description=name)
+                            result = CompareResult(
+                                matched=False,
+                                status="INTERNAL_ERROR",
+                                match_percent=0.0,
+                                delta=0,
+                                obj_bytes=None,
+                                reloc_offsets=None,
+                                message=f"INTERNAL_ERROR: {exc}",
+                            )
+                        # Refill the pool slot with the next entry (if any).
+                        with contextlib.suppress(StopIteration):
+                            e = next(entry_iter)
+                            futures[pool.submit(_verify, e)] = e
 
-                    if result.matched:
-                        passed += 1
-                    else:
-                        failed += 1
-                        # A tooling crash fails the gate in BOTH modes: plain
-                        # verify counts it in the failed total (exit 1 below),
-                        # and --compare must not skip it either (fail closed —
-                        # a crashed worker on a previously-EXACT function is a
-                        # gate failure, not a silent pass).
-                        fail_details.append((entry, result.message))
+                        name = entry.name
+                        progress.update(task, advance=1, description=name)
 
-                    # An INTERNAL_ERROR is a tooling failure, not a verification
-                    # verdict — never let it overwrite the function's real STATUS
-                    # in rebrew-functions.toml (previously EXACT/NEAR_MATCHING were
-                    # permanently demoted to COMPILE_ERROR).
-                    if not is_internal_error:
-                        deferred_fixes.append((entry, result.status, result.delta))
+                        if result.matched:
+                            passed += 1
+                        else:
+                            failed += 1
+                            # A tooling crash fails the gate in BOTH modes: plain
+                            # verify counts it in the failed total (exit 1 below),
+                            # and --compare must not skip it either (fail closed —
+                            # a crashed worker on a previously-EXACT function is a
+                            # gate failure, not a silent pass).
+                            fail_details.append((entry, result.message))
 
-                    results.append(
-                        {
-                            "va": f"0x{entry.va:08x}",
-                            "name": name,
-                            "symbol": getattr(entry, "symbol", "") or "_" + name,
-                            "module": getattr(entry, "module", ""),
-                            "filepath": getattr(entry, "filepath", ""),
-                            "size": getattr(entry, "size", 0),
-                            "status": result.status,
-                            "message": result.message,
-                            "passed": result.matched,
-                            "match_percent": result.match_percent,
-                            "delta": result.delta,
-                            "diff_lines": result.diff_lines,
-                            "similarity": result.similarity,
-                            "reg_delta": result.reg_delta,
-                            "effective_match": result.effective_match,
-                            "context_hash": result.context_hash,
-                        }
-                    )
+                        # An INTERNAL_ERROR is a tooling failure, not a verification
+                        # verdict — never let it overwrite the function's real STATUS
+                        # in rebrew-functions.toml (previously EXACT/NEAR_MATCHING were
+                        # permanently demoted to COMPILE_ERROR).
+                        if not is_internal_error:
+                            deferred_fixes.append((entry, result.status, result.delta))
+
+                        results.append(
+                            {
+                                "va": f"0x{entry.va:08x}",
+                                "name": name,
+                                "symbol": getattr(entry, "symbol", "") or "_" + name,
+                                "module": getattr(entry, "module", ""),
+                                "filepath": getattr(entry, "filepath", ""),
+                                "size": getattr(entry, "size", 0),
+                                "status": result.status,
+                                "message": result.message,
+                                "passed": result.matched,
+                                "match_percent": result.match_percent,
+                                "delta": result.delta,
+                                "diff_lines": result.diff_lines,
+                                "similarity": result.similarity,
+                                "reg_delta": result.reg_delta,
+                                "effective_match": result.effective_match,
+                                "context_hash": result.context_hash,
+                            }
+                        )
+    finally:
+        # Batch-published .obj files are no longer needed — drop lasting temp
+        # dirs so a long-lived process does not accumulate one per --full run.
+        with contextlib.suppress(Exception):
+            from rebrew.compile import cleanup_batch_obj_dirs
+
+            cleanup_batch_obj_dirs()
 
     if internal_errors > 0 and not json_output:
         console.print(

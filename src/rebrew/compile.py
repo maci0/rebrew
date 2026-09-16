@@ -47,6 +47,7 @@ All functions read from ``cfg`` (a ``ProjectConfig`` instance):
 - ``msvc_env_from_config(cfg)`` - environment dict with ``LIB`` / ``INCLUDE`` etc.
 """
 
+import atexit
 import contextlib
 import hashlib
 import os
@@ -1285,6 +1286,35 @@ def compile_batch_objs(
     return out, ""
 
 
+#: Lasting temp dirs holding batch-published ``.obj`` files (see
+#: :func:`precompile_batch`).  Cleared by :func:`cleanup_batch_obj_dirs`.
+_BATCH_OBJ_DIRS: list[Path] = []
+_BATCH_ATEXIT_REGISTERED = False
+
+
+def cleanup_batch_obj_dirs() -> None:
+    """Remove lasting ``.obj`` dirs left by :func:`precompile_batch`.
+
+    Safe to call when none exist.  Verify invokes this after extracting
+    symbol bytes so long-lived processes do not accumulate one dir per
+    ``--full`` run; an atexit registration is the crash backstop.
+    """
+    from rebrew.utils import remove_temp_dir
+
+    while _BATCH_OBJ_DIRS:
+        path = _BATCH_OBJ_DIRS.pop()
+        with contextlib.suppress(OSError):
+            remove_temp_dir(path)
+
+
+def _register_batch_obj_atexit() -> None:
+    """Register :func:`cleanup_batch_obj_dirs` once per process."""
+    global _BATCH_ATEXIT_REGISTERED
+    if not _BATCH_ATEXIT_REGISTERED:
+        atexit.register(cleanup_batch_obj_dirs)
+        _BATCH_ATEXIT_REGISTERED = True
+
+
 def precompile_batch(
     cfg: ProjectConfig,
     entries: list[Any],
@@ -1301,6 +1331,11 @@ def precompile_batch(
     backend, exotic arg styles, groups of one) are absent — their callers
     compile individually as before.  Never raises (batch is an
     optimization): failures return what succeeded, the rest fall back.
+
+    Published ``.obj`` paths live under a lasting temp dir (not the staged
+    source tree).  Call :func:`cleanup_batch_obj_dirs` after extracting
+    symbol bytes so the lasting dir does not accumulate across verify runs
+    in a long-lived process; an atexit hook is the backstop.
     """
     import contextlib
     import logging as _logging
@@ -1318,9 +1353,10 @@ def precompile_batch(
     if base_spec is not None and base_spec.effective_arg_style not in ("posix", "msvc"):
         return {}
 
-    from rebrew.utils import writable_temp_dir
+    from rebrew.utils import remove_temp_dir, writable_temp_dir
 
     out: dict[int, str] = {}
+    lasting_root: Path | None = None
     groups: dict[tuple[str, str], list[Any]] = {}
     for e in entries:
         try:
@@ -1372,6 +1408,7 @@ def precompile_batch(
     def _compile_group(toolchain: str, group_flags: str, members: list[Any]) -> dict[int, str]:
         """Compile one flag group; returns ``{id(entry): obj_path}``."""
         group_out: dict[int, str] = {}
+        workdir: Path | None = None
         try:
             spec = TOOLCHAINS.get(toolchain) if toolchain else base_spec
             if spec is None:
@@ -1471,8 +1508,17 @@ def precompile_batch(
                 # for the rest (their errors are in the log).
                 log.debug("batch group partial (%d/%d): %s", len(objs), len(staged), err[:120])
             for name, obj in objs.items():
+                # Promote the .obj out of the staged tree before the workdir
+                # is removed: callers (verify) keep these paths until they
+                # extract symbol bytes.  lasting_root is created once before
+                # the pool starts (see below).
+                assert lasting_root is not None
+                obj_bytes = Path(obj).read_bytes()
+                lasting = lasting_root / f"{uuid.uuid4().hex[:12]}{Path(obj).suffix}"
+                lasting.write_bytes(obj_bytes)
+                lasting_path = str(lasting)
                 for e in staged[name]:
-                    out[id(e)] = obj
+                    group_out[id(e)] = lasting_path
                     # Pin the batch-built object in the compile cache under the
                     # identical key the single-file path uses — the next run
                     # hits cache instead of re-batching.  Key on the file's OWN
@@ -1503,21 +1549,33 @@ def precompile_batch(
                                 None,
                                 src.suffix or ".c",
                             )
-                            cache.put(key, Path(obj).read_bytes())
+                            cache.put(key, obj_bytes)
             return group_out
         except Exception as exc:
             log.debug("batch group skipped: %s", exc)
             return group_out
+        finally:
+            if workdir is not None:
+                with contextlib.suppress(OSError):
+                    remove_temp_dir(workdir)
 
     # Groups are independent workdirs — compile them in parallel (each is a
     # ~1s container spawn; serial was the whole --full budget on real
     # projects).  Workers default to the project's job count.
-    batch_jobs = max(1, min(getattr(cfg, "default_jobs", 4) or 4, len(groups)))
+    batchable = {k: ms for k, ms in groups.items() if len(ms) >= 2}
+    if not batchable:
+        return out
+    # Lasting home for published .obj files: each group workdir copies the
+    # whole reversed tree and must be removed as soon as the compile finishes,
+    # so survivors are copied here (small).  Swept by :func:`cleanup_batch_obj_dirs`
+    # (verify calls it after extracting) and by atexit as a backstop.
+    lasting_root = writable_temp_dir("rebrew_batch_objs_")
+    _BATCH_OBJ_DIRS.append(lasting_root)
+    _register_batch_obj_atexit()
+    batch_jobs = max(1, min(getattr(cfg, "default_jobs", 4) or 4, len(batchable)))
     with _futures.ThreadPoolExecutor(max_workers=batch_jobs) as pool:
         future_map = {
-            pool.submit(_compile_group, tc, gf, ms): (tc, gf)
-            for (tc, gf), ms in groups.items()
-            if len(ms) >= 2
+            pool.submit(_compile_group, tc, gf, ms): (tc, gf) for (tc, gf), ms in batchable.items()
         }
         for future in _futures.as_completed(future_map):
             try:

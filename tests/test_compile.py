@@ -1109,3 +1109,81 @@ class TestBatchGroupKey:
         from rebrew.compile import _batch_group_key
 
         assert _batch_group_key("", "-O2 -Ifoo") == _batch_group_key("", "-O2 -Ibar")
+
+
+class TestPrecompileBatchCleanup:
+    def test_group_workdir_removed_after_compile(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Staged source trees must not accumulate across batch groups."""
+        from types import SimpleNamespace
+
+        from rebrew.compile import cleanup_batch_obj_dirs, precompile_batch
+        from rebrew.utils import writable_temp_dir as _real_wtd
+
+        rev = tmp_path / "reversed"
+        rev.mkdir()
+        for name in ("a.c", "b.c"):
+            (rev / name).write_text(f"int {name[0]}(void){{return 1;}}\n", encoding="utf-8")
+
+        workdirs: list[Path] = []
+        lasting_dirs: list[Path] = []
+
+        def _tracking_wtd(prefix: str) -> Path:
+            d = _real_wtd(prefix)
+            if prefix.startswith("rebrew_batch_objs"):
+                lasting_dirs.append(d)
+            elif prefix.startswith("rebrew_batch_"):
+                workdirs.append(d)
+            return d
+
+        monkeypatch.setattr("rebrew.utils.writable_temp_dir", _tracking_wtd)
+
+        def _fake_batch(spec, src_names, flags, workdir, mounts, timeout):
+            out = {}
+            for src in src_names:
+                obj = workdir / (Path(src).stem + ".o")
+                obj.write_bytes(b"\x90")
+                out[src] = str(obj)
+            return out, ""
+
+        monkeypatch.setattr("rebrew.compile.compile_batch_objs", _fake_batch)
+        monkeypatch.setattr(
+            "rebrew.compile.TOOLCHAINS",
+            {
+                "mingw-16.2.0": SimpleNamespace(
+                    name="mingw-16.2.0",
+                    image="rebrew/mingw:16.2.0-win32",
+                    effective_arg_style="posix",
+                )
+            },
+        )
+        monkeypatch.setattr(
+            "rebrew.cli.resolve_compile_overrides",
+            lambda *a, **k: ("mingw-16.2.0", ""),
+        )
+        monkeypatch.setattr("rebrew.compile.recompile_url", lambda cfg: None)
+
+        entries = [
+            SimpleNamespace(filepath="a.c", toolchain="", cflags="", module=""),
+            SimpleNamespace(filepath="b.c", toolchain="", cflags="", module=""),
+        ]
+        cfg = SimpleNamespace(
+            reversed_dir=rev,
+            root=tmp_path,
+            compiler_profile="mingw-16.2.0",
+            compiler_includes="",
+            base_cflags="",
+            compile_timeout=60,
+            default_jobs=1,
+        )
+        out = precompile_batch(cfg, entries)
+        assert len(out) == 2
+        assert workdirs, "expected at least one staged group workdir"
+        for wd in workdirs:
+            assert not wd.exists(), f"staged workdir leaked: {wd}"
+        for path in out.values():
+            assert Path(path).is_file()
+        cleanup_batch_obj_dirs()
+        for ld in lasting_dirs:
+            assert not ld.exists(), f"lasting obj dir leaked: {ld}"

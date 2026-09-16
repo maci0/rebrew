@@ -47,6 +47,7 @@ import logging
 import re
 import shutil
 import subprocess
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -291,26 +292,35 @@ def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
         return False
     image, source = stock_lib_source(profile, name)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    result = subprocess.run(
-        [
-            runtime,
-            "run",
-            "--rm",
-            "--entrypoint",
-            "sh",
-            "-v",
-            f"{dest.parent}:/out",
-            image,
-            "-c",
-            'cp "$1" "/out/$2"',
-            "sh",
-            source,
-            dest.name,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    from rebrew.toolchain import kill_container
+
+    container = f"rebrew-libext-{uuid.uuid4().hex[:12]}"
+    try:
+        result = subprocess.run(
+            [
+                runtime,
+                "run",
+                "--rm",
+                "--name",
+                container,
+                "--entrypoint",
+                "sh",
+                "-v",
+                f"{dest.parent}:/out",
+                image,
+                "-c",
+                'cp "$1" "/out/$2"',
+                "sh",
+                source,
+                dest.name,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired as exc:
+        kill_container(container)
+        raise ToolchainError(f"extracting {name} from {image} timed out") from exc
     if result.returncode != 0 or not dest.is_file():
         raise ToolchainError(
             f"cannot extract {name} from {image}: {result.stderr.strip() or 'no copy was written'}"
@@ -332,26 +342,38 @@ def assert_library_is_stock(path: Path, *, profile: str, name: str) -> None:
     if shutil.which(runtime) is None:
         return
     image, source = stock_lib_source(profile, name)
-    result = subprocess.run(
-        [
-            runtime,
-            "run",
-            "--rm",
-            "--entrypoint",
-            "sh",
-            "-v",
-            f"{path.parent}:/out",
-            image,
-            "-c",
-            'md5sum "$1" "/out/$2"',
-            "sh",
-            source,
-            path.name,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    from rebrew.toolchain import kill_container
+
+    container = f"rebrew-libhash-{uuid.uuid4().hex[:12]}"
+    try:
+        result = subprocess.run(
+            [
+                runtime,
+                "run",
+                "--rm",
+                "--name",
+                container,
+                "--entrypoint",
+                "sh",
+                "-v",
+                f"{path.parent}:/out",
+                image,
+                "-c",
+                'md5sum "$1" "/out/$2"',
+                "sh",
+                source,
+                path.name,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired:
+        kill_container(container)
+        error_exit(
+            f"verifying {path.name} against {image} timed out",
+            code=EXIT_ERROR,
+        )
     digests = [line.split()[0] for line in result.stdout.splitlines() if line.strip()]
     if len(digests) != 2:
         error_exit(
