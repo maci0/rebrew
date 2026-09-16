@@ -973,6 +973,165 @@ def test_code_relocs_are_valid_slots(code: bytes) -> None:
 
 
 # ---------------------------------------------------------------------------
+# omf16.parse_omf16 — structure-aware + mutation fuzz on untrusted .obj bytes
+# ---------------------------------------------------------------------------
+
+
+@st.composite
+def _omf16_record_stream(draw: st.DrawFn) -> bytes:
+    """Plausible MSVC 1.52 OMF: a sequence of typed records with LE lengths."""
+    n = draw(st.integers(min_value=0, max_value=16))
+    out = bytearray()
+    for _ in range(n):
+        rec_type = draw(
+            st.sampled_from([0x80, 0x88, 0x90, 0x96, 0xA0, 0xC2, 0xCA, 0x8C, 0x9C, 0xFF])
+        )
+        body = draw(st.binary(min_size=0, max_size=48))
+        # OMF length field includes the trailing checksum byte; body here is
+        # the full length payload the parser slices as ``data[pos+3:pos+3+ln]``.
+        ln = len(body)
+        if ln < 1:
+            ln = 1
+            body = b"\x00"
+        out.append(rec_type)
+        out += (ln & 0x7FFF).to_bytes(2, "little")
+        out += body[:ln]
+        if len(body) < ln:
+            out += b"\x00" * (ln - len(body))
+    # Occasionally truncate mid-record so the length gate must reject cleanly.
+    if out and draw(st.booleans()):
+        cut = draw(st.integers(min_value=0, max_value=len(out)))
+        return bytes(out[:cut])
+    return bytes(out)
+
+
+def _assert_omf16_module_shape(mod: Any) -> None:
+    """Invariants on a successfully decoded Omf16Module."""
+    assert isinstance(mod.code, (bytes, bytearray))
+    assert isinstance(mod.publics, dict)
+    assert isinstance(mod.names, list)
+    assert isinstance(mod.code_records, list)
+    for name, off in mod.publics.items():
+        assert isinstance(name, str)
+        assert isinstance(off, int)
+        assert off >= 0
+    for name in mod.names:
+        assert isinstance(name, str)
+    for rec in mod.code_records:
+        assert isinstance(rec, (bytes, bytearray))
+
+
+@settings(max_examples=200, deadline=None)
+@given(st.binary(min_size=0, max_size=256))
+def test_parse_omf16_random_bytes_no_crash(blob: bytes) -> None:
+    """Arbitrary .obj bytes: parse returns a shaped module or Omf16Error —
+    never IndexError/struct.error/UnicodeDecodeError."""
+    from contextlib import suppress
+
+    from rebrew.omf16 import Omf16Error, is_omf16, parse_omf16
+
+    assert isinstance(is_omf16(blob), bool)
+    with suppress(Omf16Error):
+        _assert_omf16_module_shape(parse_omf16(blob))
+
+
+@settings(max_examples=200, deadline=None)
+@given(_omf16_record_stream())
+def test_parse_omf16_structured_records_no_crash(blob: bytes) -> None:
+    """Structure-aware OMF record streams exercise the typed branches
+    (0xA0/0xC2 code, 0x90 publics, 0x96/0xCA names) without crashing."""
+    from contextlib import suppress
+
+    from rebrew.omf16 import Omf16Error, is_omf16, parse_omf16
+
+    assert isinstance(is_omf16(blob), bool)
+    with suppress(Omf16Error):
+        mod = parse_omf16(blob)
+        _assert_omf16_module_shape(mod)
+        # Successful parse implies is_omf16 saw a code record type.
+        assert is_omf16(blob) is True
+        assert isinstance(mod.code, (bytes, bytearray))
+
+
+@settings(max_examples=100, deadline=None)
+@given(st.integers(min_value=0, max_value=2), st.binary(min_size=1, max_size=32))
+def test_parse_omf16_fixture_mutation_no_crash(fixture_idx: int, noise: bytes) -> None:
+    """Byte-flip / splice mutations of real MSVC 1.52 fixtures must degrade
+    cleanly — the same contract as the Quantum PAK harness."""
+    import random
+    from contextlib import suppress
+
+    from rebrew.omf16 import Omf16Error, is_omf16, parse_omf16
+
+    fixtures = Path(__file__).parent / "fixtures"
+    names = ("tg_msvc16.obj", "tg_msvc16_o1.obj", "tg_msvc16_far.obj")
+    path = fixtures / names[fixture_idx]
+    if not path.exists():
+        return
+    base = bytearray(path.read_bytes())
+    rng = random.Random(fixture_idx * 1000 + len(noise))
+    # Splice a noise window, then flip a few bytes.
+    at = rng.randrange(0, max(1, len(base)))
+    end = min(len(base), at + len(noise))
+    base[at:end] = noise[: end - at]
+    for _ in range(rng.randint(1, 8)):
+        base[rng.randrange(len(base))] = rng.randrange(256)
+    blob = bytes(base)
+    assert isinstance(is_omf16(blob), bool)
+    with suppress(Omf16Error):
+        _assert_omf16_module_shape(parse_omf16(blob))
+
+
+# ---------------------------------------------------------------------------
+# splat_config.parse_yaml_subset — fuzz the hand-rolled YAML subset reader
+# ---------------------------------------------------------------------------
+
+
+@settings(max_examples=200, deadline=None)
+@given(st.text(max_size=300))
+def test_parse_yaml_subset_random_text_no_crash(text: str) -> None:
+    """Arbitrary text fed to the splat YAML subset reader must raise
+    ValueError or return a dict/list — never an unexpected exception."""
+    from contextlib import suppress
+
+    from rebrew.splat_config import parse_yaml_subset
+
+    with suppress(ValueError):
+        out = parse_yaml_subset(text)
+        assert isinstance(out, (dict, list))
+
+
+@settings(max_examples=150, deadline=None)
+@given(
+    st.lists(
+        st.text(
+            alphabet=st.characters(min_codepoint=32, max_codepoint=126, blacklist_characters="\t"),
+            min_size=1,
+            max_size=40,
+        ),
+        min_size=0,
+        max_size=24,
+    )
+)
+def test_parse_yaml_subset_line_shaped_no_crash(raw_lines: list[str]) -> None:
+    """Near-YAML line soup (printable ASCII, space indents) covers mapping /
+    sequence / scalar / comment paths without crashing."""
+    from contextlib import suppress
+
+    from rebrew.splat_config import parse_yaml_subset
+
+    # Force a mix of indent widths so nested blocks get exercised.
+    lines: list[str] = []
+    for i, line in enumerate(raw_lines):
+        indent = " " * ((i % 4) * 2)
+        lines.append(f"{indent}{line}")
+    text = "\n".join(lines)
+    with suppress(ValueError):
+        out = parse_yaml_subset(text)
+        assert isinstance(out, (dict, list))
+
+
+# ---------------------------------------------------------------------------
 # catalog/grid._build_cells — coverage-cell invariants
 # ---------------------------------------------------------------------------
 
