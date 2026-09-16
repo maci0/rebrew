@@ -464,6 +464,29 @@ class TestRecoverProjectStructs:
         text = target.read_text(encoding="utf-8")
         assert "typedef struct PlayerInfo_s {" in text
 
+    def test_apply_rerun_does_not_duplicate(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A second ``--apply`` must not append the same typedef again."""
+        cfg = _project_cfg(tmp_path)
+        monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _player_decompiler)
+        target = tmp_path / "structs.h"
+        target.write_text("/* existing */\n", encoding="utf-8")
+
+        first = recover_project_structs(
+            cfg, decompiler="kuna", functions="0x401000", apply=target, json_output=True
+        )
+        assert first["applied"] == str(target)
+        after_first = target.read_text(encoding="utf-8")
+        assert after_first.count("typedef struct PlayerInfo_s {") == 1
+
+        second = recover_project_structs(
+            cfg, decompiler="kuna", functions="0x401000", apply=target, json_output=True
+        )
+        assert second["applied"] is None
+        assert any(s["name"] == "PlayerInfo" and not s["new"] for s in second["structs"])
+        assert target.read_text(encoding="utf-8") == after_first
+
     def test_dry_run_writes_nothing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _project_cfg(tmp_path)
         monkeypatch.setattr("rebrew.decompiler.fetch_decompilation", _player_decompiler)

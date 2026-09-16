@@ -655,6 +655,12 @@ def recover_project_structs(
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     sources += list(iter_library_headers(cfg.reversed_dir, cfg))
+    # ``--apply`` may point outside the source tree; without scanning it,
+    # a second run would re-append the same typedefs (duplicate definitions).
+    if apply is not None and apply.exists():
+        apply_key = apply.resolve()
+        if apply_key not in {p.resolve() for p in sources}:
+            sources.append(apply)
     existing = existing_structs(sources)
     # Offsets ≥ the image base are absolute addresses (Kuna folds
     # global_base + index into ``var + 0xADDR``) — never member offsets.
@@ -664,10 +670,17 @@ def recover_project_structs(
     new_structs = [r for r in results if r["new"] and not r["anonymous"]]
     applied = str(apply) if apply and new_structs and not dry_run else None
     if apply and new_structs and not dry_run:
-        block = "\n\n".join(r["definition"] for r in new_structs)
-        with apply.open("a", encoding="utf-8") as fh:
-            fh.write("\n" + block)
-        console.print(f"[green]Appended {len(new_structs)} struct(s) to {apply}[/green]")
+        # Belt: skip names already present in the apply target (partial writes).
+        already = existing_structs([apply]) if apply.exists() else {}
+        to_write = [r for r in new_structs if r["name"] not in already]
+        if to_write:
+            block = "\n\n".join(r["definition"] for r in to_write)
+            with apply.open("a", encoding="utf-8") as fh:
+                fh.write("\n" + block)
+            console.print(f"[green]Appended {len(to_write)} struct(s) to {apply}[/green]")
+            applied = str(apply)
+        else:
+            applied = None
 
     return {
         "decompiled": len(decompilations),

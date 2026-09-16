@@ -71,6 +71,30 @@ def test_insert_definition(tmp_path: Path) -> None:
     assert "unsigned char g_a[8] = {0x01,0x02,0x03,0x04};" in text
 
 
+def test_insert_definition_rerun_does_not_duplicate(tmp_path: Path) -> None:
+    """A second insert of the same name must replace, not append a twin def."""
+    f = tmp_path / "mod.c"
+    f.write_text("unsigned char g_a[4] = {0x01,0x02,0x03,0x04};\n", encoding="utf-8")
+    ok = insert_definition(f, "g_a", "unsigned char", 4, "{0xaa,0xbb,0xcc,0xdd}", dry_run=False)
+    assert ok
+    text = f.read_text(encoding="utf-8")
+    assert text.count("g_a[4]") == 1
+    assert "unsigned char g_a[4] = {0xaa,0xbb,0xcc,0xdd};" in text
+    # Identical re-run is a no-op write (still True — definition is present).
+    assert insert_definition(f, "g_a", "unsigned char", 4, "{0xaa,0xbb,0xcc,0xdd}", dry_run=False)
+    assert f.read_text(encoding="utf-8").count("unsigned char g_a[4]") == 1
+
+
+def test_insert_definition_rerun_no_init_pad(tmp_path: Path) -> None:
+    """BSS/pad defs without ``=`` must not accumulate on re-run either."""
+    f = tmp_path / "pad.c"
+    f.write_text("unsigned char _dpad_1000[16];\n", encoding="utf-8")
+    assert insert_definition(f, "_dpad_1000", "unsigned char", 16, None, dry_run=False)
+    text = f.read_text(encoding="utf-8")
+    assert text.count("_dpad_1000") == 1
+    assert "unsigned char _dpad_1000[16];" in text
+
+
 def test_insert_definition_preserves_shift_jis(tmp_path: Path) -> None:
     """Write-back must not UTF-8-rewrite a Shift-JIS TU (corrupting comments).
 
