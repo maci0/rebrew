@@ -8,10 +8,10 @@ rejected with 405.
 Endpoints
 ---------
 ``GET /``                      → minimal HTML app (vanilla JS, no build step)
-``GET /api/targets``           → list of targets
+``GET /api/targets``           → list of targets (includes count/total)
 ``GET /api/summary?target=``   → function stats + coverage % (target required)
 ``GET /api/functions?target=`` → function rows (filters: status, module, q, limit)
-``GET /api/sections?target=``  → per-section cell stats (section_cell_stats table)
+``GET /api/sections?target=``  → per-section cell stats (includes count/total)
 ``GET /api/globals?target=``   → global data rows (filter: q, limit; includes total)
 ``GET /api/history?target=``   → status-change history (limit; includes total)
 
@@ -279,11 +279,32 @@ init().catch(error => {
 
 
 def _int_param(params: dict[str, list[str]], name: str, default: int) -> int:
-    raw = params.get(name, [default])[0]
+    """Parse a positive int query param, clamped to ``[_DEFAULT floor, _MAX_LIMIT]``.
+
+    Missing, empty, non-numeric, or non-positive values fall back to *default*
+    so ``limit=0`` / ``limit=-1`` never silently return an empty page.
+    """
+    values = params.get(name)
+    raw = values[0] if values else None
+    if raw is None or raw == "":
+        return default
     try:
-        return max(0, min(int(raw), _MAX_LIMIT))
+        value = int(raw)
     except (ValueError, TypeError):
         return default
+    if value <= 0:
+        return default
+    return min(value, _MAX_LIMIT)
+
+
+def _opt_query(params: dict[str, list[str]], name: str) -> str | None:
+    """Return a stripped optional query value, or None when missing/blank."""
+    values = params.get(name)
+    raw = values[0] if values else None
+    if raw is None:
+        return None
+    stripped = raw.strip()
+    return stripped or None
 
 
 def _escape_like(term: str) -> str:
@@ -429,27 +450,30 @@ class Dashboard:
                     "SELECT name, size FROM sections WHERE target = ?", (target,)
                 ).fetchall()
             )
+        sections = [
+            {
+                "name": r[0],
+                "size": sizes.get(r[0]),
+                "total_cells": r[1],
+                "exact": r[2] or 0,
+                "reloc": r[3] or 0,
+                "near_match": r[4] or 0,
+                "stub": r[5] or 0,
+                "padding": r[6] or 0,
+                "data": r[7] or 0,
+                "thunk": r[8] or 0,
+                "none": r[9] or 0,
+                "proven": r[10] or 0,
+                "size_mismatch": r[11] or 0,
+                "other": r[12] or 0,
+            }
+            for r in rows
+        ]
         return {
             "target": target,
-            "sections": [
-                {
-                    "name": r[0],
-                    "size": sizes.get(r[0]),
-                    "total_cells": r[1],
-                    "exact": r[2] or 0,
-                    "reloc": r[3] or 0,
-                    "near_match": r[4] or 0,
-                    "stub": r[5] or 0,
-                    "padding": r[6] or 0,
-                    "data": r[7] or 0,
-                    "thunk": r[8] or 0,
-                    "none": r[9] or 0,
-                    "proven": r[10] or 0,
-                    "size_mismatch": r[11] or 0,
-                    "other": r[12] or 0,
-                }
-                for r in rows
-            ],
+            "count": len(sections),
+            "total": len(sections),
+            "sections": sections,
         }
 
     def globals(
@@ -527,12 +551,16 @@ class Dashboard:
     def handle(self, method: str, path: str, query: dict[str, list[str]]) -> tuple[int, str, str]:
         """Route a request.  Returns (status, content-type, body)."""
         if method not in ("GET", "HEAD"):
-            return self._json(405, {"error": "method not allowed (read-only; GET only)"})
+            return self._json(405, {"error": "method not allowed (read-only; GET, HEAD only)"})
         parsed = urlparse(path)
         if parsed.path == "/":
             return 200, "text/html; charset=utf-8", _INDEX_HTML
         if parsed.path == "/api/targets":
-            return self._json(200, {"targets": self.targets()})
+            targets = self.targets()
+            return self._json(
+                200,
+                {"targets": targets, "count": len(targets), "total": len(targets)},
+            )
 
         # All remaining endpoints require ?target=
         if parsed.path in (
@@ -542,7 +570,7 @@ class Dashboard:
             "/api/globals",
             "/api/history",
         ):
-            target = (query.get("target") or [""])[0]
+            target = _opt_query(query, "target") or ""
             if not target:
                 return self._json(400, {"error": "missing required query parameter 'target'"})
             if not self.target_known(target):
@@ -558,9 +586,9 @@ class Dashboard:
                     200,
                     self.functions(
                         target,
-                        status=query.get("status", [None])[0] or None,
-                        module=query.get("module", [None])[0] or None,
-                        q=query.get("q", [None])[0] or None,
+                        status=_opt_query(query, "status"),
+                        module=_opt_query(query, "module"),
+                        q=_opt_query(query, "q"),
                         limit=_int_param(query, "limit", _DEFAULT_LIMIT),
                     ),
                 )
@@ -571,7 +599,7 @@ class Dashboard:
                     200,
                     self.globals(
                         target,
-                        q=query.get("q", [None])[0] or None,
+                        q=_opt_query(query, "q"),
                         limit=_int_param(query, "limit", _DEFAULT_LIMIT),
                     ),
                 )
@@ -708,6 +736,9 @@ class _Handler(BaseHTTPRequestHandler):
         """Browser hardening shared by every response, including early 403s."""
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
+        # Coverage DB is rebuilt out-of-band; never let the browser cache a
+        # stale JSON/HTML snapshot across a ``rebrew build-db`` run.
+        self.send_header("Cache-Control", "no-store")
         # The app is inline-JS/CSS only and fetches same-origin JSON — this
         # keeps any future escaping of API data from loading external
         # resources or phoning home.
@@ -731,6 +762,12 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self) -> None:
         self._respond("DELETE")
+
+    def do_PATCH(self) -> None:
+        self._respond("PATCH")
+
+    def do_OPTIONS(self) -> None:
+        self._respond("OPTIONS")
 
     def log_message(self, fmt: str, *args: Any) -> None:  # quiet default logging
         # markup=False: the logged request line is remote-controlled text; a

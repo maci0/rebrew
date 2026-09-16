@@ -172,7 +172,10 @@ class TestQueryLayer:
         assert data["functions"][0]["symbol"] == "_func_a"
 
     def test_sections(self, dashboard: Dashboard) -> None:
-        sections = dashboard.sections("server_dll")["sections"]
+        payload = dashboard.sections("server_dll")
+        sections = payload["sections"]
+        assert payload["count"] == len(sections)
+        assert payload["total"] == len(sections)
         by_name = {s["name"]: s for s in sections}
         assert by_name[".text"]["exact"] == 1
         assert by_name[".text"]["stub"] == 1
@@ -269,7 +272,10 @@ class TestHandle:
         status, content_type, body = dashboard.handle("GET", "/api/targets", {})
         assert status == 200
         assert "application/json" in content_type
-        assert json.loads(body)["targets"] == ["server_dll"]
+        payload = json.loads(body)
+        assert payload["targets"] == ["server_dll"]
+        assert payload["count"] == 1
+        assert payload["total"] == 1
 
     def test_api_summary_missing_target_404(self, dashboard: Dashboard) -> None:
         status, _, body = dashboard.handle("GET", "/api/summary", {"target": ["nope"]})
@@ -285,6 +291,13 @@ class TestHandle:
             "/api/history",
         ):
             status, _, body = dashboard.handle("GET", path, {})
+            assert status == 400, path
+            assert "target" in json.loads(body)["error"]
+
+    def test_api_blank_target_param_400(self, dashboard: Dashboard) -> None:
+        """Whitespace-only target is missing, not an unknown name."""
+        for path in ("/api/summary", "/api/functions"):
+            status, _, body = dashboard.handle("GET", path, {"target": ["  "]})
             assert status == 400, path
             assert "target" in json.loads(body)["error"]
 
@@ -307,15 +320,40 @@ class TestHandle:
         assert status == 200
         assert json.loads(body)["count"] == 1
 
+    def test_api_functions_nonpositive_limit_uses_default(self, dashboard: Dashboard) -> None:
+        status, _, body = dashboard.handle(
+            "GET", "/api/functions", {"target": ["server_dll"], "limit": ["0"]}
+        )
+        assert status == 200
+        payload = json.loads(body)
+        assert payload["count"] == 2
+        assert payload["total"] == 2
+
+    def test_api_sections_includes_count_total(self, dashboard: Dashboard) -> None:
+        status, _, body = dashboard.handle("GET", "/api/sections", {"target": ["server_dll"]})
+        assert status == 200
+        payload = json.loads(body)
+        assert payload["count"] == len(payload["sections"])
+        assert payload["total"] == payload["count"]
+        assert payload["count"] >= 1
+
     def test_post_rejected(self, dashboard: Dashboard) -> None:
         status, content_type, body = dashboard.handle("POST", "/api/targets", {})
         assert status == 405
         assert "application/json" in content_type
-        assert "method not allowed" in json.loads(body)["error"]
+        err = json.loads(body)["error"]
+        assert "method not allowed" in err
+        assert "HEAD" in err
 
     def test_put_rejected(self, dashboard: Dashboard) -> None:
         status, _, body = dashboard.handle("PUT", "/api/targets", {})
         assert status == 405
+        assert "method not allowed" in json.loads(body)["error"]
+
+    def test_patch_rejected(self, dashboard: Dashboard) -> None:
+        status, content_type, body = dashboard.handle("PATCH", "/api/targets", {})
+        assert status == 405
+        assert "application/json" in content_type
         assert "method not allowed" in json.loads(body)["error"]
 
     def test_head_allowed_for_reads(self, dashboard: Dashboard) -> None:
@@ -384,6 +422,21 @@ class TestCli:
         result = CliRunner().invoke(app, ["--help"])
         assert result.exit_code == 0
         assert "--target" not in result.output
+
+
+class TestIntParam:
+    """limit query parsing: non-positive / invalid → default, else clamp."""
+
+    def test_missing_and_invalid(self) -> None:
+        from rebrew.dashboard import _DEFAULT_LIMIT, _MAX_LIMIT, _int_param
+
+        assert _int_param({}, "limit", _DEFAULT_LIMIT) == _DEFAULT_LIMIT
+        assert _int_param({"limit": [""]}, "limit", _DEFAULT_LIMIT) == _DEFAULT_LIMIT
+        assert _int_param({"limit": ["abc"]}, "limit", _DEFAULT_LIMIT) == _DEFAULT_LIMIT
+        assert _int_param({"limit": ["0"]}, "limit", _DEFAULT_LIMIT) == _DEFAULT_LIMIT
+        assert _int_param({"limit": ["-3"]}, "limit", 100) == 100
+        assert _int_param({"limit": ["50"]}, "limit", _DEFAULT_LIMIT) == 50
+        assert _int_param({"limit": [str(_MAX_LIMIT + 1)]}, "limit", _DEFAULT_LIMIT) == _MAX_LIMIT
 
 
 class TestEscapeLike:
@@ -481,6 +534,7 @@ class TestHostValidation:
         assert "X-Content-Type-Options" in header_names
         assert "X-Frame-Options" in header_names
         assert "Content-Security-Policy" in header_names
+        assert ("Cache-Control", "no-store") in sent
 
     def test_handler_unexpected_error_answers_500(self) -> None:
         """An unexpected route error must answer 500 JSON, not reset the connection."""
