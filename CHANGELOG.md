@@ -20,6 +20,9 @@
 - Shell, compile-cache, dashboard, and recompile-client fetch path hardening.
 - UTC / PE timestamp and budget handling in `doctor`, `pe_info`, `prove`, `status`.
 - `rebrew test --watch` forwards retest params; dry-run exits honor the preview.
+- LLM GA seeding: neutralize fence breakouts in source, split system/user
+  roles, cap `max_tokens`/source/response/seed size, and drop snippets whose
+  function name does not match the seed.
 
 ## [2.4.0] - 2026-09-17
 ### Added
