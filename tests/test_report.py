@@ -81,6 +81,12 @@ class TestReportCli:
         assert "/O2 /Gd" in index
         assert "table-scroll" in index
         assert "flex-wrap" in index
+        assert "aria-current='page'" in index
+        assert "scope='col'" in index
+        assert "Skip to content" in index
+        assert "aria-label='Report pages'" in index
+        assert "#475569" in index  # STUB text meets WCAG AA contrast on white
+        assert "#94a3b8" not in index
 
     def test_index_shows_blockers(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The function table's Blocker column surfaces near-diag blockers."""

@@ -254,7 +254,9 @@ class TestHandle:
 
     def test_index_html_has_accessible_structure(self, dashboard: Dashboard) -> None:
         _, _, body = dashboard.handle("GET", "/", {})
-        assert "<main>" in body
+        assert '<main id="main">' in body
+        assert 'href="#main"' in body
+        assert "Skip to content" in body
         assert '<label for="q">Search name or symbol</label>' in body
         assert 'role="status" aria-live="polite"' in body
         assert 'id="dashboard-error" role="alert" hidden' in body
@@ -267,6 +269,8 @@ class TestHandle:
         assert 'id="no-targets"' in body
         assert 'id="empty-state"' in body
         assert "Showing " in body and "of " in body  # truncation copy in JS
+        assert "Loading functions" in body
+        assert "class=value" in body
 
     def test_api_targets(self, dashboard: Dashboard) -> None:
         status, content_type, body = dashboard.handle("GET", "/api/targets", {})
