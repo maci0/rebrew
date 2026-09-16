@@ -54,7 +54,7 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
     except OSError:
         return None
     try:
-        source_hash = _source_hash(filepath)
+        source_bytes = _source_bytes(str(filepath.resolve()), st.st_mtime_ns)
     except OSError:
         return None
     toolchain, cflags = resolve_compile_overrides(
@@ -70,8 +70,8 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
         cflags=cflags,
         defines=defines,
         size=getattr(entry, "size", 0) or 0,
-        headers_fp=_entry_headers_fp(cfg, filepath, cflags),
-        source_hash=source_hash,
+        headers_fp=_entry_headers_fp(cfg, filepath, cflags, source_bytes=source_bytes),
+        source_hash=hashlib.sha256(source_bytes).hexdigest(),
         mtime_ns=st.st_mtime_ns,
     )
 
@@ -285,11 +285,31 @@ def _headers_stat_fingerprint(src_dir: Path) -> tuple[tuple[str, int, int], ...]
     return tuple(sorted(entries))
 
 
+@functools.lru_cache(maxsize=4096)
+def _source_bytes(path_str: str, _mtime_ns: int) -> bytes:
+    """Read *path_str* once per (path, mtime) — multi-function files share it.
+
+    *_mtime_ns* is part of the key so an edit within the process invalidates
+    the cached bytes without clearing the whole LRU.
+    """
+    return Path(path_str).read_bytes()
+
+
 def _source_hash(filepath: Path) -> str:
-    return hashlib.sha256(filepath.read_bytes()).hexdigest()
+    try:
+        mtime_ns = filepath.stat().st_mtime_ns
+    except OSError:
+        return hashlib.sha256(filepath.read_bytes()).hexdigest()
+    return hashlib.sha256(_source_bytes(str(filepath.resolve()), mtime_ns)).hexdigest()
 
 
-def _entry_headers_fp(cfg: ProjectConfig, filepath: Path, cflags_str: str) -> str:
+def _entry_headers_fp(
+    cfg: ProjectConfig,
+    filepath: Path,
+    cflags_str: str,
+    *,
+    source_bytes: bytes | None = None,
+) -> str:
     """Per-source header-dependency fingerprint for a verify-cache entry.
 
     Resolves the source's ``#include`` closure against the same dirs the
@@ -300,6 +320,9 @@ def _entry_headers_fp(cfg: ProjectConfig, filepath: Path, cflags_str: str) -> st
     — replacing the old global ``headers_hash`` gate that re-verified
     everything on any header change.  Returns ``""`` when the source cannot
     be read (the entry is treated as stale).
+
+    Pass *source_bytes* when the caller already read the file (fingerprint
+    path) so the second full-file read is skipped.
     """
     import shlex
 
@@ -312,7 +335,10 @@ def _entry_headers_fp(cfg: ProjectConfig, filepath: Path, cflags_str: str) -> st
     flags = resolve_include_flags(flags, source_dir, cfg.root)
     include_dirs = [d for d in [inc_path, str(source_dir), *extract_include_dirs(flags)] if d]
     try:
-        content = filepath.read_bytes().decode("utf-8", errors="surrogateescape")
+        if source_bytes is None:
+            content = filepath.read_bytes().decode("utf-8", errors="surrogateescape")
+        else:
+            content = source_bytes.decode("utf-8", errors="surrogateescape")
     except OSError:
         return ""
     return header_dependency_hash(content, str(source_dir), include_dirs)

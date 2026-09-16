@@ -615,6 +615,8 @@ def load_metadata_doc(
     path: Path,
     cache: dict[Path, tuple[int, dict[tuple[str, int], dict[str, Any]]]],
     description: str,
+    *,
+    deepcopy: bool = True,
 ) -> dict[tuple[str, int], dict[str, Any]]:
     """Parse a qualified-key metadata TOML (``rebrew-functions.toml`` /
     ``rebrew-data.toml``) into ``{(module, va): fields}``.
@@ -628,6 +630,11 @@ def load_metadata_doc(
     *path* is resolved for stable cache keys.  *cache* is the caller's
     mtime-keyed in-memory cache (invalidated by write helpers).  Returns an
     empty dict when the file is missing or unparseable.
+
+    When *deepcopy* is True (default), each caller receives an isolated
+    copy so mutating overlays cannot corrupt the cache.  Read-only
+    overlays (annotation finalize, skip checks) pass ``deepcopy=False``
+    to avoid cloning the whole table once per source file.
     """
     path = path.resolve()
     if not path.exists():
@@ -642,7 +649,7 @@ def load_metadata_doc(
     if cached is not None and cached[0] == current_mtime:
         # Deep copy: callers mutate the entries they get (merge overlays,
         # status promotion), and an aliased dict would corrupt the cache.
-        return copy.deepcopy(cached[1])
+        return copy.deepcopy(cached[1]) if deepcopy else cached[1]
 
     try:
         doc = tomllib.loads(path.read_text(encoding="utf-8"))
@@ -653,7 +660,7 @@ def load_metadata_doc(
     result = parse_metadata_doc(doc)
     cache[path] = (current_mtime, result)
     # Deep copy for the same reason as the cache-hit path above.
-    return copy.deepcopy(result)
+    return copy.deepcopy(result) if deepcopy else result
 
 
 def qualified_key(module: str | None, va: int) -> str:

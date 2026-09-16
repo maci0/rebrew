@@ -14,6 +14,7 @@ import tree_sitter as ts
 
 from rebrew.matcher.ast_engine import _C_LANGUAGE, parse_c_ast
 from rebrew.matcher.mutations.queries import (
+    _QUERY_ADJACENT_EXPR_STMTS,
     _QUERY_ASSIGN_ZERO,
     _QUERY_LOCAL_DECL,
     _LazyQuery,
@@ -130,6 +131,17 @@ def mut_commute_mul_general(s: str, rng: random.Random) -> str | None:
 
 # --- Enhancement 2: C89 Block-Scoped Register Injection ---
 
+_QUERY_LOOP_BODY_BLOCK = _LazyQuery(
+    _C_LANGUAGE,
+    """
+    [
+        (while_statement body: (compound_statement) @body) @stmt
+        (for_statement body: (compound_statement) @body) @stmt
+        (do_statement body: (compound_statement) @body) @stmt
+    ]
+""",
+)
+
 
 def mut_inject_block_register(s: str, rng: random.Random) -> str | None:
     """Wrap a statement range in ``{ register int _reg_N; ... }``.
@@ -145,31 +157,11 @@ def mut_inject_block_register(s: str, rng: random.Random) -> str | None:
     tree = parse_c_ast(b_source)
 
     # Strategy 1: wrap a loop body in a register block
-    q_loop = _LazyQuery(
-        _C_LANGUAGE,
-        """
-        [
-            (while_statement body: (compound_statement) @body) @stmt
-            (for_statement body: (compound_statement) @body) @stmt
-            (do_statement body: (compound_statement) @body) @stmt
-        ]
-    """,
-    )
-    cursor = _cursor(q_loop)
+    cursor = _cursor(_QUERY_LOOP_BODY_BLOCK)
     loop_matches = cursor.matches(tree.root_node)
 
     # Strategy 2: wrap 2-4 adjacent expression_statements in a block
-    q_adj = _LazyQuery(
-        _C_LANGUAGE,
-        """
-        (compound_statement
-            (expression_statement) @s1
-            .
-            (expression_statement) @s2
-        )
-    """,
-    )
-    cursor2 = _cursor(q_adj)
+    cursor2 = _cursor(_QUERY_ADJACENT_EXPR_STMTS)
     adj_matches = cursor2.matches(tree.root_node)
 
     candidates: list[tuple[str, dict[str, ts.Node]]] = []
@@ -391,6 +383,8 @@ _QUERY_INJECT_DUMMY_REGISTERS = _LazyQuery(
 _QUERY_HOIST_REPEATED_DEREF = _LazyQuery(
     _C_LANGUAGE, "(function_definition body: (compound_statement) @body)"
 )
+_DEREF_PTR_ADDR_RE = re.compile(rb"\*\s*\(\s*[^)]*\*\s*\)\s*0x[0-9a-fA-F]+")
+_HEX_ADDR_TAIL_RE = re.compile(rb"0x[0-9a-fA-F]+$")
 
 
 # Operator inversion map for De Morgan-aware if/else inversion.
@@ -688,14 +682,13 @@ def mut_hoist_repeated_deref(s: str, rng: random.Random) -> str | None:
     # (a single `é` in a comment), garbling or skipping the splice.
     body_bytes = b_source[body_start:body_end]
 
-    deref_re = re.compile(rb"\*\s*\(\s*[^)]*\*\s*\)\s*0x[0-9a-fA-F]+")
-    occurrences = list(deref_re.finditer(body_bytes))
+    occurrences = list(_DEREF_PTR_ADDR_RE.finditer(body_bytes))
     if len(occurrences) < 2:
         return None
     # Group by the absolute address; the address with the most repeats wins.
     by_addr: dict[bytes, list[re.Match[bytes]]] = {}
     for m in occurrences:
-        addr_m = re.search(rb"0x[0-9a-fA-F]+$", m.group(0))
+        addr_m = _HEX_ADDR_TAIL_RE.search(m.group(0))
         if addr_m is None:
             continue
         by_addr.setdefault(addr_m.group(0), []).append(m)

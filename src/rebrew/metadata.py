@@ -235,7 +235,11 @@ def metadata_path(directory: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def load_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
+def load_metadata(
+    directory: Path,
+    *,
+    deepcopy: bool = True,
+) -> dict[tuple[str, int], dict[str, Any]]:
     """Load ``rebrew-functions.toml`` from *directory*.
 
     *directory* must be the metadata root (``cfg.metadata_dir``).  There is
@@ -247,8 +251,13 @@ def load_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
     Results are cached in-memory keyed by resolved path and file mtime.
     Call :func:`clear_metadata_cache` to force a re-read.
 
+    When *deepcopy* is True (default), callers receive an isolated copy.
+    Pass ``deepcopy=False`` only for read-only consumers that must not
+    mutate the returned mapping (or any nested entry dict).
+
     Args:
         directory: The metadata root directory (``cfg.metadata_dir``).
+        deepcopy: Isolate the returned mapping from the process cache.
 
     """
     # Resolve so cache keys are stable across relative/absolute call sites.
@@ -257,7 +266,7 @@ def load_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
         _metadata_cache.pop(path, None)
         return {}
 
-    return load_metadata_doc(path, _metadata_cache, "metadata")
+    return load_metadata_doc(path, _metadata_cache, "metadata", deepcopy=deepcopy)
 
 
 def save_metadata(

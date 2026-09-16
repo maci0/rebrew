@@ -300,7 +300,12 @@ def marker_for_module(module: str, status: str, library_modules: set[str] | None
     return "FUNCTION"
 
 
-def has_skip_annotation(filepath: Path, metadata_dir: Path | None = None) -> bool:
+def has_skip_annotation(
+    filepath: Path,
+    metadata_dir: Path | None = None,
+    *,
+    annotations: list[Annotation] | None = None,
+) -> bool:
     """Return True if a function in *filepath* is marked as skippable.
 
     Checks ``rebrew-functions.toml`` metadata for a truthy ``skip`` field **or**
@@ -309,20 +314,27 @@ def has_skip_annotation(filepath: Path, metadata_dir: Path | None = None) -> boo
     collection.  Both parking signals mean the same thing; matching only the
     ``skip`` field left ``status=SKIP`` entries in the GA/match batch.
     Returns ``False`` immediately when *metadata_dir* is ``None``.
+
+    Pass *annotations* when the caller already parsed the file (with or
+    without metadata overlay) to avoid a second structural parse.
     """
     if metadata_dir is None:
         return False
     try:
         from rebrew.metadata import canonical_status, load_metadata
 
-        entries = load_metadata(metadata_dir)
-        for ann in parse_c_file_multi(filepath):
+        entries = load_metadata(metadata_dir, deepcopy=False)
+        anns = annotations if annotations is not None else parse_c_file_multi(filepath)
+        for ann in anns:
             entry = entries.get((ann.module, ann.va), {})
             raw_skip = entry.get("skip", "")
             if raw_skip and str(raw_skip).strip().lower() not in ("", "0", "false", "no"):
                 return True
             raw_status = entry.get("status", "")
             if raw_status and canonical_status(str(raw_status)) == "SKIP":
+                return True
+            # Metadata-overlaid parses already put STATUS on the Annotation.
+            if canonical_status(getattr(ann, "status", "") or "") == "SKIP":
                 return True
     except Exception:  # metadata read failure is non-fatal
         logger.debug("Metadata read failed for skip check in %s", metadata_dir, exc_info=True)
@@ -1199,7 +1211,10 @@ def _finalize_entries(
         # Load the metadata ONCE per file and apply per annotation —
         # merge_into_annotation re-loaded it per function (the
         # whole-tree parse hot path: 1000 functions = 1000 TOML loads).
-        entries_by_key = load_metadata(metadata_dir)
+        # deepcopy=False: _apply_metadata_entry only reads and copies
+        # mutable field values onto the Annotation; cloning the whole
+        # table per source file dominated catalog/verify scans.
+        entries_by_key = load_metadata(metadata_dir, deepcopy=False)
         for entry in filtered_entries:
             meta = entries_by_key.get((entry.module, entry.va))
             if meta:
