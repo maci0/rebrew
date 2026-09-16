@@ -123,7 +123,7 @@ class TestPrepareEntriesCache:
             # Mirror the new writer: the cache stores the RESOLVED effective
             # flags (config fallback chain applied), not the raw metadata
             # value — a hit requires the freshly-resolved value to match.
-            from rebrew.cli import resolve_cflags
+            from rebrew.compile_overrides import resolve_cflags
 
             cflags = resolve_cflags(_cfg(Path("/tmp")), None, "")
         if not source_hash:
@@ -141,7 +141,7 @@ class TestPrepareEntriesCache:
         # Mirror the new writer: the resolved toolchain override
         # (per-function → per-library → project default), so a TOOLCHAIN edit
         # invalidates the entry.
-        from rebrew.cli import resolve_compile_overrides
+        from rebrew.compile_overrides import resolve_compile_overrides
 
         _tc, _cf2 = resolve_compile_overrides(
             _cfg(Path(cfg_reversed_dir())), Path(cfg_reversed_dir()), "", "", ""

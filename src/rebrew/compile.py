@@ -72,7 +72,13 @@ from rebrew.headless import ensure_xvfb
 from rebrew.matcher import parse_obj_symbol_and_relocs
 from rebrew.metadata import MATCHED_STATUSES
 from rebrew.msvc_env import msvc_env_from_config, resolve_runner_path
-from rebrew.toolchain import TOOLCHAINS, ToolchainError, ToolchainSpec, run_toolchain
+from rebrew.toolchain import (
+    TOOLCHAINS,
+    ToolchainError,
+    ToolchainSpec,
+    cached_image_digest,
+    run_toolchain,
+)
 from rebrew.utils import container_runtime, safe_shlex_split
 
 # ---------------------------------------------------------------------------
@@ -718,22 +724,7 @@ def _docker_include_rewrite(
     return out, mounts
 
 
-_toolchain_digest_cache: dict[str, str] = {}
-
 _native_binary_cache: dict[str, str] = {}
-
-
-def invalidate_toolchain_digest(image: str | None = None) -> None:
-    """Drop cached docker content ids used in compile-cache keys.
-
-    Call after a tag is rebuilt or retagged (``swap_toolchain_image`` /
-    ``pull_toolchain``) so the next compile inspects the live image id
-    instead of serving objects keyed under the pre-swap digest.
-    """
-    if image is None:
-        _toolchain_digest_cache.clear()
-    else:
-        _toolchain_digest_cache.pop(image, None)
 
 
 def _native_toolchain_id(spec: "ToolchainSpec") -> str:
@@ -745,7 +736,7 @@ def _native_toolchain_id(spec: "ToolchainSpec") -> str:
     changes the bytes, and objects cached from the OLD binary are never
     served under the new one.  Falls back to the bare ``native:<name>`` when
     the binary is missing or unresolvable (the compile itself fails with a
-    clear error).  Cached per process, mirroring ``_toolchain_digest_cache``.
+    clear error).  Cached per process, mirroring toolchain digest memos.
     """
     name = spec.binary
     cached = _native_binary_cache.get(name)
@@ -794,21 +785,7 @@ def _toolchain_cache_id(spec: "ToolchainSpec") -> str:
     # A toolchain always carries a non-null image tag for cache identity;
     # assert so mypy knows `image` is a str below.
     assert image is not None, "toolchain cache id requires an image"
-    digest = _toolchain_digest_cache.get(image)
-    if digest is None:
-        digest = ""
-        try:
-            r = subprocess.run(
-                [container_runtime(), "image", "inspect", "--format", "{{.Id}}", image],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-            if r.returncode == 0 and r.stdout.strip():
-                digest = r.stdout.strip().removeprefix("sha256:")[:12]
-        except (OSError, subprocess.TimeoutExpired):
-            digest = ""
-        _toolchain_digest_cache[image] = digest
+    digest = cached_image_digest(image)
     return f"{image}@{digest}" if digest else image
 
 
@@ -1340,7 +1317,7 @@ def precompile_batch(
     import contextlib
     import logging as _logging
 
-    from rebrew.cli import resolve_compile_overrides
+    from rebrew.compile_overrides import resolve_compile_overrides
 
     log = _logging.getLogger(__name__)
     if len(entries) < 2 or recompile_url(cfg) is not None:

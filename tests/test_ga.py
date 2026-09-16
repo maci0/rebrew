@@ -1627,7 +1627,7 @@ class TestRunOneStubGaPersistsFlags:
         import rebrew.coff_reloc as core
 
         monkeypatch.setattr(core, "build_name_to_va", lambda cfg: {"_s": 0x10001000})
-        monkeypatch.setattr("rebrew.cli.resolve_cflags", lambda *a, **k: "/O2 /G3")
+        monkeypatch.setattr("rebrew.compile_overrides.resolve_cflags", lambda *a, **k: "/O2 /G3")
         monkeypatch.setattr(
             "rebrew.compile.compile_and_compare",
             lambda *a, **k: SimpleNamespace(matched=True, status="EXACT", message=""),
@@ -1693,7 +1693,7 @@ class TestRunOneStubGaPersistsFlags:
         import rebrew.coff_reloc as core
 
         monkeypatch.setattr(core, "build_name_to_va", lambda cfg: {"_s": 0x10001000})
-        monkeypatch.setattr("rebrew.cli.resolve_cflags", lambda *a, **k: "/O2")
+        monkeypatch.setattr("rebrew.compile_overrides.resolve_cflags", lambda *a, **k: "/O2")
         monkeypatch.setattr(
             "rebrew.compile.compile_and_compare",
             lambda *a, **k: SimpleNamespace(matched=True, status="EXACT", message=""),
@@ -1748,7 +1748,7 @@ class TestRunOneStubGaPersistsFlags:
         monkeypatch.setattr(M, "extract_raw_bytes", lambda *a, **k: b"\xc3" * 16)
         monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
         monkeypatch.setattr(core, "build_name_to_va", lambda cfg: {"_s": 0x10001000})
-        monkeypatch.setattr("rebrew.cli.resolve_cflags", lambda *a, **k: "/O2")
+        monkeypatch.setattr("rebrew.compile_overrides.resolve_cflags", lambda *a, **k: "/O2")
         monkeypatch.setattr(
             "rebrew.compile.compile_and_compare",
             lambda *a, **k: SimpleNamespace(

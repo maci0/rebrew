@@ -39,8 +39,8 @@ from rebrew.cli import (
     TargetOption,
     json_print,
     require_config,
-    resolve_compile_overrides,
 )
+from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig
 from rebrew.utils import atomic_write_text
 

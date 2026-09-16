@@ -1159,7 +1159,7 @@ class TestPrecompileBatchCleanup:
             },
         )
         monkeypatch.setattr(
-            "rebrew.cli.resolve_compile_overrides",
+            "rebrew.compile_overrides.resolve_compile_overrides",
             lambda *a, **k: ("mingw-16.2.0", ""),
         )
         monkeypatch.setattr("rebrew.compile.recompile_url", lambda cfg: None)

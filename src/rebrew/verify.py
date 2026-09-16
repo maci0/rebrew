@@ -161,7 +161,7 @@ def verify_entry(
     if entry.size <= 0:
         return _failed_result("MISSING_SIZE", "MISSING_SIZE: No SIZE annotation")
 
-    from rebrew.cli import resolve_compile_overrides
+    from rebrew.compile_overrides import resolve_compile_overrides
 
     # Shared fallback chain (per-function metadata → per-library
     # rebrew-libraries.toml → preset → compiler.cflags) so verify compiles

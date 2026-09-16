@@ -43,7 +43,7 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
     Returns None when the entry has no source path or the file cannot be
     read — the caller treats that as a cache miss, never a hit.
     """
-    from rebrew.cli import resolve_compile_overrides
+    from rebrew.compile_overrides import resolve_compile_overrides
 
     relative_path = getattr(entry, "filepath", "") or ""
     if not relative_path:
@@ -110,7 +110,7 @@ def _compare_logic_hash() -> str:
     The hash covers the WHOLE ``rebrew`` package source rather than a
     hand-maintained module list: result-affecting code lives across
     ``coff_reloc`` (reloc validation), ``msvc_env`` (compiler env),
-    ``cli.resolve_cflags`` (flags), ``binary_loader`` (IAT masking) and
+    ``compile_overrides.resolve_cflags`` (flags), ``binary_loader`` (IAT masking) and
     others, and a manual list inevitably drifts — a missed module then ships
     a fix without invalidating caches written by the pre-fix build.
 

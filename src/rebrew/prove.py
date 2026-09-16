@@ -1530,7 +1530,7 @@ def _prepare_prove_inputs(
     if not target_bytes:
         raise _ProveError(f"Failed to extract target bytes at VA 0x{va:08x} (size {size})")
 
-    from rebrew.cli import resolve_compile_overrides
+    from rebrew.compile_overrides import resolve_compile_overrides
 
     toolchain, cflags_str = resolve_compile_overrides(
         cfg,
