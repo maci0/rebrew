@@ -5,7 +5,24 @@ from rebrew.compile import (
     classify_compare_result,
     classify_match_status,
     is_matched,
+    matched_byte_count,
 )
+
+
+class TestMatchedByteCount:
+    def test_matched_returns_total(self) -> None:
+        assert matched_byte_count(100.0, matched=True, compared_len=9, total=12) == 12
+
+    def test_scales_against_compared_len_not_total(self) -> None:
+        # 50% of a 10B compared region must stay 5 even when total is 13.
+        assert matched_byte_count(50.0, matched=False, compared_len=10, total=13) == 5
+
+    def test_perfect_short_prefix_is_not_full_target(self) -> None:
+        # 100% of a 5B truncated compare against a 100B target → 5, not 100.
+        assert matched_byte_count(100.0, matched=False, compared_len=5, total=100) == 5
+
+    def test_empty_compared(self) -> None:
+        assert matched_byte_count(100.0, matched=False, compared_len=0, total=10) == 0
 
 
 class TestClassifyCompareResult:

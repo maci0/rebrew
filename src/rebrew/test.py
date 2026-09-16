@@ -56,6 +56,7 @@ from rebrew.compile import (
     compile_and_compare,
     compile_to_obj,
     is_matched,
+    matched_byte_count,
 )
 from rebrew.config import ProjectConfig
 from rebrew.context import CompileContext
@@ -491,12 +492,18 @@ def build_result_dict_from_compare(
     """Build JSON from a :class:`CompareResult` (canonical status source)."""
     relocs = cmp.reloc_offsets or []
     obj_bytes = cmp.obj_bytes or b""
-    # On SIZE_MISMATCH, cmp.obj_bytes is truncated to the target length — use
+    # On SIZE_MISMATCH, cmp.obj_bytes is truncated to the common length — use
     # the recorded full compiled size so total/obj_size report the real
-    # function length instead of the common-prefix slice.
+    # function length instead of the common-prefix slice.  match_count still
+    # reconstructs against the compared length (see matched_byte_count).
     obj_len = cmp.full_obj_size if cmp.full_obj_size is not None else len(obj_bytes)
     total = max(len(target_bytes), obj_len) if (obj_bytes or target_bytes) else 0
-    match_count = total if cmp.matched else int(round(cmp.match_percent / 100.0 * total))
+    match_count = matched_byte_count(
+        cmp.match_percent,
+        matched=cmp.matched,
+        compared_len=len(obj_bytes),
+        total=total,
+    )
     return _result_dict_body(
         source,
         symbol,
@@ -636,10 +643,15 @@ def _print_compare_result(cmp: CompareResult, target_bytes: bytes) -> None:
     inv_relocs = cmp.inv_reloc_offsets
     obj_bytes = cmp.obj_bytes or b""
     # Same full-size honoring as the JSON builder: on SIZE_MISMATCH the
-    # compiled bytes were truncated to the target length for comparison.
+    # compiled bytes were truncated to the common length for comparison.
     obj_len = cmp.full_obj_size if cmp.full_obj_size is not None else len(obj_bytes)
     total = max(len(target_bytes), obj_len) if (obj_bytes or target_bytes) else 0
-    match_count = total if cmp.matched else int(round(cmp.match_percent / 100.0 * total))
+    match_count = matched_byte_count(
+        cmp.match_percent,
+        matched=cmp.matched,
+        compared_len=len(obj_bytes),
+        total=total,
+    )
 
     if cmp.matched:
         if relocs:
@@ -919,10 +931,16 @@ def _run_test_impl(
     relocs = cmp.reloc_offsets or []
     obj_bytes = cmp.obj_bytes or b""
     # Reconstruct match_count/total for cache + display from CompareResult.
-    total = max(len(target_bytes), len(obj_bytes)) if (obj_bytes or target_bytes) else 0
-    match_count = int(round(cmp.match_percent / 100.0 * total)) if total else 0
-    if matched:
-        match_count = total
+    # Prefer full_obj_size for total (SIZE_MISMATCH truncates obj_bytes) but
+    # always rebuild match_count from the compared length.
+    obj_len = cmp.full_obj_size if cmp.full_obj_size is not None else len(obj_bytes)
+    total = max(len(target_bytes), obj_len) if (obj_bytes or target_bytes) else 0
+    match_count = matched_byte_count(
+        cmp.match_percent,
+        matched=matched,
+        compared_len=len(obj_bytes),
+        total=total,
+    )
 
     if cmp.status == "COMPILE_ERROR":
         error_exit(f"COMPILE ERROR:\n{cmp.message}", json_mode=json_output, code=EXIT_ERROR)
@@ -1450,8 +1468,13 @@ def _test_multi(
             cmp.context_hash = context.sha256 if context is not None else None
             matched = cmp.matched
             new_status = cmp.status
-            match_count = (
-                total if matched else int(round(cmp.match_percent / 100.0 * total)) if total else 0
+            # smart_reloc_compare's total is the common (truncated) length —
+            # same denominator classify used for match_percent.
+            match_count = matched_byte_count(
+                cmp.match_percent,
+                matched=matched,
+                compared_len=total,
+                total=total,
             )
             if not matched:
                 any_failed = True

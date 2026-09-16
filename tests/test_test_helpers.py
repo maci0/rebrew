@@ -139,8 +139,31 @@ class TestBuildResultDictFromCompare:
         assert d["status"] == "SIZE_MISMATCH"
         assert d["obj_size"] == 12
         assert d["total"] == 12
-        assert d["match_count"] == 12  # 100% of the full length
+        # All 9 compared (truncated) bytes matched; do not scale 100% onto the
+        # full 12B object length (that invented 3 unverified matches).
+        assert d["match_count"] == 9
         assert d["size"] == 9  # the annotation value passed through
+
+    def test_size_mismatch_partial_does_not_scale_to_full_obj(self) -> None:
+        """Partial match% must not be scaled by full_obj_size.
+
+        Concrete: 5 of 10 common bytes match, object is 13B → match_count is 5,
+        not round(0.5 * 13) = 6.
+        """
+        cmp = CompareResult(
+            matched=False,
+            status="SIZE_MISMATCH",
+            match_percent=50.0,
+            delta=8,
+            obj_bytes=b"\x00" * 10,  # truncated common prefix
+            reloc_offsets=[],
+            message="SIZE_MISMATCH",
+            full_obj_size=13,
+        )
+        d = build_result_dict_from_compare("f.c", "_f", "0x1000", 10, cmp, b"\x00" * 10)
+        assert d["total"] == 13
+        assert d["match_count"] == 5
+        assert d["obj_size"] == 13
 
     def test_fixed_size_match_dict(self) -> None:
         """After --fix-sizes reclassifies as matched, the dict must carry the

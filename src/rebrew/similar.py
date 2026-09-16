@@ -110,8 +110,8 @@ def similarity_score(
     """
     if sig_a is None or sig_b is None:
         return 0.0
-    size_a = size_a or int(sig_a.get("size") or 0)
-    size_b = size_b or int(sig_b.get("size") or 0)
+    size_a = int(sig_a.get("size") or 0) if size_a is None else size_a
+    size_b = int(sig_b.get("size") or 0) if size_b is None else size_b
     hist = _cosine(sig_a["histogram"], sig_b["histogram"]) * 100.0
     calls = _ratio(sig_a["calls"], sig_b["calls"]) * 100.0
     branches = _ratio(sig_a["branches"], sig_b["branches"]) * 100.0
