@@ -1322,10 +1322,10 @@ def precompile_batch(
                         continue
                 except Exception as exc:
                     log.debug("batch cache check skipped %s: %s", getattr(e, "name", "?"), exc)
-            groups.setdefault((toolchain or "", cflags), []).append(e)
+            groups.setdefault(_batch_group_key(toolchain or "", cflags), []).append(e)
         except Exception as exc:
             log.debug("batch grouping skipped %s: %s", getattr(e, "name", "?"), exc)
-    for (toolchain, cflags), members in groups.items():
+    for (toolchain, group_flags), members in groups.items():
         if len(members) < 2:
             continue
         try:
@@ -1334,6 +1334,7 @@ def precompile_batch(
                 continue
             workdir = writable_temp_dir("rebrew_batch_")
             staged: dict[str, Any] = {}
+            member_includes: list[str] = []
             for e in members:
                 src = Path(cfg.reversed_dir) / e.filepath
                 # Unique stems per group (foo/bar.c + baz/bar.c collide).
@@ -1341,9 +1342,30 @@ def precompile_batch(
                 with contextlib.suppress(OSError):
                     dest.write_bytes(src.read_bytes())
                     staged[dest.name] = e
+                # Collect this member's own /I flags for the union below.
+                _, own_cflags = resolve_compile_overrides(
+                    cfg,
+                    src.parent,
+                    getattr(e, "toolchain", ""),
+                    getattr(e, "cflags", ""),
+                    getattr(e, "module", ""),
+                )
+                own_flags = (
+                    safe_shlex_split(own_cflags)
+                    if isinstance(own_cflags, str)
+                    else list(own_cflags)
+                )
+                member_includes.extend(f for f in own_flags if f.startswith(("/I", "-I")))
             if len(staged) < 2:
                 continue
-            flags = safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
+            # Union of include dirs: grouping ignores /I (they shatter
+            # groups per-directory), so re-add every member's /I here.
+            # A same-basename header in two unioned dirs could resolve to
+            # the wrong one — group failure falls back per file (ADR-021).
+            flags = (
+                safe_shlex_split(group_flags) if isinstance(group_flags, str) else list(group_flags)
+            )
+            flags += [f for f in dict.fromkeys(member_includes) if f not in flags]
             objs, err = compile_batch_objs(
                 spec, sorted(staged), flags, workdir, [], cfg.compile_timeout
             )
@@ -1355,16 +1377,29 @@ def precompile_batch(
                 out[id(e)] = obj
                 # Pin the batch-built object in the compile cache under the
                 # identical key the single-file path uses — the next run
-                # hits cache instead of re-batching.
+                # hits cache instead of re-batching.  Key on the file's OWN
+                # flags (not the unioned batch flags) so keys match exactly.
                 if cache is not None:
                     with contextlib.suppress(OSError):
                         src = Path(cfg.reversed_dir) / e.filepath
+                        _, own_cflags = resolve_compile_overrides(
+                            cfg,
+                            src.parent,
+                            getattr(e, "toolchain", ""),
+                            getattr(e, "cflags", ""),
+                            getattr(e, "module", ""),
+                        )
+                        own_flags = (
+                            safe_shlex_split(own_cflags)
+                            if isinstance(own_cflags, str)
+                            else list(own_cflags)
+                        )
                         key = _cache_key_for(
                             cfg,
                             spec,
                             src.read_bytes().decode("utf-8", errors="surrogateescape"),
                             src.name,
-                            flags,
+                            own_flags,
                             str(cfg.compiler_includes),
                             src.resolve().parent,
                             None,
@@ -1374,6 +1409,19 @@ def precompile_batch(
         except Exception as exc:
             log.debug("batch group skipped: %s", exc)
     return out
+
+
+def _batch_group_key(toolchain: str, cflags: str | list[str]) -> tuple[str, str]:
+    """Group key ignoring ``/I`` include dirs and flag order.
+
+    Include dirs shatter groups per-directory (dozens of size-1 groups on
+    real projects); they're unioned back at batch-compile time, so grouping
+    on the rest merges aggressively.  Order-normalized: ``/O2 /Gd /DFOO``
+    and ``/DFOO /O2 /Gd`` compile identically.
+    """
+    flags = safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
+    core = sorted(f for f in flags if not f.startswith(("/I", "-I")))
+    return toolchain, " ".join(core)
 
 
 def _extract_and_compare(
