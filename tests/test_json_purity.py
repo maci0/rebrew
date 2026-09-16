@@ -93,7 +93,7 @@ _JSON_COMMANDS: list[tuple[str, set[int]]] = [
     ("round-trip --json", {0}),
     ("prove --json src/SERVER/fcn.c", {0, 2}),
     ("match --json src/SERVER/fcn.c --dry-run", {0, 2}),
-    ("decompile --json 0x401000", {0}),
+    ("decompile --json 0x401000", {0, 2}),
     ("fix --json src/SERVER/fcn.c --dry-run", {0}),
     ("climb --json src/SERVER/fcn.c --dry-run", {0, 2}),
     ("sync --json", {0, 2}),

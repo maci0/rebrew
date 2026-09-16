@@ -356,7 +356,7 @@ class TestDataFixer:
         from rebrew.postlink import _fix_data
 
         ref_bytes = make_full_pe(code=b"\xc3")
-        ref = _write(tmp_path, "ref.dll", ref_bytes)
+        _write(tmp_path, "ref.dll", ref_bytes)
         meta = extract_layout(ref_bytes, "ref.dll")
 
         # Built binary: same geometry, but its .text VirtualSize overshoots and

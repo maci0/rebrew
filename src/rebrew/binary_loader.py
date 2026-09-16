@@ -235,6 +235,7 @@ def _load_pe(binary: lief.PE.Binary, path: Path) -> BinaryInfo:
 def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
     """Extract layout information from an ELF binary."""
     import lief
+
     # Image base: lowest PT_LOAD segment virtual address
     load_segments = [seg for seg in binary.segments if seg.type == lief.ELF.Segment.TYPE.LOAD]
     image_base = min((seg.virtual_address for seg in load_segments), default=0)
@@ -293,6 +294,8 @@ def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: P
         # Always use first slice -- architecture selection for fat binaries
         # is not supported.
         binary = fat_or_binary.at(0)
+        if binary is None:
+            raise ValueError(f"Empty Mach-O fat binary: {path}")
     else:
         binary = fat_or_binary
 
@@ -1115,6 +1118,8 @@ def detect_format_and_arch(path: Path) -> tuple[str, str | None]:
         fat = lief.MachO.parse(spath)
         if fat is not None:
             b = fat.at(0) if isinstance(fat, lief.MachO.FatBinary) else fat
+            if b is None:
+                return "macho", None
             return "macho", _arch_maps()[2].get(b.header.cpu_type)
         return "macho", None
     raise ValueError(f"Cannot detect binary format: {path}")

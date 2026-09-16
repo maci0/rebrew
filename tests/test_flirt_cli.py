@@ -118,8 +118,6 @@ class TestFlirtCli:
 
 class TestFlirtInit:
     def test_copies_repo_sigs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json as _json
-
         from rebrew.flirt import _init_project_sigs
 
         repo = tmp_path / "repo"
