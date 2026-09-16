@@ -9,14 +9,14 @@ GA engine for binary-matching decompilation. Compiles C through the docker-backe
 | `core.py` | Types (pure, no logic) | `Score`, `BuildResult`, `BuildCache`, `GACheckpoint`, `StructuralSimilarity` |
 | `compiler.py` | Compilation backend | `build_candidate()`, `build_candidate_obj_only(cache=)`, `flag_sweep(cache=)`, `generate_flag_combinations()` |
 | `scoring.py` | Binary comparison (pure) | `score_candidate()`, `diff_functions()`, `structural_similarity()` |
-| `mutator.py` | C mutations (pure) | `mutate_code()`, `mutate_chain()`, `MutationLog`, `crossover()`, `compute_population_diversity()`, 128 `mut_*` operators |
+| `mutator.py` | Mutation registry + GA helpers | `mutate_code()`, `mutate_chain()`, `MutationLog`, `crossover()`, `compute_population_diversity()`, `ALL_MUTATIONS` (128 packaged ops) |
 | `mutations/queries.py` | Shared tree-sitter query library for the mutation operators | `_LazyQuery`, the `_QUERY_*` batch, `_RE_C_ZERO_LITERAL` |
 | `mutations/runtime.py` | Operator plumbing | `_capture`, `_first_caps`, `_cursor`, `_apply_query_once`, `set_target_range`, `brace_block`, `_RE_FUNC_PRAGMA` |
 | `mutations/pragmas.py` | MSVC6 `#pragma` operators | 7 `mut_*_pragma` operators |
-| `mutations/structural.py` | MSVC6 structural operators (control flow, stack frame, folding, zero-extension, register pressure) | 20 `mut_*` operators |
+| `mutations/structural.py` | MSVC6 structural operators (control flow, stack frame, folding, zero-extension, register pressure) | 25 `mut_*` operators |
 | `mutations/advanced.py` | Phase 3/4 logical + manual-decomp operators, loop-break, ternary, hoist/sink | 18 `mut_*` operators |
 | `mutations/enhancements.py` | Phase 5/6 codegen insights + Category 7 register pressure | 13 `mut_*` operators |
-| `mutations/basic.py` | Core Phase 1/2 operator set + `quick_validate`/`crossover`/diversity | 63 `mut_*` operators |
+| `mutations/basic.py` | Core Phase 1/2 operator set + `quick_validate`/`crossover`/diversity | 65 `mut_*` operators |
 | `parsers.py` | Object parsing (read-only) | `parse_obj_symbol_bytes()`, `list_obj_symbols()`, `extract_function_from_binary()` |
 | `flags.py` | Flag primitives | `FlagSet`, `Checkbox` (frozen), `Flags` alias |
 | `flag_data.py` | Compiler flag axes per dialect | `MSVC6_FLAGS`, `COMMON_MSVC_FLAGS`, `GCC_FLAGS`, `BORLAND_FLAGS`, `WATCOM_FLAGS`, `MSVC152_FLAGS`, `*_SWEEP_TIERS` |
@@ -99,33 +99,9 @@ Serializable GA state for resume: `generation`, `best_score`, `best_source`, `po
 
 ## Mutation Operators
 
-128 operators in `mutator.py` (`mut_*`):
+128 packaged `mut_*` operators live under `mutations/` (assembled into `ALL_MUTATIONS` by `mutator.py`). Category inventory and rationale: `docs/GA_MUTATIONS.md`. Selected uniformly by default; `mutate_code()` accepts optional `mutation_weights`.
 
-- **Commutative/logic**: `mut_commute_add_general`, `mut_commute_mul_general`, `mut_swap_eq_operands`, `mut_swap_ne_operands`, `mut_swap_or_operands`, `mut_swap_and_operands`, `mut_reassociate_add`, `mut_demorgan`
-- **Comparison/boolean**: `mut_flip_eq_zero`, `mut_flip_lt_ge`, `mut_comparison_boundary`, `mut_toggle_bool_not`, `mut_negate_condition`
-- **Control flow**: `mut_swap_if_else`, `mut_reorder_elseif`, `mut_extract_else_body`, `mut_guard_clause`, `mut_hoist_return`, `mut_sink_return`, `mut_return_to_goto`, `mut_goto_to_return`, `mut_while_to_goto_loop`
-- **Loop**: `mut_for_to_while`, `mut_while_to_for`, `mut_while_to_dowhile`, `mut_dowhile_to_while`, `mut_duplicate_loop_body`, `mut_invert_loop_direction`, `mut_remove_loop_break`, `mut_add_loop_break`
-- **Ternary/branch**: `mut_if_to_ternary`, `mut_ternary_to_if`, `mut_if_false_to_bitand`, `mut_bitand_to_if_false`, `mut_if_else_call_to_ternary_arg`, `mut_ternary_arg_to_if_else_call`
-- **Cast/type**: `mut_add_cast`, `mut_remove_cast`, `mut_toggle_signedness`, `mut_toggle_char_signedness`, `mut_change_return_type`
-- **Variable layout**: `mut_swap_adjacent_declarations`, `mut_reorder_declarations`, `mut_split_declaration_init`, `mut_merge_declaration_init`, `mut_swap_adjacent_stmts`
-- **Expression**: `mut_compound_assign_toggle`, `mut_postpre_increment`, `mut_xor_zero_toggle`, `mut_add_redundant_parens`, `mut_fold_constant_add`, `mut_unfold_constant_add`, `mut_combine_ptr_arith`, `mut_split_ptr_arith`, `mut_materialize_constant`
-- **Pointer/array**: `mut_change_array_index_order`, `mut_struct_vs_ptr_access`, `mut_array_to_ptr_arith`, `mut_ptr_arith_to_array`, `mut_decouple_index_math`
-- **Calling/params**: `mut_toggle_calling_convention`, `mut_change_param_order`, `mut_pointer_to_int_param`, `mut_int_to_pointer_param`, `mut_register_param`, `mut_unregister_param`
-- **Stack frame (MSVC6)**: `mut_inject_dummy_var`, `mut_inject_dummy_array`, `mut_scope_variable`
-- **Register pressure (MSVC6)**: `mut_toggle_volatile`, `mut_volatile_access` (per-access qualifier on a pointer cast), `mut_add_register_keyword`, `mut_remove_register_keyword`, `mut_swap_register_keywords`, `mut_add_volatile_intermediate`, `mut_reorder_register_vars`
-- **C-shape levers (`structural.py`)**: `mut_ternary_lift_constant` (equal-arm ternary lifted over its enclosing expression), `mut_compare_negate_to_ternary` (fused compare-and-negate), `mut_walk_in_parameter` (advance the parameter, not a local copy), `mut_home_byte_in_param_slot` (home a byte in a dead parameter's slot), `mut_call_prototype_view` (call through a cast pointer with a different parameter type).  Each mirrors a measured finding in a real 2002 MSVC6 build; see `docs/GA_MUTATIONS.md` section 21
-- **Zero-extension (MSVC6)**: `mut_preinit_byte_load`, `mut_cast_to_bitmask`
-- **Branch merging (MSVC6)**: `mut_hoist_common_tail`, `mut_sink_common_tail`
-- **MSVC6 quirks (Phase 6)**: `mut_invert_if_else`, `mut_dummy_stack_vars`, `mut_inject_dummy_registers`, `mut_extract_complex_args`
-- **Misc**: `mut_introduce_temp_for_call`, `mut_remove_temp_var`, `mut_introduce_local_alias`, `mut_insert_noop_block`, `mut_early_return_to_accum`, `mut_accum_to_early_return`
-
-Selected uniformly by default; `mutate_code()` accepts optional `mutation_weights` for bias.
-
-Third-party packages can register mutations without editing this file: a
-`module:attr` entry point in the `rebrew.mutations` group (see
-`src/rebrew/registry.py`) whose attribute is a `(source, rng) -> str | None`
-callable joins `ALL_MUTATIONS` at import; a duplicate name raises
-`RegistryError`.
+Third-party packages can register mutations without editing host source: a `module:attr` entry point in the `rebrew.mutations` group (see `src/rebrew/registry.py`) joins `ALL_MUTATIONS` at import; a duplicate name raises `RegistryError`.
 
 ## Consumers
 
