@@ -178,3 +178,59 @@ class TestParseRizinAfl:
 
         out = parse_rizin_afl("nope 1 2\n0x1000 16 func_a\n\n")
         assert out == [(0x1000, 16, "func_a")]
+
+
+class TestCachedFunctionList:
+    """Path-keyed inventory cache: mtime in the value, bounded growth."""
+
+    def test_rewrite_replaces_slot_not_orphan_keys(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.catalog import loaders as loaders_mod
+        from rebrew.config import FUNCTION_STRUCTURE_JSON
+
+        loaders_mod._function_list_cache.clear()
+        inv = tmp_path / FUNCTION_STRUCTURE_JSON
+        inv.write_text(
+            json.dumps([{"va": "0x1000", "size": 8, "name": "a"}]),
+            encoding="utf-8",
+        )
+        cfg = SimpleNamespace(reversed_dir=str(tmp_path))
+        first = loaders_mod.cached_function_list(cfg)
+        assert first == [{"va": 0x1000, "size": 8, "name": "a"}]
+        assert len(loaders_mod._function_list_cache) == 1
+
+        # Force a distinct mtime (same second on some filesystems otherwise).
+        import os
+        import time
+
+        time.sleep(0.01)
+        inv.write_text(
+            json.dumps([{"va": "0x2000", "size": 16, "name": "b"}]),
+            encoding="utf-8",
+        )
+        os.utime(inv, (time.time() + 1, time.time() + 1))
+        second = loaders_mod.cached_function_list(cfg)
+        assert second == [{"va": 0x2000, "size": 16, "name": "b"}]
+        # Same path key — no orphaned path:mtime entries.
+        assert len(loaders_mod._function_list_cache) == 1
+        loaders_mod._function_list_cache.clear()
+
+    def test_evicts_when_full(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.catalog import loaders as loaders_mod
+        from rebrew.config import FUNCTION_STRUCTURE_JSON
+
+        monkeypatch.setattr(loaders_mod, "_FUNCTION_LIST_CACHE_MAX", 2)
+        loaders_mod._function_list_cache.clear()
+        for i in range(3):
+            d = tmp_path / f"p{i}"
+            d.mkdir()
+            (d / FUNCTION_STRUCTURE_JSON).write_text(
+                json.dumps([{"va": hex(0x1000 + i), "size": 4, "name": f"f{i}"}]),
+                encoding="utf-8",
+            )
+            loaders_mod.cached_function_list(SimpleNamespace(reversed_dir=str(d)))
+        assert len(loaders_mod._function_list_cache) <= 2
+        loaders_mod._function_list_cache.clear()

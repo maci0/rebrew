@@ -115,7 +115,10 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, GhidraDataLabel]:
 # ---------------------------------------------------------------------------
 
 # Path-keyed cache of discovery inventories (multiple projects per process).
-_function_list_cache: dict[str, list[dict[str, Any]]] = {}
+# Value is ``(mtime_ns_str, funcs)`` so a rewrite replaces the same slot
+# instead of orphaning a new ``path:mtime`` key on every edit (unbounded growth).
+_function_list_cache: dict[str, tuple[str, list[dict[str, Any]]]] = {}
+_FUNCTION_LIST_CACHE_MAX = 32
 
 
 def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
@@ -130,22 +133,28 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
 
     reversed_dir = getattr(cfg, "reversed_dir", "")
     path = str(Path(reversed_dir) / FUNCTION_STRUCTURE_JSON) if reversed_dir else ""
-    # Include mtime in cache key to avoid stale entries after file rewrites
     mtime_key = ""
     with contextlib.suppress(OSError):
         mtime_key = str(Path(path).stat().st_mtime_ns)
-    cache_key = f"{path}:{mtime_key}" if path else ""
-    funcs = _function_list_cache.get(cache_key)
-    if funcs is None:
-        try:
-            funcs = [
-                {"va": e.va, "size": e.size, "name": e.name or e.tool_name}
-                for e in load_function_structure(Path(path))
-                if path and Path(path).is_file()
-            ]
-        except (OSError, ValueError, KeyError):
-            funcs = []
-        _function_list_cache[cache_key] = funcs
+    cache_key = path if path else ""
+    cached = _function_list_cache.get(cache_key)
+    if cached is not None and cached[0] == mtime_key:
+        return list(cached[1])
+    try:
+        funcs = [
+            {"va": e.va, "size": e.size, "name": e.name or e.tool_name}
+            for e in load_function_structure(Path(path))
+            if path and Path(path).is_file()
+        ]
+    except (OSError, ValueError, KeyError):
+        funcs = []
+    if (
+        len(_function_list_cache) >= _FUNCTION_LIST_CACHE_MAX
+        and cache_key not in _function_list_cache
+    ):
+        oldest = next(iter(_function_list_cache))
+        del _function_list_cache[oldest]
+    _function_list_cache[cache_key] = (mtime_key, funcs)
     return list(funcs)
 
 
