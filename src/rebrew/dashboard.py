@@ -21,6 +21,9 @@ Requests whose ``Host`` header does not match the bound host (or a loopback
 alias) are rejected with 403, so a web page the analyst visits cannot reach
 the server via DNS rebinding.
 List endpoints expose ``count`` (rows in this page) and ``total`` (matching rows).
+Successful 200 responses negotiate ``gzip`` when the client accepts it, carry an
+``ETag`` (HTML content hash or DB mtime), and use ``Cache-Control: private,
+no-cache`` so browsers can 304 without serving a stale body after ``build-db``.
 
 The query layer (``Dashboard``) is separated from the HTTP plumbing so tests
 exercise it without opening a socket.
@@ -28,6 +31,8 @@ exercise it without opening a socket.
 
 from __future__ import annotations
 
+import gzip
+import hashlib
 import json
 import logging
 import sqlite3
@@ -51,6 +56,10 @@ log = logging.getLogger(__name__)
 _SQLITE_TIMEOUT_SECONDS = 30.0
 _DEFAULT_LIMIT = 500
 _MAX_LIMIT = 5000
+# Below this size gzip's framing usually costs more than it saves on a LAN.
+_MIN_GZIP_BYTES = 256
+# Per-request dynamic bodies: cheap level; HTML is tiny and already one-shot.
+_GZIP_LEVEL = 5
 
 
 _INDEX_HTML = """<!doctype html>
@@ -203,15 +212,12 @@ async function loadFunctions() {
     if (seq !== functionsSeq) return;
     clearError();
     const body = $("rows").querySelector("tbody");
-    body.innerHTML = "";
-    for (const f of data.functions) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = "<td class=va>" + esc(f.va) + "</td><td>" + esc(f.name || "")
+    // One write avoids layout thrash on the default 500-row page.
+    body.innerHTML = data.functions.map(f =>
+      "<tr><td class=va>" + esc(f.va) + "</td><td>" + esc(f.name || "")
         + "</td><td>" + esc(f.symbol || "") + "</td><td>" + esc(f.size ?? "")
         + "</td><td>" + esc(f.status || "") + "</td><td>" + esc(f.module || "")
-        + "</td><td>" + esc(f.files || "") + "</td>";
-      body.appendChild(tr);
-    }
+        + "</td><td>" + esc(f.files || "") + "</td></tr>").join("");
     const total = data.total ?? data.count;
     setResultsMessage(data.count, total);
     $("empty-state").hidden = data.count !== 0;
@@ -259,15 +265,11 @@ async function init() {
     $("status").value = "";
     $("q").value = "";
     clearTimeout(searchTimer);
-    void (async () => {
-      await loadSummary();
-      await loadFunctions();
-    })();
+    void Promise.all([loadSummary(), loadFunctions()]);
   };
   $("status").onchange = loadFunctions;
   $("q").oninput = scheduleSearch;
-  await loadSummary();
-  await loadFunctions();
+  await Promise.all([loadSummary(), loadFunctions()]);
 }
 init().catch(error => {
   showError("Dashboard failed to load: " + error.message);
@@ -276,6 +278,8 @@ init().catch(error => {
 </body>
 </html>
 """
+
+_INDEX_ETAG = '"' + hashlib.sha256(_INDEX_HTML.encode("utf-8")).hexdigest()[:16] + '"'
 
 
 def _int_param(params: dict[str, list[str]], name: str, default: int) -> int:
@@ -407,7 +411,7 @@ class Dashboard:
         where.append("markerType NOT IN ('GLOBAL', 'DATA')")
         where_sql = " AND ".join(where)
         query = (
-            "SELECT va, name, symbol, size, status, module, files, markerType "
+            "SELECT va, name, symbol, size, status, module, files "
             f"FROM functions WHERE {where_sql} ORDER BY va LIMIT ?"
         )
         with self._conn() as conn:
@@ -429,7 +433,6 @@ class Dashboard:
                     "status": r[4] or "",
                     "module": r[5] or "",
                     "files": ", ".join(_load_list(r[6])),
-                    "markerType": r[7] or "",
                 }
                 for r in rows
             ],
@@ -547,6 +550,17 @@ class Dashboard:
                 (target,),
             ).fetchone()
         return row is not None
+
+    def response_etag(self, path: str) -> str:
+        """Strong HTML etag; weak DB etag so rebuilds invalidate JSON caches."""
+        parsed = urlparse(path)
+        if parsed.path == "/":
+            return _INDEX_ETAG
+        try:
+            st = self.db_path.stat()
+        except OSError:
+            return 'W/"0"'
+        return f'W/"{st.st_mtime_ns:x}-{st.st_size:x}"'
 
     def handle(self, method: str, path: str, query: dict[str, list[str]]) -> tuple[int, str, str]:
         """Route a request.  Returns (status, content-type, body)."""
@@ -681,6 +695,44 @@ def _host_allowed(host_header: str, allowed: frozenset[str]) -> bool:
     return host_header.strip().lower() in allowed
 
 
+def _accepts_gzip(accept_encoding: str) -> bool:
+    """True when *accept_encoding* lists ``gzip`` (or ``*``) as a coding."""
+    for part in accept_encoding.lower().split(","):
+        coding = part.split(";", 1)[0].strip()
+        if coding == "gzip" or coding == "*":
+            return True
+    return False
+
+
+def _maybe_gzip(body: bytes, accept_encoding: str) -> tuple[bytes, str | None]:
+    """Return ``(body, encoding)``; compress only when it shrinks the wire bytes."""
+    if len(body) < _MIN_GZIP_BYTES or not _accepts_gzip(accept_encoding):
+        return body, None
+    compressed = gzip.compress(body, compresslevel=_GZIP_LEVEL)
+    if len(compressed) >= len(body):
+        return body, None
+    return compressed, "gzip"
+
+
+def _if_none_match(header: str, etag: str) -> bool:
+    """True when *header* is ``*`` or lists *etag* (weak/strong compare on value)."""
+    raw = header.strip()
+    if not raw:
+        return False
+    if raw == "*":
+        return True
+    for part in raw.split(","):
+        candidate = part.strip()
+        if candidate == etag:
+            return True
+        # RFC 9110 weak comparison: strip a leading W/ on either side.
+        if candidate.startswith("W/") and candidate[2:] == etag:
+            return True
+        if etag.startswith("W/") and etag[2:] == candidate:
+            return True
+    return False
+
+
 class _Handler(BaseHTTPRequestHandler):
     dashboard: Dashboard
     #: Host headers this server must answer; everything else gets 403.
@@ -695,7 +747,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_response(403)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body_bytes)))
-            self._write_security_headers()
+            self._write_security_headers(cacheable=False)
             self.end_headers()
             if method != "HEAD":
                 self.wfile.write(body_bytes)
@@ -720,11 +772,33 @@ class _Handler(BaseHTTPRequestHandler):
             status, content_type, body = self.dashboard._json(
                 500, {"error": "internal server error"}
             )
+
+        etag: str | None = None
+        if status == 200:
+            etag = self.dashboard.response_etag(self.path)
+            if _if_none_match(self.headers.get("If-None-Match", ""), etag):
+                self.send_response(304)
+                self.send_header("ETag", etag)
+                self.send_header("Vary", "Accept-Encoding")
+                self._write_security_headers(cacheable=True)
+                self.end_headers()
+                return
+
         body_bytes = body.encode("utf-8")
+        encoding: str | None = None
+        if status == 200:
+            body_bytes, encoding = _maybe_gzip(body_bytes, self.headers.get("Accept-Encoding", ""))
+
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body_bytes)))
-        self._write_security_headers()
+        if etag is not None:
+            self.send_header("ETag", etag)
+        if encoding:
+            self.send_header("Content-Encoding", encoding)
+        if status == 200:
+            self.send_header("Vary", "Accept-Encoding")
+        self._write_security_headers(cacheable=(status == 200))
         if status == 405:
             self.send_header("Allow", "GET, HEAD")
         self.end_headers()
@@ -732,13 +806,17 @@ class _Handler(BaseHTTPRequestHandler):
         if method != "HEAD":
             self.wfile.write(body_bytes)
 
-    def _write_security_headers(self) -> None:
+    def _write_security_headers(self, *, cacheable: bool) -> None:
         """Browser hardening shared by every response, including early 403s."""
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
-        # Coverage DB is rebuilt out-of-band; never let the browser cache a
-        # stale JSON/HTML snapshot across a ``rebrew build-db`` run.
-        self.send_header("Cache-Control", "no-store")
+        # Successful GETs may be stored but must revalidate (ETag → 304) so a
+        # ``rebrew build-db`` rebuild is never served as a silent stale page.
+        # Errors stay no-store so a failed probe is not sticky.
+        if cacheable:
+            self.send_header("Cache-Control", "private, no-cache")
+        else:
+            self.send_header("Cache-Control", "no-store")
         # The app is inline-JS/CSS only and fetches same-origin JSON — this
         # keeps any future escaping of API data from loading external
         # resources or phoning home.
