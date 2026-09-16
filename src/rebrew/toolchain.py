@@ -357,7 +357,18 @@ def swap_toolchain_image(tag: str, op: Callable[[], None]) -> str:
     cache entry pointing at a dangling tag).
 
     Returns the image id *tag* resolves to after a successful swap.
+
+    Always drops the in-process presence and compile-cache digest memos for
+    *tag* so a subsequent ``image_present`` / compile-cache key reflects the
+    post-swap image (a build after a cached miss must not keep reporting
+    absent, and objects must not stay keyed under the pre-swap content id).
     """
+    # Presence + digest before the swap: callers may have memoized a miss
+    # (or an old content id) that must not outlive the tag mutation.
+    _image_presence.pop(tag, None)
+    from rebrew.compile import invalidate_toolchain_digest
+
+    invalidate_toolchain_digest(tag)
     backup = _image_id(tag)
     try:
         op()
@@ -370,16 +381,24 @@ def swap_toolchain_image(tag: str, op: Callable[[], None]) -> str:
             with contextlib.suppress(ToolchainError):
                 if _image_id(tag) != backup:
                     _retag_image(backup, tag)
+        # Presence/digest may have been observed mid-failure; drop again so
+        # the restored (or still-old) tag is re-inspected.
+        _image_presence.pop(tag, None)
+        invalidate_toolchain_digest(tag)
         raise
     current = _image_id(tag)
     if current is None:
         if backup is not None:
             with contextlib.suppress(ToolchainError):
                 _retag_image(backup, tag)
+        _image_presence.pop(tag, None)
+        invalidate_toolchain_digest(tag)
         raise ToolchainError(
             f"image tag {tag!r} does not resolve after the swap"
             + (" — previous image restored" if backup is not None else " (no previous image)")
         )
+    _image_presence.pop(tag, None)
+    invalidate_toolchain_digest(tag)
     return current
 
 

@@ -1236,6 +1236,7 @@ def apply_library_presets(meta: dict[str, Any]) -> tuple[dict[str, Any], tuple[s
 
 
 _LIBRARY_WALK_CACHE: dict[tuple[str, str], Path | None] = {}
+_LIBRARY_WALK_CACHE_MAX = 256
 
 
 def clear_library_override_cache() -> None:
@@ -1255,7 +1256,8 @@ def find_library_override(
     The located path is memoized per ``(start_dir, root)`` so bulk callers
     (verify/match over thousands of functions) pay the directory walk once;
     field values still re-parse through :func:`parse_library_metadata`, whose
-    mtime/size validation picks up content edits."""
+    mtime/size validation picks up content edits.  Cap the memo so a long
+    lived process over many library trees cannot grow the dict without bound."""
     cur = Path(start_dir).resolve()
     root_p = Path(root).resolve() if root is not None else None
     key = (str(cur), str(root_p) if root_p is not None else "")
@@ -1276,6 +1278,8 @@ def find_library_override(
             if walk.parent == walk:
                 break
             walk = walk.parent
+        if len(_LIBRARY_WALK_CACHE) >= _LIBRARY_WALK_CACHE_MAX:
+            _LIBRARY_WALK_CACHE.clear()
         _LIBRARY_WALK_CACHE[key] = found
         cached = found
     if cached is None:

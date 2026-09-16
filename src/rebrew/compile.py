@@ -698,6 +698,19 @@ _toolchain_digest_cache: dict[str, str] = {}
 _native_binary_cache: dict[str, str] = {}
 
 
+def invalidate_toolchain_digest(image: str | None = None) -> None:
+    """Drop cached docker content ids used in compile-cache keys.
+
+    Call after a tag is rebuilt or retagged (``swap_toolchain_image`` /
+    ``pull_toolchain``) so the next compile inspects the live image id
+    instead of serving objects keyed under the pre-swap digest.
+    """
+    if image is None:
+        _toolchain_digest_cache.clear()
+    else:
+        _toolchain_digest_cache.pop(image, None)
+
+
 def _native_toolchain_id(spec: "ToolchainSpec") -> str:
     """The compile-cache toolchain id for a host-only (native) compiler.
 

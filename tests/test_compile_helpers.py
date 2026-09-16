@@ -251,6 +251,23 @@ class TestNativeToolchainId:
         assert id_old != id_new
 
 
+class TestInvalidateToolchainDigest:
+    def test_pops_one_or_clears_all(self) -> None:
+        from rebrew.compile import (
+            _toolchain_digest_cache,
+            invalidate_toolchain_digest,
+        )
+
+        _toolchain_digest_cache.clear()
+        _toolchain_digest_cache["rebrew/msvc:6.0-win32"] = "aaaaaaaaaaaa"
+        _toolchain_digest_cache["rebrew/gcc:14.2.0-linux-x64"] = "bbbbbbbbbbbb"
+        invalidate_toolchain_digest("rebrew/msvc:6.0-win32")
+        assert "rebrew/msvc:6.0-win32" not in _toolchain_digest_cache
+        assert _toolchain_digest_cache["rebrew/gcc:14.2.0-linux-x64"] == "bbbbbbbbbbbb"
+        invalidate_toolchain_digest()
+        assert _toolchain_digest_cache == {}
+
+
 class TestCompilerCmdRoundTrip:
     def test_spaced_compiler_path_round_trips(self, tmp_path: Path, monkeypatch) -> None:
         """`cl_cmd` is re-split with shlex by the GA / flag sweep; `" ".join`
