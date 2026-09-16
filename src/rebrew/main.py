@@ -22,6 +22,7 @@ from rebrew.plugin import (
     CLI_SERVICE,
     CONSOLE_SERVICE,
     CliComponent,
+    CoeffectScope,
     Context,
     Panel,
     activate,
@@ -139,29 +140,36 @@ _EXTRA_COMPONENTS: tuple[CliComponent, ...] = (
 )
 
 
-def cli_components() -> list[CliComponent]:
+def cli_components() -> tuple[list[CliComponent], list[str]]:
     """The packaged components plus every third-party CLI plugin.
 
     Built-in names are registered first; a plugin that collides with one is
     ignored with a warning rather than shadowing it (Typer's command map is
-    name-keyed, so last registration would otherwise win).
+    name-keyed, so last registration would otherwise win).  Warnings come
+    back as data: discovery runs before any context exists, so the caller
+    prints them through CONSOLE_SERVICE.
     """
     components = list(BUILTIN_COMPONENTS)
     components.extend(_EXTRA_COMPONENTS)
     discovered, warnings = entry_point_components({c.name for c in components})
     components.extend(discovered)
-    for warning in warnings:
-        console.print(f"[yellow]warning:[/yellow] {warning}")
-    return components
+    return components, warnings
 
 
-def compose() -> Context:
-    """Build the CLI context and activate every component on it."""
+def compose() -> tuple[Context, CoeffectScope]:
+    """Build the CLI context and activate every component on it.
+
+    Returns the context and its scope: the scope stays reactive, so a
+    service provided later still activates its dependents — and the
+    caller holds the fiber for teardown instead of dropping it.
+    """
     ctx = Context()
     ctx.provide(CLI_SERVICE, app)
     ctx.provide(CONSOLE_SERVICE, console)
-    activate(cli_components(), ctx)
-    return ctx
+    components, warnings = cli_components()
+    for warning in warnings:
+        ctx.resolve(CONSOLE_SERVICE).print(f"[yellow]warning:[/yellow] {warning}")
+    return ctx, activate(components, ctx)
 
 
 _CONTEXT = compose()
