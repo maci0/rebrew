@@ -95,7 +95,7 @@ Tracks global variables mapped during the decompilation effort.
 | `files` | `TEXT` | JSON array of associated source files. |
 | `module` | `TEXT` | Origin module (from `// GLOBAL: MODULE 0xVA` annotation). |
 | `size` | `INTEGER` | Estimated size in bytes (default: 4 for pointer-sized). |
-| `status` | `TEXT` | Data verdict from `verify --data` (`VERIFIED`/`DRIFT`/`UNCHECKED`; empty when never compared). |
+| `status` | `TEXT` | Data verdict from `verify --data` (`VERIFIED`/`DRIFT`/`UNCHECKED`; empty when never compared). CHECK-constrained. |
 
 **Primary Key**: `(target, va)`
 **Indexes**: `idx_globals_name` on `(target, name)`
@@ -184,20 +184,22 @@ only, and `db/verify_results.json` is gone).
 | Column | Type | Description |
 |---|---|---|
 | `target` | `TEXT` | Binary target. Part of primary key. |
-| `va` | `INTEGER` | Function VA. Part of primary key. |
+| `va` | `INTEGER` | Function VA. Part of primary key. CHECK `va >= 0`. |
 | `verified_at` | `TEXT` | ISO 8601 timestamp of verification. |
-| `byte_delta` | `INTEGER` | Number of differing bytes. |
-| `diff_lines` | `INTEGER` | Number of **structural** differing disassembly lines (the register-aware diff's `structural` class; register-encoding-only diffs are *not* counted here — see `reg_delta`). Computed only for unmatched functions with compiled bytes; `NULL` when no diff was computed (matched or cached rows, no object bytes, or a diff failure). |
-| `similarity` | `REAL` | Structural code-similarity score (0.0–1.0), when computable. |
-| `reg_delta` | `INTEGER` | Number of register-encoding-only differing instructions (`RR` class). `0` when the register-aware classification was skipped (non-x86-32 targets); `NULL` when no diff was computed. |
-| `effective_match` | `INTEGER` | `1` when the function is an effective match — the entire byte delta is register allocation (reccmp's 100% effective-match class; same instructions, different registers, not byte-identical). Only computable on x86-32 (register masking is x86-32 specific). |
+| `byte_delta` | `INTEGER` | Number of differing bytes. CHECK `>= 0` when not NULL. |
+| `diff_lines` | `INTEGER` | Number of **structural** differing disassembly lines (the register-aware diff's `structural` class; register-encoding-only diffs are *not* counted here — see `reg_delta`). Computed only for unmatched functions with compiled bytes; `NULL` when no diff was computed (matched or cached rows, no object bytes, or a diff failure). CHECK `>= 0` when not NULL. |
+| `similarity` | `REAL` | Structural code-similarity score (0.0–1.0), when computable. CHECK in `[0.0, 1.0]` when not NULL. |
+| `reg_delta` | `INTEGER` | Number of register-encoding-only differing instructions (`RR` class). `0` when the register-aware classification was skipped (non-x86-32 targets); `NULL` when no diff was computed. CHECK `>= 0` when not NULL. |
+| `effective_match` | `INTEGER` | `1` when the function is an effective match — the entire byte delta is register allocation (reccmp's 100% effective-match class; same instructions, different registers, not byte-identical). Only computable on x86-32 (register masking is x86-32 specific). CHECK `IN (0, 1)` when not NULL. |
 
 **Primary Key**: `(target, va)`
 
 > [!NOTE]
 > This table is persistent — never dropped on rebuild (the per-target
 > `INSERT OR REPLACE` + prune in `build_db` keeps it current; a full rebuild
-> preserves every target's rows).
+> preserves every target's rows).  A rebuild that finds a pre-CHECK DDL
+> recreates the table in place (clamping outliers) so range guards apply
+> without `--force`.
 
 ### `history` Table
 Tracks function status changes over time.
@@ -231,6 +233,10 @@ No reader changed: every consumer (both dashboards) queries it as
 table-vs-view, so a v6 database still carrying the old view stays *readable* —
 though `build-db` requires `--force` to move it to v7 (see the version history
 above).
+
+**Primary Key**: `(target, section_name)` — the table is recreated with an
+explicit schema on every build (not `CREATE TABLE AS SELECT`), so the serving
+`WHERE target = ?` path is keyed and duplicate section rows cannot accumulate.
 
 | Column | Description |
 |--------|-------------|

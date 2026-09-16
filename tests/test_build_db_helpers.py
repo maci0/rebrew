@@ -159,7 +159,7 @@ class TestCheckDbVersion:
                     0 AS exact_count, 0 AS reloc_count, 0 AS near_match_count,
                     0 AS stub_count, 0 AS padding_count, 0 AS data_count,
                     0 AS thunk_count, 0 AS none_count, 0 AS proven_count,
-                    0 AS size_mismatch_count
+                    0 AS size_mismatch_count, 0 AS other_count
                     FROM cells GROUP BY target, section_name;
                 CREATE TABLE section_cells_json (
                     target TEXT, section_name TEXT, cells_zstd BLOB,

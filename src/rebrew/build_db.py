@@ -118,6 +118,63 @@ def _parse_int(value: Any, default: int = 0) -> int:
     return default
 
 
+def _clamp_nonneg_int(value: Any) -> int | None:
+    """Return a non-negative int, or ``None`` when *value* is absent/unusable."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return max(0, value)
+    if isinstance(value, float):
+        if value != value:  # NaN
+            return None
+        return max(0, int(value))
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        try:
+            return max(0, int(s, 0))
+        except ValueError:
+            return None
+    return None
+
+
+def _clamp_unit_interval(value: Any) -> float | None:
+    """Return a float in ``[0.0, 1.0]``, or ``None`` when *value* is absent/unusable."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        if isinstance(value, float) and value != value:  # NaN
+            return None
+        return max(0.0, min(1.0, float(value)))
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        try:
+            return max(0.0, min(1.0, float(s)))
+        except ValueError:
+            return None
+    return None
+
+
+def _clamp_effective_match(value: Any) -> int | None:
+    """Return ``0``, ``1``, or ``None`` for the effective-match flag column."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value if value in (0, 1) else None
+    if isinstance(value, float) and value in (0.0, 1.0):
+        return int(value)
+    if isinstance(value, str):
+        s = value.strip()
+        if s in ("0", "1"):
+            return int(s)
+    return None
+
+
 #: Known cell states emitted by catalog/grid.py (grid.py sets
 #: `state = item["status"].lower()` for function cells plus the gap states
 #: none/padding/data/thunk and Ghidra label states).  Used to WARN on
@@ -415,6 +472,9 @@ def _missing_required_objects(db_path: Path) -> set[str]:
             "none_count",
             "proven_count",
             "size_mismatch_count",
+            # Dashboard ``/api/sections`` selects this catch-all; a v3-era
+            # stats object without it passes a name-only gate then 500s.
+            "other_count",
         },
         SECTION_CELLS_TABLE: {"target", "section_name", SECTION_CELLS_COLUMN},
     }
@@ -488,20 +548,6 @@ def build_db(
             c.execute("SELECT target, va, status FROM functions")
             for row in c.fetchall():
                 old_statuses[(row[0], row[1])] = row[2]
-
-        # Warn when --target rebuilds a DB that currently contains other
-        # targets: the DROP below removes them and this run only inserts the
-        # filtered target's data, silently losing the rest until a full rebuild.
-        if target:
-            with contextlib.suppress(sqlite3.OperationalError):
-                c.execute("SELECT DISTINCT target FROM functions")
-                existing_targets = {row[0] for row in c.fetchall()} - {target}
-                if existing_targets:
-                    console.print(
-                        "[yellow]warning:[/yellow] rebuilding with --target will remove "
-                        f"{len(existing_targets)} other target(s) from the DB: "
-                        f"{', '.join(sorted(existing_targets))}"
-                    )
 
         # The stats table is derived from cells — recreate it every run
         # (scoped rebuilds keep the tables but must refresh the stats too).
@@ -579,7 +625,8 @@ def build_db(
                 files TEXT NOT NULL DEFAULT '[]',
                 module TEXT NOT NULL DEFAULT '',
                 size INTEGER NOT NULL DEFAULT 4 CHECK (size >= 0),
-                status TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT ''
+                    CHECK (status IN ('', 'VERIFIED', 'DRIFT', 'UNCHECKED')),
                 PRIMARY KEY (target, va)
             )
         """)
@@ -683,26 +730,115 @@ def build_db(
         c.execute("""
             CREATE TABLE IF NOT EXISTS verify_results (
                 target TEXT NOT NULL,
-                va INTEGER NOT NULL,
+                va INTEGER NOT NULL CHECK (va >= 0),
                 verified_at TEXT NOT NULL,
-                byte_delta INTEGER,
-                diff_lines INTEGER,
-                similarity REAL,
-                reg_delta INTEGER,
-                effective_match INTEGER,
+                byte_delta INTEGER CHECK (byte_delta IS NULL OR byte_delta >= 0),
+                diff_lines INTEGER CHECK (diff_lines IS NULL OR diff_lines >= 0),
+                similarity REAL CHECK (similarity IS NULL OR (similarity >= 0.0 AND similarity <= 1.0)),
+                reg_delta INTEGER CHECK (reg_delta IS NULL OR reg_delta >= 0),
+                effective_match INTEGER CHECK (effective_match IS NULL OR effective_match IN (0, 1)),
                 PRIMARY KEY (target, va)
             )
         """)
+        # verify_results is never dropped on rebuild, so CREATE IF NOT EXISTS
+        # leaves a pre-CHECK table alone.  Recreate in place (preserving rows,
+        # clamping outliers) when the stored DDL lacks the range guards.
+        vr_sql_row = c.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'verify_results'"
+        ).fetchone()
+        vr_sql = vr_sql_row[0] if vr_sql_row else ""
+        if vr_sql and "effective_match IN (0, 1)" not in vr_sql:
+            c.execute("ALTER TABLE verify_results RENAME TO _verify_results_migrate")
+            c.execute("""
+                CREATE TABLE verify_results (
+                    target TEXT NOT NULL,
+                    va INTEGER NOT NULL CHECK (va >= 0),
+                    verified_at TEXT NOT NULL,
+                    byte_delta INTEGER CHECK (byte_delta IS NULL OR byte_delta >= 0),
+                    diff_lines INTEGER CHECK (diff_lines IS NULL OR diff_lines >= 0),
+                    similarity REAL CHECK (
+                        similarity IS NULL OR (similarity >= 0.0 AND similarity <= 1.0)
+                    ),
+                    reg_delta INTEGER CHECK (reg_delta IS NULL OR reg_delta >= 0),
+                    effective_match INTEGER CHECK (
+                        effective_match IS NULL OR effective_match IN (0, 1)
+                    ),
+                    PRIMARY KEY (target, va)
+                )
+            """)
+            c.execute(
+                """
+                INSERT INTO verify_results (
+                    target, va, verified_at, byte_delta, diff_lines,
+                    similarity, reg_delta, effective_match
+                )
+                SELECT
+                    target,
+                    CASE WHEN va < 0 THEN 0 ELSE va END,
+                    verified_at,
+                    CASE
+                        WHEN byte_delta IS NOT NULL AND typeof(byte_delta) = 'integer'
+                             AND byte_delta < 0 THEN 0
+                        WHEN typeof(byte_delta) IN ('integer', 'real', 'null')
+                            THEN byte_delta
+                        ELSE NULL
+                    END,
+                    CASE
+                        WHEN diff_lines IS NOT NULL AND typeof(diff_lines) = 'integer'
+                             AND diff_lines < 0 THEN 0
+                        WHEN typeof(diff_lines) IN ('integer', 'real', 'null')
+                            THEN diff_lines
+                        ELSE NULL
+                    END,
+                    CASE
+                        WHEN similarity IS NULL THEN NULL
+                        WHEN typeof(similarity) NOT IN ('integer', 'real') THEN NULL
+                        WHEN similarity < 0.0 THEN 0.0
+                        WHEN similarity > 1.0 THEN 1.0
+                        ELSE similarity
+                    END,
+                    CASE
+                        WHEN reg_delta IS NOT NULL AND typeof(reg_delta) = 'integer'
+                             AND reg_delta < 0 THEN 0
+                        WHEN typeof(reg_delta) IN ('integer', 'real', 'null')
+                            THEN reg_delta
+                        ELSE NULL
+                    END,
+                    CASE
+                        WHEN effective_match IS NULL THEN NULL
+                        WHEN typeof(effective_match) != 'integer' THEN NULL
+                        WHEN effective_match IN (0, 1) THEN effective_match
+                        ELSE NULL
+                    END
+                FROM _verify_results_migrate
+                """
+            )
+            c.execute("DROP TABLE _verify_results_migrate")
 
-        # Per-section aggregate stats (used by both UIs).  Declared empty here
-        # and filled from _SECTION_CELL_STATS_SELECT after the cells are
-        # inserted; WHERE 0 gives the column set without evaluating the
-        # aggregation against a table that is still empty (or, on a scoped
-        # rebuild, still half-populated).
-        c.execute(
-            f"CREATE TABLE {SECTION_CELL_STATS_TABLE} AS "
-            f"SELECT * FROM ({_SECTION_CELL_STATS_SELECT}) WHERE 0"
-        )
+        # Per-section aggregate stats (used by both UIs).  Explicit CREATE with
+        # PRIMARY KEY (target, section_name) — CREATE TABLE AS SELECT left the
+        # table without a key, so duplicate rows were possible and
+        # ``WHERE target = ?`` had no index.  Declared empty here and filled
+        # from _SECTION_CELL_STATS_SELECT after the cells are inserted.
+        c.execute(f"""
+            CREATE TABLE {SECTION_CELL_STATS_TABLE} (
+                target TEXT NOT NULL,
+                section_name TEXT NOT NULL,
+                total_cells INTEGER NOT NULL DEFAULT 0,
+                exact_count INTEGER,
+                reloc_count INTEGER,
+                near_match_count INTEGER,
+                stub_count INTEGER,
+                padding_count INTEGER,
+                data_count INTEGER,
+                thunk_count INTEGER,
+                none_count INTEGER,
+                proven_count INTEGER,
+                size_mismatch_count INTEGER,
+                other_count INTEGER,
+                PRIMARY KEY (target, section_name)
+            )
+        """)
 
         # Scoped rebuild: delete only this target's rows (sections first so
         # the cells FK CASCADE clears cell rows too).  Runs after all tables
@@ -894,6 +1030,16 @@ def build_db(
                 if va_int <= 0:
                     bad_global_va += 1
                     continue
+                g_size = g.get("size")
+                if isinstance(g_size, bool) or not isinstance(g_size, int):
+                    # Non-int / bool sizes would abort on CHECK (size >= 0)
+                    # or land as 1/0 via bool-as-int; fall back to pointer size.
+                    g_size = 4
+                elif g_size < 0:
+                    g_size = 0
+                g_status = str(g.get("status") or "").strip().upper()
+                if g_status and g_status not in ("VERIFIED", "DRIFT", "UNCHECKED"):
+                    g_status = ""
                 g_rows.append(
                     (
                         target_name,
@@ -902,8 +1048,8 @@ def build_db(
                         str(g.get("decl") or ""),
                         json.dumps(g.get("files", [])),
                         str(g.get("module") or g.get("origin") or ""),
-                        g.get("size") if g.get("size") is not None else 4,
-                        str(g.get("status") or ""),
+                        g_size,
+                        g_status,
                     )
                 )
 
@@ -1136,13 +1282,13 @@ def build_db(
                     vr_rows.append(
                         (
                             target_name,
-                            va_int,
+                            max(0, va_int),
                             vr_time,
-                            item.get("delta"),
-                            item.get("diff_lines"),
-                            item.get("similarity"),
-                            item.get("reg_delta"),
-                            item.get("effective_match"),
+                            _clamp_nonneg_int(item.get("delta")),
+                            _clamp_nonneg_int(item.get("diff_lines")),
+                            _clamp_unit_interval(item.get("similarity")),
+                            _clamp_nonneg_int(item.get("reg_delta")),
+                            _clamp_effective_match(item.get("effective_match")),
                         )
                     )
             if vr_rows:
