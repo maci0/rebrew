@@ -1,9 +1,13 @@
 ## [Unreleased]
 ### Changed
+- **Dependency pins tightened**: `claripy>=9.2` (prove extra was completely
+  unpinned), `m2c` git URL commit-pinned to the rev already in `uv.lock`,
+  and `ruff>=0.14` (was `>=0.3`).  AGENTS.md no longer documents
+  `pytest -n` / pytest-xdist (never declared).
 - **Breaking:** the `similarity` and `m2c` install extras are gone.  Path/git
   deps cannot ship in wheel `Requires-Dist`; install them with
   `uv sync --group similarity` (needs sibling `../resembl`) and
-  `uv sync --group m2c` (or `uv pip install "m2c @ git+https://github.com/matt-kempster/m2c.git"`).
+  `uv sync --group m2c`.
   `pip install rebrew[similarity]` / `rebrew[m2c]` no longer resolve.
 - **FLIRT signature discovery recurses** under `rebrew-flirt-sigs`
   (`sigs/<family>/<toolchain>/`, `sigs/harvested/`) and prefers a compiled

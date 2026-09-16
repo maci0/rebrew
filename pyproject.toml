@@ -47,7 +47,7 @@ dependencies = [
 # resolve the wrong package or reject a direct URL.
 prove = [
     "angr>=9.2",
-    "claripy",  # direct import in prove.py / doctor.py (angr hard-depends on it, but the extra must declare its own imports)
+    "claripy>=9.2",  # direct import in prove.py / doctor.py; same release train as angr (was unpinned)
     "gitpython>=3.1.58",  # angr→gitpython transitively; 3.1.58 fixes the RCE-class advisories
 ]
 # BinSync state I/O: declib is BinSync's artifact layer.  rebrew.binsync.serial
@@ -196,7 +196,7 @@ dev = [
     "mypy>=2.1,<3",
     "pytest>=9.0.3",  # CVE-2025-71176 (tmpdir) fixed in 9.0.3 (deps-review F1)
     "slipcover>=1.0.17",
-    "ruff>=0.3",
+    "ruff>=0.14",  # floor near the locked 0.16 line; 0.3 admitted years-old lint rulesets
     "pre-commit>=4.5.1",
     "hypothesis>=6.165.2",
     "skills-ref>=0.1.1",  # the pre-commit "Validate Agent Skills" hook binary (infra-review F6)
@@ -212,9 +212,11 @@ similarity = [
 # m2c decompiler backend (decompiler.py fetch_m2c).  Not on PyPI under this
 # name (the PyPI `m2c` is an unrelated OpenAPI package) — git-only, so it
 # must not appear in optional-dependencies / wheel Requires-Dist.
-# Install: `uv sync --group m2c` or `uv pip install "m2c @ git+https://github.com/matt-kempster/m2c.git"`.
+# Commit-pinned so a floating default branch cannot silently change the
+# decompiler; keep in step with the rev recorded in uv.lock.
+# Install: `uv sync --group m2c`.
 m2c = [
-    "m2c @ git+https://github.com/matt-kempster/m2c.git",
+    "m2c @ git+https://github.com/matt-kempster/m2c.git@aa869da289a565c68f701e734bd74606f1bd5ed4",
 ]
 
 [tool.mypy]
