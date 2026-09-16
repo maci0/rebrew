@@ -288,7 +288,12 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
     cannot interleave and drop the patch.
 
     *patches*: list of dicts with ``va`` (int), ``status``, ``match_count``,
-    ``total``, optional ``delta`` (int|None).
+    ``total``, optional ``delta`` (int|None), optional ``match_percent``
+    (float).  When ``match_percent`` is supplied it is stored as-is —
+    recomputing ``match_count / total`` disagrees with
+    :func:`rebrew.compile.classify_compare_result` whenever lengths differ
+    (SIZE_MISMATCH / truncated compare), and status/todo would then rank ROI
+    from a wrong percent until the next full verify.
     """
     if not patches:
         return
@@ -322,7 +327,10 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             if not isinstance(entry, dict):
                 continue  # No cached entry to patch
             total = p["total"]
-            match_pct = round(100.0 * p["match_count"] / total, 1) if total > 0 else 0.0
+            if p.get("match_percent") is not None:
+                match_pct = round(float(p["match_percent"]), 1)
+            else:
+                match_pct = round(100.0 * p["match_count"] / total, 1) if total > 0 else 0.0
             passed = p["status"] in MATCHED_STATUSES
             if p.get("delta") is not None:
                 delta = p["delta"]

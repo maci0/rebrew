@@ -1557,6 +1557,10 @@ def patch_cache_from_results(cfg: Any, v_results: list[dict[str, Any]]) -> None:
                 "status": r.get("status", ""),
                 "match_count": round(pct),
                 "total": 100,
+                # Prefer the CompareResult percent over match_count/total —
+                # the latter is a percent-scale encoding here solely so
+                # recomputation stays consistent when match_percent is absent.
+                "match_percent": pct,
                 # verify's real byte delta — recomputing from match_percent
                 # would store a percent-scale number into the byte field
                 # (todo.py's ROI thresholds read it as bytes).

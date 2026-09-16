@@ -509,6 +509,17 @@ class TestCollectors:
         items = _collect_active_functions(existing, {}, {}, {})
         assert len(items) == 0
 
+    def test_active_functions_skips_parked(self) -> None:
+        """status=SKIP is user parking — never actionable until force-unparked."""
+        existing = {
+            0x1000: {"status": "SKIP", "symbol": "parked"},
+            0x2000: {"status": "NEAR_MATCHING", "symbol": "active"},
+        }
+        items = _collect_active_functions(existing, {0x2000: 40}, {}, {})
+        assert len(items) == 1
+        assert items[0].va == 0x2000
+        assert items[0].status == "NEAR_MATCHING"
+
     def test_library_candidates(self) -> None:
         """`FunctionEntry` has no `module` attribute, so the lane must infer the
         module from the name — the old `hasattr(func, "module")` was always

@@ -749,6 +749,16 @@ class TestHasSkipAnnotation:
             meta.write_text(f'["SERVER.0x10001000"]\nskip = "{val}"\n', encoding="utf-8")
             assert has_skip_annotation(f, metadata_dir=tmp_path) is False
 
+    def test_status_skip_without_skip_field(self, tmp_path: Path) -> None:
+        """status=SKIP alone parks the file for match --all (same as skip=true)."""
+        from rebrew.annotation import has_skip_annotation
+
+        f = tmp_path / "parked.c"
+        f.write_text("// FUNCTION: SERVER 0x10001000\nint x() {}\n", encoding="utf-8")
+        meta = tmp_path / "rebrew-functions.toml"
+        meta.write_text('["SERVER.0x10001000"]\nstatus = "SKIP"\n', encoding="utf-8")
+        assert has_skip_annotation(f, metadata_dir=tmp_path) is True
+
 
 class TestResolveSymbol:
     """Tests for resolve_symbol()."""

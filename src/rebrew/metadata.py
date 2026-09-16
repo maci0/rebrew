@@ -687,6 +687,15 @@ def remove_field(directory: Path, va: int, key: str, module: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+#: Legacy / hand-edited spellings normalized by :func:`canonical_status`.
+#: Catalog/grid already treats ``NEAR_MATCH`` as ``NEAR_MATCHING``; without
+#: this map a legacy TOML value is valid to the grid but rejected by
+#: ``KNOWN_STATUSES`` / lint E004.
+_STATUS_ALIASES: dict[str, str] = {
+    "NEAR_MATCH": "NEAR_MATCHING",
+}
+
+
 #: Canonical STATUS spelling: every persisted/compared status is upper-case.
 #: The validation layer (``metadata_model``) accepts any case via ``.upper()``,
 #: and hand-edited TOML or library-header KV lines may carry lower-case values;
@@ -694,7 +703,8 @@ def remove_field(directory: Path, va: int, key: str, module: str) -> bool:
 #: promotion policy) consistent instead of silently dropping such entries.
 def canonical_status(status: str) -> str:
     """Return *status* in its canonical (upper-case, trimmed) spelling."""
-    return status.strip().upper()
+    folded = status.strip().upper()
+    return _STATUS_ALIASES.get(folded, folded)
 
 
 def is_status_sticky(current_status: str) -> bool:
@@ -708,24 +718,36 @@ def is_status_sticky(current_status: str) -> bool:
     return canonical_status(current_status) == "PROVEN"
 
 
+def is_status_parked(current_status: str) -> bool:
+    """True when *current_status* is user-parked (``SKIP``) and must not change.
+
+    Unlike PROVEN (which yields to a real EXACT/RELOC byte match), SKIP is an
+    intentional "don't touch" parking classification — test/verify must not
+    overwrite it without ``force=True``.
+    """
+    return canonical_status(current_status) == "SKIP"
+
+
 def should_promote_status(current_status: str, new_status: str) -> bool:
     """True when *new_status* should overwrite *current_status* in metadata.
 
     Single canonical promotion decision, enforced both by ``rebrew test`` /
     ``rebrew verify`` call sites and inside :func:`update_statuses_batch`
     (the writer layer).  Refuses to promote when the current status is
-    sticky (PROVEN), when a STUB's placeholder size-mismatch would erase
-    the user's STUB classification, or when the status did not change.
-    Both sides are compared case-insensitively.
+    sticky (PROVEN), parked (SKIP), when a STUB's placeholder size-mismatch
+    would erase the user's STUB classification, or when the status did not
+    change.  Both sides are compared case-insensitively.
 
     The one exception to PROVEN stickiness is a byte match: EXACT/RELOC mean
     the compiler reproduced the target's bytes, which is strictly stronger
     than the semantic equivalence PROVEN records.  Without it a function that
     finally byte-matches would keep reporting PROVEN and the win would never
-    be recorded.
+    be recorded.  SKIP has no such carve-out — unparking requires force.
     """
     current = canonical_status(current_status)
     new = canonical_status(new_status)
+    if is_status_parked(current):
+        return False
     if is_status_sticky(current):
         return new in ("EXACT", "RELOC")
     if current == "STUB" and new in ("SIZE_MISMATCH", "MISSING_SIZE"):
@@ -808,8 +830,9 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
 
     Each changed status passes through :func:`should_promote_status` —
     the single canonical promotion policy (PROVEN never silently demoted,
-    a documented STUB kept against placeholder size-mismatch verdicts).
-    ``force=True`` bypasses that policy for manual/repair writes.
+    SKIP never silently unparked, a documented STUB kept against placeholder
+    size-mismatch verdicts).  ``force=True`` bypasses that policy for
+    manual/repair writes.
     Same-status updates still fall through when they will clear blockers
     (the stale-blocker cleanup path).
     """

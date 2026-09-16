@@ -502,6 +502,51 @@ class TestCollectStatus:
         d = report.to_dict()
         assert d["verify_cache"] == {"overrides": 2, "missing_size": 0, "effective_matches": 0}
 
+    def test_skip_status_not_overridden_by_verify_cache(self, tmp_path: Path) -> None:
+        """User-parked SKIP wins over a stale verify-cache NEAR_MATCHING."""
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "function_structure.json").write_text(
+            json.dumps([{"va": 0x1000, "size": 100, "ghidra_name": "parked"}]),
+            encoding="utf-8",
+        )
+        (src / "parked.c").write_text(
+            "// FUNCTION: TEST 0x1000\nvoid parked(void) {}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["TEST.0x1000"]\nstatus = "SKIP"\n',
+            encoding="utf-8",
+        )
+        cache_dir = tmp_path / ".rebrew"
+        cache_dir.mkdir()
+        (cache_dir / "verify_cache.json").write_text(
+            json.dumps(
+                {
+                    "version": 2,
+                    "target": "test",
+                    "entries": {
+                        "0x1000": {
+                            "source_hash": "a",
+                            "filepath": "parked.c",
+                            "mtime_ns": 0,
+                            "status": "NEAR_MATCHING",
+                            "va": "0x1000",
+                            "size": 100,
+                            "passed": False,
+                            "match_percent": 80.0,
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.status_counts.get("SKIP") == 1
+        assert report.status_counts.get("NEAR_MATCHING", 0) == 0
+        assert report.verify_overrides == 0
+
     def test_missing_size_overlay_surfaced(self, tmp_path: Path) -> None:
         """MISSING_SIZE (metadata SIZE absent) shows up as its own bucket."""
         cfg = _make_cfg(tmp_path)

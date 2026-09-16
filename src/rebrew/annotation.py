@@ -303,20 +303,26 @@ def marker_for_module(module: str, status: str, library_modules: set[str] | None
 def has_skip_annotation(filepath: Path, metadata_dir: Path | None = None) -> bool:
     """Return True if a function in *filepath* is marked as skippable.
 
-    Checks ``rebrew-functions.toml`` metadata for a ``skip`` field on THIS
-    file's own (module, va) entries only — a skip anywhere else in the
-    project must not empty ``match --all``'s stub collection.
+    Checks ``rebrew-functions.toml`` metadata for a truthy ``skip`` field **or**
+    ``status = "SKIP"`` on THIS file's own (module, va) entries only — a skip
+    anywhere else in the project must not empty ``match --all``'s stub
+    collection.  Both parking signals mean the same thing; matching only the
+    ``skip`` field left ``status=SKIP`` entries in the GA/match batch.
     Returns ``False`` immediately when *metadata_dir* is ``None``.
     """
     if metadata_dir is None:
         return False
     try:
-        from rebrew.metadata import load_metadata
+        from rebrew.metadata import canonical_status, load_metadata
 
         entries = load_metadata(metadata_dir)
         for ann in parse_c_file_multi(filepath):
-            raw_skip = entries.get((ann.module, ann.va), {}).get("skip", "")
+            entry = entries.get((ann.module, ann.va), {})
+            raw_skip = entry.get("skip", "")
             if raw_skip and str(raw_skip).strip().lower() not in ("", "0", "false", "no"):
+                return True
+            raw_status = entry.get("status", "")
+            if raw_status and canonical_status(str(raw_status)) == "SKIP":
                 return True
     except Exception:  # metadata read failure is non-fatal
         logger.debug("Metadata read failed for skip check in %s", metadata_dir, exc_info=True)
