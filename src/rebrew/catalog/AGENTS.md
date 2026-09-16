@@ -25,7 +25,7 @@ cli.py (run_catalog() orchestrator — calls all others; main() is the CLI wrapp
 
 loaders.py
 ├── annotation.py (external — parse_c_file_multi, parse_library_header)
-└── cli.py (external — iter_sources, iter_library_headers)
+└── sources.py (external — iter_sources, iter_library_headers, target_marker)
 
 registry.py
 ├── binary_loader.py (external — load_binary)
@@ -42,7 +42,8 @@ export.py → config.py (external — ProjectConfig)
 ```
 
 PE section parsing and the x86 helpers live in `rebrew/sections.py`, outside this
-package; `binary_loader.py`, `config.py`, and `cli.py` are their other externals.
+package; other externals are `binary_loader.py`, `config.py`, `sources.py`, and
+`annotation.py`.
 
 ## Data Flow
 
