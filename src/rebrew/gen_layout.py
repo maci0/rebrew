@@ -63,6 +63,11 @@ from rebrew.utils import atomic_write_text, container_runtime
 
 console = Console(stderr=True)
 
+#: Cap on import name-table / descriptor slots read from one PE.  A missing
+#: null terminator would otherwise walk past EOF into ``struct.error`` or
+#: spin on a wrapped offset; matches ``pe_symbols._MAX_TABLE_ENTRIES``.
+_MAX_IMPORT_SLOTS = 65536
+
 app = typer.Typer(
     help="Generate linker-script scaffolding (def, layout manifest, IAT seed, data restore)."
 )
@@ -269,8 +274,7 @@ def parse_pe(
     imports: list[_Import] = []
     io = rva_to_off(imp_rva)
     if io is not None:
-        i = 0
-        while True:
+        for i in range(_MAX_IMPORT_SLOTS):
             ent = io + i * 20
             if ent + 20 > len(data):
                 break
@@ -285,9 +289,13 @@ def parse_pe(
             # crt_imports.c and an empty `imports` list in layout_config_dict.
             lookup_rva = oft_rva or iat_rva
             oo = rva_to_off(lookup_rva)
-            j = 0
-            while oo is not None:
-                nm = struct.unpack_from("<I", data, oo + 4 * j)[0]
+            if oo is None:
+                continue
+            for j in range(_MAX_IMPORT_SLOTS):
+                slot_off = oo + 4 * j
+                if slot_off + 4 > len(data):
+                    break
+                nm = struct.unpack_from("<I", data, slot_off)[0]
                 if nm == 0:
                     break
                 if nm & 0x80000000:
@@ -296,8 +304,6 @@ def parse_pe(
                     # hint/name: 2-byte hint + NUL-terminated name
                     no = rva_to_off(nm)
                     imports.append(_Import(dll, cstr(no + 2 if no is not None else None), None))
-                j += 1
-            i += 1
 
     # ---- PE normalization params ----
     reloc_rva = struct.unpack_from("<I", data, opt + 96 + 5 * 8)[0]

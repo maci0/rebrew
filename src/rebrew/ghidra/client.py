@@ -40,6 +40,11 @@ MCP_HEADERS = {
 }
 MCP_REQUEST_TIMEOUT_S = 30
 
+#: Hard cap on MCP list pages.  ``totalCount`` / ``nextStartIndex`` already
+#: stop a well-behaved server; this bounds a server that keeps advancing
+#: without ever satisfying ``start >= total``.
+MAX_MCP_PAGES = 100_000
+
 
 def _parse_sse_response(text: str) -> JsonRpcResponse | None:
     """Extract JSON-RPC result from an SSE (text/event-stream) response body."""
@@ -268,6 +273,84 @@ def init_mcp_session(client: httpx.Client, endpoint: str) -> str:
     return str(resp.headers.get("Mcp-Session-Id", ""))
 
 
+def _paginate_mcp_list(
+    client: httpx.Client,
+    endpoint: str,
+    tool_name: str,
+    program_path: str,
+    session_id: str,
+    *,
+    batch_size: int,
+    request_id_start: int,
+    filter_default_names: bool,
+) -> list[dict[str, Any]]:
+    """Page through a ReVa list tool until exhausted or ``MAX_MCP_PAGES``.
+
+    Shared by ``fetch_all_symbols`` / ``fetch_all_functions`` so the
+    nextStartIndex / totalCount advance guards cannot drift apart.
+    Returns the raw per-item dicts (metadata rows excluded).
+    """
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+    items: list[dict[str, Any]] = []
+    start = 0
+    request_id = request_id_start
+
+    for _ in range(MAX_MCP_PAGES):
+        raw = fetch_mcp_tool(
+            client,
+            endpoint,
+            tool_name,
+            {
+                "programPath": program_path,
+                "filterDefaultNames": filter_default_names,
+                "maxCount": batch_size,
+                "startIndex": start,
+            },
+            request_id,
+            session_id=session_id,
+        )
+        request_id += 1
+
+        metadata = None
+        page: list[dict[str, Any]] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            if "totalCount" in item:
+                metadata = item
+            elif "address" in item or "name" in item:
+                page.append(item)
+
+        items.extend(page)
+
+        if metadata is None or len(page) == 0:
+            return items
+        try:
+            total = int(metadata.get("totalCount", 0))
+        except (ValueError, TypeError):
+            total = 0
+        try:
+            next_start = int(metadata.get("nextStartIndex", start + batch_size))
+        except (ValueError, TypeError):
+            next_start = start + batch_size
+        # Guard against a server that echoes nextStartIndex without advancing
+        # (previously looped forever, one 30s HTTP call per iteration).
+        if next_start <= start:
+            return items
+        start = next_start
+        if start >= total:
+            return items
+
+    logger.warning(
+        "MCP %s pagination hit %s-page cap for %s; returning partial list",
+        tool_name,
+        MAX_MCP_PAGES,
+        program_path,
+    )
+    return items
+
+
 def fetch_all_symbols(
     client: httpx.Client,
     endpoint: str,
@@ -280,59 +363,16 @@ def fetch_all_symbols(
     Similar to ``fetch_all_functions`` but uses ``get-symbols``.
     Returns dicts with ``address`` and ``name`` keys.
     """
-    if batch_size <= 0:
-        raise ValueError("batch_size must be positive")
-    all_syms: list[dict[str, Any]] = []
-    start = 0
-    request_id = 200
-
-    while True:
-        raw = fetch_mcp_tool(
-            client,
-            endpoint,
-            "get-symbols",
-            {
-                "programPath": program_path,
-                "filterDefaultNames": True,
-                "maxCount": batch_size,
-                "startIndex": start,
-            },
-            request_id,
-            session_id=session_id,
-        )
-        request_id += 1
-
-        metadata = None
-        page_syms: list[dict[str, Any]] = []
-        for item in raw:
-            if not isinstance(item, dict):
-                continue
-            if "totalCount" in item:
-                metadata = item
-            elif "address" in item or "name" in item:
-                page_syms.append(item)
-
-        all_syms.extend(page_syms)
-
-        if metadata is None or len(page_syms) == 0:
-            break
-        try:
-            total = int(metadata.get("totalCount", 0))
-        except (ValueError, TypeError):
-            total = 0
-        try:
-            next_start = int(metadata.get("nextStartIndex", start + batch_size))
-        except (ValueError, TypeError):
-            next_start = start + batch_size
-        # Guard against a server that echoes nextStartIndex without advancing
-        # (previously looped forever, one 30s HTTP call per iteration).
-        if next_start <= start:
-            break
-        start = next_start
-        if start >= total:
-            break
-
-    return all_syms
+    return _paginate_mcp_list(
+        client,
+        endpoint,
+        "get-symbols",
+        program_path,
+        session_id,
+        batch_size=batch_size,
+        request_id_start=200,
+        filter_default_names=True,
+    )
 
 
 def fetch_all_functions(
@@ -348,67 +388,24 @@ def fetch_all_functions(
     This helper pages through the full list and normalises the field names
     to the format expected by the data-pull path (``va``, ``tool_name``, ``size``).
     """
-    if batch_size <= 0:
-        raise ValueError("batch_size must be positive")
-    all_funcs: list[dict[str, Any]] = []
-    start = 0
-    request_id = 100
-
-    while True:
-        raw = fetch_mcp_tool(
-            client,
-            endpoint,
-            "get-functions",
-            {
-                "programPath": program_path,
-                "filterDefaultNames": False,
-                "maxCount": batch_size,
-                "startIndex": start,
-            },
-            request_id,
-            session_id=session_id,
-        )
-        request_id += 1
-
-        metadata = None
-        page_funcs: list[dict[str, Any]] = []
-        for item in raw:
-            if not isinstance(item, dict):
-                continue
-            if "totalCount" in item:
-                metadata = item
-            elif "address" in item or "name" in item:
-                page_funcs.append(item)
-
-        all_funcs.extend(
-            {
-                "va": f.get("address", f.get("va")),
-                "tool_name": f.get("name", f.get("ghidra_name") or f.get("tool_name", "")),
-                "size": f.get("sizeInBytes", f.get("size", 0)),
-            }
-            for f in page_funcs
-        )
-
-        if metadata is None or len(page_funcs) == 0:
-            break
-        try:
-            total = int(metadata.get("totalCount", 0))
-        except (ValueError, TypeError):
-            total = 0
-        try:
-            next_start = int(metadata.get("nextStartIndex", start + batch_size))
-        except (ValueError, TypeError):
-            next_start = start + batch_size
-        # Guard against a server that echoes nextStartIndex without advancing
-        # (previously looped forever, one 30s HTTP call per iteration — the
-        # same guard fetch_all_symbols has).
-        if next_start <= start:
-            break
-        start = next_start
-        if start >= total:
-            break
-
-    return all_funcs
+    page = _paginate_mcp_list(
+        client,
+        endpoint,
+        "get-functions",
+        program_path,
+        session_id,
+        batch_size=batch_size,
+        request_id_start=100,
+        filter_default_names=False,
+    )
+    return [
+        {
+            "va": f.get("address", f.get("va")),
+            "tool_name": f.get("name", f.get("ghidra_name") or f.get("tool_name", "")),
+            "size": f.get("sizeInBytes", f.get("size", 0)),
+        }
+        for f in page
+    ]
 
 
 _ALREADY_EXISTS_PATTERNS: tuple[re.Pattern[str], ...] = (

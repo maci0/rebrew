@@ -260,8 +260,7 @@ def _read_delay_imports(image: _Image, directory_rva: int) -> tuple[list[PeImpor
     notes: list[str] = []
     records: list[PeImport] = []
     base_va = image.image_base + directory_rva
-    index = 0
-    while True:
+    for index in range(_MAX_TABLE_ENTRIES):
         descriptor = image.read(base_va + index * _DELAY_DESCRIPTOR_SIZE, _DELAY_DESCRIPTOR_SIZE)
         if len(descriptor) < _DELAY_DESCRIPTOR_SIZE:
             break
@@ -282,7 +281,13 @@ def _read_delay_imports(image: _Image, directory_rva: int) -> tuple[list[PeImpor
             )
         else:
             records.extend(_delay_slots(image, module, iat_va, int_va))
-        index += 1
+    else:
+        # Exhausted the shared table cap without a null terminator — same
+        # corrupt-count defence _read_rva_array / _iter_name_table use.
+        notes.append(
+            f"delay-import directory capped at {_MAX_TABLE_ENTRIES} descriptors "
+            "(missing null terminator)"
+        )
     return records, notes
 
 
