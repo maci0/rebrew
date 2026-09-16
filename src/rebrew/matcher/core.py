@@ -9,6 +9,7 @@ and GACheckpoint (serializable run state) for the GA matching engine.
 from __future__ import annotations
 
 import logging
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -83,6 +84,10 @@ class BuildCache:
         self._cache: diskcache.Cache | None
         try:
             self._cache = diskcache.Cache(cache_dir)
+            # Pickled BuildResult values: keep the store owner-only so another
+            # local user cannot plant a payload that executes on the next hit.
+            with suppress(OSError):
+                Path(cache_dir).chmod(0o700)
         except Exception as exc:  # any store failure must degrade, not raise
             logging.getLogger(__name__).warning(
                 "GA build cache at %s unusable (%s: %s) — running without it "

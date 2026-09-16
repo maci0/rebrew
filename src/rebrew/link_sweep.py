@@ -226,7 +226,9 @@ def main(
         atexit.register(shutil.rmtree, scratch_dir, True)
     for cand in candidates:
         out = scratch_dir / f"{cand.name}.dll"
-        cmd = cmd_tpl.format(options=" ".join(cand.options), out=out)
+        # Quote *out* so shlex.split keeps a space-bearing path as one argv
+        # element (same discipline as calibrate_bss).
+        cmd = cmd_tpl.format(options=" ".join(cand.options), out=shlex.quote(str(out)))
         try:
             proc = subprocess.run(
                 shlex.split(cmd), cwd=workdir, capture_output=True, text=True, timeout=300

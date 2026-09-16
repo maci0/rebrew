@@ -22,6 +22,7 @@ from __future__ import annotations
 import contextlib
 import os
 import re
+import shlex
 import subprocess
 import tempfile
 import tomllib
@@ -174,10 +175,17 @@ def main(
     original_stub = stub.read_text(encoding="utf-8")
     try:
         for it in range(max_iters):
-            cmd = cmd_tpl.format(out=scratch, options="")
+            # Quote the scratch path before shlex.split so a space-bearing
+            # temp dir cannot re-split the argv; shell=True is refused so
+            # metacharacters in CMake's link.txt cannot execute.
+            cmd = cmd_tpl.format(out=shlex.quote(str(scratch)), options="")
             try:
                 subprocess.run(
-                    cmd, shell=True, cwd=link_cwd, check=True, capture_output=True, timeout=600
+                    shlex.split(cmd),
+                    cwd=link_cwd,
+                    check=True,
+                    capture_output=True,
+                    timeout=600,
                 )
             except subprocess.TimeoutExpired:
                 error_exit(
