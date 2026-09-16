@@ -172,7 +172,7 @@ def main(
     emit: dict[str, str] = {}
     listed: set[Path] = set()
     if sources_file is not None:
-        for line in sources_file.read_text().splitlines():
+        for line in sources_file.read_text(encoding="utf-8").splitlines():
             rel = line.strip()
             if not rel or not (cfg.root / rel).is_file():
                 continue

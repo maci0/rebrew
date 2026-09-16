@@ -250,7 +250,7 @@ def owner_of(names: list[str], files: list[Path]) -> Path | None:
     counts: dict[Path, int] = defaultdict(int)
     for f in files:
         try:
-            t = f.read_text(encoding="utf-8", errors="replace")
+            t, _ = read_source_text(f)
         except OSError:
             continue
         for pat in patterns:
@@ -282,7 +282,12 @@ def insert_definition(
     indentation); appends the definition when the TU has no such extern.
     With ``is_array=False`` a scalar ``TYPE name = value;`` is emitted.
     """
-    lines = f.read_text(encoding="utf-8", errors="replace").splitlines()
+    # Preserve legacy source encodings (Shift-JIS / CP1252): reading as UTF-8
+    # with errors="replace" and writing UTF-8 permanently corrupts non-ASCII
+    # comments/strings (e.g. Japanese game TUs). Same convention as
+    # annotation / climb / rename write-backs.
+    text, encoding = read_source_text(f)
+    lines = text.splitlines()
     if is_array:
         extern_re = re.compile(
             r"^(\s*)extern\s+([A-Za-z_][\w\s]*\**)\s+"
@@ -303,11 +308,11 @@ def insert_definition(
         if m:
             lines[i] = m.group(1) + def_line
             if not dry_run:
-                f.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                atomic_write_text(f, "\n".join(lines) + "\n", encoding=encoding)
             return True
     lines.append(def_line)
     if not dry_run:
-        f.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        atomic_write_text(f, "\n".join(lines) + "\n", encoding=encoding)
     return True
 
 
@@ -489,7 +494,8 @@ _STUB_DEF_RE = re.compile(
 def _parse_stub_globals(stub_file: Path) -> dict[str, tuple[str, int | None]]:
     """``name -> (type, declared array size or None for scalars)`` from a stubs TU."""
     out: dict[str, tuple[str, int | None]] = {}
-    for line in stub_file.read_text(encoding="utf-8", errors="replace").splitlines():
+    text, _ = read_source_text(stub_file)
+    for line in text.splitlines():
         m = _STUB_DEF_RE.match(line)
         if not m:
             continue
@@ -876,7 +882,11 @@ def fix_ownership(
     def_re = re.compile(r"^[ \t]*[\w\s\*]+\s+(\w+)(?:\[\d+\])?\s*=")
     owner: dict[str, Path] = {}
     for f in files:
-        for ln in f.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            text, _ = read_source_text(f)
+        except OSError:
+            continue
+        for ln in text.splitlines():
             m = def_re.match(ln.strip())
             if m and m.group(1) in toml and m.group(1) not in owner:
                 owner[m.group(1)] = f
