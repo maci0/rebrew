@@ -70,17 +70,22 @@ def detect_cycles(root: str) -> list[list[str]]:
     """Return strongly-connected components (size > 1) of the import graph.
 
     *root* is the package directory, e.g. ``"src/rebrew"``.  Module names are
-    derived from file paths relative to the repo root (``src/`` prefix).
+    derived from file paths relative to the directory that contains *root*
+    (``src/`` for the default layout), so absolute paths and non-``src/``
+    checkouts work the same way.
     """
+    root = os.path.normpath(root)
+    package_root = os.path.dirname(root) or "."
     edges: dict[str, list[str]] = defaultdict(list)
     for dirpath, _, files in os.walk(root):
         for file in files:
             if not file.endswith(".py"):
                 continue
             path = os.path.join(dirpath, file)
-            mod_name = path[4:-3].replace("/", ".")
-            if path.endswith("__init__.py"):
-                mod_name = path[4:-12].replace("/", ".")
+            rel = os.path.relpath(path, package_root)
+            mod_name = rel[:-3].replace(os.sep, ".")
+            if file == "__init__.py":
+                mod_name = mod_name[: -len(".__init__")]
             for imp in _get_imports(path, "rebrew"):
                 edges[mod_name].append(imp)
 

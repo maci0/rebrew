@@ -892,12 +892,14 @@ class TestSweepThenGa:
             pytest.param(RuntimeError("boom"), None, id="sweep-failure-falls-back"),
         ],
     )
+    @pytest.mark.parametrize("sweep_seconds", [15.0, 90.0])
     def test_ga_cflags_come_from_sweep(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         sweep_outcome: tuple[float, str, list[str]] | Exception,
         expected_override: str | None,
+        sweep_seconds: float,
     ) -> None:
         """GA receives the sweep's best flags; a failed sweep falls back to stub.cflags."""
         from rebrew.match import _run_all
@@ -916,13 +918,26 @@ class TestSweepThenGa:
         ]
         monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
 
-        def _fake_sweep(stub: Any, cfg: Any, tier: str = "targeted", jobs: int = 4) -> Any:
+        clock = {"now": 100.0}
+        seen: dict[str, Any] = {}
+        monkeypatch.setattr(
+            "rebrew.match_run.time", SimpleNamespace(monotonic=lambda: clock["now"])
+        )
+
+        def _fake_sweep(
+            stub: Any,
+            cfg: Any,
+            tier: str = "targeted",
+            jobs: int = 4,
+            deadline: float | None = None,
+        ) -> Any:
+            seen["sweep_deadline"] = deadline
+            clock["now"] += sweep_seconds
             if isinstance(sweep_outcome, Exception):
                 raise sweep_outcome
             return sweep_outcome
 
         monkeypatch.setattr("rebrew.match_run.run_flag_sweep", _fake_sweep)
-        seen: dict = {}
 
         def _fake_run(
             stub,

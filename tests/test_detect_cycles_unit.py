@@ -69,14 +69,35 @@ class TestDetectCycles:
         p.write_text(content, encoding="utf-8")
 
     def test_detects_cycle(self, tmp_path: Path, monkeypatch) -> None:
-        # detect_cycles derives module names assuming root="src/rebrew"
-        # relative to the cwd (path[4:-3]).
         monkeypatch.chdir(tmp_path)
         pkg = tmp_path / "src" / "rebrew" / "x"
         self._write(pkg, "a.py", "import rebrew.x.b\n")
         self._write(pkg, "b.py", "import rebrew.x.a\n")
         cycles = dc.detect_cycles("src/rebrew")
         assert any({"rebrew.x.a", "rebrew.x.b"} <= set(c) for c in cycles)
+
+    def test_detects_cycle_with_absolute_root(self, tmp_path: Path) -> None:
+        pkg = tmp_path / "rebrew"
+        self._write(pkg, "x/a.py", "import rebrew.x.b\n")
+        self._write(pkg, "x/b.py", "import rebrew.x.a\n")
+        cycles = dc.detect_cycles(str(pkg))
+        assert [set(c) for c in cycles] == [{"rebrew.x.a", "rebrew.x.b"}]
+
+    def test_detects_package_initializer_cycle(self, tmp_path: Path) -> None:
+        pkg = tmp_path / "rebrew"
+        self._write(pkg, "__init__.py", "import rebrew.child\n")
+        self._write(pkg, "child/__init__.py", "import rebrew.child.module\n")
+        self._write(pkg, "child/module.py", "import rebrew\n")
+        cycles = dc.detect_cycles(str(pkg))
+        assert [set(c) for c in cycles] == [{"rebrew", "rebrew.child", "rebrew.child.module"}]
+
+    def test_detects_cycle_with_non_src_relative_root(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+        pkg = tmp_path / "packages" / "rebrew"
+        self._write(pkg, "a.py", "import rebrew.b\n")
+        self._write(pkg, "b.py", "import rebrew.a\n")
+        cycles = dc.detect_cycles("packages/rebrew")
+        assert [set(c) for c in cycles] == [{"rebrew.a", "rebrew.b"}]
 
     def test_clean_package_no_cycles(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)
