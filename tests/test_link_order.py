@@ -117,6 +117,21 @@ class TestLinkOrderCli:
         assert "set(SOURCES" in text
         assert "add_library(server STATIC ${SOURCES})" in text
 
+    @pytest.mark.parametrize("name", ["x.c", "long_name.c"])
+    def test_apply_replaces_and_drops_sources(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+    ) -> None:
+        _make_project(
+            tmp_path,
+            {name: 0x10001000},
+            "set(SOURCES src/old.c src/gone.c)\n",
+        )
+        result = _invoke(tmp_path, monkeypatch, "--apply")
+        assert result.exit_code == 0
+        text = (tmp_path / "CMakeLists.txt").read_text(encoding="utf-8")
+        assert text == f"set(SOURCES src/{name})\n"
+        assert _invoke(tmp_path, monkeypatch, "--check").exit_code == 0
+
     def test_apply_is_idempotent(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(tmp_path, {"a.c": 0x10001000, "b.c": 0x10003000})
         assert _invoke(tmp_path, monkeypatch, "--apply").exit_code == 0

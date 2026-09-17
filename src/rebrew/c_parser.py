@@ -255,15 +255,9 @@ def _count_pointer_depth(declarator: Any) -> int:
     """Count pointer depth (number of * in pointer_declarator chain)."""
     depth = 0
     node = declarator
-    while node.type == "pointer_declarator":
+    while node is not None and node.type == "pointer_declarator":
         depth += 1
-        # The actual declarator is the non-* child
-        for child in node.children:
-            if child.type != "*":
-                node = child
-                break
-        else:
-            break
+        node = _find_child(node, "pointer_declarator")
     return depth
 
 
@@ -390,7 +384,10 @@ def extract_function_name_from_line(line: str) -> tuple[str, str] | None:
         return None
     # Strip MSVC calling conventions so tree-sitter can parse the function
     cleaned = _strip_cc(stripped)
-    result = extract_function_name_and_proto(cleaned + " {}")
+    try:
+        result = extract_function_name_and_proto(cleaned + " {}")
+    except UnicodeEncodeError:
+        return None
     if result:
         name, _ = result
         return name, stripped
@@ -592,12 +589,7 @@ def find_extern_variables(source: str, *, include_definitions: bool = False) -> 
                     array_suffix = ""
                     arr_node = decl
                     while arr_node and arr_node.type == "pointer_declarator":
-                        for ac in arr_node.children:
-                            if ac.type != "*":
-                                arr_node = ac
-                                break
-                        else:
-                            break
+                        arr_node = _find_child(arr_node, "pointer_declarator", "array_declarator")
                     if arr_node and arr_node.type == "array_declarator":
                         array_suffix = _extract_array_suffix(arr_node, src_bytes)
 

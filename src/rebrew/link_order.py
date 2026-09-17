@@ -288,9 +288,6 @@ def render_block(text: str, block: _Block, ordered: list[str]) -> str:
         return text[: block.close_idx] + inner + text[block.close_idx :]
     sep = _entry_sep(text, block)
     out = text
-    for i in range(min(len(spans), len(ordered)) - 1, -1, -1):
-        start, end, raw = spans[i]
-        out = out[:start] + _quote(raw, ordered[i]) + out[end:]
     for j in range(len(spans) - 1, len(ordered) - 1, -1):
         start, end, _ = spans[j]
         gap = out[spans[j - 1][1] : start] if j > 0 else ""
@@ -299,6 +296,9 @@ def render_block(text: str, block: _Block, ordered: list[str]) -> str:
         else:
             anchor = spans[j - 1][1] if j > 0 else start
             out = out[:anchor] + out[end:]
+    for i in range(min(len(spans), len(ordered)) - 1, -1, -1):
+        start, end, raw = spans[i]
+        out = out[:start] + _quote(raw, ordered[i]) + out[end:]
     if len(ordered) > len(spans):
         anchor = spans[-1][1] + sum(
             len(_quote(spans[i][2], ordered[i])) - (spans[i][1] - spans[i][0])

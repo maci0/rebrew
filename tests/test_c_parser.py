@@ -38,6 +38,10 @@ class TestExtractFunctionNameAndProto:
 
 
 class TestExtractFunctionNameFromLine:
+    @pytest.mark.parametrize("line", ["(\ud800", "(\udd00"])
+    def test_unencodable_line_returns_none(self, line: str) -> None:
+        assert extract_function_name_from_line(line) is None
+
     def test_declaration_line(self) -> None:
         name, proto = extract_function_name_from_line("int foo(int a)")
         assert name == "foo"
@@ -180,6 +184,25 @@ class TestExternVariableDeclarators:
 
 
 class TestPointerAndArrayTypes:
+    @pytest.mark.parametrize(
+        "declaration,expected_type,expected_suffix",
+        [
+            ("extern int * const *p;", "int **", ""),
+            ("extern int * const * volatile *p;", "int ***", ""),
+            ("extern int * const p[3];", "int *[3]", "[3]"),
+            ("extern int * volatile * const p[3][5];", "int **[3][5]", "[3][5]"),
+            ("int * const p[3] = {0};", "int *[3]", "[3]"),
+        ],
+    )
+    def test_qualified_pointer_declarators(
+        self, declaration: str, expected_type: str, expected_suffix: str
+    ) -> None:
+        variables = find_extern_variables(declaration, include_definitions=True)
+        assert len(variables) == 1
+        assert variables[0].name == "p"
+        assert variables[0].type_str == expected_type
+        assert variables[0].array_suffix == expected_suffix
+
     def test_pointer_depth_single(self) -> None:
         from rebrew.c_parser import find_extern_variables
 
