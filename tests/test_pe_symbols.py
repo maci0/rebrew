@@ -114,7 +114,9 @@ def _load_config_pe(tmp_path: Path) -> tuple[Path, list[int], list[int], int]:
     )
 
 
-def _delay_import_pe(tmp_path: Path, *, rva_based: bool = False) -> tuple[Path, list[int]]:
+def _delay_import_pe(
+    tmp_path: Path, *, rva_based: bool = False, module: bytes = b"DELAYDLL.dll"
+) -> tuple[Path, list[int]]:
     """A PE32 with a delay-import descriptor for one DLL and three slots.
 
     The descriptor's ``Attributes`` word selects the field encoding: 0 means
@@ -136,7 +138,7 @@ def _delay_import_pe(tmp_path: Path, *, rva_based: bool = False) -> tuple[Path, 
     dll_name = second_name + 2 + len(b"DelayApiB") + 1
     if dll_name % 2:
         dll_name += 1
-    total = dll_name + len(b"DELAYDLL.dll") + 1
+    total = dll_name + len(module) + 1
 
     # Placeholder first: the descriptor's fields are absolute addresses inside
     # the section being appended, so its RVA must be known before it is built.
@@ -167,7 +169,7 @@ def _delay_import_pe(tmp_path: Path, *, rva_based: bool = False) -> tuple[Path, 
     blob[names + 2 : names + 2 + len(b"DelayApiA")] = b"DelayApiA"
     blob[second_name : second_name + 2] = struct.pack("<H", 0)
     blob[second_name + 2 : second_name + 2 + len(b"DelayApiB")] = b"DelayApiB"
-    blob[dll_name : dll_name + len(b"DELAYDLL.dll")] = b"DELAYDLL.dll"
+    blob[dll_name : dll_name + len(module)] = module
 
     written = bytearray(pe)
     written[raw_offset : raw_offset + total] = blob
@@ -248,6 +250,22 @@ class TestPeDirectories:
         path, _handlers, _targets, _cookie = _load_config_pe(tmp_path)
         assert pe_directories(path) == pe_directories(path)
 
+    @pytest.mark.parametrize("rva_based", [False, True])
+    def test_delay_import_dll_name_keeps_basename(self, tmp_path: Path, rva_based: bool) -> None:
+        path, slots = _delay_import_pe(
+            tmp_path, module=rb"C:\SDK\DELAYDLL.dll", rva_based=rva_based
+        )
+        records = pe_directories(path).delay_imports
+        assert [record.va for record in records] == slots
+        assert all(record.dll == "DELAYDLL.dll" for record in records)
+        symbols = pe_symbols(path).symbols
+        delay = [s.name for s in symbols if s.origin == "delay_import"]
+        assert delay == [
+            "__dimp_delaydll_DelayApiA",
+            "__dimp_delaydll_DelayApiB",
+            "__dimp_delaydll_ord7",
+        ]
+
 
 class TestPeSymbols:
     def test_entrypoint_and_iat_symbols(self) -> None:
@@ -322,6 +340,11 @@ class TestSymbolNaming:
                 "__imp_api_ms_win_crt_heap_l1_1_0_free",
             ),
             ("", "ExitProcess", None, "__imp_sym_ExitProcess"),
+            (r"C:\SDK\KERNEL32.dll", "Sleep", None, "__imp_kernel32_Sleep"),
+            (r"\\?\C:\SDK\KERNEL32.dll", "Sleep", None, "__imp_kernel32_Sleep"),
+            (r"..\KERNEL32.dll", "Sleep", None, "__imp_kernel32_Sleep"),
+            ("C:/SDK/KERNEL32.dll", "Sleep", None, "__imp_kernel32_Sleep"),
+            (r"\\server\share\MFC42u.DLL", "", 4717, "__imp_mfc42u_ord4717"),
         ],
     )
     def test_iat_names(self, dll: str, name: str, ordinal: int | None, expected: str) -> None:
@@ -331,4 +354,10 @@ class TestSymbolNaming:
         assert delay_import_symbol_name("KERNEL32.dll", "Sleep", None) == "__dimp_kernel32_Sleep"
         assert delay_import_symbol_name("KERNEL32.dll", "Sleep", None) != iat_symbol_name(
             "KERNEL32.dll", "Sleep", None
+        )
+
+    def test_delay_names_strip_windows_qualified_dll(self) -> None:
+        assert (
+            delay_import_symbol_name(r"C:\SDK\KERNEL32.dll", "Sleep", None)
+            == "__dimp_kernel32_Sleep"
         )

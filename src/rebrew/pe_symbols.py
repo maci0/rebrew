@@ -44,7 +44,7 @@ from __future__ import annotations
 import struct
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
@@ -271,7 +271,7 @@ def _read_delay_imports(image: _Image, directory_rva: int) -> tuple[list[PeImpor
         if not any((attributes, name_field, iat_field, int_field)):
             break
         rva_based = bool(attributes & _DELAY_ATTR_RVA)
-        module = Path(_read_c_string(image, name_field, rva_based)).name
+        module = PureWindowsPath(_read_c_string(image, name_field, rva_based)).name
         iat_va = _resolve_field(image, iat_field, rva_based)
         int_va = _resolve_field(image, int_field, rva_based)
         if not module or iat_va is None or int_va is None:
@@ -637,7 +637,7 @@ def iat_symbol_name(dll: str, name: str, ordinal: int | None) -> str:
     by ordinal almost exclusively) is named ``__imp_<dll>_ord<N>`` because it
     has no name to use.
     """
-    token = Path(dll).name
+    token = PureWindowsPath(dll).name
     if "." in token:
         token = token.rsplit(".", 1)[0]
     token = _sanitize_identifier(token).lower()
