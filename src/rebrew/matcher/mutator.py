@@ -337,7 +337,10 @@ def _merge_entry_point_mutations() -> list[Callable[..., str | None]]:
     )
 
     merged: dict[str, Callable[..., str | None]] = {m.__name__: m for m in _BUILTIN_MUTATIONS}
-    for reg in entry_point_registrations(MUTATION_ENTRY_POINT_GROUP):
+    for reg in sorted(
+        entry_point_registrations(MUTATION_ENTRY_POINT_GROUP),
+        key=lambda reg: (reg.name, reg.module, reg.attr),
+    ):
         if not reg.attr:
             logger.warning(
                 "skipping %s registration %r: expected 'module:attr' naming a mutation function",

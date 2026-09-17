@@ -7,6 +7,7 @@ backends, GA mutations, CLI commands).
 
 from __future__ import annotations
 
+import random
 import sys
 import types
 from pathlib import Path
@@ -337,6 +338,53 @@ class TestDecompilerRegistry:
 
 
 class TestMutationRegistry:
+    @pytest.mark.parametrize("duplicate_name", [False, True])
+    def test_seeded_replay_ignores_discovery_order(
+        self, monkeypatch: pytest.MonkeyPatch, duplicate_name: bool
+    ) -> None:
+        from rebrew.matcher import mutator
+
+        def _mut_alpha(s: str, rng: random.Random) -> str:
+            return f"int f(void) {{ return {rng.randrange(100)}; }}"
+
+        def _mut_beta(s: str, rng: random.Random) -> str:
+            return f"int f(void) {{ return {rng.randrange(100, 200)}; }}"
+
+        module = types.ModuleType("mutation_replay_test")
+        module.alpha = _mut_alpha
+        module.beta = _mut_beta
+        monkeypatch.setitem(sys.modules, module.__name__, module)
+        registrations = [
+            ("mut_alpha", f"{module.__name__}:alpha"),
+            ("mut_alpha" if duplicate_name else "mut_beta", f"{module.__name__}:beta"),
+        ]
+        weights = dict.fromkeys((m.__name__ for m in mutator._BUILTIN_MUTATIONS), 0.0)
+        weights.update({_mut_alpha.__name__: 1.0, _mut_beta.__name__: 1.0})
+        histories = []
+        try:
+            for entries in (registrations, list(reversed(registrations))):
+                monkeypatch.setattr(
+                    "rebrew.registry.entry_points",
+                    _fake_entry_points(**{"rebrew.mutations": entries}),
+                )
+                merged = mutator._merge_entry_point_mutations()
+                assert merged[: len(mutator._BUILTIN_MUTATIONS)] == mutator._BUILTIN_MUTATIONS
+                monkeypatch.setattr(mutator, "ALL_MUTATIONS", merged)
+                mutator._mutation_weight_list.cache_clear()
+                rng = random.Random(713)
+                source = "int f(void) { return 0; }"
+                history = []
+                for _ in range(16):
+                    source, name = mutator.mutate_code(
+                        source, rng, track_mutation=True, mutation_weights=weights
+                    )
+                    history.append((source, name))
+                histories.append(history)
+            assert histories[0] == histories[1]
+            assert all(name != "none" for _, name in histories[0])
+        finally:
+            mutator._mutation_weight_list.cache_clear()
+
     def test_entry_point_mutation_added(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.matcher.mutator import _merge_entry_point_mutations
 
