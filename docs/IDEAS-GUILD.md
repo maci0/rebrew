@@ -112,6 +112,15 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
 
 ## Knowledge capture
 
+- [ ] **Jev as a typed decision layer over `todo` / `near-diag` (out of tree).**
+  Pain: agents pick the wrong next tool, reread 167 MSVC6 shapes, and spend
+  codegen-LLM budget on library leftovers, stale blockers, and inverted
+  briefs. Feature: a guild-rebrew script that sends `todo --json` +
+  `near-diag --json` + blocker prose to TypeSafe Jev (Choice / Score /
+  Noul) and confidence-gates the next command — no C generation, no
+  rebrew package change. Keep only if it beats `todo` on a labeled
+  NEAR_MATCHING slice. Evidence: [JEV.md](JEV.md); workflow-traps §1
+  (inverted `volatile` brief); shapes / allocator catalogs.
 - [ ] **Finding router (`rebrew note --finding`).**
   Pain: one finding, one home (shapes / allocator / codegen-walls /
   measure-traps / workflow-traps / TODO) enforced by discipline only.

@@ -41,6 +41,7 @@
 |----------|-------------|
 | [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) | `rebrew binsync-init/export/import/diff/overlay`: declib-backed state bridge (names, prototypes, globals, structs, enums, typedefs, locals, comments) + `rebrew sync` feature matrix |
 | [DECOMPME_COMPILERS.md](DECOMPME_COMPILERS.md) | decomp.me compiler fleet research + snippet-scrape guide |
+| [JEV.md](JEV.md) | TypeSafe Jev (System One) research: typed decisions over rebrew JSON, not codegen |
 | [ROADMAP.md](ROADMAP.md) | Multi-arch plan + consoles dossier appendix |
 
 ## Ecosystem
