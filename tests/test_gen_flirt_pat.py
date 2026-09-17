@@ -659,13 +659,16 @@ class TestAlternativeImplementations:
             obj = tmp_path / f"{tag}.o"
             subprocess.run(
                 ["gcc", "-c", "-O1", "-fcf-protection=none", str(src), "-o", str(obj)],
-                check=True, capture_output=True,
+                check=True,
+                capture_output=True,
             )
             subprocess.run(["ar", "rcs", str(lib), str(obj)], check=True, capture_output=True)
 
         out = tmp_path / "out.pat"
         stats = generate_pat(lib, out)
-        lines = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.endswith("shared_entry")]
+        lines = [
+            ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.endswith("shared_entry")
+        ]
         assert len(lines) == 2, lines
         assert lines[0] != lines[1]
         assert stats["signatures"] == 2
