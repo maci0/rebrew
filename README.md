@@ -295,9 +295,11 @@ Clean clone needs **uv**, **Python 3.13+** (`.python-version`), **nasm** on
 `PATH`, and a sibling [`resembl`](https://github.com/maci0/resembl) checkout at
 `../resembl` (tag `v2.0.0`, matching CI `RESEMBL_REF` / `uv.lock`).  See
 [`CONTRIBUTING.md`](CONTRIBUTING.md); `make help` lists targets.
+Run the following from the directory that will hold both checkouts:
 
 ```bash
-git clone --depth 1 --branch v2.0.0 https://github.com/maci0/resembl.git ../resembl
+git clone https://github.com/maci0/rebrew.git
+git clone --depth 1 --branch v2.0.0 https://github.com/maci0/resembl.git
 cd rebrew/
 make setup                 # uv sync --frozen --all-extras --group similarity + pre-commit hooks
 make test-one T=tests/test_annotation.py   # single-file edit-test loop
