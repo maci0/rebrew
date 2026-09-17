@@ -662,6 +662,7 @@ pull these images without rebrew itself.
 | `msvc-6.0-sp4` | 6.0 SP4 | 12.00.8804 | | archaic-toolchains `msvc600_sp4` (headers/libs + Bin) | docker |
 | `msvc-6.0-sp5` | 6.0 SP5 | 12.00.8804 | (same CL) | archaic-msvc `msvc600_sp5` | docker |
 | `msvc-6.0-sp6` | 6.0 SP6 | 12.00.8804 | (same CL) | archaic-msvc `msvc600_sp6` | docker |
+| `msvc-6.0-win9x` | 6.0 (Win9x target) | 12.00.8804 | SP5 tree, wibo runtime | vendored `msvc/6.0-win9x-win32` | docker (wibo) |
 | `msvc-7.0` | 7.0 (2002) | 13.10.3077 | .NET 2003 build | archaic-msvc `msvc-7.1` | docker |
 | `msvc-7.0-rtm` | 7.0 RTM | 13.00.9466 | true 7.0 | archaic-msvc `msvc-7.0-rtm` | docker |
 | `msvc-7.0-sp1` | 7.0 SP1 | 13.00.9466 | (same CL) | archaic-msvc `msvc700_sp1` | docker |

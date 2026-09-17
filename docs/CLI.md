@@ -1,6 +1,8 @@
 # CLI Reference
 
-All 92 CLI commands are registered under the unified `rebrew` entry point in `main.py`.
+All 97 CLI commands are registered under the unified `rebrew` entry point in `main.py`
+(96 packaged `CliComponent` entries in `builtins.py` plus `import-splat` from
+`main.py` `_EXTRA_COMPONENTS`).
 Every tool supports `--target / -t` to select a target from `rebrew-project.toml` and
 reads defaults (binary path, reversed_dir, compiler settings) from the project config.
 
@@ -91,6 +93,11 @@ for `--compare` (not “better than EXACT”).
 | `rebrew binary-similarity` | `binary_similarity.py` | Whole-binary structural similarity vs another binary — per-function best matches aggregated into a byte-weighted score (versions/DLL+EXE) |
 | `rebrew near-diag` | `near_diag.py` | Classify why a `NEAR_MATCHING` function does not byte-match — categories: register / equivalent / reloc / structural, plus the `EFFECTIVE` verdict when the entire delta is register allocation (reccmp's 100% effective-match case); JSON carries a `frame` stack-comparison field; `--fix-blocker` auto-writes BLOCKER |
 | `rebrew gap-trace` | `gap_trace.py` | Trace length-gap drift between object and reference instruction streams — running our-minus-reference offset per equal block, exposing LENGTH hypotheses (short COMDAT, early jump table) that flat scores hide; window defaults to the real body (next VA); `--json` |
+| `rebrew drift` | `drift_cmd.py` | Localise where compiled bytes drift from the reference, from branch targets; `--json` |
+| `rebrew climb` | `climb.py` | Deterministic single-statement hill-climb for one function (`--passes`, `--dry-run`, `--json`) |
+| `rebrew probe` | `probe.py` | Measure one function against the reference without writing metadata; `--json` |
+| `rebrew qual-sweep` | `qual_sweep.py` | Sweep declaration qualifiers over one function, keeping winners (`--rounds`, `--jobs`, `--dry-run`, `--json`) |
+| `rebrew residue` | `residue.py` | Section diffs plus per-function attribution of remaining `.text` bytes (`--baseline`, `--new-baseline`, `--json`) |
 | `rebrew diagnose` | `diagnose.py` | Explain why a function compiles with its toolchain+flags: prints the resolution chain (per-function metadata → nearest `rebrew-libraries.toml` → project defaults) and validates the declarations (unknown toolchains, preset contradictions, function-vs-library family drift); `--json` |
 | `rebrew stack-cmp` | `stack_cmp.py` | Compare a compiled function's stack frame against the target (reccmp `stackcmp` without a PDB): frame size, ebp-vs-esp (/Oy), `ret N` popping, `[ebp±N]` slot layout — flag-focused hints for per-function CFLAGS tuning |
 | `rebrew verify-exports` | `exports.py` | Verify the recompiled binary's export table matches the original target (reccmp `verexp` equivalent; compares export names, exits 1 on missing/added) |
@@ -298,6 +305,22 @@ fixed-offset saturates), and COMDAT span vs trimmed code length. Unlike
 for edit → measure loops. Compare with `rebrew test --no-promote` only
 when a metadata write must be anatomically impossible rather than merely
 skipped.
+
+### `rebrew residue`
+
+`rebrew residue [BUILT] [--baseline PATH] [--new-baseline PATH] [--json] [--target NAME]`
+
+Apply postlink fixers to BUILT and report the remaining byte residue:
+per-section diffs plus per-function attribution of the `.text` bytes
+`verify` still reports as not byte-matched. `--new-baseline` writes the
+report as JSON (adopt as baseline); `--baseline` prints per-function
+deltas vs a previous report instead of absolutes.
+
+| Option | Description |
+| --- | --- |
+| `--baseline PATH` | Baseline JSON: print per-function deltas vs it |
+| `--new-baseline PATH` | Write this run's report as JSON to PATH |
+| `--json` | Output results as JSON |
 
 ### `rebrew diff`
 
@@ -640,7 +663,7 @@ Project-specific linting rules can be configured in `rebrew-project.toml` under 
 - `indent_style`: "spaces", "tabs", or "none" (default)
 - `max_line_length`: integer (default: 200)
 
-See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (E000–E023, W003–W029).
+See [ANNOTATIONS.md](ANNOTATIONS.md) for the full linter code reference (10 E-codes, 19 W-codes; unassigned numbers in the ranges are reserved, not emitted).
 
 `rebrew lint` is the source-corpus checker — in addition to markers and
 metadata it cross-references every `// FUNCTION:`/`// STUB:` marker against
@@ -2486,7 +2509,7 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 | Module | Purpose |
 |--------|---------|
 | `annotation.py` | Canonical annotation parser (`parse_c_file_multi`, `parse_c_file_text`) |
-| `lint.py` | Source marker linter (E000–E023 / W003–W029); `--fix` migrates leftover inline metadata and drops W029-redundant cflags; W005 points to `rebrew blocker set` for STUB BLOCKERs |
+| `lint.py` | Source marker linter (10 E-codes, 19 W-codes); `--fix` migrates leftover inline metadata and drops W029-redundant cflags; W005 points to `rebrew blocker set` for STUB BLOCKERs |
 | `blocker.py` | Programmatic BLOCKER writer — `rebrew blocker set/clear/show` (`--json`, `--dry-run`, `--delta`, `--va`); every write via `rebrew.metadata` (never hand-edit `rebrew-functions.toml`) |
 | `ghidra/cli.py` | Sync annotations to Ghidra via ReVa MCP; skips generic `func_` labels by default |
 

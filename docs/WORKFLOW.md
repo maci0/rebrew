@@ -24,7 +24,7 @@ graph TD
     Test -->|COMPILE ERROR| Write
     Done --> Lint[Lint & verify<br/>rebrew lint]
     Diff --> Flags{Unsure about flags?}
-    Sweep[rebrew match --flag-sweep<br/>or rebrew match (GA)] --> Write
+    Sweep[rebrew match &lt;file&gt; --flag-sweep-only<br/>or rebrew match (GA)] --> Write
     Flags -->|Yes| Sweep
     Flags -->|No| Diag[Near-diag blocker<br/>rebrew near-diag --fix-blocker]
     Diag --> LibMatch{Library code?}

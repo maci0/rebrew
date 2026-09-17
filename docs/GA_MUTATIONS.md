@@ -5,8 +5,11 @@ explore the MSVC6 code generation space.  Each mutation transforms syntactically
 C89 source into a semantically plausible variant, compiles it with MSVC6 (inside the toolchain's docker image),
 and scores the resulting binary against the target function's bytes.
 
-All mutations live in [`mutator.py`](../src/rebrew/matcher/mutator.py) and are driven
-by [tree-sitter](https://tree-sitter.github.io/) AST queries — never regex.
+Operators live in [`mutations/`](../src/rebrew/matcher/mutations/) (`basic`,
+`structural`, `advanced`, `enhancements`, `pragmas`) and are assembled into
+`ALL_MUTATIONS` by [`mutator.py`](../src/rebrew/matcher/mutator.py); they are
+driven by [tree-sitter](https://tree-sitter.github.io/) AST queries, with
+regex fallback for complex multi-statement patterns.
 
 ---
 
@@ -379,7 +382,7 @@ See contributor guidelines in [`AGENTS.md`](../AGENTS.md#adding-a-new-ga-mutatio
 > they double/triple-weighted identical transforms in the GA.  Use the survivor
 > in each family.
 
-### 19. Constant Tuning
+### 21. Constant Tuning
 
 Adjust numeric literals (field offsets, sizes, magic numbers) by small
 deltas.
@@ -420,7 +423,7 @@ live buffer and needs to unwind them.
 
 ---
 
-### 20. Pragma levers (`#pragma optimize` / `intrinsic` / `check_stack` / `auto_inline`)
+### 22. Pragma levers (`#pragma optimize` / `intrinsic` / `check_stack` / `auto_inline`)
 
 Source-level pragmas that change a single function's codegen — switches
 that compiler flags cannot reach, and a distinct search dimension for the
@@ -467,7 +470,7 @@ and wastes nothing on posix ones.
 
 ---
 
-### 21. C-shape levers from a real 2002 build
+### 23. C-shape levers from a real 2002 build
 
 Five operators taken from measured findings in the *Europa 1400: The Guild*
 `server.dll` reconstruction (a `/O2 /MT /Gd` MSVC6 build), where each shape

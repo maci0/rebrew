@@ -20,6 +20,10 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew verify` | Bulk compile + report match status; always auto-updates metadata; `--compare` for CI regression checks; `--watch` re-verifies on every change |
 | `rebrew prove` | Symbolic equivalence via angr + Z3 — mathematically prove NEAR_MATCHING functions are equivalent |
 | `rebrew near-diag` | Classify *why* a NEAR_MATCHING function misses: register allocation, equivalent instruction selection, relocation masking, or structural layout |
+| `rebrew probe` | Measure one function against the reference without writing metadata |
+| `rebrew qual-sweep` | Sweep declaration qualifiers over one function, keeping winners |
+| `rebrew gap-trace` | Trace length-gap drift between object and reference instruction streams |
+| `rebrew residue` | Section diffs plus per-function attribution of remaining `.text` bytes |
 
 ### Authoring
 
@@ -29,7 +33,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew rename` | Rename a function across the entire codebase (symbol, filename, cross-references) |
 | `rebrew split` | Break multi-function `.c` files into individual files; `--va` to extract one function |
 | `rebrew merge` | Combine single-function files into one multi-function file |
-| `rebrew lint` | Validate source marker correctness (E000–E023 errors, W003–W029 warnings, incl. W019 inline-metadata and W020 asm-dump warnings) |
+| `rebrew lint` | Validate source marker correctness (10 E-codes, 19 W-codes incl. W019 inline-metadata and W020 asm-dump warnings; see ANNOTATIONS.md for the emitted set) |
 
 ### Analysis
 
@@ -139,7 +143,7 @@ All CLI tools must be run **from within a project directory** that contains a `r
 cd /path/to/your-decomp-project    # must contain rebrew-project.toml
 
 # Project Setup
-rebrew init --target mygame --binary mygame.exe --compiler msvc-6.0 # initialize project
+rebrew init --target mygame --binary mygame.exe --toolchain msvc-6.0 # initialize project
 rebrew cfg list-targets              # list configured targets
 rebrew cfg set-cflags ZLIB "/O3"        # set cflags for origin
 rebrew cfg set compiler.cflags "/O1" # set a config value
@@ -158,7 +162,7 @@ rebrew todo -c fix-delta --json     # tiny byte diffs (quick wins, sorted by ROI
 rebrew todo -c extract-error        # symbols missing from .obj (marker/impl issue)
 rebrew flirt --json                 # FLIRT scan: identify known library functions
 rebrew crt-match 0x10006c00         # match a single VA against CRT source
-rebrew crt-match --all --origin MSVCRT # match all MSVCRT functions
+rebrew crt-match --all                     # match all library functions
 rebrew crt-match --fix-source --all  # auto-write // SOURCE: markers
 rebrew crt-match --index            # show CRT source index
 rebrew graph --cu-map               # infer compilation unit boundaries
@@ -176,8 +180,8 @@ rebrew binsync-export ./binsync_out # export source markers and metadata to BinS
 rebrew binsync-import ./binsync_out --dry-run # import names + prototypes + globals from a BinSync state (dry-run)
 
 # Matching
-rebrew match --diff-only src/target_name/f.c       # side-by-side disassembly diff
-rebrew match --diff-only --mm src/target_name/f.c  # show only structural diffs (**)
+rebrew diff src/target_name/f.c                     # side-by-side disassembly diff
+rebrew diff --mismatches-only src/target_name/f.c  # show only structural diffs (**)
 rebrew match src/target_name/f.c    # run the Genetic Algorithm Engine to resolve diffs
 rebrew match --all                          # batch GA on all STUB functions
 rebrew match --all --improve                # batch GA on all NEAR_MATCHING functions
@@ -203,14 +207,13 @@ rebrew asm                          # quick offline disassembly
 rebrew cache stats                  # show compile cache hit rate and size
 rebrew doctor                       # validate config, toolchain image, and binary
 
-# Ghidra Sync via ReVa MCP
-rebrew sync --push                  # export source markers and metadata and push to Ghidra
-rebrew sync --pull                  # fetch Ghidra renames into local files
-rebrew sync --pull --accept-ghidra  # fetch renames and automatically update cross-references
-rebrew sync --pull-signatures       # fetch Ghidra decompilation to update extern prototypes
-rebrew sync --pull-structs          # export Ghidra structs into types.h
-rebrew sync --pull-comments         # fetch Ghidra EOL/post analysis comments into source
-rebrew sync --pull-data             # fetch Ghidra data labels into rebrew_globals.h
+# Ghidra Sync via BinSync state dir + ReVa MCP
+rebrew sync --push                  # export source markers and metadata to the state dir
+rebrew sync --pull                  # import the state dir into rebrew
+rebrew sync --pull --accept-binsync # accept BinSync names on pull conflicts
+rebrew sync --pull-data             # pull Ghidra data labels into rebrew_globals.h (MCP)
+rebrew sync --create-functions      # create functions in Ghidra (MCP)
+rebrew sync --bookmarks             # set status bookmarks in Ghidra (MCP)
 rebrew sync --pull --dry-run        # preview pull without modifying files
 ```
 

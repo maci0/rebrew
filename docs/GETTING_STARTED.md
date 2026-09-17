@@ -142,7 +142,7 @@ body. Now write the obvious implementation — the disassembly is a click
 away:
 
 ```bash
-rebrew asm --va 0x00401000          # disassembly of the target
+rebrew asm 0x00401000                # disassembly of the target
 ```
 
 Then compile-and-compare:
@@ -170,7 +170,7 @@ You will get one of three answers:
 When the gap is a flag, not your code:
 
 ```bash
-rebrew match --flag-sweep src/<target>/fcn_00401000.c   # try compiler flags
+rebrew match src/<target>/fcn_00401000.c --flag-sweep-only   # try compiler flags
 ```
 
 And when you are stuck on the last few bytes:
@@ -198,7 +198,7 @@ rebrew todo → rebrew skeleton → edit C → rebrew test → rebrew diff → �
 
 - `todo` picks the function. `skeleton` scaffolds it. You write C.
 - `test` grades it in seconds. `diff`/`near-diag` explain the gap.
-- `match`/`match --flag-sweep` close gaps you can't see.
+- `match`/`match --flag-sweep-only` close gaps you can't see.
 - `verify` banks progress across the whole project.
 - `status` shows the ladder filling up: `STUB → NEAR_MATCHING → EXACT`.
 
@@ -220,8 +220,11 @@ rebrew todo → rebrew skeleton → edit C → rebrew test → rebrew diff → �
 | Symptom | Likely cause | Command |
 |---------|--------------|---------|
 | Everything is `COMPILE_ERROR` | wrong toolchain image / profile | `rebrew doctor`, check Toolchain rows |
-| Right logic, ~90%, won't close | wrong flags | `rebrew match --flag-sweep` |
+| Right logic, ~90%, won't close | wrong flags | `rebrew match <file> --flag-sweep-only` |
 | Right logic, small delta, won't close | compiler idiom (register pick, equivalent encoding) | `rebrew near-diag`, then `rebrew match` (GA) |
+| Right logic, qualifier-shaped delta | declaration qualifiers perturb allocation | `rebrew qual-sweep` |
+| Right logic, statement-order delta | adjacent statements swapped | `rebrew climb` |
+| Gap grows along the function | length drift (short COMDAT, early table) | `rebrew gap-trace` |
 | Function looks like gibberish | it's library code | `rebrew flirt`, `rebrew crt-match --all` |
 | `verify` disagrees with your edit | stale STATUS claim | let `verify` rewrite it; read the `metadata:` warning |
 | BSS/layout bytes differ, code matches | data placement, not code | `rebrew data`, `rebrew verify-placement` |

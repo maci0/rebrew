@@ -136,8 +136,11 @@ declares itself with a single comment line before any code:
 
 `// SUPPORT:` blesses the file against E001; the reason (what breaks without
 this file) is mandatory — a reason-less declaration errors the same way a
-missing marker does.  No annotation checks apply (there are no headers), but
-body rules still run: a support file with no code earns W003.  Prefer folding
+missing marker does.  The blessing is lint-level only: the annotation parser
+(`annotation.py`, `VALID_MARKERS`) does not handle SUPPORT, so no `Annotation`
+is yielded for support files — they are invisible to verify/match/test.
+No annotation checks apply (there are no headers), but body rules still run:
+a support file with no code earns W003.  Prefer folding
 support content into a VA-anchored file when one exists; keep a standalone
 support TU only when nothing in the reversed tree can carry it.
 
@@ -147,7 +150,7 @@ support TU only when nothing in the reversed tree can carry it.
 
 | Key | Required? | Linter | Description |
 |-----|:---------:|--------|-------------|
-| Marker line | **Mandatory** | E001 | `// FUNCTION:`, `// LIBRARY:`, or `// STUB:` with MODULE and VA — or `// SUPPORT:` (see below) for link-only files |
+| Marker line | **Mandatory** | E001 | `// FUNCTION:`, `// LIBRARY:`, `// STUB:`, `// GLOBAL:`, or `// DATA:` with MODULE and VA — or `// SUPPORT:` (see below) for link-only files. Note: `SUPPORT` is lint-only (blesses against E001); the annotation parser does not yield an `Annotation` for support files |
 | `STATUS` | Metadata-owned | — | Match quality (see below); lives in rebrew-functions.toml, never parsed inline |
 | `SIZE` | Co-read (inline + override) | — | Function size in bytes from the original binary; `// SIZE:` is the reccmp contract in the `.c`, TOML `SIZE` is an override (W019 warns only on disagreement) |
 | `CFLAGS` | Co-read (inline + override) | W018 | Per-function compiler flag override, read both inline and from metadata. Falls back to the target's `base_cflags` in `rebrew-project.toml`. Only needed for functions compiled with non-default flags (e.g. a static lib linked with `/O1` into an `/O2` binary). |
@@ -413,8 +416,8 @@ Errors indicate broken annotations that will cause `rebrew test`, `rebrew verify
 | Code | Description | Triggered by |
 |------|-------------|--------------|
 | E000 | Cannot read file | File permissions, encoding issues |
-| E001 | Missing or invalid marker | No `// FUNCTION:`, `// LIBRARY:`, or `// STUB:` line, or unknown marker type. `// SUPPORT: <MODULE> <reason>` blesses a link-only TU (no VA of its own); a reason-less `// SUPPORT:` errors the same way |
-| E002 | Invalid or suspicious VA | VA outside 32-bit range, non-hex string, or missing `0x` prefix |
+| E001 | Missing or invalid marker | No `// FUNCTION:`, `// LIBRARY:`, `// STUB:`, `// GLOBAL:`, or `// DATA:` line, or unknown marker type (only VTABLE/STRING-style names fail it). `// SUPPORT: <MODULE> <reason>` blesses a link-only TU at lint level (the parser itself ignores SUPPORT files); a reason-less `// SUPPORT:` errors the same way |
+| E002 | Invalid or suspicious VA | VA outside the valid range. Non-hex strings and missing `0x` prefixes never reach E002 — the marker regexes require `0x[hex]+`, so such lines yield E001 instead |
 
 #### Field Validation Errors
 
@@ -427,7 +430,7 @@ Errors indicate broken annotations that will cause `rebrew test`, `rebrew verify
 | E008 | Invalid SIZE value | A metadata `size` that is not an integer (`size = "abc"`). SIZE is metadata-only, so a non-numeric spelling would make consumers slice the wrong byte count |
 | E014 | *(not implemented)* | Reserved for corrupted annotation value detection |
 | E015 | Marker/module mismatch | `// FUNCTION:` with a library-configured module (expected `LIBRARY`). Library modules defined by `library_modules` config |
-| E017 | Contradictory status/marker | `STATUS: NEAR_MATCHING` on a `// STUB:` marker |
+| E017 | Contradictory status/marker | `// STUB:` marker carrying any matched STATUS (`EXACT`, `RELOC`, `NEAR_MATCHING`, …) — a stub by definition has no matching bytes |
 
 #### Config-Aware Errors (require `rebrew-project.toml`)
 
@@ -610,13 +613,16 @@ and grouped files (e.g., `command.c` with multiple functions) are common.
 
 ## Old Format (Legacy)
 
+Legacy single-line, block-comment, and javadoc annotation formats are
+documented here for readers of old sources. They are **not** auto-migrated:
+`rebrew lint --fix` migrates leftover *inline metadata keys* (W019) to TOML,
+not comment formats — converting legacy headers is manual.
+
 The old format is a single-line comment:
 
 ```c
 /* func_name @ 0x10008880 (31B) - /O2 /Gd - EXACT [GAME] */
 ```
-
-Run `rebrew lint --fix` to auto-migrate to the new multi-line format.
 
 ### Block-Comment Format (Legacy)
 
@@ -638,8 +644,6 @@ Run `rebrew lint --fix` to auto-migrate to the new multi-line format.
  * @status RELOC
  */
 ```
-
-All legacy formats are auto-migrated by `rebrew lint --fix`.
 
 ---
 

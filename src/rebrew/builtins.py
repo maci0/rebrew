@@ -544,6 +544,13 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
         is_group=False,
     ),
     CliComponent(
+        name="residue",
+        module="rebrew.residue",
+        help="Section diffs plus per-function attribution of remaining .text bytes.",
+        panel=Panel.ANALYSIS,
+        is_group=False,
+    ),
+    CliComponent(
         name="near-diag",
         module="rebrew.near_diag",
         help="Classify why a NEAR_MATCHING function does not byte-match.",

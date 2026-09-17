@@ -131,15 +131,15 @@ The lint tool (`rebrew lint`) validates that each marker's module matches the co
 |---------|-------------|------------|---------------|
 | `msvc-6.0` | 13 axes from decomp.me (excludes 7.x-only `/fp:*`, `/GS-`) | COFF | `_func` |
 | `msvc-7.0` | 15 axes from decomp.me (full set, incl. `/fp:*`, `/GS-`) | COFF | `_func` |
-| `gcc-14.2.0` | none — the flag sweep is MSVC-only; native compiles use the profile's `cflags` | ELF | `func` |
-| `clang-18.1.8` | none — same as GCC | ELF/Mach-O | `func` |
+| `gcc-14.2.0` | posix axes (`GCC_FLAGS` + `GCC_SWEEP_TIERS`) | ELF | `func` |
+| `clang-18.1.8` | posix axes (same GCC set) | ELF/Mach-O | `func` |
 
 Other profiles carry their own axis sets (`msvc-1.52` 16-bit, `watcom-2.0-win32`/`watcom-2.0-win16`,
 `borland-3.1`/`borland-2.0`/`borland-5.5`); the remaining MSVC variants fall back to the
 `msvc-6.0` axis set.
 
 Flag axes are synced from [decomp.me](https://github.com/decompme/decomp.me) via `tools/sync_decomp_flags.py`.
-Sweep tiers: `quick` (~192), `targeted` (~1.1K), `normal` (~5.4K), `thorough` (~258K), `full` (~6.2M).
+Sweep tiers: `quick` (~192), `targeted` (~1.2K), `normal` (~5.4K), `thorough` (~258K), `full` (~6.2M).
 
 ## Compiler Configuration
 
@@ -309,7 +309,7 @@ by the CLI layer and win for that invocation.
 
 ### Other
 
-- `_REBREW_COMPLETE` — shell-completion mode marker (used by `rebrew` completion).
+- `_REBREW_COMPLETE` — shell-completion mode marker (probed during `rebrew init` shell-completion scaffolding; there is no `rebrew completion` command).
 - `GH_TOKEN` / `GITHUB_TOKEN` — optional GitHub auth for `rebrew toolchain`
   downloads that need a token (not a rebrew-prefixed name; standard gh env).
 
@@ -355,8 +355,8 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 
 | Tool | Config Values Used |
 |------|--------------------|
-| `verify.py` | `image_base`, `text_va`, `text_raw_offset`, `target_binary`, `reversed_dir`, `db_dir` |
-| `test.py` | `target_binary`, `text_va`, `text_raw_offset`, compiler paths |
+| `verify.py` | `image_base`, `text_va`, `target_binary`, `reversed_dir`, `db_dir` (`text_raw_offset` lives on `binary_loader.BinaryInfo`, not the config) |
+| `test.py` | `target_binary`, `text_va`, compiler paths |
 | `match.py` | `reversed_dir`, `target_binary`, `compiler.includes`, `compiler.command` |
 | `ghidra/cli.py` | `reversed_dir` |
 | `todo.py` | `reversed_dir`, `target_binary` |
