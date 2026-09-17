@@ -4,6 +4,7 @@
 
 | Document | Description |
 |----------|-------------|
+| [GETTING_STARTED.md](GETTING_STARTED.md) | Start here (humans): the mental model, the 15-minute walkthrough, the core loop |
 | [ONBOARDING.md](ONBOARDING.md) | First-run walkthrough: binary → intake → doctor → first match (incl. manual discovery) |
 | [WORKFLOW.md](WORKFLOW.md) | Full iteration loop — test, diff, match, prove, verify; multi-binary; JSON / CI |
 | [CODEGEN_PATTERNS.md](CODEGEN_PATTERNS.md) | MSVC6 codegen patterns table, SEH helpers, C89 rules, matching idioms |

@@ -1,4 +1,18 @@
-## [Unreleased]
+## [2.5.0] - 2026-09-17
+### Added
+- **`rebrew probe`** — measure one function against the reference without
+  writing metadata (read-only trial runs).
+- **`rebrew qual-sweep`** — sweep declaration qualifiers over one function,
+  keeping the winners.
+- **`rebrew gap-trace`** — trace length-gap drift between object and
+  reference instruction streams.
+- **`rebrew residue`** — section diffs plus per-function attribution of the
+  remaining `.text` bytes `verify` reports as not byte-matched, with
+  `--new-baseline` / `--baseline` delta tracking.
+- **`docs/GETTING_STARTED.md`** — human-first getting-started guide (mental
+  model, verified 7-step walkthrough, core loop, status decoder,
+  stuck-table), indexed from `docs/README.md`.
+
 ### Fixed
 - **Sectionless ELFs are analysable again** — ``sstrip``'d binaries (every
   OpenWrt package, and most stripped firmware) carry no section headers at

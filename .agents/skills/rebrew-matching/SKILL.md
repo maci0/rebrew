@@ -41,6 +41,7 @@ rebrew diff src/bench/<file>.c -r --json      # register-aware (mark RR encoding
 rebrew diff src/bench/<file>.c --format csv   # CSV for spreadsheet analysis
 rebrew diff 0x10009310 --json                    # resolve a VA directly (no .c path needed)
 rebrew near-diag src/bench/<file>.c --json    # classify WHY it doesn't match (first-mismatch diagnosis)
+rebrew gap-trace src/bench/<file>.c --json    # length-gap trace (short body? early table?) when scores stall flat
 rebrew objdiff --output objdiff.json                # GUI diffing project (objdiff) from target objects
 ```
 
@@ -179,7 +180,9 @@ Use this to quickly rule out flag-based solutions before spending time on sweeps
 `flag_sensitive: false` means flag sweeping won't help — go straight to the GA or
 `rebrew prove`. A high `mnemonic_match_ratio` with low `structural_ratio` means the
 code is semantically close and C-level tweaks (or `rebrew near-diag`) may finish
-the job.
+the job. When the kinds match but the registers don't (allocator wall, not
+order), run `rebrew qual-sweep` — the exhaustive per-declaration qualifier
+sweep, counterpart to `rebrew climb` for naming residue.
 
 ## 5. Blocker Tracking
 

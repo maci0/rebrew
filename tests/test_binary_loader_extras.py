@@ -29,7 +29,11 @@ def _mock_section(
 
 
 def _mock_elf_section(
-    name: str, va: int, size: int, offset: int, flags: int = 0x4  # SHF_EXECINSTR
+    name: str,
+    va: int,
+    size: int,
+    offset: int,
+    flags: int = 0x4,  # SHF_EXECINSTR
 ) -> SimpleNamespace:
     return SimpleNamespace(
         name=name,

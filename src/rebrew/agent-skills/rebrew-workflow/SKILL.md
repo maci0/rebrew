@@ -131,6 +131,7 @@ rebrew test --all --dir src/<target>/ --json    # restrict to subdir
 rebrew test --all -j 8 --json              # parallel compile (default from config)
 rebrew test --all --dry-run                # list candidates without compiling
 rebrew test src/<target>/<file>.c --dry-run  # compile but PREVIEW the STATUS change (no write)
+rebrew probe src/<target>/<file>.c --json    # read-only ruler: strict + generous + aligned, never writes
 ```
 
 On a multi-function file, `--va` selects the annotation AT that VA (its symbol

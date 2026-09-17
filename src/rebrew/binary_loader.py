@@ -233,7 +233,8 @@ def _load_pe(binary: lief.PE.Binary, path: Path) -> BinaryInfo:
 
 
 def _sections_from_exec_segments(
-    load_segments: Any, exec_mask: int = int(1)  # LIEF Segment.FLAGS.X
+    load_segments: Any,
+    exec_mask: int = 1,  # LIEF Segment.FLAGS.X
 ) -> list[SectionInfo]:
     """Code regions synthesised from executable ``PT_LOAD`` segments.
 
@@ -277,10 +278,10 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
     text_raw_offset = 0
 
     for section in binary.sections:
-        raw_name = section.name
+        raw_name: str | bytes = section.name
         if not raw_name:
             continue
-        name = _decode_lief_name(raw_name)
+        name: str = _decode_lief_name(raw_name)
         va = section.virtual_address
         vsize = section.size
         raw_offset = section.offset
@@ -308,13 +309,13 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
         # section as `.text` keeps every consumer working instead of teaching
         # each one about another section name.
         code_sections = [
-            section
-            for section in binary.sections
-            if section.name and int(section.flags) & int(lief.ELF.Section.FLAGS.EXECINSTR)
+            sec
+            for sec in binary.sections
+            if sec.name and int(sec.flags) & int(lief.ELF.Section.FLAGS.EXECINSTR)
         ]
         if code_sections:
-            best = max(code_sections, key=lambda section: section.size)
-            alias = sections.get(_decode_lief_name(best.name))
+            best_raw = max(code_sections, key=lambda sec: sec.size)
+            alias = sections.get(_decode_lief_name(best_raw.name))
             if alias is not None:
                 sections[".text"] = SectionInfo(
                     name=".text",
@@ -336,13 +337,13 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
         # information a loader uses to map the image.  Without this the FLIRT
         # scanner exits with "Could not find .text section" on the binaries
         # this library was built to identify.
-        for section in _sections_from_exec_segments(load_segments):
-            sections[section.name] = section
+        for synth in _sections_from_exec_segments(load_segments):
+            sections[synth.name] = synth
         if sections and ".text" not in sections:
             # Same alias the section path uses, for the consumers that still
             # ask for `.text` by name.  It is not flagged code, so the scanner
             # does not visit the region twice.
-            best = max(sections.values(), key=lambda section: section.raw_size)
+            best = max(sections.values(), key=lambda info: info.raw_size)
             sections[".text"] = SectionInfo(
                 name=".text",
                 va=best.va,

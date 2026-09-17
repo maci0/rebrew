@@ -523,6 +523,13 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
         is_group=False,
     ),
     CliComponent(
+        name="qual-sweep",
+        module="rebrew.qual_sweep",
+        help="Sweep declaration qualifiers over one function, keeping winners.",
+        panel=Panel.DEVELOPMENT,
+        is_group=False,
+    ),
+    CliComponent(
         name="cross-import",
         module="rebrew.cross_import",
         help="Import matched functions from another target (same code, different VAs).",
@@ -530,9 +537,23 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
         is_group=False,
     ),
     CliComponent(
+        name="probe",
+        module="rebrew.probe",
+        help="Measure one function against the reference without writing metadata.",
+        panel=Panel.DEVELOPMENT,
+        is_group=False,
+    ),
+    CliComponent(
         name="near-diag",
         module="rebrew.near_diag",
         help="Classify why a NEAR_MATCHING function does not byte-match.",
+        panel=Panel.ANALYSIS,
+        is_group=False,
+    ),
+    CliComponent(
+        name="gap-trace",
+        module="rebrew.gap_trace",
+        help="Trace length-gap drift between object and reference instruction streams.",
         panel=Panel.ANALYSIS,
         is_group=False,
     ),

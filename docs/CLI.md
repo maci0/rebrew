@@ -90,6 +90,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew similar` | `similar.py` | Find structurally similar functions in the target binary (clone detection) |
 | `rebrew binary-similarity` | `binary_similarity.py` | Whole-binary structural similarity vs another binary — per-function best matches aggregated into a byte-weighted score (versions/DLL+EXE) |
 | `rebrew near-diag` | `near_diag.py` | Classify why a `NEAR_MATCHING` function does not byte-match — categories: register / equivalent / reloc / structural, plus the `EFFECTIVE` verdict when the entire delta is register allocation (reccmp's 100% effective-match case); JSON carries a `frame` stack-comparison field; `--fix-blocker` auto-writes BLOCKER |
+| `rebrew gap-trace` | `gap_trace.py` | Trace length-gap drift between object and reference instruction streams — running our-minus-reference offset per equal block, exposing LENGTH hypotheses (short COMDAT, early jump table) that flat scores hide; window defaults to the real body (next VA); `--json` |
 | `rebrew diagnose` | `diagnose.py` | Explain why a function compiles with its toolchain+flags: prints the resolution chain (per-function metadata → nearest `rebrew-libraries.toml` → project defaults) and validates the declarations (unknown toolchains, preset contradictions, function-vs-library family drift); `--json` |
 | `rebrew stack-cmp` | `stack_cmp.py` | Compare a compiled function's stack frame against the target (reccmp `stackcmp` without a PDB): frame size, ebp-vs-esp (/Oy), `ret N` popping, `[ebp±N]` slot layout — flag-focused hints for per-function CFLAGS tuning |
 | `rebrew verify-exports` | `exports.py` | Verify the recompiled binary's export table matches the original target (reccmp `verexp` equivalent; compares export names, exits 1 on missing/added) |
@@ -260,6 +261,43 @@ tree clean; `--dry-run` reports the moves without writing at all.
 | `--passes N` | Number of adjacent-swap sweeps (default 1) |
 | `--dry-run` | Preview changes without writing |
 | `--json` | Output results as JSON |
+
+### `rebrew qual-sweep`
+
+`rebrew qual-sweep <source> [--va HEX] [--symbol NAME] [--rounds N] [--jobs N] [--dry-run] [--json] [--target NAME]`
+
+Sweep one declaration qualifier at a time over every declaration in the
+annotated function and keep winners. The counterpart to `rebrew climb` for
+residue that is register *naming* rather than order: where the target keeps
+a counter in `ebx` and we keep it in `edi` with identical instruction
+kinds, changing a local's qualifying type perturbs the allocator without
+changing what the code does. Candidates compile from copies under
+`.rebrew/qualsweep/`; the real file is written only per winning round.
+A candidate must meet or beat the target size (the composition trims an
+overrun but cannot pad a gap).
+
+| Option | Description |
+| --- | --- |
+| `--va HEX` | Select the annotated function by VA (multi-function files) |
+| `--symbol NAME` | Override the COFF symbol |
+| `--rounds N` | Sweep rounds, stopping early on convergence (default 4) |
+| `--jobs N` | Parallel compile workers (default 4) |
+| `--dry-run` | List candidates without compiling |
+| `--json` | Output results as JSON |
+
+### `rebrew probe`
+
+`rebrew probe <source> [--va HEX] [--size N] [--cflags FLAGS] [--json] [--target NAME]`
+
+Compile the source and report the match against the reference bytes —
+`matched` (strict, both-sides reloc rule), `matched-reloc` (generous,
+either-side — the historical number quoted in old headers), `aligned`
+instruction count (the gradient to climb on large functions where
+fixed-offset saturates), and COMDAT span vs trimmed code length. Unlike
+`rebrew test` this never writes STATUS metadata: the no-side-effect ruler
+for edit → measure loops. Compare with `rebrew test --no-promote` only
+when a metadata write must be anatomically impossible rather than merely
+skipped.
 
 ### `rebrew diff`
 
@@ -1714,6 +1752,21 @@ aborting the batch).
 | `--fix-blocker` | Write each verdict as `BLOCKER` metadata (skipped on a match) |
 | `--json` | JSON structured output (per-function results with `--all`) |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
+
+### `rebrew gap-trace`
+
+`rebrew gap-trace <source> [--va HEX] [--size N] [--cflags FLAGS] [--json] [--target NAME]`
+
+Align the compiled object's instruction stream with the reference's and
+print the running gap (our offset minus the reference's) at each equal
+block. A flat gap of 0 is aligned code; a step marks where length is lost
+or gained — the LENGTH hypothesis neither `rebrew test` nor `rebrew
+near-diag` can see (e.g. a short COMDAT body pulling an out-of-line jump
+table early, moving every relocated entry while the score stays flat).
+The window defaults to the reference real body (next function VA), not the
+metadata size, so table bytes are not decoded as phantom instructions.
+Counts include trailing alignment fill — compare code-end offsets, not
+instruction counts.
 
 ### `rebrew diagnose`
 
