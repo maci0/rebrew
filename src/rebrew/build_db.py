@@ -31,6 +31,7 @@ from rebrew.workspace import (
     SECTION_CELLS_TABLE,
     db_dir,
     encode_section_cells,
+    sqlite_ro_uri,
 )
 
 console = Console(stderr=True)
@@ -313,18 +314,24 @@ def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool =
     if not db_path.exists():
         return
     try:
-        with contextlib.closing(sqlite3.connect(db_path, timeout=_SQLITE_TIMEOUT_SECONDS)) as conn:
+        with contextlib.closing(
+            sqlite3.connect(sqlite_ro_uri(db_path), uri=True, timeout=_SQLITE_TIMEOUT_SECONDS)
+        ) as conn:
             c = conn.cursor()
-            # Prefer the schema-level stamp; fall back to any per-target stamp
-            # for DBs written before the __schema__ row existed.
-            c.execute(
-                "SELECT value FROM metadata WHERE target = ? AND key = 'db_version' LIMIT 1",
-                (SCHEMA_TARGET,),
-            )
-            row = c.fetchone()
-            if row is None:
-                c.execute("SELECT value FROM metadata WHERE key = 'db_version' LIMIT 1")
+            objects = c.execute(
+                "SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
+            ).fetchall()
+            empty_schema = not objects
+            row = None
+            if ("metadata",) in objects:
+                c.execute(
+                    "SELECT value FROM metadata WHERE target = ? AND key = 'db_version' LIMIT 1",
+                    (SCHEMA_TARGET,),
+                )
                 row = c.fetchone()
+                if row is None:
+                    c.execute("SELECT value FROM metadata WHERE key = 'db_version' LIMIT 1")
+                    row = c.fetchone()
         if row is None:
             stored_version = "<unknown>"
         else:
@@ -342,17 +349,14 @@ def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool =
                 json_mode=json_output,
                 code=EXIT_ERROR,
             )
-        # OperationalError covers the missing-metadata case; a garbage file
-        # raises DatabaseError ("file is not a database") — both mean the DB
-        # is unusable and the delete-and-rebuild path below applies.
-        # Metadata table missing — either a never-written file (a failed
-        # build rolls back its DDL and leaves an empty DB behind) or debris.
-        stored_version = "<missing>"
+        error_exit(
+            f"Cannot inspect database at '{db_path}': {exc}. "
+            "The existing database has been preserved.",
+            json_mode=json_output,
+            code=EXIT_ERROR,
+        )
 
-    if stored_version == "<missing>":
-        # No schema at all: the file is not a real database (a failed build
-        # can leave an empty 4KB file whose DDL was rolled back).  Rebuild
-        # it instead of wedging every subsequent run behind --force.
+    if empty_schema:
         console.print(
             "[yellow]warning:[/yellow] existing database has no schema (likely a "
             "failed build); deleting and rebuilding."
@@ -365,7 +369,15 @@ def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool =
         # be missing required objects (history table, section_cell_stats)
         # and pass the gate, then 500 at query time.  Verify the objects the
         # version promises exist.
-        missing = _missing_required_objects(db_path)
+        try:
+            missing = _missing_required_objects(db_path)
+        except sqlite3.Error as exc:
+            error_exit(
+                f"Cannot inspect database at '{db_path}': {exc}. "
+                "The existing database has been preserved.",
+                json_mode=json_output,
+                code=EXIT_ERROR,
+            )
         if missing:
             stored_version = f"{stored_version!r} (missing: {', '.join(sorted(missing))})"
 
@@ -484,30 +496,24 @@ def _missing_required_objects(db_path: Path) -> set[str]:
         },
         SECTION_CELLS_TABLE: {"target", "section_name", SECTION_CELLS_COLUMN},
     }
-    try:
-        with contextlib.closing(sqlite3.connect(db_path, timeout=_SQLITE_TIMEOUT_SECONDS)) as conn:
-            c = conn.cursor()
-            c.execute(
-                "SELECT type, name FROM sqlite_master"
-                " WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'"
-            )
-            present = {row[1] for row in c.fetchall()}
-            missing = required - present
-            if missing:
-                return missing
-            # Object names present — verify the query-critical columns.
-            for obj, cols in required_columns.items():
-                try:
-                    c.execute(f"PRAGMA table_info({obj})")
-                    actual = {row[1] for row in c.fetchall()}
-                except sqlite3.Error:
-                    missing.add(obj)
-                    continue
-                for col in cols - actual:
-                    missing.add(f"{obj}.{col}")
+    with contextlib.closing(
+        sqlite3.connect(sqlite_ro_uri(db_path), uri=True, timeout=_SQLITE_TIMEOUT_SECONDS)
+    ) as conn:
+        c = conn.cursor()
+        c.execute(
+            "SELECT type, name FROM sqlite_master"
+            " WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'"
+        )
+        present = {row[1] for row in c.fetchall()}
+        missing = required - present
+        if missing:
             return missing
-    except sqlite3.Error:
-        return set(required)
+        for obj, cols in required_columns.items():
+            c.execute(f"PRAGMA table_info({obj})")
+            actual = {row[1] for row in c.fetchall()}
+            for col in cols - actual:
+                missing.add(f"{obj}.{col}")
+        return missing
 
 
 def build_db(

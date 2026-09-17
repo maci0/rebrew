@@ -1,5 +1,6 @@
 """Tests for build_db.py pure helpers."""
 
+import contextlib
 import json
 import logging
 import sqlite3
@@ -198,6 +199,77 @@ class TestCheckDbVersion:
         db = self._db(tmp_path, None)  # no metadata table
         _check_db_version(db)  # warns and unlinks instead of raising
         assert not db.exists()
+
+    @pytest.mark.parametrize("force", [False, True])
+    def test_missing_metadata_requires_force_to_delete(self, tmp_path: Path, force: bool) -> None:
+        from rebrew.build_db import _check_db_version
+
+        db = self._db(tmp_path, None)
+        with contextlib.closing(sqlite3.connect(db)) as conn, conn:
+            conn.execute("CREATE TABLE history (id INTEGER PRIMARY KEY, new_status TEXT)")
+            conn.execute("INSERT INTO history VALUES (1, 'EXACT')")
+
+        if force:
+            _check_db_version(db, force=True)
+            assert not db.exists()
+        else:
+            with pytest.raises(typer.Exit):
+                _check_db_version(db)
+            assert db.exists()
+            with contextlib.closing(sqlite3.connect(db)) as conn:
+                assert conn.execute("SELECT new_status FROM history").fetchall() == [("EXACT",)]
+
+    @pytest.mark.parametrize("force", [False, True])
+    @pytest.mark.parametrize("failed_connection", [1, 2])
+    def test_read_error_never_deletes_database(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        force: bool,
+        failed_connection: int,
+    ) -> None:
+        from rebrew.build_db import _CURRENT_DB_VERSION, _check_db_version
+
+        db = self._db(tmp_path, _CURRENT_DB_VERSION)
+        original = db.read_bytes()
+        connect = sqlite3.connect
+        connections = 0
+
+        def fail_connect(*args: object, **kwargs: object) -> sqlite3.Connection:
+            nonlocal connections
+            connections += 1
+            if connections == failed_connection:
+                raise sqlite3.OperationalError("disk I/O error")
+            return connect(*args, **kwargs)
+
+        monkeypatch.setattr(sqlite3, "connect", fail_connect)
+        with pytest.raises(typer.Exit):
+            _check_db_version(db, force=force)
+        assert db.read_bytes() == original
+
+    @pytest.mark.parametrize("force", [False, True])
+    def test_corrupt_database_is_preserved(self, tmp_path: Path, force: bool) -> None:
+        from rebrew.build_db import _check_db_version
+
+        db = tmp_path / "coverage.db"
+        original = b"not a SQLite database"
+        db.write_bytes(original)
+        with pytest.raises(typer.Exit):
+            _check_db_version(db, force=force)
+        assert db.read_bytes() == original
+
+    @pytest.mark.parametrize("force", [False, True])
+    def test_column_inspection_error_is_preserved(self, tmp_path: Path, force: bool) -> None:
+        from rebrew.build_db import _CURRENT_DB_VERSION, _check_db_version
+
+        db = self._db(tmp_path, _CURRENT_DB_VERSION)
+        with contextlib.closing(sqlite3.connect(db)) as conn, conn:
+            conn.execute("DROP VIEW section_cell_stats")
+            conn.execute("CREATE VIEW section_cell_stats AS SELECT * FROM missing_table")
+        original = db.read_bytes()
+        with pytest.raises(typer.Exit):
+            _check_db_version(db, force=force)
+        assert db.read_bytes() == original
 
     def test_matching_version_passes(self, tmp_path: Path) -> None:
         from rebrew.build_db import _CURRENT_DB_VERSION, _check_db_version
