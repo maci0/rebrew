@@ -7,11 +7,16 @@ the parser is exercised without depending on any real 16-bit binary.
 from __future__ import annotations
 
 import struct
+import tempfile
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from rebrew.ne_loader import (
+    NeParseError,
     parse_exports,
     parse_imports,
     parse_ne_header,
@@ -310,3 +315,62 @@ class TestSegmentSectorZero:
         seg_info = info.sections["SEG1"]
         assert seg_info.raw_size == 0
         assert extract_bytes(info, seg_info.va, 0x10) == b""
+
+
+# ---------------------------------------------------------------------------
+# Hypothesis fuzz — NE table parsers on untrusted MZ/NE bytes
+# ---------------------------------------------------------------------------
+
+
+@settings(max_examples=200, deadline=None)
+@given(st.binary(min_size=0, max_size=512), st.integers(min_value=0, max_value=400))
+def test_parse_ne_tables_random_bytes_no_crash(blob: bytes, ne_off: int) -> None:
+    """Random bytes with an ``NE`` magic poke must load or raise
+    ``NeParseError``/``ValueError`` — never IndexError/struct.error."""
+    from rebrew.ne_loader import load_ne_binary
+
+    data = bytearray(blob)
+    if len(data) < 0x40:
+        data.extend(b"\x00" * (0x40 - len(data)))
+    off = ne_off % max(len(data) - 1, 1)
+    if off + 0x40 > len(data):
+        data.extend(b"\x00" * (off + 0x40 - len(data)))
+    data[0:2] = b"MZ"
+    data[0x3C:0x40] = off.to_bytes(4, "little")
+    data[off : off + 2] = b"NE"
+
+    with tempfile.NamedTemporaryFile(suffix=".ne", delete=False) as fh:
+        fh.write(bytes(data))
+        tmp = Path(fh.name)
+    try:
+        with suppress(NeParseError, ValueError):
+            info = load_ne_binary(tmp)
+            assert info.format == "ne"
+            assert isinstance(info.sections, dict)
+            for sec in info.sections.values():
+                assert sec.raw_size >= 0
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+@settings(max_examples=100, deadline=None)
+@given(st.binary(min_size=1, max_size=48))
+def test_ne_fixture_mutation_no_crash(noise: bytes) -> None:
+    """Mutations of a well-formed synthetic NE must load or raise cleanly."""
+    from rebrew.binary_loader import load_binary
+
+    base = bytearray(_build_ne(segments=[(_CODE, 0x01), (_DATA, 0x00)]))
+    for i, b in enumerate(noise):
+        base[(b + i * 13) % len(base)] ^= b or 1
+
+    with tempfile.NamedTemporaryFile(suffix=".ne", delete=False) as fh:
+        fh.write(bytes(base))
+        tmp = Path(fh.name)
+    try:
+        with suppress(NeParseError, ValueError):
+            info = load_binary(tmp)
+            assert info.format in ("ne", "mz")
+            for sec in info.sections.values():
+                assert sec.raw_size >= 0
+    finally:
+        tmp.unlink(missing_ok=True)

@@ -9,11 +9,15 @@ test validates against the packer's own output, not a hand-built sample.
 from __future__ import annotations
 
 import struct
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from rebrew.lzexe import (
+    LzexeResult,
     NotLzexeError,
     _decompress,
     lzexe_version,
@@ -172,3 +176,55 @@ class TestReloc90:
         data = b"\x05\x00\x10\x00"  # 5 offsets but only 1 present
         with pytest.raises(NotLzexeError):
             _reloc_table90(data, 0)
+
+
+# ---------------------------------------------------------------------------
+# Hypothesis fuzz — LZEXE bitstream + packed-file mutation (untrusted input)
+# ---------------------------------------------------------------------------
+
+
+@settings(max_examples=200, deadline=None)
+@given(st.binary(min_size=0, max_size=256), st.integers(min_value=0, max_value=200))
+def test_decompress_random_stream_no_crash(stream: bytes, stream_off: int) -> None:
+    """Arbitrary bitstreams into ``_decompress`` must raise ``NotLzexeError``
+    or return bytes within the budget — never IndexError/struct.error."""
+    with suppress(NotLzexeError):
+        out = _decompress(stream, stream_off % (len(stream) + 1), max_out=4096)
+        assert isinstance(out, (bytes, bytearray))
+        assert len(out) <= 4096
+
+
+@settings(max_examples=150, deadline=None)
+@given(st.binary(min_size=1, max_size=64), st.integers(min_value=1, max_value=12))
+def test_unpack_lzexe_fixture_mutation_no_crash(noise: bytes, n_flips: int) -> None:
+    """Byte-flip mutations of a real LZEXE pack must unpack cleanly or raise
+    ``NotLzexeError`` — never a raw traceback.  Seed corpus = production pack."""
+    import tempfile
+
+    if not PACKED.is_file():
+        pytest.skip("tc16_hello_lzexe.exe fixture not present")
+    base = bytearray(PACKED.read_bytes())
+    # Deterministic-ish flips from the noise bytes so hypothesis can shrink.
+    for i, b in enumerate(noise[:n_flips]):
+        idx = (b + i * 17) % len(base)
+        base[idx] ^= 0xFF if b & 1 else (b or 1)
+    # Drop a short interior run when noise asks for truncation-like damage.
+    if len(noise) >= 2 and noise[0] & 0x80:
+        cut = (noise[1] % max(1, len(base) // 4)) + 1
+        mid = len(base) // 3
+        del base[mid : mid + cut]
+
+    with tempfile.NamedTemporaryFile(suffix=".exe", delete=False) as fh:
+        fh.write(bytes(base))
+        tmp = Path(fh.name)
+    try:
+        with suppress(NotLzexeError):
+            result = unpack_lzexe(tmp)
+            assert isinstance(result, LzexeResult)
+            assert result.version in (90, 91)
+            assert isinstance(result.image, (bytes, bytearray))
+            rebuilt = result.to_bytes()
+            assert rebuilt[:2] in (b"MZ", b"ZM")
+            assert len(rebuilt) == result.cparhdr * 16 + len(result.image)
+    finally:
+        tmp.unlink(missing_ok=True)

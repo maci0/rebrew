@@ -363,54 +363,71 @@ def _u32(data: bytes, off: int) -> int:
 
 def parse_ne_header(data: bytes, ne_offset: int) -> NeHeader:
     """Parse the NE header at *ne_offset* (the MZ ``e_lfanew``)."""
+    if ne_offset < 0 or ne_offset + 0x40 > len(data):
+        raise NeParseError("NE header truncated")
     if data[ne_offset : ne_offset + 2] != NE_MAGIC:
         raise NeParseError("not an NE executable")
     h = ne_offset
-    return NeHeader(
-        linker_version=data[h + 0x02],
-        entry_table_offset=_u16(data, h + 0x04),
-        entry_table_length=_u16(data, h + 0x06),
-        flags=_u16(data, h + 0x0C),
-        autodata_segment=_u16(data, h + 0x0E),
-        heap_size=_u16(data, h + 0x10),
-        stack_size=_u16(data, h + 0x12),
-        entry_ip=_u16(data, h + 0x14),
-        entry_cs=_u16(data, h + 0x16),
-        stack_sp=_u16(data, h + 0x18),
-        stack_ss=_u16(data, h + 0x1A),
-        segment_count=_u16(data, h + 0x1C),
-        module_reference_count=_u16(data, h + 0x1E),
-        segment_table_offset=_u16(data, h + 0x22),
-        resource_table_offset=_u16(data, h + 0x24),
-        resident_names_offset=_u16(data, h + 0x26),
-        module_ref_table_offset=_u16(data, h + 0x28),
-        imported_names_offset=_u16(data, h + 0x2A),
-        nonresident_names_offset=_u32(data, h + 0x2C),
-        alignment_shift=_u16(data, h + 0x32),
-    )
+    try:
+        return NeHeader(
+            linker_version=data[h + 0x02],
+            entry_table_offset=_u16(data, h + 0x04),
+            entry_table_length=_u16(data, h + 0x06),
+            flags=_u16(data, h + 0x0C),
+            autodata_segment=_u16(data, h + 0x0E),
+            heap_size=_u16(data, h + 0x10),
+            stack_size=_u16(data, h + 0x12),
+            entry_ip=_u16(data, h + 0x14),
+            entry_cs=_u16(data, h + 0x16),
+            stack_sp=_u16(data, h + 0x18),
+            stack_ss=_u16(data, h + 0x1A),
+            segment_count=_u16(data, h + 0x1C),
+            module_reference_count=_u16(data, h + 0x1E),
+            segment_table_offset=_u16(data, h + 0x22),
+            resource_table_offset=_u16(data, h + 0x24),
+            resident_names_offset=_u16(data, h + 0x26),
+            module_ref_table_offset=_u16(data, h + 0x28),
+            imported_names_offset=_u16(data, h + 0x2A),
+            nonresident_names_offset=_u32(data, h + 0x2C),
+            alignment_shift=_u16(data, h + 0x32),
+        )
+    except (struct.error, IndexError) as exc:
+        raise NeParseError("corrupt NE header") from exc
 
 
 def parse_segments(data: bytes, ne_offset: int, header: NeHeader) -> list[NeSegment]:
     """Parse the segment table into :class:`NeSegment` entries."""
     h = ne_offset
     sector = header.sector_size
-    segments: list[NeSegment] = []
-    for i in range(header.segment_count):
-        off = h + header.segment_table_offset + i * 8
-        sector_off, length, flags, min_alloc = struct.unpack_from("<HHHH", data, off)
-        segments.append(
-            NeSegment(
-                index=i + 1,
-                file_offset=sector_off * sector,
-                length=length,
-                flags=flags,
-                min_allocation=min_alloc,
-                # Sector offset 0 means the segment is not present in the file
-                # (allocated zero-filled at load); reading offset 0 would
-                # report the MZ/NE header as the segment's content.
-                on_disk=sector_off != 0,
-            )
+    # Cap table walks: a corrupt segment_count of 0xFFFF must not hang or
+    # raise a raw ``struct.error`` past EOF — raise NeParseError instead.
+    table_start = h + header.segment_table_offset
+    max_by_bytes = max(0, (len(data) - table_start) // 8)
+    if header.segment_count > max_by_bytes:
+        raise NeParseError(
+            f"corrupt NE segment table: count {header.segment_count} exceeds "
+            f"{max_by_bytes} entries remaining in file"
         )
+    segments: list[NeSegment] = []
+    try:
+        for i in range(header.segment_count):
+            off = table_start + i * 8
+            sector_off, length, flags, min_alloc = struct.unpack_from("<HHHH", data, off)
+            segments.append(
+                NeSegment(
+                    index=i + 1,
+                    file_offset=sector_off * sector,
+                    length=length,
+                    flags=flags,
+                    min_allocation=min_alloc,
+                    # Sector offset 0 means the segment is not present in the file
+                    # (allocated zero-filled at load); reading offset 0 would
+                    # report the MZ/NE header as the segment's content.
+                    on_disk=sector_off != 0,
+                )
+            )
+    except (struct.error, IndexError, OverflowError) as exc:
+        raise NeParseError("corrupt NE segment table") from exc
     return segments
 
 
@@ -545,8 +562,16 @@ def load_ne_binary(path: Path) -> BinaryInfo:
     """
     path = Path(path)
     data = path.read_bytes()
-    ne_offset = _u32(data, 0x3C)
+    if len(data) < 0x40:
+        raise NeParseError(f"NE file too small: {path}")
+    try:
+        ne_offset = _u32(data, 0x3C)
+    except (struct.error, IndexError) as exc:
+        raise NeParseError(f"corrupt MZ e_lfanew in {path}") from exc
     header = parse_ne_header(data, ne_offset)
+    # alignment_shift >= 16 makes sector_size overflow / enormous; refuse.
+    if header.alignment_shift > 16:
+        raise NeParseError(f"corrupt NE alignment_shift {header.alignment_shift}")
     segments = parse_segments(data, ne_offset, header)
 
     sections: dict[str, SectionInfo] = {}

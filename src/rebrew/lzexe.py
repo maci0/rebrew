@@ -677,6 +677,17 @@ def _decompress(data: bytes, stream_off: int, *, max_out: int | None = None) -> 
         max_out = 16 * len(data) + 0x10000
     if max_out <= 0:
         raise NotLzexeError("corrupt LZEXE stream: non-positive decompress budget")
+    if not (0 <= stream_off + 2 <= len(data)):
+        raise NotLzexeError(f"corrupt LZEXE stream: bitstream offset {stream_off:#x} outside file")
+    try:
+        return _decompress_impl(data, stream_off, max_out=max_out)
+    except (struct.error, IndexError) as exc:
+        # Truncated control words / literal bytes surface as struct/index
+        # errors from the bit reader — map them to the public error type.
+        raise NotLzexeError("corrupt LZEXE stream: truncated bitstream") from exc
+
+
+def _decompress_impl(data: bytes, stream_off: int, *, max_out: int) -> bytes:
     r = _BitReader(data, stream_off)
     out = bytearray()
     while True:
