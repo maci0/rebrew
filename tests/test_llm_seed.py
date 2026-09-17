@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from rebrew.llm_seed import (
@@ -157,9 +160,17 @@ class _FakeClient:
         self.headers = headers or {}
         self.last_payload: dict | None = None
 
-    def post(self, url, json=None, headers=None, timeout=None):  # type: ignore[no-untyped-def]
+    @contextmanager
+    def stream(
+        self,
+        method: str,
+        url: str,
+        json: dict | None = None,
+        headers: dict | None = None,
+        timeout: int | None = None,
+    ) -> Iterator[_FakeResponse]:
         self.last_payload = json
-        return _FakeResponse(self.payload, body=self.body, headers=self.headers)
+        yield _FakeResponse(self.payload, body=self.body, headers=self.headers)
 
 
 class _FakeResponse:
@@ -187,8 +198,8 @@ class _FakeResponse:
             exc.response = self  # type: ignore[attr-defined]
             raise exc
 
-    def json(self) -> dict | str:
-        return self.payload
+    def iter_bytes(self) -> Iterator[bytes]:
+        yield self.content
 
 
 class TestRequestSeeds:
@@ -262,7 +273,7 @@ class TestRequestSeeds:
 
     def test_failing_request_returns_empty(self) -> None:
         class _Broken:
-            def post(self, *a, **k):  # type: ignore[no-untyped-def]
+            def stream(self, *a: object, **k: object) -> None:
                 raise OSError("connection refused")
 
         assert (
@@ -274,7 +285,7 @@ class TestRequestSeeds:
             def __init__(self) -> None:
                 self.calls = 0
 
-            def post(self, *a, **k):  # type: ignore[no-untyped-def]
+            def stream(self, *a: object, **k: object) -> None:
                 self.calls += 1
                 resp = _FakeResponse({}, status_code=429)
                 resp.raise_for_status()
@@ -290,6 +301,48 @@ class TestRequestSeeds:
         huge = b"x" * (_MAX_HTTP_BODY_BYTES + 1)
         client = _FakeClient({"choices": []}, body=huge)
         assert request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client) == []
+
+
+class TestStreamingResponse:
+    @pytest.mark.parametrize("declared_length", [None, "1", "invalid"])
+    def test_oversized_stream_stops_before_eof(self, declared_length: str | None) -> None:
+        class Body(httpx.SyncByteStream):
+            def __init__(self) -> None:
+                self.consumed_tail = False
+                self.closed = False
+
+            def __iter__(self) -> Iterator[bytes]:
+                yield b" " * _MAX_HTTP_BODY_BYTES
+                yield b"x"
+                self.consumed_tail = True
+                yield b"{}"
+
+            def close(self) -> None:
+                self.closed = True
+
+        body = Body()
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            headers = {} if declared_length is None else {"Content-Length": declared_length}
+            return httpx.Response(200, headers=headers, stream=body)
+
+        with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+            assert (
+                request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client) == []
+            )
+        assert not body.consumed_tail
+        assert body.closed
+
+    def test_exact_limit_is_accepted(self) -> None:
+        snippet = "int f(void){return 0;}"
+        data = json.dumps({"choices": [{"message": {"content": f"```c\n{snippet}\n```"}}]}).encode()
+        body = data + b" " * (_MAX_HTTP_BODY_BYTES - len(data))
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, content=body)
+
+        with httpx.Client(transport=httpx.MockTransport(respond)) as client:
+            assert request_seeds(_cfg("https://llm/v1"), snippet, client=client) == [snippet]
 
 
 class TestResolveModel:

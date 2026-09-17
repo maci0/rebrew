@@ -232,6 +232,8 @@ def _load_response_json(resp: Any) -> Any:
 
     An unbounded provider payload would otherwise allocate and parse first,
     then only truncate the extracted chat text — too late for cost/memory.
+    The body is capped while streaming, so a hostile or buggy endpoint cannot
+    buffer megabytes before the size check runs.
     """
     headers = getattr(resp, "headers", None) or {}
     cl_raw = None
@@ -247,16 +249,12 @@ def _load_response_json(resp: Any) -> Any:
             if "exceeds" in str(exc):
                 raise
             # Non-numeric Content-Length: fall through to body check.
-    content = getattr(resp, "content", None)
-    if content is None:
-        # Fake/test clients may only implement .json().
-        return resp.json()
-    if not isinstance(content, (bytes, bytearray)):
-        content = str(content).encode("utf-8", errors="replace")
-    if len(content) > _MAX_HTTP_BODY_BYTES:
-        raise ValueError(
-            f"LLM response body {len(content)} bytes exceeds {_MAX_HTTP_BODY_BYTES} bytes"
-        )
+
+    content = bytearray()
+    for chunk in resp.iter_bytes():
+        if len(content) + len(chunk) > _MAX_HTTP_BODY_BYTES:
+            raise ValueError(f"LLM response body exceeds {_MAX_HTTP_BODY_BYTES} bytes")
+        content.extend(chunk)
     if not content:
         return {}
     return json.loads(content)
@@ -300,9 +298,9 @@ def _request(
         "temperature": 0.8,
         "max_tokens": max_tokens,
     }
-    resp = client.post(conf["endpoint"], json=payload, headers=headers, timeout=90)
-    resp.raise_for_status()
-    data = _load_response_json(resp)
+    with client.stream("POST", conf["endpoint"], json=payload, headers=headers, timeout=90) as resp:
+        resp.raise_for_status()
+        data = _load_response_json(resp)
     _log_usage(data, model)
     text = _parse_response(data)
     seeds = [s for s in extract_seeds(text) if valid_c_source(s, expect_name=expect)]
