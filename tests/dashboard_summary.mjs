@@ -14,6 +14,7 @@ globalThis.document = {
         attributes: {},
         setAttribute(name, value) { this.attributes[name] = value; },
         querySelector() { return this; },
+        insertAdjacentHTML(position, html) { this.innerHTML += html; },
       });
     }
     return elements.get(id);
@@ -103,7 +104,7 @@ element("show-more").onclick();
 const failed = pending.shift();
 assert.match(failed.path, /target=tgt/);
 assert.match(failed.path, /status=STUB/);
-assert.match(failed.path, /limit=1000/);
+assert.match(failed.path, /limit=500&offset=0/);
 assert.match(failed.path, /q=win/);
 failed.reject(new Error("Connection lost"));
 await new Promise(resolve => setImmediate(resolve));
@@ -130,3 +131,22 @@ assert.equal(element("retry-functions").hidden, true);
 assert.equal(element("target").value, "tgt");
 assert.equal(element("status").value, "STUB");
 assert.equal(element("q").value, "  win ");
+
+element("show-more").onclick();
+const appended = pending.shift();
+assert.match(appended.path, /limit=500&offset=1/);
+appended.resolve({
+  ok: true,
+  json: async () => ({
+    count: 1,
+    total: 2,
+    functions: [{ va: "0x2", name: "lose" }],
+  }),
+});
+await new Promise(resolve => setImmediate(resolve));
+const rows = element("rows").innerHTML;
+assert.match(rows, /0x1/);
+assert.match(rows, /0x2/);
+assert.match(rows, /win/);
+assert.match(rows, /lose/);
+assert.equal(pending.length, 0);

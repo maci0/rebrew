@@ -406,6 +406,21 @@ class TestHandle:
         assert payload["functions"][0]["name"] == "func_b"
         assert payload["functions"][0]["status"] == "STUB"
 
+    def test_functions_pages_do_not_repeat_rows(self, dashboard: Dashboard) -> None:
+        pages = []
+        for offset in (0, 1):
+            status, _, body = dashboard.handle(
+                "GET",
+                "/api/functions",
+                {"target": ["server_dll"], "limit": ["1"], "offset": [str(offset)]},
+            )
+            assert status == 200
+            page = json.loads(body)
+            assert page["count"] == 1
+            assert page["total"] == 2
+            pages.extend(page["functions"])
+        assert pages == dashboard.functions("server_dll")["functions"]
+
     def test_api_functions_nonpositive_limit_uses_default(self, dashboard: Dashboard) -> None:
         status, _, body = dashboard.handle(
             "GET", "/api/functions", {"target": ["server_dll"], "limit": ["0"]}

@@ -168,6 +168,8 @@ let functionsSeq = 0;
 let summarySeq = 0;
 let functionsController = null;
 let summaryController = null;
+let loadedCount = 0;
+let retryAppend = false;
 let pageLimit = 500;
 const PAGE_STEP = 500;
 const PAGE_MAX = 5000;
@@ -247,8 +249,8 @@ function setResultsMessage(count, total) {
     $("results-status").textContent = msg;
     hint.textContent = msg + ". Use Show more, or narrow Status or Search.";
     hint.hidden = false;
-    const next = Math.min(pageLimit + PAGE_STEP, total, PAGE_MAX);
-    more.hidden = pageLimit >= PAGE_MAX || pageLimit >= total;
+    const next = Math.min(count + PAGE_STEP, total, PAGE_MAX);
+    more.hidden = count >= PAGE_MAX || count >= total;
     $("show-more").textContent = "Show more (up to " + next + ")";
   } else {
     const msg = count + " function" + (count === 1 ? "" : "s") + " shown";
@@ -260,27 +262,46 @@ function setResultsMessage(count, total) {
 }
 function resetPaging() {
   pageLimit = 500;
+  loadedCount = 0;
+  retryAppend = false;
 }
-function renderFunctions(data) {
+const rowHtml = (f) =>
+  "<tr><td class=va>" + esc(f.va) + "</td><td>" + esc(f.name || "")
+    + "</td><td>" + esc(f.symbol || "") + "</td><td>" + esc(f.size ?? "")
+    + "</td><td>" + esc(f.status || "") + "</td><td>" + esc(f.module || "")
+    + "</td><td>" + esc(f.files || "") + "</td></tr>";
+function renderFunctions(data, options) {
+  const append = !!(options && options.append);
   const body = $("rows").querySelector("tbody");
-  // One write avoids layout thrash on the default 500-row page.
-  body.innerHTML = data.functions.map(f =>
-    "<tr><td class=va>" + esc(f.va) + "</td><td>" + esc(f.name || "")
-      + "</td><td>" + esc(f.symbol || "") + "</td><td>" + esc(f.size ?? "")
-      + "</td><td>" + esc(f.status || "") + "</td><td>" + esc(f.module || "")
-      + "</td><td>" + esc(f.files || "") + "</td></tr>").join("");
+  if (append) {
+    // Grew the page: keep painted rows, append only the delta (no re-render,
+    // no scrolling reset, no repeated network payload for rows already shown).
+    body.insertAdjacentHTML("beforeend", data.functions.map(rowHtml).join(""));
+    loadedCount += data.functions.length;
+  } else {
+    loadedCount = data.functions.length;
+    // One write avoids layout thrash on the default 500-row page.
+    body.innerHTML = data.functions.map(rowHtml).join("");
+  }
   const total = data.total ?? data.count;
-  setResultsMessage(data.count, total);
+  const shown = append ? loadedCount : data.count;
+  setResultsMessage(shown, total);
   $("empty-state").hidden = data.count !== 0;
   $("results").hidden = data.count === 0;
 }
-async function loadFunctions() {
+async function loadFunctions(options) {
+  const grow = !!(options && options.append);
   const t = $("target").value; if (!t) return;
   const seq = ++functionsSeq;
   if (functionsController) functionsController.abort();
   functionsController = new AbortController();
   const { signal } = functionsController;
-  const params = new URLSearchParams({ target: t, limit: String(pageLimit) });
+  const offset = grow ? loadedCount : 0;
+  const params = new URLSearchParams({
+    target: t,
+    limit: String(grow ? PAGE_STEP : pageLimit),
+    offset: String(offset),
+  });
   if ($("status").value) params.set("status", $("status").value);
   if ($("q").value.trim()) params.set("q", $("q").value.trim());
   updateFilterActions();
@@ -293,9 +314,10 @@ async function loadFunctions() {
     const data = await whileBusy("results", () => get("/api/functions?" + params, signal));
     if (seq !== functionsSeq || signal.aborted) return;
     setLoadError("functions", "");
-    renderFunctions(data);
+    renderFunctions(data, { append: grow });
   } catch (error) {
     if (seq !== functionsSeq || signal.aborted) return;
+    loadedCount = 0;
     $("rows").querySelector("tbody").innerHTML = "";
     $("results").hidden = true;
     $("empty-state").hidden = true;
@@ -386,10 +408,10 @@ function bindControls() {
     clearTimeout(searchTimer);
     loadFunctions();
   };
-  $("retry-functions").onclick = loadFunctions;
+  $("retry-functions").onclick = () => loadFunctions({ append: retryAppend });
   $("show-more").onclick = () => {
-    pageLimit = Math.min(pageLimit + PAGE_STEP, PAGE_MAX);
-    loadFunctions();
+    retryAppend = true;
+    loadFunctions({ append: true });
   };
   $("cards").onclick = (ev) => {
     const btn = ev.target.closest("button[data-status]");
@@ -584,6 +606,7 @@ class Dashboard:
         module: str | None = None,
         q: str | None = None,
         limit: int = _DEFAULT_LIMIT,
+        offset: int = 0,
     ) -> dict[str, Any]:
         where = ["target = ?"]
         args: list[Any] = [target]
@@ -601,10 +624,10 @@ class Dashboard:
         where_sql = " AND ".join(where)
         query = (
             "SELECT va, name, symbol, size, status, module, files "
-            f"FROM functions WHERE {where_sql} ORDER BY va LIMIT ?"
+            f"FROM functions WHERE {where_sql} ORDER BY va, module LIMIT ? OFFSET ?"
         )
         with self._conn() as conn:
-            rows = conn.execute(query, [*args, limit]).fetchall()
+            rows = conn.execute(query, [*args, limit, offset]).fetchall()
             total = conn.execute(
                 f"SELECT COUNT(*) FROM functions WHERE {where_sql}",
                 args,
@@ -795,6 +818,7 @@ class Dashboard:
                         module=_opt_query(query, "module"),
                         q=_opt_query(query, "q"),
                         limit=_int_param(query, "limit", _DEFAULT_LIMIT),
+                        offset=_int_param(query, "offset", 0),
                     ),
                 )
             if parsed.path == "/api/sections":
