@@ -470,6 +470,14 @@ def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int]:
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     pat_lines: list[str] = []
+    # Dedupe on the generated *line*, not on the symbol name: an archive that
+    # ships several members defining the same symbol (picolibc's
+    # `nano-malloc.c.o` next to its full allocator, newlib's C and assembly
+    # `memcpy`, several console SDK libraries) contributes one pattern per
+    # implementation, and the linker may pick any of them.  Keying on the name
+    # kept only whichever member came first and silently threw the rest away —
+    # measured on a picolibc RV32IMAC firmware, where the surviving `malloc`
+    # pattern described a 580-byte function while the linked one was 158 bytes.
     seen: set[str] = set()
 
     skipped = 0
@@ -487,9 +495,11 @@ def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int]:
                     # for signature parsers (symptom: "corrupt .pat").
                     skipped += 1
                     continue
-                if sym_name not in seen and len(code) >= 4:
-                    seen.add(sym_name)
+                if len(code) >= 4:
                     line = bytes_to_pat_line(sym_name, code, relocs)
+                    if line in seen:
+                        continue
+                    seen.add(line)
                     if _is_weak_signature(line):
                         # Generic-prolog-only sigs would false-positive across
                         # the whole binary — drop them rather than emit noise.

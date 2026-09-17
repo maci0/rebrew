@@ -1,5 +1,16 @@
 ## [Unreleased]
 ### Fixed
+- **FLIRT patterns are deduped by line, not by symbol name** — ``generate_pat``
+  kept only the first definition of each symbol, so an archive that ships
+  several members defining the same function contributed one pattern and the
+  rest were dropped silently.  That is the normal shape of a C library
+  (picolibc's ``nano-malloc.c.o`` next to its full allocator, newlib's C and
+  assembly ``memcpy``, several console SDK libraries), and the linker picks
+  whichever member it likes: on a picolibc RV32IMAC firmware the surviving
+  ``malloc`` pattern described a 580-byte function while the linked one was
+  158 bytes.  Deduping on the generated line keeps every distinct
+  implementation and still collapses true duplicates; it also means a weak
+  pattern no longer blocks a stronger implementation of the same name.
 - **ELF fixup widths no longer come from an unusable LIEF size** — LIEF reports
   ``size == -1`` (as unsigned, 2**64-1) for *every* RISC-V relocation, and its
   AVR support returns a single bogus entry per object.  ``parse_elf_obj`` passed

@@ -627,6 +627,50 @@ def _compile_elf_object(tmp_path: Path) -> Path:
     return obj
 
 
+class TestAlternativeImplementations:
+    """One symbol, several members: every implementation must be emitted.
+
+    An archive that ships more than one member defining the same symbol -
+    picolibc's nano-malloc next to its full allocator, newlib's C and assembly
+    ``memcpy`` - contributes one pattern per implementation, because the linker
+    picks one of them and there is no way to know which.  Deduping on the
+    symbol name kept only the first: measured on a picolibc RV32IMAC firmware,
+    the surviving ``malloc`` pattern described a 580-byte function while the
+    linked one was 158 bytes.
+    """
+
+    @pytest.mark.skipif(not _HAS_GCC, reason="gcc not available")
+    def test_both_implementations_are_emitted(self, tmp_path: Path) -> None:
+        import subprocess
+
+        from rebrew.gen_flirt_pat import generate_pat
+
+        lib = tmp_path / "libdup.a"
+        for tag, body in (("a", "return n + 1;"), ("b", "return n * 3 - 7;")):
+            src = tmp_path / f"{tag}.c"
+            src.write_text(
+                "int shared_entry(int n) {\n"
+                "    int total = 0;\n"
+                "    for (int i = 0; i < n; i++) total += i * 2 + 1;\n"
+                f"    {body}\n"
+                "}\n",
+                encoding="utf-8",
+            )
+            obj = tmp_path / f"{tag}.o"
+            subprocess.run(
+                ["gcc", "-c", "-O1", "-fcf-protection=none", str(src), "-o", str(obj)],
+                check=True, capture_output=True,
+            )
+            subprocess.run(["ar", "rcs", str(lib), str(obj)], check=True, capture_output=True)
+
+        out = tmp_path / "out.pat"
+        stats = generate_pat(lib, out)
+        lines = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.endswith("shared_entry")]
+        assert len(lines) == 2, lines
+        assert lines[0] != lines[1]
+        assert stats["signatures"] == 2
+
+
 class TestParseElfObjReal:
     @pytest.mark.skipif(not _HAS_GCC, reason="gcc not available")
     def test_yields_functions_with_relocs(self, tmp_path: Path) -> None:
