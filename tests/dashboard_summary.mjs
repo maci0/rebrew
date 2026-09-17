@@ -11,16 +11,32 @@ globalThis.document = {
         innerHTML: "",
         textContent: "",
         hidden: true,
-        setAttribute() {},
+        attributes: {},
+        setAttribute(name, value) { this.attributes[name] = value; },
+        querySelector() { return this; },
       });
     }
     return elements.get(id);
   },
 };
 const pending = [];
-globalThis.fetch = (path) => new Promise((resolve, reject) => {
-  if (path !== "/api/bootstrap") pending.push({ path, resolve, reject });
-});
+globalThis.fetch = (path, options) => {
+  if (path === "/api/bootstrap") return Promise.resolve({ ok: true, json: async () => ({ targets: [] }) });
+  const signal = options && options.signal;
+  const entry = { path, get aborted() { return signal ? signal.aborted : false; } };
+  pending.push(entry);
+  return new Promise((resolve, reject) => {
+    entry.resolve = resolve;
+    entry.reject = reject;
+  });
+};
+globalThis.AbortController = class {
+  constructor() { this.signal = { aborted: false }; }
+  abort() {
+    this.signal.aborted = true;
+    this.aborted = true;
+  }
+};
 const { loadSummary } = await import(
   "data:text/javascript;base64," + Buffer.from(source + "\nexport { loadSummary };\n").toString("base64")
 );
@@ -35,11 +51,14 @@ for (const staleFailure of [false, true]) {
   element("target").value = "old_target";
   const oldRequest = loadSummary();
   const oldResponse = pending.shift();
+  assert.equal(oldResponse.aborted, false);
   element("target").value = "new_target";
   const newRequest = loadSummary();
+  assert.equal(oldResponse.aborted, true, "superseded request must be aborted");
   const newResponse = pending.shift();
   assert.match(oldResponse.path, /target=old_target$/);
   assert.match(newResponse.path, /target=new_target$/);
+  assert.equal(newResponse.aborted, false);
   newResponse.resolve({ ok: true, json: async () => summary("EXACT") });
   await newRequest;
   assert.match(element("status").innerHTML, /EXACT/);

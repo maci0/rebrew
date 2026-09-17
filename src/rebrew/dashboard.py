@@ -162,13 +162,15 @@ let targets = [];
 let searchTimer = null;
 let functionsSeq = 0;
 let summarySeq = 0;
+let functionsController = null;
+let summaryController = null;
 let pageLimit = 500;
 const PAGE_STEP = 500;
 const PAGE_MAX = 5000;
 const loadErrors = { summary: "", functions: "" };
 const busyCounts = new Map();
-async function get(path) {
-  const r = await fetch(path);
+async function get(path, signal) {
+  const r = await fetch(path, { signal });
   if (!r.ok) throw new Error(path + " -> " + r.status);
   return r.json();
 }
@@ -271,6 +273,9 @@ function renderFunctions(data) {
 async function loadFunctions() {
   const t = $("target").value; if (!t) return;
   const seq = ++functionsSeq;
+  if (functionsController) functionsController.abort();
+  functionsController = new AbortController();
+  const { signal } = functionsController;
   const params = new URLSearchParams({ target: t, limit: String(pageLimit) });
   if ($("status").value) params.set("status", $("status").value);
   if ($("q").value.trim()) params.set("q", $("q").value.trim());
@@ -280,12 +285,12 @@ async function loadFunctions() {
     $("empty-state").hidden = true;
     $("show-more-wrap").hidden = true;
     $("results-status").textContent = "Loading functions…";
-    const data = await whileBusy("results", () => get("/api/functions?" + params));
-    if (seq !== functionsSeq) return;
+    const data = await whileBusy("results", () => get("/api/functions?" + params, signal));
+    if (seq !== functionsSeq || signal.aborted) return;
     setLoadError("functions", "");
     renderFunctions(data);
   } catch (error) {
-    if (seq !== functionsSeq) return;
+    if (seq !== functionsSeq || signal.aborted) return;
     $("rows").querySelector("tbody").innerHTML = "";
     $("results").hidden = true;
     $("empty-state").hidden = true;
@@ -320,14 +325,17 @@ function renderSummary(s) {
 async function loadSummary() {
   const t = $("target").value; if (!t) return;
   const seq = ++summarySeq;
+  if (summaryController) summaryController.abort();
+  summaryController = new AbortController();
+  const { signal } = summaryController;
   try {
     const s = await whileBusy("summary", () =>
-      get("/api/summary?target=" + encodeURIComponent(t)));
-    if (seq !== summarySeq) return;
+      get("/api/summary?target=" + encodeURIComponent(t), signal));
+    if (seq !== summarySeq || signal.aborted) return;
     setLoadError("summary", "");
     renderSummary(s);
   } catch (error) {
-    if (seq !== summarySeq) return;
+    if (seq !== summarySeq || signal.aborted) return;
     setLoadError("summary", "Failed to load summary: " + error.message);
   }
 }
