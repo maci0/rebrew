@@ -717,24 +717,26 @@ def _merge_cflags_presets(
     the canonical ``[targets.X.compiler.cflags_presets]`` home — previously
     it was a silent no-op while remaining a "known" key.
     """
-    merged: dict[str, str] = {}
-    for table, label in (
-        (global_compiler, "compiler.cflags_presets"),
-        (target_compiler, "targets.<target>.compiler.cflags_presets"),
-    ):
-        for key, val in (table.get("cflags_presets", {}) or {}).items():
-            merged[str(key).upper()] = _as_str(val, "", label)
+    where = f"targets.{target_name}" if target_name else "targets.<target>"
+    tables = [
+        (global_compiler.get("cflags_presets"), "compiler.cflags_presets"),
+        (target_compiler.get("cflags_presets"), f"{where}.compiler.cflags_presets"),
+    ]
     if target_data is not None and "cflags_presets" in target_data:
-        legacy = target_data.get("cflags_presets") or {}
-        if legacy:
-            where = f"targets.{target_name}" if target_name else "targets.<target>"
+        tables.append((target_data["cflags_presets"], f"{where}.cflags_presets"))
+    merged: dict[str, str] = {}
+    for value, label in tables:
+        presets = _as_table(value, label)
+        for key, val in presets.items():
+            if not isinstance(val, str):
+                raise ValueError(f"rebrew-project.toml {label}.{key} must be a string")
+            merged[key.upper()] = val
+        if presets and label == f"{where}.cflags_presets":
             _config_warn(
                 f"[{where}].cflags_presets is misplaced — move it to "
                 f"[{where}.compiler.cflags_presets] (honoured for now; "
                 "`rebrew cfg set-cflags --target` writes the canonical path)"
             )
-            for key, val in legacy.items() if isinstance(legacy, Mapping) else ():
-                merged[str(key).upper()] = _as_str(val, "", f"{where}.cflags_presets")
     return merged
 
 

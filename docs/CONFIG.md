@@ -208,6 +208,9 @@ Per-target presets (`rebrew cfg set-cflags MODULE FLAGS --target <name>`, stored
 under the target's `[compiler]` sub-table) override global presets for the same
 origin key. A legacy top-level `[targets.<name>.cflags_presets]` table is still
 honoured but warns at load — move it to `[targets.<name>.compiler.cflags_presets]`.
+Every preset collection must be a TOML table with string values; malformed tables
+or entries fail at load with the offending field path. An empty table adds no
+overrides, and an empty string remains a valid preset value.
 
 ### Per-Target Compiler Overrides
 

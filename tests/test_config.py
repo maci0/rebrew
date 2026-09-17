@@ -633,6 +633,60 @@ GAME = "/O1"
             cfg = load_config(root)
         assert cfg.cflags_presets.get("GAME") == "/O1"
 
+    @pytest.mark.parametrize("section", ["compiler", "targets.main.compiler", "targets.main"])
+    @pytest.mark.parametrize("value", ['"/O2"', '""', "false", "0", "[]", '["/O2"]'])
+    def test_cflags_presets_requires_table(self, tmp_path: Path, section: str, value: str) -> None:
+        toml = f"""\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[{section}]
+cflags_presets = {value}
+"""
+        if section == "targets.main":
+            toml = toml.replace("\n[targets.main]\ncflags_presets", "\ncflags_presets")
+        root = _make_project(tmp_path, toml)
+        with pytest.raises(ValueError, match=rf"\[{section}\.cflags_presets\].*TOML table"):
+            load_config(root)
+
+    @pytest.mark.parametrize("section", ["compiler", "targets.main.compiler", "targets.main"])
+    @pytest.mark.parametrize("value", ["false", "42", "[]", "{}"])
+    def test_cflags_preset_requires_string(self, tmp_path: Path, section: str, value: str) -> None:
+        toml = f"""\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[{section}.cflags_presets]
+GAME = {value}
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.raises(ValueError, match=rf"{section}\.cflags_presets\.GAME must be a string"):
+            load_config(root)
+
+    def test_cflags_presets_merge_preserves_empty_override(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[compiler.cflags_presets]
+game = "/O2"
+ZLIB = "/O1"
+
+[targets.main.compiler.cflags_presets]
+GAME = ""
+"""
+        cfg = load_config(_make_project(tmp_path, toml))
+        assert cfg.cflags_presets == {"GAME": "", "ZLIB": "/O1"}
+
     def test_recompile_emit_assembly_rejects_stringy_bool(self, tmp_path: Path) -> None:
         """``bool("false")`` is True — a string must not enable the training tap."""
         toml = """\
@@ -1255,9 +1309,7 @@ command = "wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE"
 
     @pytest.mark.parametrize("key", ["includes", "libs"])
     @pytest.mark.parametrize("value", ["false", "0", "0.0", "[]", "{}"])
-    def test_invalid_compiler_paths_raise(
-        self, tmp_path: Path, key: str, value: str
-    ) -> None:
+    def test_invalid_compiler_paths_raise(self, tmp_path: Path, key: str, value: str) -> None:
         root = _make_project(tmp_path, self.TOML + f"{key} = {value}\n")
         with pytest.raises(ValueError, match=rf"compiler\.{key} must be a path string"):
             load_config(root)
