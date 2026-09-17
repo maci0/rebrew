@@ -317,14 +317,18 @@ async function loadFunctions(options) {
     renderFunctions(data, { append: grow });
   } catch (error) {
     if (seq !== functionsSeq || signal.aborted) return;
-    loadedCount = 0;
-    $("rows").querySelector("tbody").innerHTML = "";
-    $("results").hidden = true;
-    $("empty-state").hidden = true;
     $("show-more-wrap").hidden = true;
     $("results-hint").hidden = true;
     $("retry-functions").hidden = false;
-    setLoadError("functions", "Functions could not be loaded. Use Retry functions to try again with the same filters.");
+    if (grow && loadedCount > 0) {
+      setLoadError("functions", "Could not load more functions. The rows already shown are unchanged; use Retry functions to fetch the next page again.");
+    } else {
+      loadedCount = 0;
+      $("rows").querySelector("tbody").innerHTML = "";
+      $("results").hidden = true;
+      $("empty-state").hidden = true;
+      setLoadError("functions", "Functions could not be loaded. Use Retry functions to try again with the same filters.");
+    }
   }
 }
 function renderSummary(s) {

@@ -132,15 +132,43 @@ assert.equal(element("target").value, "tgt");
 assert.equal(element("status").value, "STUB");
 assert.equal(element("q").value, "  win ");
 
+const rowsBeforeFailure = element("rows").innerHTML;
+element("show-more").onclick();
+const failedGrow = pending.shift();
+assert.match(failedGrow.path, /limit=500&offset=1/);
+failedGrow.reject(new Error("Connection lost"));
+await new Promise(resolve => setImmediate(resolve));
+assert.equal(element("rows").innerHTML, rowsBeforeFailure);
+assert.equal(element("results").hidden, false);
+assert.equal(element("empty-state").hidden, true);
+assert.equal(element("dashboard-error").hidden, false);
+assert.match(element("dashboard-error").textContent, /next page/);
+assert.equal(element("retry-functions").hidden, false);
+
+const retriedGrow = element("retry-functions").onclick();
+const retryGrowResponse = pending.shift();
+assert.equal(retryGrowResponse.path, failedGrow.path);
+retryGrowResponse.resolve({
+  ok: true,
+  json: async () => ({ count: 1, total: 2, functions: [{ va: "0x2", name: "lose" }] }),
+});
+await retriedGrow;
+assert.equal(element("dashboard-error").hidden, true);
+const grownRows = element("rows").innerHTML;
+assert.match(grownRows, /0x1/);
+assert.match(grownRows, /0x2/);
+assert.match(grownRows, /win/);
+assert.match(grownRows, /lose/);
+
 element("show-more").onclick();
 const appended = pending.shift();
-assert.match(appended.path, /limit=500&offset=1/);
+assert.match(appended.path, /limit=500&offset=2/);
 appended.resolve({
   ok: true,
   json: async () => ({
     count: 1,
-    total: 2,
-    functions: [{ va: "0x2", name: "lose" }],
+    total: 3,
+    functions: [{ va: "0x3", name: "third" }],
   }),
 });
 await new Promise(resolve => setImmediate(resolve));
