@@ -112,7 +112,7 @@ _INDEX_HTML = """<!doctype html>
   #empty-state, #no-targets { color: #555; margin: 1rem 0; }
   #results-hint { color: #555; font-size: .9rem; margin: .25rem 0 0; }
   #filter-actions, #show-more-wrap { margin: .35rem 0 .75rem; }
-  #clear-filters, #show-more { min-height: 2.75rem; padding: .3rem .75rem; }
+  #clear-filters, #show-more, #retry-functions { min-height: 2.75rem; padding: .3rem .75rem; }
 </style>
 </head>
 <body>
@@ -145,6 +145,7 @@ _INDEX_HTML = """<!doctype html>
 </section>
 <p class="visually-hidden" id="results-status" role="status" aria-live="polite"></p>
 <p id="dashboard-error" role="alert" hidden></p>
+<button type="button" id="retry-functions" hidden>Retry functions</button>
 <p id="results-hint" hidden></p>
 <p id="empty-state" hidden>No functions match these filters. Use Clear filters, or set Status to any.</p>
 <div id="show-more-wrap" hidden>
@@ -287,6 +288,7 @@ async function loadFunctions() {
     $("results").hidden = false;
     $("empty-state").hidden = true;
     $("show-more-wrap").hidden = true;
+    $("retry-functions").hidden = true;
     $("results-status").textContent = "Loading functions…";
     const data = await whileBusy("results", () => get("/api/functions?" + params, signal));
     if (seq !== functionsSeq || signal.aborted) return;
@@ -299,7 +301,8 @@ async function loadFunctions() {
     $("empty-state").hidden = true;
     $("show-more-wrap").hidden = true;
     $("results-hint").hidden = true;
-    setLoadError("functions", "Failed to load functions: " + error.message);
+    $("retry-functions").hidden = false;
+    setLoadError("functions", "Functions could not be loaded. Use Retry functions to try again with the same filters.");
   }
 }
 function renderSummary(s) {
@@ -383,6 +386,7 @@ function bindControls() {
     clearTimeout(searchTimer);
     loadFunctions();
   };
+  $("retry-functions").onclick = loadFunctions;
   $("show-more").onclick = () => {
     pageLimit = Math.min(pageLimit + PAGE_STEP, PAGE_MAX);
     loadFunctions();

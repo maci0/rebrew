@@ -37,8 +37,8 @@ globalThis.AbortController = class {
     this.aborted = true;
   }
 };
-const { loadSummary } = await import(
-  "data:text/javascript;base64," + Buffer.from(source + "\nexport { loadSummary };\n").toString("base64")
+const { loadSummary, bindControls } = await import(
+  "data:text/javascript;base64," + Buffer.from(source + "\nexport { loadSummary, bindControls };\n").toString("base64")
 );
 const element = (id) => document.getElementById(id);
 const summary = (status) => ({
@@ -94,3 +94,39 @@ assert.equal(element("summary").hidden, false);
 assert.equal(element("status").disabled, false);
 assert.match(element("cards").innerHTML, /STUB/);
 assert.equal(element("dashboard-error").hidden, true);
+
+bindControls();
+element("target").value = "tgt";
+element("status").value = "STUB";
+element("q").value = "  win ";
+element("show-more").onclick();
+const failed = pending.shift();
+assert.match(failed.path, /target=tgt/);
+assert.match(failed.path, /status=STUB/);
+assert.match(failed.path, /limit=1000/);
+assert.match(failed.path, /q=win/);
+failed.reject(new Error("Connection lost"));
+await new Promise(resolve => setImmediate(resolve));
+assert.equal(element("results").hidden, true);
+assert.equal(element("empty-state").hidden, true);
+assert.equal(element("show-more-wrap").hidden, true);
+assert.equal(element("dashboard-error").hidden, false);
+assert.match(element("dashboard-error").textContent, /Retry functions/);
+assert.equal(element("retry-functions").hidden, false);
+
+const retried = element("retry-functions").onclick();
+const retryResponse = pending.shift();
+assert.equal(retryResponse.path, failed.path);
+assert.equal(element("retry-functions").hidden, true);
+retryResponse.resolve({
+  ok: true,
+  json: async () => ({ count: 1, total: 1, functions: [{ va: "0x1", name: "win" }] }),
+});
+await retried;
+assert.equal(element("dashboard-error").hidden, true);
+assert.equal(element("results").hidden, false);
+assert.match(element("rows").innerHTML, /0x1/);
+assert.equal(element("retry-functions").hidden, true);
+assert.equal(element("target").value, "tgt");
+assert.equal(element("status").value, "STUB");
+assert.equal(element("q").value, "  win ");
