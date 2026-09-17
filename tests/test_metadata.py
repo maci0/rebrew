@@ -595,19 +595,22 @@ class TestMergeIntoAnnotation:
 class TestIdempotentStatusUpdate:
     """Verify update_source_status skips write when status matches."""
 
-    def test_no_extra_bak_on_same_status(self, tmp_path: Path) -> None:
-        p = tmp_path / "func.c"
-        p.write_text(
-            "// FUNCTION: SERVER 0x10008880\n// STATUS: EXACT\n// ORIGIN: GAME\n"
-            "// SIZE: 31\n// CFLAGS: /O2 /Gd\n\nint __cdecl bit_reverse(int x) { return x; }\n",
-            encoding="utf-8",
-        )
-        bak = tmp_path / "func.c.bak"
-        from rebrew.metadata import _set_field, update_source_status
+    def test_no_write_on_same_status(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from unittest.mock import Mock
 
-        _set_field(tmp_path, 0x10008880, "status", "EXACT", module="SERVER")
+        import rebrew.metadata as metadata
+
         update_source_status(tmp_path, "EXACT", "SERVER", 0x10008880)
-        assert not bak.exists(), "Should not create backup for no-op update"
+        path = tmp_path / METADATA_FILENAME
+        before = path.read_bytes()
+        writer = Mock(wraps=metadata.atomic_write_locked)
+        monkeypatch.setattr(metadata, "atomic_write_locked", writer)
+
+        update_source_status(tmp_path, "EXACT", "SERVER", 0x10008880)
+
+        writer.assert_not_called()
+        assert path.read_bytes() == before
+        assert get_entry(tmp_path, 0x10008880, module="SERVER")["status"] == "EXACT"
 
     def test_writes_when_status_differs(self, tmp_path: Path) -> None:
         p = tmp_path / "func.c"

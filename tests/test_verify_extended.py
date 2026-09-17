@@ -1513,7 +1513,10 @@ class TestRunVerification:
         function's real status must survive)."""
         from rebrew.verify import run_verification
 
-        def _boom(e, cfg, cache=None, name_to_va=None):
+        calls: list[Annotation] = []
+
+        def _boom(e: Annotation, cfg: object, **kwargs: object) -> None:
+            calls.append(e)
             raise RuntimeError("crash")
 
         monkeypatch.setattr("rebrew.verify.verify_entry", _boom)
@@ -1526,11 +1529,12 @@ class TestRunVerification:
         )
         assert passed == 0
         assert failed == 1
+        assert [entry.va for entry in calls] == [0x1000]
         assert results[0]["status"] == "INTERNAL_ERROR"
-        assert "INTERNAL_ERROR" in results[0]["message"]
+        assert results[0]["message"] == "INTERNAL_ERROR: crash"
         # Fail closed: the crash lands in the failure list so both gates trip.
         assert len(fail_details) == 1
-        assert "INTERNAL_ERROR" in fail_details[0][1]
+        assert fail_details[0][1] == "INTERNAL_ERROR: crash"
         assert deferred == []
 
     def test_stub_not_promoted_to_size_mismatch(self, tmp_path: Path) -> None:

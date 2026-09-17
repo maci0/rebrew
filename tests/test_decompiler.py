@@ -1096,12 +1096,16 @@ class TestReSessionReuse:
             assert dc._run_re(binary, 0x2000, "pdg", tmp_path) == "int f(void) {}"
         finally:
             dc._clear_re_projects()
-        inits = [c for c in calls if "Ps" in c[3]]
-        queries = [c for c in calls if "Ps" not in c[3]]
-        assert len(inits) == 1  # analysis ran once
-        assert len(queries) == 2  # one cheap query per call
-        assert all("aaa" not in c[3] for c in queries)  # no re-analysis
-        assert all("-p" in c for c in queries)  # reopen the cached project
+        inits = [c for c in calls if "-p" not in c]
+        queries = [c for c in calls if "-p" in c]
+        assert len(inits) == 1
+        assert inits[0][inits[0].index("-c") + 1].split(";")[0] == "aaa"
+        assert [c[c.index("-c") + 1] for c in queries] == [
+            "s 0x00001000; af; pdg",
+            "s 0x00002000; af; pdg",
+        ]
+        project_dir = queries[0][queries[0].index("-p") + 1]
+        assert queries[1][queries[1].index("-p") + 1] == project_dir
 
     def test_failed_query_drops_stale_project(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

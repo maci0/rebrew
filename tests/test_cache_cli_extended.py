@@ -1,6 +1,7 @@
 """Tests for rebrew cache_cli — stats/clear with a fake CompileCache."""
 
 import json
+from contextlib import closing
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -107,23 +108,49 @@ class TestCacheCli:
         assert result.exit_code == 0
         assert json.loads(result.stdout)["cleared"] == 0
 
-    def test_clear_force_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_clear_force_json_deletes_entries(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.compile_cache import CompileCache
+
         cfg = _cfg(tmp_path)
-        (tmp_path / ".rebrew" / "compile_cache").mkdir(parents=True)
+        cache_dir = tmp_path / ".rebrew" / "compile_cache"
         monkeypatch.setattr("rebrew.cache_cli.require_config", lambda **kw: cfg)
-        _patch_cache(monkeypatch, count=3)
+        with closing(CompileCache(cache_dir)) as seed:
+            seed.put("k1", b"\x01")
+            seed.put("k2", b"\x02")
+            seed.put("k3", b"\x03")
+            assert seed.count == 3
+        monkeypatch.setattr(
+            "rebrew.cache_cli.get_compile_cache",
+            lambda root, backend="diskcache": CompileCache(root / ".rebrew" / "compile_cache"),
+        )
         result = CliRunner().invoke(app, ["clear", "--force", "--json"])
         assert result.exit_code == 0
-        data = json.loads(result.stdout)
-        assert data["cleared"] == 3
+        assert json.loads(result.stdout) == {
+            "cleared": 3,
+            "cache_dir": str(cache_dir),
+            "backend": "diskcache",
+        }
+        with closing(CompileCache(cache_dir)) as after:
+            assert after.count == 0
+            assert [after.get(key) for key in ("k1", "k2", "k3")] == [None, None, None]
 
     def test_clear_json_requires_force(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        from rebrew.compile_cache import CompileCache
+
         cfg = _cfg(tmp_path)
-        (tmp_path / ".rebrew" / "compile_cache").mkdir(parents=True)
+        cache_dir = tmp_path / ".rebrew" / "compile_cache"
         monkeypatch.setattr("rebrew.cache_cli.require_config", lambda **kw: cfg)
-        _patch_cache(monkeypatch, count=3)
+        monkeypatch.setattr(
+            "rebrew.cache_cli.get_compile_cache",
+            lambda root, backend="diskcache": CompileCache(root / ".rebrew" / "compile_cache"),
+        )
+        with closing(CompileCache(cache_dir)) as seed:
+            seed.put("k1", b"\x01")
+            assert seed.count == 1
 
         result = CliRunner().invoke(app, ["clear", "--json"])
 
@@ -132,3 +159,6 @@ class TestCacheCli:
             "error": "--json cannot prompt for confirmation; pass --force to clear the cache",
             "code": 2,
         }
+        with closing(CompileCache(cache_dir)) as after:
+            assert after.count == 1
+            assert after.get("k1") == b"\x01"
