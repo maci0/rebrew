@@ -428,10 +428,7 @@ def find_c_function_definitions(source: str) -> list[tuple[str, int]]:
 
 
 def find_extern_function_names(source: str) -> list[str]:
-    """Find function names from ``extern`` function declarations.
-
-    Returns a list of function names.
-    """
+    """Find function names from ``extern`` function declarations."""
     if not source or not source.strip():
         return []
     try:
@@ -443,7 +440,6 @@ def find_extern_function_names(source: str) -> list[str]:
 
     def walk(node: Any) -> None:
         if node.type == "declaration":
-            # Check for extern storage class
             has_extern = False
             for child in node.children:
                 if (
@@ -454,7 +450,6 @@ def find_extern_function_names(source: str) -> list[str]:
                     break
 
             if has_extern:
-                # Look for function_declarator in the declarator chain
                 for child in node.children:
                     if _has_function_declarator(child):
                         name = _find_function_name(child, src_bytes)
@@ -577,12 +572,10 @@ def find_extern_variables(source: str, *, include_definitions: bool = False) -> 
                     "array_declarator",
                     "identifier",
                 ):
-                    # Count pointer depth
                     ptr_depth = (
                         _count_pointer_depth(child) if child.type == "pointer_declarator" else 0
                     )
 
-                    # For init_declarator, look inside
                     decl = child
                     if child.type == "init_declarator":
                         inner = _find_child(
@@ -596,9 +589,7 @@ def find_extern_variables(source: str, *, include_definitions: bool = False) -> 
                                 else 0
                             )
 
-                    # Get array suffix
                     array_suffix = ""
-                    # Walk to find array_declarator
                     arr_node = decl
                     while arr_node and arr_node.type == "pointer_declarator":
                         for ac in arr_node.children:

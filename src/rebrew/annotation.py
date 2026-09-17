@@ -889,7 +889,6 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
         # source lines are C code and can skip the regex calls entirely.
         is_comment = stripped.startswith("//") or stripped.startswith("/*")
 
-        # Check for marker
         m = NEW_FUNC_CAPTURE_RE.match(stripped) if is_comment else None
         if m:
             new_type = m.group("type")
@@ -914,7 +913,6 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
                 kv["_INLINE_ERROR"] = stripped
             continue
 
-        # Check for key-value
         m2 = NEW_KV_RE.match(stripped) if is_comment else None
         if m2:
             key = m2.group("key").upper()
@@ -922,7 +920,7 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
             kv[key] = val
             continue
 
-        # Check for function name hint: bare "// FunctionName" after marker
+        # Bare "// FunctionName" after marker — name hint when no C definition yet.
         if is_comment and in_annotation_block and "_FUNC_NAME_HINT" not in kv:
             m3 = FUNC_NAME_HINT_RE.match(stripped)
             if m3:
@@ -1008,12 +1006,10 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
         # most C source lines are code and can skip the regex calls entirely.
         is_comment = stripped.startswith("//") or stripped.startswith("/*")
 
-        # Check for a new marker line (starts a new block)
         m = NEW_FUNC_CAPTURE_RE.match(stripped) if is_comment else None
         if m and m.group("type") in ("FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"):
             # Save pending KV before flush (flush clears pending_kv)
             saved_pending = dict(pending_kv)
-            # Flush the previous block before starting a new one
             _flush()
             current_marker_type = m.group("type")
             current_va = int(m.group("va"), 16)
@@ -1044,7 +1040,7 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
                 pending_kv[key] = val
             continue
 
-        # Check for function name hint: bare "// FunctionName" after marker
+        # Bare "// FunctionName" after marker — name hint when no C definition yet.
         if is_comment and current_marker_type is not None and not seen_code_after_marker:
             m3 = FUNC_NAME_HINT_RE.match(stripped)
             if m3 and "_FUNC_NAME_HINT" not in current_kv:
@@ -1081,7 +1077,6 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
         if current_marker_type is not None:
             seen_code_after_marker = True
 
-    # Flush the last block
     _flush()
     if pending_kv:
         logger.debug("Discarding orphaned KV annotations: %s", pending_kv)

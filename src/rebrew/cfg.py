@@ -512,7 +512,6 @@ def add_target(
         else:
             origins = "GAME"
 
-    # Copy binary if requested
     if copy_binary and binary_path.is_absolute() and binary_path.exists():
         original_dir = root / "original"
         original_dir.mkdir(exist_ok=True)
@@ -522,13 +521,11 @@ def add_target(
             console.print(f"  [green]Copied {binary_path.name} → original/[/green]")
         binary = f"original/{binary_path.name}"
 
-    # Create directories
     src_dir = root / "src" / name
     src_dir.mkdir(parents=True, exist_ok=True)
     bin_dir = root / "bin" / name
     bin_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build target table
     tgt = tomlkit.table()
     tgt.add("binary", binary)
     tgt.add("format", fmt)
@@ -537,7 +534,6 @@ def add_target(
     tgt.add("bin_dir", f"bin/{name}")
     tgt.add("source_ext", source_ext)
 
-    # Parse origins
     origin_list = [o.strip() for o in origins.split(",") if o.strip()]
     tgt.add("origins", origin_list)
 

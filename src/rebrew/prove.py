@@ -719,7 +719,6 @@ def prove_equivalence(
     # Auto-enable EDX check when the return type is 64-bit (EDX:EAX pair)
     check_edx = check_edx or (return_width == 64)
 
-    # Create symbolic arguments
     sym_args = [claripy.BVS(f"arg_{i}", 32) for i in range(arg_count)]
 
     def _setup_state(proj: angr.Project) -> angr.SimState[Any, Any]:
@@ -1370,7 +1369,6 @@ def main(
         dir32_watched=inputs.dir32_watched,
     )
 
-    # Build result
     result: dict[str, Any] = {
         "schema_version": 1,
         "source": str(source_path),

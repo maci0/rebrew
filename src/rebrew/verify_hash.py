@@ -247,11 +247,9 @@ _HEADERS_HASH_CACHE_MAX = 8  # one entry per distinct header-tree state
 def _expected_text_functions(cfg: ProjectConfig) -> dict[str, int]:
     """``{symbol: marker VA}`` for every annotated function.
 
-    Imported decisions live in ``text_audit``: ``audit_text`` classifies OK /
-    MISPLACED / MISSING, this wrapper only feeds it the expectation side.  The
-    marker symbol is the per-target ``// FUNCTION:`` name; the ``lstrip("_")``
-    normalization matches ``text_audit._expected_functions`` so verify and
-    ``text-audit`` classify the same binary identically.
+    Shared by verify and ``text-audit`` so both classify the same binary.
+    Marker symbols use the per-target ``// FUNCTION:`` name; ``lstrip("_")``
+    normalizes leading underscores for export-table comparison.
     """
     from rebrew.cli import iter_annotations
     from rebrew.sources import iter_sources, target_marker

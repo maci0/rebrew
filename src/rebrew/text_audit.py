@@ -26,12 +26,11 @@ from rebrew.cli import (
     EXIT_MISMATCH,
     TargetOption,
     error_exit,
-    iter_annotations,
     json_print,
     require_config,
 )
 from rebrew.data_layout import built_text_va
-from rebrew.sources import iter_sources, target_marker
+from rebrew.verify_hash import _expected_text_functions as _expected_functions
 
 console = Console(stderr=True)
 
@@ -39,19 +38,6 @@ app = typer.Typer(
     help="Compare .text function VAs of the current build against the source markers.",
     rich_markup_mode="rich",
 )
-
-
-def _expected_functions(cfg: Any) -> dict[str, int]:
-    """``{symbol: marker VA}`` for every annotated function."""
-    marker = target_marker(cfg)
-    out: dict[str, int] = {}
-    for path, annos in iter_annotations(
-        iter_sources(cfg.reversed_dir, cfg), target=marker, metadata_dir=cfg.metadata_dir
-    ):
-        for ann in annos:
-            sym = ann.symbol if ann.symbol and ann.symbol != "?" else "_" + path.stem
-            out.setdefault(sym.lstrip("_"), ann.va)
-    return out
 
 
 def exported_symbol_vas(binary: Path) -> dict[str, int]:

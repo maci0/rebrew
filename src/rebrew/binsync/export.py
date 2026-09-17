@@ -762,14 +762,12 @@ def _git_commit_state_dir(state_dir: Path, target: str) -> str | None:
             f"[yellow]warning:[/yellow] {state_dir} is not a git repository — skipping git commit"
         )
         return None
-    # Check git is available
     try:
         subprocess.run(["git", "--version"], capture_output=True, check=False, timeout=5)
     except (OSError, subprocess.SubprocessError):
         console.print("[yellow]warning:[/yellow] git not found — skipping commit")
         return None
 
-    # Stage
     result = subprocess.run(
         ["git", "-C", str(state_dir), "add", "-A"],
         capture_output=True,
@@ -780,7 +778,6 @@ def _git_commit_state_dir(state_dir: Path, target: str) -> str | None:
         console.print(f"[yellow]warning:[/yellow] git add failed: {result.stderr.strip()}")
         return None
 
-    # Check if there's anything to commit
     status = subprocess.run(
         ["git", "-C", str(state_dir), "status", "--porcelain"],
         capture_output=True,

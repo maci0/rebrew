@@ -1924,7 +1924,6 @@ def prepare_entries(
             f"Skipped {library_header_count} library header entries (identified, not compiled)"
         )
 
-    # Check cache
     passed = 0
     failed = 0
     fail_details: list[tuple[Annotation, str]] = []
@@ -2442,7 +2441,6 @@ def _print_results(
     if fail_details:
         console.print()
 
-        # Build lookup for results to get match_percent
         res_by_va = {int(r["va"], 16): r for r in results}
 
         # Sort failures: lowest match_percent first, then by VA

@@ -370,7 +370,6 @@ def _collect_active_functions(
             )
             continue
 
-        # Get verify cache data if available
         va_key = f"0x{va:08x}"
         v_entry = verify_entries.get(va_key)
         v_status = v_entry.status if v_entry else None
@@ -398,7 +397,6 @@ def _collect_active_functions(
         # (populated in the improve-match branch below).
         mutations: list[str] = []
 
-        # Determine category and specific description
         if v_status == "COMPILE_ERROR":
             category = CAT_COMPILE_ERROR
             desc = "Compile error — fix syntax/includes"

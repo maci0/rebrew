@@ -232,7 +232,6 @@ def main(
         create_missing=create_missing,
     )
 
-    # --- Output ---
     _print_import_result(result, json_output=json_output, dry_run=dry_run)
     return
 

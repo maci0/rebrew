@@ -507,7 +507,6 @@ def apply_commands_via_mcp(
     total = len(commands)
 
     with httpx.Client(timeout=MCP_REQUEST_TIMEOUT_S) as client:
-        # Initialize MCP session (reuse shared helper)
         try:
             session_id = init_mcp_session(client, endpoint)
         except httpx.HTTPError as exc:
@@ -522,7 +521,7 @@ def apply_commands_via_mcp(
         if session_id:
             headers["Mcp-Session-Id"] = session_id
 
-        # Send initialized notification (best-effort — not fatal if it fails)
+        # Best-effort: ReVa does not require this notification to succeed.
         try:
             client.post(
                 endpoint,
