@@ -898,7 +898,15 @@ state dir), `--refresh-cache` (cache deleted).
 | `SIG_DIR` | Directory containing `.sig`/`.pat` files (positional, optional) |
 | `--binary FILE` | Target PE file (default: from config) |
 | `--min-size N` | Minimum function size in bytes to report (default 16) |
+| `--va HEX` | Check one function VA instead of the whole scan |
+| `--show-ambiguous` | Report offsets with more than three candidate names |
 | `--json` | Output results as JSON |
+
+Every executable section is scanned, not only `.text`: a linker run with
+`-ffunction-sections` (firmware, bootloaders, most cross builds) can leave
+`.text` almost empty while the code sits in `.text.<name>`.  `text_size` in
+the JSON output is the summed size of those sections.  For formats whose
+loader does not classify sections (PE, Mach-O) the scan stays on `.text`.
 
 ### `rebrew crt-match`
 

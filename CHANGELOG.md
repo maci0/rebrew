@@ -1,5 +1,15 @@
 ## [Unreleased]
 ### Fixed
+- **FLIRT scans every executable section, not just ``.text``** — linkers run
+  with ``-ffunction-sections`` (every firmware and bootloader build) put the
+  code in ``.text.<name>`` and leave ``.text`` nearly empty: U-Boot's own
+  ``.text`` is 376 of its 489 KB of code, so a ``.text``-only scan identified
+  2 functions where 698 signatures match.  ``SectionInfo.is_code`` carries
+  ``SHF_EXECINSTR`` out of the ELF loader; ``_check_offset`` now takes the
+  region it scans so VAs stay correct and the ``--va`` probe picks the
+  section that contains the address.  Binary formats that do not set the flag
+  keep the old single-``.text`` behaviour, and PE/Mach-O results are
+  unchanged.
 - **``[llm] model`` is loaded into ``cfg.llm_model``** — the key was treated as
   unrecognized while ``_resolve_model`` already looked for ``cfg.llm_model`` /
   ``REBREW_LLM_MODEL``, so a TOML model pin was ignored.  Non-empty

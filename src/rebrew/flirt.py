@@ -542,24 +542,45 @@ def main(
     # NE or MZ image has only numbered segments, and the largest one holds the
     # code in practice (SEG1 of a NE executable; the MZ loader emits a single
     # pseudo code section).
-    text_name = ".text" if ".text" in info.sections else "__text"
-    if text_name not in info.sections:
-        if getattr(info, "arch", "") == "x86_16" and info.sections:
-            text_name = max(info.sections, key=lambda n: info.sections[n].raw_size)
-            console.print(f"16-bit image: scanning largest segment {text_name}")
-        else:
-            error_exit("Could not find .text section", json_mode=json_output)
+    # Every executable section, not only `.text`.  Linkers with
+    # -ffunction-sections put the code in `.text.<name>` and leave `.text`
+    # itself nearly empty: U-Boot's own `.text` is 376 bytes out of 489 KB of
+    # code, so a `.text`-only scan finds 2 of its functions instead of 712.
+    # `is_code` is set by the ELF loader; formats that do not set it fall back
+    # to the single-section heuristic below.
+    regions: list[tuple[int, bytes, str]] = []
+    for sec_name, sec in info.sections.items():
+        if not getattr(sec, "is_code", False):
+            continue
+        end = min(sec.file_offset + sec.raw_size, len(info.data))
+        if end > sec.file_offset:
+            regions.append((sec.va, info.data[sec.file_offset : end], sec_name))
+    regions.sort(key=lambda region: region[0])
 
-    text_sec = info.sections[text_name]
-    end = min(text_sec.file_offset + text_sec.raw_size, len(info.data))
-    code_data = info.data[text_sec.file_offset : end]
-    base_va = text_sec.va
+    if not regions:
+        text_name = ".text" if ".text" in info.sections else "__text"
+        if text_name not in info.sections:
+            if getattr(info, "arch", "") == "x86_16" and info.sections:
+                text_name = max(info.sections, key=lambda n: info.sections[n].raw_size)
+                console.print(f"16-bit image: scanning largest segment {text_name}")
+            else:
+                error_exit("Could not find .text section", json_mode=json_output)
+        text_sec = info.sections[text_name]
+        end = min(text_sec.file_offset + text_sec.raw_size, len(info.data))
+        regions = [(text_sec.va, info.data[text_sec.file_offset : end], text_name)]
 
+    total_code = sum(len(data) for _va, data, _name in regions)
     sig_count = len(sigs)
-    console.print(
-        f"Searching for signature matches in {len(code_data)} bytes "
-        f"(min function size: {min_size}B)..."
-    )
+    if len(regions) == 1:
+        console.print(
+            f"Searching for signature matches in {total_code} bytes "
+            f"(min function size: {min_size}B)..."
+        )
+    else:
+        console.print(
+            f"Searching for signature matches in {total_code} bytes across "
+            f"{len(regions)} executable sections (min function size: {min_size}B)..."
+        )
 
     found = 0
     skipped = 0
@@ -571,13 +592,11 @@ def main(
     # Guard: FLIRT signatures need at least _MIN_MATCH_WINDOW bytes to match.
     # Note: this is a warning only — the shared JSON block below still emits
     # the full schema (and the --va single-function check still runs).
-    if len(code_data) < _MIN_MATCH_WINDOW:
-        console.print(
-            f"Warning: .text section too small ({len(code_data)} bytes) for FLIRT matching"
-        )
+    if total_code < _MIN_MATCH_WINDOW:
+        console.print(f"Warning: code sections too small ({total_code} bytes) for FLIRT matching")
 
-    def _check_offset(offset: int, *, force: bool = False) -> None:
-        """Match one .text offset against the signature index (helper for both modes).
+    def _check_offset(base_va: int, code_data: bytes, offset: int, *, force: bool = False) -> None:
+        """Match one code-section offset against the signature index.
 
         *force* bypasses the size gate — the explicit ``--va`` probe is about
         one function the user named, so a short function must not silently
@@ -633,33 +652,41 @@ def main(
         # Single-function mode: check just this VA (used by `rebrew todo`
         # identify-library items).
         va_int = parse_va(va_filter, json_mode=json_output)
-        offset = va_int - base_va
-        if not (0 <= offset < len(code_data)):
+        for base_va, code_data, _name in regions:
+            offset = va_int - base_va
+            if 0 <= offset < len(code_data):
+                _check_offset(base_va, code_data, offset, force=True)
+                break
+        else:
+            spans = ", ".join(
+                f"0x{base_va:x}..0x{base_va + len(code_data):x}"
+                for base_va, code_data, _name in regions
+            )
             error_exit(
-                f"VA 0x{va_int:08x} outside .text (0x{base_va:x}..0x{base_va + len(code_data):x})",
+                f"VA 0x{va_int:08x} is in no code section ({spans})",
                 json_mode=json_output,
             )
-        _check_offset(offset, force=True)
     else:
-        for offset in iter_match_offsets(
-            len(code_data), stride=stride, min_window=_MIN_MATCH_WINDOW
-        ):
-            _check_offset(offset)
+        for base_va, code_data, _name in regions:
+            for offset in iter_match_offsets(
+                len(code_data), stride=stride, min_window=_MIN_MATCH_WINDOW
+            ):
+                _check_offset(base_va, code_data, offset)
 
     if json_output:
         output: dict[str, Any] = {
             "binary": str(final_exe),
             "sig_dirs": sig_sources,
             "signature_count": sig_count,
-            "text_size": len(code_data),
+            "text_size": total_code,
             "min_size": min_size,
             "match_count": found,
             "skipped_ambiguous": skipped,
             "matches": matches_list,
             "ambiguous_matches": ambiguous_list,
         }
-        if len(code_data) < _MIN_MATCH_WINDOW:
-            output["warning"] = f".text section too small ({len(code_data)} bytes)"
+        if total_code < _MIN_MATCH_WINDOW:
+            output["warning"] = f"code sections too small ({total_code} bytes)"
         json_print(output)
     else:
         console.print(f"\nTotal matches found: {found}")

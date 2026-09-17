@@ -160,7 +160,7 @@ class TestCliSurface:
         )
         result = CliRunner().invoke(flirt_mod.app, ["--va", "0x2000"])
         assert result.exit_code != 0
-        assert "outside .text" in result.output
+        assert "is in no code section" in result.output
 
 
 class TestAmbiguousReporting:
@@ -369,4 +369,102 @@ class TestSmallTextSectionSchema:
         self._setup(tmp_path, monkeypatch, raw_size=16)
         result = CliRunner().invoke(flirt_mod.app, ["--va", "0x2000"])
         assert result.exit_code != 0
-        assert "outside .text" in result.output
+        assert "is in no code section" in result.output
+
+
+class TestMultiSectionScan:
+    """Every executable section is scanned, not only `.text`.
+
+    Linkers with -ffunction-sections leave `.text` nearly empty (U-Boot's own
+    `.text` is 376 of its 489 KB of code), so a `.text`-only scan identifies
+    almost nothing.  `is_code` comes from the ELF loader.
+    """
+
+    def _setup(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from types import SimpleNamespace
+
+        import rebrew.flirt as flirt_mod
+
+        monkeypatch.setattr(
+            flirt_mod,
+            "require_config",
+            lambda target=None, json_mode=False: SimpleNamespace(
+                root=tmp_path, target_binary=tmp_path / "x"
+            ),
+        )
+        monkeypatch.setattr(flirt_mod, "load_signatures_for", lambda dirs, arch: [object()])
+        monkeypatch.setattr(
+            flirt_mod,
+            "flirt",
+            SimpleNamespace(
+                compile=lambda s: _FakeMatcher(),
+                parse_sig=lambda b: [],
+                parse_pat=lambda b: [],
+            ),
+        )
+        monkeypatch.setattr(
+            flirt_mod,
+            "load_binary",
+            lambda p: SimpleNamespace(
+                sections={
+                    ".text": SimpleNamespace(va=0x1000, file_offset=0, raw_size=64, is_code=True),
+                    ".text_rest": SimpleNamespace(
+                        va=0x2000, file_offset=64, raw_size=128, is_code=True
+                    ),
+                    ".rodata": SimpleNamespace(
+                        va=0x3000, file_offset=192, raw_size=64, is_code=False
+                    ),
+                },
+                data=b"A" * 64 + b"B" * 128 + b"C" * 64,
+            ),
+        )
+
+    def test_matches_from_every_code_section(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        import rebrew.flirt as flirt_mod
+
+        self._setup(tmp_path, monkeypatch)
+        result = CliRunner().invoke(flirt_mod.app, ["--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        names = {n for m in data["matches"] for n in m["names"]}
+        assert "fn_A" in names  # .text
+        assert "fn_B" in names  # .text_rest
+        assert "fn_C" not in names  # .rodata is data, never scanned
+        assert data["text_size"] == 192  # 64 + 128, data section excluded
+        vas = {m["va"] for m in data["matches"]}
+        assert any(int(v, 16) >= 0x2000 for v in vas)  # .text_rest was scanned
+
+    def test_va_probe_finds_the_containing_section(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        import rebrew.flirt as flirt_mod
+
+        self._setup(tmp_path, monkeypatch)
+        result = CliRunner().invoke(flirt_mod.app, ["--json", "--va", "0x2000"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert {n for m in data["matches"] for n in m["names"]} == {"fn_B"}
+
+
+class _FakeMatch:
+    def __init__(self, name: str) -> None:
+        self.names = [(name, "public", 0)]
+
+
+class _FakeMatcher:
+    """Names the match after the section marker byte it was handed."""
+
+    def match(self, buf: bytes) -> list[object]:
+        if not buf:
+            return []
+        return [_FakeMatch(f"fn_{chr(buf[0])}")]

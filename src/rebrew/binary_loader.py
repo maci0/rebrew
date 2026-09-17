@@ -126,6 +126,9 @@ class SectionInfo:
     size: int  # virtual size (mapped)
     file_offset: int  # offset in the file on disk
     raw_size: int  # size on disk (may differ from virtual size)
+    # SHF_EXECINSTR.  Only the ELF loader populates this; PE/Mach-O loaders
+    # leave it False, and the FLIRT scanner then falls back to `.text`.
+    is_code: bool = False
 
 
 @dataclass
@@ -258,6 +261,7 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
             size=vsize,
             file_offset=raw_offset,
             raw_size=raw_size,
+            is_code=bool(int(section.flags) & int(lief.ELF.Section.FLAGS.EXECINSTR)),
         )
 
         if name == ".text":
