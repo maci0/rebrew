@@ -51,9 +51,9 @@ def test_fixtures_match_generator() -> None:
 
     for name, expected in build_all().items():
         path = FIXTURES / name
-        assert path.exists(), f"missing fixture {name} — run python tools/gen_fixtures.py"
+        assert path.exists(), f"missing fixture {name} — run make gen-fixtures"
         assert path.read_bytes() == expected, (
-            f"{name} is stale — run python tools/gen_fixtures.py to regenerate"
+            f"{name} is stale — run make gen-fixtures to regenerate"
         )
 
 

@@ -17,12 +17,14 @@ pinned docker image).
 
 ## Bootstrap (clean clone)
 
-Needs **uv**, **Python 3.13+** (see `.python-version`), and **nasm** on `PATH`
+Needs **uv** (CI pins `UV_VERSION` in `.github/workflows/ci.yml`, currently
+`0.12.14`), **Python 3.13+** (see `.python-version`), and **nasm** on `PATH`
 (CI installs nasm for asm round-trip tests).  `uv sync` also needs the sibling
 [`resembl`](https://github.com/maci0/resembl) checkout at `../resembl` — the
 path pin in `pyproject.toml` / `uv.lock` (tag `v2.0.0`, same as CI
 `RESEMBL_REF`).  Without it, sync fails with a cryptic “Distribution not found”
-path error; `make setup` names the clone command instead.
+path error; `make setup` names the clone command instead (and fails closed if
+`uv` itself is missing).
 
 ```bash
 # from the directory that will hold both checkouts:
@@ -37,10 +39,12 @@ make test-one T=tests/test_annotation.py   # smoke the edit-test loop
 
 ```bash
 make help                     # list contributor make targets
-make setup                    # frozen sync + pre-commit install (checks ../resembl first)
+make setup                    # frozen sync + pre-commit install (checks uv + ../resembl first)
 make test-one T=tests/foo.py  # single file / nodeid (fast edit-test loop)
 make test                     # full suite (~6700 tests; needs nasm)
-make all                      # local mirror of CI lint+test gates (ruff/mypy/audit/pytest/fixtures)
+make all                      # local mirror of CI lint+test gates (+ import cycles)
+make check                    # pre-commit hook parity (CI pre-commit job)
+make gen-fixtures             # regenerate tests/fixtures/ after editing tools/gen_fixtures.py
 uv run ruff check src/ tests/ tools/
 uv run mypy
 uv run pre-commit run --all-files
@@ -49,8 +53,9 @@ make build                    # reproducible sdist+wheel (SOURCE_DATE_EPOCH, TZ=
 
 ## What to work on
 
-- Open issues in the repo, or the prioritized action list: `rebrew todo`.
-- `docs/IDEAS.md` and `docs/GAP_ANALYSIS.md` list known gaps and future work.
+- Open issues in the repo, or the prioritized action list: `rebrew todo`
+  (inside a project workspace with `rebrew-project.toml`).
+- Longer-horizon backlog: [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
 ## Versioning and releases
 
@@ -84,9 +89,11 @@ schema `"7"` in 2.4.0 and the Python 3.13 floor in 2.3.0).
 
 ## Before submitting
 
-1. Run the full suite and all lint/type gates (commands above).
+1. `make all && make check` — mirrors CI lint+test gates and the pre-commit job.
 2. Keep changes minimal and scoped; match the surrounding style.
 3. Add tests for new behavior — the suite sits at ~92% coverage, and new
    pure logic is expected to keep it there.
-4. Note: this project tracks a `docs/GOAL_PROGRESS.md` session log; you do
-   not need to update it unless asked.
+4. Record user-visible change under `## [Unreleased]` in `CHANGELOG.md` when
+   the change affects installs, CLI, config, or on-disk formats (see Versioning
+   above).  If you edit `tools/gen_fixtures.py`, run `make gen-fixtures` and
+   commit the refreshed `tests/fixtures/` bytes.

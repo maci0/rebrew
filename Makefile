@@ -1,5 +1,6 @@
 .PHONY: help setup test test-one lint format format-check check build sbom all \
-	gen-fixtures-check idempotency-check mypy audit release-check ensure-resembl ensure-nasm
+	gen-fixtures gen-fixtures-check cycles-check idempotency-check mypy audit \
+	release-check ensure-uv ensure-resembl ensure-nasm
 
 .DEFAULT_GOAL := help
 
@@ -8,11 +9,13 @@
 # --group m2c is opt-in (git-only decompiler) — add it when exercising fetch_m2c.
 UV_SYNC_FLAGS ?= --frozen --all-extras --group similarity
 
-# Keep in step with RESEMBL_REF in .github/workflows/ci.yml and the resembl
-# version recorded in uv.lock (path dep).  `make setup` clones this tag when
-# ../resembl is missing only if you run the printed command yourself.
+# Keep in step with RESEMBL_REF / UV_VERSION in .github/workflows/ci.yml and the
+# resembl version recorded in uv.lock (path dep).  `make setup` prints the clone
+# command when ../resembl is missing; it does not clone for you.
 RESEMBL_REF ?= v2.0.0
 RESEMBL_DIR := $(abspath $(CURDIR)/../resembl)
+# Match workflow env UV_VERSION so local sync/audit behavior tracks CI.
+UV_VERSION ?= 0.12.14
 
 # Single-file / nodeid override for the edit-test loop:
 #   make test-one T=tests/test_annotation.py
@@ -37,21 +40,31 @@ help:
 		'  make format-check       # ruff format --check' \
 		'  make mypy               # mypy (matches CI lint job)' \
 		'  make audit              # uv audit --locked (matches CI lint job)' \
-		'  make check              # pre-commit run --all-files' \
+		'  make check              # pre-commit run --all-files (CI pre-commit job)' \
 		'  make build              # reproducible sdist+wheel' \
 		'  make sbom               # CycloneDX 1.5 JSON from uv.lock (offline)' \
-		'  make all                # local mirror of CI lint+test gates' \
+		'  make all                # local mirror of CI lint+test gates (+ import cycles)' \
+		'  make gen-fixtures       # regenerate tests/fixtures/ from tools/gen_fixtures.py' \
 		'  make gen-fixtures-check # tools/gen_fixtures.py --check' \
+		'  make cycles-check       # tools/detect_cycles.py (also in pre-commit / make check)' \
 		'  make idempotency-check  # tools/check_idempotency.py' \
 		'  make release-check      # version/changelog/tag preflight before tagging' \
 		'' \
 		'Bootstrap (clean clone):' \
-		'  1. Install uv + Python 3.13+ (see .python-version) and nasm on PATH' \
+		'  1. Install uv $(UV_VERSION)+ (CI pin), Python 3.13+ (.python-version), nasm on PATH' \
 		'  2. Clone sibling resembl at $(RESEMBL_REF) into ../resembl' \
 		'     git clone --depth 1 --branch $(RESEMBL_REF) https://github.com/maci0/resembl.git ../resembl' \
-		'  3. make setup && make test-one T=tests/test_annotation.py'
+		'  3. make setup && make test-one T=tests/test_annotation.py' \
+		'  Before a PR: make all && make check'
 
-ensure-resembl:
+ensure-uv:
+	@if ! command -v uv >/dev/null 2>&1; then \
+	  echo "ERROR: uv not on PATH (required for setup/test/lint; CI pins UV_VERSION=$(UV_VERSION))."; \
+	  echo "Install from https://docs.astral.sh/uv/ then re-run make setup."; \
+	  exit 1; \
+	fi
+
+ensure-resembl: ensure-uv
 	@if [ ! -e "$(RESEMBL_DIR)/pyproject.toml" ]; then \
 	  echo "ERROR: sibling resembl checkout missing at $(RESEMBL_DIR)"; \
 	  echo "uv sync needs it even when you are not using the similarity group"; \
@@ -75,7 +88,7 @@ setup: ensure-resembl
 
 # Run tests
 test: ensure-nasm
-	uv run pytest tests/ -v
+	uv run pytest tests/ -v --tb=short
 
 # Fast edit-test loop: one file or pytest node id
 test-one: ensure-nasm
@@ -108,12 +121,22 @@ sbom:
 	uv run python tools/generate_sbom.py -o dist/rebrew.cdx.json
 
 # Run all non-mutating verification gates (mirrors CI lint + test jobs:
-# ruff, mypy, uv audit, pytest, fixture freshness, idempotency sweep).
-all: format-check lint mypy audit test gen-fixtures-check idempotency-check
+# ruff, mypy, uv audit, pytest, fixture freshness, idempotency sweep, plus the
+# import-cycle hook that the CI pre-commit job also runs).  For full hook
+# parity (hygiene + skills validate) also run `make check` before a PR.
+all: format-check lint mypy audit test gen-fixtures-check cycles-check idempotency-check
+
+# Regenerate checked-in binary fixtures (run after editing tools/gen_fixtures.py).
+gen-fixtures:
+	uv run python tools/gen_fixtures.py
 
 # Fixture freshness: checked-in fixtures match the generator (CI test job).
 gen-fixtures-check:
 	uv run python tools/gen_fixtures.py --check
+
+# Module-level import cycles (pre-commit import-cycles hook / CI pre-commit job).
+cycles-check:
+	uv run python tools/detect_cycles.py
 
 # Idempotency sweep: every --json command, run twice (CI test job).
 idempotency-check:

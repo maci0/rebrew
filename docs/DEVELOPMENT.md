@@ -109,6 +109,8 @@ uv run mypy                             # type check (0 issues expected; strict,
 uv run pre-commit run --all-files       # 13 of 15 hooks — pytest (pre-push) and
                                         # validate-skill-commands (manual) are stage-gated
 make all                                # local mirror of CI lint + test gates
+make check                              # pre-commit hook parity (CI pre-commit job)
+make gen-fixtures                       # regenerate tests/fixtures/ (then commit)
 make build                              # sdist+wheel (deterministic wheels)
 uv run python -m slipcover -m pytest tests/ -q   # coverage (summary line)
 ```

@@ -6,8 +6,8 @@ and generates src/rebrew/matcher/flag_data.py using rebrew's own
 FlagSet/Checkbox classes (same data structure as decomp.me).
 
 Usage:
-    python tools/sync_decomp_flags.py          # writes flag_data.py
-    python tools/sync_decomp_flags.py --dry-run  # print to stdout
+    uv run python tools/sync_decomp_flags.py          # writes flag_data.py
+    uv run python tools/sync_decomp_flags.py --dry-run  # print to stdout
 """
 
 import argparse

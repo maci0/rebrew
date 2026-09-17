@@ -302,8 +302,9 @@ make test                  # full suite (needs nasm)
 uv run ruff check src/ tests/ tools/
 uv run ruff format src/ tests/ tools/
 make all                   # local mirror of CI lint + test gates
+make check                 # pre-commit hook parity (before a PR)
 make build                 # sdist + wheel (SOURCE_DATE_EPOCH / TZ=UTC for deterministic wheels)
-python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me
+uv run python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me
 ```
 
 ### Flag Sweep Tiers
