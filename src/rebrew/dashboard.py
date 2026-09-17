@@ -327,7 +327,11 @@ async function loadFunctions(options) {
     $("show-more-wrap").hidden = true;
     $("results-hint").hidden = true;
     $("retry-functions").hidden = false;
-    setLoadError("functions", "Functions could not be loaded. Use Retry functions to try again with the same filters.");
+    if (grow && loadedCount > 0) {
+      setLoadError("functions", "Could not load more functions. The rows already shown are unchanged; use Retry functions to fetch the next page again.");
+    } else {
+      setLoadError("functions", "Functions could not be loaded. Use Retry functions to try again with the same filters.");
+    }
   }
 }
 function renderSummary(s) {
