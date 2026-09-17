@@ -201,6 +201,21 @@ class TestRecompileUrl:
         assert recompile_url(SimpleNamespace(recompile_url="")) is None
         assert recompile_url(SimpleNamespace(recompile_url="   ")) is None
 
+    @pytest.mark.parametrize("url", ["http://:8000", "http://localhost:99999", "http://[::1"])
+    @pytest.mark.parametrize("from_env", [False, True])
+    def test_invalid_authority_raises(
+        self, monkeypatch: pytest.MonkeyPatch, url: str, from_env: bool
+    ) -> None:
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        cfg = SimpleNamespace(recompile_url=url)
+        label = r"compiler\.recompile_url"
+        if from_env:
+            monkeypatch.setenv("REBREW_RECOMPILE_URL", url)
+            cfg.recompile_url = "http://cfg"
+            label = "REBREW_RECOMPILE_URL"
+        with pytest.raises(ValueError, match=rf"{label} must be an http\(s\) URL"):
+            recompile_url(cfg)
+
     def test_invalid_url_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
         with pytest.raises(ValueError, match=r"compiler\.recompile_url must be an http\(s\) URL"):

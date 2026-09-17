@@ -592,7 +592,7 @@ def _as_str(value: Any, default: str, field_name: str) -> str:
     return default
 
 
-def _http_url(value: str, field_name: str) -> str:
+def validate_http_url(value: str, field_name: str) -> str:
     """Return *value* when it is an http(s) URL with a host; else raise.
 
     Empty / whitespace-only input is treated as unset (returns ``""``) so
@@ -602,11 +602,18 @@ def _http_url(value: str, field_name: str) -> str:
     text = value.strip()
     if not text:
         return ""
-    parsed = urlparse(text)
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        raise ValueError(
-            f"rebrew-project.toml {field_name} must be an http(s) URL with a host, got {value!r}"
-        )
+    message = f"{field_name} must be an http(s) URL with a host and a valid port"
+    try:
+        parsed = urlparse(text)
+        if (
+            parsed.scheme not in ("http", "https")
+            or not parsed.hostname
+            or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in text)
+            or (parsed.port is not None and not 1 <= parsed.port <= 65535)
+        ):
+            raise ValueError(message)
+    except ValueError:
+        raise ValueError(message) from None
     return text
 
 
@@ -1202,7 +1209,7 @@ def load_config(
             "compiler.base_cflags",
         ),
         compile_timeout=_positive_int(compiler.get("timeout", 60), 60, "compiler.timeout"),
-        recompile_url=_http_url(
+        recompile_url=validate_http_url(
             _as_str(compiler.get("recompile_url"), "", "compiler.recompile_url"),
             "compiler.recompile_url",
         ),
@@ -1302,7 +1309,7 @@ def load_config(
     unknown_llm = set(llm_raw) - _KNOWN_LLM_KEYS
     if unknown_llm:
         _config_warn(f"rebrew-project.toml [llm]: unrecognized keys: {sorted(unknown_llm)}")
-    cfg.llm_endpoint = _http_url(
+    cfg.llm_endpoint = validate_http_url(
         _as_str(llm_raw.get("endpoint"), "", "llm.endpoint"),
         "llm.endpoint",
     )

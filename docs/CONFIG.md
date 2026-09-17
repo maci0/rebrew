@@ -342,9 +342,13 @@ It emits warnings (and applies safe defaults) if:
 - The target binary is missing — `image_base`/`text_va` auto-detection is skipped
   (warning emitted at load time).
 
-It fail-fasts (raises) when a configured URL is non-empty but not `http(s)` with
-a host: `[compiler] recompile_url`, `[llm] endpoint`, and the matching
-`REBREW_RECOMPILE_URL` / `REBREW_LLM_ENDPOINT` env values.
+`[compiler] recompile_url`, `[llm] endpoint`, and the matching
+`REBREW_RECOMPILE_URL` / `REBREW_LLM_ENDPOINT` env values share URL validation:
+non-empty values must use `http(s)`, have a hostname, and use a numeric port in
+1–65535 if specified. Malformed IPv6 addresses, embedded whitespace, and control
+characters are rejected. Surrounding whitespace is trimmed; empty values remain
+unset. TOML values are validated at load; environment values are validated when
+resolved, before any HTTP request.
 
 `cflags` are user-facing defaults (e.g. `/O2 /Gd`). `base_cflags` are always-on
 flags prepended by the compile helpers (default `/nologo /c /MT`) and must not be

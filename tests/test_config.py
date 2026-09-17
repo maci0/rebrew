@@ -574,6 +574,43 @@ recompile_url = "ftp://example.com"
         with pytest.raises(ValueError, match=r"compiler\.recompile_url must be an http\(s\) URL"):
             load_config(root)
 
+    @pytest.mark.parametrize("section, key", [("compiler", "recompile_url"), ("llm", "endpoint")])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://:8000",
+            "http://localhost:0",
+            "http://localhost:99999",
+            "http://localhost:bad",
+            "http://[::1",
+            "http://bad host",
+            "http://local\\thost",
+        ],
+    )
+    def test_invalid_http_authority_raises(
+        self, tmp_path: Path, section: str, key: str, url: str
+    ) -> None:
+        root = _make_project(
+            tmp_path,
+            '[project]\ndefault_target = "main"\n[targets.main]\nbinary = "test.exe"\n'
+            f'[{section}]\n{key} = "{url}"\n',
+        )
+        with pytest.raises(ValueError, match=rf"{section}\.{key} must be an http\(s\) URL"):
+            load_config(root)
+
+    @pytest.mark.parametrize(
+        "url", ["http://localhost", "https://127.0.0.1:65535/v1", "http://[::1]:8000/v1", ""]
+    )
+    def test_valid_http_urls_preserved(self, tmp_path: Path, url: str) -> None:
+        root = _make_project(
+            tmp_path,
+            '[project]\ndefault_target = "main"\n[targets.main]\nbinary = "test.exe"\n'
+            f'[compiler]\nrecompile_url = "  {url}  "\n[llm]\nendpoint = "  {url}  "\n',
+        )
+        cfg = load_config(root)
+        assert cfg.recompile_url == url
+        assert cfg.llm_endpoint == url
+
     def test_llm_api_key_without_endpoint_warns(self, tmp_path: Path) -> None:
         toml = """\
 [project]

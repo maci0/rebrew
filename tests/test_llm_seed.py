@@ -58,6 +58,19 @@ class TestLlmConfig:
             "api_key": "env-key",
         }
 
+    @pytest.mark.parametrize("url", ["http://:8000", "http://localhost:99999", "http://[::1"])
+    @pytest.mark.parametrize("from_env", [False, True])
+    def test_invalid_authority_raises(
+        self, monkeypatch: pytest.MonkeyPatch, url: str, from_env: bool
+    ) -> None:
+        monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
+        cfg = _cfg(endpoint=url)
+        if from_env:
+            monkeypatch.setenv("REBREW_LLM_ENDPOINT", url)
+            cfg.llm_endpoint = ""
+        with pytest.raises(ValueError, match=r"LLM endpoint must be an http\(s\) URL"):
+            llm_config(cfg)
+
     def test_invalid_endpoint_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
         with pytest.raises(ValueError, match=r"LLM endpoint must be an http\(s\) URL"):

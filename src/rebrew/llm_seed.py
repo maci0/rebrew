@@ -27,6 +27,8 @@ import os
 import re
 from typing import Any
 
+from rebrew.config import validate_http_url
+
 # Cost / injection caps at the single LLM call site.
 _MAX_SOURCE_CHARS = 16_000  # ~4k tokens of C; larger functions truncate
 _MAX_RESPONSE_CHARS = 32_000
@@ -90,11 +92,9 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
     """Return ``{"endpoint": ..., "api_key": ...}`` or None when not configured.
 
     Config ``[llm]`` keys win over environment variables.  A non-empty
-    endpoint that is not http(s) with a host raises ``ValueError`` (same
-    rule as ``compiler.recompile_url``).
+    endpoint that is not http(s) with a host and a valid port raises
+    ``ValueError`` (same rule as ``compiler.recompile_url``).
     """
-    from urllib.parse import urlparse
-
     endpoint = str(getattr(cfg, "llm_endpoint", "") or "").strip()
     api_key = str(getattr(cfg, "llm_api_key", "") or "").strip()
     if not endpoint:
@@ -103,9 +103,7 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
         api_key = os.environ.get("REBREW_LLM_API_KEY", "").strip()
     if not endpoint:
         return None
-    parsed = urlparse(endpoint)
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        raise ValueError(f"LLM endpoint must be an http(s) URL with a host, got {endpoint!r}")
+    endpoint = validate_http_url(endpoint, "LLM endpoint")
     return {"endpoint": endpoint, "api_key": api_key}
 
 

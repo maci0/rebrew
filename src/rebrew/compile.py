@@ -66,7 +66,7 @@ import numpy as np
 from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary
 from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
 from rebrew.compile_cache import CacheBackend, compile_cache_key, get_compile_cache
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, validate_http_url
 from rebrew.context import CONTEXT_UNIT_NAME, CompileContext
 from rebrew.headless import ensure_xvfb
 from rebrew.matcher import parse_obj_symbol_and_relocs
@@ -866,17 +866,12 @@ def recompile_url(cfg: ProjectConfig) -> str | None:
     local docker images.  A non-empty value that is not http(s) with a host
     raises ``ValueError`` so a typo does not turn into a cryptic HTTP failure.
     """
-    from urllib.parse import urlparse
-
     env = os.environ.get("REBREW_RECOMPILE_URL", "").strip()
     candidate = env or (getattr(cfg, "recompile_url", "") or "").strip()
     if not candidate:
         return None
-    parsed = urlparse(candidate)
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        label = "REBREW_RECOMPILE_URL" if env else "compiler.recompile_url"
-        raise ValueError(f"{label} must be an http(s) URL with a host, got {candidate!r}")
-    return candidate
+    label = "REBREW_RECOMPILE_URL" if env else "compiler.recompile_url"
+    return validate_http_url(candidate, label)
 
 
 def _compile_via_recompile(
