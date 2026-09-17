@@ -114,21 +114,11 @@ def audit_text(
                     "delta": None,
                 }
             )
-        elif act == exp:
-            rows.append(
-                {
-                    "symbol": name,
-                    "status": "OK",
-                    "expected": f"0x{exp:x}",
-                    "actual": f"0x{act:x}",
-                    "delta": 0,
-                }
-            )
         else:
             rows.append(
                 {
                     "symbol": name,
-                    "status": "MISPLACED",
+                    "status": "OK" if act == exp else "MISPLACED",
                     "expected": f"0x{exp:x}",
                     "actual": f"0x{act:x}",
                     "delta": act - exp,
