@@ -95,6 +95,21 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   Pain: `git add -A` swept unmeasured edits once. Feature: `rebrew commit
   --measured` staging only link-tested files. Evidence: workflow-traps §1.
 
+- [ ] **`test`/`verify` must honour the CMake per-file toolchain pin.**
+  Pain: `CMakeLists.txt` pins three files to `/REBREW_TOOLCHAIN:msvc-6.0-sp5-pp`
+  and the real link applies it (confirmed in `build.make`), but `rebrew test`
+  and `rebrew verify` compile those files with the project default (sp6) and
+  never read the pin. So every per-function number for a pinned file in
+  `rebrew-functions.toml` and in `verify` output describes a compile that does
+  not ship: `gm_FindNextFilteredEntity` reads `obj 342`, SIZE_MISMATCH,
+  delta 186 under verify, against `obj 346` (the reference's exact size),
+  `match` 171/346 when compiled the way the link does. The whole-tree residue
+  is unaffected (measured on the shipped bytes), but per-function claims are
+  not. Feature: parse the `set_source_files_properties(... COMPILE_OPTIONS
+  "/REBREW_TOOLCHAIN:...")` entries, or record the producing toolchain on the
+  metadata entry so a stale number is detectable. Evidence: guild-rebrew
+  `docs/TODO.md` round 842.
+
 ## Knowledge capture
 
 - [ ] **Finding router (`rebrew note --finding`).**
