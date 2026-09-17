@@ -326,3 +326,91 @@ class TestBuildDbEdgeData:
         rows = conn.execute("SELECT va, name FROM functions").fetchall()
         conn.close()
         assert [(r[0], r[1]) for r in rows] == [(0x1000, "good")]
+
+    def test_function_status_canonicalized_and_unknown_coerced(self, tmp_path: Path) -> None:
+        """Lowercase / NEAR_MATCH aliases canonicalize; typos become UNKNOWN
+        so the functions.status CHECK never aborts a rebuild."""
+        import sqlite3
+
+        from rebrew.build_db import build_db
+
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        data = {
+            "sections": {},
+            "globals": {},
+            "summary": {"totalFunctions": 3, "textSize": 24},
+            "functions": {
+                "0x1000": {"name": "a", "size": 8, "status": "exact"},
+                "0x2000": {"name": "b", "size": 8, "status": "NEAR_MATCH"},
+                "0x3000": {"name": "c", "size": 8, "status": "TYPO_STATUS"},
+            },
+            "paths": {"originalDll": "/x.dll"},
+        }
+        (db_dir / "data_edge.json").write_text(json.dumps(data), encoding="utf-8")
+        build_db(tmp_path)
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        rows = conn.execute("SELECT va, status FROM functions ORDER BY va").fetchall()
+        conn.close()
+        assert rows == [
+            (0x1000, "EXACT"),
+            (0x2000, "NEAR_MATCHING"),
+            (0x3000, "UNKNOWN"),
+        ]
+
+    def test_bool_size_does_not_become_one(self, tmp_path: Path) -> None:
+        """bool is an int subclass; True must not land as size=1 under CHECK."""
+        import sqlite3
+
+        from rebrew.build_db import build_db
+
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        data = {
+            "sections": {},
+            "globals": {},
+            "summary": {"totalFunctions": 1, "textSize": 0},
+            "functions": {
+                "0x1000": {
+                    "name": "a",
+                    "size": True,
+                    "fileOffset": False,
+                    "status": "STUB",
+                },
+            },
+            "paths": {"originalDll": "/x.dll"},
+        }
+        (db_dir / "data_edge.json").write_text(json.dumps(data), encoding="utf-8")
+        build_db(tmp_path)
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        row = conn.execute(
+            "SELECT size, fileOffset FROM functions WHERE va = ?", (0x1000,)
+        ).fetchone()
+        conn.close()
+        assert row == (None, None)
+
+    def test_bad_va_warning_names_target(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Warnings must name the target, not a leaked json_path from an
+        earlier load loop (wrong on multi-target; NameError under --regen)."""
+        from rebrew.build_db import build_db
+
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        data = {
+            "sections": {},
+            "globals": {},
+            "summary": {},
+            "functions": {
+                "not-a-va": {"name": "bad", "size": 8, "status": "STUB"},
+                "0x1000": {"name": "good", "size": 8, "status": "STUB"},
+            },
+            "paths": {},
+        }
+        (db_dir / "data_edge.json").write_text(json.dumps(data), encoding="utf-8")
+        build_db(tmp_path)
+        err = capsys.readouterr().err
+        assert "edge:" in err
+        assert "skipped 1" in err
+        assert "data_edge.json" not in err

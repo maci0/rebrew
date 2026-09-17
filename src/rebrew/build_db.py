@@ -23,7 +23,7 @@ from rebrew.cli import (
     json_print,
 )
 from rebrew.config import load_config
-from rebrew.metadata import MATCHED_STATUSES
+from rebrew.metadata import KNOWN_STATUSES, MATCHED_STATUSES, canonical_status
 from rebrew.workspace import (
     CELLS_JSON_OBJECT_SQL,
     SCHEMA_TARGET,
@@ -36,7 +36,13 @@ from rebrew.workspace import (
 console = Console(stderr=True)
 
 
-_CURRENT_DB_VERSION = "7"
+_CURRENT_DB_VERSION = "8"
+
+#: Statuses allowed in ``functions.status``.  ``KNOWN_STATUSES`` plus
+#: ``UNKNOWN`` (the DEFAULT when a catalog row omits STATUS).  Kept in one
+#: place so the CREATE TABLE CHECK and the insert-time sanitizer cannot drift.
+_FUNCTION_DB_STATUSES: frozenset[str] = frozenset({*KNOWN_STATUSES, "UNKNOWN"})
+_FUNCTION_STATUS_CHECK_SQL: str = ", ".join(repr(s) for s in sorted(_FUNCTION_DB_STATUSES))
 
 # Per-section coverage buckets, as ONE select used both to declare the
 # ``section_cell_stats`` table and to refill it — the bucket definitions
@@ -583,7 +589,7 @@ def build_db(
             # explicitly or it survives every rebuild.
             c.execute("DROP INDEX IF EXISTS idx_history_target_va")
 
-        c.execute("""
+        c.execute(f"""
             CREATE TABLE IF NOT EXISTS functions (
                 target TEXT NOT NULL,
                 va INTEGER NOT NULL CHECK (va >= 0),
@@ -591,7 +597,8 @@ def build_db(
                 vaStart TEXT NOT NULL DEFAULT '',
                 size INTEGER CHECK (size IS NULL OR size >= 0),
                 fileOffset INTEGER CHECK (fileOffset IS NULL OR fileOffset >= 0),
-                status TEXT NOT NULL DEFAULT 'UNKNOWN',
+                status TEXT NOT NULL DEFAULT 'UNKNOWN'
+                    CHECK (status IN ({_FUNCTION_STATUS_CHECK_SQL})),
                 module TEXT NOT NULL DEFAULT '',
                 cflags TEXT,
                 symbol TEXT,
@@ -604,7 +611,7 @@ def build_db(
                 sha256 TEXT,
                 files TEXT NOT NULL DEFAULT '[]',
                 detected_by TEXT NOT NULL DEFAULT '[]',
-                size_by_tool TEXT NOT NULL DEFAULT '{}',
+                size_by_tool TEXT NOT NULL DEFAULT '{{}}',
                 textOffset INTEGER CHECK (textOffset IS NULL OR textOffset >= 0),
                 blocker TEXT,
                 blockerDelta INTEGER CHECK (blockerDelta IS NULL OR blockerDelta >= 0),
@@ -934,16 +941,45 @@ def build_db(
                 # build_db CHECK constraints reject negative fileOffset/
                 # textOffset/blockerDelta — a stray negative would abort the
                 # entire rebuild, so clamp defensively.  size (CHECK >= 0),
-                # similarity (CHECK 0..1) and markerType (CHECK IN …) are
-                # clamped the same way.
+                # similarity (CHECK 0..1), markerType (CHECK IN …) and status
+                # (CHECK IN known + UNKNOWN) are clamped the same way.
                 file_off = fn.get("fileOffset")
                 text_off = fn.get("textOffset")
                 blocker_delta = fn.get("blockerDelta")
                 fn_size = fn.get("size")
+                # bool is an int subclass; True would land as size=1 under the
+                # CHECK (>= 0) path — treat bool like a non-int (NULL).
+                if isinstance(fn_size, bool) or (
+                    fn_size is not None and not isinstance(fn_size, int)
+                ):
+                    fn_size = None
+                elif isinstance(fn_size, int) and fn_size < 0:
+                    fn_size = 0
+                if isinstance(file_off, bool) or (
+                    file_off is not None and not isinstance(file_off, int)
+                ):
+                    file_off = None
+                elif isinstance(file_off, int) and file_off < 0:
+                    file_off = 0
+                if isinstance(text_off, bool) or (
+                    text_off is not None and not isinstance(text_off, int)
+                ):
+                    text_off = None
+                elif isinstance(text_off, int) and text_off < 0:
+                    text_off = 0
+                if isinstance(blocker_delta, bool) or (
+                    blocker_delta is not None and not isinstance(blocker_delta, int)
+                ):
+                    blocker_delta = None
+                elif isinstance(blocker_delta, int) and blocker_delta < 0:
+                    blocker_delta = 0
                 fn_similarity = fn.get("similarity")
                 fn_marker = str(fn.get("markerType") or "FUNCTION")
                 if fn_marker not in ("FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"):
                     fn_marker = "FUNCTION"
+                fn_status = canonical_status(str(fn.get("status") or "UNKNOWN"))
+                if fn_status not in _FUNCTION_DB_STATUSES:
+                    fn_status = "UNKNOWN"
                 if isinstance(fn_similarity, (int, float)) and not isinstance(fn_similarity, bool):
                     fn_similarity = max(0.0, min(1.0, float(fn_similarity)))
                 else:
@@ -954,9 +990,9 @@ def build_db(
                         va_int,
                         str(fn.get("name") or ""),
                         va_start_text,
-                        fn_size if not isinstance(fn_size, int) or fn_size >= 0 else 0,
-                        file_off if not isinstance(file_off, int) or file_off >= 0 else 0,
-                        str(fn.get("status") or "UNKNOWN"),
+                        fn_size,
+                        file_off,
+                        fn_status,
                         str(fn.get("module") or fn.get("origin") or ""),
                         fn.get("cflags"),
                         fn.get("symbol"),
@@ -969,11 +1005,9 @@ def build_db(
                         json.dumps(fn.get("files", [])),
                         json.dumps(fn.get("detected_by", [])),
                         json.dumps(fn.get("size_by_tool", {})),
-                        text_off if not isinstance(text_off, int) or text_off >= 0 else 0,
+                        text_off,
                         fn.get("blocker", ""),
-                        blocker_delta
-                        if not isinstance(blocker_delta, int) or blocker_delta >= 0
-                        else 0,
+                        blocker_delta,
                         fn.get("size_reason", ""),
                         fn_similarity,
                         str(fn.get("updated_by") or ""),
@@ -983,7 +1017,7 @@ def build_db(
 
             if bad_va:
                 console.print(
-                    f"[yellow]warning:[/yellow] {json_path.name}: skipped {bad_va} "
+                    f"[yellow]warning:[/yellow] {target_name}: skipped {bad_va} "
                     "function row(s) with unparseable VA (no valid key or vaStart)"
                 )
 
@@ -1055,7 +1089,7 @@ def build_db(
 
             if bad_global_va:
                 console.print(
-                    f"[yellow]warning:[/yellow] {json_path.name}: skipped "
+                    f"[yellow]warning:[/yellow] {target_name}: skipped "
                     f"{bad_global_va} global row(s) with unparseable VA "
                     "(no valid key or va field)"
                 )

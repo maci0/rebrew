@@ -55,7 +55,7 @@ Stores details regarding decompiled and original functions.
 | `vaStart` | `TEXT` | Hex string representation of the starting virtual address. |
 | `size` | `INTEGER` | Byte size of the function (canonical resolution; see `size_reason`). |
 | `fileOffset` | `INTEGER` | Physical file offset of the function in the binary. |
-| `status` | `TEXT` | Match status (e.g. `EXACT`, `RELOC`, `PROVEN`, `NEAR_MATCHING`, `STUB`, `SIZE_MISMATCH`, `COMPILE_ERROR`, …). |
+| `status` | `TEXT` | Match status (e.g. `EXACT`, `RELOC`, `PROVEN`, `NEAR_MATCHING`, `STUB`, `SIZE_MISMATCH`, `COMPILE_ERROR`, …, or `UNKNOWN` when unset). CHECK-constrained to `KNOWN_STATUSES` ∪ `{UNKNOWN}`; insert path runs `canonical_status` and coerces unknowns to `UNKNOWN`. |
 | `module` | `TEXT` | Origin module/library — config-driven (e.g., `GAME`, `ZLIB`, `MSVCRT`). |
 | `cflags` | `TEXT` | Compilation flags (if any). |
 | `symbol` | `TEXT` | The raw mangled or internal symbol name. |
@@ -158,7 +158,7 @@ Stores arbitrary target-specific key-value pairs. Primary Key is `(target, key)`
 | `summary` | JSON object with coverage statistics (totalFunctions, matchedFunctions, exactMatches, etc.) |
 | `function_stats` | JSON object with coverage stats for the dashboard headline (`total`, `covered_bytes`, `matched_bytes`, `total_bytes`, `by_status`, `by_module_counts`) |
 | `paths` | JSON object with file paths (originalDll, sourceRoot) |
-| `db_version` | Schema version string (current: `"7"`) |
+| `db_version` | Schema version string (current: `"8"`) |
 
 #### Schema Version History
 
@@ -169,6 +169,7 @@ whenever the schema changes.
 
 | Version | Change |
 |---|---|
+| `"8"` | `functions.status` CHECK-constrained to `KNOWN_STATUSES` ∪ `{UNKNOWN}`; insert path canonicalizes (case / `NEAR_MATCH` alias) and coerces unknowns to `UNKNOWN`. Migration is `--force` (DROP+rebuild), same as prior schema bumps. |
 | `"7"` | `section_cell_stats` is a **table** rather than a view; new `section_cells_json` table (per-section cell JSON, zstd-compressed) so dashboards stop re-aggregating `cells` on every request. Migration is `--force` (DROP+rebuild), the existing convention: `history` and `verify_results` are not dropped by a rebuild, but `--force` unlinks the file, so `verify_results` is re-imported from `db/verify_results.json` / `.rebrew/verify_cache.json` and `history` is not recoverable. |
 | `"6"` | `functions` gained `updated_by`/`updated_at` (STATUS-write provenance); `globals` gained `status` (data verdicts); `history` gained `updated_by`. |
 | `"5"` | `verify_results` gained `reg_delta` and `effective_match` (the effective-match signal — register-only delta; see the table below). |

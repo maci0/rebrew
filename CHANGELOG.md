@@ -43,6 +43,11 @@
 - Classifier **Development Status** is Beta (was Alpha).
 
 ### Fixed
+- **`coverage.db` schema v8**: `functions.status` is CHECK-constrained to
+  `KNOWN_STATUSES` ∪ `{UNKNOWN}`; `build-db` canonicalizes case/`NEAR_MATCH`
+  and coerces unknowns to `UNKNOWN` (mirroring `globals.status`).  Unparseable
+  VA warnings name the target (not a leaked `json_path`); bool/`non-int`
+  sizes no longer land as `1` under the integer CHECKs.
 - **`rebrew verify --no-promote`** honours its “write NOTHING to
   `rebrew-functions.toml`” contract for `--fix-sizes` and `--prune-orphans`
   (STATUS was already gated; SIZE writes and orphan deletes were not).

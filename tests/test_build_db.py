@@ -457,6 +457,23 @@ binary = "test.exe"
         assert "CREATE TABLE section_cell_stats" in ddl
         conn.close()
 
+    def test_functions_status_has_check(self, project_root: Path) -> None:
+        """functions.status must reject values outside KNOWN_STATUSES ∪ UNKNOWN."""
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='functions'")
+        ddl = c.fetchone()[0]
+        assert "CHECK (status IN (" in ddl
+        assert "'UNKNOWN'" in ddl
+        assert "'EXACT'" in ddl
+        with pytest.raises(sqlite3.IntegrityError):
+            c.execute(
+                "INSERT INTO functions (target, va, name, status) "
+                "VALUES ('testbin', 99, 'bogus', 'NOT_A_STATUS')"
+            )
+        conn.close()
+
     def test_verify_results_has_range_checks(self, project_root: Path) -> None:
         """verify_results columns that carry deltas/scores must reject out-of-
         range values at the schema level (and migrate pre-CHECK tables)."""
