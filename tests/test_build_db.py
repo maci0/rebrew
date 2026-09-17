@@ -197,6 +197,40 @@ binary = "test.exe"
         assert (configured_db / "coverage.db").exists()
         assert not (tmp_path / "db" / "coverage.db").exists()
 
+    @pytest.mark.parametrize("target", [None, "beta"])
+    def test_regen_json_output(
+        self,
+        project_root: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        target: str | None,
+    ) -> None:
+        from copy import deepcopy
+        from types import SimpleNamespace
+
+        monkeypatch.setattr(
+            "rebrew.build_db.load_config",
+            lambda *args, **kwargs: SimpleNamespace(
+                all_targets=["alpha", "beta"], target_name="alpha"
+            ),
+        )
+        monkeypatch.setattr(
+            "rebrew.catalog.cli.build_catalog_data",
+            lambda cfg: {"data": deepcopy(SAMPLE_DATA)},
+        )
+
+        build_db(project_root, target=target, regen=True, json_output=True)
+
+        result = json.loads(capsys.readouterr().out)
+        expected = [target] if target else ["alpha", "beta"]
+        assert result["targets_processed"] == expected
+        conn = sqlite3.connect(result["db_path"])
+        try:
+            rows = conn.execute("SELECT DISTINCT target FROM functions ORDER BY target").fetchall()
+            assert [row[0] for row in rows] == expected
+        finally:
+            conn.close()
+
     def test_functions_columns(self, project_root: Path) -> None:
         """All function columns including new detected_by, size_by_tool, textOffset."""
         conn, c = _open_db(project_root)
@@ -429,6 +463,39 @@ binary = "test.exe"
         c.execute("SELECT COUNT(*) FROM verify_results WHERE target = 'testbin'")
         assert c.fetchone()[0] == 1  # row survived despite the unparseable report
         conn.close()
+
+    @pytest.mark.parametrize("scoped", [False, True])
+    @pytest.mark.parametrize("entries", [None, [], "invalid", 7, {}, "missing"])
+    def test_verify_results_require_valid_empty_cache_to_clear(
+        self, project_root: Path, scoped: bool, entries: Any
+    ) -> None:
+        _write_cache(project_root, "testbin", {"0x1000": {"va": "0x1000", "delta": 3}})
+        build_db(project_root)
+        _write_cache(project_root, "sibling", {"0x2000": {"va": "0x2000", "delta": 4}})
+        (project_root / "db" / "data_sibling.json").write_text(
+            json.dumps(SAMPLE_DATA), encoding="utf-8"
+        )
+        build_db(project_root)
+
+        cache: dict[str, Any] = {"version": 2, "target": "testbin"}
+        if entries != "missing":
+            cache["entries"] = entries
+        (project_root / ".rebrew" / "verify_cache.json").write_text(
+            json.dumps(cache), encoding="utf-8"
+        )
+        build_db(project_root, target="testbin" if scoped else None)
+
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        try:
+            rows = conn.execute(
+                "SELECT target, va, byte_delta FROM verify_results ORDER BY target"
+            ).fetchall()
+            expected = [("sibling", 0x2000, 4)]
+            if entries != {}:
+                expected.append(("testbin", 0x1000, 3))
+            assert rows == expected
+        finally:
+            conn.close()
 
     def test_redundant_cells_section_index_absent(self, project_root: Path) -> None:
         """The UNIQUE (target, section_name, start) constraint already serves

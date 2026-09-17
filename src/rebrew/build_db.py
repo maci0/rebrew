@@ -1292,7 +1292,7 @@ def build_db(
             vr_rows = []
             vr_time = now_iso
             raw_cache = load_verify_cache_raw(SimpleNamespace(root=root_dir))
-            cache_entries: dict[str, Any] = {}
+            cache_entries: dict[str, Any] | None = None
             ours = isinstance(raw_cache, dict) and raw_cache.get("target") == target_name
             if ours and isinstance(raw_cache, dict):
                 maybe_entries = raw_cache.get("entries")
@@ -1344,7 +1344,7 @@ def build_db(
                     + ")",
                     (target_name, *(r[1] for r in vr_rows)),
                 )
-            elif ours and not cache_entries:
+            elif cache_entries == {}:
                 # The cache names this target but holds no rows — the target
                 # was fully unverified, so its stale rows go.  (A missing or
                 # other-target cache leaves rows alone — the table is never
@@ -1400,7 +1400,7 @@ def build_db(
             json_print(
                 {
                     "db_path": str(db_path),
-                    "targets_processed": [f.stem.removeprefix("data_") for f in json_files],
+                    "targets_processed": [name for name, _ in datasets],
                 }
             )
         else:
