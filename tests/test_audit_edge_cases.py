@@ -403,6 +403,31 @@ class TestIatRegionBuild:
         assert 0x40104C in region
         assert 0x104C not in region  # must be canonicalized to an absolute VA
 
+    @pytest.mark.parametrize("image_base", [0x400000, 0x140000000])
+    def test_import_slots_preserve_address_width(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, image_base: int
+    ) -> None:
+        from types import SimpleNamespace
+
+        import lief
+
+        from rebrew.binary_loader import iat_slot_vas
+        from rebrew.coff_reloc import build_iat_region
+
+        binary = tmp_path / "imports.exe"
+        binary.write_bytes(b"MZ")
+        pe = SimpleNamespace(
+            imagebase=image_base,
+            imports=[SimpleNamespace(entries=[SimpleNamespace(iat_address=0x104C)])],
+        )
+        monkeypatch.setattr(lief, "is_pe", lambda path: True)
+        monkeypatch.setattr(lief.PE, "parse", lambda path: pe)
+        expected = {image_base + 0x104C}
+        assert iat_slot_vas(binary) == expected
+        assert iat_slot_vas(binary) == expected
+        cfg = SimpleNamespace(target_binary=binary, iat_thunks=[])
+        assert build_iat_region(cfg) == expected
+
     def test_dir32_jmp_stub_masked(self) -> None:
         """call [jmp_stub] vs recompiled call [__imp__] — masked by position."""
         import struct

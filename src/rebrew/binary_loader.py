@@ -956,7 +956,7 @@ def iat_slot_vas(binary_path: Path | str) -> set[int]:
                 va = int(getattr(imp, "iat_address", 0) or 0)
                 if va:
                     # LIEF reports the IAT slot as an RVA; canonicalize.
-                    out.add((va + image_base) & 0xFFFFFFFF)
+                    out.add(va + image_base)
         with _iat_slot_lock:
             if cache_key not in _iat_slot_cache:
                 if len(_iat_slot_cache) >= _IAT_SLOT_CACHE_MAX:
