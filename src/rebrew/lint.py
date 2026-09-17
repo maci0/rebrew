@@ -1432,7 +1432,10 @@ def lint_file(
                     mod,
                     cfg,
                     function_index,
-                    status=str(_metadata_entries.get((mod, va_int), {}).get("status", "")),
+                    # Merged view (inline overlay + metadata): an inline
+                    # EXACT/RELOC/PROVEN must suppress W028 even when the
+                    # store has no status yet.
+                    status=str(found_keys.get("STATUS", "")),
                 )
 
             if marker not in ("GLOBAL", "DATA"):

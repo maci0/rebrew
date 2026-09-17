@@ -1272,6 +1272,21 @@ class TestAnnotationStaleness:
         result = lint_file(f, cfg=_make_cfg(), function_index=self.INDEX, preloaded_metadata=meta)
         assert len(self._w028(result)) == 1
 
+    def test_inline_exact_status_suppresses_w028(self, tmp_path: Path) -> None:
+        """Inline STATUS (pre-migration) must suppress W028 like metadata.
+
+        Regression: W028 read only the store entry, so an inline
+        ``// STATUS: EXACT`` on a byte-matched VA inside another span still
+        warned even though the merged found_keys view already claimed EXACT.
+        """
+        f = _write_c(
+            tmp_path,
+            "inline_exact.c",
+            "// FUNCTION: SERVER 0x1050\n// STATUS: EXACT\nint a(void) { return 0; }\n",
+        )
+        result = lint_file(f, cfg=_make_cfg(), function_index=self.INDEX)
+        assert self._w028(result) == [], result.warnings
+
     def test_library_marker_ignored(self, tmp_path: Path) -> None:
         # LIBRARY markers may point at import stubs the parser filters out.
         f = _write_c(tmp_path, "l.c", "// LIBRARY: SERVER 0x3000\nint l(void) { return 0; }\n")

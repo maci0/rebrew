@@ -489,7 +489,7 @@ def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
                 if key == "status":
                     raise ValueError("Use update_statuses_batch() for STATUS changes")
                 if entry.get(key) != value:
-                    entry[key] = value
+                    entry[key] = toml_safe(value)
                     changed = True
             if changed:
                 changed_entries += 1

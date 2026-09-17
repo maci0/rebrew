@@ -1027,3 +1027,24 @@ class TestProvenance:
         entry = get_entry(tmp_path, 0x1000, "SERVER")
         assert "updated_by" not in entry
         assert "updated_at" not in entry
+
+
+class TestSetFieldsBatchTomlSafe:
+    def test_strips_control_chars_like_set_fields(self, tmp_path: Path) -> None:
+        """Batch writes must sanitize strings the same way as set_fields.
+
+        A Ghidra note carrying ESC would otherwise serialize as ``\\e``
+        (tomlkit) and break the next parse of the whole metadata file.
+        """
+        from rebrew.metadata import get_entry, set_fields_batch
+
+        dirty = "see\x1b[0m dump"
+        n = set_fields_batch(
+            tmp_path,
+            [{"module": "SERVER", "va": 0x1000, "fields": {"note": dirty}}],
+        )
+        assert n == 1
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry["note"] == "see[0m dump"
+        # Round-trip: file must still parse.
+        assert load_metadata(tmp_path)[("SERVER", 0x1000)]["note"] == "see[0m dump"

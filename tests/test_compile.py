@@ -1187,3 +1187,33 @@ class TestPrecompileBatchCleanup:
         cleanup_batch_obj_dirs()
         for ld in lasting_dirs:
             assert not ld.exists(), f"lasting obj dir leaked: {ld}"
+
+
+class TestEffectiveCompileFlags:
+    def test_includes_base_cflags_and_defines(self, tmp_path: Path) -> None:
+        """Cache keys must see base_cflags + defines, not only per-function flags."""
+        from types import SimpleNamespace
+
+        from rebrew.compile import _effective_compile_flags
+
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            base_cflags="/O2 /Iinc",
+            defines=["V2"],
+        )
+        spec = SimpleNamespace(flags_style="msvc")
+        flags = _effective_compile_flags(cfg, spec, "/Gd", tmp_path / "src")
+        assert "/O2" in flags
+        assert "/Gd" in flags
+        assert "/DV2" in flags
+        assert "/Iinc" in flags  # unresolved when the dir does not exist yet
+
+    def test_posix_define_prefix(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.compile import _effective_compile_flags
+
+        cfg = SimpleNamespace(root=tmp_path, base_cflags="", defines=["DEBUG"])
+        spec = SimpleNamespace(flags_style="posix")
+        flags = _effective_compile_flags(cfg, spec, "-O2", tmp_path)
+        assert "-DDEBUG" in flags

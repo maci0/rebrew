@@ -596,6 +596,33 @@ def _dedupe_flags(flags: list[str]) -> list[str]:
     return list(dict.fromkeys(flags))
 
 
+def _effective_compile_flags(
+    cfg: ProjectConfig,
+    spec: "ToolchainSpec | None",
+    cflags: list[str] | str,
+    src_parent: Path,
+) -> list[str]:
+    """Flags that shape the compile-cache key (single-file and batch).
+
+    Mirrors ``compile_to_obj``: project ``base_cflags``, per-function
+    overrides, resolved relative ``/I``/``-I``, then target ``defines``.
+    Batch cache lookup/put must call this so a batch-built object and a
+    later single-file compile share one key for the same inputs.
+    """
+    own = safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
+    base_flags = resolve_include_flags(
+        safe_shlex_split(getattr(cfg, "base_cflags", "") or ""),
+        src_parent,
+        cfg.root,
+    )
+    resolved = resolve_include_flags(own, src_parent, cfg.root)
+    all_flags = _dedupe_flags(base_flags + resolved)
+    for define in getattr(cfg, "defines", None) or []:
+        prefix = "-D" if (spec is not None and spec.flags_style == "posix") else "/D"
+        all_flags.append(f"{prefix}{define}")
+    return _dedupe_flags(all_flags)
+
+
 def _merged_include_tokens(flags: list[str]) -> Iterator[str]:
     """Yield *flags* with the two-token include form merged.
 
@@ -1044,23 +1071,13 @@ def compile_to_obj(
             )
     spec = tc_spec if tc_spec is not None else (TOOLCHAINS.get(profile) if profile else None)
 
-    base_flags = safe_shlex_split(cfg.base_cflags)
     use_timeout = cfg.compile_timeout
 
     src_parent = source_path.resolve().parent
 
-    base_flags = resolve_include_flags(base_flags, src_parent, cfg.root)
-    resolved_cflags = resolve_include_flags(cflags, src_parent, cfg.root)
-    all_flags = _dedupe_flags(base_flags + resolved_cflags)
-
-    # Per-target version defines (targets.<name>.defines → /DV2 or -DV2):
-    # the compile-time switch that lets one shared multi-version .c compile
-    # differently per target (#ifdef V2 blocks).  They join all_flags, so
-    # they shape the compile-cache key automatically.
-    for define in getattr(cfg, "defines", None) or []:
-        prefix = "-D" if (spec is not None and spec.flags_style == "posix") else "/D"
-        all_flags.append(f"{prefix}{define}")
-    all_flags = _dedupe_flags(all_flags)
+    # Per-target version defines (targets.<name>.defines → /DV2 or -DV2)
+    # join here via _effective_compile_flags so they shape the cache key.
+    all_flags = _effective_compile_flags(cfg, spec, cflags, src_parent)
 
     # --- Compile cache lookup ---
     cc = cache
@@ -1360,7 +1377,8 @@ def precompile_batch(
                 spec = TOOLCHAINS.get(toolchain) if toolchain else base_spec
                 try:
                     text = cfile.read_bytes().decode("utf-8", errors="surrogateescape")
-                    flags = safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
+                    src_parent = cfile.resolve().parent
+                    flags = _effective_compile_flags(cfg, spec, cflags, src_parent)
                     key = _cache_key_for(
                         cfg,
                         spec,
@@ -1368,7 +1386,7 @@ def precompile_batch(
                         cfile.name,
                         flags,
                         str(cfg.compiler_includes),
-                        cfile.resolve().parent,
+                        src_parent,
                         None,
                         cfile.suffix or ".c",
                     )
@@ -1493,39 +1511,48 @@ def precompile_batch(
                 lasting = lasting_root / f"{uuid.uuid4().hex[:12]}{Path(obj).suffix}"
                 lasting.write_bytes(obj_bytes)
                 lasting_path = str(lasting)
+                # Union /I from siblings means these bytes were compiled under
+                # a wider include search set than a single-file build of one
+                # member.  Pinning under that member's own key would serve the
+                # wrong object on a later compile_to_obj hit.
+                union_includes = {
+                    f for f in dict.fromkeys(member_includes) if f.startswith(("/I", "-I"))
+                }
                 for e in staged[name]:
                     group_out[id(e)] = lasting_path
-                    # Pin the batch-built object in the compile cache under the
-                    # identical key the single-file path uses — the next run
-                    # hits cache instead of re-batching.  Key on the file's OWN
-                    # flags (not the unioned batch flags) so keys match exactly.
-                    if cache is not None:
-                        with contextlib.suppress(OSError):
-                            src = Path(cfg.reversed_dir) / e.filepath
-                            _, own_cflags = resolve_compile_overrides(
-                                cfg,
-                                src.parent,
-                                getattr(e, "toolchain", ""),
-                                getattr(e, "cflags", ""),
-                                getattr(e, "module", ""),
-                            )
-                            own_flags = (
-                                safe_shlex_split(own_cflags)
-                                if isinstance(own_cflags, str)
-                                else list(own_cflags)
-                            )
-                            key = _cache_key_for(
-                                cfg,
-                                spec,
-                                src.read_bytes().decode("utf-8", errors="surrogateescape"),
-                                src.name,
-                                own_flags,
-                                str(cfg.compiler_includes),
-                                src.resolve().parent,
-                                None,
-                                src.suffix or ".c",
-                            )
-                            cache.put(key, obj_bytes)
+                    if cache is None:
+                        continue
+                    with contextlib.suppress(OSError, ValueError):
+                        src = Path(cfg.reversed_dir) / e.filepath
+                        _, own_cflags = resolve_compile_overrides(
+                            cfg,
+                            src.parent,
+                            getattr(e, "toolchain", ""),
+                            getattr(e, "cflags", ""),
+                            getattr(e, "module", ""),
+                        )
+                        own_flags = (
+                            safe_shlex_split(own_cflags)
+                            if isinstance(own_cflags, str)
+                            else list(own_cflags)
+                        )
+                        own_includes = {f for f in own_flags if f.startswith(("/I", "-I"))}
+                        if own_includes != union_includes:
+                            continue
+                        src_parent = src.resolve().parent
+                        key_flags = _effective_compile_flags(cfg, spec, own_cflags, src_parent)
+                        key = _cache_key_for(
+                            cfg,
+                            spec,
+                            src.read_bytes().decode("utf-8", errors="surrogateescape"),
+                            src.name,
+                            key_flags,
+                            str(cfg.compiler_includes),
+                            src_parent,
+                            None,
+                            src.suffix or ".c",
+                        )
+                        cache.put(key, obj_bytes)
             return group_out
         except Exception as exc:
             log.debug("batch group skipped: %s", exc)
