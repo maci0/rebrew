@@ -2,98 +2,33 @@
 
 Merges function sources (discovery inventory, Ghidra JSON, PE exports) into a unified registry, builds cell-level coverage grids, and exports reccmp CSV.
 
-## Module Map
+## Modules
 
-| Module | Role | Key Exports |
-|--------|------|-------------|
-| `loaders.py` | I/O (Ghidra JSON, discovery inventory, DLL bytes, source + library header scanning) | `load_function_structure()`, `cached_function_list()`, `load_ghidra_data_labels()`, `parse_rizin_afl()`, `scan_reversed_dir()` |
-| `registry.py` | Merge sources, resolve canonical sizes | `build_function_registry()` |
-| `grid.py` | Coverage grid generation | `generate_data_json()` |
-| `export.py` | Output (reccmp CSV) | `generate_reccmp_csv()` |
-| `cli.py` | Orchestrator + Typer CLI wrapper | `run_catalog()`, `build_catalog_data()`, `app`, `main`, `main_entry` |
+| Module | Role |
+|--------|------|
+| `models.py` | `FunctionEntry`, `GhidraDataLabel` |
+| `loaders.py` | Ghidra/discovery I/O, `scan_reversed_dir`, `parse_rizin_afl` |
+| `registry.py` | `build_function_registry` + canonical size resolution |
+| `grid.py` | `generate_data_json` (coverage grid) |
+| `export.py` | `generate_reccmp_csv` |
+| `cli.py` | `run_catalog` / `build_catalog_data` + Typer entry |
 
-## Dependency Graph
+PE section helpers live in `rebrew.sections` (outside this package). Externals: `binary_loader`, `config`, `sources`, `annotation`.
 
-```
-cli.py (run_catalog() orchestrator — calls all others; main() is the CLI wrapper)
-├── loaders.py (scan_reversed_dir, cached_function_list)
-├── registry.py (build_function_registry)
-├── grid.py (generate_data_json)
-├── export.py (generate_reccmp_csv)
-├── rebrew.sections (external — get_text_section_size)
-└── annotation.py (external — parse_c_file_multi, update_size_annotation)
+## Data flow
 
-loaders.py
-├── annotation.py (external — parse_c_file_multi, parse_library_header)
-└── sources.py (external — iter_sources, iter_library_headers, target_marker)
+Reversed `.c` + `library_*.h` → `scan_reversed_dir` → annotations; discovery/Ghidra JSON → `load_function_structure`; PE → `load_binary`. Then `build_function_registry` (merge by VA, canonical size) → `generate_data_json` → `db/data_{target}.json`; `generate_reccmp_csv` → `db/{target}_functions.csv`.
 
-registry.py
-├── binary_loader.py (external — load_binary)
-├── rebrew.sections (external — has_back_jumps, trim_trailing_padding)
-└── config.py (external — ProjectConfig)
+## Invariants
 
-grid.py
-├── loaders.py (load_ghidra_data_labels)
-├── registry.py (is_jump_table)
-├── rebrew.sections (external — get_globals)
-└── binary_loader.py (external — load_binary)
-
-export.py → config.py (external — ProjectConfig)
-```
-
-PE section parsing and the x86 helpers live in `rebrew/sections.py`, outside this
-package; other externals are `binary_loader.py`, `config.py`, `sources.py`, and
-`annotation.py`.
-
-## Data Flow
-
-```
-[Inputs]
-  ├─ Reversed .c + library_*.h → loaders.scan_reversed_dir() → list[Annotation]
-  ├─ Discovery / Ghidra JSON → loaders.load_function_structure() → list[FunctionEntry]
-  └─ PE binary         → binary_loader.load_binary() → BinaryInfo
-        │
-        ▼
-[Registry] registry.build_function_registry()
-  ├─ Merge by VA: discovery + ghidra + exports
-  ├─ Canonical size resolution (_resolve_canonical_size)
-  │   └─ Classifies extra bytes as: jump table (.text pointers), padding (0x90/0xCC), out-of-line code (jumps back)
-  └─ Output: dict[va, {detected_by, size_by_tool, canonical_size}]
-        │
-        ▼
-[Grid] grid.generate_data_json()
-  ├─ Extract raw bytes
-  ├─ Cell mapping (.text: 64B cells, 64 cols/row; .data: 16B; .bss: 4096B)
-  ├─ Gap absorption (jump tables, out-of-line code, tail ≤64B)
-  ├─ Ghidra label integration (thunk vs data)
-  └─ Stats (EXACT/RELOC/NEAR_MATCHING/STUB counts, coverage %)
-        │
-        ▼
-[Export]
-  ├─ export.generate_reccmp_csv() → db/{target}_functions.csv (pipe-delimited)
-  └─ grid output → db/data_{target}.json (recoverage dashboard)
-```
-
-## Key Concepts
-
-### Canonical Size Resolution
-When discovery and Ghidra sizes disagree, `_resolve_canonical_size()` checks if extra bytes are: (1) jump/switch table (.text pointers), (2) padding (NOP 0x90 / INT3 0xCC), or (3) out-of-line code (jumps back into body). Needs binary data — falls back to Ghidra size otherwise.
-
-### Gap Absorption
-Loop in `generate_data_json()`: gaps between functions are absorbed into the predecessor if they contain jump tables, out-of-line code, or small tail code (≤64B). Repeats until stable.
-
-### Cell Coverage
-Sections split into fixed cells:
-- `.text`: 64B, 64 cols/row
-- `.data`/`.rdata`: 16B
-- `.bss`: 4096B
-
-Each cell tracks function ownership, match status, and gap class.
+- **Canonical size**: when discovery and Ghidra disagree, `_resolve_canonical_size` classifies extra bytes as jump/switch table (.text pointers), padding (`0x90`/`0xCC`), or out-of-line code (jumps back). Needs binary bytes; else Ghidra size.
+- **Gap absorption**: predecessor absorbs gaps that are jump tables, OOL code, or tail ≤64B; repeats until stable.
+- **Cell sizes**: `.text` 64B (64 cols/row); `.data`/`.rdata` 16B; `.bss` 4096B.
 
 ## Gotchas
 
-- **Lazy binary parsing**: `generate_data_json` parses once (`_bin_info`) and reuses it for registry/grid/sections in that run; other tools call `load_binary()` themselves (no cross-module cache).
-- **Multi-function files**: `scan_reversed_dir()` handles multiple `// FUNCTION:` blocks per `.c` file — both listed.
-- **Library headers**: `scan_reversed_dir()` also scans `library_*.h` for `// LIBRARY:` markers. Origin from filename stem (e.g. `library_msvc.h` → MSVCRT, `library_zlib.h` → ZLIB). Supports extended format with optional KV fields (STATUS, SIZE, CFLAGS, SOURCE, BLOCKER) after the symbol line — reccmp ignores them, rebrew captures them for library functions compiled from reference source.
+- **Lazy binary parse**: `generate_data_json` parses once (`_bin_info`) per run; other tools call `load_binary()` themselves.
+- **Multi-function files**: multiple `// FUNCTION:` blocks per `.c` are all listed.
+- **Library headers**: `library_*.h` with `// LIBRARY:` — origin from stem (`library_msvc.h` → MSVCRT). Optional KV after symbol line (STATUS, SIZE, CFLAGS, SOURCE, BLOCKER) for rebrew; reccmp ignores them.
 - **Ghidra labels**: only `thunk_*` → "thunk"; everything else → "data".
-- **No global mutable state**: all modules stateless; data via params. `cli.py` is sole orchestrator.
+- **Stateless**: `cli.py` is the sole orchestrator; no global mutable state.

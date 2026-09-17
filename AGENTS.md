@@ -23,7 +23,7 @@ Docker build source lives in the sibling **rebrew-toolchains** checkout (`REBREW
 | `clang-18.1.8` / `clang-16.0.4` | `rebrew/clang:*-linux-x64` | ELF/x86_64 |
 | `borland-5.5` | `rebrew/borland:5.5-win32` | PE/x86_32 |
 | `watcom-2.0-win16` / `watcom-2.0-win32` | `rebrew/watcom:2.0-*` | Watcom |
-| `borland-3.1` / `msvc-1.52` / `delphi-1.0` | `rebrew/*:*-win16` | 16-bit (DOSBox); OMF via `rebrew.omf16` where applicable |
+| `borland-3.1` / `borland-2.0` / `msvc-1.52` / `delphi-1.0` | `rebrew/*:*-win16` | 16-bit (DOSBox); OMF via `rebrew.omf16` where applicable |
 
 **CMake**: `rebrew cmake-toolchain --toolchain msvc-6.0 --output cmake/` then `cmake -B build --toolchain cmake/toolchain-msvc-6.0-docker.cmake`. Bridge scripts: `rebrew-cmake-{cl,link,lib}`.
 
@@ -34,20 +34,14 @@ Docker build source lives in the sibling **rebrew-toolchains** checkout (`REBREW
 ```bash
 make setup                                # frozen sync + pre-commit; checks ../resembl
 make test-one T=tests/test_annotation.py  # single-file edit-test loop
+make lint                                 # ruff check src/ tests/ tools/
+make format                               # ruff format src/ tests/ tools/
+make all                                  # local mirror of CI lint + test gates
 # or: uv sync --frozen --all-extras --group similarity
 
-uv run pytest tests/ -v                   # ~6700 tests (needs nasm)
-uv run pytest tests/ -q -p no:cacheprovider
-uv run pytest tests/test_annotation.py -v
-uv run pytest tests/test_annotation.py -k "test_defaults" -v
-uv run pytest tests/test_annotation.py::TestAnnotationDataclass -v
-
-uv run ruff check src/
-uv run ruff check --fix src/
-uv run ruff format src/
-
-uv run pre-commit run --all-files         # see .pre-commit-config.yaml
-make all                                  # local mirror of CI lint + test gates
+uv run pytest tests/ -v                   # ~6800 tests (needs nasm)
+uv run pytest tests/test_annotation.py -v # or ::TestClass / -k name
+uv run pre-commit run --all-files
 uv run python -m slipcover --fail-under 80 -m pytest
 ```
 
@@ -56,9 +50,7 @@ uv run python -m slipcover --fail-under 80 -m pytest
 ## Code Style
 
 - **Python 3.13+**, 4-space indent, 100-char lines (E501 ignored)
-- Ruff select: `E, F, W, I, UP, B, SIM, C4, DTZ, RSE, EXE, Q, NPY, ICN, G, PGH, YTT, ASYNC, FA, SLOT, PLE`, plus the clean `RUF*` / bandit / tryceratops / refurb subset in `pyproject.toml` (debt codes stay off)
-
-- Ignore: `E501`, `B008` (typer defaults), `B904`
+- Ruff select/ignore: `[tool.ruff.lint]` in `pyproject.toml` (do not weaken the gate)
 - Naming: `snake_case` / `PascalCase` / `UPPER_CASE`; `_private`; `mut_` for GA mutations; **one name per function** (no aliases/shims)
 - Types: annotate all signatures; `T | None` not `Optional`; specific generics; config params as `ProjectConfig` (`getattr` defensively); prefer `Any` over bare `object`
 - Imports: stdlib → third-party → local (ruff `I`); blank line between groups
@@ -89,7 +81,7 @@ Multi-command (`is_group=True` in `builtins.py`): `blocker`, `orphans`, `types`,
 
 ## Adding a GA Mutation
 
-Operators live under `src/rebrew/matcher/mutations/` (`mut_*`, tree-sitter only — never regex). Register in the packaged list assembled by `mutator.py` → `ALL_MUTATIONS`. Test in `tests/test_mutator_p*.py`. Document in `docs/GA_MUTATIONS.md`. Entry-point group `rebrew.mutations` can add operators without editing host source; duplicate name → `RegistryError`.
+Operators live under `src/rebrew/matcher/mutations/` (`mut_*`, tree-sitter only — never regex). Register in the packaged list assembled by `mutator.py` → `ALL_MUTATIONS`. Test in `tests/test_mutator_p*.py`. Document in `docs/GA_MUTATIONS.md`. Entry-point group `rebrew.mutations` can add operators without editing host source; duplicate name → skipped with warning (packaged ops kept).
 
 Numeric constants need explicit operators (`mut_tweak_integer_literal` covers small ±deltas).
 
@@ -104,10 +96,10 @@ No `conftest.py`. Group by class; helpers `_`-prefixed; annotate tests `-> None`
 - **Idempotent**: every tool safe to re-run
 - **Source discovery**: `iter_sources` / `iter_library_headers` / `source_glob` from `sources.py`; batch annotations via `iter_annotations` in `cli.py`
 - **Don't reimplement**: if an imported library provides it, use it
-- **Declarative registration**: toolchains, decompiler backends, CLI commands, mutations, flag sets, library presets, detectors, loaders, MSVC version tables, cache backends, discoverers via `rebrew.registry` entry-point groups (+ `REBREW_TOOLCHAIN_OVERLAY_DIR` / `REBREW_SKILLS_DIR`). Duplicate name → `RegistryError` except tuning-data groups (`flag_sets`, `library_presets`, `msvc_versions`) which extend/override. `refresh_all()` for long-lived processes. Adding a component must not require editing host source
+- **Declarative registration**: toolchains, decompiler backends, CLI commands, mutations, flag sets, library presets, detectors, loaders, MSVC version tables, cache backends, discoverers via `rebrew.registry` entry-point groups (+ `REBREW_TOOLCHAIN_OVERLAY_DIR` / `REBREW_SKILLS_DIR`). Conflict policy: toolchains → `RegistryError` on duplicate; tuning groups (`flag_sets`, `library_presets`, `msvc_versions`) extend/override; other plugin groups skip broken/duplicate with a warning. `refresh_all()` for long-lived processes. Adding a component must not require editing host source
 - **CLI composition**: umbrella app is a component graph (`plugin.py` + `builtins.py`); see ADR 014
 - **No backward compat**: one name per function — no aliases/shims/wrappers
-- **Volatile metadata**: `STATUS`, `CFLAGS`, `BLOCKER`, `NOTE`, `GHIDRA`, `LOCALS`, `COMMENTS` live only in `rebrew-functions.toml` via `rebrew.metadata` — never hand-edit. STATUS via `update_source_status` / `update_statuses_batch`; BLOCKER via `update_field` / `remove_field` (`rebrew blocker` or auto-writers). Written **mode 0444** (`atomic_write_locked`); same lock for `rebrew-data.toml` and declib binsync artifacts
+- **Volatile metadata**: `STATUS`, `SIZE`, `CFLAGS`, `BLOCKER`, `BLOCKER_DELTA`, `NOTE`, `GHIDRA`, `LOCALS`, `COMMENTS` live only in `rebrew-functions.toml` via `rebrew.metadata` — never hand-edit. STATUS via `update_source_status` / `update_statuses_batch`; BLOCKER via `update_field` / `remove_field` (`rebrew blocker` or auto-writers). Written **mode 0444** (`atomic_write_locked`); same lock for `rebrew-data.toml` and declib binsync artifacts
 - **STATUS is earned**: `rebrew verify` promotes/demotes from byte comparison; never write `STATUS` in `.c` files. Stale hand-claimed `PROVEN` is demoted with a `metadata: warning`
 - **Compile result**: `CompareResult` — use `.matched`, `.status`, `.delta`, `.match_percent`; never tuple-unpack
 - **Compile backends**: local docker image by default; `[compiler] recompile_url` / `REBREW_RECOMPILE_URL` → `rebrew.recompile_client`. Cache id pins the backend. Only a plugin toolchain without `image` runs as a host binary. See ADR 015
