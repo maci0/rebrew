@@ -749,7 +749,7 @@ def _show_ga_history(cfg: ProjectConfig, json_output: bool, *, target: str = "")
     for rec in records[:10]:
         mark = "[green]MATCH[/green]" if rec.get("matched") else "[dim]no match[/dim]"
         score = f" score={rec['score']}" if rec.get("score") is not None else ""
-        console.print(f"  {mark}  {rec.get('ts', '')[:19]}  {rec.get('symbol', '?')}{score}")
+        console.print(f"  {mark}  {rec.get('ts', '')}  {rec.get('symbol', '?')}{score}")
 
 
 def _filter_recently_run(

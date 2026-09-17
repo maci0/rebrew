@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+from rich.console import Console
 from typer.testing import CliRunner
 
 from rebrew.main import app
@@ -88,6 +90,59 @@ class TestCollect:
 
 
 class TestSolutionsCli:
+    @pytest.mark.parametrize(
+        ("args", "module"),
+        [
+            (["solutions"], "rebrew.solutions_db"),
+            (["solutions", "--best"], "rebrew.solutions_db"),
+            (["match", "--ga-history"], "rebrew.match_run"),
+        ],
+    )
+    def test_display_preserves_timestamp_offsets(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        args: list[str],
+        module: str,
+    ) -> None:
+        timestamps = [
+            "2026-10-25T02:30:00+02:00",
+            "2026-10-25T02:30:00+01:00",
+            "2026-10-25T01:30:00.123456+00:00",
+        ]
+        (tmp_path / ".rebrew").mkdir()
+        (tmp_path / ".rebrew" / "ga_runs.jsonl").write_text(
+            "\n".join(
+                json.dumps(
+                    {
+                        "ts": ts,
+                        "solved_at": ts,
+                        "target": "SERVER",
+                        "va": str(4096 + i),
+                        "symbol": f"func_{i}",
+                        "cflags": "/O2",
+                        "size": 16,
+                        "source_file": f"src/func_{i}.c",
+                        "matched": True,
+                        "score": 0.0,
+                    }
+                )
+                for i, ts in enumerate(timestamps)
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        config_module = "rebrew.match" if args[0] == "match" else module
+        monkeypatch.setattr(
+            f"{config_module}.require_config",
+            lambda target=None, json_mode=False: _cfg(tmp_path),
+        )
+        monkeypatch.setattr(module + ".console", Console(stderr=True, width=200))
+        result = CliRunner().invoke(app, args)
+        assert result.exit_code == 0, result.output
+        for ts in timestamps:
+            assert ts in result.output
+
     def test_list_json(self, tmp_path: Path, monkeypatch) -> None:
         _write_solutions(tmp_path)
         monkeypatch.setattr(

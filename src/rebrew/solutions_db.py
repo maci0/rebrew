@@ -121,7 +121,7 @@ def main(
                 str(r.get("symbol", "")),
                 "yes" if r.get("matched") else "no",
                 f"{r.get('score', '')}" if r.get("score") is not None else "-",
-                str(r.get("ts", ""))[:16],
+                str(r.get("ts", "")),
             )
     else:
         table.add_column("Target")
@@ -137,7 +137,7 @@ def main(
                 str(r["size"]),
                 r["cflags"],
                 f"{r['score']:.2f}" if r["score"] else "-",
-                r["solved_at"][:16],
+                r["solved_at"],
             )
     console.print(table)
     console.print(f"[dim]{len(rows)} entr{'y' if len(rows) == 1 else 'ies'}[/dim]")
