@@ -310,6 +310,31 @@ class TestHeaderDependencyHash:
         k2 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
         assert k1 != k2
 
+    @pytest.mark.parametrize("depth", [0, 1, 3])
+    def test_nonliteral_include_stops_header_reads(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, depth: int
+    ) -> None:
+        for i in range(depth):
+            next_include = f'#include "level{i + 1}.h"' if i + 1 < depth else "#include LIB_H"
+            (tmp_path / f"level{i}.h").write_text(
+                next_include + '\n#include "unused.h"\n', encoding="utf-8"
+            )
+        (tmp_path / "unused.h").write_text("typedef int Unused;\n", encoding="utf-8")
+        first_include = '#include "level0.h"' if depth else "#include LIB_H"
+        source = first_include + '\n#include "unused.h"\n'
+        include_dirs = [str(tmp_path)]
+        expected = header_dependency_hash("#include OTHER_MACRO\n", str(tmp_path), include_dirs)
+        reads: list[str] = []
+        read_bytes = Path.read_bytes
+
+        def counted_read(path: Path) -> bytes:
+            reads.append(path.name)
+            return read_bytes(path)
+
+        monkeypatch.setattr(Path, "read_bytes", counted_read)
+        assert header_dependency_hash(source, str(tmp_path), include_dirs) == expected
+        assert reads == [f"level{i}.h" for i in range(depth)]
+
     def test_include_in_block_comment_not_tracked(self, tmp_path: Path) -> None:
         inc = tmp_path / "inc"
         inc.mkdir()

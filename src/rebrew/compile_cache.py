@@ -503,7 +503,7 @@ def _resolve_include_paths(
         for kind, name in _iter_include_specs(text):
             if kind == "nonliteral" or not name:
                 fallback = True
-                continue
+                return
             # Quote includes search the including file's directory first,
             # then the /I dirs; angle includes search the /I dirs only.
             # #include_next is treated as an angle search of all dirs (an
@@ -523,6 +523,8 @@ def _resolve_include_paths(
             except OSError:
                 continue
             _scan(header_text, found.parent)
+            if fallback:
+                return
 
     _scan(source_content, Path(source_dir) if source_dir else None)
     return tuple(sorted(reached)), fallback
