@@ -331,6 +331,27 @@ class TestImportsMark:
         assert "// LIBRARY: SERVER 0x00401000" in text
         assert "// MessageBoxA" in text
 
+    @pytest.mark.parametrize(
+        ("encoding", "comment"),
+        [("cp1252", "Café"), ("shift_jis", "日本語"), ("utf-8", "Café 日本語")],
+    )
+    def test_mark_preserves_existing_encoding(
+        self, tmp_path: Path, encoding: str, comment: str
+    ) -> None:
+        from rebrew.imports import mark_import_stubs
+
+        cfg = self._cfg(tmp_path)
+        cfg.reversed_dir.mkdir(parents=True)
+        out = cfg.reversed_dir / "library_imports.h"
+        original = f"// {comment}\n// LIBRARY: SERVER 0x00401000\n".encode(encoding)
+        out.write_bytes(original)
+
+        assert mark_import_stubs(cfg, {0x401000: "Existing", 0x402000: "MessageBoxA"}) == 1
+        expected = original + b"\n// LIBRARY: SERVER 0x00402000\n// MessageBoxA\n"
+        assert out.read_bytes() == expected
+        assert mark_import_stubs(cfg, {0x402000: "MessageBoxA"}) == 0
+        assert out.read_bytes() == expected
+
     def test_mark_dry_run_writes_nothing(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
