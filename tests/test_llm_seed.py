@@ -222,6 +222,28 @@ class TestRequestSeeds:
         seeds = request_seeds(_cfg("https://llm/v1", "k"), "int f(void){return 0;}", client=client)
         assert seeds == []
 
+    @pytest.mark.parametrize(
+        "snippet",
+        [
+            "int f(void) { if (x) { y(); } return 0;",
+            "int f(void) { return 0 }",
+            "int f(void) { return +; }",
+            "int f(void) { return 0; } @@@ junk",
+        ],
+    )
+    def test_malformed_function_dropped(self, snippet: str) -> None:
+        good = "int f(void) { return 1; }"
+        content = f"```c\n{snippet}\n```\n```c\n{good}\n```"
+        client = _FakeClient({"choices": [{"message": {"content": content}}]})
+        seeds = request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client)
+        assert seeds == [good]
+
+    @pytest.mark.parametrize("convention", ["__cdecl", "__stdcall", "__fastcall"])
+    def test_calling_convention_preserved(self, convention: str) -> None:
+        snippet = f"int {convention} f(int x) {{ return x; }}"
+        client = _FakeClient({"choices": [{"message": {"content": f"```c\n{snippet}\n```"}}]})
+        assert request_seeds(_cfg("https://llm/v1"), snippet, client=client) == [snippet]
+
     def test_seed_count_capped(self) -> None:
         blocks = "\n".join(f"```c\nint f(void) {{ return {i}; }}\n```" for i in range(6))
         client = _FakeClient({"choices": [{"message": {"content": blocks}}]})

@@ -146,16 +146,24 @@ def extract_seeds(text: str) -> list[str]:
 
 
 def valid_c_source(src: str, *, expect_name: str | None = None) -> bool:
-    """True when *src* parses and defines a function (tree-sitter).
+    """True when *src* parses without recovery and defines a function.
 
+    Known calling conventions are stripped only for syntax validation.
     When *expect_name* is set, the first defined function must use that name
     so a hallucinated unrelated function cannot enter the GA population.
     """
-    from rebrew.c_parser import extract_function_name_and_proto
+    from rebrew.c_parser import _strip_cc, extract_function_name_and_proto, get_ts_parser
 
     if len(src) > _MAX_SEED_CHARS:
         return False
     try:
+        parser_pair = get_ts_parser()
+        if parser_pair is None:
+            return False
+        parser, _ = parser_pair
+        tree = parser.parse(_strip_cc(src).encode("utf-8"))
+        if tree.root_node.has_error:
+            return False
         result = extract_function_name_and_proto(src)
     except Exception as exc:  # garbage must never break seeding
         logging.getLogger(__name__).debug("seed parse failed: %s", exc)
