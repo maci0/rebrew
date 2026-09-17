@@ -29,6 +29,6 @@ Reversed `.c` + `library_*.h` → `scan_reversed_dir` → annotations; discovery
 
 - **Lazy binary parse**: `generate_data_json` parses once (`_bin_info`) per run; other tools call `load_binary()` themselves.
 - **Multi-function files**: multiple `// FUNCTION:` blocks per `.c` are all listed.
-- **Library headers**: `library_*.h` with `// LIBRARY:` — origin from stem (`library_msvc.h` → MSVCRT). Optional KV after symbol line (STATUS, SIZE, CFLAGS, SOURCE, BLOCKER) for rebrew; reccmp ignores them.
+- **Library headers**: `parse_library_header` takes the module from `// LIBRARY: <module> <VA>`, not the filename; do not filter these entries by the project marker. It reads legacy inline KV fields; this is not permission to add volatile metadata to source files.
 - **Ghidra labels**: only `thunk_*` → "thunk"; everything else → "data".
-- **Stateless**: `cli.py` is the sole orchestrator; no global mutable state.
+- **Inventory cache**: `loaders.py` has a bounded, path-keyed process cache invalidated by mtime. Preserve its lock around lookup, eviction, and replacement.

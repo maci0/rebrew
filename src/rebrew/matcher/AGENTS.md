@@ -23,7 +23,7 @@ GA engine for binary-matching decompilation. Compiles C through the docker-backe
 ## Non-obvious types
 
 - **Score**: lower is better; `byte_score` 0.0 = perfect; `total` is weighted.
-- **BuildResult**: never raises — failures are `ok=False`.
+- **BuildResult**: check `ok` before using bytes; reported compiler failures use `ok=False`. Build helpers can still raise during argument parsing, filesystem operations, or backend calls.
 - **StructuralSimilarity**: `exact` / `reloc_only` / `register_only` / `structural`; `flag_sensitive` means flags alone may fix it.
 - **BuildCache**: per-run diskcache instance (not global), thread-safe.
 - **GACheckpoint**: JSON resume state; `args_hash` rejects stale checkpoints.
@@ -42,6 +42,6 @@ GA engine for binary-matching decompilation. Compiles C through the docker-backe
 
 - **Profile-parametrized sweep**: `generate_flag_combinations(tier=, profile=)` picks axes per profile (incl. `borland-2.0`); unknown profile falls back to registry `flags_style` (posix → GCC axes, not MSVC).
 - **Heuristic reloc/register detection**: pattern matching in `scoring.py`, not COFF metadata.
-- **Timeouts**: `build_candidate_obj_only` / `flag_sweep` default 60s; `build_candidate` (compile+link) default 120s — hung compile → `BuildResult(ok=False)`, never raises.
+- **Timeouts**: `build_candidate_obj_only` / `flag_sweep` default 60s; `build_candidate` (compile+link) defaults to 120s. Direct subprocess timeouts return `BuildResult(ok=False)`; the image-backed path uses `cfg.compile_timeout` when a config is supplied.
 - **Wine stderr**: lazy `rebrew.compile.filter_wine_stderr()` (avoids import cycle).
 - **No global state**: each run owns `BuildCache`, `Random`, temp dirs — safe to run concurrently.
