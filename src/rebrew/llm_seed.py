@@ -192,8 +192,12 @@ def _parse_response(data: Any) -> str:
         if isinstance(choices, list) and choices:
             first = choices[0]
             if isinstance(first, dict):
+                if first.get("finish_reason") not in (None, "stop"):
+                    return ""
                 msg = first.get("message") or first.get("delta") or {}
-                content = msg.get("content") if isinstance(msg, dict) else None
+                if not isinstance(msg, dict) or msg.get("refusal"):
+                    return ""
+                content = msg.get("content")
                 if isinstance(content, str):
                     return content[:_MAX_RESPONSE_CHARS]
                 if isinstance(content, list):  # OpenAI-style content parts

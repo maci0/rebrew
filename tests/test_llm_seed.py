@@ -231,6 +231,53 @@ class TestRequestSeeds:
         assert client.last_payload["max_tokens"] > 0
         assert client.last_payload["model"] == _DEFAULT_MODEL
 
+    @pytest.mark.parametrize("finish_reason", ["length", "content_filter", "tool_calls", "error"])
+    def test_incomplete_completion_dropped(self, finish_reason: str) -> None:
+        snippet = "int f(void) { return 0; }"
+        client = _FakeClient(
+            {
+                "choices": [
+                    {
+                        "finish_reason": finish_reason,
+                        "message": {"content": f"```c\n{snippet}\n```"},
+                    }
+                ]
+            }
+        )
+        assert request_seeds(_cfg("https://llm/v1"), snippet, client=client) == []
+
+    def test_refused_completion_dropped(self) -> None:
+        snippet = "int f(void) { return 0; }"
+        client = _FakeClient(
+            {
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {
+                            "content": f"```c\n{snippet}\n```",
+                            "refusal": "Cannot provide a valid alternative.",
+                        },
+                    }
+                ]
+            }
+        )
+        assert request_seeds(_cfg("https://llm/v1"), snippet, client=client) == []
+
+    @pytest.mark.parametrize("finish_reason", [None, "stop"])
+    def test_completed_response_accepted(self, finish_reason: str | None) -> None:
+        snippet = "int f(void) { return 0; }"
+        client = _FakeClient(
+            {
+                "choices": [
+                    {
+                        "finish_reason": finish_reason,
+                        "message": {"content": f"```c\n{snippet}\n```", "refusal": None},
+                    }
+                ]
+            }
+        )
+        assert request_seeds(_cfg("https://llm/v1"), snippet, client=client) == [snippet]
+
     def test_wrong_name_seed_dropped(self) -> None:
         client = _FakeClient(
             {"choices": [{"message": {"content": "```c\nint other(void) { return 1; }\n```\n"}}]}
