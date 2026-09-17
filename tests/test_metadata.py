@@ -205,6 +205,24 @@ class TestGetEntry:
     def test_no_metadata(self, tmp_path: Path) -> None:
         assert get_entry(tmp_path, 0x01006364, module="SERVER") == {}
 
+    def test_nested_values_are_isolated(self, tmp_path: Path) -> None:
+        fields = {
+            "globals": ["g_counter"],
+            "locals": {"-4": {"name": "counter", "type": "int"}},
+            "prove_constraints": {"args": {"0": [1, 2]}},
+        }
+        save_metadata(tmp_path, {("SERVER", 0x01006364): fields})
+        before = metadata_path(tmp_path).read_bytes()
+
+        entry = get_entry(tmp_path, 0x01006364, module="SERVER")
+        entry["globals"].append("g_other")
+        entry["locals"]["-4"]["name"] = "changed"
+        entry["prove_constraints"]["args"]["0"].append(3)
+
+        assert metadata_path(tmp_path).read_bytes() == before
+        assert get_entry(tmp_path, 0x01006364, module="SERVER") == fields
+        assert load_metadata(tmp_path)[("SERVER", 0x01006364)] == fields
+
 
 # ---------------------------------------------------------------------------
 # delete_metadata_entry

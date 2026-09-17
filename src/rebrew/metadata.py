@@ -83,6 +83,7 @@ different threads would otherwise race.
 from __future__ import annotations
 
 import contextlib
+import copy
 import logging
 import threading
 import tomllib
@@ -305,9 +306,8 @@ def get_entry(directory: Path, va: int, module: str) -> dict[str, Any]:
     """Return metadata fields for *(module, va)* in *directory*.
 
     Returns an empty dict if not found.  Loads with ``deepcopy=False`` and
-    returns a shallow copy of the one entry so callers cannot corrupt the
-    process cache — previously this deep-copied the entire table on every
-    single-VA lookup (annotation merge, blocker, match, lint --fix).
+    deep-copies only the selected entry, isolating nested values from the
+    process cache without copying the entire metadata table.
 
     Args:
         directory: The metadata root directory (``cfg.metadata_dir``).
@@ -316,7 +316,7 @@ def get_entry(directory: Path, va: int, module: str) -> dict[str, Any]:
 
     """
     entry = load_metadata(directory, deepcopy=False).get((module, va))
-    return dict(entry) if entry else {}
+    return copy.deepcopy(entry) if entry else {}
 
 
 def _require_module(module: str) -> None:
