@@ -201,6 +201,14 @@ class TestRecompileUrl:
         assert recompile_url(SimpleNamespace(recompile_url="")) is None
         assert recompile_url(SimpleNamespace(recompile_url="   ")) is None
 
+    def test_invalid_url_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        with pytest.raises(ValueError, match=r"compiler\.recompile_url must be an http\(s\) URL"):
+            recompile_url(SimpleNamespace(recompile_url="not-a-url"))
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "ftp://evil")
+        with pytest.raises(ValueError, match=r"REBREW_RECOMPILE_URL must be an http\(s\) URL"):
+            recompile_url(SimpleNamespace(recompile_url="http://cfg"))
+
 
 class TestCompileViaRecompile:
     def _cfg(self, url: str = "http://svc") -> SimpleNamespace:

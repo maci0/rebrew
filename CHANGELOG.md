@@ -1,5 +1,10 @@
 ## [Unreleased]
 ### Fixed
+- **``[llm] model`` is loaded into ``cfg.llm_model``** — the key was treated as
+  unrecognized while ``_resolve_model`` already looked for ``cfg.llm_model`` /
+  ``REBREW_LLM_MODEL``, so a TOML model pin was ignored.  Non-empty
+  ``compiler.recompile_url`` / ``[llm] endpoint`` (and the matching env vars)
+  must now be http(s) with a host or load/resolve fails fast.
 - **Recompile / registry errors are programmatically recoverable** —
   ``RecompileError`` carries ``kind`` / ``status_code`` / ``retryable``;
   ``RegistryError`` carries ``group`` / ``name`` / ``origin``.  Callers no

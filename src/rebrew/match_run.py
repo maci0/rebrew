@@ -93,7 +93,7 @@ def _run_single_ga(
 
         if llm_config(p.cfg) is None:
             console.print(
-                "[yellow]warning:[/yellow] --llm-seed set but no LLM endpoint configured "
+                "[yellow]warning:[/yellow] --seed-llm set but no LLM endpoint configured "
                 "(set \\[llm] endpoint or REBREW_LLM_ENDPOINT) — running without LLM seeds"
             )
             # --dry-run promised "preview, no GA" — without an endpoint there
@@ -101,7 +101,7 @@ def _run_single_ga(
             # through here and burn hours of Wine compiles despite --dry-run).
             if dry_run:
                 console.print(
-                    "\n[bold]Dry run:[/bold] --llm-seed with no LLM endpoint — "
+                    "\n[bold]Dry run:[/bold] --seed-llm with no LLM endpoint — "
                     "nothing to preview; skipping the GA run."
                 )
                 return

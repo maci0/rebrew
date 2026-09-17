@@ -263,6 +263,7 @@ they do **not** all share one global precedence over the TOML.
 | `[compiler] recompile_url` / `REBREW_RECOMPILE_URL` | env (per-run override without editing TOML) |
 | `[llm] endpoint` / `REBREW_LLM_ENDPOINT` | TOML, then env |
 | `[llm] api_key` / `REBREW_LLM_API_KEY` | TOML, then env — **prefer the env var**; do not commit keys |
+| `[llm] model` / `REBREW_LLM_MODEL` | TOML, then env (default `gpt-4o-mini`) |
 
 Within a project file, compiler settings still merge as: built-in defaults →
 `[compiler]` → `[targets.<name>.compiler]` → library/metadata overrides
@@ -271,14 +272,16 @@ by the CLI layer and win for that invocation.
 
 ### Runtime / secrets
 
-- `REBREW_LLM_ENDPOINT` / `REBREW_LLM_API_KEY` — LLM seeding endpoint + key
-  (`rebrew match --seed-llm`). Required for LLM seeding when `[llm]` is unset.
-  The key is sent only as a `Bearer` header to the configured endpoint, never
-  logged. Prefer these env vars over `[llm] api_key` in TOML.
+- `REBREW_LLM_ENDPOINT` / `REBREW_LLM_API_KEY` / `REBREW_LLM_MODEL` — LLM
+  seeding endpoint, key, and model pin (`rebrew match --seed-llm`). Required
+  for LLM seeding when `[llm]` is unset. The key is sent only as a `Bearer`
+  header to the configured endpoint, never logged. Prefer these env vars over
+  `[llm] api_key` in TOML. Endpoint must be an `http(s)` URL with a host.
 - `REBREW_RECOMPILE_URL` — base URL of the recompile compile service
   (e.g. `http://localhost:8000`). Same effect as `[compiler] recompile_url`;
   the env var wins when both are set. When set, every compile routes through
-  the service instead of local docker images.
+  the service instead of local docker images. Must be an `http(s)` URL with a
+  host (invalid values fail at load / resolve time).
 
 ### Paths / overlays
 
@@ -335,6 +338,10 @@ It emits warnings (and applies safe defaults) if:
   would otherwise become `True` via Python `bool()`).
 - The target binary is missing — `image_base`/`text_va` auto-detection is skipped
   (warning emitted at load time).
+
+It fail-fasts (raises) when a configured URL is non-empty but not `http(s)` with
+a host: `[compiler] recompile_url`, `[llm] endpoint`, and the matching
+`REBREW_RECOMPILE_URL` / `REBREW_LLM_ENDPOINT` env values.
 
 `cflags` are user-facing defaults (e.g. `/O2 /Gd`). `base_cflags` are always-on
 flags prepended by the compile helpers (default `/nologo /c /MT`) and must not be

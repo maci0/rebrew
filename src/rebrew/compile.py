@@ -863,12 +863,20 @@ def recompile_url(cfg: ProjectConfig) -> str | None:
 
     Precedence: ``REBREW_RECOMPILE_URL`` env first (per-run override without
     editing the TOML), then ``[compiler] recompile_url``.  Empty/unset means
-    local docker images.
+    local docker images.  A non-empty value that is not http(s) with a host
+    raises ``ValueError`` so a typo does not turn into a cryptic HTTP failure.
     """
+    from urllib.parse import urlparse
+
     env = os.environ.get("REBREW_RECOMPILE_URL", "").strip()
-    if env:
-        return env
-    return (getattr(cfg, "recompile_url", "") or "").strip() or None
+    candidate = env or (getattr(cfg, "recompile_url", "") or "").strip()
+    if not candidate:
+        return None
+    parsed = urlparse(candidate)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        label = "REBREW_RECOMPILE_URL" if env else "compiler.recompile_url"
+        raise ValueError(f"{label} must be an http(s) URL with a host, got {candidate!r}")
+    return candidate
 
 
 def _compile_via_recompile(

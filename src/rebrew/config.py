@@ -32,6 +32,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypedDict
+from urllib.parse import urlparse
 
 from rebrew.toolchain_spec import FlagsStyle
 from rebrew.utils import config_path, parse_int_literal
@@ -314,10 +315,11 @@ class ProjectConfig:
     """
 
     # --- [llm] section: optional LLM-assisted GA seeding ---
-    # ``[llm] endpoint``/``api_key`` in rebrew-project.toml; env vars
-    # REBREW_LLM_ENDPOINT/REBREW_LLM_API_KEY are the fallback.
+    # ``[llm] endpoint``/``api_key``/``model`` in rebrew-project.toml; env
+    # vars REBREW_LLM_ENDPOINT/REBREW_LLM_API_KEY/REBREW_LLM_MODEL fall back.
     llm_endpoint: str = ""
     llm_api_key: str = ""
+    llm_model: str = ""
     cache_backend: str = "diskcache"  # compile-cache store ([cache] backend)
 
     @property
@@ -590,6 +592,24 @@ def _as_str(value: Any, default: str, field_name: str) -> str:
     return default
 
 
+def _http_url(value: str, field_name: str) -> str:
+    """Return *value* when it is an http(s) URL with a host; else raise.
+
+    Empty / whitespace-only input is treated as unset (returns ``""``) so
+    optional URL knobs stay optional.  A non-empty garbage value must not
+    reach compile/HTTP and fail later as a cryptic connection error.
+    """
+    text = value.strip()
+    if not text:
+        return ""
+    parsed = urlparse(text)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError(
+            f"rebrew-project.toml {field_name} must be an http(s) URL with a host, got {value!r}"
+        )
+    return text
+
+
 def _as_bool(value: Any, default: bool, field_name: str) -> bool:
     """Return a bool config value, warning and using *default* on bad types.
 
@@ -824,7 +844,7 @@ _KNOWN_TOP_KEYS = {"targets", "compiler", "project", "link", "llm", "cache"}
 
 _KNOWN_CACHE_KEYS = {"backend"}
 
-_KNOWN_LLM_KEYS = {"endpoint", "api_key"}
+_KNOWN_LLM_KEYS = {"endpoint", "api_key", "model"}
 
 _KNOWN_LINK_KEYS = {
     "file_align",
@@ -1180,7 +1200,10 @@ def load_config(
             "compiler.base_cflags",
         ),
         compile_timeout=_positive_int(compiler.get("timeout", 60), 60, "compiler.timeout"),
-        recompile_url=_as_str(compiler.get("recompile_url"), "", "compiler.recompile_url").strip(),
+        recompile_url=_http_url(
+            _as_str(compiler.get("recompile_url"), "", "compiler.recompile_url"),
+            "compiler.recompile_url",
+        ),
         recompile_emit_assembly=_as_bool(
             compiler.get("recompile_emit_assembly"), False, "compiler.recompile_emit_assembly"
         ),
@@ -1270,17 +1293,19 @@ def load_config(
         )
 
     # --- [llm] section: optional LLM-assisted GA seeding ---
-    # Documented in CONFIG.md but previously never parsed — the TOML keys
-    # were not in _KNOWN_TOP_KEYS, so a `[llm]` table triggered an
-    # "unrecognized top-level keys" warning and cfg.llm_endpoint was always
-    # "" (only the env-var fallback worked).  The match --llm-seed error
-    # message even pointed users at `[llm] endpoint` (config-review F2).
+    # Documented in CONFIG.md; keys populate cfg.llm_*; env vars are the
+    # fallback when a TOML field is empty (see llm_seed.llm_config /
+    # _resolve_model).  ``match --seed-llm`` points users at ``[llm]``.
     llm_raw = _as_table(raw.get("llm", {}), "llm")
     unknown_llm = set(llm_raw) - _KNOWN_LLM_KEYS
     if unknown_llm:
         _config_warn(f"rebrew-project.toml [llm]: unrecognized keys: {sorted(unknown_llm)}")
-    cfg.llm_endpoint = _as_str(llm_raw.get("endpoint"), "", "llm.endpoint").strip()
+    cfg.llm_endpoint = _http_url(
+        _as_str(llm_raw.get("endpoint"), "", "llm.endpoint"),
+        "llm.endpoint",
+    )
     cfg.llm_api_key = _as_str(llm_raw.get("api_key"), "", "llm.api_key")
+    cfg.llm_model = _as_str(llm_raw.get("model"), "", "llm.model").strip()
     # Prefer REBREW_LLM_API_KEY over committing the key: warn when the TOML
     # carries a non-empty api_key (value left intact — do not strip secrets).
     if cfg.llm_api_key.strip():

@@ -1,14 +1,15 @@
 """llm_seed.py — optional LLM-assisted GA seed generation.
 
-``rebrew match --llm-seed`` asks a configured LLM endpoint for alternative C
+``rebrew match --seed-llm`` asks a configured LLM endpoint for alternative C
 implementations of a NEAR_MATCHING function, validates each returned snippet
 with tree-sitter (it must parse and define a function), and injects the
 survivors into the GA's initial population as extra seeds.
 
 Strictly optional and off by default: with no endpoint configured the flag
 degrades to a warning and the GA runs unchanged.  The endpoint is taken from
-``[llm] endpoint``/``api_key`` in ``rebrew-project.toml`` or the
-``REBREW_LLM_ENDPOINT`` / ``REBREW_LLM_API_KEY`` environment variables.
+``[llm] endpoint``/``api_key``/``model`` in ``rebrew-project.toml`` or the
+``REBREW_LLM_ENDPOINT`` / ``REBREW_LLM_API_KEY`` / ``REBREW_LLM_MODEL``
+environment variables.
 
 Untrusted boundaries: the seed source is project C (may contain adversarial
 fence breakouts if copied from elsewhere); the model response is never executed
@@ -80,7 +81,7 @@ def _sanitize_source(source: str) -> str:
 
 
 def build_prompt(source: str, count: int = _DEFAULT_COUNT) -> str:
-    """The exact prompt sent to the endpoint (exposed for --llm-seed --dry-run)."""
+    """The exact prompt sent to the endpoint (exposed for --seed-llm --dry-run)."""
     safe = _sanitize_source(source)
     return (_SYSTEM_PROMPT + "\n" + _USER_PROMPT).format(source=safe, count=count)
 
@@ -88,8 +89,12 @@ def build_prompt(source: str, count: int = _DEFAULT_COUNT) -> str:
 def llm_config(cfg: Any) -> dict[str, str] | None:
     """Return ``{"endpoint": ..., "api_key": ...}`` or None when not configured.
 
-    Config ``[llm]`` keys win over environment variables.
+    Config ``[llm]`` keys win over environment variables.  A non-empty
+    endpoint that is not http(s) with a host raises ``ValueError`` (same
+    rule as ``compiler.recompile_url``).
     """
+    from urllib.parse import urlparse
+
     endpoint = str(getattr(cfg, "llm_endpoint", "") or "").strip()
     api_key = str(getattr(cfg, "llm_api_key", "") or "").strip()
     if not endpoint:
@@ -98,6 +103,9 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
         api_key = os.environ.get("REBREW_LLM_API_KEY", "").strip()
     if not endpoint:
         return None
+    parsed = urlparse(endpoint)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise ValueError(f"LLM endpoint must be an http(s) URL with a host, got {endpoint!r}")
     return {"endpoint": endpoint, "api_key": api_key}
 
 
@@ -316,7 +324,7 @@ def request_seeds(
         with httpx.Client(timeout=90) as http:
             return _request(http, conf, source, count, model=model)
     except Exception as exc:  # LLM availability must never break the GA
-        # --llm-seed was explicitly requested; a silent empty result hides a
+        # --seed-llm was explicitly requested; a silent empty result hides a
         # misconfigured endpoint/key.  Warn so the user knows seeds were asked
         # for but never arrived (still return [] — the GA must run unchanged).
         status = _http_status(exc)

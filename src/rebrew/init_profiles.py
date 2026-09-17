@@ -68,8 +68,10 @@ GAME = "{cflags}"
 
 # Optional LLM seeding for `rebrew match --seed-llm`. Prefer env vars for the
 # key so it is never committed: REBREW_LLM_ENDPOINT / REBREW_LLM_API_KEY.
+# Optional model pin: REBREW_LLM_MODEL or [llm] model (default gpt-4o-mini).
 # [llm]
 # endpoint = "https://api.example.com/v1"
+# model = "gpt-4o-mini"
 # api_key = ""   # leave empty — set REBREW_LLM_API_KEY instead
 
 # Per-directory overrides — rebrew-libraries.toml at a library root can

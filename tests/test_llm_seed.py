@@ -31,8 +31,8 @@ from rebrew.llm_seed import (
 )
 
 
-def _cfg(endpoint: str = "", api_key: str = "") -> SimpleNamespace:
-    return SimpleNamespace(llm_endpoint=endpoint, llm_api_key=api_key)
+def _cfg(endpoint: str = "", api_key: str = "", model: str = "") -> SimpleNamespace:
+    return SimpleNamespace(llm_endpoint=endpoint, llm_api_key=api_key, llm_model=model)
 
 
 class TestLlmConfig:
@@ -54,6 +54,11 @@ class TestLlmConfig:
             "endpoint": "https://env.example/v1",
             "api_key": "env-key",
         }
+
+    def test_invalid_endpoint_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
+        with pytest.raises(ValueError, match=r"LLM endpoint must be an http\(s\) URL"):
+            llm_config(_cfg(endpoint="ftp://evil.example/v1"))
 
 
 class TestExtractSeeds:
@@ -268,6 +273,10 @@ class TestResolveModel:
     def test_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("REBREW_LLM_MODEL", "local-qwen-7b")
         assert _resolve_model(_cfg()) == "local-qwen-7b"
+
+    def test_config_wins_over_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("REBREW_LLM_MODEL", "from-env")
+        assert _resolve_model(_cfg(model="from-toml")) == "from-toml"
 
     def test_rejects_unpinned_alias(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("REBREW_LLM_MODEL", "latest")

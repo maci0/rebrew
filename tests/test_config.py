@@ -508,10 +508,7 @@ foo = "bar"
             load_config(root)
 
     def test_llm_section_parsed(self, tmp_path: Path) -> None:
-        """The documented `[llm]` table must reach cfg.llm_endpoint/api_key —
-        it was previously not in the known top-level keys, so the table
-        warned "unrecognized" and the fields were always "" (config-review
-        F2: match --llm-seed's error message points users at `[llm]`)."""
+        """The documented `[llm]` table must reach cfg.llm_endpoint/api_key/model."""
         toml = """\
 [project]
 default_target = "main"
@@ -522,12 +519,14 @@ binary = "test.exe"
 [llm]
 endpoint = "http://localhost:9000/v1"
 api_key = "secret-key"
+model = "local-qwen-7b"
 """
         root = _make_project(tmp_path, toml)
         with pytest.warns(UserWarning, match=r"\[llm\]\.api_key is set in rebrew-project\.toml"):
             cfg = load_config(root)
         assert cfg.llm_endpoint == "http://localhost:9000/v1"
         assert cfg.llm_api_key == "secret-key"
+        assert cfg.llm_model == "local-qwen-7b"
 
     def test_llm_unknown_key_warns(self, tmp_path: Path) -> None:
         toml = """\
@@ -539,10 +538,40 @@ binary = "test.exe"
 
 [llm]
 endpoint = "http://localhost:9000/v1"
-model = "gpt-x"
+temperature = 0.2
 """
         root = _make_project(tmp_path, toml)
-        with pytest.warns(UserWarning, match=r"\[llm\].*unrecognized keys.*model"):
+        with pytest.warns(UserWarning, match=r"\[llm\].*unrecognized keys.*temperature"):
+            load_config(root)
+
+    def test_llm_invalid_endpoint_raises(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[llm]
+endpoint = "not-a-url"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.raises(ValueError, match=r"llm\.endpoint must be an http\(s\) URL"):
+            load_config(root)
+
+    def test_recompile_url_invalid_raises(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+recompile_url = "ftp://example.com"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.raises(ValueError, match=r"compiler\.recompile_url must be an http\(s\) URL"):
             load_config(root)
 
     def test_llm_api_key_without_endpoint_warns(self, tmp_path: Path) -> None:
