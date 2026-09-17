@@ -10,10 +10,11 @@ unhandled ``StopIteration`` traceback instead of a clean error.
 from __future__ import annotations
 
 import struct
+from pathlib import Path
 
 import pytest
 
-from rebrew.layout_meta import extract_layout
+from rebrew.layout_meta import extract_layout, write_package
 
 _IMAGE_BASE = 0x400000
 _SEC_ALIGN = 0x1000
@@ -168,6 +169,32 @@ class TestExtractLayoutTruncatedSectionTable:
 
 
 _SECTIONS = [b".text\x00\x00\x00", b".rdata\x00\x00\x00", b".data\x00\x00\x00", b".reloc\x00\x00"]
+
+
+@pytest.mark.parametrize(
+    ("size", "widths"),
+    [
+        (0, [0]),
+        (1, [2]),
+        (31, [62]),
+        (32, [64]),
+        (33, [64, 2]),
+        (63, [64, 62]),
+        (64, [64, 64]),
+        (65, [64, 64, 2]),
+        (256, [64] * 8),
+    ],
+)
+def test_write_package_hex_lines(tmp_path: Path, size: int, widths: list[int]) -> None:
+    meta = extract_layout(_make_pe(_SECTIONS), "t.dll")
+    meta.data = bytes(range(size))
+    write_package(meta, tmp_path)
+    text = (tmp_path / "data.hex").read_text(encoding="utf-8")
+    payload = text.split("\n", 2)[2]
+    lines = payload.splitlines()
+    assert payload.endswith("\n")
+    assert [len(line) for line in lines] == widths
+    assert "".join(lines) == meta.data.hex()
 
 
 class TestSparseMapBounds:
