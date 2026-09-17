@@ -1095,18 +1095,18 @@ def load_config(
     # (msvc-6.0-sp3-win32/6.6/7.0 ship Bin+Include but no Lib).  A *missing* key still
     # falls back to the conventional default path.
     def _explicit_empty(key: str) -> bool:
-        return compiler.get(key) is not None and not str(compiler.get(key) or "").strip()
+        raw = compiler.get(key)
+        if raw is not None and not isinstance(raw, str):
+            raise ValueError(f"rebrew-project.toml compiler.{key} must be a path string")
+        return raw is not None and not raw.strip()
 
+    from rebrew.utils import resolve_msvc_toolchain
+
+    msvc_layout = resolve_msvc_toolchain(root, profile_val)
     if _explicit_empty("includes"):
         compiler_includes = Path("")
     else:
         default_inc = "toolchain/msvc/6.0-win32/source/VC98/Include"
-        # The master layouts may be absent (machines with only the vendored
-        # msvc-6.0-sp3-win32/6.6/7.0 mirrors) — resolve the best present layout so a
-        # fresh project with no explicit paths still compiles out of the box.
-        from rebrew.utils import resolve_msvc_toolchain
-
-        msvc_layout = resolve_msvc_toolchain(root, profile_val)
         if msvc_layout is not None and msvc_layout[1]:
             default_inc = msvc_layout[1]
         compiler_includes = _required_path(

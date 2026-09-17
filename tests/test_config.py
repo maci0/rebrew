@@ -1231,6 +1231,45 @@ profile = "msvc-6.0"
 command = "wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE"
 """
 
+    @pytest.mark.parametrize("key", ["includes", "libs"])
+    @pytest.mark.parametrize("value", ["false", "0", "0.0", "[]", "{}"])
+    def test_invalid_compiler_paths_raise(
+        self, tmp_path: Path, key: str, value: str
+    ) -> None:
+        root = _make_project(tmp_path, self.TOML + f"{key} = {value}\n")
+        with pytest.raises(ValueError, match=rf"compiler\.{key} must be a path string"):
+            load_config(root)
+
+    @pytest.mark.parametrize("includes", ['""', '"   "'])
+    @pytest.mark.parametrize("libs", [None, '"custom/lib"', '""'])
+    @pytest.mark.parametrize("detected", [False, True])
+    def test_empty_includes_with_independent_libs(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        includes: str,
+        libs: str | None,
+        detected: bool,
+    ) -> None:
+        from rebrew import utils as rebrew_utils
+
+        layout = ("compiler", "detected/include", "detected/lib") if detected else None
+        monkeypatch.setattr(rebrew_utils, "resolve_msvc_toolchain", lambda *_: layout)
+        monkeypatch.setattr(rebrew_utils, "find_install_tool", lambda _: None)
+        toml = self.TOML + f"includes = {includes}\n"
+        if libs is not None:
+            toml += f"libs = {libs}\n"
+        cfg = load_config(_make_project(tmp_path, toml))
+
+        assert cfg.compiler_includes == Path("")
+        if libs == '""':
+            assert cfg.compiler_libs == Path("")
+        elif libs is not None:
+            assert cfg.compiler_libs == tmp_path / "custom/lib"
+        else:
+            expected = "detected/lib" if detected else "toolchain/msvc/6.0-win32/source/VC98/Lib"
+            assert cfg.compiler_libs == tmp_path / expected
+
     def test_missing_includes_falls_back(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew import utils as rebrew_utils
 
