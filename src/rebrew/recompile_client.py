@@ -115,6 +115,35 @@ def _same_origin_artifact_url(base_url: str, artifact_url: str) -> str:
     return resolved.geturl()
 
 
+def _download_artifact(
+    http: Any, base_url: str, body: dict[str, Any], artifact_url: str
+) -> RecompileResult:
+    """Fetch the artifact for an ``status == "ok"`` reply and build the result."""
+    resolved = _same_origin_artifact_url(base_url, artifact_url)
+    try:
+        art = http.get(resolved)
+    except Exception as exc:
+        raise RecompileError(
+            f"recompile artifact download failed: {exc}",
+            kind="network",
+            retryable=True,
+        ) from exc
+    if art.status_code != 200:
+        raise RecompileError(
+            f"recompile artifact download returned HTTP {art.status_code}: {art.text[:200]}",
+            kind="http",
+            status_code=art.status_code,
+            retryable=art.status_code in _RETRYABLE_HTTP,
+        )
+    version = body.get("compiler_version") or None
+    return RecompileResult(
+        ok=True,
+        obj_bytes=art.content,
+        log=str(body.get("log", "")),
+        compiler_version=str(version) if version else None,
+    )
+
+
 def compile_source(
     base_url: str,
     compiler: str,
@@ -188,28 +217,28 @@ def compile_source(
                 f"recompile service returned non-JSON: {exc}",
                 kind="protocol",
             ) from exc
-        if body.get("status") != "ok" or not body.get("artifact_url"):
-            return RecompileResult(ok=False, log=str(body.get("log", "")))
-        artifact_url = _same_origin_artifact_url(url, str(body["artifact_url"]))
-        try:
-            art = http.get(artifact_url)
-        except Exception as exc:
+        if not isinstance(body, dict):
             raise RecompileError(
-                f"recompile artifact download failed: {exc}",
-                kind="network",
-                retryable=True,
-            ) from exc
-        if art.status_code != 200:
-            raise RecompileError(
-                f"recompile artifact download returned HTTP {art.status_code}: {art.text[:200]}",
-                kind="http",
-                status_code=art.status_code,
-                retryable=art.status_code in _RETRYABLE_HTTP,
+                f"recompile service returned {type(body).__name__}, expected a JSON object",
+                kind="protocol",
             )
-        version = body.get("compiler_version") or None
-        return RecompileResult(
-            ok=True,
-            obj_bytes=art.content,
-            log=str(body.get("log", "")),
-            compiler_version=str(version) if version else None,
-        )
+        status = body.get("status")
+        if status not in ("ok", "error"):
+            raise RecompileError(
+                f"recompile service returned unknown status {status!r}",
+                kind="protocol",
+            )
+        artifact_url = body.get("artifact_url")
+        if status == "ok":
+            if not artifact_url:
+                raise RecompileError(
+                    'recompile service returned status "ok" with no artifact_url',
+                    kind="protocol",
+                )
+            if not isinstance(artifact_url, str):
+                raise RecompileError(
+                    f"recompile service returned non-string artifact_url: {artifact_url!r}",
+                    kind="protocol",
+                )
+            return _download_artifact(http, url, body, artifact_url)
+        return RecompileResult(ok=False, log=str(body.get("log", "")))

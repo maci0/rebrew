@@ -255,6 +255,46 @@ class TestCompileViaRecompile:
         )
         assert out is None and "C2065" in err
 
+    @pytest.mark.parametrize(
+        ("response", "message"),
+        [
+            (b'{"status":', "non-JSON"),
+            (b"[]", "JSON object"),
+            (b"null", "JSON object"),
+            (b'"unavailable"', "JSON object"),
+            (b"{}", "status"),
+            (b'{"status": "pending"}', "status"),
+            (b'{"status": "ok"}', "artifact_url"),
+            (b'{"status": "ok", "artifact_url": 123}', "artifact_url"),
+        ],
+    )
+    def test_malformed_response_returns_service_error(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        response: bytes,
+        message: str,
+    ) -> None:
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        client = _patch(monkeypatch, httpx.Response(200, content=response))
+
+        out, err = _compile_via_recompile(
+            self._cfg(),
+            tmp_path / "f.c",
+            [],
+            tmp_path,
+            "f.obj",
+            "msvc-6.0",
+            False,
+            source_text="int f(void) { return 0; }",
+        )
+
+        assert out is None
+        assert err.startswith("recompile service error:")
+        assert message in err
+        assert not (tmp_path / "f.obj").exists()
+        assert client.calls == [("post", "http://svc/api/v1/compile")]
+
     def test_missing_url_is_a_bug(self, tmp_path: Path) -> None:
         src = tmp_path / "f.c"
         src.write_text("int f(void) {}")
