@@ -459,20 +459,16 @@ def update_stub_to_matched(
         mode="w",
         suffix=".c",
         dir=filepath.parent,
-        delete=False,
+        delete_on_close=False,
         encoding=encoding,
     ) as tmp:
         tmp.write(updated)
-        tmp_path = Path(tmp.name)
-
-    try:
-        annos = parse_c_file_multi(tmp_path)
+        tmp.close()
+        annos = parse_c_file_multi(Path(tmp.name))
         if not annos:
             raise RuntimeError(
                 f"Post-write validation failed: {filepath} would not re-parse after stub update"
             )
-    finally:
-        tmp_path.unlink(missing_ok=True)
 
     # Fail closed: if the stub's own block could not be located (no marker, or
     # a return type _FUNC_START_RE does not recognise), do NOT write, backup,

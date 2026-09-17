@@ -750,6 +750,70 @@ class TestUpdateStubToMatched:
         assert "return 3;" in text  # sibling AFTER the target survives
         assert "0x10003000" in text
 
+    def test_failed_temp_write_leaves_no_source_file(self, tmp_path: Path) -> None:
+        from rebrew.match_batch import update_stub_to_matched
+
+        source = tmp_path / "stub.c"
+        original = "// FUNCTION: SERVER 0x10002000\nint second(void) { return 2; }\n"
+        source.write_text(original, encoding="utf-8")
+        best = 'int second(void) { return "\ud800"[0]; }\n'
+
+        with pytest.raises(UnicodeEncodeError):
+            update_stub_to_matched(source, best, self._stub("0x10002000"))
+
+        assert source.read_text(encoding="utf-8") == original
+        assert list(tmp_path.iterdir()) == [source]
+
+    @pytest.mark.parametrize("phase", ["close", "parse"])
+    @pytest.mark.parametrize("failure", [OSError, KeyboardInterrupt])
+    def test_temp_validation_cleanup(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        phase: str,
+        failure: type[BaseException],
+    ) -> None:
+        import tempfile
+
+        from rebrew.match_batch import update_stub_to_matched
+
+        source = tmp_path / "stub.c"
+        original = "// FUNCTION: SERVER 0x10002000\nint second(void) { return 2; }\n"
+        source.write_text(original, encoding="utf-8")
+        temporary_file = tempfile.NamedTemporaryFile
+        handles = []
+
+        def _temporary_file(*args: Any, **kwargs: Any) -> Any:
+            handle = temporary_file(*args, **kwargs)
+            handles.append(handle)
+            if phase == "close":
+                close = handle.close
+
+                def _close() -> None:
+                    close()
+                    raise failure("validation interrupted")
+
+                monkeypatch.setattr(handle, "close", _close)
+            return handle
+
+        def _parse(path: Path) -> None:
+            assert handles[0].closed
+            assert path.read_text(encoding="utf-8").endswith("return 42; }\n")
+            raise failure("validation interrupted")
+
+        monkeypatch.setattr("rebrew.match_batch.tempfile.NamedTemporaryFile", _temporary_file)
+        if phase == "parse":
+            monkeypatch.setattr("rebrew.match_batch.parse_c_file_multi", _parse)
+
+        with pytest.raises(failure, match="validation interrupted"):
+            update_stub_to_matched(
+                source, "int second(void) { return 42; }\n", self._stub("0x10002000")
+            )
+
+        assert handles[0].closed
+        assert source.read_text(encoding="utf-8") == original
+        assert list(tmp_path.iterdir()) == [source]
+
     def test_bak_preserves_original_across_rerun(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
