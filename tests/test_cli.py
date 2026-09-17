@@ -221,6 +221,29 @@ class TestIterAnnotations:
         assert second == {"version": 1}
         assert first is not second
 
+    def test_verify_cache_memo_drops_stale_path_keys(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A rewrite must not leave the previous full JSON under an old mtime key."""
+        from types import SimpleNamespace
+
+        import rebrew.cli as cli_mod
+
+        monkeypatch.setattr(cli_mod, "_VERIFY_CACHE_MEMO", {})
+        cache_dir = tmp_path / ".rebrew"
+        cache_dir.mkdir()
+        path = cache_dir / "verify_cache.json"
+        path.write_text('{"version": 1}', encoding="utf-8")
+        cfg = SimpleNamespace(root=tmp_path)
+        assert cli_mod.load_verify_cache_raw(cfg) == {"version": 1}
+        assert len(cli_mod._VERIFY_CACHE_MEMO) == 1
+        path.write_text('{"version": 2}', encoding="utf-8")
+        assert cli_mod.load_verify_cache_raw(cfg) == {"version": 2}
+        assert len(cli_mod._VERIFY_CACHE_MEMO) == 1
+        only_key = next(iter(cli_mod._VERIFY_CACHE_MEMO))
+        assert only_key[0] == str(path)
+        assert cli_mod._VERIFY_CACHE_MEMO[only_key] == {"version": 2}
+
 
 # ---------------------------------------------------------------------------
 # resolve_source_arg()

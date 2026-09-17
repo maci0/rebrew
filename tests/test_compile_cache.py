@@ -375,6 +375,25 @@ class TestGetCompileCache:
         assert (tmp_path / ".rebrew" / "compile_cache").exists()
         close_all_caches()
 
+    def test_evicts_oldest_when_over_cap(self, tmp_path: Path, monkeypatch) -> None:
+        """Touching many project roots must close the oldest backend, not retain
+        every SQLite handle until process exit."""
+        import rebrew.compile_cache as cc
+
+        close_all_caches()
+        monkeypatch.setattr(cc, "_CACHES_MAX", 2)
+        roots = []
+        for i in range(3):
+            r = tmp_path / f"proj{i}"
+            r.mkdir()
+            roots.append(r)
+            get_compile_cache(r)
+        assert len(cc._caches) == 2
+        # Oldest (proj0) evicted; proj1 and proj2 remain.
+        assert any(str(roots[0] / ".rebrew" / "compile_cache") in k[1] for k in cc._caches) is False
+        assert get_compile_cache(roots[1]) is get_compile_cache(roots[1])
+        close_all_caches()
+
 
 class TestCompileToObjCacheIntegration:
     def test_cache_hit_skips_subprocess(self, tmp_path: Path, monkeypatch) -> None:

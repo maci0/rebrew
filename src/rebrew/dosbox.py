@@ -46,6 +46,13 @@ class DosboxError(RuntimeError):
     """DOSBox is missing or the run failed."""
 
 
+#: Sandboxes created by :func:`make_sandbox_dir` (default 16-bit workdirs).
+#: One atexit hook sweeps the list — registering ``rmtree`` per call would
+#: accumulate one callback (and leave every dir live) until process exit.
+_SANDBOXES: list[Path] = []
+_SANDBOX_ATEXIT_REGISTERED = False
+
+
 def make_sandbox_dir(prefix: str) -> Path:
     """Create a writable DOSBox sandbox dir, preferring a real-disk,
     container-visible location (see :func:`rebrew.utils.writable_temp_dir`).
@@ -54,12 +61,11 @@ def make_sandbox_dir(prefix: str) -> Path:
     /work, so the user's home is preferred when writable; read-only homes
     (sandboxed / CI) fall back to the workspace ``.cache`` and TMPDIR.
 
-    The sandbox is removed when the process exits (same discipline as
-    link_sweep's scratch dir) — each 16-bit compile stages compiler trees
-    and RTL units into its sandbox, so without the hook one dir leaks into
-    ``~/.cache/rebrew/tmp`` per invocation.  Callers that must keep a
-    sandbox for post-mortem inspection pass their own *workdir* instead and
-    own its lifetime.
+    The sandbox is removed when the process exits — each 16-bit compile stages
+    compiler trees and RTL units into its sandbox, so without the hook one
+    dir leaks into ``~/.cache/rebrew/tmp`` per invocation.  Callers that must
+    keep a sandbox for post-mortem inspection pass their own *workdir*
+    instead and own its lifetime.
 
     Raises :class:`DosboxError` when no candidate is writable."""
     from rebrew.utils import writable_temp_dir
@@ -68,10 +74,20 @@ def make_sandbox_dir(prefix: str) -> Path:
         sandbox = writable_temp_dir(prefix)
     except OSError as exc:
         raise DosboxError(str(exc)) from exc
-    # ignore_errors=True: a still-mounted sandbox ("Device or resource busy")
-    # must not turn interpreter shutdown into a traceback.
-    atexit.register(shutil.rmtree, sandbox, True)
+    _SANDBOXES.append(sandbox)
+    global _SANDBOX_ATEXIT_REGISTERED
+    if not _SANDBOX_ATEXIT_REGISTERED:
+        # ignore_errors=True: a still-mounted sandbox ("Device or resource busy")
+        # must not turn interpreter shutdown into a traceback.
+        atexit.register(_cleanup_sandboxes)
+        _SANDBOX_ATEXIT_REGISTERED = True
     return sandbox
+
+
+def _cleanup_sandboxes() -> None:
+    """atexit: remove every sandbox created by :func:`make_sandbox_dir`."""
+    while _SANDBOXES:
+        shutil.rmtree(_SANDBOXES.pop(), ignore_errors=True)
 
 
 def run_dosbox(

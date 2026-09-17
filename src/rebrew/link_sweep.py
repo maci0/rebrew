@@ -26,7 +26,6 @@ Usage::
 
 from __future__ import annotations
 
-import atexit
 import re
 import shlex
 import shutil
@@ -222,114 +221,118 @@ def main(
     # DLL path (the linker follows it), clobber a concurrent sweep, and leak
     # partial DLLs from failed links forever.
     scratch_dir = Path(tempfile.mkdtemp(prefix="rebrew-linksweep-"))
-    if not keep:
-        atexit.register(shutil.rmtree, scratch_dir, True)
-    for cand in candidates:
-        out = scratch_dir / f"{cand.name}.dll"
-        # Quote *out* so shlex.split keeps a space-bearing path as one argv
-        # element (same discipline as calibrate_bss).
-        cmd = cmd_tpl.format(options=" ".join(cand.options), out=shlex.quote(str(out)))
-        try:
-            proc = subprocess.run(
-                shlex.split(cmd), cwd=workdir, capture_output=True, text=True, timeout=300
-            )
-        except subprocess.TimeoutExpired:
-            # One hung link must not kill the sweep — record it and move on.
+    try:
+        for cand in candidates:
+            out = scratch_dir / f"{cand.name}.dll"
+            # Quote *out* so shlex.split keeps a space-bearing path as one argv
+            # element (same discipline as calibrate_bss).
+            cmd = cmd_tpl.format(options=" ".join(cand.options), out=shlex.quote(str(out)))
+            try:
+                proc = subprocess.run(
+                    shlex.split(cmd), cwd=workdir, capture_output=True, text=True, timeout=300
+                )
+            except subprocess.TimeoutExpired:
+                # One hung link must not kill the sweep — record it and move on.
+                results.append(
+                    {
+                        "candidate": cand.name,
+                        "options": cand.options,
+                        "link_failed": True,
+                        "stderr": f"link timed out after 300s: {cmd}",
+                    }
+                )
+                continue
+            if not out.exists():
+                results.append(
+                    {
+                        "candidate": cand.name,
+                        "options": cand.options,
+                        "link_failed": True,
+                        "stderr": (proc.stderr or "")[-400:],
+                    }
+                )
+                continue
+            fields = _read_fields(out)
+            diffs = {k: (ref[k], fields[k]) for k in ref if ref[k] != fields.get(k)}
+            if not keep:
+                out.unlink(missing_ok=True)
             results.append(
                 {
                     "candidate": cand.name,
                     "options": cand.options,
-                    "link_failed": True,
-                    "stderr": f"link timed out after 300s: {cmd}",
+                    "link_failed": False,
+                    "diff_count": len(diffs),
+                    "diffs": diffs,
                 }
             )
-            continue
-        if not out.exists():
-            results.append(
+
+        if json_output:
+            json_print(
                 {
-                    "candidate": cand.name,
-                    "options": cand.options,
-                    "link_failed": True,
-                    "stderr": (proc.stderr or "")[-400:],
+                    "reference": str(cfg.target_binary),
+                    "scratch_dir": str(scratch_dir),
+                    "results": results,
                 }
             )
-            continue
-        fields = _read_fields(out)
-        diffs = {k: (ref[k], fields[k]) for k in ref if ref[k] != fields.get(k)}
-        if not keep:
-            out.unlink(missing_ok=True)
-        results.append(
-            {
-                "candidate": cand.name,
-                "options": cand.options,
-                "link_failed": False,
-                "diff_count": len(diffs),
-                "diffs": diffs,
-            }
-        )
+            return
 
-    if json_output:
-        json_print(
-            {
-                "reference": str(cfg.target_binary),
-                "scratch_dir": str(scratch_dir),
-                "results": results,
-            }
-        )
-        return
-
-    # render
-    stamp_only = set(ref)
-    linked_any = False
-    for r in results:
-        if r.get("link_failed"):
-            continue
-        linked_any = True
-        stamp_only &= set(r["diffs"])
-    table = Table(title="link-sweep — header fields differing from the reference")
-    table.add_column("candidate")
-    table.add_column("diffs", justify="right")
-    table.add_column("fields")
-    for r in results:
-        if r.get("link_failed"):
-            table.add_row(r["candidate"], "LINK FAILED", (r.get("stderr") or "")[:80])
-            continue
-        names = ", ".join(r["diffs"]) if r["diffs"] else "(none)"
-        table.add_row(r["candidate"], str(r["diff_count"]), names)
-    console.print(table)
-    if not linked_any:
-        # Every candidate failed to link — "differ in every candidate" would
-        # wrongly blame all fields on the metadata/objects (link-review F3).
-        console.print("\n[yellow]No candidate linked — field classification skipped.[/]")
+        # render
+        stamp_only = set(ref)
+        linked_any = False
+        for r in results:
+            if r.get("link_failed"):
+                continue
+            linked_any = True
+            stamp_only &= set(r["diffs"])
+        table = Table(title="link-sweep — header fields differing from the reference")
+        table.add_column("candidate")
+        table.add_column("diffs", justify="right")
+        table.add_column("fields")
+        for r in results:
+            if r.get("link_failed"):
+                table.add_row(r["candidate"], "LINK FAILED", (r.get("stderr") or "")[:80])
+                continue
+            names = ", ".join(r["diffs"]) if r["diffs"] else "(none)"
+            table.add_row(r["candidate"], str(r["diff_count"]), names)
+        console.print(table)
+        if not linked_any:
+            # Every candidate failed to link — "differ in every candidate" would
+            # wrongly blame all fields on the metadata/objects (link-review F3).
+            console.print("\n[yellow]No candidate linked — field classification skipped.[/]")
+            if keep:
+                console.print(f"\n[dim]Scratch DLLs kept in: {scratch_dir}[/]")
+            return
+        # classify the stamp-only set: section-derived fields are fixed by the
+        # *objects* (data-restore/BSS work), not by link options or header stamps.
+        _SECTION_DERIVED = {
+            "NumberOfSections",
+            "SizeOfCode",
+            "SizeOfInitData",
+            "SizeOfUninitData",
+            "AddressOfEntryPoint",
+            "BaseOfCode",
+            "BaseOfData",
+            "SizeOfImage",
+        }
+        derived = sorted(stamp_only & _SECTION_DERIVED)
+        stamped = sorted(stamp_only - _SECTION_DERIVED)
+        if derived:
+            console.print("\n[yellow]Section-derived fields (differ in every candidate):[/]")
+            console.print("  " + ", ".join(derived))
+            console.print("  → fixed by the object content (.data/BSS layout), not link options.")
+        if stamped:
+            console.print("\n[yellow]Link-stamped fields (differ in every candidate):[/]")
+            console.print("  " + ", ".join(stamped))
+            console.print("  → belong in the final metadata fix, not the link line.")
+        if not stamp_only:
+            console.print("\n[green]All compared fields reproduced by at least one candidate.[/]")
         if keep:
             console.print(f"\n[dim]Scratch DLLs kept in: {scratch_dir}[/]")
-        return
-    # classify the stamp-only set: section-derived fields are fixed by the
-    # *objects* (data-restore/BSS work), not by link options or header stamps.
-    _SECTION_DERIVED = {
-        "NumberOfSections",
-        "SizeOfCode",
-        "SizeOfInitData",
-        "SizeOfUninitData",
-        "AddressOfEntryPoint",
-        "BaseOfCode",
-        "BaseOfData",
-        "SizeOfImage",
-    }
-    derived = sorted(stamp_only & _SECTION_DERIVED)
-    stamped = sorted(stamp_only - _SECTION_DERIVED)
-    if derived:
-        console.print("\n[yellow]Section-derived fields (differ in every candidate):[/]")
-        console.print("  " + ", ".join(derived))
-        console.print("  → fixed by the object content (.data/BSS layout), not link options.")
-    if stamped:
-        console.print("\n[yellow]Link-stamped fields (differ in every candidate):[/]")
-        console.print("  " + ", ".join(stamped))
-        console.print("  → belong in the final metadata fix, not the link line.")
-    if not stamp_only:
-        console.print("\n[green]All compared fields reproduced by at least one candidate.[/]")
-    if keep:
-        console.print(f"\n[dim]Scratch DLLs kept in: {scratch_dir}[/]")
+    finally:
+        # Remove promptly: atexit-only cleanup left the tree for the whole
+        # process lifetime and registered one callback per invocation.
+        if not keep:
+            shutil.rmtree(scratch_dir, ignore_errors=True)
 
 
 def main_entry() -> None:

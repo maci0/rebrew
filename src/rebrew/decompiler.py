@@ -89,7 +89,10 @@ _ALLOWED_RE_CMDS = frozenset({"pdg", "pdd"})
 #: vanishes, so a later call retries from scratch.
 #: Guarded: concurrent callers (batch skeleton / name-decomp) must not both
 #: miss, both spawn ``aaa``, and both publish — that orphans one mkdtemp dir.
+#: Cap keeps a long-lived process from retaining one full rizin DB per binary
+#: touched across a multi-target session; eviction rmtree's the dir.
 _RE_PROJECT_DIRS: dict[tuple[str, str], str] = {}
+_RE_PROJECT_DIRS_MAX = 8
 _RE_PROJECT_DIRS_LOCK = threading.Lock()
 
 
@@ -199,6 +202,12 @@ def _re_cached_project(binary: Path, tool: str, root: Path) -> str | None:
             return existing
         if existing is not None:
             shutil.rmtree(existing, ignore_errors=True)
+        # Evict oldest insertion when at capacity so batch decomp of many
+        # binaries does not retain every analysis DB until process exit.
+        while key not in _RE_PROJECT_DIRS and len(_RE_PROJECT_DIRS) >= _RE_PROJECT_DIRS_MAX:
+            oldest_key = next(iter(_RE_PROJECT_DIRS))
+            old_dir = _RE_PROJECT_DIRS.pop(oldest_key)
+            shutil.rmtree(old_dir, ignore_errors=True)
         _RE_PROJECT_DIRS[key] = proj_dir
         return proj_dir
 

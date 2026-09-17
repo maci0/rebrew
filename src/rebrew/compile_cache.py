@@ -775,6 +775,9 @@ def compile_cache_key(
 
 _caches: dict[tuple[str, str], CacheBackend] = {}
 _caches_lock = threading.Lock()
+#: Cap open backends so a long-lived process that touches many project roots
+#: does not retain every diskcache SQLite handle until atexit.
+_CACHES_MAX = 8
 
 
 def get_compile_cache(project_root: Path, backend: str = "diskcache") -> CacheBackend:
@@ -800,8 +803,18 @@ def get_compile_cache(project_root: Path, backend: str = "diskcache") -> CacheBa
     cache_dir = str((project_root / ".rebrew" / "compile_cache").resolve())
     key = (backend, cache_dir)
     with _caches_lock:
-        if key not in _caches:
-            _caches[key] = factory(Path(cache_dir), _DEFAULT_SIZE_LIMIT)
+        existing = _caches.get(key)
+        if existing is not None:
+            # Refresh insertion order so repeated use is not FIFO-evicted.
+            del _caches[key]
+            _caches[key] = existing
+            return existing
+        while len(_caches) >= _CACHES_MAX:
+            oldest_key = next(iter(_caches))
+            old = _caches.pop(oldest_key)
+            with contextlib.suppress(Exception):
+                old.close()
+        _caches[key] = factory(Path(cache_dir), _DEFAULT_SIZE_LIMIT)
         return _caches[key]
 
 

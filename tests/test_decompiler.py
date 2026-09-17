@@ -1174,6 +1174,29 @@ class TestReSessionReuse:
         finally:
             dc._clear_re_projects()
 
+    def test_project_dir_cap_evicts_oldest(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Batch decomp of many binaries must not retain every rizin DB forever."""
+        import rebrew.decompiler as dc
+
+        monkeypatch.setattr(dc, "_RE_PROJECT_DIRS_MAX", 2)
+        calls, _ = self._setup(tmp_path, monkeypatch)
+        binaries = []
+        try:
+            for i in range(3):
+                b = tmp_path / f"target{i}.bin"
+                b.write_bytes(b"MZ")
+                binaries.append(b)
+                assert dc._run_re(b, 0x1000, "pdg", tmp_path) == "int f(void) {}"
+            assert len(dc._RE_PROJECT_DIRS) == 2
+            # First binary's project dir was evicted and removed.
+            first_key = dc._re_project_key(binaries[0], "rz")
+            assert first_key not in dc._RE_PROJECT_DIRS
+        finally:
+            dc._clear_re_projects()
+        assert len([c for c in calls if "Ps" in c[3]]) == 3
+
 
 class TestReToolDigestInvalidation:
     def test_tool_change_reanalyses(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

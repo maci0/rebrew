@@ -74,7 +74,9 @@ TargetOption: str | None = typer.Option(
 
 #: mtime-keyed memo of the raw verify-cache JSON (perf-review F4): status and
 #: todo both decode .rebrew/verify_cache.json every run — sometimes twice per
-#: command — and the decode is linear in cache size.
+#: command — and the decode is linear in cache size.  At most one entry per
+#: path: a rewrite changes mtime/size, and keeping the old key would retain
+#: the previous full JSON payload for the process lifetime.
 _VERIFY_CACHE_MEMO: dict[tuple[str, int, int], dict[str, Any] | None] = {}
 
 
@@ -91,7 +93,8 @@ def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
         st = cache_path.stat()
     except OSError:
         return None
-    key = (str(cache_path), st.st_mtime_ns, st.st_size)
+    path_key = str(cache_path)
+    key = (path_key, st.st_mtime_ns, st.st_size)
     if key in _VERIFY_CACHE_MEMO:
         cached = _VERIFY_CACHE_MEMO[key]
         return copy.deepcopy(cached) if cached is not None else None
@@ -102,6 +105,11 @@ def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
         # non-UTF-8 bytes (truncated/tampered) used to escape this guard and
         # crash `status`/`todo` instead of degrading to "no cache".
         raw = None
+    # Drop prior fingerprints for this path before storing — otherwise each
+    # verify rewrite orphans a full decoded dict under the old mtime key.
+    stale = [k for k in _VERIFY_CACHE_MEMO if k[0] == path_key]
+    for old in stale:
+        del _VERIFY_CACHE_MEMO[old]
     _VERIFY_CACHE_MEMO[key] = raw
     return copy.deepcopy(raw) if raw is not None else None
 
