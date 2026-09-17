@@ -18,7 +18,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from rebrew.cli import error_exit, json_print
+from rebrew.cli import EXIT_MISMATCH, error_exit, json_print
 from rebrew.data_layout import built_data_va
 
 console = Console(stderr=True)
@@ -93,12 +93,14 @@ def main(
                 ],
             }
         )
-        return
-    console.print(
-        f"symbols: {len(here)}  toml-matched: {good + bad}  correct-VA: {good}  misplaced: {bad}"
-    )
-    for sym, exp, act in bads[:limit]:
-        console.print(f"  {sym:32} exp {exp:#010x}  our {act:#010x}  d {act - exp:+#x}")
+    else:
+        console.print(
+            f"symbols: {len(here)}  toml-matched: {good + bad}  correct-VA: {good}  misplaced: {bad}"
+        )
+        for sym, exp, act in bads[:limit]:
+            console.print(f"  {sym:32} exp {exp:#010x}  our {act:#010x}  d {act - exp:+#x}")
+    if bad:
+        raise typer.Exit(code=EXIT_MISMATCH)
 
 
 def main_entry() -> None:

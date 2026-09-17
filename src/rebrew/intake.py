@@ -35,8 +35,9 @@ import typer
 from rich.console import Console
 from typer.testing import CliRunner
 
-from rebrew.cli import EXIT_OK, error_exit, json_print
+from rebrew.cli import EXIT_OK, error_exit, iter_annotations, json_print
 from rebrew.skeleton import C89_STRICT_PROFILES
+from rebrew.sources import iter_sources
 from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
@@ -164,11 +165,17 @@ def classify_all(
     Shared by ``rebrew intake`` (fresh onboarding) and ``rebrew
     document-unmatched`` (existing projects).  *metadata_dir* defaults to
     ``project/src`` (the standard layout); pass ``cfg.metadata_dir`` to
-    honor a custom layout.
+    honor a custom layout. Existing annotations for *marker* anywhere under
+    *src_dir* prevent duplicate stubs after a source is renamed or moved.
     """
     from rebrew.metadata import load_metadata, set_fields_batch, update_statuses_batch
 
     meta_base = metadata_dir if metadata_dir is not None else project / "src"
+    existing_vas = {
+        ann["va"]
+        for _, annotations in iter_annotations(iter_sources(src_dir), target=marker)
+        for ann in annotations
+    }
     documented = 0
     # Two batched metadata writes (fields + statuses) instead of per-function
     # RMWs — the old loop was O(N) full toml rewrites (~5 min for a
@@ -193,10 +200,9 @@ def classify_all(
                 f"void fcn_{va:08x}(void)\n{{\n    /* {reason} */\n}}\n"
             )
         out = src_dir / f"fcn_{va:08x}.c"
-        if not out.exists():
-            from rebrew.utils import atomic_write_text
-
+        if va not in existing_vas and not out.exists():
             atomic_write_text(out, stub)
+            existing_vas.add(va)
         prev = existing.get((marker, va), {})
         prev_status = str(prev.get("status") or "STUB")
         # Onboarding is a one-shot document step — a RE-RUN (re-discovery

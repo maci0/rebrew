@@ -75,6 +75,45 @@ class TestIntake:
         # binary copied
         assert (tmp_path / "original" / "game.exe").exists()
 
+    @pytest.mark.parametrize("status", ["STUB", "RELOC"])
+    def test_rediscovery_does_not_duplicate_renamed_functions(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str
+    ) -> None:
+        from rebrew.cli import iter_annotations
+        from rebrew.metadata import get_entry, update_field, update_source_status
+        from rebrew.sources import iter_sources
+
+        (tmp_path / "game.exe").write_bytes(b"MZ")
+        argv = ["game.exe", "--json"]
+        _run_main(tmp_path, monkeypatch, argv=argv)
+        src_dir = tmp_path / "src" / "game"
+        metadata_dir = tmp_path / "src"
+        original = src_dir / "fcn_00401000.c"
+        nested = src_dir / "render"
+        nested.mkdir()
+        renamed = nested / "render_frame.c"
+        original.rename(renamed)
+        update_source_status(metadata_dir, status, "GAME", 0x401000)
+        update_field(metadata_dir, 0x401000, "blocker", "Needs float math", module="GAME")
+        update_field(metadata_dir, 0x401000, "size", 30, module="GAME")
+        expected_sources = {path: path.read_bytes() for path in iter_sources(src_dir)}
+
+        for _ in range(2):
+            _run_main(tmp_path, monkeypatch, argv=argv)
+            assert not original.exists()
+            assert {path: path.read_bytes() for path in iter_sources(src_dir)} == expected_sources
+            annotations = [
+                ann
+                for _, anns in iter_annotations(iter_sources(src_dir), target="GAME")
+                for ann in anns
+                if ann["va"] == 0x401000
+            ]
+            assert len(annotations) == 1
+            entry = get_entry(metadata_dir, 0x401000, "GAME")
+            assert entry["status"] == status
+            assert entry["blocker"] == "Needs float math"
+            assert entry["size"] == 30
+
     def test_binary_missing_fails(self, tmp_path: Path, monkeypatch) -> None:
         from typer.testing import CliRunner
 

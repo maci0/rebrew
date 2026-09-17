@@ -186,6 +186,31 @@ def test_json_stdout_is_pure_json(project: Path, argv: str, exit_codes: set[int]
     assert isinstance(payload, (dict, list))
 
 
+@pytest.mark.parametrize(
+    ("option", "key"),
+    [("--link-config", "link_toml"), ("--layout-config", "layout_toml")],
+)
+def test_gen_layout_config_json(
+    project: Path, monkeypatch: pytest.MonkeyPatch, option: str, key: str
+) -> None:
+    import tomllib
+
+    from test_layout_meta import _make_pe
+
+    (project / "original" / "mini_pe.exe").write_bytes(
+        _make_pe([b".text", b".data", b".rdata"])
+    )
+    monkeypatch.setattr("rebrew.gen_layout._import_lib_symbols_from_image", lambda _stem: set())
+    runner = CliRunner()
+    plain = runner.invoke(app, ["gen-layout", option])
+    assert plain.exit_code == 0, plain.output
+    assert tomllib.loads(plain.stdout)
+    result = runner.invoke(app, ["gen-layout", option, "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload[key] + "\n" == plain.stdout
+
+
 def test_verify_chatter_goes_to_stderr(project: Path, capsys: pytest.CaptureFixture) -> None:
     """Human progress lines (verify's "Scanning...") must never reach stdout."""
     result = CliRunner().invoke(app, ["verify", "--dry-run", "--json"])

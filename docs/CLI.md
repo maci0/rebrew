@@ -879,7 +879,7 @@ writing; `--check` exits 1 with a unified diff on drift (CI gate).
 Post-edit check: walk the link's object files (objdump, link order), compute
 each symbol's current `.data` VA, and compare against the data metadata.
 Misplaced symbols mean the object order or a TU's layout drifted (the reccmp
-"0 aligned" symptom).
+"0 aligned" symptom); exits 1 when any symbol is misplaced.
 
 ### `rebrew text-audit`
 

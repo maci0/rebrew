@@ -726,16 +726,21 @@ def main(
     imports = _resolve_imports(imports_raw, lib_symbols)
 
     if link_config:
-        print(link_toml)
+        if json_output:
+            json_print({"link_toml": link_toml})
+        else:
+            print(link_toml)
         return
     if layout_config:
-        print(
-            fmt_layout_toml(
-                extract_layout(cfg.target_binary.read_bytes(), cfg.target_name),
-                imports,
-                link_options,
-            )
+        layout_toml = fmt_layout_toml(
+            extract_layout(cfg.target_binary.read_bytes(), cfg.target_name),
+            imports,
+            link_options,
         )
+        if json_output:
+            json_print({"layout_toml": layout_toml})
+        else:
+            print(layout_toml)
         return
 
     marker = cfg.marker or cfg.target_name.upper()

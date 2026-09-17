@@ -135,8 +135,9 @@ class TestVerifyPlacement:
         # sym_a lands exactly where the metadata says; sym_b drifts by -8.
         _patch_layout(monkeypatch, objects=[(16, {"sym_a": 0}), (16, {"sym_b": 8})])
         result = CliRunner().invoke(app, ["--json"])
-        assert result.exit_code == 0
-        payload = json.loads(result.output)
+        assert result.exit_code == 1
+        assert result.stderr == ""
+        payload = json.loads(result.stdout)
         assert payload["symbols"] == 2
         assert payload["matched"] == 2
         assert payload["correct"] == 1
@@ -172,8 +173,9 @@ class TestVerifyPlacement:
         monkeypatch.chdir(_project(tmp_path))
         _patch_layout(monkeypatch, objects=[(16, {"sym_a": 0}), (16, {"sym_b": 8})])
         result = CliRunner().invoke(app, [])
-        assert result.exit_code == 0
-        assert "correct-VA: 1" in result.output
+        assert result.exit_code == 1
+        assert result.stdout == ""
+        assert "correct-VA: 1" in result.stderr
         assert "misplaced: 1" in result.output
         assert "sym_b" in result.output
         assert "exp 0x00003020" in result.output
