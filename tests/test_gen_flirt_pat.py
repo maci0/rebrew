@@ -119,6 +119,37 @@ class TestCrc16Flirt:
         assert _crc16_flirt(b"123456789") != 0xFEE8
 
 
+class TestElfFixupWidth:
+    """LIEF's reloc size is unusable on some targets; the type has to decide."""
+
+    def _reloc(self, type_name, size_bits):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(type=type_name, size=size_bits)
+
+    def test_sane_size_wins(self) -> None:
+        from rebrew.gen_flirt_pat import _elf_fixup_width
+
+        # 32 bits -> 4 bytes, the ordinary ELF case.
+        assert _elf_fixup_width(self._reloc("RISCV_32", 32), default=4) == 4
+        assert _elf_fixup_width(self._reloc("X86_64_RELATIVE", 64), default=4) == 8
+
+    def test_riscv_branch_size_minus_one_masks_the_word(self) -> None:
+        from rebrew.gen_flirt_pat import _elf_fixup_width
+
+        # LIEF reports size == -1 (2**64-1) for every RISC-V relocation; masking
+        # one byte left three bytes of a link-time immediate in the pattern.
+        minus_one = (2**64) - 1
+        assert _elf_fixup_width(self._reloc("RISCV_BRANCH", minus_one), default=4) == 4
+        assert _elf_fixup_width(self._reloc("RISCV_CALL_PLT", minus_one), default=4) == 8
+        assert _elf_fixup_width(self._reloc("RISCV_RVC_JUMP", minus_one), default=4) == 2
+
+    def test_unknown_type_falls_back_to_the_instruction_word(self) -> None:
+        from rebrew.gen_flirt_pat import _elf_fixup_width
+
+        assert _elf_fixup_width(self._reloc("SOMETHING_NEW", 0), default=4) == 4
+
+
 class TestBytesToPatLine:
     """Tests for bytes_to_pat_line()."""
 

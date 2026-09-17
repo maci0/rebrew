@@ -261,7 +261,9 @@ def parse_elf_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
                 for k in range(word_start, min(word_start + 4, len(code))):
                     reloc_offsets.add(k)
             else:
-                width = _reloc_span(reloc.size)
+                # 4 bytes is the instruction word on every target reached here,
+                # and is the right fallback when the width is unknown.
+                width = _elf_fixup_width(reloc, default=4)
                 for k in range(width):
                     if func_rel + k < len(code):
                         reloc_offsets.add(func_rel + k)
@@ -283,6 +285,69 @@ _I386_FIXUP_WIDTHS: dict[str, int] = {
     "I386_SECTION": 2,  # 16-bit section index
     "I386_SECREL7": 2,  # 16-bit "offset minus 1" (debug-info-only on x86)
 }
+
+
+#: RISC-V fixup widths by relocation type (bytes).  LIEF reports
+#: ``size == -1`` (as unsigned, 2**64-1) for *every* RISC-V relocation, so the
+#: size field cannot be used and every fixup was masked one byte wide — three
+#: bytes of a link-time-varying immediate stayed in each pattern and nothing
+#: matched a linked image (a 33,128-signature set identified 0 functions in a
+#: picolibc RV64 firmware).  Branch and jump offsets live inside a 4-byte
+#: instruction, so masking the whole word is the safe width; the compressed
+#: ``RVC_*`` forms are 2 bytes.
+_RISCV_FIXUP_WIDTHS: dict[str, int] = {
+    "RISCV_32": 4,
+    "RISCV_64": 8,
+    "RISCV_BRANCH": 4,
+    "RISCV_JAL": 4,
+    "RISCV_CALL": 8,
+    "RISCV_CALL_PLT": 8,
+    "RISCV_GOT_HI20": 4,
+    "RISCV_TLS_GOT_HI20": 4,
+    "RISCV_TLS_GD_HI20": 4,
+    "RISCV_PCREL_HI20": 4,
+    "RISCV_PCREL_LO12_I": 4,
+    "RISCV_PCREL_LO12_S": 4,
+    "RISCV_HI20": 4,
+    "RISCV_LO12_I": 4,
+    "RISCV_LO12_S": 4,
+    "RISCV_GPREL_I": 4,
+    "RISCV_GPREL_S": 4,
+    "RISCV_ADD8": 4,
+    "RISCV_ADD16": 4,
+    "RISCV_ADD32": 4,
+    "RISCV_ADD64": 4,
+    "RISCV_SUB8": 4,
+    "RISCV_SUB16": 4,
+    "RISCV_SUB32": 4,
+    "RISCV_SUB64": 4,
+    "RISCV_SET6": 4,
+    "RISCV_SET8": 4,
+    "RISCV_SET16": 4,
+    "RISCV_SET32": 4,
+    "RISCV_RVC_BRANCH": 2,
+    "RISCV_RVC_JUMP": 2,
+    "RISCV_RVC_LUI": 2,
+}
+
+
+def _elf_fixup_width(reloc: Any, *, default: int) -> int:
+    """Fixup width in bytes for an ELF relocation.
+
+    LIEF's ``size`` field is authoritative when it is sane, which it is on the
+    architectures that were validated (x86-64, AArch64, ARM, MIPS).  Where LIEF
+    reports no usable size — every RISC-V relocation, and every AVR one — the
+    width comes from the relocation *type*, and failing that from the target's
+    instruction word (``default``).
+    """
+    size_bits = int(getattr(reloc, "size", 0))
+    if 0 < size_bits <= 8 * 64:
+        return _reloc_span(size_bits)
+    name = str(getattr(reloc, "type", "")).rsplit(".", 1)[-1]
+    width = _RISCV_FIXUP_WIDTHS.get(name)
+    if width is not None:
+        return width
+    return default
 
 
 def _reloc_fixup_width(reloc: Any) -> int:

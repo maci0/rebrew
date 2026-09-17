@@ -1,3 +1,17 @@
+## [Unreleased]
+### Fixed
+- **ELF fixup widths no longer come from an unusable LIEF size** — LIEF reports
+  ``size == -1`` (as unsigned, 2**64-1) for *every* RISC-V relocation, and its
+  AVR support returns a single bogus entry per object.  ``parse_elf_obj`` passed
+  that through ``_reloc_span``, which clamps to a minimum of one byte, so each
+  fixup masked a single byte and the rest of the link-time-varying immediate
+  stayed in the pattern: a 33,128-signature picolibc RV64 set identified 0
+  functions in an RV64 firmware built from the same libraries.  ``_elf_fixup_width``
+  now trusts the size only when it is sane and otherwise takes the width from
+  the relocation type (``_RISCV_FIXUP_WIDTHS``) or, failing that, the target's
+  instruction word.  Inert for the validated architectures (x86-64, AArch64,
+  ARM, MIPS), whose sizes are sane.
+
 ## [2.5.0] - 2026-09-17
 ### Added
 - **`rebrew probe`** — measure one function against the reference without
