@@ -37,7 +37,9 @@ assertion on help output (the help-listing tests and the cli-contract grep).
 The nightly `toolchain-sync.yml` drift check installs through the same pinned
 uv flow (`uv sync --frozen`) and the same `RESEMBL_REF` / `UV_VERSION` pins,
 so scheduled runs can never silently resolve newer dependency versions than
-the audited lockfile.
+the audited lockfile. It checks sources once, prints that JSON result, and
+fails on drift, failed checks, unpinned sources, or an empty source inventory.
+The result gate uses `jq`, included in the Ubuntu runner image.
 
 ## Project / workspace CI
 

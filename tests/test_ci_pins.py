@@ -8,7 +8,12 @@ commit-SHA pinned so a retargeted major tag cannot silently change CI.
 
 from __future__ import annotations
 
+import json
+import os
 import re
+import shutil
+import subprocess
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -90,3 +95,48 @@ class TestCiPins:
         assert all(command in {"--frozen", "--locked", "--no-sync"} for command in commands), (
             f"{path.relative_to(ROOT)} has uv run commands that can rewrite uv.lock"
         )
+
+
+class TestToolchainSync:
+    @pytest.mark.parametrize(
+        ("status", "drifted", "expected"),
+        [
+            ("current", [], 0),
+            ("static (immutable release asset)", [], 0),
+            ("static (pinned tarball in rebrew-toolchains)", [], 0),
+            ("DRIFTED old -> new", ["compiler"], 1),
+            ("check failed (HTTPStatusError)", [], 1),
+            ("unpinned (live abc123)", [], 1),
+            ("unknown", [], 1),
+            ("current", ["compiler"], 1),
+            (None, [], 1),
+        ],
+    )
+    def test_drift_gate(self, status: str | None, drifted: list[str], expected: int) -> None:
+        if not shutil.which("jq"):
+            pytest.skip("jq is required by the Ubuntu workflow")
+        script = textwrap.dedent(SYNC_YML.read_text(encoding="utf-8").rsplit("run: |\n", 1)[1])
+        stub = """
+uv() {
+    [[ "$*" == 'run --frozen rebrew toolchain check-updates --json' ]] || return 99
+    printf 'source check invoked\\n' >&2
+    printf '%s\\n' "$CHECK_RESULT"
+}
+"""
+        result = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", stub + script],
+            env={
+                **os.environ,
+                "CHECK_RESULT": json.dumps(
+                    {"toolchains": {"compiler": status} if status else {}, "drifted": drifted}
+                ),
+            },
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        assert result.returncode == expected, result.stdout + result.stderr
+        assert result.stderr.count("source check invoked") == 1
+        if status is not None:
+            assert status in result.stdout

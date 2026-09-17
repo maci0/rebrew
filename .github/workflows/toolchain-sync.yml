@@ -48,6 +48,17 @@ jobs:
       - name: Check toolchain source drift
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
         run: |
-          uv run --frozen rebrew toolchain check-updates
-          uv run --frozen rebrew toolchain check-updates --json | uv run --frozen python -c "import json,sys; d=json.load(sys.stdin); print('drifted:', d['drifted']); sys.exit(1 if d['drifted'] else 0)"
+          set -euo pipefail
+          result=$(uv run --frozen rebrew toolchain check-updates --json)
+          jq . <<< "$result"
+          jq -e '
+            .drifted == [] and
+            (.toolchains | length > 0) and
+            all(.toolchains[];
+              . == "current" or
+              . == "static (immutable release asset)" or
+              . == "static (pinned tarball in rebrew-toolchains)"
+            )
+          ' <<< "$result"
