@@ -183,13 +183,16 @@ class TestParseRizinAfl:
 class TestCachedFunctionList:
     """Path-keyed inventory cache: mtime in the value, bounded growth."""
 
-    def test_rewrite_replaces_slot_not_orphan_keys(self, tmp_path: Path) -> None:
+    def test_rewrite_replaces_slot_not_orphan_keys(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import os
         from types import SimpleNamespace
 
         from rebrew.catalog import loaders as loaders_mod
         from rebrew.config import FUNCTION_STRUCTURE_JSON
 
-        loaders_mod._function_list_cache.clear()
+        monkeypatch.setattr(loaders_mod, "_function_list_cache", {})
         inv = tmp_path / FUNCTION_STRUCTURE_JSON
         inv.write_text(
             json.dumps([{"va": "0x1000", "size": 8, "name": "a"}]),
@@ -200,21 +203,16 @@ class TestCachedFunctionList:
         assert first == [{"va": 0x1000, "size": 8, "name": "a"}]
         assert len(loaders_mod._function_list_cache) == 1
 
-        # Force a distinct mtime (same second on some filesystems otherwise).
-        import os
-        import time
-
-        time.sleep(0.01)
+        previous_stat = inv.stat()
         inv.write_text(
             json.dumps([{"va": "0x2000", "size": 16, "name": "b"}]),
             encoding="utf-8",
         )
-        os.utime(inv, (time.time() + 1, time.time() + 1))
+        os.utime(inv, ns=(previous_stat.st_atime_ns, previous_stat.st_mtime_ns + 2_000_000_000))
         second = loaders_mod.cached_function_list(cfg)
         assert second == [{"va": 0x2000, "size": 16, "name": "b"}]
         # Same path key — no orphaned path:mtime entries.
         assert len(loaders_mod._function_list_cache) == 1
-        loaders_mod._function_list_cache.clear()
 
     def test_evicts_when_full(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace
@@ -223,7 +221,7 @@ class TestCachedFunctionList:
         from rebrew.config import FUNCTION_STRUCTURE_JSON
 
         monkeypatch.setattr(loaders_mod, "_FUNCTION_LIST_CACHE_MAX", 2)
-        loaders_mod._function_list_cache.clear()
+        monkeypatch.setattr(loaders_mod, "_function_list_cache", {})
         for i in range(3):
             d = tmp_path / f"p{i}"
             d.mkdir()
@@ -231,6 +229,11 @@ class TestCachedFunctionList:
                 json.dumps([{"va": hex(0x1000 + i), "size": 4, "name": f"f{i}"}]),
                 encoding="utf-8",
             )
-            loaders_mod.cached_function_list(SimpleNamespace(reversed_dir=str(d)))
-        assert len(loaders_mod._function_list_cache) <= 2
-        loaders_mod._function_list_cache.clear()
+            assert loaders_mod.cached_function_list(SimpleNamespace(reversed_dir=str(d))) == [
+                {"va": 0x1000 + i, "size": 4, "name": f"f{i}"}
+            ]
+            assert len(loaders_mod._function_list_cache) == min(i + 1, 2)
+        assert set(loaders_mod._function_list_cache) == {
+            str(tmp_path / "p1" / FUNCTION_STRUCTURE_JSON),
+            str(tmp_path / "p2" / FUNCTION_STRUCTURE_JSON),
+        }

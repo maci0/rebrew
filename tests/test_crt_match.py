@@ -1066,14 +1066,19 @@ class TestSingleVaModuleFallback:
 
 
 class TestCanonicalSizeCache:
-    def test_rewritten_inventory_invalidates(self, tmp_path: Path) -> None:
+    def test_rewritten_inventory_invalidates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A rewritten function_structure.json must not keep the first snapshot."""
         import json
         import os
-        import time
 
+        from rebrew import crt_match
+        from rebrew.catalog import loaders
         from rebrew.config import FUNCTION_STRUCTURE_JSON
-        from rebrew.crt_match import _canonical_size, _canonical_sizes
+
+        monkeypatch.setattr(crt_match, "_canonical_sizes", {})
+        monkeypatch.setattr(loaders, "_function_list_cache", {})
 
         rev = tmp_path / "reversed"
         rev.mkdir()
@@ -1083,14 +1088,12 @@ class TestCanonicalSizeCache:
             encoding="utf-8",
         )
         cfg = SimpleNamespace(reversed_dir=str(rev), root=tmp_path)
-        _canonical_sizes.clear()
-        assert _canonical_size(cfg, 0x1000) == 10
+        assert crt_match._canonical_size(cfg, 0x1000) == 10
 
-        time.sleep(0.01)  # ensure mtime_ns advances on all filesystems
+        previous_stat = inv.stat()
         inv.write_text(
             json.dumps([{"va": 0x1000, "size": 99, "name": "f"}]),
             encoding="utf-8",
         )
-        # Touch mtime explicitly in case write coalesced.
-        os.utime(inv, None)
-        assert _canonical_size(cfg, 0x1000) == 99
+        os.utime(inv, ns=(previous_stat.st_atime_ns, previous_stat.st_mtime_ns + 2_000_000_000))
+        assert crt_match._canonical_size(cfg, 0x1000) == 99
