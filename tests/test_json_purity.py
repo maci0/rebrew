@@ -197,9 +197,7 @@ def test_gen_layout_config_json(
 
     from test_layout_meta import _make_pe
 
-    (project / "original" / "mini_pe.exe").write_bytes(
-        _make_pe([b".text", b".data", b".rdata"])
-    )
+    (project / "original" / "mini_pe.exe").write_bytes(_make_pe([b".text", b".data", b".rdata"]))
     monkeypatch.setattr("rebrew.gen_layout._import_lib_symbols_from_image", lambda _stem: set())
     runner = CliRunner()
     plain = runner.invoke(app, ["gen-layout", option])
