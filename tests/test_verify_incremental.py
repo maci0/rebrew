@@ -471,6 +471,83 @@ class TestPatchVerifyCacheEntries:
         assert raw["target"] == "OTHER"  # the concurrent save is intact...
         assert raw["entries"]["0x00001000"]["status"] == "STUB"  # ...and unpatched
 
+    def test_filtered_save_preserves_concurrent_patch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from collections.abc import Iterator
+        from concurrent.futures import ThreadPoolExecutor
+        from contextlib import contextmanager
+        from threading import Event, current_thread, main_thread
+
+        import rebrew.verify_cache as cache_mod
+
+        cfg = _make_cfg(tmp_path)
+        cache_path = self._make_cache(tmp_path, cfg, status="STUB")
+        source = cfg.reversed_dir / "func_b.c"
+        source.write_text("int func_b(void) { return 2; }\n", encoding="utf-8")
+        entries = [
+            SimpleNamespace(
+                va=0x2000,
+                name="func_b",
+                filepath="func_b.c",
+                size=8,
+                origin="GAME",
+                cflags="",
+                symbol="",
+            )
+        ]
+        results = [
+            {
+                "va": "0x00002000",
+                "name": "func_b",
+                "filepath": "func_b.c",
+                "size": 8,
+                "status": "EXACT",
+                "passed": True,
+                "match_percent": 100.0,
+                "delta": 0,
+            }
+        ]
+        waiting = Event()
+        resume = Event()
+        real_lock = cache_mod._verify_cache_write_lock
+
+        @contextmanager
+        def gated_lock(path: Path) -> Iterator[None]:
+            if current_thread() is not main_thread():
+                waiting.set()
+                assert resume.wait(5)
+            with real_lock(path):
+                yield
+
+        monkeypatch.setattr(cache_mod, "_verify_cache_write_lock", gated_lock)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            saved = pool.submit(
+                _save_verify_cache,
+                cache_path,
+                cfg,
+                results,
+                entries,
+                preserve_keys={"0x00001000"},
+            )
+            try:
+                assert waiting.wait(5)
+                cache_mod.patch_verify_cache_entries(
+                    cfg, [{"va": 0x1000, "status": "RELOC", "match_count": 8, "total": 8}]
+                )
+            finally:
+                resume.set()
+            saved.result(timeout=5)
+
+        loaded = _load_verify_cache(cache_path, cfg)
+        assert loaded is not None
+        preserved = loaded.entries["0x00001000"]
+        assert preserved.status == "RELOC"
+        assert preserved.match_percent == 100.0
+        assert preserved.passed is True
+        assert preserved.delta == 0
+        assert loaded.entries["0x00002000"].status == "EXACT"
+
     def test_save_and_round_trip(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         source_path = cfg.reversed_dir / "func_a.c"

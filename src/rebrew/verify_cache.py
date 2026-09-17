@@ -484,28 +484,28 @@ def _save_verify_cache(
     # for every library function (`status`/`todo` then fall back to metadata
     # and the next plain run recompiles them all).  Copy them from the file
     # being replaced; a VA this run did produce always wins.
-    if preserve_keys:
-        try:
-            previous = json.loads(cache_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError, TypeError, ValueError):
-            previous = {}
-        prev_entries = previous.get("entries") if isinstance(previous, dict) else None
-        if isinstance(prev_entries, dict):
-            for key in preserve_keys:
-                kept = prev_entries.get(key)
-                if key not in cache_entries and isinstance(kept, dict):
-                    cache_entries[key] = kept
-
-    cache_data = VerifyCache(
-        version=CACHE_VERSION,
-        compiler_hash=_compiler_config_hash(cfg),
-        headers_hash=_headers_hash(cfg),
-        target=cfg.target_name,
-        binary_id=_binary_id(cfg),
-        entries={str(k): VerifyCacheEntry.from_dict(v) for k, v in cache_entries.items()},
-    )
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     with _verify_cache_write_lock(cache_path):
+        if preserve_keys:
+            try:
+                previous = json.loads(cache_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError, TypeError, ValueError):
+                previous = {}
+            prev_entries = previous.get("entries") if isinstance(previous, dict) else None
+            if isinstance(prev_entries, dict):
+                for key in preserve_keys:
+                    kept = prev_entries.get(key)
+                    if key not in cache_entries and isinstance(kept, dict):
+                        cache_entries[key] = kept
+
+        cache_data = VerifyCache(
+            version=CACHE_VERSION,
+            compiler_hash=_compiler_config_hash(cfg),
+            headers_hash=_headers_hash(cfg),
+            target=cfg.target_name,
+            binary_id=_binary_id(cfg),
+            entries={str(k): VerifyCacheEntry.from_dict(v) for k, v in cache_entries.items()},
+        )
         atomic_write_text(cache_path, json.dumps(cache_data.to_dict(), indent=2), encoding="utf-8")
 
 
