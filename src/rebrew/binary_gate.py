@@ -72,7 +72,7 @@ def snapshot_binary(binary_path: Path) -> dict[str, Any]:
         except (IndexError, TypeError):
             rsrc = None
     try:
-        from rebrew.exports import parse_exports
+        from rebrew.binary_loader import parse_exports
         from rebrew.imports import parse_imports
 
         exports = parse_exports(binary_path)

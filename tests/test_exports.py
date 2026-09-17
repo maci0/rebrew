@@ -6,8 +6,9 @@ from types import SimpleNamespace
 import pytest
 from typer.testing import CliRunner
 
+from rebrew.binary_loader import parse_exports
 from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH
-from rebrew.exports import app, compare_exports, parse_exports
+from rebrew.exports import app, compare_exports
 
 
 class _Fn:

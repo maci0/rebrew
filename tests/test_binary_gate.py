@@ -1,6 +1,10 @@
 """Unit tests for the whole-binary parity core."""
 
+import sys
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 
 def _write(path: Path, text: str) -> None:
@@ -100,6 +104,36 @@ class TestCompareSnapshots:
         res = compare_snapshots(self._snap(rsrc=None), self._snap(rsrc=None))
         assert res["rsrc"]["match"] is True
         assert res["match"] is True
+
+    def test_snapshot_exports_without_export_cli(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.binary_gate import snapshot_binary
+
+        info = SimpleNamespace(
+            sections={
+                ".text": SimpleNamespace(size=100),
+                ".rsrc": SimpleNamespace(size=8, file_offset=2, raw_size=3),
+            },
+            data=b"xxrsrc",
+            image_base=0x400000,
+        )
+        pe = SimpleNamespace(
+            exported_functions=[SimpleNamespace(name=name) for name in ["b", "a", "b", ""]]
+        )
+        monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda path: info)
+        monkeypatch.setattr("lief.PE.parse", lambda path: pe)
+        monkeypatch.setattr(
+            "rebrew.imports.parse_imports",
+            lambda path: [{"dll": "kernel32.dll", "name": "ExitProcess"}],
+        )
+        monkeypatch.setitem(sys.modules, "rebrew.exports", None)
+
+        assert snapshot_binary(Path("x.dll")) == {
+            "sections": {".text": 100, ".rsrc": 8},
+            "exports": ["a", "b"],
+            "imports": ["kernel32.dll!ExitProcess"],
+            "rsrc": b"rsr",
+            "headers": {"image_base": 0x400000},
+        }
 
     def test_snapshot_missing_file(self, tmp_path: Path) -> None:
         from rebrew.binary_gate import snapshot_binary

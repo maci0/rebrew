@@ -905,6 +905,28 @@ def function_extent_from_disasm(
     return _walk(md, {"ret", "retf", "iret", "iretd", "int3"}, {"jmp"})
 
 
+def parse_exports(binary_path: Path) -> list[str]:
+    """Return sorted, unique named exports of a PE binary.
+
+    Return an empty list for non-PE binaries, missing export tables, or parse failures.
+    """
+    import lief
+
+    try:
+        pe = lief.PE.parse(str(binary_path))
+    except Exception as exc:
+        log.debug("export parse failed for %s: %s", binary_path, exc)
+        return []
+    if pe is None:
+        return []
+    exports: list[str] = []
+    for func in getattr(pe, "exported_functions", []):
+        name = getattr(func, "name", "")
+        if name:
+            exports.append(name)
+    return sorted(set(exports))
+
+
 def iat_slot_vas(binary_path: Path | str) -> set[int]:
     """Absolute VAs of the PE import-address-table slots, or ``set()``.
 

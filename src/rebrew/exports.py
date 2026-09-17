@@ -12,39 +12,16 @@ Usage:
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import Any
 
 import typer
 from rich.console import Console
 
+from rebrew.binary_loader import parse_exports
 from rebrew.cli import EXIT_MISMATCH, TargetOption, error_exit, json_print, require_config
 
 console = Console(stderr=True)
-
-
-def parse_exports(binary_path: Path) -> list[str]:
-    """Return the sorted export names of a PE binary.
-
-    Empty list when the binary is not a PE, has no export table, or cannot
-    be parsed (mirrors :func:`rebrew.imports.parse_imports`'s tolerance).
-    """
-    import lief
-
-    try:
-        pe = lief.PE.parse(str(binary_path))
-    except Exception as exc:  # parse failures degrade to "no exports"
-        logging.getLogger(__name__).debug("export parse failed for %s: %s", binary_path, exc)
-        return []
-    if pe is None:
-        return []
-    exports: list[str] = []
-    for func in getattr(pe, "exported_functions", []):
-        name = getattr(func, "name", "")
-        if name:
-            exports.append(name)
-    return sorted(set(exports))
 
 
 def compare_exports(original: Path, recomp: Path) -> dict[str, Any]:
