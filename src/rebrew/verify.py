@@ -443,7 +443,7 @@ def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str,
     removed: list[dict[str, Any]] = []
     unchanged_count = 0
 
-    fail_rank = _STATUS_RANK["FAIL"]
+    unknown_order = max(_STATUS_ORDER.values()) + 1
 
     def _sort_key(k: Any) -> tuple[bool, Any]:
         # Mixed int/str canonical keys must sort without TypeError.
@@ -475,7 +475,7 @@ def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str,
                 unchanged_count += 1
             continue
 
-        current_order = _STATUS_ORDER.get(current_status, fail_rank + 1)
+        current_order = _STATUS_ORDER.get(current_status, unknown_order)
 
         if va not in previous_results:
             new_items.append(
@@ -489,7 +489,7 @@ def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str,
 
         previous_item = previous_results[va]
         previous_status = str(previous_item.get("status", "FAIL"))
-        previous_order = _STATUS_ORDER.get(previous_status, fail_rank + 1)
+        previous_order = _STATUS_ORDER.get(previous_status, unknown_order)
 
         if current_order == previous_order:
             # Same fine-grained status: only a match-percentage drop beyond

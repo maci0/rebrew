@@ -6,6 +6,23 @@ from rebrew.verify import diff_reports
 
 
 class TestVerifyDiff:
+    @pytest.mark.parametrize("status", ["COMPILE_ERROR", "MISSING_FILE", "FAIL"])
+    def test_diff_unknown_status_is_regression(self, status: str) -> None:
+        previous = {"results": [{"va": "0x10001000", "status": status}]}
+        current = {"results": [{"va": "0x10001000", "status": "FUTURE_WEIRD"}]}
+
+        diff = diff_reports(previous, current)
+
+        assert len(diff["regressions"]) == 1
+        assert diff["improvements"] == []
+        assert diff["unchanged_count"] == 0
+
+        reverse_diff = diff_reports(current, previous)
+
+        assert len(reverse_diff["improvements"]) == 1
+        assert reverse_diff["regressions"] == []
+        assert reverse_diff["unchanged_count"] == 0
+
     def test_diff_no_changes(self) -> None:
         previous = {
             "results": [
