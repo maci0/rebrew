@@ -3,8 +3,12 @@ name = "guild-rebrew"
 default_target = "test"
 
 [targets.test]
-binary = "dummy.bin"
+binary = ".cache/pytest-of-maci/pytest-0/test_requires_a_project0/splat/fixture.exe"
 reversed_dir = "src/rebrew"
+format = "pe"
+arch = "x86_32"
 
+[targets.test.compiler]
+profile = "msvc-6.0"
 [compiler]
 profile = "msvc-6.0"

@@ -1,0 +1,3 @@
+// LIBRARY: MSVCRT 0x00401030
+// printf
+
