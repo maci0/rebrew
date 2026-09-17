@@ -150,3 +150,46 @@ assert.match(rows, /0x2/);
 assert.match(rows, /win/);
 assert.match(rows, /lose/);
 assert.equal(pending.length, 0);
+
+element("show-more").onclick();
+const failedAppend = pending.shift();
+assert.match(failedAppend.path, /limit=500&offset=2/);
+failedAppend.reject(new Error("Connection lost"));
+await new Promise(resolve => setImmediate(resolve));
+assert.equal(element("results").hidden, false);
+assert.equal(element("retry-functions").hidden, false);
+assert.equal(element("show-more-wrap").hidden, true);
+assert.match(element("rows").innerHTML, /0x1/);
+assert.match(element("rows").innerHTML, /0x2/);
+
+const retriedAppend = element("retry-functions").onclick();
+const retryDelta = pending.shift();
+assert.equal(retryDelta.path, failedAppend.path);
+retryDelta.resolve({
+  ok: true,
+  json: async () => ({ count: 1, total: 3, functions: [{ va: "0x3", name: "draw" }] }),
+});
+await retriedAppend;
+assert.equal(element("retry-functions").hidden, true);
+const grown = element("rows").innerHTML;
+assert.match(grown, /0x1/);
+assert.match(grown, /0x2/);
+assert.match(grown, /0x3/);
+assert.match(grown, /win/);
+assert.match(grown, /lose/);
+assert.match(grown, /draw/);
+
+element("show-more").onclick();
+const tail = pending.shift();
+assert.match(tail.path, /limit=500&offset=3/);
+tail.resolve({ ok: true, json: async () => ({ count: 0, total: 3, functions: [] }) });
+await new Promise(resolve => setImmediate(resolve));
+const finalRows = element("rows").innerHTML;
+assert.equal(element("results").hidden, false);
+assert.equal(element("empty-state").hidden, true);
+assert.match(finalRows, /0x1/);
+assert.match(finalRows, /0x2/);
+assert.match(finalRows, /0x3/);
+assert.equal(element("show-more-wrap").hidden, true);
+assert.equal(element("retry-functions").hidden, true);
+assert.equal(pending.length, 0);

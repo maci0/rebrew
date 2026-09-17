@@ -286,8 +286,8 @@ function renderFunctions(data, options) {
   const total = data.total ?? data.count;
   const shown = append ? loadedCount : data.count;
   setResultsMessage(shown, total);
-  $("empty-state").hidden = data.count !== 0;
-  $("results").hidden = data.count === 0;
+  $("empty-state").hidden = shown !== 0;
+  $("results").hidden = shown === 0;
 }
 async function loadFunctions(options) {
   const grow = !!(options && options.append);
@@ -317,9 +317,12 @@ async function loadFunctions(options) {
     renderFunctions(data, { append: grow });
   } catch (error) {
     if (seq !== functionsSeq || signal.aborted) return;
-    loadedCount = 0;
-    $("rows").querySelector("tbody").innerHTML = "";
-    $("results").hidden = true;
+    retryAppend = grow;
+    if (!grow) {
+      loadedCount = 0;
+      $("rows").querySelector("tbody").innerHTML = "";
+    }
+    $("results").hidden = loadedCount === 0;
     $("empty-state").hidden = true;
     $("show-more-wrap").hidden = true;
     $("results-hint").hidden = true;
