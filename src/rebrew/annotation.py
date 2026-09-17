@@ -13,6 +13,7 @@ from __future__ import annotations
 import contextlib
 import copy
 import functools
+import hashlib
 import logging
 import re
 import threading
@@ -171,7 +172,7 @@ _TEMPLATE_STRIP_RE = re.compile(r"<[^<>]*>")
 # Process-lifetime memo for metadata-free parses (see parse_c_file_multi).
 # Guarded: ``rebrew verify -j N`` parses the same sources from worker threads,
 # and the eviction path is a multi-step check-then-act on a shared dict.
-_PARSE_MEMO: dict[tuple[str, int, int], list[Annotation]] = {}
+_PARSE_MEMO: dict[bytes, list[Annotation]] = {}
 _PARSE_MEMO_MAX = 512
 _PARSE_MEMO_LOCK = threading.Lock()
 
@@ -1130,30 +1131,28 @@ def parse_c_file_multi(
     # filter, relative path, metadata overlay) is applied to fresh copies
     # on every call: metadata can change independently of source, and the
     # overlay writes scalars only, so a shallow copy carries it safely.
-    try:
-        st = filepath.stat()
-        key = (str(filepath.resolve()), st.st_mtime_ns, st.st_size)
-    except OSError:
-        key = None
-    structural: list[Annotation] | None = None
-    if key is not None:
-        with _PARSE_MEMO_LOCK:
-            structural = _PARSE_MEMO.get(key)
+    # The memo key is a content digest of the parsed *snapshot*, not the
+    # on-disk stat identity: a source replaced between read_source_text and
+    # an earlier stat would otherwise file the old parse under the new
+    # file's stat key, and every later reader of that path would see stale
+    # annotations until the next edit.
+    memo_key = hashlib.sha256(text.encode("utf-8", errors="surrogateescape")).digest()
+    with _PARSE_MEMO_LOCK:
+        structural = _PARSE_MEMO.get(memo_key)
     if structural is None:
         structural = _parse_structural_entries(text)
-        if key is not None:
-            with _PARSE_MEMO_LOCK:
-                # Re-check: another worker may have filled it while we parsed.
-                cached = _PARSE_MEMO.get(key)
-                if cached is not None:
-                    structural = cached
-                else:
-                    if len(_PARSE_MEMO) >= _PARSE_MEMO_MAX:
-                        # Evict the oldest entry, not the whole cache — clearing
-                        # everything re-parses the entire tree on big projects.
-                        oldest = next(iter(_PARSE_MEMO))
-                        _PARSE_MEMO.pop(oldest, None)
-                    _PARSE_MEMO[key] = structural
+        with _PARSE_MEMO_LOCK:
+            # Re-check: another worker may have filled it while we parsed.
+            cached = _PARSE_MEMO.get(memo_key)
+            if cached is not None:
+                structural = cached
+            else:
+                if len(_PARSE_MEMO) >= _PARSE_MEMO_MAX:
+                    # Evict the oldest entry, not the whole cache — clearing
+                    # everything re-parses the entire tree on big projects.
+                    oldest = next(iter(_PARSE_MEMO))
+                    _PARSE_MEMO.pop(oldest, None)
+                _PARSE_MEMO[memo_key] = structural
     return _finalize_entries(structural, filepath, target_name, base_dir, metadata_dir)
 
 

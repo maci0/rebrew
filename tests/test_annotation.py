@@ -1721,6 +1721,46 @@ class TestParseMemo:
         assert all(len(r) == 1 and r[0].va == 0x1000 for r in results)
         assert len(_PARSE_MEMO) == 1
 
+    @pytest.mark.parametrize("cache_replacement_first", [False, True])
+    def test_source_replacement_during_read_keeps_memo_snapshots_separate(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        cache_replacement_first: bool,
+    ) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event
+
+        import rebrew.annotation as annotation
+        from rebrew.utils import atomic_write_text
+
+        source = tmp_path / "f.c"
+        atomic_write_text(source, "// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n")
+        monkeypatch.setattr(annotation, "_PARSE_MEMO", {})
+        read_finished = Event()
+        resume = Event()
+        read_source = annotation.read_source_text
+
+        def _paused_read(path: Path) -> tuple[str, str]:
+            snapshot = read_source(path)
+            read_finished.set()
+            assert resume.wait(timeout=5)
+            return snapshot
+
+        monkeypatch.setattr(annotation, "read_source_text", _paused_read)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            old_parse = pool.submit(annotation.parse_c_file_multi, source)
+            try:
+                assert read_finished.wait(timeout=5)
+                atomic_write_text(source, "// FUNCTION: GAME 0x1001\nint f(void) { return 1; }\n")
+                monkeypatch.setattr(annotation, "read_source_text", read_source)
+                if cache_replacement_first:
+                    assert annotation.parse_c_file_multi(source)[0].va == 0x1001
+            finally:
+                resume.set()
+            assert old_parse.result(timeout=5)[0].va == 0x1000
+        assert annotation.parse_c_file_multi(source)[0].va == 0x1001
+
     def test_memo_invalidated_by_content_change(self, tmp_path: Path) -> None:
         import os
 
