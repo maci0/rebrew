@@ -1,4 +1,12 @@
 ## [Unreleased]
+### Fixed
+- **sdist no longer packs egg-info residue** — with a ``src/`` layout
+  setuptools wrote ``src/rebrew.egg-info/`` (PKG-INFO, entry_points,
+  requires.txt) into the tarball.  ``egg_base = "."`` plus ``MANIFEST.in``
+  prunes keep only the force-appended ``SOURCES.txt`` (setuptools sdist
+  contract).  Stale ``toolchain-images`` prune removed.  Package-data
+  declares ``**/py.typed``; project URLs add Issues and Changelog.
+
 ### Changed
 - **Ruff rule set widened** — PLE (after the mutator `__all__` extend fix),
   more clean stable RUF codes (incl. RUF019), S704, and the zero-finding

@@ -138,15 +138,26 @@ rebrew-cmake-lib = "rebrew.cmake_tc:tc_main"
 [project.urls]
 Homepage = "https://github.com/maci0/rebrew"
 Repository = "https://github.com/maci0/rebrew"
+Issues = "https://github.com/maci0/rebrew/issues"
+Changelog = "https://github.com/maci0/rebrew/blob/main/CHANGELOG.md"
 
 [tool.setuptools.dynamic]
 version = { attr = "rebrew.__version__" }
 
 [tool.setuptools.package-data]
-rebrew = ["agent-skills/**/*.md", "*.template", "PRINCIPLES.md", "py.typed"]
+# ``**/py.typed`` covers subpackages (e.g. workspace/) — a bare ``py.typed``
+# only matches the package root and would drop nested PEP 561 markers.
+rebrew = ["agent-skills/**/*.md", "*.template", "PRINCIPLES.md", "**/py.typed", "py.typed"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# src/ layout would otherwise write ``src/rebrew.egg-info/`` during the build.
+# Park egg-info at the project root so MANIFEST can prune the bulk; setuptools
+# still force-appends ``SOURCES.txt`` into the sdist (expected), but the
+# duplicate PKG-INFO / entry_points / requires.txt residue stays out.
+[tool.distutils.egg_info]
+egg_base = "."
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

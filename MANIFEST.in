@@ -3,10 +3,15 @@
 # including tests/ (185 files of test-only code).  Prune the dev-only trees
 # so the release sdist stays small and clean; the wheel is unaffected (its
 # contents come from package-data, not this manifest).
+#
+# egg-info: with a src/ layout, setuptools defaults to ``src/rebrew.egg-info/``.
+# ``[tool.distutils.egg_info] egg_base = "."`` parks it at the project root;
+# prune both locations so a stale src/ tree from an older build cannot leak
+# PKG-INFO / entry_points / requires.txt.  setuptools still force-appends
+# ``SOURCES.txt`` into the sdist after prune — that single file is expected.
 prune tests
 prune docs
 prune tools
-prune toolchain-images
 prune .agents
 prune .github
 prune .scratch
@@ -15,5 +20,7 @@ prune build
 prune dist
 prune .venv
 prune venv
+prune rebrew.egg-info
+prune src/rebrew.egg-info
 global-exclude *.py[cod]
 global-exclude __pycache__

@@ -193,6 +193,13 @@ class TestPackagedDataFiles:
         assert any("agent-skills" in g for g in pkg_data)
         assert "PRINCIPLES.md" in pkg_data
         assert any(g.endswith("py.typed") or g == "py.typed" for g in pkg_data)
+        assert "**/py.typed" in pkg_data
+
+    def test_project_urls_include_issues_and_changelog(self) -> None:
+        urls = _project()["urls"]
+        assert urls["Homepage"].startswith("https://github.com/")
+        assert urls["Issues"].endswith("/issues")
+        assert "CHANGELOG" in urls["Changelog"]
 
 
 class TestSdistManifest:
@@ -210,5 +217,53 @@ class TestSdistManifest:
             "dist",
             ".venv",
             "venv",
+            "rebrew.egg-info",
+            "src/rebrew.egg-info",
         ):
             assert f"prune {tree}" in text, tree
+
+    def test_built_sdist_omits_egg_info_residue(self, tmp_path: Path) -> None:
+        """setuptools egg-info bulk must not ship; SOURCES.txt alone is OK.
+
+        A src/ layout places egg-info next to the package.  Without an explicit
+        MANIFEST prune the residue (PKG-INFO, entry_points, requires.txt)
+        lands in the sdist.  setuptools always force-appends
+        ``<egg-info>/SOURCES.txt`` after prune — that single file is the
+        recorded manifest and is expected.  Build into tmp_path so this stays
+        offline-friendly when the pinned setuptools wheel is already cached.
+        """
+        import os
+        import subprocess
+        import tarfile
+
+        out = tmp_path / "dist"
+        out.mkdir()
+        env = os.environ.copy()
+        env.update(
+            {
+                "SOURCE_DATE_EPOCH": "0",
+                "TZ": "UTC",
+                "LC_ALL": "C",
+                "PYTHONHASHSEED": "0",
+            }
+        )
+        proc = subprocess.run(
+            ["uv", "build", "--sdist", "--out-dir", str(out)],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        assert proc.returncode == 0, proc.stderr or proc.stdout
+        sdists = list(out.glob("*.tar.gz"))
+        assert len(sdists) == 1, sdists
+        with tarfile.open(sdists[0]) as tf:
+            names = tf.getnames()
+        egg_files = [n for n in names if ".egg-info/" in n or n.endswith(".egg-info")]
+        # Directory entry + SOURCES.txt only — no duplicated metadata files.
+        bad = [
+            n for n in egg_files if not n.endswith(".egg-info") and not n.endswith("SOURCES.txt")
+        ]
+        assert bad == [], f"sdist contains egg-info residue: {bad}"
+        assert any(n.endswith("SOURCES.txt") for n in egg_files), egg_files
