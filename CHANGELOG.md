@@ -184,13 +184,15 @@
   second name by the other.  The projection omits `cells.id`: nothing reads it,
   and as the only high-entropy column per row it cost 4.3x on the wire (322 KB
   versus 75 KB zstd on a 39k-cell section).  The blob codec lives here too, so
-  the producer and the readers share one definition; it defers its `zstandard`
-  import to the call, because resolving a workspace path should not require a
-  compression dependency.
+  the producer and the readers share one definition rather than agreeing by
+  convention.  Sparse keys are stripped at build time: `json_patch` REMOVES
+  `functions`/`label`/`parent_function` where they carry no information
+  (4.13 MB -> 2.14 MB JSON, 75.1 KB -> 63.2 KB zstd on the 38,918-cell
+  section); absent and null read identically through every consumer's
+  `.get`/truthiness access, so no schema bump.
 - **`zstandard` is now a direct dependency** (it was already the dashboard's wire
-  codec); `build-db` uses it for the cache blobs.  `rebrew.workspace` shares that
-  codec, but imports zstandard lazily so its path/config readers stay
-  dependency-free.
+  codec); `build-db` uses it for the cache blobs and `rebrew.workspace` exports
+  the shared codec, so every consumer of that module needs it.
 - **Batch compiles that actually work**: `precompile_batch` groups by
   (toolchain, flags-minus-`/I`, order-normalized) — 26 → 10 groups on a real
   MSVC project — unions member `/I` dirs, mirrors the source tree (flat

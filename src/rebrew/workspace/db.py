@@ -12,6 +12,8 @@ import json
 import sqlite3
 from pathlib import Path
 
+import zstandard
+
 #: ``metadata.target`` value carrying database-level (not per-target) rows.
 SCHEMA_TARGET = "__schema__"
 
@@ -50,9 +52,25 @@ SECTION_CELLS_COLUMN = "cells_zstd"
 #: monotonic autoincrement it was the only high-entropy field per row —
 #: including it compressed 4.3x worse (322 KB vs 75 KB zstd on a 39k-cell
 #: section), because every remaining column repeats heavily.
+#:
+#: Absent keys, not null ones: ``json_patch`` REMOVES a key whose patch value is
+#: JSON null (RFC 7396), so ``functions``/``label``/``parent_function`` vanish
+#: on the rows where they carry no information — which is nearly all of them.
+#: Measured on the 38,918-cell section: 4.13 MB -> 2.14 MB of JSON, Python
+#: ``json.loads`` 20.0 ms -> 10.8 ms, zstd 75.1 KB -> 63.2 KB.  Every consumer
+#: already reads these with ``.get``/``??``/truthiness (``cell.functions &&
+#: cell.functions[0]``, ``cell.get("label", "")``), so for them an absent key
+#: and a null one are indistinguishable — and a blob built before this change,
+#: which still carries the null keys, reads identically.  No schema bump.
+#:
+#: The two ``json_`` calls cost more than one flat ``json_object``; for a
+#: materialized database that is paid at build time, and the smaller JSON is
+#: paid back on every read (parse, compress, transfer).
 CELLS_JSON_OBJECT_SQL = (
-    "json_object('start', start, 'end', end, 'span', span, 'state', state, "
-    "'functions', json(functions), 'label', label, 'parent_function', parent_function)"
+    "json_patch("
+    "json_object('start', start, 'end', end, 'span', span, 'state', state), "
+    "json_object('functions', json(nullif(functions, '[]')), 'label', label, "
+    "'parent_function', parent_function))"
 )
 
 #: zstd level for :data:`SECTION_CELLS_TABLE` blobs.  Measured over a database
@@ -63,21 +81,12 @@ _CELLS_ZSTD_LEVEL = 3
 
 
 def encode_section_cells(cells_json: str) -> bytes:
-    """Compress one section's cell JSON for :data:`SECTION_CELLS_TABLE`.
-
-    The codec is shared — one definition for the producer and the readers — but
-    ``zstandard`` is imported per call rather than at module scope: most
-    consumers of this package only resolve a workspace path and read function
-    rows, and none of them should have to satisfy a compression dependency to do
-    that.  ``rebrew`` itself requires zstandard, so the producer never notices.
-    """
-    import zstandard
-
+    """Compress one section's cell JSON for :data:`SECTION_CELLS_TABLE`."""
     return zstandard.ZstdCompressor(level=_CELLS_ZSTD_LEVEL).compress(cells_json.encode("utf-8"))
 
 
 def decode_section_cells(blob: bytes) -> str:
-    """Inverse of :func:`encode_section_cells` (see it for the deferred import).
+    """Inverse of :func:`encode_section_cells`.
 
     A fresh ``ZstdDecompressor`` per call, deliberately: python-zstandard
     documents no thread-safety for a shared instance (a shared *compressor*
@@ -87,8 +96,6 @@ def decode_section_cells(blob: bytes) -> str:
     bug.  ``encode_section_cells`` writes the content size into the frame
     header, so no ``max_output_size`` is needed here.
     """
-    import zstandard
-
     return zstandard.ZstdDecompressor().decompress(blob).decode("utf-8")
 
 
