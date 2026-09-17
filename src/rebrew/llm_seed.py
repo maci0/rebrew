@@ -197,7 +197,11 @@ def _parse_response(data: Any) -> str:
                 if isinstance(content, str):
                     return content[:_MAX_RESPONSE_CHARS]
                 if isinstance(content, list):  # OpenAI-style content parts
-                    parts = "".join(str(p.get("text", "")) for p in content if isinstance(p, dict))
+                    parts = "".join(
+                        p["text"]
+                        for p in content
+                        if isinstance(p, dict) and isinstance(p.get("text"), str)
+                    )
                     return parts[:_MAX_RESPONSE_CHARS]
         # Never stringify the whole JSON blob into the seed pipeline.
         return ""

@@ -134,6 +134,11 @@ class TestParseResponse:
         data = {"choices": [{"message": {"content": [{"text": "part1 "}, {"text": "part2"}]}}]}
         assert _parse_response(data) == "part1 part2"
 
+    @pytest.mark.parametrize("value", [None, 42, True, {}, ["part"]])
+    def test_non_string_content_part_rejected(self, value: object) -> None:
+        data = {"choices": [{"message": {"content": [{"text": value}]}}]}
+        assert _parse_response(data) == ""
+
     def test_plain_string(self) -> None:
         assert _parse_response("plain") == "plain"
 
