@@ -76,7 +76,11 @@ class TestPackagingMetadata:
 
     def test_requires_python_matches_ci_floor(self) -> None:
         assert _project()["requires-python"] == ">=3.13"
-        assert (ROOT / ".python-version").read_text(encoding="utf-8").strip() == "3.13"
+        python_version = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
+        assert re.fullmatch(r"3\.13\.\d+", python_version)
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        package_job = workflow.split("\n  package:\n", 1)[1].split("\n  cli-contract:\n", 1)[0]
+        assert f'python-version: "{python_version}"' in package_job
 
     def test_build_system_pins_exact_setuptools(self) -> None:
         """Isolated ``uv build`` resolves build-system.requires from PyPI.
