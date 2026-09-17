@@ -503,6 +503,38 @@ class TestGADeadline:
         # passed even when no generation ran. Require elapsed time from a gen.
         assert ga.elapsed_sec > 0
 
+    @pytest.mark.parametrize("score", [0.0, 10.0, float("inf")])
+    def test_elapsed_sec_includes_terminating_generation(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, score: float
+    ) -> None:
+        from rebrew import match_ga
+        from rebrew.matcher import BuildResult
+
+        ga = match_ga.BinaryMatchingGA(
+            seed_source="int f(void) { return 0; }",
+            target_bytes=b"\xc3",
+            cl_cmd="cl",
+            inc_dir="",
+            cflags="/O2",
+            symbol="_f",
+            out_dir=tmp_path,
+            num_generations=10,
+            pop_size=1,
+            num_jobs=1,
+            stagnation_limit=1,
+            verbose=0,
+        )
+        if score != 0.0:
+            ga.best_score = score
+        monkeypatch.setattr(ga, "_compile_source", lambda src: BuildResult(ok=False))
+        monkeypatch.setattr(ga, "_compute_fitness", lambda *args: score)
+        ticks = iter([100.0, 112.5])
+        monkeypatch.setattr(match_ga, "time", SimpleNamespace(monotonic=lambda: next(ticks)))
+
+        ga.run()
+
+        assert ga.elapsed_sec == 12.5
+
     def test_elapsed_sec_ignores_wall_clock_steps(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -769,6 +769,7 @@ class BinaryMatchingGA:
                     )
 
                 if best_score < 0.1 or self.stagnant_gens >= self.stagnation_limit:
+                    self.elapsed_sec += time.monotonic() - gen_start
                     break
 
                 elite = [s[1] for s in scored_pop[: self.elitism]]
