@@ -1424,6 +1424,7 @@ def check_binsync_state(cfg: ProjectConfig) -> CheckResult:
         )
     # Staleness: if nothing has been committed recently, the plugin (or a
     # collaborator) is not relaying — Ghidra will never see the export.
+    last: datetime | None = None
     try:
         proc = subprocess.run(
             ["git", "-C", str(state_path), "log", "-1", "--format=%ct"],
@@ -1431,13 +1432,14 @@ def check_binsync_state(cfg: ProjectConfig) -> CheckResult:
             text=True,
             timeout=10,
         )
-        last = int(proc.stdout.strip()) if proc.returncode == 0 and proc.stdout.strip() else 0
-    except (ValueError, OSError, subprocess.TimeoutExpired):
-        last = 0
-    if last:
+        if proc.returncode == 0 and proc.stdout.strip():
+            last = datetime.fromtimestamp(int(proc.stdout.strip()), tz=UTC)
+    except (ValueError, OverflowError, OSError, subprocess.TimeoutExpired):
+        last = None
+    if last is not None:
         # Absolute elapsed days (not calendar days): a 14-day threshold must
         # not shrink/expand across a DST transition on the host.
-        age = datetime.now(UTC) - datetime.fromtimestamp(last, tz=UTC)
+        age = datetime.now(UTC) - last
         age_days = age.total_seconds() / 86400
         if age_days > 14:
             return CheckResult(

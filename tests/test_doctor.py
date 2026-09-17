@@ -885,6 +885,43 @@ class TestCheckBinsyncState:
         assert r.status == _WARN
         assert "not been committed" in r.message
 
+    @pytest.mark.parametrize(
+        ("timestamp", "status", "message"),
+        [
+            ("253402300800", _WARN, "unchecked"),
+            ("999999999999999999999999", _WARN, "unchecked"),
+            ("invalid", _WARN, "unchecked"),
+            ("", _WARN, "unchecked"),
+            ("0", _WARN, "not been committed"),
+            ("946684800", _WARN, "not been committed"),
+            ("4102444800", _PASS, "ready"),
+        ],
+    )
+    def test_commit_timestamp(
+        self, tmp_path: Path, timestamp: str, status: str, message: str
+    ) -> None:
+        from unittest.mock import patch
+
+        state = tmp_path / "state"
+        state.mkdir()
+        exists = Path.exists
+        with (
+            patch.object(Path, "exists", lambda p: p == state / ".git" or exists(p)),
+            patch(
+                "subprocess.run",
+                return_value=SimpleNamespace(returncode=0, stdout=timestamp),
+            ) as run,
+        ):
+            result = self._check(tmp_path, binsync_state_dir=str(state))
+        run.assert_called_once_with(
+            ["git", "-C", str(state), "log", "-1", "--format=%ct"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert result.status == status
+        assert message in result.message
+
     def test_git_no_commits_warns_never_pass(self, tmp_path: Path) -> None:
         """A git state dir with no commits has an unchecked relay state —
         the check must warn, never report ready."""
