@@ -57,6 +57,9 @@ from rebrew.workspace import sqlite_ro_uri
 console = Console(stderr=True)
 log = logging.getLogger(__name__)
 
+_LOG_CONTROL_CHARS = {code: f"\\x{code:02x}" for code in (*range(0x20), *range(0x7F, 0xA0))}
+_LOG_CONTROL_CHARS[ord("\\")] = "\\\\"
+
 _SQLITE_TIMEOUT_SECONDS = 30.0
 _DEFAULT_LIMIT = 500
 _MAX_LIMIT = 5000
@@ -931,6 +934,10 @@ def _if_none_match(header: str, etag: str) -> bool:
     return False
 
 
+def _escape_log_text(text: str) -> str:
+    return text.translate(_LOG_CONTROL_CHARS)
+
+
 class _Handler(BaseHTTPRequestHandler):
     dashboard: Dashboard
     #: Host headers this server must answer; everything else gets 403.
@@ -960,7 +967,8 @@ class _Handler(BaseHTTPRequestHandler):
             # sqlite detail on stderr only — LAN clients must not learn paths
             # or schema strings from the wire body.
             console.print(
-                f"[red]dashboard query failed:[/red] {escape(self.path)}: {escape(str(exc))}"
+                f"[red]dashboard query failed:[/red] "
+                f"{escape(_escape_log_text(self.path))}: {escape(_escape_log_text(str(exc)))}"
             )
             status, content_type, body = self.dashboard._json(500, {"error": "database error"})
         except Exception as exc:  # last-resort handler guard
@@ -970,9 +978,10 @@ class _Handler(BaseHTTPRequestHandler):
             # escape(): self.path is remote-controlled and must not be
             # interpreted as Rich markup (terminal escape / log injection).
             console.print(
-                f"[red]dashboard handler failed:[/red] {escape(self.path)}: {escape(repr(exc))}"
+                f"[red]dashboard handler failed:[/red] "
+                f"{escape(_escape_log_text(self.path))}: {escape(_escape_log_text(repr(exc)))}"
             )
-            log.debug("dashboard handler error for %s", self.path, exc_info=True)
+            log.debug("dashboard handler error for %s", _escape_log_text(self.path), exc_info=True)
             status, content_type, body = self.dashboard._json(
                 500, {"error": "internal server error"}
             )
@@ -1067,7 +1076,7 @@ class _Handler(BaseHTTPRequestHandler):
         # markup=False: the logged request line is remote-controlled text; a
         # path like "/[bold]x" must not be interpreted as Rich markup (log
         # tampering / terminal escape injection).
-        console.print(f"  {self.address_string()} {fmt % args}", markup=False)
+        console.print(_escape_log_text(f"  {self.address_string()} {fmt % args}"), markup=False)
 
 
 app = typer.Typer(

@@ -756,6 +756,30 @@ class TestHostValidation:
         assert raw == _INDEX_HTML_GZIP
         assert gzip.decompress(raw) == _INDEX_HTML_BYTES
 
+    @pytest.mark.parametrize("control", ["\x1b", "\n", "\r", "\x7f", "\x9b"])
+    def test_handler_log_escapes_controls(
+        self, control: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from io import StringIO
+
+        from rich.console import Console
+
+        from rebrew.dashboard import _Handler
+
+        output = StringIO()
+        monkeypatch.setattr(
+            "rebrew.dashboard.console",
+            Console(file=output, width=200, color_system=None, highlight=False),
+        )
+        handler = _Handler.__new__(_Handler)
+        handler.client_address = ("127.0.0.1", 8000)
+        handler.log_message('"%s" %s', f"GET /before{control}after HTTP/1.1", 200)
+        rendered = output.getvalue()
+        assert f"before\\x{ord(control):02x}after" in rendered
+        assert rendered.count("\n") == 1
+        assert "127.0.0.1" in rendered
+        assert "200" in rendered
+
     def test_handler_unexpected_error_answers_500(self) -> None:
         """An unexpected route error must answer 500 JSON, not reset the connection."""
         from rebrew.dashboard import Dashboard, _Handler, allowed_hosts_for
@@ -786,7 +810,7 @@ class TestHostValidation:
         body = b"".join(written)
         assert b"internal server error" in body
 
-    def test_handler_sqlite_error_hides_details(self) -> None:
+    def test_handler_sqlite_error_hides_details(self, capsys: pytest.CaptureFixture[str]) -> None:
         """SQLite failures answer a generic 500 — no schema/path leak on the wire."""
         import sqlite3
 
@@ -794,11 +818,11 @@ class TestHostValidation:
 
         handler = _Handler.__new__(_Handler)
         handler.headers = {"Host": "127.0.0.1:8000"}
-        handler.path = "/api/targets"
+        handler.path = "/api/targets\x1b"
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
         handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
         handler.dashboard.handle = lambda *a, **k: (_ for _ in ()).throw(  # type: ignore[method-assign]
-            sqlite3.DatabaseError("no such table: secrets")
+            sqlite3.DatabaseError("no such table: secrets\x1b")
         )
         sent: list[tuple] = []
         handler.send_response = lambda status: sent.append(("status", status))  # type: ignore[method-assign]
@@ -818,3 +842,7 @@ class TestHostValidation:
         assert b'"database error"' in body
         assert b"no such table" not in body
         assert b"secrets" not in body
+        stderr = capsys.readouterr().err
+        assert "\x1b" not in stderr
+        assert "/api/targets\\x1b" in stderr
+        assert "secrets\\x1b" in stderr
