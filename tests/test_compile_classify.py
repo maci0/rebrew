@@ -1,5 +1,7 @@
 """Tests for compile.py classification — the central status decisions."""
 
+import pytest
+
 from rebrew.compile import (
     NEAR_MATCH_THRESHOLD,
     classify_compare_result,
@@ -98,6 +100,31 @@ class TestClassifyCompareResult:
         # already counted by abs(3-1); adding `missing` again double-counted
         # short objects (regression fixed).
         assert r.delta == 2
+
+    @pytest.mark.parametrize(
+        ("target_bytes", "obj_bytes", "size_delta", "expected_delta"),
+        [
+            (b"\x55\x89\xe5", b"", 0, 3),
+            (b"", b"\x55\x89\xe5", 0, 3),
+            (b"", b"", 3, 3),
+            (b"", b"", 0, 0),
+        ],
+    )
+    def test_empty_bytes_preserve_length_difference(
+        self, target_bytes: bytes, obj_bytes: bytes, size_delta: int, expected_delta: int
+    ) -> None:
+        result = classify_compare_result(
+            False,
+            "SIZE_MISMATCH",
+            target_bytes,
+            obj_bytes,
+            None,
+            size_mismatch=True,
+            size_delta=size_delta,
+        )
+        assert result.delta == expected_delta
+        assert result.match_percent == 0.0
+        assert result.matched is False
 
     def test_size_mismatch_delta_includes_truncated_length_diff(self) -> None:
         # The SIZE_MISMATCH caller truncates both sides before classifying and

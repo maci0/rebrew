@@ -342,7 +342,7 @@ def classify_compare_result(
     # behavior and treats reloc bytes as matches.
     match_percent = 0.0
     delta = 0
-    if target_bytes and obj_bytes:
+    if target_bytes is not None:
         target_len = len(target_bytes)
         cmp_len = min(target_len, len(obj_bytes))
         t_arr = np.frombuffer(target_bytes[:cmp_len], dtype=np.uint8)

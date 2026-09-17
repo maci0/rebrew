@@ -112,6 +112,21 @@ class TestExtractAndCompare:
         assert r.delta >= 1  # 3 - 2
         assert r.full_obj_size == 2
 
+    @pytest.mark.parametrize(
+        ("target_bytes", "obj_bytes"),
+        [(b"\x55\x8b\xec", b""), (b"", b"\x55\x8b\xec")],
+    )
+    def test_empty_common_prefix_preserves_size_delta(
+        self, monkeypatch: pytest.MonkeyPatch, target_bytes: bytes, obj_bytes: bytes
+    ) -> None:
+        monkeypatch.setattr("rebrew.compile.parse_obj_symbol_and_relocs", _stub_parser(obj_bytes))
+        result = _extract_and_compare("/x.obj", "_f", target_bytes)
+        assert result.status == "SIZE_MISMATCH"
+        assert result.matched is False
+        assert result.delta == 3
+        assert result.match_percent == 0.0
+        assert result.full_obj_size == len(obj_bytes)
+
     def test_near_matching_threshold(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Mostly-equal bytes above the NEAR_MATCH_THRESHOLD → NEAR_MATCHING."""
         monkeypatch.setattr(
