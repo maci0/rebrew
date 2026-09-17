@@ -110,6 +110,57 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   metadata entry so a stale number is detectable. Evidence: guild-rebrew
   `docs/TODO.md` round 842.
 
+- [ ] **`test`/`verify` must read the CMake per-file flags, not just the metadata.**
+  Pain: `CMakeLists.txt` sets per-file options for pinned files
+  (`set_source_files_properties(... COMPILE_OPTIONS ...)`) and the real link honours
+  them, but `rebrew test`/`verify` compile with the metadata's `cflags` only. For
+  `ls_LoadBuildingEntityState` (`0x100128f0`) `build.make` shows
+  `/O2 /Gd /Oa /Ow /REBREW_TOOLCHAIN:msvc-6.0-sp5-pp` while the metadata carries **no
+  `cflags` field at all**, so every `test`/`verify` figure for that file describes a
+  compile the build never performs. Round 842 found the same for the toolchain pin;
+  round 877 confirmed it extends to the flags.
+  **Worse, "fixing" it by persisting the flags breaks the build.** Running
+  `rebrew test <file> --cflags "/O2 /Gd /Oa /Ow"` writes the field into
+  `rebrew-functions.toml` (the tool owns that file and does this itself), after which
+  `scripts/gate.sh` goes FAIL with **`fatal error C1001: INTERNAL COMPILER ERROR`**
+  plus a C1083. The identical flag pair appended to the identical defaults compiles
+  fine through the CMake path, so the two paths do not construct the same command
+  line and only one works. That is a trap for anyone following the documented rule
+  that the metadata is the source of truth for flags.
+  Feature: have `test`/`verify` read the CMake per-file options (or refuse and say
+  so), and make `--cflags` on a CMake-pinned file a loud error rather than a silent
+  metadata write. Evidence: guild-rebrew `docs/measure-traps.md` §6e,
+  `docs/TODO.md` rounds 842 / 877.
+
+## Data
+
+- [ ] **`lint --fix` W016 writes `section` but not `name`, so `verify --data`
+  then reports the marker as unattributed.**
+  Pain: a `DATA:` marker gains `section = ".data"` in `src/rebrew-data.toml`
+  and stays `unknown` forever after. `scan_globals` needs `name` (or `type`)
+  to attribute a marker -- the next source line is a *definition*, which
+  tree-sitter returns only when it parses as a declaration-with-initialiser,
+  so `char s_x[] = "..."` under the marker is not always picked up. The
+  resulting warning reads like a source defect ("has no declaration on the
+  following line") and sends the reader to the wrong file. Feature: W016's
+  `--fix` should write `name`/`type`/`size` from the binary's data-symbol map
+  the way `import-splat`'s `_write_data` does (`splat_config.py`), or the
+  warning should name the missing *metadata* field explicitly.
+  Evidence: guild-rebrew `src/rebrew-data.toml` `0x1002944c` / `0x100294a4`
+  (section only, from TODO round 559), `docs/measure-traps.md` §9, round 882.
+
+- [ ] **`todo`'s `start-data` lane should exclude link-produced data.**
+  Pain: a fresh project opens with the lane dominated by `__imp__*` IAT
+  slots, which are linker output and can never be attributed to a source
+  symbol no matter how much naming is done, so the lane can never empty and
+  its size stops meaning "data work remaining". Feature: tag metadata
+  entries whose VA falls in a linker-owned section (`.idata`) as
+  `status = "SYNTHETIC"` (written by `verify --data`), and have
+  `_collect_start_data` skip them. Evidence: guild-rebrew `rebrew todo` --
+  224 of 226 remaining items are `start-data`, 18 of them `__imp__*`;
+  IAT bytes confirmed identical to the reference at
+  `0x10024000..0x10024044`; `docs/measure-traps.md` section 9, round 883.
+
 ## Knowledge capture
 
 - [ ] **Jev as a typed decision layer over `todo` / `near-diag` (out of tree).**
