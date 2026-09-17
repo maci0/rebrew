@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 from rebrew.match_ga import BinaryMatchingGA, _ga_args_hash, read_ga_checkpoint
-from rebrew.matcher.core import GACheckpoint
+from rebrew.matcher.core import BuildResult, GACheckpoint
 
 _SOURCE = "int f(void) { return 0; }"
 _TARGET = b"\x55\x8b\xec\x5d\xc3"
@@ -124,6 +127,75 @@ class TestResume:
         assert ga2.population == ["int f(void){return 7;}", "int f(void){return 8;}"]
         assert ga2.best_score == 3.0
         assert ga2.best_source == "int f(void){return 7;}"
+
+    def test_resume_restores_search_state(self, tmp_path: Path) -> None:
+        """Preserve adaptive selection state and mutation provenance."""
+        ga1 = _make_ga(tmp_path, seed=1)
+        ga1.population = ["int f(void){return 7;}", "int f(void){return 8;}"]
+        ga1.best_score = 3.0
+        ga1.best_source = "int f(void){return 7;}"
+        ga1.restarts = 1
+        ga1.stagnant_gens = 9
+        ga1._save_checkpoint(4)
+
+        ga2 = _make_ga(tmp_path, seed=1, resume_from=read_ga_checkpoint(tmp_path / "out", "_f"))
+        assert ga2.rng.getstate() == ga1.rng.getstate()
+        assert ga2.population == ga1.population
+        assert ga2.applied_mutations == ga1.applied_mutations
+        assert ga2.restarts == ga1.restarts
+        assert ga2.stagnant_gens == ga1.stagnant_gens
+
+    @pytest.mark.parametrize("split_generation", [2, 5])
+    def test_resumed_run_matches_uninterrupted_run(
+        self, tmp_path: Path, split_generation: int
+    ) -> None:
+        saved: list[GACheckpoint] = []
+        save_checkpoint = BinaryMatchingGA._save_checkpoint
+
+        def capture_checkpoint(ga: BinaryMatchingGA, generation: int) -> None:
+            save_checkpoint(ga, generation)
+            if generation == split_generation:
+                checkpoint = read_ga_checkpoint(ga.out_dir, ga.symbol)
+                assert checkpoint is not None
+                saved.append(checkpoint)
+
+        def make_run(resume_from: GACheckpoint | None = None) -> BinaryMatchingGA:
+            return BinaryMatchingGA(
+                _SOURCE,
+                _TARGET,
+                "cl",
+                "/tmp/inc",
+                "/O2",
+                "_f",
+                tmp_path / "out",
+                pop_size=6,
+                elitism=1,
+                num_generations=10,
+                stagnation_limit=6,
+                num_jobs=2,
+                rng_seed=7,
+                verbose=0,
+                resume_from=resume_from,
+            )
+
+        with (
+            patch.object(BinaryMatchingGA, "_compile_source", return_value=BuildResult(ok=False)),
+            patch.object(BinaryMatchingGA, "_compute_fitness", return_value=1.0),
+            patch("rebrew.match_ga._CHECKPOINT_INTERVAL", 1),
+            make_run() as uninterrupted,
+        ):
+            with patch.object(BinaryMatchingGA, "_save_checkpoint", capture_checkpoint):
+                expected = uninterrupted.run()
+            checkpoint_path = uninterrupted.out_dir / "checkpoints" / "_f.json"
+            expected_checkpoint = checkpoint_path.read_bytes()
+            assert len(saved) == 1
+            assert saved[0].stagnant_gens > 0
+            assert saved[0].restarts == (0 if split_generation == 2 else 1)
+            with make_run(saved[0]) as resumed:
+                assert resumed.run() == expected
+                assert resumed.population == uninterrupted.population
+                assert resumed.rng.getstate() == uninterrupted.rng.getstate()
+                assert checkpoint_path.read_bytes() == expected_checkpoint
 
     def test_stale_checkpoint_ignored(self, tmp_path: Path) -> None:
         ga1 = _make_ga(tmp_path, seed=1)

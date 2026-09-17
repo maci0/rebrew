@@ -427,6 +427,9 @@ class BinaryMatchingGA:
             self.population = list(resume_from.population)
             self.best_source = resume_from.best_source
             self.best_score = float(resume_from.best_score)
+            self.applied_mutations = set(resume_from.applied_mutations)
+            self.restarts = int(resume_from.restarts)
+            self.stagnant_gens = int(resume_from.stagnant_gens)
             if resume_from.rng_state:
                 self.rng.setstate(resume_from.rng_state)
             self._start_generation = resume_from.generation
@@ -855,6 +858,9 @@ class BinaryMatchingGA:
                 population=list(self.population),
                 rng_state=self.rng.getstate(),
                 args_hash=self.args_hash,
+                applied_mutations=set(self.applied_mutations),
+                restarts=self.restarts,
+                stagnant_gens=self.stagnant_gens,
             )
             ckpt_dir = self.out_dir / "checkpoints"
             ckpt_dir.mkdir(parents=True, exist_ok=True)

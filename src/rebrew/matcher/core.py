@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -149,6 +149,9 @@ class GACheckpoint:
     Captured at the end of each generation: the next generation to run, the
     best result so far, the current population, and the RNG state.  JSON-safe
     (the ``random`` state is a flat tuple of ints/floats/None).
+
+    Mutation provenance, restart budget, and stagnation count are preserved
+    so resume retains the adaptive mutation rate and restart schedule.
     """
 
     generation: int  # next generation index to run
@@ -157,6 +160,9 @@ class GACheckpoint:
     population: list[str]
     rng_state: Any
     args_hash: str  # rejects stale checkpoints when GA parameters change
+    applied_mutations: set[str] = field(default_factory=set)
+    restarts: int = 0
+    stagnant_gens: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for JSON (rng_state → list for round-tripping)."""
@@ -167,6 +173,9 @@ class GACheckpoint:
             "population": self.population,
             "rng_state": list(self.rng_state),
             "args_hash": self.args_hash,
+            "applied_mutations": sorted(self.applied_mutations),
+            "restarts": self.restarts,
+            "stagnant_gens": self.stagnant_gens,
         }
 
     @classmethod
@@ -186,6 +195,7 @@ class GACheckpoint:
             return v
 
         raw_state = d.get("rng_state", [])
+        mutations = d.get("applied_mutations", [])
         return cls(
             generation=int(d["generation"]),
             best_score=float(d["best_score"]),
@@ -193,4 +203,7 @@ class GACheckpoint:
             population=list(d.get("population", [])),
             rng_state=_to_tuple(raw_state) if isinstance(raw_state, list) else raw_state,
             args_hash=str(d.get("args_hash", "")),
+            applied_mutations={str(m) for m in mutations},
+            restarts=int(d.get("restarts", 0)),
+            stagnant_gens=int(d.get("stagnant_gens", 0)),
         )
