@@ -878,6 +878,13 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
                 continue
             if not new_status:
                 continue
+            # Same gate as MetadataEntry.apply: refuse to persist a STATUS the
+            # vocabulary does not know.  Without this, verify/test/lint could
+            # write a typo that problems()/lint E004 then rejects.
+            if new_status not in KNOWN_STATUSES:
+                raise ValueError(
+                    f"unknown STATUS {new_status!r} (expected one of {sorted(KNOWN_STATUSES)})"
+                )
             toml_key = resolve_metadata_key(doc_dict, module, int(va))
             if toml_key not in doc_dict:
                 doc_dict[toml_key] = tomlkit.table()

@@ -1493,12 +1493,15 @@ def _alignment_padding(ann_size: int, canonical: int) -> bool:
 def _skip_validated_overcount(ann_size: int, canonical: int, status: str | None) -> bool:
     """Whether an over-counted annotation (ann > canonical) is proven correct.
 
-    A function whose bytes EXACT/RELOC-matched at the annotation size has
-    exercised exactly that many real bytes: the canonical side (a Ghidra
-    fragment or a stale list entry) is the unreliable one, and flagging it as
-    an annotation bug is noise. Under-counts (ann < canonical) are never
-    skipped: a truncated annotation can false-EXACT on a prefix."""
-    return ann_size > canonical and status in ("EXACT", "RELOC")
+    A function whose bytes EXACT/RELOC-matched — or that earned PROVEN — at
+    the annotation size has exercised exactly that many real bytes: the
+    canonical side (a Ghidra fragment or a stale list entry) is the
+    unreliable one, and flagging it as an annotation bug is noise.
+    Under-counts (ann < canonical) are never skipped: a truncated annotation
+    can false-EXACT on a prefix.  PROVEN is included for the same reason
+    :func:`_partition_size_fixes` protects it.
+    """
+    return ann_size > canonical and status in ("EXACT", "RELOC", "PROVEN")
 
 
 def _partition_size_fixes(

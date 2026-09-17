@@ -219,6 +219,18 @@ class TestGenerateDataJsonGrid:
         states = [c["state"] for c in data["sections"][".data"]["cells"]]
         assert "drift" in states
 
+    def test_absent_global_status_is_unchecked(self, monkeypatch, tmp_path: Path) -> None:
+        """No rebrew-data.toml verdict must not default to EXACT — that
+        inflated exactMatches for never-verified globals."""
+        data = self._run(
+            monkeypatch,
+            tmp_path,
+            globals_dict={0x5000: {"name": "g_x", "size": 4, "status": ""}},
+        )
+        states = [c["state"] for c in data["sections"][".data"]["cells"]]
+        assert "unchecked" in states
+        assert "exact" not in states
+
     def test_zero_size_global_does_not_hang(self, monkeypatch, tmp_path: Path) -> None:
         """A zero-length global must not wedge the segment walk: `off + 0`
         never advanced the loop (it appended empty segments forever)."""
@@ -374,9 +386,10 @@ class TestGenerateDataJsonGrid:
         assert bss["unitBytes"] == 4096
         d = data["sections"][".data"]
         assert d["unitBytes"] == 16
-        # The global at 0x5000 produced a cell in .data.
+        # The global at 0x5000 produced a cell in .data; without a
+        # rebrew-data.toml verdict its state is UNCHECKED (not EXACT).
         data_cells = d["cells"]
-        assert any(c["state"] == "exact" for c in data_cells)
+        assert any(c["state"] == "unchecked" for c in data_cells)
 
     def test_original_dll_path(self, monkeypatch, tmp_path: Path) -> None:
         data = self._run(monkeypatch, tmp_path)

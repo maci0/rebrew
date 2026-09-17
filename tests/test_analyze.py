@@ -121,6 +121,22 @@ class TestBuildDossier:
         assert nm and nm[0]["va"] == "0x10002000"
         assert "mut_swap_register_keywords" in nm[0]["blocker"]
 
+    def test_near_match_alias_reaches_dossier(self, tmp_path: Path) -> None:
+        """Legacy NEAR_MATCH spelling must still populate the near_match section."""
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["T.0x10002000"]\nstatus = "NEAR_MATCH"\nblocker = "legacy alias"\n',
+            encoding="utf-8",
+        )
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            target_binary=FIXTURES / "mini_pe.exe",
+            metadata_dir=tmp_path,
+        )
+        d = build_dossier(cfg, FIXTURES / "mini_pe.exe")
+        nm = d["near_match"]
+        assert nm and nm[0]["va"] == "0x10002000"
+        assert nm[0]["blocker"] == "legacy alias"
+
     def test_near_match_none_without_metadata(self) -> None:
         d = build_dossier(_cfg(), FIXTURES / "mini_pe.exe")
         assert d["near_match"] is None  # mock cfg has no metadata_dir

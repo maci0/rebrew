@@ -288,12 +288,14 @@ def _collect_near_match(cfg: Any) -> list[dict[str, Any]] | None:
     metadata_dir = getattr(cfg, "metadata_dir", None)
     if metadata_dir is None:
         return None
-    from rebrew.metadata import load_metadata
+    from rebrew.metadata import canonical_status, load_metadata
 
     items: list[dict[str, Any]] = []
     try:
         for (_module, va), entry in load_metadata(metadata_dir).items():
-            if entry.get("status") == "NEAR_MATCHING":
+            # Canonicalize so legacy NEAR_MATCH (and mixed case) still lands
+            # in the NEAR_MATCHING dossier section.
+            if canonical_status(str(entry.get("status") or "")) == "NEAR_MATCHING":
                 items.append(
                     {
                         "va": f"0x{va:08x}",

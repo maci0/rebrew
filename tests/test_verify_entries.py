@@ -575,12 +575,15 @@ class TestPrepareEntriesCache:
         assert size_div == []
 
     def test_validated_overcount_not_a_divergence(self) -> None:
-        """EXACT/RELOC at the annotation size proves that many real bytes; a
-        smaller canonical (Ghidra fragment) is the unreliable side."""
+        """EXACT/RELOC/PROVEN at the annotation size proves that many real
+        bytes; a smaller canonical (Ghidra fragment) is the unreliable side.
+        PROVEN matches ``_partition_size_fixes`` protection."""
         from rebrew.verify import _size_divergence_action
 
         assert _size_divergence_action(752, 340, "RELOC") == "skip"
         assert _size_divergence_action(304, 24, "EXACT") == "skip"
+        assert _size_divergence_action(667, 704, "PROVEN") == "warn"  # under-count
+        assert _size_divergence_action(704, 667, "PROVEN") == "skip"  # over-count
 
     def test_truncation_hazard_still_warns(self) -> None:
         """ann < canonical can false-EXACT on a prefix: never skip it, even

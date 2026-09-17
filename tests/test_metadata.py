@@ -856,6 +856,19 @@ class TestUpdateStatusesBatchPromotionPolicy:
         assert changed == 0
         assert self._read_status(tmp_path, 0x1000) == "PROVEN"
 
+    def test_unknown_status_rejected(self, tmp_path: Path) -> None:
+        """Batch writer must refuse statuses outside KNOWN_STATUSES — same
+        gate as MetadataEntry.apply, so verify cannot persist a typo."""
+        import pytest
+
+        from rebrew.metadata import update_statuses_batch
+
+        with pytest.raises(ValueError, match="unknown STATUS"):
+            update_statuses_batch(
+                tmp_path, [{"module": "T", "va": 0x1000, "new_status": "INTERNAL_ERROR"}]
+            )
+        assert self._read_status(tmp_path, 0x1000) == ""
+
     def test_same_status_still_clears_stale_blocker(self, tmp_path: Path) -> None:
         """An already-classified entry with a stale blocker is cleaned up by
         the same-status clear_blockers write (the blocker-clearing path must

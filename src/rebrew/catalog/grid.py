@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 from rebrew.annotation import Annotation
 from rebrew.catalog.loaders import load_ghidra_data_labels
 from rebrew.catalog.registry import RegistryEntry, is_jump_table
+from rebrew.data_metadata import DATA_STATUS_UNCHECKED
 from rebrew.metadata import MATCHED_STATUSES
 from rebrew.sections import (
     get_globals,
@@ -468,15 +469,11 @@ def generate_data_json(
                 if 0 <= off < sec_size:
                     items_by_off[off] = {
                         "size": size,
-                        # The rebrew-data.toml verdict (DRIFT/VERIFIED/…), which
-                        # build_db tallies per section.  Hardcoding EXACT here
-                        # meant a DRIFTing global's covering cell still counted
-                        # as an exact match in the dashboard's section stats.
-                        # The rebrew-data.toml verdict (DRIFT/VERIFIED/…), which
-                        # build_db tallies per section.  Hardcoding EXACT here
-                        # meant a DRIFTing global's covering cell still counted
-                        # as an exact match in the dashboard's section stats.
-                        "status": str(gdata.get("status") or "EXACT"),
+                        # rebrew-data.toml verdict (DRIFT/VERIFIED/UNCHECKED).
+                        # Absent status is UNCHECKED — never EXACT: that made
+                        # never-verified globals count as exactMatches in
+                        # build_db's per-section stats.
+                        "status": str(gdata.get("status") or DATA_STATUS_UNCHECKED),
                         "name": gdata["name"],
                     }  # Estimated from the declaration type (pointer-sized default)
 
