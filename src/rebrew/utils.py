@@ -14,6 +14,7 @@ from typing import Any
 
 import tomlkit
 from tomlkit import TOMLDocument
+from tomlkit.exceptions import InternalParserError, ParseError
 
 logger = logging.getLogger(__name__)
 
@@ -494,14 +495,14 @@ def strip_body(prototype: str) -> str:
     return prototype.strip()
 
 
-def preserve_corrupt(path: Path) -> Path | None:
+def preserve_corrupt(path: Path) -> Path:
     """Move an unparseable file aside to ``<name>.corrupt`` and return the new path.
 
     Callers that recover from a parse failure by rebuilding the document from
     scratch would otherwise overwrite the whole store (every function's STATUS,
     CFLAGS and notes) because of one bad byte.  Renaming first keeps the
-    original recoverable.  Returns ``None`` if the rename failed (the file is
-    gone or unwritable), in which case the caller has nothing to preserve.
+    original recoverable.  Raises ``OSError`` if preservation fails so callers
+    cannot overwrite a store that has not been backed up.
     """
     backup = path.with_name(path.name + ".corrupt")
     if backup.exists():
@@ -517,10 +518,7 @@ def preserve_corrupt(path: Path) -> Path | None:
                 backup = candidate
                 break
             suffix += 1
-    try:
-        os.replace(path, backup)
-    except OSError:
-        return None
+    os.replace(path, backup)
     return backup
 
 
@@ -530,22 +528,26 @@ def load_toml_for_write(path: Path, description: str) -> TOMLDocument:
     Returns an empty document if the file is missing.  If it exists but cannot
     be parsed, the original is moved aside via :func:`preserve_corrupt` (so the
     caller's subsequent write does not silently discard every other entry) and
-    an empty document is returned.
+    an empty document is returned.  A failure to read or preserve the store
+    propagates instead: writing a fresh document would destroy metadata the
+    caller never saw.
 
     *description* names the store in the warning (e.g. ``"metadata"``).
     """
-    if not path.exists():
-        return tomlkit.document()
     try:
         return tomlkit.parse(path.read_text(encoding="utf-8"))
-    except Exception as exc:  # tomlkit raises various types
+    except FileNotFoundError:
+        return tomlkit.document()
+    except InternalParserError:
+        raise
+    except (ParseError, UnicodeDecodeError) as exc:
         backup = preserve_corrupt(path)
         logger.warning(
             "Failed to parse %s %s (%s); preserved as %s, starting fresh",
             description,
             path,
             exc,
-            backup if backup is not None else "<not preserved>",
+            backup,
         )
         return tomlkit.document()
 

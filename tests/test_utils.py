@@ -2,6 +2,7 @@
 
 import os
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -648,6 +649,92 @@ class TestParseIntLiteral:
             parse_int_literal("nope")
         with pytest.raises(ValueError):
             parse_int_literal("")
+
+
+class TestTomlWriteRecovery:
+    @pytest.mark.parametrize("store", ["functions", "data"])
+    @pytest.mark.parametrize("failure", ["read", "backup"])
+    def test_failed_recovery_does_not_overwrite_store(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, store: str, failure: str
+    ) -> None:
+        from rebrew.data_metadata import set_data_field
+        from rebrew.metadata import update_field
+
+        path = tmp_path / f"rebrew-{store}.toml"
+        original = b"{broken" if failure == "backup" else b'["SERVER.0x2000"]\nsize = 80\n'
+        path.write_bytes(original)
+        error = PermissionError(f"{failure} denied for {path}")
+        if failure == "read":
+            read_text = Path.read_text
+
+            def _read(self: Path, *args: Any, **kwargs: Any) -> str:
+                if self == path:
+                    raise error
+                return read_text(self, *args, **kwargs)
+
+            monkeypatch.setattr(Path, "read_text", _read)
+        else:
+            replace = os.replace
+
+            def _replace(src: Path, dst: Path) -> None:
+                if src == path:
+                    raise error
+                replace(src, dst)
+
+            monkeypatch.setattr(os, "replace", _replace)
+
+        writer = update_field if store == "functions" else set_data_field
+        with pytest.raises(OSError, match=f"{failure} denied"):
+            writer(tmp_path, 0x1000, "size", 42, "SERVER")
+
+        assert path.read_bytes() == original
+        assert not list(tmp_path.glob("*.corrupt"))
+
+    @pytest.mark.parametrize("internal", [False, True])
+    def test_unexpected_parser_failure_does_not_move_store(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, internal: bool
+    ) -> None:
+        import tomlkit
+        from tomlkit.exceptions import InternalParserError
+
+        from rebrew.utils import load_toml_for_write
+
+        path = tmp_path / "metadata.toml"
+        original = "size = 80\n"
+        path.write_text(original, encoding="utf-8")
+        error = (
+            InternalParserError(1, 1, "parser failed")
+            if internal
+            else RuntimeError("parser failed")
+        )
+
+        def _parse(text: str) -> None:
+            raise error
+
+        monkeypatch.setattr(tomlkit, "parse", _parse)
+        with pytest.raises(type(error), match="parser failed"):
+            load_toml_for_write(path, "metadata")
+        assert path.read_text(encoding="utf-8") == original
+        assert not list(tmp_path.glob("*.corrupt"))
+
+    @pytest.mark.parametrize("original", [b"size = ", b"\xff"])
+    def test_corrupt_content_is_preserved_before_recovery(
+        self, tmp_path: Path, original: bytes
+    ) -> None:
+        from rebrew.utils import load_toml_for_write
+
+        path = tmp_path / "metadata.toml"
+        path.write_bytes(original)
+        assert load_toml_for_write(path, "metadata") == {}
+        assert path.with_suffix(".toml.corrupt").read_bytes() == original
+        assert not path.exists()
+
+    def test_missing_store_starts_empty(self, tmp_path: Path) -> None:
+        from rebrew.utils import load_toml_for_write
+
+        path = tmp_path / "missing.toml"
+        assert load_toml_for_write(path, "metadata") == {}
+        assert not path.exists()
 
 
 class TestPreserveCorrupt:
