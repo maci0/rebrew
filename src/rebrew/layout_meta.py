@@ -212,16 +212,6 @@ def _data_dir(data: bytes, opt: int, index: int) -> tuple[int, int]:
     return struct.unpack_from("<II", data, opt + 96 + 8 * index)
 
 
-def _iat_lookup_rva(first_thunk: int) -> int:
-    """The lookup-table RVA for a descriptor whose OFT is 0.
-
-    Per the PE rule the import is bound by the IAT itself, so the lookup
-    table *is* the IAT array named by the descriptor's own FirstThunk
-    field.  0 when the descriptor names no table either.
-    """
-    return first_thunk
-
-
 def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
     """Derive the full text-only layout metadata from a reference binary."""
     e, nsec, optsz, opt, image_base = parse_pe(data)
@@ -360,7 +350,7 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
                     if end < 0:
                         end = len(data)  # unterminated — read to EOF
                     dll = data[dll_off:end].decode("latin1", "replace")
-                lookup_rva = oft if oft else _iat_lookup_rva(iat_va)
+                lookup_rva = oft or iat_va
                 oo = off(lookup_rva) if lookup_rva else None
                 if oo is None:
                     continue
