@@ -509,7 +509,9 @@ class Dashboard:
 
     def targets(self) -> list[str]:
         with self._conn() as conn:
-            rows = conn.execute("SELECT DISTINCT target FROM functions ORDER BY target").fetchall()
+            rows = conn.execute(
+                "SELECT DISTINCT target FROM metadata WHERE key = 'function_stats' ORDER BY target"
+            ).fetchall()
         return [r[0] for r in rows]
 
     def bootstrap(self) -> dict[str, Any]:
@@ -1075,6 +1077,12 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self) -> None:
         self._respond("OPTIONS")
+
+    def do_TRACE(self) -> None:
+        self._respond("TRACE")
+
+    def do_CONNECT(self) -> None:
+        self._respond("CONNECT")
 
     def log_message(self, fmt: str, *args: Any) -> None:  # quiet default logging
         # markup=False: the logged request line is remote-controlled text; a

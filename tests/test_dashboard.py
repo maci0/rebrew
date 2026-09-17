@@ -325,6 +325,31 @@ class TestHandle:
         # Compact JSON: no space after colon/comma in the wire body.
         assert body == json.dumps(payload, separators=(",", ":"))
 
+    def test_target_without_functions_is_discoverable(self, tmp_path: Path) -> None:
+        data_path = _write_data(tmp_path / "db", target="empty")
+        data = json.loads(data_path.read_text(encoding="utf-8"))
+        data["functions"] = {}
+        data_path.write_text(json.dumps(data), encoding="utf-8")
+        build_db(tmp_path)
+        dashboard = Dashboard(tmp_path / "db" / "coverage.db")
+
+        status, _, body = dashboard.handle("GET", "/api/summary", {"target": ["empty"]})
+        assert status == 200
+        assert json.loads(body)["function_stats"]["total"] == 0
+
+        status, _, body = dashboard.handle("GET", "/api/targets", {})
+        assert status == 200
+        assert json.loads(body) == {"targets": ["empty"], "count": 1, "total": 1}
+
+        status, _, body = dashboard.handle("GET", "/api/bootstrap", {})
+        assert status == 200
+        payload = json.loads(body)
+        assert payload["targets"] == ["empty"]
+        assert payload["target"] == "empty"
+        assert payload["summary"]["function_stats"]["total"] == 0
+        assert payload["functions"]["functions"] == []
+        assert payload["functions"]["count"] == payload["functions"]["total"] == 0
+
     def test_api_targets(self, dashboard: Dashboard) -> None:
         status, content_type, body = dashboard.handle("GET", "/api/targets", {})
         assert status == 200
@@ -453,6 +478,7 @@ class TestHandle:
                 "size INT, status TEXT, module TEXT, files TEXT, markerType TEXT)"
             )
             conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
+            conn.execute("INSERT INTO metadata VALUES ('t', 'function_stats', '{}')")
             conn.execute(
                 "INSERT INTO functions VALUES ('t', 1, 'f', 'f', 1, 'STUB', '', '[]', 'FUNC')"
             )
@@ -510,6 +536,48 @@ class TestEscapeLike:
         assert _escape_like("100%") == "100\\%"
         assert _escape_like("a\\b") == "a\\\\b"
         assert _escape_like("plain") == "plain"
+
+
+class TestHttpMethods:
+    @pytest.mark.parametrize(
+        "method", ["POST", "PUT", "DELETE", "PATCH", "OPTIONS", "TRACE", "CONNECT"]
+    )
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/",
+            "/api/bootstrap",
+            "/api/targets",
+            "/api/summary",
+            "/api/functions",
+            "/api/sections",
+            "/api/globals",
+            "/api/history",
+        ],
+    )
+    def test_unsupported_methods_return_json(self, method: str, path: str) -> None:
+        from io import BytesIO
+        from unittest.mock import Mock
+
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        handler = _Handler.__new__(_Handler)
+        handler.rfile = BytesIO(
+            f"{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:8000\r\n\r\n".encode()
+        )
+        handler.wfile = BytesIO()
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        handler.log_message = Mock()
+
+        handler.handle_one_request()
+
+        headers, body = handler.wfile.getvalue().split(b"\r\n\r\n", 1)
+        assert headers.startswith(b"HTTP/1.0 405 ")
+        assert b"Content-Type: application/json; charset=utf-8\r\n" in headers
+        assert b"Allow: GET, HEAD" in headers
+        assert b"Cache-Control: no-store\r\n" in headers
+        assert json.loads(body) == {"error": "method not allowed (read-only; GET, HEAD only)"}
 
 
 class TestGzipNegotiation:
