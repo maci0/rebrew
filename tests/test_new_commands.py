@@ -1,5 +1,7 @@
 """Tests for probe, qual-sweep, gap-trace, residue (pure helpers + CLI wiring)."""
 
+import pytest
+
 
 class TestQualSweepVariants:
     def test_variants_rewrite_declaration(self) -> None:
@@ -53,7 +55,6 @@ class TestGapTraceHelpers:
 class TestResidueHelpers:
     def test_residue_report_identical(self) -> None:
         import struct
-        from types import SimpleNamespace
 
         from rebrew.residue import residue_report
 
@@ -69,9 +70,31 @@ class TestResidueHelpers:
             return bytes(raw)
 
         ref = _pe_with_text()
-        cfg = SimpleNamespace(image_base=0)
-        report = residue_report(cfg, ref, ref, [], 0)
+        report = residue_report(ref, ref, [], 0)
         assert report["text_differing"] == 0
+
+    @pytest.mark.parametrize("first_size", [4, 8, 12])
+    def test_residue_report_attributes_until_next_start(
+        self, monkeypatch: pytest.MonkeyPatch, first_size: int
+    ) -> None:
+        from rebrew.residue import residue_report
+
+        monkeypatch.setattr("rebrew.residue._sections", lambda raw: {".text": (0x1000, 16, 0, 16)})
+        report = residue_report(
+            b"\x01" * 16, bytes(16), [(0, first_size, "first"), (8, 4, "last")], 0x400000
+        )
+        assert report["text_differing"] == 16
+        assert report["inside_nonmatching"] == 12
+        assert report["outside"] == 4
+        assert report["functions"] == [
+            {"name": "first", "bytes": 8, "first_diff_va": "0x401000"},
+            {"name": "last", "bytes": 4, "first_diff_va": "0x401008"},
+            {
+                "name": "<outside the non-matching functions>",
+                "bytes": 4,
+                "first_diff_va": "0x40100c",
+            },
+        ]
 
 
 class TestCommandWiring:

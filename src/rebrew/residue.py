@@ -59,7 +59,7 @@ def _sections(raw: bytes) -> dict[str, tuple[int, int, int, int]]:
 
 
 def residue_report(
-    cfg: Any, built: bytes, reference: bytes, bad: list[tuple[int, int, str]], image_base: int
+    built: bytes, reference: bytes, bad: list[tuple[int, int, str]], image_base: int
 ) -> dict[str, Any]:
     """Section diffs plus per-function attribution of remaining .text bytes."""
     sr, sp = _sections(reference), _sections(built)
@@ -85,7 +85,7 @@ def residue_report(
     extents = []
     for lo, size, name in bad:
         nxt = next((s for s in starts if s > lo), None)
-        end = lo + size if nxt is None else min(max(lo + size, nxt), nxt)
+        end = lo + size if nxt is None else nxt
         extents.append((lo, end, name))
 
     def owner(off: int) -> str | None:
@@ -206,7 +206,7 @@ def main(
     image_base = getattr(cfg, "image_base", 0)
     sr = _sections(reference)
     bad = _nonmatching_from_cache(cfg, image_base, sr[".text"][0])
-    summary = residue_report(cfg, bytes(patched), reference, bad, image_base)
+    summary = residue_report(bytes(patched), reference, bad, image_base)
 
     if new_baseline:
         Path(new_baseline).write_text(json.dumps(summary, indent=2), encoding="utf-8")

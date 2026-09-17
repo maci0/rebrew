@@ -1441,11 +1441,16 @@ class TestProverCandidateFiltering:
 
 
 class TestGaCeilingRouting:
-    """A GA_CEILING blocker (register-only delta, not byte-reproducible from
-    C) must route to the prover lane — never to a wasted flag-sweep fix-delta
-    item, even when angr is absent (prover-candidate collection gates on it)."""
+    """GA ceilings use the prover when available, otherwise near-diag, never flag sweeps."""
 
-    def test_ceiling_not_fix_delta(self) -> None:
+    @pytest.mark.parametrize(
+        ("has_angr", "category", "command"),
+        [(True, CAT_RUN_PROVER, "rebrew prove"), (False, CAT_IMPROVE_MATCH, "rebrew near-diag")],
+    )
+    def test_ceiling_not_fix_delta(
+        self, monkeypatch: pytest.MonkeyPatch, has_angr: bool, category: str, command: str
+    ) -> None:
+        monkeypatch.setattr("rebrew.cli.angr_available", lambda: has_angr)
         existing = {
             0x1000: {
                 "status": "NEAR_MATCHING",
@@ -1457,8 +1462,8 @@ class TestGaCeilingRouting:
         }
         items = _collect_active_functions(existing, {0x1000: 200}, {}, {})
         assert len(items) == 1
-        assert items[0].category == CAT_RUN_PROVER
-        assert "rebrew prove" in items[0].command
+        assert items[0].category == category
+        assert command in items[0].command
         assert "flag-sweep" not in items[0].command
 
     def test_plain_near_match_still_fix_delta(self) -> None:
