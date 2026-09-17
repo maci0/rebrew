@@ -417,9 +417,9 @@ def parse_segments(data: bytes, ne_offset: int, header: NeHeader) -> list[NeSegm
                 NeSegment(
                     index=i + 1,
                     file_offset=sector_off * sector,
-                    length=length,
+                    length=(length or 0x10000) if sector_off else 0,
                     flags=flags,
-                    min_allocation=min_alloc,
+                    min_allocation=min_alloc or 0x10000,
                     # Sector offset 0 means the segment is not present in the file
                     # (allocated zero-filled at load); reading offset 0 would
                     # report the MZ/NE header as the segment's content.

@@ -49,7 +49,8 @@ def _build_ne(
         # pad content to sector alignment
         padded = content + b"\x00" * ((-len(content)) % sector)
         seg_blobs.append(padded)
-        seg_table += struct.pack("<HHHH", 0, len(content), flags, len(content))
+        encoded_length = 0 if len(content) == 0x10000 else len(content)
+        seg_table += struct.pack("<HHHH", 0, encoded_length, flags, encoded_length)
 
     # Resident names (exports) and import tables are assembled first so their
     # sizes are known; offsets are then laid out sequentially.
@@ -199,6 +200,34 @@ class TestParseImports:
 
 
 class TestLoadNeBinary:
+    def test_full_segment_size_sentinel(self, tmp_path: Path) -> None:
+        from rebrew.binary_loader import extract_bytes_at_va, load_binary
+
+        content = _CODE + b"\x90" * (0x10000 - len(_CODE) - 1) + b"\xc3"
+        path = tmp_path / "full.ne"
+        path.write_bytes(_build_ne(segments=[(content, 0)]))
+        info = load_binary(path)
+        assert info.sections["SEG1"].raw_size == 0x10000
+        assert info.sections["SEG1"].size == 0x10000
+        assert info.text_size == 0x10000
+        assert extract_bytes_at_va(info, 0x1FFFF, 1) == b"\xc3"
+
+    @pytest.mark.parametrize("allocation, expected_size", [(0, 0x10000), (32, 32)])
+    def test_zero_filled_segment_size(
+        self, tmp_path: Path, allocation: int, expected_size: int
+    ) -> None:
+        from rebrew.binary_loader import extract_bytes_at_va, load_binary
+
+        raw = bytearray(_build_ne(segments=[(_DATA, 1)]))
+        struct.pack_into("<HHHH", raw, 0x140, 0, 0, 1, allocation)
+        path = tmp_path / "bss.ne"
+        path.write_bytes(raw)
+        info = load_binary(path)
+        assert info.sections["SEG1"].raw_size == 0
+        assert info.sections["SEG1"].size == expected_size
+        assert info.text_size == 0
+        assert extract_bytes_at_va(info, 0x10000, 1) == b""
+
     def test_binary_info_shape(self, tmp_path: Path) -> None:
         from rebrew.binary_loader import BinaryInfo, load_binary
 

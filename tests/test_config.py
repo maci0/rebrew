@@ -929,6 +929,28 @@ timeout = -1
         assert cfg.default_jobs == 4
         assert cfg.compile_timeout == 60
 
+    @pytest.mark.parametrize("value", ["inf", "-inf", "nan"])
+    def test_non_finite_jobs_and_timeout_default(self, tmp_path: Path, value: str) -> None:
+        toml = f"""\
+[project]
+default_target = "main"
+jobs = {value}
+
+[targets.main]
+binary = "test.exe"
+
+[compiler]
+timeout = {value}
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning) as warnings:
+            cfg = load_config(root)
+        assert cfg.default_jobs == 4
+        assert cfg.compile_timeout == 60
+        messages = [str(warning.message) for warning in warnings]
+        assert any("Expected integer for project.jobs" in message for message in messages)
+        assert any("Expected integer for compiler.timeout" in message for message in messages)
+
     def test_valid_config_no_warnings(self, tmp_path: Path) -> None:
         toml = """\
 [project]
